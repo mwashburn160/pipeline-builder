@@ -131,6 +131,9 @@
       ],
       "quota-catalog": [
         "lib/types/quota-catalog.d.ts"
+      ],
+      "build-catalog": [
+        "lib/types/build-catalog.d.ts"
       ]
     }
   },
@@ -273,6 +276,10 @@
     "./quota-catalog": {
       "types": "./lib/types/quota-catalog.d.ts",
       "default": "./lib/types/quota-catalog.js"
+    },
+    "./build-catalog": {
+      "types": "./lib/types/build-catalog.d.ts",
+      "default": "./lib/types/build-catalog.js"
     },
     "./testing": {
       "types": "./lib/testing/index.d.ts",

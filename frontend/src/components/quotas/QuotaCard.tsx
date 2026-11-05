@@ -31,7 +31,8 @@ function StatusBadge({ used, limit }: { used: number; limit: number }) {
  * @param canManage - Whether to show the limit editing controls.
  * @param editVal - The current edited limit value.
  * @param onEditChange - Callback when the admin changes the limit.
- * @param periodDays - Length of the usage period (the server's `QUOTA_RESET_DAYS`).
+ * @param periodDays - The ORG-LEVEL usage period, used only as a fallback: the
+ *   period is per type now and arrives on each `QuotaSummary`.
  * @param tier - The org's tier: a trial tier's AI calls are labelled as a trial.
  */
 export function QuotaCard({
@@ -59,6 +60,13 @@ export function QuotaCard({
   // than by naming storage, so the resource-count caps get the same treatment
   // when they are surfaced.
   const isStock = quotaAccrual(quotaKey) === 'stock';
+  // THIS quota's period, not the org's. Every flow quota shares the global
+  // three-day window except `cpuCredits`, which is monthly — so a forecast or a
+  // "resets in N days" line computed from the org-level figure is wrong by a
+  // factor of ten for the one dimension whose forecast the monthly window leans
+  // on. The org-level prop is the fallback for responses predating the per-type
+  // field, and `undefined` correctly renders no forecast rather than a wrong one.
+  const effectivePeriodDays = quota.periodDays ?? periodDays;
   // A byte quota is edited in its PACK unit (GB), not in bytes — an operator
   // should not have to type 26843545600. `editVal`/`onEditChange` stay in RAW
   // units so the parent's `editValues` contract is unchanged; only this input
@@ -111,15 +119,15 @@ export function QuotaCard({
         ) : (
           <span>
             Resets {daysUntil(quota.resetAt)}
-            {periodDays ? <span className="text-fg-subtle"> · {periodLabel(periodDays)}</span> : null}
+            {effectivePeriodDays ? <span className="text-fg-subtle"> · {periodLabel(effectivePeriodDays)}</span> : null}
           </span>
         )}
       </div>
 
       {/* A forecast extrapolates a burn rate to a period boundary, so it means
           nothing for a stock — there is no boundary to reach. */}
-      {!quota.unlimited && !isStock && periodDays ? (
-        <UsageForecast used={quota.used} limit={quota.limit} resetAt={quota.resetAt} periodDays={periodDays} />
+      {!quota.unlimited && !isStock && effectivePeriodDays ? (
+        <UsageForecast used={quota.used} limit={quota.limit} resetAt={quota.resetAt} periodDays={effectivePeriodDays} />
       ) : null}
 
       {canManage && (
@@ -165,6 +173,9 @@ export function QuotaCard({
 
 /** "3-day period" / "1-day period" — the server's period, said once. */
 export function periodLabel(periodDays: number): string {
+  // A monthly quota reads as "monthly", not "30-day period" — the phrase is what
+  // tells a reader this dimension does not share the others' window.
+  if (periodDays >= 28 && periodDays <= 31) return 'monthly';
   return `${periodDays}-day period`;
 }
 

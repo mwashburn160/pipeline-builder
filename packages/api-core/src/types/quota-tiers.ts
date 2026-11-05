@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { envBool, envInt, envStr } from '../utils/env.js';
+import type { QuotaType } from './common.js';
 
 /** Available quota tier identifiers.
  *
@@ -30,6 +31,23 @@ export interface QuotaTierLimits {
    * `push` scope when the org's measured usage exceeds the limit.
    */
   storageBytes: number;
+  /**
+   * vCPU-MINUTES of plugin-build compute per MONTH — the one quota on a period
+   * of its own (every other flow quota rolls on `QUOTA_RESET_DAYS`, 3 days).
+   *
+   * Derived from the `plugins` cap rather than guessed: `plugins x 10` builds a
+   * month, at a flat 30 wall-minutes a build and 1.5 vCPU of buildkitd, so
+   * `credits = builds x 45`. The flat per-build figure is deliberate — scaling
+   * BOTH the build count and the per-build cost by tier made credits
+   * superlinear in tier on the strength of an unmeasured claim, and it made a
+   * pack's credit grant tier-dependent, which the catalogue's grant shape cannot
+   * express.
+   *
+   * This is the first dimension with genuine per-unit marginal cost: every other
+   * quota is a rate limit protecting shared infrastructure, this one is compute
+   * the platform pays for. See `docs/plans/cpu-credits.md`.
+   */
+  cpuCredits: number;
   /** Count-quotas on the user-editable feature tables added to close per-org
    *  DoS via spam. -1 means unlimited. */
   dashboards: number;
@@ -249,6 +267,7 @@ const DEFAULT_TIER_LIMITS: Record<QuotaTier, QuotaTierLimits> = {
     apiCalls: 25_000,
     automationCalls: 30_000,
     aiCalls: 20,
+    cpuCredits: 4_500,
     storageBytes: 2 * GB,
     dashboards: 20,
     alertRules: 50,
@@ -271,6 +290,7 @@ const DEFAULT_TIER_LIMITS: Record<QuotaTier, QuotaTierLimits> = {
     apiCalls: 100_000,
     automationCalls: 60_000,
     aiCalls: 200,
+    cpuCredits: 11_250,
     storageBytes: 25 * GB,
     dashboards: 200,
     alertRules: 500,
@@ -293,6 +313,7 @@ const DEFAULT_TIER_LIMITS: Record<QuotaTier, QuotaTierLimits> = {
     apiCalls: 300_000,
     automationCalls: 110_000,
     aiCalls: 600,
+    cpuCredits: 22_500,
     storageBytes: 60 * GB,
     dashboards: -1,
     alertRules: -1,
@@ -317,6 +338,7 @@ const DEFAULT_TIER_LIMITS: Record<QuotaTier, QuotaTierLimits> = {
     apiCalls: 800_000,
     automationCalls: 210_000,
     aiCalls: 1_600,
+    cpuCredits: 45_000,
     storageBytes: 120 * GB,
     dashboards: -1,
     alertRules: -1,
@@ -339,6 +361,7 @@ const DEFAULT_TIER_LIMITS: Record<QuotaTier, QuotaTierLimits> = {
     apiCalls: 1_500_000,
     automationCalls: 310_000,
     aiCalls: 3_000,
+    cpuCredits: 67_500,
     storageBytes: 250 * GB,
     dashboards: -1,
     alertRules: -1,
@@ -359,6 +382,7 @@ const DEFAULT_TIER_LIMITS: Record<QuotaTier, QuotaTierLimits> = {
     apiCalls: -1,
     automationCalls: -1,
     aiCalls: -1,
+    cpuCredits: -1,
     storageBytes: -1,
     dashboards: -1,
     alertRules: -1,
@@ -410,6 +434,7 @@ function tierLimits(tier: QuotaTier): QuotaTierLimits {
     automationCalls: tierLimitEnv(`QUOTA_TIER_${T}_AUTOMATION_CALLS`, d.automationCalls),
     aiCalls: tierLimitEnv(`QUOTA_TIER_${T}_AI_CALLS`, d.aiCalls),
     storageBytes: tierLimitEnv(`QUOTA_TIER_${T}_STORAGE_BYTES`, d.storageBytes),
+    cpuCredits: tierLimitEnv(`QUOTA_TIER_${T}_CPU_CREDITS`, d.cpuCredits),
     dashboards: tierLimitEnv(`QUOTA_TIER_${T}_DASHBOARDS`, d.dashboards),
     alertRules: tierLimitEnv(`QUOTA_TIER_${T}_ALERT_RULES`, d.alertRules),
     alertDestinations: tierLimitEnv(`QUOTA_TIER_${T}_ALERT_DESTINATIONS`, d.alertDestinations),
@@ -512,6 +537,32 @@ export function getTierLimits(tier: string): QuotaTierLimits {
 export const QUOTA_RESET_DAYS = envInt('QUOTA_RESET_DAYS', 3, { min: 1 });
 
 /** The next quota reset: local midnight `days` from `now`. */
+/**
+ * The `cpuCredits` period, in days. A MONTH rather than the global three-day
+ * window, because build demand is bursty in a way API traffic is not: a full
+ * catalogue rebuild is a day's work that arrives on one day, and a three-day
+ * window refuses it while the account holds most of a month's budget unspent.
+ */
+export const CPU_CREDITS_PERIOD_DAYS = envInt('QUOTA_CPU_CREDITS_PERIOD_DAYS', 30, { min: 1 });
+
+/**
+ * The usage period for ONE quota type, in days.
+ *
+ * Every flow quota but `cpuCredits` rolls on the global {@link QUOTA_RESET_DAYS}.
+ * Credits are monthly, which makes the period a PER-TYPE fact — so anything that
+ * computes a reset date, a "resets in N days" line or a burn-rate forecast has
+ * to ask for the type's own period rather than reading the global constant. A
+ * forecast against the wrong window is wrong by a factor of ten.
+ *
+ * Stocks (`storageBytes` and the resource counts) have no period at all; this
+ * returns the global window for them because callers gate on
+ * `quotaAccrual(type) === 'stock'` before using it, and returning a figure is
+ * less disruptive than making every caller handle a null. Check the accrual.
+ */
+export function quotaPeriodDays(type: QuotaType): number {
+  return type === 'cpuCredits' ? CPU_CREDITS_PERIOD_DAYS : QUOTA_RESET_DAYS;
+}
+
 export function nextQuotaResetDate(days: number = QUOTA_RESET_DAYS, now: Date = new Date()): Date {
   const date = new Date(now);
   date.setDate(date.getDate() + days);

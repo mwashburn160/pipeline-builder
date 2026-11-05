@@ -29,6 +29,63 @@ export const ComputeType = {
 export type ComputeType = ValueOf<typeof ComputeType>;
 
 /**
+ * vCPU each CodeBuild compute size provides, for turning a build's DURATION
+ * into `cpuCredits` (one credit = one vCPU-minute).
+ *
+ * Derived from the same AWS table the `ComputeType` doc above cites, and kept
+ * beside it on purpose: the memory/vCPU figures in that comment and the numbers
+ * here are the same fact, and splitting them is how one gets updated alone.
+ *
+ * `X2_LARGE` is 72 vCPU — thirty-six times SMALL. That ratio is why pipeline
+ * execution cannot be charged by wall-clock alone, and why ingesting it
+ * (Phase 4) re-derives the tier ladder rather than simply adding to it.
+ */
+export const CODEBUILD_COMPUTE_VCPU: Readonly<Record<ComputeType, number>> = {
+  SMALL: 2,
+  MEDIUM: 4,
+  LARGE: 8,
+  X2_LARGE: 72,
+};
+
+/**
+ * AWS's own spelling of a compute size, as `BatchGetBuilds` returns it
+ * (`environment.computeType`), narrowed to ours.
+ *
+ * Needed because the two vocabularies differ: the pipeline config stores
+ * `MEDIUM`, AWS answers `BUILD_GENERAL1_MEDIUM`, and a wrong match here would
+ * price a build at the wrong vCPU rather than failing visibly. Anything
+ * unrecognised returns `null` — an unknown size must be reported as unknown, not
+ * silently priced as SMALL, which is the cheapest and therefore the most
+ * flattering guess.
+ */
+export function normalizeComputeType(raw: string | undefined | null): ComputeType | null {
+  if (!raw) return null;
+  const upper = raw.toUpperCase();
+  const bare = upper.startsWith('BUILD_GENERAL1_') ? upper.slice('BUILD_GENERAL1_'.length) : upper;
+  // AWS spells the largest one `2XLARGE`; ours is `X2_LARGE`.
+  const key = bare === '2XLARGE' || bare === 'X2LARGE' ? 'X2_LARGE' : bare;
+  return (Object.keys(CODEBUILD_COMPUTE_VCPU) as ComputeType[]).find((c) => c === key) ?? null;
+}
+
+/**
+ * Credits one CodeBuild action consumed, from its duration and compute size.
+ *
+ * Rounds UP to the whole credit, matching the plugin-build meter
+ * (`creditsForBuild`) — two meters feeding one counter must round the same way
+ * or the counter means neither.
+ *
+ * Returns `null` rather than 0 when either input is missing, and the distinction
+ * is the point: a build with no measured duration was not observed, and
+ * reporting that as zero consumption would make the coverage gap look like
+ * idleness. The ingest counts those separately (`measured="false"`) so the
+ * coverage ratio is visible BEFORE anyone prices a tier off this series.
+ */
+export function computeCreditsFor(durationMs: number | null | undefined, computeType: ComputeType | null): number | null {
+  if (durationMs == null || !(durationMs > 0) || !computeType) return null;
+  return Math.ceil((durationMs / 60_000) * CODEBUILD_COMPUTE_VCPU[computeType]);
+}
+
+/**
  * Types of pipeline steps that can be created by plugins
  *
  * @property CODE_BUILD_STEP - Full CodeBuild step with custom build environment

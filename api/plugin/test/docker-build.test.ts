@@ -11,7 +11,7 @@
 
 import { EventEmitter } from 'events';
 import { Readable } from 'stream';
-import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { jest, describe, it, expect, beforeEach, afterAll } from '@jest/globals';
 import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
@@ -109,7 +109,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@p
   Config: { get: mockConfigGet, getAny: mockConfigGet },
 }));
 
-const { buildAndPush, loadAndPush } = await import('../src/helpers/docker-build.js');
+const { buildAndPush, loadAndPush, getBuildkitAddrForBuild } = await import('../src/helpers/docker-build.js');
 const { BuildProcessError } = await import('../src/helpers/build-process.js');
 type BuildRequest = import('../src/helpers/docker-build.js').BuildRequest;
 type RegistryInfo = import('../src/helpers/registry-auth.js').RegistryInfo;
@@ -455,5 +455,46 @@ describe('loadAndPush', () => {
   it('rejects invalid plugin name', async () => {
     await expect(loadAndPush('/tmp/image.tar', 'Bad_Name', '1.0.0', makeRegistry(), 'acme'))
       .rejects.toThrow(/Invalid plugin name/);
+  });
+});
+
+describe('getBuildkitAddrForBuild — the machine-size pool', () => {
+  const KEYS = ['PLUGIN_BUILDKIT_ADDR_SIZE_2X', 'PLUGIN_BUILDKIT_ADDR_SIZE_4X', 'PLUGIN_BUILDKIT_ADDR_TEAM'];
+  const saved = new Map(KEYS.map((k) => [k, process.env[k]]));
+
+  beforeEach(() => {
+    for (const k of KEYS) delete process.env[k];
+  });
+  afterAll(() => {
+    for (const [k, v] of saved) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+  });
+
+  it('falls back to the shared daemon, so a size means 1x speed until one is provisioned', () => {
+    // There is no per-build CPU option on buildctl — the CPU a build may use is
+    // the buildkitd POD's limit — so `4x` is a build sent to a bigger daemon,
+    // and it does nothing at all until an operator stands that daemon up. The
+    // credit meter charges the multiplier regardless, on purpose:
+    // under-provisioned supply must not become a cheaper build.
+    expect(getBuildkitAddrForBuild('business', '4x')).toBe('unix:///run/buildkit/buildkitd.sock');
+  });
+
+  it('routes a sized build to its own daemon when one is configured', () => {
+    process.env.PLUGIN_BUILDKIT_ADDR_SIZE_4X = 'tcp://buildkitd-4x:1234';
+    expect(getBuildkitAddrForBuild('business', '4x')).toBe('tcp://buildkitd-4x:1234');
+    // A size with no pool of its own still lands on the shared daemon.
+    expect(getBuildkitAddrForBuild('business', '2x')).toBe('unix:///run/buildkit/buildkitd.sock');
+  });
+
+  it('lets the SIZE win over the tier, because it is the stronger statement', () => {
+    // A tenant asking for 4x wants the big daemon even when their tier has one.
+    process.env.PLUGIN_BUILDKIT_ADDR_TEAM = 'tcp://buildkitd-team:1234';
+    process.env.PLUGIN_BUILDKIT_ADDR_SIZE_2X = 'tcp://buildkitd-2x:1234';
+    expect(getBuildkitAddrForBuild('team', '2x')).toBe('tcp://buildkitd-2x:1234');
+    expect(getBuildkitAddrForBuild('team', '1x')).toBe('tcp://buildkitd-team:1234');
+  });
+
+  it('ignores an empty override rather than dialling the empty string', () => {
+    process.env.PLUGIN_BUILDKIT_ADDR_SIZE_2X = '';
+    expect(getBuildkitAddrForBuild('team', '2x')).toBe('unix:///run/buildkit/buildkitd.sock');
   });
 });

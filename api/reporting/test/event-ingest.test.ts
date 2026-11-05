@@ -228,7 +228,7 @@ describe('POST /reports/events', () => {
   // registered terminal deploy/stage outcome into Prometheus counters.
   it('fans a terminal deploy-stage metric into pipeline_stage_result_total + pipeline_deploy_result_total', async () => {
     mockIngestEvents.mockImplementationOnce(async (_events: unknown, onMetric: (m: unknown) => void) => {
-      onMetric({ pipelineId: 'p-1', orgId: 'acme', stage: 'Deploy-prod', environment: 'production', result: 'succeeded' });
+      onMetric({ kind: 'stage', pipelineId: 'p-1', orgId: 'acme', stage: 'Deploy-prod', environment: 'production', result: 'succeeded' });
       return { inserted: 1, skipped: 0, unregisteredPipelineIds: [], affectedOrgs: ['acme'], foreignPipelineIds: [], insertedPipelineIds: [], insertedExecutionIds: [] };
     });
 
@@ -242,7 +242,7 @@ describe('POST /reports/events', () => {
 
   it('does NOT emit the deploy counter for a non-deploy stage metric (no environment)', async () => {
     mockIngestEvents.mockImplementationOnce(async (_events: unknown, onMetric: (m: unknown) => void) => {
-      onMetric({ pipelineId: 'p-1', orgId: 'acme', stage: 'Build', environment: null, result: 'failed' });
+      onMetric({ kind: 'stage', pipelineId: 'p-1', orgId: 'acme', stage: 'Build', environment: null, result: 'failed' });
       return { inserted: 1, skipped: 0, unregisteredPipelineIds: [], affectedOrgs: ['acme'], foreignPipelineIds: [], insertedPipelineIds: [], insertedExecutionIds: [] };
     });
 
@@ -251,6 +251,69 @@ describe('POST /reports/events', () => {
     expect(mockIncCounter).toHaveBeenCalledWith('pipeline_stage_result_total', expect.objectContaining({ result: 'failed', environment: '' }));
     expect(mockIncCounter).not.toHaveBeenCalledWith('pipeline_deploy_result_total', expect.anything());
   });
+  /**
+   * Phase 4's measurement half. NOTHING here enters a quota counter: the tier
+   * ladder was derived without pipeline execution in it, so charging this before
+   * re-deriving the ladder would raise every account's consumption with no
+   * change in its behaviour.
+   */
+  describe('pipeline compute consumption (measured, not charged)', () => {
+    const compute = (over: Record<string, unknown> = {}) => ({
+      kind: 'compute',
+      pipelineId: 'p-1',
+      orgId: 'acme',
+      computeType: 'MEDIUM',
+      durationMs: 600_000,
+      credits: 40,
+      ...over,
+    });
+
+    it('counts the credits by org and compute size, and the action as measured', async () => {
+      mockIngestEvents.mockImplementationOnce(async (_e: unknown, onMetric: (m: unknown) => void) => {
+        onMetric(compute());
+        return { inserted: 1, skipped: 0, unregisteredPipelineIds: [], affectedOrgs: ['acme'], foreignPipelineIds: [], insertedPipelineIds: [], insertedExecutionIds: [] };
+      });
+
+      await getHandler()(ingestReq(), res());
+
+      expect(mockIncCounter).toHaveBeenCalledWith('pipeline_compute_credits_total',
+        { org_id: 'acme', compute_type: 'MEDIUM' }, 40);
+      expect(mockIncCounter).toHaveBeenCalledWith('pipeline_compute_actions_total',
+        { org_id: 'acme', compute_type: 'MEDIUM', measured: 'true' });
+    });
+
+    it('counts an UNMEASURABLE action without adding credits for it', async () => {
+      // The coverage half, and the reason `credits` is null rather than 0: AWS
+      // does not always declare a `start-time`, and counting those as zero
+      // consumption would make the gap look like idleness.
+      mockIngestEvents.mockImplementationOnce(async (_e: unknown, onMetric: (m: unknown) => void) => {
+        onMetric(compute({ durationMs: null, credits: null, computeType: null }));
+        return { inserted: 1, skipped: 0, unregisteredPipelineIds: [], affectedOrgs: ['acme'], foreignPipelineIds: [], insertedPipelineIds: [], insertedExecutionIds: [] };
+      });
+
+      await getHandler()(ingestReq(), res());
+
+      expect(mockIncCounter).toHaveBeenCalledWith('pipeline_compute_actions_total',
+        { org_id: 'acme', compute_type: 'unknown', measured: 'false' });
+      expect(mockIncCounter).not.toHaveBeenCalledWith('pipeline_compute_credits_total', expect.anything(), expect.anything());
+    });
+
+    it('never counts a compute metric as a stage outcome', async () => {
+      // The discriminator is what prevents it: a compute metric reaching the
+      // stage branch would publish a `pipeline_stage_result_total` series with
+      // an empty stage and an invented result.
+      mockIngestEvents.mockImplementationOnce(async (_e: unknown, onMetric: (m: unknown) => void) => {
+        onMetric(compute());
+        return { inserted: 1, skipped: 0, unregisteredPipelineIds: [], affectedOrgs: ['acme'], foreignPipelineIds: [], insertedPipelineIds: [], insertedExecutionIds: [] };
+      });
+
+      await getHandler()(ingestReq(), res());
+
+      expect(mockIncCounter).not.toHaveBeenCalledWith('pipeline_stage_result_total', expect.anything());
+      expect(mockIncCounter).not.toHaveBeenCalledWith('pipeline_deploy_result_total', expect.anything());
+    });
+  });
+
   /**
    * The live execution channel. The fan-out used to be driven off the
    * stage-metric hook, which only fires for STAGE events — so a batch of

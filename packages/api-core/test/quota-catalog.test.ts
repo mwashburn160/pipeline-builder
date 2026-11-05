@@ -44,10 +44,17 @@ describe('QUOTA_CATALOG', () => {
     // The description's wording FOLLOWS from the accrual, so the two cannot
     // drift: a stock described as resetting "this period" is the exact error
     // the quotas page shipped for storage.
+    //
+    // A flow must NAME its window, and since `cpuCredits` the window is per type
+    // rather than global (see `quotaPeriodDays`): "this period" for the quotas on
+    // the three-day reset, "this month" for credits. The assertion is that a flow
+    // says WHICH, not that every flow says the same thing — a monthly quota
+    // described as "this period" would be vaguer than the catalog can afford now
+    // that a forecast has to pick the right window.
     if (meta.accrual === 'flow') {
-      expect(meta.description).toMatch(/this period/);
+      expect(meta.description).toMatch(/this (period|month)/);
     } else {
-      expect(meta.description).not.toMatch(/this period/);
+      expect(meta.description).not.toMatch(/this (period|month)/);
     }
     // What the counter counts — a display fact, so it lives here rather than in
     // whichever page happens to show it.

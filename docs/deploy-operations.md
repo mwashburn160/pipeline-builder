@@ -440,8 +440,12 @@ nothing target-specific about them.
 
 **The three slot rules watch one mechanism from three angles, and which of them
 fires is the diagnosis.** Builds are capped per organization at
-`PLUGIN_MAX_BUILDS_PER_ORG` by a Redis semaphore, so a build whose org is at its
-cap is re-delayed every `PLUGIN_ORG_SLOT_DELAY_MS` rather than refused outright:
+`PLUGIN_MAX_BUILDS_<TIER>_<CLASS>` by a Redis semaphore — one counter per
+scheduling class, so flexible work cannot eat the standard headroom an urgent
+fix needs — and a build whose org is at its cap for that class is re-delayed every
+`PLUGIN_ORG_SLOT_DELAY_MS` rather than refused outright. The denial, timeout and
+reclaim series all carry `build_class`, so a contention alert says which class is
+short:
 
 - **Contention** is the cap doing its job. Denials in bursts are normal, which is
   why the rule needs a sustained rate before it says anything; what it means is
@@ -600,7 +604,7 @@ accepts writes at all, because RustFS exposes no Prometheus endpoint of its own.
 
 #### Inhibition: suppressing consequences, and what cannot be suppressed
 
-At 199 rules one root cause is a pager flood, and a flood is functionally the same
+At 200 rules one root cause is a pager flood, and a flood is functionally the same
 as no alert. The inhibition tree in `alertmanager.yml` suppresses the consequences
 of DNS failure, a dead waypoint, Redis at its cap, node saturation, and a service
 being down.

@@ -150,6 +150,7 @@
       "^@pipeline-builder/api-core/ai-catalog$": "<rootDir>/../packages/api-core/src/types/ai-catalog.ts",
       "^@pipeline-builder/api-core/plugin-scan$": "<rootDir>/../packages/api-core/src/types/plugin-scan.ts",
       "^@pipeline-builder/api-core/quota-catalog$": "<rootDir>/../packages/api-core/src/types/quota-catalog.ts",
+      "^@pipeline-builder/api-core/build-catalog$": "<rootDir>/../packages/api-core/src/types/build-catalog.ts",
       "^\\.\\./(middleware/system-org|utils/env)\\.js$": "<rootDir>/../packages/api-core/src/$1.ts",
       "^@pipeline-builder/pipeline-core/template$": "<rootDir>/../packages/pipeline-core/src/template/tokenizer.ts"
     },
@@ -184,7 +185,8 @@
       "!src/types/plugin-submissions.ts",
       "!src/types/plugin.ts",
       "!src/types/registry.ts",
-      "!src/types/sso.ts"
+      "!src/types/sso.ts",
+      "!src/types/storage-reclaim.ts"
     ],
     "coverageThreshold": {
       "global": {

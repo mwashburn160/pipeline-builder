@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import type { SQSRecord } from 'aws-lambda';
-import { codeBuildIdOf, readSynthFailure } from './failure-reason.js';
+import { codeBuildIdOf, readBuildCompute, readSynthFailure } from './failure-reason.js';
 import { classifySource, resolveCommitInfo } from './scm.js';
 import { MAX_ATTR, resolvePipeline } from './tags.js';
 import { log } from './util.js';
@@ -41,6 +41,19 @@ export interface ParsedEvent {
   commitTimestamp?: string;
   /** Number of commits in the resolved range (≥1). Undefined when unresolvable. */
   commitCount?: number;
+  /**
+   * The compute size a terminal CodeBuild action ran on (`SMALL` … `X2_LARGE`),
+   * read from AWS. Undefined for a non-CodeBuild action, a non-terminal event,
+   * or when the read failed — the ingest then records the action as UNMEASURED
+   * rather than as free, which is what makes the coverage gap visible instead of
+   * looking like idleness.
+   *
+   * Its own field rather than a `detail` key, for the reason `failure` has one:
+   * `detail` is bounded at 8 KB and already sheds content under that bound, so a
+   * one-word field riding inside it is a field that can be dropped by an
+   * unrelated payload getting large.
+   */
+  computeType?: string;
   /** Deploy environment — set only when the event's stage is listed in the
    *  pipeline's `pb.deploys` tag. Undefined otherwise (⇒ not a deploy). */
   environment?: string;
@@ -205,6 +218,16 @@ export async function parseRecord(record: SQSRecord): Promise<ParsedEvent | null
   // summary never carries the build output, so read it from the build's log and
   // promote it: the code + message become the failure reason, the per-plugin
   // list rides in `detail.pbFailure`. Best-effort (see failure-reason.ts).
+  // The compute size this action ran on, for the vCPU-minute figure Phase 4
+  // measures. Only on a TERMINAL CodeBuild action: an in-progress event has no
+  // duration to pair it with, so reading it there would spend an AWS call to
+  // learn nothing. Best-effort — null forwards without the field.
+  let computeType: string | undefined;
+  if (eventType === 'ACTION' && ['SUCCEEDED', 'FAILED', 'STOPPED'].includes(state)) {
+    const cbId = codeBuildIdOf(detail);
+    computeType = (cbId ? await readBuildCompute(event.region, cbId) : null) ?? undefined;
+  }
+
   if (eventType === 'ACTION' && state === 'FAILED') {
     const buildId = codeBuildIdOf(detail);
     const failure = buildId ? await readSynthFailure(event.region, buildId) : null;
@@ -268,6 +291,7 @@ export async function parseRecord(record: SQSRecord): Promise<ParsedEvent | null
     ...(commitTimestamp && { commitTimestamp }),
     ...(commitCount && { commitCount }),
     ...(environment && { environment }),
+    ...(computeType && { computeType }),
     ...(sourceEventId && { sourceEventId }),
     ...(sourceMessageId && { sourceMessageId }),
     detail,

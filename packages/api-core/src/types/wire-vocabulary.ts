@@ -193,3 +193,11 @@ export type PluginSecurityRecipientMode = (typeof PLUGIN_SECURITY_RECIPIENT_MODE
 /** How rescan findings (N31) are batched; blocked builds (N30) are always immediate. */
 export const PLUGIN_SECURITY_DIGEST_MODES = ['immediate', 'daily', 'weekly'] as const;
 export type PluginSecurityDigestMode = (typeof PLUGIN_SECURITY_DIGEST_MODES)[number];
+
+// The build CLASS and SIZE vocabularies live in `build-catalog.ts`, together
+// with their labels, credit multipliers, tier floors and per-class slot
+// defaults. They are not here because the ids alone were never the whole fact:
+// the multiplier was in this file, the tier gate was in `quota-tiers.ts`, and
+// the labels were in a frontend mirror of both. One keyed catalog is importable
+// by the browser, so the mirror and the test that parsed this package's source
+// to detect drift are both gone.

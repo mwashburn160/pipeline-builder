@@ -5,7 +5,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import path from 'path';
 
-import { createLogger, SYSTEM_ORG_ID, ValidationError } from '@pipeline-builder/api-core';
+import { buildSizeEnvSuffix, buildSizeMultiplier, buildTimeoutFactor, createLogger, SYSTEM_ORG_ID, ValidationError } from '@pipeline-builder/api-core';
 import { Config } from '@pipeline-builder/pipeline-core';
 import type { ImageSource } from '@pipeline-builder/pipeline-data';
 
@@ -77,12 +77,48 @@ function getConfig() {
 export const BUILD_TEMP_ROOT = getConfig().tempRoot;
 
 /**
- * Resolve the buildkitd address for a tier. Short-circuits to the shared
- * `cfg.buildkitAddr` unless an operator has set a per-tier env override
- * (`PLUGIN_BUILDKIT_ADDR_<TIER>`); shipped deploys never do.
+ * Resolve the buildkitd address for a build, from its machine SIZE first and its
+ * tier second. Short-circuits to the shared `cfg.buildkitAddr` unless an
+ * operator has set an override; shipped deploys never do.
+ *
+ * A POOL, not a flag, and that is forced by buildkit rather than chosen: there
+ * is no per-build CPU option on `buildctl`, because the CPU a build may use is
+ * the buildkitd POD's limit (`deploy/<target>/k8s/plugin.yaml`). So a `2x`
+ * build is a build sent to a buildkitd with twice the limit, and `2x` means
+ * nothing at all until an operator stands that daemon up and points
+ * `PLUGIN_BUILDKIT_ADDR_SIZE_2X` at it. Until then every size lands on the
+ * shared daemon and runs at `1x` speed — which is why `TIER_BUILD_SIZES` is a
+ * gate on ASKING and the credit meter charges by the multiplier regardless:
+ * under-provisioned supply must not become a cheaper build.
+ *
+ * Size wins over tier because the size is the stronger statement: a tenant
+ * asking for `4x` wants the big daemon even if their tier also has one of its
+ * own.
  */
-export function getBuildkitAddrForTier(tier: string | undefined): string {
+export function buildPoolEnvVar(size: string): string {
+  // The suffix comes from the CATALOG, never from the id: `'0.5x'.toUpperCase()`
+  // is `0.5X`, and a dot cannot appear in an environment variable name.
+  return `PLUGIN_BUILDKIT_ADDR_SIZE_${buildSizeEnvSuffix(size)}`;
+}
+
+/**
+ * Whether a sized buildkitd pool is configured for `size`.
+ *
+ * What the submission gate reads. Serving an unconfigured size from the shared
+ * daemon is wrong in BOTH directions: above `1x` the tenant is charged the
+ * multiplier for one times the speed, and below it they get full speed at a
+ * fraction of the price. `1x` needs no pool of its own — it IS the shared daemon.
+ */
+export function buildPoolConfigured(size: string): boolean {
+  if (buildSizeMultiplier(size) === 1) return true;
+  const addr = process.env[buildPoolEnvVar(size)];
+  return typeof addr === 'string' && addr.length > 0;
+}
+
+export function getBuildkitAddrForBuild(tier: string | undefined, size?: string): string {
   const cfg = getConfig();
+  const bySize = size ? process.env[buildPoolEnvVar(size)] : undefined;
+  if (bySize && bySize.length > 0) return bySize;
   if (tier) {
     const override = process.env[`PLUGIN_BUILDKIT_ADDR_${tier.toUpperCase()}`];
     if (override && override.length > 0) return override;
@@ -106,7 +142,7 @@ function credentialTtlSeconds(operationMs: number): number {
 // Public API
 // -----------------------------------------------------------------------------
 
-export async function buildAndPush(req: BuildRequest, opts?: { buildkitAddr?: string } & BuildStreamOptions): Promise<BuildResult> {
+export async function buildAndPush(req: BuildRequest, opts?: { buildkitAddr?: string; buildSize?: string } & BuildStreamOptions): Promise<BuildResult> {
   validate(req);
   const cfg = getConfig();
   const repository = imageRepository(req.name, req.registry, req.orgId);
@@ -116,7 +152,15 @@ export async function buildAndPush(req: BuildRequest, opts?: { buildkitAddr?: st
   // single-buildkitd deploy keeps working.
   const buildkitAddr = opts?.buildkitAddr ?? cfg.buildkitAddr;
 
-  const dockerConfigDir = writeAuthConfig(req.registry, req.orgId, credentialTtlSeconds(cfg.timeoutMs));
+  // The subprocess deadline scales UP for a size below `1x` and never down
+  // above it. The timeout is a SAFETY bound on a runaway build, not a budget: at
+  // half the vCPU a ten-minute build becomes about twenty and would die on the
+  // 15-minute bound, so `Small` would quietly fail long builds (as a `retryable`
+  // failure — not charged, but retried twice and dead-lettered). Scaling it DOWN
+  // at `4x` would instead break I/O-bound builds that gain nothing from the
+  // extra CPU.
+  const timeoutMs = Math.round(cfg.timeoutMs * buildTimeoutFactor(opts?.buildSize ?? '1x'));
+  const dockerConfigDir = writeAuthConfig(req.registry, req.orgId, credentialTtlSeconds(timeoutMs));
   // buildctl writes the pushed digest here — the ONLY authoritative source for
   // it: re-resolving the tag afterwards would race any other push to that tag.
   const metaDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pb-buildmeta-'));
@@ -149,7 +193,7 @@ export async function buildAndPush(req: BuildRequest, opts?: { buildkitAddr?: st
       ...flagBuildArgs(req.buildArgs),
       '--output', outputSpec(image, req.registry),
       '--metadata-file', metadataFile,
-    ], cfg.timeoutMs, { DOCKER_CONFIG: dockerConfigDir }, { onLine: opts?.onLine });
+    ], timeoutMs, { DOCKER_CONFIG: dockerConfigDir }, { onLine: opts?.onLine });
 
     const digest = readBuildDigest(metadataFile);
     await attachSupplyChain({ repository, digest, registry: req.registry, orgId: req.orgId, dockerConfigDir, platform: PUBLISH_PLATFORM }, opts);

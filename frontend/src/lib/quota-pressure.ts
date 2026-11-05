@@ -17,6 +17,16 @@ export interface QuotaPressure {
   percent?: number;
   /** Human-readable label for the type. */
   label?: string;
+  /**
+   * The usage period of THE QUOTA THIS PRESSURE IS ABOUT, in days.
+   *
+   * Carried on the pressure rather than read from the org, because the banner
+   * picks whichever dimension is most pressured and the period is per type:
+   * headlining `cpuCredits` (monthly) while describing it as "this 3-day
+   * period's limit" would be wrong by a factor of ten, in the one place a user
+   * is being told their limit.
+   */
+  periodDays?: number;
 }
 
 /**
@@ -70,7 +80,7 @@ export function highestPressure(response: OrgQuotaResponse | undefined | null): 
     const lvl = pressureLevel(usedPct);
     if (lvl === 'none') continue;
     if (best.level === 'none' || usedPct > (best.percent ?? 0)) {
-      best = { level: lvl, type, percent: usedPct, label: QUOTA_TYPE_LABEL[type] };
+      best = { level: lvl, type, percent: usedPct, label: QUOTA_TYPE_LABEL[type], periodDays: summary.periodDays };
     }
   }
   return best;

@@ -447,21 +447,39 @@ function warnOnNonDiscountCombos(combos: ComboDiscountConfig[], bundles: BundleC
 
 const BUNDLE_GB = 1024 * 1024 * 1024;
 
+/** `cpuCredits` -> `CPU_CREDITS`, for the env-var suffix. */
+function envDimension(key: string): string {
+  return key.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toUpperCase();
+}
+
 /**
- * Apply a per-bundle grant override. Each stackable pack grants exactly one
- * quota dimension, so `BILLING_BUNDLE_<ID>_GRANT` retunes that amount (e.g. make
- * the Plugin Pack grant +50 instead of +25) — parallel to the price overrides.
- * Ignored for multi-dimension or feature-only (empty-grant) bundles, and for a
- * malformed/negative value.
+ * Apply per-bundle grant overrides, ONE ENV VAR PER DIMENSION:
+ * `BILLING_BUNDLE_<ID>_GRANT_<DIMENSION>` (e.g.
+ * `BILLING_BUNDLE_PLUGIN_PACK_GRANT_PLUGINS=50`,
+ * `BILLING_BUNDLE_PLUGIN_PACK_GRANT_CPU_CREDITS=9000`). Parallel to the price
+ * overrides; a malformed or negative value leaves that dimension alone, and
+ * dimensions the bundle does not grant are ignored rather than added — an
+ * override retunes an amount, it does not invent an entitlement.
+ *
+ * This REPLACES a single `BILLING_BUNDLE_<ID>_GRANT`, which could only ever
+ * address a one-dimension pack and silently did nothing for the rest. That was
+ * tolerable while every stackable pack granted exactly one dimension; it stopped
+ * being tolerable when `cpuCredits` arrived, because credits are DERIVED from
+ * plugin-build volume, so every pack that grants builds has to grant the minutes
+ * to run them (see `docs/plans/cpu-credits.md`, Phase 3b). A pack selling builds
+ * with no minutes sells work the buyer cannot perform.
  */
 function applyGrantOverride(id: string, grants: GrantMap): GrantMap {
-  const raw = process.env[`BILLING_BUNDLE_${id.toUpperCase()}_GRANT`];
-  const keys = Object.keys(grants);
-  if (raw === undefined || raw === '' || keys.length !== 1) return grants;
-  const n = parseInt(raw, 10);
-  if (Number.isNaN(n) || n < 0) return grants;
-  // `keys` came from a GrantMap, so its sole key is a QuotaTierLimits field.
-  return { [keys[0] as keyof QuotaTierLimits]: n };
+  const prefix = `BILLING_BUNDLE_${id.toUpperCase()}_GRANT_`;
+  const out: GrantMap = { ...grants };
+  for (const key of Object.keys(grants) as Array<keyof QuotaTierLimits>) {
+    const raw = process.env[`${prefix}${envDimension(key)}`];
+    if (raw === undefined || raw === '') continue;
+    const n = parseInt(raw, 10);
+    if (Number.isNaN(n) || n < 0) continue;
+    out[key] = n;
+  }
+  return out;
 }
 
 /**
@@ -548,6 +566,7 @@ export const DEFAULT_BUNDLE_DIMENSION_MAP: Record<string, string> = {
   seat: 'seat',
   pipeline_pack: 'pipeline_pack',
   plugin_pack: 'plugin_pack',
+  cpu_credits_pack: 'cpu_credits_pack',
   api_pack: 'api_pack',
   automation_pack: 'automation_pack',
   ai_pack: 'ai_pack',
@@ -748,13 +767,54 @@ function loadBundles(): BundleConfig[] {
     // NOTE: multi-dimension, so `BILLING_BUNDLE_PIPELINE_PACK_GRANT` no longer
     // applies (applyGrantOverride ignores anything but a single-key grant) —
     // override `_MONTHLY`/`_TIERS`, or change the ratio here.
-    b('pipeline_pack', 'Pipeline Pack (+5 pipelines, +25 plugins)', '5 additional pipeline creations / period, with the 25 plugin builds to equip them', { pipelines: 5, plugins: 25 }, 2999, ['team', 'business', 'enterprise'], 1),
+    b('pipeline_pack', 'Pipeline Pack (+5 pipelines, +25 plugins)', '5 additional pipeline creations / period, with the 25 plugin builds to equip them', { pipelines: 5, plugins: 25, cpuCredits: 11_250 }, 2999, ['team', 'business', 'enterprise'], 1),
     // Sized against PRO's rate — the cheapest tier that may buy them — at
     // roughly a third each, so one pack is a top-up and not a second
     // subscription. Before the resize every one of these was exactly 100% of
     // Pro's own rate (Pro held 25 plugins / 100k API / 2.5k AI, the packs
     // granted 25 / 100k / 2.5k), so a single $10-$20 pack doubled the tier.
-    b('plugin_pack', 'Plugin Pack (+10)', '10 additional plugin builds / period', { plugins: 10 }, 1199, PAID, 2, { volumeTiers: CAPACITY_VOLUME }),
+    // +10 plugin builds a period is +100 builds a month, and a build costs 45
+    // credits at D12's flat 30 wall-minutes x 1.5 vCPU — so this grants 4,500
+    // credits alongside them. A pack selling builds with no minutes to run them
+    // is the same defect `pipeline_pack` and `seat` were both already fixed for:
+    // the catalogue carries both of those comments, and this is the third time
+    // the ratio has had to be made explicit.
+    b('plugin_pack', 'Plugin Pack (+10)', '10 additional plugin builds / period, with the CPU credits to run them', { plugins: 10, cpuCredits: 4_500 }, 1199, PAID, 2, { volumeTiers: CAPACITY_VOLUME }),
+    // CPU credits are vCPU-MINUTES of build compute per month — the first
+    // dimension with genuine per-unit marginal cost, so the one pack priced off
+    // compute we actually buy.
+    //
+    // $2.99 and NOT the $2.49 the plan authored: `snapUpPrice` requires every
+    // customer-visible amount to end in .00 or .99 and rounds UP, so 249 is not
+    // an expressible price here — it resolves to 299 whatever is written. Pinned
+    // to 299 explicitly so the authored number is the effective one; a silent
+    // snap is how a price nobody chose ends up on an invoice.
+    //
+    // $2.99 / 500 = $0.00598 a credit against a ~$0.003 market rate (CircleCI's
+    // flat 5 credits per vCPU-minute; GitHub's 2-core Linux runner) — about 2x,
+    // which is a normal top-up premium over the $0.00347 embedded in Pro's own
+    // tier price and has to cover a volume curve reaching 30% off. An earlier
+    // draft priced it at $4.99, which was 3.3x market. The compliant price below
+    // it is $1.99, a 15% premium on the embedded rate, which the volume curve
+    // alone would erase.
+    //
+    // GRANULAR at +500 rather than coarse, which is what buys headroom on the one
+    // size bound that binds: RATE_PACKS refuses a pack granting more than half
+    // the cap of any tier that may buy it, and +500 against Pro's 11,250 is 4.4%
+    // — so Pro's row can be retuned without breaking a test. Granularity is also
+    // why it copies `seat`'s 5/15/40 volume breaks instead of CAPACITY_VOLUME's
+    // 4/10/25: the coarse curve is sized for a coarse pack, and on a +500 pack it
+    // would hand 30% off permanently to anyone topping up seriously, on the one
+    // dimension the platform pays for per unit.
+    //
+    // maxQuantity 22 comes from the NO-CROSSING rule, not from supply: Pro's
+    // 11,250 + 22 x 500 = 22,250 stays under Team's 22,500. It does not
+    // cannibalise the upgrade either — 22 packs cost $43.82 after the 20% break,
+    // against $40.00 for Pro -> Team, which brings double the pipelines and
+    // plugins, triple the API calls, unlimited dashboards and alert rules, and
+    // three seats.
+    b('cpu_credits_pack', 'CPU Credits Pack (+500)', '500 additional CPU credits / month', { cpuCredits: 500 }, 249, PAID, 3,
+      { volumeTiers: [{ minQuantity: 5, discountPercent: 10 }, { minQuantity: 15, discountPercent: 20 }, { minQuantity: 40, discountPercent: 30 }], maxQuantity: 22 }),
     b('api_pack', 'API Pack (+25k)', '25,000 additional API calls / period', { apiCalls: 25_000 }, 1199, PAID, 3, { volumeTiers: CAPACITY_VOLUME }),
     // Flat $11.99 across the three throughput packs, so the AI grant is by far
     // the smallest: at $0.12/call it is the only one priced off an EXTERNAL

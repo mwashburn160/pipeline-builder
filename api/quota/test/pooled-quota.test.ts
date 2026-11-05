@@ -203,8 +203,15 @@ describe('root org with teams', () => {
 
     expect(findOneAndUpdate).toHaveBeenCalledTimes(1);
     const [, stages] = findOneAndUpdate.mock.calls[0] as [unknown, Array<{ $set: Record<string, unknown> }>];
-    expect(Object.keys(stages[0].$set)).toEqual(['poolUsage.plugins.used', 'poolUsage.plugins.resetAt']);
-    expect(Object.keys(stages[1].$set)).toEqual(['usage.plugins.used', 'usage.plugins.resetAt']);
+    // BOTH stages capture `limitAtPeriodStart` — the cap the period began with,
+    // so a mid-period downgrade or a cancelled pack cannot strand an account over
+    // a cap it already spent against. The pooled half matters MOST: a root with
+    // teams is the account most likely to buy and cancel packs, so protecting
+    // only the per-org counter would have put the protection on the wrong one.
+    // `pooledStatusFromRows` reads the pooled snapshot, `computeQuotaStatus` the
+    // per-org one; both take the max and both short-circuit `-1`.
+    expect(Object.keys(stages[0].$set)).toEqual(['poolUsage.plugins.used', 'poolUsage.plugins.resetAt', 'poolUsage.plugins.limitAtPeriodStart']);
+    expect(Object.keys(stages[1].$set)).toEqual(['usage.plugins.used', 'usage.plugins.resetAt', 'usage.plugins.limitAtPeriodStart']);
     expect(updateOne).not.toHaveBeenCalled();
     expect(result).toMatchObject({ exceeded: false, rootOrgId: 'root', quota: { limit: 100, used: 100 } });
   });

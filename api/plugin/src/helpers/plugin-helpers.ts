@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { normalizeArrayFields, SYSTEM_ORG_ID, type MetadataSources, type Visibility, type WriteAccess } from '@pipeline-builder/api-core';
+import { normalizeArrayFields, SYSTEM_ORG_ID, type BuildClass, type BuildSize, type MetadataSources, type Visibility, type WriteAccess } from '@pipeline-builder/api-core';
 import { type ComputeType, type PluginType } from '@pipeline-builder/pipeline-core';
 import type { PluginContractValueType, PluginIcon } from '@pipeline-builder/pipeline-data';
 
@@ -204,6 +204,23 @@ export interface PluginBuildJobData {
    * KEPT for promotion instead of discarded (services/kept-setup-images.ts).
    */
   setupLoad?: boolean;
+  /**
+   * Scheduling class (D11), defaulting to `standard` when absent — including for
+   * a job already in the queue when the field shipped. Defaulting to `flexible`
+   * would quietly move in-flight builds onto the slower class.
+   *
+   * The class picks WHICH per-org slot counter the build competes for, so the
+   * two classes cannot eat each other's headroom: an org that fills its flexible
+   * allowance still has its standard slots free for the urgent fix.
+   */
+  buildClass?: BuildClass;
+  /**
+   * Machine size (D13), defaulting to `1x`. Validated against the org's tier at
+   * SUBMISSION (`resolveBuildShape`), not here: a job already enqueued must not
+   * start failing because the org downgraded mid-flight, and a build that was
+   * admitted at `4x` is charged at `4x` whatever the tier says later.
+   */
+  buildSize?: BuildSize;
 }
 
 /** The uploader, snapshotted for the post-build publish request (see `services/ecosystem/context.ts` `Caller`). */
@@ -234,6 +251,10 @@ interface CreateBuildJobParams {
   publish?: { caller: PublishCaller };
   /** The setup catalog load (see {@link PluginBuildJobData.setupLoad}). */
   setupLoad?: boolean;
+  /** Scheduling class (see {@link PluginBuildJobData.buildClass}). */
+  buildClass?: BuildClass;
+  /** Machine size (see {@link PluginBuildJobData.buildSize}). */
+  buildSize?: BuildSize;
 }
 
 /** A version that declares no contract and ships no documentation. */

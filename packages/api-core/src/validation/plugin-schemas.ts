@@ -4,6 +4,7 @@
 import { z } from 'zod';
 import { BaseFilterSchema, BooleanQuerySchema, VisibilitySchema, CatalogMetadataShape } from './common-schemas.js';
 import { PluginCatalogEditsSchema } from './plugin-catalog-metadata.js';
+import { BUILD_CLASSES, BUILD_SIZES } from '../types/build-catalog.js';
 import { PUBLISHER_HANDLE_PATTERN } from '../types/ecosystem.js';
 
 /**
@@ -92,4 +93,23 @@ export const PluginUploadBodySchema = z.object({
    * instead of discarded. Ignored (normal discard) for any other org.
    */
   setupLoad: z.enum(['true', 'false']).optional(),
+  /**
+   * Scheduling class for this build (D11). `standard` is the default and the
+   * only class an urgent fix should use; `batch` trades start latency for more
+   * per-org headroom, and every tier has both — a free account must still be
+   * able to push one urgent build through.
+   *
+   * Not a BullMQ priority: priorities are per-queue integers and builds are
+   * already split across one queue PER TIER, so a priority would only order a
+   * tier against itself. The class is a job field the worker admits against,
+   * which is where the contention actually is.
+   */
+  buildClass: z.enum(BUILD_CLASSES).optional(),
+  /**
+   * Machine size for this build (D13). Credit-neutral per build — a `2x` build
+   * burns the same credits twice as fast — so this is a capability gate, not a
+   * price: `TIER_BUILD_SIZES` says which tier may ask for which, and a request
+   * above the tier's ceiling is refused rather than silently downgraded.
+   */
+  buildSize: z.enum(BUILD_SIZES).optional(),
 });

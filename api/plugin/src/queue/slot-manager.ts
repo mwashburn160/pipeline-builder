@@ -1,7 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { envInt, createLogger, errorMessage } from '@pipeline-builder/api-core';
+import { BUILD_CLASSES, buildSlotsFor, envInt, createLogger, errorMessage } from '@pipeline-builder/api-core';
+import type { BuildClass, QuotaTier } from '@pipeline-builder/api-core';
 import { incCounter } from '@pipeline-builder/api-server';
 
 import { getAllTierQueues, getConnectionForDb, getDeadLetterQueue } from './connections.js';
@@ -19,14 +20,34 @@ const logger = createLogger('plugin-build-queue');
 // concurrent acquires can't both observe a stale count and over-allocate.
 //
 // Tuning:
-//   PLUGIN_MAX_BUILDS_PER_ORG max in-flight builds per org (default 3)
+//   PLUGIN_MAX_BUILDS_<TIER>_<CLASS> max in-flight builds per org, per class
 //   PLUGIN_ORG_SLOT_DELAY_MS backoff between re-acquisition tries (default 10s)
 //   ORG_SLOT_TTL_SEC defensive expiry so a crashed worker doesn't leak
-// NaN-guarded env parse: a garbage PLUGIN_MAX_BUILDS_PER_ORG must fall back to
-// the default, never `NaN`. `String(NaN)` -> the acquire Lua's
-// `tonumber(ARGV[1])` returns nil, so every tryAcquireOrgSlot would throw and
-// brick ALL plugin builds.
-export const MAX_BUILDS_PER_ORG = envInt('PLUGIN_MAX_BUILDS_PER_ORG', 3, { min: 1 });
+
+/**
+ * The per-org cap, read per (tier, class) cell.
+ *
+ * ONE FLAT FIGURE BEFORE, and it gave a Developer org the same three in-flight
+ * builds as an Enterprise one — the per-org semaphore was the one place in the
+ * build path that ignored what the tenant pays for. The ladder lives in the
+ * build catalog (`BUILD_CLASS_CATALOG[class].slotsByTier`), beside the labels
+ * and size floors it has to stay coherent with, and each cell takes its own
+ * override. The catalog holds DEFAULTS only — it is browser-importable, so it
+ * cannot read an env var, and this function is where the overlay happens.
+ *
+ * NaN-guarded env parse, which is not cosmetic: `String(NaN)` makes the acquire
+ * Lua's `tonumber(ARGV[1])` return nil, so a single garbage override would make
+ * every `tryAcquireOrgSlot` throw and brick ALL plugin builds — not just the
+ * tier whose variable was fat-fingered.
+ */
+export function maxBuildsPerOrg(tier: QuotaTier, buildClass: BuildClass): number {
+  return envInt(
+    `PLUGIN_MAX_BUILDS_${tier.toUpperCase()}_${buildClass.toUpperCase()}`,
+    buildSlotsFor(tier, buildClass),
+    { min: 1 },
+  );
+}
+
 export const ORG_SLOT_DELAY_MS = envInt('PLUGIN_ORG_SLOT_DELAY_MS', 10000, { min: 1 });
 const ORG_SLOT_TTL_SEC = envInt('PLUGIN_ORG_SLOT_TTL_SEC', 900, { min: 1 });
 
@@ -63,10 +84,40 @@ export const MAX_SLOT_DELAYS = Math.max(1, Math.floor(ORG_SLOT_MAX_WAIT_MS / ORG
  * backstop rather than the other way round. Defaults to the heartbeat interval.
  */
 export const ORG_SLOT_SCRUB_MS = envInt('PLUGIN_ORG_SLOT_SCRUB_MS', ORG_SLOT_HEARTBEAT_MS, { min: 1_000 });
-const orgSlotKey = (orgId: string) => `pb:org-build:${orgId}`;
-/** Sibling hash `jobId -> orgId` for live slot owners. The scrubber walks
- *  this to reconcile slots that BullMQ no longer knows about. */
+/**
+ * One counter PER CLASS, so the two classes cannot eat each other's headroom.
+ *
+ * A shared counter would make `flexible` a way to starve `standard`: an org that
+ * filled a single counter with ten cheap flexible builds would have no slot left
+ * for the urgent fix the standard class exists to carry, which is the whole
+ * reason every tier has both classes.
+ */
+const orgSlotKey = (orgId: string, buildClass: BuildClass) => `pb:org-build:${orgId}:${buildClass}`;
+
+/** Sibling hash `queueName:jobId -> orgId|class` for live slot owners. The
+ *  scrubber walks this to reconcile slots that BullMQ no longer knows about.
+ *
+ *  The value carries the CLASS as well as the org because release decrements a
+ *  class-specific counter: with the org alone the scrubber could not tell which
+ *  of the two counters a vanished job had taken, and reclaiming from the wrong
+ *  one both leaks the real slot and drives the other counter toward its
+ *  negative clamp. Split on the LAST separator so an org id containing one
+ *  still parses. */
 const orgSlotOwnersKey = 'pb:org-build-owners';
+const ownerValue = (orgId: string, buildClass: BuildClass) => `${orgId}|${buildClass}`;
+
+function parseOwnerValue(value: string): { orgId: string; buildClass: BuildClass } {
+  const at = value.lastIndexOf('|');
+  if (at < 0) return { orgId: value, buildClass: 'standard' };
+  const cls = value.slice(at + 1);
+  return {
+    orgId: value.slice(0, at),
+    // An unrecognised suffix is treated as part of the org id rather than
+    // trusted as a class: a bad parse must not decrement a counter that was
+    // never incremented.
+    buildClass: (BUILD_CLASSES as readonly string[]).includes(cls) ? (cls as BuildClass) : 'standard',
+  };
+}
 
 /**
  * Atomic check-and-increment via Lua. Returns 1 if a slot was reserved
@@ -133,10 +184,10 @@ redis.call('EXPIRE', KEYS[1], ARGV[2])
 return 1
 `;
 
-export async function refreshOrgSlot(orgId: string, jobId: string): Promise<boolean> {
+export async function refreshOrgSlot(orgId: string, jobId: string, buildClass: BuildClass): Promise<boolean> {
   const redis = getConnectionForDb(0);
   const result = await redis.eval(
-    REFRESH_SLOT_LUA, 2, orgSlotKey(orgId), orgSlotOwnersKey, jobId, String(ORG_SLOT_TTL_SEC),
+    REFRESH_SLOT_LUA, 2, orgSlotKey(orgId, buildClass), orgSlotOwnersKey, jobId, String(ORG_SLOT_TTL_SEC),
   );
   return result === 1;
 }
@@ -149,9 +200,9 @@ export async function refreshOrgSlot(orgId: string, jobId: string): Promise<bool
  * else, because losing a TTL extension costs a reclaimable slot whereas throwing
  * here would cost a build that may already have published its image.
  */
-export function startOrgSlotHeartbeat(orgId: string, jobId: string): () => void {
+export function startOrgSlotHeartbeat(orgId: string, jobId: string, buildClass: BuildClass): () => void {
   const timer = setInterval(() => {
-    void refreshOrgSlot(orgId, jobId)
+    void refreshOrgSlot(orgId, jobId, buildClass)
       .then((extended) => {
         if (!extended) logger.debug('Slot heartbeat found no owner record; build likely released', { orgId, jobId });
       })
@@ -161,26 +212,29 @@ export function startOrgSlotHeartbeat(orgId: string, jobId: string): () => void 
   return () => clearInterval(timer);
 }
 
-/** Try to acquire an in-flight build slot for `orgId`. Returns true on success;
- *  false if the org is already at its cap (caller should re-enqueue). Records
- *  `jobId -> orgId` so the scrubber can reclaim a slot whose job vanished. */
-export async function tryAcquireOrgSlot(orgId: string, jobId: string): Promise<boolean> {
+/** Try to acquire an in-flight build slot for `orgId` in `buildClass`. Returns
+ *  true on success; false if the org is already at that class's cap for its tier
+ *  (caller should re-enqueue). Records `jobId -> orgId|class` so the scrubber
+ *  can reclaim a slot whose job vanished, from the right counter. */
+export async function tryAcquireOrgSlot(
+  orgId: string, jobId: string, tier: QuotaTier, buildClass: BuildClass,
+): Promise<boolean> {
   const redis = getConnectionForDb(0);
-  // TWO keys: the org counter and the owner hash — the owner record is written
+  // TWO keys: the class counter and the owner hash — the owner record is written
   // atomically with the INCR (see ACQUIRE_SLOT_LUA).
   const result = await redis.eval(
-    ACQUIRE_SLOT_LUA, 2, orgSlotKey(orgId), orgSlotOwnersKey,
-    String(MAX_BUILDS_PER_ORG), String(ORG_SLOT_TTL_SEC), jobId, orgId,
+    ACQUIRE_SLOT_LUA, 2, orgSlotKey(orgId, buildClass), orgSlotOwnersKey,
+    String(maxBuildsPerOrg(tier, buildClass)), String(ORG_SLOT_TTL_SEC), jobId, ownerValue(orgId, buildClass),
   );
   return result === 1;
 }
 
 /** Release `jobId`'s slot for `orgId`. Idempotent per job (see RELEASE_SLOT_LUA);
  *  resolves true when this call gave a held slot back. */
-export async function releaseOrgSlot(orgId: string, jobId: string): Promise<boolean> {
+export async function releaseOrgSlot(orgId: string, jobId: string, buildClass: BuildClass): Promise<boolean> {
   const redis = getConnectionForDb(0);
   const released = await redis.eval(
-    RELEASE_SLOT_LUA, 2, orgSlotKey(orgId), orgSlotOwnersKey, jobId, String(ORG_SLOT_TTL_SEC),
+    RELEASE_SLOT_LUA, 2, orgSlotKey(orgId, buildClass), orgSlotOwnersKey, jobId, String(ORG_SLOT_TTL_SEC),
   );
   return released === 1;
 }
@@ -211,17 +265,18 @@ export async function scrubOrgSlots(): Promise<void> {
       for (const j of jobLists[i]) if (j.id) liveJobIds.add(`${q.name}:${j.id}`);
     });
 
-    for (const [jobId, orgId] of ownerEntries) {
+    for (const [jobId, owner] of ownerEntries) {
       if (liveJobIds.has(jobId)) continue;
+      const { orgId, buildClass } = parseOwnerValue(owner);
       // Same idempotent release as the processor: if the job released its own
       // slot after the snapshot above, this is a no-op rather than a second DECR.
-      if (await releaseOrgSlot(orgId, jobId)) {
+      if (await releaseOrgSlot(orgId, jobId, buildClass)) {
         // Counted, not just logged: a leaked slot PERMANENTLY reduces that org's
         // build concurrency until a scrub reclaims it, so capacity shrinks
         // silently. The log line names the job; the counter is what an alert can
         // see.
-        incCounter('plugin_build_slot_reclaimed_total', {});
-        logger.warn('Reclaimed leaked org build slot', { jobId, orgId });
+        incCounter('plugin_build_slot_reclaimed_total', { build_class: buildClass });
+        logger.warn('Reclaimed leaked org build slot', { jobId, orgId, buildClass });
       }
     }
   } catch (err) {

@@ -129,6 +129,97 @@ X-Quota-Reset: 2026-11-05T00:00:00.000Z
 - **CLI (`pipeline-manager`):** prints `API call quota reached (25,000/25,000); resets 2026-11-05. Upgrade: https://<platform>/dashboard/billing` and does not suggest retrying. A plain 429 keeps "rate limit exceeded — wait a moment". `synth`, `deploy`, `plugin verify` and `security-report upload` send `X-Pipeline-Id`, so the ledger attributes their calls to the pipeline.
 - **Plugin-lookup Lambda:** a quota refusal fails the custom resource **immediately** with that same sentence as the CloudFormation `Reason` (retrying can't help); a plain 429 is retried, honouring `Retry-After` up to 10s.
 
+### CPU credits
+
+Every other budget on this page counts THINGS — pipelines, plugins, API calls.
+`cpuCredits` counts **build compute**: one credit is one vCPU-minute, and a
+plugin image build costs its wall-clock minutes multiplied by the vCPU its
+builder occupies, rounded up to the whole credit. At the shipped 1.5 vCPU that
+is about 2 credits a minute, so a ten-minute build costs 15.
+
+The unit is deliberately abstract rather than "build minutes". The figures only
+work as minutes if you also know the vCPU behind them — "11,250 build minutes"
+reads as 187 hours when it buys about 125 — so the budget is denominated in the
+thing actually being rationed and the surfaces convert for you when they explain
+a cost.
+
+| Tier | CPU credits / month | Roughly |
+|------|--------------------:|---------|
+| Developer | 4,500 | 100 ten-minute builds |
+| Pro | 11,250 | 250 |
+| Team | 22,500 | 500 |
+| Business | 45,000 | 1,000 |
+| Enterprise | 67,500 | 1,500 |
+
+A **CPU Credits Pack** adds 500 credits a month on any tier and stacks (with a
+volume discount from five packs). The `plugins` and `pipelines` packs carry
+credits of their own, sized so a pack that lets you build more plugins also
+pays for building them.
+
+**The window is a month, not three days.** Credits are the one budget on a
+30-day period (`QUOTA_CPU_CREDITS_PERIOD_DAYS`) while everything else rolls on
+`QUOTA_RESET_DAYS`; a build budget that reset ten times a month would be ten
+separate small budgets, which is not what a monthly figure means. The Quotas
+page says "monthly" for this one and names the three-day window for the rest.
+
+**Scope: plugin image builds only, today.** Pipeline executions run in AWS
+CodeBuild and are **not counted yet** — their consumption is measured but
+charged to nothing. When it is charged, every tier is re-derived in the same
+release and the change is announced; the denominator changing silently is the
+one thing that would not be acceptable.
+
+#### What is charged, and what is not
+
+- **A failed build IS charged** when the failure is yours — a broken Dockerfile,
+  a refused scan gate. It occupied the builder exactly as a success would.
+- **A retry we caused is NOT charged.** A retryable failure (a Redis blip, a
+  registry timeout) is the platform's, and charging it would bill you for our own
+  retry. Without that distinction a job retried to exhaustion would charge once
+  per attempt.
+- **Sample-catalog and install-time builds are exempt**, so a fresh install does
+  not spend your first budget on its own seed data.
+- **The build machine multiplies the charge, and the arithmetic runs one way in
+  each direction.** Five machines are available — **Small, Standard, Medium,
+  Large, X-Large** — metered at 0.5x, 1x, 2x, 4x and 8x the vCPU. Above Standard
+  a build that parallelises finishes sooner for roughly the same credits and one
+  that does not costs the multiple, so **a bigger machine can never cost less**.
+  Below Standard it mirrors: a CPU-bound build takes twice as long at half the
+  vCPU and costs the *same*, while an I/O-bound one costs about half, so **Small
+  can never cost more**. That is why Small is offered on every tier as a budget
+  option, and why a bigger machine is never suggested without measured speedup
+  for that plugin.
+- **A machine you cannot be given is refused, not substituted.** Each machine is
+  a separate build daemon, so one the deployment has not provisioned is refused
+  at submission. Serving it from the standard daemon would be wrong both ways:
+  you would pay the multiple for standard speed, or get standard speed at a
+  fraction of the price.
+- **Small gets proportionally longer to finish.** The build deadline scales with
+  the machine below Standard, so choosing the cheap option does not turn a long
+  build into a timeout.
+
+#### Build capacity is separate, and is not a budget
+
+Two limits bound builds, and only one of them is spent:
+
+- **CPU credits** are a budget. Out of credits means a build is refused at
+  submission; a pack or the window reset fixes it.
+- **Build slots** are capacity. Each organization may hold a few builds in
+  flight at once, per scheduling class — **Standard** (starts as soon as a slot
+  is free) and **Flexible** (starts later, with more room) — and a build over
+  that cap WAITS rather than being refused: there is nothing to buy and nothing
+  to fix. Small defaults to Flexible, because a half-speed build holds its slot
+  about twice as long and would otherwise block the single Standard slot a free
+  account keeps for an urgent fix. The Quotas page shows the counts under "Build
+  capacity"; the refusal messages say which of the two you have hit, because the
+  remedies are not the same.
+
+Two builds submitted at the same instant can both be admitted at the cap and
+each overshoot by its own cost, because admission checks the counter rather than
+reserving against it — a build's cost is not known until it has run. The
+overshoot is bounded by the slot caps and the per-build wall-clock bound, comes
+to at most a few percent of a period, is always in your favour, and is recorded
+in the usage ledger rather than hidden.
+
 ### Registry storage
 
 Every other budget on this page is a per-period **flow**: it resets on `QUOTA_RESET_DAYS` and an account that hits one self-heals. `storageBytes` is a **stock** — it stays exactly where it is until you free space or buy capacity. That difference drives everything below, and it is why the Quotas page shows "Does not reset" for it instead of a reset date.

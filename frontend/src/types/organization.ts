@@ -130,6 +130,20 @@ export interface QuotaSummary {
   remaining: number;
   unlimited: boolean;
   resetAt: string;
+  /**
+   * Length of THIS quota's usage period in days.
+   *
+   * Per type, not per org: every flow quota rolls on `QUOTA_RESET_DAYS` (3)
+   * except `cpuCredits`, which is monthly. Anything computing a reset phrase or
+   * a burn-rate forecast must read this rather than the org-level
+   * `OrgQuotaResponse.periodDays` — against the wrong window a credits forecast
+   * is wrong by a factor of ten, and the forecast is the mechanism the monthly
+   * period leans on.
+   *
+   * Optional only for responses predating the field; treat absent as "no
+   * forecast" rather than substituting the global window.
+   */
+  periodDays?: number;
 }
 
 /**
@@ -150,7 +164,7 @@ export interface QuotaSummary {
  * `storage-usage.ts` made the reading real.
  */
 export const DISPLAYED_QUOTA_TYPES = [
-  'plugins', 'pipelines', 'apiCalls', 'automationCalls', 'aiCalls', 'storageBytes',
+  'plugins', 'pipelines', 'cpuCredits', 'apiCalls', 'automationCalls', 'aiCalls', 'storageBytes',
 ] as const satisfies readonly QuotaType[];
 export type DisplayedQuotaType = typeof DISPLAYED_QUOTA_TYPES[number];
 
@@ -164,9 +178,13 @@ export interface OrgQuotaResponse {
   tier?: QuotaTier;
   quotas: Record<QuotaType, QuotaSummary>;
   /**
-   * Length of the usage period in days (`QUOTA_RESET_DAYS`, default 3). Every
-   * counter rolls over on this one period — never assume a month. The usage
-   * forecast needs it and is simply not shown without it.
+   * Length of the GLOBAL usage period in days (`QUOTA_RESET_DAYS`, default 3).
+   *
+   * Correct for every flow quota but `cpuCredits`, which is monthly — so this is
+   * for org-level copy only and is NOT the figure to compute a reset date or a
+   * forecast from. Each entry in `quotas` carries its own `periodDays`; read
+   * that. An earlier version of this comment said "every counter rolls over on
+   * this one period", which stopped being true when credits arrived.
    */
   periodDays?: number;
   isDefault?: boolean;

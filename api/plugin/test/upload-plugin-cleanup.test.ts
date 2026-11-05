@@ -26,6 +26,20 @@ const mockValidateBody = jest.fn<(...a: any[]) => any>();
 const mockReserveQuota = jest.fn<(...a: any[]) => Promise<any>>();
 const mockParsePluginZip = jest.fn<(...a: any[]) => Promise<any>>();
 
+// The CPU-credit admission gate fails CLOSED when the quota service cannot
+// answer (D6). This suite's quota double does not implement `check`, so without
+// this stub every upload here would be refused on credits before reaching the
+// behaviour under test. Credits have their own suite (`build-credits.test.ts`).
+jest.unstable_mockModule('../src/queue/build-credits.js', () => ({
+  admitBuildOnCredits: jest.fn(async () => ({ admitted: true })),
+  chargeBuildCredits: jest.fn(async () => undefined),
+  buildTrigger: () => 'user',
+  creditsForBuild: () => 0,
+  buildSpendsCredits: () => true,
+  failedBuildIsCharged: () => false,
+  BUILDKIT_VCPU: 1.5,
+}));
+
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   validateBody: mockValidateBody,
   reserveQuota: mockReserveQuota,
@@ -59,7 +73,7 @@ jest.unstable_mockModule('../src/helpers/plugin-spec.js', () => ({
 }));
 jest.unstable_mockModule('../src/helpers/plugin-helpers.js', () => ({ createBuildJobData: (p: unknown) => p, toPluginInsert: (p: unknown) => p }));
 jest.unstable_mockModule('../src/helpers/build-strategy.js', () => ({ getBuildStrategy: () => ({ producesImage: true }) }));
-jest.unstable_mockModule('../src/queue/connections.js', () => ({ enqueueBuild: jest.fn(), getOrgTier: jest.fn() }));
+jest.unstable_mockModule('../src/queue/connections.js', () => ({ enqueueBuild: jest.fn(), getOrgTier: jest.fn(async () => 'developer') }));
 jest.unstable_mockModule('../src/services/plugin-artifact-storage.js', () => ({
   putPluginArtifact: jest.fn(), deletePluginArtifact: jest.fn(), pluginArtifactKey: () => 'k',
 }));

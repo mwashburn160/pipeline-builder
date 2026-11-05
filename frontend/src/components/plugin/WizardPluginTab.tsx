@@ -5,6 +5,10 @@ import { FormField } from '@/components/ui/FormField';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { VisibilitySelect, visibilityHint } from '@/components/ui/VisibilitySelect';
+import { BuildShapeFields } from './BuildShapeFields';
+import { BuildCostHint, buildCreditsBlocked } from '@/components/ui/BuildCostHint';
+import { useOwnQuota } from '@/hooks/useOwnQuota';
+import type { BuildClass, BuildSize } from '@pipeline-builder/api-core/build-catalog';
 import { Textarea } from '@/components/ui/Textarea';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { Button } from '@/components/ui/Button';
@@ -103,6 +107,9 @@ export default function WizardPluginTab({ canPublish, disabled, onCreated, onClo
   const [dockerfile, setDockerfile] = useState(DEFAULT_DOCKERFILE);
   // `org` is the backend's create default for plugins; `private` is opt-in.
   const [access, setAccess] = useState<Visibility>('org');
+  // Build shape (D11/D13), defaulting to what every tier has.
+  const [buildClass, setBuildClass] = useState<BuildClass>('standard');
+  const [buildSize, setBuildSize] = useState<BuildSize>('1x');
   // Edit-only settings (not accepted by the create/build path).
   const [timeout, setTimeoutVal] = useState<string>('');
   const [failureBehavior, setFailureBehavior] = useState<string>('fail');
@@ -122,6 +129,11 @@ export default function WizardPluginTab({ canPublish, disabled, onCreated, onClo
 
   // Build queue tracking (create mode only) — same SSE flow as AI/Upload.
   const [requestId, setRequestId] = useState<string | null>(null);
+  // The org's CPU-credit budget, for the pre-submit cost line and the size
+  // gate. Fails open to null, so a failed read never locks a deploy the server
+  // would have accepted.
+  const { quota: creditQuota } = useOwnQuota('cpuCredits', requestId !== null);
+
   const { status: buildStatus, events, lastEvent } = useBuildStatus(requestId);
   const isBuilding = requestId !== null && buildStatus === 'building';
   const isWorking = saving || isBuilding || prefilling;
@@ -238,6 +250,8 @@ export default function WizardPluginTab({ canPublish, disabled, onCreated, onClo
         env: Object.keys(env).length ? env : undefined,
         dockerfile,
         visibility: access,
+        buildClass,
+        buildSize,
       });
       if (response.statusCode === 202 && response.data?.requestId) {
         setRequestId(response.data.requestId);
@@ -445,6 +459,25 @@ export default function WizardPluginTab({ canPublish, disabled, onCreated, onClo
             </div>
           )}
 
+          <div className="border-t border-default pt-4">
+            {/* Build shape (D11/D13) + what the build will cost, beside the
+                control that spends it. Editing an existing plugin runs no
+                build, so the shape only applies to the create path. */}
+            {!editing && (
+              <>
+                <BuildShapeFields
+                  tier={creditQuota?.tier}
+                  buildClass={buildClass}
+                  buildSize={buildSize}
+                  onClassChange={setBuildClass}
+                  onSizeChange={setBuildSize}
+                  disabled={isWorking}
+                />
+                <BuildCostHint quota={creditQuota} buildSize={buildSize} className="mt-2" />
+              </>
+            )}
+          </div>
+
           <div className="border-t border-default pt-4 flex items-center justify-between">
             <FormField label="Visibility" hint={visibilityHint(canPublish, 'plugins:publish', true)}>
               <VisibilitySelect value={access} onChange={setAccess} canPublish={canPublish} disabled={isWorking} />
@@ -455,7 +488,7 @@ export default function WizardPluginTab({ canPublish, disabled, onCreated, onClo
                 {saving ? <><LoadingSpinner size="sm" className="mr-2" />Saving…</> : <><Save className="w-4 h-4 mr-2" />Save changes</>}
               </Button>
             ) : (
-              <Button onClick={handleCreate} disabled={disabled || isWorking}>
+              <Button onClick={handleCreate} disabled={disabled || isWorking || buildCreditsBlocked(creditQuota?.summary)}>
                 {saving ? <><LoadingSpinner size="sm" className="mr-2" />Queueing build…</> : <><Rocket className="w-4 h-4 mr-2" />Create plugin</>}
               </Button>
             )}

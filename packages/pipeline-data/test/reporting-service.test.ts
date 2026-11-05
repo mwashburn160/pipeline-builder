@@ -94,6 +94,11 @@ describe('ReportingService', () => {
           environment: r.environment,
           executionId: r.executionId,
           sourceEventId: r.sourceEventId,
+          // `.returning()` with no projection gives every column, and the
+          // metric fan-out reads these two: a harness that echoed only the
+          // stage fields would make the compute metrics look unreachable.
+          durationMs: r.durationMs,
+          detail: r.detail,
         }))),
       );
       const onConflictDoNothing = jest.fn<AnyFn>().mockReturnValue({ returning });
@@ -105,6 +110,88 @@ describe('ReportingService', () => {
 
       return { getRows: () => capturedRows, values, onConflictDoNothing, returning };
     }
+
+    /**
+     * Phase 4's measurement half: a terminal CodeBuild ACTION's duration times
+     * its compute size, fanned out as vCPU-minutes. Charged to NOTHING — the
+     * tier ladder was derived without pipeline execution in it.
+     */
+    describe('compute consumption fan-out', () => {
+      // The compute size arrives inside `detail`, not as a top-level field:
+      // the ingest ROUTE accepts it as its own field on the wire (so an
+      // oversized `detail` cannot shed it) and folds it in before calling this
+      // service, which is why `IngestEvent` has no such property.
+      const action = (over: Record<string, unknown> = {}, computeType: string | null = 'BUILD_GENERAL1_MEDIUM') => ({
+        pipelineId: 'pl-1',
+        eventSource: 'codepipeline' as const,
+        eventType: 'ACTION' as const,
+        status: 'SUCCEEDED',
+        executionId: 'exec-1',
+        startedAt: '2026-11-01T00:00:00.000Z',
+        completedAt: '2026-11-01T00:10:00.000Z',
+        durationMs: 600_000,
+        detail: computeType === null ? {} : { computeType },
+        ...over,
+      });
+
+      it('emits credits from duration x compute size, narrowing AWS\'s spelling', async () => {
+        wireIngest([{ pipelineId: 'pl-1', orgId: 'acme' }]);
+        const metrics: unknown[] = [];
+        await service.ingestEvents([action()], (m) => metrics.push(m));
+
+        expect(metrics).toEqual([expect.objectContaining({
+          kind: 'compute',
+          orgId: 'acme',
+          pipelineId: 'pl-1',
+          computeType: 'MEDIUM',
+          durationMs: 600_000,
+          credits: 40, // 10 min x 4 vCPU
+        })]);
+      });
+
+      it('reports an unreadable compute size as UNMEASURED rather than as free', async () => {
+        // Never guessed as SMALL, which is the cheapest and therefore the most
+        // flattering guess. Zero credits would also make the coverage gap look
+        // like idleness.
+        wireIngest([{ pipelineId: 'pl-1', orgId: 'acme' }]);
+        const metrics: Array<Record<string, unknown>> = [];
+        await service.ingestEvents([action({}, null)], (m) => metrics.push(m as never));
+
+        expect(metrics[0]).toMatchObject({ kind: 'compute', computeType: null, credits: null });
+      });
+
+      it('reports an action with no measured duration as UNMEASURED', async () => {
+        // The forwarder refuses to compute a duration unless AWS declared a
+        // start time; counting those as zero is what this prevents.
+        wireIngest([{ pipelineId: 'pl-1', orgId: 'acme' }]);
+        const metrics: Array<Record<string, unknown>> = [];
+        await service.ingestEvents(
+          [action({ durationMs: undefined, completedAt: undefined })],
+          (m) => metrics.push(m as never),
+        );
+
+        expect(metrics[0]).toMatchObject({ kind: 'compute', computeType: 'MEDIUM', credits: null });
+      });
+
+      it('emits nothing for a NON-terminal action, which has no final consumption', async () => {
+        wireIngest([{ pipelineId: 'pl-1', orgId: 'acme' }]);
+        const metrics: unknown[] = [];
+        await service.ingestEvents([action({ status: 'STARTED' })], (m) => metrics.push(m));
+
+        expect(metrics).toEqual([]);
+      });
+
+      it('emits nothing for an event the dedup index swallowed', async () => {
+        // Load-bearing here in a way it is not for stage metrics: a duplicated
+        // vCPU-minute figure is a double-charge waiting for the day the charge
+        // is switched on.
+        wireIngest([{ pipelineId: 'pl-1', orgId: 'acme' }], new Set(['exec-1']));
+        const metrics: unknown[] = [];
+        await service.ingestEvents([action()], (m) => metrics.push(m));
+
+        expect(metrics).toEqual([]);
+      });
+    });
 
     /**
      * TENANCY. An event's org comes from the pipeline REGISTRY, not the token,
@@ -480,7 +567,7 @@ describe('ReportingService', () => {
       // one metric emitted for the terminal deploy-stage event, with
       // the registry-resolved org (never the caller's claimed org).
       expect(metrics).toEqual([
-        { pipelineId: 'pl-1', orgId: 'acme', stage: 'Deploy-prod', environment: 'production', result: 'succeeded' },
+        { kind: 'stage', pipelineId: 'pl-1', orgId: 'acme', stage: 'Deploy-prod', environment: 'production', result: 'succeeded' },
       ]);
     });
 
@@ -499,7 +586,7 @@ describe('ReportingService', () => {
 
       expect(result.inserted).toBe(1);
       expect(metrics).toEqual([
-        { pipelineId: 'pl-1', orgId: 'acme', stage: 'Deploy-prod', environment: 'production', result: 'succeeded' },
+        { kind: 'stage', pipelineId: 'pl-1', orgId: 'acme', stage: 'Deploy-prod', environment: 'production', result: 'succeeded' },
       ]);
     });
 

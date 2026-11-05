@@ -350,3 +350,41 @@ describe('PluginResolutionWarnings (pipeline editor)', () => {
     expect(lookupPlugin).not.toHaveBeenCalled();
   });
 });
+
+describe('capacity refusals are not read as build defects', () => {
+  it('explains a slot timeout as a WAIT, with no purchase and nothing to fix', () => {
+    // This refusal arrived with no reason at all before, and once a credit
+    // budget sits on the same page a silent wait gets blamed on the quota.
+    const info = buildFailureInfo({
+      message: 'No build slot after 1800s: this organization is at its limit of 3 concurrent standard builds.',
+      data: { code: 'SERVICE_UNAVAILABLE', details: { slotDelays: 181, waitedMs: 1_810_000, buildClass: 'standard', maxBuildsPerOrg: 3 } },
+    });
+
+    expect(info.code).toBe('BUILD_SLOT_TIMEOUT');
+    expect(info.title).toBe('No build slot was free in time');
+    expect(info.message).toContain('3 standard builds');
+    expect(info.message).toContain('nothing to buy');
+    // The other class is the actual alternative, and it is named.
+    expect(info.message).toContain('flexible class');
+  });
+
+  it('points a batch timeout at the standard class, not at batch again', () => {
+    const info = buildFailureInfo({
+      message: 'No build slot',
+      data: { code: 'SERVICE_UNAVAILABLE', details: { buildClass: 'flexible', maxBuildsPerOrg: 6 } },
+    });
+    expect(info.message).toContain('6 flexible builds');
+    expect(info.message).toContain('standard class');
+  });
+
+  it('leaves an ordinary 503 alone, so only the slot refusal takes this branch', () => {
+    // Recognised from the typed details (`maxBuildsPerOrg`), never from prose:
+    // a registry timeout is also a SERVICE_UNAVAILABLE and is not a slot wait.
+    const info = buildFailureInfo({
+      message: 'Object storage unavailable',
+      data: { code: 'SERVICE_UNAVAILABLE' },
+    });
+    expect(info.code).toBeNull();
+    expect(info.message).toBe('Object storage unavailable');
+  });
+});

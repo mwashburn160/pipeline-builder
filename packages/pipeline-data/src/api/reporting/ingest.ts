@@ -9,7 +9,7 @@
  * durable persistence boundary — everything else in the service only reads.
  */
 
-import { createLogger, errorMessage, scrubAwsIdentifiers } from '@pipeline-builder/api-core';
+import { computeCreditsFor, createLogger, errorMessage, normalizeComputeType, scrubAwsIdentifiers } from '@pipeline-builder/api-core';
 import { inArray } from 'drizzle-orm';
 import { invalidateOrgReports } from './caches.js';
 import { upsertDeployments } from './deploy-rollup.js';
@@ -183,18 +183,55 @@ function toEventRow(event: IngestEvent, registry: { pipelineId: string; orgId: s
 }
 
 /**
- * Fan terminal STAGE outcomes into the route's metric hook (pipeline-data can't
- * import api-server's registry) after the insert commits. Driven off the
- * INSERTED rows, so a re-delivered event the dedup index swallowed is never
- * counted twice. A non-null environment marks a deploy.
+ * Fan terminal STAGE outcomes and per-ACTION compute consumption into the
+ * route's metric hook (pipeline-data can't import api-server's registry) after
+ * the insert commits.
+ *
+ * Driven off the INSERTED rows, so a re-delivered event the dedup index
+ * swallowed is never counted twice. That property is load-bearing for the
+ * compute series in a way it was not for the stage one: a duplicated stage
+ * outcome distorts a rate, whereas a duplicated vCPU-minute figure is a
+ * double-charge waiting for the day the charge is switched on.
+ *
+ * A non-null environment marks a deploy.
  */
-function emitStageMetrics(
-  rows: ReadonlyArray<{ orgId: string; pipelineId: string | null; eventType: string; status: string; stageName: string | null; environment: string | null }>,
+function emitIngestMetrics(
+  rows: ReadonlyArray<{
+    orgId: string;
+    pipelineId: string | null;
+    eventType: string;
+    status: string;
+    stageName: string | null;
+    environment: string | null;
+    durationMs?: number | null;
+    detail?: Record<string, unknown> | null;
+  }>,
   onMetric: (m: IngestMetric) => void,
 ): void {
   for (const r of rows) {
-    if (r.eventType !== 'STAGE' || (r.status !== 'SUCCEEDED' && r.status !== 'FAILED') || !r.pipelineId) continue;
+    if (!r.pipelineId) continue;
+
+    // Compute consumption: every TERMINAL action, measurable or not. The
+    // unmeasurable ones are the point — they are what the coverage ratio counts.
+    if (r.eventType === 'ACTION' && TERMINAL_ACTION_STATES.includes(r.status)) {
+      const computeType = normalizeComputeType(
+        typeof r.detail?.computeType === 'string' ? r.detail.computeType : null,
+      );
+      const durationMs = r.durationMs ?? null;
+      onMetric({
+        kind: 'compute',
+        pipelineId: r.pipelineId,
+        orgId: r.orgId,
+        computeType,
+        durationMs,
+        credits: computeCreditsFor(durationMs, computeType),
+      });
+      continue;
+    }
+
+    if (r.eventType !== 'STAGE' || (r.status !== 'SUCCEEDED' && r.status !== 'FAILED')) continue;
     onMetric({
+      kind: 'stage',
       pipelineId: r.pipelineId,
       orgId: r.orgId,
       stage: r.stageName ?? '',
@@ -203,6 +240,9 @@ function emitStageMetrics(
     });
   }
 }
+
+/** Action states that mean the action is over and its consumption is final. */
+const TERMINAL_ACTION_STATES: readonly string[] = ['SUCCEEDED', 'FAILED', 'STOPPED'];
 
 /**
  * Resolve incoming events against the pipeline registry, batch-insert the
@@ -362,7 +402,7 @@ export async function ingestEvents(
     };
   });
 
-  if (onMetric) emitStageMetrics(insertedRows, onMetric);
+  if (onMetric) emitIngestMetrics(insertedRows, onMetric);
 
   // Per-deploy rollup. AFTER the events commit and outside their transaction: the
   // events are the durable record and `dora_deployments` is derived from them, so

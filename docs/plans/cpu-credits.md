@@ -709,6 +709,61 @@ the way a month of normal activity actually arrives: unevenly.
 
 ## D11 — A build class on every tier, graded by mix
 
+**IMPLEMENTED, and the vocabulary moved into a catalog.**
+`BUILD_CLASSES = ['standard', 'flexible']` now lives in api-core
+`types/build-catalog.ts` together with its labels and the 1/3 · 2/4 · 3/6 · 5/10
+· 8/16 slot mix. The per-org semaphore holds **one counter per class**
+(`pb:org-build:<org>:<class>`), and `maxBuildsPerOrg(tier, class)` replaced the
+flat `PLUGIN_MAX_BUILDS_PER_ORG` — each cell overridable as
+`PLUGIN_MAX_BUILDS_<TIER>_<CLASS>`.
+
+**On the name: `flexible`, not `batch`, `deferred`, `basic` or `small`.** It names
+what the CUSTOMER trades — a flexible start time — rather than what the platform
+does with it, and it does not read as a demotion, which matters because this
+class is on every tier including free. `deferred` reads as broken and `basic`
+reads as a tier. `small` was rejected outright: it is a magnitude word on a
+LATENCY dimension, so `{ buildClass: 'small', buildSize: '2x' }` would be legal
+and unreadable, and it collides with `ComputeType.SMALL`, which after Phase 4
+feeds the same `cpuCredits` ledger at 2 vCPU.
+
+**On the catalog: one keyed module replaced six tables.** The ids and multipliers
+were in `wire-vocabulary.ts`, the tier gate and slot counts in `quota-tiers.ts`
+(not browser-importable, because it reads env), and a hand mirror of all four in
+`frontend/src/lib/build-shape.ts` — policed by a test that parsed api-core's
+TypeScript SOURCE with regexes. The catalog is dependency-free and
+subpath-exported (`@pipeline-builder/api-core/build-catalog`), exactly as
+`quota-catalog` is, so the browser imports it and **the mirror and its drift test
+are deleted rather than improved**. The catalog holds DEFAULTS only; the env
+overlay stays in `maxBuildsPerOrg`, because one `envInt` call in that module
+would end its browser-importability and bring the mirror back.
+
+Three things were only visible once it was built:
+
+- **the owner hash had to carry the class, not just the org.** The scrubber
+  reclaims by walking `jobId -> owner`, and with the org alone it could not tell
+  which of the two counters a vanished job had taken — reclaiming from the wrong
+  one leaks the real slot AND walks the other counter toward its negative clamp.
+  The value is `org|class`, split on the LAST separator so an org id containing
+  one still parses, and an unrecognised suffix is treated as part of the org id
+  rather than trusted as a class.
+- **separate counters are the whole point, not an implementation detail.** With
+  one shared counter `batch` becomes a way to starve `standard`: an org that
+  fills it with ten cheap batch builds has no slot left for the urgent fix the
+  standard class exists to carry. A test pins this.
+- **the refusal copy had to change with the caps.** "At its limit of 3 concurrent
+  builds" was true of neither class once the caps diverged, so both the SSE
+  `WARN` and the terminal `UnrecoverableError` now name the class and its own
+  cap, and the terminal one names the OTHER class as the alternative.
+
+Everything the metrics side needed is labelled: `plugin_job_wait_seconds`,
+`plugin_build_slot_denied_total`, `plugin_build_slot_timeout_total`,
+`plugin_build_slot_reclaimed_total` and `cpu_credits_charged_total` all carry
+`build_class`, and the three slot alert rules group by it — which also forced a
+real fix to `PluginQueueProcessingSlow`: it is now scoped to
+`build_class="standard"`, because `batch` is EXPECTED to wait and a mixed p95
+would fire on a platform that is merely busy with deferred work while hiding a
+genuine standard-class stall inside the mixture.
+
 **Decision: offer builds a "run when there is room" class on EVERY tier, grade
 the tiers by how many standard versus batch builds they may run at once, and
 decide the class's PRICE separately from its existence.** The class is what
@@ -1008,6 +1063,78 @@ can be argued with, while a per-tier wall-minutes assumption reads like a
 measurement.
 
 ## D13 — Two class dimensions: scheduling, and MACHINE SIZE
+
+**IMPLEMENTED as a five-rung ladder with word labels over arithmetic ids:**
+`0.5x · 1x · 2x · 4x · 8x`, shown as **Small · Standard · Medium · Large ·
+X-Large**. The ids keep the multiplier so the credit math is checkable by eye and
+`buildSizeMultiplier` needs no lookup table to verify; the labels are what a
+person reads, and relabelling costs one catalog field with no wire value, Redis
+key, metric label or ledger string behind it.
+
+**`Small` (0.5x) is on every tier, and it is a budget option rather than a
+restriction.** The arithmetic only runs one way in each direction: above Standard
+a build that parallelises costs about the same and one that does not costs the
+multiple, so a bigger machine can never cost LESS; below Standard a CPU-bound
+build takes twice as long at half the vCPU and costs the same while an I/O-bound
+one costs about half, so Small can never cost MORE. (That holds while slowdown is
+at most linear, which memory pressure can break.) It also answers the
+crippled-free-tier objection from the other direction: Developer now has a real
+choice to make instead of a list of locks.
+
+**Small defaults into the `flexible` class** (`defaultClassForSize`), because a
+half-speed build holds its slot about twice as long — on Developer's single
+standard slot that would block the only urgent-fix slot for double the time. The
+UI is therefore ONE select over five named machines plus a deferral toggle, not
+two dropdowns; the toggle keeps `flexible` + `Large` expressible, which is a
+legitimate nightly image and a cell a preset list would have pushed into
+`standard`, the worst one for the platform.
+
+**A machine with no pool behind it is REFUSED at submission.** That is the fix to
+a defect this work shipped and nearly kept: `getBuildkitAddrForBuild` falls back
+to the shared daemon, so a `4x` build was charged four times and delivered one
+times. `0.5x` would have been worse in the other direction — full speed at half
+price, a blanket discount on every build a tenant would find within a day.
+`buildPoolConfigured` now gates it, and `1x` needs no pool because it IS the
+shared daemon.
+
+**The deadline scales below Standard** (`buildTimeoutFactor`): `timeoutMs ×
+max(1, 1/multiplier)`, up but never down. At 0.75 vCPU a ten-minute build becomes
+about twenty and would die on the 15-minute `DOCKER_BUILD_TIMEOUT_MS` — a
+`retryable` failure, so not charged, but retried twice and dead-lettered, which
+would make Small quietly fail long builds. Scaling it DOWN at `4x` would instead
+break I/O-bound builds that gain nothing from the extra CPU. A pleasant
+consequence: because the deadline scales by `1/multiplier` and the charge by the
+multiplier, **the per-build credit ceiling is identical at `0.5x` and `1x`**, so
+Small cannot raise the worst case.
+
+**A size is a BIGGER DAEMON, not a flag.** `buildctl` has no per-build CPU
+option, because the CPU a build may use is the buildkitd POD's limit. So
+`getBuildkitAddrForBuild(tier, size)` routes to
+`PLUGIN_BUILDKIT_ADDR_SIZE_<SUFFIX>`, and the suffix is declared in the catalog
+rather than derived: `'0.5x'.toUpperCase()` is `0.5X`, and a dot cannot appear in
+an environment variable name. (Same reason `x-large` was rejected as an id —
+`..._X-LARGE` is not an identifier either.)
+
+**The credit meter charges the multiplier regardless of delivery, and that is
+deliberate:** under-provisioned supply must not quietly become a cheaper build.
+`creditsForBuild(processedOn, finishedOn, size)` multiplies the vCPU by
+`BUILD_SIZE_MULTIPLIER`, which also keeps the meter honest in both directions — a
+build that parallelises finishes in about half the wall time and costs roughly
+the same (the pitch), and one that does not costs twice as much (the truth). That
+second case is exactly why a size is never SUGGESTED without measured per-plugin
+speedup: a 4x charge on an I/O-bound build that gains nothing is the complaint
+that sticks.
+
+`TIER_BUILD_SIZES` gates ASKING — `2x` from Team, `4x` from Business — and a
+request above the ceiling is **refused, not downgraded**. A silent downgrade
+means the tenant waits twice as long as they asked for with nothing saying why,
+and a CI job pinning `4x` for a nightly image would keep "succeeding" at `1x`
+forever. Both build-queuing routes resolve through one `resolveBuildShape`, so
+they cannot answer differently; an unrecognised tier degrades to the DEFAULT
+tier's gate (the smallest allowance) rather than turning a tier lookup into a
+500, which is the same call `tierForQueueName` already makes.
+
+
 
 **Decision: keep the scheduling class binary (standard / batch) and put the
 ladder on a SECOND dimension — machine size, named by its vCPU multiple
@@ -1559,6 +1686,21 @@ reduced cap is a point-in-time reading that keeps rising. A guard entry would
 refuse the downgrade, which turns the month-long block from an accident into
 policy: the customer is told they may not change plan until the window rolls.
 
+**IMPLEMENTED.** `usage.<type>.limitAtPeriodStart` is captured in the same atomic
+update that rolls the counter, and `computeQuotaStatus` takes
+`max(snapshot, current)` with `-1` short-circuiting to unlimited on either side
+(a `Math.max(-1, 100)` would silently cap an account holding an unlimited
+entitlement). An expired window takes the current limit, which is how a reduction
+eventually applies rather than never. Six tests cover it.
+
+**The pooled counter carries it too**, and that half matters most: a root with
+teams is the account most likely to buy and cancel packs, so protecting only the
+per-org counter would have put the protection on the wrong one.
+`pooledStatusFromRows` reads the pooled snapshot and `computeQuotaStatus` the
+per-org one; both take the max and both short-circuit `-1`. The snapshot is
+absent before the first pooled increment, which correctly falls back to the
+current limit because no period is established yet.
+
 **Resolved: capture the period's cap at its start.** Make a period's effective
 cap `max(cap at period start, current cap)`, so caps only ever RISE mid-period. A
 downgrade or a cancelled pack then applies from the next window, mid-period
@@ -1578,10 +1720,83 @@ still paid for the pack, so the hole costs far less than the outage it replaces.
 
 ## Phase 4 — Ingest CodeBuild
 
-The honest completion of D1, and **no longer a rename**: D1 takes the final name
-up front, so this phase widens what the quota COUNTS and leaves every identifier
-alone. AWS reports duration and compute type per build, and `pipeline-manager`
-already talks to AWS, so the data is reachable.
+**STEPS 1 AND 2 ARE DONE. STEPS 3–4 ARE ONE PRODUCT EVENT AND NEED A DECISION,
+NOT MORE CODE.** Step 1 shipped on its own merits — `pipeline_executions_total` now
+carries `org_id`, so pipeline consumption is attributable per tenant by count.
+Cardinality is bounded by the tenant count, which is the same bound
+`cpu_credits_charged_total` and `quota_denied_total` already accept; `pipelineId`
+stays off, because that one is unbounded per tenant.
+
+**Why the rest stops here.** Step 3 re-derives every tier limit, and CHARGING
+without step 3 is precisely the silent repricing step 3 exists to prevent: an
+account's consumption jumps with no change in its behaviour. So the charge and
+the re-derivation cannot ship apart, and together they are a change to the
+published ladder and to every pack grant D12 and Phase 3b derived — a priced,
+announced change rather than an implementation task.
+
+**And step 3 cannot be derived until the series has run.** That is why step 2 is
+scoped to MEASUREMENT: the consumption is now observed and attributed per org and
+per compute size, and charged to nothing. The denominator is accumulating; what
+is missing is a month of it, plus the coverage ratio that says how much of it is
+real.
+
+**The sequencing that follows from this**, and it mirrors the one open item 8
+already accepts for the wait promise:
+
+1. **DONE** — `org_id` on `pipeline_executions_total`.
+2. **MEASURE, do not charge. DONE — and it needed none of the infrastructure
+   this step assumed.** The claim that nothing observes completion was wrong
+   about the codebase: it is true of the pipeline SERVICE (which only starts and
+   stops executions) and false of the platform, because
+   `packages/pipeline-events` is already an in-account EventBridge forwarder
+   posting to `/reporting/ingest` with `eventType: 'ACTION'`, `durationMs`,
+   `startedAt`/`completedAt` and the `pb.pipeline-id` tag that joins to the org.
+   It already holds `codebuild:BatchGetBuilds`. No poller, no leader lock, no new
+   IAM.
+
+   What was actually missing was the multiplier and the sink:
+
+   - `CODEBUILD_COMPUTE_VCPU` + `computeCreditsFor` in api-core, beside the
+     `ComputeType` whose doc comment already carried the same vCPU figures;
+   - the forwarder reading `environment.computeType` off the finished build and
+     promoting it as a typed field (its own field rather than a `detail` key, for
+     the reason `failure` has one: `detail` is bounded at 8 KB and already sheds
+     content under that bound);
+   - `pipeline_compute_credits_total{org_id, compute_type}` and
+     `pipeline_compute_actions_total{org_id, compute_type, measured}` fanned out
+     of `emitIngestMetrics`.
+
+   **Fanned off the INSERTED rows, which is load-bearing here in a way it was not
+   for the stage metrics.** A duplicated stage outcome distorts a rate; a
+   duplicated vCPU-minute figure is a double-charge waiting for the day the
+   charge is switched on. The dedup index is what prevents it.
+
+   **The compute size is read from AWS, not from our stored config.** The config
+   holds a step's REQUESTED size; what it actually ran on is what consumed vCPU,
+   and a pipeline edited between start and finish would otherwise be priced
+   against the new value. An unreadable size returns `null` and the action is
+   recorded as unmeasured — never guessed as `SMALL`, which is the cheapest and
+   therefore the most flattering guess.
+3. **Run a month, then re-derive the ladder from the observed distribution** —
+   not from an estimate. A ladder derived from data survives its first bad month;
+   one picked from a model gets quietly re-cut.
+
+   **Read the coverage panel first, and this is a hard prerequisite rather than a
+   caution.** The forwarder refuses to compute a duration unless AWS declared a
+   `start-time` — it used to fall back to the event time, which reported every
+   terminal stage as 0 ms and dragged every average and p95 toward zero with
+   nothing saying anything was missing. So a real fraction of actions arrive
+   unmeasurable, `measured="false"` counts them, and the coverage ratio has its
+   own panel sitting above the credits one. A ladder priced off the credits series
+   before that ratio is known is a ladder priced off an unknown denominator.
+4. **Flip the charge on and change the scope sentence in the same release**,
+   which is the communication story D1 bought by stating the scope rather than
+   encoding it.
+
+Until then the quota is narrowly scoped and the product copy says so, which is a
+coherent state rather than a half-built one.
+
+The original steps, kept because other sections cite them by number:
 
 1. add `org_id` to `pipeline_executions_total` — one label, and executions become
    attributable by count even before any of this;
@@ -1615,20 +1830,31 @@ these by number.
 
 *Before Phase 1 ships, because they set contracts:*
 
-1. **The window mechanism (D7).** A rolling 30-day window, or calendar-month
-   arithmetic? `nextQuotaResetDate` does day arithmetic with a lazy reset, so
-   "aligned to the subscription" is only achievable with the second — and that
-   changes the shape of `periodDays`, which is the field Phase 1 moves into
-   `QuotaSummary`.
-2. **Provisioning (D9).** How much buildkitd capacity to run, and whether
-   `requests` rises to match what the ladder sells. The ladder cannot be
-   published before this. D9 now separates the two halves rather than quoting one
-   figure: raising `requests` to `1500m` is a correctness fix that buys no
-   hardware, and capacity beyond one replica is about $59/month for the flattened
-   ladder's top tier, ~$119 doubled — not the $150–180 an earlier revision
-   quoted against the old ladder.
-3. **`SINGLE_TENANT_SHARE` (D9).** What fraction of the pool one account may
-   hold. Half is the figure the plan argues for; it has not been decided.
+1. ~~**The window mechanism (D7).**~~ **DECIDED: a rolling 30-day window**, via
+   `quotaPeriodDays(type)` and `QUOTA_CPU_CREDITS_PERIOD_DAYS` (default 30).
+   Rolling needs no new mechanism — `nextQuotaResetDate` already does day
+   arithmetic with a lazy per-org reset — while calendar-month alignment needs a
+   different reset shape AND a subscription-anniversary lookup the quota service
+   does not have. The one thing calendar alignment buys is an invoice whose period
+   matches the usage period, which matters only if overage is ever billed, and
+   Phase 3c says it is not. Revisit it with overage, not before.
+2. ~~**Provisioning (D9).**~~ **DECIDED, in two halves, because they are not the
+   same decision.** Raise `requests.cpu` to `1500m` NOW: it buys no hardware (the
+   node is already paid for) and it is a correctness fix, because selling 1.5 vCPU
+   of throughput against a 0.3 vCPU reservation promises what the scheduler never
+   set aside. Buy the second replica — one `c7g.large`, about $59/month, covering
+   the flattened top tier's 1.56 vCPU — WHEN THE FIRST BUSINESS ACCOUNT LANDS, not
+   before. Pre-buying capacity for a tenant that does not exist is the one part of
+   this that can wait, and the commitment gauge is what says when it cannot.
+3. ~~**`SINGLE_TENANT_SHARE` (D9).**~~ **DECIDED: 1.0, not the 0.5 this plan
+   argued for.** Half is a FAIRNESS bound, and the invariant that actually matters
+   is DELIVERABILITY: a tier's cap must be reachable by that tenant alone on an
+   otherwise-idle platform. At 0.5 the published ladder would have to be halved,
+   which no comparable platform does — GitHub and CircleCI both publish caps a
+   single customer can reach. Bound concurrent tenants with the per-tier worker
+   concurrency instead (item 13): that is a rate limit tunable without touching
+   the price list, where `SINGLE_TENANT_SHARE` is a haircut on the thing being
+   sold.
 
 *Product judgements, answerable now but not by reading code:*
 
@@ -1636,16 +1862,42 @@ these by number.
    on every tier. The ramp double-counted tier and attributed to the payer what
    belongs to the project, and flattening also made the Phase 3b pack grants
    expressible as one figure each.
-5. **The per-build ceiling N (D5).** Downstream of the ladder, and constrained
-   to be ≤ the smallest tier's budget.
+5. ~~**The per-build ceiling N (D5).**~~ **CLOSED WITHOUT BUILDING IT — a tighter
+   ceiling is already enforced.** `DOCKER_BUILD_TIMEOUT_MS` (900s) plus
+   `SUPPLY_CHAIN_STEPS` x `DOCKER_PUSH_TIMEOUT_MS` (2 x 300s) bounds a build at
+   25 minutes of wall clock, which at 1.5 vCPU is 38 credits — well inside the
+   decision below and already load-bearing for the F3 closure's overshoot bound.
+   A second ceiling expressed in credits would be a second thing to keep in sync
+   with the first. The original decision, for the reasoning: **60 minutes.** At 1.5 vCPU
+   that is 90 credits against Developer's 4,500 — 2% of the smallest budget, so
+   the ceiling can never make a tier unusable, which was the constraint. It is
+   high enough that no honest build hits it and low enough that one runaway
+   Dockerfile cannot eat a month.
 6. ~~**`maxQuantity` on the pack (Phase 3).**~~ **CLOSED at 22** — and it was
    never downstream of D9. Pro's no-crossing bound, `(22,500 - 11,250) / 500`,
    binds before the supply bound of 124 does, so the cap is decidable today.
    Phase 3 carries the derivation and the cannibalisation check.
-7. **Whether the pack joins `throughput_bundle` (Phase 3).** Join and reprice
-   the combo, or record why the throughput combo omits the throughput that costs
-   money.
-8. **The batch class's discount and its wait promise (D11).** Now two
+7. ~~**Whether the pack joins `throughput_bundle` (Phase 3).**~~ **DECIDED: no,
+   and the reason is now concrete.** The combo ALREADY gained 4,500 credits
+   silently, because it contains `plugin_pack` and Phase 3b gave that pack its
+   minutes. Adding the credits pack on top would make a $25.99 combo the cheapest
+   route to credits in the catalogue and undercut the $2.99 pack inside it —
+   which is the combo-beats-its-own-member shape the bundle-sizing test exists to
+   catch.
+8. **The batch class's discount and its wait promise (D11).** **DECIDED on the
+   discount: ship the class with NO multiplier.** D12 derives credits from the
+   `plugins` cap, so the two bind simultaneously at 1x by construction — any
+   multiplier below 1x leaves `plugins` the only cap that bites, which makes a
+   batch discount inert for exactly the high-volume customer it was meant to
+   attract. The PRIORITY is the product; the price is not. **DECIDED on the wait promise: promise nothing yet.** It cannot
+   honestly be bounded today, and not only because the capacity floor (item 14) is
+   missing — `plugin_job_wait_seconds` is recorded ONLY for jobs that got a slot,
+   so a starved job contributes nothing to the very metric the promise would be
+   set from. Label that histogram by class with D11, run a month, then publish the
+   **observed p99 rounded up to a round number** rather than a target. A promise
+   derived from data survives its first bad week; one picked as a marketing figure
+   gets quietly dropped, and a dropped promise is worse than never having made
+   one. Originally two
    questions, not one. The CLASS needs no price and must not wait on one. The
    MULTIPLIER is near-inert, because D12 makes credits and `plugins` bind
    together, so it discounts SLOW BUILDS rather than volume — Claude's 50% is
@@ -1664,7 +1916,10 @@ these by number.
    (item 15), not the decision. **And it was never independent:** decoupling
    buildkitd into its own runner is a prerequisite it SHARES with D9's supply ramp
    and D11's reserved standard-class floor, so sequence that infrastructure once
-   for all three.
+   for all three. **RECOMMENDED SEQUENCING: do this LAST.** It is the only
+   remaining item gated on infrastructure rather than on a number, and the
+   decoupling it needs is the same one item 2's second replica and item 14's floor
+   need. Doing it last means doing that work once.
 10. ~~**The `RATE_PACKS` single-dimension conflict (Phase 3b).**~~ **CLOSED** —
    the premise was wrong. `RATE_PACKS` is a test-local constant
    (`bundle-sizing.test.ts:62`), not production code, so nothing forces a pack out
@@ -1674,17 +1929,48 @@ these by number.
 
 *Measurements, not decisions — they resolve themselves once Phase 2 runs:*
 
-11. **The 30% utilisation assumption (D10).** The one number here with no
+11. **NOW MEASURABLE — do not decide it, instrument it.**
+    `cpu_credits_charged_total{org_id, outcome}` ships with Phase 2, so this
+    resolves from data after one month of real traffic. **Recommendation: do not
+    publish the tier table to customers until that month has run**, because every
+    number in it rests on this one. Original framing: the one number here with
+    no
    evidence behind it. `cpu_credits_charged_total` per org against the tier cap
    gives real utilisation after a month, and the ladder should be re-derived from
    that rather than from a guess.
-12. **The forecast's reliability early in a period (D7).** It needs a
-    minimum-elapsed guard before the monthly window leans on it; how long is an
+12. **RECOMMENDED: suppress the forecast until 20% of the period has elapsed**,
+    and let the data tighten it. That is about 6 hours on the three-day window and
+    6 days on credits' monthly one. The figure is arbitrary, which is acceptable
+    because it errs in the conservative direction: a suppressed forecast shows
+    nothing, while an early one extrapolates a single build into a breach
+    prediction and the monthly window makes that error ten times larger. Revisit
+    from the same month of data that resolves item 11. Original framing: it needs
+    a minimum-elapsed guard before the monthly window leans on it; how long is an
     empirical question once there is data.
 
 *Answerable now, and cheaper than the things they unblock:*
 
-13. **The per-tier standard/batch slot mix, and the per-tier worker
+13. **HALF DONE, half BLOCKED — and the blocked half is not a missing decision.**
+    The per-tier WORKER concurrency is implemented at 1 · 2 · 2 · 3 · 4 (it is
+    what makes `SINGLE_TENANT_SHARE` 1.0 safe, since each tier's Worker bounds
+    that tier's concurrent builds across every org). The per-org STANDARD/BATCH
+    split cannot exist until D11 does: there is no `class` field on a build to
+    split a semaphore on, so this is blocked on code rather than awaiting a call.
+    When D11 lands, use 1/3 · 2/4 · 3/6 · 5/10 · 8/16. **DONE — that is exactly
+    what `TIER_BUILD_SLOTS` carries, and `PLUGIN_MAX_BUILDS_PER_ORG` no longer
+    exists.**
+
+    **One interaction the implementation surfaced:** with worker concurrency above
+    1, `PLUGIN_MAX_BUILDS_PER_ORG` finally BINDS. At the old flat default of 1 an
+    org could never reach a cap of 3, so the per-org semaphore was unreachable and
+    every slot behaviour built around it was dead code. Original recommendation —
+    standard/batch per org of
+    1/3 · 2/4 · 3/6 · 5/10 · 8/16, and per-tier worker concurrency of
+    1 · 2 · 2 · 3 · 4.** Deferred headroom exceeds standard on every row (so the
+    cheap class is where the room is) and the worker ladder is what bounds the
+    aggregate, which is what lets item 3 be 1.0. Both knobs are already built and
+    both are flat today, so this is configuration, not code. Original framing:
+    the per-tier standard/batch slot mix, and the per-tier worker
     concurrencies (D11).** Two knobs, both built and both untuned:
     `PLUGIN_MAX_BUILDS_PER_ORG` is 3 for every tier (D11 splits it into a standard
     and a batch figure per tier), and all six
@@ -1693,17 +1979,49 @@ these by number.
     only the numbers are a judgement, and they wait on nothing — not D9, not the
     class work, not the multiplier. The per-tier concurrency in particular is what
     bounds the free aggregate, so choose it BEFORE the pool is sized, not after.
-15. **The tier gates on machine size (D13).** Which tiers may request `2x` and
+15. **RECOMMENDED: ship the GATE, withhold the RECOMMENDATION.** `2x` from Team
+    and `4x` from Business as the entitlement — but suggest a size to nobody until
+    there is per-plugin speedup data. The gate is a capability and the suggestion
+    is a claim; only one of them needs evidence, and a 4x charge on an I/O-bound
+    build that gains nothing is the complaint that sticks. Original framing:
+    `2x` from Team, `4x` from Business — but gate the ADVERT on
+    measured speedup, not just the tier.** A 4x charge for an I/O-bound build that
+    gains nothing is the complaint that sticks, and D13 already requires
+    per-plugin speedup data before recommending a size. Ship the gate; withhold
+    the recommendation until the data exists. Original framing: which tiers may
+    request `2x` and
     `4x`. The pricing needs no decision — credits already charge vCPU-minutes, so
     a size is credit-neutral per build — so this is purely a capability gate, of
     the same shape as `idpConfigs`. Downstream of the buildkitd decoupling, and
     of per-plugin speedup data: gate on what a size actually delivers, not on
     what it sounds like it delivers.
-14. **Where the standard-class capacity floor is enforced (D11).** Reserving a
+14. **ANSWER IT WITH ITEM 2 — it is the same reservation question.** Until
+    buildkitd is decoupled from the plugin Deployment there is nothing to reserve
+    a fraction OF, so the floor is downstream of the provisioning decision rather
+    than beside it. Original framing: reserving a
     fraction of buildkitd for non-batch builds is what makes the wait promise
     computable and what makes "batch yields to paid" true at the resource. It
     is the same reservation question as D9's `requests`, so answer both together
     rather than letting the queue layer imply a guarantee it cannot keep.
+
+### The sequencing these share
+
+**Four of the five remaining items want the same month of real traffic, and three
+want the same piece of infrastructure.** Deciding them separately means deciding
+each one twice:
+
+- **One month of data** resolves item 11 (the utilisation assumption behind the
+  whole ladder), item 12's forecast guard, item 8's wait promise, and item 15's
+  speedup claims. `cpu_credits_charged_total` and the class-labelled wait
+  histogram are what produce it.
+- **One piece of infrastructure** — decoupling buildkitd from the plugin
+  Deployment — serves item 2's second replica, item 14's standard-class floor and
+  item 9's faster class.
+
+So: ship D11 and D13's gate, let a month run, then set the wait promise, the
+forecast guard and the re-derived ladder together from one dataset. The
+alternative is three separate guesses, each of which looks defensible on its own
+and none of which can be checked against the others.
 
 ## Checked and NOT a gap: the seat pack
 
@@ -1756,8 +2074,17 @@ deliverables against the display catalog and missed two changes that are
 STRUCTURAL rather than additive, one deliverable that would undo D1, and the
 whole of D11.
 
-**F0 — `periodDays` has to move from the ORG to the QUOTA, and that is a shape
-change.** An earlier revision recorded this as "D7 moves `periodDays` into
+**F0 — IMPLEMENTED.** `periodDays` is on `QuotaSummary` (optional, not required
+— the org-level field remains for the page-wide default and `QuotaCard` takes
+`quota.periodDays ?? periodDays`, so a response from an older deployment renders
+the org window rather than nothing). `periodLabel` says "monthly" and
+`periodPhrase` "this month's limit" for a 28–31 day window, and `QuotaPressure`
+carries the per-quota value so the banner describes the window it is actually
+warning about. The pooled path threads it through the shared `periodDaysForType`
+helper, so a pooled org gets the same window as a standalone one.
+
+**F0 — the original analysis, kept for the reasoning. `periodDays` has to move
+from the ORG to the QUOTA, and that is a shape change.** An earlier revision recorded this as "D7 moves `periodDays` into
 `QuotaSummary`", which undersells it. The field sits on `OrgQuotaResponse`
 (`frontend/src/types/organization.ts:160`) and its own comment states the
 invariant D7 breaks:
@@ -1815,6 +2142,10 @@ duration conversion moves into F5's hint, where it explains rather than
 misleads. **The exhaustive switch needs no new case at all** — cheaper than the
 revision that proposed extending it.
 
+**F2 — IMPLEMENTED.** `packUnit: { name: 'credits', per: 1 }` is on the catalog
+entry, so `AddonGrid` reads "500 credits" and `QuotaCard`'s admin edit field
+converts through an identity. The original note follows.
+
 **F2 — a `packUnit` on the catalog entry.** Unchanged in substance: the unit is
 `packUnit` on the catalog entry, `AddonGrid` reads it through `quotaPackUnit`, and
 a +500/month pack reading "500 credits" says far more than "1 pack". One
@@ -1822,6 +2153,66 @@ correction — `packUnit` is load-bearing in TWO places, not one: `QuotaCard`'s
 admin edit field also converts through it (`toDisplay` / `toRaw`), so
 `{ name: 'credits', per: 1 }` makes that conversion an identity and has to be
 declared rather than omitted.
+
+**F3 — CLOSED, and D3 with it. Building the reservation would CREATE the problem
+F3 exists to solve.**
+
+Two findings reversed this, both from the code rather than from the note below.
+
+**First, D3 is cheap — and that is the argument against it, not for it.**
+`withQuotaReservation` already takes an `amount` and already refunds that same
+amount against a period-safe `resetAt` snapshot, so "reserve an estimate" needs
+no new mechanism. But a build's cost is not known until it has run, so the
+reservation has to book the CEILING; `used` then jumps by a whole build's worth
+and drops back on settle. That is precisely the usage-goes-backwards state F3 was
+written to paper over. Build D3 and you owe F3; skip it and F3 has nothing to
+render.
+
+**Second, the exposure it would prevent is already bounded — and the bound is
+tighter than this plan assumed.** It is the per-org slot caps (D11) multiplied by
+the per-build wall-clock bound, and that bound already exists:
+`DOCKER_BUILD_TIMEOUT_MS` (900s) plus `SUPPLY_CHAIN_STEPS` x
+`DOCKER_PUSH_TIMEOUT_MS` (2 x 300s) = 25 minutes, which at 1.5 vCPU is 38
+credits:
+
+| Tier | Max in flight | Largest machine | Worst-case overshoot | Of a period |
+|---|---|---|---|---|
+| developer | 4 | Standard | 152 | 3.4% |
+| pro | 6 | Standard | 228 | 2.0% |
+| team | 9 | Medium | 684 | 3.0% |
+| business | 15 | Large | 2,250 | 5.0% |
+| enterprise | 24 | X-Large | 7,200 | **10.7%** |
+
+Only reachable by an org saturating every slot simultaneously at the cap, and
+always in the tenant's favour. **`Small` cannot raise any row**, because the
+deadline scales by the inverse of the multiplier and the charge by the
+multiplier, so its per-build ceiling equals Standard's exactly.
+
+**X-Large doubles the top row, and that is worth saying rather than burying.**
+Enterprise goes from ~5.3% to ~10.7% purely because an 8x machine can burn 300
+credits inside one deadline. Still bounded, still in the tenant's favour, and
+Enterprise has the largest absolute budget — but it is the row where headroom
+admission (below) would earn its keep first, and the row to watch on the
+overshoot series. **This also closes open item 5 (D5's
+per-build ceiling) without building it**: the existing timeouts already enforce a
+tighter ceiling than D5's proposed 60 minutes, and the largest-size column is
+what makes the bound worth watching rather than the duration.
+
+**So it is MEASURED rather than prevented.** `incrementMetered` already returns
+`{ counted, overshoot }` and every overshoot already lands as a per-org
+`usage_events` row carrying its route, principal and build class — the
+drill-down existed; what was missing was a series an alert could see. Added:
+`quota_overshoot_total{type}`, a `CpuCreditOvershoot` rule that fires when the
+whole worst case is being spent every hour (i.e. admission has stopped binding),
+and a panel saying plainly that a trickle is expected.
+
+**If it ever stops being small, the cheap fix is not D3 either.** It is HEADROOM
+ADMISSION — refuse when `remaining < (inFlight + 1) x ceiling`, reading the
+in-flight count from the per-class slot counters the route can already reach.
+No reservation state, no settle, and no number that moves backwards.
+
+The original note follows, because it is what D3 would have to satisfy if the
+data ever justifies it.
 
 **F3 — show in-flight reservations, or the number appears to go backwards.** D3
 reserves an estimate at admission and settles on completion, so while a build
@@ -1831,6 +2222,20 @@ seconds, builds in minutes. Either show "N in flight" explicitly or render the
 reserved portion distinctly from the settled portion. **A requirement on D3, not
 a nicety.** D11 adds a second kind of in-flight, so the affordance carries the
 class.
+
+**F4 — IMPLEMENTED for the three refusals that exist; the fourth has no code
+path to disposition.** Where each one now speaks from:
+
+| Refusal | Said by | Remedy it states |
+|---|---|---|
+| Monthly budget exhausted | `BuildCostHint` before submit, then the 429's `quota-exceeded` window event → `QuotaBanner` | buy a pack, or wait for the window |
+| Per-build ceiling (D5) | **nothing — D5 is not built.** No ceiling is enforced, so a disposition for it would be dead code pretending to be one | — |
+| At the per-org slot cap | the slot gate's SSE `WARN` on the first delay, naming the class and its own cap | wait; explicitly "nothing to buy or fix" |
+| Wait budget exhausted | `buildFailureInfo` → `BUILD_SLOT_TIMEOUT` | wait, or switch class — and it names the OTHER class |
+
+The slot refusals are recognised from the terminal event's typed details
+(`maxBuildsPerOrg`, `buildClass`), never from its prose, so an unrelated 503 — a
+registry timeout is also `SERVICE_UNAVAILABLE` — does not take that branch.
 
 **F4 — FOUR refusals, not two.** An earlier revision counted two. The real set,
 and what each one's remedy actually is:
@@ -1854,6 +2259,21 @@ page they will guess "quota", and the support traffic lands on this plan. **Wort
 fixing on its own merits, independent of everything else here** — it is the one
 item in this section that needs none of the rest of the plan.
 
+**F5 — IMPLEMENTED as `BuildCostHint`, on all three build surfaces** (upload,
+AI builder, wizard). It renders "About 15 credits — roughly a 10-minute build at
+1.5 vCPU — against 3,500 remaining this month", scales with the machine size, and
+the submit control is disabled on the SAME predicate the hint refuses from
+(`buildCreditsBlocked`), so the control and the explanation cannot disagree.
+
+Two things came out differently from this note. `useAIQuota` was GENERALISED into
+`useOwnQuota(type, busy)` rather than copied: the fail-open-to-null rule is the
+load-bearing part of both, and two copies of a fail-open path is how one of them
+ends up failing closed and locking a control the server would have served. And
+the vCPU figure is STATED in the line rather than read from config — it is a
+plugin-service env var the frontend has no way to see, so an operator who raises
+it would otherwise make the line quietly wrong; `frontend/test/build-shape.test.ts`
+fails if the plugin service's default moves away from 1.5.
+
 **F5 — a cost hint before the build, modelled on `AIQuotaHint`.** Unchanged, and
 now the home for the unit conversion F1 was going to put in the wrong place:
 "about 15 credits — roughly a 10-minute build at 1.5 vCPU — against 2,900
@@ -1863,6 +2283,37 @@ file's own comment records the app having had three of these and consolidating
 them. `AIQuotaHint` already handles the not-charged case, disables the action on
 the same predicate the caller uses, and fails open when the quota cannot be read.
 **Highest-value item in this set.**
+
+**F6 — IMPLEMENTED, except the queue-position state.** What shipped:
+
+- a class choice at submission (`BuildShapeFields`) on all three build surfaces,
+  ungated on every tier — gating the cheaper class would be charging for the
+  thing that smooths load;
+- the class and size on the SSE `Build started` event, and on
+  `plugin_job_wait_seconds`, `plugin_build_slot_denied_total`,
+  `plugin_build_slot_timeout_total`, `plugin_build_slot_reclaimed_total` and
+  `cpu_credits_charged_total`, plus the credit ledger's `feature`
+  (`build:user:batch:4x`);
+- the per-tier standard and batch counts on the picker's hint and in a
+  `BuildCapacityCard` beside the quota cards — capacity is not a quota and does
+  not belong on a quota card, since a slot is occupied and given back rather
+  than spent;
+- the machine sizes rendered WITH their gates (`2x · Team and above`), gated
+  sizes shown-and-locked in both the picker and the capacity card.
+
+**"Queued as batch, N ahead of you" is NOT built, and the reason is that the
+number cannot be computed honestly.** BullMQ has no queue-position primitive, and
+the figure would have to be invented from a waiting count that mixes every org on
+the tier. A wait state that quotes a number nobody can reconcile is worse than
+one that says what it knows, so the `WARN` says the class, the class's own cap and
+the retry interval instead. The honest version of this needs the observed-p99
+promise from open item 8, which needs a month of the now class-labelled
+histogram.
+
+**A per-plugin DEFAULT size was also not built.** The size is per submission,
+which is where the request is; a remembered per-plugin default is a schema column
+on the plugin row and a second place for the tier gate to be enforced (a plugin
+whose stored `4x` outlives a downgrade), so it waits for a reason to exist.
 
 **F6 — the build class, which an earlier revision omitted entirely.** D11 is a
 graded per-tier dimension now, and nothing in the frontend expresses it:

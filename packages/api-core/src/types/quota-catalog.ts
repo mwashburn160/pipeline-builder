@@ -85,9 +85,12 @@ export interface QuotaTypeMeta {
    * registry storage would reset, which is the opposite of the one thing it
    * needs to understand about storage.
    *
-   * - `flow` — a per-period rate (`QUOTA_RESET_DAYS`), reserved on
-   *   create/build and zeroed at the boundary. Hitting it is temporary and the
-   *   account self-heals.
+   * - `flow` — a per-period rate, reserved on create/build and zeroed at the
+   *   boundary. Hitting it is temporary and the account self-heals. The period is
+   *   PER TYPE rather than global: `QUOTA_RESET_DAYS` (3 days) for every flow but
+   *   `cpuCredits`, which is monthly. Read it through `quotaPeriodDays` and never
+   *   assume the global — a forecast or a "resets in N days" line computed
+   *   against the wrong window is wrong by a factor of ten for credits.
    * - `stock` — a level, not a rate. It stays where it is until bytes are freed
    *   or rows are deleted, so a reset date, a "resets in N days" line and a
    *   burn-rate forecast are all meaningless for it. `storageBytes` is measured;
@@ -174,6 +177,13 @@ export const QUOTA_CATALOG: Readonly<Record<QuotaType, QuotaTypeMeta>> = {
   apiCalls: { label: 'API call', labelPlural: 'API calls', render: 'count', accrual: 'flow', observed: 'metered', description: 'Requests made by people in browser sessions this period' },
   automationCalls: { label: 'Automation call', labelPlural: 'Automation calls', render: 'count', accrual: 'flow', observed: 'metered', description: 'Requests made with service-account or personal access keys this period' },
   aiCalls: { label: 'AI call', labelPlural: 'AI calls', render: 'count', accrual: 'flow', observed: 'metered', description: 'AI generation invocations this period' },
+  // The one flow quota on a period of its OWN — a MONTH, where every other flow
+  // rolls on QUOTA_RESET_DAYS (3 days). Rendered as a COUNT and never as a
+  // duration: the unit is an abstract credit precisely so it cannot be misread as
+  // wall-clock ("11,250 build minutes" reads as 187 hours when it buys 125), and
+  // formatting it back into "187h 30m" would undo that. The wall-clock conversion
+  // belongs in the pre-build cost hint, where it explains rather than misleads.
+  cpuCredits: { label: 'CPU credit', labelPlural: 'CPU credits', render: 'count', accrual: 'flow', observed: 'metered', description: 'vCPU-minutes of build compute used this month', packUnit: { name: 'credits', per: 1 } },
   // A MEASURED total, recomputed on demand rather than counted — the one quota
   // that is neither a period flow nor a create-time count.
   storageBytes: { label: 'Registry storage', labelPlural: 'Registry storage', render: 'bytes', accrual: 'stock', observed: 'measured', description: 'Registry storage currently in use', packUnit: { name: 'GB', per: GB } },

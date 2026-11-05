@@ -298,26 +298,47 @@ describe('loadBillingConfig', () => {
       expect(bundles.find((x) => x.id === 'seat')?.prices).toEqual({ monthly: 3000, annual: 30000 });
     });
 
-    it('overrides a single-dimension grant amount from the environment', () => {
-      process.env.BILLING_BUNDLE_PLUGIN_PACK_GRANT = '50';
+    it('overrides ONE dimension of a grant from the environment', () => {
+      process.env.BILLING_BUNDLE_PLUGIN_PACK_GRANT_PLUGINS = '50';
       const { bundles } = loadBillingConfig();
-      expect(bundles.find((x) => x.id === 'plugin_pack')?.grants).toEqual({ plugins: 50 });
+      // The dimension named is retuned; the others keep their catalogue value.
+      expect(bundles.find((x) => x.id === 'plugin_pack')?.grants).toEqual({ plugins: 50, cpuCredits: 4_500 });
     });
 
-    it('ignores a grant override on a MULTI-dimension bundle', () => {
-      // `applyGrantOverride` retunes one dimension and has no way to say WHICH
-      // on a bundle that grants several, so it declines rather than guessing.
-      // Both tier differentiators are multi-dimension for the same reason —
-      // `pipeline_pack` holds the 5:1 plugins:pipelines ratio, `seat` holds the
-      // 100k API / 200 AI per-seat share — so neither takes this knob. Asserted
-      // rather than assumed: `seat` DID take it until it started granting
-      // capacity, and losing an operator knob silently is how it would have
-      // gone unnoticed.
-      process.env.BILLING_BUNDLE_SEAT_GRANT = '2';
-      process.env.BILLING_BUNDLE_PIPELINE_PACK_GRANT = '9';
+    it('overrides SEVERAL dimensions of one grant independently', () => {
+      // The reason the single `BILLING_BUNDLE_<ID>_GRANT` had to go: it could
+      // only ever address a one-dimension pack, and declined silently on the
+      // rest. `plugin_pack` became multi-dimension when `cpuCredits` arrived —
+      // credits are DERIVED from plugin-build volume, so a pack granting builds
+      // must grant the minutes to run them — and an operator retuning the build
+      // grant has to be able to retune the minutes with it, or the 45-credits-
+      // per-build invariant breaks the moment the knob is used.
+      process.env.BILLING_BUNDLE_PLUGIN_PACK_GRANT_PLUGINS = '20';
+      process.env.BILLING_BUNDLE_PLUGIN_PACK_GRANT_CPU_CREDITS = '9000';
       const { bundles } = loadBillingConfig();
-      expect(bundles.find((x) => x.id === 'seat')?.grants).toEqual({ seats: 1, apiCalls: 100_000, aiCalls: 200 });
-      expect(bundles.find((x) => x.id === 'pipeline_pack')?.grants).toEqual({ pipelines: 5, plugins: 25 });
+      expect(bundles.find((x) => x.id === 'plugin_pack')?.grants).toEqual({ plugins: 20, cpuCredits: 9000 });
+    });
+
+    it('retunes the tier differentiators too, which the old single knob could not', () => {
+      // `seat` holds the 100k API / 200 AI per-seat share and `pipeline_pack`
+      // the 5:1 plugins:pipelines ratio, so both are multi-dimension — and under
+      // the old contract both silently ignored the knob. Asserted rather than
+      // assumed, because losing an operator knob quietly is exactly how the old
+      // behaviour went unnoticed.
+      process.env.BILLING_BUNDLE_SEAT_GRANT_API_CALLS = '150000';
+      process.env.BILLING_BUNDLE_PIPELINE_PACK_GRANT_PIPELINES = '9';
+      const { bundles } = loadBillingConfig();
+      expect(bundles.find((x) => x.id === 'seat')?.grants).toEqual({ seats: 1, apiCalls: 150_000, aiCalls: 200 });
+      expect(bundles.find((x) => x.id === 'pipeline_pack')?.grants).toEqual({ pipelines: 9, plugins: 25, cpuCredits: 11_250 });
+    });
+
+    it('ignores an override for a dimension the bundle does not grant', () => {
+      // An override retunes an amount; it does not invent an entitlement. A
+      // storage grant on a plugin pack would be a new capability smuggled in
+      // through a knob.
+      process.env.BILLING_BUNDLE_PLUGIN_PACK_GRANT_STORAGE_BYTES = '999';
+      const { bundles } = loadBillingConfig();
+      expect(bundles.find((x) => x.id === 'plugin_pack')?.grants).toEqual({ plugins: 10, cpuCredits: 4_500 });
     });
 
     it('overrides seat volume tiers from BILLING_BUNDLE_SEAT_VOLUME_TIERS (sorted ascending)', () => {
@@ -349,14 +370,16 @@ describe('loadBillingConfig', () => {
       }
     });
 
-    it('ignores a malformed or negative grant override', () => {
-      process.env.BILLING_BUNDLE_PIPELINE_PACK_GRANT = 'abc';
-      process.env.BILLING_BUNDLE_PLUGIN_PACK_GRANT = '-5';
+    it('ignores a malformed or negative grant override, per dimension', () => {
+      process.env.BILLING_BUNDLE_PIPELINE_PACK_GRANT_PIPELINES = 'abc';
+      process.env.BILLING_BUNDLE_PLUGIN_PACK_GRANT_PLUGINS = '-5';
+      // A bad value on ONE dimension must not discard a good value on another:
+      // the override is applied per key, so this leaves plugins alone and takes
+      // the credits.
+      process.env.BILLING_BUNDLE_PLUGIN_PACK_GRANT_CPU_CREDITS = '5000';
       const { bundles } = loadBillingConfig();
-      // pipeline_pack is multi-dimension, so applyGrantOverride ignores a
-      // `_GRANT` override for it entirely (single-key grants only).
-      expect(bundles.find((x) => x.id === 'pipeline_pack')?.grants).toEqual({ pipelines: 5, plugins: 25 });
-      expect(bundles.find((x) => x.id === 'plugin_pack')?.grants).toEqual({ plugins: 10 });
+      expect(bundles.find((x) => x.id === 'pipeline_pack')?.grants).toEqual({ pipelines: 5, plugins: 25, cpuCredits: 11_250 });
+      expect(bundles.find((x) => x.id === 'plugin_pack')?.grants).toEqual({ plugins: 10, cpuCredits: 5000 });
     });
 
     it('ignores a grant override on a feature-only (empty-grant) bundle', () => {
@@ -391,7 +414,7 @@ describe('loadBillingConfig', () => {
       // Throughput packs are PAID-tier only: a $0 account that can buy capacity
       // has no reason to upgrade for capacity, and the grants are large next to
       // a free tier's own rate. See api/billing/test/bundle-sizing.test.ts.
-      for (const id of ['plugin_pack', 'api_pack', 'automation_pack', 'ai_pack', 'listing_pack']) {
+      for (const id of ['plugin_pack', 'cpu_credits_pack', 'api_pack', 'automation_pack', 'ai_pack', 'listing_pack']) {
         expect({ id, tiers: bundles.find((x) => x.id === id)?.availableForTiers })
           .toEqual({ id, tiers: ['pro', 'team', 'business', 'enterprise'] });
       }

@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { DEFAULT_TIER, QUOTA_TIERS, type QuotaTier, type QuotaTierLimits, VALID_TIERS, nextQuotaResetDate } from '@pipeline-builder/api-core';
+import { DEFAULT_TIER, QUOTA_TIERS, type QuotaTier, type QuotaTierLimits, VALID_TIERS, nextQuotaResetDate, quotaPeriodDays } from '@pipeline-builder/api-core';
 import { Schema, model, Types, Model, type HydratedDocument } from 'mongoose';
 import slugify from 'slugify';
 
@@ -282,6 +282,7 @@ const quotaUsageSchema = new Schema<QuotaUsage>(
 type PersistedQuotaKey = Exclude<keyof QuotaTierLimits, 'eventRetentionDays' | 'doraRetentionDays'>;
 const PERSISTED_QUOTA_KEYS = [
   'plugins', 'pipelines', 'apiCalls', 'automationCalls', 'aiCalls', 'storageBytes',
+  'cpuCredits',
   'dashboards', 'alertRules', 'alertDestinations', 'idpConfigs', 'listings', 'seats',
   'supportContacts', 'supportPremiumContacts',
 ] as const satisfies readonly PersistedQuotaKey[];
@@ -446,6 +447,15 @@ const organizationSchema = new Schema<OrganizationData>(
         default: () => QUOTA_TIERS[DEFAULT_TIER].limits.storageBytes,
         min: -1,
       },
+      // vCPU-minutes of plugin-build compute. The one counter on a MONTHLY
+      // period (`quotaPeriodDays`) rather than the global three-day reset, so a
+      // reseed or a reset date computed from QUOTA_RESET_DAYS is wrong for this
+      // one by a factor of ten.
+      cpuCredits: {
+        type: Number,
+        default: () => QUOTA_TIERS[DEFAULT_TIER].limits.cpuCredits,
+        min: -1,
+      },
       // Per-org count caps on user-editable feature tables. -1 means unlimited.
       dashboards: {
         type: Number,
@@ -523,6 +533,15 @@ const organizationSchema = new Schema<OrganizationData>(
       aiCalls: {
         type: quotaUsageSchema,
         default: () => ({ used: 0, resetAt: nextQuotaResetDate() }),
+      },
+      // The one counter on a MONTHLY period. `nextQuotaResetDate()` with no
+      // argument is the global three-day window, which for credits would be
+      // wrong by a factor of ten IN THE CUSTOMER'S FAVOUR — ten resets a month
+      // against a cap sized for one. Every counter above may read the global
+      // because every quota above shares it; this one must ask.
+      cpuCredits: {
+        type: quotaUsageSchema,
+        default: () => ({ used: 0, resetAt: nextQuotaResetDate(quotaPeriodDays('cpuCredits')) }),
       },
     },
     aiEnabled: { type: Boolean, default: true },

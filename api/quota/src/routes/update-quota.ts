@@ -3,7 +3,7 @@
 
 import { requireAssurance, requireAuth, requireStepUp, requireSystemOrg, audited, NotFoundError, sendSuccess, sendBadRequest, sendError, sendQuotaExceeded, ErrorCode, getParam, validateBody, actorId, recordAudit, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
 import type { QuotaType } from '@pipeline-builder/api-core';
-import { withRoute } from '@pipeline-builder/api-server';
+import { incCounter, withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import type { RequestHandler } from 'express';
 import { resolveRootOrgId } from '../helpers/org-hierarchy.js';
@@ -210,6 +210,21 @@ export function createUpdateQuotaRoutes(svc: QuotaService = defaultQuotaService)
         if (meter) {
           const result = await svc.incrementMetered(targetOrgId, typedType, amount);
           recordUsage(splitMeteredGroups(targetOrgId, result.rootOrgId, typedType, groups ?? [{ amount, attribution }], result.counted));
+          // UNITS PAST THE CAP, as a series rather than only as rows.
+          //
+          // The per-org rows already land in `usage_events` with full
+          // attribution, which is the drill-down; this is what an ALERT can see.
+          // It exists because overshoot is how the build meter's one known
+          // imprecision shows up: admission is a check rather than a
+          // reservation, so two builds submitted at the cap can both be admitted
+          // and each overshoot by its own cost. That exposure is bounded (the
+          // per-org slot caps x the per-build wall-clock bound), small, and in
+          // the customer's favour — so it is MEASURED rather than prevented, and
+          // this is the measurement. If it ever stops being small, the series is
+          // what says so.
+          if (result.overshoot > 0) {
+            incCounter('quota_overshoot_total', { type: quotaType }, result.overshoot);
+          }
           // Nothing counted ⇒ nothing crossed; the notifier skips it cheaply.
           void notifyThresholds({
             rootOrgId: result.rootOrgId,

@@ -132,6 +132,13 @@ spec:
             requests:
               # Low CPU request (bursts to the 1500m limit during builds) so the
               # plugin pod fits the single-node CPU budget.
+              #
+              # DELIBERATELY NOT raised to 1500m with the AWS trees. `cpuCredits`
+              # sells throughput against the LIMIT and the AWS trees now reserve
+              # it (D9), but minikube is a laptop single-node cluster that sells
+              # no tiers — a 1500m request here would simply fail to schedule.
+              # The drift between trees is intentional and this comment is the
+              # record of it.
               cpu: "300m"
               memory: 512Mi
           # EXEC ON LOOPBACK — see k8s/pgbouncer.yaml for the full rationale.

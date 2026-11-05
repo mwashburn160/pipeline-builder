@@ -71,12 +71,18 @@ export {
   type SeatRemedy,
   DEFAULT_TIER,
   QUOTA_RESET_DAYS,
+  CPU_CREDITS_PERIOD_DAYS,
+  quotaPeriodDays,
   nextQuotaResetDate,
   AUTOMATION_CALLS_SIZING,
   automationCallsFor,
   quotaGracePct,
   enforcedQuotaLimit,
 } from './quota-tiers.js';
+// The build class/size catalog: ids, labels, credit multipliers, tier floors
+// and per-class slot defaults. Dependency-free, so the browser imports it
+// through the `./build-catalog` subpath instead of mirroring it.
+export * from './build-catalog.js';
 export * from './feature-flags.js';
 export {
   permissionLabel,

@@ -19,6 +19,10 @@ import api from '@/lib/api';
 import { PLUGIN_BUILD_TIMEOUT_MS } from '@/lib/constants';
 import { useBuildStatus } from '@/hooks/useBuildStatus';
 import { BuildFailureMessage } from './BuildFailureMessage';
+import { BuildShapeFields } from './BuildShapeFields';
+import { BuildCostHint, buildCreditsBlocked } from '@/components/ui/BuildCostHint';
+import { useOwnQuota } from '@/hooks/useOwnQuota';
+import type { BuildClass, BuildSize } from '@pipeline-builder/api-core/build-catalog';
 import type { PluginCatalogEdits, Visibility } from '@/types';
 import { useAutoCloseTimer } from '@/hooks/useAutoCloseTimer';
 
@@ -51,6 +55,10 @@ export default function CreatePluginModal({ canPublish, onClose, onCreated, init
   const [catalogEdits, setCatalogEdits] = useState<PluginCatalogEdits>({});
   // `org` is the backend's create default for plugins; `private` is opt-in.
   const [access, setAccess] = useState<Visibility>('org');
+  // Build shape (D11/D13). Both default to what every tier has, so an org that
+  // never touches these fields submits exactly what it submitted before.
+  const [buildClass, setBuildClass] = useState<BuildClass>('standard');
+  const [buildSize, setBuildSize] = useState<BuildSize>('1x');
   const [validationError, setValidationError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [requestId, setRequestId] = useState<string | null>(null);
@@ -60,6 +68,12 @@ export default function CreatePluginModal({ canPublish, onClose, onCreated, init
 
   // SSE build progress — driven by the requestId returned from the 202
   // upload response. Stays idle when requestId is null.
+  // The org's CPU-credit budget, for the pre-submit cost line and the size
+  // gate. Re-read when a build settles (`isBuilding` falling), so the number
+  // reflects the build that just ran. Fails open to null — a quota read that
+  // fails must not lock an upload the server would have accepted.
+  const { quota: creditQuota } = useOwnQuota('cpuCredits', requestId !== null);
+
   const { status: buildStatus, events, lastEvent } = useBuildStatus(requestId);
   const isBuilding = requestId !== null && buildStatus === 'building';
   const isComplete = buildStatus === 'completed';
@@ -79,11 +93,11 @@ export default function CreatePluginModal({ canPublish, onClose, onCreated, init
   }, [buildStatus]);
 
   const { execute: uploadAsync, loading, error: uploadError, clearError } = useAsyncCallback(
-    async (f: File, a: Visibility, edits: PluginCatalogEdits) => {
+    async (f: File, a: Visibility, edits: PluginCatalogEdits, cls: BuildClass, size: BuildSize) => {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), PLUGIN_BUILD_TIMEOUT_MS);
       try {
-        return await api.uploadPlugin(f, a, { signal: controller.signal, catalogEdits: edits });
+        return await api.uploadPlugin(f, a, { signal: controller.signal, catalogEdits: edits, buildClass: cls, buildSize: size });
       } catch (err) {
         if (err instanceof DOMException && err.name === 'AbortError') {
           throw new Error('Upload timed out. Please try again with a smaller file or check your connection.');
@@ -124,7 +138,7 @@ export default function CreatePluginModal({ canPublish, onClose, onCreated, init
     setSuccess(null);
     setRequestId(null);
 
-    const response = await uploadAsync(file, access, catalogEdits);
+    const response = await uploadAsync(file, access, catalogEdits, buildClass, buildSize);
 
     if (response) {
       if (response.statusCode === 202 && response.data?.requestId) {
@@ -199,8 +213,10 @@ export default function CreatePluginModal({ canPublish, onClose, onCreated, init
           <Upload className="w-4 h-4 mr-2" />Retry
         </Button>
       )}
+      {/* Disabled on the SAME predicate the hint renders its refusal from, so
+          the control and the explanation can never disagree. */}
       {!requestId && (
-        <Button onClick={handleUpload} disabled={uploadDisabled || !file}>
+        <Button onClick={handleUpload} disabled={uploadDisabled || !file || buildCreditsBlocked(creditQuota?.summary)}>
           {loading ? (
             <><LoadingSpinner size="sm" className="mr-2" />Uploading...</>
           ) : (
@@ -294,6 +310,18 @@ export default function CreatePluginModal({ canPublish, onClose, onCreated, init
               <FormField label="Visibility" hint={visibilityHint(canPublish, 'plugins:publish', true)}>
                 <VisibilitySelect value={access} onChange={setAccess} canPublish={canPublish} disabled={uploadDisabled} />
               </FormField>
+
+              <BuildShapeFields
+                tier={creditQuota?.tier}
+                buildClass={buildClass}
+                buildSize={buildSize}
+                onClassChange={setBuildClass}
+                onSizeChange={setBuildSize}
+                disabled={uploadDisabled}
+              />
+              {/* What this build will cost, said before it is submitted rather
+                  than discovered as a 429 after the ZIP has already uploaded. */}
+              <BuildCostHint quota={creditQuota} buildSize={buildSize} />
 
               {/* Catalog details: detected from the package, accepted or
                   edited. Re-keyed per file so a new pick re-inspects cleanly. */}

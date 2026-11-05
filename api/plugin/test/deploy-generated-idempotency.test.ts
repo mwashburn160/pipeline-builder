@@ -58,6 +58,21 @@ jest.unstable_mockModule('../src/services/plugin-artifact-storage.js', () => ({
 // port 1) — used to drive the route with what an outage actually looks like:
 // the safe HTTP client returns null, so reserve RESOLVES `unavailable` rather
 // than throwing. Loaded by file path, not through the mocked api-core entry.
+// The CPU-credit admission gate fails CLOSED when the quota service cannot
+// answer (D6), and this suite deliberately points a REAL quota client at an
+// unreachable port — so without this stub every case here would 503 on credits
+// before reaching the idempotency behaviour it exists to test. Credits have
+// their own suite (`build-credits.test.ts`); this one is about the key.
+jest.unstable_mockModule('../src/queue/build-credits.js', () => ({
+  admitBuildOnCredits: jest.fn(async () => ({ admitted: true })),
+  chargeBuildCredits: jest.fn(async () => undefined),
+  buildTrigger: () => 'user',
+  creditsForBuild: () => 0,
+  buildSpendsCredits: () => true,
+  failedBuildIsCharged: () => false,
+  BUILDKIT_VCPU: 1.5,
+}));
+
 const realQuota = await import('@pipeline-builder/api-core/lib/services/quota.js') as {
   createQuotaService: (cfg: { host: string; port: number; timeout: number }) => any;
   reserveQuota: (...args: any[]) => Promise<any>;
@@ -114,7 +129,14 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@p
   CoreConstants: { IDEMPOTENCY_TTL_MS: 300000 },
 }));
 
-jest.unstable_mockModule('../src/helpers/docker-build.js', () => ({ BUILD_TEMP_ROOT: '/tmp/builds' }));
+// `buildPoolConfigured` is what `resolveBuildShape` reads to refuse a size
+// with no machine behind it; stubbed true so this suite's subject stays the
+// idempotency claim rather than the supply gate.
+jest.unstable_mockModule('../src/helpers/docker-build.js', () => ({
+  BUILD_TEMP_ROOT: '/tmp/builds',
+  buildPoolConfigured: () => true,
+  buildPoolEnvVar: (size: string) => `PLUGIN_BUILDKIT_ADDR_SIZE_${size}`,
+}));
 jest.unstable_mockModule('../src/helpers/plugin-helpers.js', () => ({ createBuildJobData: mockCreateBuildJobData }));
 jest.unstable_mockModule('../src/helpers/plugin-spec.js', () => ({ validateBuildArgs: jest.fn() }));
 jest.unstable_mockModule('../src/queue/connections.js', () => ({ enqueueBuild: mockEnqueueBuild, getOrgTier: mockGetOrgTier }));

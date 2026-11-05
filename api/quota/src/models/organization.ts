@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { VALID_QUOTA_TYPES, VALID_TIERS, type QuotaTier, type QuotaType, nextQuotaResetDate } from '@pipeline-builder/api-core';
+import { VALID_QUOTA_TYPES, VALID_TIERS, type QuotaTier, type QuotaType, nextQuotaResetDate, quotaPeriodDays } from '@pipeline-builder/api-core';
 import mongoose, { Schema, Document } from 'mongoose';
 import { config } from '../config.js';
 
@@ -10,6 +10,25 @@ import { config } from '../config.js';
 interface QuotaUsage {
   used: number;
   resetAt: Date;
+  /**
+   * The LIMIT this counter started its period with.
+   *
+   * Captured at the period boundary so a cap can only ever RISE mid-period: the
+   * effective cap is `max(limitAtPeriodStart, current)`, which means a downgrade
+   * or a cancelled pack applies from the NEXT window rather than stranding an
+   * account over a cap it already spent against.
+   *
+   * It exists because of `cpuCredits`. `checkEntitlementOvercap` refuses a
+   * downgrade that would strand an account, but deliberately excludes per-period
+   * rate quotas on the grounds that "they reset, so landing over a reduced cap
+   * costs at most one period" — true at three days, and a MONTH for credits. A
+   * mid-month downgrade could otherwise refuse every build until the window
+   * rolled: a month-long outage caused by a billing click.
+   *
+   * Absent on a counter that predates this field, which reads as "no snapshot"
+   * and falls back to the current limit — the behaviour before it existed.
+   */
+  limitAtPeriodStart?: number;
 }
 
 /** Per-type limits, one per `VALID_QUOTA_TYPES` member. -1 means unlimited;
@@ -87,12 +106,27 @@ export interface OrganizationDocument extends Document {
 
 const quotaUsageSchema = new Schema<QuotaUsage>( {
   used: { type: Number, default: 0 },
+  // See QuotaUsage.limitAtPeriodStart. No default: absent means "no snapshot",
+  // which the status computation reads as the current limit.
+  limitAtPeriodStart: { type: Number },
   resetAt: { type: Date, default: () => nextQuotaResetDate(config.quota.resetDays) },
 },
 { _id: false },
 );
 
-const defaultUsage = () => ({ used: 0, resetAt: nextQuotaResetDate(config.quota.resetDays) });
+/**
+ * A fresh counter for ONE quota type, on that type's own period.
+ *
+ * Per-type rather than one shared default: `config.quota.resetDays` is the
+ * global three-day window, and `cpuCredits` is monthly. Seeding every counter
+ * from the global one gave credits ten resets a month against a cap sized for
+ * one — a factor-of-ten error in the customer's favour, and invisible, because
+ * a counter that resets too often simply never refuses anything.
+ */
+const defaultUsageFor = (type: QuotaType) => () => ({
+  used: 0,
+  resetAt: nextQuotaResetDate(type === 'cpuCredits' ? quotaPeriodDays(type) : config.quota.resetDays),
+});
 
 const organizationSchema = new Schema<OrganizationDocument>( {
   // Mixed to match the shared `organizations` collection, whose docs are written
@@ -112,7 +146,7 @@ const organizationSchema = new Schema<OrganizationDocument>( {
     VALID_QUOTA_TYPES.map((t) => [t, { type: Number, default: config.quota.defaults[t] }]),
   ),
   usage: Object.fromEntries(
-    VALID_QUOTA_TYPES.map((t) => [t, { type: quotaUsageSchema, default: defaultUsage }]),
+    VALID_QUOTA_TYPES.map((t) => [t, { type: quotaUsageSchema, default: defaultUsageFor(t) }]),
   ),
   // No default: an absent slot means "pool counter not started", which the
   // pooled increment seeds from the root's own live usage.

@@ -108,9 +108,20 @@ export function createExecutionRoutes(): Router {
         const { executionId } = await pipelineExecutionService.triggerExecution(pipelineId, orgId);
         ctx.log('COMPLETED', 'Triggered pipeline execution', { pipelineId, executionId });
 
-        // Domain metric — CodePipeline execution started. Tagged by outcome only;
-        // pipelineId/orgId are deliberately omitted to keep label cardinality bounded.
-        incCounter('pipeline_executions_total', { outcome: 'started' });
+        // Domain metric — CodePipeline execution started. Labelled by outcome
+        // and ORG.
+        //
+        // org_id was deliberately omitted before, for label cardinality, and
+        // that trade is no longer the right one: a pipeline execution is the one
+        // unit of consumption `cpuCredits` does NOT count yet (Phase 4), so
+        // without this label there is no per-tenant figure for pipeline usage at
+        // all — not to charge from, and not to re-derive the tier ladder from
+        // when the charge does land. Counting by org is the cheap half of that
+        // and needs none of the rest. Cardinality is bounded by the tenant
+        // count, the same bound `cpu_credits_charged_total` and
+        // `quota_denied_total` already accept; pipelineId stays off, because
+        // that one is unbounded per tenant.
+        incCounter('pipeline_executions_total', { outcome: 'started', org_id: orgId });
 
         // Best-effort attributed audit — the AWS CodePipeline start succeeded.
         // The execution is the target; its pipeline rides in details.
@@ -125,7 +136,7 @@ export function createExecutionRoutes(): Router {
 
         return sendSuccess(res, 202, { executionId });
       } catch (err) {
-        incCounter('pipeline_executions_total', { outcome: 'failed' });
+        incCounter('pipeline_executions_total', { outcome: 'failed', org_id: orgId });
         const code = errorMessage(err);
         // A failed start is audited too. No execution id exists (or is known —
         // after a timeout the start may have landed), so there is no targetId.
@@ -179,7 +190,7 @@ export function createExecutionRoutes(): Router {
       ctx.log('COMPLETED', 'Stopped pipeline execution', { pipelineId, executionId });
 
       // Domain metric — CodePipeline execution stopped/cancelled.
-      incCounter('pipeline_executions_total', { outcome: 'stopped' });
+      incCounter('pipeline_executions_total', { outcome: 'stopped', org_id: orgId });
 
       // Best-effort attributed audit — the AWS CodePipeline stop succeeded.
       recordAudit({

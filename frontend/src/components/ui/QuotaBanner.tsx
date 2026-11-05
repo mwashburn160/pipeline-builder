@@ -48,11 +48,19 @@ const STYLES: Record<Exclude<QuotaPressureLevel, 'none'>, BannerStyle> = {
 };
 
 /**
- * "this 3-day period" — the server's real period (`QUOTA_RESET_DAYS`). It is 3
- * days by default, so the old "monthly limit" copy was wrong by a factor of ten.
+ * "this 3-day period" — the period of the quota being described, which is PER
+ * TYPE: the global window for every flow quota but `cpuCredits`, which is
+ * monthly. An earlier version read the ORG-level figure, which was right only
+ * while every quota shared one window; headlining credits with it would describe
+ * a monthly limit as a three-day one.
+ *
+ * A monthly window reads as "monthly" rather than "30-day", because the phrase
+ * is what tells a reader this dimension does not share the others'.
  */
 function periodPhrase(periodDays: number | undefined): string {
-  return periodDays ? `this ${periodDays}-day period's limit` : 'this period\'s limit';
+  if (!periodDays) return 'this period\'s limit';
+  if (periodDays >= 28 && periodDays <= 31) return 'this month\'s limit';
+  return `this ${periodDays}-day period's limit`;
 }
 
 const MESSAGE: Record<Exclude<QuotaPressureLevel, 'none'>, (p: QuotaPressure, periodDays?: number) => string> = {
@@ -111,7 +119,11 @@ export function QuotaBanner({ className = '' }: QuotaBannerProps = {}) {
   return (
     <div className={`flex items-center gap-3 border-b px-4 py-2 text-sm ${style.container} ${className}`} role="alert">
       <Icon className="h-4 w-4 flex-shrink-0" aria-hidden="true" />
-      <span className="flex-1">{MESSAGE[pressure.level](pressure, quota.periodDays)}</span>
+      {/* The PRESSURE's period, not the org's: the banner names whichever
+          dimension is most pressured, and that dimension's window may not be
+          the global one. Falls back to the org figure for responses predating
+          the per-type field. */}
+      <span className="flex-1">{MESSAGE[pressure.level](pressure, pressure.periodDays ?? quota.periodDays)}</span>
       <Link
         href={style.href}
         className="font-medium underline underline-offset-2 hover:no-underline"

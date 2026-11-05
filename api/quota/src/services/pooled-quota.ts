@@ -38,7 +38,7 @@
  * read/write surface.
  */
 
-import { AppError, createLogger, emitCounter, enforcedQuotaLimit, ErrorCode, VALID_QUOTA_TYPES, nextQuotaResetDate } from '@pipeline-builder/api-core';
+import { AppError, createLogger, emitCounter, enforcedQuotaLimit, ErrorCode, VALID_QUOTA_TYPES, nextQuotaResetDate, quotaPeriodDays } from '@pipeline-builder/api-core';
 import type { QuotaType, QuotaTier } from '@pipeline-builder/api-core';
 import { config } from '../config.js';
 import { expandOrgScope, findOrgWithHierarchy, getParentOrgId, resolveRootOrgId } from '../helpers/org-hierarchy.js';
@@ -64,8 +64,10 @@ export interface PoolRow {
   tier?: QuotaTier;
   quotas?: Partial<Record<QuotaType, number>>;
   usage?: Partial<Record<QuotaType, { used?: number; resetAt?: Date }>>;
-  /** Root only: the atomic pooled counter enforcement moves. */
-  poolUsage?: Partial<Record<QuotaType, { used?: number; resetAt?: Date }>>;
+  /** Root only: the atomic pooled counter enforcement moves. `limitAtPeriodStart`
+   *  is the cap the period began with, so a mid-period reduction cannot strand a
+   *  pooled account over a cap it already spent against (see `pooledStatusFromRows`). */
+  poolUsage?: Partial<Record<QuotaType, { used?: number; resetAt?: Date; limitAtPeriodStart?: number }>>;
 }
 
 /**
@@ -83,6 +85,15 @@ export interface PoolRow {
  * `computeQuotaStatus` (that would re-apply expiry against the ROOT's own
  * resetAt and zero the whole pool whenever the root's own period lapsed).
  */
+/**
+ * The usage period for one quota type, in days — the pooled path's copy of the
+ * same rule the summary builder uses. `cpuCredits` is monthly; everything else
+ * shares the global window.
+ */
+function periodDaysForType(quotaType: QuotaType): number {
+  return quotaType === 'cpuCredits' ? quotaPeriodDays(quotaType) : config.quota.resetDays;
+}
+
 export function pooledStatusFromRows(rows: PoolRow[], rootOrgId: string, quotaType: QuotaType): QuotaStatus | null {
   const root = rows.find((r) => r._id !== undefined && String(r._id) === rootOrgId);
   const limit = root?.quotas?.[quotaType] ?? defaultLimitFor(root?.tier, quotaType);
@@ -97,11 +108,26 @@ export function pooledStatusFromRows(rows: PoolRow[], rootOrgId: string, quotaTy
   const used = pool?.resetAt
     ? live(pool)
     : rows.reduce((sum, r) => sum + live(r.usage?.[quotaType]), 0);
-  const resetAt = pool?.resetAt ?? root?.usage?.[quotaType]?.resetAt ?? nextQuotaResetDate(config.quota.resetDays);
+  const resetAt = pool?.resetAt ?? root?.usage?.[quotaType]?.resetAt
+    // Per TYPE: `config.quota.resetDays` is the global three-day window and
+    // `cpuCredits` is monthly, so the global would report a reset date ten times
+    // too near for the one quota whose forecast most depends on it.
+    ?? nextQuotaResetDate(quotaType === 'cpuCredits' ? quotaPeriodDays(quotaType) : config.quota.resetDays);
+
+  // CAPS ONLY RISE MID-PERIOD, on the pooled counter as on the per-org one. The
+  // snapshot is absent before the first pooled increment (no period is
+  // established yet), which correctly falls back to the current limit.
+  const snapshot = pool?.resetAt && new Date(pool.resetAt).getTime() > now
+    ? pool.limitAtPeriodStart
+    : undefined;
+  const effective = snapshot === undefined ? limit
+    : (limit === -1 || snapshot === -1) ? -1
+      : Math.max(limit, snapshot);
+
   return {
-    limit,
+    limit: effective,
     used,
-    remaining: limit === -1 ? -1 : Math.max(0, limit - used),
+    remaining: effective === -1 ? -1 : Math.max(0, effective - used),
     // Binds on the ENFORCED cap (the automationCalls soft band); reports the nominal one.
     allowed: limit === -1 || used < enforcedQuotaLimit(quotaType, limit),
     unlimited: limit === -1,
@@ -334,7 +360,9 @@ async function pooledReadFallback(
     const cached = recallPoolStatus(orgId, type);
     if (!cached) continue;
     const { allowed: _allowed, ...summary } = cached;
-    own.quotas[type] = summary;
+    // The pooled path builds summaries by hand, so the per-type period has to be
+    // attached here too — it is not carried on QuotaStatus.
+    own.quotas[type] = { ...summary, periodDays: periodDaysForType(type) };
     served += 1;
   }
   if (served > 0) {
@@ -384,7 +412,7 @@ export async function applyPooledQuotas(
     if (!status) continue;
     rememberPoolStatus(orgId, type, status);
     const { allowed: _allowed, ...summary } = status;
-    own.quotas[type] = summary;
+    own.quotas[type] = { ...summary, periodDays: periodDaysForType(type) };
   }
   const root = rows.find((r) => String(r._id) === pool.rootOrgId);
   // A team's tier is inherited from its root — report the root's.

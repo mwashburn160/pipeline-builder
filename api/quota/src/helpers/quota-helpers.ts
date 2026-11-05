@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { DEFAULT_TIER, QUOTA_TIERS, VALID_QUOTA_TYPES, enforcedQuotaLimit, quotaGracePct, nextQuotaResetDate } from '@pipeline-builder/api-core';
+import { DEFAULT_TIER, QUOTA_TIERS, VALID_QUOTA_TYPES, enforcedQuotaLimit, quotaGracePct, nextQuotaResetDate, quotaPeriodDays } from '@pipeline-builder/api-core';
 import type { QuotaType, QuotaTier, QuotaReserveResult } from '@pipeline-builder/api-core';
 import { config } from '../config.js';
 import type { QuotaLimits, QuotaUsageTracking, OrganizationDocument } from '../models/organization.js';
@@ -89,16 +89,38 @@ export interface QuotaStatus {
  */
 export function computeQuotaStatus(
   limit: number,
-  usage: { used: number; resetAt: Date },
+  usage: { used: number; resetAt: Date; limitAtPeriodStart?: number },
   quotaType?: QuotaType,
 ): QuotaStatus {
   const now = new Date();
   const resetAt = new Date(usage.resetAt);
-  const used = resetAt <= now ? 0 : usage.used;
-  const remaining = limit === -1 ? -1 : Math.max(0, limit - used);
-  const allowed = limit === -1 || used < (quotaType ? enforcedQuotaLimit(quotaType, limit) : limit);
+  const expired = resetAt <= now;
+  const used = expired ? 0 : usage.used;
 
-  return { limit, used, remaining, allowed, unlimited: limit === -1, resetAt: usage.resetAt };
+  // CAPS ONLY RISE MID-PERIOD. The effective cap is the larger of what the
+  // period started with and what the account holds now, so a downgrade or a
+  // cancelled pack takes effect from the NEXT window while a mid-period UPGRADE
+  // still lands immediately.
+  //
+  // This is what makes `checkEntitlementOvercap`'s exclusion of per-period rate
+  // quotas honest again. Its stated reason — "they reset, so landing over a
+  // reduced cap costs at most one period" — holds at three days and breaks at a
+  // month: without this, a mid-month downgrade or a cancelled CPU Credits Pack
+  // could refuse every build until the window rolled. One policy line here is
+  // cheaper than a guard entry per dimension, and it needs no scheduled
+  // plan-change machinery (of which the billing service has none).
+  //
+  // An EXPIRED period takes the current limit: the new window starts at whatever
+  // the account holds, which is how a reduction eventually applies.
+  const snapshot = expired ? undefined : usage.limitAtPeriodStart;
+  const effective = snapshot === undefined ? limit
+    : (limit === -1 || snapshot === -1) ? -1
+      : Math.max(limit, snapshot);
+
+  const remaining = effective === -1 ? -1 : Math.max(0, effective - used);
+  const allowed = effective === -1 || used < (quotaType ? enforcedQuotaLimit(quotaType, effective) : effective);
+
+  return { limit: effective, used, remaining, allowed, unlimited: effective === -1, resetAt: usage.resetAt };
 }
 
 /**
@@ -137,7 +159,17 @@ export function buildReserveResult(
 // Org quota response — unified shape used by all endpoints
 
 /** Per-type summary (status minus the internal `allowed` flag). */
-type QuotaSummary = Omit<QuotaStatus, 'allowed'>;
+/**
+ * A read-only per-type summary: the status without the enforcement flag, plus
+ * the type's OWN usage period.
+ *
+ * `periodDays` lives here rather than only on the response because the period is
+ * per type now — every flow quota shares `QUOTA_RESET_DAYS` except `cpuCredits`,
+ * which is monthly. The dashboard's reset copy and its burn-rate forecast read
+ * this; reading the org-level figure would be wrong by a factor of ten for
+ * credits, which is the one dimension whose forecast matters most.
+ */
+type QuotaSummary = Omit<QuotaStatus, 'allowed'> & { periodDays: number };
 
 /** Unified org-level response returned to all callers. */
 export interface OrgQuotaResponse {
@@ -147,9 +179,14 @@ export interface OrgQuotaResponse {
   tier: QuotaTier;
   quotas: Record<QuotaType, QuotaSummary>;
   /**
-   * Length of the usage period in days (`QUOTA_RESET_DAYS`). Every counter
-   * rolls over on this one period, so the dashboard's "per N days" copy and its
-   * usage forecast read it instead of assuming a month.
+   * Length of the usage period in days, for the quotas that share the GLOBAL
+   * window (`QUOTA_RESET_DAYS`).
+   *
+   * Kept for the org-level "per N days" copy, but it is no longer the whole
+   * story and must not be used to compute a reset date or a forecast: each
+   * summary in `quotas` now carries its OWN `periodDays`, because `cpuCredits`
+   * rolls monthly. A forecast computed from this figure is wrong by a factor of
+   * ten for that one dimension — read the summary's, not this.
    */
   periodDays: number;
   isDefault?: boolean;
@@ -174,16 +211,27 @@ function buildSummaries(
   quotas: Partial<QuotaLimits> | undefined,
   usage: Partial<QuotaUsageTracking> | undefined,
 ): Record<QuotaType, QuotaSummary> {
-  const du = { used: 0, resetAt: nextQuotaResetDate(config.quota.resetDays) };
+  // Per TYPE, not one shared fallback: `cpuCredits` is monthly and every other
+  // flow is on the global window, so a single default would report a credits
+  // reset date ten times too near — and the dashboard's burn-rate forecast reads
+  // exactly that date.
+  const defaultUsage = (t: QuotaType) => ({
+    used: 0,
+    resetAt: nextQuotaResetDate(t === 'cpuCredits' ? quotaPeriodDays(t) : config.quota.resetDays),
+  });
 
-  // Drop the `allowed` flag from the per-type status — summaries are read-only views.
-  const summarize = (limit: number, u: { used: number; resetAt: Date }): QuotaSummary => {
+  // Drop the `allowed` flag from the per-type status — summaries are read-only
+  // views — and attach the type's own period.
+  const summarize = (t: QuotaType, limit: number, u: { used: number; resetAt: Date; limitAtPeriodStart?: number }): QuotaSummary => {
     const { allowed: _allowed, ...rest } = computeQuotaStatus(limit, u);
-    return rest;
+    return {
+      ...rest,
+      periodDays: t === 'cpuCredits' ? quotaPeriodDays(t) : config.quota.resetDays,
+    };
   };
 
   return Object.fromEntries(
-    VALID_QUOTA_TYPES.map((t) => [t, summarize(quotas?.[t] ?? defaultLimitFor(tier, t), usage?.[t] ?? du)]),
+    VALID_QUOTA_TYPES.map((t) => [t, summarize(t, quotas?.[t] ?? defaultLimitFor(tier, t), usage?.[t] ?? defaultUsage(t))]),
   ) as Record<QuotaType, QuotaSummary>;
 }
 

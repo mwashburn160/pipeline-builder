@@ -336,6 +336,89 @@ describe('pipeline-events handler', () => {
     }
   });
 
+  it('promotes the compute size a SUCCEEDED CodeBuild action ran on, raw as AWS spells it', async () => {
+    // Phase 4's measurement half: duration x compute size is the vCPU-minute
+    // figure the tier ladder has to be re-derived from. Raw rather than
+    // normalised because this Lambda ships as ONE bundled file and cannot import
+    // the vocabulary (see single-file-constraint.test.ts).
+    const { _setFailureReasonLoaderForTests } = await import('../src/failure-reason.js');
+    const cbSend = jest.fn(async () => ({ builds: [{ environment: { computeType: 'BUILD_GENERAL1_LARGE' } }] }));
+    _setFailureReasonLoaderForTests((async () => (
+      { CodeBuildClient: class { send = cbSend; }, BatchGetBuildsCommand: class { constructor(public input: unknown) {} } }
+    )) as never);
+    try {
+      await handler(createSQSEvent([{
+        ...MOCK_CODEPIPELINE_EVENT,
+        'detail-type': 'CodePipeline Action Execution State Change',
+        'detail': {
+          ...MOCK_CODEPIPELINE_EVENT.detail,
+          'state': 'SUCCEEDED',
+          'stage': 'Build',
+          'action': 'Build',
+          'type': { provider: 'CodeBuild', category: 'Build' },
+          'execution-result': { 'external-execution-id': 'build-project:0b7e3c2a-1111-2222-3333-444455556666' },
+        },
+      }]));
+      expect(lastEventsBody().events[0].computeType).toBe('BUILD_GENERAL1_LARGE');
+    } finally {
+      _setFailureReasonLoaderForTests(undefined);
+    }
+  });
+
+  it('spends no AWS call on a non-CodeBuild action or a non-terminal one', async () => {
+    // Reading the size mid-flight would spend a call to learn something with no
+    // duration to pair it with.
+    const { _setFailureReasonLoaderForTests } = await import('../src/failure-reason.js');
+    const cbSend = jest.fn(async () => ({ builds: [{ environment: { computeType: 'BUILD_GENERAL1_SMALL' } }] }));
+    _setFailureReasonLoaderForTests((async () => (
+      { CodeBuildClient: class { send = cbSend; }, BatchGetBuildsCommand: class { constructor(public input: unknown) {} } }
+    )) as never);
+    try {
+      await handler(createSQSEvent([{
+        ...MOCK_CODEPIPELINE_EVENT,
+        'detail-type': 'CodePipeline Action Execution State Change',
+        'detail': {
+          ...MOCK_CODEPIPELINE_EVENT.detail,
+          'state': 'STARTED',
+          'stage': 'Build',
+          'action': 'Build',
+          'type': { provider: 'CodeBuild', category: 'Build' },
+          'execution-result': { 'external-execution-id': 'build-project:0b7e3c2a-1111-2222-3333-444455556666' },
+        },
+      }]));
+      expect(cbSend).not.toHaveBeenCalled();
+      expect(lastEventsBody().events[0].computeType).toBeUndefined();
+    } finally {
+      _setFailureReasonLoaderForTests(undefined);
+    }
+  });
+
+  it('forwards the action without a compute size when the read is refused', async () => {
+    // Best-effort by design: the ingest then records the action as UNMEASURED
+    // rather than as free, which is what keeps the coverage gap visible.
+    const { _setFailureReasonLoaderForTests } = await import('../src/failure-reason.js');
+    _setFailureReasonLoaderForTests((async () => { throw new Error('AccessDenied'); }) as never);
+    try {
+      await handler(createSQSEvent([{
+        ...MOCK_CODEPIPELINE_EVENT,
+        'detail-type': 'CodePipeline Action Execution State Change',
+        'detail': {
+          ...MOCK_CODEPIPELINE_EVENT.detail,
+          'state': 'SUCCEEDED',
+          'stage': 'Build',
+          'action': 'Build',
+          'type': { provider: 'CodeBuild', category: 'Build' },
+          'execution-result': { 'external-execution-id': 'build-project:0b7e3c2a-1111-2222-3333-444455556666' },
+        },
+      }]));
+      const event = lastEventsBody().events[0];
+      expect(event.computeType).toBeUndefined();
+      expect(event.eventType).toBe('ACTION');
+    } finally {
+      _setFailureReasonLoaderForTests(undefined);
+    }
+  });
+
   it('forwards a failed CodeBuild action unchanged when its log cannot be read', async () => {
     const { _setFailureReasonLoaderForTests } = await import('../src/failure-reason.js');
     _setFailureReasonLoaderForTests((async () => { throw new Error('AccessDenied'); }) as never);

@@ -24,6 +24,20 @@ const mockDeployVersion = jest.fn<(...a: any[]) => Promise<any>>(async () => ({ 
 const mockSubmitAfterBuild = jest.fn<(...a: any[]) => Promise<any>>(async () => ({ ok: true, message: 'Publish request submitted', requestId: 'r-1', status: 'pending' }));
 const producesImage = { value: false };
 
+// The CPU-credit admission gate fails CLOSED when the quota service cannot
+// answer (D6). This suite's quota double does not implement `check`, so without
+// this stub every upload here would be refused on credits before reaching the
+// behaviour under test. Credits have their own suite (`build-credits.test.ts`).
+jest.unstable_mockModule('../src/queue/build-credits.js', () => ({
+  admitBuildOnCredits: jest.fn(async () => ({ admitted: true })),
+  chargeBuildCredits: jest.fn(async () => undefined),
+  buildTrigger: () => 'user',
+  creditsForBuild: () => 0,
+  buildSpendsCredits: () => true,
+  failedBuildIsCharged: () => false,
+  BUILDKIT_VCPU: 1.5,
+}));
+
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   reserveQuota: async () => ({ exceeded: false, quota: { resetAt: '2026-09-24T00:00:00.000Z', used: 1, limit: 10 } }),
   decrementQuota: jest.fn(),

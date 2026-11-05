@@ -15,6 +15,7 @@ import type { SSEManager } from '@pipeline-builder/api-server';
 import { runWithTenantContext } from '@pipeline-builder/pipeline-data';
 import type { Job } from 'bullmq';
 
+import { buildTrigger, chargeBuildCredits } from './build-credits.js';
 import { classifyFailure, isFinalAttempt, recordBuildEvent, summarizeBuildFailure } from './build-failures.js';
 import { releasePluginQuota } from './build-quota.js';
 import { cleanupBuildArtifacts, markBuildContextCleaned } from './build-workspace.js';
@@ -66,7 +67,19 @@ export function createBuildFailedHandler(sseManager: SSEManager, quotaService: Q
       incCounter('plugin_builds_total', {
         status: isTimeout ? 'timeout' : 'failed',
         org_id: orgId ?? 'unknown',
+        // Bounded to user|automation (D8): the one label that makes "should
+        // automated builds have their own budget?" answerable from data.
+        trigger: buildTrigger(job.data),
       });
+
+      // Charge the compute a FAILED build occupied — but only a permanent one.
+      // A failed build held the pool exactly as a success would, so D4 charges
+      // it; a RETRYABLE failure is the platform's (a Redis blip, a registry
+      // timeout) and billing a tenant for our own retry is indefensible. The
+      // condition matters because BullMQ sets processedOn/finishedOn on EVERY
+      // attempt, so without it a job retried to exhaustion charges once per
+      // attempt and PLUGIN_BUILD_MAX_ATTEMPTS defaults to 2.
+      void chargeBuildCredits(quotaService, job, 'failed');
 
       logger.error('Plugin build failed', {
         jobId: job.id,

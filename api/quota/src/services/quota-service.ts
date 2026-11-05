@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, enforcedQuotaLimit, isValidTier, QUOTA_TIERS, ValidationError, VALID_QUOTA_TYPES, nextQuotaResetDate } from '@pipeline-builder/api-core';
+import { createLogger, enforcedQuotaLimit, isValidTier, QUOTA_TIERS, ValidationError, VALID_QUOTA_TYPES, nextQuotaResetDate, quotaPeriodDays } from '@pipeline-builder/api-core';
 import type { QuotaType, QuotaReserveResult, QuotaTier } from '@pipeline-builder/api-core';
 import { applyPooledQuotas, pooledStatusFromRows, pooledStatusOrFallback, QuotaPoolUnavailableError, resolveIncrementRoot } from './pooled-quota.js';
 import type { PoolRow } from './pooled-quota.js';
@@ -74,6 +74,20 @@ interface DecrementOptions {
 }
 
 /**
+ * The usage period for one quota type, in days.
+ *
+ * `config.quota.resetDays` is the GLOBAL window and is correct for every flow
+ * quota but `cpuCredits`, which is monthly. Reading the global for credits gave
+ * them ten resets a month against a cap sized for one — a factor-of-ten error in
+ * the customer's favour, and silent, because a counter that rolls too often
+ * never refuses anything. Every reset-date computation in this file goes through
+ * here.
+ */
+function periodDaysFor(quotaType: QuotaType): number {
+  return quotaType === 'cpuCredits' ? quotaPeriodDays(quotaType) : config.quota.resetDays;
+}
+
+/**
  * The `$set` stage every increment runs: add `amount` to `usage.<type>.used`,
  * but treat an EXPIRED period as if `used` were 0 and advance `resetAt` by
  * `resetDays` in the same breath.
@@ -91,21 +105,33 @@ interface DecrementOptions {
  * Shared by the limit-checked path and the system-admin bypass so the two can
  * never drift on period roll-over (they were duplicated verbatim before).
  */
-function resetIfExpiredStage(usagePath: string, amount: number, resetDays: number): Record<string, unknown> {
+function resetIfExpiredStage(quotaType: QuotaType, amount: number, resetDays: number): Record<string, unknown> {
+  const usagePath = `usage.${quotaType}`;
+  const expired = { $lte: [`$${usagePath}.resetAt`, '$$NOW'] };
   return {
     $set: {
       [`${usagePath}.used`]: {
-        $cond: {
-          if: { $lte: [`$${usagePath}.resetAt`, '$$NOW'] },
-          then: amount,
-          else: { $add: [{ $ifNull: [`$${usagePath}.used`, 0] }, amount] },
-        },
+        $cond: { if: expired, then: amount, else: { $add: [{ $ifNull: [`$${usagePath}.used`, 0] }, amount] } },
       },
       [`${usagePath}.resetAt`]: {
         $cond: {
-          if: { $lte: [`$${usagePath}.resetAt`, '$$NOW'] },
+          if: expired,
           then: { $dateAdd: { startDate: '$$NOW', unit: 'day', amount: resetDays } },
           else: `$${usagePath}.resetAt`,
+        },
+      },
+      // CAPTURE THE CAP at the period boundary, in the same atomic update that
+      // rolls the counter — so the snapshot and the window can never disagree.
+      // `computeQuotaStatus` then takes `max(snapshot, current)`, which is what
+      // stops a mid-period downgrade stranding an account over a cap it already
+      // spent against (a month-long refusal for `cpuCredits`, which rolls
+      // monthly). Mid-period the snapshot is left alone: an UPGRADE still lands
+      // immediately because the max picks the larger.
+      [`${usagePath}.limitAtPeriodStart`]: {
+        $cond: {
+          if: expired,
+          then: `$quotas.${quotaType}`,
+          else: { $ifNull: [`$${usagePath}.limitAtPeriodStart`, `$quotas.${quotaType}`] },
         },
       },
     },
@@ -147,6 +173,18 @@ function poolIncrementStage(quotaType: QuotaType, amount: number, resetDays: num
           if: started,
           then: { $cond: { if: expired, then: nextReset, else: `$${pool}.resetAt` } },
           else: { $cond: { if: ownLive, then: `$${own}.resetAt`, else: nextReset } },
+        },
+      },
+      // The pooled counter captures its period's cap exactly as the per-org one
+      // does. A root with teams is the account most likely to BUY and CANCEL
+      // packs, so it is the population most exposed to a mid-period reduction
+      // stranding it over a cap it already spent against — leaving the pooled
+      // half unprotected would have put the protection on the wrong counter.
+      [`${pool}.limitAtPeriodStart`]: {
+        $cond: {
+          if: { $and: [started, { $not: expired }] },
+          then: { $ifNull: [`$${pool}.limitAtPeriodStart`, `$quotas.${quotaType}`] },
+          else: `$quotas.${quotaType}`,
         },
       },
     },
@@ -445,8 +483,8 @@ export class QuotaService {
     const limit = org?.quotas?.[quotaType] ?? defaultLimitFor(org?.tier, quotaType);
     const stored = org?.usage?.[quotaType];
     const usage = stored
-      ? { used: stored.used ?? 0, resetAt: stored.resetAt ?? nextQuotaResetDate(config.quota.resetDays) }
-      : { used: 0, resetAt: nextQuotaResetDate(config.quota.resetDays) };
+      ? { used: stored.used ?? 0, resetAt: stored.resetAt ?? nextQuotaResetDate(periodDaysFor(quotaType)) }
+      : { used: 0, resetAt: nextQuotaResetDate(periodDaysFor(quotaType)) };
 
     // Storage is MEASURED, so the stored counter is structurally 0 and this
     // single-type path would report "0 bytes used" to every caller — including
@@ -510,16 +548,22 @@ export class QuotaService {
     const org = await Organization.findById(toOrgId(orgId));
     if (!org) throw new OrgNotFoundError(orgId);
 
-    const resetDate = nextQuotaResetDate(config.quota.resetDays);
-
     // Fresh Date per slot — otherwise mutating one slot's resetAt would mutate
     // every other slot's via shared reference. A pool ROOT's pooled counter is
     // reset with it: that counter is what the shared cap binds on, so zeroing
     // only the root's own row would free nothing. (Resetting a TEAM moves only
     // its own attribution counter — reset the root to free pooled capacity.)
+    //
+    // The reset date is computed PER TYPE rather than once: an all-types reset
+    // spans windows of different length now that `cpuCredits` is monthly, so one
+    // shared date would hand credits a three-day period (or every other quota a
+    // thirty-day one, depending which way it was computed).
     const types = quotaType ? [quotaType as QuotaType] : VALID_QUOTA_TYPES;
     for (const k of types) {
-      org.usage[k] = { used: 0, resetAt: new Date(resetDate) };
+      const resetDate = nextQuotaResetDate(periodDaysFor(k));
+      // A reset starts a NEW period, so the snapshot is the cap as it stands now
+      // — otherwise an operator reset would carry a stale ceiling forward.
+      org.usage[k] = { used: 0, resetAt: new Date(resetDate), limitAtPeriodStart: org.quotas[k] };
       if (org.poolUsage?.[k]?.resetAt) org.poolUsage[k] = { used: 0, resetAt: new Date(resetDate) };
     }
 
@@ -566,7 +610,7 @@ export class QuotaService {
     logger.info('Quota bypass increment', { orgId, quotaType, amount });
     const org = await Organization.findOneAndUpdate(
       { _id: toOrgId(orgId) },
-      [resetIfExpiredStage(`usage.${quotaType}`, amount, config.quota.resetDays)],
+      [resetIfExpiredStage(quotaType, amount, periodDaysFor(quotaType))],
       // `updatePipeline: true` is REQUIRED for aggregation-pipeline (array)
       // updates as of Mongoose 9 — see increment-pipeline-update.test.ts.
       { returnDocument: 'after', updatePipeline: true },
@@ -576,7 +620,7 @@ export class QuotaService {
     const limit = org.quotas[quotaType] ?? defaultLimitFor(org.tier, quotaType);
     const usage = org.usage[quotaType] ?? {
       used: amount,
-      resetAt: nextQuotaResetDate(config.quota.resetDays),
+      resetAt: nextQuotaResetDate(periodDaysFor(quotaType)),
     };
     return { ...buildReserveResult(quotaType, limit, usage.used, usage.resetAt, 'allowed'), rootOrgId: orgId };
   }
@@ -619,7 +663,7 @@ export class QuotaService {
     // value is computed from `$$NOW` via `$dateAdd` so the period boundary
     // is set by the server, not a captured `new Date()` from the API node.
     const usagePath = `usage.${quotaType}`;
-    const resetDays = config.quota.resetDays;
+    const resetDays = periodDaysFor(quotaType);
     // Coalesce a MISSING stored limit to the org's TIER preset — Mongoose
     // `default:` only fires on insert, so a newly-added quota type on an
     // un-backfilled org doc would otherwise match no branch and hard-429 (the
@@ -655,7 +699,7 @@ export class QuotaService {
           ],
         },
       },
-      [resetIfExpiredStage(usagePath, amount, resetDays)],
+      [resetIfExpiredStage(quotaType, amount, resetDays)],
       // `updatePipeline: true` is REQUIRED for aggregation-pipeline (array)
       // updates as of Mongoose 9 — without it the driver throws "Cannot pass an
       // array to query updates", which surfaces as a 500 on every increment.
@@ -672,7 +716,7 @@ export class QuotaService {
       const limit = existing.quotas[quotaType] ?? defaultLimitFor(existing.tier, quotaType);
       const status = computeQuotaStatus(limit, existing.usage[quotaType] ?? {
         used: 0,
-        resetAt: nextQuotaResetDate(config.quota.resetDays),
+        resetAt: nextQuotaResetDate(periodDaysFor(quotaType)),
       });
       return { ...buildReserveResult(quotaType, limit, status.used, status.resetAt, 'exceeded'), rootOrgId: orgId };
     }
@@ -741,10 +785,10 @@ export class QuotaService {
     quotaType: QuotaType,
     amount: number,
   ): Promise<IncrementOutcome> {
-    const resetDays = config.quota.resetDays;
+    const resetDays = periodDaysFor(quotaType);
     const isRoot = rootOrgId === orgId;
     const stages = [poolIncrementStage(quotaType, amount, resetDays)];
-    if (isRoot) stages.push(resetIfExpiredStage(`usage.${quotaType}`, amount, resetDays));
+    if (isRoot) stages.push(resetIfExpiredStage(quotaType, amount, resetDays));
 
     const root = await Organization.findOneAndUpdate(
       { _id: toOrgId(rootOrgId), $expr: poolFitsExpr(quotaType, amount) },
@@ -764,7 +808,7 @@ export class QuotaService {
       try {
         await Organization.updateOne(
           { _id: toOrgId(orgId) },
-          [resetIfExpiredStage(`usage.${quotaType}`, amount, resetDays)],
+          [resetIfExpiredStage(quotaType, amount, resetDays)],
           { updatePipeline: true },
         );
       } catch (err) {
@@ -897,7 +941,7 @@ export class QuotaService {
         const limit = existing.quotas[quotaType] ?? defaultLimitFor(existing.tier, quotaType);
         const usage = existing.usage[quotaType] ?? {
           used: 0,
-          resetAt: nextQuotaResetDate(config.quota.resetDays),
+          resetAt: nextQuotaResetDate(periodDaysFor(quotaType)),
         };
         logger.info('Decrement skipped: period rolled over', {
           orgId,

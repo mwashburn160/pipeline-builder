@@ -169,10 +169,28 @@ export type ScanGateCode = 'IMAGE_SCAN_UNAVAILABLE' | 'PLUGIN_VULN_GATE';
 
 const SCAN_GATE_CODES: readonly ScanGateCode[] = ['IMAGE_SCAN_UNAVAILABLE', 'PLUGIN_VULN_GATE'];
 
+/**
+ * A CAPACITY refusal, which is a different kind of answer from a scan gate.
+ *
+ * Its own code because its REMEDY is its own, and that is the whole point: a
+ * build can be refused several ways and only some of them are a purchase. One
+ * shared message would send all of them to the billing page, where this one has
+ * nothing to buy — the org sat at its per-class concurrency cap for the whole
+ * wait budget, so the answer is to wait or to use the other class.
+ *
+ * The MONTHLY-budget refusal is deliberately NOT here: it is refused at
+ * submission with a 429, which `core.ts` already turns into the `quota-exceeded`
+ * window event that `QuotaBanner` renders, and `BuildCostHint` says it before
+ * the submit. A build never fails mid-flight for want of credits — the charge
+ * is best-effort after the fact — so a branch for it here would be dead code
+ * pretending to be a disposition.
+ */
+export type BuildCapacityCode = 'BUILD_SLOT_TIMEOUT';
+
 /** A build failure explained for a person. */
 export interface BuildFailureInfo {
-  /** The scan-gate code, or null for any other failure. */
-  code: ScanGateCode | null;
+  /** The scan-gate or capacity code, or null for any other failure. */
+  code: ScanGateCode | BuildCapacityCode | null;
   title: string;
   /** What happened and what to do next. */
   message: string;
@@ -193,6 +211,29 @@ export function buildFailureInfo(event: { message: string; data?: Record<string,
   const declared = str(data.code) ?? str(data.errorCode) ?? str(data.reason);
   const code = SCAN_GATE_CODES.find((c) => c === declared) ?? SCAN_GATE_CODES.find((c) => event.message.includes(c)) ?? null;
   const findings = normalizeVulnFindings(data.findings ?? (data.details as Record<string, unknown> | undefined)?.findings);
+
+  // CAPACITY first, because a capacity refusal is not a build defect and must
+  // not be read as one. Both are recognised from the terminal event's typed
+  // details rather than its prose: the slot timeout carries `maxBuildsPerOrg`
+  // (the processor's UnrecoverableError details), and the credit refusal is a
+  // quota denial naming `cpuCredits`.
+  const typedDetails = (data.details ?? {}) as Record<string, unknown>;
+  const slotCap = num(typedDetails.maxBuildsPerOrg) ?? num(data.maxBuildsPerOrg);
+  if (declared === 'SERVICE_UNAVAILABLE' && slotCap != null) {
+    const cls = str(typedDetails.buildClass) ?? str(data.buildClass) ?? 'standard';
+    return {
+      code: 'BUILD_SLOT_TIMEOUT',
+      title: 'No build slot was free in time',
+      // The remedy is a WAIT. Saying so explicitly is the point: this refusal
+      // used to arrive with no reason at all, and once a credit budget sits on
+      // the same page a silent wait gets blamed on the quota.
+      message: `This organization already had ${slotCap} ${cls} build${slotCap === 1 ? '' : 's'} running for the whole wait window, `
+        + 'so this one was never started. There is nothing to buy and nothing to fix — submit it again once one finishes'
+        + (cls === 'flexible' ? ', or run it in the standard class.' : ', or defer it to the flexible class, which has more room.'),
+      findings: [],
+      detail: event.message,
+    };
+  }
   if (code === 'IMAGE_SCAN_UNAVAILABLE') {
     return {
       code,

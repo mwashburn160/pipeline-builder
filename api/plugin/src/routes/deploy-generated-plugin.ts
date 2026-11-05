@@ -13,6 +13,7 @@ import {
   sendBadRequest,
   sendError,
   sendQuotaReserveDenied,
+  sendQuotaExceeded,
   sendSuccess,
   validateBody,
   errorMessage,
@@ -34,9 +35,12 @@ import type { RequestHandler } from 'express';
 import { v7 as uuid } from 'uuid';
 
 import { compliancePreflight, queuePluginBuild } from '../helpers/build-submission.js';
+import { resolveBuildShape } from '../helpers/build-shape.js';
+import { getOrgTier } from '../queue/connections.js';
 import { BUILD_TEMP_ROOT } from '../helpers/docker-build.js';
 import { createBuildJobData } from '../helpers/plugin-helpers.js';
 import { validateBuildArgs } from '../helpers/plugin-spec.js';
+import { admitBuildOnCredits } from '../queue/build-credits.js';
 import { deletePluginArtifact, pluginArtifactKey, putPluginArtifact } from '../services/plugin-artifact-storage.js';
 import { pluginService } from '../services/plugin-service.js';
 
@@ -167,6 +171,25 @@ export function createDeployGeneratedPluginRoutes( quotaService: QuotaService,
       // strand the idempotency claim for its TTL (a false 202 + no build on retry).
       const logWarn = ctx.log.bind(null, 'WARN');
       let outcome;
+      // CPU-CREDIT ADMISSION, before the plugins reservation: an org out of build
+      // compute is told at submission rather than discovering it when a build
+      // that looked accepted never produces an image. Fails CLOSED (D6) — a
+      // build whose budget could not be confirmed is not admitted, because an
+      // unmetered build pool is otherwise discovered from a bill.
+      const credits = await admitBuildOnCredits(quotaService, orgId, { orgId });
+      if (!credits.admitted) {
+        ctx.log('WARN', 'CPU credit budget exhausted or unconfirmable', { orgId, used: credits.used, limit: credits.limit });
+        return sendQuotaExceeded(res, 'cpuCredits', { type: 'cpuCredits', used: credits.used ?? 0, limit: credits.limit ?? 0, remaining: 0 }, credits.resetAt);
+      }
+      // Scheduling class + machine size (D11/D13). Resolved with the same rules
+      // the upload route uses, and refused rather than downgraded above the
+      // tier's ceiling — two routes that answered differently would be two
+      // different stories about what the tier includes.
+      const tier = await getOrgTier(quotaService, orgId, authHeader);
+      const shape = resolveBuildShape(tier, validation.value);
+      if (!shape.ok) {
+        return sendError(res, 403, shape.error, ErrorCode.INSUFFICIENT_PERMISSIONS);
+      }
       try {
         outcome = await withQuotaReservation(
           { quotaService, orgId, type: 'plugins', serviceName: 'plugin', logWarn },
@@ -254,6 +277,8 @@ export function createDeployGeneratedPluginRoutes( quotaService: QuotaService,
                 // Period snapshot for the reserved slot so a DLQ retry spanning a
                 // quota reset refunds the correct period (see releasePluginQuota).
                 reservedResetAt: slot.reservation.quota.resetAt,
+                buildClass: shape.buildClass,
+                buildSize: shape.buildSize,
                 buildRequest: {
                   contextDir: tempDir,
                   s3Key,
@@ -286,7 +311,7 @@ export function createDeployGeneratedPluginRoutes( quotaService: QuotaService,
                 },
               });
 
-              await queuePluginBuild({ quotaService, sseManager, orgId, authHeader, jobName: `deploy-generated-${name}-${version}`, jobData, logWarn });
+              await queuePluginBuild({ quotaService, sseManager, orgId, authHeader, jobName: `deploy-generated-${name}-${version}`, jobData, tier, logWarn });
               // Queued: the build job owns the slot now (it refunds on permanent
               // failure), so a later throw in this handler must NOT refund it too.
               slot.markConsumed();

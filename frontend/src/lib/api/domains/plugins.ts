@@ -9,6 +9,7 @@ import type {
   ApiResponse, Criticality, EntityLink, Lifecycle, OwnerType, Plugin, PluginCatalogEdits, PluginInspectResult, QueueStatus, Visibility,
 } from '@/types';
 import type { LookupWarning, VulnSeverity } from '@/lib/plugin-vulns';
+import type { BuildClass, BuildSize } from '@pipeline-builder/api-core/build-catalog';
 import type {
   ExposureTriageBody, KeptSetupImageView, PipelineExposureView, PipelineSecurity, PromotionResult,
 } from '../pipeline-security-types';
@@ -128,17 +129,25 @@ export function pluginsApi(core: ApiCore) {
      * EDITED in the Catalog details step (only those; `null` clears one) and go
      * as the `metadata` JSON part — omitted entirely when there are none, which
      * accepts every detected value.
+     *
+     * `buildClass` / `buildSize` are omitted when they are the defaults
+     * (`standard` / `1x`) rather than sent explicitly: the route refuses a size
+     * above the tier's ceiling, so sending `1x` when nothing asked for a size
+     * would make a tier gate's error message reachable from a form that never
+     * offered the choice.
      */
     uploadPlugin: async (
       file: File,
       visibility: Visibility,
-      options?: { signal?: AbortSignal; catalogEdits?: PluginCatalogEdits },
+      options?: { signal?: AbortSignal; catalogEdits?: PluginCatalogEdits; buildClass?: BuildClass; buildSize?: BuildSize },
     ) => {
       const formData = new FormData();
       formData.append('plugin', file);
       formData.append('visibility', visibility);
       const edits = options?.catalogEdits;
       if (edits && Object.keys(edits).length > 0) formData.append('metadata', JSON.stringify(edits));
+      if (options?.buildClass && options.buildClass !== 'standard') formData.append('buildClass', options.buildClass);
+      if (options?.buildSize && options.buildSize !== '1x') formData.append('buildSize', options.buildSize);
 
       return core.request<ApiResponse<{
         requestId?: string;
@@ -384,6 +393,10 @@ export function pluginsApi(core: ApiCore) {
       env?: Record<string, string>;
       dockerfile: string;
       visibility: Visibility;
+      /** Scheduling class (D11); omit for `standard`. */
+      buildClass?: BuildClass;
+      /** Machine size (D13); omit for `1x`. The route refuses one above the tier's ceiling. */
+      buildSize?: BuildSize;
     }, opts?: ProposedByOptions) => {
       return core.request<ApiResponse<{
         requestId?: string;

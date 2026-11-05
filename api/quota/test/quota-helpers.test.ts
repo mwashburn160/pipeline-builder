@@ -42,6 +42,58 @@ const {
 // Tests
 
 describe('quota-helpers', () => {
+  describe('computeQuotaStatus — caps only RISE mid-period', () => {
+    /**
+     * The rule that makes `checkEntitlementOvercap`'s exclusion of per-period
+     * rate quotas honest again. Its reason — "they reset, so landing over a
+     * reduced cap costs at most one period" — holds at three days and breaks at
+     * a MONTH, which is what `cpuCredits` rolls on: a mid-month downgrade or a
+     * cancelled pack could otherwise refuse every build until the window rolled.
+     */
+    const future = () => { const d = new Date(); d.setDate(d.getDate() + 3); return d; };
+    const past = () => { const d = new Date(); d.setDate(d.getDate() - 1); return d; };
+
+    it('keeps the HIGHER cap when the limit was reduced mid-period', () => {
+      // Started the period with 1000, downgraded to 100, already spent 400.
+      const status = computeQuotaStatus(100, { used: 400, resetAt: future(), limitAtPeriodStart: 1000 });
+      // The account is NOT stranded: it keeps the cap it spent against.
+      expect(status).toMatchObject({ limit: 1000, used: 400, remaining: 600, allowed: true });
+    });
+
+    it('takes a mid-period UPGRADE immediately', () => {
+      // The max cuts both ways: buying a pack must apply now, not next window.
+      const status = computeQuotaStatus(2000, { used: 400, resetAt: future(), limitAtPeriodStart: 1000 });
+      expect(status).toMatchObject({ limit: 2000, remaining: 1600, allowed: true });
+    });
+
+    it('applies the REDUCED cap once the period has expired', () => {
+      // An expired window starts at whatever the account holds now — which is
+      // how a downgrade eventually takes effect rather than never.
+      const status = computeQuotaStatus(100, { used: 400, resetAt: past(), limitAtPeriodStart: 1000 });
+      expect(status).toMatchObject({ limit: 100, used: 0, remaining: 100, allowed: true });
+    });
+
+    it('falls back to the current limit when there is no snapshot', () => {
+      // Counters predating the field, which must behave exactly as before.
+      const status = computeQuotaStatus(100, { used: 40, resetAt: future() });
+      expect(status).toMatchObject({ limit: 100, remaining: 60, allowed: true });
+    });
+
+    it('treats unlimited on either side as unlimited', () => {
+      // -1 is a sentinel, not a number: Math.max(-1, 100) would be 100 and would
+      // silently CAP an account that holds an unlimited entitlement.
+      expect(computeQuotaStatus(-1, { used: 9_999, resetAt: future(), limitAtPeriodStart: 100 }))
+        .toMatchObject({ limit: -1, remaining: -1, unlimited: true, allowed: true });
+      expect(computeQuotaStatus(100, { used: 9_999, resetAt: future(), limitAtPeriodStart: -1 }))
+        .toMatchObject({ limit: -1, remaining: -1, unlimited: true, allowed: true });
+    });
+
+    it('refuses once usage passes the EFFECTIVE cap, not the nominal one', () => {
+      const status = computeQuotaStatus(100, { used: 1200, resetAt: future(), limitAtPeriodStart: 1000 });
+      expect(status).toMatchObject({ limit: 1000, remaining: 0, allowed: false });
+    });
+  });
+
   describe('computeQuotaStatus', () => {
     it('should compute status for normal usage', () => {
       const future = new Date();

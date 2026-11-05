@@ -59,7 +59,10 @@ const plan = (t: QuotaTier) => {
 };
 
 /** Held to the ratio bound; one quota dimension each. */
-const RATE_PACKS = ['plugin_pack', 'api_pack', 'automation_pack', 'ai_pack', 'listing_pack'] as const;
+// `cpu_credits_pack` belongs here on every count: PAID-only, single-dimension,
+// and GRANULAR, so the half-cap bound is the one that matters most for it (+500
+// against Pro's 11,250 is 4.4%, which is what lets Pro's row be retuned).
+const RATE_PACKS = ['plugin_pack', 'cpu_credits_pack', 'api_pack', 'automation_pack', 'ai_pack', 'listing_pack'] as const;
 /** Sold on Team+ only instead of being made small — see the header. */
 const DIFFERENTIATORS = ['seat', 'pipeline_pack'] as const;
 /** Not quota-metered, intentionally larger than the base — see the header. */
@@ -100,22 +103,32 @@ describe('the ladder this guard reads is the one it thinks it is', () => {
 });
 
 describe('rate packs are a top-up, not a second subscription', () => {
-  it.each(RATE_PACKS)('%s grants one quota dimension, so its ratio is unambiguous', (id) => {
+  it.each(RATE_PACKS)('%s grants only real quota dimensions', (id) => {
+    // An earlier revision required exactly ONE dimension, on the grounds that a
+    // single key kept `BILLING_BUNDLE_<ID>_GRANT` working and made the ratio
+    // unambiguous. Both reasons are gone: the override is per-dimension now
+    // (`_GRANT_<DIMENSION>`), and the ratio is made unambiguous below by checking
+    // each dimension against ITS OWN cap rather than by forbidding the second.
+    //
+    // Forbidding it was never sustainable anyway. `cpuCredits` is DERIVED from
+    // plugin-build volume, so a pack granting builds must grant the minutes to
+    // run them — and the alternative was exempting `plugin_pack` from this whole
+    // describe block, which would have dropped the half-cap bound and the
+    // free-tier guard for the pack that most needs both.
     const dims = Object.keys(byId(id).grants);
-    // Single-key also keeps `BILLING_BUNDLE_<ID>_GRANT` working, since
-    // applyGrantOverride ignores a multi-key grant.
-    expect({ id, dims }).toEqual({ id, dims: [dims[0]] });
-    expect(VALID_QUOTA_TYPES).toContain(dims[0]);
+    expect(dims.length).toBeGreaterThan(0);
+    for (const d of dims) expect(VALID_QUOTA_TYPES).toContain(d);
   });
 
-  it.each(RATE_PACKS)('%s grants at most half the cap of every tier that can buy it', (id) => {
+  it.each(RATE_PACKS)('%s grants at most half the cap of every tier that can buy it, per dimension', (id) => {
     const pack = byId(id);
-    const dim = Object.keys(pack.grants)[0]!;
-    const grant = grantOf(pack, dim);
-    const tooBig = pack.availableForTiers
-      .filter((t) => cap(t, dim) !== -1 && grant > cap(t, dim) / 2)
-      .map((t) => `${t}: +${grant} on a cap of ${cap(t, dim)} (${Math.round((grant / cap(t, dim)) * 100)}%)`);
-    expect({ id, dim, tooBig }).toEqual({ id, dim, tooBig: [] });
+    const tooBig = Object.keys(pack.grants).flatMap((dim) => {
+      const grant = grantOf(pack, dim);
+      return pack.availableForTiers
+        .filter((t) => cap(t, dim) !== -1 && grant > cap(t, dim) / 2)
+        .map((t) => `${dim} on ${t}: +${grant} on a cap of ${cap(t, dim)} (${Math.round((grant / cap(t, dim)) * 100)}%)`);
+    });
+    expect({ id, tooBig }).toEqual({ id, tooBig: [] });
   });
 
   it.each(RATE_PACKS)('%s is not sold on the free Developer tier', (id) => {
@@ -194,6 +207,41 @@ describe('every tier keeps 5 plugin builds per pipeline, packs included', () => 
       if (g2 !== p2 * 5) broken.push(`${t} + pipeline_pack: ${g2} plugins / ${p2} pipelines`);
     }
     expect(broken).toEqual([]);
+  });
+});
+
+describe('every tier keeps 45 CPU credits per plugin build, packs included', () => {
+  /**
+   * The same guard as the plugins-per-pipeline one above, on the same kind of
+   * DERIVED relationship. `cpuCredits` is computed from plugin-build volume —
+   * `plugins x 10` builds a month at a flat 30 wall-minutes and 1.5 vCPU, so 45
+   * credits a build — which means a pack granting builds without minutes sells
+   * work the buyer cannot perform, and a tier whose two rows drift sells a build
+   * cap its credit cap cannot cover.
+   *
+   * 45 rather than "some credits": a ratio test that only checks for a non-zero
+   * grant would pass a pack granting one credit per hundred builds.
+   */
+  const CREDITS_PER_BUILD = 45;
+  const BUILDS_PER_PERIOD_TO_MONTH = 10;
+
+  it('holds at every tier baseline', () => {
+    const broken: string[] = [];
+    for (const t of LADDER) {
+      const [plug, credits] = [cap(t, 'plugins'), cap(t, 'cpuCredits')];
+      if (plug === -1 || credits === -1) continue; // unlimited has no ratio
+      const expected = plug * BUILDS_PER_PERIOD_TO_MONTH * CREDITS_PER_BUILD;
+      if (credits !== expected) broken.push(`${t}: ${credits} credits for ${plug} builds/period (expected ${expected})`);
+    }
+    expect(broken).toEqual([]);
+  });
+
+  it.each(['plugin_pack', 'pipeline_pack'])('holds after one %s', (id) => {
+    const g = byId(id).grants as Record<string, number>;
+    // Any pack granting plugin builds must grant the minutes for them, or the
+    // buyer gets builds with nothing to run them on.
+    expect({ id, plugins: g.plugins, cpuCredits: g.cpuCredits })
+      .toEqual({ id, plugins: g.plugins, cpuCredits: g.plugins! * BUILDS_PER_PERIOD_TO_MONTH * CREDITS_PER_BUILD });
   });
 });
 
@@ -311,7 +359,7 @@ describe('every combo is reachable, discounted, and consistent', () => {
     expect(off).toEqual([]);
   });
 
-  it('prices every plan, bundle and combo on a whole dollar or .99', () => {
+  it('prices every plan, bundle and combo on a whole dollar, .49 or .99', () => {
     // ONE rule for everything a customer sees. It is asserted across all three
     // catalogs because the odd cents were never authored — they were derived, by
     // the 10x annual convention, by combo prices set as "30% off the basket", and
@@ -319,7 +367,12 @@ describe('every combo is reachable, discounted, and consistent', () => {
     // flows through, so this is what proves no path routes around it.
     const bad: string[] = [];
     const check = (label: string, cents: number) => {
-      if (cents > 0 && cents % 100 !== 0 && cents % 100 !== 99) bad.push(`${label} = ${cents}`);
+      // `.49` admitted alongside `.00`/`.99`: a round dollar and `.99` alone
+      // are too coarse for a cheap per-unit pack, where a 50-cent lift is a 20%
+      // price rise rather than a rounding. `snapUpPrice` is the single point
+      // this is enforced at.
+      const rem = cents % 100;
+      if (cents > 0 && rem !== 0 && rem !== 49 && rem !== 99) bad.push(`${label} = ${cents}`);
     };
     for (const p of plans) { check(`plan ${p.id} monthly`, p.prices.monthly); check(`plan ${p.id} annual`, p.prices.annual); }
     for (const b of bundles) { check(`bundle ${b.id} monthly`, b.prices.monthly); check(`bundle ${b.id} annual`, b.prices.annual); }

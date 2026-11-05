@@ -610,6 +610,17 @@ describe('plugin ecosystem operations', () => {
         'compliance_scans_total', 'plugin_vuln_findings_total', 'plugin_vuln_new_findings_total',
         'plugin_security_notifications_total',
         'quota_pool_resolution_failed_total', 'quota_fail_open_total', 'quota_fail_closed_total',
+        // The build-economics three, and each is pinned for a reason a panel
+        // could silently take away. `quota_overshoot_total` is the ONLY series
+        // showing the one imprecision the credit meter accepts by design
+        // (admission is a check, not a reservation), so losing the panel would
+        // make a bounded, deliberate overshoot indistinguishable from a leak.
+        // `pipeline_compute_credits_total` is the denominator the tier ladder
+        // has to be re-derived from before pipeline execution can be charged at
+        // all — and `pipeline_compute_actions_total` is what says how much of
+        // that denominator was actually measured. Pricing off the first without
+        // the second is pricing off an unknown.
+        'quota_overshoot_total', 'pipeline_compute_credits_total', 'pipeline_compute_actions_total',
         'ai_tokens_total', 'ai_generation_duration_seconds_bucket', 'help_search_miss_total',
         'billing_invoice_ingested_total',
         'mongo_index_unknown', 'user_erasure_incomplete_total',

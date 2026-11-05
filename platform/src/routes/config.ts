@@ -12,17 +12,38 @@ const router: Router = Router();
  * sourced from api-core `QUOTA_TIERS` so `QUOTA_TIER_*` env overrides are honored.
  * Served so the quota-admin editor prefills from the deployment's real limits
  * instead of a hardcoded frontend copy that would drift under env overrides. Only
- * the four user-facing flow dimensions are exposed (not seats/storage/retention,
+ * the user-facing flow dimensions are exposed (not seats/storage/retention,
  * which the editor doesn't set); the frontend keeps a hardcoded table as a
  * fail-soft fallback if this is absent.
+ *
+ * `cpuCredits` belongs here for the same reason the rest do: it takes a
+ * `QUOTA_TIER_<TIER>_CPU_CREDITS` override like every other dimension, and an
+ * omitted key leaves the editor prefilling a number the deployment does not
+ * actually enforce.
  */
-const tierPresets: Record<QuotaTier, { plugins: number; pipelines: number; apiCalls: number; automationCalls: number; aiCalls: number }> =
+type TierPreset = {
+  plugins: number;
+  pipelines: number;
+  cpuCredits: number;
+  apiCalls: number;
+  automationCalls: number;
+  aiCalls: number;
+};
+
+const tierPresets: Record<QuotaTier, TierPreset> =
   Object.fromEntries(
     (VALID_TIERS as readonly QuotaTier[]).map((tier) => {
       const l = QUOTA_TIERS[tier].limits;
-      return [tier, { plugins: l.plugins, pipelines: l.pipelines, apiCalls: l.apiCalls, automationCalls: l.automationCalls, aiCalls: l.aiCalls }];
+      return [tier, {
+        plugins: l.plugins,
+        pipelines: l.pipelines,
+        cpuCredits: l.cpuCredits,
+        apiCalls: l.apiCalls,
+        automationCalls: l.automationCalls,
+        aiCalls: l.aiCalls,
+      }];
     }),
-  ) as Record<QuotaTier, { plugins: number; pipelines: number; apiCalls: number; automationCalls: number; aiCalls: number }>;
+  ) as Record<QuotaTier, TierPreset>;
 
 /** GET /config - Public endpoint returning service feature flags.
  *  `sendSuccess` uses res.status().json() and never touches Cache-Control,

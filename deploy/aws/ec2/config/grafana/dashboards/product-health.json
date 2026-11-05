@@ -203,7 +203,7 @@
   {
    "id": 6,
    "type": "timeseries",
-   "title": "Queue wait before a build starts",
+   "title": "Queue wait before a build starts, by class",
    "datasource": {
     "type": "prometheus",
     "uid": "${datasource}"
@@ -221,8 +221,8 @@
       "type": "prometheus",
       "uid": "${datasource}"
      },
-     "expr": "histogram_quantile(0.5, sum by (le) (rate(plugin_job_wait_seconds_bucket[30m])))",
-     "legendFormat": "p50"
+     "expr": "histogram_quantile(0.5, sum by (le, build_class) (rate(plugin_job_wait_seconds_bucket[30m])))",
+     "legendFormat": "p50 {{build_class}}"
     },
     {
      "refId": "B",
@@ -230,8 +230,8 @@
       "type": "prometheus",
       "uid": "${datasource}"
      },
-     "expr": "histogram_quantile(0.9, sum by (le) (rate(plugin_job_wait_seconds_bucket[30m])))",
-     "legendFormat": "p90"
+     "expr": "histogram_quantile(0.9, sum by (le, build_class) (rate(plugin_job_wait_seconds_bucket[30m])))",
+     "legendFormat": "p90 {{build_class}}"
     }
    ],
    "fieldConfig": {
@@ -251,7 +251,7 @@
      "sort": "desc"
     }
    },
-   "description": "Time spent QUEUED, which is capacity rather than build complexity. Rising wait with flat duration is the signal to add workers; the reverse is a plugin problem."
+   "description": "Time spent QUEUED, which is capacity rather than build complexity. Rising wait with flat duration is the signal to add workers; the reverse is a plugin problem. Split by scheduling class, because `flexible` trades start latency for more builds at once and is MEANT to wait: one series mixing the two hides a real standard-class stall inside the flexible tail, and makes a busy platform look like a broken one."
   },
   {
    "id": 7,
@@ -1651,6 +1651,151 @@
     }
    },
    "description": "Seconds of the lookahead window with NOBODY on call \u2014 the absence check the rest of this feature cannot perform on itself. Every other signal here reports that something happened; a rota with a hole next Tuesday produces no signal at all until 02:00 Tuesday, when the absence of a page is indistinguishable from a quiet night. The series is published ONLY when the rota could actually be read: on a failed or unauthorized API call nothing is written, because a 0 would mean \"fully covered\" and that is the one reassurance a failed request must never produce. So an ABSENT series means unknown, not safe \u2014 `oncall_rota_reads_total{outcome=\"unknown\"}` and `OnCallRotaUnreadable` are where that becomes visible. Needs PAGERDUTY_API_TOKEN, a REST token deliberately separate from the per-service routing key used for sending."
+  },
+  {
+   "id": 42,
+   "type": "row",
+   "title": "Build economics — what consumption is, before any of it is charged",
+   "collapsed": false,
+   "gridPos": {
+    "x": 0,
+    "y": 130,
+    "w": 24,
+    "h": 1
+   },
+   "panels": []
+  },
+  {
+   "id": 43,
+   "type": "timeseries",
+   "title": "CPU credit overshoot",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${datasource}"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 131,
+    "w": 12,
+    "h": 8
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${datasource}"
+     },
+     "expr": "sum by (type) (rate(quota_overshoot_total[30m]))",
+     "legendFormat": "{{type}}"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short"
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "description": "Units spent past a cap. A small, steady trickle on `cpuCredits` is expected and deliberate: build admission is a CHECK, not a reservation, so builds submitted concurrently at the cap can each overshoot by their own cost. It is bounded by the per-org slot caps times the per-build wall-clock bound (~5% of a period at worst, in the tenant's favour) and is MEASURED rather than prevented — this panel is that measurement. Per-org attribution, with route, principal and build class, lives in `usage_events`."
+  },
+  {
+   "id": 44,
+   "type": "timeseries",
+   "title": "Pipeline compute consumed (NOT charged)",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${datasource}"
+   },
+   "gridPos": {
+    "x": 12,
+    "y": 131,
+    "w": 12,
+    "h": 8
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${datasource}"
+     },
+     "expr": "sum by (compute_type) (rate(pipeline_compute_credits_total[30m]))",
+     "legendFormat": "{{compute_type}}"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short"
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "description": "vCPU-minutes consumed by CodeBuild actions, in the same unit as `cpuCredits`. Nothing here enters a quota counter: the tier ladder was derived without pipeline execution in it, so charging this before re-deriving the ladder would raise every account's consumption with no change in its behaviour. This is the series the re-derivation needs (Phase 4). X2_LARGE is 72 vCPU against SMALL's 2, which is why pipeline execution cannot be charged by wall-clock alone."
+  },
+  {
+   "id": 45,
+   "type": "timeseries",
+   "title": "Pipeline compute measurement coverage",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${datasource}"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 139,
+    "w": 24,
+    "h": 8
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${datasource}"
+     },
+     "expr": "sum(rate(pipeline_compute_actions_total{measured=\"true\"}[1h])) / clamp_min(sum(rate(pipeline_compute_actions_total[1h])), 0.0001)",
+     "legendFormat": "measured"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "percentunit"
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "description": "The fraction of terminal CodeBuild actions whose consumption could actually be measured. READ THIS BEFORE the panel beside it: AWS does not always send a `start-time`, and the forwarder refuses to invent a duration from the event time (doing so once reported every stage as 0ms and dragged every average toward zero). So a real fraction of actions arrive unmeasurable, and a tier ladder priced off the credits series before this ratio is known would be priced off an unknown denominator."
   }
  ]
 }

@@ -16,6 +16,7 @@ import {
   errorMessage,
   type PluginComplianceAttributes,
   type QuotaService,
+  type QuotaTier,
 } from '@pipeline-builder/api-core';
 import type { SSEManager } from '@pipeline-builder/api-server';
 
@@ -79,11 +80,14 @@ export async function queuePluginBuild(input: {
   authHeader: string;
   jobName: string;
   jobData: PluginBuildJobData;
+  /** The org's tier, when the caller already resolved it (both routes do, for
+   *  the machine-size gate). Saves a second quota round trip per submission. */
+  tier?: QuotaTier;
   logWarn: LogFn;
 }): Promise<void> {
   const { quotaService, sseManager, orgId, authHeader, jobData } = input;
   await sseManager.bindStreamOwner(jobData.requestId, orgId).catch((bindErr) =>
     input.logWarn('Stream-owner bind failed (non-fatal)', { error: errorMessage(bindErr) }));
-  const tier = await getOrgTier(quotaService, orgId, authHeader);
+  const tier = input.tier ?? await getOrgTier(quotaService, orgId, authHeader);
   await enqueueBuild(tier, input.jobName, jobData);
 }

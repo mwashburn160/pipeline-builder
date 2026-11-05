@@ -1302,6 +1302,16 @@ services:
       # the plugin service fails closed without it). The zip waits in its own
       # bucket (30-day expiry), same bucket-scoped RustFS credentials as S3_BUCKET.
       PLUGIN_QUARANTINE_BUILDKIT_ADDR: ${PLUGIN_QUARANTINE_BUILDKIT_ADDR:-tcp://buildkitd-quarantine:1234}
+      # Build machines (D13): a Small/Medium/Large build is one sent to a
+      # buildkitd with a different CPU limit, because there is no per-build CPU
+      # option on buildctl. Empty by default and this compose ships no sized
+      # daemon, so any machine but Standard is REFUSED at submission rather than
+      # served at Standard speed for a different price. Passed through so an
+      # operator who stands one up can point at it.
+      PLUGIN_BUILDKIT_ADDR_SIZE_HALF: ${PLUGIN_BUILDKIT_ADDR_SIZE_HALF:-}
+      PLUGIN_BUILDKIT_ADDR_SIZE_2X: ${PLUGIN_BUILDKIT_ADDR_SIZE_2X:-}
+      PLUGIN_BUILDKIT_ADDR_SIZE_4X: ${PLUGIN_BUILDKIT_ADDR_SIZE_4X:-}
+      PLUGIN_BUILDKIT_ADDR_SIZE_8X: ${PLUGIN_BUILDKIT_ADDR_SIZE_8X:-}
       PLUGIN_QUARANTINE_BUCKET: ${PLUGIN_QUARANTINE_BUCKET:-plugin-quarantine}
       SUBMISSION_POW_SECRET: ${SUBMISSION_POW_SECRET:-}
       SUBMISSION_POW_DIFFICULTY: ${SUBMISSION_POW_DIFFICULTY:-20}

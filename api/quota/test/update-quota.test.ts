@@ -57,7 +57,10 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   requireAuth: () => (_req: any, _res: any, next: any) => next(),
   getParam: mockGetParam,
   DEFAULT_TIER: 'developer',
-  VALID_QUOTA_TYPES: ['plugins', 'pipelines', 'apiCalls', 'aiCalls'],
+  // The REAL list, not a sample of it: a short stub here silently rejects any
+  // type the suite does not already use, and the refusal reads as a route bug
+  // rather than as a stale double (it cost one debugging round on `cpuCredits`).
+  VALID_QUOTA_TYPES: ['plugins', 'pipelines', 'apiCalls', 'automationCalls', 'aiCalls', 'storageBytes', 'cpuCredits', 'dashboards'],
   isValidQuotaType: (t: string) => ['plugins', 'pipelines', 'apiCalls'].includes(t),
   QUOTA_TIERS: {
     developer: { limits: { plugins: 100, pipelines: 10, apiCalls: -1 } },
@@ -88,7 +91,10 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   }),
 }));
 
+const mockIncCounter = jest.fn<AnyFn>();
+
 jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
+  incCounter: (...a: unknown[]) => mockIncCounter(...a),
   withRoute: (handler: any, opts?: any) => async (req: any, res: any) => {
     const orgId = req.user?.organizationId || '';
     const requireOrgId = opts?.requireOrgId !== false;
@@ -512,6 +518,48 @@ describe('POST /quotas/:orgId/increment (metered batch)', () => {
     ]);
     // Notices see only what was COUNTED.
     expect(mockNotifyThresholds).toHaveBeenCalledWith(expect.objectContaining({ rootOrgId: 'root-1', amount: 5, used: 100, limit: 100 }));
+    // …and the units PAST the cap get a series of their own, by amount.
+    expect(mockIncCounter).toHaveBeenCalledWith('quota_overshoot_total', { type: 'apiCalls' }, 2);
+  });
+
+  it('counts overshoot as a series an ALERT can see, not only as ledger rows', async () => {
+    // The per-org rows already carry route/principal/feature; what was missing
+    // was something alertable. It matters most for `cpuCredits`: build admission
+    // is a CHECK rather than a reservation, so concurrent submissions at the cap
+    // can each overshoot by their own cost. That exposure is bounded and in the
+    // tenant's favour, so it is MEASURED rather than prevented — and this is the
+    // measurement.
+    incrementMetered.mockResolvedValue({
+      exceeded: false,
+      rootOrgId: 'root-1',
+      counted: 0,
+      overshoot: 45,
+      quota: { type: 'cpuCredits', limit: 4500, used: 4500, remaining: 0, resetAt: futureDate.toISOString() },
+    });
+    await handler(mockReq({
+      params: { orgId: 'team-1' },
+      user: { organizationId: 'team-1' },
+      body: { quotaType: 'cpuCredits', amount: 45, meter: true, groups: [{ amount: 45 }] },
+    }), mockRes());
+
+    expect(mockIncCounter).toHaveBeenCalledWith('quota_overshoot_total', { type: 'cpuCredits' }, 45);
+  });
+
+  it('emits nothing when everything fit, so a quiet series means no overshoot', async () => {
+    incrementMetered.mockResolvedValue({
+      exceeded: false,
+      rootOrgId: 'root-1',
+      counted: 10,
+      overshoot: 0,
+      quota: { type: 'apiCalls', limit: 100, used: 10, remaining: 90, resetAt: futureDate.toISOString() },
+    });
+    await handler(mockReq({
+      params: { orgId: 'team-1' },
+      user: { organizationId: 'team-1' },
+      body: { quotaType: 'apiCalls', amount: 10, meter: true, groups: [{ amount: 10 }] },
+    }), mockRes());
+
+    expect(mockIncCounter).not.toHaveBeenCalledWith('quota_overshoot_total', expect.anything(), expect.anything());
   });
 
   it('rejects groups that do not sum to amount, and groups without meter', async () => {

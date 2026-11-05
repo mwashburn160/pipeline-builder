@@ -220,7 +220,7 @@ function registerMocks() {
     buildAndPush: mockBuildAndPush,
     loadAndPush: jest.fn<AnyFn>(),
     BUILD_TEMP_ROOT: '/tmp',
-    getBuildkitAddrForTier: jest.fn(() => 'tcp://buildkitd:1234'),
+    getBuildkitAddrForBuild: jest.fn(() => 'tcp://buildkitd:1234'),
   }));
   jest.unstable_mockModule('../src/helpers/build-process.js', () => ({
     // maskSecrets identity here — real masking is covered by docker-build.test.ts.
@@ -306,7 +306,7 @@ function registerMocks() {
   // these tests. Acquire SUCCEEDS by default so every pre-existing test is
   // unaffected; the slot-gate tests below flip it per case.
   jest.unstable_mockModule('../src/queue/slot-manager.js', () => ({
-    MAX_BUILDS_PER_ORG: 3,
+    maxBuildsPerOrg: jest.fn<AnyFn>(() => 3),
     MAX_SLOT_DELAYS: 2,
     ORG_SLOT_DELAY_MS: 10_000,
     ORG_SLOT_SCRUB_MS: 300_000,
@@ -556,7 +556,7 @@ describe('plugin-build-queue', () => {
       await expect(getMainProcessor()(job)).rejects.toMatchObject({ name: 'DelayedError' });
 
       expect(sse.send).toHaveBeenCalledWith('req-123', 'WARN',
-        expect.stringContaining('Waiting for a build slot'), expect.objectContaining({ maxBuildsPerOrg: 3 }));
+        expect.stringContaining('Waiting for a build slot'), expect.objectContaining({ buildClass: 'standard', maxBuildsPerOrg: 3 }));
       // The remedy is a WAIT, not a purchase — one of the refusals a shared 429
       // would have sent to the billing page.
       expect(String((sse.send as any).mock.calls[0][2])).toContain('nothing to buy or fix');
@@ -582,7 +582,7 @@ describe('plugin-build-queue', () => {
 
       // Without this counter, concurrency contention is invisible — and the
       // per-tier slot numbers have no data to be picked from.
-      expect(mockIncCounter).toHaveBeenCalledWith('plugin_build_slot_denied_total', { tier: 'developer' });
+      expect(mockIncCounter).toHaveBeenCalledWith('plugin_build_slot_denied_total', { tier: 'developer', build_class: 'standard' });
     });
 
     it('persists the delay count, so the budget cannot reset on every pass', async () => {
@@ -624,10 +624,51 @@ describe('plugin-build-queue', () => {
       // failure handler puts the reason on the stream and in the audit.
       expect(err.name).not.toBe('DelayedError');
       expect(err.statusCode).toBe(503);
-      expect(String(err.message)).toContain('concurrent builds');
-      expect(mockIncCounter).toHaveBeenCalledWith('plugin_build_slot_timeout_total', { tier: 'developer' });
+      expect(String(err.message)).toContain('concurrent standard builds');
+      expect(mockIncCounter).toHaveBeenCalledWith('plugin_build_slot_timeout_total', { tier: 'developer', build_class: 'standard' });
       // It must not be re-delayed as well.
       expect(job.updateData).not.toHaveBeenCalled();
+    });
+
+    it('competes for the slot counter of its OWN class, and defaults to standard', async () => {
+      queueModule.startWorker(makeSseManager(), makeQuotaService());
+      mockBuildAndPush.mockResolvedValue({ fullImage: 'img', digest: `sha256:${'a'.repeat(64)}`, imageSource: 'built' });
+      mockDeployVersion.mockResolvedValue({ id: 'plugin-1', name: 'my-plugin', version: '1.0.0' });
+
+      // No class on the job data: a job already in the queue when the field
+      // shipped must stay on `standard`. Defaulting to `flexible` would quietly
+      // move in-flight builds onto the slower class.
+      await getMainProcessor()(makeJob(makeJobData()));
+
+      expect(mockTryAcquireOrgSlot).toHaveBeenCalledWith(
+        'org-1', 'plugin-build-developer:job-1', 'developer', 'standard');
+    });
+
+    it('passes a batch job\'s class through to the slot gate', async () => {
+      queueModule.startWorker(makeSseManager(), makeQuotaService());
+      mockBuildAndPush.mockResolvedValue({ fullImage: 'img', digest: `sha256:${'a'.repeat(64)}`, imageSource: 'built' });
+      mockDeployVersion.mockResolvedValue({ id: 'plugin-1', name: 'my-plugin', version: '1.0.0' });
+      const data = { ...makeJobData(), buildClass: 'flexible' as const };
+
+      await getMainProcessor()(makeJob(data, { data }));
+
+      expect(mockTryAcquireOrgSlot).toHaveBeenCalledWith(
+        'org-1', 'plugin-build-developer:job-1', 'developer', 'flexible');
+      expect(mockStartOrgSlotHeartbeat).toHaveBeenCalledWith(
+        'org-1', 'plugin-build-developer:job-1', 'flexible');
+    });
+
+    it('names the CLASS and its own cap in the refusal, not one global figure', async () => {
+      const sse = makeSseManager();
+      queueModule.startWorker(sse, makeQuotaService());
+      mockTryAcquireOrgSlot.mockResolvedValueOnce(false);
+      const data = { ...makeJobData(), buildClass: 'flexible' as const };
+
+      await expect(getMainProcessor()(makeJob(data, { data }))).rejects.toMatchObject({ name: 'DelayedError' });
+
+      // "at its limit of 3 concurrent builds" was true of neither class once the
+      // caps diverged; a tenant reading it would go looking for the wrong limit.
+      expect(String((sse.send as any).mock.calls[0][2])).toContain('concurrent flexible builds');
     });
 
     it('heartbeats the slot for the life of the build and stops in the finally', async () => {
@@ -637,7 +678,7 @@ describe('plugin-build-queue', () => {
 
       await getMainProcessor()(makeJob(makeJobData()));
 
-      expect(mockStartOrgSlotHeartbeat).toHaveBeenCalledWith('org-1', 'plugin-build-developer:job-1');
+      expect(mockStartOrgSlotHeartbeat).toHaveBeenCalledWith('org-1', 'plugin-build-developer:job-1', 'standard');
       // Without the stop, one timer per build outlives the worker.
       expect(mockStopSlotHeartbeat).toHaveBeenCalled();
     });

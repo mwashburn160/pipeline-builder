@@ -1,6 +1,6 @@
 // GENERATED FROM docs/billing-bundles.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 86269546c97f7594a6d0524e151ba2612dae37221f3a3883d905763eb1720e0a
+// SOURCE-SHA256: d7e95ea3a2ded66556bef3267119045e3f300ba4b81879fd9f9b368af93f29fb
 // SPDX-License-Identifier: Apache-2.0
 import { Package } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -153,8 +153,8 @@ export const billingBundlesTopic: HelpTopic = {
               "Override a bundle's price (cents)"
             ],
             [
-              "BILLING_BUNDLE_<ID>_GRANT",
-              "Override the grant amount (single-dimension bundles only)"
+              "BILLING_BUNDLE_<ID>_GRANT_<DIMENSION>",
+              "Override the grant amount for ONE dimension, e.g. BILLING_BUNDLE_PLUGIN_PACK_GRANT_CPU_CREDITS=9000. Applied per key, so a bad value on one dimension leaves the others alone, and a dimension the bundle does not grant is ignored rather than added"
             ],
             [
               "BILLING_BUNDLE_<ID>_TIERS",
@@ -172,7 +172,7 @@ export const billingBundlesTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "<ID> is the bundle id upper-cased: SEAT, PIPELINE_PACK, PLUGIN_PACK, API_PACK, AUTOMATION_PACK, AI_PACK, STORAGE_PACK, LISTING_PACK, RETENTION_PACK, DORA_HISTORY_PACK, ADVANCED_REPORTING, TEAM_USAGE_ANALYTICS, COMPLIANCE_STANDARD, COMPLIANCE_ADVANCED, STAKEHOLDER_REPORTS, SUPPORT_STANDARD, SUPPORT_PRIORITY, SUPPORT_PREMIUM."
+          "content": "<ID> is the bundle id upper-cased: SEAT, PIPELINE_PACK, PLUGIN_PACK, CPU_CREDITS_PACK, API_PACK, AUTOMATION_PACK, AI_PACK, STORAGE_PACK, LISTING_PACK, RETENTION_PACK, DORA_HISTORY_PACK, ADVANCED_REPORTING, TEAM_USAGE_ANALYTICS, COMPLIANCE_STANDARD, COMPLIANCE_ADVANCED, STAKEHOLDER_REPORTS, SUPPORT_STANDARD, SUPPORT_PRIORITY, SUPPORT_PREMIUM."
         },
         {
           "type": "text",
@@ -226,6 +226,14 @@ export const billingBundlesTopic: HelpTopic = {
               "$119.99",
               "paid tiers",
               "✅ (volume)"
+            ],
+            [
+              "CPU Credits Pack",
+              "+500 CPU credits / month",
+              "$2.49",
+              "$24.99",
+              "paid tiers",
+              "✅ (volume, max 22)"
             ],
             [
               "API Pack",
@@ -350,7 +358,11 @@ export const billingBundlesTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "BILLING_BUNDLE_<ID>_GRANT retunes a single-dimension pack; multi-dimension packs keep their ratio and are tuned through _MONTHLY or _TIERS, or by changing the ratio in the catalog."
+          "content": "BILLING_BUNDLE_<ID>_GRANT_<DIMENSION> retunes one dimension of a pack's grant — <DIMENSION> is the quota field upper-snake-cased (PLUGINS, CPU_CREDITS, API_CALLS, STORAGE_BYTES)."
+        },
+        {
+          "type": "text",
+          "content": "This replaced a single BILLING_BUNDLE_<ID>_GRANT, which could only address a one-dimension pack and silently did nothing for the rest. That was tolerable while every stackable pack granted exactly one dimension, and stopped being tolerable when cpuCredits arrived: credits are derived from plugin-build volume, so every pack granting builds has to grant the minutes to run them, and an operator retuning the build grant must be able to retune the minutes with it — otherwise the 45-credits-per-build invariant breaks the first time the knob is used. Multi-dimension packs are now tunable per key; the ratio is held by a test rather than by refusing the override."
         },
         {
           "type": "text",
@@ -425,7 +437,7 @@ export const billingBundlesTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Storage is entered in GB, not in packs. The typed field takes an absolute quantity, and for most packs the number you type is the number you mean — one seat is one seat. Storage's grant is 10 GB, so the field would otherwise ask for \"6\" to mean 60 GB. It accepts GB in multiples of the pack size instead, converts to packs on commit, and refuses a value that is not a whole pack rather than rounding it — rounding up would charge for capacity nobody asked for, and rounding down would quietly deliver less than was typed. The step follows the grant, so a deployment that overrides BILLING_BUNDLE_STORAGE_PACK_GRANT to 20 GB gets a 20 GB step with no code change."
+          "content": "Storage is entered in GB, not in packs. The typed field takes an absolute quantity, and for most packs the number you type is the number you mean — one seat is one seat. Storage's grant is 10 GB, so the field would otherwise ask for \"6\" to mean 60 GB. It accepts GB in multiples of the pack size instead, converts to packs on commit, and refuses a value that is not a whole pack rather than rounding it — rounding up would charge for capacity nobody asked for, and rounding down would quietly deliver less than was typed. The step follows the grant, so a deployment that overrides BILLING_BUNDLE_STORAGE_PACK_GRANT_STORAGE_BYTES to 20 GB gets a 20 GB step with no code change."
         },
         {
           "type": "text",

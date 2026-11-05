@@ -339,8 +339,12 @@ describe('POST /subscriptions/:id/discounts (self-service redeem)', () => {
     await mockDiscountCreate({ _id: 'disc_pc', value: 10, unit: 'percent', kind: 'credit', isActive: true, alias: 'TENPCT' });
     await call(handler('post', '/subscriptions/:id/discounts'), { user: { sub: 'u1', organizationId: 'org-cust' }, params: { id: 'sub-1' }, body: { code: 'TENPCT' } });
     // 10% of $49.00 monthly = 490 cents.
-    // 10% of $49.00 is $4.90; net $44.10 snaps up to $44.99, credit $4.01.
-    expect(subDoc.creditBalanceCents).toBe(401);
+    // 10% of $49.00 is $4.90; net $44.10 snaps up to $44.49 (`.49` is an allowed
+    // ending now), leaving credit $4.51. The credit grew by 50 cents because the
+    // NET had less distance to travel upward — the reduction is derived as the
+    // remainder, so a finer ending scale makes the snap less vendor-favourable
+    // and the invoice line reconcile closer to the raw percentage.
+    expect(subDoc.creditBalanceCents).toBe(451);
   });
 
   it('M1: a concurrent duplicate redemption is rejected (atomic guard) and the reservation is released', async () => {
@@ -542,7 +546,9 @@ describe('preview', () => {
     await call(handler('post', '/subscriptions/:id/discounts/preview'), { user: { sub: 'u1', organizationId: 'org-cust' }, params: { id: 'sub-1' }, body: { code: 'TWENTYOFF' } });
     const [, status, body] = mockSendSuccess.mock.calls[0];
     expect(status).toBe(200);
-    expect((body as any).priceBreakdown.totalCents).toBe(3999); // 20% off $49, snapped up from $39.20
+    // 20% off $49 is $39.20, which snaps up to $39.49 rather than $39.99 now
+    // that `.49` is allowed — 50 cents closer to the discount actually offered.
+    expect((body as any).priceBreakdown.totalCents).toBe(3949);
     expect(subDoc.creditBalanceCents).toBe(0); // not applied
     expect(mockApplyUsageCredit).not.toHaveBeenCalled();
   });

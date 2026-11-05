@@ -630,7 +630,7 @@ groups:
           description: "p95 job wait is {{ $value | humanizeDuration }}; consider scaling workers."
 
       - alert: PluginBuildSlotTimeout
-        expr: sum by (tier) (increase(plugin_build_slot_timeout_total[15m])) > 0
+        expr: sum by (tier, build_class) (increase(plugin_build_slot_timeout_total[15m])) > 0
         for: 0m
         labels:
           severity: critical
@@ -638,21 +638,21 @@ groups:
           tenancy: platform
         annotations:
           summary: "Builds refused for want of an org build slot"
-          description: "Build(s) on the {{ $labels.tier }} tier waited PLUGIN_ORG_SLOT_MAX_WAIT_MS (default 30m) for a free per-org slot and then failed terminally. A slot delay spends no BullMQ attempt, so this is the wait BUDGET firing rather than retries running out: either orgs are genuinely saturated at PLUGIN_MAX_BUILDS_PER_ORG, or slots are leaking and the scrubber has not reclaimed them yet. Cross-check plugin_build_slot_denied_total for contention and the \"Reclaimed leaked org build slot\" log line for leaks."
+          description: "Build(s) on the {{ $labels.tier }} tier in the {{ $labels.build_class }} class waited PLUGIN_ORG_SLOT_MAX_WAIT_MS (default 30m) for a free per-org slot and then failed terminally. A slot delay spends no BullMQ attempt, so this is the wait BUDGET firing rather than retries running out: either orgs are genuinely saturated at PLUGIN_MAX_BUILDS_<TIER>_<CLASS>, or slots are leaking and the scrubber has not reclaimed them yet. A STANDARD-class timeout is the serious one — that class is where an urgent fix goes. Cross-check plugin_build_slot_denied_total for contention and the \"Reclaimed leaked org build slot\" log line for leaks."
 
       - alert: PluginBuildSlotContention
-        expr: sum by (tier) (rate(plugin_build_slot_denied_total[10m])) > 0.2
+        expr: sum by (tier, build_class) (rate(plugin_build_slot_denied_total[10m])) > 0.2
         for: 5m
         labels:
           severity: warning
           component: plugin
           tenancy: platform
         annotations:
-          summary: "Org build slot cap binding continuously on the {{ $labels.tier }} tier"
-          description: "Slot denials have run above 0.2/sec for 5 minutes on the {{ $labels.tier }} tier. Builds are being re-delayed every PLUGIN_ORG_SLOT_DELAY_MS because orgs sit at PLUGIN_MAX_BUILDS_PER_ORG. Denials in bursts are the cap working; sustained, they mean the per-org cap or that tier's PLUGIN_BUILD_CONCURRENCY is too low for the load, and PluginBuildSlotTimeout is the next thing to fire."
+          summary: "Org build slot cap binding continuously on the {{ $labels.tier }} tier ({{ $labels.build_class }})"
+          description: "Slot denials have run above 0.2/sec for 5 minutes on the {{ $labels.tier }} tier in the {{ $labels.build_class }} class. Builds are being re-delayed every PLUGIN_ORG_SLOT_DELAY_MS because orgs sit at PLUGIN_MAX_BUILDS_<TIER>_<CLASS> for that class. Which class fires is the diagnosis: FLEXIBLE denials are the class working as designed (it trades start latency for headroom), while STANDARD denials mean the class that carries urgent fixes is short — raise that cell, or that tier's PLUGIN_BUILD_CONCURRENCY. Denials in bursts are the cap working; sustained, PluginBuildSlotTimeout is the next thing to fire."
 
       - alert: PluginBuildSlotLeak
-        expr: sum(increase(plugin_build_slot_reclaimed_total[1h])) > 0
+        expr: sum by (build_class) (increase(plugin_build_slot_reclaimed_total[1h])) > 0
         for: 0m
         labels:
           severity: warning
@@ -660,7 +660,18 @@ groups:
           tenancy: platform
         annotations:
           summary: "Leaked org build slots were reclaimed"
-          description: "{{ $value | humanize }} org build slot(s) were reclaimed by the scrubber in the last hour. A leaked slot PERMANENTLY reduces that org's build concurrency until a scrub reclaims it, so capacity shrinks silently and the org's builds queue for no visible reason. Each reclaim means a worker died holding a slot: check for plugin pod restarts and OOM kills. The \"Reclaimed leaked org build slot\" log line names the job and org."
+          description: "{{ $value | humanize }} {{ $labels.build_class }}-class org build slot(s) were reclaimed by the scrubber in the last hour. A leaked slot PERMANENTLY reduces that org's build concurrency until a scrub reclaims it, so capacity shrinks silently and the org's builds queue for no visible reason. Each reclaim means a worker died holding a slot: check for plugin pod restarts and OOM kills. The \"Reclaimed leaked org build slot\" log line names the job and org."
+
+      - alert: CpuCreditOvershoot
+        expr: sum(rate(quota_overshoot_total{type="cpuCredits"}[1h])) > 1
+        for: 1h
+        labels:
+          severity: warning
+          component: quota
+          tenancy: platform
+        annotations:
+          summary: "Build credits are being spent past the cap faster than the admission check bounds"
+          description: "CPU-credit overshoot has run above 1 credit/sec for an hour. A SMALL amount is expected and deliberate: build admission is a CHECK rather than a reservation (a build's cost is not known until it has run), so builds submitted concurrently at the cap can each overshoot by their own cost. That exposure is bounded by the per-org slot caps multiplied by the per-build wall-clock bound (DOCKER_BUILD_TIMEOUT_MS plus two DOCKER_PUSH_TIMEOUT_MS) and comes to at most ~5% of a period's budget, in the tenant's favour. This rule fires when it stops being small — the whole worst case, every hour — which means admission is not binding. Drill down in usage_events, where every overshoot is a per-org row carrying its route, principal and build class."
 
       - alert: DLQFilling
         expr: sum(plugin_queue_jobs{queue="plugin-build-dlq"}) > 10

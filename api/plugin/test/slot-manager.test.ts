@@ -8,7 +8,10 @@
  *  (1) the per-org counter TTL is refreshed on EVERY acquire (not just the
  *      0->1 transition), so a continuously-busy org's key can't expire
  *      mid-flight and reset the cap;
- *  (2) the owner hash + the scrubber's live-set are keyed by a
+ *  (2) the per-org cap is PER CLASS and PER TIER, so `flexible` work cannot eat
+ *      the `standard` headroom an urgent fix needs, and a Developer org no
+ *      longer gets an Enterprise org's concurrency;
+ *  (3) the owner hash + the scrubber's live-set are keyed by a
  *      queue-qualified id (`${queueName}:${jobId}`). BullMQ job ids are
  *      per-queue-monotonic, so the per-tier queues mint colliding bare ids;
  *      a bare-id live-set would treat one tier's job as "live" for a same-id
@@ -102,12 +105,20 @@ function registerMocks() {
 
 registerMocks();
 
+const mod0 = await import('../src/queue/slot-manager.js');
 const {
-  tryAcquireOrgSlot, releaseOrgSlot, scrubOrgSlots, refreshOrgSlot, startOrgSlotHeartbeat, MAX_SLOT_DELAYS,
-} = await import('../src/queue/slot-manager.js');
+  releaseOrgSlot, scrubOrgSlots, refreshOrgSlot, startOrgSlotHeartbeat, MAX_SLOT_DELAYS, maxBuildsPerOrg,
+} = mod0;
+
+// Most cases here are about the Lua, not the ladder, so they acquire on the
+// roomiest row (enterprise/standard = 8) and the cases that are about the cap
+// name their own tier and class.
+const acquire = (orgId: string, jobId: string, tier = 'enterprise', cls = 'standard') =>
+  mod0.tryAcquireOrgSlot(orgId, jobId, tier as never, cls as never);
 
 const OWNERS_KEY = 'pb:org-build-owners';
-const count = (orgId: string) => strings.get(`pb:org-build:${orgId}`) ?? 0;
+const count = (orgId: string, cls = 'standard') => strings.get(`pb:org-build:${orgId}:${cls}`) ?? 0;
+const expiresFor = (orgId: string, cls = 'standard') => expires.get(`pb:org-build:${orgId}:${cls}`);
 const owners = () => Object.fromEntries(hashes.get(OWNERS_KEY) ?? new Map());
 
 function resetRedis() {
@@ -128,8 +139,8 @@ describe('scrubOrgSlots reclaim accounting', () => {
   it('counts every reclaimed slot, because a leak shrinks an org\'s concurrency silently', async () => {
     // Acquire two slots, then let BullMQ forget both jobs (no live queues), which
     // is what a crashed worker looks like to the scrubber.
-    await tryAcquireOrgSlot('org-a', 'q:job-1');
-    await tryAcquireOrgSlot('org-a', 'q:job-2');
+    await acquire('org-a', 'q:job-1');
+    await acquire('org-a', 'q:job-2');
     expect(count('org-a')).toBe(2);
 
     await scrubOrgSlots();
@@ -138,11 +149,11 @@ describe('scrubOrgSlots reclaim accounting', () => {
     // Logged ONLY, before this: a leaked slot permanently reduces that org's
     // build concurrency until a scrub, so the shrink was unalertable.
     expect(mockIncCounter).toHaveBeenCalledTimes(2);
-    expect(mockIncCounter).toHaveBeenCalledWith('plugin_build_slot_reclaimed_total', {});
+    expect(mockIncCounter).toHaveBeenCalledWith('plugin_build_slot_reclaimed_total', { build_class: 'standard' });
   });
 
   it('counts nothing when every owner is still live', async () => {
-    await tryAcquireOrgSlot('org-a', 'plugin-build-developer:job-1');
+    await acquire('org-a', 'plugin-build-developer:job-1');
     mockGetAllTierQueues.mockReturnValue([
       { tier: 'developer', queue: { name: 'plugin-build-developer', getJobs: async () => [{ id: 'job-1' }] } },
     ]);
@@ -161,36 +172,36 @@ describe('refreshOrgSlot', () => {
   });
 
   it('extends a HELD slot, so the TTL is a crash window and not a build-duration cap', async () => {
-    await tryAcquireOrgSlot('org-a', 'q:job-1');
-    const afterAcquire = expires.get('pb:org-build:org-a') ?? 0;
+    await acquire('org-a', 'q:job-1');
+    const afterAcquire = expiresFor('org-a') ?? 0;
 
-    expect(await refreshOrgSlot('org-a', 'q:job-1')).toBe(true);
+    expect(await refreshOrgSlot('org-a', 'q:job-1', 'standard')).toBe(true);
 
     // The acquire expired it once; the refresh expired it again. Without this a
     // 900s TTL silently uncapped any org whose build ran longer than 15 minutes:
     // the counter vanished WHILE builds ran, the next acquire started from zero,
     // and release then under-counted into the negative clamp.
-    expect(expires.get('pb:org-build:org-a')).toBe(afterAcquire + 1);
+    expect(expiresFor('org-a')).toBe(afterAcquire + 1);
   });
 
   it('refuses to refresh a slot this job does not hold, so a stale timer cannot resurrect the counter', async () => {
     // A heartbeat tick can race its own job's release. If the refresh were
     // ungated it would re-EXPIRE a counter key for a slot nobody holds, wedging
     // capacity that only the scrubber could then reclaim.
-    expect(await refreshOrgSlot('org-a', 'q:never-acquired')).toBe(false);
-    expect(expires.get('pb:org-build:org-a')).toBeUndefined();
+    expect(await refreshOrgSlot('org-a', 'q:never-acquired', 'standard')).toBe(false);
+    expect(expiresFor('org-a')).toBeUndefined();
 
-    await tryAcquireOrgSlot('org-a', 'q:job-1');
-    await releaseOrgSlot('org-a', 'q:job-1');
-    const afterRelease = expires.get('pb:org-build:org-a') ?? 0;
+    await acquire('org-a', 'q:job-1');
+    await releaseOrgSlot('org-a', 'q:job-1', 'standard');
+    const afterRelease = expiresFor('org-a') ?? 0;
 
-    expect(await refreshOrgSlot('org-a', 'q:job-1')).toBe(false);
-    expect(expires.get('pb:org-build:org-a')).toBe(afterRelease);
+    expect(await refreshOrgSlot('org-a', 'q:job-1', 'standard')).toBe(false);
+    expect(expiresFor('org-a')).toBe(afterRelease);
   });
 
   it('gates the refresh on the owner record inside the Lua, not in JS', async () => {
-    await tryAcquireOrgSlot('org-a', 'q:job-1');
-    await refreshOrgSlot('org-a', 'q:job-1');
+    await acquire('org-a', 'q:job-1');
+    await refreshOrgSlot('org-a', 'q:job-1', 'standard');
 
     const lua = String(mockEval.mock.calls[mockEval.mock.calls.length - 1][0]);
     // One round trip: the ownership check and the EXPIRE are atomic together.
@@ -210,30 +221,30 @@ describe('startOrgSlotHeartbeat', () => {
   });
 
   it('keeps refreshing while the build runs, and stops when told to', async () => {
-    await tryAcquireOrgSlot('org-a', 'q:job-1');
-    const baseline = expires.get('pb:org-build:org-a') ?? 0;
+    await acquire('org-a', 'q:job-1');
+    const baseline = expiresFor('org-a') ?? 0;
 
-    const stop = startOrgSlotHeartbeat('org-a', 'q:job-1');
+    const stop = startOrgSlotHeartbeat('org-a', 'q:job-1', 'standard');
 
     // Default heartbeat is PLUGIN_ORG_SLOT_TTL_SEC / 3 = 300s.
     await jest.advanceTimersByTimeAsync(300_000);
-    expect(expires.get('pb:org-build:org-a')).toBe(baseline + 1);
+    expect(expiresFor('org-a')).toBe(baseline + 1);
 
     await jest.advanceTimersByTimeAsync(300_000);
-    expect(expires.get('pb:org-build:org-a')).toBe(baseline + 2);
+    expect(expiresFor('org-a')).toBe(baseline + 2);
 
     stop();
     await jest.advanceTimersByTimeAsync(900_000);
     // No further refreshes: the stopper must run in the processor's `finally`,
     // or a timer outlives every build the worker ever ran.
-    expect(expires.get('pb:org-build:org-a')).toBe(baseline + 2);
+    expect(expiresFor('org-a')).toBe(baseline + 2);
   });
 
   it('survives a refresh that rejects, because losing a TTL extension must never fail a build', async () => {
-    await tryAcquireOrgSlot('org-a', 'q:job-1');
+    await acquire('org-a', 'q:job-1');
     mockEval.mockRejectedValueOnce(new Error('redis blip'));
 
-    const stop = startOrgSlotHeartbeat('org-a', 'q:job-1');
+    const stop = startOrgSlotHeartbeat('org-a', 'q:job-1', 'standard');
     await expect(jest.advanceTimersByTimeAsync(300_000)).resolves.toBeUndefined();
     stop();
   });
@@ -264,7 +275,7 @@ describe('tryAcquireOrgSlot', () => {
   });
 
   it('refreshes the counter TTL on EVERY acquire (Lua EXPIRE is unconditional)', async () => {
-    await tryAcquireOrgSlot('org-a', 'plugin-build-developer:job-1');
+    await acquire('org-a', 'plugin-build-developer:job-1');
 
     const lua = String(mockEval.mock.calls[0][0]);
     // EXPIRE is present...
@@ -278,29 +289,31 @@ describe('tryAcquireOrgSlot', () => {
     // counter was already raised with no owner entry — and the scrubber
     // reclaims by iterating the owner hash, so that slot could only be
     // reclaimed by the 900s TTL, wedging the org's cap until then.
-    expect(await tryAcquireOrgSlot('org-a', 'plugin-build-developer:job-1')).toBe(true);
+    expect(await acquire('org-a', 'plugin-build-developer:job-1')).toBe(true);
 
     expect(mockEval).toHaveBeenCalledTimes(1); // one round trip
     expect(count('org-a')).toBe(1);
-    expect(owners()).toEqual({ 'plugin-build-developer:job-1': 'org-a' });
+    expect(owners()).toEqual({ 'plugin-build-developer:job-1': 'org-a|standard' });
   });
 
   it('records no owner (and holds no slot) when the cap is already reached', async () => {
-    for (let i = 1; i <= 3; i++) await tryAcquireOrgSlot('org-a', `q:job-${i}`);
+    // developer/flexible = 3, named explicitly: the cap is the assertion here, so
+    // it must come from the ladder rather than from whatever the default row is.
+    for (let i = 1; i <= 3; i++) await acquire('org-a', `q:job-${i}`, 'developer', 'flexible');
 
-    expect(await tryAcquireOrgSlot('org-a', 'q:job-9')).toBe(false);
-    expect(count('org-a')).toBe(3);
+    expect(await acquire('org-a', 'q:job-9', 'developer', 'flexible')).toBe(false);
+    expect(count('org-a', 'flexible')).toBe(3);
     expect(owners()).not.toHaveProperty('q:job-9');
   });
 
   it('is re-entrant per job: a re-run of a job that already holds a slot takes no second one', async () => {
     // A stalled job re-run by BullMQ keeps its id; a second INCR could never be
     // given back (release is keyed on the single owner record).
-    await tryAcquireOrgSlot('org-a', 'q:job-1');
-    expect(await tryAcquireOrgSlot('org-a', 'q:job-1')).toBe(true);
+    await acquire('org-a', 'q:job-1');
+    expect(await acquire('org-a', 'q:job-1')).toBe(true);
     expect(count('org-a')).toBe(1);
 
-    await releaseOrgSlot('org-a', 'q:job-1');
+    await releaseOrgSlot('org-a', 'q:job-1', 'standard');
     expect(count('org-a')).toBe(0);
   });
 });
@@ -312,23 +325,23 @@ describe('releaseOrgSlot — idempotent per job', () => {
   });
 
   it('releases a held slot exactly once, however many times release runs for the job', async () => {
-    await tryAcquireOrgSlot('org-a', 'q:job-1');
-    await tryAcquireOrgSlot('org-a', 'q:job-2');
+    await acquire('org-a', 'q:job-1');
+    await acquire('org-a', 'q:job-2');
 
-    expect(await releaseOrgSlot('org-a', 'q:job-1')).toBe(true);
-    expect(await releaseOrgSlot('org-a', 'q:job-1')).toBe(false);
-    expect(await releaseOrgSlot('org-a', 'q:job-1')).toBe(false);
+    expect(await releaseOrgSlot('org-a', 'q:job-1', 'standard')).toBe(true);
+    expect(await releaseOrgSlot('org-a', 'q:job-1', 'standard')).toBe(false);
+    expect(await releaseOrgSlot('org-a', 'q:job-1', 'standard')).toBe(false);
 
     // job-2 still holds its slot — a double release used to steal it.
     expect(count('org-a')).toBe(1);
-    expect(owners()).toEqual({ 'q:job-2': 'org-a' });
+    expect(owners()).toEqual({ 'q:job-2': 'org-a|standard' });
   });
 
   it('never drives the counter negative (e.g. after the counter key expired)', async () => {
-    await tryAcquireOrgSlot('org-a', 'q:job-1');
-    strings.delete('pb:org-build:org-a'); // TTL lapsed while the job ran
+    await acquire('org-a', 'q:job-1');
+    strings.delete('pb:org-build:org-a:standard'); // TTL lapsed while the job ran
 
-    await releaseOrgSlot('org-a', 'q:job-1');
+    await releaseOrgSlot('org-a', 'q:job-1', 'standard');
     expect(count('org-a')).toBe(0);
   });
 });
@@ -341,8 +354,8 @@ describe('scrubOrgSlots — queue-qualified reconciliation', () => {
 
   it('reclaims a same-id slot in a different queue (bare-id collision would leak it)', async () => {
     // Two owners share the bare job id "job-1" but live in different tier queues.
-    await tryAcquireOrgSlot('org-a', 'plugin-build-developer:job-1'); // live below
-    await tryAcquireOrgSlot('org-b', 'plugin-build-pro:job-1'); // NOT live → must be reclaimed
+    await acquire('org-a', 'plugin-build-developer:job-1'); // live below
+    await acquire('org-b', 'plugin-build-pro:job-1'); // NOT live → must be reclaimed
 
     // Only the developer queue actually has job-1 in flight; pro is empty.
     mockGetAllTierQueues.mockReturnValueOnce([
@@ -357,11 +370,11 @@ describe('scrubOrgSlots — queue-qualified reconciliation', () => {
     expect(count('org-b')).toBe(0);
     // ...while the genuinely-live developer:job-1 owner is untouched.
     expect(count('org-a')).toBe(1);
-    expect(owners()).toEqual({ 'plugin-build-developer:job-1': 'org-a' });
+    expect(owners()).toEqual({ 'plugin-build-developer:job-1': 'org-a|standard' });
   });
 
   it('keeps an owner whose job is live in its own queue', async () => {
-    await tryAcquireOrgSlot('org-c', 'plugin-build-team:job-5');
+    await acquire('org-c', 'plugin-build-team:job-5');
     mockGetAllTierQueues.mockReturnValueOnce([
       { tier: 'team', queue: { name: 'plugin-build-team', getJobs: async () => [{ id: 'job-5' }] } },
     ]);
@@ -370,15 +383,15 @@ describe('scrubOrgSlots — queue-qualified reconciliation', () => {
     await scrubOrgSlots();
 
     expect(count('org-c')).toBe(1);
-    expect(owners()).toEqual({ 'plugin-build-team:job-5': 'org-c' });
+    expect(owners()).toEqual({ 'plugin-build-team:job-5': 'org-c|standard' });
   });
 
   it('does not double-decrement a job that released its own slot after the owner snapshot', async () => {
     // The race: the scrubber snapshots the owner hash, the job finishes and its
     // processor `finally` releases the slot, THEN the scrubber (seeing the job
     // no longer live) releases it again — stealing another in-flight job's slot.
-    await tryAcquireOrgSlot('org-a', 'plugin-build-developer:job-1');
-    await tryAcquireOrgSlot('org-a', 'plugin-build-developer:job-2'); // still running
+    await acquire('org-a', 'plugin-build-developer:job-1');
+    await acquire('org-a', 'plugin-build-developer:job-2'); // still running
 
     mockGetAllTierQueues.mockReturnValueOnce([
       {
@@ -387,7 +400,7 @@ describe('scrubOrgSlots — queue-qualified reconciliation', () => {
           name: 'plugin-build-developer',
           getJobs: async () => {
             // job-1 completes (and releases) between the snapshot and the scrub loop.
-            await releaseOrgSlot('org-a', 'plugin-build-developer:job-1');
+            await releaseOrgSlot('org-a', 'plugin-build-developer:job-1', 'standard');
             return [{ id: 'job-2' }];
           },
         },
@@ -398,12 +411,12 @@ describe('scrubOrgSlots — queue-qualified reconciliation', () => {
     await scrubOrgSlots();
 
     expect(count('org-a')).toBe(1); // job-2's slot survives
-    expect(owners()).toEqual({ 'plugin-build-developer:job-2': 'org-a' });
+    expect(owners()).toEqual({ 'plugin-build-developer:job-2': 'org-a|standard' });
   });
 });
 
-describe('MAX_BUILDS_PER_ORG — NaN-fallback (bricked-builds regression)', () => {
-  const KEY = 'PLUGIN_MAX_BUILDS_PER_ORG';
+describe('maxBuildsPerOrg — NaN-fallback (bricked-builds regression)', () => {
+  const KEY = 'PLUGIN_MAX_BUILDS_DEVELOPER_STANDARD';
   const original = process.env[KEY];
 
   afterEach(() => {
@@ -423,14 +436,15 @@ describe('MAX_BUILDS_PER_ORG — NaN-fallback (bricked-builds regression)', () =
     const mod = await import('../src/queue/slot-manager.js');
 
     resetRedis();
-    const ok = await mod.tryAcquireOrgSlot('org-x', 'plugin-build-developer:job-1');
+    const ok = await mod.tryAcquireOrgSlot('org-x', 'plugin-build-developer:job-1', 'developer', 'standard');
 
     expect(ok).toBe(true);
     // eval args: (LUA, numKeys, counterKey, ownersKey, String(cap), String(ttl),
-    // jobId, orgId). The cap must be
-    // the numeric default, never the string 'NaN'.
+    // jobId, ownerValue). The cap must be the tier/class default from the
+    // ladder, never the string 'NaN' — one fat-fingered override would
+    // otherwise brick every plugin build, not just that tier's.
     const capArg = mockEval.mock.calls.at(-1)![4];
-    expect(capArg).toBe('3');
+    expect(capArg).toBe('1');
     expect(capArg).not.toBe('NaN');
   });
 
@@ -441,8 +455,71 @@ describe('MAX_BUILDS_PER_ORG — NaN-fallback (bricked-builds regression)', () =
     const mod = await import('../src/queue/slot-manager.js');
 
     resetRedis();
-    await mod.tryAcquireOrgSlot('org-x', 'plugin-build-developer:job-2');
+    await mod.tryAcquireOrgSlot('org-x', 'plugin-build-developer:job-2', 'developer', 'standard');
 
     expect(mockEval.mock.calls.at(-1)![4]).toBe('7');
+  });
+});
+
+describe('per-class, per-tier caps', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    resetRedis();
+  });
+
+  it('gives each class its OWN counter, so flexible work cannot starve standard', async () => {
+    // The regression this blocks: with one shared counter an org that fills it
+    // with cheap flexible builds has no slot left for the urgent fix — which is
+    // the entire reason every tier carries both classes.
+    for (let i = 1; i <= 3; i++) await acquire('org-a', `q:flex-${i}`, 'developer', 'flexible');
+    expect(await acquire('org-a', 'q:flex-4', 'developer', 'flexible')).toBe(false);
+
+    // Standard is untouched by the flexible saturation above.
+    expect(await acquire('org-a', 'q:std-1', 'developer', 'standard')).toBe(true);
+    expect(count('org-a', 'standard')).toBe(1);
+    expect(count('org-a', 'flexible')).toBe(3);
+  });
+
+  it('caps by TIER, so a Developer org no longer gets an Enterprise org\'s concurrency', async () => {
+    // One flat PLUGIN_MAX_BUILDS_PER_ORG before: the per-org semaphore was the
+    // one place in the build path that ignored what the tenant pays for.
+    expect(maxBuildsPerOrg('developer', 'standard')).toBe(1);
+    expect(maxBuildsPerOrg('enterprise', 'standard')).toBe(8);
+
+    expect(await acquire('org-dev', 'q:job-1', 'developer', 'standard')).toBe(true);
+    expect(await acquire('org-dev', 'q:job-2', 'developer', 'standard')).toBe(false);
+  });
+
+  it('gives flexible more headroom than standard on every tier', async () => {
+    // Where the room is: the cheap class is what actually smooths load, so a
+    // row with flexible <= standard would make the class pointless to choose.
+    for (const tier of ['developer', 'pro', 'team', 'business', 'enterprise', 'unlimited'] as const) {
+      expect(maxBuildsPerOrg(tier, 'flexible')).toBeGreaterThan(maxBuildsPerOrg(tier, 'standard'));
+    }
+  });
+
+  it('records the CLASS in the owner value, so the scrubber reclaims from the right counter', async () => {
+    await acquire('org-a', 'q:job-1', 'developer', 'flexible');
+    expect(owners()).toEqual({ 'q:job-1': 'org-a|flexible' });
+
+    await scrubOrgSlots();
+
+    // Reclaimed from the flexible counter. With the org alone in the owner value
+    // the scrubber could not tell which of the two counters to give back:
+    // the real slot leaks and the other counter walks toward its clamp.
+    expect(count('org-a', 'flexible')).toBe(0);
+    expect(count('org-a', 'standard')).toBe(0);
+    expect(mockIncCounter).toHaveBeenCalledWith('plugin_build_slot_reclaimed_total', { build_class: 'flexible' });
+  });
+
+  it('reclaims an owner value with no class suffix as standard, without decrementing a class counter it never took', async () => {
+    // Defensive: a malformed owner value must not be trusted as a class.
+    hashes.set(OWNERS_KEY, new Map([['q:job-legacy', 'org-a']]));
+    strings.set('pb:org-build:org-a:standard', 1);
+
+    await scrubOrgSlots();
+
+    expect(count('org-a', 'standard')).toBe(0);
+    expect(owners()).toEqual({});
   });
 });

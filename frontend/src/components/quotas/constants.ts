@@ -41,12 +41,12 @@ const TIER_DESCRIPTIONS: Record<QuotaTier, string> = {
 // (`isAITrialTier`) with an upgrade CTA once it runs out.
 const GB = 1024 ** 3;
 const TIER_LIMITS: Record<QuotaTier, Record<DisplayedQuotaType, number>> = {
-  developer: { pipelines: 2, plugins: 10, apiCalls: 25000, automationCalls: 30000, aiCalls: 20, storageBytes: 2 * GB },
-  pro: { pipelines: 5, plugins: 25, apiCalls: 100000, automationCalls: 60000, aiCalls: 200, storageBytes: 25 * GB },
-  team: { pipelines: 10, plugins: 50, apiCalls: 300000, automationCalls: 110000, aiCalls: 600, storageBytes: 60 * GB },
-  business: { pipelines: 20, plugins: 100, apiCalls: 800000, automationCalls: 210000, aiCalls: 1600, storageBytes: 120 * GB },
-  enterprise: { pipelines: 30, plugins: 150, apiCalls: 1500000, automationCalls: 310000, aiCalls: 3000, storageBytes: 250 * GB },
-  unlimited: { pipelines: -1, plugins: -1, apiCalls: -1, automationCalls: -1, aiCalls: -1, storageBytes: -1 },
+  developer: { pipelines: 2, plugins: 10, cpuCredits: 4500, apiCalls: 25000, automationCalls: 30000, aiCalls: 20, storageBytes: 2 * GB },
+  pro: { pipelines: 5, plugins: 25, cpuCredits: 11250, apiCalls: 100000, automationCalls: 60000, aiCalls: 200, storageBytes: 25 * GB },
+  team: { pipelines: 10, plugins: 50, cpuCredits: 22500, apiCalls: 300000, automationCalls: 110000, aiCalls: 600, storageBytes: 60 * GB },
+  business: { pipelines: 20, plugins: 100, cpuCredits: 45000, apiCalls: 800000, automationCalls: 210000, aiCalls: 1600, storageBytes: 120 * GB },
+  enterprise: { pipelines: 30, plugins: 150, cpuCredits: 67500, apiCalls: 1500000, automationCalls: 310000, aiCalls: 3000, storageBytes: 250 * GB },
+  unlimited: { pipelines: -1, plugins: -1, cpuCredits: -1, apiCalls: -1, automationCalls: -1, aiCalls: -1, storageBytes: -1 },
 };
 
 export type TierPreset = { label: string; description: string; color: string; limits: Record<DisplayedQuotaType, number> };

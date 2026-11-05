@@ -27,6 +27,14 @@ interface CodeBuildModule {
   CodeBuildClient: new (config: { region: string }) => SdkClient;
   BatchGetBuildsCommand: new (input: { ids: string[] }) => unknown;
 }
+
+/** What `BatchGetBuilds` answers, for the two things this module reads off it. */
+interface BatchGetBuildsOutput {
+  builds?: Array<{
+    logs?: { groupName?: string; streamName?: string };
+    environment?: { computeType?: string };
+  }>;
+}
 interface LogsModule {
   CloudWatchLogsClient: new (config: { region: string }) => SdkClient;
   FilterLogEventsCommand: new (input: {
@@ -74,13 +82,56 @@ export function codeBuildIdOf(detail: Record<string, unknown>): string | null {
   return typeof id === 'string' && BUILD_ID_RE.test(id) ? id : null;
 }
 
+/**
+ * The compute size a finished CodeBuild action ran on, AS AWS SPELLS IT
+ * (`BUILD_GENERAL1_MEDIUM`), or null.
+ *
+ * Returned raw and narrowed server-side rather than here, for one hard reason:
+ * this Lambda ships as a SINGLE bundled file, and the vocabulary lives in the
+ * pipeline-core barrel, which carries dynamic imports that break that constraint
+ * (`test/single-file-constraint.test.ts` is the check). Sending the raw string
+ * also keeps the stored `detail.computeType` the observation rather than an
+ * interpretation of it.
+ *
+ * WHY IT IS READ FROM AWS rather than from our own stored pipeline config: the
+ * config holds a step's REQUESTED compute type, and what the build actually ran
+ * on is what consumed vCPU — a pipeline edited between the start and the finish
+ * would otherwise be priced against the new value. `BatchGetBuilds` answers the
+ * authoritative one, and this Lambda already holds that permission for the
+ * failure-reason read below.
+ *
+ * Best-effort, like everything else here: a throttle or a missing permission
+ * yields null, the event forwards without the field, and the ingest records that
+ * action as unmeasured rather than as free. A size that cannot be read must not
+ * be guessed — SMALL is the cheapest and therefore the most flattering guess.
+ *
+ * NOT folded into {@link readSynthFailure}, which makes the same call: that one
+ * runs on FAILED actions only, this one on every terminal CodeBuild action, and
+ * sharing a cache between them would mean holding build records for the whole
+ * batch to save one call on the minority path.
+ */
+export async function readBuildCompute(region: string, buildId: string): Promise<string | null> {
+  try {
+    const cb = await client('codebuild', region);
+    const out = await cb.client.send(
+      new (cb.mod as CodeBuildModule).BatchGetBuildsCommand({ ids: [buildId] }),
+    ) as BatchGetBuildsOutput;
+    return out.builds?.[0]?.environment?.computeType ?? null;
+  } catch (err) {
+    log.warn('Could not read the build\'s compute size (forwarding without it)', {
+      buildId, error: String(err),
+    });
+    return null;
+  }
+}
+
 /** Find the `PB_SYNTH_FAILURE` line in a failed build's log, or null. */
 export async function readSynthFailure(region: string, buildId: string): Promise<SynthFailure | null> {
   try {
     const cb = await client('codebuild', region);
-    const out = await cb.client.send(new (cb.mod as CodeBuildModule).BatchGetBuildsCommand({ ids: [buildId] })) as {
-      builds?: Array<{ logs?: { groupName?: string; streamName?: string } }>;
-    };
+    const out = await cb.client.send(
+      new (cb.mod as CodeBuildModule).BatchGetBuildsCommand({ ids: [buildId] }),
+    ) as BatchGetBuildsOutput;
     const logs = out.builds?.[0]?.logs;
     if (!logs?.groupName || !logs.streamName) return null;
 

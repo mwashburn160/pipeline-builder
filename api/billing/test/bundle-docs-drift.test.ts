@@ -5,7 +5,7 @@
  * Docs-drift guard for the bundle and combo ID lists in `docs/billing-bundles.md`.
  *
  * Those lists are not decorative. They are the KEY to four live environment variables —
- * `BILLING_BUNDLE_<ID>_MONTHLY`, `_ANNUAL`, `_GRANT`, `_TIERS`, and
+ * `BILLING_BUNDLE_<ID>_MONTHLY`, `_ANNUAL`, `_GRANT_<DIMENSION>`, `_TIERS`, and
  * `BILLING_COMBO_<COMBO>_MONTHLY` / `_ANNUAL` — so an id missing from the page is an
  * override an operator cannot discover. That had already happened twice: the page listed
  * 12 of 14 bundles, omitting `STAKEHOLDER_REPORTS` (added with the reports add-on and
@@ -55,7 +55,7 @@ describe('docs/billing-bundles.md lists every bundle and combo id', () => {
     expect({
       missingFromDocs: shipped.filter((id) => !documented.includes(id)),
       inDocsButNotShipped: documented.filter((id) => !shipped.includes(id)),
-      fix: 'These ids are the key to BILLING_BUNDLE_<ID>_MONTHLY / _ANNUAL / _GRANT / _TIERS. '
+      fix: 'These ids are the key to BILLING_BUNDLE_<ID>_MONTHLY / _ANNUAL / _GRANT_<DIMENSION> / _TIERS. '
         + 'An id missing from the page is an override nobody can find; one left behind documents '
         + 'an override that does nothing.',
     }).toMatchObject({ missingFromDocs: [], inDocsButNotShipped: [] });

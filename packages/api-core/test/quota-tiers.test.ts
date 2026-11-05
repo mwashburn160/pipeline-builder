@@ -10,6 +10,8 @@ import {
   isValidTier,
   getTierLimits,
   nextQuotaResetDate,
+  quotaPeriodDays,
+  CPU_CREDITS_PERIOD_DAYS,
   QUOTA_RESET_DAYS,
   SEAT_PACK_TIERS,
   STANDARD_TIERS,
@@ -17,6 +19,8 @@ import {
   automationCallsFor,
   enforcedQuotaLimit,
 } from '../src/types/quota-tiers.js';
+import { VALID_QUOTA_TYPES } from '../src/types/common.js';
+import { quotaAccrual } from '../src/types/quota-catalog.js';
 
 // storageBytes sized per tier. Tiers: developer / pro / team / enterprise.
 const GB = 1024 * 1024 * 1024;
@@ -35,6 +39,7 @@ describe('QUOTA_TIERS', () => {
         apiCalls: 25_000,
         automationCalls: 30_000,
         aiCalls: 20,
+        cpuCredits: 4_500,
         storageBytes: 2 * GB,
         dashboards: 20,
         alertRules: 50,
@@ -59,6 +64,7 @@ describe('QUOTA_TIERS', () => {
         apiCalls: 100_000,
         automationCalls: 60_000,
         aiCalls: 200,
+        cpuCredits: 11_250,
         storageBytes: 25 * GB,
         dashboards: 200,
         alertRules: 500,
@@ -83,6 +89,7 @@ describe('QUOTA_TIERS', () => {
         apiCalls: 300_000,
         automationCalls: 110_000,
         aiCalls: 600,
+        cpuCredits: 22_500,
         storageBytes: 60 * GB,
         dashboards: -1,
         alertRules: -1,
@@ -110,6 +117,7 @@ describe('QUOTA_TIERS', () => {
         apiCalls: 800_000,
         automationCalls: 210_000,
         aiCalls: 1_600,
+        cpuCredits: 45_000,
         storageBytes: 120 * GB,
         dashboards: -1,
         alertRules: -1,
@@ -134,6 +142,7 @@ describe('QUOTA_TIERS', () => {
         apiCalls: 1_500_000,
         automationCalls: 310_000,
         aiCalls: 3_000,
+        cpuCredits: 67_500,
         storageBytes: 250 * GB,
         dashboards: -1,
         alertRules: -1,
@@ -207,6 +216,7 @@ describe('getTierLimits', () => {
     apiCalls: 25_000,
     automationCalls: 30_000,
     aiCalls: 20,
+    cpuCredits: 4_500,
     storageBytes: 2 * GB,
     dashboards: 20,
     alertRules: 50,
@@ -227,6 +237,7 @@ describe('getTierLimits', () => {
       apiCalls: 100_000,
       automationCalls: 60_000,
       aiCalls: 200,
+      cpuCredits: 11_250,
       storageBytes: 25 * GB,
       dashboards: 200,
       alertRules: 500,
@@ -245,6 +256,7 @@ describe('getTierLimits', () => {
       apiCalls: 300_000,
       automationCalls: 110_000,
       aiCalls: 600,
+      cpuCredits: 22_500,
       storageBytes: 60 * GB,
       dashboards: -1,
       alertRules: -1,
@@ -263,6 +275,7 @@ describe('getTierLimits', () => {
       apiCalls: 1_500_000,
       automationCalls: 310_000,
       aiCalls: 3_000,
+      cpuCredits: 67_500,
       storageBytes: 250 * GB,
       dashboards: -1,
       alertRules: -1,
@@ -349,5 +362,44 @@ describe('enforcedQuotaLimit — the automationCalls soft band', () => {
 
   it('defaults to a 10% band (QUOTA_AUTOMATION_GRACE_PCT)', () => {
     expect(enforcedQuotaLimit('automationCalls', 1000)).toBe(1100);
+  });
+});
+
+describe('quotaPeriodDays — the period is PER TYPE', () => {
+  /**
+   * The factor-of-ten trap. Every flow quota but one rolls on the global
+   * three-day window; `cpuCredits` is monthly. Anything that seeds a counter,
+   * computes a reset date or extrapolates a burn rate has to ask for the type's
+   * own period, and the failure is SILENT in the customer's favour: a counter
+   * reset ten times too often simply never refuses anything, so nothing
+   * complains and the cap does not bind.
+   */
+  it('gives cpuCredits its own monthly window', () => {
+    expect(quotaPeriodDays('cpuCredits')).toBe(CPU_CREDITS_PERIOD_DAYS);
+    expect(CPU_CREDITS_PERIOD_DAYS).toBe(30);
+    // The whole point: it must NOT be the global window.
+    expect(quotaPeriodDays('cpuCredits')).not.toBe(QUOTA_RESET_DAYS);
+  });
+
+  it('gives every other quota type the global window', () => {
+    const odd = VALID_QUOTA_TYPES
+      .filter((t) => t !== 'cpuCredits')
+      .filter((t) => quotaPeriodDays(t) !== QUOTA_RESET_DAYS);
+    expect(odd).toEqual([]);
+  });
+
+  it('returns a usable positive period for every type, stocks included', () => {
+    // Stocks have no period; the accessor still returns the global window for
+    // them because callers gate on `quotaAccrual(t) === 'stock'` first, and a
+    // zero or negative would divide by nothing in a forecast that forgot to.
+    const bad = VALID_QUOTA_TYPES.filter((t) => !(quotaPeriodDays(t) > 0));
+    expect(bad).toEqual([]);
+  });
+
+  it('agrees with the catalog: only a FLOW may have a non-global period', () => {
+    const wrong = VALID_QUOTA_TYPES
+      .filter((t) => quotaPeriodDays(t) !== QUOTA_RESET_DAYS)
+      .filter((t) => quotaAccrual(t) !== 'flow');
+    expect(wrong).toEqual([]);
   });
 });

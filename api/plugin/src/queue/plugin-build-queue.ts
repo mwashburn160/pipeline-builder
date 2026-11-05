@@ -12,7 +12,7 @@ import * as fs from 'fs';
 import path from 'path';
 
 import { SYSTEM_ACTOR_ID, ErrorCode, envInt, createLogger, errorMessage, getServiceAuthHeader, VALID_TIERS, recordAudit } from '@pipeline-builder/api-core';
-import type { AppError, PluginScanSummary, QuotaService, QuotaTier } from '@pipeline-builder/api-core';
+import type { AppError, BuildClass, BuildSize, PluginScanSummary, QuotaService, QuotaTier } from '@pipeline-builder/api-core';
 import { incCounter, observe, setGauge, withSpan } from '@pipeline-builder/api-server';
 import type { SSEManager } from '@pipeline-builder/api-server';
 import { runWithTenantContext, schema, withTenantTx } from '@pipeline-builder/pipeline-data';
@@ -20,6 +20,7 @@ import { DelayedError, UnrecoverableError, Worker } from 'bullmq';
 import type { Job, ConnectionOptions } from 'bullmq';
 import { and, eq } from 'drizzle-orm';
 
+import { buildTrigger, chargeBuildCredits } from './build-credits.js';
 import { recordBuildEvent } from './build-failures.js';
 import { cleanupBuildArtifacts, ensureLocalBuildContext } from './build-workspace.js';
 import {
@@ -38,11 +39,11 @@ import { createBuildFailedHandler } from './failure-handler.js';
 import { startDlqWorker, closeDlqWorker } from './plugin-build-dlq.js';
 import { startQueueMetricsScraper, stopQueueMetricsScraper } from './queue-metrics-scraper.js';
 import {
-  MAX_BUILDS_PER_ORG, MAX_SLOT_DELAYS, ORG_SLOT_DELAY_MS, ORG_SLOT_SCRUB_MS,
+  maxBuildsPerOrg, MAX_SLOT_DELAYS, ORG_SLOT_DELAY_MS, ORG_SLOT_SCRUB_MS,
   tryAcquireOrgSlot, releaseOrgSlot, scrubOrgSlots, startOrgSlotHeartbeat,
 } from './slot-manager.js';
 import { getBuildStrategy } from '../helpers/build-strategy.js';
-import { getBuildkitAddrForTier, BUILD_TEMP_ROOT } from '../helpers/docker-build.js';
+import { getBuildkitAddrForBuild, BUILD_TEMP_ROOT } from '../helpers/docker-build.js';
 import type { BuildResult } from '../helpers/docker-build.js';
 import { establishImageFacts, type ImageFacts } from '../helpers/image-facts.js';
 import { complianceRefusal, vulnFloor } from '../helpers/image-gates.js';
@@ -185,15 +186,40 @@ export function waitForWorkerReady(timeoutMs = getBuildCfg().workerTimeoutMs): P
 export function startWorker(sseManager: SSEManager, quotaService: QuotaService): void {
   if (tierWorkers.size > 0) return;
 
+  // PER-TIER DEFAULTS, not one flat figure.
+  //
+  // Each tier gets its own Worker on its own queue, and a Worker's concurrency
+  // bounds how many of that tier's builds run at once ACROSS EVERY ORG on the
+  // tier — so this ladder, not a quota, is what bounds the aggregate. That is
+  // what lets `SINGLE_TENANT_SHARE` be 1.0 (D9, open item 3): a tier's cap stays
+  // reachable by one tenant alone, while the number of tenants reaching for it
+  // concurrently is bounded here, where it can be tuned without touching the
+  // price list.
+  //
+  // Every tier defaulted to the same global `concurrency` (1) before, which made
+  // the per-tier machinery inert: at 1 an org can never reach
+  // PLUGIN_MAX_BUILDS_PER_ORG either, so the per-org semaphore never bound and
+  // the free tier was capped at one concurrent build platform-wide by accident
+  // rather than by decision.
   const { concurrency } = getBuildCfg();
-  const tierConcurrency: Record<QuotaTier, number> = {
-    developer: envInt('PLUGIN_BUILD_CONCURRENCY_DEVELOPER', concurrency, { min: 1 }),
-    pro: envInt('PLUGIN_BUILD_CONCURRENCY_PRO', concurrency, { min: 1 }),
-    team: envInt('PLUGIN_BUILD_CONCURRENCY_TEAM', concurrency, { min: 1 }),
-    business: envInt('PLUGIN_BUILD_CONCURRENCY_BUSINESS', concurrency, { min: 1 }),
-    enterprise: envInt('PLUGIN_BUILD_CONCURRENCY_ENTERPRISE', concurrency, { min: 1 }),
-    unlimited: envInt('PLUGIN_BUILD_CONCURRENCY_UNLIMITED', concurrency, { min: 1 }),
+  const tierDefault: Record<QuotaTier, number> = {
+    developer: 1,
+    pro: 2,
+    team: 2,
+    business: 3,
+    enterprise: 4,
+    // Billing disabled: nothing is capped, so the ceiling is the pool itself.
+    unlimited: 4,
   };
+  const tierConcurrency: Record<QuotaTier, number> = {
+    developer: envInt('PLUGIN_BUILD_CONCURRENCY_DEVELOPER', tierDefault.developer, { min: 1 }),
+    pro: envInt('PLUGIN_BUILD_CONCURRENCY_PRO', tierDefault.pro, { min: 1 }),
+    team: envInt('PLUGIN_BUILD_CONCURRENCY_TEAM', tierDefault.team, { min: 1 }),
+    business: envInt('PLUGIN_BUILD_CONCURRENCY_BUSINESS', tierDefault.business, { min: 1 }),
+    enterprise: envInt('PLUGIN_BUILD_CONCURRENCY_ENTERPRISE', tierDefault.enterprise, { min: 1 }),
+    unlimited: envInt('PLUGIN_BUILD_CONCURRENCY_UNLIMITED', tierDefault.unlimited, { min: 1 }),
+  };
+  void concurrency;
 
   const processor = async (job: Job<PluginBuildJobData>, token?: string) => {
     const { requestId, orgId, userId, access, buildRequest, pluginRecord } = job.data;
@@ -215,6 +241,11 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
       // live set with the same `${queueName}:${jobId}` shape.
       const slotJobId = `${job.queueName}:${job.id ?? job.name}`;
       const tier = tierForQueueName(job.queueName);
+      // Default `standard` for any job enqueued without a class — including one
+      // already in the queue when this shipped. Defaulting to `flexible` would
+      // quietly move existing builds onto the slower class.
+      const buildClass: BuildClass = job.data.buildClass ?? 'standard';
+      const buildSize: BuildSize = job.data.buildSize ?? '1x';
 
       // Ensure/refresh the build-log stream's owner binding (a backstop) so a
       // cross-tenant ticket mint for this requestId is refused — covers a retry/
@@ -230,10 +261,15 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
       await sseManager.bindStreamOwner(requestId, orgId).catch((err) =>
         logger.debug('Stream-owner bind failed (non-fatal)', { requestId, error: errorMessage(err) }));
 
-      if (!await tryAcquireOrgSlot(orgId, slotJobId)) {
+      if (!await tryAcquireOrgSlot(orgId, slotJobId, tier, buildClass)) {
         const slotDelays = (job.data.slotDelays ?? 0) + 1;
         const waitedMs = slotDelays * ORG_SLOT_DELAY_MS;
-        incCounter('plugin_build_slot_denied_total', { tier });
+        // Labelled by CLASS as well as tier: the two classes have different caps
+        // on every tier, so an unlabelled denial count cannot say whether a tier
+        // is short of standard headroom (raise the cap) or busy burning through
+        // flexible work (working as designed).
+        const classCap = maxBuildsPerOrg(tier, buildClass);
+        incCounter('plugin_build_slot_denied_total', { tier, build_class: buildClass });
 
         // Past the budget the build fails TERMINALLY with a reason. A slot delay
         // spends no BullMQ attempt (that is the point of the DelayedError pairing
@@ -243,12 +279,12 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
         // typed code and details ride along for the failure handler, which is
         // what puts the refusal on the build stream and in the audit.
         if (slotDelays > MAX_SLOT_DELAYS) {
-          incCounter('plugin_build_slot_timeout_total', { tier });
+          incCounter('plugin_build_slot_timeout_total', { tier, build_class: buildClass });
           throw Object.assign(
             new UnrecoverableError(
-              `No build slot after ${Math.round(waitedMs / 1000)}s: this organization is at its limit of ${MAX_BUILDS_PER_ORG} concurrent builds. Wait for one to finish and submit again.`,
+              `No build slot after ${Math.round(waitedMs / 1000)}s: this organization is at its limit of ${classCap} concurrent ${buildClass} builds. Wait for one to finish and submit again.`,
             ),
-            { code: ErrorCode.SERVICE_UNAVAILABLE, statusCode: 503, details: { slotDelays, waitedMs, maxBuildsPerOrg: MAX_BUILDS_PER_ORG } },
+            { code: ErrorCode.SERVICE_UNAVAILABLE, statusCode: 503, details: { slotDelays, waitedMs, buildClass, maxBuildsPerOrg: classCap } },
           );
         }
 
@@ -257,8 +293,8 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
         // stream every ten seconds for as long as the wait lasts.
         if (slotDelays === 1) {
           sseManager.send(requestId, 'WARN',
-            `Waiting for a build slot: this organization is at its limit of ${MAX_BUILDS_PER_ORG} concurrent builds. The build starts automatically when a slot frees up — there is nothing to buy or fix.`,
-            { maxBuildsPerOrg: MAX_BUILDS_PER_ORG, retryInMs: ORG_SLOT_DELAY_MS });
+            `Waiting for a build slot: this organization is at its limit of ${classCap} concurrent ${buildClass} builds. The build starts automatically when a slot frees up — there is nothing to buy or fix.`,
+            { buildClass, maxBuildsPerOrg: classCap, retryInMs: ORG_SLOT_DELAY_MS });
         }
 
         // Persist the count BEFORE delaying, so the next pass sees it. Dropping
@@ -278,19 +314,27 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
 
       // The TTL on the slot counter is a crash-recovery window, so a build that
       // outlives it has to keep its own slot alive (see startOrgSlotHeartbeat).
-      const stopSlotHeartbeat = startOrgSlotHeartbeat(orgId, slotJobId);
+      const stopSlotHeartbeat = startOrgSlotHeartbeat(orgId, slotJobId, buildClass);
       try {
         if (job.timestamp) {
           // Labelled by tier: unlabelled, this could not answer which tier waits
           // longest, which is the question the per-tier slot numbers are picked
           // from. Includes any time spent delayed for a slot, since it measures
           // from enqueue.
-          observe('plugin_job_wait_seconds', { tier }, (Date.now() - job.timestamp) / 1000);
+          // Class-labelled: `flexible` is EXPECTED to wait longer, so a single
+          // series mixing the two makes the standard-class latency that matters
+          // unreadable — a tier looks slow when it is merely busy with flexible work.
+          observe('plugin_job_wait_seconds', { tier, build_class: buildClass }, (Date.now() - job.timestamp) / 1000);
         }
 
+        // Class and size on the start event: the two things that explain how
+        // long this build will take and what it will cost, said on the stream
+        // the user is already watching rather than only in the ledger.
         sseManager.send(requestId, 'INFO', 'Build started', {
           jobId: job.id,
           plugin: `${pluginRecord.name}:${pluginRecord.version}`,
+          buildClass,
+          buildSize,
         });
 
         // Materialize the build context on THIS replica (fast path if the
@@ -312,8 +356,10 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
         if (!isApprovalStep && strategy.producesImage) {
           const result = await strategy.produceImage(buildRequest, {
             // Lazy: only build_image awaits this, so prebuilt skips the tier/quota lookup.
-            getBuildkitAddr: async () => getBuildkitAddrForTier(
-              await getOrgTier(quotaService, orgId, getServiceAuthHeader({ serviceName: 'plugin', orgId, role: 'member' }))),
+            getBuildkitAddr: async () => getBuildkitAddrForBuild(
+              await getOrgTier(quotaService, orgId, getServiceAuthHeader({ serviceName: 'plugin', orgId, role: 'member' })),
+              buildSize),
+            buildSize,
             // Stream masked build lines to the owner-bound SSE stream so the user
             // sees live build output. Best-effort — a send failure never fails the
             // build (the sink is already try/guarded inside the process runner).
@@ -509,7 +555,7 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
         // had already published its image was reported FAILED and retried from
         // scratch. Releasing the slot is bookkeeping; `scrubOrgSlots` reclaims
         // anything this drops.
-        await releaseOrgSlot(orgId, slotJobId).catch((err) => {
+        await releaseOrgSlot(orgId, slotJobId, buildClass).catch((err) => {
           logger.warn('Org build slot release failed; leaving it for the scrubber', {
             orgId, slotJobId, error: errorMessage(err),
           });
@@ -532,13 +578,23 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
 
   const completedHandler = (job: Job<PluginBuildJobData>) => {
     const orgId = job.data?.orgId ?? 'unknown';
-    incCounter('plugin_builds_total', { status: 'success', org_id: orgId });
+    // `trigger` makes "should automated builds have their own budget?" answerable
+    // from data rather than from argument — D8 declines to build the split until
+    // it is. Bounded to two values, so the label set stays small.
+    incCounter('plugin_builds_total', { status: 'success', org_id: orgId, trigger: buildTrigger(job.data) });
     if (job.processedOn && job.finishedOn) {
       observe('plugin_build_duration_seconds',
         { org_id: orgId },
         (job.finishedOn - job.processedOn) / 1000,
       );
     }
+    // Charge the compute this build occupied. Best-effort and deliberately NOT
+    // awaited into the handler's result: a build that already ran cannot be
+    // un-run by an accounting failure, and admission at submission is what
+    // bounds the budget. `cpu_credits_charged_total` sits beside the duration
+    // histogram above so the two can be compared — if they disagree, the
+    // accounting is wrong.
+    void chargeBuildCredits(quotaService, job, 'success');
     logger.info('Plugin build completed', { jobId: job.id, name: job.name });
   };
 

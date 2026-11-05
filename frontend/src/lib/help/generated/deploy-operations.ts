@@ -1,6 +1,6 @@
 // GENERATED FROM docs/deploy-operations.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: fb0205221454d7dc4b3982bdae0a7e380bacdc948666e5f04217c5786b3c075e
+// SOURCE-SHA256: 7e4c88f560d2ec8c4f6c84b2355a1130897ff0fd044fd68898a8257b2aa99bcc
 // SPDX-License-Identifier: Apache-2.0
 import { Wrench } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -998,7 +998,7 @@ export const deployOperationsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "The three slot rules watch one mechanism from three angles, and which of them fires is the diagnosis. Builds are capped per organization at PLUGIN_MAX_BUILDS_PER_ORG by a Redis semaphore, so a build whose org is at its cap is re-delayed every PLUGIN_ORG_SLOT_DELAY_MS rather than refused outright:"
+          "content": "The three slot rules watch one mechanism from three angles, and which of them fires is the diagnosis. Builds are capped per organization at PLUGIN_MAX_BUILDS_<TIER>_<CLASS> by a Redis semaphore — one counter per scheduling class, so flexible work cannot eat the standard headroom an urgent fix needs — and a build whose org is at its cap for that class is re-delayed every PLUGIN_ORG_SLOT_DELAY_MS rather than refused outright. The denial, timeout and reclaim series all carry build_class, so a contention alert says which class is short:"
         },
         {
           "type": "list",
@@ -1217,7 +1217,7 @@ export const deployOperationsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "At 199 rules one root cause is a pager flood, and a flood is functionally the same as no alert. The inhibition tree in alertmanager.yml suppresses the consequences of DNS failure, a dead waypoint, Redis at its cap, node saturation, and a service being down."
+          "content": "At 200 rules one root cause is a pager flood, and a flood is functionally the same as no alert. The inhibition tree in alertmanager.yml suppresses the consequences of DNS failure, a dead waypoint, Redis at its cap, node saturation, and a service being down."
         },
         {
           "type": "text",

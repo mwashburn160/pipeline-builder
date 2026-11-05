@@ -18,6 +18,7 @@ import { CurrentTierPanel } from './CurrentTierPanel';
 import { QuotaNoticeSettingsCard } from './QuotaNoticeSettingsCard';
 import { QuotaUsageBreakdown } from './QuotaUsageBreakdown';
 import { AT_RISK_THRESHOLDS, QUOTA_KEYS, TIER_PRESETS, POOLING_TITLE, poolingExplanation } from './constants';
+import { BuildCapacityCard } from './BuildCapacityCard';
 import { StorageReclaimCard } from './StorageReclaimCard';
 
 /** One at-risk quota dimension for the caller's own org (from `getOrgAtRisk`). */
@@ -191,8 +192,12 @@ export function QuotasReadOnly({
             could not free, so the page that now shows the limit also shows what
             can be reclaimed. Renders nothing for an org with no plugin images. */}
         {!loading && orgData ? (
-          <div className="mt-4">
+          <div className="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-4">
             <StorageReclaimCard />
+            {/* The other half of "why is my build waiting?": the credits card
+                above says what is left to spend, this says how much can run at
+                once and how big a machine the plan may ask for. */}
+            <BuildCapacityCard tier={tier} />
           </div>
         ) : null}
         {!loading && orgData && !orgData.isDefault && (

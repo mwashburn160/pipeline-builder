@@ -1,6 +1,6 @@
 // GENERATED FROM docs/environment-variables.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 48b01e4469c135254627d479eeed15271b60767730bca13802a9b0442639d3ba
+// SOURCE-SHA256: 0e70fe0466f148309048cbe2aca48c29fe86e894e82b94bc2b19469fc65ba97f
 // SPDX-License-Identifier: Apache-2.0
 import { FileCode } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -1773,140 +1773,111 @@ export const envVariablesTopic: HelpTopic = {
             ],
             [
               "PLUGIN_BUILD_CONCURRENCY_DEVELOPER",
-              "PLUGIN_BUILD_CONCURRENCY",
+              "1",
               "Concurrent builds per container on the developer tier's queue"
             ],
             [
               "PLUGIN_BUILD_CONCURRENCY_PRO",
-              "PLUGIN_BUILD_CONCURRENCY",
+              "2",
               "Concurrent builds per container on the pro tier's queue"
             ],
             [
               "PLUGIN_BUILD_CONCURRENCY_TEAM",
-              "PLUGIN_BUILD_CONCURRENCY",
+              "2",
               "Concurrent builds per container on the team tier's queue"
             ],
             [
               "PLUGIN_BUILD_CONCURRENCY_BUSINESS",
-              "PLUGIN_BUILD_CONCURRENCY",
+              "3",
               "Concurrent builds per container on the business tier's queue"
             ],
             [
               "PLUGIN_BUILD_CONCURRENCY_ENTERPRISE",
-              "PLUGIN_BUILD_CONCURRENCY",
+              "4",
               "Concurrent builds per container on the enterprise tier's queue"
             ],
             [
               "PLUGIN_BUILD_CONCURRENCY_UNLIMITED",
-              "PLUGIN_BUILD_CONCURRENCY",
+              "4",
               "Concurrent builds per container on the unlimited tier's queue"
-            ],
-            [
-              "PLUGIN_MAX_BUILDS_PER_ORG",
-              "3",
-              "Max in-flight builds per org across all workers (Redis semaphore) — an org over the cap has its job re-delayed so another org's build takes the worker slot"
-            ],
-            [
-              "PLUGIN_ORG_SLOT_DELAY_MS",
-              "10000",
-              "How long (ms) a job that couldn't get an org slot waits before retrying"
-            ],
-            [
-              "PLUGIN_ORG_SLOT_TTL_SEC",
-              "900",
-              "Crash-recovery expiry (seconds) of a held org build slot, so a dead worker can't leak one forever. A running build heartbeats its own slot at a third of this, so the TTL is NOT a cap on build duration"
-            ],
-            [
-              "PLUGIN_ORG_SLOT_MAX_WAIT_MS",
-              "1800000",
-              "How long (ms) a build may wait for an org slot before failing terminally with a 503. A slot delay spends no BullMQ attempt, so this budget is what stops a starved job bouncing forever"
-            ],
-            [
-              "PLUGIN_ORG_SLOT_SCRUB_MS",
-              "PLUGIN_ORG_SLOT_TTL_SEC / 3",
-              "How often leaked org build slots are reconciled against live BullMQ state"
-            ],
-            [
-              "PLUGIN_TIER_CACHE_TTL_MS",
-              "300000",
-              "Per-pod cache (ms) of each org's tier, used to route a build to its tier queue; a stale entry only misroutes to a neighbouring queue until expiry"
-            ],
-            [
-              "PLUGIN_BUILD_QUEUE_NAME",
-              "plugin-build",
-              "BullMQ queue name"
-            ],
-            [
-              "PLUGIN_BUILD_MAX_ATTEMPTS",
-              "2",
-              "Max build attempts before moving to DLQ"
-            ],
-            [
-              "PLUGIN_BUILD_BACKOFF_DELAY_MS",
-              "5000",
-              "Backoff delay between retries (ms)"
-            ],
-            [
-              "PLUGIN_BUILD_COMPLETED_RETENTION_SECS",
-              "3600",
-              "Completed job retention (1 hour)"
-            ],
-            [
-              "PLUGIN_BUILD_FAILED_RETENTION_SECS",
-              "86400",
-              "Failed job retention (24 hours)"
-            ],
-            [
-              "PLUGIN_BUILD_WORKER_TIMEOUT_MS",
-              "10000",
-              "Worker ready timeout (ms)"
-            ],
-            [
-              "PLUGIN_DLQ_MAX_ATTEMPTS",
-              "3",
-              "Max DLQ retry attempts (exponential backoff)"
-            ],
-            [
-              "PLUGIN_DLQ_BACKOFF_BASE_MS",
-              "300000",
-              "DLQ backoff base delay (5 min; scales 5m, 15m, 45m)"
-            ],
-            [
-              "PLUGIN_DLQ_MAX_SIZE",
-              "20",
-              "Max DLQ jobs before oldest are purged"
-            ],
-            [
-              "PLUGIN_DLQ_SCAN_INTERVAL_MS",
-              "5000",
-              "Minimum interval (ms) between DLQ max-size enforcement scans"
-            ],
-            [
-              "PLUGIN_QUEUE_METRICS_INTERVAL_MS",
-              "15000",
-              "How often (ms) the build-queue job counts are scraped into Prometheus metrics"
-            ],
-            [
-              "PLUGIN_QUEUE_MAX_PAGE_DEPTH",
-              "5000",
-              "Deepest row a caller may page to on the queue GET /failed and GET /dlq views (each page reads offset + limit entries from every queue, so this bounds the Redis range read)"
-            ],
-            [
-              "PLUGIN_TRIAGE_CACHE_TTL_MS",
-              "5000",
-              "Memo TTL (ms) for the queue GET /triage aggregate, collapsing a dashboard's repeated polls into one scan"
-            ],
-            [
-              "PLUGIN_TRIAGE_CACHE_MAX_ENTRIES",
-              "500",
-              "Cap on distinct /triage memo keys (keyed per org), oldest evicted first"
-            ],
-            [
-              "TEMP_DIR_MAX_AGE_MS",
-              "14400000",
-              "Stale temp dir cleanup threshold (4 hours)"
             ]
           ]
+        },
+        {
+          "type": "text",
+          "content": "The per-tier concurrencies are a ladder, not one figure, and each one bounds how many of that tier's builds run at once across every org on the tier — a Worker per tier, one queue each. That makes this ladder (not a quota) the aggregate bound, which is what lets a tier's cpuCredits cap stay reachable by a single tenant: the cap is deliverable, and the number of tenants reaching for it concurrently is limited here, where it can be tuned without touching the price list. They all defaulted to the global PLUGIN_BUILD_CONCURRENCY (1) before, which made the per-tier machinery inert — at 1 an org can never reach its per-org slot cap either, so the per-org semaphore never bound and the free tier was capped at one concurrent build platform-wide by accident rather than by decision. | PLUGIN_BUILDKIT_MILLI_VCPU | 1500 | vCPU (in milli-units, as Kubernetes spells it) that one build is assumed to occupy, used to price cpuCredits: a credit is a vCPU-minute, so a build costs wall-minutes x this / 1000, rounded up to the whole credit. Must track limits.cpu on the buildkitd sidecar in deploy/<target>/k8s/plugin.yaml — the whole credits ladder is derived from this figure (credits = builds x wall-minutes x vCPU), so changing one without the other reprices every tier silently | | PLUGIN_MAX_BUILDS_<TIER>_<CLASS> | per tier and class (below) | Max in-flight builds one org may hold, per scheduling class, across all workers (Redis semaphore) — an org over the cap has its job re-delayed so another org's build takes the worker slot. <TIER> is one of DEVELOPER, PRO, TEAM, BUSINESS, ENTERPRISE, UNLIMITED; <CLASS> is STANDARD or FLEXIBLE | | PLUGIN_BUILDKIT_ADDR_<TIER> | (unset) | buildkitd address for one tier's builds; unset means the shared sidecar. Shipped deploys never set it | | PLUGIN_BUILDKIT_ADDR_SIZE_<SUFFIX> | (unset) | buildkitd address for one build machine: HALF, 1X, 2X, 4X, 8X (Small … X-Large). The pool that makes a machine mean anything, and a size with no pool is refused at submission rather than served off the shared daemon. Takes precedence over the per-tier address, because a tenant asking for Large wants the big daemon even when their tier has one of its own. The suffix comes from the build catalog, not from the id — 0.5x would produce the illegal ..._0.5X | | PLUGIN_ORG_SLOT_DELAY_MS | 10000 | How long (ms) a job that couldn't get an org slot waits before retrying |"
+        },
+        {
+          "type": "text",
+          "content": "| PLUGIN_ORG_SLOT_TTL_SEC | 900 | Crash-recovery expiry (seconds) of a held org build slot, so a dead worker can't leak one forever. A running build heartbeats its own slot at a third of this, so the TTL is NOT a cap on build duration | | PLUGIN_ORG_SLOT_MAX_WAIT_MS | 1800000 | How long (ms) a build may wait for an org slot before failing terminally with a 503. A slot delay spends no BullMQ attempt, so this budget is what stops a starved job bouncing forever | | PLUGIN_ORG_SLOT_SCRUB_MS | PLUGIN_ORG_SLOT_TTL_SEC / 3 | How often leaked org build slots are reconciled against live BullMQ state | | PLUGIN_TIER_CACHE_TTL_MS | 300000 | Per-pod cache (ms) of each org's tier, used to route a build to its tier queue; a stale entry only misroutes to a neighbouring queue until expiry |"
+        },
+        {
+          "type": "text",
+          "content": "Per-org build slots are per class as well as per tier. The defaults, from TIER_BUILD_SLOTS:"
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Tier",
+            "STANDARD",
+            "FLEXIBLE"
+          ],
+          "rows": [
+            [
+              "developer",
+              "1",
+              "3"
+            ],
+            [
+              "pro",
+              "2",
+              "4"
+            ],
+            [
+              "team",
+              "3",
+              "6"
+            ],
+            [
+              "business",
+              "5",
+              "10"
+            ],
+            [
+              "enterprise",
+              "8",
+              "16"
+            ],
+            [
+              "unlimited",
+              "8",
+              "16"
+            ]
+          ]
+        },
+        {
+          "type": "text",
+          "content": "Two things in that table are deliberate. Flexible has more headroom than standard on every row, because the cheap class is where the room has to be for it to smooth anything — a row where flexible <= standard would make the class pointless to choose. And every tier has both classes, so a free account can still push one urgent fix through standard rather than queueing behind its own deferred work; the classes hold separate counters precisely so flexible saturation cannot take that slot away."
+        },
+        {
+          "type": "text",
+          "content": "The defaults live in the build catalog (BUILD_CLASS_CATALOG[class].slotsByTier) alongside the class labels and the machine floors, not in the tier-limit table: the catalog is browser-importable and therefore cannot read an env var, so it holds defaults and maxBuildsPerOrg applies the overlay. Before it, these numbers lived in quota-tiers.ts and were mirrored by hand in the frontend."
+        },
+        {
+          "type": "text",
+          "content": "It was one flat figure before (PLUGIN_MAX_BUILDS_PER_ORG=3), which gave a Developer org the same three in-flight builds as an Enterprise one — the per-org semaphore was the one place in the build path that ignored what the tenant pays for. A garbage override still falls back to the cell's default rather than reaching the acquire script as NaN: tonumber('NaN') is nil in Lua, and one fat-fingered variable would otherwise brick every plugin build, not just that tier's."
+        },
+        {
+          "type": "text",
+          "content": "Build machines need supply before they mean anything, and are refused without it. There is no per-build CPU option on buildctl — the CPU a build may use is the buildkitd pod's limit — so Medium is a build sent to a buildkitd with twice the limit, and it means nothing until an operator stands that daemon up and points PLUGIN_BUILDKIT_ADDR_SIZE_2X at it. A machine with no pool behind it is therefore refused at submission, because serving it off the shared daemon is wrong in both directions: above Standard the tenant pays the multiplier for Standard speed, and below it (Small) they get full speed at a fraction of the price, which is a blanket discount on every build. Standard needs no pool of its own — it is the shared daemon."
+        },
+        {
+          "type": "text",
+          "content": "Which machines a tier may ask for is a tier floor in the catalog (minTier: Medium from Team, Large from Business, X-Large from Enterprise), not an env var. Small is available on every tier, deliberately: it is a budget option rather than a restriction, and the arithmetic only runs one way — a CPU-bound build takes twice as long at half the vCPU and costs the same, while an I/O-bound one costs about half. So Small can never cost more than Standard."
+        },
+        {
+          "type": "text",
+          "content": "The deadline scales with the machine: a sub-Standard build gets DOCKER_BUILD_TIMEOUT_MS multiplied by the inverse of its multiplier, never divided for a bigger one. The timeout is a safety bound on a runaway build rather than a budget — at half the vCPU a ten-minute build becomes about twenty and would die on the 15-minute bound, while scaling it down at Large would break I/O-bound builds that gain nothing from the extra CPU. | PLUGIN_BUILD_QUEUE_NAME | plugin-build | BullMQ queue name | | PLUGIN_BUILD_MAX_ATTEMPTS | 2 | Max build attempts before moving to DLQ | | PLUGIN_BUILD_BACKOFF_DELAY_MS | 5000 | Backoff delay between retries (ms) | | PLUGIN_BUILD_COMPLETED_RETENTION_SECS | 3600 | Completed job retention (1 hour) | | PLUGIN_BUILD_FAILED_RETENTION_SECS | 86400 | Failed job retention (24 hours) | | PLUGIN_BUILD_WORKER_TIMEOUT_MS | 10000 | Worker ready timeout (ms) | | PLUGIN_DLQ_MAX_ATTEMPTS | 3 | Max DLQ retry attempts (exponential backoff) | | PLUGIN_DLQ_BACKOFF_BASE_MS | 300000 | DLQ backoff base delay (5 min; scales 5m, 15m, 45m) | | PLUGIN_DLQ_MAX_SIZE | 20 | Max DLQ jobs before oldest are purged | | PLUGIN_DLQ_SCAN_INTERVAL_MS | 5000 | Minimum interval (ms) between DLQ max-size enforcement scans | | PLUGIN_QUEUE_METRICS_INTERVAL_MS | 15000 | How often (ms) the build-queue job counts are scraped into Prometheus metrics | | PLUGIN_QUEUE_MAX_PAGE_DEPTH | 5000 | Deepest row a caller may page to on the queue GET /failed and GET /dlq views (each page reads offset + limit entries from every queue, so this bounds the Redis range read) | | PLUGIN_TRIAGE_CACHE_TTL_MS | 5000 | Memo TTL (ms) for the queue GET /triage aggregate, collapsing a dashboard's repeated polls into one scan | | PLUGIN_TRIAGE_CACHE_MAX_ENTRIES | 500 | Cap on distinct /triage memo keys (keyed per org), oldest evicted first | | TEMP_DIR_MAX_AGE_MS | 14400000 | Stale temp dir cleanup threshold (4 hours) |"
         }
       ]
     },
@@ -1945,7 +1916,12 @@ export const envVariablesTopic: HelpTopic = {
             [
               "QUOTA_RESET_DAYS",
               "3",
-              "Reset period (days) for every quota type, shared by the quota and platform services"
+              "Reset period (days) for every quota type except cpuCredits, shared by the quota and platform services"
+            ],
+            [
+              "QUOTA_CPU_CREDITS_PERIOD_DAYS",
+              "30",
+              "Reset period (days) for cpuCredits only. Build demand is bursty in a way API traffic is not — a full catalogue rebuild is a day's work arriving on one day — so a three-day window would refuse it while the account holds most of a month's budget unspent. This makes the usage period a per-type fact: read it through quotaPeriodDays(type) and never assume QUOTA_RESET_DAYS, because a reset date or a burn-rate forecast computed against the wrong window is wrong by a factor of ten"
             ],
             [
               "QUOTA_CHECK_TIMEOUT_MS",
@@ -2295,7 +2271,7 @@ export const envVariablesTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Any preset can be overridden per-environment via QUOTA_TIER_<DEVELOPER|PRO|TEAM|BUSINESS|ENTERPRISE|UNLIMITED>_<LIMIT> (e.g. QUOTA_TIER_TEAM_SEATS=20, QUOTA_TIER_PRO_LISTINGS=15), and DEFAULT_QUOTA_TIER sets the tier assigned to newly created orgs (developer by default). seats is a tier limit, not a tracked counter — it is enforced live at invite time against active org membership. supportContacts works the same way but is enforced at designation time, and its base is 0 on every tier (-1 on unlimited): support is an add-on at every tier and included in none, so an org with no support bundle has no contacts and cannot open a case — the support paywall is a quota check, not a feature flag."
+          "content": "Any preset can be overridden per-environment via QUOTA_TIER_<DEVELOPER|PRO|TEAM|BUSINESS|ENTERPRISE|UNLIMITED>_<LIMIT> (e.g. QUOTA_TIER_TEAM_SEATS=20, QUOTA_TIER_PRO_LISTINGS=15), and DEFAULT_QUOTA_TIER sets the tier assigned to newly created orgs (developer by default). cpuCredits is vCPU-minutes of plugin-build compute per month, derived from the tier's plugins cap rather than guessed (plugins x 10 builds a month at a flat 30 wall-minutes and 1.5 vCPU, so credits = builds x 45: 4,500 / 11,250 / 22,500 / 45,000 / 67,500). It is the first dimension with genuine per-unit marginal cost — every other quota is a rate limit protecting shared infrastructure, this one is compute the platform pays for — and the only flow on a window other than QUOTA_RESET_DAYS. seats is a tier limit, not a tracked counter — it is enforced live at invite time against active org membership. supportContacts works the same way but is enforced at designation time, and its base is 0 on every tier (-1 on unlimited): support is an add-on at every tier and included in none, so an org with no support bundle has no contacts and cannot open a case — the support paywall is a quota check, not a feature flag."
         },
         {
           "type": "text",
@@ -2303,7 +2279,7 @@ export const envVariablesTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Every quota counter rolls over on one shared period, QUOTA_RESET_DAYS (default 3), read by both the quota service (which resets counters) and platform (which seeds a new org's counters)."
+          "content": "Quota counters roll over on a period that is per type. Every flow quota but one shares QUOTA_RESET_DAYS (default 3), read by both the quota service (which resets counters) and platform (which seeds a new org's counters); cpuCredits rolls on QUOTA_CPU_CREDITS_PERIOD_DAYS (default 30). Ask for a type's own window with quotaPeriodDays(type) rather than reading the global constant — the two differ by a factor of ten, and a forecast or a \"resets in N days\" line against the wrong one is simply wrong. Stocks (storageBytes and the resource counts) have no period at all; check quotaAccrual(type) before using one."
         },
         {
           "type": "text",
@@ -2921,7 +2897,7 @@ export const envVariablesTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Add-on bundles are env-tunable (see Billing Add-on Bundles → Overrides): BILLING_BUNDLE_<ID>_MONTHLY / _ANNUAL (price, cents), BILLING_BUNDLE_<ID>_GRANT (single-dimension grant amount), BILLING_BUNDLE_<ID>_TIERS (JSON array of purchasable tiers), and BILLING_BUNDLE_<ID>_VOLUME_TIERS (JSON array of {minQuantity, discountPercent} for a per-unit volume discount — used by SEAT, PLUGIN_PACK, API_PACK, AUTOMATION_PACK, AI_PACK, STORAGE_PACK, SUPPORT_STANDARD, SUPPORT_PRIORITY and SUPPORT_PREMIUM), where <ID> is the bundle id upper-cased (SEAT, PIPELINE_PACK, PLUGIN_PACK, API_PACK, AUTOMATION_PACK, AI_PACK, STORAGE_PACK, LISTING_PACK, ADVANCED_REPORTING, TEAM_USAGE_ANALYTICS, RETENTION_PACK, DORA_HISTORY_PACK, COMPLIANCE_STANDARD, COMPLIANCE_ADVANCED, STAKEHOLDER_REPORTS, SUPPORT_STANDARD, SUPPORT_PRIORITY, SUPPORT_PREMIUM). Combo prices are BILLING_COMBO_<COMBO>_MONTHLY / _ANNUAL where <COMBO> is ANALYTICS_SUITE, TEAM_GROWTH, COMPLIANCE_SUITE, SCALE_BUNDLE, INSIGHTS_BUNDLE, THROUGHPUT_BUNDLE, or ASSURED_DELIVERY. The retention packs default to $15/mo ($150/yr, RETENTION_PACK) and $30/mo ($300/yr, DORA_HISTORY_PACK); under AWS Marketplace they meter as the RetentionPack / DoraHistoryPack dimensions (see AWS_MARKETPLACE_BUNDLE_DIMENSION_MAP)."
+          "content": "Add-on bundles are env-tunable (see Billing Add-on Bundles → Overrides): BILLING_BUNDLE_<ID>_MONTHLY / _ANNUAL (price, cents), BILLING_BUNDLE_<ID>_GRANT_<DIMENSION> (grant amount for one dimension, e.g. BILLING_BUNDLE_PLUGIN_PACK_GRANT_CPU_CREDITS), BILLING_BUNDLE_<ID>_TIERS (JSON array of purchasable tiers), and BILLING_BUNDLE_<ID>_VOLUME_TIERS (JSON array of {minQuantity, discountPercent} for a per-unit volume discount — used by SEAT, PLUGIN_PACK, CPU_CREDITS_PACK, API_PACK, AUTOMATION_PACK, AI_PACK, STORAGE_PACK, SUPPORT_STANDARD, SUPPORT_PRIORITY and SUPPORT_PREMIUM), where <ID> is the bundle id upper-cased (SEAT, PIPELINE_PACK, PLUGIN_PACK, CPU_CREDITS_PACK, API_PACK, AUTOMATION_PACK, AI_PACK, STORAGE_PACK, LISTING_PACK, ADVANCED_REPORTING, TEAM_USAGE_ANALYTICS, RETENTION_PACK, DORA_HISTORY_PACK, COMPLIANCE_STANDARD, COMPLIANCE_ADVANCED, STAKEHOLDER_REPORTS, SUPPORT_STANDARD, SUPPORT_PRIORITY, SUPPORT_PREMIUM). Combo prices are BILLING_COMBO_<COMBO>_MONTHLY / _ANNUAL where <COMBO> is ANALYTICS_SUITE, TEAM_GROWTH, COMPLIANCE_SUITE, SCALE_BUNDLE, INSIGHTS_BUNDLE, THROUGHPUT_BUNDLE, or ASSURED_DELIVERY. The retention packs default to $15/mo ($150/yr, RETENTION_PACK) and $30/mo ($300/yr, DORA_HISTORY_PACK); under AWS Marketplace they meter as the RetentionPack / DoraHistoryPack dimensions (see AWS_MARKETPLACE_BUNDLE_DIMENSION_MAP)."
         },
         {
           "type": "text",

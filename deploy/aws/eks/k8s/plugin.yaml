@@ -162,9 +162,15 @@ spec:
               # BUILDKIT_MEMORY_LIMIT (setup.sh default 6144Mi); bound by node memory.
               memory: ${BUILDKIT_MEMORY_LIMIT}
             requests:
-              # Modest CPU request — buildkitd bursts to its 1500m limit during
-              # builds, so a low reservation avoids over-reserving node CPU.
-              cpu: "300m"
+              # RAISED TO MATCH THE LIMIT, because `cpuCredits` sells throughput
+              # against this number. Kubernetes schedules on REQUESTS, so a 300m
+              # request against a 1500m limit promised 1.5 vCPU of build
+              # throughput while reserving 0.3 — the ladder's whole supply
+              # arithmetic (`credits = builds x wall-minutes x vCPU`) is derived
+              # from the limit, and selling against an unreserved burst is
+              # selling capacity the scheduler never set aside. See
+              # docs/plans/cpu-credits.md D9.
+              cpu: "1500m"
               memory: 1024Mi
           # EXEC ON LOOPBACK — see k8s/pgbouncer.yaml for the full rationale.
           # Under Istio ambient the kubelet -> podIP probe path does not work on

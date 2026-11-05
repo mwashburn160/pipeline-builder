@@ -544,13 +544,37 @@ export interface IngestEvent {
  * api-server's metrics registry. `result` is the terminal outcome; `environment`
  * is non-null only for a deploy-stage event.
  */
-export interface IngestMetric {
+export interface StageIngestMetric {
+  kind: 'stage';
   pipelineId: string;
   orgId: string;
   stage: string;
   environment: string | null;
   result: 'succeeded' | 'failed';
 }
+
+/**
+ * One terminal CodeBuild ACTION's compute consumption (Phase 4, measurement
+ * half).
+ *
+ * `credits` is NULL rather than 0 when the action could not be measured — no
+ * declared start time, or a compute size the forwarder could not read. The
+ * distinction is the whole value of this metric: zero would make a coverage gap
+ * look like idleness, and a tier ladder re-derived against an unknown
+ * denominator is a repricing nobody can defend.
+ */
+export interface ComputeIngestMetric {
+  kind: 'compute';
+  pipelineId: string;
+  orgId: string;
+  computeType: string | null;
+  durationMs: number | null;
+  credits: number | null;
+}
+
+/** What the ingest fans out to its caller's metric registry. Discriminated, so
+ *  a new kind cannot be silently counted as a stage outcome. */
+export type IngestMetric = StageIngestMetric | ComputeIngestMetric;
 
 /** Counts + the (possibly truncated) list of unregistered pipeline ids the caller can log. */
 export interface IngestResult {

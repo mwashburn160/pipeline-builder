@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * One rule for every amount a customer sees: whole dollars, or `.99`.
+ * One rule for every amount a customer sees: whole dollars, `.49`, or `.99`.
  *
  * Nothing in the catalog was authored as $25.18 — that figure, and twenty others
  * like it, were DERIVED. Three mechanisms produced them:
@@ -25,38 +25,53 @@
  * credit the customer can see on an invoice always reconciles exactly against the
  * line above it.
  *
- * The step is at most 99 cents, so the rule cannot move a price materially; what
+ * The step is at most 50 cents, so the rule cannot move a price materially; what
  * it removes is the appearance of imprecision.
  */
 
-/** Cents values a price may end on. */
-const WHOLE = 0;
-const NINETY_NINE = 99;
+/**
+ * Cents values a price may end on, ASCENDING.
+ *
+ * `.49` sits between the two because a round dollar and `.99` alone are too
+ * coarse for a cheap per-unit pack: the CPU Credits Pack is authored at $2.49
+ * and `.99`-only rounding silently made it $2.99 — a 20% rise on a $2.49 item,
+ * which is not a rounding. The step a price can move is now at most 50 cents
+ * rather than 99.
+ */
+const ENDINGS = [0, 49, 99] as const;
 
 /** Whether `cents` already satisfies the rule. */
 export function isRoundedPrice(cents: number): boolean {
   if (!Number.isFinite(cents)) return false;
   const rem = Math.abs(Math.trunc(cents)) % 100;
-  return rem === WHOLE || rem === NINETY_NINE;
+  return (ENDINGS as readonly number[]).includes(rem);
 }
 
 /**
  * The smallest compliant amount greater than or equal to `cents`.
  *
  * An exact dollar is already compliant and is left alone — snapping $30.00 up to
- * $30.99 would be a price rise, not a rounding. Anything else goes up to the
- * `.99` of its own dollar, which is always at or above the input.
+ * $30.49 would be a price rise, not a rounding. Anything else goes up to the
+ * NEAREST allowed ending at or above it within its own dollar: 1..49 -> `.49`,
+ * 50..98 -> `.99`, and `.99` is already compliant.
+ *
+ * Nearest-up rather than always-`.99` is what keeps the rule a rounding instead
+ * of a repricing. The movement is bounded at 50 cents now, and on a cheap
+ * per-unit pack that is the difference between $2.49 standing and becoming
+ * $2.99.
  *
  * Zero stays zero: the free `listing_pack` is priced at nothing on purpose, and
- * $0.99 would make it a paid add-on.
+ * $0.49 would make it a paid add-on.
  */
 export function snapUpPrice(cents: number): number {
   if (!Number.isFinite(cents)) return 0;
   const v = Math.trunc(cents);
   if (v <= 0) return v;
   const rem = v % 100;
-  if (rem === WHOLE) return v;
-  return v - rem + NINETY_NINE;
+  const up = ENDINGS.find((e) => e >= rem);
+  // `rem` is 0..99 and 99 is an ENDING, so `find` always matches; the `?? 99`
+  // is for the type, not for a reachable case.
+  return v - rem + (up ?? 99);
 }
 
 /**
@@ -64,7 +79,7 @@ export function snapUpPrice(cents: number): number {
  *
  * Given a line at `grossCents` and a raw reduction of `rawCreditCents`, this
  * snaps the resulting net UP and returns the credit that produces it. The credit
- * therefore shrinks by at most 98 cents, which is the vendor-favourable
+ * therefore shrinks by at most 49 cents, which is the vendor-favourable
  * direction and keeps `gross - credit` reconcilable on the invoice.
  *
  * Clamped so a reduction can never exceed the line or go negative — a credit

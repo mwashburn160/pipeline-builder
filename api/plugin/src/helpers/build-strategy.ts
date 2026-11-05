@@ -50,6 +50,12 @@ export interface BuildDeps {
    */
   getBuildkitAddr(): Promise<string>;
   /**
+   * The machine size this build was admitted at. Passed through because the
+   * subprocess deadline scales with it: a sub-`1x` build takes proportionally
+   * longer and would otherwise die on the standard bound.
+   */
+  buildSize?: string;
+  /**
    * Optional live sink for masked build log lines. Wired to the owner-bound SSE
    * stream by the worker so the user sees build progress, not just a final status.
    */
@@ -107,7 +113,7 @@ const buildImageStrategy: ImageBuildStrategy = {
   },
   async produceImage(req, deps) {
     const buildkitAddr = await deps.getBuildkitAddr();
-    return buildAndPush(req, { buildkitAddr, onLine: deps.onLine });
+    return buildAndPush(req, { buildkitAddr, buildSize: deps.buildSize, onLine: deps.onLine });
   },
 };
 

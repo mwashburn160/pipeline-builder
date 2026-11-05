@@ -39,16 +39,22 @@ describe('snapUpPrice', () => {
 
   it('lifts a combo price set as a percentage of its basket', () => {
     expect(snapUpPrice(9086)).toBe(9099); // $90.86 -> $90.99
-    expect(snapUpPrice(2518)).toBe(2599); // $25.18 -> $25.99
+    // `.49` is an allowed ending, so an amount landing in the lower half of a
+    // dollar snaps there rather than being lifted the whole way to `.99`.
+    expect(snapUpPrice(2518)).toBe(2549); // $25.18 -> $25.49
     expect(snapUpPrice(3492)).toBe(3499); // $34.92 -> $34.99
   });
 
-  it('never moves a price by more than 98 cents', () => {
+  it('never moves a price by more than 49 cents', () => {
+    // Tightened from 98 by admitting `.49`: the worst case is now a `.50` amount
+    // lifted to `.99`. That bound is the whole justification for calling this a
+    // rounding rather than a repricing — at 98 cents it could move a $2.49 pack
+    // by 20%.
     for (let c = 0; c < 100; c++) {
       const v = 5000 + c;
       const moved = snapUpPrice(v) - v;
       expect(moved).toBeGreaterThanOrEqual(0);
-      expect(moved).toBeLessThanOrEqual(98);
+      expect(moved).toBeLessThanOrEqual(49);
     }
   });
 

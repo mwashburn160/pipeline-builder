@@ -3,6 +3,10 @@ import { Sparkles, Rocket } from 'lucide-react';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { FormField } from '@/components/ui/FormField';
 import { VisibilitySelect, visibilityHint } from '@/components/ui/VisibilitySelect';
+import { BuildShapeFields } from './BuildShapeFields';
+import { BuildCostHint, buildCreditsBlocked } from '@/components/ui/BuildCostHint';
+import { useOwnQuota } from '@/hooks/useOwnQuota';
+import type { BuildClass, BuildSize } from '@pipeline-builder/api-core/build-catalog';
 import { Textarea } from '@/components/ui/Textarea';
 import { Button } from '@/components/ui/Button';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
@@ -116,9 +120,17 @@ export default function AIPluginBuilderTab({ canPublish, disabled, onCreated, on
 
   // Visibility — `org` is the backend's create default for plugins; `private` is opt-in.
   const [access, setAccess] = useState<Visibility>('org');
+  // Build shape (D11/D13), defaulting to what every tier has.
+  const [buildClass, setBuildClass] = useState<BuildClass>('standard');
+  const [buildSize, setBuildSize] = useState<BuildSize>('1x');
 
   // Build queue tracking
   const [requestId, setRequestId] = useState<string | null>(null);
+  // The org's CPU-credit budget, for the pre-submit cost line and the size
+  // gate. Fails open to null, so a failed read never locks a deploy the server
+  // would have accepted.
+  const { quota: creditQuota } = useOwnQuota('cpuCredits', requestId !== null);
+
   const { status: buildStatus, events, lastEvent } = useBuildStatus(requestId);
 
   const ai = useAIProviders(() => api.getPluginAIProviders(), { askAgent: true });
@@ -190,6 +202,8 @@ export default function AIPluginBuilderTab({ canPublish, disabled, onCreated, on
         ...generatedConfig,
         dockerfile: generatedDockerfile,
         visibility: access,
+        buildClass,
+        buildSize,
       });
 
       if (response.statusCode === 202 && response.data?.requestId) {
@@ -349,6 +363,17 @@ export default function AIPluginBuilderTab({ canPublish, disabled, onCreated, on
 
           {/* Access Level + Deploy */}
           <div className="border-t border-default pt-4">
+            {/* Build shape (D11/D13) + what the build will cost, beside the
+                deploy control that spends it. */}
+            <BuildShapeFields
+              tier={creditQuota?.tier}
+              buildClass={buildClass}
+              buildSize={buildSize}
+              onClassChange={setBuildClass}
+              onSizeChange={setBuildSize}
+              disabled={isWorking}
+            />
+            <BuildCostHint quota={creditQuota} buildSize={buildSize} className="mt-2" />
             <div className="flex items-center justify-between">
               <FormField label="Visibility" hint={visibilityHint(canPublish, 'plugins:publish', true)}>
                 <VisibilitySelect value={access} onChange={setAccess} canPublish={canPublish} disabled={isWorking} />
@@ -356,7 +381,7 @@ export default function AIPluginBuilderTab({ canPublish, disabled, onCreated, on
 
               <Button
                 onClick={handleDeploy}
-                disabled={disabled || isWorking}
+                disabled={disabled || isWorking || buildCreditsBlocked(creditQuota?.summary)}
               >
                 {deploying || isBuilding ? (
                   <>

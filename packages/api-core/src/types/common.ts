@@ -128,6 +128,7 @@ export const AUTH_METHODS: readonly AuthMethod[] = ['pwd', 'oauth', 'sso', 'weba
 // incrementing per-period counter like the consumable quotas below.
 export type QuotaType =
   | 'plugins' | 'pipelines' | 'apiCalls' | 'automationCalls' | 'aiCalls' | 'storageBytes'
+  | 'cpuCredits'
   | 'dashboards' | 'alertRules' | 'alertDestinations' | 'idpConfigs'
   | 'listings';
 
@@ -136,6 +137,7 @@ export type QuotaType =
  */
 export const VALID_QUOTA_TYPES = [
   'plugins', 'pipelines', 'apiCalls', 'automationCalls', 'aiCalls', 'storageBytes',
+  'cpuCredits',
   'dashboards', 'alertRules', 'alertDestinations', 'idpConfigs',
   'listings',
 ] as const;

@@ -3,6 +3,7 @@
 
 import { z } from 'zod';
 import { VisibilitySchema } from './common-schemas.js';
+import { BUILD_CLASSES, BUILD_SIZES } from '../types/build-catalog.js';
 import { envInt } from '../utils/env.js';
 
 const MAX_PROMPT_LENGTH = envInt('MAX_PROMPT_LENGTH', 5000, { min: 1 });
@@ -91,6 +92,12 @@ export const PluginDeployGeneratedSchema = z.object({
 
   /** Access visibility. */
   visibility: VisibilitySchema.default('private'),
+
+  /** Scheduling class for the image build (D11); see `PluginUploadBodySchema`. */
+  buildClass: z.enum(BUILD_CLASSES).optional(),
+
+  /** Machine size for the image build (D13); refused above the tier's ceiling. */
+  buildSize: z.enum(BUILD_SIZES).optional(),
 });
 
 // AI Generate From URL Request

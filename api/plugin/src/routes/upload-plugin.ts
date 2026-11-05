@@ -3,7 +3,7 @@
 
 import * as fs from 'fs';
 
-import { SYSTEM_ACTOR_ID, ErrorCode, audited, createLogger, envInt, isSystemAdmin, requireAuth, userHasPermission, errorMessage, getServiceAuthHeader, requirePermission, resolveVisibility, sendBadRequest, sendError, sendQuotaReserveDenied, sendSuccess, validateBody, PluginUploadBodySchema, actorId, detectCatalogMetadata, parseCatalogEditsPart, resolveCatalogMetadata, recordAudit } from '@pipeline-builder/api-core';
+import { SYSTEM_ACTOR_ID, ErrorCode, audited, createLogger, envInt, isSystemAdmin, requireAuth, userHasPermission, errorMessage, getServiceAuthHeader, requirePermission, resolveVisibility, sendBadRequest, sendError, sendQuotaReserveDenied, sendQuotaExceeded, sendSuccess, validateBody, PluginUploadBodySchema, actorId, detectCatalogMetadata, parseCatalogEditsPart, resolveCatalogMetadata, recordAudit } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
 import { requireOrgId, withRoute, withTenantContext, rateLimitByOrg, withQuotaReservation, type QuotaSlot, type SSEManager } from '@pipeline-builder/api-server';
 import type { PluginSpec } from '@pipeline-builder/pipeline-core';
@@ -13,10 +13,13 @@ import multer from 'multer';
 
 import { getBuildStrategy } from '../helpers/build-strategy.js';
 import { compliancePreflight, queuePluginBuild } from '../helpers/build-submission.js';
+import { resolveBuildShape } from '../helpers/build-shape.js';
+import { getOrgTier } from '../queue/connections.js';
 import { catalogColumns } from '../helpers/catalog-metadata.js';
 import { DEFAULT_PLUGIN_VERSION } from '../helpers/default-version.js';
 import { createBuildJobData, toPluginInsert } from '../helpers/plugin-helpers.js';
 import { parsePluginZip, specContractFields, validateBuildArgs, type ParsedPlugin } from '../helpers/plugin-spec.js';
+import { admitBuildOnCredits } from '../queue/build-credits.js';
 import { callerFromRequest } from '../services/ecosystem/context.js';
 import { shadowingDecision } from '../services/ecosystem/installs.js';
 import { submitAfterBuild } from '../services/ecosystem/requests.js';
@@ -190,6 +193,16 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
         // ignored there, and its refused image discarded like any other.
         const setupLoad = validation.value.setupLoad === 'true';
 
+        // Scheduling class + machine size (D11/D13), resolved against the tier
+        // BEFORE anything is reserved so a refused size costs no quota. A size
+        // above the tier's ceiling is refused, never downgraded — see
+        // `resolveBuildShape`.
+        const tier = await getOrgTier(quotaService, orgId, authHeader);
+        const shape = resolveBuildShape(tier, validation.value);
+        if (!shape.ok) {
+          return sendError(res, 403, shape.error, ErrorCode.INSUFFICIENT_PERMISSIONS);
+        }
+
         // Reserve the plugins quota slot. Done AFTER multer + body validation
         // so a bad-request never consumes quota. The quota service's atomic
         // reserve means two concurrent uploads at the limit can't both pass.
@@ -198,6 +211,16 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
         // throw (parsePluginZip, deployVersion, …) refunds it automatically,
         // and `markConsumed()` at the hand-off point stops that refund once
         // the queued build job owns the slot instead.
+        // CPU-CREDIT ADMISSION, before the plugins reservation: an org out of
+        // build compute is told at submission rather than discovering it when a
+        // build that looked accepted never produces an image. Fails CLOSED (D6)
+        // — a build whose budget could not be confirmed is not admitted, because
+        // an unmetered build pool is otherwise discovered from a bill.
+        const credits = await admitBuildOnCredits(quotaService, orgId, { orgId });
+        if (!credits.admitted) {
+          ctx.log('WARN', 'CPU credit budget exhausted or unconfirmable', { orgId, used: credits.used, limit: credits.limit });
+          return sendQuotaExceeded(res, 'cpuCredits', { type: 'cpuCredits', used: credits.used ?? 0, limit: credits.limit ?? 0, remaining: 0 }, credits.resetAt);
+        }
         const outcome = await withQuotaReservation(
           { quotaService, orgId, type: 'plugins', serviceName: 'plugin', logWarn },
           async (slot: QuotaSlot) => {
@@ -396,6 +419,8 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
               // Period snapshot for the reserved slot so a DLQ retry spanning a
               // quota reset refunds the correct period (see releasePluginQuota).
               reservedResetAt: slot.reservation.quota.resetAt,
+              buildClass: shape.buildClass,
+              buildSize: shape.buildSize,
               ...(publish ? { publish } : {}),
               ...(setupLoad ? { setupLoad } : {}),
               buildRequest: {
@@ -413,7 +438,7 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
             });
 
             try {
-              await queuePluginBuild({ quotaService, sseManager, orgId, authHeader, jobName: `${s.name}:${version}`, jobData, logWarn });
+              await queuePluginBuild({ quotaService, sseManager, orgId, authHeader, jobName: `${s.name}:${version}`, jobData, tier, logWarn });
             } catch (queueErr) {
               ctx.log('ERROR', 'Failed to enqueue build job', {
                 error: errorMessage(queueErr),

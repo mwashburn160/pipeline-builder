@@ -14,8 +14,12 @@ describe('VALID_QUOTA_TYPES', () => {
     // storageBytes was added for the image-registry push-gate; the four
     // count caps (dashboards / alertRules / alertDestinations / idpConfigs)
     // were added to close per-org DoS via spam on user-editable feature tables.
+    // `cpuCredits` is the first dimension with genuine per-unit marginal cost
+    // (build compute the platform pays for) and the only flow on a monthly
+    // window rather than QUOTA_RESET_DAYS.
     expect(VALID_QUOTA_TYPES).toEqual([
       'plugins', 'pipelines', 'apiCalls', 'automationCalls', 'aiCalls', 'storageBytes',
+      'cpuCredits',
       'dashboards', 'alertRules', 'alertDestinations', 'idpConfigs',
       'listings',
     ]);

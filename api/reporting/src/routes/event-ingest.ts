@@ -20,6 +20,7 @@ import { requireIngestScope } from '../middleware/require-ingest-scope.js';
  * shape-coupled to these strings.
  */
 const AWS_STATUSES = ['SUCCEEDED', 'FAILED', 'CANCELED', 'IN_PROGRESS', 'STARTED', 'STOPPED', 'STOPPING', 'SUPERSEDED', 'ABANDONED'] as const;
+
 const PLUGIN_BUILD_STATUSES = ['completed', 'failed', 'started', 'timeout', 'cancelled'] as const;
 
 const baseIngestFields = {
@@ -59,6 +60,18 @@ const baseIngestFields = {
   // and the SQS message id it arrived in (kept in detail). Both opaque ids.
   sourceEventId: z.string().min(1).max(128).optional(),
   sourceMessageId: z.string().min(1).max(128).optional(),
+  // The compute size a terminal CodeBuild action ran on, read from AWS by the
+  // forwarder in AWS's own spelling (`BUILD_GENERAL1_MEDIUM`). Phase 4's
+  // MEASUREMENT half: duration x this size is the vCPU-minute figure the tier
+  // ladder has to be re-derived from before pipeline execution can be charged
+  // into `cpuCredits` at all. Stored as `detail.computeType` (see foldCompute)
+  // and narrowed to our vocabulary where the credits are computed.
+  //
+  // A bounded STRING rather than an enum, deliberately: the producer is a
+  // single-file Lambda that cannot import the vocabulary, and a new AWS compute
+  // family must land as an unrecognised size the coverage metric reports —
+  // not as a rejected batch that drops every event beside it.
+  computeType: z.string().min(1).max(64).optional(),
   failure: z.object({
     code: z.string().min(1).max(64),
     message: z.string().max(2048),
@@ -96,6 +109,16 @@ const ingestBatchSchema = z.object({
 function foldFailure<E extends { failure?: unknown; detail?: Record<string, unknown> }>(event: E): Omit<E, 'failure'> {
   const { failure, ...rest } = event;
   return failure === undefined ? rest : { ...rest, detail: { ...(rest.detail ?? {}), failure } };
+}
+
+/**
+ * Same fold for `computeType`, and folded AFTER validation on purpose: the
+ * incoming `detail` is size-refined at 8 KB, so a field added here cannot be the
+ * one an oversized payload sheds.
+ */
+function foldCompute<E extends { computeType?: unknown; detail?: Record<string, unknown> }>(event: E): Omit<E, 'computeType'> {
+  const { computeType, ...rest } = event;
+  return computeType === undefined ? rest : { ...rest, detail: { ...(rest.detail ?? {}), computeType } };
 }
 
 /**
@@ -159,6 +182,31 @@ export function createEventIngestRoutes(sseManager: SSEManager): Router {
     // never sees the trusted org). `pipeline_deploy_result_total` is a subset —
     // only stage events that carry a deploy environment.
     const onMetric = (m: IngestMetric): void => {
+      if (m.kind === 'compute') {
+        // PHASE 4, MEASUREMENT HALF. Nothing here enters a quota counter: the
+        // tier ladder was derived without pipeline execution in it, so charging
+        // this before re-deriving the ladder would raise every account's
+        // consumption with no change in its behaviour — a silent repricing.
+        // These two series are what the re-derivation needs.
+        //
+        // `measured` is the coverage label, and it is the first thing to read.
+        // The forwarder refuses to compute a duration unless AWS declared a
+        // `start-time`, so a real fraction of actions arrive unmeasurable; a
+        // ladder priced off this series before that fraction is known would be
+        // priced off an unknown denominator.
+        incCounter('pipeline_compute_actions_total', {
+          org_id: m.orgId,
+          compute_type: m.computeType ?? 'unknown',
+          measured: m.credits == null ? 'false' : 'true',
+        });
+        if (m.credits != null) {
+          incCounter('pipeline_compute_credits_total', {
+            org_id: m.orgId,
+            compute_type: m.computeType ?? 'unknown',
+          }, m.credits);
+        }
+        return;
+      }
       incCounter('pipeline_stage_result_total', {
         pipeline_id: m.pipelineId,
         stage: m.stage,
@@ -183,7 +231,7 @@ export function createEventIngestRoutes(sseManager: SSEManager): Router {
       foreignPipelineIds, insertedPipelineIds, insertedExecutionIds,
     } = await runWithTenantContext(
       { isSuperAdmin: true },
-      () => reportingService.ingestEvents(events.map(foldFailure), onMetric, caller),
+      () => reportingService.ingestEvents(events.map(foldFailure).map(foldCompute), onMetric, caller),
     );
 
     // A non-zero count is either a misrouted producer or an injection attempt;

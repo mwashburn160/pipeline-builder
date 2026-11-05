@@ -67,12 +67,12 @@ All three target the account root. Retention is not one of the nine flow quotas 
 |----------|--------|
 | `BILLING_BUNDLES_ENABLED=true` | Master switch — bundles are hidden unless set |
 | `BILLING_BUNDLE_<ID>_MONTHLY` / `_ANNUAL` | Override a bundle's price (cents) |
-| `BILLING_BUNDLE_<ID>_GRANT` | Override the grant amount (single-dimension bundles only) |
+| `BILLING_BUNDLE_<ID>_GRANT_<DIMENSION>` | Override the grant amount for ONE dimension, e.g. `BILLING_BUNDLE_PLUGIN_PACK_GRANT_CPU_CREDITS=9000`. Applied per key, so a bad value on one dimension leaves the others alone, and a dimension the bundle does not grant is ignored rather than added |
 | `BILLING_BUNDLE_<ID>_TIERS` | JSON array of tiers allowed to buy the bundle |
 | `BILLING_BUNDLE_SEAT_VOLUME_TIERS` | Tune the Member Seat volume-discount thresholds |
 | `BILLING_COMBO_<COMBO>_MONTHLY` / `_ANNUAL` | Override a combo's combined price (cents) — e.g. `BILLING_COMBO_ANALYTICS_SUITE_MONTHLY` |
 
-`<ID>` is the bundle id upper-cased: `SEAT`, `PIPELINE_PACK`, `PLUGIN_PACK`, `API_PACK`, `AUTOMATION_PACK`, `AI_PACK`, `STORAGE_PACK`, `LISTING_PACK`, `RETENTION_PACK`, `DORA_HISTORY_PACK`, `ADVANCED_REPORTING`, `TEAM_USAGE_ANALYTICS`, `COMPLIANCE_STANDARD`, `COMPLIANCE_ADVANCED`, `STAKEHOLDER_REPORTS`, `SUPPORT_STANDARD`, `SUPPORT_PRIORITY`, `SUPPORT_PREMIUM`.
+`<ID>` is the bundle id upper-cased: `SEAT`, `PIPELINE_PACK`, `PLUGIN_PACK`, `CPU_CREDITS_PACK`, `API_PACK`, `AUTOMATION_PACK`, `AI_PACK`, `STORAGE_PACK`, `LISTING_PACK`, `RETENTION_PACK`, `DORA_HISTORY_PACK`, `ADVANCED_REPORTING`, `TEAM_USAGE_ANALYTICS`, `COMPLIANCE_STANDARD`, `COMPLIANCE_ADVANCED`, `STAKEHOLDER_REPORTS`, `SUPPORT_STANDARD`, `SUPPORT_PRIORITY`, `SUPPORT_PREMIUM`.
 
 `<COMBO>` is the combo id upper-cased: `ANALYTICS_SUITE`, `TEAM_GROWTH`, `COMPLIANCE_SUITE`, `INSIGHTS_BUNDLE`, `THROUGHPUT_BUNDLE`, `SCALE_BUNDLE`, `ASSURED_DELIVERY`.
 
@@ -87,6 +87,7 @@ Prices are the built-in defaults (USD); annual defaults to 10× monthly.
 | **Member Seat** | +1 member seat, **+100,000 API calls, +200 AI calls** (volume discounts — see below) | $49.99 | $499.99 | Team, Business, Enterprise | ✅ |
 | **Pipeline Pack** | +5 pipelines **and** +25 plugin builds / period — both, so the 5:1 ratio the tiers hold survives the purchase | $29.99 | $299.99 | Team, Business, Enterprise | ✅ |
 | **Plugin Pack** | +10 plugin builds / period | $11.99 | $119.99 | paid tiers | ✅ (volume) |
+| **CPU Credits Pack** | +500 CPU credits / month | $2.49 | $24.99 | paid tiers | ✅ (volume, max 22) |
 | **API Pack** | +25,000 API calls / period | $11.99 | $119.99 | paid tiers | ✅ (volume) |
 | **Automation Pack** | +25,000 automation calls / period (pipelines, service accounts, access keys) | $11.99 | $119.99 | paid tiers | ✅ (volume) |
 | **AI Pack** | +100 AI calls / period | $11.99 | $119.99 | paid tiers | ✅ (volume) |
@@ -111,7 +112,9 @@ Prices are the built-in defaults (USD); annual defaults to 10× monthly.
 
 **Member Seat is priced as a whole seat because it delivers a whole seat.** At $49.99 it carries the same 100,000 API calls and 200 AI calls a tier seat carries, so every person you add keeps full throughput instead of taking a share of a fixed pool. A 15-person account grown this way has the same capacity per person as one on Enterprise. Volume pricing brings the seat down to **$34.99 from 40 seats up**.
 
-`BILLING_BUNDLE_<ID>_GRANT` retunes a single-dimension pack; multi-dimension packs keep their ratio and are tuned through `_MONTHLY` or `_TIERS`, or by changing the ratio in the catalog.
+`BILLING_BUNDLE_<ID>_GRANT_<DIMENSION>` retunes one dimension of a pack's grant — `<DIMENSION>` is the quota field upper-snake-cased (`PLUGINS`, `CPU_CREDITS`, `API_CALLS`, `STORAGE_BYTES`).
+
+This replaced a single `BILLING_BUNDLE_<ID>_GRANT`, which could only address a one-dimension pack and silently did nothing for the rest. That was tolerable while every stackable pack granted exactly one dimension, and stopped being tolerable when `cpuCredits` arrived: credits are **derived** from plugin-build volume, so every pack granting builds has to grant the minutes to run them, and an operator retuning the build grant must be able to retune the minutes with it — otherwise the 45-credits-per-build invariant breaks the first time the knob is used. Multi-dimension packs are now tunable per key; the ratio is held by a test rather than by refusing the override.
 
 The throughput packs (plugin, API, automation, AI, listing) begin at **Pro**. Developer is the free tier, sized for one person building and evaluating, and the step up to Pro raises every dimension at once — which is the natural move when a free account has outgrown it rather than one limit at a time. Developer includes AI generation as a **trial**: the `ai_generation` feature with the tier's 20 `aiCalls` per period as its cap (the plan card says "(trial)"); outgrowing it is an upgrade, not an AI Pack.
 
@@ -164,7 +167,7 @@ the pack size** instead, converts to packs on commit, and refuses a value that i
 not a whole pack rather than rounding it — rounding up would charge for capacity
 nobody asked for, and rounding down would quietly deliver less than was typed.
 The step follows the grant, so a deployment that overrides
-`BILLING_BUNDLE_STORAGE_PACK_GRANT` to 20 GB gets a 20 GB step with no code change.
+`BILLING_BUNDLE_STORAGE_PACK_GRANT_STORAGE_BYTES` to 20 GB gets a 20 GB step with no code change.
 
 Seats are per-unit ($49.99 each), and the more you buy the cheaper each gets:
 
