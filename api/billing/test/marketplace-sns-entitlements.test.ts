@@ -753,3 +753,97 @@ describe('GET /marketplace/entitlements', () => {
     });
   });
 });
+
+/**
+ * Products created since mid-2026 get no SNS from AWS. Their lifecycle arrives
+ * as EventBridge events, which the platform's rule forwards through its own SNS
+ * topic to this same endpoint. These customers are keyed on their LicenseArn.
+ */
+describe('POST /marketplace/sns — EventBridge license events', () => {
+  const handler = getHandler('post', '/marketplace/sns');
+  const LICENSE_ID = 'l-c650855e87734887b28b61decef25bef';
+  // The form ResolveCustomer returns, which is what billing stores…
+  const STORED_KEY = `arn:aws:license-manager::111122223333:license:${LICENSE_ID}`;
+  // …and the form AWS's EventBridge examples show. Matching is on the l-… id.
+  const EVENT_ARN = `aws:license-manager:us-east-1:111122223333:${LICENSE_ID}`;
+
+  function event(detailType: string, detail: Record<string, unknown> = {}) {
+    return JSON.stringify({
+      'version': '0',
+      'source': 'aws.agreement-marketplace',
+      'detail-type': detailType,
+      'detail': {
+        agreement: { id: 'agmt-1' },
+        product: { code: 'prod-1', id: 'prod-abc' },
+        license: { arn: EVENT_ARN },
+        ...detail,
+      },
+    });
+  }
+
+  function licensedSub(over: Record<string, unknown> = {}) {
+    return subDoc({ metadata: { provider: 'aws-marketplace', awsCustomerIdentifier: STORED_KEY }, ...over });
+  }
+
+  it('License Deprovisioned cancels the subscription found by license id and downgrades it', async () => {
+    const doc = licensedSub({ status: 'active' });
+    mockSubscriptionFindOne.mockReturnValue(query(doc));
+    const res = mockRes();
+    await handler({ body: snsEnvelope({ Message: event('License Deprovisioned - Manufacturer') }) }, res);
+
+    expect(mockSubscriptionFindOne).toHaveBeenNthCalledWith(1, {
+      'metadata.awsCustomerIdentifier': { $regex: `[:/]${LICENSE_ID}$`, $options: 'i' },
+    });
+    expect(mockSubscriptionFindOne).toHaveBeenNthCalledWith(2, { 'metadata.awsCustomerIdentifier': STORED_KEY });
+    expect(doc.status).toBe('canceled');
+    expect(mockSyncEntitlements).toHaveBeenCalledWith('org-1', 'developer', '', 'sub-1');
+    expect(res.status).toHaveBeenCalledWith(200);
+  });
+
+  it('License Updated re-checks entitlements with the STORED key and applies the new plan', async () => {
+    const doc = licensedSub({ status: 'active', planId: 'developer' });
+    mockSubscriptionFindOne.mockReturnValue(query(doc));
+    const res = mockRes();
+    await handler({ body: snsEnvelope({ Message: event('License Updated - Manufacturer') }) }, res);
+
+    expect(mockGetEntitlements).toHaveBeenCalledWith(STORED_KEY);
+    expect(doc.planId).toBe('team');
+    expect(res.status).toHaveBeenCalledWith(200);
+  });
+
+  it('ignores an event for a different product', async () => {
+    const res = mockRes();
+    await handler({ body: snsEnvelope({ Message: event('License Deprovisioned - Manufacturer', { product: { code: 'other' } }) }) }, res);
+
+    expect(mockSubscriptionFindOne).not.toHaveBeenCalled();
+    expect(mockIncCounter).toHaveBeenCalledWith('billing_marketplace_product_code_mismatch_total', { source: 'eventbridge' });
+    expect(res.status).toHaveBeenCalledWith(200);
+  });
+
+  it('takes no action on agreement events (each is followed by a License event)', async () => {
+    const res = mockRes();
+    await handler({ body: snsEnvelope({ Message: event('Purchase Agreement Ended - Proposer') }) }, res);
+
+    expect(mockSubscriptionFindOne).not.toHaveBeenCalled();
+    expect(mockSyncEntitlements).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(200);
+  });
+
+  it('acks a License event that arrives before the buyer has registered', async () => {
+    mockSubscriptionFindOne.mockReturnValue(query(null));
+    const res = mockRes();
+    await handler({ body: snsEnvelope({ Message: event('License Updated - Manufacturer') }) }, res);
+
+    expect(mockSubscriptionFindOne).toHaveBeenCalledTimes(1);
+    expect(mockGetEntitlements).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(200);
+  });
+
+  it('ignores an event with no license ARN', async () => {
+    const res = mockRes();
+    await handler({ body: snsEnvelope({ Message: event('License Updated - Manufacturer', { license: {} }) }) }, res);
+
+    expect(mockSubscriptionFindOne).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(200);
+  });
+});

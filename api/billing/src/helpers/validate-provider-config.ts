@@ -92,14 +92,18 @@ function validateStripe(): void {
 
 function validateMarketplace(): void {
   const topicArns = config.marketplace.snsTopicArns;
+  // A product created since mid-2026 has no AWS SNS topics; its lifecycle comes
+  // as license events through the deploy's events topic instead. With that
+  // topic configured, a missing AWS topic is expected, not a gap.
+  const viaEvents = !!config.marketplace.eventsTopicArn;
+  const noSubscriptionTopic = !topicArns.some((arn) => arn.includes(':aws-mp-subscription-notification-'));
+  const noEntitlementTopic = !topicArns.some((arn) => arn.includes(':aws-mp-entitlement-notification-'));
   report('aws-marketplace', 'sns_topics_missing', topicArns.length === 0);
-  report('aws-marketplace', 'sns_subscription_topic_missing',
-    !topicArns.some((arn) => arn.includes(':aws-mp-subscription-notification-')));
-  report('aws-marketplace', 'sns_entitlement_topic_missing',
-    !topicArns.some((arn) => arn.includes(':aws-mp-entitlement-notification-')));
+  report('aws-marketplace', 'sns_subscription_topic_missing', !viaEvents && noSubscriptionTopic);
+  report('aws-marketplace', 'sns_entitlement_topic_missing', !viaEvents && noEntitlementTopic);
   if (topicArns.length === 0) {
     logger.warn('AWS_MARKETPLACE_SNS_TOPIC_ARN is not set — SNS notifications fail closed (rejected), so entitlement/cancellation lifecycle changes will not sync');
-  } else {
+  } else if (!viaEvents) {
     // Each topic carries different actions, and a message from an unlisted
     // topic is rejected — so a missing one silently drops that whole class.
     if (!topicArns.some((arn) => arn.includes(':aws-mp-subscription-notification-'))) {

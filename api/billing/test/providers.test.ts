@@ -310,6 +310,62 @@ describe('AWSMarketplaceProvider', () => {
       expect(sent.UsageRecords[0].Quantity).toBe(2);
     });
   });
+
+  // Products created since June 2026 (AWS Concurrent Agreements) get no
+  // CustomerIdentifier; they are keyed and metered by LicenseArn.
+  describe('license-keyed customers (new integrations)', () => {
+    const LICENSE = 'arn:aws:license-manager::111122223333:license:l-c650855e87734887b28b61decef25bef';
+
+    it('resolve keys a new-integration customer on LicenseArn when AWS sends no CustomerIdentifier', async () => {
+      mockMeteringSend.mockResolvedValue({ ProductCode: 'test-product', LicenseArn: LICENSE, CustomerAWSAccountId: '444455556666' });
+      await expect(provider.resolveRegistrationToken('tok')).resolves.toEqual({ customerIdentifier: LICENSE, productCode: 'test-product' });
+    });
+
+    it('resolve keeps the legacy CustomerIdentifier when AWS sends both (no switch to license metering)', async () => {
+      mockMeteringSend.mockResolvedValue({ ProductCode: 'test-product', CustomerIdentifier: 'cust-1', LicenseArn: LICENSE });
+      await expect(provider.resolveRegistrationToken('tok')).resolves.toEqual({ customerIdentifier: 'cust-1', productCode: 'test-product' });
+    });
+
+    it('resolve fails, naming the gap, when AWS returns neither identifier', async () => {
+      mockMeteringSend.mockResolvedValue({ ProductCode: 'test-product' });
+      await expect(provider.resolveRegistrationToken('tok')).rejects.toThrow('missing CustomerIdentifier and LicenseArn');
+    });
+
+    it('getEntitlements filters by LICENSE_ARN for a license key and by CUSTOMER_IDENTIFIER otherwise', async () => {
+      const { GetEntitlementsCommand } = await import('@aws-sdk/client-marketplace-entitlement-service');
+      mockEntitlementSend.mockResolvedValue({ Entitlements: [] });
+      await provider.getEntitlements(LICENSE);
+      await provider.getEntitlements('cust-1');
+      const filters = (GetEntitlementsCommand as unknown as jest.Mock).mock.calls.map((c) => (c[0] as { Filter: unknown }).Filter);
+      expect(filters).toEqual([{ LICENSE_ARN: [LICENSE] }, { CUSTOMER_IDENTIFIER: ['cust-1'] }]);
+    });
+
+    it('meters by LicenseArn + the entitlement\'s account id, with NO ProductCode on the request', async () => {
+      mockEntitlementSend.mockResolvedValue({ Entitlements: [{ LicenseArn: LICENSE, CustomerAWSAccountId: '444455556666' }] });
+      mockMeteringSend.mockResolvedValue({ UnprocessedRecords: [] });
+      const ts = new Date('2026-11-05T03:00:00Z');
+
+      const result = await provider.meterAddonUsage(LICENSE, [{ bundleId: 'seat_pack', quantity: 3 }], ts);
+
+      expect(result.metered).toBe(1);
+      const sent = (mockMeteringSend.mock.calls[0][0] as { input: Record<string, unknown> }).input;
+      expect(sent).not.toHaveProperty('ProductCode');
+      expect(sent.UsageRecords).toEqual([
+        { LicenseArn: LICENSE, CustomerAWSAccountId: '444455556666', Dimension: 'seats', Quantity: 3, Timestamp: ts },
+      ]);
+    });
+
+    it('refuses to meter a license with no entitlement (AWS would reject the records)', async () => {
+      mockEntitlementSend.mockResolvedValue({ Entitlements: [] });
+      await expect(provider.meterAddonUsage(LICENSE, [{ bundleId: 'seat_pack', quantity: 1 }])).rejects.toThrow('No entitlement found');
+      expect(mockMeteringSend).not.toHaveBeenCalled();
+    });
+
+    it('does not look up an account id when there is nothing to meter', async () => {
+      await provider.meterAddonUsage(LICENSE, [{ bundleId: 'seat_pack', quantity: 0 }]);
+      expect(mockEntitlementSend).not.toHaveBeenCalled();
+    });
+  });
 });
 
 // StripeProvider

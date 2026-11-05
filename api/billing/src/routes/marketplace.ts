@@ -26,10 +26,12 @@ import {
   type SNSMessage,
   type MarketplaceNotification,
 } from '../helpers/marketplace-helpers.js';
+import { isMarketplaceEvent } from '../helpers/marketplace-license.js';
 import {
   deriveMarketplaceInterval,
   getMarketplaceProvider,
   marketplacePeriodEnd,
+  processMarketplaceEvent,
   processMarketplaceNotification,
 } from '../helpers/marketplace-notifications.js';
 import { refuseTeamBilling } from '../helpers/root-org-guard.js';
@@ -423,8 +425,11 @@ export function createMarketplaceRoutes(): Router {
           }
 
           case 'Notification': {
-            const notification: MarketplaceNotification = JSON.parse(snsMessage.Message);
-            await processMarketplaceNotification(notification);
+            // AWS's own topics carry a MarketplaceNotification. The platform's
+            // event topic carries an EventBridge event (products that get no SNS).
+            const body: unknown = JSON.parse(snsMessage.Message);
+            if (isMarketplaceEvent(body)) await processMarketplaceEvent(body);
+            else await processMarketplaceNotification(body as MarketplaceNotification);
             responseMessage = 'Notification processed';
             break;
           }

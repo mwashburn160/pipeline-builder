@@ -19,6 +19,7 @@ import { applyPlanTierChange, applyTierIncludedAddonPrune } from './addon-prune.
 import { calculatePeriodEnd, createBillingEvent, recordReactivatePlanMissing } from './billing-helpers.js';
 import { syncEntitlements } from './entitlement-sync.js';
 import { mapActionToStatus, type MarketplaceNotification } from './marketplace-helpers.js';
+import { licenseIdOf, type MarketplaceEvent } from './marketplace-license.js';
 import { MANAGEABLE_SUBSCRIPTION_STATUSES } from './subscription-status.js';
 import { config } from '../config.js';
 import { Plan } from '../models/plan.js';
@@ -374,6 +375,72 @@ export async function handleEntitlementUpdate(customerIdentifier: string): Promi
     interval: subscription.interval,
     intervalChanged,
   });
+}
+
+/**
+ * EventBridge detail-types billing acts on, mapped to the SNS action that already
+ * carries the same meaning. Products created since mid-2026 get no SNS
+ * notifications from AWS; their lifecycle arrives as `aws.agreement-marketplace`
+ * events, which an EventBridge rule forwards to a platform-owned SNS topic so they
+ * reach the same signature-verified endpoint. Agreement events are not mapped:
+ * each one is followed by a License event for the same purchase, and only the
+ * License events name the license that billing keys customers on.
+ */
+const EVENT_ACTIONS: Record<string, MarketplaceNotification['action']> = {
+  'License Updated - Manufacturer': 'entitlement-updated',
+  // Starts AWS's one-hour final-usage window, after which the license is revoked.
+  'License Deprovisioned - Manufacturer': 'unsubscribe-success',
+};
+
+/**
+ * Process an AWS Marketplace EventBridge event (delivered through SNS) by
+ * translating it into the matching SNS notification for the stored customer key.
+ * @param event - The EventBridge event from the SNS Message body
+ */
+export async function processMarketplaceEvent(event: MarketplaceEvent): Promise<void> {
+  const detailType = event['detail-type'];
+  const action = EVENT_ACTIONS[detailType];
+  if (!action) {
+    logger.info('Marketplace event needs no action', { detailType });
+    return;
+  }
+
+  const productCode = event.detail?.product?.code;
+  const licenseId = licenseIdOf(event.detail?.license?.arn ?? '');
+  if (!licenseId) {
+    logger.warn('Marketplace event carries no license ARN — ignoring', { detailType });
+    return;
+  }
+
+  // Same guard as the SNS path: a message for another product is not ours.
+  if (productCode !== config.marketplace.productCode) {
+    incCounter('billing_marketplace_product_code_mismatch_total', { source: 'eventbridge' });
+    logger.warn('Marketplace event is for a different product — ignoring', { detailType, productCode });
+    return;
+  }
+
+  const customerKey = await storedLicenseKey(licenseId);
+  if (!customerKey) {
+    // A License Updated event also fires at purchase, before the buyer has
+    // registered; registration reads the entitlement itself, so nothing is lost.
+    logger.info('No subscription for marketplace license yet', { detailType, licenseId });
+    return;
+  }
+
+  await processMarketplaceNotification({ action, 'customer-identifier': customerKey, 'product-code': productCode });
+}
+
+/**
+ * The stored customer key for a license id. Matched on the `l-…` id, not the
+ * whole ARN, because AWS does not write the ARN prefix the same way in
+ * ResolveCustomer and in events. `licenseId` is `[0-9a-z-]` only (licenseIdOf),
+ * so it is safe inside the pattern.
+ */
+async function storedLicenseKey(licenseId: string): Promise<string | undefined> {
+  const subscription = await Subscription.findOne({
+    'metadata.awsCustomerIdentifier': { $regex: `[:/]${licenseId}$`, $options: 'i' },
+  }).sort({ createdAt: -1 });
+  return subscription?.metadata?.awsCustomerIdentifier as string | undefined;
 }
 
 // Route factory

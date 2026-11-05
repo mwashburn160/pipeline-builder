@@ -15,8 +15,16 @@ export interface MarketplaceConfig {
    * (`aws-mp-subscription-notification-<code>` for subscribe/unsubscribe and
    * `aws-mp-entitlement-notification-<code>` for `entitlement-updated`), and
    * the endpoint subscribes to both. Empty = every notification is rejected.
+   *
+   * Also includes `AWS_MARKETPLACE_EVENTS_TOPIC_ARN`, the platform-owned topic
+   * an EventBridge rule forwards AWS Marketplace license events to. Products
+   * created since mid-2026 get no AWS SNS topics, so that is their only
+   * lifecycle feed. The deploy sets it; an operator never needs to.
    */
   snsTopicArns: string[];
+  /** `AWS_MARKETPLACE_EVENTS_TOPIC_ARN` on its own (also in `snsTopicArns`).
+   *  When set, license events carry the lifecycle, so AWS's own topics are optional. */
+  eventsTopicArn: string;
   /** Map of AWS Marketplace dimension names to local plan IDs. */
   dimensionToPlanMap: Record<string, string>;
   /**
@@ -305,10 +313,12 @@ export const config: AppConfig = {
   marketplace: {
     productCode: process.env.AWS_MARKETPLACE_PRODUCT_CODE || '',
     region: process.env.AWS_MARKETPLACE_REGION || process.env.AWS_REGION || 'us-east-1',
-    snsTopicArns: (process.env.AWS_MARKETPLACE_SNS_TOPIC_ARN || '')
+    snsTopicArns: [process.env.AWS_MARKETPLACE_SNS_TOPIC_ARN, process.env.AWS_MARKETPLACE_EVENTS_TOPIC_ARN]
+      .join(',')
       .split(',')
       .map((arn) => arn.trim())
       .filter(Boolean),
+    eventsTopicArn: (process.env.AWS_MARKETPLACE_EVENTS_TOPIC_ARN || '').trim(),
     dimensionToPlanMap: safeJsonParse(
       process.env.AWS_MARKETPLACE_DIMENSION_MAP,
       { developer: 'developer', pro: 'pro', team: 'team', business: 'business', enterprise: 'enterprise' },
