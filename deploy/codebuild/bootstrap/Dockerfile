@@ -74,7 +74,7 @@ RUN set -eux; \
 # rewrites this line to packages/pipeline-manager/package.json's version and
 # commits it with the other synced deploy pins. A concrete version also makes
 # the npm-install layer cache-correct. Override with --build-arg.
-ARG PIPELINE_MANAGER_VERSION="4.4.8"
+ARG PIPELINE_MANAGER_VERSION="4.4.9"
 # AWS CDK CLI — `pipeline-manager pipeline synth` shells out to `cdk synth`, so the
 # `cdk` binary must be on PATH. Pinned to match the cdk-synth plugin image
 # (deploy/plugins/infrastructure/cdk-synth/Dockerfile) and the version note
