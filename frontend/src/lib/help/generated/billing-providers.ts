@@ -1,6 +1,6 @@
 // GENERATED FROM docs/billing-providers.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 461f11a041ba63962c696b2c0c70579837b67ebe09d64b946e8a4f1bef44d875
+// SOURCE-SHA256: c924244fb69aff3a0e74497bf4ff9190e50ad6a3eaa5e43631ee1ca0826daceb
 // SPDX-License-Identifier: Apache-2.0
 import { CreditCard } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -737,12 +737,12 @@ export const billingProvidersTopic: HelpTopic = {
         {
           "type": "list",
           "items": [
-            "Claim (authenticated) — once the purchaser signs up / signs in, POST /billing/marketplace/claim (billing:manage) binds the registrationRef to their organization, creating the subscription (keyed on the real orgId; the AWS customerIdentifier is stored only in metadata, never the AWS account id) and syncing the tier to quota."
+            "Claim (authenticated) — once the purchaser signs up / signs in, POST /billing/marketplace/claim (billing:manage) binds the registrationRef to their organization, creating the subscription (keyed on the real orgId; the AWS customer key is stored only in metadata, never the AWS account id) and syncing the tier to quota."
           ]
         },
         {
           "type": "text",
-          "content": "POST /billing/marketplace/claim Body: { \"registrationRef\": \"<ref>\" }"
+          "content": "Which customer key. A product created before AWS's Concurrent Agreements change gets a CustomerIdentifier from ResolveCustomer, and that is the key. Every SaaS product created since June 2026 gets no CustomerIdentifier, so the key is the LicenseArn (one per agreement, so one buyer account can hold several). Billing picks the right API fields from the key's shape: entitlements are read by LICENSE_ARN, and usage is metered with LicenseArn + CustomerAWSAccountId and no ProductCode, as AWS requires. The buyer's account id is read from the license's entitlement at metering time and never stored. A license ARN embeds AWS License Manager's account, not the buyer's.  POST /billing/marketplace/claim Body: { \"registrationRef\": \"<ref>\" }"
         },
         {
           "type": "text",
@@ -751,6 +751,14 @@ export const billingProvidersTopic: HelpTopic = {
         {
           "type": "text",
           "content": "Step 4 — Subscribe the SNS notification endpoint"
+        },
+        {
+          "type": "text",
+          "content": "Products created since mid-2026 get no AWS SNS topics. AWS sends their lifecycle as EventBridge events (source: aws.agreement-marketplace) to your account's default bus instead, and sellers registered after July 15, 2026 cannot use the SNS topics at all. On EKS, bin/setup.sh handles this: Phase 5 creates an EventBridge rule and an SNS topic, both named <cluster>-marketplace-events, which forward License Updated - Manufacturer (re-check entitlements) and License Deprovisioned - Manufacturer (cancel) to the same signature-verified endpoint below. Only that rule may publish to the topic. Billing is given the topic's ARN as AWS_MARKETPLACE_EVENTS_TOPIC_ARN automatically, and Phase 10 subscribes the endpoint. Agreement events need no handler: each one is followed by a License event for the same purchase. shutdown.sh deletes the rule and topic."
+        },
+        {
+          "type": "text",
+          "content": "If your product has AWS's two topics as well, set them below too; billing accepts both kinds of message."
         },
         {
           "type": "text",
@@ -791,11 +799,11 @@ export const billingProvidersTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Then subscribe the app's SNS webhook (HTTPS) to each topic:"
+          "content": "Then subscribe the app's SNS webhook (HTTPS) to each topic. On EKS, Phase 10 of bin/setup.sh does this for every topic in the list (plus the license-events topic) once billing answers, and reports whether each subscription is confirmed. The public path goes through the gateway's /api/billing/ prefix:"
         },
         {
           "type": "code",
-          "content": "POST https://<your-public-host>/billing/marketplace/sns"
+          "content": "POST https://<your-public-host>/api/billing/marketplace/sns"
         },
         {
           "type": "text",
@@ -1124,6 +1132,11 @@ export const billingProvidersTopic: HelpTopic = {
               "AWS_MARKETPLACE_SNS_TOPIC_ARN",
               "—",
               "Comma-separated SNS topic ARNs accepted by the webhook — set both the subscription and entitlement topics"
+            ],
+            [
+              "AWS_MARKETPLACE_EVENTS_TOPIC_ARN",
+              "set by the EKS deploy",
+              "The platform-owned SNS topic that AWS Marketplace license events (EventBridge) are forwarded to. Added to the accepted topics. When set, AWS's own topics are optional"
             ],
             [
               "AWS_MARKETPLACE_DIMENSION_MAP",

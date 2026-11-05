@@ -43,4 +43,17 @@ describe('config.marketplace.snsTopicArns', () => {
   it('splits a comma-separated list, trimming whitespace and dropping empty entries', async () => {
     expect(await loadTopicArns(` ${SUB} , ${ENT},, `)).toEqual([SUB, ENT]);
   });
+
+  it('adds the platform-owned EventBridge events topic, with or without the AWS topics', async () => {
+    const EVENTS = 'arn:aws:sns:us-east-1:111122223333:pipeline-builder-marketplace-events';
+    const original = process.env.AWS_MARKETPLACE_EVENTS_TOPIC_ARN;
+    process.env.AWS_MARKETPLACE_EVENTS_TOPIC_ARN = EVENTS;
+    try {
+      expect(await loadTopicArns(`${SUB},${ENT}`)).toEqual([SUB, ENT, EVENTS]);
+      expect(await loadTopicArns(undefined)).toEqual([EVENTS]);
+    } finally {
+      if (original === undefined) delete process.env.AWS_MARKETPLACE_EVENTS_TOPIC_ARN;
+      else process.env.AWS_MARKETPLACE_EVENTS_TOPIC_ARN = original;
+    }
+  });
 });

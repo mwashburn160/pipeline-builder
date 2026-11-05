@@ -92,6 +92,13 @@ describe('aws-marketplace', () => {
       expect.stringContaining('AWS_MARKETPLACE_DIMENSION_PRICE_MAP is empty'),
     ]);
   });
+
+  it('does not ask for the AWS topics when the license-events topic carries the lifecycle', () => {
+    const EVENTS = 'arn:aws:sns:us-east-1:1:pipeline-builder-marketplace-events';
+    Object.assign(cfg, { billingProvider: 'aws-marketplace', meteringEnabled: true, marketplace: mp({ snsTopicArns: [EVENTS], eventsTopicArn: EVENTS }) });
+    validateProviderConfig();
+    expect(logger.warn).not.toHaveBeenCalled();
+  });
 });
 
 it('checks nothing for other providers', () => {

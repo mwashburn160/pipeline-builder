@@ -123,6 +123,9 @@ preflight aws kubectl openssl jq envsubst
 
 EMAIL_FROM="${EMAIL_FROM:-noreply@$DOMAIN}"
 SES_CONFIGURATION_SET="${CLUSTER_NAME}-email"    # stack-scoped so a 2nd cluster doesn't collide
+# EventBridge rule + SNS topic carrying AWS Marketplace license events (Phase 5),
+# which billing's SNS endpoint subscribes to (Phase 10). Stack-scoped like the above.
+MP_EVENTS_NAME="${CLUSTER_NAME}-marketplace-events"
 # Kubernetes version: a fixed value (e.g. 1.36, the default) is used as-is; the special
 # value `latest` resolves to the newest version EKS currently offers (so a deploy can
 # track current Kubernetes without editing this script).
@@ -533,6 +536,13 @@ trap 'rm -f "$CLEAN_ENV"; [ -n "$CERT_DIR" ] && rm -rf "$CERT_DIR"' EXIT
 # password) as a variable and silently blank/corrupt it. POSIX grep class
 # `[[:space:]]` (not the GNU-only `\s`) keeps this correct when run from a Mac.
 grep -Ev '^[[:space:]]*(#|$)' "$ENV_FILE" | sed "s|[\$]{PLATFORM_FRONTEND_URL}|${PLATFORM_FRONTEND_URL}|g; s|[\$]{DOMAIN}|${DOMAIN}|g" > "$CLEAN_ENV"
+# Billing accepts the license-events topic Phase 5 creates. Its ARN is fixed by
+# account + name, so the allowlist can name it before the topic exists, and it is
+# derived here rather than kept in .env, where an operator could let it drift.
+if [ "${BILLING_PROVIDER:-stub}" = "aws-marketplace" ]; then
+  grep -v '^AWS_MARKETPLACE_EVENTS_TOPIC_ARN=' "$CLEAN_ENV" > "$CLEAN_ENV.mp" && mv "$CLEAN_ENV.mp" "$CLEAN_ENV"
+  echo "AWS_MARKETPLACE_EVENTS_TOPIC_ARN=arn:aws:sns:${AWS_MARKETPLACE_REGION:-us-east-1}:$(aws sts get-caller-identity --query Account --output text):${MP_EVENTS_NAME}" >> "$CLEAN_ENV"
+fi
 # Split into the app-env ConfigMap (settings) + app-secrets Secret (credentials);
 # superuser/admin creds go to neither (see pb_split_app_env).
 pb_app_env_resources "$CLEAN_ENV"
@@ -762,6 +772,27 @@ if [ "${BILLING_PROVIDER:-stub}" = "aws-marketplace" ]; then
   grant_pod_identity billing marketplace \
     "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Sid\":\"AwsMarketplaceBilling\",\"Effect\":\"Allow\",\"Action\":[\"aws-marketplace:ResolveCustomer\",\"aws-marketplace:GetEntitlements\",\"aws-marketplace:BatchMeterUsage\"],\"Resource\":\"*\"}]}" \
     "aws-marketplace ResolveCustomer/GetEntitlements/BatchMeterUsage for $AWS_MARKETPLACE_PRODUCT_CODE"
+
+  # License events. A SaaS product created since mid-2026 gets NO AWS SNS topics:
+  # its lifecycle (license updated / deprovisioned) arrives only as EventBridge
+  # events on this account's default bus. This rule forwards those two events to
+  # a platform-owned topic, which reaches billing's existing signature-verified
+  # SNS endpoint (subscribed in Phase 10, once billing is reachable). Older
+  # products still get AWS's topics too; billing accepts both. Idempotent.
+  MP_REGION="${AWS_MARKETPLACE_REGION:-us-east-1}"
+  MP_EVENTS_TOPIC_ARN=$(aws sns create-topic --name "$MP_EVENTS_NAME" --region "$MP_REGION" --query TopicArn --output text)
+  MP_RULE_ARN=$(aws events put-rule --name "$MP_EVENTS_NAME" --region "$MP_REGION" \
+    --description "AWS Marketplace license events for ${CLUSTER_NAME} billing" \
+    --event-pattern '{"source":["aws.agreement-marketplace"],"detail-type":["License Updated - Manufacturer","License Deprovisioned - Manufacturer"]}' \
+    --query RuleArn --output text)
+  # Only this rule may publish: a topic any EventBridge rule could write to would
+  # let another rule in the account feed billing forged lifecycle events.
+  aws sns set-topic-attributes --topic-arn "$MP_EVENTS_TOPIC_ARN" --region "$MP_REGION" --attribute-name Policy \
+    --attribute-value "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Sid\":\"AllowMarketplaceEventsRule\",\"Effect\":\"Allow\",\"Principal\":{\"Service\":\"events.amazonaws.com\"},\"Action\":\"sns:Publish\",\"Resource\":\"${MP_EVENTS_TOPIC_ARN}\",\"Condition\":{\"ArnEquals\":{\"aws:SourceArn\":\"${MP_RULE_ARN}\"}}}]}" >/dev/null
+  MP_FAILED=$(aws events put-targets --rule "$MP_EVENTS_NAME" --region "$MP_REGION" \
+    --targets "Id=billing-sns,Arn=${MP_EVENTS_TOPIC_ARN}" --query FailedEntryCount --output text)
+  [ "$MP_FAILED" = 0 ] || { echo "ERROR: EventBridge rule $MP_EVENTS_NAME rejected its SNS target." >&2; exit 1; }
+  echo "  EventBridge rule $MP_EVENTS_NAME → SNS $MP_EVENTS_NAME (Marketplace license events)"
 else
   echo "  BILLING_PROVIDER=${BILLING_PROVIDER:-stub} — no AWS Marketplace grant for billing"
 fi
@@ -1161,6 +1192,44 @@ fi
 fi
 if pb_phase 10; then
 log "Phase 10: post-provision smoke checks"
+# Subscribe billing's public SNS endpoint to every topic it accepts: AWS's own
+# Marketplace topics (older products) and the license-events topic (Phase 5).
+# Here, not in Phase 5: SNS confirms a subscription by calling the endpoint at
+# once, so billing must already answer. A re-run resends a still-pending
+# confirmation and leaves a confirmed subscription alone.
+if [ "${BILLING_PROVIDER:-stub}" = "aws-marketplace" ]; then
+  if [ "$DEPLOY_MODE" != public ]; then
+    echo "  Marketplace SNS: DEPLOY_MODE=$DEPLOY_MODE — SNS cannot reach a private endpoint; subscribe https://${DOMAIN}/api/billing/marketplace/sns by hand once it is public"
+  else
+    MP_SNS_ENDPOINT="https://${DOMAIN}/api/billing/marketplace/sns"
+    # 400 = the request reached billing, which rejected the empty body.
+    for _ in $(seq 1 30); do
+      [ "$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d '{}' "$MP_SNS_ENDPOINT")" = 400 ] && break
+      sleep 10
+    done
+    MP_TOPICS="${AWS_MARKETPLACE_SNS_TOPIC_ARN:-},arn:aws:sns:${AWS_MARKETPLACE_REGION:-us-east-1}:$(aws sts get-caller-identity --query Account --output text):${MP_EVENTS_NAME}"
+    MP_SUBS=""
+    for _arn in $(echo "$MP_TOPICS" | tr ',' ' '); do
+      if _sub=$(aws sns subscribe --topic-arn "$_arn" --region "$(echo "$_arn" | cut -d: -f4)" --protocol https \
+          --notification-endpoint "$MP_SNS_ENDPOINT" --return-subscription-arn --query SubscriptionArn --output text 2>&1); then
+        MP_SUBS="$MP_SUBS $_sub"
+      else
+        echo "  WARNING: could not subscribe billing to ${_arn##*:}: $_sub" >&2
+      fi
+    done
+    sleep 15
+    for _sub in $MP_SUBS; do
+      _pending=$(aws sns get-subscription-attributes --subscription-arn "$_sub" --region "$(echo "$_sub" | cut -d: -f4)" \
+        --query Attributes.PendingConfirmation --output text 2>/dev/null || echo unknown)
+      _topic=$(echo "$_sub" | cut -d: -f6)
+      if [ "$_pending" = false ]; then
+        echo "  PASS  Marketplace SNS — billing subscribed to $_topic"
+      else
+        echo "  WARN  Marketplace SNS — $_topic subscription not confirmed yet; re-run phase 10 once billing answers at $MP_SNS_ENDPOINT" >&2
+      fi
+    done
+  fi
+fi
 NAMESPACE="$NAMESPACE" ALERT_EMAIL="${ALERT_EMAIL:-}" bash "$BIN_DIR/post-provision-smoke.sh" k8s --aws || true
 fi
 

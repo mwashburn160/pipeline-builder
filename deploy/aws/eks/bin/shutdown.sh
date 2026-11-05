@@ -272,6 +272,23 @@ if [ -n "$ACCOUNT_ID" ] && [ "$ACCOUNT_ID" != None ]; then
   delete_managed_policy "${CLUSTER_NAME}-eks-secret-encryption-plugin"
   delete_managed_policy "${CLUSTER_NAME}-eks-secret-encryption-per-org"
   delete_token_signing_key
+
+  # The Marketplace license-events rule + topic (BILLING_PROVIDER=aws-marketplace).
+  # Deleted with or without --domain, like the policies: they feed this cluster's
+  # billing, and setup.sh recreates them. Deleting the topic drops its
+  # subscriptions. This script does not read .env, so the region is the default.
+  MP_EVENTS_NAME="${CLUSTER_NAME}-marketplace-events"
+  MP_REGION="${AWS_MARKETPLACE_REGION:-us-east-1}"
+  if aws events describe-rule --name "$MP_EVENTS_NAME" --region "$MP_REGION" >/dev/null 2>&1; then
+    aws events remove-targets --rule "$MP_EVENTS_NAME" --ids billing-sns --region "$MP_REGION" >/dev/null 2>&1 || true
+    aws events delete-rule --name "$MP_EVENTS_NAME" --region "$MP_REGION" \
+      && echo "  deleted EventBridge rule $MP_EVENTS_NAME"
+  fi
+  MP_TOPIC_ARN="arn:aws:sns:${MP_REGION}:${ACCOUNT_ID}:${MP_EVENTS_NAME}"
+  if aws sns get-topic-attributes --topic-arn "$MP_TOPIC_ARN" --region "$MP_REGION" >/dev/null 2>&1; then
+    aws sns delete-topic --topic-arn "$MP_TOPIC_ARN" --region "$MP_REGION" \
+      && echo "  deleted SNS topic $MP_EVENTS_NAME"
+  fi
 fi
 # SES (SNS topic, config set, identity + DKIM CNAMEs) only with --domain, as the
 # banner says. These used to go unconditionally, so a "keep SES" teardown without
