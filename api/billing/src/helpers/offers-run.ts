@@ -43,12 +43,8 @@ import {
   type Scheduler,
 } from '@pipeline-builder/api-core';
 import { runWithTenantContext } from '@pipeline-builder/pipeline-data';
-import { config } from '../config.js';
 import { getBillingConfig } from '../config/billing-config.js';
-import { Offer } from '../models/offer.js';
-import { OfferExclusion } from '../models/offer-exclusion.js';
-import { Subscription } from '../models/subscription.js';
-import { UsageProfile } from '../models/usage-profile.js';
+import { config } from '../config.js';
 import type { Addon } from './addon-catalog.js';
 import { getBundleCatalog } from './billing-helpers.js';
 import { evaluateCrossover } from './crossover.js';
@@ -66,6 +62,10 @@ import { deliverOffer, offerEmailText, type OfferEmailFacts, type PressurePoint 
 import { sweepExpiredOffers } from './offers-outcome.js';
 import { PRESSURE_RATIO, type ProfileLike } from './offers-rules.js';
 import { MANAGEABLE_SUBSCRIPTION_STATUSES } from './subscription-status.js';
+import { OfferExclusion } from '../models/offer-exclusion.js';
+import { Offer } from '../models/offer.js';
+import { Subscription } from '../models/subscription.js';
+import { UsageProfile } from '../models/usage-profile.js';
 
 const logger = createLogger('offers-run');
 
@@ -188,7 +188,17 @@ export interface AccountInput {
  * cycle could not evaluate would inflate the very metric that tells an operator
  * the rules are too tight.
  */
-export async function runForAccount(sub: AccountInput, now: Date = new Date()): Promise<AccountOutcome | null> {
+export async function runForAccount(
+  sub: AccountInput,
+  now: Date = new Date(),
+  /**
+   * Who asked. `manual` for the operator trigger, and it is RECORDED rather than
+   * only logged: "mixing them silently corrupts the only measurement that
+   * matters", so a hand-triggered offer must never be counted as the agent's in
+   * the outcome log or in the lift comparison.
+   */
+  source: 'agent' | 'manual' = 'agent',
+): Promise<AccountOutcome | null> {
   const plan = getBillingConfig().plans.find((p) => p.id === sub.planId);
   const tier = plan?.tier;
   if (!tier || !isValidTier(tier)) return null;
@@ -270,7 +280,7 @@ export async function runForAccount(sub: AccountInput, now: Date = new Date()): 
   const recorded = await recordDecision(
     decision,
     cycleKey,
-    'agent',
+    source,
     copy ? { subject: copy.subject, body: copy.text } : undefined,
   );
   if (!recorded) return { decision, recorded: false };
@@ -389,24 +399,38 @@ function formatGrant(dimension: string, grant: number): string {
 // The scheduler
 // ---------------------------------------------------------------------------
 
-const scheduler: Scheduler = createScheduler({
-  name: 'offers-cycle',
-  intervalMs: config.offers.cycleIntervalMs,
-  run: async () => {
-    // Re-read BOTH switches every tick rather than capturing them at boot (D6).
-    // A knob that only takes effect on redeploy is not a kill switch, and this
-    // is the process that spends money.
-    if (!config.enabled || !config.offersEnabled) {
-      logger.debug('Offers disabled — skipping cycle');
-      return;
-    }
-    await runWithTenantContext({ isSuperAdmin: true }, () => runOfferCycle());
-  },
-  // Leader-locked. Every replica runs the scheduler and only one may decide:
-  // two replicas on the same slot both lose on the unique index, which is
-  // correct but burns a profile read per account to discover it.
-  lock: { key: leaderLockKey('billing', 'offers-cycle'), ttlMs: DEFAULT_LEADER_LOCK_TTL_MS },
-});
+/**
+ * Built on FIRST START, not at module load.
+ *
+ * `offers.ts` imports `runForAccount` from this module to serve the operator
+ * trigger, so a module-load-time `config.offers.cycleIntervalMs` made importing
+ * one pure-ish function require the whole billing config to be assembled — which
+ * is a coupling a route should not carry, and which broke the moment anything
+ * imported the router with a partial config.
+ */
+let scheduler: Scheduler | null = null;
+
+function offersScheduler(): Scheduler {
+  scheduler ??= createScheduler({
+    name: 'offers-cycle',
+    intervalMs: config.offers.cycleIntervalMs,
+    run: async () => {
+      // Re-read BOTH switches every tick rather than capturing them at boot
+      // (D6). A knob that only takes effect on redeploy is not a kill switch,
+      // and this is the process that spends money.
+      if (!config.enabled || !config.offersEnabled) {
+        logger.debug('Offers disabled — skipping cycle');
+        return;
+      }
+      await runWithTenantContext({ isSuperAdmin: true }, () => runOfferCycle());
+    },
+    // Leader-locked. Every replica runs the scheduler and only one may decide:
+    // two replicas on the same slot both lose on the unique index, which is
+    // correct but burns a profile read per account to discover it.
+    lock: { key: leaderLockKey('billing', 'offers-cycle'), ttlMs: DEFAULT_LEADER_LOCK_TTL_MS },
+  });
+  return scheduler;
+}
 
 /** Start the decision cycle. Gated on BOTH switches; safe to call twice. */
 export function startOffersCycle(): void {
@@ -417,7 +441,8 @@ export function startOffersCycle(): void {
     return;
   }
   logger.info('Starting offers decision cycle', { intervalMs: config.offers.cycleIntervalMs });
-  scheduler.start();
+  offersScheduler().start();
 }
 
-export function stopOffersCycle(): void { scheduler.stop(); }
+/** Stop it. A no-op when it was never started — the disabled deployment's case. */
+export function stopOffersCycle(): void { scheduler?.stop(); }

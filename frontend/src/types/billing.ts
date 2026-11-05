@@ -330,8 +330,9 @@ export interface OfferLiftArm {
   /** Accounts the cycle has decided on at least once, not rows. */
   accounts: number;
   sent: number;
+  /** Accounts that converted — ONE per account, not one per redeemed offer. */
   conversions: number;
-  /** Conversions ÷ accounts, 0–1. */
+  /** Converted accounts ÷ accounts, genuinely 0–1. */
   conversionRate: number;
 }
 

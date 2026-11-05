@@ -166,8 +166,12 @@ export interface LiftArm {
   accounts: number;
   /** Offers actually sent (zero for the holdout, by construction). */
   sent: number;
+  /** Accounts that converted — ONE per account, not one per redeemed offer. */
   conversions: number;
-  /** Conversions ÷ accounts, 0–1. The figure the comparison turns on. */
+  /**
+   * CONVERTED ACCOUNTS ÷ accounts, genuinely 0–1. The figure the comparison
+   * turns on, which is why both sides count accounts rather than rows.
+   */
   conversionRate: number;
 }
 
@@ -200,13 +204,30 @@ export interface LiftReport {
  */
 export async function measureLift(): Promise<LiftReport> {
   const [arms, matches, buckets] = await Promise.all([
-    Offer.aggregate<{ _id: boolean; accounts: string[]; sent: number; conversions: number }>([
+    // TWO stages rather than one `$addToSet` of org ids. Collapsing to distinct
+    // accounts first keeps the group's working set bounded — an `$addToSet` over
+    // every row's `orgId` grows with the fleet and hits the 16MB document limit
+    // once there are enough accounts, which is the worst failure shape: correct
+    // in development and broken in production.
+    Offer.aggregate<{ _id: boolean; accounts: number; sent: number; conversions: number }>([
       {
         $group: {
-          _id: '$holdout',
-          accounts: { $addToSet: '$orgId' },
+          _id: { holdout: '$holdout', orgId: '$orgId' },
           sent: { $sum: { $cond: [{ $ifNull: ['$sentAt', false] }, 1, 0] } },
-          conversions: { $sum: { $cond: [{ $eq: ['$status', 'redeemed'] }, 1, 0] } },
+          // $max, not $sum: an account that converted twice over two periods is
+          // ONE converted account. Summing rows would let `conversionRate`
+          // exceed 1 and overstate whichever arm it happened in — and since only
+          // the offered arm receives repeat offers, that bias runs in favour of
+          // the thing being measured.
+          converted: { $max: { $cond: [{ $eq: ['$status', 'redeemed'] }, 1, 0] } },
+        },
+      },
+      {
+        $group: {
+          _id: '$_id.holdout',
+          accounts: { $sum: 1 },
+          sent: { $sum: '$sent' },
+          conversions: { $sum: '$converted' },
         },
       },
     ]),
@@ -223,7 +244,7 @@ export async function measureLift(): Promise<LiftReport> {
 
   const arm = (holdout: boolean): LiftArm => {
     const row = arms.find((a) => a._id === holdout);
-    const accounts = row?.accounts.length ?? 0;
+    const accounts = row?.accounts ?? 0;
     const conversions = row?.conversions ?? 0;
     return {
       accounts,

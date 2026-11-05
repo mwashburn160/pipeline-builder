@@ -2578,10 +2578,6 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
     category: 'machine-only',
     why: 'Service-principal route (callers: billing): the expansion-offers profile\'s VALUE signal (docs/plans/sales-agent.md D4 Class 3), which exists to DISQUALIFY — an account at its seat cap whose members have not signed in is a churn save, and offering it more seats is the worst available outcome. Billing only, because the offers agent has no public surface of its own (D13) and runs there until it is extracted. No user token is admitted and the answer is three counts across the account subtree — never a member, a name or an address. The tenant-facing view of the same question is the members list.',
   },
-  'quota PUT /quotas/entitlement-sync/:orgId': {
-    category: 'machine-only',
-    why: 'Service-principal route (callers: billing): billing owns entitlement — the effective limit is tier base plus bundles, which only billing computes — so it pushes the resolved tier and limits onto the org here rather than quota deriving them. No user token is admitted: a tenant setting its own enforced quota would defeat the caps outright, and a system admin is no more entitled to than a member. The tenant-facing read of the same numbers is GET /quotas.',
-  },
   'quota GET /quotas/internal/:orgId/profile': {
     category: 'machine-only',
     why: 'Service-principal route (callers: billing): the POOLED per-dimension usage picture the expansion-offers profile is built from (docs/plans/sales-agent.md Phase 0) — usage, limit, ratio and the shared `projectUsage` trajectory per quota type. Billing only, for the same reason as the seat read: this is a commercial read of an account\'s whole usage shape, not a member read, and `authorizeOrg()` alone would admit any same-org member. The tenant-facing equivalent is GET /quotas, which serves the same numbers to the dashboard.',

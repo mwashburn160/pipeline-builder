@@ -190,8 +190,11 @@ export async function runProfileCycle(): Promise<ProfileCycleResult> {
   for await (const sub of cursor) {
     const orgId = sub.orgId;
     try {
-      const plan = getBillingConfig().plans.find((p) => p.id === sub.planId)
-        ?? getBillingConfig().plans.find((p) => p.tier === (sub as { tier?: string }).tier);
+      // ONE lookup. An earlier version fell back to `(sub as { tier?: string }).tier`,
+      // which could never match: the subscription schema has no `tier` field and
+      // strict mode strips anything absent from it, so the fallback read
+      // `undefined` on every document while reading like a safety net.
+      const plan = getBillingConfig().plans.find((p) => p.id === sub.planId);
       const tier = plan?.tier;
       if (!tier || !isValidTier(tier)) continue;
 

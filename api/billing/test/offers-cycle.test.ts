@@ -16,8 +16,10 @@ import { describe, it, expect } from '@jest/globals';
 
 process.env.MONGODB_URI ||= 'mongodb://127.0.0.1:27017/billing-offers-cycle';
 
-const { decideForAccount, candidatesFor, annualPackValue, DEFAULT_ANNOYANCE_COST_CENTS } =
-  await import('../src/helpers/offers-cycle.js');
+const {
+  decideForAccount, candidatesFor, annualPackValue, packForDimension,
+  DEFAULT_ANNOYANCE_COST_CENTS, FRUSTRATION_CONFIDENCE_FLOOR,
+} = await import('../src/helpers/offers-cycle.js');
 const { inHoldout } = await import('../src/helpers/offers-gates.js');
 const { config } = await import('../src/config.js');
 
@@ -206,9 +208,9 @@ describe('annualPackValue — the catalogue figure, annualised', () => {
   // type into a union the resolver's parameter will not accept — jest never
   // sees it, `typecheck:tests` does.
   const bundles: Parameters<typeof annualPackValue>[1] = [
-    { id: 'plugin_pack', grants: { plugins: 10 }, stackable: true, prices: { monthly: 1199, annual: 11990 }, availableForTiers: ['team'] },
-    { id: 'big_pack', grants: { plugins: 25 }, stackable: true, prices: { monthly: 2999, annual: 29990 }, availableForTiers: ['team'] },
-    { id: 'feature', grants: {}, stackable: false, prices: { monthly: 3000, annual: 30000 }, availableForTiers: ['team'] },
+    { id: 'plugin_pack', name: 'Plugin pack', grants: { plugins: 10 }, stackable: true, prices: { monthly: 1199, annual: 11990 }, availableForTiers: ['team'] },
+    { id: 'big_pack', name: 'Big pack', grants: { plugins: 25 }, stackable: true, prices: { monthly: 2999, annual: 29990 }, availableForTiers: ['team'] },
+    { id: 'feature', name: 'A feature', grants: {}, stackable: false, prices: { monthly: 3000, annual: 30000 }, availableForTiers: ['team'] },
   ];
 
   it('takes the cheapest pack, matching what the quota card quotes', () => {
@@ -225,5 +227,120 @@ describe('annualPackValue — the catalogue figure, annualised', () => {
   it('ignores a non-stackable bundle, which is not "a pack of N"', () => {
     const only = [{ ...bundles[2]!, grants: { plugins: 5 } }];
     expect(annualPackValue('plugins', only, 'team')).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 4 — the one thing the model may do
+// ---------------------------------------------------------------------------
+
+describe('the frustration signal can only SUPPRESS (D5)', () => {
+  it('refuses an otherwise-valid offer to a frustrated account', () => {
+    const d = decideForAccount(facts({
+      frustration: { frustrated: true, confidence: 0.9, degraded: false },
+    }));
+    expect(d.status).toBe('suppressed');
+    // Its OWN reason, not `negative_ev`: "we did not sell to them because they
+    // are unhappy with us" is a different operational fact from "the arithmetic
+    // said no", and the second would hide the first.
+    expect(d.reason).toBe('account_frustrated');
+  });
+
+  it('treats a DEGRADED answer as no answer — an AI outage must not stop offers', () => {
+    const d = decideForAccount(facts({
+      frustration: { frustrated: true, confidence: 1, degraded: true },
+    }));
+    expect(d.status).toBe('sent');
+  });
+
+  it('treats a hesitant answer as no answer', () => {
+    // The asymmetry runs the other way from the rest of the plan: a false
+    // `frustrated` denies an account information and nothing notices.
+    const d = decideForAccount(facts({
+      frustration: { frustrated: true, confidence: FRUSTRATION_CONFIDENCE_FLOOR - 0.01, degraded: false },
+    }));
+    expect(d.status).toBe('sent');
+  });
+
+  it('is absent-safe: no signal behaves exactly as before', () => {
+    expect(decideForAccount(facts({ frustration: null })).status).toBe('sent');
+    expect(decideForAccount(facts()).status).toBe('sent');
+  });
+
+  it('cannot WIDEN anything — a content account still gets only what the rules allow', () => {
+    const d = decideForAccount(facts({
+      candidates: [],
+      frustration: { frustrated: false, confidence: 0.99, degraded: false },
+    }));
+    expect(d.status).toBe('suppressed');
+    expect(d.reason).toBe('no_rule_matched');
+  });
+
+  it('runs AFTER the account\'s own statement, which outranks every signal', () => {
+    const d = decideForAccount(facts({
+      accountOptIn: false,
+      frustration: { frustrated: false, confidence: 0.99, degraded: false },
+    }));
+    expect(d.reason).toBe('offers_disabled_account');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// F6 — what was proposed, recorded on the offer
+// ---------------------------------------------------------------------------
+
+describe('candidates carry WHAT was proposed (F6)', () => {
+  // Annotated for the same reason the fixture above is: the differing `grants`
+  // keys widen the inferred element type into a union the resolver's parameter
+  // will not accept. Jest never sees it; `typecheck:tests` does.
+  const PACKS: Parameters<typeof annualPackValue>[1] = [
+    { id: 'pipeline_pack', name: 'Pipeline pack', grants: { pipelines: 10 }, stackable: true, prices: { monthly: 1199, annual: 11_990 }, availableForTiers: ['pro'] },
+    { id: 'plugin_pack', name: 'Plugin pack', grants: { plugins: 10 }, stackable: true, prices: { monthly: 999, annual: 9_990 }, availableForTiers: ['pro'] },
+    { id: 'api_pack', name: 'API pack', grants: { apiCalls: 1000 }, stackable: true, prices: { monthly: 499, annual: 4_990 }, availableForTiers: ['pro'] },
+    // A FEATURE bundle that happens to grant: not "a pack of N", so never picked.
+    { id: 'reporting', name: 'Advanced reporting', grants: { pipelines: 1 }, stackable: false, prices: { monthly: 100, annual: 1_000 }, availableForTiers: ['pro'] },
+  ];
+
+  const threeUnderPressure = {
+    period: '2026-11-01',
+    dimensions: { pipelines: dim(0.95), plugins: dim(0.92), apiCalls: dim(0.88) },
+    addonsHeld: [],
+    subscriptionAgeDays: 400,
+    complete: true,
+  } as Facts['profiles'][number];
+
+  it('names the basket a compose offer proposed', () => {
+    const [candidate] = candidatesFor({
+      profiles: [threeUnderPressure],
+      annualValueForDimension: (d) => annualPackValue(d, PACKS, 'pro'),
+      packIdForDimension: (d) => packForDimension(d, PACKS, 'pro')?.id ?? null,
+    });
+    expect(candidate!.offerType).toBe('compose');
+    expect(candidate!.targetBundles?.map((b) => b.bundleId).sort())
+      .toEqual(['api_pack', 'pipeline_pack', 'plugin_pack']);
+  });
+
+  it('never proposes a non-stackable FEATURE bundle as a pack', () => {
+    expect(packForDimension('pipelines', [PACKS[3]!], 'pro')).toBeNull();
+  });
+
+  it('is resolver-free-safe: no resolver ⇒ no basket, and still an offer', () => {
+    // The basket is additive. A caller that cannot resolve bundle ids must still
+    // get the decision, because the email leg needs no bundle id to quote a price.
+    const [candidate] = candidatesFor({
+      profiles: [threeUnderPressure],
+      annualValueForDimension: (d) => annualPackValue(d, PACKS, 'pro'),
+    });
+    expect(candidate!.offerType).toBe('compose');
+    expect(candidate!.targetBundles).toBeUndefined();
+  });
+
+  it('records the candidate tier on a crossover', () => {
+    const [candidate] = candidatesFor({
+      profiles: [profile()],
+      crossover: { crossover: true, candidateTier: 'business', savingCents: 2_996 },
+      annualValueForDimension: () => 0,
+    });
+    expect(candidate!.targetTier).toBe('business');
   });
 });

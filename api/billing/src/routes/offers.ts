@@ -25,12 +25,24 @@ import { DEFAULT_QUIET_PERIOD_DAYS, frequencyVerdict } from '../helpers/offers-g
 import { measureLift } from '../helpers/offers-outcome.js';
 import { runForAccount } from '../helpers/offers-run.js';
 import { refuseTeamBilling } from '../helpers/root-org-guard.js';
-import { Subscription } from '../models/subscription.js';
-import { Offer, type OfferDocument } from '../models/offer.js';
 import { OfferExclusion } from '../models/offer-exclusion.js';
+import { Offer, type OfferDocument } from '../models/offer.js';
+import { Subscription } from '../models/subscription.js';
 
 const logger = createLogger('billing-offers');
-const AUTH_OPTS = { allowOrgHeaderOverride: true } as const;
+
+/**
+ * NO `allowOrgHeaderOverride` here, unlike its sibling billing routers — and
+ * deliberately, rather than by omission.
+ *
+ * The override lets a caller name any org in `x-org-id`, and api-core keeps an
+ * allowlist of the files permitted to enable it precisely so a new user-facing
+ * route cannot pick it up by being copied from a neighbour. Nothing here needs
+ * it: the three system-org routes take their target org in the PATH (so they run
+ * `requireOrgId: false` and never read the active org at all), and the three
+ * account routes act on the caller's OWN account — reading or declining another
+ * tenant's offer on their behalf is not a capability this surface should have.
+ */
 
 /** Offer rows an account may still act on. */
 const LIVE_STATUSES = ['sent'] as const;
@@ -101,7 +113,7 @@ export function createOfferRoutes(): Router {
    * simply inside its 45 days should see that rather than wonder whether the
    * switch works.
    */
-  router.get('/offers', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:read') as RequestHandler, withRoute(async ({ res, orgId }) => {
+  router.get('/offers', requireAuth as RequestHandler, requirePermission('billing:read') as RequestHandler, withRoute(async ({ res, orgId }) => {
     const now = new Date();
     const [live, lastSent] = await Promise.all([
       Offer.findOne({
@@ -137,7 +149,7 @@ export function createOfferRoutes(): Router {
    */
   router.post(
     '/offers/:id/decline',
-    requireAuth(AUTH_OPTS) as RequestHandler,
+    requireAuth as RequestHandler,
     requirePermission('billing:manage') as RequestHandler,
     refuseTeamBilling as RequestHandler,
     audited('billing.offer.declined'),
@@ -183,7 +195,7 @@ export function createOfferRoutes(): Router {
    */
   router.post(
     '/offers/:id/dismiss',
-    requireAuth(AUTH_OPTS) as RequestHandler,
+    requireAuth as RequestHandler,
     requirePermission('billing:manage') as RequestHandler,
     refuseTeamBilling as RequestHandler,
     audited('billing.offer.dismissed'),
@@ -228,7 +240,7 @@ export function createOfferRoutes(): Router {
    */
   router.get(
     '/admin/offers',
-    requireAuth(AUTH_OPTS) as RequestHandler,
+    requireAuth as RequestHandler,
     ...requireSystemOrgPermission('subscriptions:read'),
     withRoute(async ({ req, res, ctx }) => {
       const { limit, offset } = parsePage(req.query as Record<string, unknown>, { def: 50, max: 200 });
@@ -259,7 +271,9 @@ export function createOfferRoutes(): Router {
           cycleKey: r.cycleKey,
           createdAt: r.createdAt.toISOString(),
         })),
-        total, limit, offset,
+        total,
+        limit,
+        offset,
         counts: {
           byStatus: Object.fromEntries(byStatus.map((b) => [b._id, b.count])),
           bySuppressionReason: Object.fromEntries(bySuppression.map((b) => [b._id ?? 'unknown', b.count])),
@@ -277,7 +291,7 @@ export function createOfferRoutes(): Router {
   /** GET /billing/admin/offers/exclusions — the do-not-offer list, with its reasons. */
   router.get(
     '/admin/offers/exclusions',
-    requireAuth(AUTH_OPTS) as RequestHandler,
+    requireAuth as RequestHandler,
     ...requireSystemOrgPermission('subscriptions:read'),
     withRoute(async ({ res }) => {
       const rows = await OfferExclusion.find({}).sort({ createdAt: -1 }).lean();
@@ -303,7 +317,7 @@ export function createOfferRoutes(): Router {
    */
   router.put(
     '/admin/offers/exclusions/:orgId',
-    requireAuth(AUTH_OPTS) as RequestHandler,
+    requireAuth as RequestHandler,
     ...requireSystemOrgPermission('subscriptions:manage'),
     audited('billing.offer.exclusion.set'),
     withRoute(async ({ req, res, ctx, userId }) => {
@@ -335,7 +349,7 @@ export function createOfferRoutes(): Router {
   /** DELETE /billing/admin/offers/exclusions/:orgId — lift the veto. */
   router.delete(
     '/admin/offers/exclusions/:orgId',
-    requireAuth(AUTH_OPTS) as RequestHandler,
+    requireAuth as RequestHandler,
     ...requireSystemOrgPermission('subscriptions:manage'),
     audited('billing.offer.exclusion.cleared'),
     withRoute(async ({ req, res, ctx, userId }) => {
@@ -370,7 +384,7 @@ export function createOfferRoutes(): Router {
    */
   router.post(
     '/admin/offers/trigger/:orgId',
-    requireAuth(AUTH_OPTS) as RequestHandler,
+    requireAuth as RequestHandler,
     ...requireSystemOrgPermission('subscriptions:manage'),
     audited('billing.offer.trigger'),
     withRoute(async ({ req, res, ctx, userId }) => {
@@ -389,7 +403,7 @@ export function createOfferRoutes(): Router {
           planId: sub.planId,
           interval: sub.interval,
           addons: (sub.addons ?? []).map((a) => ({ bundleId: a.bundleId, quantity: a.quantity })),
-        });
+        }, new Date(), 'manual');
       } catch (err) {
         logger.warn('Manual offer trigger failed', { targetOrgId: target, error: errorMessage(err) });
         return sendError(res, 502, 'Could not evaluate that account', ErrorCode.SERVICE_UNAVAILABLE);

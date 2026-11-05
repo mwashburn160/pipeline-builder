@@ -44,8 +44,8 @@ import { bundleSelfServiceAllowed, bundlesEnabled, billingServiceAuth, createBil
 import { priceForInterval, getComboDiscounts } from '../helpers/combo-pricing.js';
 import { recurringDiscountStandingCents } from '../helpers/credit-floor.js';
 import { addonCostCents, evaluateCrossover } from '../helpers/crossover.js';
-import { attributeConversion } from '../helpers/offers-outcome.js';
 import { checkEntitlementOvercap, syncEntitlements } from '../helpers/entitlement-sync.js';
+import { attributeConversion } from '../helpers/offers-outcome.js';
 import { refuseTeamBilling } from '../helpers/root-org-guard.js';
 import { buildSubscriptionResponse } from '../helpers/subscription-response.js';
 import { MANAGEABLE_SUBSCRIPTION_STATUSES, isGraceDowngraded } from '../helpers/subscription-status.js';

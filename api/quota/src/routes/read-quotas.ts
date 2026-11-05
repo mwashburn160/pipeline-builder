@@ -21,8 +21,8 @@ import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import type { RequestHandler } from 'express';
 import { config } from '../config.js';
-import { QuotaNoticeSettings } from '../models/quota-notice.js';
 import { authorizeOrg } from '../middleware/authorize-org.js';
+import { QuotaNoticeSettings } from '../models/quota-notice.js';
 import { type AtRiskEntry, type QuotaService, quotaService as defaultQuotaService } from '../services/quota-service.js';
 
 interface AtRiskCacheEntry {
@@ -97,8 +97,12 @@ export function createReadQuotaRoutes(svc: QuotaService = defaultQuotaService): 
       const quota = await svc.findByOrgId(targetOrgId);
 
       const dimensions: Record<string, {
-        used: number; limit: number; ratio: number | null;
-        projected: number | null; resetAt: string | null; periodDays: number | null;
+        used: number;
+        limit: number;
+        ratio: number | null;
+        projected: number | null;
+        resetAt: string | null;
+        periodDays: number | null;
       }> = {};
       for (const [type, summary] of Object.entries(quota.quotas)) {
         if (!summary) continue;

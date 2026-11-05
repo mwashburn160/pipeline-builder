@@ -183,6 +183,10 @@ jest.unstable_mockModule('../src/validation/schemas.js', () => ({
   SubscriptionCreateSchema: {},
   SubscriptionUpdateSchema: {},
   AddonMutateSchema: {},
+  // Every export the stubbed module has, or the whole import graph fails to
+  // LOAD naming this symbol — removing or adding an export is what breaks a
+  // hand-rolled stub, never the code that uses it.
+  AddonBasketSchema: {},
 }));
 
 const { createUsageRoutes } = await import('../src/routes/usage.js');

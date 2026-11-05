@@ -54,6 +54,7 @@ const routeModules = {
   createPromotionRoutes: '../src/routes/promotions.js',
   createBillingSummaryRoutes: '../src/routes/billing-summary.js',
   createSupportIncidentRoutes: '../src/routes/support-incidents.js',
+  createOfferRoutes: '../src/routes/offers.js',
   createUsageRoutes: '../src/routes/usage.js',
   createAdminSubscriptionRoutes: '../src/routes/admin-subscriptions.js',
   createMarketplaceRoutes: '../src/routes/marketplace.js',

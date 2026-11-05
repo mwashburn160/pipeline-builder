@@ -1,6 +1,6 @@
 // GENERATED FROM docs/environment-variables.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 5bd4bc1d4dd9eba189538f39f8b5ab1a96702638f1b5f313a0aa165982273500
+// SOURCE-SHA256: 88235b368725ebccbbd4b68a83c60e0a2ea7aab92dce1629900f59a92ea84d7c
 // SPDX-License-Identifier: Apache-2.0
 import { FileCode } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -2072,6 +2072,16 @@ export const envVariablesTopic: HelpTopic = {
               "OFFERS_ENABLED",
               "true",
               "Whether this DEPLOYMENT makes expansion offers — the automated process that reads an account's usage and offers it a pack, a basket or a tier move. Its own switch, independent of BILLING_ENABLED by design, exactly like SUPPORT_ENABLED above: the state an operator most often wants is billing ON with offers OFF, and deriving this from billing would make that unreachable. The dependency runs one way — offers need billing (there is nothing to grant without a catalogue), so BILLING_ENABLED=false makes offers inert whatever this says, while billing being on does not imply offers. Read once per cycle, not at boot, so turning it off stops the next cycle without a redeploy; a default-on process that spends a campaign budget has to be stoppable in the time it takes to change a value. Switching it off leaves the usage-profile store filling and the crossover comparison rendering — history cannot be backfilled, and the comparison is arithmetic over the account's own subscription rather than solicitation — but creates no offer, mints no discount and moves no campaign budget. Per-account opt-out is separate (offersEnabled on the account root, billing:manage)."
+            ],
+            [
+              "OFFERS_PROFILE_INTERVAL_MS",
+              "86400000",
+              "How often the usage-PROFILE collector runs (24 h; floor 60 s). Its rows are the one thing in the offers feature that cannot be backfilled, so this keeps running when OFFERS_ENABLED=false — the switch gates the grant, not the observation. Daily is the natural cadence because a billing period is days long; running it faster writes rows the trajectory cannot distinguish, and the unique (orgId, period) index makes the extra passes no-ops."
+            ],
+            [
+              "OFFERS_CYCLE_INTERVAL_MS",
+              "86400000",
+              "How often the offer-DECISION cycle runs (24 h; floor 60 s). It does not govern how often an account hears anything — the 45-day quiet period does that — only how promptly an account that just became eligible is noticed. Running it faster makes no more offers: the decision slot is keyed on the profile PERIOD, so extra passes re-read every profile to reach the same answer. Gated on OFFERS_ENABLED && BILLING_ENABLED, re-read each tick."
             ],
             [
               "SUPPORT_PREMIUM_ENABLED",

@@ -129,7 +129,7 @@ export function offerEmailText(facts: OfferEmailFacts): { subject: string; text:
     ? `\n\nThis is available until ${facts.expiresAt.toISOString().slice(0, 10)}.`
     : '';
   const footer = `\n\nYou can review your usage and change this at ${OFFER_LANDING_PATH}.`
-    + `\nTo stop messages like this, turn off offers in your organization's notification settings.`;
+    + '\nTo stop messages like this, turn off offers in your organization\'s notification settings.';
 
   if (facts.offerType === 'upgrade') {
     // The CROSSOVER mail. Its "price" is a NEGATIVE number — the account is
@@ -139,7 +139,7 @@ export function offerEmailText(facts: OfferEmailFacts): { subject: string; text:
     if (!facts.candidateTier || saving <= 0) return null;
     const lead = facts.pressure.length > 0
       ? `You're at ${standing(facts.pressure[0]!)}, and your add-ons now cost more than the plan that includes them.`
-      : `Your add-ons now cost more than the plan that includes them.`;
+      : 'Your add-ons now cost more than the plan that includes them.';
     return {
       subject: `You could pay ${money(saving)} less per ${per}`,
       text: `${lead}\n\n`
