@@ -545,6 +545,7 @@ apiCore.package.addField('exports', {
   './plugin-scan': { types: './lib/types/plugin-scan.d.ts', default: './lib/types/plugin-scan.js' },
   './quota-catalog': { types: './lib/types/quota-catalog.d.ts', default: './lib/types/quota-catalog.js' },
   './build-catalog': { types: './lib/types/build-catalog.d.ts', default: './lib/types/build-catalog.js' },
+  './usage-projection': { types: './lib/types/usage-projection.d.ts', default: './lib/types/usage-projection.js' },
   './testing': { types: './lib/testing/index.d.ts', default: './lib/testing/index.js' },
   './s3': { types: './lib/services/s3-client.d.ts', default: './lib/services/s3-client.js' },
   './lib/*': './lib/*',
@@ -563,6 +564,7 @@ apiCore.package.addField('typesVersions', {
     'plugin-scan': ['lib/types/plugin-scan.d.ts'],
     'quota-catalog': ['lib/types/quota-catalog.d.ts'],
     'build-catalog': ['lib/types/build-catalog.d.ts'],
+    'usage-projection': ['lib/types/usage-projection.d.ts'],
   },
 });
 // Test helpers are workspace-only: `pnpm deploy --prod` (every service image)
@@ -1080,6 +1082,7 @@ if (frontend.jest) {
     '^@pipeline-builder/api-core/plugin-scan$': '<rootDir>/../packages/api-core/src/types/plugin-scan.ts',
     '^@pipeline-builder/api-core/quota-catalog$': '<rootDir>/../packages/api-core/src/types/quota-catalog.ts',
     '^@pipeline-builder/api-core/build-catalog$': '<rootDir>/../packages/api-core/src/types/build-catalog.ts',
+    '^@pipeline-builder/api-core/usage-projection$': '<rootDir>/../packages/api-core/src/types/usage-projection.ts',
     // plugin-scan.ts is the one mapped subpath with RELATIVE imports — its two
     // dependency-free leaves, written with the `.js` extension the compiled lib
     // needs. Mapped to source, those specifiers name files that do not exist
@@ -1174,7 +1177,12 @@ const services: Array<{ name: string; deps: string[]; devDeps?: string[] }> = [
     // jimp: PURE-JS image resize for attachment thumbnails — deliberately NOT
     // sharp, so the alpine (musl) service image needs no native libvips binary /
     // Dockerfile change (thumbnails are occasional + small, so perf is a non-issue).
-    deps: [`@pipeline-builder/pipeline-data@${pkg.pipelineData}`, 'drizzle-orm@0.45.4', 'multer@2.5.0', `@aws-sdk/client-s3@${awsSdkVersion}`, 'jimp@1.6.1'],
+    // ai-core is here for ONE thing: turning support-case TEXT into a single
+    // derived frustration signal for expansion offers (helpers/offers-sentiment.ts).
+    // It lives here rather than in billing because this is where the text lives —
+    // ticket bodies are the most PII-dense material in the product, and only a
+    // boolean plus a confidence ever crosses the service boundary.
+    deps: [`@pipeline-builder/pipeline-data@${pkg.pipelineData}`, 'drizzle-orm@0.45.4', 'multer@2.5.0', `@aws-sdk/client-s3@${awsSdkVersion}`, 'jimp@1.6.1', `@pipeline-builder/ai-core@${pkg.aiCore}`, 'zod@4.6.7'],
     devDeps: ['@types/pg@8.23.1', '@types/multer@2.3.0'],
   },
   {

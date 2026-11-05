@@ -134,10 +134,13 @@
       ],
       "build-catalog": [
         "lib/types/build-catalog.d.ts"
+      ],
+      "usage-projection": [
+        "lib/types/usage-projection.d.ts"
       ]
     }
   },
-  "version": "5.2.4",
+  "version": "5.2.5",
   "bugs": {
     "url": "https://github.com/mwashburn160/pipeline-builder/issues"
   },
@@ -280,6 +283,10 @@
     "./build-catalog": {
       "types": "./lib/types/build-catalog.d.ts",
       "default": "./lib/types/build-catalog.js"
+    },
+    "./usage-projection": {
+      "types": "./lib/types/usage-projection.d.ts",
+      "default": "./lib/types/usage-projection.js"
     },
     "./testing": {
       "types": "./lib/testing/index.d.ts",

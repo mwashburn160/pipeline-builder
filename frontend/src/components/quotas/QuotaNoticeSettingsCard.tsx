@@ -11,6 +11,77 @@ import { useFetch } from '@/hooks/useFetch';
 import { formatError } from '@/lib/constants';
 import api from '@/lib/api';
 
+/**
+ * The account's expansion-OFFERS switch, on the card that already owns this
+ * account's notice settings (docs/plans/sales-agent.md F7).
+ *
+ * One more row rather than a new settings page, because the control belongs to
+ * the same account root, the same `billing:manage` gate and the same channel.
+ *
+ * It states two things a bare toggle would not, and both exist to stop a
+ * working feature looking broken:
+ *
+ *  - **the quiet period**, so an account with offers ON and simply inside its
+ *    window sees that rather than wondering;
+ *  - **the deployment switch**, the way `noticesEnabledOnInstance` already does
+ *    — an operator-disabled feature is not a bug in this toggle.
+ *
+ * And it says plainly that notices OFF already means no offers. That is the
+ * server's AND, and leaving it unsaid would make the two switches look
+ * independent when one dominates the other.
+ */
+function OffersRow({
+  offersEnabled,
+  noticesEnabled,
+  saving,
+  onChange,
+}: {
+  offersEnabled: boolean;
+  noticesEnabled: boolean;
+  saving: boolean;
+  onChange: (next: boolean) => void;
+}) {
+  // The state the card has to explain comes from billing, not from the quota
+  // settings row — and a failed read costs the row nothing but the explanation.
+  const stateQ = useFetch(async (signal) => (await api.getOffer({ signal })).data ?? null, []);
+  const state = stateQ.data;
+  const instanceOff = state?.offersEnabledOnInstance === false;
+  const quietUntil = state?.quietUntil ? new Date(state.quietUntil) : null;
+
+  return (
+    <div className="mt-6 border-t border-default pt-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h4 className="text-xs font-semibold uppercase tracking-wider text-fg-subtle">Upgrade suggestions</h4>
+          <p className="text-xs text-fg-muted mt-1">
+            When your usage is close to a limit, we may suggest the pack or plan that covers it — with the
+            price, on this same channel. At most one suggestion every {state?.quietPeriodDays ?? 45} days.
+          </p>
+          {!noticesEnabled && (
+            <p className="text-xs text-fg-muted mt-1">
+              Quota notices are off, so you will not receive suggestions either.
+            </p>
+          )}
+          {instanceOff && (
+            <p className="text-xs text-fg-muted mt-1">Suggestions are switched off for this installation.</p>
+          )}
+          {offersEnabled && noticesEnabled && !instanceOff && quietUntil && (
+            <p className="text-xs text-fg-muted mt-1" data-testid="offers-quiet-until">
+              Next suggestion no earlier than {quietUntil.toLocaleDateString()}.
+            </p>
+          )}
+        </div>
+        <Switch
+          checked={offersEnabled}
+          onChange={onChange}
+          disabled={saving}
+          aria-label="Receive upgrade suggestions"
+        />
+      </div>
+    </div>
+  );
+}
+
 /** `''` → `null` (no limit); otherwise the whole number typed, or `undefined` when it isn't one. */
 function parseLimit(raw: string): number | null | undefined {
   const t = raw.trim();
@@ -48,7 +119,7 @@ export function QuotaNoticeSettingsCard({ orgId }: { orgId: string }) {
   const budgetInvalid = budget === undefined || (budget !== null && budget < 1);
   const aiDirty = pct !== (settings?.aiCallsPerMemberPct ?? null) || budget !== (settings?.aiTokenBudget ?? null);
 
-  async function save(data: { enabled?: boolean; webhookUrl?: string | null; aiCallsPerMemberPct?: number | null; aiTokenBudget?: number | null }) {
+  async function save(data: { enabled?: boolean; offersEnabled?: boolean; webhookUrl?: string | null; aiCallsPerMemberPct?: number | null; aiTokenBudget?: number | null }) {
     setSaving(true);
     try {
       await api.updateQuotaNoticeSettings(orgId, data);
@@ -79,6 +150,13 @@ export function QuotaNoticeSettingsCard({ orgId }: { orgId: string }) {
           aria-label="Send quota notices"
         />
       </div>
+      <OffersRow
+        offersEnabled={settings.offersEnabled !== false}
+        noticesEnabled={settings.enabled}
+        saving={saving}
+        onChange={(offersEnabled) => void save({ offersEnabled })}
+      />
+
       <div className="mt-4">
         <label htmlFor="quota-webhook" className="text-xs font-semibold uppercase tracking-wider text-fg-subtle">
           Webhook (optional)

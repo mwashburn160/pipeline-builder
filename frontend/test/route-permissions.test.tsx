@@ -2574,6 +2574,14 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
     category: 'machine-only',
     why: 'Service-principal route (callers: message): the message service owns the support thread, so it owns the moment a case opens, but it cannot decide entitlement — `supportContacts` is not a quota-service type (a live cap, not a period counter) and the effective limit is tier base plus bundles, which only billing computes and already syncs onto the root org here. No user token is admitted: a tenant must not enumerate its own contact allowance through this, and the UI gets what it needs from GET /messages/support/cases. The answer is one org\'s allowance and level — never a contact list and never a name.',
   },
+  'platform GET /internal/offers/seat-activity/:orgId': {
+    category: 'machine-only',
+    why: 'Service-principal route (callers: billing): the expansion-offers profile\'s VALUE signal (docs/plans/sales-agent.md D4 Class 3), which exists to DISQUALIFY — an account at its seat cap whose members have not signed in is a churn save, and offering it more seats is the worst available outcome. Billing only, because the offers agent has no public surface of its own (D13) and runs there until it is extracted. No user token is admitted and the answer is three counts across the account subtree — never a member, a name or an address. The tenant-facing view of the same question is the members list.',
+  },
+  'quota GET /quotas/internal/:orgId/profile': {
+    category: 'machine-only',
+    why: 'Service-principal route (callers: billing): the POOLED per-dimension usage picture the expansion-offers profile is built from (docs/plans/sales-agent.md Phase 0) — usage, limit, ratio and the shared `projectUsage` trajectory per quota type. Billing only, for the same reason as the seat read: this is a commercial read of an account\'s whole usage shape, not a member read, and `authorizeOrg()` alone would admit any same-org member. The tenant-facing equivalent is GET /quotas, which serves the same numbers to the dashboard.',
+  },
   ...group('platform', [
     'GET /internal/reporting/recipient-check/:orgId',
     'GET /internal/reporting/report-authority/:orgId/:userId',
@@ -2691,6 +2699,33 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
   'quota PUT /quotas/entitlement-sync/:orgId': {
     category: 'machine-only',
     why: 'Internal route (callers: billing): the billing → quota entitlement sync (api/billing/src/helpers/entitlement-sync.ts → syncTierToQuotaService), run on every plan change. No user token is admitted; staff edit limits through PUT /quotas/:orgId instead.',
+  },
+  'billing POST /billing/subscriptions/:id/addons/basket': {
+    category: 'same-control',
+    coveredBy: 'Add / remove a billing add-on',
+    why: 'The "Add all of them" button on src/components/billing/OfferCard.tsx opens src/components/billing/OfferBasketModal.tsx (api.addAddonBasket), both behind the same `canChangePlan` (isAdmin || billing:manage) the single-add row proves on the same page. One call rather than a loop, so a half-applied basket is not a reachable state. Audited billing.addon.add.',
+  },
+  ...group('billing', ['POST /billing/offers/:id/decline', 'POST /billing/offers/:id/dismiss'], {
+    category: 'same-control',
+    coveredBy: 'Change / cancel the subscription',
+    why: 'The "No thanks" / "Not now" buttons on src/components/billing/OfferCard.tsx (api.declineOffer / api.dismissOffer), rendered by pages/dashboard/billing.tsx and passed `canRespond={canChangePlan}` — the same `isAdmin || billing:manage` the subscription row proves on the same page. Without it the card still shows what was suggested but the two verbs are absent rather than rendered to 403. Audited billing.offer.declined / billing.offer.dismissed.',
+  }),
+  ...group('billing', [
+    'PUT /billing/admin/offers/exclusions/:orgId',
+    'DELETE /billing/admin/offers/exclusions/:orgId',
+    'POST /billing/admin/offers/trigger/:orgId',
+    'POST /billing/admin/offers/withdraw',
+  ], {
+    category: 'sysadmin-console',
+    why: 'The do-not-offer list, the "Evaluate now" trigger and the "Recall recent offers" control on pages/dashboard/admin/offers.tsx (setOfferExclusion / clearOfferExclusion / triggerOffer / withdrawOffers), all rendered only when the viewer holds subscriptions:manage — the system-org gate the routes enforce. The trigger runs the same decision the cycle runs and can answer "no offer"; it never forces one. The recall is bounded to a window and touches only unanswered offers.',
+  }),
+  ...group('billing', ['GET /billing/admin/offers', 'GET /billing/admin/offers/exclusions'], {
+    category: 'sysadmin-console',
+    why: 'listAdminOffers and listOfferExclusions in pages/dashboard/admin/offers.tsx — the Offers tab of Billing admin, both behind subscriptions:read.',
+  }),
+  'message GET /messages/internal/offers/frustration/:orgId': {
+    category: 'machine-only',
+    why: 'Internal route (callers: billing): the derived expansion-offers frustration signal (api/billing/src/helpers/downstream-client.ts → fetchFrustrationSignal). No user token is admitted, and no UI reads it — the route exists so support-case TEXT never leaves the message service; only a boolean and a confidence cross the boundary.',
   },
   'quota PUT /quotas/:orgId/notice-settings': {
     category: 'same-control',

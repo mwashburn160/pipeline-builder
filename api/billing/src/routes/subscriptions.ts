@@ -26,6 +26,7 @@ import { applyPlanTierChange, applyTierIncludedAddonPrune } from '../helpers/add
 import { syncProviderAddons, type PrunedAddon } from '../helpers/addon-prune.js';
 import { billingServiceAuth, calculatePeriodEnd, createBillingEvent } from '../helpers/billing-helpers.js';
 import { checkEntitlementOvercap, syncEntitlements } from '../helpers/entitlement-sync.js';
+import { attributeConversion } from '../helpers/offers-outcome.js';
 import { evaluatePromotions, clawbackRecentPromotions } from '../helpers/promotion-engine.js';
 import { refuseTeamBilling } from '../helpers/root-org-guard.js';
 import { runSignupPromotions } from '../helpers/signup-promotions.js';
@@ -428,6 +429,15 @@ export function createSubscriptionRoutes(): Router {
         subscription.externalId, subscription.addons, effectiveInterval, orgId,
         subscription._id.toString(), 'interval_change',
       );
+    }
+
+    // Credit an open expansion offer, when the account moved TIER (Phase 6).
+    // Only on a plan change: an interval switch is not what any offer asked for,
+    // and crediting it would let the feature claim a conversion it never
+    // argued for. Best effort — a measurement row must never fail a completed
+    // plan change.
+    if (planChanged && plan) {
+      void attributeConversion(orgId, { kind: 'tier', sku: plan.tier });
     }
 
     // Promotions: auto-grant plan-change-triggered campaigns (e.g. upgrade credit).

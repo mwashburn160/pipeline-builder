@@ -178,6 +178,17 @@ Contacting support is self-service — every member who can open the Messages pa
 | billing | PUT | `/billing/admin/subscriptions/:id` | `system-org + any(subscriptions:manage) + aal2 + step-up(any)` |
 | billing | GET | `/billing/admin/summary` | `system-org + any(subscriptions:read) + aal2` |
 | billing | GET | `/billing/charges` | `any(billing:read)` |
+| billing | GET | `/billing/admin/offers` | `system-org + any(subscriptions:read) + aal2` |
+| billing | GET | `/billing/admin/offers/exclusions` | `system-org + any(subscriptions:read) + aal2` |
+| billing | PUT | `/billing/admin/offers/exclusions/:orgId` | `system-org + any(subscriptions:manage) + aal2` |
+| billing | DELETE | `/billing/admin/offers/exclusions/:orgId` | `system-org + any(subscriptions:manage) + aal2` |
+| billing | POST | `/billing/admin/offers/trigger/:orgId` | `system-org + any(subscriptions:manage) + aal2` |
+| billing | POST | `/billing/admin/offers/withdraw` | `system-org + any(subscriptions:manage) + aal2` |
+| billing | GET | `/billing/offers` | `any(billing:read)` |
+| billing | POST | `/billing/offers/:id/decline` | `any(billing:manage)` |
+| billing | POST | `/billing/offers/:id/dismiss` | `any(billing:manage)` |
+| billing | GET | `/billing/crossover` | `any(billing:read)` |
+| billing | GET | `/billing/plan-preview` | `any(billing:read)` |
 | billing | POST | `/billing/admin/orgs/:orgId/support-incidents` | `system-org + any(support_cases:write) + aal2 + step-up(any)` |
 | billing | PUT | `/billing/admin/subscriptions/:id/support-floor` | `system-org + any(subscriptions:manage) + aal2 + step-up(any)` |
 | billing | POST | `/billing/internal/support-incidents/:orgId/consume` | `service-principal + internal(message)` |
@@ -194,6 +205,7 @@ Contacting support is self-service — every member who can open the Messages pa
 | billing | POST | `/billing/subscriptions/:id/addons` | `any(billing:manage) + org-admin-assurance` |
 | billing | DELETE | `/billing/subscriptions/:id/addons/:bundleId` | `any(billing:manage) + org-admin-assurance` |
 | billing | POST | `/billing/subscriptions/:id/addons/preview` | `any(billing:read)` |
+| billing | POST | `/billing/subscriptions/:id/addons/basket` | `any(billing:manage) + org-admin-assurance` |
 | billing | POST | `/billing/subscriptions/:id/cancel` | `any(billing:manage) + step-up(any) + org-admin-assurance` |
 | billing | POST | `/billing/subscriptions/:id/discounts` | `any(billing:manage) + org-admin-assurance` |
 | billing | DELETE | `/billing/subscriptions/:id/discounts/:discountId` | `any(billing:manage) + org-admin-assurance` |
@@ -324,6 +336,7 @@ Contacting support is self-service — every member who can open the Messages pa
 | message | GET | `/messages/conversations` | `any(messages:read)` |
 | message | GET | `/messages/deleted` | `any(messages:read)` |
 | message | POST | `/messages/internal/notify` | `service-principal + internal(billing,compliance,platform,quota)` |
+| message | GET | `/messages/internal/offers/frustration/:orgId` | `service-principal + internal(billing)` |
 | message | DELETE | `/messages/internal/org/:orgId/attachments` | `service-principal + internal(platform)` |
 | message | POST | `/messages/notifications/ticket` | `any(messages:read)` |
 | message | GET | `/messages/recipients/orgs` | `any(messages:write)` |
@@ -402,8 +415,9 @@ Contacting support is self-service — every member who can open the Messages pa
 | platform | GET | `/internal/ai/keys/:orgId/:provider` | `service-principal + internal(ask,pipeline,plugin,reporting)` |
 | platform | GET | `/internal/ecosystem/approvers` | `service-principal + internal(plugin)` |
 | platform | GET | `/internal/ecosystem/publisher-eligibility/:orgId` | `service-principal + internal(plugin)` |
-| platform | POST | `/internal/notify-email` | `service-principal + internal(compliance,plugin,quota,reporting)` |
+| platform | POST | `/internal/notify-email` | `service-principal + internal(billing,compliance,plugin,quota,reporting)` |
 | platform | GET | `/internal/reporting/access-posture/:orgId` | `service-principal + internal(reporting)` |
+| platform | GET | `/internal/offers/seat-activity/:orgId` | `service-principal + internal(billing)` |
 | platform | GET | `/internal/reporting/recipient-check/:orgId` | `service-principal + internal(reporting)` |
 | platform | GET | `/internal/reporting/report-authority/:orgId/:userId` | `service-principal + internal(reporting)` |
 | platform | GET | `/internal/support/entitlement/:orgId` | `service-principal + internal(message)` |
@@ -646,6 +660,8 @@ Contacting support is self-service — every member who can open the Messages pa
 | quota | GET | `/quotas/:orgId/notice-settings` | `any(quotas:read)` |
 | quota | PUT | `/quotas/:orgId/notice-settings` | `any(billing:manage)` |
 | quota | GET | `/quotas/:orgId/own-usage` | `service-principal + internal(billing)` |
+| quota | PUT | `/quotas/entitlement-sync/:orgId` | `service-principal + internal(billing)` |
+| quota | GET | `/quotas/internal/:orgId/profile` | `service-principal + internal(billing)` |
 | quota | POST | `/quotas/:orgId/reset` | `system-org + any(quotas:manage) + aal2 + step-up(any)` |
 | quota | GET | `/quotas/:orgId/usage` | `any(quotas:read)` |
 | quota | GET | `/quotas/all` | `system-org + any(orgs:read) + aal2` |

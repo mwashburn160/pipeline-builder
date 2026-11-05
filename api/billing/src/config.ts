@@ -99,6 +99,19 @@ export interface PromotionConfig {
 }
 
 export interface AppConfig {
+  /**
+   * `OFFERS_ENABLED` — may this deployment make expansion offers
+   * (docs/plans/sales-agent.md D6). Independent of `enabled`, default true, and
+   * the effective state is `offersEnabled && enabled`: offers need billing,
+   * billing does not imply offers.
+   */
+  offersEnabled: boolean;
+  offers: {
+    /** Interval between profile-collection cycles (`OFFERS_PROFILE_INTERVAL_MS`). */
+    profileIntervalMs: number;
+    /** Interval between offer-decision cycles (`OFFERS_CYCLE_INTERVAL_MS`). */
+    cycleIntervalMs: number;
+  };
   enabled: boolean;
   port: number;
   billingProvider: BillingProviderType;
@@ -226,6 +239,30 @@ function resolveBillingProvider(): BillingProviderType {
 
 const billingEnabled = envBool('BILLING_ENABLED', true);
 
+/**
+ * Whether this deployment makes EXPANSION OFFERS (docs/plans/sales-agent.md D6).
+ *
+ * ITS OWN KNOB, not a reading of `BILLING_ENABLED`, because the state an
+ * operator most wants has to be reachable: billing on, offers off. A deployment
+ * that sells plans and enforces quotas but does not want an automated process
+ * emailing its customers with discounts is the ordinary case, not an edge one.
+ *
+ * Defaults TRUE, matching `SUPPORT_ENABLED` — the exact precedent: `true` by
+ * default and independent of `BILLING_ENABLED` by design, for a deployment
+ * question billing's own switch has no opinion about. One rule reads across the
+ * catalogue switches rather than one of them inverting.
+ *
+ * The dependency runs ONE WAY: offers require billing (there is nothing to
+ * grant, discount or upgrade without it), so billing off makes offers inert
+ * whatever this says. Billing on does NOT imply offers.
+ *
+ * Read per CYCLE by the scheduler rather than captured at boot, so switching it
+ * off stops the next cycle without a redeploy. A knob that needs a restart is
+ * not a kill switch, and this is a default-on process that spends a campaign
+ * budget.
+ */
+const offersEnabled = envBool('OFFERS_ENABLED', true);
+
 // Single discount switch (on by default). It governs the discount surface AND
 // Marketplace metered-credit realization, so the two are the SAME value — there
 // is no separate Marketplace opt-in.
@@ -251,6 +288,32 @@ if (billingEnabled && !process.env.MONGODB_URI) {
 
 export const config: AppConfig = {
   enabled: billingEnabled,
+  /**
+   * Whether expansion offers may be MADE. Independent of `enabled`, with the
+   * dependency one-way: `offersEnabled && enabled` is the effective state, so
+   * billing off makes offers inert whatever this says.
+   */
+  offersEnabled,
+  offers: {
+    /**
+     * How often the profile collector runs. A billing period is days long, so
+     * daily is the natural cadence: anything faster writes rows the trajectory
+     * cannot distinguish, and the unique `(orgId, period)` index makes the extra
+     * passes no-ops anyway.
+     */
+    profileIntervalMs: intSetting('OFFERS_PROFILE_INTERVAL_MS', 24 * 60 * 60 * 1000, { min: 60_000 }),
+    /**
+     * How often the DECISION cycle runs. Daily as well, and the quiet period
+     * (45 days) is what actually bounds how often one account hears anything —
+     * this interval only decides how promptly an account that just became
+     * eligible is noticed.
+     *
+     * Running it faster does not make more offers; it re-reads every account's
+     * profile to reach the same answer, because the slot is keyed on the
+     * profile PERIOD rather than on the cycle.
+     */
+    cycleIntervalMs: intSetting('OFFERS_CYCLE_INTERVAL_MS', 24 * 60 * 60 * 1000, { min: 60_000 }),
+  },
   port: intSetting('PORT', 3000, { min: 1 }),
   billingProvider: resolveBillingProvider(),
 

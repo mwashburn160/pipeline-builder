@@ -61,6 +61,22 @@ export interface UserOrganizationData {
   role: OrgMemberRole;
   isActive: boolean;
   joinedAt: Date;
+  /**
+   * When this member last opened a session in this organization.
+   *
+   * The ONLY new instrumentation the expansion-offers plan requires
+   * (docs/plans/sales-agent.md D4 Class 3), and it is a DISQUALIFIER rather
+   * than a sales signal: an account at 95% of its seat cap whose members have
+   * not signed in is a churn save, not an expansion, and offering it more seats
+   * is the worst available outcome. Without this the seat offer cannot tell
+   * those two accounts apart.
+   *
+   * Stamped at most once a day per membership (see `stampMembershipActivity`),
+   * so it costs no write on the hot path. Absent means "not since this field
+   * shipped", which the profile reads as unknown rather than as inactive —
+   * treating a missing stamp as idle would suppress every offer for a period.
+   */
+  lastActiveAt?: Date;
   /** Present only on memberships an IdP's SCIM client has touched. */
   scim?: ScimMembershipState;
   createdAt: Date;
@@ -94,6 +110,11 @@ const userOrganizationSchema = new Schema<UserOrganizationData>(
       type: Date,
       default: Date.now,
     },
+    // No default: absent means "not seen since this field shipped", which the
+    // offers profile reads as UNKNOWN. Defaulting it to now would mark every
+    // existing membership active without evidence, which is the direction that
+    // argues FOR a seat offer the account may not want.
+    lastActiveAt: { type: Date, default: undefined },
     // SCIM. Absent until an IdP's SCIM client writes the membership; no
     // sub-document default, so a membership created by any other path stays
     // exactly as it was.

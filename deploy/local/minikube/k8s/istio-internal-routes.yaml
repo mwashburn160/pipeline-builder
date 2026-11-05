@@ -70,9 +70,15 @@ spec:
 # -- platform ----------------------------------------------------------------
 # POST /internal/notify-email — compliance relays notification emails, the plugin
 # service relays plugin-ecosystem notices, reporting relays a published
-# stakeholder report to the addresses IT verified, and quota mails its 80%/100%
-# threshold notices to an account's admins and billing contacts, through
-# platform, which holds the SMTP credentials and the user directory.
+# stakeholder report to the addresses IT verified, quota mails its 80%/100%
+# threshold notices to an account's admins and billing contacts, and billing
+# mails an expansion OFFER to the same people — through platform, which holds
+# the SMTP credentials and the user directory.
+#
+# Each caller is confined to its OWN leg by the controller, told apart by the
+# body: a billing token without `offerNotice` is refused rather than falling
+# through to the tenant leg, whose `targetUsers` would let it name arbitrary
+# members.
 apiVersion: security.istio.io/v1
 kind: AuthorizationPolicy
 metadata:
@@ -88,6 +94,7 @@ spec:
     - from:
         - source:
             notPrincipals:
+              - cluster.local/ns/pipeline-builder/sa/billing
               - cluster.local/ns/pipeline-builder/sa/compliance
               - cluster.local/ns/pipeline-builder/sa/plugin
               - cluster.local/ns/pipeline-builder/sa/quota
@@ -215,6 +222,33 @@ spec:
         - operation:
             paths: ["/internal/support/*"]
 ---
+# GET /internal/offers/seat-activity/:orgId — seats held against members who
+# actually used them, for the expansion-offers profile's VALUE signal. BILLING
+# only: the offers agent has no surface of its own (D13) and runs inside billing
+# until it is extracted. It is a DISQUALIFIER rather than a sales signal — an
+# account at its seat cap whose members have not signed in is a churn save, and
+# offering it more seats is the worst available outcome — so the read returns
+# three counts and never a member, a name or an address.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: platform-internal-offers
+  namespace: pipeline-builder
+spec:
+  targetRefs:
+    - group: ""
+      kind: Service
+      name: platform
+  action: DENY
+  rules:
+    - from:
+        - source:
+            notPrincipals:
+              - cluster.local/ns/pipeline-builder/sa/billing
+      to:
+        - operation:
+            paths: ["/internal/offers/*"]
+---
 # POST /audit/events — every non-platform service forwards its audit trail here.
 # The audit log is evidence, so the callers are enumerated rather than "anything
 # in the mesh".
@@ -251,6 +285,10 @@ spec:
 # POST /messages/internal/notify — system notifications, from platform, billing
 # (renewal reminders), compliance (the in-app channel) and quota (the 80%/100%
 # threshold notices, dropped in the account root's inbox).
+# GET /messages/internal/offers/frustration/* — billing only: the derived
+# expansion-offers signal (docs/plans/sales-agent.md Phase 4). The route exists
+# so support-case TEXT never leaves this service, which is exactly why its
+# caller list must stay at one.
 # Everything else under /messages/internal/ (the org-delete attachment cascade)
 # is platform-only. The prefix rule covers the whole internal surface, so a
 # future internal route under it is denied to everyone else by default rather
@@ -280,11 +318,20 @@ spec:
     - from:
         - source:
             notPrincipals:
+              - cluster.local/ns/pipeline-builder/sa/billing
+      to:
+        - operation:
+            paths: ["/messages/internal/offers/frustration/*"]
+    - from:
+        - source:
+            notPrincipals:
               - cluster.local/ns/pipeline-builder/sa/platform
       to:
         - operation:
             paths: ["/messages/internal/*"]
-            notPaths: ["/messages/internal/notify"]
+            notPaths:
+              - "/messages/internal/notify"
+              - "/messages/internal/offers/frustration/*"
 ---
 # -- compliance --------------------------------------------------------------
 # POST /compliance/events/entity — entity lifecycle events from pipeline/plugin.
@@ -434,6 +481,18 @@ spec:
       to:
         - operation:
             paths: ["/quotas/entitlement-sync/*"]
+    # GET /quotas/internal/:orgId/profile — the POOLED per-dimension usage
+    # picture the expansion-offers profile is built from. Billing only: the
+    # offers scheduler runs there, and an account's whole usage shape is a
+    # commercial read rather than one any service should take.
+    - from:
+        - source:
+            notPrincipals:
+              - cluster.local/ns/pipeline-builder/sa/billing
+      to:
+        - operation:
+            methods: ["GET"]
+            paths: ["*/profile"]
 ---
 # -- reporting ---------------------------------------------------------------
 # PUT + GET /reports/retention-sync/:orgId — the billing→reporting retention

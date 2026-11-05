@@ -10,6 +10,8 @@ import { mountRoutes } from './app-routes.js';
 import { config } from './config.js';
 import { setEntitlementSyncBus, startEntitlementSyncConsumer } from './helpers/entitlement-sync.js';
 import { startMarketplaceMetering, stopMarketplaceMetering } from './helpers/marketplace-metering.js';
+import { startOffersProfile, stopOffersProfile } from './helpers/offers-profile.js';
+import { startOffersCycle, stopOffersCycle } from './helpers/offers-run.js';
 import { startPromotionBackfill, stopPromotionBackfill } from './helpers/promotion-backfill.js';
 import { seedPlans } from './helpers/seed-plans.js';
 import { startSubscriptionLifecycleChecker, stopSubscriptionLifecycleChecker } from './helpers/subscription-lifecycle.js';
@@ -70,12 +72,22 @@ if (config.enabled) {
       startSubscriptionLifecycleChecker();
       startMarketplaceMetering();
       startPromotionBackfill();
+      // The expansion-offers signal store. Started whatever OFFERS_ENABLED
+      // says: the history cannot be backfilled, so a deployment that enables
+      // offers later has something to act on rather than starting blind.
+      startOffersProfile();
+      // The DECISION cycle, which is the one gated on OFFERS_ENABLED — it is
+      // what creates an offer and spends a budget. It no-ops when the switch is
+      // off, and each tick re-reads it so turning it off needs no redeploy.
+      startOffersCycle();
     },
     testDatabase: async () => mongoose.connection.readyState === 1,
     closeDatabase: async () => {
       stopSubscriptionLifecycleChecker();
       stopMarketplaceMetering();
       stopPromotionBackfill();
+      stopOffersProfile();
+      stopOffersCycle();
       await entitlementSyncSub?.stop();
       setEntitlementSyncBus(null);
       await mongoose.connection.close(false);

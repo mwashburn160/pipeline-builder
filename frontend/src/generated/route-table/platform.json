@@ -1963,6 +1963,7 @@
     "servicePrincipal": true,
     "dynamicAuthz": [],
     "internalCallers": [
+      "billing",
       "compliance",
       "plugin",
       "quota",
@@ -1987,6 +1988,24 @@
       "ask",
       "plugin",
       "reporting"
+    ],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": []
+  },
+  {
+    "method": "GET",
+    "path": "/internal/offers/seat-activity/:orgId",
+    "auth": true,
+    "permissions": [],
+    "systemAdmin": false,
+    "servicePrincipal": true,
+    "dynamicAuthz": [],
+    "internalCallers": [
+      "billing"
     ],
     "stepUp": false,
     "stepUpMethods": [],

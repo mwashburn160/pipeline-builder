@@ -366,6 +366,164 @@
     "systemOrg": true
   },
   {
+    "method": "GET",
+    "path": "/billing/admin/offers",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "subscriptions:read"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "dynamicAuthz": [],
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 2,
+    "features": [],
+    "scopes": [],
+    "audit": [],
+    "systemOrg": true
+  },
+  {
+    "method": "GET",
+    "path": "/billing/admin/offers/exclusions",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "subscriptions:read"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "dynamicAuthz": [],
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 2,
+    "features": [],
+    "scopes": [],
+    "audit": [],
+    "systemOrg": true
+  },
+  {
+    "method": "DELETE",
+    "path": "/billing/admin/offers/exclusions/:orgId",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "subscriptions:manage"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "dynamicAuthz": [],
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 2,
+    "features": [],
+    "scopes": [],
+    "audit": [
+      "billing.offer.exclusion.cleared"
+    ],
+    "systemOrg": true
+  },
+  {
+    "method": "PUT",
+    "path": "/billing/admin/offers/exclusions/:orgId",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "subscriptions:manage"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "dynamicAuthz": [],
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 2,
+    "features": [],
+    "scopes": [],
+    "audit": [
+      "billing.offer.exclusion.set"
+    ],
+    "systemOrg": true
+  },
+  {
+    "method": "POST",
+    "path": "/billing/admin/offers/trigger/:orgId",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "subscriptions:manage"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "dynamicAuthz": [],
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 2,
+    "features": [],
+    "scopes": [],
+    "audit": [
+      "billing.offer.trigger"
+    ],
+    "systemOrg": true
+  },
+  {
+    "method": "POST",
+    "path": "/billing/admin/offers/withdraw",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "subscriptions:manage"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "dynamicAuthz": [],
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 2,
+    "features": [],
+    "scopes": [],
+    "audit": [
+      "billing.offer.withdrawn"
+    ],
+    "systemOrg": true
+  },
+  {
     "method": "POST",
     "path": "/billing/admin/orgs/:orgId/support-incidents",
     "auth": true,
@@ -798,6 +956,30 @@
   },
   {
     "method": "GET",
+    "path": "/billing/crossover",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "billing:read"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "dynamicAuthz": [],
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": []
+  },
+  {
+    "method": "GET",
     "path": "/billing/events",
     "auth": true,
     "permissions": [
@@ -954,6 +1136,106 @@
     "path": "/billing/marketplace/sns",
     "auth": false,
     "permissions": [],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "dynamicAuthz": [],
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": []
+  },
+  {
+    "method": "GET",
+    "path": "/billing/offers",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "billing:read"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "dynamicAuthz": [],
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": []
+  },
+  {
+    "method": "POST",
+    "path": "/billing/offers/:id/decline",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "billing:manage"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "dynamicAuthz": [],
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": [
+      "billing.offer.declined"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/billing/offers/:id/dismiss",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "billing:manage"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "dynamicAuthz": [],
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": [
+      "billing.offer.dismissed"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/billing/plan-preview",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "billing:read"
+        ],
+        "allowService": false
+      }
+    ],
     "systemAdmin": false,
     "servicePrincipal": false,
     "dynamicAuthz": [],
@@ -1177,6 +1459,36 @@
     "scopes": [],
     "audit": [
       "billing.addon.remove",
+      "billing.combo.expired"
+    ],
+    "orgAdminAssurance": {
+      "machines": "allow"
+    }
+  },
+  {
+    "method": "POST",
+    "path": "/billing/subscriptions/:id/addons/basket",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "billing:manage"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "dynamicAuthz": [],
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": [
+      "billing.addon.add",
       "billing.combo.expired"
     ],
     "orgAdminAssurance": {

@@ -171,11 +171,22 @@ export const MAX_AI_TOKEN_BUDGET = 1_000_000_000_000;
  */
 export const NoticeSettingsSchema = z.object({
   enabled: z.boolean().optional(),
+  /**
+   * The account's EXPANSION-OFFERS switch (docs/plans/sales-agent.md D6/F7).
+   *
+   * It lives on this row rather than in billing because the two switches are
+   * ANDed at send time — an offer rides the quota-notice channel, so an account
+   * that silenced that channel has already answered for both — and a consent
+   * pair split across two services is a pair that gets read inconsistently.
+   * Default TRUE (opt-out): stored `null` means "never said", which reads as on.
+   */
+  offersEnabled: z.boolean().optional(),
   // HTTPS only; the SSRF vetting happens at save time AND at every delivery.
   webhookUrl: z.string().trim().url().max(2048).refine((u) => u.startsWith('https://'), 'webhookUrl must be an https:// URL').nullable().optional(),
   aiCallsPerMemberPct: z.number().int().min(1).max(100).nullable().optional(),
   aiTokenBudget: z.number().int().min(1).max(MAX_AI_TOKEN_BUDGET).nullable().optional(),
 }).refine(
-  (d) => d.enabled !== undefined || d.webhookUrl !== undefined || d.aiCallsPerMemberPct !== undefined || d.aiTokenBudget !== undefined,
-  { message: 'At least one of enabled, webhookUrl, aiCallsPerMemberPct or aiTokenBudget is required.' },
+  (d) => d.enabled !== undefined || d.offersEnabled !== undefined || d.webhookUrl !== undefined
+    || d.aiCallsPerMemberPct !== undefined || d.aiTokenBudget !== undefined,
+  { message: 'At least one of enabled, offersEnabled, webhookUrl, aiCallsPerMemberPct or aiTokenBudget is required.' },
 );

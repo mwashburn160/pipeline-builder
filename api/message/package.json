@@ -42,6 +42,7 @@
   },
   "dependencies": {
     "@aws-sdk/client-s3": "3.1160.0",
+    "@pipeline-builder/ai-core": "workspace:*",
     "@pipeline-builder/api-core": "workspace:*",
     "@pipeline-builder/api-server": "workspace:*",
     "@pipeline-builder/pipeline-core": "workspace:*",
@@ -49,7 +50,8 @@
     "drizzle-orm": "0.45.4",
     "express": "5.3.0",
     "jimp": "1.6.1",
-    "multer": "2.5.0"
+    "multer": "2.5.0",
+    "zod": "4.6.7"
   },
   "engines": {
     "node": ">= 26.13.0"
@@ -65,7 +67,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "version": "4.4.5",
+  "version": "4.4.6",
   "packageManager": "pnpm@12.14.0",
   "jest": {
     "coverageProvider": "v8",

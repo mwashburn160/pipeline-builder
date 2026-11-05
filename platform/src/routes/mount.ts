@@ -23,6 +23,7 @@ import {
   invitationRoutes, auditRoutes, notifyEmailRoutes, configRoutes, observabilityRoutes, dashboardRoutes,
   orgIdpRoutes, orgKmsConfigRoutes, orgNamespaceRoutes, userGrantsRoutes, adminConsoleRoutes, adminSummaryRoutes, impersonateRoutes,
   scimRoutes, mfaResetAdminRoutes, ecosystemInternalRoutes, reportingInternalRoutes, aiInternalRoutes, supportInternalRoutes,
+  offersInternalRoutes,
   supportContactRoutes,
 } from './index.js';
 
@@ -88,6 +89,8 @@ export function mountApiRoutes(app: Express, limiters: RouteLimiters): void {
   app.use('/internal/ai', aiInternalRoutes);
   // Support entitlement, for the message service only (named-caller gated).
   app.use('/internal/support', supportInternalRoutes);
+  // The expansion-offers profile's membership reads (billing only, D13).
+  app.use('/internal/offers', offersInternalRoutes);
   // Tenant-facing, org-scoped: who in this org may raise and own a support case.
   app.use('/organization/:id/support-contacts', supportContactRoutes);
   app.use('/config', configRoutes);

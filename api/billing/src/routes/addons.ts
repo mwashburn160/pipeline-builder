@@ -13,6 +13,8 @@ import {
   ErrorCode,
   createLogger,
   getParam,
+  isValidTier,
+  parseQueryString,
   validateBody,
   actorId,
   recordAudit,
@@ -20,6 +22,7 @@ import {
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import type { Request, RequestHandler } from 'express';
+import { getBillingConfig } from '../config/billing-config.js';
 import { effectiveEntitlements } from '../config/entitlements.js';
 import { config } from '../config.js';
 import {
@@ -36,17 +39,20 @@ import {
   type Addon,
   type ComboChange,
 } from '../helpers/addon-catalog.js';
-import { syncProviderAddons } from '../helpers/addon-prune.js';
+import { pruneTierIncludedFeatureAddons, syncProviderAddons } from '../helpers/addon-prune.js';
 import { bundleSelfServiceAllowed, bundlesEnabled, billingServiceAuth, createBillingEvent, getBundleCatalog } from '../helpers/billing-helpers.js';
-import { getComboDiscounts } from '../helpers/combo-pricing.js';
+import { priceForInterval, getComboDiscounts } from '../helpers/combo-pricing.js';
+import { recurringDiscountStandingCents } from '../helpers/credit-floor.js';
+import { addonCostCents, evaluateCrossover } from '../helpers/crossover.js';
 import { checkEntitlementOvercap, syncEntitlements } from '../helpers/entitlement-sync.js';
+import { attributeConversion } from '../helpers/offers-outcome.js';
 import { refuseTeamBilling } from '../helpers/root-org-guard.js';
 import { buildSubscriptionResponse } from '../helpers/subscription-response.js';
 import { MANAGEABLE_SUBSCRIPTION_STATUSES, isGraceDowngraded } from '../helpers/subscription-status.js';
 import { Plan } from '../models/plan.js';
 import { Subscription, type SubscriptionDocument } from '../models/subscription.js';
 import { getPaymentProvider } from '../providers/provider-factory.js';
-import { AddonMutateSchema } from '../validation/schemas.js';
+import { AddonBasketSchema, AddonMutateSchema } from '../validation/schemas.js';
 
 const logger = createLogger('billing-addons');
 const AUTH_OPTS = { allowOrgHeaderOverride: true } as const;
@@ -222,6 +228,107 @@ export function createAddonRoutes(): Router {
   }));
 
   // GET /billing/bundles — the add-on catalog filtered to the account's tier
+  /**
+   * GET /billing/crossover — does this account's pack spend already argue for a
+   * tier move? (docs/plans/sales-agent.md D4.)
+   *
+   * INFORMATION, not an offer: arithmetic over the subscription record with no
+   * discount, no campaign and no consent beyond what a billing notice already
+   * raises. That is why it sits on `billing:read` beside `/charges` rather than
+   * behind the agent's consent switch, and why it ships before any of the
+   * offers machinery.
+   *
+   * Reads the plan catalogue from CONFIG rather than the Plan collection,
+   * because the comparison spans every tier and `getBillingConfig().plans` is
+   * the authority for all of them (see `seed-plans`); mixing a stored row for
+   * the current tier with config prices for the others would compare figures
+   * from two sources.
+   */
+  router.get('/crossover', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:read') as RequestHandler, withRoute(async ({ res, orgId }) => {
+    const loaded = await loadSubAndPlan(orgId);
+    // No subscription is not an error, for the same reason /charges says so: a
+    // billing-disabled deployment, or an org before its first plan, simply has
+    // nothing to compare.
+    if (!loaded) return sendSuccess(res, 200, { crossover: null });
+    const { subscription, plan } = loaded;
+    const { plans } = getBillingConfig();
+    return sendSuccess(res, 200, {
+      crossover: evaluateCrossover({
+        tier: plan.tier,
+        interval: subscription.interval,
+        addons: (subscription.addons ?? []) as Addon[],
+        plans,
+        bundles: getBundleCatalog(),
+      }),
+    });
+  }));
+
+  /**
+   * GET /billing/plan-preview?tier=business — what a plan change would actually
+   * COST, discount included (docs/plans/sales-agent.md F1).
+   *
+   * A PREREQUISITE rather than an enhancement: `PlanChangeModal` carried no
+   * discount references at all, so an account accepting a 50%-off offer opened
+   * the upgrade modal and saw the list price. Every offer in that plan was a
+   * promise the checkout contradicted.
+   *
+   * Computed HERE and not in the UI, deliberately. The discount stack — the
+   * interval, the volume curve, combos, the coupon and the aggregate floor that
+   * can refuse the lot — is money math with one implementation, and a second
+   * one in a React component is a second answer the invoice would disagree with.
+   * This is also D9's pre-flight in miniature: price the thing before promising
+   * it.
+   *
+   * The standing discount SURVIVES a plan change (nothing clears
+   * `recurringDiscount` outside cancellation, and the per-period re-grant sizes
+   * a percentage from the embedded record alone), so it is re-sized against the
+   * target plan's price rather than assumed to lapse.
+   */
+  router.get('/plan-preview', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:read') as RequestHandler, withRoute(async ({ req, res, orgId }) => {
+    const wanted = parseQueryString(req.query.tier);
+    if (!wanted || !isValidTier(wanted)) {
+      return sendError(res, 400, 'A valid `tier` query parameter is required', ErrorCode.VALIDATION_ERROR);
+    }
+    const loaded = await loadSubAndPlan(orgId);
+    if (!loaded) return sendSuccess(res, 200, { preview: null });
+    const { subscription, plan } = loaded;
+    const { plans } = getBillingConfig();
+    const target = plans.find((p) => p.tier === wanted);
+    if (!target) return sendSuccess(res, 200, { preview: null });
+
+    const bundles = getBundleCatalog();
+    const listCents = priceForInterval(target.prices, subscription.interval);
+    // Re-sized against the TARGET price: a percentage discount on the plan is
+    // worth more at a higher tier, and quoting the old figure would understate
+    // what the account keeps.
+    const discountCents = recurringDiscountStandingCents(subscription, listCents, bundles);
+    // Add-ons the move retires by itself, so the quoted total is the one the
+    // next invoice will carry rather than the plan price in isolation.
+    const prunedByMove = pruneTierIncludedFeatureAddons(subscription.addons ?? [], wanted, bundles)
+      .pruned.map((p) => p.bundleId);
+    const survivingAddonCents = (subscription.addons ?? [])
+      .filter((a) => !prunedByMove.includes(a.bundleId))
+      .reduce((sum, a) => sum + addonCostCents(a, bundles, subscription.interval), 0);
+
+    return sendSuccess(res, 200, {
+      preview: {
+        tier: wanted,
+        fromTier: plan.tier,
+        interval: subscription.interval,
+        listCents,
+        discountCents,
+        /** What the plan line costs after the standing discount. */
+        netPlanCents: Math.max(0, listCents - discountCents),
+        /** Add-ons that survive the move and keep billing. */
+        survivingAddonCents,
+        prunedAddons: prunedByMove,
+        /** The whole recurring total the move lands on. */
+        totalCents: Math.max(0, listCents - discountCents) + survivingAddonCents,
+        discountName: subscription.recurringDiscount?.discountId ?? null,
+      },
+    });
+  }));
+
   router.get('/bundles', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:read') as RequestHandler, withRoute(async ({ res, orgId }) => {
     if (!bundlesEnabled()) return sendSuccess(res, 200, { bundles: [], selfService: false, comboDiscounts: [] });
     const loaded = await loadSubAndPlan(orgId);
@@ -412,8 +519,138 @@ export function createAddonRoutes(): Router {
 
     logger.info('Add-on applied', { orgId, bundleId, quantity: qty });
 
+    // Credit an open offer, if this purchase plausibly answers one (Phase 6).
+    // The purchase routes are the ONLY place a conversion is observable — an
+    // offer records what we said, not what they then did — and it is best
+    // effort: a measurement row must never fail a completed purchase.
+    void attributeConversion(orgId, { kind: 'bundle', sku: bundleId });
+
     // A combo can end even on an ADD when the new packing drops a lower-value combo
     // that shared a member. Record combo_expired for any combo the change lost.
+    const delta = comboDelta(current, next, bundles, committed.interval);
+    await recordLostCombos(orgId, delta.lostCombos, committed._id.toString(), req.user?.sub);
+
+    const { limits } = effectiveEntitlements(plan.tier, next, bundles);
+    return sendSuccess(res, 200, {
+      subscription: buildSubscriptionResponse(committed, plan.name, plan.tier),
+      addons: next,
+      effectiveLimits: limits,
+      priceBreakdown: priceBreakdown(plan, next, bundles, committed.interval, plan.tier, committed.supportFloorOverride),
+      ...delta,
+    });
+  }));
+
+  /**
+   * POST /billing/subscriptions/:id/addons/basket — buy several add-ons as ONE
+   * change (docs/plans/sales-agent.md F6).
+   *
+   * **Atomic because a half-applied basket must not be a reachable state.** A
+   * compose offer is sized to the dimensions actually under pressure, so three
+   * sequential calls can leave the account having paid for part of an offer
+   * whose point was the whole — and the dimensions still under pressure are
+   * precisely the ones whose purchase failed.
+   *
+   * Atomicity comes free from the existing commit: `commitAddonChange` writes
+   * the WHOLE add-on set under an optimistic-concurrency guard, so the basket is
+   * one `findOneAndUpdate`. What this route adds is running every gate against
+   * the FINAL set rather than item by item — prerequisites, support-level
+   * conflicts, the quantity ceilings, the payment method and the over-cap check
+   * all see the basket as the account would hold it.
+   *
+   * Same gate as the single add (`billing:manage`, admin-MFA, root-org only) and
+   * the same audit action per item: an operator reading the trail should see
+   * three add-on adds, not one opaque "basket" event whose contents need
+   * decoding.
+   */
+  router.post('/subscriptions/:id/addons/basket', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:manage') as RequestHandler, ADMIN_MFA, ROOT_ONLY, audited('billing.addon.add', 'billing.combo.expired'), withRoute(async ({ req, res, orgId }) => {
+    if (!bundlesEnabled()) return sendError(res, 404, 'Add-on bundles are not enabled', ErrorCode.NOT_FOUND);
+    if (!bundleSelfServiceAllowed()) return sendError(res, 403, 'Add-ons for Marketplace-billed accounts are managed in AWS Marketplace', ErrorCode.INSUFFICIENT_PERMISSIONS);
+    const validation = validateBody(req, AddonBasketSchema);
+    if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
+    const { items } = validation.value;
+    // A duplicate bundle id would silently collapse to the LAST quantity, which
+    // is not what the caller asked for and not what the confirmation showed.
+    const ids = new Set(items.map((i) => i.bundleId));
+    if (ids.size !== items.length) return sendBadRequest(res, 'A basket cannot list the same add-on twice', ErrorCode.VALIDATION_ERROR);
+
+    const loaded = await loadSubAndPlan(orgId);
+    if (!loaded) return sendError(res, 404, 'No active subscription', ErrorCode.NOT_FOUND);
+    const { subscription, plan } = loaded;
+    if (!subscriptionIdMatches(req, subscription)) return sendError(res, 404, 'Subscription not found', ErrorCode.NOT_FOUND);
+
+    const bundles = getBundleCatalog();
+    const current = (subscription.addons ?? []) as Addon[];
+    let next = current;
+    for (const item of items) {
+      const resolved = resolvePurchasableBundle(bundles, item.bundleId, plan.tier);
+      if ('error' in resolved) return sendError(res, 400, resolved.error, ErrorCode.VALIDATION_ERROR);
+      const { bundle } = resolved;
+      const qty = bundle.stackable ? Math.max(1, Math.trunc(item.quantity)) : 1;
+      const capError = bundleQuantityCapError(bundle, qty);
+      if (capError) return sendError(res, 400, capError, ErrorCode.VALIDATION_ERROR);
+      next = applyAddon(next, item.bundleId, qty);
+    }
+
+    // Prerequisites and support-level conflicts against the FINAL set — which is
+    // the point of a basket: "Advanced Compliance" plus "Standard Compliance" in
+    // one basket is legal, while adding Advanced alone is not, and an item-by-item
+    // check would refuse the legal case.
+    for (const item of items) {
+      const resolved = resolvePurchasableBundle(bundles, item.bundleId, plan.tier);
+      if ('error' in resolved) return sendError(res, 400, resolved.error, ErrorCode.VALIDATION_ERROR);
+      const requiresError = bundleRequiresError(resolved.bundle, next, bundles, plan.tier);
+      if (requiresError) return sendError(res, 400, requiresError, ErrorCode.VALIDATION_ERROR);
+      const supportConflict = supportLevelConflictError(resolved.bundle, next, bundles);
+      if (supportConflict) return sendError(res, 400, supportConflict, ErrorCode.VALIDATION_ERROR);
+    }
+
+    // The payment gate, once, on whether the basket costs anything MORE than
+    // what is held today. A basket of eight free bundles needs no card; a basket
+    // with one paid increase does.
+    const priceOf = (bundleId: string) => {
+      const b = bundles.find((x) => x.id === bundleId);
+      if (!b) return 0;
+      return subscription.interval === 'annual' ? b.prices.annual : b.prices.monthly;
+    };
+    const increases = items.some((i) => {
+      const held = current.find((a) => a.bundleId === i.bundleId)?.quantity ?? 0;
+      return i.quantity > held && priceOf(i.bundleId) > 0;
+    });
+    if (increases) {
+      const provider = getPaymentProvider();
+      const chargeable = provider.hasPaymentMethod
+        ? await provider.hasPaymentMethod(subscription.externalCustomerId ?? '').catch(() => false)
+        : true;
+      if (!chargeable) {
+        return sendError(res, 402, 'Add a payment method before purchasing add-ons', ErrorCode.PAYMENT_METHOD_REQUIRED);
+      }
+    }
+
+    const overages = await checkEntitlementOvercap(orgId, plan.tier, next, '');
+    if (overages.length > 0) {
+      return sendError(res, 409, 'This change would put the account over its limit — remove members/resources first', ErrorCode.ADDON_OVER_CAP, { overages });
+    }
+
+    const committed = await commitAddonChange({
+      subscription,
+      tier: plan.tier,
+      orgId,
+      next,
+      actorId: req.user?.sub,
+      source: 'addon_add',
+      // The audit row's target is the basket, named by its items rather than by
+      // a single bundle id — there is no one bundle this change was "about".
+      bundleId: items.map((i) => i.bundleId).join(','),
+      eventDetails: { reason: 'addon_basket', items },
+      auditDetails: { basket: items },
+    });
+    if (!committed) {
+      return sendError(res, 409, 'This subscription was modified concurrently — please retry', ErrorCode.CONFLICT);
+    }
+
+    logger.info('Add-on basket applied', { orgId, items: items.length });
+    void attributeConversion(orgId, { kind: 'bundle', sku: items.map((i) => i.bundleId).join(',') });
+
     const delta = comboDelta(current, next, bundles, committed.interval);
     await recordLostCombos(orgId, delta.lostCombos, committed._id.toString(), req.user?.sub);
 

@@ -603,6 +603,32 @@
     }
   },
   {
+    "method": "GET",
+    "path": "/messages/internal/offers/frustration/:orgId",
+    "auth": true,
+    "permissions": [],
+    "systemAdmin": false,
+    "servicePrincipal": true,
+    "dynamicAuthz": [],
+    "internalCallers": [
+      "billing"
+    ],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
+  },
+  {
     "method": "DELETE",
     "path": "/messages/internal/org/:orgId/attachments",
     "auth": true,

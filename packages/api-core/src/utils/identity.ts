@@ -52,6 +52,27 @@ export const SYSTEM_ACTOR_ID = 'system';
 export const ANONYMOUS_ACTOR_ID = 'anonymous';
 
 /**
+ * The actor id written for work the EXPANSION-OFFERS agent did on its own
+ * (docs/plans/sales-agent.md D14).
+ *
+ * Distinct from {@link SYSTEM_ACTOR_ID} because "why did this account get this
+ * offer?" is the only question anybody will ask about that feature, and the
+ * generic system actor makes it unanswerable: the trail shows system work, of
+ * which this deployment does a great deal, and nothing would separate an offer
+ * the agent decided from a seed, a backfill or an operator script.
+ *
+ * It also makes the agent's work revocable AS A SET — "withdraw everything the
+ * agent did in the last hour" is a query on this value rather than an
+ * archaeology exercise, which is the control an operator wants on the morning a
+ * rule turns out to be wrong.
+ *
+ * An ACTOR, not a network identity: the agent runs inside billing until Phase 5
+ * extracts it, so its service principal is still `billing`. This names who
+ * decided, which is what the audit trail is queried by.
+ */
+export const OFFERS_AGENT_ACTOR_ID = 'offers-agent';
+
+/**
  * The actor id to stamp on an audit event, from a route context.
  *
  * One resolver so every route agrees on the fallback: per-route

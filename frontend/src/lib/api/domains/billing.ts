@@ -3,7 +3,7 @@
 
 import type { ApiCore } from '../core';
 import { buildQuery } from '../util';
-import type { ApiResponse, Plan, Subscription, SubscriptionStatus, Bundle, ComboDiscount, AddonResult, AddonPriceBreakdown, BillingEvent, BillingInterval, UsageRollup, Discount, Campaign } from '@/types';
+import type { ApiResponse, Plan, Subscription, SubscriptionStatus, Bundle, ComboDiscount, AddonResult, AddonPriceBreakdown, BillingEvent, BillingInterval, CrossoverVerdict, PlanChangePreview, UsageRollup, Discount, Campaign, AccountOffer, OfferState, AdminOfferSummary, AdminOfferDecision, OfferExclusion } from '@/types';
 
 /** Itemized, display-only price breakdown returned by a discount preview/apply.
  *  Concrete mirror of the billing service's `DiscountBreakdown`
@@ -108,6 +108,172 @@ export function billingApi(core: ApiCore) {
       return core.request<ApiResponse<{ priceBreakdown: AddonPriceBreakdown | null }>>(
         '/api/billing/charges',
         { signal: opts?.signal },
+      );
+    },
+
+    /**
+     * Does this account's pack spend already argue for a tier move?
+     * (`GET /billing/crossover`, docs/plans/sales-agent.md D4.)
+     *
+     * INFORMATION, not an offer: arithmetic over the subscription with no
+     * discount, campaign or consent question beyond what a billing notice
+     * already raises — which is why it reads on `billing:read` beside the
+     * charges breakdown rather than behind an offers switch.
+     *
+     * `crossover` is null when there is no subscription to compare, and the
+     * verdict's own `crossover: false` carries a `reason` so the UI can stay
+     * silent for the right cause rather than just rendering nothing.
+     */
+    getCrossover: async (opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<{ crossover: CrossoverVerdict | null }>>(
+        '/api/billing/crossover',
+        { signal: opts?.signal },
+      );
+    },
+
+    /**
+     * What a plan change would actually COST, discount included
+     * (`GET /billing/plan-preview`, docs/plans/sales-agent.md F1).
+     *
+     * Computed server-side rather than in the modal: the discount stack — the
+     * interval, the volume curve, combos, the coupon and the aggregate floor
+     * that can refuse the lot — has one implementation, and a second one in a
+     * component is a second answer the invoice disagrees with.
+     *
+     * `preview` is null when there is no subscription to re-price.
+     */
+    getPlanPreview: async (tier: string, opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<{ preview: PlanChangePreview | null }>>(
+        `/api/billing/plan-preview?tier=${encodeURIComponent(tier)}`,
+        { signal: opts?.signal },
+      );
+    },
+
+    /**
+     * The account's live expansion offer, plus its consent state
+     * (`GET /billing/offers`, docs/plans/sales-agent.md F4/F7).
+     *
+     * `offer: null` is the NORMAL state of an account, not an error — most
+     * accounts have no live offer most of the time, and the card renders nothing
+     * rather than an empty frame.
+     */
+    getOffer: async (opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<OfferState>>('/api/billing/offers', { signal: opts?.signal });
+    },
+
+    /**
+     * "No" (`POST /billing/offers/:id/decline`).
+     *
+     * A different verb from `dismissOffer` and the distinction is the point:
+     * redemption was the only action before this, so "never saw it" and "said
+     * no" were the same row — and the lengthened quiet period after a decline
+     * is unimplementable without telling them apart.
+     */
+    declineOffer: async (id: string, reason?: string) => {
+      return core.request<ApiResponse<{ offer: AccountOffer }>>(
+        `/api/billing/offers/${encodeURIComponent(id)}/decline`,
+        { method: 'POST', body: JSON.stringify(reason ? { reason } : {}) },
+      );
+    },
+
+    /**
+     * "Not now" (`POST /billing/offers/:id/dismiss`).
+     *
+     * SERVER-side, for the same reason the frequency cap is: a `localStorage`
+     * dismissal is per-browser and per-device, so the same offer reappears on a
+     * laptop. The cap and the UI's memory have to be one record.
+     */
+    dismissOffer: async (id: string) => {
+      return core.request<ApiResponse<{ offer: AccountOffer }>>(
+        `/api/billing/offers/${encodeURIComponent(id)}/dismiss`,
+        { method: 'POST' },
+      );
+    },
+
+    /**
+     * Buy several add-ons as ONE change
+     * (`POST /billing/subscriptions/:id/addons/basket`, docs/plans/sales-agent.md F6).
+     *
+     * A separate verb from `addAddon` rather than a loop over it, because a
+     * partially-applied basket is worse than either end state: the account has
+     * paid for part of an offer that was sized as a whole, and the dimensions
+     * still under pressure are the ones whose purchase failed. The server
+     * applies the whole set under one concurrency guard.
+     */
+    addAddonBasket: async (subscriptionId: string, items: Array<{ bundleId: string; quantity: number }>) => {
+      return core.request<ApiResponse<AddonResult>>(
+        `/api/billing/subscriptions/${encodeURIComponent(subscriptionId)}/addons/basket`,
+        { method: 'POST', body: JSON.stringify({ items }) },
+      );
+    },
+
+    /** What the agent has been doing, fleet-wide (`GET /billing/admin/offers`, F8). */
+    listAdminOffers: async (params?: { limit?: number; offset?: number }, opts?: { signal?: AbortSignal }) => {
+      const qs = new URLSearchParams();
+      if (params?.limit !== undefined) qs.set('limit', String(params.limit));
+      if (params?.offset !== undefined) qs.set('offset', String(params.offset));
+      const suffix = qs.toString() ? `?${qs.toString()}` : '';
+      return core.request<ApiResponse<AdminOfferSummary>>(`/api/billing/admin/offers${suffix}`, { signal: opts?.signal });
+    },
+
+    /** The do-not-offer list (`GET /billing/admin/offers/exclusions`). */
+    listOfferExclusions: async (opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<{ exclusions: OfferExclusion[] }>>(
+        '/api/billing/admin/offers/exclusions',
+        { signal: opts?.signal },
+      );
+    },
+
+    /**
+     * Veto an account (`PUT /billing/admin/offers/exclusions/:orgId`).
+     *
+     * The reason is REQUIRED by the server, not merely encouraged: a bare list
+     * of org ids goes stale the moment whoever added them leaves, and then an
+     * expired negotiation is indistinguishable from a permanent exclusion.
+     */
+    setOfferExclusion: async (orgId: string, reason: string) => {
+      return core.request<ApiResponse<{ orgId: string; reason: string }>>(
+        `/api/billing/admin/offers/exclusions/${encodeURIComponent(orgId)}`,
+        { method: 'PUT', body: JSON.stringify({ reason }) },
+      );
+    },
+
+    /** Lift a veto (`DELETE /billing/admin/offers/exclusions/:orgId`). */
+    clearOfferExclusion: async (orgId: string) => {
+      return core.request<ApiResponse<{ orgId: string }>>(
+        `/api/billing/admin/offers/exclusions/${encodeURIComponent(orgId)}`,
+        { method: 'DELETE' },
+      );
+    },
+
+    /**
+     * Recall everything one actor sent in a window
+     * (`POST /billing/admin/offers/withdraw`, docs/plans/sales-agent.md D14).
+     *
+     * Defaults to the agent, which is the case it exists for: the control an
+     * operator reaches for on the morning a rule turns out to be wrong. It
+     * touches only UNANSWERED offers — a redeemed one is a purchase the account
+     * made, and a declined one is already resolved.
+     */
+    withdrawOffers: async (sinceMinutes: number, actor?: string) => {
+      return core.request<ApiResponse<{ withdrawn: number; actor: string; sinceMinutes: number }>>(
+        '/api/billing/admin/offers/withdraw',
+        { method: 'POST', body: JSON.stringify({ sinceMinutes, ...(actor ? { actor } : {}) }) },
+      );
+    },
+
+    /**
+     * Evaluate one account NOW (`POST /billing/admin/offers/trigger/:orgId`).
+     *
+     * It runs the SAME decision path the cycle runs, every gate included, so the
+     * answer can perfectly well be a suppression — a trigger that forced an
+     * offer would be a way to mint one for an account the rules had just
+     * refused, with the agent's name on it.
+     */
+    triggerOffer: async (orgId: string) => {
+      return core.request<ApiResponse<{ decision: AdminOfferDecision | null }>>(
+        `/api/billing/admin/offers/trigger/${encodeURIComponent(orgId)}`,
+        { method: 'POST' },
       );
     },
 

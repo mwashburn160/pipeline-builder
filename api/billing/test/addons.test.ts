@@ -147,6 +147,9 @@ jest.unstable_mockModule('../src/helpers/subscription-response.js', () => ({
 }));
 jest.unstable_mockModule('../src/helpers/addon-prune.js', () => ({
   syncProviderAddons: mockSyncProviderAddons,
+  // Read by the plan-change preview (F1) to quote the total the next invoice
+  // carries rather than the plan line alone. Nothing pruned by default.
+  pruneTierIncludedFeatureAddons: () => ({ addons: [], pruned: [] }),
 }));
 
 // Combo pricing lives in its own module. Inject combos + active credits per test;

@@ -83,6 +83,10 @@ export {
 // and per-class slot defaults. Dependency-free, so the browser imports it
 // through the `./build-catalog` subpath instead of mirroring it.
 export * from './build-catalog.js';
+// Where a quota counter is HEADED. Dependency-free and browser-imported
+// through `./usage-projection`, so the quota card's forecast, the threshold
+// notice and the usage profile's trajectory signal share ONE formula.
+export * from './usage-projection.js';
 export * from './feature-flags.js';
 export {
   permissionLabel,

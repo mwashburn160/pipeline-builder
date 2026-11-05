@@ -43,6 +43,7 @@ import {
   Store,
   BadgeCheck,
   LifeBuoy,
+  Sparkles,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { ECOSYSTEM_CONSOLE_PERMISSIONS } from './ecosystem-access';
@@ -350,12 +351,17 @@ export const NAV_SECTIONS: NavSection[] = [
         icon: Landmark,
         requiredPermission: 'billing:operate',
         requiresBillingEnabled: true,
-        extraActivePaths: ['/dashboard/discounts', '/dashboard/promotions', '/dashboard/campaigns'],
+        extraActivePaths: ['/dashboard/discounts', '/dashboard/promotions', '/dashboard/campaigns', '/dashboard/admin/offers'],
       },
       // The Campaigns / Discounts / Promotions tabs of Billing Admin, by name in ⌘K.
       { title: 'Campaigns', href: '/dashboard/campaigns', icon: Megaphone, requiredPermission: 'billing:operate', requiresBillingEnabled: true, paletteOnly: true },
       { title: 'Discounts', href: '/dashboard/discounts', icon: Percent, requiredPermission: 'billing:operate', requiresBillingEnabled: true, paletteOnly: true },
       { title: 'Promotions', href: '/dashboard/promotions', icon: Megaphone, requiredPermission: 'billing:operate', requiresBillingEnabled: true, paletteOnly: true },
+      // Expansion offers (docs/plans/sales-agent.md F8). `subscriptions:read`
+      // rather than `billing:operate`, matching the Overview tab and the routes
+      // it reads — an Account Manager who can run campaigns is not necessarily
+      // the Role that reviews what an automated granter did fleet-wide.
+      { title: 'Offers', href: '/dashboard/admin/offers', icon: Sparkles, requiredPermission: 'subscriptions:read', requiresBillingEnabled: true, paletteOnly: true },
       // The fleet SSO roster is a TAB on All organizations, not an item here —
       // it was a page whose first element was "Back to organizations", and this
       // section was the most crowded in the app. Kept findable in ⌘K by name.

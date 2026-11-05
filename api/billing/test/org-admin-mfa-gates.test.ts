@@ -18,6 +18,9 @@ process.env.JWT_SECRET ||= 'route-coverage-test-secret';
 process.env.BILLING_ENABLED = 'true';
 process.env.MONGODB_URI ||= 'mongodb://127.0.0.1:27017/billing-route-coverage';
 
+/**
+ * Writes that change WHAT THE ORG PAYS FOR. These carry the MFA gate.
+ */
 const GATED = [
   'POST /billing/subscriptions/checkout',
   'POST /billing/subscriptions',
@@ -26,11 +29,41 @@ const GATED = [
   'POST /billing/subscriptions/:id/reactivate',
   'POST /billing/portal',
   'POST /billing/subscriptions/:id/addons',
+  // A basket is a purchase of several add-ons under ONE confirmation, so it
+  // belongs here beside the single add rather than being a quieter way to buy
+  // the same things (docs/plans/sales-agent.md F6).
+  'POST /billing/subscriptions/:id/addons/basket',
   'DELETE /billing/subscriptions/:id/addons/:bundleId',
   'POST /billing/subscriptions/:id/discounts',
   'DELETE /billing/subscriptions/:id/discounts/:discountId',
   'POST /billing/marketplace/claim',
 ].sort();
+
+/**
+ * `billing:manage` writes that change NOTHING the org pays — the only such
+ * routes in this service, and the reason the lists below are two rather than one.
+ *
+ * Answering an expansion offer is an account-level COMMUNICATIONS decision, not
+ * a commercial one: declining lengthens the quiet period and dismissing hides a
+ * card, and neither moves a single cent. Demanding an MFA step-up to click "No
+ * thanks" would be the wrong trade — it would push accounts into ignoring the
+ * card instead of answering it, and "never saw it" versus "said no" is the
+ * single most valuable distinction the outcome log measures (D12).
+ *
+ * They still need `billing:manage` (a decline suppresses offers for the WHOLE
+ * account for months, which is more than a reader should decide) and they still
+ * refuse a team org, which is why they appear in the team-guard list below.
+ *
+ * Enumerated rather than skipped: a NEW `billing:manage` write still fails this
+ * suite until someone classifies it, which is the property worth keeping.
+ */
+const NON_PAYMENT_MANAGE_WRITES = [
+  'POST /billing/offers/:id/decline',
+  'POST /billing/offers/:id/dismiss',
+].sort();
+
+/** Every write that must refuse a team (child) org: billing is account-scoped. */
+const TEAM_GUARDED = [...GATED, ...NON_PAYMENT_MANAGE_WRITES].sort();
 
 let table: RouteTableEntry[];
 let teamGuarded: string[];
@@ -81,14 +114,27 @@ describe('billing admin-actions MFA gates', () => {
     }
   });
 
-  it('leaves every billing:manage write gated (no manage write escapes the policy)', () => {
+  it('classifies every billing:manage write — gated, or named as non-payment', () => {
+    // The property this keeps: a new manage write cannot ship unclassified. It
+    // either carries the MFA gate or is listed above with the reason it does not.
     const manageWrites = table
       .filter((e) => isWriteMethod(e.method) && e.permissions.some((p) => p.permissions.includes('billing:manage')))
       .map((e) => `${e.method} ${e.path}`);
-    expect(manageWrites.filter((r) => !GATED.includes(r))).toEqual([]);
+    expect(manageWrites.filter((r) => !GATED.includes(r) && !NON_PAYMENT_MANAGE_WRITES.includes(r))).toEqual([]);
   });
 
-  it('refuses team (child) orgs on exactly the same billing writes', () => {
-    expect(teamGuarded).toEqual(GATED);
+  it('keeps the non-payment carve-out honest: none of them is a payment write', () => {
+    // The carve-out is only safe while it stays empty of anything commercial, so
+    // the list is checked against the gate rather than merely trusted.
+    expect(NON_PAYMENT_MANAGE_WRITES.filter((r) => GATED.includes(r))).toEqual([]);
+    for (const route of NON_PAYMENT_MANAGE_WRITES) {
+      const entry = table.find((e) => `${e.method} ${e.path}` === route);
+      expect({ route, found: Boolean(entry), assurance: entry?.orgAdminAssurance ?? null })
+        .toEqual({ route, found: true, assurance: null });
+    }
+  });
+
+  it('refuses team (child) orgs on every account-scoped billing write', () => {
+    expect(teamGuarded).toEqual(TEAM_GUARDED);
   });
 });

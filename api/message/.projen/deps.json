@@ -84,6 +84,11 @@
       "type": "runtime"
     },
     {
+      "name": "@pipeline-builder/ai-core",
+      "version": "workspace:*",
+      "type": "runtime"
+    },
+    {
       "name": "@pipeline-builder/api-core",
       "version": "workspace:*",
       "type": "runtime"
@@ -121,6 +126,11 @@
     {
       "name": "multer",
       "version": "2.5.0",
+      "type": "runtime"
+    },
+    {
+      "name": "zod",
+      "version": "4.6.7",
       "type": "runtime"
     }
   ],

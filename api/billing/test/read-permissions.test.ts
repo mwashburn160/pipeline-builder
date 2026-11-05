@@ -69,7 +69,7 @@ jest.unstable_mockModule('../src/config.js', () => ({
   config: {
     billingProvider: 'stripe',
     frontendUrl: 'https://app.example',
-    marketplace: { snsTopicArns: [] },
+    marketplace: { eventsTopicArn: '' },
   },
 }));
 
@@ -100,6 +100,9 @@ jest.unstable_mockModule('../src/helpers/subscription-response.js', () => ({
 
 jest.unstable_mockModule('../src/helpers/addon-prune.js', () => ({
   applyTierIncludedAddonPrune: () => [],
+  // Read by the plan-change preview (F1) to quote the total the next invoice
+  // carries rather than the plan line alone. Nothing pruned by default.
+  pruneTierIncludedFeatureAddons: () => ({ addons: [], pruned: [] }),
   applyPlanTierChange: () => async () => undefined,
   finalizePrunedAddons: async () => undefined,
   syncProviderAddons: async () => undefined,
@@ -135,7 +138,6 @@ jest.unstable_mockModule('../src/helpers/stripe-helpers.js', () => ({
 jest.unstable_mockModule('../src/helpers/marketplace-helpers.js', () => ({
   verifySNSSignature: jest.fn<AnyFn>(),
   confirmSNSSubscription: jest.fn<AnyFn>(),
-  mapActionToStatus: jest.fn<AnyFn>(),
 }));
 
 // -- models -------------------------------------------------------------------
@@ -180,6 +182,10 @@ jest.unstable_mockModule('../src/validation/schemas.js', () => ({
   SubscriptionCreateSchema: {},
   SubscriptionUpdateSchema: {},
   AddonMutateSchema: {},
+  // Every export the stubbed module has, or the whole import graph fails to
+  // LOAD naming this symbol — removing or adding an export is what breaks a
+  // hand-rolled stub, never the code that uses it.
+  AddonBasketSchema: {},
 }));
 
 const { createUsageRoutes } = await import('../src/routes/usage.js');

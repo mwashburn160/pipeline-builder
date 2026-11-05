@@ -53,6 +53,21 @@ export interface QuotaNoticeSettingsDocument {
   /** False opts the account out of the 80% / 100% notices entirely. */
   enabled: boolean;
   /**
+   * False opts the ACCOUNT out of expansion offers
+   * (docs/plans/sales-agent.md D6).
+   *
+   * Sits on this object rather than on a new one because the precedent is
+   * exact: same account-root scope, same card (`QuotaNoticeSettingsCard`), same
+   * route. `undefined` means never set, which reads as TRUE — the account
+   * switch is opt-OUT, and D6's unsubscribe is what makes that defensible.
+   *
+   * ANDed with `enabled` for the EMAIL channel, not overriding it: "an account
+   * that muted the quota channel muted the quota channel; an offer is not an
+   * exception it asked for." The in-product surface is a different channel and
+   * is governed by this flag alone.
+   */
+  offersEnabled?: boolean | null;
+  /**
    * Optional HTTPS endpoint that receives a `quota.threshold` event alongside
    * the in-app notice. Delivered through api-core's SSRF-safe webhook channel
    * (vetted + pinned IP, redirects refused). Unsigned: the body carries no
@@ -78,6 +93,10 @@ export interface QuotaNoticeSettingsDocument {
 const quotaNoticeSettingsSchema = new Schema<QuotaNoticeSettingsDocument>({
   orgId: { type: String, required: true, unique: true },
   enabled: { type: Boolean, default: true },
+  // `null` rather than `true`: an account that has never expressed a preference
+  // is distinguishable from one that opted IN, which D12's measurement wants —
+  // and both read as "may be offered to" at the decision site.
+  offersEnabled: { type: Boolean, default: null },
   webhookUrl: { type: String, default: null },
   aiCallsPerMemberPct: { type: Number, default: null },
   aiTokenBudget: { type: Number, default: null },
