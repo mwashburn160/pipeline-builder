@@ -12,6 +12,7 @@ import {
   recordAudit,
   requireAuth,
   requirePermission,
+  OFFERS_AGENT_ACTOR_ID,
   requireSystemOrgPermission,
   sendBadRequest,
   sendError,
@@ -46,6 +47,15 @@ const logger = createLogger('billing-offers');
 
 /** Offer rows an account may still act on. */
 const LIVE_STATUSES = ['sent'] as const;
+
+/**
+ * The widest recall window, in minutes (one week).
+ *
+ * Bounded because an unbounded one would rewrite months of outcome history in a
+ * single call, and the outcome history is the only thing that says whether any
+ * of this worked. A mistake worth recalling is noticed in hours, not quarters.
+ */
+export const MAX_WITHDRAW_WINDOW_MINUTES = 7 * 24 * 60;
 
 /** One offer, as the account's own surface renders it. */
 function toOfferResponse(offer: Pick<OfferDocument,
@@ -372,6 +382,66 @@ export function createOfferRoutes(): Router {
   );
 
   /**
+   * POST /billing/admin/offers/withdraw — recall everything ONE actor sent in a
+   * window (docs/plans/sales-agent.md D14).
+   *
+   * **The control an operator wants on the morning a rule turns out to be
+   * wrong.** Naming the deciding actor is what makes this a query rather than an
+   * archaeology exercise: without it, an automated offer is indistinguishable in
+   * the trail from a seed, a backfill or an operator script.
+   *
+   * It withdraws only OPEN offers — `sent`, not yet answered. A redeemed one is
+   * a purchase the account made and is not ours to unwind here; a declined one
+   * is already resolved, and rewriting it would destroy the distinction the
+   * outcome log exists for. It also leaves `sentAt` alone, so the quiet period
+   * still runs from when the account was actually contacted: an operator's
+   * mistake should not become a licence to contact them again immediately.
+   *
+   * Defaults to the AGENT's actor, because that is the case this exists for; an
+   * explicit `actor` can name an operator's own manual offers instead.
+   */
+  router.post(
+    '/admin/offers/withdraw',
+    requireAuth as RequestHandler,
+    ...requireSystemOrgPermission('subscriptions:manage'),
+    audited('billing.offer.withdrawn'),
+    withRoute(async ({ req, res, ctx, userId }) => {
+      const raw = (req.body ?? {}) as { sinceMinutes?: unknown; actor?: unknown };
+      const minutes = Number(raw.sinceMinutes);
+      // A window is REQUIRED and bounded. An unbounded recall would silently
+      // rewrite months of outcome history, which is the measurement this whole
+      // phase exists to protect.
+      if (!Number.isFinite(minutes) || minutes <= 0 || minutes > MAX_WITHDRAW_WINDOW_MINUTES) {
+        return sendBadRequest(
+          res,
+          `sinceMinutes must be between 1 and ${MAX_WITHDRAW_WINDOW_MINUTES}`,
+          ErrorCode.VALIDATION_ERROR,
+        );
+      }
+      const actor = typeof raw.actor === 'string' && raw.actor.trim() ? raw.actor.trim() : OFFERS_AGENT_ACTOR_ID;
+      const since = new Date(Date.now() - minutes * 60 * 1000);
+
+      const result = await Offer.updateMany(
+        { actorId: actor, status: 'sent', createdAt: { $gte: since } },
+        { $set: { status: 'withdrawn', resolvedAt: new Date() } },
+      );
+      const withdrawn = result.modifiedCount ?? 0;
+
+      recordAudit({
+        action: 'billing.offer.withdrawn',
+        actorId: actorId({ userId }),
+        orgId: SYSTEM_ORG_ID,
+        targetType: 'offer',
+        // The WINDOW and the actor, not a list of org ids: the row says what was
+        // recalled, and the offers themselves carry the per-account detail.
+        details: { recalledActor: actor, sinceMinutes: minutes, withdrawn },
+      });
+      ctx.log('COMPLETED', 'Offers withdrawn', { recalledActor: actor, withdrawn });
+      return sendSuccess(res, 200, { withdrawn, actor, sinceMinutes: minutes });
+    }, { requireOrgId: false }),
+  );
+
+  /**
    * POST /billing/admin/offers/trigger/:orgId — decide this account NOW.
    *
    * The other half of D6's manual override. It runs the SAME decision path the
@@ -403,7 +473,7 @@ export function createOfferRoutes(): Router {
           planId: sub.planId,
           interval: sub.interval,
           addons: (sub.addons ?? []).map((a) => ({ bundleId: a.bundleId, quantity: a.quantity })),
-        }, new Date(), 'manual');
+        }, new Date(), 'manual', actorId({ userId }));
       } catch (err) {
         logger.warn('Manual offer trigger failed', { targetOrgId: target, error: errorMessage(err) });
         return sendError(res, 502, 'Could not evaluate that account', ErrorCode.SERVICE_UNAVAILABLE);

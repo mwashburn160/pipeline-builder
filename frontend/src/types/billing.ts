@@ -221,8 +221,15 @@ export interface PlanChangePreview {
 /** The three shapes an expansion offer can take (`OFFER_TYPES` in billing). */
 export type OfferType = 'upgrade' | 'pack' | 'compose';
 
-/** `OFFER_STATUSES` in billing. `withdrawn` is what a suppression row carries. */
-export type OfferStatus = 'sent' | 'redeemed' | 'declined' | 'expired' | 'withdrawn';
+/**
+ * `OFFER_STATUSES` in billing.
+ *
+ * `suppressed` means NO OFFER WAS MADE (the row records why the rules declined);
+ * `withdrawn` means one was made and an operator recalled it. They were briefly
+ * the same value, which made "recall what the agent just did" indistinguishable
+ * from "the accounts it declined to offer".
+ */
+export type OfferStatus = 'sent' | 'redeemed' | 'declined' | 'expired' | 'suppressed' | 'withdrawn';
 
 /**
  * ONE expansion offer, as the account's own surface renders it

@@ -39,6 +39,8 @@ import {
   getServiceAuthHeader,
   isValidTier,
   leaderLockKey,
+  OFFERS_AGENT_ACTOR_ID,
+  recordAudit,
   type QuotaTier,
   type Scheduler,
 } from '@pipeline-builder/api-core';
@@ -198,6 +200,11 @@ export async function runForAccount(
    * the outcome log or in the lift comparison.
    */
   source: 'agent' | 'manual' = 'agent',
+  /**
+   * WHO decided (D14). The cycle leaves this alone and the agent's own actor id
+   * is used; the operator trigger passes the person who asked.
+   */
+  decidedBy: string = OFFERS_AGENT_ACTOR_ID,
 ): Promise<AccountOutcome | null> {
   const plan = getBillingConfig().plans.find((p) => p.id === sub.planId);
   const tier = plan?.tier;
@@ -281,10 +288,30 @@ export async function runForAccount(
     decision,
     cycleKey,
     source,
+    decidedBy,
     copy ? { subject: copy.subject, body: copy.text } : undefined,
   );
   if (!recorded) return { decision, recorded: false };
   if (decision.status !== 'sent' || !facts) return { decision, recorded: true };
+
+  // The central trail, under the DECIDING actor (D14). The `Offer` row is the
+  // detailed record; this is what makes the agent's work visible beside every
+  // other audited billing action, and queryable by the actor that did it rather
+  // than lost among system work.
+  recordAudit({
+    action: 'billing.offer.sent',
+    actorId: decidedBy,
+    orgId: rootOrgId,
+    targetType: 'offer',
+    targetId: cycleKey,
+    details: {
+      offerType: decision.chosen?.offerType ?? 'unknown',
+      source,
+      holdout: decision.holdout,
+      // The signals, verbatim — the answer to "why did this account get this?"
+      rationale: decision.chosen?.rationale ?? [],
+    },
+  });
 
   const delivery = await deliverOffer({ rootOrgId, consent, facts });
   return { decision, recorded: true, delivered: delivery.inApp || delivery.email === 'sent' };

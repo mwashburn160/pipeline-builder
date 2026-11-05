@@ -39,8 +39,15 @@ export type OfferType = (typeof OFFER_TYPES)[number];
  * single most valuable thing D12 measures": redemption is the only action
  * today, so "never saw it" and "said no" are the same row — and D6's lengthened
  * window after a decline is unimplementable without telling them apart.
+ *
+ * `suppressed` and `withdrawn` are also separate, and were briefly the same
+ * value. `suppressed` means NO OFFER WAS MADE — the row records why the rules
+ * declined, and the account never heard anything. `withdrawn` means an offer WAS
+ * made and an operator pulled it back (D14). Collapsing them would make
+ * "withdraw everything the agent did in the last hour" unanswerable, because the
+ * result would be indistinguishable from the accounts it had declined to offer.
  */
-export const OFFER_STATUSES = ['sent', 'redeemed', 'declined', 'expired', 'withdrawn'] as const;
+export const OFFER_STATUSES = ['sent', 'redeemed', 'declined', 'expired', 'suppressed', 'withdrawn'] as const;
 export type OfferStatus = (typeof OFFER_STATUSES)[number];
 
 /**
@@ -111,6 +118,21 @@ export interface OfferDocument extends mongoose.Document {
   holdout: boolean;
   /** `agent` or `manual` — mixing them silently corrupts the only measurement that matters. */
   source: 'agent' | 'manual';
+  /**
+   * WHO decided (D14): `OFFERS_AGENT_ACTOR_ID` for the cycle, the operator's
+   * actor id for a manual trigger.
+   *
+   * Named rather than left as the generic system actor, because "why did this
+   * account get this?" is the only question anybody will ask about this feature
+   * and the system actor cannot answer it — the trail shows system work, of
+   * which this deployment does a great deal. It is also what makes the agent's
+   * work revocable as a SET rather than one row at a time.
+   *
+   * Carried ALONGSIDE `source` rather than instead of it: `source` says which
+   * PATH produced the row, this says which actor, and a future second automated
+   * granter would share the path while needing its own name.
+   */
+  actorId: string;
   /** The cycle that produced this row, for idempotency (D15). */
   cycleKey: string;
   /**
@@ -183,6 +205,7 @@ const offerSchema = new Schema<OfferDocument>(
     holdUntil: { type: Date, default: undefined },
     holdout: { type: Boolean, default: false },
     source: { type: String, enum: ['agent', 'manual'], default: 'agent' },
+    actorId: { type: String, required: true },
     cycleKey: { type: String, required: true },
     subject: { type: String, default: undefined, maxlength: 200 },
     body: { type: String, default: undefined, maxlength: 4000 },
@@ -212,6 +235,14 @@ offerSchema.index({ orgId: 1, status: 1, expiresAt: -1 });
 
 /** The EXPIRY sweep: open offers whose clock has run out, oldest first. */
 offerSchema.index({ status: 1, expiresAt: 1 });
+
+/**
+ * The D14 recall: everything ONE actor did, newest first.
+ *
+ * "Withdraw everything the agent did in the last hour" is this index plus a
+ * date bound — which is the point of naming the actor at all.
+ */
+offerSchema.index({ actorId: 1, createdAt: -1 });
 
 /** The admin surface and Phase 6's counts. */
 offerSchema.index({ status: 1, createdAt: -1 });

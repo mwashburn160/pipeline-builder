@@ -315,6 +315,13 @@ export const REMOTE_AUDIT_ACTIONS = [
   // which is the price of shipping the feature at all and therefore has to be
   // attributable; `trigger` is a human asking for an offer now, recorded so a
   // manual offer is distinguishable from an agent one in the outcome log.
+  // The agent's OWN work, under its own actor (D14 — `OFFERS_AGENT_ACTOR_ID`).
+  // `sent` is what makes "why did this account get this?" answerable from the
+  // central trail rather than only from the service's own collection, and
+  // `withdrawn` is the recall an operator reaches for on the morning a rule
+  // turns out to be wrong — both carry the rationale or the window, never copy.
+  'billing.offer.sent',
+  'billing.offer.withdrawn',
   'billing.offer.declined',
   'billing.offer.dismissed',
   'billing.offer.exclusion.set',

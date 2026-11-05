@@ -2714,9 +2714,10 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
     'PUT /billing/admin/offers/exclusions/:orgId',
     'DELETE /billing/admin/offers/exclusions/:orgId',
     'POST /billing/admin/offers/trigger/:orgId',
+    'POST /billing/admin/offers/withdraw',
   ], {
     category: 'sysadmin-console',
-    why: 'The do-not-offer list and the "Evaluate now" trigger on pages/dashboard/admin/offers.tsx (setOfferExclusion / clearOfferExclusion / triggerOffer), all three rendered only when the viewer holds subscriptions:manage — the system-org gate the routes enforce. The trigger runs the same decision the cycle runs and can answer "no offer"; it never forces one.',
+    why: 'The do-not-offer list, the "Evaluate now" trigger and the "Recall recent offers" control on pages/dashboard/admin/offers.tsx (setOfferExclusion / clearOfferExclusion / triggerOffer / withdrawOffers), all rendered only when the viewer holds subscriptions:manage — the system-org gate the routes enforce. The trigger runs the same decision the cycle runs and can answer "no offer"; it never forces one. The recall is bounded to a window and touches only unanswered offers.',
   }),
   ...group('billing', ['GET /billing/admin/offers', 'GET /billing/admin/offers/exclusions'], {
     category: 'sysadmin-console',

@@ -24,10 +24,13 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 process.env.MONGODB_URI ||= 'mongodb://127.0.0.1:27017/billing-offers-run-cycle';
 
 const mockCounter = jest.fn<AnyFn>();
+const mockAudit = jest.fn<AnyFn>();
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   emitCounter: mockCounter,
+  recordAudit: mockAudit,
   getServiceAuthHeader: () => 'Bearer svc',
   isValidTier: (t: string) => ['developer', 'pro', 'team', 'business', 'enterprise'].includes(t),
+  OFFERS_AGENT_ACTOR_ID: 'offers-agent',
 }));
 
 // `stubModule`, never a bare factory: a factory replaces the whole namespace,
@@ -200,6 +203,62 @@ describe('record before deliver', () => {
   it('records the operator trigger as MANUAL', async () => {
     await runForAccount(SUB, new Date(), 'manual');
     expect(mockCreate.mock.calls[0]![0]).toMatchObject({ source: 'manual' });
+  });
+
+  it('records a suppression as `suppressed`, not as `withdrawn`', async () => {
+    // Those were briefly one value, which made "recall what the agent just
+    // sent" indistinguishable from "the accounts it declined to offer".
+    mockExists.mockResolvedValue({ _id: 'x' });
+    await runForAccount(SUB);
+    expect(mockCreate.mock.calls[0]![0]).toMatchObject({
+      status: 'suppressed',
+      suppressedReason: 'offers_disabled_account',
+    });
+  });
+});
+
+describe('the agent is a NAMED actor (D14)', () => {
+  it('attributes the cycle\'s own decision to the agent, not to the system', async () => {
+    await runForAccount(SUB);
+    expect(mockCreate.mock.calls[0]![0]).toMatchObject({ actorId: 'offers-agent' });
+  });
+
+  it('attributes a manual decision to the OPERATOR who asked', async () => {
+    await runForAccount(SUB, new Date(), 'manual', 'user-42');
+    expect(mockCreate.mock.calls[0]![0]).toMatchObject({ source: 'manual', actorId: 'user-42' });
+  });
+
+  it('names the actor on a suppression row too, so the set is complete', async () => {
+    mockExists.mockResolvedValue({ _id: 'x' });
+    await runForAccount(SUB);
+    expect(mockCreate.mock.calls[0]![0]).toMatchObject({ actorId: 'offers-agent' });
+  });
+
+  it('writes the central audit row under that actor, carrying the signals', async () => {
+    await runForAccount(SUB);
+    expect(mockAudit).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'billing.offer.sent',
+      actorId: 'offers-agent',
+      orgId: 'acct-1',
+      details: expect.objectContaining({
+        offerType: 'pack',
+        source: 'agent',
+        // The answer to "why did this account get this?", verbatim.
+        rationale: expect.arrayContaining(['sustained_pressure']),
+      }),
+    }));
+  });
+
+  it('audits only a SENT offer — a suppression is not something that happened to the account', async () => {
+    mockExists.mockResolvedValue({ _id: 'x' });
+    await runForAccount(SUB);
+    expect(mockAudit).not.toHaveBeenCalled();
+  });
+
+  it('does not audit a decision that lost its slot', async () => {
+    mockCreate.mockRejectedValue(Object.assign(new Error('dup'), { code: 11000 }));
+    await runForAccount(SUB);
+    expect(mockAudit).not.toHaveBeenCalled();
   });
 });
 

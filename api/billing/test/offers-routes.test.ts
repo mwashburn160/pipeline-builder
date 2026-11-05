@@ -41,6 +41,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   getParam: (params: Record<string, string>, key: string) => params[key],
   actorId: (a: { userId?: string }) => a.userId ?? 'anon',
   parsePage: () => ({ limit: 50, offset: 0 }),
+  OFFERS_AGENT_ACTOR_ID: 'offers-agent',
 }));
 
 jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
@@ -69,10 +70,12 @@ jest.unstable_mockModule('../src/helpers/root-org-guard.js', () => ({
 
 const mockOfferUpdate = jest.fn<(...a: unknown[]) => unknown>();
 const mockOfferFindOne = jest.fn<(...a: unknown[]) => unknown>();
+const mockUpdateMany = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 jest.unstable_mockModule('../src/models/offer.js', () => ({
   Offer: {
     findOneAndUpdate: mockOfferUpdate,
     findOne: mockOfferFindOne,
+    updateMany: mockUpdateMany,
     find: () => ({ sort: () => ({ skip: () => ({ limit: () => ({ lean: async () => [] }) }) }) }),
     countDocuments: async () => 0,
     aggregate: async () => [],
@@ -124,6 +127,63 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockOfferUpdate.mockReturnValue({ lean: async () => ({ ...OPEN_OFFER }) });
   mockOfferFindOne.mockReturnValue({ sort: () => ({ lean: async () => null }) });
+  mockUpdateMany.mockResolvedValue({ modifiedCount: 3 });
+});
+
+describe('the D14 recall', () => {
+  it('withdraws the AGENT\'s unanswered offers in the window by default', async () => {
+    await call(handler('post', '/admin/offers/withdraw'), { body: { sinceMinutes: 60 } });
+    const [filter, update] = mockUpdateMany.mock.calls[0] as [Record<string, unknown>, Record<string, Record<string, unknown>>];
+    expect(filter).toMatchObject({ actorId: 'offers-agent', status: 'sent' });
+    expect(update.$set).toMatchObject({ status: 'withdrawn' });
+    // `sentAt` is deliberately untouched: an operator's mistake must not become
+    // a licence to contact the account again immediately.
+    expect(update.$set).not.toHaveProperty('sentAt');
+    expect(mockSendSuccess).toHaveBeenCalledWith({}, 200, { withdrawn: 3, actor: 'offers-agent', sinceMinutes: 60 });
+  });
+
+  it('touches only UNANSWERED offers — a purchase is not ours to unwind', async () => {
+    await call(handler('post', '/admin/offers/withdraw'), { body: { sinceMinutes: 60 } });
+    const [filter] = mockUpdateMany.mock.calls[0] as [Record<string, unknown>];
+    expect(filter.status).toBe('sent');
+  });
+
+  it('bounds the window, so a recall cannot rewrite months of outcome history', async () => {
+    await call(handler('post', '/admin/offers/withdraw'), { body: { sinceMinutes: 7 * 24 * 60 + 1 } });
+    expect(mockSendBadRequest).toHaveBeenCalled();
+    expect(mockUpdateMany).not.toHaveBeenCalled();
+  });
+
+  it('requires a window at all', async () => {
+    for (const body of [{}, { sinceMinutes: 0 }, { sinceMinutes: -5 }, { sinceMinutes: 'all' }]) {
+      mockSendBadRequest.mockClear();
+      mockUpdateMany.mockClear();
+      await call(handler('post', '/admin/offers/withdraw'), { body });
+      expect(mockSendBadRequest).toHaveBeenCalled();
+      expect(mockUpdateMany).not.toHaveBeenCalled();
+    }
+  });
+
+  it('can recall a NAMED actor instead of the agent', async () => {
+    await call(handler('post', '/admin/offers/withdraw'), { body: { sinceMinutes: 30, actor: 'user-42' } });
+    const [filter] = mockUpdateMany.mock.calls[0] as [Record<string, unknown>];
+    expect(filter.actorId).toBe('user-42');
+  });
+
+  it('audits the recall by WINDOW and actor, under the operator who did it', async () => {
+    await call(handler('post', '/admin/offers/withdraw'), { body: { sinceMinutes: 60 } });
+    expect(mockAuditRecord).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'billing.offer.withdrawn',
+      actorId: 'u-1',
+      details: { recalledActor: 'offers-agent', sinceMinutes: 60, withdrawn: 3 },
+    }));
+  });
+
+  it('reports zero rather than failing when the window is empty', async () => {
+    mockUpdateMany.mockResolvedValue({ modifiedCount: 0 });
+    await call(handler('post', '/admin/offers/withdraw'), { body: { sinceMinutes: 5 } });
+    expect(mockSendSuccess).toHaveBeenCalledWith({}, 200, expect.objectContaining({ withdrawn: 0 }));
+  });
 });
 
 describe('the manual trigger', () => {
@@ -138,6 +198,8 @@ describe('the manual trigger', () => {
       expect.objectContaining({ orgId: 'acct-1' }),
       expect.any(Date),
       'manual',
+      // …and attributed to the operator who asked, not to the agent (D14).
+      'u-1',
     );
   });
 

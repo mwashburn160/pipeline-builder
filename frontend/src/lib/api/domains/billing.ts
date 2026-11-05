@@ -247,6 +247,22 @@ export function billingApi(core: ApiCore) {
     },
 
     /**
+     * Recall everything one actor sent in a window
+     * (`POST /billing/admin/offers/withdraw`, docs/plans/sales-agent.md D14).
+     *
+     * Defaults to the agent, which is the case it exists for: the control an
+     * operator reaches for on the morning a rule turns out to be wrong. It
+     * touches only UNANSWERED offers — a redeemed one is a purchase the account
+     * made, and a declined one is already resolved.
+     */
+    withdrawOffers: async (sinceMinutes: number, actor?: string) => {
+      return core.request<ApiResponse<{ withdrawn: number; actor: string; sinceMinutes: number }>>(
+        '/api/billing/admin/offers/withdraw',
+        { method: 'POST', body: JSON.stringify({ sinceMinutes, ...(actor ? { actor } : {}) }) },
+      );
+    },
+
+    /**
      * Evaluate one account NOW (`POST /billing/admin/offers/trigger/:orgId`).
      *
      * It runs the SAME decision path the cycle runs, every gate included, so the

@@ -498,6 +498,33 @@
   },
   {
     "method": "POST",
+    "path": "/billing/admin/offers/withdraw",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "subscriptions:manage"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "dynamicAuthz": [],
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 2,
+    "features": [],
+    "scopes": [],
+    "audit": [
+      "billing.offer.withdrawn"
+    ],
+    "systemOrg": true
+  },
+  {
+    "method": "POST",
     "path": "/billing/admin/orgs/:orgId/support-incidents",
     "auth": true,
     "permissions": [

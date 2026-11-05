@@ -183,6 +183,7 @@ Contacting support is self-service — every member who can open the Messages pa
 | billing | PUT | `/billing/admin/offers/exclusions/:orgId` | `system-org + any(subscriptions:manage) + aal2` |
 | billing | DELETE | `/billing/admin/offers/exclusions/:orgId` | `system-org + any(subscriptions:manage) + aal2` |
 | billing | POST | `/billing/admin/offers/trigger/:orgId` | `system-org + any(subscriptions:manage) + aal2` |
+| billing | POST | `/billing/admin/offers/withdraw` | `system-org + any(subscriptions:manage) + aal2` |
 | billing | GET | `/billing/offers` | `any(billing:read)` |
 | billing | POST | `/billing/offers/:id/decline` | `any(billing:manage)` |
 | billing | POST | `/billing/offers/:id/dismiss` | `any(billing:manage)` |

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { useCallback, useEffect, useState } from 'react';
-import { Ban, Megaphone, Play, ShieldAlert } from 'lucide-react';
+import { Ban, Megaphone, Play, ShieldAlert, Undo2 } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { AccessDenied } from '@/components/ui/AccessDenied';
 import { LoadingPage } from '@/components/ui/Loading';
@@ -52,6 +52,9 @@ export default function AdminOffersPage() {
   const [excludeOrg, setExcludeOrg] = useState('');
   const [excludeReason, setExcludeReason] = useState('');
   const [triggerOrg, setTriggerOrg] = useState('');
+  // Minutes, as text: the server bounds it, and a number input that silently
+  // coerces an empty box to 0 would make "recall nothing" look like a failure.
+  const [recallMinutes, setRecallMinutes] = useState('60');
 
   const load = useCallback(async () => {
     if (!isAuthenticated || !canRead) return;
@@ -87,6 +90,18 @@ export default function AdminOffersPage() {
       toast.success('Exclusion lifted');
     } catch (err) {
       toast.error(formatError(err, 'Could not lift that exclusion'));
+    } finally { setBusy(false); }
+  }
+
+  async function recall() {
+    setBusy(true);
+    try {
+      const res = await api.withdrawOffers(Number(recallMinutes));
+      await load();
+      const n = res.data?.withdrawn ?? 0;
+      toast.success(n === 0 ? 'No unanswered offers in that window' : `Recalled ${n} offer${n === 1 ? '' : 's'}`);
+    } catch (err) {
+      toast.error(formatError(err, 'Could not recall those offers'));
     } finally { setBusy(false); }
   }
 
@@ -237,6 +252,29 @@ export default function AdminOffersPage() {
                 ))}
               </ul>
             )}
+          </Card>
+
+          <Card>
+            <h3 className="flex items-center gap-2 text-sm font-semibold text-fg">
+              <Undo2 className="h-4 w-4" aria-hidden="true" /> Recall recent offers
+            </h3>
+            <p className="mt-1 text-xs text-fg-muted">
+              Withdraws every offer the agent sent in the last N minutes that nobody has answered yet — the
+              control for the morning a rule turns out to be wrong. Purchases and declines are left alone,
+              and the quiet period still runs from when each account was actually contacted.
+            </p>
+            <div className="mt-3 flex gap-2">
+              <Input
+                type="number"
+                min={1}
+                value={recallMinutes}
+                onChange={(e) => setRecallMinutes(e.target.value)}
+                aria-label="Recall window in minutes"
+              />
+              <Button size="sm" variant="secondary" disabled={busy || !Number(recallMinutes)} onClick={() => void recall()}>
+                Recall
+              </Button>
+            </div>
           </Card>
 
           <Card>

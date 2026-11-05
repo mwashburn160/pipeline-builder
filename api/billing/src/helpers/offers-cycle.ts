@@ -21,7 +21,7 @@
  * campaign budget and the aggregate floor in one place.
  */
 
-import { createLogger, errorMessage } from '@pipeline-builder/api-core';
+import { createLogger, errorMessage, OFFERS_AGENT_ACTOR_ID } from '@pipeline-builder/api-core';
 import { config } from '../config.js';
 import {
   DEFAULT_HOLDOUT_PERCENT,
@@ -209,6 +209,11 @@ export async function recordDecision(
   cycleKey: string,
   source: 'agent' | 'manual' = 'agent',
   /**
+   * WHO decided (D14). Defaults to the agent, which is the only correct answer
+   * for the cycle; the manual trigger passes the operator.
+   */
+  decidedBy: string = OFFERS_AGENT_ACTOR_ID,
+  /**
    * The copy the account is about to be shown, stored WITH the decision.
    *
    * Passed in rather than rendered here because the row has to say what was
@@ -227,12 +232,13 @@ export async function recordDecision(
       ...(decision.chosen?.targetTier ? { targetTier: decision.chosen.targetTier } : {}),
       ...(decision.chosen?.targetBundles?.length ? { targetBundles: decision.chosen.targetBundles } : {}),
       ...(copy && decision.status === 'sent' ? { subject: copy.subject, body: copy.body } : {}),
-      status: decision.status === 'suppressed' ? 'withdrawn' : decision.status,
+      status: decision.status,
       ...(decision.status === 'sent' ? { sentAt: new Date(), expiresAt: decision.expiresAt } : {}),
       ...(decision.reason ? { suppressedReason: decision.reason } : {}),
       ...(decision.holdUntil ? { holdUntil: decision.holdUntil } : {}),
       holdout: decision.holdout,
       source,
+      actorId: decidedBy,
       cycleKey,
     });
     return true;
