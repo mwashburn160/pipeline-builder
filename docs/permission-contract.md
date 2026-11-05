@@ -649,6 +649,7 @@ Contacting support is self-service — every member who can open the Messages pa
 | quota | GET | `/quotas/:orgId/notice-settings` | `any(quotas:read)` |
 | quota | PUT | `/quotas/:orgId/notice-settings` | `any(billing:manage)` |
 | quota | GET | `/quotas/:orgId/own-usage` | `service-principal + internal(billing)` |
+| quota | PUT | `/quotas/entitlement-sync/:orgId` | `service-principal + internal(billing)` |
 | quota | GET | `/quotas/internal/:orgId/profile` | `service-principal + internal(billing)` |
 | quota | POST | `/quotas/:orgId/reset` | `system-org + any(quotas:manage) + aal2 + step-up(any)` |
 | quota | GET | `/quotas/:orgId/usage` | `any(quotas:read)` |
