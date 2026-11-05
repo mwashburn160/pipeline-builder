@@ -12,7 +12,7 @@
  *
  * Auth: service-token only (rejects user JWTs), same gate as /audit/events.
  *
- * Four request shapes, told apart by the body:
+ * Five request shapes, told apart by the body:
  *  - **tenant email** (`compliance`, `reporting`): `{ orgId, targetUsers, subject,
  *    text }`, tenant-bound to the caller's org.
  *  - **report email** (`reporting`): `{ orgId, subject, text, html?,
@@ -20,6 +20,9 @@
  *  - **quota notice** (`quota`): `{ quotaNotice: true, orgId, subject, text }` —
  *    a threshold notice to the org's admins/owners and billing contacts, resolved
  *    here, tenant-bound (see `notifyQuota`).
+ *  - **offer notice** (`billing`): `{ offerNotice: true, orgId, subject, text }` —
+ *    an EXPANSION OFFER to those same people, on its own leg so a warning and a
+ *    solicitation are never the same event (see `notifyOffer`).
  *  - **ecosystem notice** (`plugin`): an
  *    api-core `EcosystemNotifyRequest` — recipient RULES resolved here at send
  *    time, per-user `ecosystem.*` email preferences, in-app copy + individual
@@ -38,7 +41,7 @@ import { resolveServiceTenant } from '../helpers/service-tenant.js';
 import { User, UserOrganization } from '../models/index.js';
 import { deliverEcosystemNotification, holdersOfPermission } from '../services/ecosystem-notifications.js';
 import { emailService } from '../utils/email.js';
-import { notifyEmailSchema, notifyQuotaEmailSchema, notifyReportEmailSchema, validateBody } from '../utils/validation.js';
+import { notifyEmailSchema, notifyOfferEmailSchema, notifyQuotaEmailSchema, notifyReportEmailSchema, validateBody } from '../utils/validation.js';
 
 const logger = createLogger('notify-email-controller');
 
@@ -106,6 +109,58 @@ async function notifyQuota(req: Request, res: Response): Promise<void> {
   } catch (err) {
     logger.warn('Quota notice send failed', { orgId: body.orgId, error: errorMessage(err) });
     return sendError(res, 500, 'Failed to send quota notice');
+  }
+}
+
+/** The only service allowed to send expansion-offer notices. */
+const OFFER_NOTICE_CALLER = 'billing';
+
+/**
+ * Mail an EXPANSION OFFER to the people who can act on it (Phase 3).
+ *
+ * The same recipients as a quota notice — the org's admins/owners plus its
+ * billing contacts — and resolved HERE for the same reason: billing knows
+ * subscriptions, not people, and letting it name recipients would make a billing
+ * token a way to mail anyone in the org.
+ *
+ * A SEPARATE LEG from the quota notice, deliberately. The plan says an offer
+ * should ride the same CHANNEL rather than open a second one the account has to
+ * learn — but the same channel is not the same message: one is a warning the
+ * account needs and the other is a solicitation it can switch off, and the relay
+ * must be able to tell them apart in its own logs and counters. Folding offers
+ * into `quotaNotice` would make "we emailed them a warning" and "we emailed them
+ * an advert" the same event.
+ *
+ * The consent AND (D6 — notices off suppresses offers on this channel) is
+ * applied by the CALLER, which holds both switches from its profile read. It is
+ * not re-checked here: platform does not own either switch, and a second
+ * evaluation against a different read is how the two start disagreeing.
+ */
+async function notifyOffer(req: Request, res: Response): Promise<void> {
+  if (serviceNameOf(req.user) !== OFFER_NOTICE_CALLER) {
+    recordAuthzDenial(req, `internal-service (${OFFER_NOTICE_CALLER})`);
+    return sendError(res, 403, 'Only the billing service may send offer notices');
+  }
+  const body = validateBody(notifyOfferEmailSchema, req.body, res);
+  if (!body) return;
+  if (resolveServiceTenant(req, res, body.orgId) === null) return;
+
+  try {
+    const [admins, billingContacts] = await Promise.all([
+      UserOrganization.find({ organizationId: toOrgId(body.orgId), isActive: true, role: { $in: ['owner', 'admin'] } })
+        .select('userId').lean(),
+      holdersOfPermission(body.orgId, 'billing:manage'),
+    ]);
+    const emails = await emailsOf([...admins.map((m) => String(m.userId)), ...billingContacts]);
+    // Not an error, same as the quota leg: report it so the caller can log a
+    // zero-recipient offer rather than retrying one nobody can receive.
+    if (emails.length === 0) return sendSuccess(res, 200, { ok: true, recipientCount: 0 });
+
+    const ok = await emailService.send({ to: emails, subject: body.subject, text: body.text });
+    return sendSuccess(res, 200, { ok, recipientCount: emails.length });
+  } catch (err) {
+    logger.warn('Offer notice send failed', { orgId: body.orgId, error: errorMessage(err) });
+    return sendError(res, 500, 'Failed to send offer notice');
   }
 }
 
@@ -202,6 +257,7 @@ export async function notifyEmail(req: Request, res: Response): Promise<void> {
   const raw = req.body as Record<string, unknown> | undefined;
   if (raw && typeof raw === 'object' && 'reportRecipients' in raw) return notifyReport(req, res);
   if (raw && typeof raw === 'object' && 'quotaNotice' in raw) return notifyQuota(req, res);
+  if (raw && typeof raw === 'object' && 'offerNotice' in raw) return notifyOffer(req, res);
   // An ecosystem notice names recipient RULES; a tenant email names an org.
   if (raw && typeof raw === 'object' && 'recipients' in raw) return notifyEcosystem(req, res);
   // The tenant-email shape is compliance's and reporting's. The plugin and quota
@@ -212,6 +268,12 @@ export async function notifyEmail(req: Request, res: Response): Promise<void> {
   }
   if (serviceNameOf(req.user) === QUOTA_NOTICE_CALLER) {
     return sendError(res, 400, 'quotaNotice is required for a quota notice');
+  }
+  // Billing reaches this relay ONLY for an offer. Without this it would fall
+  // through to the tenant leg, whose `targetUsers` lets a caller name arbitrary
+  // members — exactly the escalation the per-service legs exist to prevent.
+  if (serviceNameOf(req.user) === OFFER_NOTICE_CALLER) {
+    return sendError(res, 400, 'offerNotice is required for an offer notice');
   }
   const body = validateBody(notifyEmailSchema, req.body, res);
   if (!body) return;

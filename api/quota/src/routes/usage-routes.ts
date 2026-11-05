@@ -124,6 +124,10 @@ export function createUsageRoutes(svc: QuotaService = defaultQuotaService): Rout
         settings: {
           orgId: rootOrgId,
           enabled: row?.enabled ?? true,
+          // Stored `null` means the account never said, which reads as ON — the
+          // switch is an opt-OUT (D6). `!== false` rather than `?? true` so a
+          // stored `false` survives.
+          offersEnabled: row?.offersEnabled !== false,
           webhookUrl: row?.webhookUrl ?? null,
           thresholds: [80, 100],
           // Deploy-wide switch: when off, no account gets notices regardless.
@@ -137,8 +141,10 @@ export function createUsageRoutes(svc: QuotaService = defaultQuotaService): Rout
   );
 
   // PUT /quotas/:orgId/notice-settings — opt out of / back into the 80% and
-  // 100% notices, set the `quota.threshold` webhook, and set or clear (`null`)
-  // the optional AI controls: `aiCallsPerMemberPct` (per-member share of the
+  // 100% notices, opt out of / back into expansion OFFERS on the same channel
+  // (`offersEnabled`, D6: default on, and ANDed with `enabled` at send time, so
+  // silencing notices silences offers too), set the `quota.threshold` webhook,
+  // and set or clear (`null`) the optional AI controls: `aiCallsPerMemberPct` (per-member share of the
   // account's aiCalls) and `aiTokenBudget` (per-period platform-key tokens).
   // Billing contacts (`billing:manage`) own it, on the account ROOT only — a
   // team admin must not silence the whole account's warnings or re-carve its
@@ -171,6 +177,7 @@ export function createUsageRoutes(svc: QuotaService = defaultQuotaService): Rout
         {
           $set: {
             ...(body.enabled !== undefined ? { enabled: body.enabled } : {}),
+            ...(body.offersEnabled !== undefined ? { offersEnabled: body.offersEnabled } : {}),
             ...(body.webhookUrl !== undefined ? { webhookUrl: body.webhookUrl } : {}),
             ...(body.aiCallsPerMemberPct !== undefined ? { aiCallsPerMemberPct: body.aiCallsPerMemberPct } : {}),
             ...(body.aiTokenBudget !== undefined ? { aiTokenBudget: body.aiTokenBudget } : {}),
@@ -190,6 +197,10 @@ export function createUsageRoutes(svc: QuotaService = defaultQuotaService): Rout
         orgId,
         details: {
           ...(body.enabled !== undefined ? { enabled: body.enabled } : {}),
+          // Recorded because it is a CONSENT change: "when did this account turn
+          // offers off" has to be answerable from the trail, not inferred from
+          // the absence of offers afterwards.
+          ...(body.offersEnabled !== undefined ? { offersEnabled: body.offersEnabled } : {}),
           // Whether a webhook is configured — never the URL (it can embed a token).
           ...(body.webhookUrl !== undefined ? { webhookConfigured: body.webhookUrl !== null } : {}),
           ...(body.aiCallsPerMemberPct !== undefined ? { aiCallsPerMemberPct: body.aiCallsPerMemberPct } : {}),
@@ -201,6 +212,7 @@ export function createUsageRoutes(svc: QuotaService = defaultQuotaService): Rout
         settings: {
           orgId,
           enabled: row?.enabled ?? true,
+          offersEnabled: row?.offersEnabled !== false,
           webhookUrl: row?.webhookUrl ?? null,
           thresholds: [80, 100],
           aiCallsPerMemberPct: row?.aiCallsPerMemberPct ?? null,

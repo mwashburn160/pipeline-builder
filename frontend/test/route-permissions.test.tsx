@@ -2704,6 +2704,32 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
     category: 'machine-only',
     why: 'Internal route (callers: billing): the billing → quota entitlement sync (api/billing/src/helpers/entitlement-sync.ts → syncTierToQuotaService), run on every plan change. No user token is admitted; staff edit limits through PUT /quotas/:orgId instead.',
   },
+  'billing POST /billing/subscriptions/:id/addons/basket': {
+    category: 'same-control',
+    coveredBy: 'Add / remove a billing add-on',
+    why: 'The "Add all of them" button on src/components/billing/OfferCard.tsx opens src/components/billing/OfferBasketModal.tsx (api.addAddonBasket), both behind the same `canChangePlan` (isAdmin || billing:manage) the single-add row proves on the same page. One call rather than a loop, so a half-applied basket is not a reachable state. Audited billing.addon.add.',
+  },
+  ...group('billing', ['POST /billing/offers/:id/decline', 'POST /billing/offers/:id/dismiss'], {
+    category: 'same-control',
+    coveredBy: 'Change / cancel the subscription',
+    why: 'The "No thanks" / "Not now" buttons on src/components/billing/OfferCard.tsx (api.declineOffer / api.dismissOffer), rendered by pages/dashboard/billing.tsx and passed `canRespond={canChangePlan}` — the same `isAdmin || billing:manage` the subscription row proves on the same page. Without it the card still shows what was suggested but the two verbs are absent rather than rendered to 403. Audited billing.offer.declined / billing.offer.dismissed.',
+  }),
+  ...group('billing', [
+    'PUT /billing/admin/offers/exclusions/:orgId',
+    'DELETE /billing/admin/offers/exclusions/:orgId',
+    'POST /billing/admin/offers/trigger/:orgId',
+  ], {
+    category: 'sysadmin-console',
+    why: 'The do-not-offer list and the "Evaluate now" trigger on pages/dashboard/admin/offers.tsx (setOfferExclusion / clearOfferExclusion / triggerOffer), all three rendered only when the viewer holds subscriptions:manage — the system-org gate the routes enforce. The trigger runs the same decision the cycle runs and can answer "no offer"; it never forces one.',
+  }),
+  ...group('billing', ['GET /billing/admin/offers', 'GET /billing/admin/offers/exclusions'], {
+    category: 'sysadmin-console',
+    why: 'listAdminOffers and listOfferExclusions in pages/dashboard/admin/offers.tsx — the Offers tab of Billing admin, both behind subscriptions:read.',
+  }),
+  'message GET /messages/internal/offers/frustration/:orgId': {
+    category: 'machine-only',
+    why: 'Internal route (callers: billing): the derived expansion-offers frustration signal (api/billing/src/helpers/downstream-client.ts → fetchFrustrationSignal). No user token is admitted, and no UI reads it — the route exists so support-case TEXT never leaves the message service; only a boolean and a confidence cross the boundary.',
+  },
   'quota PUT /quotas/:orgId/notice-settings': {
     category: 'same-control',
     coveredBy: 'Add / remove a billing add-on',

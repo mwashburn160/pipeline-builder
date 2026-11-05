@@ -63,6 +63,16 @@ export const SUPPRESSION_REASONS = [
   'negative_ev',
   'budget_exhausted',
   'preflight_refused',
+  /**
+   * The account is currently FRUSTRATED (Phase 4).
+   *
+   * The one signal in the plan that no counter can produce, and the only thing
+   * the model is allowed to affect — it suppresses, and it can do nothing else.
+   * A separate reason rather than folding into `negative_ev` because "we did not
+   * sell to them because they are unhappy with us" is a different operational
+   * fact from "the arithmetic said no", and the second would hide the first.
+   */
+  'account_frustrated',
 ] as const;
 export type SuppressionReason = (typeof SUPPRESSION_REASONS)[number];
 
@@ -103,6 +113,51 @@ export interface OfferDocument extends mongoose.Document {
   source: 'agent' | 'manual';
   /** The cycle that produced this row, for idempotency (D15). */
   cycleKey: string;
+  /**
+   * The copy the account was actually shown, stored rather than re-derived.
+   *
+   * The in-app card, the email and the admin surface must all say the same
+   * sentence, and a card that re-renders from today's catalogue would quietly
+   * restate last month's offer at this month's price. It is also the honest
+   * answer to "what exactly did we tell them?" — which `rationale` (why) does
+   * not give.
+   *
+   * Absent on a suppression row: nothing was said.
+   */
+  subject?: string;
+  body?: string;
+  /**
+   * When the account DISMISSED the card, server-side (F4).
+   *
+   * Server-side because the frequency cap is: a `localStorage` dismissal is
+   * per-browser and per-device, so the same offer reappears on a laptop. The cap
+   * and the UI's memory have to be one record.
+   *
+   * Distinct from `declined` on purpose — dismissing is "not now", declining is
+   * "no", and D6's lengthened window applies only to the second.
+   */
+  dismissedAt?: Date;
+  /** Free text the account gave when declining, when it gave any. */
+  declineReason?: string;
+  /**
+   * What the account actually BOUGHT, when it converted — a tier id or a bundle
+   * id (Phase 6).
+   *
+   * Recorded against the offer rather than inferred later, because "offered-SKU
+   * against bought-SKU" is one of the two measures that decide whether the
+   * TARGETING is right rather than merely active: an account that converts to a
+   * DIFFERENT SKU is a targeting failure wearing a conversion win, and nothing
+   * else in the data distinguishes the two.
+   */
+  boughtSku?: string;
+  /**
+   * Milliseconds from send to conversion — the other of those two measures.
+   *
+   * Stored rather than derived from `sentAt`/`resolvedAt` because those two can
+   * both move for reasons unrelated to the conversion (a withdrawal, a sweep),
+   * and an elapsed time computed from a rewritten pair is not a measurement.
+   */
+  conversionMs?: number;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -129,6 +184,12 @@ const offerSchema = new Schema<OfferDocument>(
     holdout: { type: Boolean, default: false },
     source: { type: String, enum: ['agent', 'manual'], default: 'agent' },
     cycleKey: { type: String, required: true },
+    subject: { type: String, default: undefined, maxlength: 200 },
+    body: { type: String, default: undefined, maxlength: 4000 },
+    dismissedAt: { type: Date, default: undefined },
+    declineReason: { type: String, default: undefined, maxlength: 500 },
+    boughtSku: { type: String, default: undefined, maxlength: 128 },
+    conversionMs: { type: Number, default: undefined, min: 0 },
   },
   { collection: 'offers', timestamps: true },
 );
@@ -145,6 +206,12 @@ offerSchema.index({ orgId: 1, cycleKey: 1 }, { unique: true });
 
 /** The quiet-period read: this account's SENT offers, newest first. */
 offerSchema.index({ orgId: 1, sentAt: -1 });
+
+/** The account's own surface: "is there a live offer for me right now?" */
+offerSchema.index({ orgId: 1, status: 1, expiresAt: -1 });
+
+/** The EXPIRY sweep: open offers whose clock has run out, oldest first. */
+offerSchema.index({ status: 1, expiresAt: 1 });
 
 /** The admin surface and Phase 6's counts. */
 offerSchema.index({ status: 1, createdAt: -1 });

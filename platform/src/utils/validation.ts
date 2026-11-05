@@ -550,6 +550,21 @@ export const notifyQuotaEmailSchema = z.object({
 });
 
 /**
+ * An EXPANSION OFFER notice (docs/plans/sales-agent.md Phase 3).
+ *
+ * Its own shape rather than reusing the quota one, because the two are not the
+ * same message and must not be indistinguishable in the relay's audit: a quota
+ * notice is a warning the account needs, an offer is a solicitation it can
+ * switch off. Same fields, different leg, different caller.
+ */
+export const notifyOfferEmailSchema = z.object({
+  offerNotice: z.literal(true),
+  orgId: z.string({ message: 'is required' }).min(1, 'is required'),
+  subject: z.string({ message: 'is required' }).min(1, 'is required'),
+  text: z.string({ message: 'is required' }).min(1, 'is required'),
+});
+
+/**
  * Report recipients per send.
  *
  * A cap at all because this is the one relay leg that mails addresses the platform

@@ -308,6 +308,18 @@ export const REMOTE_AUDIT_ACTIONS = [
   'billing.promotion.revoke',
   'billing.promotion.grant',
   'billing.promotion.activate',
+  // Expansion OFFERS (docs/plans/sales-agent.md). An automated granter needs its
+  // own trail: `declined` and `dismissed` are the account's own answers (and the
+  // pair D6's lengthened quiet window depends on — "never saw it" and "said no"
+  // must not be the same row); `exclusion.set`/`cleared` are the operator veto,
+  // which is the price of shipping the feature at all and therefore has to be
+  // attributable; `trigger` is a human asking for an offer now, recorded so a
+  // manual offer is distinguishable from an agent one in the outcome log.
+  'billing.offer.declined',
+  'billing.offer.dismissed',
+  'billing.offer.exclusion.set',
+  'billing.offer.exclusion.cleared',
+  'billing.offer.trigger',
   // Usage-credit realization — a customer/compliance-visible record of credit
   // movement: `consumed` (Marketplace metered drawdown), `exhausted` (balance hit
   // zero), and a combo ending. `details` carry cents/ids only, no payment secrets.

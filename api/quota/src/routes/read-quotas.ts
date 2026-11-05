@@ -21,6 +21,7 @@ import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import type { RequestHandler } from 'express';
 import { config } from '../config.js';
+import { QuotaNoticeSettings } from '../models/quota-notice.js';
 import { authorizeOrg } from '../middleware/authorize-org.js';
 import { type AtRiskEntry, type QuotaService, quotaService as defaultQuotaService } from '../services/quota-service.js';
 
@@ -123,11 +124,23 @@ export function createReadQuotaRoutes(svc: QuotaService = defaultQuotaService): 
         };
       }
 
+      // Both consent switches ride on THIS read rather than a second route.
+      // D6 ANDs them for the email channel, so the caller needs both at once;
+      // two routes would be two round trips per account per cycle and a window
+      // in which they disagree.
+      const settings = await QuotaNoticeSettings.findOne({ orgId: quota.pool?.rootOrgId ?? quota.orgId })
+        .select('enabled offersEnabled').lean().catch(() => null);
+
       ctx.log('COMPLETED', 'Served usage profile read', { orgId: targetOrgId });
       return sendSuccess(res, 200, {
         profile: {
           orgId: quota.orgId,
           tier: quota.tier,
+          // `undefined`/absent reads as TRUE at the decision site: both switches
+          // are opt-OUT, and a missing settings row means the account has never
+          // expressed a preference.
+          noticesEnabled: settings?.enabled !== false,
+          offersEnabled: settings?.offersEnabled !== false,
           // The ACCOUNT root when the org is pooled: the unit the profile is
           // keyed by, so the caller never has to resolve the hierarchy itself.
           rootOrgId: quota.pool?.rootOrgId ?? quota.orgId,

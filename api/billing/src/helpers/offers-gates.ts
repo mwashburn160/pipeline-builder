@@ -115,6 +115,18 @@ export interface OfferCandidate {
   /** When this candidate is expected to become available, if not now. */
   availableAt?: Date;
   rationale: string[];
+  /** For an `upgrade`: the tier proposed. */
+  targetTier?: string;
+  /**
+   * For a `pack` or a `compose`: WHAT was proposed, so the account's surface can
+   * offer it as one basket (F6) instead of asking them to assemble the offer
+   * themselves from a catalogue.
+   *
+   * Recorded on the decision rather than re-derived at render time, for the same
+   * reason the copy is: a basket rebuilt from today's catalogue is not the
+   * basket that was offered.
+   */
+  targetBundles?: Array<{ bundleId: string; quantity: number }>;
 }
 
 /**

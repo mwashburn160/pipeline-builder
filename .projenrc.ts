@@ -1177,7 +1177,12 @@ const services: Array<{ name: string; deps: string[]; devDeps?: string[] }> = [
     // jimp: PURE-JS image resize for attachment thumbnails — deliberately NOT
     // sharp, so the alpine (musl) service image needs no native libvips binary /
     // Dockerfile change (thumbnails are occasional + small, so perf is a non-issue).
-    deps: [`@pipeline-builder/pipeline-data@${pkg.pipelineData}`, 'drizzle-orm@0.45.4', 'multer@2.5.0', `@aws-sdk/client-s3@${awsSdkVersion}`, 'jimp@1.6.1'],
+    // ai-core is here for ONE thing: turning support-case TEXT into a single
+    // derived frustration signal for expansion offers (helpers/offers-sentiment.ts).
+    // It lives here rather than in billing because this is where the text lives —
+    // ticket bodies are the most PII-dense material in the product, and only a
+    // boolean plus a confidence ever crosses the service boundary.
+    deps: [`@pipeline-builder/pipeline-data@${pkg.pipelineData}`, 'drizzle-orm@0.45.4', 'multer@2.5.0', `@aws-sdk/client-s3@${awsSdkVersion}`, 'jimp@1.6.1', `@pipeline-builder/ai-core@${pkg.aiCore}`, 'zod@4.6.7'],
     devDeps: ['@types/pg@8.23.1', '@types/multer@2.3.0'],
   },
   {

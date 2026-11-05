@@ -344,6 +344,9 @@ importers:
       '@aws-sdk/client-s3':
         specifier: 3.1160.0
         version: 3.1160.0
+      '@pipeline-builder/ai-core':
+        specifier: workspace:*
+        version: link:../../packages/ai-core
       '@pipeline-builder/api-core':
         specifier: workspace:*
         version: link:../../packages/api-core
@@ -368,6 +371,9 @@ importers:
       multer:
         specifier: 2.5.0
         version: 2.5.0
+      zod:
+        specifier: 4.6.7
+        version: 4.6.7
     devDependencies:
       '@jest/globals':
         specifier: 30.5.2

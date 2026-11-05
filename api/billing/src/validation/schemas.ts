@@ -40,6 +40,28 @@ export const AddonMutateSchema = z.object({
 });
 
 /**
+ * A BASKET of add-ons applied in ONE change (docs/plans/sales-agent.md F6).
+ *
+ * `useAddonChange` changes one add-on at a time, so a three-item basket was
+ * three calls — and a partially-applied basket is worse than either end state:
+ * the account has paid for part of an offer that was sized as a whole, and the
+ * dimensions still under pressure are the ones whose purchase failed.
+ *
+ * At most eight items, because a basket is sized to the dimensions actually
+ * under pressure and there are not eight of those — a larger one is a mistake or
+ * an abuse, not a purchase.
+ */
+export const AddonBasketSchema = z.object({
+  items: z.array(z.object({
+    bundleId: z.string().min(1, 'bundleId is required'),
+    // Zero is NOT allowed here, unlike the single-add schema: a basket is a
+    // purchase. Removing an add-on is its own verb, and letting a basket carry
+    // removals would make one call both buy and cancel under one confirmation.
+    quantity: z.number().int().min(1).max(1000),
+  })).min(1, 'at least one item is required').max(8, 'at most eight items'),
+});
+
+/**
  * Schema for admin subscription override (PUT /billing/admin/subscriptions/:id).
  */
 export const AdminSubscriptionUpdateSchema = z.object({

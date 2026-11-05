@@ -367,7 +367,10 @@ const EXCEPTIONS: RouteCoverageException[] = [
 const INTERNAL_ROUTES: InternalRouteDeclaration[] = [
   // compliance's notification channels, the plugin ecosystem's notices,
   // reporting's stakeholder reports and quota's usage-threshold notices.
-  { method: 'POST', path: '/internal/notify-email', callers: ['compliance', 'plugin', 'quota', 'reporting'] },
+  // `billing` is here for the OFFER leg only: the controller refuses a billing
+  // token that does not carry `offerNotice`, so it cannot fall through to the
+  // tenant leg and name arbitrary members.
+  { method: 'POST', path: '/internal/notify-email', callers: ['billing', 'compliance', 'plugin', 'quota', 'reporting'] },
   // Whether outbound email is on — the anonymous-submission API's precondition,
   // and the whole of the ask agent's notification diagnosis. Reading the switch
   // is strictly weaker than sending, so `ask` is here but not on the send route.

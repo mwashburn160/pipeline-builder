@@ -9,6 +9,7 @@ import { createAttachmentRoutes } from './routes/attachment-routes.js';
 import { createCreateMessageRoutes } from './routes/create-message.js';
 import { createDeleteMessageRoutes } from './routes/delete-message.js';
 import { createInternalNotifyRoutes } from './routes/internal-notify.js';
+import { createInternalOffersRoutes } from './routes/internal-offers.js';
 import { createInternalOrgPurgeRoutes } from './routes/internal-org-purge.js';
 import { createPurgeMessageRoutes } from './routes/purge-message.js';
 import { createReadMessageRoutes } from './routes/read-messages.js';
@@ -90,6 +91,11 @@ export function mountRoutes(app: Express, { quotaService, sseManager, ticketStor
   // pass through the idempotency middleware.
   app.use('/messages', createInternalOrgPurgeRoutes());
   app.use('/messages', createInternalNotifyRoutes(sseManager));
+  // Internal offers signal (service-to-service): billing asks whether an account
+  // is currently frustrated, derived from its OWN support text. Mounted with the
+  // other internal routes and before the step-up mount for the same reason — a
+  // service token carries no permission claims and would 403 on that chain.
+  app.use('/messages', createInternalOffersRoutes());
 
   // -- Purge + Restore routes — auth + orgId + messages:write + step-up --------
   // Both are permanently-consequential soft-delete operations and BOTH require a

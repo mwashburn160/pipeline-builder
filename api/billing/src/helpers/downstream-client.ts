@@ -170,6 +170,10 @@ export interface UsageProfileRead {
   orgId: string;
   tier: string;
   rootOrgId: string;
+  /** The account's quota-notice switch — ANDed with `offersEnabled` for email (D6). */
+  noticesEnabled: boolean;
+  /** The account's own offers switch. Absent upstream reads as true (opt-out). */
+  offersEnabled: boolean;
   dimensions: Record<string, ProfileDimensionRead>;
 }
 
@@ -219,6 +223,42 @@ export async function fetchSeatActivity(
     auth,
   );
   return body?.data?.seatActivity ?? null;
+}
+
+/** The derived frustration signal, as the message service answers it. */
+export interface FrustrationSignalRead {
+  orgId: string;
+  windowDays: number;
+  sampled: number;
+  frustrated: boolean;
+  confidence: number;
+  /** True when the answer is an ABSENCE rather than a reading. */
+  degraded: boolean;
+  promptVersion: string;
+}
+
+/**
+ * Is this account currently unhappy with us?
+ * (`GET /messages/internal/offers/frustration/:orgId`, Phase 4.)
+ *
+ * A BOOLEAN crosses the boundary, never the text: ticket bodies are the most
+ * PII-dense material in the product, and the derivation runs in the service that
+ * owns them.
+ *
+ * Null on an unreachable read, which the caller must treat as NO SIGNAL rather
+ * than as contentment. That is the opposite of how the rest of this path fails
+ * closed, and deliberately so: this signal only ever suppresses, so failing
+ * closed on it would mean an AI or message-service outage silently stopped every
+ * offer — which the plan forbids in as many words.
+ */
+export async function fetchFrustrationSignal(orgId: string, auth: string): Promise<FrustrationSignalRead | null> {
+  const body = await getJson<{ data?: { signal?: FrustrationSignalRead } }>(
+    config.messageService,
+    `/messages/internal/offers/frustration/${encodeURIComponent(orgId)}`,
+    orgId,
+    auth,
+  );
+  return body?.data?.signal ?? null;
 }
 
 export async function fetchSeatUsage(orgId: string, auth: string): Promise<SeatUsageSnapshot | null> {

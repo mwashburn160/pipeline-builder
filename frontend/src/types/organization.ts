@@ -268,6 +268,15 @@ export interface QuotaNoticeSettings {
   /** The account root the settings belong to. */
   orgId: string;
   enabled: boolean;
+  /**
+   * The account's EXPANSION-OFFERS switch (docs/plans/sales-agent.md D6/F7).
+   *
+   * Default TRUE — an opt-OUT. It rides this row rather than a billing one
+   * because the two are ANDed at send time: an offer travels the quota-notice
+   * channel, so an account that silenced that channel has already answered for
+   * both, and `enabled: false` therefore suppresses offers whatever this says.
+   */
+  offersEnabled?: boolean;
   webhookUrl: string | null;
   thresholds: number[];
   /** False when the deployment has switched notices off for everyone. */

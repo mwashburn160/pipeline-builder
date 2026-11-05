@@ -1963,6 +1963,7 @@
     "servicePrincipal": true,
     "dynamicAuthz": [],
     "internalCallers": [
+      "billing",
       "compliance",
       "plugin",
       "quota",

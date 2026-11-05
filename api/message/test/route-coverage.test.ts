@@ -101,6 +101,10 @@ const EXCEPTIONS: RouteCoverageException[] = [
 const INTERNAL_ROUTES: InternalRouteDeclaration[] = [
   { method: 'POST', path: '/messages/internal/notify', callers: ['platform', 'billing', 'compliance', 'quota'] },
   { method: 'DELETE', path: '/messages/internal/org/:orgId/attachments', callers: ['platform'] },
+  // The expansion-offers frustration signal (docs/plans/sales-agent.md Phase 4).
+  // ONE caller, and it must stay one: the route exists so support-case TEXT does
+  // not travel, and a second consumer would be a second reason to widen it.
+  { method: 'GET', path: '/messages/internal/offers/frustration/:orgId', callers: ['billing'] },
 ];
 
 /**

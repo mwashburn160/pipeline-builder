@@ -117,6 +117,8 @@ export interface AppConfig {
   offers: {
     /** Interval between profile-collection cycles (`OFFERS_PROFILE_INTERVAL_MS`). */
     profileIntervalMs: number;
+    /** Interval between offer-decision cycles (`OFFERS_CYCLE_INTERVAL_MS`). */
+    cycleIntervalMs: number;
   };
   enabled: boolean;
   port: number;
@@ -308,6 +310,17 @@ export const config: AppConfig = {
      * passes no-ops anyway.
      */
     profileIntervalMs: intSetting('OFFERS_PROFILE_INTERVAL_MS', 24 * 60 * 60 * 1000, { min: 60_000 }),
+    /**
+     * How often the DECISION cycle runs. Daily as well, and the quiet period
+     * (45 days) is what actually bounds how often one account hears anything —
+     * this interval only decides how promptly an account that just became
+     * eligible is noticed.
+     *
+     * Running it faster does not make more offers; it re-reads every account's
+     * profile to reach the same answer, because the slot is keyed on the
+     * profile PERIOD rather than on the cycle.
+     */
+    cycleIntervalMs: intSetting('OFFERS_CYCLE_INTERVAL_MS', 24 * 60 * 60 * 1000, { min: 60_000 }),
   },
   port: intSetting('PORT', 3000, { min: 1 }),
   billingProvider: resolveBillingProvider(),

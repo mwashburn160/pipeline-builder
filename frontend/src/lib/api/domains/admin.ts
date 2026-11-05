@@ -398,11 +398,13 @@ export function adminApi(core: ApiCore) {
         `/api/quota/${encodeURIComponent(orgId)}/notice-settings`, { signal: opts?.signal });
     },
 
-    /** Opt the account out of (or back into) quota notices / set its `quota.threshold`
-     *  webhook / set or clear (`null`) its optional AI controls (per-member AI share,
-     *  AI token budget). Root org only; `billing:manage`. */
+    /** Opt the account out of (or back into) quota notices / expansion OFFERS
+     *  (`offersEnabled`, which the server ANDs with `enabled`) / set its
+     *  `quota.threshold` webhook / set or clear (`null`) its optional AI controls
+     *  (per-member AI share, AI token budget). Root org only; `billing:manage`. */
     updateQuotaNoticeSettings: async (orgId: string, data: {
       enabled?: boolean;
+      offersEnabled?: boolean;
       webhookUrl?: string | null;
       aiCallsPerMemberPct?: number | null;
       aiTokenBudget?: number | null;

@@ -44,6 +44,7 @@ import { bundleSelfServiceAllowed, bundlesEnabled, billingServiceAuth, createBil
 import { priceForInterval, getComboDiscounts } from '../helpers/combo-pricing.js';
 import { recurringDiscountStandingCents } from '../helpers/credit-floor.js';
 import { addonCostCents, evaluateCrossover } from '../helpers/crossover.js';
+import { attributeConversion } from '../helpers/offers-outcome.js';
 import { checkEntitlementOvercap, syncEntitlements } from '../helpers/entitlement-sync.js';
 import { refuseTeamBilling } from '../helpers/root-org-guard.js';
 import { buildSubscriptionResponse } from '../helpers/subscription-response.js';
@@ -51,7 +52,7 @@ import { MANAGEABLE_SUBSCRIPTION_STATUSES, isGraceDowngraded } from '../helpers/
 import { Plan } from '../models/plan.js';
 import { Subscription, type SubscriptionDocument } from '../models/subscription.js';
 import { getPaymentProvider } from '../providers/provider-factory.js';
-import { AddonMutateSchema } from '../validation/schemas.js';
+import { AddonBasketSchema, AddonMutateSchema } from '../validation/schemas.js';
 
 const logger = createLogger('billing-addons');
 const AUTH_OPTS = { allowOrgHeaderOverride: true } as const;
@@ -518,8 +519,138 @@ export function createAddonRoutes(): Router {
 
     logger.info('Add-on applied', { orgId, bundleId, quantity: qty });
 
+    // Credit an open offer, if this purchase plausibly answers one (Phase 6).
+    // The purchase routes are the ONLY place a conversion is observable — an
+    // offer records what we said, not what they then did — and it is best
+    // effort: a measurement row must never fail a completed purchase.
+    void attributeConversion(orgId, { kind: 'bundle', sku: bundleId });
+
     // A combo can end even on an ADD when the new packing drops a lower-value combo
     // that shared a member. Record combo_expired for any combo the change lost.
+    const delta = comboDelta(current, next, bundles, committed.interval);
+    await recordLostCombos(orgId, delta.lostCombos, committed._id.toString(), req.user?.sub);
+
+    const { limits } = effectiveEntitlements(plan.tier, next, bundles);
+    return sendSuccess(res, 200, {
+      subscription: buildSubscriptionResponse(committed, plan.name, plan.tier),
+      addons: next,
+      effectiveLimits: limits,
+      priceBreakdown: priceBreakdown(plan, next, bundles, committed.interval, plan.tier, committed.supportFloorOverride),
+      ...delta,
+    });
+  }));
+
+  /**
+   * POST /billing/subscriptions/:id/addons/basket — buy several add-ons as ONE
+   * change (docs/plans/sales-agent.md F6).
+   *
+   * **Atomic because a half-applied basket must not be a reachable state.** A
+   * compose offer is sized to the dimensions actually under pressure, so three
+   * sequential calls can leave the account having paid for part of an offer
+   * whose point was the whole — and the dimensions still under pressure are
+   * precisely the ones whose purchase failed.
+   *
+   * Atomicity comes free from the existing commit: `commitAddonChange` writes
+   * the WHOLE add-on set under an optimistic-concurrency guard, so the basket is
+   * one `findOneAndUpdate`. What this route adds is running every gate against
+   * the FINAL set rather than item by item — prerequisites, support-level
+   * conflicts, the quantity ceilings, the payment method and the over-cap check
+   * all see the basket as the account would hold it.
+   *
+   * Same gate as the single add (`billing:manage`, admin-MFA, root-org only) and
+   * the same audit action per item: an operator reading the trail should see
+   * three add-on adds, not one opaque "basket" event whose contents need
+   * decoding.
+   */
+  router.post('/subscriptions/:id/addons/basket', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:manage') as RequestHandler, ADMIN_MFA, ROOT_ONLY, audited('billing.addon.add', 'billing.combo.expired'), withRoute(async ({ req, res, orgId }) => {
+    if (!bundlesEnabled()) return sendError(res, 404, 'Add-on bundles are not enabled', ErrorCode.NOT_FOUND);
+    if (!bundleSelfServiceAllowed()) return sendError(res, 403, 'Add-ons for Marketplace-billed accounts are managed in AWS Marketplace', ErrorCode.INSUFFICIENT_PERMISSIONS);
+    const validation = validateBody(req, AddonBasketSchema);
+    if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
+    const { items } = validation.value;
+    // A duplicate bundle id would silently collapse to the LAST quantity, which
+    // is not what the caller asked for and not what the confirmation showed.
+    const ids = new Set(items.map((i) => i.bundleId));
+    if (ids.size !== items.length) return sendBadRequest(res, 'A basket cannot list the same add-on twice', ErrorCode.VALIDATION_ERROR);
+
+    const loaded = await loadSubAndPlan(orgId);
+    if (!loaded) return sendError(res, 404, 'No active subscription', ErrorCode.NOT_FOUND);
+    const { subscription, plan } = loaded;
+    if (!subscriptionIdMatches(req, subscription)) return sendError(res, 404, 'Subscription not found', ErrorCode.NOT_FOUND);
+
+    const bundles = getBundleCatalog();
+    const current = (subscription.addons ?? []) as Addon[];
+    let next = current;
+    for (const item of items) {
+      const resolved = resolvePurchasableBundle(bundles, item.bundleId, plan.tier);
+      if ('error' in resolved) return sendError(res, 400, resolved.error, ErrorCode.VALIDATION_ERROR);
+      const { bundle } = resolved;
+      const qty = bundle.stackable ? Math.max(1, Math.trunc(item.quantity)) : 1;
+      const capError = bundleQuantityCapError(bundle, qty);
+      if (capError) return sendError(res, 400, capError, ErrorCode.VALIDATION_ERROR);
+      next = applyAddon(next, item.bundleId, qty);
+    }
+
+    // Prerequisites and support-level conflicts against the FINAL set — which is
+    // the point of a basket: "Advanced Compliance" plus "Standard Compliance" in
+    // one basket is legal, while adding Advanced alone is not, and an item-by-item
+    // check would refuse the legal case.
+    for (const item of items) {
+      const resolved = resolvePurchasableBundle(bundles, item.bundleId, plan.tier);
+      if ('error' in resolved) return sendError(res, 400, resolved.error, ErrorCode.VALIDATION_ERROR);
+      const requiresError = bundleRequiresError(resolved.bundle, next, bundles, plan.tier);
+      if (requiresError) return sendError(res, 400, requiresError, ErrorCode.VALIDATION_ERROR);
+      const supportConflict = supportLevelConflictError(resolved.bundle, next, bundles);
+      if (supportConflict) return sendError(res, 400, supportConflict, ErrorCode.VALIDATION_ERROR);
+    }
+
+    // The payment gate, once, on whether the basket costs anything MORE than
+    // what is held today. A basket of eight free bundles needs no card; a basket
+    // with one paid increase does.
+    const priceOf = (bundleId: string) => {
+      const b = bundles.find((x) => x.id === bundleId);
+      if (!b) return 0;
+      return subscription.interval === 'annual' ? b.prices.annual : b.prices.monthly;
+    };
+    const increases = items.some((i) => {
+      const held = current.find((a) => a.bundleId === i.bundleId)?.quantity ?? 0;
+      return i.quantity > held && priceOf(i.bundleId) > 0;
+    });
+    if (increases) {
+      const provider = getPaymentProvider();
+      const chargeable = provider.hasPaymentMethod
+        ? await provider.hasPaymentMethod(subscription.externalCustomerId ?? '').catch(() => false)
+        : true;
+      if (!chargeable) {
+        return sendError(res, 402, 'Add a payment method before purchasing add-ons', ErrorCode.PAYMENT_METHOD_REQUIRED);
+      }
+    }
+
+    const overages = await checkEntitlementOvercap(orgId, plan.tier, next, '');
+    if (overages.length > 0) {
+      return sendError(res, 409, 'This change would put the account over its limit — remove members/resources first', ErrorCode.ADDON_OVER_CAP, { overages });
+    }
+
+    const committed = await commitAddonChange({
+      subscription,
+      tier: plan.tier,
+      orgId,
+      next,
+      actorId: req.user?.sub,
+      source: 'addon_add',
+      // The audit row's target is the basket, named by its items rather than by
+      // a single bundle id — there is no one bundle this change was "about".
+      bundleId: items.map((i) => i.bundleId).join(','),
+      eventDetails: { reason: 'addon_basket', items },
+      auditDetails: { basket: items },
+    });
+    if (!committed) {
+      return sendError(res, 409, 'This subscription was modified concurrently — please retry', ErrorCode.CONFLICT);
+    }
+
+    logger.info('Add-on basket applied', { orgId, items: items.length });
+    void attributeConversion(orgId, { kind: 'bundle', sku: items.map((i) => i.bundleId).join(',') });
+
     const delta = comboDelta(current, next, bundles, committed.interval);
     await recordLostCombos(orgId, delta.lostCombos, committed._id.toString(), req.user?.sub);
 

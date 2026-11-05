@@ -33,6 +33,7 @@ import { TeamUsageCard } from '@/components/billing/TeamUsageCard';
 import { PlanGrid } from '@/components/billing/PlanGrid';
 import { AddonGrid } from '@/components/billing/AddonGrid';
 import { CurrentChargesCard } from '@/components/billing/CurrentChargesCard';
+import { OfferCard } from '@/components/billing/OfferCard';
 import { DiscountRedeem } from '@/components/billing/DiscountRedeem';
 import { AddonPreviewModal } from '@/components/billing/AddonPreviewModal';
 import { PlanChangeModal } from '@/components/billing/PlanChangeModal';
@@ -298,6 +299,21 @@ export default function BillingPage() {
                 onManageBilling={openBillingPortal}
               />
             )}
+
+            {/* The one place an expansion offer APPEARS unprompted (F4).
+                Here rather than in QuotaBanner on purpose (F5): the banner is
+                the warning channel, and offers placed there would compete with
+                real pressure warnings and train people to dismiss it. Renders
+                nothing when there is no live offer, which is the normal state.
+                Above the charges card because an offer the account can act on
+                is about to change that number. */}
+            <OfferCard
+              canRespond={canChangePlan}
+              subscriptionId={subscription?.id}
+              bundles={bundles}
+              interval={billingInterval}
+              onApplied={reloadAll}
+            />
 
             {/* What the account is paying right now, itemized.
                 Above usage because "why is this the number" is the first
