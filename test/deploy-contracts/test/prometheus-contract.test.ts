@@ -876,3 +876,19 @@ describe('alert thresholds stay inside their histogram buckets', () => {
     expect(docker).toEqual([]);
   });
 });
+
+/**
+ * Client-side `kubectl apply` copies the whole object into the
+ * last-applied-configuration annotation, capped at 262144 bytes. The alert
+ * rules alone are close to that, so prometheus-config is rejected outright
+ * ("metadata.annotations: Too long") and a fresh install stops at Phase 4.
+ * ConfigMaps go through server-side apply, which keeps no such annotation.
+ */
+describe('ConfigMaps survive the 256 KB annotation cap', () => {
+  const res = read('deploy/bin/k8s-resources.sh');
+
+  it('applies ConfigMaps server-side', () => {
+    expect(res).toMatch(/^pb_kube_apply_ss\(\) \{.*apply --server-side --force-conflicts --field-manager=pb-deploy -f - ; \}$/m);
+    expect(res).toMatch(/^pb_configmap\(\) \{.*pb_kube_apply_ss create configmap/m);
+  });
+});

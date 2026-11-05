@@ -46,12 +46,19 @@ GATEWAY_API_MANIFEST_SHA256="${GATEWAY_API_MANIFEST_SHA256:-78796d5c51450fc55d8d
 # Render-then-apply a `create …` so re-runs update rather than fail.
 pb_kube_apply() { $PB_KUBECTL "$@" --dry-run=client -o yaml | $PB_KUBECTL apply -f - ; }
 
+# Server-side variant for ConfigMaps. Client-side apply copies the whole object
+# into the last-applied-configuration annotation, capped at 262144 bytes, so a
+# ConfigMap over 256 KB (prometheus-config: alert-rules.yml alone is ~249 KB)
+# is rejected. Server-side apply keeps no such annotation; --force-conflicts
+# takes over fields an earlier client-side apply owned on a re-run.
+pb_kube_apply_ss() { $PB_KUBECTL "$@" --dry-run=client -o yaml | $PB_KUBECTL apply --server-side --force-conflicts --field-manager=pb-deploy -f - ; }
+
 # `|| return 1` before the echo, because a function's status is its LAST
 # command's: without it these ALWAYS returned 0 (the echo), so a caller that
 # tests them — or that calls them from inside an `&&` list, where errexit is
 # suppressed — was told a failed `kubectl apply` had succeeded.
 pb_secret()    { local _n="$1"; shift; pb_kube_apply create secret generic "$_n" "$@" -n "$PB_NAMESPACE" || return 1; echo "  secret $_n"; }
-pb_configmap() { local _n="$1"; shift; pb_kube_apply create configmap "$_n" "$@" -n "$PB_NAMESPACE" || return 1; echo "  configmap $_n"; }
+pb_configmap() { local _n="$1"; shift; pb_kube_apply_ss create configmap "$_n" "$@" -n "$PB_NAMESPACE" || return 1; echo "  configmap $_n"; }
 
 # pb_split_app_env <clean_env> <config_out> <secret_out>
 #
