@@ -40,12 +40,18 @@ const logger = createLogger('plugin-build-queue');
  * every `tryAcquireOrgSlot` throw and brick ALL plugin builds — not just the
  * tier whose variable was fat-fingered.
  *
- * The BASELINE (`pluginBuild.maxBuildsPerOrg`, `PLUGIN_MAX_BUILDS_PER_ORG`,
- * default 5) is what every org gets; the catalog ladder only ever RAISES it, so
- * the default here is `max(baseline, ladder)`. The ladder's lower rows were too
- * tight for a real working set — at three in flight an org pushing a batch
- * spends most of its time queued, and past `PLUGIN_ORG_SLOT_MAX_WAIT_MS` those
- * waiting builds fail TERMINALLY rather than merely late.
+ * The PER-CLASS BASELINE (`pluginBuild.orgBuildSlots`,
+ * `PLUGIN_ORG_BUILD_SLOTS_STANDARD` 5 / `_FLEXIBLE` 8) is what every org gets;
+ * the catalog ladder only ever RAISES it, so the default here is
+ * `max(baseline[class], ladder)`. The ladder's lower rows were too tight for a
+ * real working set — at three in flight an org pushing a batch spends most of
+ * its time queued, and past `PLUGIN_ORG_SLOT_MAX_WAIT_MS` those waiting builds
+ * fail TERMINALLY rather than merely late.
+ *
+ * Per CLASS because one shared figure flattened the two: with a single baseline
+ * of 5, developer/pro/team got 5 for standard AND flexible, so the cheap class
+ * bought a later start and no extra slots. Flexible's higher baseline keeps
+ * "flexible has more headroom" true on every tier.
  *
  * The ORDER is the contract: the baseline moves the DEFAULT, and an explicit
  * `PLUGIN_MAX_BUILDS_<TIER>_<CLASS>` still wins outright — including a value
@@ -55,7 +61,7 @@ const logger = createLogger('plugin-build-queue');
 export function maxBuildsPerOrg(tier: QuotaTier, buildClass: BuildClass): number {
   return envInt(
     `PLUGIN_MAX_BUILDS_${tier.toUpperCase()}_${buildClass.toUpperCase()}`,
-    Math.max(getBuildCfg().maxBuildsPerOrg, buildSlotsFor(tier, buildClass)),
+    Math.max(getBuildCfg().orgBuildSlots[buildClass], buildSlotsFor(tier, buildClass)),
     { min: 1 },
   );
 }

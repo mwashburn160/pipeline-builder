@@ -107,14 +107,36 @@ describe('the per-org build cap is stated the same way in every target', () => {
     'deploy/aws/eks/.env.example',
   ];
 
-  it.each(TARGETS)('%s offers the baseline at its current default', (target) => {
-    // Three of the four carried a DEAD `PLUGIN_MAX_BUILDS_PER_ORG=3` long after
-    // the code stopped reading it — and reviving the name made those lines live
-    // again at the figure that starved the catalogue load. An operator copying
-    // .env.example must not be handed the old number.
+  it.each(TARGETS)('%s offers both per-class baselines at their defaults', (target) => {
     const env = read(target);
-    expect(env).toContain('# PLUGIN_MAX_BUILDS_PER_ORG=5');
-    expect(env).not.toMatch(/^#?\s*PLUGIN_MAX_BUILDS_PER_ORG=3\s*$/m);
+    expect(env).toContain('# PLUGIN_ORG_BUILD_SLOTS_STANDARD=5');
+    expect(env).toContain('# PLUGIN_ORG_BUILD_SLOTS_FLEXIBLE=8');
+  });
+
+  it.each(TARGETS)('%s does not offer the RETIRED flat name as a setting', (target) => {
+    // Three of the four carried a DEAD `PLUGIN_MAX_BUILDS_PER_ORG=3` long after
+    // the code stopped reading it, so reviving that name would have silently
+    // applied the figure that starved the catalogue load. The name is retired
+    // rather than reused, and must not come back as an assignable line — the
+    // prose may still mention it to explain why.
+    expect(read(target)).not.toMatch(/^#?\s*PLUGIN_MAX_BUILDS_PER_ORG=/m);
+  });
+
+  it('is retired from the CODE entirely, with no alias', () => {
+    // No compat alias: a fresh name is the only way to tell a value set
+    // deliberately from one set while the variable did nothing.
+    const src = read('packages/pipeline-core/src/config/infrastructure-config.ts');
+    expect(src).not.toContain("envInt('PLUGIN_MAX_BUILDS_PER_ORG'");
+  });
+
+  it('is plumbed to the container on the compose target', () => {
+    // k8s targets build app-env from the whole .env, so they need no
+    // per-variable plumbing; compose names each one explicitly, and the old
+    // name was still the one being passed through.
+    const compose = read('deploy/local/docker/docker-compose.yml');
+    expect(compose).toContain('PLUGIN_ORG_BUILD_SLOTS_STANDARD:');
+    expect(compose).toContain('PLUGIN_ORG_BUILD_SLOTS_FLEXIBLE:');
+    expect(compose).not.toContain('PLUGIN_MAX_BUILDS_PER_ORG:');
   });
 
   it.each(TARGETS)('%s says the system org is exempt', (target) => {
@@ -123,22 +145,48 @@ describe('the per-org build cap is stated the same way in every target', () => {
     expect(read(target).toLowerCase()).toContain('system org is exempt');
   });
 
-  it('agrees with the code default', () => {
+  it('agrees with the code defaults', () => {
     const src = read('packages/pipeline-core/src/config/infrastructure-config.ts');
-    const m = /envInt\('PLUGIN_MAX_BUILDS_PER_ORG',\s*(\d+)/.exec(src);
-    expect(m?.[1]).toBe('5');
+    expect(/envInt\('PLUGIN_ORG_BUILD_SLOTS_STANDARD',\s*(\d+)/.exec(src)?.[1]).toBe('5');
+    expect(/envInt\('PLUGIN_ORG_BUILD_SLOTS_FLEXIBLE',\s*(\d+)/.exec(src)?.[1]).toBe('8');
+  });
+
+  it('keeps flexible ABOVE standard, or the classes collapse again', () => {
+    // A single baseline flattened the two below it. If these two ever meet, the
+    // cheap class buys a later start and nothing else on every low tier.
+    const src = read('packages/pipeline-core/src/config/infrastructure-config.ts');
+    const std = Number(/envInt\('PLUGIN_ORG_BUILD_SLOTS_STANDARD',\s*(\d+)/.exec(src)?.[1]);
+    const flex = Number(/envInt\('PLUGIN_ORG_BUILD_SLOTS_FLEXIBLE',\s*(\d+)/.exec(src)?.[1]);
+    expect(flex).toBeGreaterThan(std);
   });
 
   it('is a BASELINE in the code, not a ceiling', () => {
     // max(baseline, ladder): a `min` here would cap enterprise DOWN to the
     // baseline and make the paid ladder meaningless in the other direction.
     const src = read('api/plugin/src/queue/slot-manager.ts');
-    expect(src).toContain('Math.max(getBuildCfg().maxBuildsPerOrg, buildSlotsFor(tier, buildClass))');
+    expect(src).toContain('Math.max(getBuildCfg().orgBuildSlots[buildClass], buildSlotsFor(tier, buildClass))');
+  });
+
+  it('warns when WORKER concurrency is the binding limit instead', () => {
+    // The per-org cap looks like a throughput knob and is not one: it is a
+    // fairness device between tenants sharing a tier queue, and raising it does
+    // nothing while the worker still takes fewer jobs at a time. That is the
+    // shape of a setting that appears to work, so the worker says so.
+    const src = read('api/plugin/src/queue/plugin-build-queue.ts');
+    expect(src).toContain('warnIfConcurrencyBinds');
+    expect(src).toContain('Worker concurrency binds below the per-org build cap');
+    // And the effective caps are logged beside the concurrency on every start,
+    // so a stale override is readable rather than inferred from failed builds.
+    expect(src).toMatch(/orgSlots: \{ standard:/);
   });
 
   it('is documented, and the README agrees', () => {
-    expect(read('docs/environment-variables.md')).toContain('| `PLUGIN_MAX_BUILDS_PER_ORG` | `5` |');
-    expect(read('api/plugin/README.md')).toMatch(/PLUGIN_MAX_BUILDS_PER_ORG.*\| `5` \|/);
+    const docs = read('docs/environment-variables.md');
+    expect(docs).toContain('| `PLUGIN_ORG_BUILD_SLOTS_STANDARD` | `5` |');
+    expect(docs).toContain('| `PLUGIN_ORG_BUILD_SLOTS_FLEXIBLE` | `8` |');
+    const readme = read('api/plugin/README.md');
+    expect(readme).toMatch(/PLUGIN_ORG_BUILD_SLOTS_STANDARD.*\| `5` \|/);
+    expect(readme).toMatch(/PLUGIN_ORG_BUILD_SLOTS_FLEXIBLE.*\| `8` \|/);
   });
 });
 

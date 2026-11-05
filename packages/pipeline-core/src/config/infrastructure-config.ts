@@ -70,9 +70,13 @@ export function parsePlatformBaseUrl(raw?: string): { host: string; port: number
 export function loadPluginBuildConfig(): PluginBuildConfig {
   return {
     concurrency: envInt('PLUGIN_BUILD_CONCURRENCY', 1),
-    // 5, raised from the ladder's lowest rows (developer 1 / pro 2 / team 3).
-    // See PluginBuildConfig: a baseline the ladder raises, not a ceiling.
-    maxBuildsPerOrg: envInt('PLUGIN_MAX_BUILDS_PER_ORG', 5, { min: 1 }),
+    // Baselines the tier ladder raises, never a ceiling (see PluginBuildConfig).
+    // Flexible sits ABOVE standard so the cheap class keeps real headroom on
+    // every tier; one shared figure made the two identical below it.
+    orgBuildSlots: {
+      standard: envInt('PLUGIN_ORG_BUILD_SLOTS_STANDARD', 5, { min: 1 }),
+      flexible: envInt('PLUGIN_ORG_BUILD_SLOTS_FLEXIBLE', 8, { min: 1 }),
+    },
     maxAttempts: envInt('PLUGIN_BUILD_MAX_ATTEMPTS', 2),
     backoffDelayMs: envInt('PLUGIN_BUILD_BACKOFF_DELAY_MS', 5_000),
     workerTimeoutMs: envInt('PLUGIN_BUILD_WORKER_TIMEOUT_MS', 10_000),

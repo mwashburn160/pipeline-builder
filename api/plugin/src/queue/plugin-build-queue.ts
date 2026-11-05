@@ -11,7 +11,7 @@
 import * as fs from 'fs';
 import path from 'path';
 
-import { SYSTEM_ACTOR_ID, ErrorCode, envInt, createLogger, errorMessage, getServiceAuthHeader, VALID_TIERS, recordAudit } from '@pipeline-builder/api-core';
+import { SYSTEM_ACTOR_ID, BUILD_CLASSES, ErrorCode, envInt, createLogger, errorMessage, getServiceAuthHeader, VALID_TIERS, recordAudit } from '@pipeline-builder/api-core';
 import type { AppError, BuildClass, BuildSize, PluginScanSummary, QuotaService, QuotaTier } from '@pipeline-builder/api-core';
 import { incCounter, observe, setGauge, withSpan } from '@pipeline-builder/api-server';
 import type { SSEManager } from '@pipeline-builder/api-server';
@@ -183,6 +183,42 @@ export function waitForWorkerReady(timeoutMs = getBuildCfg().workerTimeoutMs): P
 // Main worker
 // ---------------------------------------------------------------------------
 
+/**
+ * Warn when a tier's WORKER concurrency sits below its per-org cap.
+ *
+ * They are different limits on different resources and the LOWER of them binds:
+ * the per-org cap is a FAIRNESS device between tenants sharing a tier queue,
+ * while the worker concurrency is this pod's capacity — every concurrent build
+ * drives the same buildkitd sidecar, so it trades CPU, memory and scratch disk
+ * in one place.
+ *
+ * Worth saying out loud because the per-org cap then LOOKS like a throughput
+ * knob and is not one: raising it changes nothing while the worker still takes
+ * one job at a time, which is exactly the shape of a setting that appears to
+ * work. The message names both figures and which one is actually binding.
+ *
+ * Per-REPLICA: the concurrency is this worker's, so N replicas of this
+ * deployment multiply it. The deploy targets ship `replicas: 1`, which is why
+ * the comparison is stated against one.
+ */
+function warnIfConcurrencyBinds(tier: QuotaTier, concurrency: number): void {
+  for (const buildClass of BUILD_CLASSES) {
+    const cap = maxBuildsPerOrg(tier, buildClass);
+    if (concurrency >= cap) continue;
+    logger.warn('Worker concurrency binds below the per-org build cap', {
+      tier,
+      buildClass,
+      workerConcurrency: concurrency,
+      orgCap: cap,
+      // The actionable half: which variable to move, and that moving the other
+      // one will not help.
+      binding: 'workerConcurrency',
+      hint: `raise PLUGIN_BUILD_CONCURRENCY_${tier.toUpperCase()} (or add replicas); `
+        + `raising the per-org cap alone cannot take this tier past ${concurrency} in flight`,
+    });
+  }
+}
+
 export function startWorker(sseManager: SSEManager, quotaService: QuotaService): void {
   if (tierWorkers.size > 0) return;
 
@@ -202,7 +238,7 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
   // concurrent build platform-wide by accident rather than by decision.
   //
   // Note this is the WORKER concurrency per tier queue, a different limit from
-  // the per-ORG cap in slot-manager (`PLUGIN_MAX_BUILDS_PER_ORG` baseline, 5).
+  // the per-ORG cap in slot-manager (`PLUGIN_ORG_BUILD_SLOTS_*` baselines, 5/8).
   // The lower of the two binds, so raising the per-org cap alone does nothing
   // for a tier whose queue still processes one build at a time.
   const { concurrency } = getBuildCfg();
@@ -613,7 +649,17 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
     tierWorker.on('error', errorHandler);
     tierWorker.on('completed', completedHandler);
     tierWorker.on('ready', () => {
-      logger.info('Plugin build worker ready (Redis connected)', { tier, concurrency: tierConcurrency[tier] });
+      // The EFFECTIVE per-org caps beside the worker concurrency, because the
+      // two are different limits and the LOWER of them binds. Logged on every
+      // start so an operator can read the real figures instead of inferring
+      // them from failed builds — which is how a stale per-org override, or a
+      // cap that cannot be reached at all, used to be discovered.
+      logger.info('Plugin build worker ready (Redis connected)', {
+        tier,
+        concurrency: tierConcurrency[tier],
+        orgSlots: { standard: maxBuildsPerOrg(tier, 'standard'), flexible: maxBuildsPerOrg(tier, 'flexible') },
+      });
+      warnIfConcurrencyBinds(tier, tierConcurrency[tier]);
     });
 
     tierWorkers.set(tier, tierWorker);

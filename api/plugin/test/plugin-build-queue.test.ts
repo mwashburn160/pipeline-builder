@@ -126,7 +126,7 @@ const mockAuditRecord = jest.fn<(...args: any[]) => any>();
 const mockPipelineCoreConfig: Record<string, any> = {
   pluginBuild: {
     concurrency: 1,
-    maxBuildsPerOrg: 5,
+    orgBuildSlots: { standard: 5, flexible: 8 },
     maxAttempts: 2,
     backoffDelayMs: 5000,
     workerTimeoutMs: 10000,

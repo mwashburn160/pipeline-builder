@@ -1,6 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import type { BuildClass } from '@pipeline-builder/api-core';
 
 /**
  * Type-safe configuration interface
@@ -153,17 +154,24 @@ export interface RegistryConfig {
 export interface PluginBuildConfig {
   readonly concurrency: number;
   /**
-   * BASELINE maximum in-flight builds one organization may hold
-   * (`PLUGIN_MAX_BUILDS_PER_ORG`, default 5).
+   * BASELINE in-flight build slots one organization gets, PER SCHEDULING CLASS
+   * (`PLUGIN_ORG_BUILD_SLOTS_STANDARD` 5, `PLUGIN_ORG_BUILD_SLOTS_FLEXIBLE` 8).
    *
    * Every org gets at least this many; the tier ladder in `BUILD_CLASS_CATALOG`
-   * only ever RAISES it (enterprise and unlimited sit at 8 on the standard
-   * class), so the effective cap is `max(this, ladder)`.
+   * only ever RAISES it, so the effective cap is `max(this[class], ladder)`.
    *
-   * It is 5 because the ladder's lower rows were too tight for a real working
-   * set: at three in flight an org pushing a batch of plugins spends most of its
-   * time queued, and past `PLUGIN_ORG_SLOT_MAX_WAIT_MS` the waiting builds fail
-   * TERMINALLY rather than merely late.
+   * Five and eight rather than the ladder's lower rows (standard 1/2/3, flexible
+   * 3/4/6) because three in flight is too tight for a real working set: an org
+   * pushing a batch of plugins spends most of its time queued, and past
+   * `PLUGIN_ORG_SLOT_MAX_WAIT_MS` the waiting builds fail TERMINALLY rather than
+   * merely late.
+   *
+   * **PER CLASS, and that is the point.** A single baseline across both classes
+   * flattened them below it — developer, pro and team all landed on the same
+   * figure for standard and flexible alike, so choosing the cheap class bought
+   * the later start and no extra slots. Keying the baseline on the class keeps
+   * "flexible always has more headroom" true on EVERY tier by construction
+   * rather than by assertion.
    *
    * A DEFAULT, not a ceiling: an explicit `PLUGIN_MAX_BUILDS_<TIER>_<CLASS>`
    * wins outright, including a value below this, so an operator who deliberately
@@ -171,12 +179,15 @@ export interface PluginBuildConfig {
    * itself — it is browser-importable, so it cannot see an env var — which is
    * why the overlay lives in the plugin service.
    *
-   * The name is reused from the flat cap this replaced. That is deliberate but
-   * worth knowing: a deployment whose `.env` still carries the old
-   * `PLUGIN_MAX_BUILDS_PER_ORG=3` is back to three, which is the figure that
-   * starved the catalogue load in the first place.
+   * Keyed on `BuildClass` rather than a loose pair so a third scheduling class
+   * cannot be added without giving it a baseline.
+   *
+   * These are DELIBERATELY not named `PLUGIN_MAX_BUILDS_PER_ORG`. That name was
+   * dead for a while and left behind in three deploy targets' `.env.example`, so
+   * reviving it would have silently applied a stale `=3` — the very figure that
+   * starved the catalogue load. A fresh name can only have been set on purpose.
    */
-  readonly maxBuildsPerOrg: number;
+  readonly orgBuildSlots: Readonly<Record<BuildClass, number>>;
   readonly maxAttempts: number;
   readonly backoffDelayMs: number;
   readonly workerTimeoutMs: number;

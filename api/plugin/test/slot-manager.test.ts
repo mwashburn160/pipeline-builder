@@ -85,10 +85,10 @@ const redis = {
 };
 
 const mockGetAllTierQueues = jest.fn<() => any[]>(() => []);
-// The BASELINE per-org cap (`PLUGIN_MAX_BUILDS_PER_ORG`), which the catalog
-// ladder only ever raises. Mutable so the cases below can prove it is a
-// baseline and not a ceiling.
-let baselineMaxBuildsPerOrg = 5;
+// The PER-CLASS baselines (`PLUGIN_ORG_BUILD_SLOTS_STANDARD` /  `_FLEXIBLE`),
+// which the catalog ladder only ever raises. Mutable so the cases below can
+// prove they are baselines and not ceilings.
+let baselineOrgBuildSlots: { standard: number; flexible: number } = { standard: 5, flexible: 8 };
 const mockGetDeadLetterQueue = jest.fn<() => any>(() => ({ name: 'plugin-build-dlq', getJobs: async () => [] }));
 
 // Registered as a function so the NaN-fallback test can re-apply the mocks
@@ -103,7 +103,7 @@ function registerMocks() {
     // Every export slot-manager imports from here. Omitting one makes the whole
     // import graph fail to LOAD naming that symbol — which is exactly what
     // adding `getBuildCfg` to the module under test did to this suite.
-    getBuildCfg: () => ({ maxBuildsPerOrg: baselineMaxBuildsPerOrg }),
+    getBuildCfg: () => ({ orgBuildSlots: baselineOrgBuildSlots }),
   }));
 
   jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
@@ -313,7 +313,7 @@ describe('tryAcquireOrgSlot', () => {
 
   it('records no owner (and holds no slot) when the cap is already reached', async () => {
     // Filled to the EFFECTIVE cap rather than a literal: the figure is now
-    // max(PLUGIN_MAX_BUILDS_PER_ORG, ladder), so hard-coding 3 here would make
+    // max(PLUGIN_ORG_BUILD_SLOTS_<CLASS>, ladder), so hard-coding 3 would make
     // this test assert the baseline's value instead of the no-owner property it
     // is actually for.
     const cap = maxBuildsPerOrg('developer', 'flexible');
@@ -459,11 +459,11 @@ describe('maxBuildsPerOrg — NaN-fallback (bricked-builds regression)', () => {
     expect(ok).toBe(true);
     // eval args: (LUA, numKeys, counterKey, ownersKey, String(cap), String(ttl),
     // jobId, ownerValue). The cap must be the computed default —
-    // max(PLUGIN_MAX_BUILDS_PER_ORG, ladder), so 5 for developer/standard —
+    // max(PLUGIN_ORG_BUILD_SLOTS_STANDARD, ladder), so 5 for developer —
     // never the string 'NaN': one fat-fingered override would otherwise brick
     // every plugin build, not just that tier's.
     const capArg = mockEval.mock.calls.at(-1)![4];
-    expect(capArg).toBe(String(baselineMaxBuildsPerOrg));
+    expect(capArg).toBe(String(baselineOrgBuildSlots.standard));
     expect(capArg).not.toBe('NaN');
   });
 
@@ -502,7 +502,7 @@ describe('per-class, per-tier caps', () => {
 
   it('caps by TIER above the baseline, so a paid tier still gets more', async () => {
     // The ladder differentiates where it exceeds the baseline; below it, every
-    // tier lands on PLUGIN_MAX_BUILDS_PER_ORG. Three in flight was too tight for
+    // tier lands on its class baseline. Three in flight was too tight for
     // a real working set, and a starved build fails TERMINALLY rather than late.
     expect(maxBuildsPerOrg('developer', 'standard')).toBe(5);
     expect(maxBuildsPerOrg('team', 'standard')).toBe(5);
@@ -514,24 +514,18 @@ describe('per-class, per-tier caps', () => {
     expect(await acquire('org-dev', 'q:job-6', 'developer', 'standard')).toBe(false);
   });
 
-  it('gives flexible more headroom than standard WHEREVER the ladder exceeds the baseline', async () => {
+  it('gives flexible more headroom than standard on EVERY tier', async () => {
     // Where the room is: the cheap class is what actually smooths load, so a
     // row with flexible <= standard would make the class pointless to choose.
     //
-    // NARROWED when PLUGIN_MAX_BUILDS_PER_ORG became a baseline of 5. Below the
-    // baseline the class distinction has no room to express itself — developer,
-    // pro and team all land on 5 for BOTH classes, because 5 exceeds every one
-    // of their ladder cells (standard 1/2/3, flexible 3/4/6 — only team's
-    // flexible 6 clears it). That is the cost of a flat baseline and it is
-    // stated here rather than hidden: choosing `flexible` on a low tier now buys
-    // nothing in slots, only the later start.
-    for (const tier of ['business', 'enterprise', 'unlimited'] as const) {
+    // This held on every tier again once the baseline became PER CLASS. One
+    // shared baseline of 5 flattened the low rows — developer, pro and team got
+    // 5 for standard AND flexible, because 5 cleared every one of their ladder
+    // cells — so the cheap class bought a later start and no extra slots.
+    // Flexible's own, higher baseline restores the property by construction
+    // rather than leaving it true only where the ladder is large.
+    for (const tier of ['developer', 'pro', 'team', 'business', 'enterprise', 'unlimited'] as const) {
       expect(maxBuildsPerOrg(tier, 'flexible')).toBeGreaterThan(maxBuildsPerOrg(tier, 'standard'));
-    }
-    // And the low tiers are equal rather than inverted — flexible must never be
-    // SMALLER than standard, which would make the class actively worse.
-    for (const tier of ['developer', 'pro', 'team'] as const) {
-      expect(maxBuildsPerOrg(tier, 'flexible')).toBeGreaterThanOrEqual(maxBuildsPerOrg(tier, 'standard'));
     }
   });
 
@@ -687,21 +681,21 @@ describe('the TTL is refreshed on a GRANT, never on a denial', () => {
 });
 
 // ---------------------------------------------------------------------------
-// The baseline per-org cap (PLUGIN_MAX_BUILDS_PER_ORG)
+// The per-class baselines (PLUGIN_ORG_BUILD_SLOTS_STANDARD / _FLEXIBLE)
 // ---------------------------------------------------------------------------
 
-describe('PLUGIN_MAX_BUILDS_PER_ORG is a baseline the ladder raises', () => {
+describe('PLUGIN_ORG_BUILD_SLOTS_* are per-class baselines the ladder raises', () => {
   const LADDER_KEY = 'PLUGIN_MAX_BUILDS_DEVELOPER_STANDARD';
 
   beforeEach(() => {
     jest.clearAllMocks();
     resetRedis();
-    baselineMaxBuildsPerOrg = 5;
+    baselineOrgBuildSlots = { standard: 5, flexible: 8 };
     delete process.env[LADDER_KEY];
   });
 
   afterEach(() => {
-    baselineMaxBuildsPerOrg = 5;
+    baselineOrgBuildSlots = { standard: 5, flexible: 8 };
     delete process.env[LADDER_KEY];
   });
 
@@ -723,11 +717,19 @@ describe('PLUGIN_MAX_BUILDS_PER_ORG is a baseline the ladder raises', () => {
   });
 
   it('is settable, and moves every tier under it together', () => {
-    baselineMaxBuildsPerOrg = 7;
+    baselineOrgBuildSlots = { standard: 7, flexible: 8 };
     expect(maxBuildsPerOrg('developer', 'standard')).toBe(7);
     expect(maxBuildsPerOrg('business', 'standard')).toBe(7);
     // Still not a ceiling.
     expect(maxBuildsPerOrg('enterprise', 'standard')).toBe(8);
+  });
+
+  it('moves each class INDEPENDENTLY, so one cannot drag the other', () => {
+    // The whole reason the baseline is keyed on the class: raising standard must
+    // not silently raise flexible, or the two collapse together again.
+    baselineOrgBuildSlots = { standard: 9, flexible: 8 };
+    expect(maxBuildsPerOrg('developer', 'standard')).toBe(9);
+    expect(maxBuildsPerOrg('developer', 'flexible')).toBe(8);
   });
 
   it('yields to an explicit per-cell override, INCLUDING one below the baseline', async () => {
@@ -751,6 +753,16 @@ describe('PLUGIN_MAX_BUILDS_PER_ORG is a baseline the ladder raises', () => {
     // ARGV would read as working while changing nothing.
     await acquire('org-a', 'q:job-1', 'developer', 'standard');
     expect(mockEval.mock.calls.at(-1)![4]).toBe('5');
+  });
+
+  it('applies the FLEXIBLE baseline to flexible, not standard\'s', () => {
+    expect(maxBuildsPerOrg('developer', 'flexible')).toBe(8);
+    expect(maxBuildsPerOrg('pro', 'flexible')).toBe(8);
+    // team's ladder cell is 6, still under the flexible baseline.
+    expect(maxBuildsPerOrg('team', 'flexible')).toBe(8);
+    // business 10 and enterprise 16 already clear it.
+    expect(maxBuildsPerOrg('business', 'flexible')).toBe(10);
+    expect(maxBuildsPerOrg('enterprise', 'flexible')).toBe(16);
   });
 
   it('does not apply to the system org, which takes no slot at all', async () => {
