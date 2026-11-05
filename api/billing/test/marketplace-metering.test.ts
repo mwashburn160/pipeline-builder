@@ -99,11 +99,13 @@ function findResolves(rows: unknown[]) {
   mockSubscriptionFind.mockReturnValue({ select: () => ({ lean: () => Promise.resolve(rows) }) });
 }
 
+const LICENSE = 'arn:aws:license-manager::111122223333:license:l-c650855e87734887b28b61decef25bef';
+
 const activeSub = (over: Record<string, unknown> = {}) => ({
   orgId: 'org-1',
   status: 'active',
-  externalCustomerId: 'cust-ext',
-  metadata: { awsCustomerIdentifier: 'cust-aws' },
+  externalCustomerId: LICENSE,
+  metadata: { awsLicenseArn: LICENSE },
   addons: [{ bundleId: 'seat_pack', quantity: 2 }],
   ...over,
 });
@@ -134,10 +136,10 @@ describe('reportMarketplaceAddonUsage', () => {
     expect(out).toEqual({ status: 'skipped', reason: 'no-subscription' });
   });
 
-  it('skips when no Marketplace customer identifier is resolvable', async () => {
-    mockSubscriptionFindOne.mockResolvedValue(activeSub({ externalCustomerId: undefined, metadata: {} }));
+  it('skips when the subscription carries no Marketplace license', async () => {
+    mockSubscriptionFindOne.mockResolvedValue(activeSub({ metadata: {} }));
     const out = await reportMarketplaceAddonUsage('org-1');
-    expect(out).toEqual({ status: 'skipped', reason: 'no-customer' });
+    expect(out).toEqual({ status: 'skipped', reason: 'no-license' });
   });
 
   it('skips when the account has no add-ons', async () => {
@@ -153,17 +155,11 @@ describe('reportMarketplaceAddonUsage', () => {
     expect(out).toEqual({ status: 'skipped', reason: 'provider-mismatch' });
   });
 
-  it('meters using the awsCustomerIdentifier and the current add-on set', async () => {
+  it('meters using the awsLicenseArn and the current add-on set', async () => {
     mockSubscriptionFindOne.mockResolvedValue(activeSub());
     const out = await reportMarketplaceAddonUsage('org-1');
-    expect(mockMeterAddonUsage).toHaveBeenCalledWith('cust-aws', [{ bundleId: 'seat_pack', quantity: 2 }], expect.any(Date));
+    expect(mockMeterAddonUsage).toHaveBeenCalledWith(LICENSE, [{ bundleId: 'seat_pack', quantity: 2 }], expect.any(Date));
     expect(out).toEqual({ status: 'metered', result: { metered: 1, skipped: [], unprocessed: 0 } });
-  });
-
-  it('falls back to externalCustomerId when metadata has no aws identifier', async () => {
-    mockSubscriptionFindOne.mockResolvedValue(activeSub({ metadata: {} }));
-    await reportMarketplaceAddonUsage('org-1');
-    expect(mockMeterAddonUsage).toHaveBeenCalledWith('cust-ext', expect.anything(), expect.any(Date));
   });
 
   it('returns an error outcome (does not throw) when metering fails', async () => {
@@ -202,7 +198,7 @@ describe('reportMarketplaceAddonUsage — usage-credit realization', () => {
     await reportMarketplaceAddonUsage('org-1', new Date('2026-07-29T14:00:00Z'));
 
     // $30 credit @ $10/seat withholds all 3 → report quantity 0.
-    expect(mockMeterAddonUsage).toHaveBeenCalledWith('cust-aws', [{ bundleId: 'seat_pack', quantity: 0 }], expect.any(Date));
+    expect(mockMeterAddonUsage).toHaveBeenCalledWith(LICENSE, [{ bundleId: 'seat_pack', quantity: 0 }], expect.any(Date));
     // B1: consumption recorded on a per-period BillingInvoice row (dashboard visibility).
     expect(mockRecordMarketplaceConsumption).toHaveBeenCalledWith('org-1', '2026-07', new Date(Date.UTC(2026, 6, 1)), new Date(Date.UTC(2026, 7, 1)), 3000);
     // B2: the drawdown update decrements the balance but does NOT $push a per-hour creditLedger entry.
@@ -247,7 +243,7 @@ describe('reportMarketplaceAddonUsage — usage-credit realization', () => {
     claims({ period: null });
 
     await reportMarketplaceAddonUsage('org-1');
-    expect(mockMeterAddonUsage).toHaveBeenCalledWith('cust-aws', [{ bundleId: 'seat_pack', quantity: 3 }], expect.any(Date));
+    expect(mockMeterAddonUsage).toHaveBeenCalledWith(LICENSE, [{ bundleId: 'seat_pack', quantity: 3 }], expect.any(Date));
     expect(mockCreateBillingEvent).not.toHaveBeenCalledWith('org-1', 'credit_consumed', expect.anything(), expect.anything());
   });
 
@@ -269,7 +265,7 @@ describe('reportMarketplaceAddonUsage — usage-credit realization', () => {
 
     await reportMarketplaceAddonUsage('org-1');
     expect(mockIncCounter).toHaveBeenCalledWith('billing_marketplace_credit_unrealizable_total', {});
-    expect(mockMeterAddonUsage).toHaveBeenCalledWith('cust-aws', [{ bundleId: 'seat_pack', quantity: 3 }], expect.any(Date));
+    expect(mockMeterAddonUsage).toHaveBeenCalledWith(LICENSE, [{ bundleId: 'seat_pack', quantity: 3 }], expect.any(Date));
     expect(mockCreateBillingEvent).not.toHaveBeenCalledWith('org-1', 'credit_consumed', expect.anything(), expect.anything());
   });
 });

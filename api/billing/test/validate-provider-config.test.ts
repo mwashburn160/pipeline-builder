@@ -63,41 +63,33 @@ describe('stripe', () => {
 });
 
 describe('aws-marketplace', () => {
+  const EVENTS = 'arn:aws:sns:us-east-1:1:pipeline-builder-marketplace-events';
   const mp = (over: Record<string, unknown> = {}) => ({
-    snsTopicArns: ['arn:aws:sns:us-east-1:1:aws-mp-subscription-notification-x', 'arn:aws:sns:us-east-1:1:aws-mp-entitlement-notification-x'],
+    eventsTopicArn: EVENTS,
     dimensionToPlanMap: { pro: 'pro' },
     dimensionPriceMap: { pro: 1 },
     ...over,
   });
 
-  it('is silent when both SNS topics and the dimension maps are set', () => {
+  it('is silent when the license-events topic and the dimension maps are set', () => {
     Object.assign(cfg, { billingProvider: 'aws-marketplace', meteringEnabled: true, marketplace: mp() });
     validateProviderConfig();
     expect(logger.warn).not.toHaveBeenCalled();
   });
 
-  it('warns when no SNS topic is configured at all', () => {
-    Object.assign(cfg, { billingProvider: 'aws-marketplace', marketplace: mp({ snsTopicArns: [] }) });
+  it('warns when the license-events topic is not configured', () => {
+    Object.assign(cfg, { billingProvider: 'aws-marketplace', marketplace: mp({ eventsTopicArn: '' }) });
     validateProviderConfig();
-    expect(warnings()).toEqual([expect.stringContaining('AWS_MARKETPLACE_SNS_TOPIC_ARN is not set')]);
+    expect(warnings()).toEqual([expect.stringContaining('AWS_MARKETPLACE_EVENTS_TOPIC_ARN is not set')]);
   });
 
-  it('warns per missing topic class, an empty dimension map, and metering without prices', () => {
-    Object.assign(cfg, { billingProvider: 'aws-marketplace', meteringEnabled: true, marketplace: mp({ snsTopicArns: ['arn:aws:sns:us-east-1:1:other'], dimensionToPlanMap: {}, dimensionPriceMap: {} }) });
+  it('warns on an empty dimension map, and on metering without prices', () => {
+    Object.assign(cfg, { billingProvider: 'aws-marketplace', meteringEnabled: true, marketplace: mp({ dimensionToPlanMap: {}, dimensionPriceMap: {} }) });
     validateProviderConfig();
     expect(warnings()).toEqual([
-      expect.stringContaining('no aws-mp-subscription-notification topic'),
-      expect.stringContaining('no aws-mp-entitlement-notification topic'),
       expect.stringContaining('AWS_MARKETPLACE_DIMENSION_MAP is empty'),
       expect.stringContaining('AWS_MARKETPLACE_DIMENSION_PRICE_MAP is empty'),
     ]);
-  });
-
-  it('does not ask for the AWS topics when the license-events topic carries the lifecycle', () => {
-    const EVENTS = 'arn:aws:sns:us-east-1:1:pipeline-builder-marketplace-events';
-    Object.assign(cfg, { billingProvider: 'aws-marketplace', meteringEnabled: true, marketplace: mp({ snsTopicArns: [EVENTS], eventsTopicArn: EVENTS }) });
-    validateProviderConfig();
-    expect(logger.warn).not.toHaveBeenCalled();
   });
 });
 
@@ -127,7 +119,7 @@ describe('the config gauge', () => {
 
   it('publishes exactly the reasons it declares, for aws-marketplace', () => {
     cfg.billingProvider = 'aws-marketplace';
-    cfg.marketplace = { snsTopicArns: [], dimensionToPlanMap: {}, dimensionPriceMap: {} };
+    cfg.marketplace = { eventsTopicArn: '', dimensionToPlanMap: {}, dimensionPriceMap: {} };
     cfg.meteringEnabled = true;
     validateProviderConfig();
     expect(Object.keys(published()).sort()).toEqual([...REASONS['aws-marketplace']].sort());

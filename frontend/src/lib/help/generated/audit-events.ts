@@ -1,6 +1,6 @@
 // GENERATED FROM docs/audit-events.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: c6beb5ca155cbdf586c4bc74d4b0a92e16a23c9d2ce424b901a7766750ee0eca
+// SOURCE-SHA256: 4cac18099000c20ae1dd5d6751cd67af89eedc1cc9709f63aeb5e6eafd1abc8e
 // SPDX-License-Identifier: Apache-2.0
 import { ScrollText } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -279,7 +279,7 @@ export const auditEventsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "appendAuditEvent runs scrubAwsIdentifiers() over every event's details before hashing and storing, redacting AWS-account-id-shaped tokens (including the account segment of any ARN) and account-named keys. An AWS account id is never persisted — orgId is the marketplace customerIdentifier, never an AWS account id. Emitters must also keep secrets/tokens out of details; the frontend applies a second redaction pass before rendering or exporting."
+          "content": "appendAuditEvent runs scrubAwsIdentifiers() over every event's details before hashing and storing, redacting AWS-account-id-shaped tokens (including the account segment of any ARN) and account-named keys. An AWS account id is never persisted — orgId is the platform org id (a Marketplace customer is keyed on its license ARN, in subscription metadata), never an AWS account id. Emitters must also keep secrets/tokens out of details; the frontend applies a second redaction pass before rendering or exporting."
         }
       ]
     },

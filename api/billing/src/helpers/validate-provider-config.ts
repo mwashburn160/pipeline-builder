@@ -19,7 +19,7 @@ const INTERVALS = ['monthly', 'annual'] as const;
 export const REASONS = {
   'stripe': ['webhook_secret_missing', 'price_map_incomplete'],
   'aws-marketplace': [
-    'sns_topics_missing', 'sns_subscription_topic_missing', 'sns_entitlement_topic_missing',
+    'events_topic_missing',
     'dimension_map_empty', 'dimension_price_map_empty',
   ],
 } as const;
@@ -91,27 +91,13 @@ function validateStripe(): void {
 }
 
 function validateMarketplace(): void {
-  const topicArns = config.marketplace.snsTopicArns;
-  // A product created since mid-2026 has no AWS SNS topics; its lifecycle comes
-  // as license events through the deploy's events topic instead. With that
-  // topic configured, a missing AWS topic is expected, not a gap.
-  const viaEvents = !!config.marketplace.eventsTopicArn;
-  const noSubscriptionTopic = !topicArns.some((arn) => arn.includes(':aws-mp-subscription-notification-'));
-  const noEntitlementTopic = !topicArns.some((arn) => arn.includes(':aws-mp-entitlement-notification-'));
-  report('aws-marketplace', 'sns_topics_missing', topicArns.length === 0);
-  report('aws-marketplace', 'sns_subscription_topic_missing', !viaEvents && noSubscriptionTopic);
-  report('aws-marketplace', 'sns_entitlement_topic_missing', !viaEvents && noEntitlementTopic);
-  if (topicArns.length === 0) {
-    logger.warn('AWS_MARKETPLACE_SNS_TOPIC_ARN is not set — SNS notifications fail closed (rejected), so entitlement/cancellation lifecycle changes will not sync');
-  } else if (!viaEvents) {
-    // Each topic carries different actions, and a message from an unlisted
-    // topic is rejected — so a missing one silently drops that whole class.
-    if (!topicArns.some((arn) => arn.includes(':aws-mp-subscription-notification-'))) {
-      logger.warn('AWS_MARKETPLACE_SNS_TOPIC_ARN has no aws-mp-subscription-notification topic — subscribe/unsubscribe (cancellation) notifications will be rejected');
-    }
-    if (!topicArns.some((arn) => arn.includes(':aws-mp-entitlement-notification-'))) {
-      logger.warn('AWS_MARKETPLACE_SNS_TOPIC_ARN has no aws-mp-entitlement-notification topic — entitlement-updated (tier/quantity change) notifications will be rejected');
-    }
+  // The license-events topic is the whole lifecycle feed: without it no
+  // License Updated / Deprovisioned event is accepted, so plan changes and
+  // cancellations never reach billing.
+  const noEventsTopic = !config.marketplace.eventsTopicArn;
+  report('aws-marketplace', 'events_topic_missing', noEventsTopic);
+  if (noEventsTopic) {
+    logger.warn('AWS_MARKETPLACE_EVENTS_TOPIC_ARN is not set — license events are rejected (fail closed), so entitlement changes and cancellations will not sync');
   }
   report('aws-marketplace', 'dimension_map_empty',
     Object.keys(config.marketplace.dimensionToPlanMap ?? {}).length === 0);

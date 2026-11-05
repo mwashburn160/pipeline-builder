@@ -1,6 +1,6 @@
 // GENERATED FROM docs/environment-variables.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 0e70fe0466f148309048cbe2aca48c29fe86e894e82b94bc2b19469fc65ba97f
+// SOURCE-SHA256: 44b46c7858a2ff790b1df1de385ff364b9953d6e1d3948381d7473128d7e8292
 // SPDX-License-Identifier: Apache-2.0
 import { FileCode } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -3064,14 +3064,9 @@ export const envVariablesTopic: HelpTopic = {
               "Region for the Metering/Entitlement clients"
             ],
             [
-              "AWS_MARKETPLACE_SNS_TOPIC_ARN",
-              "—",
-              "Comma-separated SNS topic ARNs accepted by the webhook — set both the subscription and entitlement topics"
-            ],
-            [
               "AWS_MARKETPLACE_EVENTS_TOPIC_ARN",
-              "set by the EKS deploy",
-              "The platform-owned SNS topic that AWS Marketplace license events (EventBridge) are forwarded to. Added to the accepted topics. When set, AWS's own topics are optional"
+              "— (set by the EKS deploy)",
+              "The SNS topic the EventBridge rule forwards AWS Marketplace license events to — the only topic the webhook accepts. Unset rejects every lifecycle event"
             ],
             [
               "AWS_MARKETPLACE_DIMENSION_MAP",

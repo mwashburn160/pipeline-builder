@@ -20,12 +20,13 @@ import type { BillingInterval } from './subscription.js';
  *
  * The record is short-lived (TTL) so an abandoned registration doesn't linger,
  * and single-use (deleted on claim) so a `registrationRef` can't bind twice.
- * Per repo policy it stores the AWS **customer identifier** (opaque) and product
- * code only — never the AWS account id.
+ * Per repo policy it stores the agreement's **license ARN** and product code only
+ * — never the buyer's AWS account id (a license ARN embeds AWS License Manager's
+ * account, not the buyer's).
  */
 export interface MarketplacePendingRegistrationDocument extends Document<string> {
   _id: string; // the registrationRef (random, opaque, single-use)
-  awsCustomerIdentifier: string;
+  awsLicenseArn: string;
   awsProductCode: string;
   planId: string;
   dimension?: string;
@@ -40,7 +41,7 @@ export interface MarketplacePendingRegistrationDocument extends Document<string>
 const schema = new Schema<MarketplacePendingRegistrationDocument>(
   {
     _id: { type: String },
-    awsCustomerIdentifier: { type: String, required: true, index: true },
+    awsLicenseArn: { type: String, required: true, index: true },
     awsProductCode: { type: String, required: true },
     planId: { type: String, required: true },
     dimension: { type: String },

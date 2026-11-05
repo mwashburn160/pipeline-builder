@@ -773,17 +773,17 @@ if [ "${BILLING_PROVIDER:-stub}" = "aws-marketplace" ]; then
     "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Sid\":\"AwsMarketplaceBilling\",\"Effect\":\"Allow\",\"Action\":[\"aws-marketplace:ResolveCustomer\",\"aws-marketplace:GetEntitlements\",\"aws-marketplace:BatchMeterUsage\"],\"Resource\":\"*\"}]}" \
     "aws-marketplace ResolveCustomer/GetEntitlements/BatchMeterUsage for $AWS_MARKETPLACE_PRODUCT_CODE"
 
-  # License events. A SaaS product created since mid-2026 gets NO AWS SNS topics:
-  # its lifecycle (license updated / deprovisioned) arrives only as EventBridge
-  # events on this account's default bus. This rule forwards those two events to
-  # a platform-owned topic, which reaches billing's existing signature-verified
-  # SNS endpoint (subscribed in Phase 10, once billing is reachable). Older
-  # products still get AWS's topics too; billing accepts both. Idempotent.
+  # License events: the Marketplace lifecycle (license updated / deprovisioned)
+  # arrives only as EventBridge events on this account's default bus. This rule
+  # forwards those two events, for THIS product only, to a platform-owned topic,
+  # which reaches billing's signature-verified SNS endpoint (subscribed in
+  # Phase 10, once billing is reachable). put-rule replaces the pattern, so a
+  # changed product code takes effect on the next run. Idempotent.
   MP_REGION="${AWS_MARKETPLACE_REGION:-us-east-1}"
   MP_EVENTS_TOPIC_ARN=$(aws sns create-topic --name "$MP_EVENTS_NAME" --region "$MP_REGION" --query TopicArn --output text)
   MP_RULE_ARN=$(aws events put-rule --name "$MP_EVENTS_NAME" --region "$MP_REGION" \
     --description "AWS Marketplace license events for ${CLUSTER_NAME} billing" \
-    --event-pattern '{"source":["aws.agreement-marketplace"],"detail-type":["License Updated - Manufacturer","License Deprovisioned - Manufacturer"]}' \
+    --event-pattern "{\"source\":[\"aws.agreement-marketplace\"],\"detail-type\":[\"License Updated - Manufacturer\",\"License Deprovisioned - Manufacturer\"],\"detail\":{\"product\":{\"code\":[\"${AWS_MARKETPLACE_PRODUCT_CODE}\"]}}}" \
     --query RuleArn --output text)
   # Only this rule may publish: a topic any EventBridge rule could write to would
   # let another rule in the account feed billing forged lifecycle events.
@@ -1192,8 +1192,7 @@ fi
 fi
 if pb_phase 10; then
 log "Phase 10: post-provision smoke checks"
-# Subscribe billing's public SNS endpoint to every topic it accepts: AWS's own
-# Marketplace topics (older products) and the license-events topic (Phase 5).
+# Subscribe billing's public SNS endpoint to the license-events topic (Phase 5).
 # Here, not in Phase 5: SNS confirms a subscription by calling the endpoint at
 # once, so billing must already answer. A re-run resends a still-pending
 # confirmation and leaves a confirmed subscription alone.
@@ -1207,27 +1206,21 @@ if [ "${BILLING_PROVIDER:-stub}" = "aws-marketplace" ]; then
       [ "$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d '{}' "$MP_SNS_ENDPOINT")" = 400 ] && break
       sleep 10
     done
-    MP_TOPICS="${AWS_MARKETPLACE_SNS_TOPIC_ARN:-},arn:aws:sns:${AWS_MARKETPLACE_REGION:-us-east-1}:$(aws sts get-caller-identity --query Account --output text):${MP_EVENTS_NAME}"
-    MP_SUBS=""
-    for _arn in $(echo "$MP_TOPICS" | tr ',' ' '); do
-      if _sub=$(aws sns subscribe --topic-arn "$_arn" --region "$(echo "$_arn" | cut -d: -f4)" --protocol https \
-          --notification-endpoint "$MP_SNS_ENDPOINT" --return-subscription-arn --query SubscriptionArn --output text 2>&1); then
-        MP_SUBS="$MP_SUBS $_sub"
-      else
-        echo "  WARNING: could not subscribe billing to ${_arn##*:}: $_sub" >&2
-      fi
-    done
-    sleep 15
-    for _sub in $MP_SUBS; do
-      _pending=$(aws sns get-subscription-attributes --subscription-arn "$_sub" --region "$(echo "$_sub" | cut -d: -f4)" \
+    MP_REGION="${AWS_MARKETPLACE_REGION:-us-east-1}"
+    MP_TOPIC_ARN="arn:aws:sns:${MP_REGION}:$(aws sts get-caller-identity --query Account --output text):${MP_EVENTS_NAME}"
+    if _sub=$(aws sns subscribe --topic-arn "$MP_TOPIC_ARN" --region "$MP_REGION" --protocol https \
+        --notification-endpoint "$MP_SNS_ENDPOINT" --return-subscription-arn --query SubscriptionArn --output text 2>&1); then
+      sleep 15
+      _pending=$(aws sns get-subscription-attributes --subscription-arn "$_sub" --region "$MP_REGION" \
         --query Attributes.PendingConfirmation --output text 2>/dev/null || echo unknown)
-      _topic=$(echo "$_sub" | cut -d: -f6)
       if [ "$_pending" = false ]; then
-        echo "  PASS  Marketplace SNS — billing subscribed to $_topic"
+        echo "  PASS  Marketplace SNS — billing subscribed to $MP_EVENTS_NAME"
       else
-        echo "  WARN  Marketplace SNS — $_topic subscription not confirmed yet; re-run phase 10 once billing answers at $MP_SNS_ENDPOINT" >&2
+        echo "  WARN  Marketplace SNS — $MP_EVENTS_NAME subscription not confirmed yet; re-run phase 10 once billing answers at $MP_SNS_ENDPOINT" >&2
       fi
-    done
+    else
+      echo "  WARNING: could not subscribe billing to $MP_EVENTS_NAME: $_sub" >&2
+    fi
   fi
 fi
 NAMESPACE="$NAMESPACE" ALERT_EMAIL="${ALERT_EMAIL:-}" bash "$BIN_DIR/post-provision-smoke.sh" k8s --aws || true

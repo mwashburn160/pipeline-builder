@@ -10,7 +10,7 @@
  *
  * Security/policy regression lock-in: nothing here may persist or return the
  * customer's AWS **account id** (repo policy). The subscription is keyed on the
- * caller's real orgId; the opaque `customerIdentifier` lives only in metadata.
+ * caller's real orgId; the license ARN lives only in metadata.
  *
  * Extracts the route handler from the router and drives it directly with mock
  * req/res — no HTTP server.
@@ -41,7 +41,7 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
 }));
 
 jest.unstable_mockModule('../src/config.js', () => ({
-  config: { marketplace: { snsTopicArns: [], productCode: 'prod-1' } },
+  config: { marketplace: { eventsTopicArn: '', productCode: 'prod-1' } },
 }));
 
 const mockCalculatePeriodEnd = jest.fn((..._args: unknown[]) => new Date('2026-08-01T00:00:00.000Z'));
@@ -65,7 +65,6 @@ jest.unstable_mockModule('../src/helpers/addon-prune.js', () => ({
 jest.unstable_mockModule('../src/helpers/marketplace-helpers.js', () => ({
   verifySNSSignature: jest.fn<AnyFn>(),
   confirmSNSSubscription: jest.fn<AnyFn>(),
-  mapActionToStatus: jest.fn<AnyFn>(),
 }));
 
 const mockPlanFindOne = jest.fn<AnyFn>();
@@ -121,7 +120,7 @@ jest.unstable_mockModule('../src/providers/provider-factory.js', () => ({
 
 const { createMarketplaceRoutes } = await import('../src/routes/marketplace.js');
 
-const CUSTOMER_ID = 'cust-ABC123opaque';
+const LICENSE = 'arn:aws:license-manager::111122223333:license:l-c650855e87734887b28b61decef25bef';
 const AWS_ACCOUNT_ID = '111122223333'; // must NEVER appear anywhere we persist/return
 
 const router = createMarketplaceRoutes();
@@ -158,7 +157,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockGetPaymentProvider.mockReturnValue(new FakeAWSMarketplaceProvider());
   // Resolve returns ONLY the opaque identifier + product code (no account id).
-  mockResolveRegistrationToken.mockResolvedValue({ customerIdentifier: CUSTOMER_ID, productCode: 'prod-1' });
+  mockResolveRegistrationToken.mockResolvedValue({ licenseArn: LICENSE, productCode: 'prod-1' });
   mockGetEntitlements.mockResolvedValue([{ isEntitled: true, planId: 'team', dimension: 'team-dim' }]);
   mockPlanFindOne.mockResolvedValue({ _id: 'team', tier: 'team', name: 'Team', isActive: true });
   mockSubscriptionFindOne.mockResolvedValue(null); // no existing active subscription
@@ -173,7 +172,7 @@ beforeEach(() => {
 describe('POST /marketplace/resolve', () => {
   const handler = getHandler('post', '/marketplace/resolve');
 
-  it('banks a pending registration keyed on customerIdentifier — no subscription, no AWS account id', async () => {
+  it('banks a pending registration keyed on the license ARN — no subscription, no AWS account id', async () => {
     const req: any = { body: { 'x-amzn-marketplace-token': 'tok', 'awsAccountId': AWS_ACCOUNT_ID }, query: {} };
     const res = mockRes();
     await handler(req, res);
@@ -183,12 +182,12 @@ describe('POST /marketplace/resolve', () => {
     expect(mockPendingCreate).toHaveBeenCalledTimes(1);
 
     const pending = mockPendingCreate.mock.calls[0][0] as any;
-    expect(pending.awsCustomerIdentifier).toBe(CUSTOMER_ID);
+    expect(pending.awsLicenseArn).toBe(LICENSE);
     expect(pending.planId).toBe('team');
     expect(hasAwsAccountIdKey(pending)).toBe(false);
   });
 
-  it('returns a registrationRef + planName and leaks neither the AWS account id nor the customerIdentifier', async () => {
+  it('returns a registrationRef + planName and leaks neither the AWS account id nor the license ARN', async () => {
     const req: any = { body: { 'x-amzn-marketplace-token': 'tok' }, query: {} };
     const res = mockRes();
     await handler(req, res);
@@ -201,7 +200,7 @@ describe('POST /marketplace/resolve', () => {
     expect((data as any).registrationRef).toBe(pending._id);
     expect((data as any).planName).toBe('Team');
     // The opaque handle is the ONLY thing the browser gets — no AWS identity.
-    expect((data as any).customerIdentifier).toBeUndefined();
+    expect((data as any).licenseArn).toBeUndefined();
     expect(hasAwsAccountIdKey(data)).toBe(false);
   });
 
@@ -234,7 +233,7 @@ describe('POST /marketplace/resolve', () => {
   // entitlement under the CONFIGURED product code, and the customer would silently
   // land on the free tier bound to a foreign customer identifier.
   it('rejects a token issued for a different product', async () => {
-    mockResolveRegistrationToken.mockResolvedValue({ customerIdentifier: CUSTOMER_ID, productCode: 'some-other-product' });
+    mockResolveRegistrationToken.mockResolvedValue({ licenseArn: LICENSE, productCode: 'some-other-product' });
     const req: any = { body: { 'x-amzn-marketplace-token': 'tok' }, query: {} };
     const res = mockRes();
     await handler(req, res);
@@ -261,7 +260,7 @@ describe('POST /marketplace/claim', () => {
   const handler = getHandler('post', '/marketplace/claim');
   const PENDING = {
     _id: 'ref-1',
-    awsCustomerIdentifier: CUSTOMER_ID,
+    awsLicenseArn: LICENSE,
     awsProductCode: 'prod-1',
     planId: 'team',
     dimension: 'team-dim',
@@ -277,7 +276,7 @@ describe('POST /marketplace/claim', () => {
     expect(mockSubscriptionCreate).toHaveBeenCalledTimes(1);
     const created = mockSubscriptionCreate.mock.calls[0][0] as any;
     expect(created.orgId).toBe('org-real'); // the real org, NOT the customer id
-    expect(created.metadata.awsCustomerIdentifier).toBe(CUSTOMER_ID);
+    expect(created.metadata.awsLicenseArn).toBe(LICENSE);
     expect(hasAwsAccountIdKey(created)).toBe(false);
 
     // Tier synced against the real org with EMPTY auth (→ service-token fallback),

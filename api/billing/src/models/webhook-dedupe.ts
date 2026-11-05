@@ -10,7 +10,7 @@ import mongoose, { Schema, type Document } from 'mongoose';
  * instead of duplicate side-effects.
  *
  * Source providers:
- *   - 'sns'    — AWS Marketplace SNS notifications (keyed by `MessageId`)
+ *   - 'sns'    — AWS Marketplace license events via SNS (keyed by `MessageId`)
  *   - 'stripe' — Stripe webhook events (keyed by `event.id`)
  *
  * TWO-PHASE idempotency (crash-durability). The old design marked an event

@@ -215,16 +215,16 @@ subscriptionSchema.index(
   { unique: true, partialFilterExpression: { status: { $in: ['active', 'trialing', 'past_due'] } } },
 );
 
-// Sparse index for AWS Marketplace customer lookup (SNS webhook queries).
+// Sparse index for AWS Marketplace license lookup (license-event queries).
 // Enforce uniqueness on the active row only — historical canceled rows
-// keep their identifier without colliding.
+// keep their license without colliding.
 subscriptionSchema.index(
-  { 'metadata.awsCustomerIdentifier': 1 },
+  { 'metadata.awsLicenseArn': 1 },
   {
     unique: true,
     partialFilterExpression: {
       'status': 'active',
-      'metadata.awsCustomerIdentifier': { $exists: true, $type: 'string' },
+      'metadata.awsLicenseArn': { $exists: true, $type: 'string' },
     },
   },
 );

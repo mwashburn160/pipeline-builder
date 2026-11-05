@@ -781,7 +781,7 @@ groups:
           tenancy: platform
         annotations:
           summary: "Marketplace message for a different product was refused ({{ $labels.source }})"
-          description: "{{ $value | humanize }} registration token(s) or SNS notification(s) in the last hour carried a product code other than AWS_MARKETPLACE_PRODUCT_CODE and were refused. source=resolve is a customer landing on the fulfillment URL with a sibling product's token; source=sns means an ARN in AWS_MARKETPLACE_SNS_TOPIC_ARN belongs to another product. Check the listing and the configured product code."
+          description: "{{ $value | humanize }} registration token(s) or license event(s) in the last hour carried a product code other than AWS_MARKETPLACE_PRODUCT_CODE and were refused. source=resolve is a customer landing on the fulfillment URL with a sibling product's token; source=eventbridge is a license event for another product that got past the EventBridge rule, which filters on the product code: the rule's pattern and AWS_MARKETPLACE_PRODUCT_CODE disagree (re-run setup phase 5). Check the listing and the configured product code."
 
       # The fulfillment URL is an EXTERNAL contract: it lives in the AWS listing,
       # not in this repo, so a wrong path or a wrong product code cannot be caught

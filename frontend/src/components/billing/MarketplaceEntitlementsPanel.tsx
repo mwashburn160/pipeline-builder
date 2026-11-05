@@ -45,8 +45,8 @@ export function MarketplaceEntitlementsPanel() {
         <span className="text-xs text-fg-subtle">Managed in AWS</span>
       </div>
       <p className="mt-1 text-xs text-fg-muted">
-        Current plan <code className="font-mono">{data.currentPlanId}</code> · customer{' '}
-        <code className="font-mono break-all">{data.customerIdentifier}</code>
+        Current plan <code className="font-mono">{data.currentPlanId}</code> · license{' '}
+        <code className="font-mono break-all">{data.licenseArn}</code>
       </p>
       <div className="mt-4 overflow-x-auto">
         <DataTable

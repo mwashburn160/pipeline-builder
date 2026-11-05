@@ -1,6 +1,6 @@
 // GENERATED FROM docs/billing-providers.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 89638766228b2c5c22c4953a421471a3cb2a6c620d812acb8f78d5dff48d6525
+// SOURCE-SHA256: 61f8cfa23b0c383b49fa419eea88890031425b092fbc3cfdd52b4ee3c3debb80
 // SPDX-License-Identifier: Apache-2.0
 import { CreditCard } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -112,8 +112,8 @@ export const billingProvidersTopic: HelpTopic = {
           "type": "list",
           "items": [
             "A buyer subscribes on your SaaS listing; AWS redirects them to your Fulfillment (registration) URL with a resolvable token.",
-            "The app calls ResolveCustomer to turn that token into a customer identifier, which becomes the account's orgId.",
-            "Entitlement changes arrive as SNS notifications to a subscribed endpoint.",
+            "The app calls ResolveCustomer to turn that token into the agreement's license ARN, which is bound to the purchaser's org when they sign in.",
+            "Entitlement changes and cancellations arrive as EventBridge license events, forwarded through an SNS topic to a subscribed endpoint.",
             "Add-on charges go the other way, reported as metered usage via BatchMeterUsage once metering is enabled.",
             "Because Marketplace has no customer-balance primitive, credits realize by withholding metered usage — see Billing Discounts."
           ]
@@ -149,7 +149,7 @@ export const billingProvidersTopic: HelpTopic = {
           "type": "list",
           "items": [
             "Stripe: select the provider, add the secret key, create Products and Prices and map them, register the webhook, test with the Stripe CLI, go live. Start at Stripe.",
-            "AWS Marketplace: create the SaaS listing and dimensions, select the provider and product, point the Fulfillment URL at the app, subscribe the SNS endpoint, grant IAM, map dimensions, enable metering in dry-run, verify. Start at AWS Marketplace."
+            "AWS Marketplace: create the SaaS listing and dimensions, select the provider and product, point the Fulfillment URL at the app, wire the license events, grant IAM, map dimensions, enable metering in dry-run, verify. Start at AWS Marketplace."
           ]
         },
         {
@@ -673,7 +673,7 @@ export const billingProvidersTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "Under AWS Marketplace the customer subscribes on AWS, not in-app. AWS owns the contract and the bill; Pipeline Builder resolves the customer on redirect, reads entitlements to set the tier, listens to SNS for lifecycle changes, and reports add-on consumption as metered usage. Self-service in-app bundle purchase is disabled — entitlements flow from AWS."
+          "content": "Under AWS Marketplace the customer subscribes on AWS, not in-app. AWS owns the contract and the bill; Pipeline Builder resolves the customer on redirect, reads entitlements to set the tier, listens for license events (EventBridge) for lifecycle changes, and reports add-on consumption as metered usage. Self-service in-app bundle purchase is disabled — entitlements flow from AWS."
         },
         {
           "type": "text",
@@ -748,7 +748,7 @@ export const billingProvidersTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Which customer key. A product created before AWS's Concurrent Agreements change gets a CustomerIdentifier from ResolveCustomer, and that is the key. Every SaaS product created since June 2026 gets no CustomerIdentifier, so the key is the LicenseArn (one per agreement, so one buyer account can hold several). Billing picks the right API fields from the key's shape: entitlements are read by LICENSE_ARN, and usage is metered with LicenseArn + CustomerAWSAccountId and no ProductCode, as AWS requires. The buyer's account id is read from the license's entitlement at metering time and never stored. A license ARN embeds AWS License Manager's account, not the buyer's.  POST /billing/marketplace/claim Body: { \"registrationRef\": \"<ref>\" }"
+          "content": "The customer key is the license ARN. AWS Concurrent Agreements let one buyer account hold several agreements for the same product, each with its own license, so ResolveCustomer returns a LicenseArn (and no CustomerIdentifier) and the subscription stores it as metadata.awsLicenseArn. Entitlements are read with the LICENSE_ARN filter, and usage is metered with LicenseArn + CustomerAWSAccountId and no ProductCode, as AWS requires. The buyer's account id is read from the license's entitlement at metering time and never stored. A license ARN embeds AWS License Manager's account, not the buyer's.  POST /billing/marketplace/claim Body: { \"registrationRef\": \"<ref>\" }"
         },
         {
           "type": "text",
@@ -756,64 +756,57 @@ export const billingProvidersTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Step 4 — Subscribe the SNS notification endpoint"
+          "content": "Step 4 — Wire the license events"
         },
         {
           "type": "text",
-          "content": "Products created since mid-2026 get no AWS SNS topics. AWS sends their lifecycle as EventBridge events (source: aws.agreement-marketplace) to your account's default bus instead, and sellers registered after July 15, 2026 cannot use the SNS topics at all. On EKS, bin/setup.sh handles this: Phase 5 creates an EventBridge rule and an SNS topic, both named <cluster>-marketplace-events, which forward License Updated - Manufacturer (re-check entitlements) and License Deprovisioned - Manufacturer (cancel) to the same signature-verified endpoint below. Only that rule may publish to the topic. Billing is given the topic's ARN as AWS_MARKETPLACE_EVENTS_TOPIC_ARN automatically, and Phase 10 subscribes the endpoint. Agreement events need no handler: each one is followed by a License event for the same purchase. shutdown.sh deletes the rule and topic."
-        },
-        {
-          "type": "text",
-          "content": "If your product has AWS's two topics as well, set them below too; billing accepts both kinds of message."
-        },
-        {
-          "type": "text",
-          "content": "AWS Marketplace publishes notifications to two SNS topics that AWS Marketplace creates and owns for your product — you don't create them, you subscribe to them. Both ARNs are shown in the AWS Marketplace Management Portal under your product's Product summary:"
+          "content": "AWS sends the subscription lifecycle as EventBridge events (source: aws.agreement-marketplace) to the seller account's default event bus in us-east-1. Billing acts on two of them:"
         },
         {
           "type": "table",
           "headers": [
-            "Portal label",
-            "Topic",
-            "Carries"
+            "Event",
+            "Billing does"
           ],
           "rows": [
             [
-              "Metering Service SNS topic ARN",
-              "aws-mp-subscription-notification-<product-code>",
-              "subscribe-success, subscribe-fail, unsubscribe-pending, unsubscribe-success"
+              "License Updated - Manufacturer",
+              "Re-reads the license's entitlements and moves the plan (and cadence) to match"
             ],
             [
-              "Entitlement Service SNS topic ARN",
-              "aws-mp-entitlement-notification-<product-code>",
-              "entitlement-updated (tier / quantity change)"
+              "License Deprovisioned - Manufacturer",
+              "Cancels the subscription and downgrades the org to developer"
             ]
           ]
         },
         {
           "type": "text",
-          "content": "Set both, comma-separated. Both topics live in us-east-1 under AWS Marketplace's own account 287250355862 (not your AWS account); <product-code> is your listing's product code:"
+          "content": "Agreement events need no handler: each one is followed by a License event for the same purchase, and only License events name the license. A buyer who comes back accepts a new agreement, which issues a new license and goes through registration (Step 3) again."
+        },
+        {
+          "type": "text",
+          "content": "An EventBridge rule forwards those two events to an SNS topic you own, and the app's signature-verified webhook subscribes to that topic:"
         },
         {
           "type": "code",
-          "content": "AWS_MARKETPLACE_SNS_TOPIC_ARN=arn:aws:sns:us-east-1:287250355862:aws-mp-subscription-notification-<product-code>,arn:aws:sns:us-east-1:287250355862:aws-mp-entitlement-notification-<product-code>",
+          "content": "EventBridge rule (this product's license events) → SNS topic → POST https://<your-public-host>/api/billing/marketplace/sns"
+        },
+        {
+          "type": "text",
+          "content": "The webhook accepts messages from exactly one topic, AWS_MARKETPLACE_EVENTS_TOPIC_ARN. Unset, it rejects everything (fail-closed). It confirms the SNS SubscriptionConfirmation handshake, verifies every message signature, and drops an event whose detail.product.code is not AWS_MARKETPLACE_PRODUCT_CODE."
+        },
+        {
+          "type": "text",
+          "content": "On EKS this is automated. bin/setup.sh Phase 5 creates the rule and the topic, both named <cluster>-marketplace-events. The rule matches the two events for this product only (detail.product.code), and the topic policy lets only that rule publish. Phase 4 gives billing the topic's ARN, and Phase 10 subscribes the webhook once billing answers, reporting PASS/WARN for the confirmation. shutdown.sh deletes both."
+        },
+        {
+          "type": "text",
+          "content": "On other targets, wire it once by hand (same names, so the commands match the EKS behaviour):"
+        },
+        {
+          "type": "code",
+          "content": "REGION=us-east-1; NAME=pipeline-builder-marketplace-events; CODE=<product-code>\nTOPIC=$(aws sns create-topic --region $REGION --name $NAME --query TopicArn --output text)\nRULE=$(aws events put-rule --region $REGION --name $NAME --query RuleArn --output text \\\n  --event-pattern \"{\\\"source\\\":[\\\"aws.agreement-marketplace\\\"],\\\"detail-type\\\":[\\\"License Updated - Manufacturer\\\",\\\"License Deprovisioned - Manufacturer\\\"],\\\"detail\\\":{\\\"product\\\":{\\\"code\\\":[\\\"$CODE\\\"]}}}\")\naws sns set-topic-attributes --region $REGION --topic-arn $TOPIC --attribute-name Policy --attribute-value \\\n  \"{\\\"Version\\\":\\\"2012-10-17\\\",\\\"Statement\\\":[{\\\"Effect\\\":\\\"Allow\\\",\\\"Principal\\\":{\\\"Service\\\":\\\"events.amazonaws.com\\\"},\\\"Action\\\":\\\"sns:Publish\\\",\\\"Resource\\\":\\\"$TOPIC\\\",\\\"Condition\\\":{\\\"ArnEquals\\\":{\\\"aws:SourceArn\\\":\\\"$RULE\\\"}}}]}\"\naws events put-targets --region $REGION --rule $NAME --targets \"Id=billing-sns,Arn=$TOPIC\"\naws sns subscribe --region $REGION --topic-arn $TOPIC --protocol https \\\n  --notification-endpoint https://<your-public-host>/api/billing/marketplace/sns",
           "language": "bash"
-        },
-        {
-          "type": "text",
-          "content": "The list is an exact-match allowlist: a message whose TopicArn isn't in it is rejected (403), and when the variable is unset every notification is rejected (fail-closed). Leaving one topic out silently drops that topic's actions — the service logs a startup warning when either is missing."
-        },
-        {
-          "type": "text",
-          "content": "Then subscribe the app's SNS webhook (HTTPS) to each topic. On EKS, Phase 10 of bin/setup.sh does this for every topic in the list (plus the license-events topic) once billing answers, and reports whether each subscription is confirmed. The public path goes through the gateway's /api/billing/ prefix:"
-        },
-        {
-          "type": "code",
-          "content": "POST https://<your-public-host>/api/billing/marketplace/sns"
-        },
-        {
-          "type": "text",
-          "content": "The endpoint confirms the SNS SubscriptionConfirmation handshake and verifies message signatures, then processes entitlement updates, cancellations, and reactivations (re-checking entitlements and updating the plan)."
         },
         {
           "type": "text",
@@ -838,7 +831,7 @@ export const billingProvidersTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Still yours to do: confirm the SNS subscription for your topic (Step 4), which happens in the AWS console because the topic is Marketplace-owned."
+          "content": "Still yours to do outside EKS: wire the license events (Step 4)."
         },
         {
           "type": "text",
@@ -1114,7 +1107,7 @@ export const billingProvidersTopic: HelpTopic = {
           "type": "list",
           "items": [
             "Subscribe a test customer on the listing → land on the fulfillment URL → confirm the subscription is created (GET /billing/marketplace/entitlements).",
-            "Trigger an entitlement change and confirm the SNS endpoint updates the plan.",
+            "Change the test agreement (or cancel it) and confirm the license event updates (or cancels) the subscription.",
             "With dry-run on, confirm the metering cycle logs the expected BatchMeterUsage dimensions before going live."
           ]
         },
@@ -1141,14 +1134,9 @@ export const billingProvidersTopic: HelpTopic = {
               "Region for the Metering/Entitlement clients"
             ],
             [
-              "AWS_MARKETPLACE_SNS_TOPIC_ARN",
-              "—",
-              "Comma-separated SNS topic ARNs accepted by the webhook — set both the subscription and entitlement topics"
-            ],
-            [
               "AWS_MARKETPLACE_EVENTS_TOPIC_ARN",
-              "set by the EKS deploy",
-              "The platform-owned SNS topic that AWS Marketplace license events (EventBridge) are forwarded to. Added to the accepted topics. When set, AWS's own topics are optional"
+              "— (set by the EKS deploy)",
+              "The SNS topic the EventBridge rule forwards license events to — the only topic the webhook accepts. Unset rejects every lifecycle event"
             ],
             [
               "AWS_MARKETPLACE_DIMENSION_MAP",
@@ -1188,11 +1176,11 @@ export const billingProvidersTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Every variable the provider needs, at its code default. Replace the product code and the two topic ARNs; the dimension names below must match what you registered on the listing."
+          "content": "Every variable the provider needs, at its code default. Replace the product code (and, outside EKS, the events topic ARN); the dimension names below must match what you registered on the listing."
         },
         {
           "type": "code",
-          "content": "BILLING_ENABLED=true\nBILLING_PROVIDER=aws-marketplace\n\nAWS_MARKETPLACE_PRODUCT_CODE=REPLACE\nAWS_MARKETPLACE_REGION=us-east-1\nAWS_MARKETPLACE_SNS_TOPIC_ARN=arn:aws:sns:us-east-1:287250355862:aws-mp-subscription-notification-REPLACE,arn:aws:sns:us-east-1:287250355862:aws-mp-entitlement-notification-REPLACE\n\nAWS_MARKETPLACE_DIMENSION_MAP='{\"pro\":\"pro\",\"team\":\"team\",\"business\":\"business\",\"enterprise\":\"enterprise\"}'\n\nAWS_MARKETPLACE_BUNDLE_DIMENSION_MAP='{\"seat\":\"Seat\",\"pipeline_pack\":\"PipelinePack\",\"plugin_pack\":\"PluginPack\",\"cpu_credits_pack\":\"CpuCreditsPack\",\"api_pack\":\"ApiPack\",\"automation_pack\":\"AutomationPack\",\"ai_pack\":\"AiPack\",\"storage_pack\":\"StoragePack\",\"listing_pack\":\"ListingPack\",\"retention_pack\":\"RetentionPack\",\"dora_history_pack\":\"DoraHistoryPack\",\"advanced_reporting\":\"AdvancedReporting\",\"team_usage_analytics\":\"TeamUsageAnalytics\",\"compliance_standard\":\"ComplianceStandard\",\"compliance_advanced\":\"ComplianceAdvanced\",\"stakeholder_reports\":\"StakeholderReports\",\"support_standard\":\"SupportStandard\",\"support_priority\":\"SupportPriority\",\"support_premium\":\"SupportPremium\"}'\n\nAWS_MARKETPLACE_DIMENSION_PRICE_MAP='{\"Seat\":4999,\"PipelinePack\":2999,\"PluginPack\":1199,\"CpuCreditsPack\":249,\"ApiPack\":1199,\"AutomationPack\":1199,\"AiPack\":1199,\"StoragePack\":1999,\"ListingPack\":0,\"RetentionPack\":1500,\"DoraHistoryPack\":3000,\"AdvancedReporting\":3000,\"TeamUsageAnalytics\":3000,\"ComplianceStandard\":2999,\"ComplianceAdvanced\":9999,\"StakeholderReports\":3000,\"SupportStandard\":1999,\"SupportPriority\":4999,\"SupportPremium\":9999}'\n\nBILLING_METERING_ENABLED=false\nBILLING_METERING_INTERVAL_MS=3600000\nBILLING_METERING_DRAWDOWN_DRYRUN=true\n\nBILLING_DISCOUNTS_ENABLED=true\nBILLING_PROMOTIONS_ENABLED=true\nPAYMENT_GRACE_PERIOD_DAYS=7\nRENEWAL_REMINDER_DAYS=7",
+          "content": "BILLING_ENABLED=true\nBILLING_PROVIDER=aws-marketplace\n\nAWS_MARKETPLACE_PRODUCT_CODE=REPLACE\nAWS_MARKETPLACE_REGION=us-east-1\nAWS_MARKETPLACE_EVENTS_TOPIC_ARN=\n\nAWS_MARKETPLACE_DIMENSION_MAP='{\"pro\":\"pro\",\"team\":\"team\",\"business\":\"business\",\"enterprise\":\"enterprise\"}'\n\nAWS_MARKETPLACE_BUNDLE_DIMENSION_MAP='{\"seat\":\"Seat\",\"pipeline_pack\":\"PipelinePack\",\"plugin_pack\":\"PluginPack\",\"cpu_credits_pack\":\"CpuCreditsPack\",\"api_pack\":\"ApiPack\",\"automation_pack\":\"AutomationPack\",\"ai_pack\":\"AiPack\",\"storage_pack\":\"StoragePack\",\"listing_pack\":\"ListingPack\",\"retention_pack\":\"RetentionPack\",\"dora_history_pack\":\"DoraHistoryPack\",\"advanced_reporting\":\"AdvancedReporting\",\"team_usage_analytics\":\"TeamUsageAnalytics\",\"compliance_standard\":\"ComplianceStandard\",\"compliance_advanced\":\"ComplianceAdvanced\",\"stakeholder_reports\":\"StakeholderReports\",\"support_standard\":\"SupportStandard\",\"support_priority\":\"SupportPriority\",\"support_premium\":\"SupportPremium\"}'\n\nAWS_MARKETPLACE_DIMENSION_PRICE_MAP='{\"Seat\":4999,\"PipelinePack\":2999,\"PluginPack\":1199,\"CpuCreditsPack\":249,\"ApiPack\":1199,\"AutomationPack\":1199,\"AiPack\":1199,\"StoragePack\":1999,\"ListingPack\":0,\"RetentionPack\":1500,\"DoraHistoryPack\":3000,\"AdvancedReporting\":3000,\"TeamUsageAnalytics\":3000,\"ComplianceStandard\":2999,\"ComplianceAdvanced\":9999,\"StakeholderReports\":3000,\"SupportStandard\":1999,\"SupportPriority\":4999,\"SupportPremium\":9999}'\n\nBILLING_METERING_ENABLED=false\nBILLING_METERING_INTERVAL_MS=3600000\nBILLING_METERING_DRAWDOWN_DRYRUN=true\n\nBILLING_DISCOUNTS_ENABLED=true\nBILLING_PROMOTIONS_ENABLED=true\nPAYMENT_GRACE_PERIOD_DAYS=7\nRENEWAL_REMINDER_DAYS=7",
           "language": "bash"
         }
       ]
@@ -1230,9 +1218,9 @@ export const billingProvidersTopic: HelpTopic = {
             ],
             [
               "POST /billing/marketplace/sns",
-              "SNS signature",
+              "SNS signature + topic",
               "Marketplace",
-              "Entitlement/subscription lifecycle notifications"
+              "License events (EventBridge → SNS): entitlement changes and cancellations"
             ],
             [
               "GET /billing/marketplace/entitlements",
