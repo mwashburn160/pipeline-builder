@@ -124,6 +124,11 @@ describe('AWSMarketplaceProvider', () => {
     productCode: 'test-product',
     region: 'us-east-1',
     snsTopicArns: ['arn:aws:sns:us-east-1:123456789:test-topic'],
+    // Required on `MarketplaceConfig`, and EMPTY is the meaningful value here:
+    // `config.ts` defaults it to `''` when AWS_MARKETPLACE_EVENTS_TOPIC_ARN is
+    // unset, and `validate-provider-config` tests it with `!!`, so `''` keeps
+    // these cases on the SNS-topic path they were written for.
+    eventsTopicArn: '',
     dimensionToPlanMap: { developer: 'developer', pro: 'pro', team: 'team', enterprise: 'enterprise' },
     bundleToDimensionMap: { seat_pack: 'seats', pipeline_pack: 'pipelines' },
     dimensionPriceMap: {},

@@ -46,14 +46,17 @@ describe('config.marketplace.snsTopicArns', () => {
 
   it('adds the platform-owned EventBridge events topic, with or without the AWS topics', async () => {
     const EVENTS = 'arn:aws:sns:us-east-1:111122223333:pipeline-builder-marketplace-events';
-    const original = process.env.AWS_MARKETPLACE_EVENTS_TOPIC_ARN;
+    // `originalEvents`, not `original`: the describe scope already holds an
+    // `original` for the AWS topic var, and shadowing it here made the restore
+    // below read as though it put THAT one back.
+    const originalEvents = process.env.AWS_MARKETPLACE_EVENTS_TOPIC_ARN;
     process.env.AWS_MARKETPLACE_EVENTS_TOPIC_ARN = EVENTS;
     try {
       expect(await loadTopicArns(`${SUB},${ENT}`)).toEqual([SUB, ENT, EVENTS]);
       expect(await loadTopicArns(undefined)).toEqual([EVENTS]);
     } finally {
-      if (original === undefined) delete process.env.AWS_MARKETPLACE_EVENTS_TOPIC_ARN;
-      else process.env.AWS_MARKETPLACE_EVENTS_TOPIC_ARN = original;
+      if (originalEvents === undefined) delete process.env.AWS_MARKETPLACE_EVENTS_TOPIC_ARN;
+      else process.env.AWS_MARKETPLACE_EVENTS_TOPIC_ARN = originalEvents;
     }
   });
 });
