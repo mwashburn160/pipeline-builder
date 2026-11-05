@@ -456,6 +456,12 @@ short:
   `PLUGIN_ORG_SLOT_MAX_WAIT_MS` it fails terminally with a 503 instead. This is
   the one that cost somebody a build, which is why it is critical and fires
   immediately rather than waiting out a `for:`.
+  - **If the org is the SYSTEM org, this is a bug, not contention.** The system
+    org is exempt from the semaphore (it is where the sample catalogue loads, so
+    an install queues a hundred-odd builds under one org). A timeout attributed
+    to it means the exemption is not being reached — check that the job carries
+    the system org's **id** rather than the `system` slug, which is a name and is
+    deliberately not treated as an id.
 - **Leak** is capacity disappearing rather than being spent. A worker that dies
   holding a slot leaves the counter raised, which **permanently** reduces that
   org's build concurrency until a scrub reclaims it — so its builds queue for no

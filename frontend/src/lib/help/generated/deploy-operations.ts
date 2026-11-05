@@ -1,6 +1,6 @@
 // GENERATED FROM docs/deploy-operations.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 7e4c88f560d2ec8c4f6c84b2355a1130897ff0fd044fd68898a8257b2aa99bcc
+// SOURCE-SHA256: 0595b8ce06d3dea54f78e41bdeea4aa56b7191b904590827f870385eacc06612
 // SPDX-License-Identifier: Apache-2.0
 import { Wrench } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -1019,6 +1019,16 @@ export const deployOperationsTopic: HelpTopic = {
         {
           "type": "text",
           "content": "without a budget a starved job would bounce silently forever; past PLUGIN_ORG_SLOT_MAX_WAIT_MS it fails terminally with a 503 instead. This is the one that cost somebody a build, which is why it is critical and fires immediately rather than waiting out a for:."
+        },
+        {
+          "type": "list",
+          "items": [
+            "If the org is the SYSTEM org, this is a bug, not contention. The system"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "org is exempt from the semaphore (it is where the sample catalogue loads, so an install queues a hundred-odd builds under one org). A timeout attributed to it means the exemption is not being reached — check that the job carries the system org's id rather than the system slug, which is a name and is deliberately not treated as an id."
         },
         {
           "type": "list",

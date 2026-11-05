@@ -5,9 +5,14 @@
  * Tests for queue/slot-manager.
  *
  * Two hardening properties:
- *  (1) the per-org counter TTL is refreshed on EVERY acquire (not just the
- *      0->1 transition), so a continuously-busy org's key can't expire
- *      mid-flight and reset the cap;
+ *  (1) the per-org counter TTL is refreshed on every GRANTED acquire (not just
+ *      the 0->1 transition), so a continuously-busy org's key can't expire
+ *      mid-flight and reset the cap — and NOT on a denied one, because the TTL
+ *      is the crash-recovery window and a starved org's retries would otherwise
+ *      keep pushing back the recovery of the very slot starving them;
+ *  (4) the SYSTEM org is exempt from the semaphore entirely. It is where the
+ *      sample catalogue loads, so a fresh install queues the whole catalogue
+ *      under one org and a cap of 3-8 starves the rest into terminal failure.
  *  (2) the per-org cap is PER CLASS and PER TIER, so `flexible` work cannot eat
  *      the `standard` headroom an urgent fix needs, and a Developer org no
  *      longer gets an Enterprise org's concurrency;
@@ -108,7 +113,9 @@ registerMocks();
 const mod0 = await import('../src/queue/slot-manager.js');
 const {
   releaseOrgSlot, scrubOrgSlots, refreshOrgSlot, startOrgSlotHeartbeat, MAX_SLOT_DELAYS, maxBuildsPerOrg,
+  orgSlotExempt,
 } = mod0;
+const { SYSTEM_ORG_ID } = await import('@pipeline-builder/api-core');
 
 // Most cases here are about the Lua, not the ladder, so they acquire on the
 // roomiest row (enterprise/standard = 8) and the cases that are about the cap
@@ -521,5 +528,130 @@ describe('per-class, per-tier caps', () => {
 
     expect(count('org-a', 'standard')).toBe(0);
     expect(owners()).toEqual({});
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The system org is not a tenant
+// ---------------------------------------------------------------------------
+
+describe('the system org is exempt from the per-org semaphore', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    resetRedis();
+  });
+
+  it('grants without touching Redis at all', async () => {
+    expect(await acquire(SYSTEM_ORG_ID, 'q:job-1')).toBe(true);
+    // No counter, no owner record, and no script run: there is nothing to
+    // release, nothing to heartbeat and nothing that can leak.
+    expect(mockEval).not.toHaveBeenCalled();
+    expect(count(SYSTEM_ORG_ID)).toBe(0);
+    expect(owners()).toEqual({});
+  });
+
+  it('grants far past the cap, which is the install case that failed', async () => {
+    // A fresh install enqueues the whole catalogue under this one org. On the
+    // roomiest row the cap is 8; the Nov 4 slot gate failed 80 of 119 builds
+    // terminally after each waited out PLUGIN_ORG_SLOT_MAX_WAIT_MS.
+    for (let i = 0; i < 120; i++) {
+      expect(await acquire(SYSTEM_ORG_ID, `q:job-${i}`)).toBe(true);
+    }
+  });
+
+  it('matches the org ID, case-insensitively, and NOT the slug', () => {
+    expect(orgSlotExempt(SYSTEM_ORG_ID)).toBe(true);
+    // Case-insensitive because the id is hex and hex is: a differently-cased id
+    // resolves to the same Mongo document while a string compare disagrees.
+    expect(orgSlotExempt(SYSTEM_ORG_ID.toUpperCase())).toBe(true);
+
+    // The bare slug is NOT exempt, and that is deliberate rather than an
+    // oversight: this path receives `job.data.orgId`, an ObjectId, and treating
+    // the NAME 'system' as an id would exempt whatever org actually carried that
+    // string as its id. `isSystemOrgId` takes the slug as its SECOND argument
+    // precisely so the two cannot be confused.
+    expect(orgSlotExempt('system')).toBe(false);
+  });
+
+  it('releases as a no-op, so a scrub cannot miscount a reclaim', async () => {
+    await acquire(SYSTEM_ORG_ID, 'q:job-1');
+    expect(await releaseOrgSlot(SYSTEM_ORG_ID, 'q:job-1', 'standard')).toBe(false);
+    expect(count(SYSTEM_ORG_ID)).toBe(0);
+  });
+
+  it('runs no heartbeat timer', async () => {
+    jest.useFakeTimers();
+    try {
+      await acquire(SYSTEM_ORG_ID, 'q:job-1');
+      const stop = startOrgSlotHeartbeat(SYSTEM_ORG_ID, 'q:job-1', 'standard');
+      await jest.advanceTimersByTimeAsync(3_600_000);
+      // Without the carve-out this logged "found no owner record" every 300s
+      // for the lifetime of every system-org build.
+      expect(expiresFor(SYSTEM_ORG_ID)).toBeUndefined();
+      expect(() => stop()).not.toThrow();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('does NOT exempt an ordinary org — the carve-out stays narrow', async () => {
+    // The whole point of the cap is fairness between paying tenants.
+    for (let i = 0; i < 8; i++) expect(await acquire('org-a', `q:job-${i}`)).toBe(true);
+    expect(await acquire('org-a', 'q:job-8')).toBe(false);
+    expect(count('org-a')).toBe(8);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A denied attempt must not extend the crash-recovery window
+// ---------------------------------------------------------------------------
+
+describe('the TTL is refreshed on a GRANT, never on a denial', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    resetRedis();
+  });
+
+  it('extends the window when a slot is granted', async () => {
+    await acquire('org-a', 'q:job-1');
+    expect(expiresFor('org-a')).toBe(1);
+    await acquire('org-a', 'q:job-2');
+    expect(expiresFor('org-a')).toBe(2);
+  });
+
+  it('does NOT extend it when the slot is refused', async () => {
+    const cap = maxBuildsPerOrg('enterprise' as never, 'standard' as never);
+    for (let i = 0; i < cap; i++) await acquire('org-a', `q:job-${i}`);
+    const atCap = expiresFor('org-a');
+
+    expect(await acquire('org-a', 'q:one-too-many')).toBe(false);
+
+    expect(expiresFor('org-a')).toBe(atCap);
+  });
+
+  it('lets crash recovery actually fire for a starved org', async () => {
+    // THE BUG. The EXPIRE used to precede the cap check, so every denial reset
+    // the counter's TTL. An org at its cap retries every ORG_SLOT_DELAY_MS, so a
+    // leaked slot's crash-recovery window was pushed back forever by the jobs it
+    // was starving — the busier the org, the less likely the recovery.
+    const cap = maxBuildsPerOrg('enterprise' as never, 'standard' as never);
+    for (let i = 0; i < cap; i++) await acquire('org-a', `q:leaked-${i}`);
+    const atCap = expiresFor('org-a');
+
+    // 180 denials is the full PLUGIN_ORG_SLOT_MAX_WAIT_MS budget's worth.
+    for (let i = 0; i < 180; i++) await acquire('org-a', `q:starved-${i}`);
+
+    expect(expiresFor('org-a')).toBe(atCap);
+  });
+
+  it('still refreshes for a re-entrant acquire by the same job, via the owner check', async () => {
+    // A stalled job re-run under the same id must not take a second slot. It
+    // returns before both the INCR and the EXPIRE, so the count and the window
+    // are untouched — its own heartbeat is what keeps the window alive.
+    await acquire('org-a', 'q:job-1');
+    const after = expiresFor('org-a');
+    expect(await acquire('org-a', 'q:job-1')).toBe(true);
+    expect(count('org-a')).toBe(1);
+    expect(expiresFor('org-a')).toBe(after);
   });
 });

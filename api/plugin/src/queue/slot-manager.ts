@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { BUILD_CLASSES, buildSlotsFor, envInt, createLogger, errorMessage } from '@pipeline-builder/api-core';
+import { BUILD_CLASSES, buildSlotsFor, envInt, createLogger, errorMessage, isSystemOrgId } from '@pipeline-builder/api-core';
 import type { BuildClass, QuotaTier } from '@pipeline-builder/api-core';
 import { incCounter } from '@pipeline-builder/api-server';
 
@@ -48,6 +48,32 @@ export function maxBuildsPerOrg(tier: QuotaTier, buildClass: BuildClass): number
   );
 }
 
+/**
+ * Orgs the per-org semaphore does not apply to.
+ *
+ * ONLY the system org, and it is not a convenience: the cap is a MULTI-TENANCY
+ * FAIRNESS device between paying tenants, and the system org is not a tenant.
+ * It is where the sample plugin catalogue loads, so a fresh install enqueues the
+ * whole catalogue at once under this one org — and a cap of three to eight
+ * in-flight builds against a hundred-odd queued ones means everything past the
+ * first few waits out `PLUGIN_ORG_SLOT_MAX_WAIT_MS` and fails TERMINALLY. The
+ * install then reports success (it counts HTTP 202s) while most of the catalogue
+ * is missing.
+ *
+ * Exactly the line `buildSpendsCredits` already draws for build credits, for the
+ * same stated reason — platform work done on the tenant's behalf rather than
+ * work the tenant asked for. The slot cap was added later and did not inherit
+ * the carve-out.
+ *
+ * An exempt org takes NO counter and NO owner record, rather than being given a
+ * very large cap: a large cap still grows the owner hash by one entry per build
+ * and still leaves a counter that can leak, and "unlimited" expressed as a big
+ * number is a number somebody will later mistake for a limit.
+ */
+export function orgSlotExempt(orgId: string): boolean {
+  return isSystemOrgId(orgId);
+}
+
 export const ORG_SLOT_DELAY_MS = envInt('PLUGIN_ORG_SLOT_DELAY_MS', 10000, { min: 1 });
 const ORG_SLOT_TTL_SEC = envInt('PLUGIN_ORG_SLOT_TTL_SEC', 900, { min: 1 });
 
@@ -58,8 +84,9 @@ const ORG_SLOT_TTL_SEC = envInt('PLUGIN_ORG_SLOT_TTL_SEC', 900, { min: 1 });
  * The TTL is a CRASH-RECOVERY window, not a build-duration cap — the same
  * distinction the leader lock already makes, where the TTL covers a dead holder
  * and a heartbeat covers a long run. Without the heartbeat the TTL doubled as a
- * duration cap: `EXPIRE` is refreshed on every acquire ATTEMPT (it precedes the
- * cap check in ACQUIRE_SLOT_LUA), so an org with builds in flight and no further
+ * duration cap: `EXPIRE` is refreshed on every GRANTED acquire (it used to be
+ * refreshed on every attempt, denials included — see ACQUIRE_SLOT_LUA for why
+ * that defeated crash recovery), so an org with builds in flight and no further
  * attempts for ORG_SLOT_TTL_SEC lost its counter WHILE those builds ran. The
  * next acquire then started from zero and the per-org cap could be exceeded by
  * however many were in flight, with release afterwards under-counting into the
@@ -133,16 +160,29 @@ if redis.call('HEXISTS', KEYS[2], ARGV[3]) == 1 then
   return 1
 end
 local count = redis.call('INCR', KEYS[1])
--- Refresh the TTL on EVERY acquire, not just the 0->1 transition. Setting it
--- only once meant a continuously-busy org's key could expire mid-flight
--- (between acquires) while slots were still held, letting the counter reset
--- and the cap be exceeded. Unconditional EXPIRE keeps the key alive as long as
--- the org keeps building.
-redis.call('EXPIRE', KEYS[1], ARGV[2])
 if count > tonumber(ARGV[1]) then
   redis.call('DECR', KEYS[1])
+  -- NO EXPIRE on the denied path, and the order here is the whole point.
+  --
+  -- The EXPIRE used to precede this check, so a DENIED attempt refreshed the
+  -- counter's TTL. That TTL is the CRASH-RECOVERY window (a dead worker's slot
+  -- expires and the org recovers) — and an org at its cap is retrying every
+  -- ORG_SLOT_DELAY_MS, so those denials kept resetting the window. A single
+  -- leaked slot therefore became PERMANENT: crash recovery could never fire
+  -- while the starved jobs it was starving kept pushing it back, and only the
+  -- scrubber could break the cycle. The busier the org, the less likely the
+  -- recovery.
+  --
+  -- A denied attempt holds nothing, so it has no TTL of its own to protect, and
+  -- the slots that ARE held are kept alive by their own heartbeats
+  -- (REFRESH_SLOT_LUA) rather than by other jobs' failed attempts.
   return 0
 end
+-- Refreshed on a GRANT, which is what the original intent was: a
+-- continuously-busy org's key must not expire mid-flight while slots are held.
+-- The heartbeat covers a long-running hold; this covers the gap between one
+-- build finishing and the next starting.
+redis.call('EXPIRE', KEYS[1], ARGV[2])
 -- Record the owner IN THE SAME script as the INCR. These used to be two round
 -- trips: if the HSET threw, the counter was already raised with NO owner entry,
 -- and since the scrubber reclaims by iterating the owner hash it could never
@@ -185,6 +225,7 @@ return 1
 `;
 
 export async function refreshOrgSlot(orgId: string, jobId: string, buildClass: BuildClass): Promise<boolean> {
+  if (orgSlotExempt(orgId)) return false;
   const redis = getConnectionForDb(0);
   const result = await redis.eval(
     REFRESH_SLOT_LUA, 2, orgSlotKey(orgId, buildClass), orgSlotOwnersKey, jobId, String(ORG_SLOT_TTL_SEC),
@@ -201,6 +242,9 @@ export async function refreshOrgSlot(orgId: string, jobId: string, buildClass: B
  * here would cost a build that may already have published its image.
  */
 export function startOrgSlotHeartbeat(orgId: string, jobId: string, buildClass: BuildClass): () => void {
+  // No slot, nothing to keep alive. Without this an exempt org's every build
+  // would run a timer that logs "found no owner record" at debug on each tick.
+  if (orgSlotExempt(orgId)) return () => undefined;
   const timer = setInterval(() => {
     void refreshOrgSlot(orgId, jobId, buildClass)
       .then((extended) => {
@@ -219,6 +263,10 @@ export function startOrgSlotHeartbeat(orgId: string, jobId: string, buildClass: 
 export async function tryAcquireOrgSlot(
   orgId: string, jobId: string, tier: QuotaTier, buildClass: BuildClass,
 ): Promise<boolean> {
+  // The system org never queues behind itself (see `orgSlotExempt`). Granted
+  // without touching Redis, so there is nothing to release, nothing to
+  // heartbeat and nothing that can leak.
+  if (orgSlotExempt(orgId)) return true;
   const redis = getConnectionForDb(0);
   // TWO keys: the class counter and the owner hash — the owner record is written
   // atomically with the INCR (see ACQUIRE_SLOT_LUA).
@@ -232,6 +280,10 @@ export async function tryAcquireOrgSlot(
 /** Release `jobId`'s slot for `orgId`. Idempotent per job (see RELEASE_SLOT_LUA);
  *  resolves true when this call gave a held slot back. */
 export async function releaseOrgSlot(orgId: string, jobId: string, buildClass: BuildClass): Promise<boolean> {
+  // Nothing was held, so nothing is given back. Returning false rather than
+  // true keeps `plugin_build_slot_reclaimed_total` honest if the scrubber ever
+  // walks an exempt org's job.
+  if (orgSlotExempt(orgId)) return false;
   const redis = getConnectionForDb(0);
   const released = await redis.eval(
     RELEASE_SLOT_LUA, 2, orgSlotKey(orgId, buildClass), orgSlotOwnersKey, jobId, String(ORG_SLOT_TTL_SEC),
