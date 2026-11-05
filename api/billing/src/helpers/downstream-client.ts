@@ -156,6 +156,71 @@ export async function fetchQuotaTypeUsage(orgId: string, quotaType: string, auth
  * Returns `null` on read failure; individual fields are `null` when absent or
  * non-numeric (`data.limit` / `data.used`).
  */
+/** One quota dimension as the offers profile read returns it. */
+export interface ProfileDimensionRead {
+  used: number;
+  limit: number;
+  ratio: number | null;
+  projected: number | null;
+  resetAt: string | null;
+  periodDays: number | null;
+}
+
+export interface UsageProfileRead {
+  orgId: string;
+  tier: string;
+  rootOrgId: string;
+  dimensions: Record<string, ProfileDimensionRead>;
+}
+
+/**
+ * The POOLED per-dimension usage picture the expansion-offers profile is built
+ * from (`GET /quotas/internal/:orgId/profile`).
+ *
+ * Null on any failure, like every read here — and the caller must treat that as
+ * INCOMPLETE rather than as zero usage. A profile assembled from a failed read
+ * looks like an idle account, which is the shape that suppresses an offer the
+ * account should have had, or argues for one it should not.
+ */
+export async function fetchUsageProfile(orgId: string, auth: string): Promise<UsageProfileRead | null> {
+  const body = await getJson<{ data?: { profile?: UsageProfileRead } }>(
+    config.quotaService, `/quotas/internal/${encodeURIComponent(orgId)}/profile`, orgId, auth,
+  );
+  return body?.data?.profile ?? null;
+}
+
+/** Seats held against members who actually used them, over a window. */
+export interface SeatActivityRead {
+  orgId: string;
+  windowDays: number;
+  seatsHeld: number;
+  activeMembers: number;
+  /** Memberships with NO activity stamp — unknown, not inactive. */
+  unknownActivity: number;
+}
+
+/**
+ * The VALUE signal (`GET /internal/offers/seat-activity/:orgId`).
+ *
+ * `unknownActivity` is carried through rather than folded into the inactive
+ * count: the stamp is absent for every membership predating it, and treating
+ * absent as inactive would make established accounts look dormant — which
+ * argues against exactly the offers they should receive.
+ */
+export async function fetchSeatActivity(
+  orgId: string,
+  auth: string,
+  windowDays: number,
+): Promise<SeatActivityRead | null> {
+  const body = await getJson<{ data?: { seatActivity?: SeatActivityRead } }>(
+    config.platformService,
+    `/internal/offers/seat-activity/${encodeURIComponent(orgId)}?windowDays=${windowDays}`,
+    orgId,
+    auth,
+  );
+  return body?.data?.seatActivity ?? null;
+}
+
 export async function fetchSeatUsage(orgId: string, auth: string): Promise<SeatUsageSnapshot | null> {
   const body = await getJson<{ data?: { limit?: unknown; used?: unknown } }>(
     config.platformService, `/organization/${encodeURIComponent(orgId)}/seat-usage`, orgId, auth,

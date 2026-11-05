@@ -157,6 +157,67 @@ export interface ComboChange {
  * rather than what a proposed change would cost. The two share the type because
  * they are the same arithmetic; only the add-on set differs (held vs proposed).
  */
+/**
+ * Does this account's pack spend already argue for a tier move?
+ * (`GET /billing/crossover`.)
+ *
+ * MIRRORS `api/billing/src/helpers/crossover.ts` `CrossoverVerdict` — the
+ * client cannot import it (the billing service is not a browser dependency), so
+ * `wire-type-drift` holds the two shapes identical.
+ *
+ * `crossover: false` always carries a `reason`, because the UI has to stay
+ * silent for the right cause: "no packs held" is a normal state, while
+ * "would_regress" means a cheaper tier exists that would cost the account
+ * capacity, and neither should render as an offer.
+ */
+export interface CrossoverVerdict {
+  crossover: boolean;
+  tier: QuotaTier;
+  interval: BillingInterval;
+  /** What the account pays now, per interval: plan + packs, volume discounts applied. */
+  currentCents: number;
+  candidateTier: QuotaTier | null;
+  /** The candidate's plan price plus any add-on the move cannot retire. */
+  candidateCents: number;
+  /** `currentCents - candidateCents`. Positive ⇒ the move costs less. */
+  savingCents: number;
+  retiredAddons: string[];
+  /** The subset the plan change retires by itself (pure feature bundles). */
+  autoPrunedAddons: string[];
+  /** The subset the ACCOUNT must remove for the saving to be real. */
+  dropRequiredAddons: string[];
+  /**
+   * True when `savingCents` depends on the account removing packs the tier
+   * change will NOT remove for it — a resource pack survives a plan change and
+   * keeps billing on top of the new tier's base. Any surface quoting the saving
+   * must quote this with it, or the account upgrades, keeps the packs, and pays
+   * more than before.
+   */
+  savingRequiresDrops: boolean;
+  keptAddons: Array<{ bundleId: string; quantity: number }>;
+  reason?: 'top_tier' | 'no_addons' | 'nothing_cheaper' | 'would_regress';
+}
+
+/**
+ * What a plan change lands on, priced by the server (`GET /billing/plan-preview`).
+ *
+ * `netPlanCents` is the plan line after the standing discount; `totalCents`
+ * adds the add-ons the move does NOT retire, which is the figure the next
+ * invoice carries. Quoting `listCents` alone is the bug F1 exists to fix.
+ */
+export interface PlanChangePreview {
+  tier: QuotaTier;
+  fromTier: QuotaTier;
+  interval: BillingInterval;
+  listCents: number;
+  discountCents: number;
+  netPlanCents: number;
+  survivingAddonCents: number;
+  prunedAddons: string[];
+  totalCents: number;
+  discountName: string | null;
+}
+
 export interface AddonPriceBreakdown {
   interval: string;
   items: Array<{ label: string; quantity: number; cents: number }>;

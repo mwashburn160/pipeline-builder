@@ -461,10 +461,84 @@ Four properties, each chosen rather than inherited:
   developer switch off something the owner wants.
 - **Gated on `billing:manage`**, for the same reason. It is not a notification
   preference every member may flip.
-- **An instance-level switch too**, mirroring `noticesEnabledOnInstance` — and it
-  defaults OFF where billing is disabled, because a deployment with nothing to
-  sell should not be making offers. A self-hosted operator turning the whole
-  feature off must not have to visit every account.
+- **An instance-level switch too**, mirroring `noticesEnabledOnInstance`, so a
+  self-hosted operator turning the whole feature off does not have to visit
+  every account. **It is its OWN knob, not a reading of `BILLING_ENABLED`** —
+  see below.
+
+### The instance knob is SEPARATE from billing's, and that is the point
+
+**Decision: `OFFERS_ENABLED` is an independent operator knob, defaulting to
+TRUE, and the effective state is `BILLING_ENABLED && OFFERS_ENABLED`.**
+
+An earlier revision made the instance switch *derive* from billing — "defaults
+OFF where billing is disabled". That is not enough, because it makes the state
+an operator most wants unreachable: **billing ON, offers OFF.** A deployment that
+sells plans, takes payments and enforces quotas, but does not want an automated
+process emailing its customers with discounts, is not an edge case — it is the
+default posture for most self-hosted installs and for every deployment during
+the period between shipping this and trusting it.
+
+Two knobs, with the dependency running one way:
+
+| Knob | Default | Means |
+|---|---|---|
+| `BILLING_ENABLED` | `true` | plans, payments, quotas enforced |
+| `OFFERS_ENABLED` | `true` | the offers agent may run and grant |
+
+**The house precedent is exact, and it is `SUPPORT_ENABLED`**: `true` by
+default, "independent of `BILLING_ENABLED` by design", for a deployment
+question billing cannot answer on its own behalf. Whether a deployment staffs
+support and whether it makes expansion offers are the same shape of decision —
+one the operator owns and billing's own switch has no opinion about. Matching
+it means an operator reads one rule across the catalogue switches rather than
+remembering which one inverts.
+
+- **Offers REQUIRE billing** — there is nothing to grant, discount or upgrade
+  without it — so `BILLING_ENABLED=false` disables offers whatever the offers
+  knob says. The dependency is checked rather than assumed: a deployment that
+  turns billing off mid-life must not keep making offers against a catalogue it
+  no longer serves.
+- **Billing does NOT imply offers, and that is the point of the second knob.**
+  Deriving the default from `BILLING_ENABLED` would make the state an operator
+  most wants unreachable; a knob of its own makes "billing on, offers off" a
+  value to set rather than a combination to discover is impossible.
+- **Both default TRUE**, so the deployment switch is opt-OUT and matches the
+  account switch rather than opposing it. One rule reads across both levels:
+  offers happen unless somebody said not to, and there are two places to say it.
+- **Which puts the whole weight on the stops, so they are not optional.** With
+  the feature arriving on, the things that keep it from being a nuisance are the
+  ones that have to exist before the first cycle rather than after it: the
+  account-level `offersEnabled` with its unsubscribe (D6), the 45-day frequency
+  cap measured from SEND (D6), the per-cycle ceiling and idempotency key (D15),
+  the campaign `budgetCents` the grant spends from, and the per-cycle read of
+  this knob below. A default-on feature with any of those missing is a default-on
+  feature with no brakes.
+
+**And the knob is read per CYCLE, not at boot — which matters more now that it
+defaults on.** The scheduler re-reads it on every tick, so turning offers off
+stops the next cycle without a restart. A knob that only takes effect on
+redeploy is not a kill switch, and this is a default-on process that spends a
+campaign budget: the operator who discovers it running needs to stop it in the
+time it takes to change a value, not in the time it takes to roll a deployment.
+This is the primary operator protection rather than a convenience.
+
+**What stays running when offers are off.** The agent's *reads* are harmless and
+some of its outputs are not offers at all, so the switch is scoped to the
+granting path rather than the whole subsystem:
+
+- the **profile store keeps filling** (Phase 0), because the history is the one
+  thing that cannot be backfilled — switching offers off for a quarter and on
+  again must not cost a quarter of trajectory;
+- the **crossover comparison** (D4, F3) keeps rendering, because it is
+  arithmetic over the account's own subscription — information rather than
+  solicitation, and the same reasoning that exempts F2 and F3 from the consent
+  question entirely;
+- **no offer is created, no discount is minted, and no campaign budget moves.**
+
+That split is why the knob gates the grant rather than the scheduler: a
+deployment with offers off still accumulates everything needed to turn them on
+later and see whether they would have worked.
 
 **And its interaction with the quota-notice switch has to be decided, not
 inherited.** `offersEnabled` sits on the settings object that already carries
@@ -1212,6 +1286,13 @@ The `Offer` record — org, **offer type**, SKU or basket, rationale (which sign
 fired), amount, the campaign it spends from, status, expiry — plus the rule set,
 the frequency cap, the suppression states and the holdout.
 
+**The instance knob is checked HERE, at the grant, not at the scheduler.** D6
+settles it as `OFFERS_ENABLED` (own knob, default false, `BILLING_ENABLED &&
+OFFERS_ENABLED`), and the reason it gates this phase rather than Phase 0 is that
+the profile store must keep filling while offers are off: history is the one
+thing that cannot be backfilled, so a quarter with offers off must not cost a
+quarter of trajectory.
+
 **Three offer types, not one** (D4's crossover and Example C):
 
 - **upgrade** — move a tier. The only type a percentage suits (D10), and the only
@@ -1663,6 +1744,14 @@ decision here that cannot be revisited: history not kept is history not
 recoverable, and D16, D19 and D12's calibration all read it. Everything else in
 this plan can be added later at roughly the same cost; this one cannot be added
 at all.
+
+**`OFFERS_ENABLED` before the first live cycle.** Two knobs, not one, both
+defaulting true, effective state `BILLING_ENABLED && OFFERS_ENABLED`, read PER
+CYCLE so it is a kill switch rather than a redeploy. Because it arrives on, it
+ships together with the stops rather than ahead of them: the frequency cap, the
+per-cycle ceiling, the campaign budget and the account-level switch are what
+make a default-on granter safe, and none of them is optional for the first
+cycle.
 
 **D14 and D15 before the first live cycle**, not after. A named actor, a
 per-cycle ceiling and an idempotency key are what separate a scheduler that

@@ -2,12 +2,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { quotaAccrual, quotaDescription, quotaLabelPlural, quotaPackUnit } from '@pipeline-builder/api-core/quota-catalog';
+import { projectUsage, projectionWorthShowing } from '@pipeline-builder/api-core/usage-projection';
 import { Input } from '@/components/ui/Input';
 import { Card } from '@/components/ui/Card';
 import { pct, daysUntil, statusInfo, statusStyles, barStyles, formatQuotaValue } from '@/lib/quota-helpers';
 import { fmtNum } from '@/lib/format';
 import { isAITrialTier } from '@/lib/ai-quota';
-import type { OrgQuotaResponse, DisplayedQuotaType, QuotaTier } from '@/types';
+import { packForQuota } from '@/lib/quota-pack-offer';
+import { formatPrice } from '@/components/billing/helpers';
+import type { OrgQuotaResponse, DisplayedQuotaType, QuotaTier, Bundle, BillingInterval } from '@/types';
 
 /**
  * Colored badge indicating quota health status (OK, Warning, Critical, Unlimited).
@@ -43,6 +46,8 @@ export function QuotaCard({
   onEditChange,
   periodDays,
   tier,
+  bundles,
+  interval = 'monthly',
 }: {
   quotaKey: DisplayedQuotaType;
   quota: OrgQuotaResponse['quotas'][DisplayedQuotaType];
@@ -50,7 +55,15 @@ export function QuotaCard({
   editVal: number;
   onEditChange: (key: DisplayedQuotaType, val: number) => void;
   periodDays?: number;
+  /** The org's tier: a trial tier's AI calls are labelled as a trial, and a pack
+   *  is only priced when it is actually sold to this tier. */
   tier?: QuotaTier;
+  /** The add-on catalogue, for "a pack of 10 is $11.99" (F2). Omitted ⇒ the
+   *  price line is simply absent; a failed catalogue fetch must cost the card
+   *  nothing. */
+  bundles?: readonly Bundle[];
+  /** Billing interval the pack price is quoted at. */
+  interval?: BillingInterval;
 }) {
   // Label AND description both come from api-core's quota catalog — the page
   // keeps no copy of its own for either (see `QuotaTypeMeta.description`).
@@ -130,6 +143,10 @@ export function QuotaCard({
         <UsageForecast used={quota.used} limit={quota.limit} resetAt={quota.resetAt} periodDays={effectivePeriodDays} />
       ) : null}
 
+      {/* What the limit COSTS (F2). Under the forecast on purpose: the price is
+          only useful once the card has said they are heading for the cap. */}
+      <QuotaPackHint quotaKey={quotaKey} quota={quota} bundles={bundles} interval={interval} tier={tier} />
+
       {canManage && (
         <div className="mt-4 pt-4 border-t border-default">
           <div className="flex items-center justify-between mb-2">
@@ -171,6 +188,51 @@ export function QuotaCard({
   );
 }
 
+/**
+ * What it would cost to not run out (docs/plans/sales-agent.md F2).
+ *
+ * Deliberately NOT an offer: it quotes a catalogue price for a pack the account
+ * can already buy, which is why it needs no consent, no quiet period and no
+ * holdout — the same reasoning that lets `AIQuotaHint` state the cost of an AI
+ * call up front instead of letting it be discovered as a refusal.
+ *
+ * Shown only once the card is in the warning band, because a price on a quota at
+ * 10% is an advertisement rather than information. Renders nothing for an
+ * unlimited quota, a dimension with no pack, or a catalogue that could not be
+ * read — a failed bundles fetch must cost the card nothing.
+ */
+export function QuotaPackHint({
+  quotaKey,
+  quota,
+  bundles,
+  interval = 'monthly',
+  tier,
+}: {
+  quotaKey: DisplayedQuotaType;
+  quota: OrgQuotaResponse['quotas'][DisplayedQuotaType];
+  bundles?: readonly Bundle[];
+  interval?: BillingInterval;
+  tier?: QuotaTier;
+}) {
+  if (!bundles?.length || quota.unlimited || quota.limit <= 0) return null;
+  // The warning band, shared with the forecast row above it.
+  if (pct(quota.used, quota.limit) < 70) return null;
+
+  const pack = packForQuota(quotaKey, bundles, interval, tier);
+  if (!pack) return null;
+
+  const amount = fmtNum(pack.grantDisplay);
+  const unit = pack.unitName ? ` ${pack.unitName}` : '';
+  const per = interval === 'annual' ? 'year' : 'month';
+  return (
+    <p className="mt-2 text-xs text-fg-muted" data-testid={`quota-pack-hint-${quotaKey}`}>
+      {pack.name} adds <strong className="tabular-nums">{amount}{unit}</strong> for{' '}
+      <strong className="tabular-nums">{formatPrice(pack.priceCents)}</strong>/{per}.
+    </p>
+  );
+}
+
+
 /** "3-day period" / "1-day period" — the server's period, said once. */
 export function periodLabel(periodDays: number): string {
   // A monthly quota reads as "monthly", not "30-day period" — the phrase is what
@@ -182,16 +244,16 @@ export function periodLabel(periodDays: number): string {
 /**
  * Projects whether the org will exhaust a quota before its period reset.
  *
- * Assumptions:
- *   - Every counter shares ONE period of `periodDays` (the server's
- *     `QUOTA_RESET_DAYS`, 3 by default — not a month), so the period
- *     started exactly `periodDays` before `resetAt`.
- *   - Burn rate is linear: a constant per-day usage based on what's
- *     consumed so far this period. Real workloads spike, but a linear
- *     baseline still catches "you're pacing 3× ahead of plan" cases.
+ * The arithmetic moved to api-core `projectUsage` and this is now only the
+ * rendering: the threshold notice and the usage profile's trajectory signal need
+ * the same answer, and a projection that disagreed between the card and an offer
+ * would be the worst possible split — the account reads one number here and gets
+ * an offer argued from another.
  *
- * Renders nothing when used is 0 (no signal to project from) or when
- * the projected total is comfortably under the limit.
+ * Renders nothing when there is nothing to project from (no usage yet, no
+ * finite limit, a period not yet begun) or when the pace is comfortably under
+ * the limit — `projectionWorthShowing` owns that band so the card and the
+ * profile agree on what "approaching" means.
  */
 export function UsageForecast({
   used,
@@ -204,23 +266,9 @@ export function UsageForecast({
   resetAt: string;
   periodDays: number;
 }) {
-  const reset = new Date(resetAt);
-  if (Number.isNaN(reset.getTime()) || limit <= 0 || used <= 0 || periodDays <= 0) return null;
-
-  const now = Date.now();
-  const periodStart = reset.getTime() - periodDays * 24 * 60 * 60 * 1000;
-  const elapsed = now - periodStart;
-  if (elapsed <= 0) return null;
-
-  const total = reset.getTime() - periodStart;
-  const projected = Math.round(used * (total / elapsed));
-  const ratio = projected / limit;
-
-  // Only surface the row when it's actually informative — projected ≥
-  // 70% of limit (the user is in the warning band).
-  if (ratio < 0.7) return null;
-
-  const willBreach = projected > limit;
+  const projection = projectUsage({ used, limit, resetAt, periodDays });
+  if (!projectionWorthShowing(projection)) return null;
+  const { projected, willBreach } = projection!;
   const verb = willBreach ? 'will breach' : 'on track for';
 
   return (

@@ -34,6 +34,7 @@ import { releaseCampaignBudget, reserveCampaignBudget } from './campaign.js';
 import { discountFloorBreach, recurringDiscountStandingCents } from './credit-floor.js';
 import { compactInMemoryLedger, creditLedgerEntry } from './credit-ledger-compaction.js';
 import { aggregateLedgerSpend, type LedgerSpend } from './ledger-spend.js';
+import { evaluateUsage, type ProfileLike } from './offers-rules.js';
 import { MANAGEABLE_SUBSCRIPTION_STATUSES, loadManageableSubscription } from './subscription-status.js';
 import { Plan } from '../models/plan.js';
 import { Promotion } from '../models/promotion.js';
@@ -60,6 +61,16 @@ export interface PromotionContext {
   isFirstSubscription?: boolean;
   /** Acting user id when a request context exists; absent on cron/system paths. */
   actorId?: string;
+  /**
+   * The account's usage-profile history, NEWEST FIRST (Phase 1).
+   *
+   * Absent on the lifecycle paths (`subscription_created`, `plan_change`),
+   * which is correct rather than a gap: those fire on a billing event, and an
+   * account that has just subscribed has no history to be sustained over. A
+   * promotion carrying `usage` conditions therefore cannot match on those paths
+   * — it fails closed with `no_profile` rather than matching vacuously.
+   */
+  profiles?: readonly ProfileLike[];
 }
 
 export interface PromotionGrantResult {
@@ -103,12 +114,21 @@ function promotionCreditCents(
   return promo.perOrgCapCents ? Math.min(raw, promo.perOrgCapCents) : raw;
 }
 
-/** Whether `ctx` satisfies every present eligibility predicate. */
+/**
+ * Whether `ctx` satisfies every present eligibility predicate.
+ *
+ * STILL THE SINGLE PLACE eligibility is decided, which is why Phase 1 widened
+ * this rather than adding a second gate beside it: two places that decide who
+ * gets a discount is two places to disagree.
+ */
 function matchesConditions(conditions: PromotionConditions | undefined, ctx: PromotionContext): boolean {
   if (!conditions) return true;
   if (conditions.tiers?.length && !conditions.tiers.includes(ctx.tier)) return false;
   if (conditions.intervals?.length && !conditions.intervals.includes(ctx.interval)) return false;
   if (conditions.firstSubscriptionOnly && ctx.isFirstSubscription !== true) return false;
+  // Usage predicates last: they are the expensive ones to reason about, and the
+  // cheap tier/interval filters have already excluded most accounts.
+  if (conditions.usage && !evaluateUsage(conditions.usage, ctx.profiles ?? []).matches) return false;
   return true;
 }
 

@@ -3,7 +3,7 @@
 
 import type { ApiCore } from '../core';
 import { buildQuery } from '../util';
-import type { ApiResponse, Plan, Subscription, SubscriptionStatus, Bundle, ComboDiscount, AddonResult, AddonPriceBreakdown, BillingEvent, BillingInterval, UsageRollup, Discount, Campaign } from '@/types';
+import type { ApiResponse, Plan, Subscription, SubscriptionStatus, Bundle, ComboDiscount, AddonResult, AddonPriceBreakdown, BillingEvent, BillingInterval, CrossoverVerdict, PlanChangePreview, UsageRollup, Discount, Campaign } from '@/types';
 
 /** Itemized, display-only price breakdown returned by a discount preview/apply.
  *  Concrete mirror of the billing service's `DiscountBreakdown`
@@ -107,6 +107,44 @@ export function billingApi(core: ApiCore) {
     getCurrentCharges: async (opts?: { signal?: AbortSignal }) => {
       return core.request<ApiResponse<{ priceBreakdown: AddonPriceBreakdown | null }>>(
         '/api/billing/charges',
+        { signal: opts?.signal },
+      );
+    },
+
+    /**
+     * Does this account's pack spend already argue for a tier move?
+     * (`GET /billing/crossover`, docs/plans/sales-agent.md D4.)
+     *
+     * INFORMATION, not an offer: arithmetic over the subscription with no
+     * discount, campaign or consent question beyond what a billing notice
+     * already raises — which is why it reads on `billing:read` beside the
+     * charges breakdown rather than behind an offers switch.
+     *
+     * `crossover` is null when there is no subscription to compare, and the
+     * verdict's own `crossover: false` carries a `reason` so the UI can stay
+     * silent for the right cause rather than just rendering nothing.
+     */
+    getCrossover: async (opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<{ crossover: CrossoverVerdict | null }>>(
+        '/api/billing/crossover',
+        { signal: opts?.signal },
+      );
+    },
+
+    /**
+     * What a plan change would actually COST, discount included
+     * (`GET /billing/plan-preview`, docs/plans/sales-agent.md F1).
+     *
+     * Computed server-side rather than in the modal: the discount stack — the
+     * interval, the volume curve, combos, the coupon and the aggregate floor
+     * that can refuse the lot — has one implementation, and a second one in a
+     * component is a second answer the invoice disagrees with.
+     *
+     * `preview` is null when there is no subscription to re-price.
+     */
+    getPlanPreview: async (tier: string, opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<{ preview: PlanChangePreview | null }>>(
+        `/api/billing/plan-preview?tier=${encodeURIComponent(tier)}`,
         { signal: opts?.signal },
       );
     },

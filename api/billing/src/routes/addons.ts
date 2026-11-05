@@ -13,6 +13,8 @@ import {
   ErrorCode,
   createLogger,
   getParam,
+  isValidTier,
+  parseQueryString,
   validateBody,
   actorId,
   recordAudit,
@@ -20,6 +22,7 @@ import {
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import type { Request, RequestHandler } from 'express';
+import { getBillingConfig } from '../config/billing-config.js';
 import { effectiveEntitlements } from '../config/entitlements.js';
 import { config } from '../config.js';
 import {
@@ -36,9 +39,11 @@ import {
   type Addon,
   type ComboChange,
 } from '../helpers/addon-catalog.js';
-import { syncProviderAddons } from '../helpers/addon-prune.js';
+import { pruneTierIncludedFeatureAddons, syncProviderAddons } from '../helpers/addon-prune.js';
 import { bundleSelfServiceAllowed, bundlesEnabled, billingServiceAuth, createBillingEvent, getBundleCatalog } from '../helpers/billing-helpers.js';
-import { getComboDiscounts } from '../helpers/combo-pricing.js';
+import { priceForInterval, getComboDiscounts } from '../helpers/combo-pricing.js';
+import { recurringDiscountStandingCents } from '../helpers/credit-floor.js';
+import { addonCostCents, evaluateCrossover } from '../helpers/crossover.js';
 import { checkEntitlementOvercap, syncEntitlements } from '../helpers/entitlement-sync.js';
 import { refuseTeamBilling } from '../helpers/root-org-guard.js';
 import { buildSubscriptionResponse } from '../helpers/subscription-response.js';
@@ -222,6 +227,107 @@ export function createAddonRoutes(): Router {
   }));
 
   // GET /billing/bundles — the add-on catalog filtered to the account's tier
+  /**
+   * GET /billing/crossover — does this account's pack spend already argue for a
+   * tier move? (docs/plans/sales-agent.md D4.)
+   *
+   * INFORMATION, not an offer: arithmetic over the subscription record with no
+   * discount, no campaign and no consent beyond what a billing notice already
+   * raises. That is why it sits on `billing:read` beside `/charges` rather than
+   * behind the agent's consent switch, and why it ships before any of the
+   * offers machinery.
+   *
+   * Reads the plan catalogue from CONFIG rather than the Plan collection,
+   * because the comparison spans every tier and `getBillingConfig().plans` is
+   * the authority for all of them (see `seed-plans`); mixing a stored row for
+   * the current tier with config prices for the others would compare figures
+   * from two sources.
+   */
+  router.get('/crossover', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:read') as RequestHandler, withRoute(async ({ res, orgId }) => {
+    const loaded = await loadSubAndPlan(orgId);
+    // No subscription is not an error, for the same reason /charges says so: a
+    // billing-disabled deployment, or an org before its first plan, simply has
+    // nothing to compare.
+    if (!loaded) return sendSuccess(res, 200, { crossover: null });
+    const { subscription, plan } = loaded;
+    const { plans } = getBillingConfig();
+    return sendSuccess(res, 200, {
+      crossover: evaluateCrossover({
+        tier: plan.tier,
+        interval: subscription.interval,
+        addons: (subscription.addons ?? []) as Addon[],
+        plans,
+        bundles: getBundleCatalog(),
+      }),
+    });
+  }));
+
+  /**
+   * GET /billing/plan-preview?tier=business — what a plan change would actually
+   * COST, discount included (docs/plans/sales-agent.md F1).
+   *
+   * A PREREQUISITE rather than an enhancement: `PlanChangeModal` carried no
+   * discount references at all, so an account accepting a 50%-off offer opened
+   * the upgrade modal and saw the list price. Every offer in that plan was a
+   * promise the checkout contradicted.
+   *
+   * Computed HERE and not in the UI, deliberately. The discount stack — the
+   * interval, the volume curve, combos, the coupon and the aggregate floor that
+   * can refuse the lot — is money math with one implementation, and a second
+   * one in a React component is a second answer the invoice would disagree with.
+   * This is also D9's pre-flight in miniature: price the thing before promising
+   * it.
+   *
+   * The standing discount SURVIVES a plan change (nothing clears
+   * `recurringDiscount` outside cancellation, and the per-period re-grant sizes
+   * a percentage from the embedded record alone), so it is re-sized against the
+   * target plan's price rather than assumed to lapse.
+   */
+  router.get('/plan-preview', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:read') as RequestHandler, withRoute(async ({ req, res, orgId }) => {
+    const wanted = parseQueryString(req.query.tier);
+    if (!wanted || !isValidTier(wanted)) {
+      return sendError(res, 400, 'A valid `tier` query parameter is required', ErrorCode.VALIDATION_ERROR);
+    }
+    const loaded = await loadSubAndPlan(orgId);
+    if (!loaded) return sendSuccess(res, 200, { preview: null });
+    const { subscription, plan } = loaded;
+    const { plans } = getBillingConfig();
+    const target = plans.find((p) => p.tier === wanted);
+    if (!target) return sendSuccess(res, 200, { preview: null });
+
+    const bundles = getBundleCatalog();
+    const listCents = priceForInterval(target.prices, subscription.interval);
+    // Re-sized against the TARGET price: a percentage discount on the plan is
+    // worth more at a higher tier, and quoting the old figure would understate
+    // what the account keeps.
+    const discountCents = recurringDiscountStandingCents(subscription, listCents, bundles);
+    // Add-ons the move retires by itself, so the quoted total is the one the
+    // next invoice will carry rather than the plan price in isolation.
+    const prunedByMove = pruneTierIncludedFeatureAddons(subscription.addons ?? [], wanted, bundles)
+      .pruned.map((p) => p.bundleId);
+    const survivingAddonCents = (subscription.addons ?? [])
+      .filter((a) => !prunedByMove.includes(a.bundleId))
+      .reduce((sum, a) => sum + addonCostCents(a, bundles, subscription.interval), 0);
+
+    return sendSuccess(res, 200, {
+      preview: {
+        tier: wanted,
+        fromTier: plan.tier,
+        interval: subscription.interval,
+        listCents,
+        discountCents,
+        /** What the plan line costs after the standing discount. */
+        netPlanCents: Math.max(0, listCents - discountCents),
+        /** Add-ons that survive the move and keep billing. */
+        survivingAddonCents,
+        prunedAddons: prunedByMove,
+        /** The whole recurring total the move lands on. */
+        totalCents: Math.max(0, listCents - discountCents) + survivingAddonCents,
+        discountName: subscription.recurringDiscount?.discountId ?? null,
+      },
+    });
+  }));
+
   router.get('/bundles', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:read') as RequestHandler, withRoute(async ({ res, orgId }) => {
     if (!bundlesEnabled()) return sendSuccess(res, 200, { bundles: [], selfService: false, comboDiscounts: [] });
     const loaded = await loadSubAndPlan(orgId);

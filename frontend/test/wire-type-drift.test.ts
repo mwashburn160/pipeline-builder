@@ -51,6 +51,11 @@ const REGISTERED: ReadonlyArray<readonly [string, string, string]> = [
   ['BlockedInfo', 'frontend/src/types/plugin-installs.ts', 'api/plugin/src/services/ecosystem/installs-views.ts'],
   ['BuildHealth', 'frontend/src/lib/api/domains/reporting.ts', 'packages/pipeline-data/src/api/reporting/types.ts'],
   ['BuildHealthStage', 'frontend/src/lib/api/domains/reporting.ts', 'packages/pipeline-data/src/api/reporting/types.ts'],
+  // The crossover verdict (docs/plans/sales-agent.md D4). Registered rather
+  // than shared because it is served by api/billing, which the client cannot
+  // import — and the figures in it reach a customer, so the two shapes drifting
+  // apart is a wrong price rather than a type error.
+  ['CrossoverVerdict', 'frontend/src/types/billing.ts', 'api/billing/src/helpers/crossover.ts'],
   ['ComposedSection', 'frontend/src/lib/api/domains/stakeholder-reports.ts', 'packages/pipeline-data/src/api/reporting/stakeholder/compose.ts'],
   // A staff reply template. The server shape lives in pipeline-data, which the
   // client cannot import, so the copy is registered rather than shared.

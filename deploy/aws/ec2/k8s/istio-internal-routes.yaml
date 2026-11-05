@@ -215,6 +215,33 @@ spec:
         - operation:
             paths: ["/internal/support/*"]
 ---
+# GET /internal/offers/seat-activity/:orgId — seats held against members who
+# actually used them, for the expansion-offers profile's VALUE signal. BILLING
+# only: the offers agent has no surface of its own (D13) and runs inside billing
+# until it is extracted. It is a DISQUALIFIER rather than a sales signal — an
+# account at its seat cap whose members have not signed in is a churn save, and
+# offering it more seats is the worst available outcome — so the read returns
+# three counts and never a member, a name or an address.
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: platform-internal-offers
+  namespace: pipeline-builder
+spec:
+  targetRefs:
+    - group: ""
+      kind: Service
+      name: platform
+  action: DENY
+  rules:
+    - from:
+        - source:
+            notPrincipals:
+              - cluster.local/ns/pipeline-builder/sa/billing
+      to:
+        - operation:
+            paths: ["/internal/offers/*"]
+---
 # POST /audit/events — every non-platform service forwards its audit trail here.
 # The audit log is evidence, so the callers are enumerated rather than "anything
 # in the mesh".
@@ -434,6 +461,18 @@ spec:
       to:
         - operation:
             paths: ["/quotas/entitlement-sync/*"]
+    # GET /quotas/internal/:orgId/profile — the POOLED per-dimension usage
+    # picture the expansion-offers profile is built from. Billing only: the
+    # offers scheduler runs there, and an account's whole usage shape is a
+    # commercial read rather than one any service should take.
+    - from:
+        - source:
+            notPrincipals:
+              - cluster.local/ns/pipeline-builder/sa/billing
+      to:
+        - operation:
+            methods: ["GET"]
+            paths: ["*/profile"]
 ---
 # -- reporting ---------------------------------------------------------------
 # PUT + GET /reports/retention-sync/:orgId — the billing→reporting retention

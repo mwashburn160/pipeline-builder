@@ -375,6 +375,11 @@ const INTERNAL_ROUTES: InternalRouteDeclaration[] = [
   // The plugin ecosystem's governance reads (approver count, Verified eligibility).
   { method: 'GET', path: '/internal/ecosystem/publisher-eligibility/:orgId', callers: ['plugin'] },
   { method: 'GET', path: '/internal/ecosystem/approvers', callers: ['plugin'] },
+  // The expansion-offers profile's VALUE signal: seats held against members
+  // actually active (docs/plans/sales-agent.md D4 Class 3). Billing only —
+  // D13 gives the offers agent no surface of its own, and it runs in billing
+  // until Phase 5 extracts it.
+  { method: 'GET', path: '/internal/offers/seat-activity/:orgId', callers: ['billing'] },
   { method: 'GET', path: '/internal/reporting/report-authority/:orgId/:userId', callers: ['reporting'] },
   { method: 'GET', path: '/internal/reporting/recipient-check/:orgId', callers: ['reporting'] },
   // May this org open a support case, and at what level? The message service

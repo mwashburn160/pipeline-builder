@@ -19,6 +19,8 @@ import { QuotaNoticeSettingsCard } from './QuotaNoticeSettingsCard';
 import { QuotaUsageBreakdown } from './QuotaUsageBreakdown';
 import { AT_RISK_THRESHOLDS, QUOTA_KEYS, TIER_PRESETS, POOLING_TITLE, poolingExplanation } from './constants';
 import { BuildCapacityCard } from './BuildCapacityCard';
+import { CrossoverCard } from './CrossoverCard';
+import { useSalesContext } from '@/hooks/useSalesContext';
 import { StorageReclaimCard } from './StorageReclaimCard';
 
 /** One at-risk quota dimension for the caller's own org (from `getOrgAtRisk`). */
@@ -76,6 +78,10 @@ export function QuotasReadOnly({
   setAtRiskThreshold?: (threshold: number) => void;
 }) {
   const tier = orgData?.tier || 'developer';
+  // What a limit costs (F2) and whether the account's spend already argues for a
+  // tier move (F3). Both INFORMATION rather than solicitation, and both fail
+  // open: a page about running out must render whether or not billing answers.
+  const { bundles, interval, crossover } = useSalesContext();
   const tierPreset = TIER_PRESETS[tier];
   return (
     <DashboardLayout
@@ -184,6 +190,8 @@ export function QuotasReadOnly({
                 onEditChange={() => {}}
                 periodDays={orgData.periodDays}
                 tier={orgData.tier}
+                bundles={bundles}
+                interval={interval}
               />
             ))}
           </div>
@@ -191,6 +199,11 @@ export function QuotasReadOnly({
         {/* The other half of warning somebody: storage is the one quota a tenant
             could not free, so the page that now shows the limit also shows what
             can be reclaimed. Renders nothing for an org with no plugin images. */}
+        {/* The crossover sits ABOVE the capacity cards: it is about the whole
+            account's bill rather than one dimension, and it is the one thing on
+            this page that can make every limit on it larger at once. */}
+        {!loading && orgData ? <div className="mt-4"><CrossoverCard crossover={crossover} /></div> : null}
+
         {!loading && orgData ? (
           <div className="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-4">
             <StorageReclaimCard />

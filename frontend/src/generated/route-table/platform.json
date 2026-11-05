@@ -1997,6 +1997,24 @@
   },
   {
     "method": "GET",
+    "path": "/internal/offers/seat-activity/:orgId",
+    "auth": true,
+    "permissions": [],
+    "systemAdmin": false,
+    "servicePrincipal": true,
+    "dynamicAuthz": [],
+    "internalCallers": [
+      "billing"
+    ],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": []
+  },
+  {
+    "method": "GET",
     "path": "/internal/reporting/access-posture/:orgId",
     "auth": true,
     "permissions": [],

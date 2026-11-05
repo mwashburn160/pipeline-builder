@@ -798,6 +798,30 @@
   },
   {
     "method": "GET",
+    "path": "/billing/crossover",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "billing:read"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "dynamicAuthz": [],
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": []
+  },
+  {
+    "method": "GET",
     "path": "/billing/events",
     "auth": true,
     "permissions": [
@@ -954,6 +978,30 @@
     "path": "/billing/marketplace/sns",
     "auth": false,
     "permissions": [],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "dynamicAuthz": [],
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": []
+  },
+  {
+    "method": "GET",
+    "path": "/billing/plan-preview",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "billing:read"
+        ],
+        "allowService": false
+      }
+    ],
     "systemAdmin": false,
     "servicePrincipal": false,
     "dynamicAuthz": [],

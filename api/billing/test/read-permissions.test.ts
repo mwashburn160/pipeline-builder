@@ -100,6 +100,9 @@ jest.unstable_mockModule('../src/helpers/subscription-response.js', () => ({
 
 jest.unstable_mockModule('../src/helpers/addon-prune.js', () => ({
   applyTierIncludedAddonPrune: () => [],
+  // Read by the plan-change preview (F1) to quote the total the next invoice
+  // carries rather than the plan line alone. Nothing pruned by default.
+  pruneTierIncludedFeatureAddons: () => ({ addons: [], pruned: [] }),
   applyPlanTierChange: () => async () => undefined,
   finalizePrunedAddons: async () => undefined,
   syncProviderAddons: async () => undefined,

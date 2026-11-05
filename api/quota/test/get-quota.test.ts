@@ -96,6 +96,9 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
 
 jest.unstable_mockModule('../src/middleware/authorize-org.js', () => ({
   authorizeOrg: () => (_req: any, _res: any, next: any) => next(),
+  // The internal-only gate on the offers profile read. Pass-through here; the
+  // gate itself is asserted by route-coverage, which reads the real stack.
+  requireInternalCaller: (_req: any, _res: any, next: any) => next(),
 }));
 
 const mockFind = jest.fn<AnyFn>();

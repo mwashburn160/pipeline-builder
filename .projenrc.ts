@@ -545,6 +545,7 @@ apiCore.package.addField('exports', {
   './plugin-scan': { types: './lib/types/plugin-scan.d.ts', default: './lib/types/plugin-scan.js' },
   './quota-catalog': { types: './lib/types/quota-catalog.d.ts', default: './lib/types/quota-catalog.js' },
   './build-catalog': { types: './lib/types/build-catalog.d.ts', default: './lib/types/build-catalog.js' },
+  './usage-projection': { types: './lib/types/usage-projection.d.ts', default: './lib/types/usage-projection.js' },
   './testing': { types: './lib/testing/index.d.ts', default: './lib/testing/index.js' },
   './s3': { types: './lib/services/s3-client.d.ts', default: './lib/services/s3-client.js' },
   './lib/*': './lib/*',
@@ -563,6 +564,7 @@ apiCore.package.addField('typesVersions', {
     'plugin-scan': ['lib/types/plugin-scan.d.ts'],
     'quota-catalog': ['lib/types/quota-catalog.d.ts'],
     'build-catalog': ['lib/types/build-catalog.d.ts'],
+    'usage-projection': ['lib/types/usage-projection.d.ts'],
   },
 });
 // Test helpers are workspace-only: `pnpm deploy --prod` (every service image)
@@ -1080,6 +1082,7 @@ if (frontend.jest) {
     '^@pipeline-builder/api-core/plugin-scan$': '<rootDir>/../packages/api-core/src/types/plugin-scan.ts',
     '^@pipeline-builder/api-core/quota-catalog$': '<rootDir>/../packages/api-core/src/types/quota-catalog.ts',
     '^@pipeline-builder/api-core/build-catalog$': '<rootDir>/../packages/api-core/src/types/build-catalog.ts',
+    '^@pipeline-builder/api-core/usage-projection$': '<rootDir>/../packages/api-core/src/types/usage-projection.ts',
     // plugin-scan.ts is the one mapped subpath with RELATIVE imports — its two
     // dependency-free leaves, written with the `.js` extension the compiled lib
     // needs. Mapped to source, those specifiers name files that do not exist

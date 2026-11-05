@@ -13,6 +13,8 @@ import {
   getParam,
   isValidQuotaType,
   parsePage,
+  projectUsage,
+  requireInternalService,
 } from '@pipeline-builder/api-core';
 import type { QuotaType } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
@@ -53,6 +55,85 @@ export function createReadQuotaRoutes(svc: QuotaService = defaultQuotaService): 
       const quota = await svc.findByOrgId(orgId);
       ctx.log('COMPLETED', 'Retrieved own org quotas', { orgId });
       return sendSuccess(res, 200, { quota });
+    }),
+  );
+
+  /**
+   * GET /quotas/internal/:orgId/profile — the per-dimension usage picture the
+   * expansion-offers profile is built from (docs/plans/sales-agent.md Phase 0).
+   *
+   * THE QUOTA SERVICE'S FIRST `/internal/*` ROUTE. D13 makes the offers agent
+   * purely a CALLER, so every signal it needs has to have a callee that accepts
+   * a service principal — and this is the one the whole profile rests on.
+   *
+   * Reads through `findByOrgId`, which means POOLED: limits pool at the account
+   * root, so a team's own counters are not the account's picture. Reading each
+   * org's own numbers instead is the bug the at-risk scan already had to fix —
+   * a team's limits are `-1`, so it reads as unlimited and never reports, while
+   * a root shows only its own usage instead of the subtree's.
+   *
+   * It adds the PROJECTION to each dimension rather than leaving the caller to
+   * compute one: the card, the threshold notice and this share api-core's
+   * `projectUsage`, and a trajectory recomputed downstream is how the page and
+   * an offer end up disagreeing about the same account.
+   *
+   * Registered before `/:orgId` so that route does not swallow it.
+   */
+  router.get(
+    '/internal/:orgId/profile',
+    requireAuth as RequestHandler,
+    authorizeOrg() as RequestHandler,
+    // `authorizeOrg()` alone admits any same-org member. An account's whole
+    // usage shape is a commercial read, not a member read.
+    //
+    // Narrowed to BILLING rather than the whole fleet (which is what
+    // `requireInternalCaller` admits, because every service meters its own
+    // traffic): only the offers scheduler reads this, and it runs in billing
+    // until Phase 5 extracts it. Same shape as `/quotas/:orgId/own-usage`.
+    requireInternalService({ callers: ['billing'] }) as RequestHandler,
+    withRoute(async ({ req, res, ctx }) => {
+      const targetOrgId = getParam(req.params, 'orgId')!;
+      const quota = await svc.findByOrgId(targetOrgId);
+
+      const dimensions: Record<string, {
+        used: number; limit: number; ratio: number | null;
+        projected: number | null; resetAt: string | null; periodDays: number | null;
+      }> = {};
+      for (const [type, summary] of Object.entries(quota.quotas)) {
+        if (!summary) continue;
+        const periodDays = summary.periodDays ?? quota.periodDays;
+        const projection = projectUsage({
+          used: summary.used,
+          limit: summary.limit,
+          resetAt: summary.resetAt,
+          periodDays: periodDays ?? 0,
+        });
+        dimensions[type] = {
+          used: summary.used,
+          limit: summary.limit,
+          // Null rather than 0 for an unlimited cap: there is no ratio, and a
+          // zero would read as "no pressure" on exactly the dimension that
+          // cannot have any.
+          ratio: summary.limit > 0 ? summary.used / summary.limit : null,
+          projected: projection?.projected ?? null,
+          // ISO on the wire: the summary holds a Date, and a JSON round trip
+          // would stringify it anyway — doing it here keeps the contract explicit.
+          resetAt: summary.resetAt ? new Date(summary.resetAt).toISOString() : null,
+          periodDays: periodDays ?? null,
+        };
+      }
+
+      ctx.log('COMPLETED', 'Served usage profile read', { orgId: targetOrgId });
+      return sendSuccess(res, 200, {
+        profile: {
+          orgId: quota.orgId,
+          tier: quota.tier,
+          // The ACCOUNT root when the org is pooled: the unit the profile is
+          // keyed by, so the caller never has to resolve the hierarchy itself.
+          rootOrgId: quota.pool?.rootOrgId ?? quota.orgId,
+          dimensions,
+        },
+      });
     }),
   );
 

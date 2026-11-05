@@ -664,3 +664,41 @@ class OrgMembersService {
 
 export const orgMembersService = new OrgMembersService();
 logger.info('OrgMembersService ready');
+
+/**
+ * Stamp this membership as active, at most once a day.
+ *
+ * The seat offer's DISQUALIFIER (docs/plans/sales-agent.md D4 Class 3): an
+ * account at its seat cap whose members have not signed in is a churn save
+ * rather than an expansion, and a pressure-only profile cannot tell the two
+ * apart.
+ *
+ * ONCE A DAY, not per request, and that is the whole design. The precision the
+ * signal needs is "did this person use their seat during the period", where a
+ * period is days long — so a day-granular stamp answers it exactly, and a
+ * write per request would put a database round trip on every authenticated
+ * call to buy nothing.
+ *
+ * BEST-EFFORT and never thrown: a sign-in must not fail because a sales signal
+ * could not be recorded. A dropped stamp makes the member look idle for one
+ * day, which the sustained-pressure rules are deliberately tolerant of.
+ */
+export async function stampMembershipActivity(userId: string, organizationId: string): Promise<void> {
+  const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  try {
+    await UserOrganization.updateOne(
+      {
+        userId: new mongoose.Types.ObjectId(userId),
+        organizationId: new mongoose.Types.ObjectId(organizationId),
+        // The conditional is what makes this cheap: a membership already
+        // stamped today matches nothing and no write happens.
+        $or: [{ lastActiveAt: { $exists: false } }, { lastActiveAt: { $lte: dayAgo } }],
+      },
+      { $set: { lastActiveAt: new Date() } },
+    );
+  } catch (err) {
+    logger.debug('Could not stamp membership activity', {
+      userId, organizationId, error: errorMessage(err),
+    });
+  }
+}
