@@ -85,6 +85,10 @@ const redis = {
 };
 
 const mockGetAllTierQueues = jest.fn<() => any[]>(() => []);
+// The BASELINE per-org cap (`PLUGIN_MAX_BUILDS_PER_ORG`), which the catalog
+// ladder only ever raises. Mutable so the cases below can prove it is a
+// baseline and not a ceiling.
+let baselineMaxBuildsPerOrg = 5;
 const mockGetDeadLetterQueue = jest.fn<() => any>(() => ({ name: 'plugin-build-dlq', getJobs: async () => [] }));
 
 // Registered as a function so the NaN-fallback test can re-apply the mocks
@@ -96,6 +100,10 @@ function registerMocks() {
     getConnectionForDb: () => redis,
     getAllTierQueues: mockGetAllTierQueues,
     getDeadLetterQueue: mockGetDeadLetterQueue,
+    // Every export slot-manager imports from here. Omitting one makes the whole
+    // import graph fail to LOAD naming that symbol — which is exactly what
+    // adding `getBuildCfg` to the module under test did to this suite.
+    getBuildCfg: () => ({ maxBuildsPerOrg: baselineMaxBuildsPerOrg }),
   }));
 
   jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
@@ -304,12 +312,15 @@ describe('tryAcquireOrgSlot', () => {
   });
 
   it('records no owner (and holds no slot) when the cap is already reached', async () => {
-    // developer/flexible = 3, named explicitly: the cap is the assertion here, so
-    // it must come from the ladder rather than from whatever the default row is.
-    for (let i = 1; i <= 3; i++) await acquire('org-a', `q:job-${i}`, 'developer', 'flexible');
+    // Filled to the EFFECTIVE cap rather than a literal: the figure is now
+    // max(PLUGIN_MAX_BUILDS_PER_ORG, ladder), so hard-coding 3 here would make
+    // this test assert the baseline's value instead of the no-owner property it
+    // is actually for.
+    const cap = maxBuildsPerOrg('developer', 'flexible');
+    for (let i = 1; i <= cap; i++) await acquire('org-a', `q:job-${i}`, 'developer', 'flexible');
 
     expect(await acquire('org-a', 'q:job-9', 'developer', 'flexible')).toBe(false);
-    expect(count('org-a', 'flexible')).toBe(3);
+    expect(count('org-a', 'flexible')).toBe(cap);
     expect(owners()).not.toHaveProperty('q:job-9');
   });
 
@@ -432,7 +443,7 @@ describe('maxBuildsPerOrg — NaN-fallback (bricked-builds regression)', () => {
     jest.clearAllMocks();
   });
 
-  it('falls back to the default cap (3) instead of passing NaN to the acquire Lua', async () => {
+  it('falls back to the default cap instead of passing NaN to the acquire Lua', async () => {
     // A garbage env value previously produced `parseInt('garbage', 10) === NaN`,
     // and `String(NaN)` -> the Lua's `tonumber(ARGV[1])` returns nil, so every
     // acquire would throw and brick ALL plugin builds. intFromEnv must instead
@@ -447,11 +458,12 @@ describe('maxBuildsPerOrg — NaN-fallback (bricked-builds regression)', () => {
 
     expect(ok).toBe(true);
     // eval args: (LUA, numKeys, counterKey, ownersKey, String(cap), String(ttl),
-    // jobId, ownerValue). The cap must be the tier/class default from the
-    // ladder, never the string 'NaN' — one fat-fingered override would
-    // otherwise brick every plugin build, not just that tier's.
+    // jobId, ownerValue). The cap must be the computed default —
+    // max(PLUGIN_MAX_BUILDS_PER_ORG, ladder), so 5 for developer/standard —
+    // never the string 'NaN': one fat-fingered override would otherwise brick
+    // every plugin build, not just that tier's.
     const capArg = mockEval.mock.calls.at(-1)![4];
-    expect(capArg).toBe('1');
+    expect(capArg).toBe(String(baselineMaxBuildsPerOrg));
     expect(capArg).not.toBe('NaN');
   });
 
@@ -478,30 +490,48 @@ describe('per-class, per-tier caps', () => {
     // The regression this blocks: with one shared counter an org that fills it
     // with cheap flexible builds has no slot left for the urgent fix — which is
     // the entire reason every tier carries both classes.
-    for (let i = 1; i <= 3; i++) await acquire('org-a', `q:flex-${i}`, 'developer', 'flexible');
-    expect(await acquire('org-a', 'q:flex-4', 'developer', 'flexible')).toBe(false);
+    const flexCap = maxBuildsPerOrg('developer', 'flexible');
+    for (let i = 1; i <= flexCap; i++) await acquire('org-a', `q:flex-${i}`, 'developer', 'flexible');
+    expect(await acquire('org-a', `q:flex-${flexCap + 1}`, 'developer', 'flexible')).toBe(false);
 
     // Standard is untouched by the flexible saturation above.
     expect(await acquire('org-a', 'q:std-1', 'developer', 'standard')).toBe(true);
     expect(count('org-a', 'standard')).toBe(1);
-    expect(count('org-a', 'flexible')).toBe(3);
+    expect(count('org-a', 'flexible')).toBe(flexCap);
   });
 
-  it('caps by TIER, so a Developer org no longer gets an Enterprise org\'s concurrency', async () => {
-    // One flat PLUGIN_MAX_BUILDS_PER_ORG before: the per-org semaphore was the
-    // one place in the build path that ignored what the tenant pays for.
-    expect(maxBuildsPerOrg('developer', 'standard')).toBe(1);
+  it('caps by TIER above the baseline, so a paid tier still gets more', async () => {
+    // The ladder differentiates where it exceeds the baseline; below it, every
+    // tier lands on PLUGIN_MAX_BUILDS_PER_ORG. Three in flight was too tight for
+    // a real working set, and a starved build fails TERMINALLY rather than late.
+    expect(maxBuildsPerOrg('developer', 'standard')).toBe(5);
+    expect(maxBuildsPerOrg('team', 'standard')).toBe(5);
     expect(maxBuildsPerOrg('enterprise', 'standard')).toBe(8);
 
-    expect(await acquire('org-dev', 'q:job-1', 'developer', 'standard')).toBe(true);
-    expect(await acquire('org-dev', 'q:job-2', 'developer', 'standard')).toBe(false);
+    for (let i = 1; i <= 5; i++) {
+      expect(await acquire('org-dev', `q:job-${i}`, 'developer', 'standard')).toBe(true);
+    }
+    expect(await acquire('org-dev', 'q:job-6', 'developer', 'standard')).toBe(false);
   });
 
-  it('gives flexible more headroom than standard on every tier', async () => {
+  it('gives flexible more headroom than standard WHEREVER the ladder exceeds the baseline', async () => {
     // Where the room is: the cheap class is what actually smooths load, so a
     // row with flexible <= standard would make the class pointless to choose.
-    for (const tier of ['developer', 'pro', 'team', 'business', 'enterprise', 'unlimited'] as const) {
+    //
+    // NARROWED when PLUGIN_MAX_BUILDS_PER_ORG became a baseline of 5. Below the
+    // baseline the class distinction has no room to express itself — developer,
+    // pro and team all land on 5 for BOTH classes, because 5 exceeds every one
+    // of their ladder cells (standard 1/2/3, flexible 3/4/6 — only team's
+    // flexible 6 clears it). That is the cost of a flat baseline and it is
+    // stated here rather than hidden: choosing `flexible` on a low tier now buys
+    // nothing in slots, only the later start.
+    for (const tier of ['business', 'enterprise', 'unlimited'] as const) {
       expect(maxBuildsPerOrg(tier, 'flexible')).toBeGreaterThan(maxBuildsPerOrg(tier, 'standard'));
+    }
+    // And the low tiers are equal rather than inverted — flexible must never be
+    // SMALLER than standard, which would make the class actively worse.
+    for (const tier of ['developer', 'pro', 'team'] as const) {
+      expect(maxBuildsPerOrg(tier, 'flexible')).toBeGreaterThanOrEqual(maxBuildsPerOrg(tier, 'standard'));
     }
   });
 
@@ -653,5 +683,79 @@ describe('the TTL is refreshed on a GRANT, never on a denial', () => {
     expect(await acquire('org-a', 'q:job-1')).toBe(true);
     expect(count('org-a')).toBe(1);
     expect(expiresFor('org-a')).toBe(after);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The baseline per-org cap (PLUGIN_MAX_BUILDS_PER_ORG)
+// ---------------------------------------------------------------------------
+
+describe('PLUGIN_MAX_BUILDS_PER_ORG is a baseline the ladder raises', () => {
+  const LADDER_KEY = 'PLUGIN_MAX_BUILDS_DEVELOPER_STANDARD';
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    resetRedis();
+    baselineMaxBuildsPerOrg = 5;
+    delete process.env[LADDER_KEY];
+  });
+
+  afterEach(() => {
+    baselineMaxBuildsPerOrg = 5;
+    delete process.env[LADDER_KEY];
+  });
+
+  it('raises every tier whose ladder cell is below it', () => {
+    // standard: developer 1, pro 2, team 3 — all under the baseline. Three in
+    // flight was too tight for a real working set, and a starved build fails
+    // TERMINALLY past PLUGIN_ORG_SLOT_MAX_WAIT_MS rather than merely late.
+    expect(maxBuildsPerOrg('developer', 'standard')).toBe(5);
+    expect(maxBuildsPerOrg('pro', 'standard')).toBe(5);
+    expect(maxBuildsPerOrg('team', 'standard')).toBe(5);
+  });
+
+  it('leaves a tier whose ladder cell is ALREADY higher alone', () => {
+    // It is a baseline, not a ceiling: capping enterprise down to 5 would make
+    // the paid ladder meaningless in the other direction.
+    expect(maxBuildsPerOrg('enterprise', 'standard')).toBe(8);
+    expect(maxBuildsPerOrg('unlimited', 'standard')).toBe(8);
+    expect(maxBuildsPerOrg('enterprise', 'flexible')).toBe(16);
+  });
+
+  it('is settable, and moves every tier under it together', () => {
+    baselineMaxBuildsPerOrg = 7;
+    expect(maxBuildsPerOrg('developer', 'standard')).toBe(7);
+    expect(maxBuildsPerOrg('business', 'standard')).toBe(7);
+    // Still not a ceiling.
+    expect(maxBuildsPerOrg('enterprise', 'standard')).toBe(8);
+  });
+
+  it('yields to an explicit per-cell override, INCLUDING one below the baseline', async () => {
+    // The order is the contract: the baseline moves the figure nobody set, and
+    // an operator who deliberately wants one tier at a single build keeps it.
+    process.env[LADDER_KEY] = '1';
+    expect(maxBuildsPerOrg('developer', 'standard')).toBe(1);
+
+    expect(await acquire('org-a', 'q:job-1', 'developer', 'standard')).toBe(true);
+    expect(await acquire('org-a', 'q:job-2', 'developer', 'standard')).toBe(false);
+  });
+
+  it('yields to an override ABOVE the baseline too', () => {
+    process.env[LADDER_KEY] = '12';
+    expect(maxBuildsPerOrg('developer', 'standard')).toBe(12);
+  });
+
+  it('is what the acquire Lua is actually handed', async () => {
+    // The computed figure has to reach Redis, not just the accessor: the cap is
+    // compared inside ACQUIRE_SLOT_LUA, so a baseline that never made it into
+    // ARGV would read as working while changing nothing.
+    await acquire('org-a', 'q:job-1', 'developer', 'standard');
+    expect(mockEval.mock.calls.at(-1)![4]).toBe('5');
+  });
+
+  it('does not apply to the system org, which takes no slot at all', async () => {
+    const { SYSTEM_ORG_ID: sys } = await import('@pipeline-builder/api-core');
+    expect(await acquire(sys, 'q:job-1', 'developer', 'standard')).toBe(true);
+    expect(mockEval).not.toHaveBeenCalled();
   });
 });

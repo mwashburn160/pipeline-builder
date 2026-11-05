@@ -197,10 +197,14 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
   // price list.
   //
   // Every tier defaulted to the same global `concurrency` (1) before, which made
-  // the per-tier machinery inert: at 1 an org can never reach
-  // PLUGIN_MAX_BUILDS_PER_ORG either, so the per-org semaphore never bound and
-  // the free tier was capped at one concurrent build platform-wide by accident
-  // rather than by decision.
+  // the per-tier machinery inert: at 1 an org can never reach its per-org slot
+  // cap either, so the semaphore never bound and the free tier was capped at one
+  // concurrent build platform-wide by accident rather than by decision.
+  //
+  // Note this is the WORKER concurrency per tier queue, a different limit from
+  // the per-ORG cap in slot-manager (`PLUGIN_MAX_BUILDS_PER_ORG` baseline, 5).
+  // The lower of the two binds, so raising the per-org cap alone does nothing
+  // for a tier whose queue still processes one build at a time.
   const { concurrency } = getBuildCfg();
   const tierDefault: Record<QuotaTier, number> = {
     developer: 1,

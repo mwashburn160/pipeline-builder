@@ -5,7 +5,7 @@ import { BUILD_CLASSES, buildSlotsFor, envInt, createLogger, errorMessage, isSys
 import type { BuildClass, QuotaTier } from '@pipeline-builder/api-core';
 import { incCounter } from '@pipeline-builder/api-server';
 
-import { getAllTierQueues, getConnectionForDb, getDeadLetterQueue } from './connections.js';
+import { getAllTierQueues, getBuildCfg, getConnectionForDb, getDeadLetterQueue } from './connections.js';
 
 const logger = createLogger('plugin-build-queue');
 
@@ -39,11 +39,23 @@ const logger = createLogger('plugin-build-queue');
  * Lua's `tonumber(ARGV[1])` return nil, so a single garbage override would make
  * every `tryAcquireOrgSlot` throw and brick ALL plugin builds — not just the
  * tier whose variable was fat-fingered.
+ *
+ * The BASELINE (`pluginBuild.maxBuildsPerOrg`, `PLUGIN_MAX_BUILDS_PER_ORG`,
+ * default 5) is what every org gets; the catalog ladder only ever RAISES it, so
+ * the default here is `max(baseline, ladder)`. The ladder's lower rows were too
+ * tight for a real working set — at three in flight an org pushing a batch
+ * spends most of its time queued, and past `PLUGIN_ORG_SLOT_MAX_WAIT_MS` those
+ * waiting builds fail TERMINALLY rather than merely late.
+ *
+ * The ORDER is the contract: the baseline moves the DEFAULT, and an explicit
+ * `PLUGIN_MAX_BUILDS_<TIER>_<CLASS>` still wins outright — including a value
+ * below the baseline. An operator who deliberately wants one tier at a single
+ * build keeps that; the baseline only moves the figure nobody set.
  */
 export function maxBuildsPerOrg(tier: QuotaTier, buildClass: BuildClass): number {
   return envInt(
     `PLUGIN_MAX_BUILDS_${tier.toUpperCase()}_${buildClass.toUpperCase()}`,
-    buildSlotsFor(tier, buildClass),
+    Math.max(getBuildCfg().maxBuildsPerOrg, buildSlotsFor(tier, buildClass)),
     { min: 1 },
   );
 }

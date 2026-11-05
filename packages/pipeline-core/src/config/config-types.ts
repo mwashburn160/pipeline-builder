@@ -152,6 +152,31 @@ export interface RegistryConfig {
 
 export interface PluginBuildConfig {
   readonly concurrency: number;
+  /**
+   * BASELINE maximum in-flight builds one organization may hold
+   * (`PLUGIN_MAX_BUILDS_PER_ORG`, default 5).
+   *
+   * Every org gets at least this many; the tier ladder in `BUILD_CLASS_CATALOG`
+   * only ever RAISES it (enterprise and unlimited sit at 8 on the standard
+   * class), so the effective cap is `max(this, ladder)`.
+   *
+   * It is 5 because the ladder's lower rows were too tight for a real working
+   * set: at three in flight an org pushing a batch of plugins spends most of its
+   * time queued, and past `PLUGIN_ORG_SLOT_MAX_WAIT_MS` the waiting builds fail
+   * TERMINALLY rather than merely late.
+   *
+   * A DEFAULT, not a ceiling: an explicit `PLUGIN_MAX_BUILDS_<TIER>_<CLASS>`
+   * wins outright, including a value below this, so an operator who deliberately
+   * wants one tier at a single build still gets it. The catalog cannot read this
+   * itself — it is browser-importable, so it cannot see an env var — which is
+   * why the overlay lives in the plugin service.
+   *
+   * The name is reused from the flat cap this replaced. That is deliberate but
+   * worth knowing: a deployment whose `.env` still carries the old
+   * `PLUGIN_MAX_BUILDS_PER_ORG=3` is back to three, which is the figure that
+   * starved the catalogue load in the first place.
+   */
+  readonly maxBuildsPerOrg: number;
   readonly maxAttempts: number;
   readonly backoffDelayMs: number;
   readonly workerTimeoutMs: number;

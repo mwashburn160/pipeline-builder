@@ -39,6 +39,11 @@ describe('infrastructure config loaders', () => {
   it('fall back to their defaults when nothing is set', () => {
     expect(loadPluginBuildConfig()).toEqual({
       concurrency: 1,
+      // The BASELINE per-org in-flight build cap. 5 rather than the ladder's
+      // lower rows (standard: developer 1, pro 2, team 3) because three in
+      // flight is too tight for a real working set — and a build that waits out
+      // PLUGIN_ORG_SLOT_MAX_WAIT_MS fails terminally, not merely late.
+      maxBuildsPerOrg: 5,
       maxAttempts: 2,
       backoffDelayMs: 5_000,
       workerTimeoutMs: 10_000,

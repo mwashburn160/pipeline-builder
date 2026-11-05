@@ -99,6 +99,49 @@ describe('gitleaks is built with a patched x/crypto', () => {
   });
 });
 
+describe('the per-org build cap is stated the same way in every target', () => {
+  const TARGETS = [
+    'deploy/local/docker/.env.example',
+    'deploy/local/minikube/.env.example',
+    'deploy/aws/ec2/.env.example',
+    'deploy/aws/eks/.env.example',
+  ];
+
+  it.each(TARGETS)('%s offers the baseline at its current default', (target) => {
+    // Three of the four carried a DEAD `PLUGIN_MAX_BUILDS_PER_ORG=3` long after
+    // the code stopped reading it — and reviving the name made those lines live
+    // again at the figure that starved the catalogue load. An operator copying
+    // .env.example must not be handed the old number.
+    const env = read(target);
+    expect(env).toContain('# PLUGIN_MAX_BUILDS_PER_ORG=5');
+    expect(env).not.toMatch(/^#?\s*PLUGIN_MAX_BUILDS_PER_ORG=3\s*$/m);
+  });
+
+  it.each(TARGETS)('%s says the system org is exempt', (target) => {
+    // The exemption is why a fresh install can load the whole catalogue under
+    // one org; an operator reading only the cap would conclude otherwise.
+    expect(read(target).toLowerCase()).toContain('system org is exempt');
+  });
+
+  it('agrees with the code default', () => {
+    const src = read('packages/pipeline-core/src/config/infrastructure-config.ts');
+    const m = /envInt\('PLUGIN_MAX_BUILDS_PER_ORG',\s*(\d+)/.exec(src);
+    expect(m?.[1]).toBe('5');
+  });
+
+  it('is a BASELINE in the code, not a ceiling', () => {
+    // max(baseline, ladder): a `min` here would cap enterprise DOWN to the
+    // baseline and make the paid ladder meaningless in the other direction.
+    const src = read('api/plugin/src/queue/slot-manager.ts');
+    expect(src).toContain('Math.max(getBuildCfg().maxBuildsPerOrg, buildSlotsFor(tier, buildClass))');
+  });
+
+  it('is documented, and the README agrees', () => {
+    expect(read('docs/environment-variables.md')).toContain('| `PLUGIN_MAX_BUILDS_PER_ORG` | `5` |');
+    expect(read('api/plugin/README.md')).toMatch(/PLUGIN_MAX_BUILDS_PER_ORG.*\| `5` \|/);
+  });
+});
+
 describe('the registry can sign a vendored-SDK image', () => {
   it('sizes the SBOM limit by env, not by a literal', () => {
     // gar-push and gcloud-deploy install google-cloud-cli; their SPDX documents

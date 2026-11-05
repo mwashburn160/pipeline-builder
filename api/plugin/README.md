@@ -47,7 +47,7 @@ Shared server/auth/DB/Redis settings (`PORT`, `DB_*`, `PLATFORM_BASE_URL`, CORS)
 |----------|---------|---------|
 | `PLUGIN_UPLOAD_DIR` | Directory where uploaded ZIPs are staged for the build | `/opt/pipeline/pipeline-data/plugins-data` |
 | `PLUGIN_UPLOAD_TIMEOUT_MS` | Upload request timeout (ms) | `300000` |
-| `PLUGIN_MAX_BUILDS_PER_ORG` | Max concurrent builds per org (semaphore size) | `3` |
+| `PLUGIN_MAX_BUILDS_PER_ORG` | BASELINE max concurrent builds per org (semaphore size); the tier ladder only raises it, and the system org is exempt | `5` |
 | `PLUGIN_ORG_SLOT_DELAY_MS` | Delay before re-checking an org build slot (ms) | `10000` |
 | `PLUGIN_ORG_SLOT_TTL_SEC` | Per-org slot TTL (s) | `900` |
 | `PLUGIN_BUILD_CONCURRENCY_DEVELOPER` | Worker concurrency for the developer tier | (computed) |
