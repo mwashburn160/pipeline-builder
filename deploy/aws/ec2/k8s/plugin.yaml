@@ -164,7 +164,7 @@ spec:
             failureThreshold: 3
       containers:
         - name: plugin
-          image: ghcr.io/mwashburn160/plugin:4.6.7@sha256:c7200d572275237419d48c0f882923a7d2ccae0d1b366f3409cd5ab06e93f420
+          image: ghcr.io/mwashburn160/plugin:4.6.7@sha256:8f706826959bf8dbf8ed61797401eac6d9c4532c8151c724e26f62b6de0b9dac
           securityContext:
             runAsNonRoot: true
             runAsUser: 1000
