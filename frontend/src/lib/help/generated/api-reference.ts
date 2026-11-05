@@ -1,6 +1,6 @@
 // GENERATED FROM docs/api-reference.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 88cc710b562d265336e3494d418c32d58f1502a14257b85e1fb1e8b7afa6adbb
+// SOURCE-SHA256: 2fb958fa8785ad9c0ff4648f6368d2de9a0ee653d0ff453faafc5b804f78eb02
 // SPDX-License-Identifier: Apache-2.0
 import { Code } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -1028,7 +1028,12 @@ export const apiReferenceTopic: HelpTopic = {
             [
               "PUT",
               "/quotas/:orgId",
-              "Update tier/limits (quotas:manage)"
+              "Update tier/limits (quotas:manage, system org + MFA)"
+            ],
+            [
+              "PUT",
+              "/quotas/entitlement-sync/:orgId",
+              "Internal (callers: billing): the billing → quota entitlement sync, same body as PUT /quotas/:orgId"
             ],
             [
               "POST",
