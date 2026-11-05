@@ -4,6 +4,7 @@
 import {
   actorId,
   audited,
+  envStr,
   ErrorCode,
   getParam,
   requireInternalService,
@@ -155,8 +156,22 @@ function discardContext(raw: unknown): DiscardContext {
  * An SPDX document for a large image (thousands of packages) runs to several MB;
  * this route parses its own body with a limit sized for that, instead of the
  * app-wide 1mb.
+ *
+ * **64mb, raised from 32mb, and now an operator knob.** A plugin that installs a
+ * vendored SDK produces an SBOM far larger than "several MB": `gar-push` and
+ * `gcloud-deploy` install `google-cloud-cli`, whose bundled Python tree runs to
+ * tens of thousands of packages, and its SPDX document went over 32mb. The
+ * refusal landed as a bare `413` from body-parser — no message body — so the
+ * build failed with "image-registry refused to sign (HTTP 413): no detail" and
+ * nothing said the SBOM was the reason.
+ *
+ * The limit is a MEMORY bound (the body is buffered and parsed), which is why it
+ * is not simply removed: this route is reachable only by the plugin build worker,
+ * and the gate runs BEFORE the parser so no other caller can make it buffer at
+ * all. Raising it costs one worker's peak RSS on the largest image in the
+ * catalogue; losing the signature costs the build.
  */
-const SBOM_BODY_LIMIT = '32mb';
+const SBOM_BODY_LIMIT = envStr('REGISTRY_SBOM_BODY_LIMIT', '64mb');
 
 /**
  * Internal (service-to-service) routes. Mounted after `requireAuth`.
@@ -175,6 +190,28 @@ const SBOM_BODY_LIMIT = '32mb';
  *  - GET /internal/storage-usage/:orgId — quota → one org's registry storage in
  *    bytes, so the quota dashboard's `storageBytes.used` shows a real number.
  */
+/**
+ * Error-handling middleware for the SBOM parser, mounted immediately after it.
+ *
+ * body-parser rejects an oversized body with `type: 'entity.too.large'` and
+ * express's default handler answers a bare 413 with no JSON body, which is
+ * exactly what reached the build log as "no detail". This names the limit and
+ * the knob so the next person does not have to find this file.
+ *
+ * Anything else is passed along untouched — a malformed JSON body is still a
+ * 400 from the default handler, not an SBOM-size complaint.
+ */
+const sbomTooLarge: express.ErrorRequestHandler = (err, _req, res, next) => {
+  if ((err as { type?: string } | null)?.type !== 'entity.too.large') return next(err);
+  sendError(
+    res, 413,
+    `The SBOM exceeds this registry's ${SBOM_BODY_LIMIT} signing-request limit. `
+    + 'An image that installs a vendored SDK (for example google-cloud-cli) can produce an SPDX '
+    + 'document larger than this. Raise REGISTRY_SBOM_BODY_LIMIT on the image-registry service.',
+    ErrorCode.PAYLOAD_TOO_LARGE,
+  );
+};
+
 export function createInternalRoutes(): Router {
   const router: Router = Router();
 
@@ -186,6 +223,11 @@ export function createInternalRoutes(): Router {
     requireInternalService({ callers: ['plugin'] }) as RequestHandler,
     audited('registry.image.sign') as RequestHandler,
     express.json({ limit: SBOM_BODY_LIMIT }) as RequestHandler,
+    // Turn body-parser's bare 413 into something the build log can act on.
+    // Without this the plugin service reports "HTTP 413: no detail" and the
+    // operator has no way to tell an oversized SBOM from a proxy refusing the
+    // request — the two look identical from the build's side.
+    sbomTooLarge,
     withRoute(async ({ req, res, ctx }) => {
       const { repository, digest, sbom } = (req.body ?? {}) as { repository?: unknown; digest?: unknown; sbom?: unknown };
       // `public/*` is signed only by the publish/resign routes (fresh, annotated).

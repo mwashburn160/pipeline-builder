@@ -170,7 +170,20 @@ curl_with_retry "$label" \
   -F "publishRequest=true" \
   -F "setupLoad=true" || _rc=$?
 case "$_rc" in
-  0) _count succeeded; exit 0 ;;
+  0)
+    _count succeeded
+    # Record WHAT was accepted, so the parent can verify these exact versions
+    # finished building rather than counting rows it did not upload. The upload
+    # answers 202 and the build runs afterwards (see load-plugins.sh's verify
+    # phase); without this list a verify can only compare totals, and a
+    # catalogue that already holds most of its plugins makes that meaningless.
+    if [ -n "${COUNTER_DIR:-}" ]; then
+      printf '%s\t%s\t%s\n' \
+        "$(get_spec_field name "$specfile")" \
+        "$(get_spec_field version "$specfile")" \
+        "$label" >> "$COUNTER_DIR/uploaded"
+    fi
+    exit 0 ;;
   2) _count skipped;   exit 2 ;;
   *) _count failed;    exit 1 ;;
 esac

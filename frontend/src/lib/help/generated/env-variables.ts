@@ -1,6 +1,6 @@
 // GENERATED FROM docs/environment-variables.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: fc9ef836982fb3da8b0387a38babfd1cb54a9488ca5cedf56b323603dd4e8ccd
+// SOURCE-SHA256: 50f0c3a7f1b50ad73cdb1ce9626a2b7794aeeb79e33e7bb9c63e936eeae09e4d
 // SPDX-License-Identifier: Apache-2.0
 import { FileCode } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -1389,6 +1389,11 @@ export const envVariablesTopic: HelpTopic = {
               "IMAGE_REGISTRY_TOKEN",
               "—",
               "Registry password/token"
+            ],
+            [
+              "REGISTRY_SBOM_BODY_LIMIT",
+              "64mb",
+              "Largest SBOM the image-registry will accept on POST /internal/plugin-signatures (the signing + attestation request). A plugin that installs a vendored SDK produces a far larger SPDX document than a normal image — gar-push and gcloud-deploy install google-cloud-cli, whose bundled Python tree went over the previous 32mb and failed the build with a bare HTTP 413 carrying no reason. The limit is a MEMORY bound (the body is buffered and parsed), so it is not simply removed; the route is reachable only by the plugin build worker and its caller gate runs BEFORE the parser, so no other caller can make it buffer at all. An oversized request now answers a message naming this variable"
             ],
             [
               "IMAGE_REGISTRY_PULL_HOST",

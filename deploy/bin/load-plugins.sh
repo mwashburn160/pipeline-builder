@@ -23,6 +23,14 @@ UPLOAD_RETRY_DELAY=${UPLOAD_RETRY_DELAY:-30}
 PARALLEL_JOBS=${PARALLEL_JOBS:-1}
 UPLOAD_DELAY=${UPLOAD_DELAY:-5}
 [[ "$UPLOAD_DELAY" =~ ^[0-9]+$ ]] || { echo "ERROR: UPLOAD_DELAY must be a non-negative integer (got: '$UPLOAD_DELAY')" >&2; exit 1; }
+# Wait for the accepted builds to finish and report what actually happened.
+# Bounded: at the deadline the run REPORTS what it saw rather than guessing —
+# see the verify phase for why that distinction is the whole point.
+VERIFY_BUILDS=${VERIFY_BUILDS:-true}
+VERIFY_TIMEOUT=${VERIFY_TIMEOUT:-3600}
+VERIFY_POLL=${VERIFY_POLL:-15}
+[[ "$VERIFY_TIMEOUT" =~ ^[0-9]+$ ]] || { echo "ERROR: VERIFY_TIMEOUT must be a non-negative integer (got: '$VERIFY_TIMEOUT')" >&2; exit 1; }
+[[ "$VERIFY_POLL" =~ ^[1-9][0-9]*$ ]] || { echo "ERROR: VERIFY_POLL must be a positive integer (got: '$VERIFY_POLL')" >&2; exit 1; }
 SERIAL_MODE=false
 DRY_RUN=false
 REBUILD=false
@@ -40,6 +48,7 @@ while [ $# -gt 0 ]; do
     --dry-run)   DRY_RUN=true; shift ;;
     --rebuild|--force) REBUILD=true; shift ;;
     --cleanup)   CLEANUP=true; shift ;;
+    --no-verify) VERIFY_BUILDS=false; shift ;;
     --serial)    SERIAL_MODE=true; shift ;;
     --parallel)  [ $# -ge 2 ] || { echo "ERROR: $1 requires a value" >&2; exit 1; }
                  PARALLEL_JOBS="$2"
@@ -145,7 +154,7 @@ JWT_TOKEN=""
 COUNTER_DIR=$(mktemp -d)
 [ -n "$COUNTER_DIR" ] && [ -d "$COUNTER_DIR" ] || { echo "ERROR: failed to create temp directory" >&2; exit 1; }
 trap 'rm -rf "$COUNTER_DIR"' EXIT INT TERM
-touch "$COUNTER_DIR/succeeded" "$COUNTER_DIR/skipped" "$COUNTER_DIR/failed"
+touch "$COUNTER_DIR/succeeded" "$COUNTER_DIR/skipped" "$COUNTER_DIR/failed" "$COUNTER_DIR/uploaded"
 
 export PLATFORM_BASE_URL JWT_TOKEN UPLOAD_TIMEOUT UPLOAD_RETRIES UPLOAD_RETRY_DELAY
 export DRY_RUN REBUILD COUNTER_DIR PLUGINS_DIR DEPLOY_DIR SCRIPT_DIR
@@ -198,23 +207,133 @@ if [ "$ACCOUNTED" -ne "$TOTAL" ]; then
   exit 1
 fi
 
-# ---- Why the loader does NOT wait for builds -------------------------------
+# ---- Verify the builds actually finished -----------------------------------
+#
 # The upload answers 202 Accepted; the image build, the cosign signature, the
-# grype scan and PLUGIN_VULN_GATE all run asynchronously after it, and the
-# version row appears only once they pass.
+# grype scan and PLUGIN_VULN_GATE all run asynchronously after it. Counting the
+# 202s alone reported "119/119 succeeded" for an install in which 80 builds had
+# failed terminally and only 37 plugins were live — the load looked clean and
+# most of the catalogue was missing.
 #
-# This used to poll until every accepted plugin had a version, and report a
-# FAILED load otherwise. It was removed because it could not tell the two
-# outcomes apart that matter: a build that FAILED, and a build that has not
-# finished. On a cold cluster loading the full catalog the builds land at
-# roughly one a minute, so any fixed budget expires mid-run and the loader
-# declared ~100 healthy plugins failed, naming PLUGIN_VULN_GATE as the likely
-# cause — a confident, wrong diagnosis, and a red that said nothing.
+# THIS USED TO BE REMOVED, and for a sound reason: the previous version polled
+# until every accepted plugin had a version and reported a FAILED load
+# otherwise, which could not tell the two outcomes that matter apart — a build
+# that FAILED, and a build that has not FINISHED. Any fixed budget expired
+# mid-run on a cold cluster and declared ~100 healthy plugins failed, naming
+# PLUGIN_VULN_GATE as the likely cause: a confident, wrong diagnosis.
 #
-# Build outcomes are surfaced where they are actually known: the Builds page
-# (Queue / Failed-Triage) groups failures with the CVE and the fixed version,
-# and the per-org security notifications (N30/N31) name a blocked version. This
-# script's job ends at the upload, and it reports that honestly.
+# What makes it safe now is that both signals exist separately, so there are
+# THREE outcomes rather than two:
+#   built          — the version row carries an image digest (or the plugin is
+#                    metadata_only and produces no image by design)
+#   failed         — the build queue says so, WITH the reason, from
+#                    /plugins/queue/triage's grouped categories
+#   still building — accepted, not yet either of the above
+#
+# The deadline bounds how long this WAITS; it never decides the verdict. At the
+# deadline "still building" is reported as itself and the run stays green on it.
+# Only a build the queue reports as FAILED makes this red, because only that is
+# a fact rather than an absence.
+
+if [ "$VERIFY_BUILDS" = true ] && [ "$DRY_RUN" = false ] && [ "$SUCCEEDED" -gt 0 ]; then
+  echo ""
+  echo "=== Verifying $SUCCEEDED accepted build(s) ==="
+  echo "  (waiting up to ${VERIFY_TIMEOUT}s; a timeout reports what it saw, it does not fail the run)"
+
+  _api_get() {
+    _curl_authed -s --insecure --max-time 60 "${PLATFORM_BASE_URL}$1" 2>/dev/null || true
+  }
+
+  # `name<TAB>version` of what this run uploaded. Checked by NAME+VERSION rather
+  # than by total count: a catalogue that already holds most of its plugins makes
+  # a total meaningless, and `--rebuild` re-uploads versions that already exist.
+  _want_count=$(wc -l < "$COUNTER_DIR/uploaded" | tr -d ' ')
+
+  _deadline=$(( $(date +%s) + VERIFY_TIMEOUT ))
+  _built=0 _failed=0 _timed_out=false
+  while :; do
+    # The system org's own plugins, with the two fields that decide "built".
+    # A high limit in one page: the catalogue is ~120 and paging here would
+    # make the loop's arithmetic depend on page boundaries.
+    _list=$(_api_get "/api/plugins?limit=500")
+    _built=$(
+      printf '%s' "$_list" | python3 -c '
+import json, sys
+try:
+    body = json.load(sys.stdin)
+except Exception:
+    print(0); raise SystemExit
+rows = (body.get("data") or {}).get("plugins") or []
+want = set()
+with open(sys.argv[1], encoding="utf-8") as fh:
+    for line in fh:
+        parts = line.rstrip("\n").split("\t")
+        if len(parts) >= 2 and parts[0]:
+            want.add((parts[0], parts[1]))
+done = 0
+for r in rows:
+    key = (r.get("name"), r.get("version"))
+    if key not in want:
+        continue
+    # A metadata_only plugin (an approval step) produces no image by design, so
+    # its presence IS completion; anything else needs the digest the build
+    # writes once the image is pushed, signed and SBOM-attested.
+    if r.get("buildType") == "metadata_only" or r.get("imageDigest"):
+        done += 1
+print(done)
+' "$COUNTER_DIR/uploaded" 2>/dev/null || echo 0
+    )
+    _failed=$(
+      printf '%s' "$(_api_get /api/plugins/queue/triage)" | python3 -c '
+import json, sys
+try:
+    body = json.load(sys.stdin)
+except Exception:
+    print(0); raise SystemExit
+print((body.get("data") or {}).get("totalFailed") or 0)
+' 2>/dev/null || echo 0
+    )
+    [ "$(( _built + _failed ))" -ge "$_want_count" ] && break
+    if [ "$(date +%s)" -ge "$_deadline" ]; then _timed_out=true; break; fi
+    printf '\r  built=%s failed=%s of %s ...' "$_built" "$_failed" "$_want_count"
+    sleep "$VERIFY_POLL"
+  done
+  printf '\r%s\r' "                                             "
+
+  _pending=$(( _want_count - _built - _failed ))
+  [ "$_pending" -lt 0 ] && _pending=0
+  echo "  built:          $_built"
+  echo "  failed:         $_failed"
+  echo "  still building: $_pending"
+
+  if [ "$_failed" -gt 0 ]; then
+    echo ""
+    echo "  Failures by category (from /plugins/queue/triage):"
+    printf '%s' "$(_api_get /api/plugins/queue/triage)" | python3 -c '
+import json, sys
+try:
+    body = json.load(sys.stdin)
+except Exception:
+    raise SystemExit
+for g in ((body.get("data") or {}).get("groups") or []):
+    names = ", ".join((g.get("pluginNames") or [])[:8])
+    count = g.get("count")
+    category = g.get("category")
+    suffix = " - " + names if names else ""
+    print("    {0}x {1}{2}".format(count, category, suffix))
+' 2>/dev/null || echo "    (could not read the triage breakdown)"
+    echo ""
+    echo "  The Builds page (Queue / Failed-Triage) carries the full reason per" >&2
+    echo "  plugin, including the CVE and fixed version for a PLUGIN_VULN_GATE." >&2
+    echo "ERROR: $_failed build(s) failed after a clean upload — the catalogue is incomplete." >&2
+    FAILED=$((FAILED + _failed))
+  elif [ "$_timed_out" = true ]; then
+    echo ""
+    echo "  WARN: still building at the ${VERIFY_TIMEOUT}s deadline. This is NOT a failure —"
+    echo "  builds land at roughly one a minute on a cold cluster. Re-run with a larger"
+    echo "  VERIFY_TIMEOUT, or watch the Builds page."
+  fi
+fi
 
 
 # ---- Cleanup ----

@@ -446,6 +446,7 @@ reachable through the pooler.
 | `IMAGE_REGISTRY_PORT` | `5000` | Registry port |
 | `IMAGE_REGISTRY_USER` | `admin` | Registry username |
 | `IMAGE_REGISTRY_TOKEN` | — | Registry password/token |
+| `REGISTRY_SBOM_BODY_LIMIT` | `64mb` | Largest SBOM the image-registry will accept on `POST /internal/plugin-signatures` (the signing + attestation request). A plugin that installs a **vendored SDK** produces a far larger SPDX document than a normal image — `gar-push` and `gcloud-deploy` install `google-cloud-cli`, whose bundled Python tree went over the previous 32mb and failed the build with a bare `HTTP 413` carrying no reason. The limit is a MEMORY bound (the body is buffered and parsed), so it is not simply removed; the route is reachable only by the plugin build worker and its caller gate runs BEFORE the parser, so no other caller can make it buffer at all. An oversized request now answers a message naming this variable |
 | `IMAGE_REGISTRY_PULL_HOST` | host of `PLATFORM_BASE_URL`, else `IMAGE_REGISTRY_HOST` | Registry host CodeBuild pulls plugin images from (must be publicly resolvable) |
 | `IMAGE_REGISTRY_PULL_PORT` | port of `PLATFORM_BASE_URL`, else `IMAGE_REGISTRY_PORT` | Registry port for those pulls |
 | `DOCKER_NETWORK` | — | Docker network the plugin build containers join (docker-compose targets) |
