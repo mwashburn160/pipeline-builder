@@ -1,3 +1,8 @@
+---
+layout: default
+title: Plan — Usage-driven expansion offers
+---
+
 <!--
 Copyright 2026 Pipeline Builder Contributors
 SPDX-License-Identifier: Apache-2.0
