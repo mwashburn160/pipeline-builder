@@ -18,6 +18,7 @@ export * from './audit-binding.js';
 export * from './mock-api-core.js';
 export * from './mock-drizzle.js';
 export * from './route-coverage.js';
+export * from './route-handler.js';
 export * from './service-tokens.js';
 export * from './stub-module.js';
 export * from './tier-mock.js';

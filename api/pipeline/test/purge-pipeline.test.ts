@@ -21,7 +21,7 @@
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import type { AnyFn } from '@pipeline-builder/api-core/testing';
-import { stubModule } from '@pipeline-builder/api-core/testing';
+import { stubModule, handlerGetter } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 // Mocks — must be defined before imports
@@ -138,14 +138,7 @@ const { createPurgePipelineRoutes } = await import('../src/routes/purge-pipeline
 
 const router = createPurgePipelineRoutes();
 
-function getHandler(method: string, path: string) {
-  const layer = (router as any).stack.find(
-    (l: any) => l.route?.path === path && l.route?.methods[method],
-  );
-  if (!layer) throw new Error(`No handler for ${method.toUpperCase()} ${path}`);
-  const stack = layer.route.stack;
-  return stack[stack.length - 1].handle;
-}
+const getHandler = handlerGetter(router);
 
 const existingPipeline = {
   id: 'pipeline-uuid-1',

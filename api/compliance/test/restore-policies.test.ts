@@ -16,7 +16,7 @@
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import type { AnyFn } from '@pipeline-builder/api-core/testing';
-import { stubModule } from '@pipeline-builder/api-core/testing';
+import { stubModule, routeHandler } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const findDeletedByIdMock = jest.fn<(...a: unknown[]) => Promise<unknown>>();
@@ -55,14 +55,7 @@ jest.unstable_mockModule('../src/services/policy-service.js', () => ({
 
 const { createRestorePolicyRoutes } = await import('../src/routes/restore-policies.js');
 
-function lastHandler(router: any, path: string, method: string) {
-  const layer = (router.stack as any[]).find(
-    (l) => l.route?.path === path && l.route?.methods?.[method],
-  );
-  if (!layer) throw new Error(`no ${method.toUpperCase()} ${path}`);
-  const stack = layer.route.stack;
-  return stack[stack.length - 1].handle;
-}
+const lastHandler = (router: unknown, path: string, method: string) => routeHandler(router, method, path);
 
 function makeRes() {
   const json = jest.fn<AnyFn>();

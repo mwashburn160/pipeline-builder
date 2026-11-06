@@ -9,16 +9,8 @@ import { catalogDisplayValue } from '@/components/plugin/CatalogFieldEditor';
 import { TrustTierBadge } from '@/components/public-directory/TrustTierBadge';
 import { CATALOG_FIELD_LABELS, CATALOG_SOURCE_LABELS } from '@/lib/plugin-catalog';
 import { diffLines } from '@/lib/line-diff';
+import { Section } from './ReviewSection';
 import type { AddedRemoved, ReviewDiff } from '@/types/ecosystem';
-
-function Section({ title, children, testId }: { title: string; children: ReactNode; testId?: string }) {
-  return (
-    <section className="space-y-2" data-testid={testId}>
-      <h4 className="text-sm font-semibold text-fg">{title}</h4>
-      {children}
-    </section>
-  );
-}
 
 function Delta({ label, delta, danger = false }: { label: string; delta: AddedRemoved; danger?: boolean }) {
   if (delta.added.length === 0 && delta.removed.length === 0) return null;

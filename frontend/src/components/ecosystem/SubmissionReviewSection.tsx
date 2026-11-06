@@ -16,17 +16,9 @@ import { triggerBlobDownload } from '@/lib/download';
 import { normalizeSubmissionModeration } from '@/lib/plugin-submissions/moderation';
 import { SUBMISSION_STATUS_COLORS, SUBMISSION_STATUS_LABELS } from '@/lib/plugin-submissions/status';
 import type { EcosystemRequestDetail } from '@/types/ecosystem';
+import { Section } from './ReviewSection';
 
 const count = (n: number | null) => (n == null ? '—' : String(n));
-
-function Section({ title, children, testId }: { title: string; children: ReactNode; testId?: string }) {
-  return (
-    <section className="space-y-2" data-testid={testId}>
-      <h4 className="text-sm font-semibold text-fg">{title}</h4>
-      {children}
-    </section>
-  );
-}
 
 function DownloadButton({ path, label, fallbackName }: { path: string; label: string; fallbackName: string }) {
   const toast = useToast();

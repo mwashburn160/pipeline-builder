@@ -14,17 +14,10 @@
  */
 
 import type { OrganizationData } from '../models/index.js';
+import { orgDeps } from './org-deps.js';
 
 /** Depth cap for the ancestor walk. */
 const MAX_ANCESTOR_DEPTH = 32;
-
-async function deps() {
-  const [models, orgId] = await Promise.all([
-    import('../models/index.js'),
-    import('./org-id.js'),
-  ]);
-  return { Organization: models.Organization, toOrgId: orgId.toOrgId };
-}
 
 /** One org in the walk: its id plus the requested policy fields. */
 export type LineageDoc<T> = T & { _id: string };
@@ -37,7 +30,7 @@ export async function readOrgPolicyLineage<T extends object>(
   orgId: string,
   fields: string,
 ): Promise<Array<LineageDoc<T>>> {
-  const { Organization, toOrgId } = await deps();
+  const { Organization, toOrgId } = await orgDeps();
   const out: Array<LineageDoc<T>> = [];
   const seen = new Set<string>();
   let current: string | undefined = orgId;

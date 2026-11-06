@@ -24,6 +24,7 @@
  */
 
 import { MFA_REQUIRED_FOR_ORG } from '../services/auth-errors.js';
+import { orgDeps } from './org-deps.js';
 
 /**
  * The model + id caster, loaded ON DEMAND.
@@ -34,14 +35,6 @@ import { MFA_REQUIRED_FOR_ORG } from '../services/auth-errors.js';
  * static import graph just to read a number or a constant. Same reasoning as
  * `auth-factors.ts`'s lazy provider dependencies.
  */
-async function deps() {
-  const [models, orgId] = await Promise.all([
-    import('../models/index.js'),
-    import('./org-id.js'),
-  ]);
-  return { Organization: models.Organization, toOrgId: orgId.toOrgId };
-}
-
 /** Default grace period offered when an admin turns the policy on. */
 export const DEFAULT_MFA_GRACE_DAYS = 14;
 
@@ -102,7 +95,7 @@ const MAX_ANCESTOR_DEPTH = 32;
  * policy fields in the same pass, so the caller needs no second query.
  */
 async function ancestorPolicies(orgId: string): Promise<Array<StoredMfaPolicy & { _id: string }>> {
-  const { Organization, toOrgId } = await deps();
+  const { Organization, toOrgId } = await orgDeps();
   const out: Array<StoredMfaPolicy & { _id: string }> = [];
   const seen = new Set<string>([orgId]);
   let current = orgId;
@@ -137,7 +130,7 @@ function isEnforcedNow(policy: StoredMfaPolicy, now: Date): boolean {
  * briefly missing a parent's stricter requirement.
  */
 export async function resolveEffectiveMfaPolicy(orgId: string, now: Date = new Date()): Promise<EffectiveMfaPolicy> {
-  const { Organization, toOrgId } = await deps();
+  const { Organization, toOrgId } = await orgDeps();
   const org = await Organization.findById(toOrgId(orgId))
     .select('requireMfa mfaRequiredSince mfaGraceUntil idpEnforcesMfa adminActionsRequireMfa parentOrgId').lean();
   const own = org?.requireMfa === true;
@@ -198,7 +191,7 @@ export async function resolveEffectiveMfaPolicy(orgId: string, now: Date = new D
  *  `aal: 2`). Own setting only — it describes THIS org's provider. */
 export async function idpEnforcesMfa(orgId: string): Promise<boolean> {
   try {
-    const { Organization, toOrgId } = await deps();
+    const { Organization, toOrgId } = await orgDeps();
     const org = await Organization.findById(toOrgId(orgId)).select('idpEnforcesMfa').lean();
     return (org as { idpEnforcesMfa?: boolean } | null)?.idpEnforcesMfa === true;
   } catch {
