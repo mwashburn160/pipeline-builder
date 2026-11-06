@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { useState } from 'react';
+import type { Permission } from '@pipeline-builder/api-core/permissions';
 import { Check, FilePenLine, Plus, ShieldAlert, Undo2, X } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
@@ -24,7 +25,7 @@ import { AdvisoryFormDialog, type AdvisoryFormValue } from './AdvisoryFormDialog
 import { EcosystemActionDialog } from './EcosystemActionDialog';
 
 interface Props {
-  can: (permission: string) => boolean;
+  can: (permission: Permission) => boolean;
 }
 
 // The form kinds carry what was typed (and why it came back) so a refused

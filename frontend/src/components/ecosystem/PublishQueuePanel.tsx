@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { useEffect, useState } from 'react';
+import type { Permission } from '@pipeline-builder/api-core/permissions';
 import { ArrowLeft, BookOpen, Check, CheckCheck, Inbox, ShieldAlert, X } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
@@ -30,7 +31,7 @@ import { ClaimEmailMatchNotice, SubmissionReviewSection } from './SubmissionRevi
 
 interface Props {
   /** `useAuthGuard().can` — false for every ecosystem action during a read-only impersonation. */
-  can: (permission: string) => boolean;
+  can: (permission: Permission) => boolean;
 }
 
 const STATUS_OPTIONS: ReadonlyArray<{ value: QueueStatusFilter; label: string }> = [

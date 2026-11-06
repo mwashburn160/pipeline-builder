@@ -35,6 +35,7 @@
  * immediately instead of only being caught at mount.
  */
 import { useCallback, useEffect } from 'react';
+import type { Permission } from '@pipeline-builder/api-core/permissions';
 import { useRouter } from 'next/router';
 import { rememberReturnPath } from '@/lib/return-to';
 import { useAuth } from './useAuth';
@@ -49,7 +50,7 @@ interface AuthGuardOptions {
   /** Require the user to be a system admin specifically. */
   requireSystemAdmin?: boolean;
   /** Require a specific fine-grained permission (RBAC). Superadmins bypass. */
-  requirePermission?: string;
+  requirePermission?: Permission;
   /** Set on the onboarding page itself so the guard doesn't bounce a
    *  `needsOnboarding` user away from it (which would loop). */
   allowOnboarding?: boolean;
@@ -105,7 +106,7 @@ export function useAuthGuard(options?: AuthGuardOptions) {
    * builder), which would otherwise recompute every render.
    */
   const can = useCallback(
-    (permission: string) =>
+    (permission: Permission) =>
       hasPermission(user, permission) && !(isReadOnly && isMutationPermission(permission)),
     [user, isReadOnly],
   );

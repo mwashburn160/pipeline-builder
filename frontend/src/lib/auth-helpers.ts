@@ -3,6 +3,7 @@
 
 // Runtime role/permission guards for the client-decoded user.
 import type { User } from '@/types';
+import type { Permission } from '@pipeline-builder/api-core/permissions';
 
 /**
  * Check if user is a Pipeline Builder super-admin.
@@ -36,7 +37,10 @@ export function isOrgAdmin(user: User | null): boolean {
  * Superadmins implicitly hold all. UI-gating only — the server re-checks every
  * privileged action against the verified token (see the isSystemAdmin note).
  */
-export function hasPermission(user: User | null, permission: string): boolean {
+/** Whether `user` holds `permission`. The parameter is api-core's `Permission`,
+ *  not a string: a typo'd capability used to resolve to `false` forever, which
+ *  renders as a feature that is simply absent — no error, nothing logged. */
+export function hasPermission(user: User | null, permission: Permission): boolean {
   return isSystemAdmin(user) || !!user?.permissions?.includes(permission);
 }
 

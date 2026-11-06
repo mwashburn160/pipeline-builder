@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import type { Permission } from '@pipeline-builder/api-core/permissions';
 import Link from 'next/link';
 import {
   Sun,
@@ -55,7 +56,7 @@ export function Sidebar({
   const { isReadOnly } = useAuth();
   // A quick action is available only if permitted AND not a write blocked by a
   // read-only impersonation session (matches nav.ts's documented `can()` intent).
-  const quickActionAllowed = (perm?: string) =>
+  const quickActionAllowed = (perm?: Permission) =>
     !perm || (hasPermission(user, perm) && !(isReadOnly && isMutationPermission(perm)));
 
   // Collapsible nav sections (persisted to localStorage). With 6 sections the
@@ -82,7 +83,7 @@ export function Sidebar({
       ? currentPath === '/dashboard'
       : currentPath.startsWith(href);
 
-  const navCtx = { isAdmin, isSuperAdmin, hasPermission: (p: string) => hasPermission(user, p), billingEnabled, isFeatureEnabled, isSystemOrg: isSystemOrgActive(user) };
+  const navCtx = { isAdmin, isSuperAdmin, hasPermission: (p: Permission) => hasPermission(user, p), billingEnabled, isFeatureEnabled, isSystemOrg: isSystemOrgActive(user) };
 
   // `paletteOnly` entries are sub-pages of a listed item: ⌘K finds them by
   // name, the sidebar leaves them to their parent's row.

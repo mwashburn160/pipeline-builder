@@ -28,7 +28,7 @@ const {
   renderEcosystemDigest,
   renderEcosystemManagerChange,
 } = await import('../src/types/ecosystem-notifications.js');
-const { createEcosystemNotifyClient, ECOSYSTEM_NOTIFY_PATH } = await import('../src/services/ecosystem-notify-client.js');
+const { createEcosystemNotifyClient, NOTIFY_EMAIL_PATH } = await import('../src/services/ecosystem-notify-client.js');
 
 const base = { event: 'N23', subject: 'S', text: 'T', recipients: [{ kind: 'superadmins' }] };
 
@@ -205,7 +205,7 @@ describe('createEcosystemNotifyClient', () => {
   it('posts the validated request with a system-org service token', async () => {
     mockPost.mockResolvedValue({ statusCode: 200, body: { data: { recipientCount: 3 } }, headers: {} });
     await expect(client.send(base as never)).resolves.toEqual({ ok: true, status: 200, recipientCount: 3 });
-    expect(mockPost).toHaveBeenCalledWith(ECOSYSTEM_NOTIFY_PATH, expect.objectContaining({ event: 'N23' }), {
+    expect(mockPost).toHaveBeenCalledWith(NOTIFY_EMAIL_PATH, expect.objectContaining({ event: 'N23' }), {
       headers: { Authorization: 'Bearer svc-plugin-000000000000000000000001' },
     });
   });

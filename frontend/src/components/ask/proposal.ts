@@ -34,6 +34,7 @@ import {
   type OrgSettingChange, type OrgSettingKey, type OrgSettingPatch,
 } from '@pipeline-builder/api-core/ask-proposals';
 import { GitBranch, LayoutTemplate, Package, PackageCheck, Settings, ShieldCheck } from 'lucide-react';
+import type { Permission } from '@pipeline-builder/api-core/permissions';
 import type { LucideIcon } from 'lucide-react';
 import type { DiffRow, ProposalDiff } from './proposal-diff';
 import { computeProposalDiff, describeValue, redactionFor } from './proposal-diff';
@@ -55,7 +56,10 @@ export interface CommitTarget {
   method?: string;
   /** Route template; this is what selects the typed client the browser calls. */
   path?: string;
-  permission?: string;
+  /** `Permission`, not a string: api-core's `CommitTarget` — the contract this
+   *  mirrors — types it that way, and the value comes from the proposal table
+   *  there rather than from the model's output. */
+  permission?: Permission;
 }
 
 /** The org's policy verdict on a draft (mirrors `ComplianceNote`). */
@@ -151,7 +155,7 @@ export interface ProposalMeta {
    * `org-settings-edit` has none of its own: its fields span three services, so
    * the requirement is the union of the surfaces the reviewed fields touch.
    */
-  permission?: string;
+  permission?: Permission;
   /**
    * The commit files a REQUEST into an existing approval queue instead of
    * writing. The card says so, because "Apply" would be a lie: an approver who
@@ -354,8 +358,8 @@ export function proposalDiff(p: Proposal): ProposalDiff {
  * `spec.permission` over the changes the shared allowlist produced. The
  * permission comes from the table, never from the stream.
  */
-export function requiredPermissions(p: Proposal): string[] {
-  const out = new Set<string>();
+export function requiredPermissions(p: Proposal): Permission[] {
+  const out = new Set<Permission>();
   const base = PROPOSAL_META[p.kind]?.permission;
   if (base) out.add(base);
 

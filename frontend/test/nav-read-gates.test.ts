@@ -11,6 +11,7 @@
  * this drives the same helper the consumers do (superadmin bypass included).
  */
 import { describe, it, expect } from '@jest/globals';
+import type { Permission } from '@pipeline-builder/api-core/permissions';
 import { hasPermission } from '../src/lib/auth-helpers';
 import { NAV_SECTIONS, isNavItemVisible, navItemLockedFeature, type NavItem } from '../src/lib/nav';
 import { resolvePageGate } from '../src/lib/page-access';
@@ -38,7 +39,7 @@ const ctx = (user: FakeUser | null) => ({
   // gate is satisfied and these tests exercise the permission gate in isolation.
   billingEnabled: true,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  hasPermission: (p: string) => hasPermission(user as any, p),
+  hasPermission: (p: Permission) => hasPermission(user as any, p),
   // Mirrors `useFeatures().isEnabled` — a per-org entitlement set. Superadmins
   // bypass this in `isNavItemVisible`, so their features list is irrelevant.
   isFeatureEnabled: (f: string) => !!user?.features?.includes(f),

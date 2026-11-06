@@ -13,6 +13,7 @@
  */
 
 import { SEED_BUNDLES } from '@pipeline-builder/api-core/permissions';
+import type { Permission } from '@pipeline-builder/api-core/permissions';
 import { SYSTEM_ORG_ID } from './constants';
 import type { User } from '@/types';
 
@@ -39,7 +40,7 @@ export function isSystemOrgActive(user: Pick<User, 'organizationId'> | null | un
 /** System org AND one of the ecosystem permissions. */
 export function canSeeEcosystemConsole(
   user: Pick<User, 'organizationId'> | null | undefined,
-  can: (permission: string) => boolean,
+  can: (permission: Permission) => boolean,
 ): boolean {
   return isSystemOrgActive(user) && ECOSYSTEM_CONSOLE_PERMISSIONS.some((p) => can(p));
 }

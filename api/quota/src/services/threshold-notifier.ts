@@ -37,6 +37,7 @@ import {
   emitCounter,
   errorMessage,
   getServiceAuthHeader,
+  NOTIFY_EMAIL_PATH,
   QUOTA_TYPE_LABELS,
   QUOTA_UPGRADE_PATH,
   enforcedQuotaLimit,
@@ -256,9 +257,6 @@ export async function notifyThresholds(input: ThresholdInput): Promise<void> {
   }
 }
 
-/** Platform's email relay route; the `quotaNotice` leg accepts only the `quota` caller. */
-export const NOTIFY_EMAIL_PATH = '/internal/notify-email';
-
 let platformClient: ReturnType<typeof createSafeClient> | null = null;
 function platform(): ReturnType<typeof createSafeClient> {
   platformClient ??= createSafeClient({ ...serviceEndpoint('platform'), timeout: 5000 });
@@ -279,6 +277,8 @@ async function deliverEmail(
 ): Promise<void> {
   let outcome: 'sent' | 'failed' = 'failed';
   try {
+    // api-core's shared path. The endpoint serves five callers; its `quotaNotice`
+    // leg accepts only the `quota` caller, which is this one.
     const response = await platform().post(NOTIFY_EMAIL_PATH, {
       quotaNotice: true,
       orgId: input.rootOrgId,

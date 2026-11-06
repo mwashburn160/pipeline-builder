@@ -46,6 +46,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
+import type { Permission } from '@pipeline-builder/api-core/permissions';
 import { ECOSYSTEM_CONSOLE_PERMISSIONS } from './ecosystem-access';
 
 // ---------------------------------------------------------------------------
@@ -70,12 +71,12 @@ export interface NavItem {
    *  route's requirement from this exact declaration and `useAuthGuard` applies
    *  it, so a deep link renders one honest "no access" state instead of the
    *  chrome plus a 403 per panel. Hiding a link was never a gate. */
-  requiredPermission?: string;
+  requiredPermission?: Permission;
   /** Show when the viewer holds ANY of these permissions (superadmins bypass).
    *  Checked in addition to `requiredPermission`. Not derived into a page gate:
    *  the one page using it (the Ecosystem console) enforces the same rule
    *  itself, see `src/lib/ecosystem-access.ts`. */
-  requiredAnyPermission?: readonly string[];
+  requiredAnyPermission?: readonly Permission[];
   /**
    * Show ONLY while the active org is the system org — HIDDEN elsewhere, never
    * locked. This is a governance boundary (only the system org
@@ -151,7 +152,7 @@ export interface NavSection {
   alwaysExpanded?: boolean;
 }
 
-export const QUICK_ACTIONS: { href: string; label: string; icon: LucideIcon; color: string; requiredPermission?: string }[] = [
+export const QUICK_ACTIONS: { href: string; label: string; icon: LucideIcon; color: string; requiredPermission?: Permission }[] = [
   // `?create=1` makes the target page open its create modal on arrival, so these
   // genuinely start a create flow rather than just navigating to the list.
   // `requiredPermission` hides the action for users who can't perform the write
@@ -440,7 +441,7 @@ export const NAV_SECTIONS: NavSection[] = [
 export interface NavVisibilityContext {
   isAdmin: boolean;
   isSuperAdmin: boolean;
-  hasPermission: (perm: string) => boolean;
+  hasPermission: (perm: Permission) => boolean;
   billingEnabled?: boolean;
   /** The ACTIVE org is the system org (`isSystemOrgActive`). Absent ⇒ false,
    *  so a caller that forgets it fails closed for `systemOrgOnly` items. */

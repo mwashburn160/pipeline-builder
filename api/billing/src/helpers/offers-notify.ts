@@ -40,6 +40,7 @@ import {
   errorMessage,
   formatQuotaAmount,
   getServiceAuthHeader,
+  NOTIFY_EMAIL_PATH,
   quotaLabelPlural,
   sendSystemNotification,
   serviceEndpoint,
@@ -47,9 +48,6 @@ import {
 import type { OfferType } from '../models/offer.js';
 
 const logger = createLogger('offers-notify');
-
-/** Platform's email relay; the `offerNotice` leg accepts only the `billing` caller. */
-export const NOTIFY_EMAIL_PATH = '/internal/notify-email';
 
 /** Where an account goes to act on any of this. One path, so the mail, the card and the banner agree. */
 export const OFFER_LANDING_PATH = '/dashboard/quotas';
@@ -255,6 +253,8 @@ async function mail(
   text: { subject: string; text: string },
 ): Promise<OfferEmailOutcome> {
   try {
+    // api-core's shared path. The endpoint serves five callers; its `offerNotice`
+    // leg accepts only the `billing` caller, which is this one.
     const response = await platform().post(NOTIFY_EMAIL_PATH, {
       offerNotice: true,
       orgId: rootOrgId,

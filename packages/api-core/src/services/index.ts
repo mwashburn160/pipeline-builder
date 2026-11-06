@@ -250,7 +250,7 @@ export {
 } from './pagerduty.js';
 export {
   createEcosystemNotifyClient,
-  ECOSYSTEM_NOTIFY_PATH,
+  NOTIFY_EMAIL_PATH,
   type EcosystemNotifyClient,
 } from './ecosystem-notify-client.js';
 export {

@@ -29,7 +29,13 @@ import { serviceEndpoint } from '../utils/service-registry.js';
 const logger = createLogger('ecosystem-notify-client');
 
 /** The relay path on platform. */
-export const ECOSYSTEM_NOTIFY_PATH = '/internal/notify-email';
+/**
+ * Platform's internal notify-email endpoint. Named for the ENDPOINT, not for one
+ * of its callers: five services post here (billing, compliance, plugin, quota,
+ * reporting), and this was spelled three times — here, in quota's threshold
+ * notifier and in billing's offer mailer, each as its own const.
+ */
+export const NOTIFY_EMAIL_PATH = '/internal/notify-email';
 
 /** What one send achieved. `ok: false` means nothing was confirmed delivered. */
 export interface EcosystemNotifyResult {
@@ -79,7 +85,7 @@ export function createEcosystemNotifyClient(config: EcosystemNotifyClientConfig)
         // its key-bound service name, not by a role or permission on the token.
         const authorization = getServiceAuthHeader({ serviceName: config.serviceName, orgId: SYSTEM_ORG_ID, role: 'member' });
         const response = await client.post<{ data?: { recipientCount?: number }; recipientCount?: number }>(
-          ECOSYSTEM_NOTIFY_PATH, parsed, { headers: { Authorization: authorization } },
+          NOTIFY_EMAIL_PATH, parsed, { headers: { Authorization: authorization } },
         );
         const status = response?.statusCode;
         const ok = status !== undefined && status >= 200 && status < 300;

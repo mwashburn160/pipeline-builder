@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import type { Permission } from '@pipeline-builder/api-core/permissions';
 import { useRouter } from 'next/router';
 import { AnimatePresence, motion } from 'framer-motion';
 import { GitBranch, HelpCircle, Lock, Moon, Puzzle, Search, Sun } from 'lucide-react';
@@ -95,7 +96,7 @@ export function CommandPalette({
     // the pages the sidebar shows — no separate hand-maintained list to drift.
     // The section label doubles as a search keyword (e.g. "platform" surfaces
     // every admin page) so users can find a page by area, not just name.
-    const navCtx = { isAdmin, isSuperAdmin, hasPermission: (p: string) => hasPermission(user, p), billingEnabled, isFeatureEnabled, isSystemOrg: isSystemOrgActive(user) };
+    const navCtx = { isAdmin, isSuperAdmin, hasPermission: (p: Permission) => hasPermission(user, p), billingEnabled, isFeatureEnabled, isSystemOrg: isSystemOrgActive(user) };
     const navItems: CommandItem[] = NAV_SECTIONS.flatMap((section) =>
       section.items
         .filter((item) => isNavItemVisible(item, navCtx))

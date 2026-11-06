@@ -22,11 +22,12 @@
  * `FeatureLock`). Mixing the two would replace an honest upsell with a dead end.
  */
 import { NAV_SECTIONS, type NavItem } from './nav';
+import type { Permission } from '@pipeline-builder/api-core/permissions';
 
 /** What a dashboard route requires of the viewer before it renders anything. */
 export interface PageGate {
   /** Fine-grained permission (RBAC) the viewer must hold. Superadmins bypass. */
-  permission?: string;
+  permission?: Permission;
   /** Org admin (or system admin) required. */
   adminOnly?: boolean;
   /** System admin required. */
@@ -139,7 +140,7 @@ export function isOpenGate(gate: PageGate): boolean {
  */
 export function pageGateRefuses(
   pathname: string,
-  viewer: { isSuperAdmin: boolean; isOrgAdmin: boolean; hasPermission: (permission: string) => boolean },
+  viewer: { isSuperAdmin: boolean; isOrgAdmin: boolean; hasPermission: (permission: Permission) => boolean },
 ): 'systemAdmin' | 'admin' | 'permission' | null {
   const gate = resolvePageGate(pathname);
   if (gate.systemAdminOnly && !viewer.isSuperAdmin) return 'systemAdmin';

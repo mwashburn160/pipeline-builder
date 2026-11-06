@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { useState } from 'react';
+import type { Permission } from '@pipeline-builder/api-core/permissions';
 import Link from 'next/link';
 import { MessageSquareWarning } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
@@ -27,7 +28,7 @@ import { EcosystemActionDialog } from './EcosystemActionDialog';
 
 interface Props {
   /** `useAuthGuard().can` — false for every ecosystem action during a read-only impersonation. */
-  can: (permission: string) => boolean;
+  can: (permission: Permission) => boolean;
 }
 
 type ActionKind = 'hold' | 'release' | 'remove' | 'remove-reply';

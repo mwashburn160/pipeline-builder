@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { useState } from 'react';
+import type { Permission } from '@pipeline-builder/api-core/permissions';
 import { Archive, Ban, LayoutList, RotateCcw, ShieldAlert, Stamp } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
@@ -26,7 +27,7 @@ import type { PostureVersion } from '@/lib/api/plugin-vulnerability-types';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 
 interface Props {
-  can: (permission: string) => boolean;
+  can: (permission: Permission) => boolean;
 }
 
 type SettableState = 'listed' | 'unmaintained' | 'suspended';

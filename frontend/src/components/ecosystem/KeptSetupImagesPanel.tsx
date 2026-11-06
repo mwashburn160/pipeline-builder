@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { useState } from 'react';
+import type { Permission } from '@pipeline-builder/api-core/permissions';
 import { Archive } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
@@ -32,7 +33,7 @@ type Outcome =
  * `plugins:moderate` + an aal2 session (the console page enforces the first and
  * last; the button is disabled, with the reason, without the permission).
  */
-export function KeptSetupImagesPanel({ can }: { can: (permission: string) => boolean }) {
+export function KeptSetupImagesPanel({ can }: { can: (permission: Permission) => boolean }) {
   const toast = useToast();
   const mayModerate = can('plugins:moderate');
   const read = useFetch<KeptSetupImageView[]>(async (signal) => {

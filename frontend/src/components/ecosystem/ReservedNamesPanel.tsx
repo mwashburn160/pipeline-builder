@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { useMemo, useState, type FormEvent } from 'react';
+import type { Permission } from '@pipeline-builder/api-core/permissions';
 import { Lock, Plus, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -23,7 +24,7 @@ import { EcosystemActionDialog } from './EcosystemActionDialog';
 
 interface Props {
   /** `useAuthGuard().can` — false for every ecosystem action during a read-only impersonation. */
-  can: (permission: string) => boolean;
+  can: (permission: Permission) => boolean;
 }
 
 /** The server's shape rule for a reserved name (a lowercase handle or plugin name). */

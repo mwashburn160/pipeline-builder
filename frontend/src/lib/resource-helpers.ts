@@ -5,6 +5,7 @@
  * Shared helpers for pipeline and plugin resource pages.
  * Centralizes common filter-to-API parameter mapping and permission checks.
  */
+import type { Permission } from '@pipeline-builder/api-core/permissions';
 
 /**
  * Maps common filter keys (visibility, status, default) to API parameter names.
@@ -59,7 +60,7 @@ export function canModify(
  * @param userId - The caller's user id, for the author-only `private` rung.
  */
 export function canWritePipeline(
-  can: (permission: string) => boolean,
+  can: (permission: Permission) => boolean,
   isSuperAdmin: boolean,
   resource: VisibilityTarget,
   userId?: string,
