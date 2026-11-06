@@ -13,6 +13,20 @@
  */
 
 /**
+ * A camelCase name as the env-var fragment that configures it:
+ * `apiCalls` → `API_CALLS`, `supportPremiumContacts` → `SUPPORT_PREMIUM_CONTACTS`.
+ *
+ * Here, in the env module, because the two callers are in different PACKAGES —
+ * `quota-tiers.ts` builds `QUOTA_TIER_<TIER>_<LIMIT>` and api/quota's config
+ * builds `QUOTA_DEFAULT_<TYPE>` — and each had its own copy of the same regex.
+ * Two spellings of one transform is a drift waiting to happen: "fixing" either
+ * one would silently rename half of an operator's configured knobs.
+ */
+export function envNameFragment(name: string): string {
+  return name.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toUpperCase();
+}
+
+/**
  * Parse an integer env var. Unset / blank / not a clean integer string → `def`.
  * Optional `min`/`max` clamp the result (applied after the default).
  *

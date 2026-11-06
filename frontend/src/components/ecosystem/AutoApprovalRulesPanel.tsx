@@ -20,6 +20,7 @@ import { useEcosystemApprovers } from '@/hooks/useEcosystemApprovers';
 import { useFetch } from '@/hooks/useFetch';
 import api from '@/lib/api';
 import { formatError } from '@/lib/constants';
+import { PUBLISHER_TIERS, PUBLISHER_TIER_LABELS } from '@/lib/plugin-installs';
 import type { AutoRule, AutoRuleConditions, PublisherTier } from '@/types/ecosystem';
 import { EcosystemActionDialog } from './EcosystemActionDialog';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
@@ -34,11 +35,15 @@ const KIND_OPTIONS = [
   { value: 'new_version', label: 'New versions' },
   { value: 'listing_update', label: 'Listing updates' },
 ] as const;
-const TIER_OPTIONS: ReadonlyArray<{ value: PublisherTier; label: string }> = [
-  { value: 'official', label: 'Official' },
-  { value: 'verified', label: 'Verified' },
-  { value: 'community', label: 'Community' },
-];
+// The two option lists above are deliberately CURATED subsets of their unions — a
+// rule fires on a new version or a listing update, not on a transfer or a claim.
+// The TIER list is not: it reuses the app's one publisher-tier catalog
+// (`@/lib/plugin-installs`), whose labels are `Record<PublisherTier, string>` and
+// therefore exhaustive. This panel used to keep its own three-entry array, so
+// `unverified` — which `AutoRuleConditionsSchema` accepts and `evaluateAutoRule`
+// compares against — was not offerable here at all.
+const TIER_OPTIONS: ReadonlyArray<{ value: PublisherTier; label: string }> =
+  PUBLISHER_TIERS.map((value) => ({ value, label: PUBLISHER_TIER_LABELS[value] }));
 const BUMP_OPTIONS = [
   { value: 'patch', label: 'Patch' },
   { value: 'minor', label: 'Minor' },

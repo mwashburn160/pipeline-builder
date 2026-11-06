@@ -19,6 +19,7 @@ import {
   automationCallsFor,
   enforcedQuotaLimit,
 } from '../src/types/quota-tiers.js';
+import { DEFAULT_TIER_LIMITS, tierLabel } from '../src/types/tier-limits.js';
 import { VALID_QUOTA_TYPES } from '../src/types/common.js';
 import { quotaAccrual } from '../src/types/quota-catalog.js';
 
@@ -401,5 +402,82 @@ describe('quotaPeriodDays — the period is PER TYPE', () => {
       .filter((t) => quotaPeriodDays(t) !== QUOTA_RESET_DAYS)
       .filter((t) => quotaAccrual(t) !== 'flow');
     expect(wrong).toEqual([]);
+  });
+});
+
+describe('the QUOTA_TIER_<TIER>_<LIMIT> knob names', () => {
+  /**
+   * The names an operator sets are DERIVED from the limit field names
+   * (`apiCalls` → `QUOTA_TIER_PRO_API_CALLS`), which replaced seventeen
+   * hand-written lines. The derivation is the point of this test: a field rename
+   * would silently move a knob somebody already has set in a `.env`, and nothing
+   * else in the build would say a word — the old hand-written lines at least made
+   * the rename a visible edit.
+   *
+   * So this freezes the full set. Changing it is allowed; changing it by accident
+   * is not. `docs/environment-variables.md` documents the family as a pattern,
+   * because a computed name is invisible to the env-docs scanner.
+   */
+  const SUFFIXES = [
+    'PLUGINS', 'PIPELINES', 'API_CALLS', 'AUTOMATION_CALLS', 'AI_CALLS', 'STORAGE_BYTES',
+    'CPU_CREDITS', 'DASHBOARDS', 'ALERT_RULES', 'ALERT_DESTINATIONS', 'IDP_CONFIGS',
+    'LISTINGS', 'SEATS', 'SUPPORT_CONTACTS', 'SUPPORT_PREMIUM_CONTACTS',
+    'EVENT_RETENTION_DAYS', 'DORA_RETENTION_DAYS',
+  ];
+
+  it('covers every limit field, with no field left unconfigurable', () => {
+    // Derived here independently of the implementation — same rule, separate
+    // spelling — so this compares the frozen list against the real field set
+    // rather than against the production code's own output.
+    const derived = Object.keys(DEFAULT_TIER_LIMITS.developer)
+      .map((f) => f.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toUpperCase());
+    expect(derived.sort()).toEqual([...SUFFIXES].sort());
+  });
+
+  it('spells every tier of the ladder', () => {
+    // The other half of the name. `unlimited` is included deliberately: it is a
+    // valid tier whose limits are NOT env-overridable, and the exclusion lives in
+    // `tierLimits`, not in the name derivation.
+    expect(VALID_TIERS.map((t) => t.toUpperCase())).toEqual([
+      'DEVELOPER', 'PRO', 'TEAM', 'BUSINESS', 'ENTERPRISE', 'UNLIMITED',
+    ]);
+  });
+});
+
+describe('tierLabel', () => {
+  it('title-cases a single-word key', () => {
+    expect(tierLabel('developer')).toBe('Developer');
+    expect(tierLabel('unlimited')).toBe('Unlimited');
+  });
+
+  it('splits a multi-word key on _ or - instead of shouting it', () => {
+    // The point of the function over a bare `charAt(0).toUpperCase()`, which
+    // rendered a hypothetical `pro_plus` tier as "Pro_plus".
+    expect(tierLabel('pro_plus')).toBe('Pro Plus');
+    expect(tierLabel('team-annual')).toBe('Team Annual');
+    expect(tierLabel('business_critical_24')).toBe('Business Critical 24');
+  });
+
+  it('names every real tier', () => {
+    // Not compared against `QUOTA_TIERS[t].label`: that honours
+    // `QUOTA_TIER_<TIER>_LABEL`, so the comparison would depend on the ambient
+    // environment. This asserts the derivation covers the ladder.
+    for (const tier of VALID_TIERS) {
+      expect({ tier, label: tierLabel(tier) }).toEqual({ tier, label: expect.stringMatching(/^[A-Z]/) });
+    }
+  });
+
+  it('does NOT invent an acronym or a stylized name — that is the override\'s job', () => {
+    // Pinned deliberately: these outputs are WRONG as product copy, and a
+    // deployment selling such a tier sets `QUOTA_TIER_<TIER>_LABEL`. Asserting
+    // the wrong-but-documented output stops someone "fixing" it with a list of
+    // special cases that then drifts from whatever is actually being sold.
+    expect(tierLabel('sso')).toBe('Sso');
+    expect(tierLabel('pro_plus')).not.toBe('Pro+');
+  });
+
+  it('survives a degenerate key rather than throwing', () => {
+    expect(tierLabel('')).toBe('');
+    expect(tierLabel('__pro__')).toBe('Pro');
   });
 });

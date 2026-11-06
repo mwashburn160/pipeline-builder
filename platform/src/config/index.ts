@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { envInt, QUOTA_TIERS, type QuotaTier, VALID_TIERS, QUOTA_RESET_DAYS } from '@pipeline-builder/api-core';
+import { envInt, QUOTA_TIERS, type QuotaTier, type QuotaTierLimits, VALID_TIERS, QUOTA_RESET_DAYS } from '@pipeline-builder/api-core';
 import { assertWebAuthnConfig, resolveWebAuthnConfig } from './webauthn-validate.js';
 
 const isDev = (process.env.NODE_ENV || 'development') === 'development';
@@ -19,6 +19,43 @@ const DEFAULT_PLATFORM_URL = 'https://localhost:8443';
  * for developer/pro, `30days` for team/enterprise.
  * @internal
  */
+
+/**
+ * Per-tier rate-limit multipliers on `rateLimit.max`, as DATA: the code default
+ * for each tier, each overridable via `LIMITER_MULT_<TIER>`.
+ *
+ * `Record<QuotaTier, number>` rather than a partial map, so adding a tier
+ * without a multiplier is a compile error — which is exactly what the six
+ * hand-written `parseFloat(process.env.LIMITER_MULT_*)` lines bought, and all
+ * they bought.
+ */
+const LIMITER_TIER_MULTIPLIERS: Record<QuotaTier, number> = {
+  developer: 1,
+  pro: 10,
+  team: 25,
+  business: 35,
+  enterprise: 50,
+  unlimited: 100,
+};
+
+/**
+ * {@link LIMITER_TIER_MULTIPLIERS} with `LIMITER_MULT_<TIER>` applied, keyed off
+ * `VALID_TIERS` so a new tier needs no second edit here.
+ *
+ * A value `parseFloat` cannot read AT ALL now falls back to the tier's code
+ * default. It used to yield `NaN`, which the one consumer absorbed with `|| 1` —
+ * so a typo in `LIMITER_MULT_ENTERPRISE` silently demoted an enterprise org to
+ * the unauthenticated baseline instead of being ignored. Everything `parseFloat`
+ * does read is still honoured as the number it is, including `0` (the consumer's
+ * `|| 1` floors that at the baseline) and a trailing-garbage `10abc` → 10.
+ */
+function tierMultipliers(): Record<QuotaTier, number> {
+  return Object.fromEntries(VALID_TIERS.map((tier) => {
+    const raw = process.env[`LIMITER_MULT_${tier.toUpperCase()}`];
+    const n = raw === undefined || raw === '' ? NaN : parseFloat(raw);
+    return [tier, Number.isFinite(n) ? n : LIMITER_TIER_MULTIPLIERS[tier]];
+  })) as Record<QuotaTier, number>;
+}
 
 /**
  * Validate that `SECRET_ENCRYPTION_KEY` is set. AI provider keys and IdP
@@ -188,16 +225,7 @@ export const config = {
      * from the org's `planId`), so dispatch is request-local with no
      * extra DB lookup. Sysadmins bypass entirely via the `skip` predicate.
      */
-    tierMultipliers: {
-      developer: parseFloat(process.env.LIMITER_MULT_DEVELOPER || '1'),
-      pro: parseFloat(process.env.LIMITER_MULT_PRO || '10'),
-      team: parseFloat(process.env.LIMITER_MULT_TEAM || '25'),
-      business: parseFloat(process.env.LIMITER_MULT_BUSINESS || '35'),
-      enterprise: parseFloat(process.env.LIMITER_MULT_ENTERPRISE || '50'),
-      unlimited: parseFloat(process.env.LIMITER_MULT_UNLIMITED || '100'),
-      // `satisfies` (not `as`): adding a QuotaTier without a multiplier here is a
-      // compile error, matching the sibling `tierExpiresIn`'s VALID_TIERS derivation.
-    } satisfies Record<QuotaTier, number>,
+    tierMultipliers: tierMultipliers(),
     auth: {
       max: envInt('AUTH_LIMITER_MAX', 20),
       windowMs: envInt('AUTH_LIMITER_WINDOWMS', 900000), // 15 min
@@ -798,16 +826,13 @@ export const config = {
     resetDays: QUOTA_RESET_DAYS,
     // Quota tier presets (each tier's limits). Consumed by Organization model
     // schema defaults.
-    tier: {
-      developer: { ...QUOTA_TIERS.developer.limits },
-      pro: { ...QUOTA_TIERS.pro.limits },
-      team: { ...QUOTA_TIERS.team.limits },
-      business: { ...QUOTA_TIERS.business.limits },
-      enterprise: { ...QUOTA_TIERS.enterprise.limits },
-      // Billing-disabled default tier — everything uncapped. The key must exist
-      // so `config.quota.tier[tier]` stays indexable by every QuotaTier.
-      unlimited: { ...QUOTA_TIERS.unlimited.limits },
-    },
+    // Keyed off `VALID_TIERS`, so `config.quota.tier[tier]` is indexable by every
+    // QuotaTier — including `unlimited`, the billing-disabled default, which a
+    // hand-written list had to remember to carry. Copies rather than the catalog's
+    // own objects: this config is handed to Mongoose as schema defaults.
+    tier: Object.fromEntries(
+      VALID_TIERS.map((tier) => [tier, { ...QUOTA_TIERS[tier].limits }]),
+    ) as Record<QuotaTier, QuotaTierLimits>,
   },
 
   billing: {

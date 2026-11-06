@@ -50,15 +50,11 @@ export const DLQ_NAME = `${QUEUE_NAME}-dlq`;
 // a Developer-tier burst can't block Pro/Team/Enterprise dispatch. The per-org
 // semaphore (slot-manager) still enforces intra-tier fairness. Each tier gets a
 // name suffixed with the tier, so queues are symmetric and self-describing.
-const TIER_QUEUE_NAMES: Record<QuotaTier, string> = {
-  developer: `${QUEUE_NAME}-developer`,
-  pro: `${QUEUE_NAME}-pro`,
-  team: `${QUEUE_NAME}-team`,
-  business: `${QUEUE_NAME}-business`,
-  enterprise: `${QUEUE_NAME}-enterprise`,
-  // Billing-disabled default tier: its own queue (all orgs land here when billing is off).
-  unlimited: `${QUEUE_NAME}-unlimited`,
-};
+// `unlimited` is in here like any other: it is the billing-disabled default, so
+// on such a deployment it is the queue EVERY org lands in, not a leftover row.
+const TIER_QUEUE_NAMES: Record<QuotaTier, string> = Object.fromEntries(
+  VALID_TIERS.map((tier) => [tier, `${QUEUE_NAME}-${tier}`]),
+) as Record<QuotaTier, string>;
 
 /**
  * Per-tier Redis DB partitioning. Defaults to db=0 for every tier; operators
@@ -67,11 +63,13 @@ const TIER_QUEUE_NAMES: Record<QuotaTier, string> = {
  * regardless.
  */
 function getRedisDbForTier(tier: QuotaTier): number {
-  const raw = process.env[`REDIS_DB_${tier.toUpperCase()}`];
-  if (raw === undefined || raw === '') return 0;
-  const parsed = parseInt(raw, 10);
-  if (Number.isNaN(parsed) || parsed < 0 || parsed > 15) return 0;
-  return parsed;
+  // api-core's reader, not a local `parseInt`: that accepted `5abc` as db 5 and
+  // `5.5` as db 5, so a typo'd value silently partitioned a tier onto the wrong
+  // database. Out of range still falls back to db 0 rather than CLAMPING to 15 —
+  // `envInt`'s `max` would quietly hand `REDIS_DB_PRO=20` the last database
+  // instead of the default one.
+  const n = envInt(`REDIS_DB_${tier.toUpperCase()}`, 0);
+  return n >= 0 && n <= 15 ? n : 0;
 }
 
 // One ioredis client per DB number, shared across Queue/Worker instances per

@@ -19,6 +19,7 @@
  *      fails loudly here instead of in production.
  */
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { MOCK_TIER_NAMES } from '@pipeline-builder/api-core/testing';
 import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import mongoose from 'mongoose';
 import { apiCoreMock } from './helpers/mock-api-core.js';
@@ -31,7 +32,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   DEFAULT_TIER: 'developer',
   VALID_QUOTA_TYPES: ['plugins', 'pipelines', 'apiCalls'],
   QUOTA_TIERS: { developer: { limits: { plugins: 100, pipelines: 10, apiCalls: -1 } } },
-  VALID_TIERS: ['developer', 'pro', 'team', 'enterprise'],
+  VALID_TIERS: [...MOCK_TIER_NAMES],
   isValidQuotaType: (t: string) => ['plugins', 'pipelines', 'apiCalls'].includes(t),
 }));
 

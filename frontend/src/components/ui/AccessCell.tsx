@@ -2,10 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { visibilityRung } from './visibility-rungs';
+import type { Visibility } from '@/types';
 
 /** Per-rung emphasis: the narrower the rung, the more legible — `public` is the
- *  common case and stays muted, so the eye catches rows that are restricted. */
-const TONE: Record<string, string> = {
+ *  common case and stays muted, so the eye catches rows that are restricted.
+ *
+ *  Keyed off `Visibility`, so a rung added to the ladder is a compile error here
+ *  rather than a cell with no emphasis class at all. */
+const TONE: Record<Visibility, string> = {
   private: 'font-medium text-fg-muted',
   org: 'text-fg-muted',
   public: 'text-fg-subtle',

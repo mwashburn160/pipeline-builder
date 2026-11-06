@@ -8,11 +8,20 @@ interface RangePickerProps {
   onChange: (next: RangeKey) => void;
 }
 
-const PRESETS: ReadonlyArray<{ key: RangeKey; label: string }> = [
-  { key: '1h', label: 'Last 1h' },
-  { key: '6h', label: 'Last 6h' },
-  { key: '24h', label: 'Last 24h' },
-];
+/**
+ * The button for each window, keyed off `RangeKey` so a window added to the
+ * union is a COMPILE ERROR here. It was a plain array, which is why the union
+ * carried a "keep in sync with the RangePicker preset list" comment: an added
+ * key type-checked and simply had no button.
+ */
+const PRESET_LABELS: Record<RangeKey, string> = {
+  '1h': 'Last 1h',
+  '6h': 'Last 6h',
+  '24h': 'Last 24h',
+};
+
+const PRESETS: ReadonlyArray<{ key: RangeKey; label: string }> =
+  (Object.keys(PRESET_LABELS) as RangeKey[]).map((key) => ({ key, label: PRESET_LABELS[key] }));
 
 /**
  * Three preset time-range buttons; no custom datetime input. The chosen value is meant to be

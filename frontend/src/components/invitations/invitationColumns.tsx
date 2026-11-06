@@ -23,7 +23,9 @@ export interface InvitationListItem {
 // `pending` is YELLOW, as it is on every other status surface (MFA resets,
 // publish requests, compliance scans and exemptions): it means "waiting on
 // someone", which is what the yellow token says. It was blue only here.
-const STATUS_BADGE_COLOR: Record<string, BadgeColor> = {
+/** Keyed off the row's own `status` union, so a status added to it is a compile
+ *  error here rather than a row that falls through to the grey default. */
+const STATUS_BADGE_COLOR: Record<InvitationListItem['status'], BadgeColor> = {
   pending: 'yellow',
   accepted: 'green',
   expired: 'gray',

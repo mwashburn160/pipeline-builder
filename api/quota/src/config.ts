@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { envBool, envInt, getTierLimits, VALID_QUOTA_TYPES, QUOTA_RESET_DAYS } from '@pipeline-builder/api-core';
+import { envBool, envInt, envNameFragment, getTierLimits, VALID_QUOTA_TYPES, QUOTA_RESET_DAYS } from '@pipeline-builder/api-core';
 import type { QuotaType } from '@pipeline-builder/api-core';
 
 // Unprovisioned-org fallback = the developer-tier preset, sourced from api-core
@@ -16,7 +16,10 @@ type QuotaDefaults = Record<QuotaType, number>;
 
 /** `apiCalls` → `QUOTA_DEFAULT_API_CALLS`. */
 export function quotaDefaultEnvName(type: QuotaType): string {
-  return `QUOTA_DEFAULT_${type.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toUpperCase()}`;
+  // api-core's shared fragment, not a second copy of the regex: `quota-tiers.ts`
+  // derives `QUOTA_TIER_<TIER>_<LIMIT>` with the same rule, and the two families
+  // must agree on how a camelCase quota name becomes an env name.
+  return `QUOTA_DEFAULT_${envNameFragment(type)}`;
 }
 
 interface AppConfig {

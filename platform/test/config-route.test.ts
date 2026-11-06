@@ -13,12 +13,15 @@ import { jest, describe, it, expect } from '@jest/globals';
 import { mockConfig } from './helpers/config-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
-// A known QUOTA_TIERS shape so we can assert tierPresets echoes the four displayed
-// dims (and nothing else) per tier.
+// A known QUOTA_TIERS shape so we can assert tierPresets echoes the displayed dims
+// (and nothing else) per tier. It carries EVERY tier of the real ladder, `business`
+// included: the route echoes one preset per tier, so a fixture short of a sellable
+// tier is a tier whose preset nothing here ever looked at.
 const QUOTA_TIERS = {
   developer: { label: 'Developer', limits: { plugins: 25, pipelines: 2, apiCalls: 25000, automationCalls: 20000, aiCalls: 25, seats: 1, storageBytes: 1, dashboards: -1, alertRules: -1, alertDestinations: -1, idpConfigs: 1, eventRetentionDays: 30, doraRetentionDays: 180 } },
   pro: { label: 'Pro', limits: { plugins: 50, pipelines: 5, apiCalls: 250000, automationCalls: 50000, aiCalls: 1000, seats: 1, storageBytes: 1, dashboards: -1, alertRules: -1, alertDestinations: -1, idpConfigs: 5, eventRetentionDays: 30, doraRetentionDays: 180 } },
   team: { label: 'Team', limits: { plugins: 75, pipelines: 6, apiCalls: 500000, automationCalls: 100000, aiCalls: 2500, seats: 3, storageBytes: 1, dashboards: -1, alertRules: -1, alertDestinations: -1, idpConfigs: 5, eventRetentionDays: 30, doraRetentionDays: 180 } },
+  business: { label: 'Business', limits: { plugins: 100, pipelines: 20, apiCalls: 700000, automationCalls: 200000, aiCalls: 5000, seats: 8, storageBytes: 1, dashboards: -1, alertRules: -1, alertDestinations: -1, idpConfigs: 5, eventRetentionDays: 30, doraRetentionDays: 180 } },
   enterprise: { label: 'Enterprise', limits: { plugins: 150, pipelines: 30, apiCalls: 900000, automationCalls: 300000, aiCalls: 9000, seats: 15, storageBytes: 1, dashboards: -1, alertRules: -1, alertDestinations: -1, idpConfigs: -1, eventRetentionDays: 30, doraRetentionDays: 180 } },
   unlimited: { label: 'Unlimited', limits: { plugins: -1, pipelines: -1, apiCalls: -1, automationCalls: -1, aiCalls: -1, seats: -1, storageBytes: -1, dashboards: -1, alertRules: -1, alertDestinations: -1, idpConfigs: -1, eventRetentionDays: -1, doraRetentionDays: -1 } },
 };
@@ -28,7 +31,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   getPrimarySupportAlias: () => 'support@pb.example',
   getAllSupportAliases: () => ['support@pb.example', 'help@pb.example'],
   QUOTA_TIERS,
-  VALID_TIERS: ['developer', 'pro', 'team', 'enterprise', 'unlimited'],
+  VALID_TIERS: ['developer', 'pro', 'team', 'business', 'enterprise', 'unlimited'],
 }));
 
 jest.unstable_mockModule('../src/config/index.js', () => mockConfig({
@@ -79,7 +82,7 @@ describe('GET /config', () => {
 
   it('exposes effective per-tier presets with only the four displayed dimensions (pkg#9)', () => {
     const presets = invoke().body.data.tierPresets;
-    expect(Object.keys(presets).sort()).toEqual(['developer', 'enterprise', 'pro', 'team', 'unlimited']);
+    expect(Object.keys(presets).sort()).toEqual(['business', 'developer', 'enterprise', 'pro', 'team', 'unlimited']);
     // Values come straight from QUOTA_TIERS (env-override-aware source).
     expect(presets.pro).toEqual({ plugins: 50, pipelines: 5, apiCalls: 250000, automationCalls: 50000, aiCalls: 1000 });
     expect(presets.enterprise).toEqual({ plugins: 150, pipelines: 30, apiCalls: 900000, automationCalls: 300000, aiCalls: 9000 });

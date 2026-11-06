@@ -24,14 +24,25 @@ import type { PublishRequestKind, PublishRequestStatus, PublishRequestView } fro
 const MANAGE_KINDS: ReadonlySet<PublishRequestKind> = new Set(['profile_change', 'transfer', 'claim', 'verify']);
 
 type StatusFilter = 'all' | PublishRequestStatus;
-const FILTERS: ReadonlyArray<{ value: StatusFilter; label: string }> = [
-  { value: 'all', label: 'All' },
-  { value: 'pending', label: 'Pending' },
-  { value: 'pending_second_approval', label: 'Second approval' },
-  { value: 'approved', label: 'Approved' },
-  { value: 'rejected', label: 'Rejected' },
-  { value: 'withdrawn', label: 'Withdrawn' },
-];
+
+/**
+ * The filter chips, keyed off `StatusFilter` so a status added to
+ * `PublishRequestStatus` is a compile error here rather than a status with no
+ * chip — this was a plain array, and a missing entry type-checked.
+ *
+ * The copy is its own and not `REQUEST_STATUS_LABELS`: a chip is abbreviated
+ * ("Second approval") where a badge spells it out ("Awaiting second approval").
+ */
+const FILTER_LABELS: Record<StatusFilter, string> = {
+  all: 'All',
+  pending: 'Pending',
+  pending_second_approval: 'Second approval',
+  approved: 'Approved',
+  rejected: 'Rejected',
+  withdrawn: 'Withdrawn',
+};
+const FILTERS: ReadonlyArray<{ value: StatusFilter; label: string }> =
+  (Object.keys(FILTER_LABELS) as StatusFilter[]).map((value) => ({ value, label: FILTER_LABELS[value] }));
 
 /** What a request is about, in one line. */
 export function requestSubject(r: PublishRequestView): string {

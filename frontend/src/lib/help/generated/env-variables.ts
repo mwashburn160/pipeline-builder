@@ -1,6 +1,6 @@
 // GENERATED FROM docs/environment-variables.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 6357e6ec6b93aa7412a9b24f93b2188f6142b4b6bc532e354067f6101d85d88f
+// SOURCE-SHA256: 4bcf5b69833f47d1e6a5225a709a88bf5eb076b63df7600606bbb0afdfa230c4
 // SPDX-License-Identifier: Apache-2.0
 import { FileCode } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -3289,7 +3289,7 @@ export const envVariablesTopic: HelpTopic = {
             [
               "QUOTA_TIER_<TIER>_EVENT_RETENTION_DAYS",
               "30 (paid tiers) / unlimited on unlimited",
-              "Per-tier baseline retention (days) for standard pipeline events, where <TIER> is DEVELOPER, PRO, TEAM, ENTERPRISE, or UNLIMITED. The unlimited tier derives -1 (unlimited — the sweep skips the org and keeps all history). The Standard Retention Pack add-on adds +90 days on top."
+              "Per-tier baseline retention (days) for standard pipeline events, where <TIER> is DEVELOPER, PRO, TEAM, BUSINESS, ENTERPRISE, or UNLIMITED. The unlimited tier derives -1 (unlimited — the sweep skips the org and keeps all history). The Standard Retention Pack add-on adds +90 days on top."
             ],
             [
               "QUOTA_TIER_<TIER>_DORA_RETENTION_DAYS",

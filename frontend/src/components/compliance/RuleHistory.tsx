@@ -10,7 +10,9 @@ import { formatDateTime } from '@/lib/format';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { Badge, type BadgeColor } from '@/components/ui/Badge';
 
-const CHANGE_COLOR: Record<string, BadgeColor> = {
+/** Keyed off the history entry's own `changeType` union, so a new kind of change
+ *  cannot quietly render as an "updated" badge. */
+const CHANGE_COLOR: Record<ComplianceRuleHistoryEntry['changeType'], BadgeColor> = {
   created: 'green',
   updated: 'blue',
   deleted: 'red',

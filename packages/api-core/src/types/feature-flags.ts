@@ -5,6 +5,23 @@ import type { QuotaTier } from './quota-tiers.js';
 
 // Feature flag identifiers
 
+/**
+ * Support level, one per response-time rung. Sold ONLY as per-contact add-on
+ * bundles and included in NO tier — not even enterprise, which is why
+ * `TIER_FEATURES` cannot simply spread `ALL_FEATURE_FLAGS` for it any more.
+ * These REPLACE the former `priority_support` tier perk, which marketed "faster
+ * response times" while no support product existed to be faster. Mutually
+ * exclusive: an account holds at most one (enforced in `effectiveEntitlements`).
+ *
+ * Its own type, and spelled ONCE — `FeatureFlag` includes it rather than listing
+ * the three names again. A surface that must name EVERY level keys a
+ * `Record<SupportFeatureFlag, …>` off it (the frontend's level labels were a
+ * `Record<string, string>` that happened to carry three entries, so a fourth
+ * level would have rendered as the raw flag id), while the ladder list below
+ * stays `FeatureFlag[]` so it can be tested against the full catalog.
+ */
+export type SupportFeatureFlag = 'support_standard' | 'support_priority' | 'support_premium';
+
 /** Canonical feature flag identifiers. */
 export type FeatureFlag =
   // `custom_integrations` is an ENTERPRISE-EXCLUSIVE marketing/entitlement flag:
@@ -15,16 +32,7 @@ export type FeatureFlag =
   // `sso`/`advanced_reporting`, which ARE sold as add-on bundles and gated (see
   // billing-config `loadBundles` + `requireFeature`).
   | 'custom_integrations'
-  // Support level, one per response-time rung. Sold ONLY as per-contact add-on
-  // bundles (`support_standard` / `support_priority` / `support_premium`) and
-  // included in NO tier — not even enterprise, which is why `TIER_FEATURES`
-  // cannot simply spread `ALL_FEATURE_FLAGS` for it any more. These REPLACE the
-  // former `priority_support` tier perk, which marketed "faster response times"
-  // while no support product existed to be faster. Mutually exclusive: an
-  // account holds at most one (enforced in `effectiveEntitlements`).
-  | 'support_standard'
-  | 'support_priority'
-  | 'support_premium'
+  | SupportFeatureFlag
   | 'ai_generation'
   | 'bulk_operations'
   | 'sso'

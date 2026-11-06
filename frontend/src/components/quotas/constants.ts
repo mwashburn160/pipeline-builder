@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { quotaLabelPlural } from '@pipeline-builder/api-core/quota-catalog';
-import { TIER_META, TIER_KEYS as SHARED_TIER_KEYS } from '@/lib/tiers';
+import { DEFAULT_TIER_LIMITS } from '@pipeline-builder/api-core/tier-limits';
+import { ALL_TIER_KEYS, TIER_META, TIER_KEYS as SHARED_TIER_KEYS } from '@/lib/tiers';
 import type { QuotaTier, DisplayedQuotaType } from '@/types';
 import { DISPLAYED_QUOTA_TYPES } from '@/types';
 
@@ -21,9 +22,10 @@ export const AT_RISK_THRESHOLDS = [50, 70, 80, 90, 100] as const;
 
 export const TIER_KEYS: QuotaTier[] = [...SHARED_TIER_KEYS];
 
-// Tier descriptions + quota limits stay local — they're page-specific and
-// not appropriate for the shared TIER_META catalog. Label and dot color
-// now come from TIER_META so renames stay in one place.
+// Descriptions stay local — they're page-specific copy for the preset editor and
+// not appropriate for the shared TIER_META catalog, which every tier pill in the
+// app reads. Label and dot color DO come from TIER_META so renames stay in one
+// place, and the numbers come from api-core.
 const TIER_DESCRIPTIONS: Record<QuotaTier, string> = {
   developer: 'Starter tier',
   pro: 'Production use',
@@ -34,20 +36,32 @@ const TIER_DESCRIPTIONS: Record<QuotaTier, string> = {
   unlimited: 'Everything uncapped',
 };
 
-// Mirrors the backend `DEFAULT_TIER_LIMITS` (packages/api-core quota-tiers.ts) —
-// keep in sync. Powers the quota-admin editor's per-tier preset prefill.
-// Developer's 20 aiCalls are a TRIAL allowance: the tier holds `ai_generation`
-// so generation is usable, and the UI labels the allowance as a trial
-// (`isAITrialTier`) with an upgrade CTA once it runs out.
-const GB = 1024 ** 3;
-const TIER_LIMITS: Record<QuotaTier, Record<DisplayedQuotaType, number>> = {
-  developer: { pipelines: 2, plugins: 10, cpuCredits: 4500, apiCalls: 25000, automationCalls: 30000, aiCalls: 20, storageBytes: 2 * GB },
-  pro: { pipelines: 5, plugins: 25, cpuCredits: 11250, apiCalls: 100000, automationCalls: 60000, aiCalls: 200, storageBytes: 25 * GB },
-  team: { pipelines: 10, plugins: 50, cpuCredits: 22500, apiCalls: 300000, automationCalls: 110000, aiCalls: 600, storageBytes: 60 * GB },
-  business: { pipelines: 20, plugins: 100, cpuCredits: 45000, apiCalls: 800000, automationCalls: 210000, aiCalls: 1600, storageBytes: 120 * GB },
-  enterprise: { pipelines: 30, plugins: 150, cpuCredits: 67500, apiCalls: 1500000, automationCalls: 310000, aiCalls: 3000, storageBytes: 250 * GB },
-  unlimited: { pipelines: -1, plugins: -1, cpuCredits: -1, apiCalls: -1, automationCalls: -1, aiCalls: -1, storageBytes: -1 },
-};
+/**
+ * The per-tier limits the quota-admin editor prefills its presets from, as a
+ * projection of api-core's REAL defaults onto the seven quota types this UI
+ * renders — not a copy of them.
+ *
+ * It used to be a hand-written table under a "keep in sync" comment, held
+ * against api-core by a test that parsed both files' source text. Nothing
+ * reported drift at runtime: the server's effective limits are overlaid on top
+ * (see {@link buildTierPresets}), so a stale number only showed up as a preset
+ * an admin clicked and SAVED onto a real org. The limits table is now
+ * dependency-free and browser-importable, so the copy is gone and the drift is
+ * no longer expressible.
+ *
+ * These are the CODE defaults, which is the right fallback: the env-overlaid
+ * figures (`QUOTA_TIER_*`) are per-deployment and arrive from `/config`.
+ *
+ * Developer's 20 aiCalls are a TRIAL allowance: the tier holds `ai_generation`
+ * so generation is usable, and the UI labels the allowance as a trial
+ * (`isAITrialTier`) with an upgrade CTA once it runs out.
+ */
+const TIER_LIMITS: Record<QuotaTier, Record<DisplayedQuotaType, number>> = Object.fromEntries(
+  ALL_TIER_KEYS.map((tier) => [
+    tier,
+    Object.fromEntries(QUOTA_KEYS.map((key) => [key, DEFAULT_TIER_LIMITS[tier][key]])),
+  ]),
+) as Record<QuotaTier, Record<DisplayedQuotaType, number>>;
 
 export type TierPreset = { label: string; description: string; color: string; limits: Record<DisplayedQuotaType, number> };
 
@@ -57,14 +71,14 @@ export type TierPreset = { label: string; description: string; color: string; li
  * uses this to overlay server-provided limits onto the hardcoded fallback.
  */
 function presetsFromLimits(limits: Record<QuotaTier, Record<DisplayedQuotaType, number>>): Record<QuotaTier, TierPreset> {
-  return {
-    developer:  { label: TIER_META.developer.label,  description: TIER_DESCRIPTIONS.developer,  color: TIER_META.developer.dotClass,  limits: limits.developer },
-    pro:        { label: TIER_META.pro.label,        description: TIER_DESCRIPTIONS.pro,        color: TIER_META.pro.dotClass,        limits: limits.pro },
-    team:       { label: TIER_META.team.label,       description: TIER_DESCRIPTIONS.team,       color: TIER_META.team.dotClass,       limits: limits.team },
-    business:   { label: TIER_META.business.label,   description: TIER_DESCRIPTIONS.business,   color: TIER_META.business.dotClass,   limits: limits.business },
-    enterprise: { label: TIER_META.enterprise.label, description: TIER_DESCRIPTIONS.enterprise, color: TIER_META.enterprise.dotClass, limits: limits.enterprise },
-    unlimited:  { label: TIER_META.unlimited.label,  description: TIER_DESCRIPTIONS.unlimited,  color: TIER_META.unlimited.dotClass,  limits: limits.unlimited },
-  };
+  return Object.fromEntries(
+    ALL_TIER_KEYS.map((tier) => [tier, {
+      label: TIER_META[tier].label,
+      description: TIER_DESCRIPTIONS[tier],
+      color: TIER_META[tier].dotClass,
+      limits: limits[tier],
+    }]),
+  ) as Record<QuotaTier, TierPreset>;
 }
 
 /**
@@ -88,7 +102,7 @@ export function buildTierPresets(
 ): Record<QuotaTier, TierPreset> {
   if (!serverPresets) return TIER_PRESETS;
   const merged = {} as Record<QuotaTier, Record<DisplayedQuotaType, number>>;
-  for (const tier of Object.keys(TIER_LIMITS) as QuotaTier[]) {
+  for (const tier of ALL_TIER_KEYS) {
     merged[tier] = { ...TIER_LIMITS[tier] };
     const fromServer = serverPresets[tier];
     if (fromServer) {

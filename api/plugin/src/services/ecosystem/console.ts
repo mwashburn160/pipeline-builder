@@ -21,6 +21,7 @@ import {
   isOfficialAutoApprovalEnabled,
   OFFICIAL_CATALOG_LOADER_ACCOUNT,
   publisherTermsVersion,
+  PUBLISHER_TIERS,
   SYSTEM_ORG_ID,
   VERIFY_REQUEST_KINDS,
   parsePage,
@@ -492,10 +493,11 @@ export async function resignAll(moderator: Caller, body: Record<string, unknown>
 // Auto-approval rules
 // -----------------------------------------------------------------------------
 
-const TIERS = ['official', 'verified', 'community', 'unverified'] as const;
 export const AutoRuleConditionsSchema = z.object({
   requestKinds: z.array(z.enum(['new_version', 'listing_update'])).min(1),
-  publisherTiers: z.array(z.enum(TIERS)).min(1),
+  // api-core's own vocabulary, not a fourth spelling of it: this list was
+  // duplicated here, in the frontend picker and in postgres-init's CHECK.
+  publisherTiers: z.array(z.enum(PUBLISHER_TIERS)).min(1),
   bumps: z.array(z.enum(['patch', 'minor'])).default([]),
   submitterServiceAccount: z.string().max(64).optional(),
   textOnlyListingUpdates: z.boolean().optional(),

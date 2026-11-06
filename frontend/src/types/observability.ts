@@ -1,8 +1,9 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-/** Quick-pick window for observability panels. The catalog/backend accepts
- *  these literal strings; keep in sync with the RangePicker preset list. */
+/** Quick-pick window for observability panels. The catalog/backend accepts these
+ *  literal strings, and `RangePicker` keys its buttons off this union, so adding
+ *  one here is a compile error there rather than a window with no button. */
 export type RangeKey = '1h' | '6h' | '24h';
 
 /** Time-value point in a Prometheus or audit-trail series. */

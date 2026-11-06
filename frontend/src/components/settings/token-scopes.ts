@@ -3,24 +3,36 @@
 
 import type { BadgeColor } from '@/components/ui/Badge';
 import { PERMISSION_CATALOG, READ_ONLY_PERMISSIONS, permissionLabel } from '@pipeline-builder/api-core/permissions';
+import type { TokenScope } from '@pipeline-builder/api-core';
 import type { CredentialStatus } from '@/lib/api/domains/auth';
 
 /**
- * Capability scopes a credential may carry INSTEAD of its holder's roles.
+ * What each capability scope LETS a credential do, keyed by the scope itself.
+ *
  * A scoped credential exchanges to a token with no permissions at all, so it can
  * do the one thing named here and nothing else — which is what every automation
  * that does exactly one thing should hold.
  *
- * Mirrors api-core's `TOKEN_SCOPES` (the set both `POST /user/generate-token`
- * and the service-account key route validate against); a value outside it is
- * refused by the API. Kept here rather than imported because api-core's root
- * entry is server-side code.
+ * `Record<TokenScope, string>` keys this off api-core's own union — the set both
+ * `POST /user/generate-token` and the service-account key route validate
+ * against — so a scope added or removed there is a COMPILE ERROR here rather
+ * than a picker that silently omits the new scope, or offers one the API
+ * refuses. The import is type-only, so nothing of api-core's server-side root
+ * entry reaches the bundle; the previous hand-written list was kept local for
+ * exactly that reason and paid for it with a "mirrors api-core" comment.
+ *
+ * Only the COPY is local, which is right: the backend has no display wording.
  */
-export const TOKEN_SCOPE_OPTIONS: ReadonlyArray<{ value: string; label: string }> = [
-  { value: 'reporting:ingest', label: 'reporting:ingest — post pipeline events / incidents' },
-  { value: 'registry:push', label: 'registry:push — push images to this org’s namespace' },
-  { value: 'scim', label: 'scim — provision members from your identity provider (SCIM 2.0)' },
-];
+const TOKEN_SCOPE_DESCRIPTIONS: Record<TokenScope, string> = {
+  'reporting:ingest': 'post pipeline events / incidents',
+  'registry:push': 'push images to this org’s namespace',
+  scim: 'provision members from your identity provider (SCIM 2.0)',
+};
+
+/** The scope picker's options, in catalog order. */
+export const TOKEN_SCOPE_OPTIONS: ReadonlyArray<{ value: TokenScope; label: string }> =
+  (Object.keys(TOKEN_SCOPE_DESCRIPTIONS) as TokenScope[])
+    .map((value) => ({ value, label: `${value} — ${TOKEN_SCOPE_DESCRIPTIONS[value]}` }));
 
 /** Badge tone for a credential's lifecycle status. Shared by the access-key
  *  table and the machine-token history so the two can't drift. */

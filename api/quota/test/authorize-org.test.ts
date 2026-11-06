@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { MOCK_TIER_NAMES } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 // Mock dependencies
@@ -23,7 +24,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   DEFAULT_TIER: 'developer',
   VALID_QUOTA_TYPES: ['plugins', 'pipelines', 'apiCalls'] as const,
   QUOTA_TIERS: {},
-  VALID_TIERS: ['developer', 'pro', 'team', 'enterprise'],
+  VALID_TIERS: [...MOCK_TIER_NAMES],
   isValidTier: jest.fn(),
   getTierLimits: jest.fn(),
   isValidQuotaType: jest.fn(),

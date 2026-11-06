@@ -988,7 +988,7 @@ The retention window is a **tier baseline** that add-on retention packs extend. 
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `QUOTA_TIER_<TIER>_EVENT_RETENTION_DAYS` | `30` (paid tiers) / unlimited on `unlimited` | Per-tier baseline retention (days) for **standard** pipeline events, where `<TIER>` is `DEVELOPER`, `PRO`, `TEAM`, `ENTERPRISE`, or `UNLIMITED`. The `unlimited` tier derives `-1` (unlimited — the sweep skips the org and keeps all history). The **Standard Retention Pack** add-on adds +90 days on top. |
+| `QUOTA_TIER_<TIER>_EVENT_RETENTION_DAYS` | `30` (paid tiers) / unlimited on `unlimited` | Per-tier baseline retention (days) for **standard** pipeline events, where `<TIER>` is `DEVELOPER`, `PRO`, `TEAM`, `BUSINESS`, `ENTERPRISE`, or `UNLIMITED`. The `unlimited` tier derives `-1` (unlimited — the sweep skips the org and keeps all history). The **Standard Retention Pack** add-on adds +90 days on top. |
 | `QUOTA_TIER_<TIER>_DORA_RETENTION_DAYS` | `180` (paid tiers) / unlimited on `unlimited` | Per-tier baseline retention (days) for **DORA-source** records. The `unlimited` tier derives `-1`. The **DORA History Pack** add-on adds +365 days on top (and widens the report-query window to match). |
 
 Billing computes the effective window (`tierBase + Σ pack grant`, `-1` = unlimited passthrough) and pushes it to the reporting service (`PUT /api/reports/retention-sync/:orgId`, writing `dora_settings`). The per-org report-query window tracks this effective retention (`min(730, orgRetentionDays)`, absolute ceiling **730 days**); an unlimited-tier org queries up to the 730-day ceiling.

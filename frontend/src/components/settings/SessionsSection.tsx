@@ -16,15 +16,44 @@ import { useQuery } from '@/hooks/useQuery';
 import { invalidate, queries } from '@/lib/api-cache';
 import { formatError } from '@/lib/constants';
 import api from '@/lib/api';
+import type { AuthMethod } from '@pipeline-builder/api-core';
 import type { SessionMeta } from '@/lib/api/domains/auth';
 import { describeCredentialAuthority } from '@/components/settings/token-scopes';
 
-/** How the sign-in behind a session was performed. */
-const METHOD_LABEL: Record<string, string> = {
+/**
+ * How the sign-in behind a session was performed, keyed off api-core's `amr`
+ * union so every method the platform can issue has a name here.
+ *
+ * It was a `Record<string, string>` with three of the six, and the call site
+ * falls back to the raw claim — so a passkey sign-in, the most private-looking
+ * row in this table, read "webauthn", and a password-plus-code session read
+ * "Password, mfa". `Record<AuthMethod, string>` makes a new method a compile
+ * error instead. The type import is erased, so nothing of api-core's root entry
+ * reaches the bundle.
+ *
+ * `mfa` never appears alone — it accompanies the method that identified the
+ * person (`['pwd', 'mfa']` renders "Password, two-factor code"), which is why
+ * its label reads as an addition rather than a sign-in of its own.
+ */
+const METHOD_LABEL: Record<AuthMethod, string> = {
   pwd: 'Password',
   oauth: 'Social sign-in',
   sso: 'Single sign-on',
+  webauthn: 'Passkey',
+  stepup: 'Step-up re-verification',
+  mfa: 'two-factor code',
 };
+
+/**
+ * Whether a claim off the wire is one this table names. `amr` arrives as
+ * `string[]`, so the alternative was `METHOD_LABEL[m as AuthMethod]` — a cast
+ * asserting something that is not known to be true. The map IS the authority for
+ * what is labelled, and it is exhaustive over `AuthMethod` by type, so asking it
+ * directly narrows honestly and keeps the two facts in one place.
+ */
+function isLabelledMethod(claim: string): claim is AuthMethod {
+  return Object.hasOwn(METHOD_LABEL, claim);
+}
 
 const EMPTY: { sessions: SessionMeta[]; machineSessions: SessionMeta[] } = { sessions: [], machineSessions: [] };
 
@@ -123,7 +152,11 @@ export function SessionsSection({ readOnly }: { readOnly: boolean }) {
     {
       id: 'method',
       header: 'Signed in with',
-      render: (s) => s.amr.map((m) => METHOD_LABEL[m] ?? m).join(', ') || '—',
+      // The raw-claim fallback stays for wire data, not for gaps in the table:
+      // `METHOD_LABEL` covers every method this platform issues, so this only
+      // catches a claim from some other issuer, which prints as itself rather
+      // than disappearing from the row.
+      render: (s) => s.amr.map((m) => (isLabelledMethod(m) ? METHOD_LABEL[m] : m)).join(', ') || '—',
     },
     { id: 'ip', header: 'Last IP', cellClassName: 'font-mono text-xs', render: (s) => s.lastIp ?? '—' },
     { id: 'signedIn', header: 'Signed in', render: (s) => <RelativeTime value={s.signedInAt} /> },

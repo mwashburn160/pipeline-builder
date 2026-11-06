@@ -17,14 +17,20 @@ import type {
 /** The Official publisher's handle (the system org's catalog). */
 export const OFFICIAL_PUBLISHER_HANDLE = 'pipeline-builder';
 
-export const PUBLISHER_TIERS: readonly PublisherTier[] = ['official', 'verified', 'community', 'unverified'];
-
+/** What each trust tier is called, trust descending. `Record<PublisherTier, …>`
+ *  so a tier added to the wire vocabulary is a compile error here. */
 export const PUBLISHER_TIER_LABELS: Record<PublisherTier, string> = {
   official: 'Official',
   verified: 'Verified',
   community: 'Community',
   unverified: 'Community · unverified',
 };
+
+/** The tiers in display order — derived from the labels, which the compiler holds
+ *  exhaustive. It was a hand-written array, and a sibling copy of it in the
+ *  auto-approval rule builder was one tier SHORT, so a rule covering unverified
+ *  publishers could not be written even though the API accepts one. */
+export const PUBLISHER_TIERS: readonly PublisherTier[] = Object.keys(PUBLISHER_TIER_LABELS) as PublisherTier[];
 
 export const VERSION_POLICIES: readonly InstallVersionPolicy[] = ['pinned', 'patch', 'minor', 'latest'];
 

@@ -22,6 +22,7 @@
  */
 
 import { VALID_TIERS, type QuotaTier, type QuotaTierLimits } from '../types/quota-tiers.js';
+import { DEFAULT_TIER_LIMITS, tierLabel } from '../types/tier-limits.js';
 
 /** The real, complete tier-name list — the single source mocks derive from. */
 export const MOCK_TIER_NAMES: readonly QuotaTier[] = VALID_TIERS;
@@ -30,28 +31,24 @@ export const MOCK_TIER_NAMES: readonly QuotaTier[] = VALID_TIERS;
 export const mockIsValidTier = (t: string): boolean =>
   (MOCK_TIER_NAMES as readonly string[]).includes(t);
 
-/** Every quota dimension uncapped — the default for tiers a caller doesn't specify. */
-const uncappedLimits = (): QuotaTierLimits => ({
-  seats: -1,
-  supportContacts: -1,
-  supportPremiumContacts: -1,
-  plugins: -1,
-  pipelines: -1,
-  cpuCredits: -1,
-  apiCalls: -1,
-  automationCalls: -1,
-  aiCalls: -1,
-  storageBytes: -1,
-  dashboards: -1,
-  alertRules: -1,
-  alertDestinations: -1,
-  idpConfigs: -1,
-  listings: -1,
-  eventRetentionDays: -1,
-  doraRetentionDays: -1,
-});
-
-const titleCase = (t: string): string => t.charAt(0).toUpperCase() + t.slice(1);
+/**
+ * Every quota dimension uncapped — the default for tiers a caller doesn't specify.
+ *
+ * DERIVED from the limits table rather than listing seventeen fields, exactly as
+ * the real `tierLimits('unlimited')` does. The hand-written literal made a newly
+ * added limit a compile error here whose only possible answer was `-1`; now the
+ * mock carries it the moment the table does.
+ */
+const uncappedLimits = (): QuotaTierLimits => {
+  // Starts from a real `QuotaTierLimits` and overwrites every field, rather than
+  // `Object.fromEntries(...) as QuotaTierLimits` — that yields
+  // `{ [k: string]: number }`, which TS rightly refuses to convert, and the cast
+  // that silences it would assert a shape nothing checked. Same shape as the
+  // real `tierLimits('unlimited')`, deliberately.
+  const out = { ...DEFAULT_TIER_LIMITS.unlimited };
+  for (const k of Object.keys(out) as (keyof QuotaTierLimits)[]) out[k] = -1;
+  return out;
+};
 
 type TierPreset = { label: string; limits: QuotaTierLimits };
 
@@ -68,7 +65,7 @@ export function mockQuotaTiers(
   return Object.fromEntries(
     MOCK_TIER_NAMES.map((t) => [
       t,
-      { label: titleCase(t), limits: { ...uncappedLimits(), ...(limitsByTier[t] ?? {}) } },
+      { label: tierLabel(t), limits: { ...uncappedLimits(), ...(limitsByTier[t] ?? {}) } },
     ]),
   ) as Record<QuotaTier, TierPreset>;
 }

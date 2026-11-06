@@ -10,7 +10,7 @@
 
 import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 import type { AnyFn } from '@pipeline-builder/api-core/testing';
-import { stubModule } from '@pipeline-builder/api-core/testing';
+import { stubModule, MOCK_TIER_NAMES } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 // Type-only import (erased at compile), safe to sit with the other imports even
 // though it references a mocked module — it has no runtime effect.
@@ -290,7 +290,7 @@ function registerMocks() {
     reserveQuota: mockReserveQuota,
     getServiceAuthHeader: () => 'Bearer test-service-token',
     recordAudit: mockAuditRecord,
-    VALID_TIERS: ['developer', 'pro', 'team', 'enterprise'],
+    VALID_TIERS: [...MOCK_TIER_NAMES],
     DEFAULT_TIER: 'developer',
     // Env-resolved Redis (REDIS_URL / REDIS_SENTINELS). The queue builds its
     // BullMQ connections through these; hand back the mocked ioredis client.

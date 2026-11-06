@@ -34,25 +34,34 @@ function invitationManager(req: Request): boolean {
 }
 
 /**
- * Why a selected Role could not be granted, in the caller's words, and with
- * what status. A ceiling failure is a 403 (you may not grant this); a bad id is
- * a 400 (the request is malformed).
+ * Why a selected Role could not be granted: the caller's words AND the status,
+ * one entry per reason. A ceiling failure is a 403 (you may not grant this); a
+ * bad id is a 400 (the request is malformed).
+ *
+ * ONE entry carrying both, matching `service-accounts.ts` and
+ * `organization-members.ts`, which already map a rejection reason to
+ * `{ status, message }`. This was the outlier: two maps over the same key set,
+ * read together at the one call site, so a reason added to one and forgotten in
+ * the other produced a 400 with someone else's wording — and the `?? 400` /
+ * `?? 'One of the selected roles…'` fallbacks made that silent.
  */
-const ROLE_REJECTION_REASONS: Record<string, string> = {
-  [RL_ROLE_NOT_FOUND]: 'One of the selected roles does not exist in that organization',
-  [RL_SUPERADMIN_ROLE_NOT_INVITABLE]:
-    'The Super Admin role cannot be granted by invitation — use the platform-admin grant, which requires a second factor',
-  [RL_SYSTEM_ORG_ROLE_REQUIRES_SUPERADMIN]:
-    'That role carries platform permissions and can only be assigned by a Super Admin',
-  [RL_ASSIGN_EXCEEDS_CEILING]:
-    'That role grants permissions you do not hold yourself',
-};
-
-const ROLE_REJECTION_STATUS: Record<string, number> = {
-  [RL_ROLE_NOT_FOUND]: 400,
-  [RL_SUPERADMIN_ROLE_NOT_INVITABLE]: 403,
-  [RL_SYSTEM_ORG_ROLE_REQUIRES_SUPERADMIN]: 403,
-  [RL_ASSIGN_EXCEEDS_CEILING]: 403,
+const ROLE_REJECTIONS: Record<string, { status: number; message: string }> = {
+  [RL_ROLE_NOT_FOUND]: {
+    status: 400,
+    message: 'One of the selected roles does not exist in that organization',
+  },
+  [RL_SUPERADMIN_ROLE_NOT_INVITABLE]: {
+    status: 403,
+    message: 'The Super Admin role cannot be granted by invitation — use the platform-admin grant, which requires a second factor',
+  },
+  [RL_SYSTEM_ORG_ROLE_REQUIRES_SUPERADMIN]: {
+    status: 403,
+    message: 'That role carries platform permissions and can only be assigned by a Super Admin',
+  },
+  [RL_ASSIGN_EXCEEDS_CEILING]: {
+    status: 403,
+    message: 'That role grants permissions you do not hold yourself',
+  },
 };
 
 /** Privileged role check for invitation operations. Both `admin` and `owner`
@@ -117,8 +126,11 @@ export const sendInvitation = withController('Send invitation', async (req, res)
   );
   if (rejected.length > 0) {
     const first = rejected[0]!;
-    return sendError(res, ROLE_REJECTION_STATUS[first.reason] ?? 400, ROLE_REJECTION_REASONS[first.reason]
-      ?? 'One of the selected roles cannot be granted', first.reason, { roleId: first.roleId });
+    // One lookup, so the status and the wording can no longer come from
+    // different reasons; an unmapped reason falls back to both halves together.
+    const rejection = ROLE_REJECTIONS[first.reason]
+      ?? { status: 400, message: 'One of the selected roles cannot be granted' };
+    return sendError(res, rejection.status, rejection.message, first.reason, { roleId: first.roleId });
   }
 
   // Duplicates inside one paste would otherwise fight each other (the first

@@ -10,18 +10,31 @@
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import type { AnyFn } from '@pipeline-builder/api-core/testing';
+import { MOCK_TIER_NAMES, mockQuotaTiers } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
+
+/**
+ * EVERY real tier, not just the two this suite spells numbers for.
+ *
+ * `defaultLimitExpr` emits one `$switch` branch per `QUOTA_TIERS` key, and the
+ * fixture used to carry two — so the branch assertion below compared two
+ * branches and would have passed against an implementation that silently
+ * dropped the rest of the ladder. `mockQuotaTiers` fills the tiers a suite does
+ * not care about with uncapped limits, so the map is exhaustive over the real
+ * `VALID_TIERS` without hand-listing six tiers' worth of numbers here.
+ */
+const QUOTA_TIERS = mockQuotaTiers({
+  developer: { plugins: 10, automationCalls: 20_000, storageBytes: 1000 },
+  pro: { plugins: 25, automationCalls: 50_000, storageBytes: 5000 },
+});
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   isValidTier: () => true,
   ValidationError: class ValidationError extends Error {},
   DEFAULT_TIER: 'developer',
   VALID_QUOTA_TYPES: ['plugins', 'automationCalls', 'storageBytes'],
-  QUOTA_TIERS: {
-    developer: { limits: { plugins: 10, automationCalls: 20_000, storageBytes: 1000 } },
-    pro: { limits: { plugins: 25, automationCalls: 50_000, storageBytes: 5000 } },
-  },
-  VALID_TIERS: ['developer', 'pro'],
+  QUOTA_TIERS,
+  VALID_TIERS: [...MOCK_TIER_NAMES],
 }));
 
 type Lookup = { self: unknown; parentOrgId?: string; hasChildren: boolean };
@@ -67,16 +80,21 @@ describe('tier-aware defaults for a missing stored limit', () => {
     expect(defaultLimitFor(undefined, 'plugins')).toBe(10);
   });
 
-  it('builds the same choice as a Mongo $switch over $tier', () => {
+  it('builds the same choice as a Mongo $switch over $tier — one branch per tier', () => {
+    // Expected branches are derived from the real tier NAME list against the
+    // fixture's limits, so this fails if the expression stops covering a tier.
+    // Hand-listing them is what let a two-tier fixture pass as complete.
     expect(defaultLimitExpr('automationCalls')).toEqual({
       $switch: {
-        branches: [
-          { case: { $eq: ['$tier', 'developer'] }, then: 20_000 },
-          { case: { $eq: ['$tier', 'pro'] }, then: 50_000 },
-        ],
+        branches: MOCK_TIER_NAMES.map((tier) => ({
+          case: { $eq: ['$tier', tier] },
+          then: QUOTA_TIERS[tier].limits.automationCalls,
+        })),
         default: 20_000,
       },
     });
+    // Guards the derivation itself: six tiers today, and never silently one.
+    expect(MOCK_TIER_NAMES.length).toBeGreaterThan(2);
   });
 
   it('a Pro org with no stored automationCalls limit is read at Pro\'s preset', async () => {

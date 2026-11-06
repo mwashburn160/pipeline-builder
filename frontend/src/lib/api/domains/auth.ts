@@ -30,7 +30,8 @@ export interface SessionMeta {
   scope: string | null;
   /** Permission subset of a machine credential; null = full permissions. */
   permissions: string[] | null;
-  /** Authentication methods of the sign-in (`pwd`, `oauth`, `sso`). */
+  /** Authentication methods of the sign-in — api-core's `AuthMethod` claims
+   *  (`pwd`, `oauth`, `sso`, `webauthn`, `stepup`, `mfa`), as they arrive. */
   amr: string[];
   /** True for the session making the request — it can't revoke itself. */
   current: boolean;

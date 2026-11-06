@@ -12,12 +12,28 @@ import { useFetch } from '@/hooks/useFetch';
 import { formatError } from '@/lib/constants';
 import { triggerBlobDownload } from '@/lib/download';
 import { fmtNum } from '@/lib/format';
+import { QUOTA_CATALOG } from '@pipeline-builder/api-core/quota-catalog';
 import { QUOTA_TYPE_LABEL } from '@/lib/quota-pressure';
 import api from '@/lib/api';
 import type { QuotaType, QuotaUsageGroup, QuotaUsageGroupBy, QuotaUsageParams } from '@/types';
 
-/** The quota types whose usage is attributed (everything that is incremented). */
-const BREAKDOWN_TYPES: QuotaType[] = ['apiCalls', 'automationCalls', 'aiCalls', 'pipelines', 'plugins', 'listings', 'dashboards', 'alertRules', 'alertDestinations', 'idpConfigs'];
+/**
+ * The quota types whose usage is ATTRIBUTED — derived from the catalog's own
+ * `observed` field, which is where that fact already lived.
+ *
+ * It was a hand-written list of ten, and it omitted `cpuCredits`. Credits ARE
+ * metered, and the charge records full attribution — route, principal, plugin,
+ * build class and size (`build-credits.ts`, whose comment says it does so "so
+ * 'why is our build budget gone?' is answerable from the ledger"). The rows were
+ * being written and this picker could not select them, on the one dimension with
+ * real per-unit cost.
+ *
+ * `storageBytes` stays out, and now for the right reason rather than by being
+ * forgotten: it is `observed: 'measured'`, recomputed on demand, so no
+ * attribution rows exist to break down.
+ */
+const BREAKDOWN_TYPES: QuotaType[] = (Object.keys(QUOTA_CATALOG) as QuotaType[])
+  .filter((t) => QUOTA_CATALOG[t].observed === 'metered');
 
 const GROUP_LABEL: Record<QuotaUsageGroupBy, string> = {
   principal: 'Who (user / service account)',
