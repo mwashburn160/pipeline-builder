@@ -1,6 +1,6 @@
 // GENERATED FROM docs/environment-variables.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 8e5043b25e3ac2375bd44d7f3634777d0e7e3e0348f597055a3eabb1a2677aaa
+// SOURCE-SHA256: ad7de9420c52b76dd1d31deac1926fcbbbee10f541bd9c86a32fc66bd655559b
 // SPDX-License-Identifier: Apache-2.0
 import { FileCode } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -1698,6 +1698,11 @@ export const envVariablesTopic: HelpTopic = {
               "PLUGIN_VULN_GATE_KEV",
               "true",
               "A Critical that CISA lists as known exploited (KEV, from grype's knownExploited) counts against PLUGIN_VULN_MAX_FINDINGS even when it has no fix, at build and on rescan. Only an advisory-id PLUGIN_VULN_WAIVERS target exempts one — a package-name target never does. false: KEV findings gate like any other Critical (fixable only)"
+            ],
+            [
+              "PLUGIN_VULN_WAIVERS",
+              "unset",
+              "Operator exemptions from the floor: ;-separated entries <plugin>[@<version>]:<YYYY-MM-DD>:<target>[,<target>…]. A target is a package name (chromium) or an advisory id (GO-2026-6612), matched case-insensitively against a gated finding's package or id. System org only — plugin names are unique per (name, version, orgId), not globally, so matching on the name alone would let any tenant inherit an exemption by naming their plugin the same. * as the plugin is fleet-wide, for one advisory that every bundler of a toolchain inherits; it takes advisory ids only (a package name under * is rejected, since it would waive that package in every present and future plugin) and cannot pin a version. An entry with no @version covers every version, including ones nobody has looked at — pin it unless the judgement really is version-independent. The date is an inclusive UTC expiry, after which the entry simply stops applying and the plugin fails again; that lapse is the intended prompt to revisit it. A malformed entry is dropped, never treated as a wildcard, so a typo leaves the gate blocking. A KEV-listed finding is exempted by an advisory-id target only (see PLUGIN_VULN_GATE_KEV). What was waived stays visible — audited plugin.vuln.waived and itemized in the build message, not removed from the count silently. plugin_vuln_waivers_invalid, plugin_vuln_waiver_unmatched and plugin_vuln_waiver_days_remaining back PluginVulnWaiverInvalid, PluginVulnWaiverUnmatched and PluginVulnWaiverExpiringSoon"
             ],
             [
               "PLUGIN_VULN_DB_MAX_AGE_HOURS",
