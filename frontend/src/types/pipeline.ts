@@ -96,6 +96,14 @@ export interface PipelineScorecard {
   pipelineId: string;
   score: number | null;
   grade: 'A' | 'B' | 'C' | 'D' | 'F' | 'N/A';
+  /**
+   * True when the server could not COMPUTE this card (an error), as opposed to
+   * computing it and finding no data. The two arrive identically otherwise —
+   * `score: null`, `grade: 'N/A'` — and this mirror omitted the flag, so a
+   * failed computation rendered as "Not enough data yet" and told the reader to
+   * go enable DORA events. Set only by the server's `unavailableScorecard`.
+   */
+  unavailable?: boolean;
   compliance: {
     score: number | null;
     rulesEvaluated: number;

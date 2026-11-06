@@ -120,6 +120,30 @@ describe('ScorecardCard', () => {
     expect(screen.queryByText('Deploy frequency')).not.toBeInTheDocument();
   });
 
+  it('does not blame missing data when the SERVER could not compute the card', async () => {
+    // `unavailable` arrives looking exactly like the empty state — null score,
+    // N/A grade — so before this flag was carried, a failed computation rendered
+    // "Not enough data yet" and told the reader to run `setup-events --with-dora`
+    // in answer to a server-side error.
+    getPipelineScorecard.mockResolvedValue({
+      success: true,
+      data: {
+        scorecard: {
+          ...baseScorecard,
+          score: null,
+          grade: 'N/A',
+          unavailable: true,
+          compliance: { score: null, rulesEvaluated: 0, violations: 0, warnings: 0 },
+          dora: { score: null, basis: 'deploy', deploymentFrequency: null, changeFailureRate: null, meanTimeToRestore: null, leadTime: null },
+        },
+      },
+    });
+    render(<ScorecardCard pipelineId="p1" />);
+    expect(await screen.findByText(/Scorecard unavailable/i)).toBeInTheDocument();
+    expect(screen.queryByText('Not enough data yet')).not.toBeInTheDocument();
+    expect(screen.queryByText(/setup-events/)).not.toBeInTheDocument();
+  });
+
   it('shows an unavailable message when the scorecard fetch fails', async () => {
     getPipelineScorecard.mockResolvedValue({ success: false });
     render(<ScorecardCard pipelineId="p1" />);

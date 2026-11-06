@@ -32,6 +32,28 @@ it('drops a result that arrives after the org in scope changed', async () => {
   expect(screen.getByRole('button', { name: /verify integrity/i })).not.toBeDisabled();
 });
 
+it('does not claim an unqualified "Chain intact" when rows could not be verified', async () => {
+  // The server reports `unverifiable` — rows whose digest could not be computed
+  // at WRITE time, which it is explicit is NOT tampering. The frontend type used
+  // to omit the field, so those events sat outside the proof while the badge read
+  // a flat "Chain intact (N events)". Green is right (no tamper); silent is not.
+  verifyAuditChain.mockResolvedValueOnce({ success: true, data: { ok: true, count: 1000, unverifiable: 12 } });
+  render(<ChainVerifyStrip orgId="org-a" renderOrgRef={(id) => id} />);
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: /verify integrity/i })); });
+
+  expect(screen.getByText(/1000 events, 12 could not be verified/)).toBeInTheDocument();
+  expect(screen.queryByText(/TAMPER DETECTED/)).not.toBeInTheDocument();
+});
+
+it('reports a clean chain plainly when every row verified', async () => {
+  verifyAuditChain.mockResolvedValueOnce({ success: true, data: { ok: true, count: 7, unverifiable: 0 } });
+  render(<ChainVerifyStrip orgId="org-a" renderOrgRef={(id) => id} />);
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: /verify integrity/i })); });
+
+  expect(screen.getByText(/Chain intact \(7 events\)/)).toBeInTheDocument();
+  expect(screen.queryByText(/could not be verified/)).not.toBeInTheDocument();
+});
+
 it('names a truncated tail (no surviving row to point at) instead of "broken at unknown"', async () => {
   verifyAuditChain.mockResolvedValueOnce({ success: true, data: { ok: false, reason: 'tail-truncated', count: 2, lastSeq: 2 } });
   render(<ChainVerifyStrip orgId="org-a" renderOrgRef={(id) => id} />);

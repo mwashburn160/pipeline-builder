@@ -58,6 +58,17 @@ export interface AuditChainVerification {
   reason?: AuditChainBreak;
   /** Number of events walked while verifying. */
   count: number;
+  /**
+   * Rows whose stored digest could not be computed at WRITE time (a
+   * `HASH_ERROR_SENTINEL` marker): un-verifiable, not tampering.
+   *
+   * The server has always reported this and the route sends the verify result
+   * verbatim; this mirror omitted it, so `ChainVerifyStrip` rendered an
+   * unqualified green "Chain intact (N events)" while some of those N events sat
+   * outside the proof entirely. An operator asking whether the audit log is
+   * provable was told yes.
+   */
+  unverifiable: number;
   /** Highest chain sequence number walked. */
   lastSeq?: number;
   /** Comparison against the write-once published chain head, when configured. */

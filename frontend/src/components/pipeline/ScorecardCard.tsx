@@ -83,7 +83,12 @@ export function ScorecardCard({ pipelineId }: { pipelineId: string }) {
       </div>
       {loading ? (
         <p className="text-sm text-fg-subtle">Computing…</p>
-      ) : failed || !scorecard ? (
+      ) : failed || !scorecard || scorecard.unavailable ? (
+        // `scorecard.unavailable` belongs HERE, ahead of the empty state: the
+        // server sets it when the card could not be computed, and that arrives
+        // looking exactly like "no data yet" (null score, N/A grade). Falling
+        // through told the reader to go enable DORA events in answer to a
+        // server-side error.
         <p className="text-sm text-fg-subtle">Scorecard unavailable.</p>
       ) : scorecard.grade === 'N/A' && scorecard.score == null ? (
         // Empty state: no compliance rules evaluated AND no DORA data yet, so a

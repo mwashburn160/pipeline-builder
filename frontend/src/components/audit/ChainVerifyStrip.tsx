@@ -106,7 +106,12 @@ export function ChainVerifyStrip({ orgId, renderOrgRef }: ChainVerifyStripProps)
         <Badge color="green">
           <span className="inline-flex items-center gap-1">
             <ShieldCheck className="w-3.5 h-3.5" />
-            Chain intact ({result.count} event{result.count === 1 ? '' : 's'})
+            {/* Still GREEN when rows are unverifiable — the server is explicit
+                that a missing write-time digest is not tampering — but the count
+                is named, because those events are outside the proof and "intact"
+                on its own claims more than the check establishes. */}
+            Chain intact ({result.count} event{result.count === 1 ? '' : 's'}
+            {result.unverifiable > 0 ? `, ${result.unverifiable} could not be verified` : ''})
           </span>
         </Badge>
       ) : (
