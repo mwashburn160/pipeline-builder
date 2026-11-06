@@ -16,9 +16,9 @@ FROM plugin-dotnet-base:1.0
 USER root
 
 # Digests are Snyk's published <binary>.sha256 files for this version.
-ARG SNYK_VERSION=1.1308.3
-ARG SNYK_SHA256_AMD64=5f323f45885341ea1473639859271925912ece82a2f77bc146bb4468f9838840
-ARG SNYK_SHA256_ARM64=3686e7c29344dda49f9c86be6d48e9bc43f83b74b8c6f331dcc5d6d43f4a6faf
+ARG SNYK_VERSION=1.1308.4
+ARG SNYK_SHA256_AMD64=979172ee128903f50e43fff221f22a0689579f22c086dabaa0d1a5416485b9ba
+ARG SNYK_SHA256_ARM64=9cf3e55e4bd216138a86a08f6d4235d5a014459cf0df7150818421fd8e044d48
 RUN set -eux; \
     case "$(dpkg --print-architecture)" in \
       amd64) snyk_bin=snyk-linux;       sum="${SNYK_SHA256_AMD64}" ;; \

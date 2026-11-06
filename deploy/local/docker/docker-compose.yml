@@ -1210,6 +1210,13 @@ services:
       PLUGIN_ORG_BUILD_SLOTS_FLEXIBLE: ${PLUGIN_ORG_BUILD_SLOTS_FLEXIBLE:-}
       PLUGIN_ORG_SLOT_DELAY_MS: ${PLUGIN_ORG_SLOT_DELAY_MS:-}
       PLUGIN_ORG_SLOT_TTL_SEC: ${PLUGIN_ORG_SLOT_TTL_SEC:-}
+      # Retry interval backs off from PLUGIN_ORG_SLOT_DELAY_MS up to this.
+      PLUGIN_ORG_SLOT_MAX_DELAY_MS: ${PLUGIN_ORG_SLOT_MAX_DELAY_MS:-}
+      # The system org's own in-flight cap — finite, so a catalogue load cannot
+      # fan out without bound; its WAIT is what is exempt, not its cap.
+      PLUGIN_SYSTEM_ORG_MAX_BUILDS: ${PLUGIN_SYSTEM_ORG_MAX_BUILDS:-}
+      # One replica's total, across all six tier workers sharing one buildkitd.
+      PLUGIN_MAX_BUILDS_PER_REPLICA: ${PLUGIN_MAX_BUILDS_PER_REPLICA:-}
       PLUGIN_QUEUE_METRICS_INTERVAL_MS: ${PLUGIN_QUEUE_METRICS_INTERVAL_MS:-}
       PLUGIN_TIER_CACHE_TTL_MS: ${PLUGIN_TIER_CACHE_TTL_MS:-}
       PLUGIN_UPLOAD_TIMEOUT_MS: ${PLUGIN_UPLOAD_TIMEOUT_MS:-}
@@ -1813,6 +1820,11 @@ services:
       PLUGIN_SIGNING_MODE: ${PLUGIN_SIGNING_MODE:-local}
       PLUGIN_SIGNING_KEY_FILE: ${PLUGIN_SIGNING_KEY_FILE:-/etc/pipeline-builder/plugin-signing/plugin-signing.key}
       PLUGIN_SIGNING_KMS_KEY_ID: ${PLUGIN_SIGNING_KMS_KEY_ID:-}
+      # Signs allowed at once. This service's memory bounds the whole build
+      # fan-in: each attest hands cosign the SBOM, and 32 concurrent peaked at
+      # 1019 MiB of 1 GiB and was OOMKilled, breaking pushes too (the registry
+      # login is this process's /token). Over the limit callers queue.
+      REGISTRY_SIGN_MAX_CONCURRENT: ${REGISTRY_SIGN_MAX_CONCURRENT:-}
     volumes:
       # The RS256 keypair this registry signs its OWN pull/push tokens with.
       - './certs/image-registry-jwt.key:/etc/registry/jwt-private.pem:ro'

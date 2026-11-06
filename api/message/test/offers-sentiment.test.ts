@@ -55,6 +55,18 @@ function chain(): unknown {
   return self;
 }
 
+/**
+ * api-core is stubbed only so `emitCounter` is observable: the outcome counter is
+ * the ONLY way anyone can tell a frustration read that degraded from one that
+ * found nothing, and those two lead to opposite conclusions about the offer
+ * feature — "the signal is broken" against "this account is happy".
+ */
+const emitCounter = jest.fn<(name: string, labels?: Record<string, string>, value?: number) => void>();
+jest.unstable_mockModule('@pipeline-builder/api-core', () => stubModule('@pipeline-builder/api-core', {
+  emitCounter,
+  createLogger: () => ({ info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() }),
+  errorMessage: (e: unknown) => String(e),
+}));
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
   runWithTenantContext: (_ctx: unknown, fn: () => unknown) => fn(),
   withTenantTxRead: (fn: (tx: unknown) => unknown) => fn({ select: () => chain() }),
@@ -196,5 +208,41 @@ describe('it degrades, never throws', () => {
     // provider key — to decide whether to sell to it would charge the customer
     // for being marketed at.
     expect(resolveModelSelection).toHaveBeenLastCalledWith({});
+  });
+});
+
+describe('the sentiment outcome counter', () => {
+  // Every branch of this read ends in a counter, and the LABEL is the whole
+  // point: `no_cases` and `read_failed` both yield "not frustrated", so without
+  // distinguishing them a broken support-text read looks exactly like a contented
+  // customer — and the offer goes out either way.
+  it('labels an account with no cases as no_cases, not as a failure', async () => {
+    queueSelect([]);
+    await frustrationSignalFor('org-1');
+    expect(emitCounter).toHaveBeenCalledWith('offers_sentiment_total', { outcome: 'no_cases' });
+  });
+
+  it('labels a failed support-text read as read_failed', async () => {
+    queueSelectFailure();
+    await frustrationSignalFor('org-1');
+    expect(emitCounter).toHaveBeenCalledWith('offers_sentiment_total', { outcome: 'read_failed' });
+  });
+
+  it('labels a provider failure as ai_failed, distinctly from a bad read', async () => {
+    queueSelect([{ threadId: 't1' }]);
+    queueSelect([{ subject: 's', content: 'still waiting' }]);
+    resolveModelSelection.mockImplementationOnce(() => ({ provider: 'anthropic', model: 'm' }));
+    generateText.mockImplementationOnce(() => Promise.reject(new Error('provider down')));
+    await frustrationSignalFor('org-1');
+    expect(emitCounter).toHaveBeenCalledWith('offers_sentiment_total', { outcome: 'ai_failed' });
+  });
+
+  it('never reports the same read under two outcomes', async () => {
+    // One read, one verdict. Two labels for one call would double-count the
+    // denominator every conversion rate is measured against.
+    queueSelect([]);
+    await frustrationSignalFor('org-1');
+    const sentiment = emitCounter.mock.calls.filter((c) => c[0] === 'offers_sentiment_total');
+    expect(sentiment).toHaveLength(1);
   });
 });

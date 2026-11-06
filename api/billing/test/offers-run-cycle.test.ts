@@ -66,9 +66,21 @@ jest.unstable_mockModule('../src/models/offer-exclusion.js', () => ({
 }));
 
 let profileRows: unknown[] = [];
+/** When set, profile loading throws — the one path that reaches the cycle's
+ *  per-account catch, since `loadProfiles` is the first thing `runForAccount` does. */
+let profileThrows = false;
 jest.unstable_mockModule('../src/models/usage-profile.js', () => ({
   UsageProfile: {
-    find: () => ({ sort: () => ({ limit: () => ({ lean: async () => profileRows }) }) }),
+    find: () => ({
+      sort: () => ({
+        limit: () => ({
+          lean: async () => {
+            if (profileThrows) throw new Error('usage profile read failed');
+            return profileRows;
+          },
+        }),
+      }),
+    }),
   },
 }));
 
@@ -158,6 +170,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   effects.length = 0;
   profileRows = history();
+  profileThrows = false;
   subscriptions = [SUB];
   mockOfferFindOne.mockReturnValue({ sort: () => ({ lean: async () => null }) });
   mockExists.mockResolvedValue(null);
@@ -391,6 +404,28 @@ describe('the whole cycle', () => {
     // The failing account is skipped (its throw escapes `runForAccount`), and
     // the next one still gets its turn.
     expect(result.sent).toBe(1);
+  });
+
+  it('COUNTS an account the cycle threw on, so a broken cycle is not a quiet one', async () => {
+    // Everything else here is counted — sends by type, suppressions per reason —
+    // so an unrecorded failure made a cycle that threw on every account look
+    // exactly like one with nothing eligible to offer. No alert could be written
+    // against that: a flat counter is the normal state of a small install,
+    // whereas erroring accounts never are.
+    //
+    // The throw has to come from INSIDE `runForAccount` to reach the loop's
+    // catch; profile loading is the first thing it does.
+    profileThrows = true;
+    await runOfferCycle();
+    expect(mockCounter).toHaveBeenCalledWith('billing_offers_total', { outcome: 'error' });
+  });
+
+  it('counts NOTHING as an error when the cycle merely has no eligible accounts', async () => {
+    // The negative control for the alert built on that counter: an install with
+    // nothing to offer must not look like a broken one.
+    profileRows = [];
+    await runOfferCycle();
+    expect(mockCounter).not.toHaveBeenCalledWith('billing_offers_total', { outcome: 'error' });
   });
 
   it('does not count an unevaluable account as considered', async () => {

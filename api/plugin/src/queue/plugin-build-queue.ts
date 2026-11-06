@@ -35,12 +35,14 @@ import {
   isTierConnectionReady,
   tierForQueueName,
 } from './connections.js';
+import { withReplicaBuildSlot, maxBuildsPerReplica } from './build-gate.js';
 import { createBuildFailedHandler } from './failure-handler.js';
 import { startDlqWorker, closeDlqWorker } from './plugin-build-dlq.js';
 import { startQueueMetricsScraper, stopQueueMetricsScraper } from './queue-metrics-scraper.js';
 import {
-  maxBuildsPerOrg, MAX_SLOT_DELAYS, ORG_SLOT_DELAY_MS, ORG_SLOT_SCRUB_MS,
+  maxBuildsPerOrg, ORG_SLOT_WAIT_BUDGET_MS, orgSlotRetryDelayMs, ORG_SLOT_SCRUB_MS,
   tryAcquireOrgSlot, releaseOrgSlot, scrubOrgSlots, startOrgSlotHeartbeat, orgSlotSnapshot,
+  orgSlotWaitExempt, orgSlotsBackedByLiveBuilds,
 } from './slot-manager.js';
 import type { OrgSlotState } from './slot-manager.js';
 import { getBuildStrategy } from '../helpers/build-strategy.js';
@@ -311,7 +313,14 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
 
       if (!await tryAcquireOrgSlot(orgId, slotJobId, tier, buildClass)) {
         const slotDelays = (job.data.slotDelays ?? 0) + 1;
-        const waitedMs = slotDelays * ORG_SLOT_DELAY_MS;
+        // The clock, not the attempt count: with a backing-off retry interval the
+        // two stopped being interchangeable (180 attempts used to mean exactly 30
+        // minutes; it now spans hours). Stamped on the FIRST denial and carried on
+        // the job, so the budget below measures real waiting — which is also what
+        // the refusal message has always claimed to report.
+        const slotWaitStartedAt = job.data.slotWaitStartedAt ?? Date.now();
+        const waitedMs = Date.now() - slotWaitStartedAt;
+        const retryInMs = orgSlotRetryDelayMs(slotDelays);
         // Labelled by CLASS as well as tier: the two classes have different caps
         // on every tier, so an unlabelled denial count cannot say whether a tier
         // is short of standard headroom (raise the cap) or busy burning through
@@ -326,7 +335,31 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
         // a verdict that will not change while the org stays at its cap; the
         // typed code and details ride along for the failure handler, which is
         // what puts the refusal on the build stream and in the audit.
-        if (slotDelays > MAX_SLOT_DELAYS) {
+        // The system org waits as long as it takes. A catalogue load is platform
+        // work queued on the tenant's behalf, and a plugin that is merely LATE
+        // must not be recorded as a plugin that is broken — which is what a
+        // terminal slot timeout did to 80 of 119 on a fresh install. It still
+        // holds a real, finite slot (`PLUGIN_SYSTEM_ORG_MAX_BUILDS`), so the
+        // fan-out is bounded; only the deadline is lifted.
+        // The deadline measures STARVATION, not queueing behind your own work.
+        //
+        // A worker picks a job before it checks the slot, and the fleet can pick
+        // far more of one org's jobs than that org may run at once — 8 replicas x
+        // enterprise's 4 is 32 pickers against a cap of 8. The excess bounce every
+        // ORG_SLOT_DELAY_MS, and `slotDelays` persists on the job, so a 100-plugin
+        // upload (which drains in ~37-60 min at 5-8 concurrent) used to age those
+        // bouncers past 30 minutes and fail them for good. That is the same
+        // mechanism that lost 80 of 119 plugins on a fresh install; it was fixed
+        // for the system org and was still live for every tenant tier.
+        //
+        // So the terminal verdict now requires that the org's cap NOT be held by
+        // live builds. Busy-and-progressing waits as long as it takes; a leaked
+        // counter with no live owners still dies on schedule, which is the case
+        // the deadline was written for.
+        const starving = waitedMs > ORG_SLOT_WAIT_BUDGET_MS
+          && !orgSlotWaitExempt(orgId)
+          && !await orgSlotsBackedByLiveBuilds(orgId, buildClass);
+        if (starving) {
           incCounter('plugin_build_slot_timeout_total', { tier, build_class: buildClass });
           throw Object.assign(
             new UnrecoverableError(
@@ -342,14 +375,14 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
         if (slotDelays === 1) {
           sseManager.send(requestId, 'WARN',
             `Waiting for a build slot: this organization is at its limit of ${classCap} concurrent ${buildClass} builds. The build starts automatically when a slot frees up — there is nothing to buy or fix.`,
-            { buildClass, maxBuildsPerOrg: classCap, retryInMs: ORG_SLOT_DELAY_MS });
+            { buildClass, maxBuildsPerOrg: classCap, retryInMs });
         }
 
         // Persist the count BEFORE delaying, so the next pass sees it. Dropping
         // this write would reset the budget on every pass and restore the endless
         // bounce it exists to stop.
-        await job.updateData({ ...job.data, slotDelays });
-        await job.moveToDelayed(Date.now() + ORG_SLOT_DELAY_MS, token);
+        await job.updateData({ ...job.data, slotDelays, slotWaitStartedAt });
+        await job.moveToDelayed(Date.now() + retryInMs, token);
         // `DelayedError` is the sentinel that PAIRS with `moveToDelayed`: the
         // worker leaves the job delayed and picks up the next one.
         // `Worker.RateLimitError()` takes a different branch — it calls
@@ -402,7 +435,11 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
         const strategy = getBuildStrategy(buildRequest.buildType);
         // isApprovalStep is a second, orthogonal "skip build" axis (pluginType), kept here.
         if (!isApprovalStep && strategy.producesImage) {
-          const result = await strategy.produceImage(buildRequest, {
+          // The replica's build budget wraps THIS step and nothing else: it
+          // exists to bound what the six tier workers put on their one shared
+          // buildkitd sidecar, so metadata, scanning and persistence must not
+          // hold it. Acquired after the org slot — see `withReplicaBuildSlot`.
+          const result = await withReplicaBuildSlot(tier, () => strategy.produceImage(buildRequest, {
             // Lazy: only build_image awaits this, so prebuilt skips the tier/quota lookup.
             getBuildkitAddr: async () => getBuildkitAddrForBuild(
               await getOrgTier(quotaService, orgId, getServiceAuthHeader({ serviceName: 'plugin', orgId, role: 'member' })),
@@ -412,7 +449,7 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
             // sees live build output. Best-effort — a send failure never fails the
             // build (the sink is already try/guarded inside the process runner).
             onLine: (line, stream) => { sseManager.send(requestId, 'MESSAGE', line, { stream, log: true }); },
-          });
+          }));
           fullImage = result.fullImage;
           image = { imageDigest: result.digest, imageSource: result.imageSource };
           sseManager.send(requestId, 'INFO', 'Image pushed and signed', { fullImage, digest: result.digest });
@@ -673,7 +710,33 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
     tierWorkers.set(tier, tierWorker);
   }
 
-  logger.info('Plugin build workers started', { tierConcurrency });
+  // The number nobody had written down: one replica runs a worker PER TIER, so
+  // its real ceiling is the SUM, and the fleet's is that times the replica count
+  // (KEDA scales plugin to 8). "8 x 4 = 32" was only ever the single-tier case.
+  // Logged on every start, and WARNED when the ladder promises more than the
+  // replica's budget allows — the sidecar is one container with one memory limit.
+  const ladderSum = VALID_TIERS.reduce((n, tier) => n + tierConcurrency[tier], 0);
+  const replicaBudget = maxBuildsPerReplica();
+  logger.info('Plugin build workers started', {
+    tierConcurrency,
+    ladderSum,
+    replicaBudget,
+    effectivePerReplica: Math.min(ladderSum, replicaBudget),
+  });
+  // Published so the autoscaler can WEIGHT a backlog: one replica clears
+  // `concurrency` jobs of a tier, not a flat number, and a signal that ignores
+  // that under-provisions single-tier work (a fresh install's catalogue load is
+  // entirely system-org, so each replica absorbs exactly one job of it).
+  for (const tier of VALID_TIERS) {
+    setGauge('plugin_build_tier_concurrency', { tier }, tierConcurrency[tier]);
+  }
+  if (ladderSum > replicaBudget) {
+    logger.warn(
+      'Per-tier concurrency sums above this replica\'s build budget: the extra builds will QUEUE, not run. '
+      + 'Raise PLUGIN_MAX_BUILDS_PER_REPLICA only with the buildkitd sidecar\'s memory limit — they share one cgroup.',
+      { ladderSum, replicaBudget },
+    );
+  }
 
   startDlqWorker(quotaService);
   startTempCleanup();
@@ -683,7 +746,7 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
   void scrubOrgSlots();
   startSlotScrub();
   startQueueMetricsScraper([
-    ...getAllTierQueues().map(({ queue }) => ({ name: queue.name, queue })),
+    ...getAllTierQueues().map(({ tier, queue }) => ({ name: queue.name, queue, tier })),
     { name: DLQ_NAME, queue: getDeadLetterQueue() },
   ]);
 }

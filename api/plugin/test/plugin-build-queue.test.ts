@@ -120,6 +120,7 @@ const queueLogger = { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug:
 
 /** The live slot state the worker turns into gauges; empty unless a case sets it. */
 const mockOrgSlotSnapshot = jest.fn<AnyFn>().mockResolvedValue([]);
+const mockOrgSlotsBackedByLiveBuilds = jest.fn<AnyFn>().mockResolvedValue(true);
 const mockStartOrgSlotHeartbeat = jest.fn<AnyFn>(() => mockStopSlotHeartbeat);
 
 // Shared central-trail spy: the tier queue, the failure handler and the DLQ all
@@ -316,7 +317,15 @@ function registerMocks() {
   // unaffected; the slot-gate tests below flip it per case.
   jest.unstable_mockModule('../src/queue/slot-manager.js', () => ({
     maxBuildsPerOrg: jest.fn<AnyFn>(() => 3),
-    MAX_SLOT_DELAYS: 2,
+    // Elapsed-time budget (ms), not a count of attempts: the retry interval backs
+    // off, so 180 attempts stopped meaning 30 minutes. 50ms keeps the terminal
+    // case reachable in a test without faking timers.
+    ORG_SLOT_WAIT_BUDGET_MS: 50,
+    orgSlotRetryDelayMs: jest.fn<AnyFn>((attempt: number) => Math.min(10_000 * 2 ** (attempt - 1), 60_000)),
+    // Default: the org's cap IS held by live builds, i.e. it is busy and making
+    // progress, so a denial must NOT age toward the terminal verdict. The
+    // starvation case overrides this per test.
+    orgSlotsBackedByLiveBuilds: mockOrgSlotsBackedByLiveBuilds,
     ORG_SLOT_DELAY_MS: 10_000,
     ORG_SLOT_SCRUB_MS: 300_000,
     tryAcquireOrgSlot: mockTryAcquireOrgSlot,
@@ -327,6 +336,11 @@ function registerMocks() {
     // must carry the snapshot too — an omitted export makes the whole import
     // graph fail to LOAD naming it.
     orgSlotSnapshot: mockOrgSlotSnapshot,
+    // Same requirement: the worker asks whether this org may wait past the budget
+    // instead of failing. Defaults to false here so the terminal-timeout cases
+    // below still exercise that branch; the system-org carve-out has its own
+    // coverage in slot-manager.test.ts.
+    orgSlotWaitExempt: jest.fn<AnyFn>(() => false),
   }));
 
   jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
@@ -541,6 +555,18 @@ describe('plugin-build-queue', () => {
       );
     });
 
+    it('publishes per-tier concurrency, which is what the autoscaler divides a backlog by', async () => {
+      // Without this gauge the scaling query's join is empty and KEDA reads 0 —
+      // holding the fleet at one replica exactly when a catalogue load needs
+      // more. The query carries an `or` fallback for that, but the gauge is the
+      // intended path.
+      queueModule.startWorker(makeSseManager(), makeQuotaService());
+      await Promise.resolve();
+
+      expect(mockSetGauge).toHaveBeenCalledWith('plugin_build_tier_concurrency', { tier: 'unlimited' }, expect.any(Number));
+      expect(mockSetGauge).toHaveBeenCalledWith('plugin_build_tier_concurrency', { tier: 'enterprise' }, expect.any(Number));
+    });
+
     it('WARNS when worker concurrency — not the cap — is the binding limit', () => {
       queueModule.startWorker(makeSseManager(), makeQuotaService());
       for (const [event, handler] of mockWorkerOn.mock.calls as [string, () => void][]) {
@@ -668,12 +694,16 @@ describe('plugin-build-queue', () => {
         expect.stringContaining('Waiting for a build slot'), expect.anything());
     });
 
-    it('fails TERMINALLY past the wait budget instead of bouncing forever', async () => {
+    it('fails TERMINALLY past the wait budget when the cap is NOT held by live builds', async () => {
       const sse = makeSseManager();
       queueModule.startWorker(sse, makeQuotaService());
       mockTryAcquireOrgSlot.mockResolvedValueOnce(false);
-      // MAX_SLOT_DELAYS is stubbed to 2 here, so this pass is the third.
-      const data = { ...makeJobData(), slotDelays: 2 };
+      // Two conditions, both required: the clock has run out (budget stubbed to
+      // 50ms, so a start stamp 10s ago is well past), AND the org's counter is
+      // not backed by live owners — a LEAKED counter, which is the stuck case the
+      // deadline exists for. A busy org gets the other test below.
+      mockOrgSlotsBackedByLiveBuilds.mockResolvedValueOnce(false);
+      const data = { ...makeJobData(), slotDelays: 2, slotWaitStartedAt: Date.now() - 10_000 };
       const job = makeJob(data, { data });
 
       const err = await getMainProcessor()(job).catch((e: any) => e);
@@ -687,6 +717,43 @@ describe('plugin-build-queue', () => {
       expect(mockIncCounter).toHaveBeenCalledWith('plugin_build_slot_timeout_total', { tier: 'developer', build_class: 'standard' });
       // It must not be re-delayed as well.
       expect(job.updateData).not.toHaveBeenCalled();
+    });
+
+    it('does NOT fail a job whose org is at its cap with every slot RUNNING', async () => {
+      // The 100-plugin upload. A worker picks a job before it checks the slot, and
+      // the fleet picks far more of one org's jobs than it may run (8 replicas x
+      // enterprise's 4 = 32 pickers against a cap of 8). The excess bounce, and
+      // the clock used to kill them at 30 minutes while the backlog needed 60 —
+      // the mechanism that lost 80 of 119 plugins. Queueing behind your OWN
+      // running builds is not starvation.
+      queueModule.startWorker(makeSseManager(), makeQuotaService());
+      mockTryAcquireOrgSlot.mockResolvedValueOnce(false);
+      mockOrgSlotsBackedByLiveBuilds.mockResolvedValueOnce(true);
+      const data = { ...makeJobData(), slotDelays: 500, slotWaitStartedAt: Date.now() - 3_600_000 };
+      const job = makeJob(data, { data });
+
+      // An hour past a 50ms budget and 500 denials deep: still re-delayed.
+      await expect(getMainProcessor()(job)).rejects.toMatchObject({ name: 'DelayedError' });
+      expect(mockIncCounter).not.toHaveBeenCalledWith('plugin_build_slot_timeout_total', expect.anything());
+    });
+
+    it('backs the retry interval OFF, instead of polling every ten seconds forever', async () => {
+      // 569 jobs waiting on a fixed 10s poll is ~57 Redis acquire attempts a
+      // second, all of them known to fail while the org sits at its cap, for
+      // builds that take minutes. The delay doubles to a cap.
+      queueModule.startWorker(makeSseManager(), makeQuotaService());
+      mockTryAcquireOrgSlot.mockResolvedValueOnce(false);
+      const data = { ...makeJobData(), slotDelays: 3, slotWaitStartedAt: Date.now() };
+      const job = makeJob(data, { data });
+
+      await expect(getMainProcessor()(job)).rejects.toMatchObject({ name: 'DelayedError' });
+
+      // Fourth attempt -> 10s * 2^3 = 80s, capped at 60s by the stub.
+      const [[delayUntil]] = job.moveToDelayed.mock.calls;
+      expect(delayUntil as number).toBeGreaterThan(Date.now() + 55_000);
+      // And the wait START is carried forward, so the budget measures the clock
+      // rather than restarting on every pass.
+      expect(job.updateData).toHaveBeenCalledWith(expect.objectContaining({ slotWaitStartedAt: data.slotWaitStartedAt }));
     });
 
     it('competes for the slot counter of its OWN class, and defaults to standard', async () => {

@@ -13,6 +13,25 @@ set -euo pipefail
 #   ./init-platform.sh --force ec2                             # Force rebuild of base images + CodeBuild bootstrap (ignore caches)
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+# Content-load stages that failed. The three loads (plugins, templates,
+# compliance) are INDEPENDENT of one another, but `set -e` used to abort the
+# whole script on the first non-zero exit — so one plugin whose image failed to
+# build took the pipeline templates and the compliance rules down with it, and a
+# fresh install came up with neither. They are recorded here instead and
+# reported at the end, which keeps the install RED (a failed stage must never
+# read as success) without letting an early stage decide whether the later ones
+# run at all.
+FAILED_STAGES=()
+run_load_stage() {
+  local name="$1"; shift
+  if "$@"; then
+    return 0
+  fi
+  FAILED_STAGES+=("$name")
+  echo "  !! $name failed — continuing with the remaining load stages; the install will exit non-zero."
+  return 0
+}
 # Capture whether the caller EXPLICITLY set PLATFORM_BASE_URL *before* common.sh
 # defaults it to https://localhost:8443. The minikube/ec2/eks branches must
 # distinguish "caller gave a URL" (use it) from "unset" (auto-set up the
@@ -499,7 +518,8 @@ if _truthy "$LOAD_PLUGINS"; then
   gate_services_ready compliance plugin || exit 1
 
   # shellcheck disable=SC2086
-  PLATFORM_BASE_URL="$PLATFORM_BASE_URL" \
+  run_load_stage "plugin loading" env \
+    PLATFORM_BASE_URL="$PLATFORM_BASE_URL" \
     PLATFORM_TOKEN="$LOADER_SA_KEY" \
     SKIP_MISSING_IMAGE_TAR="$CONTINUE_ON_BUILD_FAILURE" \
     "$SCRIPT_DIR/load-plugins.sh" --rebuild $CATEGORY_ARG $CLEANUP_ARG
@@ -515,8 +535,14 @@ if _truthy "$LOAD_TEMPLATES"; then
   # Template create runs the same plugin/template validation as pipeline create —
   # wait for both services so the load doesn't race a still-starting compliance
   # service (the failure that motivated this gate).
-  gate_services_ready compliance pipeline || exit 1
-  PLATFORM_BASE_URL="$PLATFORM_BASE_URL" PLATFORM_TOKEN="$SETUP_SA_KEY" "$SCRIPT_DIR/load-templates.sh"
+  # A gate failure is recorded like any other stage failure rather than aborting:
+  # the next stage may well be able to run, and the summary says what did not.
+  if gate_services_ready compliance pipeline; then
+    run_load_stage "template loading" env \
+      PLATFORM_BASE_URL="$PLATFORM_BASE_URL" PLATFORM_TOKEN="$SETUP_SA_KEY" "$SCRIPT_DIR/load-templates.sh"
+  else
+    FAILED_STAGES+=("template loading (services not ready)")
+  fi
 else
   echo "  Skipping pipeline template loading."
 fi
@@ -527,8 +553,12 @@ echo ""
 prompt_toggle LOAD_COMPLIANCE "Load sample compliance rules and policy templates? [y/N]"
 if _truthy "$LOAD_COMPLIANCE"; then
   # load-compliance talks straight to the compliance service — wait for it.
-  gate_services_ready compliance || exit 1
-  PLATFORM_BASE_URL="$PLATFORM_BASE_URL" PLATFORM_TOKEN="$SETUP_SA_KEY" "$SCRIPT_DIR/load-compliance.sh"
+  if gate_services_ready compliance; then
+    run_load_stage "compliance loading" env \
+      PLATFORM_BASE_URL="$PLATFORM_BASE_URL" PLATFORM_TOKEN="$SETUP_SA_KEY" "$SCRIPT_DIR/load-compliance.sh"
+  else
+    FAILED_STAGES+=("compliance loading (services not ready)")
+  fi
 else
   echo "  Skipping compliance loading."
 fi
@@ -539,4 +569,13 @@ fi
 # No separate load step is required here.
 
 echo ""
+if [ ${#FAILED_STAGES[@]} -gt 0 ]; then
+  echo "=== Initialization INCOMPLETE ==="
+  echo "These load stages failed:"
+  for stage in "${FAILED_STAGES[@]}"; do echo "  - $stage"; done
+  echo ""
+  echo "Everything else above completed. Re-run this script to retry the failed"
+  echo "stages; the loaders are idempotent."
+  exit 1
+fi
 echo "=== Initialization complete ==="

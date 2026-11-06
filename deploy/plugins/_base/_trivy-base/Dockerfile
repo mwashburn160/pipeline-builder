@@ -22,7 +22,7 @@
 # — worth pinning the whole family by digest, which is a change to all of them rather than
 # to this file alone.
 
-ARG TRIVY_VERSION=0.76.1
+ARG TRIVY_VERSION=0.76.2
 
 FROM aquasec/trivy:${TRIVY_VERSION} AS trivy-src
 

@@ -35,14 +35,26 @@ interface ScrapeTarget {
   /** Label value for the `queue` dimension on the gauge. */
   name: string;
   queue: Queue;
+  /**
+   * The tier this queue serves, when it serves one (the DLQ does not).
+   *
+   * Carried as its own LABEL rather than parsed out of the queue name by the
+   * scaling query: one replica's capacity for a queue is that tier's worker
+   * concurrency, so "how many replicas would clear this backlog" is
+   * `jobs / concurrency` per tier, and that join needs a tier label on both
+   * sides. Without it the autoscaler had to treat every queued job as equally
+   * absorbable, which under-provisioned a single-tier backlog by the ladder's
+   * whole spread.
+   */
+  tier?: string;
 }
 
 async function scrapeOnce(targets: ScrapeTarget[]): Promise<void> {
-  await Promise.all(targets.map(async ({ name, queue }) => {
+  await Promise.all(targets.map(async ({ name, queue, tier }) => {
     try {
       const counts = await queue.getJobCounts(...STATES);
       for (const state of STATES) {
-        setGauge('plugin_queue_jobs', { queue: name, state }, counts[state] ?? 0);
+        setGauge('plugin_queue_jobs', { queue: name, state, ...(tier ? { tier } : {}) }, counts[state] ?? 0);
       }
     } catch (err) {
       // Don't crash the scraper on a transient Redis hiccup — the next tick

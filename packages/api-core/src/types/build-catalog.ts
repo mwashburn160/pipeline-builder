@@ -202,6 +202,10 @@ export const BUILD_TIER_LADDER: readonly QuotaTier[] = [
  * cap is fairness between tenants sharing this queue. A tier whose concurrency
  * sits below its slot cap cannot reach that cap at all, which is why the worker
  * warns about it on start.
+ *
+ * Monotonic across the PAID rungs only. `unlimited` sits at the bottom, not the
+ * top: it is not a purchased tier but the absence of billing, which correlates
+ * with the smallest hardware — see its own note below.
  */
 export const BUILD_TIER_CONCURRENCY: Readonly<Record<QuotaTier, number>> = {
   developer: 1,
@@ -209,13 +213,49 @@ export const BUILD_TIER_CONCURRENCY: Readonly<Record<QuotaTier, number>> = {
   team: 2,
   business: 3,
   enterprise: 4,
-  // Billing disabled: nothing is capped, so the ceiling is the pool itself.
-  unlimited: 4,
+  /**
+   * ONE, and the lowest row — deliberately NOT the most generous.
+   *
+   * `unlimited` means "billing is not configured", which in practice is a
+   * single-node install (local, minikube, a fresh cluster), and it is also the
+   * SYSTEM ORG's tier — the org that loads the whole sample catalogue on first
+   * boot. Giving it 4 handed the highest concurrency to the tier most likely to
+   * be running on the smallest hardware.
+   *
+   * It cost an install: 8 plugin replicas x 4 = 32 concurrent builds, each
+   * asking the image registry to sign a 7-17 MiB SBOM against its 1 GiB limit.
+   * The registry was OOMKilled, and because its `/token` endpoint is also the
+   * registry login, the pushes failed too — 107 of 117 plugins never came up.
+   * The earlier default of 1 (then a global knob) had produced 95 of 119.
+   *
+   * Raise it per deployment with `PLUGIN_BUILD_CONCURRENCY_UNLIMITED` once the
+   * registry's memory and a signing bound say the fan-in is safe.
+   */
+  unlimited: 1,
 };
 
 // ---------------------------------------------------------------------------
 // Accessors
 // ---------------------------------------------------------------------------
+
+/**
+ * What ONE replica may run at once if every tier queue is busy: the SUM of the
+ * ladder, because a replica starts one BullMQ Worker per tier and each carries
+ * its own concurrency.
+ *
+ * This number was never written down, and that is the point of writing it down.
+ * The incident arithmetic everyone reasoned with — "8 replicas x 4 = 32" — is
+ * the single-tier case (a catalogue load is all system-org). A mixed fleet
+ * reaches `replicas x this`, which is 13 per replica and 104 across the eight a
+ * plugin deployment scales to. The ladder's rows therefore set a fleet ceiling
+ * that nothing declared and nobody chose.
+ *
+ * `PLUGIN_MAX_BUILDS_PER_REPLICA` defaults to this, so raising a tier row cannot
+ * silently raise what one replica puts on its single buildkitd sidecar — it
+ * binds at this figure and the worker says so on start.
+ */
+export const BUILD_LADDER_CONCURRENCY_SUM: number =
+  BUILD_TIER_LADDER.reduce((n, tier) => n + BUILD_TIER_CONCURRENCY[tier], 0);
 
 /**
  * This tier's default worker concurrency. Falls back to the `developer` row for

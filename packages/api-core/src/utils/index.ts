@@ -13,6 +13,7 @@ export * from './api-key.js';
 export * from './safe-require.js';
 export * from './secure-compare.js';
 export * from './crash-handlers.js';
+export * from './concurrency-gate.js';
 export {
   sendSuccess,
   sendError,

@@ -231,12 +231,31 @@ describe('BUILD_TIER_CONCURRENCY', () => {
     expect(Object.keys(BUILD_TIER_CONCURRENCY).sort()).toEqual([...BUILD_TIER_LADDER].sort());
   });
 
-  it('never goes backwards up the ladder', () => {
+  it('never goes backwards up the PAID ladder', () => {
     // A paid tier that processed FEWER builds at once than a cheaper one would
-    // invert what the ladder is for.
-    const values = BUILD_TIER_LADDER.map((t) => BUILD_TIER_CONCURRENCY[t]);
+    // invert what the ladder is for. `unlimited` is excluded on purpose — see
+    // the next case.
+    const paid = BUILD_TIER_LADDER.filter((t) => t !== 'unlimited');
+    const values = paid.map((t) => BUILD_TIER_CONCURRENCY[t]);
     for (let i = 1; i < values.length; i++) {
       expect(values[i]!).toBeGreaterThanOrEqual(values[i - 1]!);
+    }
+  });
+
+  it('puts `unlimited` at the FLOOR, not the ceiling', () => {
+    // `unlimited` is the absence of billing, not a purchased tier: a single-node
+    // install, and the system org that loads the whole sample catalogue on first
+    // boot. It was set to 4 — the joint highest — which gave the most concurrency
+    // to the smallest deployments. 8 replicas x 4 = 32 concurrent builds each
+    // sending the image registry a 7-17 MiB SBOM to sign against a 1 GiB limit
+    // OOMKilled the registry, and with it every push (its /token endpoint is the
+    // registry login): 107 of 117 plugins failed where 1 had produced 95 of 119.
+    //
+    // Pinned, because the obvious "unlimited means uncapped" reading is what put
+    // a 4 here in the first place.
+    expect(BUILD_TIER_CONCURRENCY.unlimited).toBe(1);
+    for (const tier of BUILD_TIER_LADDER) {
+      expect(BUILD_TIER_CONCURRENCY.unlimited).toBeLessThanOrEqual(BUILD_TIER_CONCURRENCY[tier]);
     }
   });
 

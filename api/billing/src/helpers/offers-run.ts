@@ -152,6 +152,13 @@ export async function runOfferCycle(now: Date = new Date()): Promise<OfferCycleR
         emitCounter('billing_offers_total', { outcome: 'suppressed', reason });
       }
     } catch (err) {
+      // COUNTED, not only logged. Everything else about this cycle is counted —
+      // sent, and suppressed per reason — so a cycle that throws on every
+      // account emitted NOTHING and was indistinguishable from a cycle with no
+      // eligible accounts. That is also why no alert could be written for it:
+      // "the counter is flat" is the normal state of a small install, whereas
+      // "accounts are erroring" never is.
+      emitCounter('billing_offers_total', { outcome: 'error' });
       logger.warn('Offer cycle skipped an account', { orgId, error: errorMessage(err) });
     }
   }

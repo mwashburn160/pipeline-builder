@@ -33,6 +33,7 @@ import {
   mintRepositoryPushToken,
 } from './registry-client.js';
 import { config } from '../config/index.js';
+import { withSigningSlot } from './signing-gate.js';
 
 const logger = createLogger('plugin-signing');
 
@@ -324,15 +325,20 @@ export async function signPluginImage({ repository, digest, sbomPath, annotation
   // a scratch dir created and deleted here held nothing once the SBOM stopped
   // being re-serialized into it.
   if (isPublic) await dropSignature(repository, digest);
-  // One short-lived credential per cosign step — each is bounded by the signing
-  // timeout, and a registry token only lives a few minutes.
-  for (const args of [
-    ['sign', '--key', key.key, ...annotationArgs(annotations), ...COSIGN_SIGN_FLAGS, '--yes', ...registryFlags(), ref],
-    ['attest', '--key', key.key, '--type', 'spdxjson', '--predicate', predicate,
-      ...(isPublic ? ['--replace'] : []), ...COSIGN_SIGN_FLAGS, '--yes', ...registryFlags(), ref],
-  ]) {
-    await withCredential(repository, 'push', (env) => cosign(args, { ...env, ...key.env }));
-  }
+  // Inside the gate: the `attest` step hands cosign the whole SBOM, and it is
+  // the concurrency of THAT which decides whether this process survives a build
+  // storm (see `signing-gate.ts`). Everything above is cheap registry metadata.
+  await withSigningSlot('sign', async () => {
+    // One short-lived credential per cosign step — each is bounded by the signing
+    // timeout, and a registry token only lives a few minutes.
+    for (const args of [
+      ['sign', '--key', key.key, ...annotationArgs(annotations), ...COSIGN_SIGN_FLAGS, '--yes', ...registryFlags(), ref],
+      ['attest', '--key', key.key, '--type', 'spdxjson', '--predicate', predicate,
+        ...(isPublic ? ['--replace'] : []), ...COSIGN_SIGN_FLAGS, '--yes', ...registryFlags(), ref],
+    ]) {
+      await withCredential(repository, 'push', (env) => cosign(args, { ...env, ...key.env }));
+    }
+  });
   logger.info('Signed plugin image', { repository, digest, mode: config.pluginSigning.mode, annotated: !!annotations });
 }
 

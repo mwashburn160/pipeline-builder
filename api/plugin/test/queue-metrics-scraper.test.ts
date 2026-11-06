@@ -67,6 +67,39 @@ describe('startQueueMetricsScraper', () => {
     }
   });
 
+  it('labels a tier queue with its TIER, which the autoscaler divides by', async () => {
+    // The scaling signal is `jobs / plugin_build_tier_concurrency` joined `on(tier)`:
+    // one replica clears a tier's concurrency, not a flat number of jobs. Without
+    // this label the join finds nothing and a single-tier backlog — every fresh
+    // install's catalogue load is entirely system-org — is treated as if each
+    // replica could absorb the ladder's whole sum, which under-provisioned it.
+    const q = makeQueue({ waiting: 7, active: 1, completed: 0, failed: 0, delayed: 0 });
+    startQueueMetricsScraper([{ name: 'plugin-builds-unlimited', queue: q, tier: 'unlimited' }], 15_000);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(mockSetGauge).toHaveBeenCalledWith(
+      'plugin_queue_jobs',
+      { queue: 'plugin-builds-unlimited', state: 'waiting', tier: 'unlimited' },
+      7,
+    );
+  });
+
+  it('leaves the tier label OFF a queue that serves no tier', async () => {
+    // The DLQ. An empty-string tier would create a bogus series that the
+    // autoscaler's join would then try to divide by.
+    const q = makeQueue({ waiting: 2, active: 0, completed: 0, failed: 0, delayed: 0 });
+    startQueueMetricsScraper([{ name: 'plugin-build-dlq', queue: q }], 15_000);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(mockSetGauge).toHaveBeenCalledWith(
+      'plugin_queue_jobs',
+      { queue: 'plugin-build-dlq', state: 'waiting' },
+      2,
+    );
+  });
+
   it('repeats on each tick of the interval', async () => {
     const q = makeQueue({ waiting: 1, active: 0, completed: 0, failed: 0, delayed: 0 });
     startQueueMetricsScraper([{ name: 'plugin-build', queue: q }], 1000);

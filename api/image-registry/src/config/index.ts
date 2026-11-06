@@ -97,6 +97,10 @@ export interface AppConfig {
     readonly kmsKeyId: string;
     /** Upper bound on one cosign invocation (env: `PLUGIN_SIGNING_TIMEOUT_MS`). */
     readonly timeoutMs: number;
+    /** Signing operations allowed AT ONCE in this process — the bound that keeps
+     *  a build storm from OOMKilling the service (env:
+     *  `REGISTRY_SIGN_MAX_CONCURRENT`). */
+    readonly maxConcurrentSigns: number;
   };
 }
 
@@ -130,6 +134,21 @@ export function loadConfig(): AppConfig {
       keyFile: process.env.PLUGIN_SIGNING_KEY_FILE || '/etc/pipeline-builder/plugin-signing/plugin-signing.key',
       kmsKeyId: process.env.PLUGIN_SIGNING_KMS_KEY_ID || '',
       timeoutMs: envInt('PLUGIN_SIGNING_TIMEOUT_MS', 120_000, { min: 1 }),
+      /**
+       * How many signing operations run AT ONCE in this process.
+       *
+       * This service's memory is the binding constraint on the whole build
+       * fan-in, and nothing used to bound it: every concurrent build asks for a
+       * signature, each attest hands cosign a 7-17 MiB SBOM, and 32 at once
+       * peaked at 1019 MiB against a 1 GiB limit and was OOMKilled. That takes
+       * pushes down too — the registry login is this service's `/token` — so one
+       * number here decides whether a build storm survives.
+       *
+       * 4 is deliberately below what 1 GiB measured out at (~31 MiB per
+       * in-flight sign, so ~32 was the cliff). Raise it only together with the
+       * container's memory limit.
+       */
+      maxConcurrentSigns: envInt('REGISTRY_SIGN_MAX_CONCURRENT', 4, { min: 1 }),
     },
   };
 }

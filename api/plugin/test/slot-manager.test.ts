@@ -128,8 +128,9 @@ registerMocks();
 
 const mod0 = await import('../src/queue/slot-manager.js');
 const {
-  releaseOrgSlot, scrubOrgSlots, refreshOrgSlot, startOrgSlotHeartbeat, MAX_SLOT_DELAYS, maxBuildsPerOrg,
-  orgSlotExempt, orgSlotSnapshot,
+  releaseOrgSlot, scrubOrgSlots, refreshOrgSlot, startOrgSlotHeartbeat, maxBuildsPerOrg,
+  orgSlotWaitExempt, systemOrgSlotCap, orgSlotSnapshot,
+  orgSlotRetryDelayMs, ORG_SLOT_WAIT_BUDGET_MS, orgSlotsBackedByLiveBuilds,
 } = mod0;
 const { SYSTEM_ORG_ID } = await import('@pipeline-builder/api-core');
 
@@ -273,21 +274,23 @@ describe('startOrgSlotHeartbeat', () => {
   });
 });
 
-describe('MAX_SLOT_DELAYS', () => {
-  it('is the wait budget divided by the retry delay, so the two cannot disagree', () => {
-    // Defaults: 1_800_000ms budget / 10_000ms delay = 180 delays (30 minutes).
-    expect(MAX_SLOT_DELAYS).toBe(180);
+describe('the wait budget', () => {
+  it('is elapsed TIME, not a count of delays', () => {
+    // It was `MAX_WAIT / DELAY` = 180 attempts, which equals 30 minutes only
+    // while every interval is exactly 10s. The interval now backs off to 60s, so
+    // a count would span hours — and the refusal message always claimed to report
+    // seconds waited, which is what this now is.
+    expect(ORG_SLOT_WAIT_BUDGET_MS).toBe(1_800_000);
   });
 
-  it('never falls below one delay, however small the budget is set', async () => {
+  it('follows PLUGIN_ORG_SLOT_MAX_WAIT_MS', async () => {
     jest.resetModules();
-    process.env.PLUGIN_ORG_SLOT_MAX_WAIT_MS = '1';
+    process.env.PLUGIN_ORG_SLOT_MAX_WAIT_MS = '60000';
     registerMocks();
     const fresh = await import('../src/queue/slot-manager.js');
     delete process.env.PLUGIN_ORG_SLOT_MAX_WAIT_MS;
 
-    // A zero budget would reject every build on its first slot denial.
-    expect(fresh.MAX_SLOT_DELAYS).toBe(1);
+    expect(fresh.ORG_SLOT_WAIT_BUDGET_MS).toBe(60_000);
   });
 });
 
@@ -564,62 +567,68 @@ describe('per-class, per-tier caps', () => {
 });
 
 // ---------------------------------------------------------------------------
-// The system org is not a tenant
+// The system org is not a tenant — but it is still bounded
 // ---------------------------------------------------------------------------
 
-describe('the system org is exempt from the per-org semaphore', () => {
+describe('the system org holds a finite slot and never fails for waiting', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     resetRedis();
   });
 
-  it('grants without touching Redis at all', async () => {
+  it('takes a REAL slot from a real counter, unlike the old blanket exemption', async () => {
+    // It used to be granted without touching Redis — no counter, no owner
+    // record, nothing to leak, and nothing to bound it either. That is what let
+    // 8 replicas x 4 worker concurrency put 32 builds in flight and OOMKill the
+    // image registry, losing 107 of 117 plugins.
     expect(await acquire(SYSTEM_ORG_ID, 'q:job-1')).toBe(true);
-    // No counter, no owner record, and no script run: there is nothing to
-    // release, nothing to heartbeat and nothing that can leak.
-    expect(mockEval).not.toHaveBeenCalled();
-    expect(count(SYSTEM_ORG_ID)).toBe(0);
-    expect(owners()).toEqual({});
+    expect(mockEval).toHaveBeenCalled();
+    expect(count(SYSTEM_ORG_ID)).toBe(1);
+    expect(Object.keys(owners())).toContain('q:job-1');
   });
 
-  it('grants far past the cap, which is the install case that failed', async () => {
-    // A fresh install enqueues the whole catalogue under this one org. On the
-    // roomiest row the cap is 8; the Nov 4 slot gate failed 80 of 119 builds
-    // terminally after each waited out PLUGIN_ORG_SLOT_MAX_WAIT_MS.
-    for (let i = 0; i < 120; i++) {
+  it('stops at PLUGIN_SYSTEM_ORG_MAX_BUILDS instead of granting without limit', async () => {
+    const cap = systemOrgSlotCap();
+    for (let i = 0; i < cap; i++) {
       expect(await acquire(SYSTEM_ORG_ID, `q:job-${i}`)).toBe(true);
     }
+    // The next one is DENIED — which is the point, and is safe only because the
+    // wait below never turns terminal for this org.
+    expect(await acquire(SYSTEM_ORG_ID, 'q:one-too-many')).toBe(false);
+    expect(count(SYSTEM_ORG_ID)).toBe(cap);
   });
 
-  it('matches the org ID, case-insensitively, and NOT the slug', () => {
-    expect(orgSlotExempt(SYSTEM_ORG_ID)).toBe(true);
-    // Case-insensitive because the id is hex and hex is: a differently-cased id
-    // resolves to the same Mongo document while a string compare disagrees.
-    expect(orgSlotExempt(SYSTEM_ORG_ID.toUpperCase())).toBe(true);
-
-    // The bare slug is NOT exempt, and that is deliberate rather than an
-    // oversight: this path receives `job.data.orgId`, an ObjectId, and treating
-    // the NAME 'system' as an id would exempt whatever org actually carried that
-    // string as its id. `isSystemOrgId` takes the slug as its SECOND argument
-    // precisely so the two cannot be confused.
-    expect(orgSlotExempt('system')).toBe(false);
+  it('is exempt from the WAIT becoming terminal, which is the other half', () => {
+    // The cap bounds the fan-out; this is what keeps a 119-plugin catalogue from
+    // failing 80 builds for being merely LATE (the Nov 4 install). Both halves
+    // were one flag, and each collapse cost an install in the opposite way.
+    expect(orgSlotWaitExempt(SYSTEM_ORG_ID)).toBe(true);
+    // Case-insensitive because the id is hex: a differently-cased id resolves to
+    // the same Mongo document while a string compare disagrees.
+    expect(orgSlotWaitExempt(SYSTEM_ORG_ID.toUpperCase())).toBe(true);
+    // The bare SLUG is not, deliberately: this path receives `job.data.orgId`,
+    // an ObjectId, and treating the NAME 'system' as an id would carve out
+    // whatever org actually carried that string. `isSystemOrgId` takes the slug
+    // as its SECOND argument precisely so the two cannot be confused.
+    expect(orgSlotWaitExempt('system')).toBe(false);
   });
 
-  it('releases as a no-op, so a scrub cannot miscount a reclaim', async () => {
+  it('releases its slot like any other org, so a scrub counts the reclaim', async () => {
     await acquire(SYSTEM_ORG_ID, 'q:job-1');
-    expect(await releaseOrgSlot(SYSTEM_ORG_ID, 'q:job-1', 'standard')).toBe(false);
+    expect(await releaseOrgSlot(SYSTEM_ORG_ID, 'q:job-1', 'standard')).toBe(true);
     expect(count(SYSTEM_ORG_ID)).toBe(0);
   });
 
-  it('runs no heartbeat timer', async () => {
+  it('heartbeats its slot like any other org, so a long catalogue build cannot lose it', async () => {
     jest.useFakeTimers();
     try {
       await acquire(SYSTEM_ORG_ID, 'q:job-1');
       const stop = startOrgSlotHeartbeat(SYSTEM_ORG_ID, 'q:job-1', 'standard');
       await jest.advanceTimersByTimeAsync(3_600_000);
-      // Without the carve-out this logged "found no owner record" every 300s
-      // for the lifetime of every system-org build.
-      expect(expiresFor(SYSTEM_ORG_ID)).toBeUndefined();
+      // It holds a REAL slot now, so the TTL has to be refreshed or the scrubber
+      // would reclaim a slot still in use. Under the old blanket exemption there
+      // was no slot and this timer only logged "found no owner record".
+      expect(expiresFor(SYSTEM_ORG_ID)).toBeDefined();
       expect(() => stop()).not.toThrow();
     } finally {
       jest.useRealTimers();
@@ -773,10 +782,13 @@ describe('PLUGIN_ORG_BUILD_SLOTS_* are per-class baselines the ladder raises', (
     expect(maxBuildsPerOrg('enterprise', 'flexible')).toBe(16);
   });
 
-  it('does not apply to the system org, which takes no slot at all', async () => {
+  it('is overridden for the system org by PLUGIN_SYSTEM_ORG_MAX_BUILDS', async () => {
+    // Not exempt — it takes a slot from a counter like anyone else — but the
+    // figure is its own, so a catalogue load is not held to a tenant's row.
     const { SYSTEM_ORG_ID: sys } = await import('@pipeline-builder/api-core');
     expect(await acquire(sys, 'q:job-1', 'developer', 'standard')).toBe(true);
-    expect(mockEval).not.toHaveBeenCalled();
+    expect(mockEval).toHaveBeenCalled();
+    expect(count(sys)).toBe(1);
   });
 });
 
@@ -844,9 +856,128 @@ describe('orgSlotSnapshot', () => {
     for (const row of snapshot) expect(row.held).toBe(1);
   });
 
-  it('does not count the exempt system org, which holds no slot', async () => {
+  it('counts the system org, which is the one whose fan-out needed watching', async () => {
+    // It was invisible here while it was exempt — the org that loads the whole
+    // catalogue was the only one the snapshot could not show, which is exactly
+    // the org an operator wants to see during a first boot.
     const { SYSTEM_ORG_ID: sys } = await import('@pipeline-builder/api-core');
     await acquire(sys, 'q:job-1', 'enterprise', 'standard');
-    await expect(orgSlotSnapshot()).resolves.toEqual([]);
+    await expect(orgSlotSnapshot()).resolves.toEqual([
+      { orgId: sys, buildClass: 'standard', held: 1, counted: 1, leaked: 0 },
+    ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Waiting: how often, and for how long
+// ---------------------------------------------------------------------------
+
+describe('the retry interval backs off', () => {
+  it('doubles from the base delay and caps', () => {
+    // A fixed 10s poll is pure waste once an org is parked at its cap: 569 jobs
+    // waiting is ~57 Redis acquire attempts a second, every one known to fail,
+    // for builds that take minutes. Backing off to 60s cuts that ~6x and costs
+    // at most a minute of latency on a job already waiting an hour.
+    expect(orgSlotRetryDelayMs(1)).toBe(10_000);
+    expect(orgSlotRetryDelayMs(2)).toBe(20_000);
+    expect(orgSlotRetryDelayMs(3)).toBe(40_000);
+    expect(orgSlotRetryDelayMs(4)).toBe(60_000);
+    expect(orgSlotRetryDelayMs(50)).toBe(60_000);
+  });
+
+  it('keeps the FIRST wait short, so the common case is still quick', () => {
+    // Most denials clear in seconds; the backoff is for the pathological backlog.
+    expect(orgSlotRetryDelayMs(1)).toBeLessThanOrEqual(10_000);
+  });
+
+  it('measures the budget as elapsed TIME, not a count of attempts', () => {
+    // It used to be MAX_WAIT / DELAY = 180 attempts, which equals 30 minutes only
+    // while every interval is exactly 10s. With a backoff the same 180 attempts
+    // span hours.
+    expect(ORG_SLOT_WAIT_BUDGET_MS).toBe(1_800_000);
+  });
+});
+
+describe('orgSlotsBackedByLiveBuilds', () => {
+  beforeEach(() => { jest.clearAllMocks(); resetRedis(); });
+
+  it('is TRUE when every counted slot has a live owner — busy, not stuck', async () => {
+    await acquire('org-a', 'q:job-1');
+    await acquire('org-a', 'q:job-2');
+    expect(await orgSlotsBackedByLiveBuilds('org-a', 'standard')).toBe(true);
+  });
+
+  it('is FALSE when the counter has drifted above its owners — the leaked case', async () => {
+    await acquire('org-a', 'q:job-1');
+    // Counter says 4, one owner record: three slots leaked (a worker died between
+    // the INCR and its owner record's TTL). No amount of waiting clears that, so
+    // the deadline SHOULD apply here — this is the case it was written for.
+    strings.set('pb:org-build:org-a:standard', 4);
+    expect(await orgSlotsBackedByLiveBuilds('org-a', 'standard')).toBe(false);
+  });
+
+  it('is FALSE when nothing is counted at all', async () => {
+    expect(await orgSlotsBackedByLiveBuilds('org-a', 'standard')).toBe(false);
+  });
+
+  it('counts only THIS org and class, not the whole owner hash', async () => {
+    await acquire('org-a', 'q:job-1');
+    await acquire('org-b', 'q:job-2');
+    await acquire('org-b', 'q:job-3');
+    // org-a has one owner and a counter of one; org-b's two must not count toward it.
+    expect(await orgSlotsBackedByLiveBuilds('org-a', 'standard')).toBe(true);
+    strings.set('pb:org-build:org-a:standard', 2);
+    expect(await orgSlotsBackedByLiveBuilds('org-a', 'standard')).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fairness between tenants sharing one tier queue
+// ---------------------------------------------------------------------------
+
+describe('one org flooding the queue cannot starve another on the same tier', () => {
+  beforeEach(() => { jest.clearAllMocks(); resetRedis(); });
+
+  it('admits the quiet org while the loud one sits at its cap', async () => {
+    // The whole reason the per-org cap exists. Both orgs share ONE tier queue, so
+    // nothing in BullMQ separates them: the counter is what does. A 100-plugin
+    // upload by org-a must not make org-b's single build wait behind it.
+    // Tier passed explicitly: the helper defaults to `enterprise`, whose cap is
+    // a different number, and filling to the wrong one proves nothing.
+    const cap = maxBuildsPerOrg('developer', 'standard');
+    for (let i = 0; i < cap; i++) {
+      expect(await acquire('org-a', `q:a-${i}`, 'developer')).toBe(true);
+    }
+    // org-a is full and stays full.
+    expect(await acquire('org-a', 'q:a-overflow', 'developer')).toBe(false);
+    // org-b is unaffected — its counter is its own.
+    expect(await acquire('org-b', 'q:b-1', 'developer')).toBe(true);
+    expect(count('org-b')).toBe(1);
+  });
+
+  it('keeps the two counters independent when the loud org releases', async () => {
+    const cap = maxBuildsPerOrg('developer', 'standard');
+    for (let i = 0; i < cap; i++) await acquire('org-a', `q:a-${i}`, 'developer');
+    await acquire('org-b', 'q:b-1', 'developer');
+
+    await releaseOrgSlot('org-a', 'q:a-0', 'standard');
+
+    // A slot freed by org-a goes back to org-a's budget, not to a shared pool —
+    // org-b's occupancy is untouched either way.
+    expect(count('org-a')).toBe(cap - 1);
+    expect(count('org-b')).toBe(1);
+    expect(await acquire('org-a', 'q:a-again', 'developer')).toBe(true);
+  });
+
+  it('counts the two CLASSES separately, so flexible work cannot block standard', async () => {
+    // A tenant burning through flexible builds must still be able to run the
+    // standard build someone is waiting on — the classes have their own caps and
+    // their own counters for exactly that.
+    const flexCap = maxBuildsPerOrg('developer', 'flexible');
+    for (let i = 0; i < flexCap; i++) {
+      expect(await acquire('org-a', `q:flex-${i}`, 'developer', 'flexible')).toBe(true);
+    }
+    expect(await acquire('org-a', 'q:flex-overflow', 'developer', 'flexible')).toBe(false);
+    expect(await acquire('org-a', 'q:std-1', 'developer', 'standard')).toBe(true);
   });
 });

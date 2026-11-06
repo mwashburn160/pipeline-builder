@@ -3001,3 +3001,430 @@ tests:
             exp_annotations:
               summary: "Leaked org build slots were reclaimed"
               description: "1 flexible-class org build slot(s) were reclaimed by the scrubber in the last hour. A leaked slot PERMANENTLY reduces that org's build concurrency until a scrub reclaims it, so capacity shrinks silently and the org's builds queue for no visible reason. Each reclaim means a worker died holding a slot: check for plugin pod restarts and OOM kills. The \"Reclaimed leaked org build slot\" log line names the job and org."
+
+  # AuditHashComputationFailed — one row written with a sentinel hash fires; a
+  # quiet hour does not. The point of the pair: this counter should be flat zero
+  # forever, so the alert must not need a threshold to be meaningful, and it must
+  # not fire on the absence of the series either.
+  - interval: 5m
+    input_series:
+      - series: 'platform_audit_hash_error_total{action="organization.update",service="platform",pod="platform-aaa"}'
+        values: '0+1x20'
+    alert_rule_test:
+      - eval_time: 60m
+        alertname: AuditHashComputationFailed
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              component: audit
+              tenancy: platform
+
+  - interval: 5m
+    input_series:
+      - series: 'platform_audit_hash_error_total{action="organization.update",service="platform",pod="platform-aaa"}'
+        values: '0+0x20'
+    alert_rule_test:
+      - eval_time: 60m
+        alertname: AuditHashComputationFailed
+        exp_alerts: []
+
+  # PluginReplicaBuildBudgetSaturated — 10 concurrent builds on one replica held
+  # for the full `for: 10m` fires; nine does not; and a SPIKE shorter than the
+  # window does not, which is the case a `for` clause exists for and the one
+  # people get wrong. The three cases together say "sustained pressure, not a
+  # busy minute".
+  - interval: 1m
+    input_series:
+      - series: 'plugin_build_replica_inflight{service="plugin",pod="plugin-aaa"}'
+        values: '10+0x20'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: PluginReplicaBuildBudgetSaturated
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              component: plugin
+              tenancy: platform
+
+  - interval: 1m
+    input_series:
+      - series: 'plugin_build_replica_inflight{service="plugin",pod="plugin-aaa"}'
+        values: '9+0x20'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: PluginReplicaBuildBudgetSaturated
+        exp_alerts: []
+
+  - interval: 1m
+    input_series:
+      # Three minutes at the budget, then back down: a burst, not saturation.
+      - series: 'plugin_build_replica_inflight{service="plugin",pod="plugin-aaa"}'
+        values: '2 2 10 10 10 2 2 2 2 2 2 2'
+    alert_rule_test:
+      - eval_time: 11m
+        alertname: PluginReplicaBuildBudgetSaturated
+        exp_alerts: []
+
+  # SupportPremiumFirstResponseAtRisk — p90 premium first response past 6h fires,
+  # leaving two hours of the SOLD 8-hour target to act in. The negative control is
+  # the same traffic answered inside an hour.
+  - interval: 15m
+    input_series:
+      - series: 'support_first_response_seconds_bucket{level="support_premium",le="3600",service="message",pod="message-aaa"}'
+        values: '0+0x60'
+      - series: 'support_first_response_seconds_bucket{level="support_premium",le="21600",service="message",pod="message-aaa"}'
+        values: '0+0x60'
+      - series: 'support_first_response_seconds_bucket{level="support_premium",le="43200",service="message",pod="message-aaa"}'
+        values: '0+10x60'
+      - series: 'support_first_response_seconds_bucket{level="support_premium",le="+Inf",service="message",pod="message-aaa"}'
+        values: '0+10x60'
+    alert_rule_test:
+      - eval_time: 8h
+        alertname: SupportPremiumFirstResponseAtRisk
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              component: support
+              tenancy: platform
+
+  - interval: 15m
+    input_series:
+      - series: 'support_first_response_seconds_bucket{level="support_premium",le="3600",service="message",pod="message-aaa"}'
+        values: '0+10x60'
+      - series: 'support_first_response_seconds_bucket{level="support_premium",le="21600",service="message",pod="message-aaa"}'
+        values: '0+10x60'
+      - series: 'support_first_response_seconds_bucket{level="support_premium",le="43200",service="message",pod="message-aaa"}'
+        values: '0+10x60'
+      - series: 'support_first_response_seconds_bucket{level="support_premium",le="+Inf",service="message",pod="message-aaa"}'
+        values: '0+10x60'
+    alert_rule_test:
+      - eval_time: 8h
+        alertname: SupportPremiumFirstResponseAtRisk
+        exp_alerts: []
+
+  # SupportFirstResponseTargetMissed — the PAID-but-not-premium rule. Two scoping
+  # facts worth pinning rather than assuming: it covers priority and standard
+  # under ONE 24h threshold (premium has its own, stricter rule above), and a
+  # premium series must NOT trigger it.
+  - interval: 15m
+    input_series:
+      - series: 'support_first_response_seconds_bucket{level="support_priority",le="43200",service="message",pod="message-aaa"}'
+        values: '0+0x60'
+      - series: 'support_first_response_seconds_bucket{level="support_priority",le="86400",service="message",pod="message-aaa"}'
+        values: '0+0x60'
+      - series: 'support_first_response_seconds_bucket{level="support_priority",le="172800",service="message",pod="message-aaa"}'
+        values: '0+10x60'
+      - series: 'support_first_response_seconds_bucket{level="support_priority",le="+Inf",service="message",pod="message-aaa"}'
+        values: '0+10x60'
+    alert_rule_test:
+      - eval_time: 8h
+        alertname: SupportFirstResponseTargetMissed
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              component: support
+              tenancy: platform
+              level: support_priority
+
+  - interval: 15m
+    input_series:
+      # Premium breaching ITS target must not raise the paid-tier alert — the two
+      # carry different severities and different remedies.
+      - series: 'support_first_response_seconds_bucket{level="support_premium",le="43200",service="message",pod="message-aaa"}'
+        values: '0+0x60'
+      - series: 'support_first_response_seconds_bucket{level="support_premium",le="86400",service="message",pod="message-aaa"}'
+        values: '0+0x60'
+      - series: 'support_first_response_seconds_bucket{level="support_premium",le="172800",service="message",pod="message-aaa"}'
+        values: '0+10x60'
+      - series: 'support_first_response_seconds_bucket{level="support_premium",le="+Inf",service="message",pod="message-aaa"}'
+        values: '0+10x60'
+    alert_rule_test:
+      - eval_time: 8h
+        alertname: SupportFirstResponseTargetMissed
+        exp_alerts: []
+
+  - interval: 15m
+    input_series:
+      # The STOPPED CLOCK: a case parked on the customer records no new first
+      # response, so the counters go flat. A flat non-zero counter must read as
+      # "nothing happening", never as a breach — otherwise the desk is paged for
+      # someone else's latency, which is how an alert gets muted.
+      - series: 'support_first_response_seconds_bucket{level="support_standard",le="43200",service="message",pod="message-aaa"}'
+        values: '100+0x60'
+      - series: 'support_first_response_seconds_bucket{level="support_standard",le="86400",service="message",pod="message-aaa"}'
+        values: '100+0x60'
+      - series: 'support_first_response_seconds_bucket{level="support_standard",le="172800",service="message",pod="message-aaa"}'
+        values: '100+0x60'
+      - series: 'support_first_response_seconds_bucket{level="support_standard",le="+Inf",service="message",pod="message-aaa"}'
+        values: '100+0x60'
+    alert_rule_test:
+      - eval_time: 8h
+        alertname: SupportFirstResponseTargetMissed
+        exp_alerts: []
+
+  # SupportSendsWithoutEntitlement — the support paywall is a QUOTA check
+  # (supportContacts is 0 on every tier), so unentitled sends are the signal that
+  # people are trying to open cases they cannot. A trickle is expected; 20+ an
+  # hour is a broken designation flow.
+  - interval: 5m
+    input_series:
+      - series: 'support_cases_total{action="unentitled",service="message",pod="message-aaa"}'
+        values: '0+5x30'
+    alert_rule_test:
+      - eval_time: 90m
+        alertname: SupportSendsWithoutEntitlement
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              component: support
+              tenancy: platform
+
+  - interval: 5m
+    input_series:
+      # Two an hour: somebody poking at it, not a broken flow.
+      - series: 'support_cases_total{action="unentitled",service="message",pod="message-aaa"}'
+        values: '0+1x30'
+    alert_rule_test:
+      - eval_time: 90m
+        alertname: SupportSendsWithoutEntitlement
+        exp_alerts: []
+
+  # SupportCaseInsertFailing — a case the customer believes they opened and that
+  # was never stored. One is enough; this has no healthy level.
+  - interval: 5m
+    input_series:
+      - series: 'support_cases_total{action="open_failed",service="message",pod="message-aaa"}'
+        values: '0 0 1 1 1 1 1 1'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: SupportCaseInsertFailing
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              component: support
+              tenancy: platform
+
+  - interval: 5m
+    input_series:
+      - series: 'support_cases_total{action="open_failed",service="message",pod="message-aaa"}'
+        values: '0+0x8'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: SupportCaseInsertFailing
+        exp_alerts: []
+
+  # PluginVulnDbStale vs PluginVulnDbAgeUnknown — two DIFFERENT failures that look
+  # alike from a dashboard: a DB that is old, and a DB whose age cannot be known
+  # because `grype db status` failed and the gauge was never set. Scanning against
+  # a stale DB returns a confident FALSE-CLEAN result; the absent case is worse,
+  # because an age comparison against nothing is silently never true. Hence both
+  # alerts, and hence both of these.
+  - interval: 15m
+    input_series:
+      # Built 48h before the series starts, never refreshed. Timestamps are
+      # absolute seconds, so the value stays put while time() advances.
+      - series: 'plugin_vuln_db_built_timestamp_seconds{service="plugin",pod="plugin-aaa"}'
+        values: '-172800+0x20'
+    alert_rule_test:
+      - eval_time: 1h
+        alertname: PluginVulnDbStale
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              component: plugin
+              tenancy: platform
+      - eval_time: 1h
+        # The age is KNOWN here, so the twin must stay quiet: firing both would
+        # tell an operator to look in two places for one fault.
+        alertname: PluginVulnDbAgeUnknown
+        exp_alerts: []
+
+  - interval: 15m
+    input_series:
+      # No DB gauge at all, and some other plugin metric present so the service
+      # is clearly up — this is "grype has no valid DB", not "the pod is down".
+      - series: 'plugin_vuln_findings_total{severity="critical",service="plugin",pod="plugin-aaa"}'
+        values: '0+0x20'
+    alert_rule_test:
+      - eval_time: 4h
+        alertname: PluginVulnDbAgeUnknown
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              component: plugin
+              tenancy: platform
+      - eval_time: 4h
+        # And the age alert CANNOT fire, which is the whole reason its twin exists.
+        alertname: PluginVulnDbStale
+        exp_alerts: []
+
+  # PluginVulnFlaggedVersionsJump — a STEP in flagged versions means one shared
+  # cause (a base image, a bundled toolchain), which is actionable. A gradual
+  # climb is the fleet growing and must stay quiet, or the signal that identifies
+  # a common cause gets muted by ordinary churn.
+  - interval: 1h
+    input_series:
+      # Flat at 4 for a day, then 12: eight more than 24h ago.
+      - series: 'plugin_vuln_flagged_versions{service="plugin",pod="plugin-aaa"}'
+        values: '4+0x24 12+0x6'
+    alert_rule_test:
+      - eval_time: 26h
+        alertname: PluginVulnFlaggedVersionsJump
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              component: plugin
+              tenancy: platform
+
+  - interval: 1h
+    input_series:
+      # Four more over a whole day, one at a time: below the step threshold.
+      - series: 'plugin_vuln_flagged_versions{service="plugin",pod="plugin-aaa"}'
+        values: '4+0x12 5+0x4 6+0x4 7+0x4 8+0x6'
+    alert_rule_test:
+      - eval_time: 26h
+        alertname: PluginVulnFlaggedVersionsJump
+        exp_alerts: []
+
+  # The three waiver alerts. A waiver is someone asserting "this CVE is accepted",
+  # so each failure mode is a belief that has quietly stopped being true.
+  - interval: 15m
+    input_series:
+      # Unmatched: the entry exempts a finding no scanned version carries. Usually
+      # a misspelled target — matched exactly, case-insensitively.
+      - series: 'plugin_vuln_waiver_unmatched{plugin="my-plugin",targets="CVE-2026-0001",service="plugin",pod="plugin-aaa"}'
+        values: '1+0x20'
+    alert_rule_test:
+      - eval_time: 2h
+        alertname: PluginVulnWaiverUnmatched
+        exp_alerts:
+          - exp_labels:
+              severity: info
+              component: plugin
+              tenancy: platform
+              plugin: my-plugin
+              targets: CVE-2026-0001
+
+  - interval: 15m
+    input_series:
+      # A waiver that IS matching must not page: this is the normal state of an
+      # accepted risk.
+      - series: 'plugin_vuln_waiver_unmatched{plugin="my-plugin",targets="CVE-2026-0001",service="plugin",pod="plugin-aaa"}'
+        values: '0+0x20'
+    alert_rule_test:
+      - eval_time: 2h
+        alertname: PluginVulnWaiverUnmatched
+        exp_alerts: []
+
+  - interval: 15m
+    input_series:
+      - series: 'plugin_vuln_waivers_invalid{service="plugin",pod="plugin-aaa"}'
+        values: '2+0x20'
+    alert_rule_test:
+      - eval_time: 1h
+        alertname: PluginVulnWaiverInvalid
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              component: plugin
+              tenancy: platform
+
+  - interval: 15m
+    input_series:
+      # Expiring inside two weeks fires; a waiver with a month left does not. The
+      # point is lead time to rebuild or renew, not the expiry itself.
+      - series: 'plugin_vuln_waiver_days_remaining{plugin="my-plugin",service="plugin",pod="plugin-aaa"}'
+        values: '9+0x20'
+      - series: 'plugin_vuln_waiver_days_remaining{plugin="other-plugin",service="plugin",pod="plugin-aaa"}'
+        values: '30+0x20'
+    alert_rule_test:
+      - eval_time: 2h
+        alertname: PluginVulnWaiverExpiringSoon
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              component: plugin
+              tenancy: platform
+              plugin: my-plugin
+
+  # OffersCycleErroring — one account the cycle threw on fires; a cycle that is
+  # simply quiet (nothing eligible, the normal state of a small install) does not.
+  # That pair is the reason the error counter had to exist before the alert could.
+  - interval: 5m
+    input_series:
+      - series: 'billing_offers_total{outcome="error",service="billing",pod="billing-aaa"}'
+        values: '0+1x12'
+    alert_rule_test:
+      - eval_time: 35m
+        alertname: OffersCycleErroring
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              component: billing
+              tenancy: platform
+
+  - interval: 5m
+    input_series:
+      # A cycle running happily: sends and suppressions, no errors. Must be silent.
+      - series: 'billing_offers_total{outcome="sent",type="pack",service="billing",pod="billing-aaa"}'
+        values: '0+2x12'
+      - series: 'billing_offers_total{outcome="suppressed",reason="no_rule_matched",service="billing",pod="billing-aaa"}'
+        values: '0+8x12'
+    alert_rule_test:
+      - eval_time: 35m
+        alertname: OffersCycleErroring
+        exp_alerts: []
+
+  # OfferEmailsFailing — `failed` is the relay refusing; `no_recipients` is the
+  # relay reporting zero reachable admins, which is a customer-side fact and must
+  # NOT page. Those two sharing one counter is exactly why this needs a case.
+  - interval: 5m
+    input_series:
+      - series: 'billing_offer_emails_total{outcome="failed",type="pack",service="billing",pod="billing-aaa"}'
+        values: '0+1x20'
+    alert_rule_test:
+      - eval_time: 70m
+        alertname: OfferEmailsFailing
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              component: billing
+              tenancy: platform
+
+  - interval: 5m
+    input_series:
+      - series: 'billing_offer_emails_total{outcome="no_recipients",type="pack",service="billing",pod="billing-aaa"}'
+        values: '0+3x20'
+      - series: 'billing_offer_emails_total{outcome="sent",type="pack",service="billing",pod="billing-aaa"}'
+        values: '0+5x20'
+    alert_rule_test:
+      - eval_time: 70m
+        alertname: OfferEmailsFailing
+        exp_alerts: []
+
+  # OffersExpiringUnseen — ten offers lapsed with nothing converting fires; the
+  # same volume with a single conversion does not. One conversion is enough to
+  # say delivery works and the question is a market one instead.
+  - interval: 30m
+    input_series:
+      - series: 'billing_offers_expired_total{service="billing",pod="billing-aaa"}'
+        values: '0+1x60'
+    alert_rule_test:
+      - eval_time: 26h
+        alertname: OffersExpiringUnseen
+        exp_alerts:
+          - exp_labels:
+              severity: info
+              component: billing
+              tenancy: platform
+
+  - interval: 30m
+    input_series:
+      - series: 'billing_offers_expired_total{service="billing",pod="billing-aaa"}'
+        values: '0+1x60'
+      - series: 'billing_offer_conversions_total{type="pack",bucket="within_window",service="billing",pod="billing-aaa"}'
+        values: '0 0 0 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1'
+    alert_rule_test:
+      - eval_time: 26h
+        alertname: OffersExpiringUnseen
+        exp_alerts: []

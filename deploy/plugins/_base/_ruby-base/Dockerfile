@@ -57,7 +57,7 @@ RUN set -eux; \
 # reinstalls RubyGems' own default gems, so running it afterwards could put a
 # default gemspec back on top of the replacement. The verification at the end of
 # this file proves the final state either way.
-ARG RUBYGEMS_VERSION=4.0.23
+ARG RUBYGEMS_VERSION=4.0.24
 RUN set -eux; \
     gem update --system "$RUBYGEMS_VERSION" --no-document; \
     gem --version | grep -qx "$RUBYGEMS_VERSION"; \

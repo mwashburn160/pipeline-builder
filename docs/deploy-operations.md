@@ -610,7 +610,7 @@ accepts writes at all, because RustFS exposes no Prometheus endpoint of its own.
 
 #### Inhibition: suppressing consequences, and what cannot be suppressed
 
-At 200 rules one root cause is a pager flood, and a flood is functionally the same
+At 205 rules one root cause is a pager flood, and a flood is functionally the same
 as no alert. The inhibition tree in `alertmanager.yml` suppresses the consequences
 of DNS failure, a dead waypoint, Redis at its cap, node saturation, and a service
 being down.

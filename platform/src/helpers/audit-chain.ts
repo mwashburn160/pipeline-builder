@@ -3,6 +3,7 @@
 
 import { createHmac, randomUUID } from 'crypto';
 import { createLogger, scrubAwsIdentifiers, errorMessage, stableStringify } from '@pipeline-builder/api-core';
+import { incCounter } from '../observability/metrics.js';
 import { requireAuditChainHmacKey } from '../config/audit-chain-key.js';
 import AuditChainHead from '../models/audit-chain-head.js';
 import AuditEvent, { type AuditEventDocument, type StoredAuditEvent } from '../models/audit-event.js';
@@ -276,8 +277,33 @@ export async function appendAuditEvent(input: AuditCreateInput): Promise<StoredA
       try {
         hash = computeAuditHash({ ...scrubbedInput, affectedOrgId, createdAt, seq, prevHash });
       } catch (err) {
+        // COUNTED, not just logged. This row can never be verified again — the
+        // digest is over the row's own stored fields, so a repair would recompute
+        // the same throw (the likely cause is `details` that `stableStringify`
+        // cannot walk: a cycle, or a BigInt) — and it stays unverifiable until
+        // retention prunes it. `/audit/verify` reports the count, but a page
+        // nobody is looking at is not monitoring, so this is what alerts.
+        //
+        // Labelled by ACTION, deliberately not by chainKey: chainKey is per-ORG,
+        // which would be one time series per tenant. The action names the call
+        // site emitting the payload that cannot be hashed, which is the only
+        // thing anyone can actually fix.
+        //
+        // GUARDED, and that is not defensive dressing: `incCounter` THROWS when
+        // no registry is wired (a worker, or any test that never booted the
+        // app — see observability/metrics.ts, which requires a registry only at
+        // emission). This is a CATCH block, so an exception raised here escapes
+        // instead of the handled hash failure and the row is never written —
+        // discarding the very event the sentinel exists to preserve. Losing the
+        // COUNT is acceptable; losing the ROW is the bug this whole branch
+        // exists to avoid.
+        try {
+          incCounter('platform_audit_hash_error_total', { action: String(scrubbedInput.action ?? 'unknown') });
+        } catch (metricErr) {
+          logger.debug('audit hash-error counter not emitted', { error: errorMessage(metricErr) });
+        }
         logger.warn('Audit hash computation failed; writing sentinel hash', {
-          chainKey, error: errorMessage(err),
+          chainKey, action: scrubbedInput.action, error: errorMessage(err),
         });
         hash = hashErrorSentinel();
       }

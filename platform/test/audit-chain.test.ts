@@ -121,6 +121,12 @@ const mockHeadModel = {
   },
 };
 
+const mockIncCounter = jest.fn<(name: string, labels?: Record<string, string>, value?: number) => void>();
+jest.unstable_mockModule('../src/observability/metrics.js', () => ({
+  incCounter: mockIncCounter,
+  observe: jest.fn(),
+  setGauge: jest.fn(),
+}));
 jest.unstable_mockModule('../src/models/audit-event.js', () => ({
   __esModule: true,
   default: mockModel,
@@ -683,5 +689,121 @@ describe('Idempotency-Key scoping', () => {
     const b = await appendAuditEvent({ action: 'pipeline.create', actorId: 'svc', orgId: 'org-b', affectedOrgId: 'org-b', idempotencyKey: 'shared' });
     expect(b._id).not.toBe(a._id);
     expect(store).toHaveLength(2);
+  });
+});
+
+describe('an event whose digest cannot be computed', () => {
+  /**
+   * `computeAuditHash` serializes the row's immutable fields with
+   * `stableStringify`, which recurses with no cycle guard — so a `details`
+   * payload containing a cycle overflows the stack, the append path catches it,
+   * and the row is stored with a HASH_ERROR sentinel instead of a digest.
+   *
+   * That row can never be verified: the digest is over the row's OWN stored
+   * fields, so recomputing it would throw again identically, and no repair is
+   * possible. It stays unverifiable until retention prunes it. `/audit/verify`
+   * reports the count as `unverifiable` — which is honest but passive, so the
+   * counter here is what an alert can page on.
+   */
+  it('stores a sentinel hash rather than refusing the write', async () => {
+    // A BigInt, not a cycle: `JSON.stringify` throws on BigInt, which is what
+    // `stableStringify` reaches — and unlike a cycle it is caught, because the
+    // scrub that runs first walks a BigInt without recursing into it. (A CYCLE
+    // overflows the stack inside `scrubAwsIdentifiers`, which sits OUTSIDE this
+    // try/catch, and loses the event entirely. See the note below.)
+    const e = await appendAuditEvent({
+      action: 'admin.org.tier.update',
+      actorId: 'u1',
+      orgId: 'org-1',
+      affectedOrgId: 'org-1',
+      details: { size: 1n } as never,
+    });
+    // Written, and recognisably un-verifiable — losing the event entirely would
+    // be worse than losing its proof.
+    expect(e.hash).toMatch(/^HASH_ERROR:/);
+  });
+
+  it('COUNTS it, labelled by the action that produced the payload', async () => {
+    await appendAuditEvent({
+      action: 'admin.org.tier.update',
+      actorId: 'u1',
+      orgId: 'org-1',
+      affectedOrgId: 'org-1',
+      details: { size: 1n } as never,
+    });
+    // Labelled by ACTION, not by chain key: a chain key is per-org, which would
+    // be one time series per tenant. The action names the call site emitting the
+    // unhashable payload, which is the only thing anyone can fix.
+    expect(mockIncCounter).toHaveBeenCalledWith('platform_audit_hash_error_total', { action: 'admin.org.tier.update' });
+  });
+
+  it('counts nothing on a healthy append', async () => {
+    await appendAuditEvent({ action: 'user.login', actorId: 'u1', orgId: 'org-1', affectedOrgId: 'org-1' });
+    expect(mockIncCounter).not.toHaveBeenCalledWith('platform_audit_hash_error_total', expect.anything());
+  });
+
+  it('still writes the row when the COUNTER itself throws', async () => {
+    // The regression this pins, which every test above missed because they mock
+    // `incCounter` as a jest.fn that cannot fail: the real `incCounter` THROWS
+    // when no metrics registry is wired (a worker, or any test that never
+    // booted the app). The emission sits inside the hash-failure CATCH block,
+    // so an unguarded throw there escapes INSTEAD of the handled hash failure —
+    // and callers that treat an audit failure as best-effort (org-cascade's
+    // `flagKmsOrphan`, for one) swallow it, so the row is silently never
+    // written. A metric must never be the reason an event is lost.
+    mockIncCounter.mockImplementationOnce(() => {
+      throw new Error('Metrics registry not set — call setMetricsRegistry() during app boot');
+    });
+    const e = await appendAuditEvent({
+      action: 'admin.org.tier.update',
+      actorId: 'u1',
+      orgId: 'org-1',
+      affectedOrgId: 'org-1',
+      details: { size: 1n } as never,
+    });
+    // The sentinel still lands, which is the whole point of the branch.
+    expect(e.hash).toMatch(/^HASH_ERROR:/);
+  });
+
+  it('keeps the chain linkable across the gap: a successor still names it', async () => {
+    const bad = await appendAuditEvent({
+      action: 'admin.org.tier.update',
+      actorId: 'u1',
+      orgId: 'org-1',
+      affectedOrgId: 'org-1',
+      details: { size: 1n } as never,
+    });
+    const next = await appendAuditEvent({ action: 'user.logout', actorId: 'u1', orgId: 'org-1', affectedOrgId: 'org-1' });
+    // Each sentinel carries a unique suffix precisely so a successor's prevHash
+    // names exactly one predecessor — two digest failures in a chain must not
+    // collide into an ambiguous link.
+    expect(next.prevHash).toBe(bad.hash);
+    expect(bad.hash).not.toBe('HASH_ERROR');
+  });
+});
+
+describe('a details payload the SCRUB cannot walk', () => {
+  it('loses the event, because the scrub runs outside the sentinel catch', async () => {
+    // KNOWN GAP, pinned deliberately rather than left as folklore.
+    //
+    // `scrubAwsIdentifiers` recurses with no cycle guard and runs BEFORE the
+    // try/catch that produces a sentinel hash, so a cyclic `details` overflows
+    // the stack and the append throws — the audit event is not written at all,
+    // which is strictly worse than writing it unverifiable.
+    //
+    // It is not reachable from today's callers (details are built as plain
+    // objects at each route), which is why this records the behaviour instead of
+    // asserting the fix. Closing it means either a cycle guard in the scrub or
+    // moving the scrub inside the catch; both change what a caller sees, so it
+    // is a decision rather than a tidy-up.
+    const cyclic: Record<string, unknown> = { note: 'loops' };
+    cyclic.self = cyclic;
+    await expect(appendAuditEvent({
+      action: 'admin.org.tier.update',
+      actorId: 'u1',
+      orgId: 'org-1',
+      affectedOrgId: 'org-1',
+      details: cyclic as never,
+    })).rejects.toThrow(RangeError);
   });
 });

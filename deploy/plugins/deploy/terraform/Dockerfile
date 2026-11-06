@@ -24,7 +24,7 @@ ARG TFLINT_VERSION=0.65.0
 # `trivy config` is the replacement Aqua themselves point at, and it reads the
 # same Terraform/HCL misconfiguration rules. Output format and check IDs differ,
 # so anything parsing tfsec-results.json must be re-pointed.
-ARG TRIVY_VERSION=0.76.1
+ARG TRIVY_VERSION=0.76.2
 
 FROM ghcr.io/terraform-linters/tflint:v${TFLINT_VERSION} AS tflint-src
 FROM aquasec/trivy:${TRIVY_VERSION} AS trivy-src

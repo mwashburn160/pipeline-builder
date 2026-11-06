@@ -169,6 +169,18 @@ RUN set -e; \
 #      enough — MVS lifts crypto and text with it, which is why those two lines
 #      are short. Verified by building each tool against these exact pins.
 #
+#   2026-11-06, brotli (Critical, KEV, 82.6% EPSS) — the finding that FAILED a
+#   release: grype reports github.com/andybalholm/brotli v1.2.0 at/above the
+#   critical gate, so nothing was published. syft and grype BOTH require brotli
+#   v1.2.0 as an indirect dep, and upstream has not moved: v1.57.0 and v0.121.2
+#   (both released 2026-11-05, the newest) still require v1.2.0, so NO pin bump
+#   of syft or grype can clear it — this raise is the only lever. Fixed in
+#   1.2.7; raised to v1.2.8, the latest release, per the repo rule to take the
+#   newest stable rather than the minimum that clears the advisory. Added to
+#   syft and grype ONLY: brotli is absent from buildkit's and cosign's go.mod,
+#   so per trap 1 above they are not below the floor and must not be pinned.
+#   v1.2.8 is a safe raise — `go 1.22`, one dep (xyproto/randomstring v1.0.5).
+#
 #   The two `stdlib go1.27.1` criticals (GO-2026-6612, GO-2026-6604) are not in
 #   this list at all — those come from the toolchain, fixed by GO_IMAGE 1.27.3.
 RUN for t in buildkit crane cosign syft grype; do cp "/src/$t/go.mod" "/tmp/$t.mod" && cp "/src/$t/go.sum" "/tmp/$t.sum"; done \
@@ -183,8 +195,10 @@ RUN for t in buildkit crane cosign syft grype; do cp "/src/$t/go.mod" "/tmp/$t.m
          github.com/go-chi/chi/v5@v5.5.0 \
     && cd /src/syft && go get -modfile=/tmp/syft.mod golang.org/x/net@v0.62.0 \
          github.com/go-jose/go-jose/v4@v4.1.8 \
+         github.com/andybalholm/brotli@v1.2.8 \
     && cd /src/grype && go get -modfile=/tmp/grype.mod golang.org/x/net@v0.62.0 \
-         github.com/go-jose/go-jose/v4@v4.1.8
+         github.com/go-jose/go-jose/v4@v4.1.8 \
+         github.com/andybalholm/brotli@v1.2.8
 
 # Warm the module cache, WITH RETRIES, before building.
 #

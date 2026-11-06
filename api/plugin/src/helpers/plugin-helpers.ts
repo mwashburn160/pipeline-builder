@@ -169,6 +169,10 @@ export interface PluginBuildJobData {
    * `MAX_SLOT_DELAYS`, past which the build fails terminally with a reason.
    */
   slotDelays?: number;
+  /** When this job FIRST failed to get a slot (epoch ms). The wait budget is
+   *  elapsed time, not a count of attempts — the retry interval backs off, so
+   *  the two diverge. */
+  slotWaitStartedAt?: number;
   /**
    * Set once the reserved plugins quota slot has been released for this job, so a
    * later DLQ purge (enforceDlqMaxSize / purgeDlq) doesn't decrement it again

@@ -2129,6 +2129,92 @@ groups:
           summary: "Audit events dropped by the local fallback"
           description: "{{ $value | humanize }} audit events were dropped in the last hour by the LOCAL fallback, after the remote client had already failed — they are in neither store and cannot be recovered. /audit/verify will NOT show the gap. Check the audit spool's Redis and platform's audit sink."
 
+      # ---- The offers feature, which had six metrics and no alerts ----
+      # Expansion offers earn money and are entirely automatic, so every failure
+      # mode here is silent by construction: nobody notices an offer that was
+      # never made. The three below are the ones that cannot be inferred from the
+      # others.
+      - alert: OffersCycleErroring
+        # Accounts the cycle THREW on. Not "the counter is flat" — a flat counter
+        # is the normal state of an install with nothing eligible, which is why
+        # this needed an error counter before it could be alerted at all.
+        expr: sum (increase(billing_offers_total{outcome="error"}[30m])) > 0
+        for: 0m
+        labels:
+          severity: warning
+          component: billing
+          tenancy: platform
+        annotations:
+          summary: "The expansion-offer cycle is failing on accounts"
+          description: "{{ $value | humanize }} accounts threw during the last 30m of offer cycles. The cycle skips the account and carries on, so nothing fails loudly — the offers simply never get made. Check the billing logs for 'Offer cycle skipped an account' and the usage-profile reads it starts with."
+
+      - alert: OfferEmailsFailing
+        # `failed` is the relay refusing or throwing. `no_recipients` is NOT an
+        # error — the relay reports zero reachable admins rather than failing, and
+        # that is a customer-side fact, so it is deliberately excluded here.
+        expr: sum (increase(billing_offer_emails_total{outcome="failed"}[1h])) > 0
+        for: 15m
+        labels:
+          severity: warning
+          component: billing
+          tenancy: platform
+        annotations:
+          summary: "Expansion-offer emails are being refused"
+          description: "{{ $value | humanize }} offer emails failed in the last hour. Delivery is in-app first and email second, so the offer still exists in the dashboard — but the email is what prompts the account to look. Check platform's /internal/notify-email leg for the `billing` caller and the relay's own health."
+
+      - alert: OffersExpiringUnseen
+        # Offers made, none converted. Either the audience is wrong or delivery is
+        # broken — and the two are indistinguishable without this, since a
+        # conversion-rate dashboard looks the same when nothing was delivered.
+        expr: sum (increase(billing_offers_expired_total[24h])) >= 10 unless sum (increase(billing_offer_conversions_total[24h])) > 0
+        for: 1h
+        labels:
+          severity: info
+          component: billing
+          tenancy: platform
+        annotations:
+          summary: "Expansion offers are expiring with no conversions at all"
+          description: "{{ $value | humanize }} offers lapsed in 24h and nothing converted. A zero rate over that many offers is more likely a delivery or targeting fault than a market one: check billing_offer_emails_total by outcome (consent / no_copy / failed / no_recipients) before changing the rules — `no_copy` in particular means the mailer refused to name a limit and a price, so the offer went out with nothing to act on."
+
+      # ---- A replica squeezing its buildkitd sidecar ----
+      # One replica runs a worker per tier (13 slots on the shipped ladder) and all
+      # of them drive ONE buildkitd sidecar with one memory limit. At the budget's
+      # 13 that is ~473 MiB per build against a limit whose own comment warns that
+      # too little OOM-kills gradle/npm/dotnet ("buildkit-runc ... container not
+      # running"). Org caps hold it near 8 today, but nothing enforces that, so the
+      # ceiling is worth watching rather than trusting.
+      - alert: PluginReplicaBuildBudgetSaturated
+        expr: max(plugin_build_replica_inflight) >= 10
+        for: 10m
+        labels:
+          severity: warning
+          component: plugin
+          tenancy: platform
+        annotations:
+          summary: "A plugin replica is near its build budget"
+          description: "{{ $value | humanize }} concurrent builds on one replica, against a budget of PLUGIN_MAX_BUILDS_PER_REPLICA (default 13 = the ladder's sum). They share one buildkitd sidecar and one BUILDKIT_MEMORY_LIMIT, so this is the number to compare against that limit before raising either. Lower the budget, or raise the sidecar's memory — never raise a tier's concurrency without one of the two."
+
+      # ---- An audit row that can never be proven ----
+      # The digest is computed at WRITE time; when that throws, the row stores a
+      # HASH_ERROR sentinel instead. It is not tampering — and /audit/verify says
+      # so, reporting the count beside "Chain intact" — but the row is outside the
+      # proof for good: the hash is over the row's own stored fields, so a repair
+      # would recompute the same throw (the likely cause is a `details` payload
+      # `stableStringify` cannot walk — a cycle, or a BigInt). It stays
+      # unverifiable until retention prunes it. This should be zero forever, and a
+      # badge on a page nobody is watching is not monitoring, so the counter is
+      # what pages. The `action` label names the call site to fix.
+      - alert: AuditHashComputationFailed
+        expr: sum(increase(platform_audit_hash_error_total[1h])) > 0
+        for: 0m
+        labels:
+          severity: critical
+          component: audit
+          tenancy: platform
+        annotations:
+          summary: "Audit events written with an un-computable digest"
+          description: "{{ $value | humanize }} audit event(s) in the last hour stored a HASH_ERROR sentinel instead of a digest — they can never be verified and cannot be repaired. Not tampering: the write-time hash threw, almost certainly on a `details` payload that cannot be serialized (a cycle or a BigInt). Find the emitting action with sum by (action) (increase(platform_audit_hash_error_total[6h])) and fix what it puts in `details`. /audit/verify counts these as `unverifiable` rather than hiding them."
+
       # ---- A customer's entitlements left permanently wrong ----
       # The retry gave up because the subscription row it would have replayed is gone, so
       # nothing will re-push. The org keeps whatever features it had — which after a plan

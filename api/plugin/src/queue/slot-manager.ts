@@ -83,12 +83,34 @@ export function maxBuildsPerOrg(tier: QuotaTier, buildClass: BuildClass): number
  * work the tenant asked for. The slot cap was added later and did not inherit
  * the carve-out.
  *
- * An exempt org takes NO counter and NO owner record, rather than being given a
- * very large cap: a large cap still grows the owner hash by one entry per build
- * and still leaves a counter that can leak, and "unlimited" expressed as a big
- * number is a number somebody will later mistake for a limit.
+ * WHAT THE CARVE-OUT IS, AND IS NOT. The system org is exempt from the WAIT
+ * BECOMING TERMINAL, not from the cap. Those two were one flag, and collapsing
+ * them cost an install each way round:
+ *
+ *  - Capped AND failing on the wait: a 119-plugin catalogue queued behind a cap
+ *    of 3 waited out `PLUGIN_ORG_SLOT_MAX_WAIT_MS` and 80 builds failed for
+ *    good. Queueing was correct; dying was not.
+ *  - Exempt from both: nothing bounded the fan-out of the one org that loads the
+ *    whole catalogue, so 8 replicas x 4 concurrency put 32 builds in flight and
+ *    OOMKilled the image registry, taking 107 of 117 plugins with it.
+ *
+ * So the system org now holds a real slot from a real counter — finite,
+ * `PLUGIN_SYSTEM_ORG_MAX_BUILDS`, high enough never to bind at the shipped
+ * concurrency — and a system-org build that cannot get one is re-delayed for as
+ * long as it takes instead of failing. The owner-hash growth that argued against
+ * a "very large cap" is bounded by the cap itself.
  */
-export function orgSlotExempt(orgId: string): boolean {
+export function systemOrgSlotCap(): number {
+  return envInt('PLUGIN_SYSTEM_ORG_MAX_BUILDS', 12, { min: 1 });
+}
+
+/**
+ * Whether `orgId` may wait for a slot indefinitely rather than failing at
+ * {@link ORG_SLOT_WAIT_BUDGET_MS}. True for the system org only: a catalogue load is
+ * platform work, and a plugin that is merely LATE must not read as a plugin that
+ * is broken.
+ */
+export function orgSlotWaitExempt(orgId: string): boolean {
   return isSystemOrgId(orgId);
 }
 
@@ -119,7 +141,36 @@ const ORG_SLOT_HEARTBEAT_MS = Math.max(1_000, Math.floor((ORG_SLOT_TTL_SEC * 100
  * standing between a starved job and an endless silent bounce.
  */
 const ORG_SLOT_MAX_WAIT_MS = envInt('PLUGIN_ORG_SLOT_MAX_WAIT_MS', 1_800_000, { min: 1 });
-export const MAX_SLOT_DELAYS = Math.max(1, Math.floor(ORG_SLOT_MAX_WAIT_MS / ORG_SLOT_DELAY_MS));
+/**
+ * Longest a denied build waits between re-tries. The interval BACKS OFF —
+ * `ORG_SLOT_DELAY_MS` doubling up to this — because a fixed 10s poll is pure
+ * waste once an org is parked at its cap: with 569 jobs waiting that is ~57
+ * Redis acquire attempts a second, every one of which is known to fail, and the
+ * builds they are waiting on take minutes. At 60s the churn drops ~6x and the
+ * worst case is a minute of extra latency on a job already waiting an hour.
+ */
+const ORG_SLOT_MAX_DELAY_MS = envInt('PLUGIN_ORG_SLOT_MAX_DELAY_MS', 60_000, { min: 1 });
+
+/**
+ * How long to wait before the next slot attempt, given how many have failed.
+ *
+ * Doubles from `ORG_SLOT_DELAY_MS`, capped. The first wait stays short so the
+ * common case — a slot freeing within seconds — is still quick.
+ */
+export function orgSlotRetryDelayMs(attempt: number): number {
+  const exp = ORG_SLOT_DELAY_MS * 2 ** Math.max(0, attempt - 1);
+  return Math.min(exp, ORG_SLOT_MAX_DELAY_MS);
+}
+
+/**
+ * The wait budget, as ELAPSED TIME rather than a count of denials.
+ *
+ * It used to be `ORG_SLOT_MAX_WAIT_MS / ORG_SLOT_DELAY_MS` — 180 attempts — which
+ * only equals 30 minutes while every interval is exactly 10s. With a backoff the
+ * same 180 attempts span hours, so the budget has to measure the clock. It is
+ * also what the refusal message always claimed to report.
+ */
+export const ORG_SLOT_WAIT_BUDGET_MS = ORG_SLOT_MAX_WAIT_MS;
 
 /**
  * Reconciliation interval for {@link scrubOrgSlots}. Its OWN interval: it used
@@ -243,7 +294,6 @@ return 1
 `;
 
 export async function refreshOrgSlot(orgId: string, jobId: string, buildClass: BuildClass): Promise<boolean> {
-  if (orgSlotExempt(orgId)) return false;
   const redis = getConnectionForDb(0);
   const result = await redis.eval(
     REFRESH_SLOT_LUA, 2, orgSlotKey(orgId, buildClass), orgSlotOwnersKey, jobId, String(ORG_SLOT_TTL_SEC),
@@ -260,9 +310,6 @@ export async function refreshOrgSlot(orgId: string, jobId: string, buildClass: B
  * here would cost a build that may already have published its image.
  */
 export function startOrgSlotHeartbeat(orgId: string, jobId: string, buildClass: BuildClass): () => void {
-  // No slot, nothing to keep alive. Without this an exempt org's every build
-  // would run a timer that logs "found no owner record" at debug on each tick.
-  if (orgSlotExempt(orgId)) return () => undefined;
   const timer = setInterval(() => {
     void refreshOrgSlot(orgId, jobId, buildClass)
       .then((extended) => {
@@ -281,16 +328,13 @@ export function startOrgSlotHeartbeat(orgId: string, jobId: string, buildClass: 
 export async function tryAcquireOrgSlot(
   orgId: string, jobId: string, tier: QuotaTier, buildClass: BuildClass,
 ): Promise<boolean> {
-  // The system org never queues behind itself (see `orgSlotExempt`). Granted
-  // without touching Redis, so there is nothing to release, nothing to
-  // heartbeat and nothing that can leak.
-  if (orgSlotExempt(orgId)) return true;
   const redis = getConnectionForDb(0);
   // TWO keys: the class counter and the owner hash — the owner record is written
   // atomically with the INCR (see ACQUIRE_SLOT_LUA).
   const result = await redis.eval(
     ACQUIRE_SLOT_LUA, 2, orgSlotKey(orgId, buildClass), orgSlotOwnersKey,
-    String(maxBuildsPerOrg(tier, buildClass)), String(ORG_SLOT_TTL_SEC), jobId, ownerValue(orgId, buildClass),
+    String(isSystemOrgId(orgId) ? systemOrgSlotCap() : maxBuildsPerOrg(tier, buildClass)),
+    String(ORG_SLOT_TTL_SEC), jobId, ownerValue(orgId, buildClass),
   );
   return result === 1;
 }
@@ -298,10 +342,6 @@ export async function tryAcquireOrgSlot(
 /** Release `jobId`'s slot for `orgId`. Idempotent per job (see RELEASE_SLOT_LUA);
  *  resolves true when this call gave a held slot back. */
 export async function releaseOrgSlot(orgId: string, jobId: string, buildClass: BuildClass): Promise<boolean> {
-  // Nothing was held, so nothing is given back. Returning false rather than
-  // true keeps `plugin_build_slot_reclaimed_total` honest if the scrubber ever
-  // walks an exempt org's job.
-  if (orgSlotExempt(orgId)) return false;
   const redis = getConnectionForDb(0);
   const released = await redis.eval(
     RELEASE_SLOT_LUA, 2, orgSlotKey(orgId, buildClass), orgSlotOwnersKey, jobId, String(ORG_SLOT_TTL_SEC),
@@ -356,6 +396,35 @@ export async function orgSlotSnapshot(): Promise<OrgSlotState[]> {
     rows.map(async (r) => Number(await redis.get(orgSlotKey(r.orgId, r.buildClass))) || 0),
   );
   return rows.map((r, i) => ({ ...r, counted: counts[i]!, leaked: Math.max(0, counts[i]! - r.held) }));
+}
+
+/**
+ * Is this org's cap held by LIVE builds, rather than by leaked counters?
+ *
+ * The distinction decides whether a denied job's wait counts toward
+ * {@link ORG_SLOT_WAIT_BUDGET_MS}. An org at its own cap with every slot backed by a
+ * running build is not starving — it is queueing behind its own work, and a slot
+ * frees the moment one of those builds finishes. An org whose counter sits at the
+ * cap with NO live owners is stuck: the counter leaked (a worker died between
+ * INCR and the owner record's TTL) and no amount of waiting will clear it before
+ * the scrubber runs, so the deadline is exactly right there.
+ *
+ * NOTE on the obvious shortcut: "does the org have builds running" cannot be
+ * answered with `counter > 0`. A denial means the INCR exceeded the cap, so the
+ * counter is ALWAYS at least the cap at that moment — gating on it would disable
+ * the deadline entirely rather than narrowing it.
+ */
+export async function orgSlotsBackedByLiveBuilds(orgId: string, buildClass: BuildClass): Promise<boolean> {
+  const redis = getConnectionForDb(0);
+  const [owners, counted] = await Promise.all([
+    redis.hgetall(orgSlotOwnersKey),
+    redis.get(orgSlotKey(orgId, buildClass)).then((v) => Number(v) || 0),
+  ]);
+  if (counted <= 0) return false;
+  const mine = ownerValue(orgId, buildClass);
+  const held = Object.values(owners).filter((v) => v === mine).length;
+  // Every counted slot accounted for by a live owner record: busy, not stuck.
+  return held >= counted;
 }
 
 /**
