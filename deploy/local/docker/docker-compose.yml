@@ -363,7 +363,7 @@ services:
   # Infrastructure
   # ---------------------------------------------------------------------------
   ask:
-    image: 'ghcr.io/mwashburn160/ask:4.6.7@sha256:345c7868df5fb4b0aed0a8ba1d2ac23ffa99e14abe935a2c1c3e1af6fec9bb4b'
+    image: 'ghcr.io/mwashburn160/ask:4.6.7@sha256:6f56e8620c8356192f7b37cb7eb8d751384be4120cfd7c6379fcd1e865d02993'
     labels:
       version: "4.6.7"
       track: stable
@@ -909,7 +909,7 @@ services:
   # Application Services
   # ---------------------------------------------------------------------------
   frontend:
-    image: 'ghcr.io/mwashburn160/frontend:4.7.8@sha256:5db74ba9d36b616a1665014d2b43c819d493a7c32f31862a7b0dde1ae641f4c5'
+    image: 'ghcr.io/mwashburn160/frontend:4.7.8@sha256:34551d57f7672ffc13e27301f52d633386756fe1a53b784b258e6450e2445ddf'
     labels:
       version: "4.7.8"
       track: stable
@@ -953,7 +953,7 @@ services:
     deploy: *deploy-medium
 
   platform:
-    image: 'ghcr.io/mwashburn160/platform:5.5.8@sha256:adf29338e866c3a43a7006ae4b020916ce2d56c6e222e3be9211a315c5b0bedc'
+    image: 'ghcr.io/mwashburn160/platform:5.5.8@sha256:fccd615cd534905a864c99eda1506be073234f2372cf78de2e416d51beb9c807'
     labels:
       version: "5.5.8"
       track: stable
@@ -1189,7 +1189,7 @@ services:
     deploy: *api-deploy
 
   plugin:
-    image: 'ghcr.io/mwashburn160/plugin:4.7.0@sha256:79322b654d9384ed5504b6244baf283ecd36b443bf6ef8722641a6ff9ef8edf8'
+    image: 'ghcr.io/mwashburn160/plugin:4.7.0@sha256:96ee6923bab76fc2bda7e72112d47c3334ea9202840da6f01185e4d17f248874'
     labels:
       version: "4.7.0"
       track: stable
@@ -1487,7 +1487,7 @@ services:
           memory: 256M
 
   pipeline:
-    image: 'ghcr.io/mwashburn160/pipeline:5.3.7@sha256:022e7a008905121f7b6e0b900c3482ffe2b891a12147f1be629f9b887a58ea7f'
+    image: 'ghcr.io/mwashburn160/pipeline:5.3.7@sha256:7162fa83fa1c89406b8de22fbe165303bd58fd49b262cb6e3b9a24e83125d5d1'
     labels:
       version: "5.3.7"
       track: stable
@@ -1521,7 +1521,7 @@ services:
     deploy: *api-deploy
 
   message:
-    image: 'ghcr.io/mwashburn160/message:4.4.7@sha256:fd4bb2cf7310983366bd959db7cb6f164163d891f8b3ae37283124107daf6734'
+    image: 'ghcr.io/mwashburn160/message:4.4.7@sha256:5a0bac4d05efb016f8e4fbbf51509709e5b45cbfac5defe2180a1d936815a72b'
     labels:
       version: "4.4.7"
       track: stable
@@ -1592,7 +1592,7 @@ services:
     deploy: *api-deploy-small
 
   reporting:
-    image: 'ghcr.io/mwashburn160/reporting:4.5.7@sha256:6799f8dd7fb6f0da0eb79551252879a05fce0e086b09f028b1cada46d3b08655'
+    image: 'ghcr.io/mwashburn160/reporting:4.5.7@sha256:3cc774cd9fd9ef99b653d86bec71876c0db52860a9892c7aeb64cffe410b2742'
     labels:
       version: "4.5.7"
       track: stable
@@ -1642,7 +1642,7 @@ services:
           memory: 256M
 
   compliance:
-    image: 'ghcr.io/mwashburn160/compliance:4.4.7@sha256:c5e401efd9ab11b7c351e20d0fab4e6393d2bd3e413413fe5eec73efdf699aed'
+    image: 'ghcr.io/mwashburn160/compliance:4.4.7@sha256:f3a3a051ac1f875ead6519490fc45a55249b6aaa3135a9d9eb44f9738783b8d2'
     labels:
       version: "4.4.7"
       track: stable
@@ -1676,7 +1676,7 @@ services:
     deploy: *deploy-medium
 
   quota:
-    image: 'ghcr.io/mwashburn160/quota:4.4.7@sha256:c736774f8d942ac55ce5ac147d0ed08589da2a1737421f96416916b87dd263ec'
+    image: 'ghcr.io/mwashburn160/quota:4.4.7@sha256:7eceab63b4914e141d5fff9ac97bd4092e440e74c3fcadb0ece566dc9e4b703b'
     labels:
       version: "4.4.7"
       track: stable
@@ -1762,7 +1762,7 @@ services:
   # the Basic-auth password — image-registry verifies the JWT and issues
   # a registry-scoped Bearer token.
   image-registry:
-    image: 'ghcr.io/mwashburn160/image-registry:4.4.7@sha256:2531e276c3687744e5bb223e305c50634c29346019b6ddb6e2c7cc694532e6e6'
+    image: 'ghcr.io/mwashburn160/image-registry:4.4.7@sha256:474119f2eb5d97d26c182e73a25c2fa059defa9c3c2d056e39914b592f987bf1'
     labels:
       version: "4.4.7"
       track: stable
@@ -1844,7 +1844,7 @@ services:
           memory: 256M
 
   billing:
-    image: 'ghcr.io/mwashburn160/billing:4.7.7@sha256:872df11e81dc8522660e79d65bc9937c1af636117b50ce1f503ec2ac9925b3d2'
+    image: 'ghcr.io/mwashburn160/billing:4.7.7@sha256:3ff014b06fb882bba6d86f24c870bf6ecefb1447b55025754c94b6d6a8b2096f'
     labels:
       version: "4.7.7"
       track: stable

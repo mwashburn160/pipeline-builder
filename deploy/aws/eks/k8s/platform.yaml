@@ -89,7 +89,7 @@ spec:
               echo "Dependencies ready"
       containers:
         - name: platform
-          image: ghcr.io/mwashburn160/platform:5.5.8@sha256:adf29338e866c3a43a7006ae4b020916ce2d56c6e222e3be9211a315c5b0bedc
+          image: ghcr.io/mwashburn160/platform:5.5.8@sha256:fccd615cd534905a864c99eda1506be073234f2372cf78de2e416d51beb9c807
           securityContext:
             runAsNonRoot: true
             runAsUser: 1000
