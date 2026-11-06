@@ -38,7 +38,6 @@ afterEach(() => {
 describe('infrastructure config loaders', () => {
   it('fall back to their defaults when nothing is set', () => {
     expect(loadPluginBuildConfig()).toEqual({
-      concurrency: 1,
       // PER-CLASS baselines for the per-org in-flight build cap. 5 and 8 rather
       // than the ladder's lower rows (standard 1/2/3, flexible 3/4/6) because
       // three in flight is too tight for a real working set — and a build that
@@ -65,7 +64,7 @@ describe('infrastructure config loaders', () => {
 
   it('parse typed overrides from the environment', () => {
     setEnv({
-      PLUGIN_BUILD_CONCURRENCY: '4',
+      PLUGIN_ORG_BUILD_SLOTS_STANDARD: '4',
       DB_PORT: '6432',
       DATABASE: 'pb_test',
       OTEL_TRACING_ENABLED: 'true',
@@ -75,7 +74,12 @@ describe('infrastructure config loaders', () => {
       LAMBDA_RESERVED_CONCURRENCY: '7',
       CODEBUILD_COMPUTE_TYPE: 'large',
     });
-    expect(loadPluginBuildConfig().concurrency).toBe(4);
+    // `PLUGIN_BUILD_CONCURRENCY` used to be asserted here. It is GONE: it was
+    // read and then discarded while the docs still called it the default for
+    // every tier's worker, so an operator could set it to 1, believe the service
+    // built one plugin at a time, and be running four. The per-tier figures live
+    // in the build catalog now; this row carries the per-class ORG baselines.
+    expect(loadPluginBuildConfig().orgBuildSlots.standard).toBe(4);
     expect(loadDatabaseConfig().postgres).toMatchObject({ port: 6432, database: 'pb_test' });
     expect(loadObservabilityConfig().tracing.enabled).toBe(true);
     expect(loadComplianceConfig().systemOrgScansEnabled).toBe(true);

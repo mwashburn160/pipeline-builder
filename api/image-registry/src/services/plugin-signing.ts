@@ -235,7 +235,16 @@ export interface SignPluginImageParams {
   /** The pushed digest to sign (`sha256:…`). */
   digest: string;
   /** SPDX JSON SBOM of that digest, attached as a signed attestation. */
-  sbom: Record<string, unknown>;
+  /**
+   * PATH to the SPDX document cosign attests from.
+   *
+   * A path, not a parsed object: the document's only destination is
+   * `--predicate <file>`, so taking an object meant the caller parsed it and
+   * this re-serialized it — two full copies of a document that can run to tens
+   * of megabytes, to move bytes already on disk. The caller owns the file's
+   * lifetime (both call sites remove their temp dir in a `finally`).
+   */
+  sbomPath: string;
   /**
    * Signed annotations (`cosign sign -a k=v`) — the public namespace records the
    * trust tier and publisher here (`pb.trust`, `pb.publisher`), so a tier edited
@@ -297,29 +306,32 @@ async function dropSignature(repository: string, digest: string): Promise<void> 
  * (exactly one signature, carrying the current annotations) and the SBOM
  * attestation is written with `--replace`, so re-publishing is idempotent.
  */
-export async function signPluginImage({ repository, digest, sbom, annotations }: SignPluginImageParams): Promise<void> {
+export async function signPluginImage({ repository, digest, sbomPath, annotations }: SignPluginImageParams): Promise<void> {
   assertSignable(repository, digest);
 
   const key = await signingKey();
   const ref = refOf(repository, digest);
-  const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pb-sign-'));
-  const predicate = path.join(workDir, 'sbom.spdx.json');
-  fs.writeFileSync(predicate, JSON.stringify(sbom));
+  // The caller's file IS the predicate: nothing is copied, re-serialized, or
+  // staged in a scratch dir of our own. It is also the CALLER's to remove — both
+  // call sites do so in a `finally` — because deleting a file we were handed
+  // would be a surprise, and the caller is the one that knows whether it is a
+  // throwaway upload or a document it still needs.
+  const predicate = sbomPath;
   const isPublic = isPublicRepository(repository);
 
-  try {
-    if (isPublic) await dropSignature(repository, digest);
-    // One short-lived credential per cosign step — each is bounded by the
-    // signing timeout, and a registry token only lives a few minutes.
-    for (const args of [
-      ['sign', '--key', key.key, ...annotationArgs(annotations), ...COSIGN_SIGN_FLAGS, '--yes', ...registryFlags(), ref],
-      ['attest', '--key', key.key, '--type', 'spdxjson', '--predicate', predicate,
-        ...(isPublic ? ['--replace'] : []), ...COSIGN_SIGN_FLAGS, '--yes', ...registryFlags(), ref],
-    ]) {
-      await withCredential(repository, 'push', (env) => cosign(args, { ...env, ...key.env }));
-    }
-  } finally {
-    fs.rmSync(workDir, { recursive: true, force: true });
+  // No try/finally: there is nothing of OURS to clean up. The predicate is the
+  // caller's file and the credentials are removed by `withCredential` per step —
+  // a scratch dir created and deleted here held nothing once the SBOM stopped
+  // being re-serialized into it.
+  if (isPublic) await dropSignature(repository, digest);
+  // One short-lived credential per cosign step — each is bounded by the signing
+  // timeout, and a registry token only lives a few minutes.
+  for (const args of [
+    ['sign', '--key', key.key, ...annotationArgs(annotations), ...COSIGN_SIGN_FLAGS, '--yes', ...registryFlags(), ref],
+    ['attest', '--key', key.key, '--type', 'spdxjson', '--predicate', predicate,
+      ...(isPublic ? ['--replace'] : []), ...COSIGN_SIGN_FLAGS, '--yes', ...registryFlags(), ref],
+  ]) {
+    await withCredential(repository, 'push', (env) => cosign(args, { ...env, ...key.env }));
   }
   logger.info('Signed plugin image', { repository, digest, mode: config.pluginSigning.mode, annotated: !!annotations });
 }

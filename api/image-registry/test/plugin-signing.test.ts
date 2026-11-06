@@ -50,6 +50,14 @@ const { isPluginRepository, isSha256Digest } = await import('../src/services/nam
 
 const DIGEST = `sha256:${'f'.repeat(64)}`;
 const SBOM = { spdxVersion: 'SPDX-2.3', name: 'foo' };
+/**
+ * The SBOM is handed over as a PATH now: cosign attests from `--predicate
+ * <file>`, so taking a parsed object meant the caller parsed it and this
+ * re-serialized it — two full copies of a document that can run to tens of
+ * megabytes, to move bytes already on disk. Written once for the whole suite.
+ */
+const SBOM_PATH = path.join(keyDir, 'sbom.spdx.json');
+fs.writeFileSync(SBOM_PATH, JSON.stringify(SBOM));
 
 beforeEach(() => {
   execCalls.length = 0;
@@ -84,8 +92,8 @@ describe('repository + digest shape', () => {
 
 describe('signPluginImage — local key', () => {
   it('imports the PEM once, then signs and attests by digest with the tlog off', async () => {
-    await signPluginImage({ repository: 'org-acme/foo', digest: DIGEST, sbom: SBOM });
-    await signPluginImage({ repository: 'org-acme/foo', digest: DIGEST, sbom: SBOM });
+    await signPluginImage({ repository: 'org-acme/foo', digest: DIGEST, sbomPath: SBOM_PATH });
+    await signPluginImage({ repository: 'org-acme/foo', digest: DIGEST, sbomPath: SBOM_PATH });
 
     const verbs = execCalls.map((c) => c.args[0]);
     // One import for the process, then sign + attest per request.
@@ -115,25 +123,30 @@ describe('signPluginImage — local key', () => {
   });
 
   it('hands cosign a repository-scoped bearer token, not a shared credential', async () => {
-    await signPluginImage({ repository: 'system/trivy', digest: DIGEST, sbom: SBOM });
+    await signPluginImage({ repository: 'system/trivy', digest: DIGEST, sbomPath: SBOM_PATH });
     expect(mockMintToken).toHaveBeenCalledWith('system/trivy');
     const sign = execCalls.find((c) => c.args[0] === 'sign')!;
     expect(sign.dockerConfig).toEqual({ auths: { 'registry:5000': { registrytoken: 'token-for-system/trivy' } } });
   });
 
-  it('removes the credential and the SBOM scratch afterwards', async () => {
-    await signPluginImage({ repository: 'org-acme/foo', digest: DIGEST, sbom: SBOM });
+  it('removes the credential afterwards, and LEAVES the caller\'s SBOM alone', async () => {
+    await signPluginImage({ repository: 'org-acme/foo', digest: DIGEST, sbomPath: SBOM_PATH });
     for (const call of execCalls.filter((c) => c.env.DOCKER_CONFIG)) {
       expect(fs.existsSync(call.env.DOCKER_CONFIG as string)).toBe(false);
     }
+    // The predicate IS the caller's file now — it is streamed to disk by the
+    // route, or written there by the publish path, and each removes its own temp
+    // dir in a `finally`. Deleting a file we were merely handed would be a
+    // surprise, and this function cannot know whether the caller still needs it.
     const attest = execCalls.find((c) => c.args[0] === 'attest')!;
     const predicate = attest.args[attest.args.indexOf('--predicate') + 1];
-    expect(fs.existsSync(predicate)).toBe(false);
+    expect(predicate).toBe(SBOM_PATH);
+    expect(fs.existsSync(predicate)).toBe(true);
   });
 
   it('surfaces a cosign failure as PluginSigningError with its stderr', async () => {
     execFailOn = 'sign';
-    const err = await signPluginImage({ repository: 'org-acme/foo', digest: DIGEST, sbom: SBOM }).catch((e) => e);
+    const err = await signPluginImage({ repository: 'org-acme/foo', digest: DIGEST, sbomPath: SBOM_PATH }).catch((e) => e);
     expect(err).toBeInstanceOf(PluginSigningError);
     expect(err.message).toMatch(/cosign sign failed: .*no such key/);
     // Nothing is attested for an image that could not be signed.
@@ -142,16 +155,16 @@ describe('signPluginImage — local key', () => {
 
   it('fails clearly when the key file is missing, and retries the import next time', async () => {
     config.pluginSigning.keyFile = path.join(keyDir, 'absent.key');
-    await expect(signPluginImage({ repository: 'org-acme/foo', digest: DIGEST, sbom: SBOM }))
+    await expect(signPluginImage({ repository: 'org-acme/foo', digest: DIGEST, sbomPath: SBOM_PATH }))
       .rejects.toThrow(/signing key not found/);
     config.pluginSigning.keyFile = keyFile;
-    await signPluginImage({ repository: 'org-acme/foo', digest: DIGEST, sbom: SBOM });
+    await signPluginImage({ repository: 'org-acme/foo', digest: DIGEST, sbomPath: SBOM_PATH });
     expect(execCalls.map((c) => c.args[0])).toEqual(['import-key-pair', 'sign', 'attest']);
   });
 
   it('refuses a non-plugin repository or malformed digest before touching cosign', async () => {
-    await expect(signPluginImage({ repository: 'library/base', digest: DIGEST, sbom: SBOM })).rejects.toBeInstanceOf(PluginSigningError);
-    await expect(signPluginImage({ repository: 'system/x', digest: 'sha256:zz', sbom: SBOM })).rejects.toBeInstanceOf(PluginSigningError);
+    await expect(signPluginImage({ repository: 'library/base', digest: DIGEST, sbomPath: SBOM_PATH })).rejects.toBeInstanceOf(PluginSigningError);
+    await expect(signPluginImage({ repository: 'system/x', digest: 'sha256:zz', sbomPath: SBOM_PATH })).rejects.toBeInstanceOf(PluginSigningError);
     expect(execCalls).toHaveLength(0);
   });
 });
@@ -160,7 +173,7 @@ describe('signPluginImage — KMS', () => {
   it('signs with the KMS key by alias and imports nothing', async () => {
     config.pluginSigning.mode = 'kms';
     config.pluginSigning.kmsKeyId = 'alias/pipeline-builder-plugin-signing';
-    await signPluginImage({ repository: 'org-acme/foo', digest: DIGEST, sbom: SBOM });
+    await signPluginImage({ repository: 'org-acme/foo', digest: DIGEST, sbomPath: SBOM_PATH });
     expect(execCalls.map((c) => c.args[0])).toEqual(['sign', 'attest']);
     const sign = execCalls[0];
     expect(sign.args[sign.args.indexOf('--key') + 1]).toBe('awskms:///alias/pipeline-builder-plugin-signing');
@@ -173,7 +186,7 @@ describe('signPluginImage — KMS', () => {
   ])('refuses kms key id %p', async (id, message) => {
     config.pluginSigning.mode = 'kms';
     config.pluginSigning.kmsKeyId = id;
-    await expect(signPluginImage({ repository: 'org-acme/foo', digest: DIGEST, sbom: SBOM })).rejects.toThrow(message);
+    await expect(signPluginImage({ repository: 'org-acme/foo', digest: DIGEST, sbomPath: SBOM_PATH })).rejects.toThrow(message);
     expect(execCalls).toHaveLength(0);
   });
 });

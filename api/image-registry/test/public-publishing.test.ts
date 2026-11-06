@@ -18,6 +18,8 @@
  * manifest-copy runs over the mocked client so the copy is exercised as shipped.
  */
 
+import { readFileSync } from 'fs';
+
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
@@ -39,7 +41,9 @@ jest.unstable_mockModule('../src/services/registry-client.js', () => registryCli
 class PluginSigningError extends Error {}
 class CosignRejectedError extends PluginSigningError {}
 type Sig = { dockerReference?: string; manifestDigest?: string; annotations: Record<string, string> };
-const signPluginImage = jest.fn<(p: { repository: string; digest: string; sbom: unknown; annotations?: Record<string, string> }) => Promise<void>>();
+const signPluginImage = jest.fn<(p: { repository: string; digest: string; sbomPath: string; annotations?: Record<string, string> }) => Promise<void>>();
+/** What `signPluginImage` actually found on disk, captured by the mock below. */
+let signedSbomContents: unknown;
 const resignPublicImage = jest.fn<(repo: string, digest: string, annotations: Record<string, string>) => Promise<void>>();
 const readSignedSbom = jest.fn<(repo: string, digest: string) => Promise<Record<string, unknown>>>();
 const verifyPluginSignature = jest.fn<(repo: string, digest: string) => Promise<Sig[]>>();
@@ -131,7 +135,14 @@ beforeEach(() => {
   deleteTag.mockResolvedValue(undefined);
   listTags.mockResolvedValue({ name: TARGET, tags: [] });
   mountBlob.mockResolvedValue({ mounted: true });
-  signPluginImage.mockResolvedValue(undefined);
+  signedSbomContents = undefined;
+  // Capture what was WRITTEN, not just that a path was passed: the point of the
+  // re-attestation is that the source's own SBOM travels to the public copy, and
+  // a path proves nothing about its contents. Read inside the mock because the
+  // caller removes the temp dir as soon as this resolves.
+  signPluginImage.mockImplementation(async ({ sbomPath }) => {
+    signedSbomContents = JSON.parse(readFileSync(sbomPath, 'utf-8')) as unknown;
+  });
   resignPublicImage.mockResolvedValue(undefined);
   readSignedSbom.mockResolvedValue(SBOM);
   verifyPluginSignature.mockResolvedValue([]);
@@ -170,12 +181,17 @@ describe('publishPublicImage', () => {
     // …the signature is made FOR public/* with the tier annotations, and the SBOM
     // re-attested is the one read from the SOURCE's signed attestation.
     expect(readSignedSbom).toHaveBeenCalledWith(SOURCE, DIGEST);
-    expect(signPluginImage).toHaveBeenCalledWith({
+    // A PATH, not the object: cosign attests from `--predicate <file>`, so the
+    // document read out of the source attestation is written down and the file
+    // is handed over. The CONTENTS are asserted below, since a path alone would
+    // not prove the right SBOM was re-attested.
+    expect(signPluginImage).toHaveBeenCalledWith(expect.objectContaining({
       repository: TARGET,
       digest: DIGEST,
-      sbom: SBOM,
+      sbomPath: expect.any(String),
       annotations: { 'pb.trust': 'verified', 'pb.publisher': 'acme' },
-    });
+    }));
+    expect(signedSbomContents).toEqual(SBOM);
     // …and only then is the version tag written.
     expect(putManifest).toHaveBeenNthCalledWith(2, TARGET, '1.2.0', src.raw, OCI);
     const tagPut = putManifest.mock.invocationCallOrder[1];

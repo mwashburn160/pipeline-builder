@@ -5,7 +5,7 @@
  * The SBOM SIZE ceiling on `POST /internal/plugin-signatures`.
  *
  * Its own suite because the limit is read ONCE, at module import
- * (`REGISTRY_SBOM_BODY_LIMIT`), so it cannot be varied inside the main
+ * (`REGISTRY_SBOM_MAX_BYTES`), so it cannot be varied inside the main
  * signatures suite — which deliberately proves the opposite property, that an
  * SBOM larger than the app-wide 1mb limit is accepted. Here the ceiling is set
  * low so the refusal can be exercised without sending tens of megabytes.
@@ -87,7 +87,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 }));
 
 // Set BEFORE the route module is imported: the limit is read once, at import.
-process.env.REGISTRY_SBOM_BODY_LIMIT = '4kb';
+process.env.REGISTRY_SBOM_MAX_BYTES = String(4 * 1024);
 
 const express = (await import('express')).default;
 const { createInternalRoutes } = await import('../src/routes/internal.js');
@@ -122,16 +122,24 @@ beforeEach(() => {
   headManifest.mockResolvedValue({ digest: DIGEST });
 });
 
+/** The SBOM is the raw BODY; its metadata rides in headers (see the main suite). */
 const post = async (body: unknown, org?: string) => {
+  const b = (body ?? {}) as { repository?: unknown; digest?: unknown; sbom?: unknown };
+  const headers: Record<string, string> = {
+    'content-type': 'application/json',
+    ...(org ? { 'x-test-org': org } : {}),
+    ...(typeof b.repository === 'string' ? { 'x-pb-repository': b.repository } : {}),
+    ...(typeof b.digest === 'string' ? { 'x-pb-digest': b.digest } : {}),
+  };
   const res = await fetch(`${baseUrl}/internal/plugin-signatures`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', ...(org ? { 'x-test-org': org } : {}) },
-    body: JSON.stringify(body),
+    headers,
+    body: b.sbom === undefined ? '' : JSON.stringify(b.sbom),
   });
   return { status: res.status, body: await res.json() as Record<string, unknown> };
 };
 
-describe('an SBOM over REGISTRY_SBOM_BODY_LIMIT', () => {
+describe('an SBOM over REGISTRY_SBOM_MAX_BYTES', () => {
   const bigSbom = (n: number) => ({
     spdxVersion: 'SPDX-2.3',
     name: 'gar-push',
@@ -145,29 +153,41 @@ describe('an SBOM over REGISTRY_SBOM_BODY_LIMIT', () => {
     // The three things the build log needs: that the SBOM was the problem, what
     // the ceiling is, and which variable moves it.
     expect(String(body.message)).toContain('SBOM');
-    expect(String(body.message)).toContain('4kb');
-    expect(String(body.message)).toContain('REGISTRY_SBOM_BODY_LIMIT');
+    expect(String(body.message)).toContain('REGISTRY_SBOM_MAX_BYTES');
     expect(body.code).toBe('PAYLOAD_TOO_LARGE');
   });
 
-  it('does not sign, audit, or touch the registry when it refuses', async () => {
-    await post({ repository: `org-${ORG}/gar-push`, digest: DIGEST, sbom: bigSbom(400) });
+  it('does not sign or audit when it refuses — but DOES check the manifest first', async () => {
+    await post({
+      repository: `org-${ORG}/gar-push`,
+      digest: DIGEST,
+      sbom: bigSbom(400),
+    });
     expect(signPluginImage).not.toHaveBeenCalled();
-    expect(headManifest).not.toHaveBeenCalled();
     expect(recordAuditMock).not.toHaveBeenCalled();
+    // The manifest check runs BEFORE the body is read, and that order is
+    // deliberate: an image that is not in the registry should be refused
+    // without first accepting a document that can run to hundreds of megabytes.
+    expect(headManifest).toHaveBeenCalled();
   });
 
-  it('still answers 400 for a MALFORMED body rather than the size message', async () => {
-    // The handler must claim "too large" only for `entity.too.large`. A broken
-    // JSON body is a different fault, and telling the operator to raise the
-    // limit would send them after the wrong thing.
-    const res = await fetch(`${baseUrl}/internal/plugin-signatures`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: '{"repository": "org-x/y", ',
-    });
-    expect(res.status).toBe(400);
-    expect(await res.text()).not.toContain('REGISTRY_SBOM_BODY_LIMIT');
+  it('answers 400 for a body that is not an SBOM, not the size message', async () => {
+    // Nothing parses the document now, so "is this even an SBOM?" is answered
+    // from the head of the written file. A body that is not one is malformed —
+    // telling the operator to raise the ceiling would send them after the wrong
+    // thing entirely.
+    const { status, body } = await post({ repository: `org-${ORG}/foo`, digest: DIGEST, sbom: { notAnSbom: true } });
+    expect(status).toBe(400);
+    expect(String(body.message)).toContain('SPDX');
+    expect(String(body.message)).not.toContain('REGISTRY_SBOM_MAX_BYTES');
+  });
+
+  it('refuses a bad digest WITHOUT reading the body at all', async () => {
+    // The metadata is in headers precisely so this can happen: a caller that is
+    // going to be rejected must not get to stream a huge document first.
+    const { status } = await post({ repository: `org-${ORG}/foo`, digest: 'sha256:nope', sbom: bigSbom(400) });
+    expect(status).toBe(400);
+    expect(signPluginImage).not.toHaveBeenCalled();
   });
 
   it('accepts an SBOM under the ceiling unchanged', async () => {

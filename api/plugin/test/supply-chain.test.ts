@@ -31,7 +31,15 @@ const mockSpawn = jest.fn<(cmd: string, args: string[], opts?: any) => any>(() =
 jest.unstable_mockModule('child_process', () => ({ spawn: mockSpawn }));
 
 const mockExistsSync = jest.fn<(p: string) => boolean>(() => true);
-const mockReadFileSync = jest.fn<(p: string, enc?: string) => string>(() => JSON.stringify({ spdxVersion: 'SPDX-2.3', packages: [] }));
+const SBOM_JSON = JSON.stringify({ spdxVersion: 'SPDX-2.3', packages: [] });
+/**
+ * Mirrors the real `readFileSync` contract: a Buffer with no encoding, a string
+ * with one. The SBOM is now read as BYTES (it is sent as the request body
+ * verbatim), so a mock that always answered a string would make the production
+ * code look like it was sending a JSON envelope when it is not.
+ */
+const mockReadFileSync = jest.fn<(p: string, enc?: string) => string | Buffer>(
+  (_p, enc) => (enc ? SBOM_JSON : Buffer.from(SBOM_JSON)));
 const mockRmSync = jest.fn();
 jest.unstable_mockModule('fs', () => ({
   existsSync: mockExistsSync,
@@ -39,6 +47,11 @@ jest.unstable_mockModule('fs', () => ({
   writeFileSync: jest.fn(),
   mkdtempSync: jest.fn((prefix: string) => `${prefix}XXXX`),
   rmSync: mockRmSync,
+  // The SBOM's SIZE is now measured before it is sent — it decides whether the
+  // registry will accept it at all, and it was recorded nowhere. An `fs` mock
+  // that omits an export the code reaches for fails the whole module, so it is
+  // listed here rather than discovered at runtime.
+  statSync: jest.fn(() => ({ size: 4096 })),
 }));
 
 const mockPost = jest.fn<(path: string, body: unknown, opts?: any) => Promise<{ statusCode: number; body: any }>>(
@@ -124,11 +137,23 @@ describe('attachSupplyChain', () => {
     }));
 
     expect(mockClientCtor).toHaveBeenCalledWith(expect.objectContaining({ host: 'image-registry', port: 3000 }));
-    expect(mockPost).toHaveBeenCalledWith('/internal/plugin-signatures', {
-      repository: 'org-acme/foo',
-      digest: DIGEST,
-      sbom: { spdxVersion: 'SPDX-2.3', packages: [] },
-    }, expect.objectContaining({ headers: { Authorization: 'Bearer svc-token' }, maxRetries: 0 }));
+    // The SBOM is the raw BODY, with its metadata in headers: the registry can
+    // then validate the repository and digest before reading a byte, and stream
+    // the document straight to the file cosign attests from. Sending it inside a
+    // JSON envelope meant parsing it here only for the client to serialize it
+    // back — two full copies of a document that was already on disk.
+    const [sentPath, sentBody, sentOpts] = mockPost.mock.calls[0]!;
+    expect(sentPath).toBe('/internal/plugin-signatures');
+    expect(Buffer.isBuffer(sentBody)).toBe(true);
+    expect(JSON.parse(String(sentBody))).toEqual({ spdxVersion: 'SPDX-2.3', packages: [] });
+    expect(sentOpts).toEqual(expect.objectContaining({
+      headers: {
+        'Authorization': 'Bearer svc-token',
+        'x-pb-repository': 'org-acme/foo',
+        'x-pb-digest': DIGEST,
+      },
+      maxRetries: 0,
+    }));
   });
 
   it('never signs locally — this pod holds no private key and runs no cosign sign', async () => {

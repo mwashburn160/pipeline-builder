@@ -69,7 +69,6 @@ export function parsePlatformBaseUrl(raw?: string): { host: string; port: number
  */
 export function loadPluginBuildConfig(): PluginBuildConfig {
   return {
-    concurrency: envInt('PLUGIN_BUILD_CONCURRENCY', 1),
     // Baselines the tier ladder raises, never a ceiling (see PluginBuildConfig).
     // Flexible sits ABOVE standard so the cheap class keeps real headroom on
     // every tier; one shared figure made the two identical below it.

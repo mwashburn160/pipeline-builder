@@ -116,6 +116,10 @@ const mockSetGauge = jest.fn<AnyFn>();
 const mockIncCounter = jest.fn<AnyFn>();
 const mockTryAcquireOrgSlot = jest.fn<(...args: any[]) => any>().mockResolvedValue(true);
 const mockStopSlotHeartbeat = jest.fn<AnyFn>();
+const queueLogger = { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() };
+
+/** The live slot state the worker turns into gauges; empty unless a case sets it. */
+const mockOrgSlotSnapshot = jest.fn<AnyFn>().mockResolvedValue([]);
 const mockStartOrgSlotHeartbeat = jest.fn<AnyFn>(() => mockStopSlotHeartbeat);
 
 // Shared central-trail spy: the tier queue, the failure handler and the DLQ all
@@ -275,6 +279,10 @@ function registerMocks() {
   }));;
 
   jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
+    // ONE shared logger so the worker's startup warnings are assertable;
+    // apiCoreMock's default mints a fresh logger per `createLogger` call, which
+    // the test can never reach.
+    createLogger: () => queueLogger,
     extractDbError: jest.fn(() => ({})),
     incrementQuota: mockIncrementQuota,
     decrementQuota: mockIncrementQuota,
@@ -315,6 +323,10 @@ function registerMocks() {
     releaseOrgSlot: jest.fn<AnyFn>().mockResolvedValue(true),
     scrubOrgSlots: jest.fn<AnyFn>().mockResolvedValue(undefined),
     startOrgSlotHeartbeat: mockStartOrgSlotHeartbeat,
+    // The worker publishes the slot gauges from the scrub tick, so this mock
+    // must carry the snapshot too — an omitted export makes the whole import
+    // graph fail to LOAD naming it.
+    orgSlotSnapshot: mockOrgSlotSnapshot,
   }));
 
   jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
@@ -510,6 +522,52 @@ describe('plugin-build-queue', () => {
       queueModule.startWorker(sse, quota);
       expect(getMainProcessor()).toBeInstanceOf(Function);
       expect(capturedProcessors['plugin-build-dlq']).toBeInstanceOf(Function);
+    });
+
+    it('logs the effective per-org caps beside the concurrency, on every start', () => {
+      queueModule.startWorker(makeSseManager(), makeQuotaService());
+      // The `ready` handlers are recorded by the Worker double but never fired;
+      // invoking them is what exercises the startup reporting.
+      for (const [event, handler] of mockWorkerOn.mock.calls as [string, () => void][]) {
+        if (event === 'ready') handler();
+      }
+
+      // Both figures together, because they are different limits and the LOWER
+      // of them binds. A stale per-org override used to be discoverable only
+      // from a build that failed after thirty minutes.
+      expect(queueLogger.info).toHaveBeenCalledWith(
+        'Plugin build worker ready (Redis connected)',
+        expect.objectContaining({ orgSlots: { standard: 3, flexible: 3 } }),
+      );
+    });
+
+    it('WARNS when worker concurrency — not the cap — is the binding limit', () => {
+      queueModule.startWorker(makeSseManager(), makeQuotaService());
+      for (const [event, handler] of mockWorkerOn.mock.calls as [string, () => void][]) {
+        if (event === 'ready') handler();
+      }
+
+      // `developer` runs one build at a time against a cap of 3, so raising the
+      // cap for it does nothing — which is exactly the shape of a setting that
+      // looks like it works. (An operator believing a global
+      // PLUGIN_BUILD_CONCURRENCY bounded builds is what mis-framed a real
+      // incident.)
+      const warned = queueLogger.warn.mock.calls.filter(
+        ([msg]) => msg === 'Worker concurrency binds below the per-org build cap',
+      );
+      expect(warned.length).toBeGreaterThan(0);
+      expect(warned[0]![1]).toEqual(expect.objectContaining({
+        tier: 'developer',
+        workerConcurrency: 1,
+        orgCap: 3,
+        binding: 'workerConcurrency',
+      }));
+      // …and it says which variable to move.
+      expect(String((warned[0]![1] as { hint: string }).hint)).toContain('PLUGIN_BUILD_CONCURRENCY_DEVELOPER');
+
+      // Silent for a tier that can actually reach its cap: enterprise runs four
+      // at once, which clears 3.
+      expect(warned.some(([, meta]) => (meta as { tier: string }).tier === 'enterprise')).toBe(false);
     });
 
     it('is idempotent — repeat calls are no-ops when workers exist', () => {

@@ -77,11 +77,19 @@ const mockDecr = jest.fn<(...args: any[]) => any>(async (key: string) => call('D
 const mockHdel = jest.fn<(...args: any[]) => any>(async (key: string, field: string) => call('HDEL', key, field));
 const mockHgetall = jest.fn<(...args: any[]) => any>(async (key: string) => Object.fromEntries(hashes.get(key) ?? new Map()));
 
+const mockGet = jest.fn<(...args: any[]) => any>(async (key: string) => {
+  const v = strings.get(key);
+  // ioredis answers a STRING or null, never a number — a double that returned a
+  // number would let production code that forgets to parse look correct here.
+  return v === undefined ? null : String(v);
+});
+
 const redis = {
   eval: mockEval,
   decr: mockDecr,
   hdel: mockHdel,
   hgetall: mockHgetall,
+  get: mockGet,
 };
 
 const mockGetAllTierQueues = jest.fn<() => any[]>(() => []);
@@ -121,7 +129,7 @@ registerMocks();
 const mod0 = await import('../src/queue/slot-manager.js');
 const {
   releaseOrgSlot, scrubOrgSlots, refreshOrgSlot, startOrgSlotHeartbeat, MAX_SLOT_DELAYS, maxBuildsPerOrg,
-  orgSlotExempt,
+  orgSlotExempt, orgSlotSnapshot,
 } = mod0;
 const { SYSTEM_ORG_ID } = await import('@pipeline-builder/api-core');
 
@@ -769,5 +777,76 @@ describe('PLUGIN_ORG_BUILD_SLOTS_* are per-class baselines the ladder raises', (
     const { SYSTEM_ORG_ID: sys } = await import('@pipeline-builder/api-core');
     expect(await acquire(sys, 'q:job-1', 'developer', 'standard')).toBe(true);
     expect(mockEval).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The slot state, made readable
+// ---------------------------------------------------------------------------
+
+describe('orgSlotSnapshot', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    resetRedis();
+  });
+
+  it('reports nothing when nothing holds a slot', async () => {
+    await expect(orgSlotSnapshot()).resolves.toEqual([]);
+  });
+
+  it('reports held and counted per (org, class)', async () => {
+    await acquire('org-a', 'q:job-1', 'enterprise', 'standard');
+    await acquire('org-a', 'q:job-2', 'enterprise', 'standard');
+    await acquire('org-b', 'q:job-3', 'enterprise', 'flexible');
+
+    const snapshot = await orgSlotSnapshot();
+    expect(snapshot).toHaveLength(2);
+    expect(snapshot).toEqual(expect.arrayContaining([
+      { orgId: 'org-a', buildClass: 'standard', held: 2, counted: 2, leaked: 0 },
+      { orgId: 'org-b', buildClass: 'flexible', held: 1, counted: 1, leaked: 0 },
+    ]));
+  });
+
+  it('SURFACES a leak — the counter above its owner records', async () => {
+    // THE diagnostic this exists for. A counter raised with no owner is
+    // capacity that has silently gone missing: the org stays at its cap,
+    // refuses builds for PLUGIN_ORG_SLOT_MAX_WAIT_MS and then fails them, which
+    // from the outside is indistinguishable from a cap that is simply too low.
+    // Neither figure was visible anywhere before, so telling those two apart
+    // meant reading logs after the fact.
+    await acquire('org-a', 'q:job-1', 'enterprise', 'standard');
+    // A crashed worker's slot: the counter was raised, the owner record is gone.
+    strings.set('pb:org-build:org-a:standard', 4);
+
+    const [row] = await orgSlotSnapshot();
+    expect(row).toEqual({ orgId: 'org-a', buildClass: 'standard', held: 1, counted: 4, leaked: 3 });
+  });
+
+  it('never reports a NEGATIVE leak', async () => {
+    // A counter BELOW its owners is the release path's negative clamp, not
+    // leaked capacity, and reporting it as -1 would make a sum of leaks lie.
+    await acquire('org-a', 'q:job-1', 'enterprise', 'standard');
+    await acquire('org-a', 'q:job-2', 'enterprise', 'standard');
+    strings.set('pb:org-build:org-a:standard', 0);
+
+    const [row] = await orgSlotSnapshot();
+    expect(row!.leaked).toBe(0);
+  });
+
+  it('keeps the two classes apart', async () => {
+    // One counter per class is the invariant; a snapshot that merged them would
+    // hide a leak in whichever class was quieter.
+    await acquire('org-a', 'q:std-1', 'enterprise', 'standard');
+    await acquire('org-a', 'q:flex-1', 'enterprise', 'flexible');
+
+    const snapshot = await orgSlotSnapshot();
+    expect(snapshot.map((r) => r.buildClass).sort()).toEqual(['flexible', 'standard']);
+    for (const row of snapshot) expect(row.held).toBe(1);
+  });
+
+  it('does not count the exempt system org, which holds no slot', async () => {
+    const { SYSTEM_ORG_ID: sys } = await import('@pipeline-builder/api-core');
+    await acquire(sys, 'q:job-1', 'enterprise', 'standard');
+    await expect(orgSlotSnapshot()).resolves.toEqual([]);
   });
 });

@@ -39,6 +39,7 @@ import * as os from 'os';
 import path from 'path';
 
 import { createLogger, errorMessage, extractPredicate, getServiceAuthHeader, InternalHttpClient, SPDX_PREDICATE_TYPE, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import { observe } from '@pipeline-builder/api-server';
 import { Config } from '@pipeline-builder/pipeline-core';
 
 import { run } from './build-process.js';
@@ -151,7 +152,8 @@ export async function attachSupplyChain(params: AttachSupplyChainParams, opts?: 
   // syft's layer extraction goes there too via TMPDIR, not the container's /tmp.
   const workDir = fs.mkdtempSync(path.join(cfg.tempRoot, 'pb-sbom-'));
   const sbomFile = path.join(workDir, 'sbom.spdx.json');
-  let sbom: unknown;
+  let sbom: Buffer;
+  let sbomBytes = 0;
   try {
     opts?.onLine?.(`Generating SBOM for ${ref}`, 'stdout');
     await run('syft', [
@@ -165,7 +167,20 @@ export async function attachSupplyChain(params: AttachSupplyChainParams, opts?: 
       SYFT_CHECK_FOR_APP_UPDATE: 'false',
       ...(registry.http ? { SYFT_REGISTRY_INSECURE_USE_HTTP: 'true' } : {}),
     }, opts);
-    sbom = JSON.parse(fs.readFileSync(sbomFile, 'utf-8'));
+    // MEASURED before anything consumes it, because the size is the thing that
+    // decides whether this can be signed at all and it was recorded nowhere.
+    // `gar-push` installs `google-cloud-cli`, whose vendored Python tree made an
+    // SPDX document larger than the registry's signing-request ceiling — and the
+    // refusal arrived as a bare 413, so nobody could tell how close any other
+    // plugin was. An operator raising that ceiling was guessing.
+    sbomBytes = fs.statSync(sbomFile).size;
+    observe('plugin_sbom_bytes', { repository }, sbomBytes);
+    opts?.onLine?.(`SBOM is ${Math.round(sbomBytes / 1024)} KiB`, 'stdout');
+    // Read as BYTES, not parsed. The document's only destination is a file on
+    // the registry side (cosign's `--predicate`), so parsing it here only to
+    // have the HTTP client `JSON.stringify` it straight back was two full
+    // copies of a multi-megabyte string for nothing.
+    sbom = fs.readFileSync(sbomFile);
   } finally {
     fs.rmSync(workDir, { recursive: true, force: true });
   }
@@ -179,18 +194,27 @@ export async function attachSupplyChain(params: AttachSupplyChainParams, opts?: 
   });
   // No retries: a signature request that timed out may still have landed, and a
   // retry would just append a second signature — the build retry covers it.
-  const res = await client.post<{ message?: string }>('/internal/plugin-signatures', {
-    repository: relativeRepository(repository, registry),
-    digest,
-    sbom,
-  }, {
-    headers: { Authorization: getServiceAuthHeader({ serviceName: 'plugin', orgId, role: 'member' }) },
+  // The SBOM is the BODY and the metadata rides in headers, so the registry can
+  // validate the repository and digest before reading a byte of the document —
+  // and can stream it straight to the file cosign needs instead of buffering a
+  // JSON envelope around it. Same method and path, so no route contract moves.
+  const res = await client.post<{ message?: string }>('/internal/plugin-signatures', sbom, {
+    headers: {
+      'Authorization': getServiceAuthHeader({ serviceName: 'plugin', orgId, role: 'member' }),
+      'x-pb-repository': relativeRepository(repository, registry),
+      'x-pb-digest': digest,
+    },
     maxRetries: 0,
   });
   if (res.statusCode < 200 || res.statusCode >= 300) {
-    throw new Error(`image-registry refused to sign ${ref} (HTTP ${res.statusCode}): ${res.body?.message ?? 'no detail'}`);
+    // The SIZE rides along in the error, so a ceiling refusal names the figure
+    // that hit it rather than leaving the operator to guess which plugin is big.
+    throw new Error(
+      `image-registry refused to sign ${ref} (HTTP ${res.statusCode}, SBOM ${Math.round(sbomBytes / 1024)} KiB): `
+      + `${res.body?.message ?? 'no detail'}`,
+    );
   }
-  logger.info('Plugin image signed with SBOM attestation', { ref });
+  logger.info('Plugin image signed with SBOM attestation', { ref, sbomBytes });
 }
 
 // -----------------------------------------------------------------------------

@@ -1238,7 +1238,6 @@ services:
       PUBLISH_PLATFORM: ${PUBLISH_PLATFORM:-linux/amd64}
       DOCKER_BUILD_TIMEOUT_MS: ${DOCKER_BUILD_TIMEOUT_MS:-900000}
       DOCKER_PUSH_TIMEOUT_MS: ${DOCKER_PUSH_TIMEOUT_MS:-300000}
-      PLUGIN_BUILD_CONCURRENCY: ${PLUGIN_BUILD_CONCURRENCY:-1}
       # Plugin code (read-only rootfs) writes the transient incoming ZIP + the
       # extracted build context here. MUST match the container-side bind target
       # in `volumes:` below. Local uses a laptop-style /data/* container path

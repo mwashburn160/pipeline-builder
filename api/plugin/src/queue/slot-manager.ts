@@ -310,6 +310,55 @@ export async function releaseOrgSlot(orgId: string, jobId: string, buildClass: B
 }
 
 /**
+ * The live slot state, per (org, class): how many slots the owner hash says are
+ * HELD, and what the counter the cap is compared against actually says.
+ *
+ * **The two can disagree, and that disagreement is the whole point.** The
+ * counter is what `ACQUIRE_SLOT_LUA` compares the cap against; the owner hash is
+ * the record of who holds what. A counter ABOVE its owners is a leaked slot —
+ * capacity that has silently gone missing and will keep refusing builds until
+ * something reclaims it. Neither number was visible anywhere before: the only
+ * symptom was a build failing after thirty minutes with "this organization is at
+ * its limit", and working out why meant archaeology over logs.
+ *
+ * Derived from ONE `HGETALL` of the owner hash plus one read per group, so it is
+ * cheap enough for a scrape interval. Deliberately no `SCAN` of the keyspace:
+ * the owner hash already enumerates every slot, and scanning `pb:org-build:*`
+ * would also pick up counters whose owners are gone and report them as live.
+ */
+export interface OrgSlotState {
+  orgId: string;
+  buildClass: BuildClass;
+  /** Owner records — the jobs that actually hold a slot. */
+  held: number;
+  /** The counter the cap is compared against. */
+  counted: number;
+  /** `counted - held`, floored at 0. Positive means leaked capacity. */
+  leaked: number;
+}
+
+export async function orgSlotSnapshot(): Promise<OrgSlotState[]> {
+  const redis = getConnectionForDb(0);
+  const owners = await redis.hgetall(orgSlotOwnersKey);
+
+  const held = new Map<string, { orgId: string; buildClass: BuildClass; held: number }>();
+  for (const value of Object.values(owners)) {
+    const { orgId, buildClass } = parseOwnerValue(value);
+    const key = ownerValue(orgId, buildClass);
+    const seen = held.get(key);
+    if (seen) seen.held += 1;
+    else held.set(key, { orgId, buildClass, held: 1 });
+  }
+
+  const rows = [...held.values()];
+  if (rows.length === 0) return [];
+  const counts = await Promise.all(
+    rows.map(async (r) => Number(await redis.get(orgSlotKey(r.orgId, r.buildClass))) || 0),
+  );
+  return rows.map((r, i) => ({ ...r, counted: counts[i]!, leaked: Math.max(0, counts[i]! - r.held) }));
+}
+
+/**
  * Reconcile slot counters against live BullMQ state. For each owner entry
  * whose jobId is no longer in any active/waiting/delayed set across the tier
  * queues and DLQ, decrement the org's counter and drop the owner record.

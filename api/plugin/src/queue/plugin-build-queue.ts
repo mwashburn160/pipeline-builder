@@ -11,7 +11,7 @@
 import * as fs from 'fs';
 import path from 'path';
 
-import { SYSTEM_ACTOR_ID, BUILD_CLASSES, ErrorCode, envInt, createLogger, errorMessage, getServiceAuthHeader, VALID_TIERS, recordAudit } from '@pipeline-builder/api-core';
+import { SYSTEM_ACTOR_ID, BUILD_CLASSES, buildConcurrencyEnvVar, buildWorkerConcurrencyFor, ErrorCode, envInt, createLogger, errorMessage, getServiceAuthHeader, VALID_TIERS, recordAudit } from '@pipeline-builder/api-core';
 import type { AppError, BuildClass, BuildSize, PluginScanSummary, QuotaService, QuotaTier } from '@pipeline-builder/api-core';
 import { incCounter, observe, setGauge, withSpan } from '@pipeline-builder/api-server';
 import type { SSEManager } from '@pipeline-builder/api-server';
@@ -40,8 +40,9 @@ import { startDlqWorker, closeDlqWorker } from './plugin-build-dlq.js';
 import { startQueueMetricsScraper, stopQueueMetricsScraper } from './queue-metrics-scraper.js';
 import {
   maxBuildsPerOrg, MAX_SLOT_DELAYS, ORG_SLOT_DELAY_MS, ORG_SLOT_SCRUB_MS,
-  tryAcquireOrgSlot, releaseOrgSlot, scrubOrgSlots, startOrgSlotHeartbeat,
+  tryAcquireOrgSlot, releaseOrgSlot, scrubOrgSlots, startOrgSlotHeartbeat, orgSlotSnapshot,
 } from './slot-manager.js';
+import type { OrgSlotState } from './slot-manager.js';
 import { getBuildStrategy } from '../helpers/build-strategy.js';
 import { getBuildkitAddrForBuild, BUILD_TEMP_ROOT } from '../helpers/docker-build.js';
 import type { BuildResult } from '../helpers/docker-build.js';
@@ -241,26 +242,33 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
   // the per-ORG cap in slot-manager (`PLUGIN_ORG_BUILD_SLOTS_*` baselines, 5/8).
   // The lower of the two binds, so raising the per-org cap alone does nothing
   // for a tier whose queue still processes one build at a time.
-  const { concurrency } = getBuildCfg();
-  const tierDefault: Record<QuotaTier, number> = {
-    developer: 1,
-    pro: 2,
-    team: 2,
-    business: 3,
-    enterprise: 4,
-    // Billing disabled: nothing is capped, so the ceiling is the pool itself.
-    unlimited: 4,
-  };
-  const tierConcurrency: Record<QuotaTier, number> = {
-    developer: envInt('PLUGIN_BUILD_CONCURRENCY_DEVELOPER', tierDefault.developer, { min: 1 }),
-    pro: envInt('PLUGIN_BUILD_CONCURRENCY_PRO', tierDefault.pro, { min: 1 }),
-    team: envInt('PLUGIN_BUILD_CONCURRENCY_TEAM', tierDefault.team, { min: 1 }),
-    business: envInt('PLUGIN_BUILD_CONCURRENCY_BUSINESS', tierDefault.business, { min: 1 }),
-    enterprise: envInt('PLUGIN_BUILD_CONCURRENCY_ENTERPRISE', tierDefault.enterprise, { min: 1 }),
-    unlimited: envInt('PLUGIN_BUILD_CONCURRENCY_UNLIMITED', tierDefault.unlimited, { min: 1 }),
-  };
-  void concurrency;
-
+  // NO global default. `PLUGIN_BUILD_CONCURRENCY` used to be read here and then
+  // DISCARDED (`void concurrency`) while the docs still called it "the default
+  // for every tier's worker below" — so an operator could set it to 1, believe
+  // the service built one plugin at a time, and actually be running four on the
+  // unlimited tier. That belief shaped the diagnosis of a real incident, which
+  // is the cost of a knob that reads as live and is not.
+  //
+  // Deriving the per-tier figures from a global is also the thing this ladder
+  // exists to undo: when every tier defaulted to the global 1, the per-tier
+  // machinery was inert and no org could reach its slot cap.
+  //
+  // The DEFAULTS now live in the build catalog beside `slotsByTier` and
+  // `minTier` — it is the third tier-keyed build figure, and the one that was
+  // still a bare literal here, which is how the docs drifted away from it. The
+  // env OVERLAY stays in the service because the catalog is browser-importable
+  // and cannot read an env var (the same split `maxBuildsPerOrg` uses).
+  //
+  // KEYED over VALID_TIERS rather than six near-identical lines: those lines
+  // were a surface for a wrong cross-reference (`pro: envInt('…_PRO',
+  // tierDefault.team)`), which silently takes another tier's default and which
+  // no type can catch. `Record<QuotaTier, number>` still forces exhaustiveness.
+  const tierConcurrency = Object.fromEntries(
+    VALID_TIERS.map((tier) => [
+      tier,
+      envInt(buildConcurrencyEnvVar(tier), buildWorkerConcurrencyFor(tier), { min: 1 }),
+    ]),
+  ) as Record<QuotaTier, number>;
   const processor = async (job: Job<PluginBuildJobData>, token?: string) => {
     const { requestId, orgId, userId, access, buildRequest, pluginRecord } = job.data;
     // The setup catalog load's marker keeps a gate-refused image for promotion
@@ -698,8 +706,46 @@ let slotScrubTimer: ReturnType<typeof setInterval> | null = null;
  */
 function startSlotScrub(): void {
   if (slotScrubTimer) return;
-  slotScrubTimer = setInterval(() => { void scrubOrgSlots(); }, ORG_SLOT_SCRUB_MS);
+  slotScrubTimer = setInterval(() => {
+    // Publish the state BEFORE reconciling it, so the gauges show what an
+    // operator would have been debugging rather than the tidied-up version.
+    void publishSlotGauges().finally(() => { void scrubOrgSlots(); });
+  }, ORG_SLOT_SCRUB_MS);
   slotScrubTimer.unref();
+}
+
+/**
+ * Publish the per-org slot state as gauges.
+ *
+ * `leaked` is the one that matters: the counter the cap is compared against,
+ * minus the jobs actually holding a slot. Positive means capacity has silently
+ * gone missing, and an org at its cap for that reason refuses builds for
+ * PLUGIN_ORG_SLOT_MAX_WAIT_MS and then fails them — which is indistinguishable,
+ * from the outside, from a cap that is simply too low. Nothing exposed either
+ * number before, so telling those two apart meant reading logs after the fact.
+ *
+ * Aggregated by CLASS, not by org: the org id would put tenant cardinality into
+ * the metric store. The per-org detail is on `GET /plugins/queue/status`, which
+ * is system-org only.
+ */
+async function publishSlotGauges(): Promise<void> {
+  try {
+    const snapshot = await orgSlotSnapshot();
+    for (const buildClass of BUILD_CLASSES) {
+      const rows = snapshot.filter((r) => r.buildClass === buildClass);
+      const sum = (pick: (r: OrgSlotState) => number) => rows.reduce((acc, r) => acc + pick(r), 0);
+      setGauge('plugin_build_slots_held', { build_class: buildClass }, sum((r) => r.held));
+      setGauge('plugin_build_slots_counted', { build_class: buildClass }, sum((r) => r.counted));
+      setGauge('plugin_build_slots_leaked', { build_class: buildClass }, sum((r) => r.leaked));
+      // Orgs whose counter has drifted ABOVE their owner records. A count rather
+      // than a list, for the same cardinality reason.
+      setGauge('plugin_build_slot_leak_orgs', { build_class: buildClass }, rows.filter((r) => r.leaked > 0).length);
+    }
+  } catch (err) {
+    // Observability must never take the scrub down with it — the scrub is the
+    // thing that actually reclaims the capacity these gauges describe.
+    logger.debug('Slot gauge publish failed', { error: errorMessage(err) });
+  }
 }
 
 /**

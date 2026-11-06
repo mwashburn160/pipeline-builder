@@ -4,7 +4,7 @@
 import {
   isoOrNull,
   envInt, ErrorCode, audited, getParam, isSystemAdmin, paginationMeta, parsePage, parseQueryInt, requirePermission, requireSystemOrgPermission, sendError, sendSuccess, actorId, userHasPermission,
-  recordAudit, SYSTEM_ORG_ID,
+  recordAudit, SYSTEM_ORG_ID, VALID_TIERS, buildConcurrencyEnvVar, buildWorkerConcurrencyFor,
 } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
@@ -15,6 +15,7 @@ import type { PluginBuildJobData } from '../helpers/plugin-helpers.js';
 import { findFailedJob, getAllTierQueues, getDeadLetterQueue } from '../queue/connections.js';
 import { purgeDlq } from '../queue/plugin-build-dlq.js';
 import { replayDlqJob, retryFailedJob, type Retrier } from '../queue/requeue.js';
+import { maxBuildsPerOrg, orgSlotSnapshot } from '../queue/slot-manager.js';
 import { callerFromRequest } from '../services/ecosystem/context.js';
 
 /** Cap on the job ids listed in one `plugin.dlq.purge` event (the count is always exact). */
@@ -170,9 +171,12 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
     // returned `tiers` field for operators that want it.
     const tierQueues = getAllTierQueues();
     const dlq = getDeadLetterQueue();
-    const [tierCounts, dlqCounts] = await Promise.all([
+    const [tierCounts, dlqCounts, slots] = await Promise.all([
       Promise.all(tierQueues.map(async ({ tier, queue }) => ({ tier, counts: await queue.getJobCounts() }))),
       dlq.getJobCounts(),
+      // Per-ORG detail, which the gauges deliberately omit (tenant cardinality
+      // in a metric store). System-org only route, so the org ids are fine here.
+      orgSlotSnapshot().catch(() => []),
     ]);
 
     const sum = (key: 'waiting' | 'active' | 'completed' | 'failed' | 'delayed') =>
@@ -198,6 +202,32 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
         failed: dlqCounts.failed ?? 0,
         delayed: dlqCounts.delayed ?? 0,
       },
+      /**
+       * The per-org build SLOTS, as the semaphore actually holds them.
+       *
+       * `held` is the jobs owning a slot; `counted` is the number the cap is
+       * compared against; `leaked` is the gap. A positive gap is capacity that
+       * has silently gone missing — an org pinned at its cap for that reason
+       * refuses builds for PLUGIN_ORG_SLOT_MAX_WAIT_MS and then fails them,
+       * which from outside is indistinguishable from a cap that is simply too
+       * low. Neither figure was visible anywhere before, so telling those two
+       * apart meant reading logs after the fact.
+       *
+       * Degrades to an empty list rather than failing the whole status read: a
+       * queue dashboard that goes blank because a diagnostic aside could not be
+       * computed is worse than one missing the aside.
+       */
+      orgSlots: slots,
+      /**
+       * The two limits side by side, because the LOWER of them binds and the
+       * per-org cap looks like a throughput knob when it is not. A tier whose
+       * `workerConcurrency` is under its `orgSlots` cannot reach that cap at
+       * all, so raising the cap for it changes nothing.
+       */
+      limits: Object.fromEntries(VALID_TIERS.map((tier) => [tier, {
+        workerConcurrency: envInt(buildConcurrencyEnvVar(tier), buildWorkerConcurrencyFor(tier), { min: 1 }),
+        orgSlots: { standard: maxBuildsPerOrg(tier, 'standard'), flexible: maxBuildsPerOrg(tier, 'flexible') },
+      }])),
     });
   }));
 

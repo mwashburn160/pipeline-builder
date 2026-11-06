@@ -175,9 +175,68 @@ export const BUILD_TIER_LADDER: readonly QuotaTier[] = [
   'developer', 'pro', 'team', 'business', 'enterprise', 'unlimited',
 ];
 
+/**
+ * How many of a tier's builds run AT ONCE, across every org on that tier
+ * (`PLUGIN_BUILD_CONCURRENCY_<TIER>` overrides each row).
+ *
+ * TIER-keyed, not class-keyed, and that is the queue topology rather than a
+ * simplification: there is one BullMQ `Worker` per tier queue and both
+ * scheduling classes are served by it, so a per-class figure here could not be
+ * honoured — it would either duplicate this number or invite someone to set a
+ * value the worker cannot act on.
+ *
+ * **A ladder, not one figure.** This is the AGGREGATE bound that makes a tier's
+ * advertised per-build capacity deliverable: the cap is reachable by a single
+ * tenant, and the number of tenants reaching for it concurrently is limited
+ * here, where it can be tuned without touching the price list.
+ *
+ * It lived as a bare literal map inside the build worker until now, which is
+ * exactly how `docs/environment-variables.md` came to describe a global default
+ * that the code had stopped honouring — a figure no catalog exposes is a figure
+ * the documentation drifts away from. It sits beside `slotsByTier` and
+ * `minTier` because it is the third tier-keyed build figure, not a different
+ * kind of thing.
+ *
+ * **Distinct from the per-org slot cap, and the LOWER of the two binds.** This
+ * is pod capacity (every concurrent build drives the same buildkitd); the slot
+ * cap is fairness between tenants sharing this queue. A tier whose concurrency
+ * sits below its slot cap cannot reach that cap at all, which is why the worker
+ * warns about it on start.
+ */
+export const BUILD_TIER_CONCURRENCY: Readonly<Record<QuotaTier, number>> = {
+  developer: 1,
+  pro: 2,
+  team: 2,
+  business: 3,
+  enterprise: 4,
+  // Billing disabled: nothing is capped, so the ceiling is the pool itself.
+  unlimited: 4,
+};
+
 // ---------------------------------------------------------------------------
 // Accessors
 // ---------------------------------------------------------------------------
+
+/**
+ * This tier's default worker concurrency. Falls back to the `developer` row for
+ * an unrecognised tier, matching `buildSlotsFor` — a bad tier string must not
+ * hand out the most generous figure in the table.
+ */
+export function buildWorkerConcurrencyFor(tier: QuotaTier): number {
+  return BUILD_TIER_CONCURRENCY[tier] ?? BUILD_TIER_CONCURRENCY.developer;
+}
+
+/**
+ * The env var that overrides {@link buildWorkerConcurrencyFor} for one tier.
+ *
+ * Derived rather than written out six times: the per-tier reads used to be six
+ * near-identical `envInt` lines, where a wrong cross-reference
+ * (`pro: envInt('…_PRO', tierDefault.team)`) silently takes another tier's
+ * default and no type can catch it.
+ */
+export function buildConcurrencyEnvVar(tier: QuotaTier): string {
+  return `PLUGIN_BUILD_CONCURRENCY_${tier.toUpperCase()}`;
+}
 
 /** This size's credit/vCPU multiplier; `1` for anything unrecognised. */
 export function buildSizeMultiplier(size: string): number {

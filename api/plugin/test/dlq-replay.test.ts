@@ -23,6 +23,21 @@ const queueAdd = jest.fn<AnyFn>();
 const replayHelper = jest.fn<AnyFn>();
 
 jest.unstable_mockModule('../src/queue/connections.js', () => ({
+  // EVERY export `slot-manager` reaches for, which these route suites now pull
+  // in transitively. A hand-rolled factory replaces the WHOLE namespace, so an
+  // omitted export makes the import graph fail to LOAD naming that symbol —
+  // which is how adding one import to the module under test broke five suites
+  // that never mention it.
+  getBuildCfg: () => ({ orgBuildSlots: { standard: 5, flexible: 8 } }),
+  getConnectionForDb: () => ({
+    // No slots held: the snapshot is then an empty list, which is the honest
+    // answer for a queue fixture that never acquired one.
+    hgetall: async () => ({}),
+    get: async () => null,
+    eval: async () => 1,
+    decr: async () => 0,
+    hdel: async () => 0,
+  }),
   // route uses getAllTierQueues; expose one entry for the single-tier
   // assertions to remain valid.
   getAllTierQueues: () => [{ tier: 'developer', queue: { name: 'plugin-build', add: queueAdd, getJobs: jest.fn<AnyFn>(), getJobCounts: jest.fn<AnyFn>() } }],

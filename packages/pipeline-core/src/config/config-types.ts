@@ -152,7 +152,6 @@ export interface RegistryConfig {
 }
 
 export interface PluginBuildConfig {
-  readonly concurrency: number;
   /**
    * BASELINE in-flight build slots one organization gets, PER SCHEDULING CLASS
    * (`PLUGIN_ORG_BUILD_SLOTS_STANDARD` 5, `PLUGIN_ORG_BUILD_SLOTS_FLEXIBLE` 8).

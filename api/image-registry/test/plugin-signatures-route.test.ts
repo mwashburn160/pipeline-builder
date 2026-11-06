@@ -110,11 +110,27 @@ beforeEach(() => {
   headManifest.mockResolvedValue({ digest: DIGEST });
 });
 
+/**
+ * The route takes the SBOM as the raw BODY with its metadata in headers, so the
+ * repository and digest can be validated before a byte of a multi-megabyte
+ * document is read and the document can be streamed to the file cosign needs.
+ *
+ * The helper keeps the old `{ repository, digest, sbom }` call shape and does
+ * the split, so each case below still reads as one request rather than as
+ * header plumbing.
+ */
 const post = async (body: unknown, org?: string) => {
+  const b = (body ?? {}) as { repository?: unknown; digest?: unknown; sbom?: unknown };
+  const headers: Record<string, string> = {
+    'content-type': 'application/json',
+    ...(org ? { 'x-test-org': org } : {}),
+    ...(typeof b.repository === 'string' ? { 'x-pb-repository': b.repository } : {}),
+    ...(typeof b.digest === 'string' ? { 'x-pb-digest': b.digest } : {}),
+  };
   const res = await fetch(`${baseUrl}/internal/plugin-signatures`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', ...(org ? { 'x-test-org': org } : {}) },
-    body: JSON.stringify(body),
+    headers,
+    body: b.sbom === undefined ? '' : JSON.stringify(b.sbom),
   });
   return { status: res.status, body: await res.json() as Record<string, unknown> };
 };
@@ -125,7 +141,11 @@ describe('POST /internal/plugin-signatures', () => {
     expect(status).toBe(200);
     expect(body.data).toEqual({ repository: `org-${ORG}/foo`, digest: DIGEST, signed: true });
     expect(headManifest).toHaveBeenCalledWith(`org-${ORG}/foo`, DIGEST);
-    expect(signPluginImage).toHaveBeenCalledWith({ repository: `org-${ORG}/foo`, digest: DIGEST, sbom: SBOM });
+    // A PATH now, not a parsed object: the document is streamed straight to the
+    // file cosign attests from, never held as an object and re-serialized.
+    expect(signPluginImage).toHaveBeenCalledWith(
+      expect.objectContaining({ repository: `org-${ORG}/foo`, digest: DIGEST, sbomPath: expect.any(String) }),
+    );
     expect(recordAuditMock).toHaveBeenCalledWith(expect.objectContaining({
       action: 'registry.image.sign',
       affectedOrgId: ORG,
@@ -179,7 +199,7 @@ describe('POST /internal/plugin-signatures', () => {
   it('signs an anonymous submission\'s quarantine/<id> image only for a system-org token', async () => {
     const repo = 'quarantine/0f3a2b1c-aaaa-4bbb-8ccc-123456789abc';
     expect((await post({ repository: repo, digest: DIGEST, sbom: SBOM }, '000000000000000000000001')).status).toBe(200);
-    expect(signPluginImage).toHaveBeenCalledWith({ repository: repo, digest: DIGEST, sbom: SBOM });
+    expect(signPluginImage).toHaveBeenCalledWith(expect.objectContaining({ repository: repo, digest: DIGEST, sbomPath: expect.any(String) }));
     signPluginImage.mockClear();
     const tenant = await post({ repository: repo, digest: DIGEST, sbom: SBOM });
     expect(tenant.status).toBe(403);

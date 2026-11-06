@@ -4,7 +4,7 @@
 import {
   actorId,
   audited,
-  envStr,
+  envInt,
   ErrorCode,
   getParam,
   requireInternalService,
@@ -16,6 +16,9 @@ import {
   recordAuthzDenial,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
+import * as fs from 'fs';
+import * as os from 'os';
+import path from 'path';
 import express, { Router, type Request, type RequestHandler, type Response } from 'express';
 import { z } from 'zod';
 
@@ -153,25 +156,25 @@ function discardContext(raw: unknown): DiscardContext {
 }
 
 /**
- * An SPDX document for a large image (thousands of packages) runs to several MB;
- * this route parses its own body with a limit sized for that, instead of the
- * app-wide 1mb.
+ * Ceiling on a signing request's SBOM, in BYTES.
  *
- * **64mb, raised from 32mb, and now an operator knob.** A plugin that installs a
- * vendored SDK produces an SBOM far larger than "several MB": `gar-push` and
- * `gcloud-deploy` install `google-cloud-cli`, whose bundled Python tree runs to
- * tens of thousands of packages, and its SPDX document went over 32mb. The
- * refusal landed as a bare `413` from body-parser — no message body — so the
- * build failed with "image-registry refused to sign (HTTP 413): no detail" and
- * nothing said the SBOM was the reason.
+ * An SPDX document for a large image runs to several MB; one for a plugin that
+ * installs a vendored SDK runs much further. `gar-push` and `gcloud-deploy`
+ * install `google-cloud-cli`, whose bundled Python tree put its document over a
+ * previous hard-coded 32mb — and the refusal arrived as a bare `413` from
+ * body-parser with no message, so the build failed with "refused to sign (HTTP
+ * 413): no detail" and nothing said the SBOM was why.
  *
- * The limit is a MEMORY bound (the body is buffered and parsed), which is why it
- * is not simply removed: this route is reachable only by the plugin build worker,
- * and the gate runs BEFORE the parser so no other caller can make it buffer at
- * all. Raising it costs one worker's peak RSS on the largest image in the
- * catalogue; losing the signature costs the build.
+ * It is now a DISK bound rather than a memory one: the body is STREAMED to the
+ * temp file cosign needs, never parsed into an object (see the route). The
+ * ceiling stays because an unbounded stream is a disk-exhaustion lever on a pod
+ * that also holds build scratch — but it no longer costs heap, and it is the
+ * operator's to move.
  */
-const SBOM_BODY_LIMIT = envStr('REGISTRY_SBOM_BODY_LIMIT', '64mb');
+const SBOM_MAX_BYTES = envInt('REGISTRY_SBOM_MAX_BYTES', 256 * 1024 * 1024, { min: 1024 });
+
+/** Human spelling of {@link SBOM_MAX_BYTES} for the refusal message. */
+const sbomLimitLabel = () => `${Math.round(SBOM_MAX_BYTES / (1024 * 1024))} MiB`;
 
 /**
  * Internal (service-to-service) routes. Mounted after `requireAuth`.
@@ -191,26 +194,72 @@ const SBOM_BODY_LIMIT = envStr('REGISTRY_SBOM_BODY_LIMIT', '64mb');
  *    bytes, so the quota dashboard's `storageBytes.used` shows a real number.
  */
 /**
- * Error-handling middleware for the SBOM parser, mounted immediately after it.
+ * Stream the request body to a file, refusing past {@link SBOM_MAX_BYTES}.
  *
- * body-parser rejects an oversized body with `type: 'entity.too.large'` and
- * express's default handler answers a bare 413 with no JSON body, which is
- * exactly what reached the build log as "no detail". This names the limit and
- * the knob so the next person does not have to find this file.
+ * Streamed rather than buffered-and-parsed because the document's only
+ * destination is a file: cosign attests from `--predicate <path>`. The old path
+ * held it three times over — the raw body, the parsed object, and the
+ * `JSON.stringify` written back out — to move bytes that were already on disk
+ * in the plugin pod. This holds a chunk.
  *
- * Anything else is passed along untouched — a malformed JSON body is still a
- * 400 from the default handler, not an SBOM-size complaint.
+ * The cap is enforced on the bytes as they ARRIVE, not from `Content-Length`,
+ * which the sender controls.
+ *
+ * Past the cap it stops WRITING but keeps READING, discarding the rest. That
+ * wastes the remainder of one upload, and the alternative was worse: destroying
+ * the request socket mid-stream means the 413 never reaches the client, which
+ * sees a connection reset instead — the build log then says "socket hang up"
+ * rather than naming the ceiling, which is the whole failure this message exists
+ * to prevent. Nothing is buffered either way, so the protection the cap gives
+ * (heap and disk) is unaffected; only bandwidth is spent.
  */
-const sbomTooLarge: express.ErrorRequestHandler = (err, _req, res, next) => {
-  if ((err as { type?: string } | null)?.type !== 'entity.too.large') return next(err);
-  sendError(
-    res, 413,
-    `The SBOM exceeds this registry's ${SBOM_BODY_LIMIT} signing-request limit. `
-    + 'An image that installs a vendored SDK (for example google-cloud-cli) can produce an SPDX '
-    + 'document larger than this. Raise REGISTRY_SBOM_BODY_LIMIT on the image-registry service.',
-    ErrorCode.PAYLOAD_TOO_LARGE,
-  );
-};
+async function streamBodyToFile(req: Request, dest: string): Promise<{ bytes: number } | 'too-large'> {
+  const out = fs.createWriteStream(dest);
+  let bytes = 0;
+  let overLimit = false;
+  try {
+    await new Promise<void>((resolve, reject) => {
+      req.on('data', (chunk: Buffer) => {
+        bytes += chunk.length;
+        if (bytes > SBOM_MAX_BYTES) {
+          overLimit = true;
+          return; // read on, write nothing
+        }
+        out.write(chunk);
+      });
+      req.on('end', () => resolve());
+      req.on('error', reject);
+      out.on('error', reject);
+    });
+  } catch (err) {
+    out.destroy();
+    throw err;
+  }
+  await new Promise<void>((resolve, reject) => out.end((e?: Error | null) => (e ? reject(e) : resolve())));
+  return overLimit ? 'too-large' : { bytes };
+}
+
+/**
+ * Is this file an SPDX document?
+ *
+ * Checked by reading the HEAD of the written file rather than by parsing it: the
+ * whole point of streaming is never to hold the document in memory, and the
+ * guard this replaces (`typeof sbom.spdxVersion === 'string'`) existed to refuse
+ * a body that is not an SBOM at all — which the first few KiB answer. A
+ * well-formed SPDX document that happened to put `spdxVersion` past the window
+ * would be refused; syft emits it in the first object, and the alternative is
+ * parsing tens of megabytes to re-learn what the producer already told us.
+ */
+function looksLikeSpdx(file: string): boolean {
+  const fd = fs.openSync(file, 'r');
+  try {
+    const head = Buffer.alloc(Math.min(8192, fs.fstatSync(fd).size));
+    fs.readSync(fd, head, 0, head.length, 0);
+    return head.toString('utf-8').includes('"spdxVersion"');
+  } finally {
+    fs.closeSync(fd);
+  }
+}
 
 export function createInternalRoutes(): Router {
   const router: Router = Router();
@@ -222,26 +271,21 @@ export function createInternalRoutes(): Router {
     // body is parsed, so no other caller can make this route buffer 32mb.
     requireInternalService({ callers: ['plugin'] }) as RequestHandler,
     audited('registry.image.sign') as RequestHandler,
-    express.json({ limit: SBOM_BODY_LIMIT }) as RequestHandler,
-    // Turn body-parser's bare 413 into something the build log can act on.
-    // Without this the plugin service reports "HTTP 413: no detail" and the
-    // operator has no way to tell an oversized SBOM from a proxy refusing the
-    // request — the two look identical from the build's side.
-    sbomTooLarge,
+    // NO body parser: the SBOM is streamed to disk below. The metadata rides in
+    // headers precisely so it can be validated BEFORE a byte of the document is
+    // read — a bad repository or digest is refused without an upload.
     withRoute(async ({ req, res, ctx }) => {
-      const { repository, digest, sbom } = (req.body ?? {}) as { repository?: unknown; digest?: unknown; sbom?: unknown };
+      const repository = req.header('x-pb-repository');
+      const digest = req.header('x-pb-digest');
       // `public/*` is signed only by the publish/resign routes (fresh, annotated).
       // `quarantine/<submissionId>` is signed so its SBOM attestation survives into
       // the approved public copy; it is owned by the system org (repoOwnerOrgId).
       if (typeof repository !== 'string' || !isPluginRepository(repository) || isPublicRepository(repository)
         || (inQuarantineNamespace(repository) && !isQuarantineRepository(repository))) {
-        return sendBadRequest(res, 'repository must be system/<name>, org-<orgId>/<name> or quarantine/<submissionId>', ErrorCode.VALIDATION_ERROR);
+        return sendBadRequest(res, 'x-pb-repository must be system/<name>, org-<orgId>/<name> or quarantine/<submissionId>', ErrorCode.VALIDATION_ERROR);
       }
       if (typeof digest !== 'string' || !isSha256Digest(digest)) {
-        return sendBadRequest(res, 'digest must be sha256:<64 hex>', ErrorCode.VALIDATION_ERROR);
-      }
-      if (!sbom || typeof sbom !== 'object' || Array.isArray(sbom) || typeof (sbom as { spdxVersion?: unknown }).spdxVersion !== 'string') {
-        return sendBadRequest(res, 'sbom must be an SPDX JSON document', ErrorCode.VALIDATION_ERROR);
+        return sendBadRequest(res, 'x-pb-digest must be sha256:<64 hex>', ErrorCode.VALIDATION_ERROR);
       }
 
       // The plugin service mints its token for the org whose build this is — it
@@ -257,14 +301,37 @@ export function createInternalRoutes(): Router {
         return sendError(res, 404, `No manifest ${digest} in ${repository}`, ErrorCode.NOT_FOUND);
       }
 
+      // The document lands beside the signing scratch and is removed in the
+      // `finally` whatever happens: an SBOM left on disk is both a disk leak and
+      // a copy of a tenant's dependency inventory we were not asked to keep.
+      const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pb-sbom-in-'));
+      const sbomPath = path.join(workDir, 'sbom.spdx.json');
       try {
-        await signPluginImage({ repository, digest, sbom: sbom as Record<string, unknown> });
+        const streamed = await streamBodyToFile(req, sbomPath);
+        if (streamed === 'too-large') {
+          ctx.log('ERROR', 'SBOM over the signing-request ceiling', { repository, digest });
+          return sendError(
+            res, 413,
+            `The SBOM exceeds this registry's ${sbomLimitLabel()} signing-request ceiling. `
+            + 'An image that installs a vendored SDK (for example google-cloud-cli) can produce an SPDX '
+            + 'document larger than this. Raise REGISTRY_SBOM_MAX_BYTES on the image-registry service.',
+            ErrorCode.PAYLOAD_TOO_LARGE,
+          );
+        }
+        if (!looksLikeSpdx(sbomPath)) {
+          return sendBadRequest(res, 'body must be an SPDX JSON document', ErrorCode.VALIDATION_ERROR);
+        }
+        ctx.log('INFO', 'SBOM received', { repository, digest, bytes: streamed.bytes });
+
+        await signPluginImage({ repository, digest, sbomPath });
       } catch (err) {
         if (err instanceof PluginSigningError) {
           ctx.log('ERROR', 'Plugin image signing failed', { repository, digest, error: err.message });
           return sendError(res, 502, err.message, ErrorCode.SERVICE_UNAVAILABLE);
         }
         throw err;
+      } finally {
+        fs.rmSync(workDir, { recursive: true, force: true });
       }
 
       ctx.log('COMPLETED', 'Signed plugin image', { repository, digest });

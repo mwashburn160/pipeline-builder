@@ -23,6 +23,10 @@
  * sign. The plugin service drives these one image at a time.
  */
 
+import * as fs from 'fs';
+import * as os from 'os';
+import path from 'path';
+
 import { envInt, createLogger, AppError, ErrorCode } from '@pipeline-builder/api-core';
 import { incCounter, setGauge } from '@pipeline-builder/api-server';
 
@@ -260,7 +264,18 @@ export async function publishPublicImage(p: PublishParams): Promise<PublishResul
 
     await copyManifestTree(source, p.sourceRepository, target, p.digest);
     await writePublicationRecord(target, p.publisherOrgId);
-    await signPluginImage({ repository: target, digest: p.digest, sbom, annotations: annotationsFor(p.tier, p.publisherHandle) });
+    // `signPluginImage` attests from a FILE (cosign's `--predicate`), so the
+    // document this read out of the source attestation is written down here.
+    // Removed in the `finally` whatever happens: an SBOM left behind is a disk
+    // leak and a stray copy of a tenant's dependency inventory.
+    const sbomDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pb-publish-sbom-'));
+    const sbomPath = path.join(sbomDir, 'sbom.spdx.json');
+    try {
+      fs.writeFileSync(sbomPath, JSON.stringify(sbom));
+      await signPluginImage({ repository: target, digest: p.digest, sbomPath, annotations: annotationsFor(p.tier, p.publisherHandle) });
+    } finally {
+      fs.rmSync(sbomDir, { recursive: true, force: true });
+    }
     if (!existing) await putManifest(target, p.version, source.raw, source.mediaType);
 
     afterMutation(target, p.digest, [p.publisherOrgId]);

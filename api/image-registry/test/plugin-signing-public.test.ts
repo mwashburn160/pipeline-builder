@@ -85,6 +85,9 @@ const SIG_DIGEST = `sha256:${'9'.repeat(64)}`;
 const PUBLIC = 'public/acme/scanner';
 const SOURCE = 'org-acme/scanner';
 const SBOM = { spdxVersion: 'SPDX-2.3', name: 'scanner' };
+/** Handed over as a PATH — see plugin-signing.test.ts for why. */
+const SBOM_PATH = path.join(keyDir, 'sbom.spdx.json');
+fs.writeFileSync(SBOM_PATH, JSON.stringify(SBOM));
 const ANNOTATIONS = { [TRUST_ANNOTATION]: 'verified', [PUBLISHER_ANNOTATION]: 'acme' };
 
 /** One DSSE envelope line as `cosign verify-attestation` prints it. */
@@ -137,7 +140,7 @@ describe('public repository shape', () => {
 describe('signPluginImage in public/*', () => {
   it('drops the existing signature, then signs with the annotations and attests with --replace', async () => {
     headManifest.mockImplementation(async (_n, ref) => (ref === SIG_TAG ? { digest: SIG_DIGEST } : null));
-    await signPluginImage({ repository: PUBLIC, digest: DIGEST, sbom: SBOM, annotations: ANNOTATIONS });
+    await signPluginImage({ repository: PUBLIC, digest: DIGEST, sbomPath: SBOM_PATH, annotations: ANNOTATIONS });
 
     expect(headManifest).toHaveBeenCalledWith(PUBLIC, SIG_TAG);
     expect(deleteManifest).toHaveBeenCalledWith(PUBLIC, SIG_DIGEST);
@@ -160,7 +163,7 @@ describe('signPluginImage in public/*', () => {
   });
 
   it('signs fresh without deleting anything when there is no previous signature', async () => {
-    await signPluginImage({ repository: PUBLIC, digest: DIGEST, sbom: SBOM, annotations: ANNOTATIONS });
+    await signPluginImage({ repository: PUBLIC, digest: DIGEST, sbomPath: SBOM_PATH, annotations: ANNOTATIONS });
     expect(deleteManifest).not.toHaveBeenCalled();
     expect(execCalls.map((c) => c.args[0])).toEqual(['import-key-pair', 'sign', 'attest']);
   });
@@ -168,19 +171,19 @@ describe('signPluginImage in public/*', () => {
   it('tolerates a signature that vanished between HEAD and DELETE (404)', async () => {
     headManifest.mockResolvedValue({ digest: SIG_DIGEST });
     deleteManifest.mockRejectedValue(Object.assign(new Error('gone'), { response: { status: 404 } }));
-    await signPluginImage({ repository: PUBLIC, digest: DIGEST, sbom: SBOM, annotations: ANNOTATIONS });
+    await signPluginImage({ repository: PUBLIC, digest: DIGEST, sbomPath: SBOM_PATH, annotations: ANNOTATIONS });
     expect(execCalls.map((c) => c.args[0])).toContain('sign');
   });
 
   it('does not sign when the old signature could not be removed (no stacked tiers)', async () => {
     headManifest.mockResolvedValue({ digest: SIG_DIGEST });
     deleteManifest.mockRejectedValue(Object.assign(new Error('registry 500'), { response: { status: 500 } }));
-    await expect(signPluginImage({ repository: PUBLIC, digest: DIGEST, sbom: SBOM, annotations: ANNOTATIONS })).rejects.toThrow('registry 500');
+    await expect(signPluginImage({ repository: PUBLIC, digest: DIGEST, sbomPath: SBOM_PATH, annotations: ANNOTATIONS })).rejects.toThrow('registry 500');
     expect(execCalls.map((c) => c.args[0])).not.toContain('sign');
   });
 
   it('leaves private repositories append-only: no signature drop, no --replace, no annotations', async () => {
-    await signPluginImage({ repository: SOURCE, digest: DIGEST, sbom: SBOM });
+    await signPluginImage({ repository: SOURCE, digest: DIGEST, sbomPath: SBOM_PATH });
     expect(headManifest).not.toHaveBeenCalled();
     const sign = execCalls.find((c) => c.args[0] === 'sign')!;
     const attest = execCalls.find((c) => c.args[0] === 'attest')!;

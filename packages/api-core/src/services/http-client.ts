@@ -345,8 +345,18 @@ export class InternalHttpClient {
     options?: RequestOptions,
   ): Promise<HttpClientResponse<T>> {
     return new Promise((resolve, reject) => {
+      // A Buffer body is sent AS-IS. Without this every caller had to hand over
+      // an object to be `JSON.stringify`'d, which for a large pre-serialized
+      // document (an SPDX SBOM read off disk) meant parsing it to an object only
+      // so this could serialize it straight back — two full copies of a
+      // multi-megabyte string to move bytes that were already on disk.
+      //
+      // Deliberately narrow: ONLY a Buffer opts out. Anything else keeps the
+      // JSON contract every other caller relies on, so this cannot quietly
+      // change how an ordinary object body is sent.
+      const raw = Buffer.isBuffer(body) ? body : undefined;
       // Serialize when body is defined (including 0/false/'' which are valid JSON values).
-      const bodyStr = body !== undefined ? JSON.stringify(body) : undefined;
+      const bodyStr = raw === undefined && body !== undefined ? JSON.stringify(body) : undefined;
 
       const headers: http.OutgoingHttpHeaders = {
         'Content-Type': 'application/json',
@@ -360,6 +370,8 @@ export class InternalHttpClient {
 
       if (bodyStr) {
         headers['Content-Length'] = Buffer.byteLength(bodyStr);
+      } else if (raw) {
+        headers['Content-Length'] = raw.length;
       }
 
       // Validate path to prevent protocol injection / request smuggling
@@ -485,7 +497,9 @@ export class InternalHttpClient {
       }, timeoutMs);
       deadline.unref?.();
 
-      if (bodyStr) {
+      if (raw) {
+        req.write(raw);
+      } else if (bodyStr) {
         req.write(bodyStr);
       }
 

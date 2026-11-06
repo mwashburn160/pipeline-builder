@@ -191,16 +191,73 @@ describe('the per-org build cap is stated the same way in every target', () => {
 });
 
 describe('the registry can sign a vendored-SDK image', () => {
-  it('sizes the SBOM limit by env, not by a literal', () => {
+  it('STREAMS the SBOM to disk instead of parsing it into memory', () => {
     // gar-push and gcloud-deploy install google-cloud-cli; their SPDX documents
-    // went over the previous hard-coded 32mb and the refusal arrived as a bare
-    // 413 with no reason.
+    // went over a hard-coded 32mb and the refusal arrived as a bare 413 with no
+    // reason. The document's only destination is the file cosign attests from,
+    // so buffering it, parsing it to an object and serializing it back was three
+    // copies of a multi-megabyte string to move bytes already on disk.
     const src = read('api/image-registry/src/routes/internal.ts');
-    expect(src).toContain("envStr('REGISTRY_SBOM_BODY_LIMIT'");
-    expect(src).toContain('entity.too.large');
+    expect(src).toContain('streamBodyToFile');
+    expect(src).toContain("envInt('REGISTRY_SBOM_MAX_BYTES'");
+    // The metadata is in headers so the repository and digest can be refused
+    // BEFORE a byte of the document is read.
+    expect(src).toContain("req.header('x-pb-repository')");
+    expect(src).toContain("req.header('x-pb-digest')");
+    // No JSON parser on this route any more.
+    expect(src).not.toContain('SBOM_BODY_LIMIT');
+  });
+
+  it('hands cosign a PATH, so nothing re-serializes the document', () => {
+    expect(read('api/image-registry/src/services/plugin-signing.ts')).toContain('sbomPath: string;');
+    expect(read('api/plugin/src/helpers/supply-chain.ts')).toContain("'x-pb-repository'");
+  });
+
+  it('MEASURES every SBOM, so the ceiling can be set from evidence', () => {
+    // The size was recorded nowhere, so an operator raising the ceiling was
+    // guessing and nobody could tell how close any other plugin was.
+    const src = read('api/plugin/src/helpers/supply-chain.ts');
+    expect(src).toContain('plugin_sbom_bytes');
+    expect(src).toContain('fs.statSync(sbomFile).size');
   });
 
   it('documents the knob, so the 413 message points somewhere real', () => {
-    expect(read('docs/environment-variables.md')).toContain('`REGISTRY_SBOM_BODY_LIMIT`');
+    expect(read('docs/environment-variables.md')).toContain('`REGISTRY_SBOM_MAX_BYTES`');
+  });
+
+  it('exposes the per-org slot state, so a leak is readable not inferred', () => {
+    // A counter above its owner records is capacity that has silently gone
+    // missing. Until this it was visible nowhere — no gauge, not on the queue
+    // status route — so the only symptom was a build failing after thirty
+    // minutes and the only diagnosis was archaeology.
+    expect(read('api/plugin/src/queue/slot-manager.ts')).toContain('export async function orgSlotSnapshot');
+    const worker = read('api/plugin/src/queue/plugin-build-queue.ts');
+    expect(worker).toContain('plugin_build_slots_leaked');
+    expect(read('api/plugin/src/routes/queue-status.ts')).toContain('orgSlots: slots');
+  });
+
+  it('retires the GLOBAL build-concurrency knob that was read and discarded', () => {
+    // `PLUGIN_BUILD_CONCURRENCY` was read and then voided while the docs called
+    // it "the default for every tier's worker below" — so an operator could set
+    // it to 1, believe the service built one plugin at a time, and be running
+    // four. That belief shaped the diagnosis of a real incident.
+    expect(read('packages/pipeline-core/src/config/infrastructure-config.ts'))
+      .not.toContain("envInt('PLUGIN_BUILD_CONCURRENCY'");
+    // The STATEMENT, not any mention: the comment above it explains the bug
+    // and names it deliberately.
+    expect(read('api/plugin/src/queue/plugin-build-queue.ts')).not.toMatch(/^\s*void concurrency;/m);
+    for (const t of ['deploy/local/docker', 'deploy/local/minikube', 'deploy/aws/ec2', 'deploy/aws/eks']) {
+      expect(read(`${t}/.env.example`)).not.toMatch(/^PLUGIN_BUILD_CONCURRENCY=/m);
+    }
+    expect(read('deploy/local/docker/docker-compose.yml')).not.toContain('PLUGIN_BUILD_CONCURRENCY:');
+  });
+
+  it('keeps the per-tier concurrency in the CATALOG, keyed not copy-pasted', () => {
+    // It was the only tier-keyed build figure still a bare literal in a worker
+    // file, which is how the docs drifted away from it.
+    expect(read('packages/api-core/src/types/build-catalog.ts')).toContain('BUILD_TIER_CONCURRENCY');
+    const worker = read('api/plugin/src/queue/plugin-build-queue.ts');
+    expect(worker).toContain('buildConcurrencyEnvVar(tier)');
+    expect(worker).not.toMatch(/PLUGIN_BUILD_CONCURRENCY_DEVELOPER/);
   });
 });

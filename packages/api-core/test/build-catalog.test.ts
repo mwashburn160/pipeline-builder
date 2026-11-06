@@ -18,8 +18,11 @@ import {
   BUILD_CLASS_CATALOG,
   BUILD_SIZES,
   BUILD_SIZE_CATALOG,
+  BUILD_TIER_CONCURRENCY,
   BUILD_TIER_LADDER,
   buildClassLabel,
+  buildConcurrencyEnvVar,
+  buildWorkerConcurrencyFor,
   buildSizeEnvSuffix,
   buildSizeLabel,
   buildSizeMultiplier,
@@ -208,6 +211,57 @@ describe('every entry is fully declared', () => {
       expect(meta.label.length).toBeGreaterThan(0);
       expect(meta.multiplier).toBeGreaterThan(0);
       expect(BUILD_CLASSES).toContain(meta.defaultClass);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Worker concurrency per tier
+// ---------------------------------------------------------------------------
+
+describe('BUILD_TIER_CONCURRENCY', () => {
+  it('covers every tier on the ladder', () => {
+    // It lived as a bare literal map inside the build worker, where nothing
+    // checked it against the tier union — which is also how the docs came to
+    // describe a global default the code had stopped honouring.
+    for (const tier of BUILD_TIER_LADDER) {
+      expect(typeof BUILD_TIER_CONCURRENCY[tier]).toBe('number');
+      expect(BUILD_TIER_CONCURRENCY[tier]).toBeGreaterThanOrEqual(1);
+    }
+    expect(Object.keys(BUILD_TIER_CONCURRENCY).sort()).toEqual([...BUILD_TIER_LADDER].sort());
+  });
+
+  it('never goes backwards up the ladder', () => {
+    // A paid tier that processed FEWER builds at once than a cheaper one would
+    // invert what the ladder is for.
+    const values = BUILD_TIER_LADDER.map((t) => BUILD_TIER_CONCURRENCY[t]);
+    for (let i = 1; i < values.length; i++) {
+      expect(values[i]!).toBeGreaterThanOrEqual(values[i - 1]!);
+    }
+  });
+
+  it('is TIER-keyed, not class-keyed — one Worker serves both classes', () => {
+    // There is one BullMQ Worker per tier queue and both scheduling classes are
+    // served by it, so a per-class figure could not be honoured. Asserted so
+    // nobody "improves" this into BUILD_CLASS_CATALOG[class].concurrencyByTier.
+    for (const buildClass of BUILD_CLASSES) {
+      expect(BUILD_CLASS_CATALOG[buildClass]).not.toHaveProperty('concurrencyByTier');
+    }
+  });
+
+  it('falls back to the LOWEST row for an unrecognised tier', () => {
+    // A bad tier string must not be handed the most generous figure.
+    expect(buildWorkerConcurrencyFor('nonsense' as never)).toBe(BUILD_TIER_CONCURRENCY.developer);
+  });
+
+  it('derives the override variable instead of spelling it out per tier', () => {
+    // The reads used to be six near-identical `envInt` lines, where a wrong
+    // cross-reference (`pro: envInt('…_PRO', tierDefault.team)`) silently takes
+    // another tier's default and no type can catch it.
+    for (const tier of BUILD_TIER_LADDER) {
+      expect(buildConcurrencyEnvVar(tier)).toBe(`PLUGIN_BUILD_CONCURRENCY_${tier.toUpperCase()}`);
+      // Safe as an environment variable name, like the size suffixes.
+      expect(buildConcurrencyEnvVar(tier)).toMatch(/^[A-Z][A-Z0-9_]*$/);
     }
   });
 });

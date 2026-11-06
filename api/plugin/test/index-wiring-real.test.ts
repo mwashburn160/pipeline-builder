@@ -146,6 +146,21 @@ jest.unstable_mockModule('../src/services/ecosystem-notifications.js', () => ({
   enqueueEcosystemNotification: async () => 'sent',
 }));
 jest.unstable_mockModule('../src/queue/connections.js', () => ({
+  // EVERY export `slot-manager` reaches for, which these route suites now pull
+  // in transitively. A hand-rolled factory replaces the WHOLE namespace, so an
+  // omitted export makes the import graph fail to LOAD naming that symbol —
+  // which is how adding one import to the module under test broke five suites
+  // that never mention it.
+  getBuildCfg: () => ({ orgBuildSlots: { standard: 5, flexible: 8 } }),
+  getConnectionForDb: () => ({
+    // No slots held: the snapshot is then an empty list, which is the honest
+    // answer for a queue fixture that never acquired one.
+    hgetall: async () => ({}),
+    get: async () => null,
+    eval: async () => 1,
+    decr: async () => 0,
+    hdel: async () => 0,
+  }),
   getHealthRedisConnection: () => ({ get: async () => null }),
   enqueueBuild: mockEnqueueBuild,
   getOrgTier: async () => 'developer',
