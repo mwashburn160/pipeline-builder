@@ -87,7 +87,7 @@ spec:
               echo "MongoDB ready"
       containers:
         - name: quota
-          image: ghcr.io/mwashburn160/quota:4.4.7@sha256:ac48ff97a6292d7277272368199dfa3df9def1dece21bef656a0b1695b92e100
+          image: ghcr.io/mwashburn160/quota:4.4.7@sha256:c736774f8d942ac55ce5ac147d0ed08589da2a1737421f96416916b87dd263ec
           securityContext:
             runAsNonRoot: true
             runAsUser: 1000
