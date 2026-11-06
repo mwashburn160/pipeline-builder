@@ -46,7 +46,7 @@ export function normalizeFindings(raw: unknown): HeuristicFinding[] {
   return list.map((item): HeuristicFinding => {
     const o = (item ?? {}) as Record<string, unknown>;
     const severity = o.severity === 'high' || o.severity === 'medium' ? o.severity : 'low';
-    return { id: String(o.id ?? 'finding'), severity, path: String(o.path ?? ''), line: asLine(o.line), excerpt: String(o.excerpt ?? '') };
+    return { id: String(o.id ?? 'finding'), severity, path: String(o.path ?? ''), line: asLine(o.line), message: String(o.message ?? ''), excerpt: String(o.excerpt ?? '') };
   });
 }
 

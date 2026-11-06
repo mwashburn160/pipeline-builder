@@ -24,9 +24,17 @@ function Compliance({ note }: { note: ComplianceNote }) {
   }
   const findings = [...(note.violations ?? []), ...(note.warnings ?? [])];
   if (findings.length === 0) {
+    // A pass with rules left unjudged is NOT a clean pass, and saying so is the
+    // same principle as putting this above the fold: the reader decides whether
+    // to act on the verdict, so the verdict must not sound more certain than it
+    // is. Some rules cannot be judged on a draft (they need a built artifact).
+    const skipped = note.rulesSkipped ?? 0;
     return (
       <p className="mt-1 flex items-center gap-1 text-2xs text-success" data-testid="ask-compliance-ok">
-        <ShieldCheck className="h-3 w-3 shrink-0" /> Passes the organization&apos;s compliance rules.
+        <ShieldCheck className="h-3 w-3 shrink-0" />
+        {skipped > 0
+          ? `Passes the rules that can be judged on a draft — ${skipped} could not be.`
+          : 'Passes the organization’s compliance rules.'}
       </p>
     );
   }

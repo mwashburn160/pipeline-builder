@@ -358,6 +358,41 @@ describe('AskPanel policy and validation notes', () => {
     expect(findings).toHaveTextContent('require-approval-stage: Production deploys need a manual approval.');
   });
 
+  it('does not call a pass clean when rules could not be judged on a draft', async () => {
+    // The producer sends `rulesSkipped`; this mirror used to drop it, so a
+    // verdict with rules left unjudged rendered as the unqualified "Passes the
+    // organization's compliance rules." A reader acting on that was told more
+    // certainty than the check had.
+    propose({
+      kind: 'pipeline',
+      props: { project: 'proj', organization: 'org' },
+      compliance: {
+        checked: true, compliant: true, blocked: false, violations: [], warnings: [],
+        rulesEvaluated: 9, rulesSkipped: 3,
+      },
+    });
+    render(<AskPanel onClose={jest.fn<AnyFn>()} />);
+    ask('ship it');
+
+    const ok = await screen.findByTestId('ask-compliance-ok');
+    expect(ok).toHaveTextContent('3 could not be');
+    expect(ok).not.toHaveTextContent('Passes the organization\u2019s compliance rules.');
+  });
+
+  it('calls a pass clean when every rule was judged', async () => {
+    propose({
+      kind: 'pipeline',
+      props: { project: 'proj', organization: 'org' },
+      compliance: { checked: true, compliant: true, blocked: false, violations: [], warnings: [], rulesEvaluated: 9, rulesSkipped: 0 },
+    });
+    render(<AskPanel onClose={jest.fn<AnyFn>()} />);
+    ask('ship it');
+
+    const ok = await screen.findByTestId('ask-compliance-ok');
+    expect(ok).toHaveTextContent('Passes the organization\u2019s compliance rules.');
+    expect(ok).not.toHaveTextContent('could not be');
+  });
+
   it('names the dry-run as NOT RUN rather than implying the draft passed', async () => {
     propose({
       kind: 'pipeline',

@@ -69,6 +69,13 @@ export interface ComplianceNote {
   blocked?: boolean;
   violations?: Array<{ ruleId?: string; ruleName?: string; message?: string; severity?: string }>;
   warnings?: Array<{ ruleId?: string; ruleName?: string; message?: string; severity?: string }>;
+  /**
+   * How many of the org's rules ran, and how many could not be judged on a
+   * draft. The producer has always sent both; this mirror omitted them, so a
+   * verdict with rules left unjudged rendered as an unqualified pass.
+   */
+  rulesEvaluated?: number;
+  rulesSkipped?: number;
   unavailable?: string;
 }
 

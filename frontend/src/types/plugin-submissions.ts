@@ -42,10 +42,26 @@ export type HeuristicSeverity = 'high' | 'medium' | 'low';
 
 /** One heuristics finding (api-core `scanPluginSourceHeuristics`). */
 export interface HeuristicFinding {
+  /** Rule id — stable, and what moderators filter on. */
   id: string;
   severity: HeuristicSeverity;
   path: string;
   line: number | null;
+  /**
+   * What the rule MEANS ("Crypto-miner signature", "Reverse-shell pattern").
+   *
+   * api-core's `HeuristicFinding` has carried this all along and both payloads
+   * send it; this mirror omitted it and `normalizeFindings` dropped it, so the
+   * moderator judging a security heuristic saw the raw rule id in monospace and
+   * no explanation of it. The sibling `normalizeGate`, one function below, kept
+   * its `message` — this one just never did.
+   */
+  message: string;
+  /**
+   * The offending line. The SUBMITTER preview omits it server-side
+   * (`Omit<HeuristicFinding, 'excerpt'>`), so it is not optional here only
+   * because `normalizeFindings` coerces the absence to `''`.
+   */
   excerpt: string;
 }
 

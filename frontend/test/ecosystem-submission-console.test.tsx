@@ -83,7 +83,9 @@ const submission = {
     { id: 'smoke_test', ok: true, message: 'Smoke test passed' },
   ],
   heuristics: [
-    { id: 'obfuscation.base64-blob', severity: 'medium', path: 'scripts/setup.sh', line: 12, excerpt: 'echo aGVsbG8= | base64 -d' },
+    // `message` is what the rule MEANS; the server sends it on every finding, and
+    // the fixture carries it because the moderator reads it rather than the id.
+    { id: 'obfuscation.base64-blob', severity: 'medium', path: 'scripts/setup.sh', line: 12, message: 'Encoded payload decoded straight into a shell or eval', excerpt: 'echo aGVsbG8= | base64 -d' },
   ],
   sbomUrl: '/api/plugins/ecosystem/submissions/sub-1/sbom',
   scanUrl: '/api/plugins/ecosystem/submissions/sub-1/scan',
@@ -127,6 +129,10 @@ describe('Publish queue — community submissions', () => {
     const finding = within(section).getByTestId('finding-obfuscation.base64-blob');
     expect(finding).toHaveTextContent('medium');
     expect(finding).toHaveTextContent('scripts/setup.sh:12');
+    // The rule's MEANING, not just its id: `normalizeFindings` dropped `message`
+    // and the mirror type omitted it, so a moderator judging a security
+    // heuristic saw `obfuscation.base64-blob` in monospace and nothing else.
+    expect(finding).toHaveTextContent('Encoded payload decoded straight into a shell or eval');
     expect(within(section).getByText('registry:5000/quarantine/sub-1:1.2.0@sha256:q')).toBeInTheDocument();
     expect(within(section).queryByText('Failed checks on a queued submission')).not.toBeInTheDocument();
 

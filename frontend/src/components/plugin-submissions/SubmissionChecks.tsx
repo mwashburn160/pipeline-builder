@@ -29,7 +29,8 @@ export function SubmissionGateList({ gates, testId = 'submission-gates' }: { gat
   );
 }
 
-/** Heuristics findings: what matched, where, and an excerpt (rendered as text, never markup). */
+/** Heuristics findings: what matched, what it means, where, and an excerpt
+ *  (all rendered as text, never markup). */
 export function HeuristicFindingsList({ findings }: { findings: HeuristicFinding[] }) {
   if (findings.length === 0) return <p className="text-xs text-fg-muted">Nothing suspicious found.</p>;
   return (
@@ -41,6 +42,9 @@ export function HeuristicFindingsList({ findings }: { findings: HeuristicFinding
             <span className="font-mono text-fg">{f.id}</span>
             <span className="font-mono text-fg-muted">{f.path}{f.line != null ? `:${f.line}` : ''}</span>
           </div>
+          {/* What the rule means, in words. The id above stays because moderators
+              filter on it, but it is not an explanation of anything. */}
+          {f.message && <p className="text-fg">{f.message}</p>}
           {f.excerpt && (
             <pre className="max-h-24 overflow-auto whitespace-pre-wrap break-all rounded border border-default bg-surface-muted p-2 font-mono text-fg-muted">
               {f.excerpt}
