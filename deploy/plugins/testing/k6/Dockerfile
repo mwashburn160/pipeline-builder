@@ -5,79 +5,63 @@
 
 # ─── Tool versions (override with --build-arg) ───
 ARG K6_VERSION=2.3.0
-# k6's published image carries three FIXABLE findings that failed
-# PLUGIN_VULN_GATE, so this plugin could not be installed at all:
-#
-#   github.com/andybalholm/brotli v1.2.3  -> GO-2026-6888, Critical and
-#       KEV-listed (CVE-2026-111497), fixed in 1.2.7.
-#   golang.org/x/net v0.58.0              -> SEVEN advisories. Five are fixed in
-#       0.60.0 (GO-2026-6603, -6610, -6611, -6612, -6617) and two only in 0.62.0
-#       (GO-2026-6860, -6866), so 0.62.0 is the raise that clears all of them.
-#   golang.org/x/crypto v0.56.0           -> rides along: x/net 0.62.0 requires
-#       crypto 0.58.0 and text 0.43.0, so those are COMPANIONS, not remedies.
-#
-# A waiver would not have been honest here. The findings are real, fixes exist,
-# and the only reason the published binary carries them is that upstream has not
-# rebuilt — so k6 is COMPILED HERE from its own tagged source with the four
-# modules raised, exactly as `security/git-secrets` does for gitleaks. Revisit
-# when a k6 release ships current modules: this stage then collapses back to the
-# one-line COPY it replaced.
-#
-# The module path carries the major version (`go.k6.io/k6/v2`), which is what Go
-# requires at v2 and up — `go.k6.io/k6` alone stops at v1.8.2 and would silently
-# build a two-year-old k6.
-ARG BROTLI_VERSION=1.2.8
-ARG XNET_VERSION=0.62.0
-ARG XCRYPTO_VERSION=0.58.0
-ARG XTEXT_VERSION=0.43.0
+# The commit the v${K6_VERSION} tag must resolve to (checked after clone).
+ARG K6_COMMIT=e0887846143ab176d4b5483c9d52cf3b3e009f1a
+# Same pinned toolchain as api/plugin's tools stage.
+ARG GO_IMAGE=golang:1.27.3-alpine@sha256:d200d2dd76b03a99b52651fd1325aff7dcd35422c35c01bac56571b0507f3deb
 
-# ─── k6, built from source with the vulnerable modules raised ───
-# `go install go.k6.io/k6/v2@vX` would NOT work: it resolves the module's own
-# go.mod and ignores any override, so the vulnerable versions come straight
-# back. Building from a checked-out tag is what lets the requirements be raised.
-FROM plugin-go-base:1.0 AS k6-src
+# ─── k6, built from source ───
+# The v${K6_VERSION} release (latest 2.x) carries Critical, fixable findings the
+# release gate refuses: github.com/andybalholm/brotli v1.2.3 (GO-2026-6888, on
+# CISA KEV; fixed in 1.2.7), golang.org/x/net v0.58.0 (GO-2026-6612; fixed in
+# 0.60.0) and a go1.27.1 stdlib. Build the same tagged source with a current
+# toolchain and the two modules raised through a side modfile, as api/plugin
+# does for syft and grype (brotli v1.2.8 and x/net v0.62.0, the same pins).
+# Build flags follow upstream's own Dockerfile. Source integrity: the tag must
+# resolve to the pinned commit, or the build fails.
+FROM ${GO_IMAGE} AS k6-build
 ARG K6_VERSION
-ARG BROTLI_VERSION
-ARG XNET_VERSION
-ARG XCRYPTO_VERSION
-ARG XTEXT_VERSION
-USER root
-# RETRIED for the same reason the other source-built plugins retry: the clone
-# and the module fetches go through github.com and proxy.golang.org, both of
-# which fail intermittently, and a cold catalogue load does this a hundred times
-# over.
+ARG K6_COMMIT
+ENV CGO_ENABLED=0 GOTOOLCHAIN=local
+RUN apk add --no-cache git
+# RETRIED like the other source-built plugins: the clone goes through
+# github.com, which fails intermittently, and a cold catalogue load does this a
+# hundred times over. The COMMIT check is outside the retry — a tag that
+# resolves to the wrong commit is not a transient failure and must not be
+# retried into success.
 RUN set -eux; \
     for attempt in 1 2 3 4 5; do \
-      rm -rf /src; \
-      if git clone --depth 1 --branch "v${K6_VERSION}" https://github.com/grafana/k6.git /src; then break; fi; \
+      rm -rf /src/k6; \
+      if git clone --depth 1 --branch "v${K6_VERSION}" https://github.com/grafana/k6.git /src/k6; then break; fi; \
       echo "k6 clone failed (attempt $attempt/5); retrying" >&2; \
       sleep $((attempt * 5)); \
     done; \
-    test -d /src/.git
+    test -d /src/k6/.git; \
+    got="$(git -C /src/k6 rev-parse HEAD)"; \
+    [ "$got" = "${K6_COMMIT}" ] || { echo "k6 v${K6_VERSION} resolved to $got, expected ${K6_COMMIT}" >&2; exit 1; }
+WORKDIR /src/k6
 RUN set -eux; \
-    cd /src; \
-    mkdir -p /out; \
+    cp go.mod /tmp/k6.mod; cp go.sum /tmp/k6.sum; \
     for attempt in 1 2 3 4 5; do \
-      if go get "github.com/andybalholm/brotli@v${BROTLI_VERSION}" \
-          "golang.org/x/net@v${XNET_VERSION}" \
-          "golang.org/x/crypto@v${XCRYPTO_VERSION}" \
-          "golang.org/x/text@v${XTEXT_VERSION}" \
-        && CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o /out/k6 .; then \
-        break; \
-      fi; \
-      echo "k6 build failed (attempt $attempt/5); retrying" >&2; \
-      sleep $((attempt * 5)); \
+      go get -modfile=/tmp/k6.mod golang.org/x/net@v0.62.0 github.com/andybalholm/brotli@v1.2.8 \
+        && go mod download -modfile=/tmp/k6.mod all && break; \
+      echo "go get/mod download failed (attempt $attempt/5)" >&2; sleep $((attempt * 5)); \
     done; \
-    test -x /out/k6
-# Fail the BUILD if a raise did not take, rather than shipping an image that
-# merely looks fixed: the point of this stage is the module versions baked into
-# the binary, and `go get` can be overridden by a transitive requirement.
+    go build -mod=readonly -modfile=/tmp/k6.mod -trimpath \
+      -ldflags "-s -w -X go.k6.io/k6/v2/internal/build.BuildOrigin=release" \
+      -o /out/k6 .; \
+    /out/k6 version; \
+    go version -m /out/k6
+# Fail the BUILD if a raise did not take. Printing `go version -m` above leaves
+# that to whoever reads the log, and the whole point of the side modfile is the
+# module versions baked into the binary — `go get` can be overridden by a
+# transitive requirement.
 #
-# Asserted as ">= the fix", NOT as "equal to the pin". MVS is allowed to resolve
-# HIGHER than asked — another requirement in k6's graph can pull a module past
-# the pin — and an equality check then fails a build whose patch actually
-# succeeded. (`sort -V` orders the two; the lower one sorting first means baked
-# >= wanted.)
+# Asserted as ">= the pin", NOT as equality: MVS is allowed to resolve HIGHER
+# than asked, so an equality check fails a build whose patch actually succeeded.
+# (That is a live suspicion for the git-secrets build failure, whose assertion is
+# `$`-anchored to one exact version.) `sort -V` orders the pair; the wanted
+# version sorting first means baked >= wanted.
 RUN set -eux; \
     baked() { go version -m /out/k6 | awk -v m="$1" '$1 == "dep" && $2 == m { print $3 }'; }; \
     atleast() { \
@@ -88,10 +72,8 @@ RUN set -eux; \
       fi; \
       echo "ok: $_m $_got (>= $_want)"; \
     }; \
-    atleast github.com/andybalholm/brotli "${BROTLI_VERSION}"; \
-    atleast golang.org/x/net "${XNET_VERSION}"; \
-    atleast golang.org/x/crypto "${XCRYPTO_VERSION}"; \
-    atleast golang.org/x/text "${XTEXT_VERSION}"
+    atleast github.com/andybalholm/brotli 1.2.8; \
+    atleast golang.org/x/net 0.62.0
 
 FROM plugin-base:26.10
 
@@ -101,8 +83,8 @@ USER root
 
 ARG K6_VERSION
 
-# ─── k6 — built above, with the vulnerable modules raised ───
-COPY --from=k6-src /out/k6 /usr/local/bin/k6
+# ─── k6 (built from source above) ───
+COPY --from=k6-build /out/k6 /usr/local/bin/k6
 RUN chmod 0755 /usr/local/bin/k6
 
 # ─── Runtime configuration defaults ───
