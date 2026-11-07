@@ -44,6 +44,7 @@ import { createLogger, getParam } from '@pipeline-builder/api-core';
 import type { Request, Response } from 'express';
 import { config } from '../config/index.js';
 import { audit } from '../helpers/audit.js';
+import { ssoRefusalReason } from '../helpers/sso-refusal-reason.js';
 import { withController } from '../helpers/controller-helper.js';
 import { isBoundToThisBrowser } from '../helpers/login-binding.js';
 import { createPendingStateStore } from '../helpers/pending-state-store.js';
@@ -122,28 +123,13 @@ export const getSamlMetadata = withController('SAML SP metadata', async (req, re
 
 /** The stable audit/metric label for a refusal. Every failure gets one, so a
  *  connection that has quietly stopped working is visible as a shape in the
- *  metric rather than only as user complaints. */
+ *  metric rather than only as user complaints.
+ *
+ *  Reads the error CATALOG rather than a local switch: this one knew 16 codes
+ *  and sso-test-flow's knew a different 16, sharing only 9, so the same refusal
+ *  reported two different shapes depending on which path saw it. */
 function refusalReason(err: unknown): string {
-  const code = err instanceof Error ? err.message : '';
-  switch (code) {
-    case 'SAML_IDP_INITIATED': return 'idp_initiated';
-    case 'SAML_REPLAYED_ASSERTION': return 'replay';
-    case 'SAML_INVALID_ASSERTION': return 'invalid_assertion';
-    case 'SAML_ENCRYPTION_REQUIRED': return 'encryption_required';
-    case 'SAML_UNEXPECTED_ENCRYPTION': return 'unexpected_encryption';
-    case 'SAML_INVALID_STATE': return 'invalid_state';
-    case 'SAML_NO_EMAIL': return 'no_email';
-    case 'SAML_EMAIL_DOMAIN_NOT_ALLOWED': return 'email_domain_not_allowed';
-    case 'OIDC_EMAIL_DOMAIN_NOT_VERIFIED': return 'domain_not_verified';
-    case SSO_SUPERADMIN_REFUSED: return 'platform_admin';
-    case JIT_SEAT_LIMIT: return 'seat_limit';
-    case 'SAML_NOT_CONFIGURED': return 'not_configured';
-    case 'SAML_DISABLED': return 'disabled';
-    case 'SAML_NOT_ENTITLED': return 'not_entitled';
-    case 'SAML_PROTOCOL_MISMATCH': return 'protocol_mismatch';
-    case 'SAML_INCOMPLETE_CONFIG': return 'incomplete_config';
-    default: return 'error';
-  }
+  return ssoRefusalReason(err instanceof Error ? err.message : undefined);
 }
 
 /** Error codes the landing page is allowed to be told verbatim. Anything else

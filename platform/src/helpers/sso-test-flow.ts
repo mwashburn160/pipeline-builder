@@ -39,6 +39,7 @@ import type { IdpProtocol } from '../models/org-idp-config.js';
 import { SSO_SUPERADMIN_REFUSED } from '../services/auth-errors.js';
 import { idpGroupMappingService } from '../services/idp-group-mapping-service.js';
 import { OIDC_ERROR_MAP, exchangeAndValidate } from '../services/oidc-service.js';
+import { ssoRefusalReason } from './sso-refusal-reason.js';
 import { SAML_ERROR_MAP, samlLandingUrl, validateSamlResponse } from '../services/saml-service.js';
 import { getSamlSpKeys } from '../services/saml-sp-keys.js';
 import { assertJitSeatAvailable } from '../services/sso-jit-service.js';
@@ -128,31 +129,9 @@ const MESSAGES: Record<string, string> = Object.fromEntries(
   Object.entries({ ...OIDC_ERROR_MAP, ...SAML_ERROR_MAP }).map(([code, v]) => [code, v.message]),
 );
 
-/** Stable report reason for an error code. */
-function reasonOf(code: string): string {
-  switch (code) {
-    case 'SAML_IDP_INITIATED': return 'idp_initiated';
-    case 'SAML_REPLAYED_ASSERTION': return 'replay';
-    case 'SAML_INVALID_ASSERTION': return 'invalid_assertion';
-    case 'SAML_ENCRYPTION_REQUIRED': return 'encryption_required';
-    case 'SAML_UNEXPECTED_ENCRYPTION': return 'unexpected_encryption';
-    case 'SAML_INVALID_STATE':
-    case 'OIDC_INVALID_STATE': return 'invalid_state';
-    case 'SAML_NO_EMAIL':
-    case 'OIDC_NO_EMAIL': return 'no_email';
-    case 'SAML_EMAIL_DOMAIN_NOT_ALLOWED':
-    case 'OIDC_EMAIL_DOMAIN_NOT_ALLOWED': return 'email_domain_not_allowed';
-    case 'OIDC_EMAIL_DOMAIN_NOT_VERIFIED': return 'domain_not_verified';
-    case 'OIDC_INVALID_ID_TOKEN': return 'invalid_id_token';
-    case 'OIDC_TOKEN_EXCHANGE_FAILED': return 'token_exchange_failed';
-    case 'OIDC_DISCOVERY_FAILED': return 'discovery_failed';
-    case 'SAML_INCOMPLETE_CONFIG': return 'incomplete_config';
-    case SSO_SUPERADMIN_REFUSED: return 'platform_admin';
-    case 'JIT_SEAT_LIMIT': return 'seat_limit';
-    case 'IDP_ERROR': return 'idp_error';
-    default: return 'error';
-  }
-}
+/** Stable report reason for an error code — from the shared catalog, so the
+ *  test flow and the live ACS path label a refusal identically. */
+const reasonOf = ssoRefusalReason;
 
 function failure(protocol: IdpProtocol, err: unknown): SsoTestReport {
   const code = err instanceof Error ? err.message : 'error';
