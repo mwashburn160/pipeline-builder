@@ -113,8 +113,30 @@ describe('loadBillingConfig', () => {
       tier: 'unlimited',
       prices: { monthly: 0, annual: 0 },
       isDefault: false,
-      sortOrder: 4,
+      // 5, the last rung. This read 4 — the same value as `enterprise` — from
+      // when `business` was inserted at 3 and only the enterprise block was
+      // renumbered. The assertion below is what makes that unrepeatable.
+      sortOrder: 5,
     });
+  });
+
+  it('gives every plan a UNIQUE sortOrder, equal to its index in the ladder', () => {
+    // The literals above are a readable spot-check; this is the invariant.
+    // `sortOrder` is public, and two plans sharing one leaves any consumer that
+    // sorts by it with an arbitrary order between them — which is exactly what
+    // shipped when the hand-numbered blocks drifted. Deriving it from
+    // VALID_TIERS means a tier inserted mid-ladder renumbers the whole tail.
+    const plans = loadBillingConfig().plans;
+    expect(plans.map((p) => p.sortOrder)).toEqual(VALID_TIERS.map((_, i) => i));
+    expect(new Set(plans.map((p) => p.sortOrder)).size).toBe(plans.length);
+  });
+
+  it('marks exactly one plan as the signup default', () => {
+    // Derived from PLAN_SEED, deliberately NOT from DEFAULT_TIER, which is
+    // conditional (`unlimited` when billing is disabled) — so a billing-disabled
+    // deployment must still present Developer as the plan new accounts land on.
+    const defaults = loadBillingConfig().plans.filter((p) => p.isDefault);
+    expect(defaults.map((p) => p.tier)).toEqual(['developer']);
   });
 
   it('overrides prices from environment variables', () => {

@@ -116,6 +116,7 @@ Use the [Table of Contents](#table-of-contents) below to jump to a section.
 | `REFRESH_TOKEN_EXPIRES_IN` | `2592000` | Refresh token TTL (30d). Also the `Max-Age` of the browser's `pb_refresh` cookie. |
 | `AUTH_REFRESH_COOKIE_PATH` | `/api/auth/refresh` | Path the browser's refresh cookie is scoped to, as the **browser** sees it (nginx strips `/api` before proxying, so this is the public path). Change only when the UI is served under a different public prefix. |
 | `AUTH_COOKIE_SECURE` | `true` | `Secure` on the refresh cookie. Every shipped target terminates TLS in front of the gateway and browsers accept `Secure` on `http://localhost`, so leave this on. Set `false` **only** for a plain-http deployment on a non-localhost hostname, where the browser would otherwise drop the cookie and no session could refresh. |
+| `AUTH_LOGIN_BINDING_COOKIE_PATH` | `/api` | `Path` on the short-lived login-binding cookie. It must stay a prefix of the routes that finish a login — widen it only if the platform is mounted somewhere other than `/api`, because a path the browser does not send the cookie back on fails the binding check and the login cannot complete |
 | `PASSWORD_MIN_LENGTH` | `8` | Platform minimum password length — the floor every org's own minimum sits on (an org can raise it for its members, up to 128; see [Org password policy](authentication.md#org-password-policy)) |
 | `PASSWORD_BREACH_CHECK` | `hibp` | Breached-password check at registration, password change and admin reset. `hibp` queries the Have I Been Pwned "Pwned Passwords" range API with only the first 5 hex characters of the password's SHA-1 (k-anonymity, padded responses); `off` disables it (air-gapped installs). **Fail-open**: a timeout or error lets the password through and is metered as `platform_password_breach_checks_total{outcome="unavailable"}` |
 | `PASSWORD_BREACH_CHECK_URL` | `https://api.pwnedpasswords.com/range/` | Range API base (the 5-char prefix is appended). Point at an internal mirror to keep the check without public egress |
@@ -155,6 +156,7 @@ AI provider keys and IdP client secrets are encrypted at rest. `SECRET_ENCRYPTIO
 | `SECRET_ENCRYPTION_PER_ORG_KMS` | `false` | When `true`, each org's secrets are wrapped under its own KMS CMK (see `Organization.kmsConfig`, written through the step-up-gated `/admin/orgs/:orgId/kms-config`). Orgs without an entry fall through to the **base** master — which is the KMS-wrapped one when `SECRET_ENCRYPTION_KMS_KEY_ID` is set, and the plaintext `SECRET_ENCRYPTION_KEY` otherwise. The two modes are independent and compose. Recommended for SOC2 / compliance deploys. Every per-org CMK must be tagged `pipeline-builder:secret-encryption=true`, or its `kms:Decrypt` is denied. |
 | `SECRET_ENCRYPTION_KMS_KEY_ID` | — | (Single-master KMS mode) The CMK that wraps the shared master, as `alias/<name>` or a key UUID — **never an ARN**, which embeds the AWS account id. Setting this *and* `_CIPHERTEXT` switches the master off `SECRET_ENCRYPTION_KEY`: the service unwraps it with one `kms:Decrypt` at boot, so no plaintext master is in the environment. The CMK must be tagged `pipeline-builder:secret-encryption=true` — that tag is what the deploy's `kms:Decrypt` grant is scoped to. |
 | `SECRET_ENCRYPTION_KMS_CIPHERTEXT` | — | (Single-master KMS mode) Base64 KMS-wrapped 32-byte master: `aws kms encrypt --key-id <id> --plaintext <base64-master> --output text --query CiphertextBlob`. Required alongside `_KEY_ID`; setting one without the other aborts the deploy. |
+| `AWS_KMS_ENDPOINT` | (AWS default) | Override the KMS endpoint the secret-encryption client calls — for a VPC interface endpoint, or a local KMS stand-in in development. Unset uses the SDK's regional endpoint |
 | `SECRET_ENCRYPTION_KMS_CIPHERTEXT_PREVIOUS` | — | Rotation: **decrypt-only** fallback holding the OUTGOING wrapped master. The KMS counterpart of `SECRET_ENCRYPTION_KEY_PREVIOUS`; clear it once `reencrypt-secrets` reports 0 failures. |
 | `SECRET_ENCRYPTION_KMS_KEY_ID_PREVIOUS` | `SECRET_ENCRYPTION_KMS_KEY_ID` | Rotation: the CMK that wraps `_CIPHERTEXT_PREVIOUS`, when the KEY changed and not just the master. Defaults to the current CMK. |
 
@@ -342,6 +344,7 @@ owning user, so the master-key rotation notes above apply to them too.
 | `OAUTH_GITHUB_CLIENT_SECRET` | — | GitHub client secret |
 | `OAUTH_FACEBOOK_CLIENT_ID` | — | Facebook app ID ([Meta for Developers](https://developers.facebook.com/apps)) |
 | `OAUTH_FACEBOOK_CLIENT_SECRET` | — | Facebook app secret |
+| `{PROVIDER}_AUTHORIZE_URL` / `_TOKEN_URL` / `_USERINFO_URL` | provider defaults | Override a social provider's three OAuth endpoints, where `{PROVIDER}` is `GOOGLE`, `GITHUB`, `GITLAB`, `MICROSOFT`, `FACEBOOK` or `LINKEDIN` — e.g. `GITLAB_AUTHORIZE_URL` for a self-hosted GitLab. Note these carry **no** `OAUTH_` prefix, unlike the client id/secret pair above. Unset uses the provider's public endpoints; set all three together when pointing at a self-hosted instance |
 | `OAUTH_MICROSOFT_CLIENT_ID` | — | Microsoft/Entra client ID ([Entra admin center](https://entra.microsoft.com) → App registrations) |
 | `OAUTH_MICROSOFT_CLIENT_SECRET` | — | Microsoft/Entra client secret |
 | `OAUTH_MICROSOFT_TENANT` | `common` | Entra tenant: `common` (any account) or a specific tenant id/domain |
@@ -475,6 +478,8 @@ Image-registry's scheduled GC prunes old manifests from every org namespace. **O
 | `REGISTRY_GC_ENABLED` | `false` | Run the scheduled, destructive GC sweep. One replica sweeps per window (leader lock — see `REGISTRY_GC_LOCK_TTL_MS` under [Scaling & multi-replica](#scaling--multi-replica-optional)) |
 | `REGISTRY_GC_INTERVAL_HOURS` | `24` | Hours between full sweeps |
 | `REGISTRY_GC_MAX_AGE_DAYS` | `30` | Manifests older than this many days are pruned |
+| `REGISTRY_GC_PROTECTED_TAGS` | `latest`, plus the running platform version | Comma-separated tags the GC sweep must never prune, on top of the built-in protections. A tag listed here is kept even when it is older than `REGISTRY_GC_MAX_AGE_DAYS` |
+| `REGISTRY_TOKEN_ISSUER` / `REGISTRY_TOKEN_SERVICE` | `platform` / `pipeline-image-registry` | The `iss` and `service`/`aud` the registry's bearer tokens are minted with and validated against. **Both sides must agree** — the registry rejects a token whose `service` is not its own, so changing one without the other locks every push and pull out |
 | `REGISTRY_GC_STARTUP_DELAY_MS` | `300000` | Delay (ms, 5 min) before the first sweep after boot, so the registry settles first (`0` = sweep immediately) |
 
 ### Plugin-image signing (cosign) — image-registry signs, plugin verifies
@@ -520,8 +525,11 @@ there is no docker daemon, no privileged build sidecar, and no strategy switch.
 |----------|---------|-------------|
 | `BUILDKIT_HOST` | `unix:///run/buildkit/buildkitd.sock` | buildctl `--addr` for the buildkitd sidecar |
 | `DOCKER_BUILD_TIMEOUT_MS` | `900000` | Build timeout (15 min) |
+| `DOCKER_BUILD_TEMP_ROOT` | `<cwd>/tmp` | Directory the local Docker build strategy stages its build contexts in. Point it at a volume with room for the largest context; the default follows the process's working directory, which on a container is usually the image's own filesystem |
+| `ALLOW_INCLUSTER_PULL_HOST` | `false` | Permit a plugin image reference whose pull host is only resolvable INSIDE the cluster. Off, such a reference is refused at validation — it would resolve for the builder and fail for anything pulling from outside. `true` only when every consumer is in-cluster |
 | `DOCKER_PUSH_TIMEOUT_MS` | `300000` | Push timeout (5 min) |
 | `PLUGIN_UPLOAD_TIMEOUT_MS` | `300000` | Upload HTTP timeout (5 min) — overrides `HANDLER_TIMEOUT_MS` for the upload route |
+| `PLUGIN_UPLOAD_DIR` | `/opt/pipeline/pipeline-data/plugins-data` | Where an uploaded plugin archive is staged before it goes to object storage and is extracted. Each upload is removed in a `finally`, so this needs room for concurrent uploads, not for the catalog |
 | `PLUGIN_MAX_UPLOAD_MB` | `4096` | Max plugin ZIP upload size in MB (supports prebuilt image.tar) |
 | `GRYPE_DB_CACHE_DIR` | `$TMPDIR/grype-db` (deploys set `/var/cache/grype`) | grype's vulnerability DB for the build-time scan and the nightly rescan. Every deploy mounts a volume here — the plugin container's root filesystem is read-only. **eks:** one shared, read-only copy on the `grype-db` EFS claim, written only by the `grype-db-refresh` CronJob (every 6 h, and once per deploy); the pods run with `PLUGIN_GRYPE_DB_AUTO_UPDATE=false`. **ec2 / minikube:** a per-pod 12 Gi `emptyDir`. **compose:** the `grype-db` named volume. The DB is ~3.3 GiB installed, and a refresh over an existing copy peaks around 7.3 GiB on disk |
 | `PLUGIN_GRYPE_DB_AUTO_UPDATE` | `true` | Refresh the vulnerability DB (at most every `PLUGIN_GRYPE_DB_UPDATE_INTERVAL_MS` before a build scan, and always before the nightly rescan). `false` = an operator maintains the DB (air-gapped installs) |
@@ -654,6 +662,7 @@ The deadline scales with the machine: a sub-Standard build gets `DOCKER_BUILD_TI
 | `QUOTA_STORAGE_NOTICE_REMINDER_DAYS` | `7` | How often a persistently-full account is re-reminded. Storage is a **stock**, so it has no period to dedupe notices against: each band notifies at most once per this window, a new window re-reminds, and dropping below a band clears the claim so refilling notifies promptly |
 | `QUOTA_RESERVE_FAIL_OPEN` | `false` | When a quota reservation can't be CONFIRMED (quota service unreachable, timed out, errored, or a non-quota 429), `false` denies the request; `true` lets it through. Both emit `quota_fail_closed_total` / `quota_fail_open_total` |
 | `QUOTA_SERVICE_HOST` | `quota` | Quota service host |
+| `QUOTA_STORAGE_FAIL_OPEN` | `false` | What a registry push does when the storage-quota lookup itself FAILS. Default fails CLOSED — the push is refused rather than admitted unmetered. Only the literal `true` admits it, trading enforcement for availability |
 | `QUOTA_SERVICE_PORT` | `3000` | Quota service port |
 | `LIMITER_MAX` | `100` | Global rate limit (requests/window) |
 | `LIMITER_WINDOWMS` | `900000` | Global rate limit window (15 min) |
@@ -688,6 +697,7 @@ The deadline scales with the machine: a sub-Standard build gets `DOCKER_BUILD_TI
 | `LIMITER_MULT_ENTERPRISE` | `50` | Enterprise-tier rate-limit multiplier |
 | `LIMITER_MULT_UNLIMITED` | `100` | Unlimited-tier rate-limit multiplier (billing-disabled default tier) |
 | `ASK_RATE_LIMIT_PER_MIN` | `30` | Per-org ceiling on the Ask agent's routes. These run an LLM per request, so the cap is about model spend and latency, not abuse |
+| `ASK_DOCS_DIR` | `<cwd>/docs` | Directory the Ask service indexes as its answer corpus. The default follows the process's working directory, so a container that does not ship `docs/` indexes nothing and answers from no sources |
 | `PIPELINE_GENERATE_RATE_LIMIT_PER_MIN` | `20` | Per-org ceiling on AI pipeline generation (`POST /pipelines/generate`) |
 | `PLUGIN_GENERATE_RATE_LIMIT_PER_MIN` | `20` | Per-org ceiling on AI plugin generation. `POST /plugins/generate` and `/generate/stream` share ONE limiter instance, so this is the combined allowance across both, not per route |
 
@@ -764,6 +774,7 @@ Feature flags and kill switches for the plugin ecosystem
 | `PLUGIN_QUARANTINE_BUILDKIT_ADDR` | `tcp://buildkitd-quarantine:1234` (docker) / `tcp://plugin-quarantine-builder:1234` (k8s) | The **isolated** buildkitd quarantine builds run on: no credentials, its own network/NodePool, egress to package mirrors + the registry only. No fallback to the tenant `BUILDKIT_HOST` — unset means submissions fail closed |
 | `OFFICIAL_AUTO_APPROVAL_ENABLED` | `true` | The seeded rule that auto-approves routine, gate-green patch/minor updates of existing Official listings submitted by the catalog loader. Off → every Official update waits for two-person approval |
 | `PUBLISHER_TERMS_VERSION` | `2026-09-21` | The publisher terms version in force. Bumping it makes every publisher re-accept before its next request (`PUBLISHER_TERMS_REQUIRED`); existing listings are unaffected |
+| `PUBLISH_PLATFORM` | `linux/amd64` | The platform a plugin BASE image is built and published for. Set it to `linux/arm64` on an arm fleet; a mismatch surfaces late, as a plugin image that builds and then refuses to run on the node that pulls it |
 | `ECOSYSTEM_BOOTSTRAP_WINDOW_HOURS` | `24` | How long the one-time bootstrap exception stays open after the first Official request of an empty instance, so the initial catalog load (whose builds finish in parallel) is approved automatically. It closes for good when it elapses or when any manager decides a request |
 | `ECOSYSTEM_VULN_GATE_MAX_FINDINGS` | `0` | The vulnerability gate a version must pass to be requested (and an anonymous submission to reach moderation): at most this many **fixable** findings at or above `PLUGIN_VULN_FAIL_ON` (default Critical) (grype reports a fixed version) in its scan. Unfixable findings are shown but don't block |
 | `REVIEW_WRITE_RATE_LIMIT_PER_MIN` | `30` | Plugin review writes per minute, per user |
@@ -789,6 +800,7 @@ Public directory API tuning (plugin service; all optional):
 | `PIPELINE_SERVICE_HOST` | `pipeline` | Pipeline service hostname |
 | `PIPELINE_SERVICE_PORT` | `3000` | Pipeline service port |
 | `MESSAGE_SERVICE_HOST` | `message` | Message service hostname |
+| `MESSAGE_ENABLED` | `true` | Whether platform dispatches to the message service at all. **Opt-OUT** (only the literal `false` disables it), so a deployment that never configures messaging still attempts delivery |
 | `MESSAGE_SERVICE_PORT` | `3000` | Message service port |
 | `PLATFORM_SERVICE_HOST` | `platform` | Platform service hostname (compliance → email delivery; **every** service → the [access-key exchange](authentication.md#access-keys-opaque-verified-by-exchange)) |
 | `PLATFORM_SERVICE_PORT` | `3000` | Platform service port |
@@ -964,6 +976,7 @@ Event reporting (`setup-events` → the reporting service) and DORA metrics. All
 | `DORA_INCIDENT_WINDOW_HOURS` | `24` | Reporting service. Window in which a production **incident** correlates to the most recent deploy (feeds post-deploy CFR / MTTR). Per-org override via `dora_settings`. |
 | `REPORTING_RETENTION_ENABLED` | `true` | Master switch for the retention purge sweep. **Set `false` to keep all reporting history forever** — recommended for self-hosted / unlimited-tier deployments that want unbounded retention. |
 | `REPORTING_EVENT_RETENTION_DAYS` | `30` | Retention (days) for **standard** pipeline events (non-deploy STAGE / ACTION / build). Older rows are purged by the sweep. Per-org override via `dora_settings`. |
+| `EVENT_DLQ_ARN` | derived from the trigger | The event consumer's dead-letter queue, for the health probe. **Normally leave it unset**: the default is derived from the SQS trigger ARN the Lambda already receives (`<main-queue>-dlq`), so neither the region nor the account id has to be configured anywhere. Set it only when the DLQ does not follow that naming |
 | `REPORTING_DORA_RETENTION_DAYS` | `180` | Retention (days) for **DORA-source** records (deploy-stage events + deployment outcomes + incidents) — ~2 quarters. Per-org override via `dora_settings`. |
 | `REPORTING_RETENTION_INTERVAL_HOURS` | `12` | How often the leader-locked retention sweep runs. |
 | `REPORTING_ROLLUP_SETTLE_HOURS` | `6` | How long after a UTC day closes before it is rolled up into `execution_daily_rollups`. Rolling a day up at 00:01 counts every execution still running at midnight as neither a success nor a failure. Matches the report scheduler's own settle delay — a rollup that lagged it would make a scheduled report read a half-built day. |
@@ -1190,6 +1203,7 @@ on `:9001`, where the console lives at `/rustfs/console/`.
 | `GOOGLE_GENERATIVE_AI_API_KEY` | Google AI API key |
 | `XAI_API_KEY` | xAI API key |
 | `AI_PROVIDER` | (CLI `infra provision`) Provider to use: `anthropic` (default), `openai`, `google`, `xai`, `bedrock` |
+| `BEDROCK_ENABLED` | `false` | Offer **AWS Bedrock** as an AI provider, resolved through the standard AWS credential chain rather than an API key. Only the literal `true` enables it |
 | `AI_MODEL` | (CLI `infra provision`) Model id override (defaults to the provider's first model) |
 
 At least one provider key is required for AI-powered pipeline and plugin generation. The same keys (plus the optional `AI_PROVIDER` / `AI_MODEL`) enable the `pipeline-manager infra provision` advisor's natural-language goal parsing and failure diagnosis; without a key, `infra provision` falls back to its deterministic prereq-check + command-assembly path. See the [AI plugins documentation](plugins/ai.md) for supported providers and models.
@@ -1328,14 +1342,18 @@ random value on first provision.
 | `NODE_ENV` | `production` | Node runtime mode. **MUST be `production` in every deploy target**: a long list of security guards keys off it and SILENTLY degrades when unset — which is the images' own default, since they set no `NODE_ENV`. Unset, platform wraps AI provider keys under an all-zeros encryption key and resolves cookie settings as development |
 | `DOMAIN` | `YOUR_DOMAIN_HERE` | Domain name for this deployment, set by `bootstrap.sh` from CloudFormation. **Required on the AWS targets** — TLS terminates at the ALB with an ACM cert issued for this name |
 | `LEAN` | `0` (ec2) | Deployment SHAPE, captured at provision time from the stack's `LEAN` parameter. `1` drops the optional observability + admin services, `0` runs the full set. Lives in `.env` because every later `startup.sh` reads it |
+| `DEPLOY_MODE` | `private` | Whether the load balancer is `public` (internet-facing ALB) or `private` (internal only). Captured at provision time; the gateway's scheme is fixed by the stack, so this is not a runtime switch |
 | `PIPELINE_ROOT` | `/opt/pipeline` (ec2) | Where the EBS data volume mounts. Holds the git checkout and the persistent service data beneath it |
 | `UV_THREADPOOL_SIZE` | `64` | libuv threadpool size. Node runs `getaddrinfo` — every DNS lookup a service makes — plus fs and some crypto on ONE pool whose default is **4 threads**, and a waiting lookup does not yield its thread. Boot is the worst moment, when every service dials Postgres, Mongo, Redis/Sentinel and the registry at once |
+| `PIPELINE_VPC_ID` / `PIPELINE_SUBNET_IDS` | (empty) | VPC and comma-separated private subnets the generated CodeBuild projects join. **Both are required together** — `networkConfigFromEnv()` returns nothing unless the VPC id is non-empty AND at least one subnet parses, so setting just one silently runs builds OUTSIDE a VPC rather than failing |
 | `PIPELINE_SECURITY_GROUP_IDS` | (empty) | Security groups for the generated CodeBuild projects, alongside the documented `PIPELINE_VPC_ID` / `PIPELINE_SUBNET_IDS`. Empty runs builds outside a VPC |
 | `BUILDKIT_MEMORY_LIMIT` | `6144Mi` (eks) / `3072Mi` (ec2) / `3072M` (docker) | Memory limit for the rootless buildkitd sidecar — the cgroup a plugin's `Dockerfile` RUN steps execute in. Too low OOM-kills heavy builds (gradle/npm/dotnet) as `buildkit-runc … container not running`. Must stay **≤ 10Gi** or the plugin pod hits the namespace LimitRange's container cap. Use `M`/`G` on docker (not `Mi`/`Gi`) so the value stays valid if minikube falls back to that file |
 | `IMAGE_REGISTRY_INSECURE` | `true` | Lets buildkit and crane talk to the in-cluster image registry over plain HTTP, paired with the documented `IMAGE_REGISTRY_HTTP` |
 | `ERROR_REPORT_URL` | (empty) | Server-side relay target for the frontend's client error reports, read at runtime. Empty disables reporting |
 | `KIALI_SIGNING_KEY` | `CHANGE_ME` | Kiali session-signing key (`auth.strategy=token`). **Must be exactly 16, 24 or 32 bytes** or Kiali refuses to start; generated as 32 hex chars. Kiali reads it only from an override-secret FILE |
-| `RUSTFS_ROOT_SECRET_KEY` | `CHANGE_ME` | Secret half of the object-store root credential, next to the documented `RUSTFS_ROOT_ACCESS_KEY` |
+| `GRAFANA_ADMIN_USER` / `GRAFANA_ADMIN_PASSWORD` | `admin` / `CHANGE_ME` | Grafana's initial admin login, delivered as the `grafana-secret` Secret. Grafana persists the password on first boot, so changing it here later does NOT rotate it — reset it in Grafana |
+| `GHCR_USER` / `GHCR_TOKEN` | — | **Secret.** GitHub PAT with `read:packages`, used to create the `ghcr-secret` image-pull Secret and to read image tags. Unset falls back to the GitHub Packages token in the operator's `~/.npmrc`, and if neither exists the secret is skipped — pulls then go out anonymous and hit ghcr.io's rate limits |
+| `RUSTFS_ROOT_ACCESS_KEY` / `RUSTFS_ROOT_SECRET_KEY` | `rustfsadmin` / `CHANGE_ME` | Object-store ROOT credential. Every per-service bucket credential below is minted under it, and `pb_check_object_store` refuses to provision while either half is empty |
 | `REGISTRY_S3_ACCESS_KEY` / `REGISTRY_S3_SECRET_KEY` | `registry-svc` / `CHANGE_ME` | Object-store credential for the image registry's bucket |
 | `LOKI_S3_ACCESS_KEY` / `LOKI_S3_SECRET_KEY` | `loki-svc` / `CHANGE_ME` | Object-store credential for Loki's chunk bucket |
 | `THANOS_S3_ACCESS_KEY` / `THANOS_S3_SECRET_KEY` | `thanos-svc` / `CHANGE_ME` | Object-store credential for Thanos' metric blocks |

@@ -1,6 +1,6 @@
 // GENERATED FROM docs/environment-variables.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: ad7de9420c52b76dd1d31deac1926fcbbbee10f541bd9c86a32fc66bd655559b
+// SOURCE-SHA256: 25c38a44c394d3848f38a4754fb48a04918dcb27ec28b966bcfdcbe685eb6c86
 // SPDX-License-Identifier: Apache-2.0
 import { FileCode } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -301,6 +301,11 @@ export const envVariablesTopic: HelpTopic = {
               "Secure on the refresh cookie. Every shipped target terminates TLS in front of the gateway and browsers accept Secure on http://localhost, so leave this on. Set false only for a plain-http deployment on a non-localhost hostname, where the browser would otherwise drop the cookie and no session could refresh."
             ],
             [
+              "AUTH_LOGIN_BINDING_COOKIE_PATH",
+              "/api",
+              "Path on the short-lived login-binding cookie. It must stay a prefix of the routes that finish a login — widen it only if the platform is mounted somewhere other than /api, because a path the browser does not send the cookie back on fails the binding check and the login cannot complete"
+            ],
+            [
               "PASSWORD_MIN_LENGTH",
               "8",
               "Platform minimum password length — the floor every org's own minimum sits on (an org can raise it for its members, up to 128; see Org password policy)"
@@ -441,6 +446,11 @@ export const envVariablesTopic: HelpTopic = {
               "SECRET_ENCRYPTION_KMS_CIPHERTEXT",
               "—",
               "(Single-master KMS mode) Base64 KMS-wrapped 32-byte master: aws kms encrypt --key-id <id> --plaintext <base64-master> --output text --query CiphertextBlob. Required alongside _KEY_ID; setting one without the other aborts the deploy."
+            ],
+            [
+              "AWS_KMS_ENDPOINT",
+              "(AWS default)",
+              "Override the KMS endpoint the secret-encryption client calls — for a VPC interface endpoint, or a local KMS stand-in in development. Unset uses the SDK's regional endpoint"
             ],
             [
               "SECRET_ENCRYPTION_KMS_CIPHERTEXT_PREVIOUS",
@@ -992,6 +1002,11 @@ export const envVariablesTopic: HelpTopic = {
               "Facebook app secret"
             ],
             [
+              "{PROVIDER}_AUTHORIZE_URL / _TOKEN_URL / _USERINFO_URL",
+              "provider defaults",
+              "Override a social provider's three OAuth endpoints, where {PROVIDER} is GOOGLE, GITHUB, GITLAB, MICROSOFT, FACEBOOK or LINKEDIN — e.g. GITLAB_AUTHORIZE_URL for a self-hosted GitLab. Note these carry no OAUTH_ prefix, unlike the client id/secret pair above. Unset uses the provider's public endpoints; set all three together when pointing at a self-hosted instance"
+            ],
+            [
               "OAUTH_MICROSOFT_CLIENT_ID",
               "—",
               "Microsoft/Entra client ID (Entra admin center → App registrations)"
@@ -1519,6 +1534,16 @@ export const envVariablesTopic: HelpTopic = {
               "Manifests older than this many days are pruned"
             ],
             [
+              "REGISTRY_GC_PROTECTED_TAGS",
+              "latest, plus the running platform version",
+              "Comma-separated tags the GC sweep must never prune, on top of the built-in protections. A tag listed here is kept even when it is older than REGISTRY_GC_MAX_AGE_DAYS"
+            ],
+            [
+              "REGISTRY_TOKEN_ISSUER / REGISTRY_TOKEN_SERVICE",
+              "platform / pipeline-image-registry",
+              "The iss and service/aud the registry's bearer tokens are minted with and validated against. Both sides must agree — the registry rejects a token whose service is not its own, so changing one without the other locks every push and pull out"
+            ],
+            [
               "REGISTRY_GC_STARTUP_DELAY_MS",
               "300000",
               "Delay (ms, 5 min) before the first sweep after boot, so the registry settles first (0 = sweep immediately)"
@@ -1625,6 +1650,16 @@ export const envVariablesTopic: HelpTopic = {
               "Build timeout (15 min)"
             ],
             [
+              "DOCKER_BUILD_TEMP_ROOT",
+              "<cwd>/tmp",
+              "Directory the local Docker build strategy stages its build contexts in. Point it at a volume with room for the largest context; the default follows the process's working directory, which on a container is usually the image's own filesystem"
+            ],
+            [
+              "ALLOW_INCLUSTER_PULL_HOST",
+              "false",
+              "Permit a plugin image reference whose pull host is only resolvable INSIDE the cluster. Off, such a reference is refused at validation — it would resolve for the builder and fail for anything pulling from outside. true only when every consumer is in-cluster"
+            ],
+            [
               "DOCKER_PUSH_TIMEOUT_MS",
               "300000",
               "Push timeout (5 min)"
@@ -1633,6 +1668,11 @@ export const envVariablesTopic: HelpTopic = {
               "PLUGIN_UPLOAD_TIMEOUT_MS",
               "300000",
               "Upload HTTP timeout (5 min) — overrides HANDLER_TIMEOUT_MS for the upload route"
+            ],
+            [
+              "PLUGIN_UPLOAD_DIR",
+              "/opt/pipeline/pipeline-data/plugins-data",
+              "Where an uploaded plugin archive is staged before it goes to object storage and is extracted. Each upload is removed in a finally, so this needs room for concurrent uploads, not for the catalog"
             ],
             [
               "PLUGIN_MAX_UPLOAD_MB",
@@ -2014,6 +2054,11 @@ export const envVariablesTopic: HelpTopic = {
               "Quota service host"
             ],
             [
+              "QUOTA_STORAGE_FAIL_OPEN",
+              "false",
+              "What a registry push does when the storage-quota lookup itself FAILS. Default fails CLOSED — the push is refused rather than admitted unmetered. Only the literal true admits it, trading enforcement for availability"
+            ],
+            [
               "QUOTA_SERVICE_PORT",
               "3000",
               "Quota service port"
@@ -2182,6 +2227,11 @@ export const envVariablesTopic: HelpTopic = {
               "ASK_RATE_LIMIT_PER_MIN",
               "30",
               "Per-org ceiling on the Ask agent's routes. These run an LLM per request, so the cap is about model spend and latency, not abuse"
+            ],
+            [
+              "ASK_DOCS_DIR",
+              "<cwd>/docs",
+              "Directory the Ask service indexes as its answer corpus. The default follows the process's working directory, so a container that does not ship docs/ indexes nothing and answers from no sources"
             ],
             [
               "PIPELINE_GENERATE_RATE_LIMIT_PER_MIN",
@@ -2412,6 +2462,11 @@ export const envVariablesTopic: HelpTopic = {
               "The publisher terms version in force. Bumping it makes every publisher re-accept before its next request (PUBLISHER_TERMS_REQUIRED); existing listings are unaffected"
             ],
             [
+              "PUBLISH_PLATFORM",
+              "linux/amd64",
+              "The platform a plugin BASE image is built and published for. Set it to linux/arm64 on an arm fleet; a mismatch surfaces late, as a plugin image that builds and then refuses to run on the node that pulls it"
+            ],
+            [
               "ECOSYSTEM_BOOTSTRAP_WINDOW_HOURS",
               "24",
               "How long the one-time bootstrap exception stays open after the first Official request of an empty instance, so the initial catalog load (whose builds finish in parallel) is approved automatically. It closes for good when it elapses or when any manager decides a request"
@@ -2515,6 +2570,11 @@ export const envVariablesTopic: HelpTopic = {
               "MESSAGE_SERVICE_HOST",
               "message",
               "Message service hostname"
+            ],
+            [
+              "MESSAGE_ENABLED",
+              "true",
+              "Whether platform dispatches to the message service at all. Opt-OUT (only the literal false disables it), so a deployment that never configures messaging still attempts delivery"
             ],
             [
               "MESSAGE_SERVICE_PORT",
@@ -3161,6 +3221,11 @@ export const envVariablesTopic: HelpTopic = {
               "REPORTING_EVENT_RETENTION_DAYS",
               "30",
               "Retention (days) for standard pipeline events (non-deploy STAGE / ACTION / build). Older rows are purged by the sweep. Per-org override via dora_settings."
+            ],
+            [
+              "EVENT_DLQ_ARN",
+              "derived from the trigger",
+              "The event consumer's dead-letter queue, for the health probe. Normally leave it unset: the default is derived from the SQS trigger ARN the Lambda already receives (<main-queue>-dlq), so neither the region nor the account id has to be configured anywhere. Set it only when the DLQ does not follow that naming"
             ],
             [
               "REPORTING_DORA_RETENTION_DAYS",
@@ -3898,6 +3963,11 @@ export const envVariablesTopic: HelpTopic = {
               "(CLI infra provision) Provider to use: anthropic (default), openai, google, xai, bedrock"
             ],
             [
+              "BEDROCK_ENABLED",
+              "false",
+              "Offer AWS Bedrock as an AI provider, resolved through the standard AWS credential chain rather than an API key. Only the literal true enables it"
+            ],
+            [
               "AI_MODEL",
               "(CLI infra provision) Model id override (defaults to the provider's first model)"
             ]
@@ -4276,6 +4346,11 @@ export const envVariablesTopic: HelpTopic = {
               "Deployment SHAPE, captured at provision time from the stack's LEAN parameter. 1 drops the optional observability + admin services, 0 runs the full set. Lives in .env because every later startup.sh reads it"
             ],
             [
+              "DEPLOY_MODE",
+              "private",
+              "Whether the load balancer is public (internet-facing ALB) or private (internal only). Captured at provision time; the gateway's scheme is fixed by the stack, so this is not a runtime switch"
+            ],
+            [
               "PIPELINE_ROOT",
               "/opt/pipeline (ec2)",
               "Where the EBS data volume mounts. Holds the git checkout and the persistent service data beneath it"
@@ -4284,6 +4359,11 @@ export const envVariablesTopic: HelpTopic = {
               "UV_THREADPOOL_SIZE",
               "64",
               "libuv threadpool size. Node runs getaddrinfo — every DNS lookup a service makes — plus fs and some crypto on ONE pool whose default is 4 threads, and a waiting lookup does not yield its thread. Boot is the worst moment, when every service dials Postgres, Mongo, Redis/Sentinel and the registry at once"
+            ],
+            [
+              "PIPELINE_VPC_ID / PIPELINE_SUBNET_IDS",
+              "(empty)",
+              "VPC and comma-separated private subnets the generated CodeBuild projects join. Both are required together — networkConfigFromEnv() returns nothing unless the VPC id is non-empty AND at least one subnet parses, so setting just one silently runs builds OUTSIDE a VPC rather than failing"
             ],
             [
               "PIPELINE_SECURITY_GROUP_IDS",
@@ -4311,9 +4391,19 @@ export const envVariablesTopic: HelpTopic = {
               "Kiali session-signing key (auth.strategy=token). Must be exactly 16, 24 or 32 bytes or Kiali refuses to start; generated as 32 hex chars. Kiali reads it only from an override-secret FILE"
             ],
             [
-              "RUSTFS_ROOT_SECRET_KEY",
-              "CHANGE_ME",
-              "Secret half of the object-store root credential, next to the documented RUSTFS_ROOT_ACCESS_KEY"
+              "GRAFANA_ADMIN_USER / GRAFANA_ADMIN_PASSWORD",
+              "admin / CHANGE_ME",
+              "Grafana's initial admin login, delivered as the grafana-secret Secret. Grafana persists the password on first boot, so changing it here later does NOT rotate it — reset it in Grafana"
+            ],
+            [
+              "GHCR_USER / GHCR_TOKEN",
+              "—",
+              "Secret. GitHub PAT with read:packages, used to create the ghcr-secret image-pull Secret and to read image tags. Unset falls back to the GitHub Packages token in the operator's ~/.npmrc, and if neither exists the secret is skipped — pulls then go out anonymous and hit ghcr.io's rate limits"
+            ],
+            [
+              "RUSTFS_ROOT_ACCESS_KEY / RUSTFS_ROOT_SECRET_KEY",
+              "rustfsadmin / CHANGE_ME",
+              "Object-store ROOT credential. Every per-service bucket credential below is minted under it, and pb_check_object_store refuses to provision while either half is empty"
             ],
             [
               "REGISTRY_S3_ACCESS_KEY / REGISTRY_S3_SECRET_KEY",

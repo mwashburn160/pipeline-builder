@@ -89,17 +89,124 @@ function defaultFeatures(tier: QuotaTier, perks: string[]): string[] {
 // The reporting dashboard is open to every tier (only the DORA/scorecard views
 // are entitlement-gated), so it's listed on each plan rather than implying a
 // lower tier lacks it.
-const DEFAULT_DEVELOPER_FEATURES = defaultFeatures('developer', ['Community support', 'Reporting dashboard']);
-const DEFAULT_PRO_FEATURES = defaultFeatures('pro', ['Reporting dashboard']);
-const DEFAULT_TEAM_FEATURES = defaultFeatures('team', ['RBAC & team roles', 'Reporting dashboard']);
-const DEFAULT_BUSINESS_FEATURES = defaultFeatures('business', ['RBAC & team roles', 'Reporting dashboard']);
-const DEFAULT_ENTERPRISE_FEATURES = defaultFeatures('enterprise', [
-  'RBAC & team roles', 'Reporting dashboard',
-]);
-// Unlimited includes every feature (TIER_FEATURES.unlimited = all).
-const DEFAULT_UNLIMITED_FEATURES = defaultFeatures('unlimited', [
-  'Unlimited everything', 'RBAC & team roles', 'Reporting dashboard',
-]);
+
+/**
+ * Per-tier plan SEED: the parts of a plan that cannot be derived.
+ *
+ * Keyed by `QuotaTier`, so a new tier is a COMPILE ERROR until it has a seed —
+ * the same discipline `quota-tiers.ts` applies to its presets, which are
+ * "keyed off VALID_TIERS rather than written out tier by tier". Everything
+ * derivable is derived at the call site instead of repeated here: the env var
+ * names from the tier, and `sortOrder` from the tier's index in `VALID_TIERS`.
+ *
+ * That last one was a live defect. The six hand-written blocks this replaces
+ * numbered `sortOrder` by hand, and when `business` was inserted at 3 nobody
+ * renumbered the tail: `enterprise` AND `unlimited` both shipped `sortOrder: 4`.
+ * `config.plans` is built in VALID_TIERS order so the array was unaffected, but
+ * the field is public, and any consumer sorting by it had two plans tied.
+ *
+ * `isDefault` stays DATA rather than `tier === DEFAULT_TIER`: that constant is
+ * conditional (`unlimited` when billing is disabled), so deriving it would move
+ * the signup default on a billing-disabled deployment.
+ *
+ * `name` is data too — these are product names, not formatted tier ids, and
+ * each stays env-overridable.
+ */
+interface PlanSeed {
+  name: string;
+  description: string;
+  /** Default monthly price in cents. */
+  monthly: number;
+  /** Default annual price in cents. */
+  annual: number;
+  /** Non-gated marketing lines appended to the derived feature list. */
+  perks: string[];
+  /** The plan new signups land on. Exactly one tier sets it. */
+  isDefault?: true;
+}
+
+/**
+ * The per-plan env overrides the loader reads, declared rather than spelled out
+ * at each read site.
+ *
+ * WHY THIS IS A LIST AND NOT JUST STRING LITERALS. The names are built from the
+ * tier (`BILLING_PLAN_${tier.toUpperCase()}_MONTHLY`), so no scanner that
+ * matches literal names can see them — the hole that let `PLUGIN_VULN_WAIVERS`
+ * sit undocumented. Declaring the family here lets a docs test expand it against
+ * `VALID_TIERS` and assert every concrete name is documented.
+ *
+ * All five are OPTIONAL: each has a default in {@link PLAN_SEED}, so none of
+ * them appears in a deployment's `.env` (only `_MONTHLY` / `_ANNUAL` are seeded
+ * there, as examples). An env-file sweep would therefore never see `_NAME`,
+ * `_DESCRIPTION` or `_FEATURES` at all, which is exactly why the check has to
+ * start from the code's own declaration.
+ */
+export const PLAN_ENV_SUFFIXES = ['NAME', 'DESCRIPTION', 'MONTHLY', 'ANNUAL', 'FEATURES'] as const;
+
+export type PlanEnvSuffix = typeof PLAN_ENV_SUFFIXES[number];
+
+/** The env var name carrying `suffix` for `tier`. The ONE place this is spelled. */
+export function planEnvName(tier: QuotaTier, suffix: PlanEnvSuffix): string {
+  return `BILLING_PLAN_${tier.toUpperCase()}_${suffix}`;
+}
+
+/** Every plan override name the loader reads, for the docs-drift guard. */
+export function planEnvKeys(): string[] {
+  return VALID_TIERS.flatMap((tier) => PLAN_ENV_SUFFIXES.map((s) => planEnvName(tier, s)));
+}
+
+const PLAN_SEED: Record<QuotaTier, PlanSeed> = {
+  developer: {
+    name: 'Developer',
+    description: 'Free starter tier for individual developers',
+    monthly: 0,
+    annual: 0,
+    perks: ['Community support', 'Reporting dashboard'],
+    isDefault: true,
+  },
+  pro: {
+    name: 'Pro',
+    description: 'For individual power users and production workloads',
+    monthly: 3900,
+    annual: 39000,
+    perks: ['Reporting dashboard'],
+  },
+  team: {
+    name: 'Team',
+    description: 'For teams collaborating on shared pipelines',
+    monthly: 7900,
+    annual: 79000,
+    perks: ['RBAC & team roles', 'Reporting dashboard'],
+  },
+  // Business ($249): the rung the $79 -> $899 gap was missing. 8 seats and
+  // DORA included; Enterprise keeps custom integrations, team analytics, the
+  // compliance libraries and stakeholder reports.
+  business: {
+    name: 'Business',
+    description: 'For growing organizations: a higher seat baseline with delivery analytics included',
+    monthly: 24900,
+    annual: 249000,
+    perks: ['RBAC & team roles', 'Reporting dashboard'],
+  },
+  enterprise: {
+    name: 'Enterprise',
+    description: 'Org-wide scale with a high seat baseline (expandable via Member Seat add-ons) and priority support',
+    monthly: 89900,
+    annual: 899000,
+    perks: ['RBAC & team roles', 'Reporting dashboard'],
+  },
+  // The billing-DISABLED default plan: everything uncapped, all features, free.
+  // Seeded so the tier->plan mapping resolves, but never offered for sale — the
+  // read-plans route filters it out (see createReadPlanRoutes), so it's hidden
+  // whenever billing is enabled (the only time /plans is served).
+  unlimited: {
+    name: 'Unlimited',
+    description: 'Everything uncapped — the default when billing is disabled',
+    monthly: 0,
+    annual: 0,
+    perks: ['Unlimited everything', 'RBAC & team roles', 'Reporting dashboard'],
+  },
+};
 
 /**
  * Parse a price (in cents) from an env var, falling back to the default when
@@ -155,123 +262,29 @@ export function loadBillingConfig(): BillingConfig {
   // 4-element array that silently shipped no plan/price for a new tier). The
   // public `config.plans` shape stays an array, derived below in VALID_TIERS
   // order (developer, pro, team, enterprise, unlimited) to preserve consumer ordering.
-  const planByTier: Record<QuotaTier, BillingPlanConfig> = {
-    developer: {
-      id: 'developer',
-      name: process.env.BILLING_PLAN_DEVELOPER_NAME || 'Developer',
-      description: process.env.BILLING_PLAN_DEVELOPER_DESCRIPTION
-        || 'Free starter tier for individual developers',
-      tier: 'developer',
+  // One derivation over VALID_TIERS, not a block per tier. The env var names
+  // follow the documented `BILLING_PLAN_{TIER}_*` pattern (`tier.toUpperCase()`,
+  // the same idiom as `REDIS_DB_{TIER}`), and `sortOrder` is the tier's index —
+  // so a tier added to the ladder needs one PLAN_SEED entry and nothing else.
+  const planByTier = Object.fromEntries(VALID_TIERS.map((tier, sortOrder) => {
+    const seed = PLAN_SEED[tier];
+    const env = (suffix: PlanEnvSuffix) => process.env[planEnvName(tier, suffix)];
+    const plan: BillingPlanConfig = {
+      id: tier,
+      name: env('NAME') || seed.name,
+      description: env('DESCRIPTION') || seed.description,
+      tier,
       prices: {
-        monthly: envCents(process.env.BILLING_PLAN_DEVELOPER_MONTHLY, 0),
-        annual: envCents(process.env.BILLING_PLAN_DEVELOPER_ANNUAL, 0),
+        monthly: envCents(env('MONTHLY'), seed.monthly),
+        annual: envCents(env('ANNUAL'), seed.annual),
       },
-      features: parseFeatures(
-        process.env.BILLING_PLAN_DEVELOPER_FEATURES,
-        DEFAULT_DEVELOPER_FEATURES,
-      ),
+      features: parseFeatures(env('FEATURES'), defaultFeatures(tier, seed.perks)),
       isActive: true,
-      isDefault: true,
-      sortOrder: 0,
-    },
-    pro: {
-      id: 'pro',
-      name: process.env.BILLING_PLAN_PRO_NAME || 'Pro',
-      description: process.env.BILLING_PLAN_PRO_DESCRIPTION
-        || 'For individual power users and production workloads',
-      tier: 'pro',
-      prices: {
-        monthly: envCents(process.env.BILLING_PLAN_PRO_MONTHLY, 3900),
-        annual: envCents(process.env.BILLING_PLAN_PRO_ANNUAL, 39000),
-      },
-      features: parseFeatures(
-        process.env.BILLING_PLAN_PRO_FEATURES,
-        DEFAULT_PRO_FEATURES,
-      ),
-      isActive: true,
-      isDefault: false,
-      sortOrder: 1,
-    },
-    team: {
-      id: 'team',
-      name: process.env.BILLING_PLAN_TEAM_NAME || 'Team',
-      description: process.env.BILLING_PLAN_TEAM_DESCRIPTION
-        || 'For teams collaborating on shared pipelines',
-      tier: 'team',
-      prices: {
-        monthly: envCents(process.env.BILLING_PLAN_TEAM_MONTHLY, 7900),
-        annual: envCents(process.env.BILLING_PLAN_TEAM_ANNUAL, 79000),
-      },
-      features: parseFeatures(
-        process.env.BILLING_PLAN_TEAM_FEATURES,
-        DEFAULT_TEAM_FEATURES,
-      ),
-      isActive: true,
-      isDefault: false,
-      sortOrder: 2,
-    },
-    // Business ($249): the rung the $79 -> $899 gap was missing. 8 seats and
-    // DORA included; Enterprise keeps custom integrations, team analytics, the
-    // compliance libraries and stakeholder reports.
-    business: {
-      id: 'business',
-      name: process.env.BILLING_PLAN_BUSINESS_NAME || 'Business',
-      description: process.env.BILLING_PLAN_BUSINESS_DESCRIPTION
-        || 'For growing organizations: a higher seat baseline with delivery analytics included',
-      tier: 'business',
-      prices: {
-        monthly: envCents(process.env.BILLING_PLAN_BUSINESS_MONTHLY, 24900),
-        annual: envCents(process.env.BILLING_PLAN_BUSINESS_ANNUAL, 249000),
-      },
-      features: parseFeatures(
-        process.env.BILLING_PLAN_BUSINESS_FEATURES,
-        DEFAULT_BUSINESS_FEATURES,
-      ),
-      isActive: true,
-      isDefault: false,
-      sortOrder: 3,
-    },
-    enterprise: {
-      id: 'enterprise',
-      name: process.env.BILLING_PLAN_ENTERPRISE_NAME || 'Enterprise',
-      description: process.env.BILLING_PLAN_ENTERPRISE_DESCRIPTION
-        || 'Org-wide scale with a high seat baseline (expandable via Member Seat add-ons) and priority support',
-      tier: 'enterprise',
-      prices: {
-        monthly: envCents(process.env.BILLING_PLAN_ENTERPRISE_MONTHLY, 89900),
-        annual: envCents(process.env.BILLING_PLAN_ENTERPRISE_ANNUAL, 899000),
-      },
-      features: parseFeatures(
-        process.env.BILLING_PLAN_ENTERPRISE_FEATURES,
-        DEFAULT_ENTERPRISE_FEATURES,
-      ),
-      isActive: true,
-      isDefault: false,
-      sortOrder: 4,
-    },
-    // The billing-DISABLED default plan: everything uncapped, all features, free.
-    // Seeded so the tier→plan mapping resolves, but never offered for sale — the
-    // read-plans route filters it out (see createReadPlanRoutes), so it's hidden
-    // whenever billing is enabled (the only time /plans is served).
-    unlimited: {
-      id: 'unlimited',
-      name: process.env.BILLING_PLAN_UNLIMITED_NAME || 'Unlimited',
-      description: process.env.BILLING_PLAN_UNLIMITED_DESCRIPTION
-        || 'Everything uncapped — the default when billing is disabled',
-      tier: 'unlimited',
-      prices: {
-        monthly: envCents(process.env.BILLING_PLAN_UNLIMITED_MONTHLY, 0),
-        annual: envCents(process.env.BILLING_PLAN_UNLIMITED_ANNUAL, 0),
-      },
-      features: parseFeatures(
-        process.env.BILLING_PLAN_UNLIMITED_FEATURES,
-        DEFAULT_UNLIMITED_FEATURES,
-      ),
-      isActive: true,
-      isDefault: false,
-      sortOrder: 4,
-    },
-  };
+      isDefault: seed.isDefault === true,
+      sortOrder,
+    };
+    return [tier, plan];
+  })) as Record<QuotaTier, BillingPlanConfig>;
 
   // Derive the array consumers read (`config.plans`) in canonical tier order.
   const plans: BillingPlanConfig[] = VALID_TIERS.map((tier) => planByTier[tier]);
