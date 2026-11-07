@@ -31,7 +31,7 @@ import { isBoundToThisBrowser } from '../helpers/login-binding.js';
 import { MFA_POLICY_ERROR_MAP } from '../helpers/mfa-policy.js';
 import { createPendingStateStore } from '../helpers/pending-state-store.js';
 import { createCodeVerifier, pkceAuthorizeParams } from '../helpers/pkce.js';
-import { type OAuthProviderName } from '../types/oauth-provider.js';
+import { isOAuthProviderName, OAUTH_PROVIDER_NAMES, type OAuthProviderName } from '../types/oauth-provider.js';
 
 // OAuth State (CSRF protection)
 
@@ -503,7 +503,10 @@ const providers: Record<OAuthProviderName, OAuthProvider> = {
 };
 
 function getProvider(name: string): OAuthProvider | null {
-  return providers[name as OAuthProviderName] ?? null;
+  // Narrowed, not cast: `providers[name as OAuthProviderName]` claimed any
+  // string was a key, so a typo resolved to `undefined` and only the `?? null`
+  // hid it. The guard makes the lookup checkable.
+  return isOAuthProviderName(name) ? providers[name] : null;
 }
 
 // Shared verification
@@ -677,5 +680,9 @@ export async function startOAuthSignIn(
 
 /** The providers configured in this deployment. */
 export function enabledOAuthProviders(): OAuthProviderName[] {
-  return (Object.entries(providers) as Array<[OAuthProviderName, OAuthProvider]>).filter(([, p]) => p.enabled).map(([name]) => name);
+  // Iterates the CATALOG rather than Object.entries, which types its keys as
+  // `string` and so needed a cast. Two things follow for free: the order is the
+  // catalog's rather than insertion order, and a provider added to the union is
+  // included here without touching this function.
+  return OAUTH_PROVIDER_NAMES.filter((name) => providers[name].enabled);
 }
