@@ -97,6 +97,41 @@ describe('pnpm', () => {
   });
 });
 
+describe('AWS CDK CLI', () => {
+  it('is one version across the bootstrap image and every plugin that installs it', () => {
+    // WHY THIS EXISTS. Nothing held these equal and they drifted: the CodeBuild
+    // bootstrap sat at 2.1126.0 while cdk-deploy and cdk-deploy-multi-region
+    // moved to 2.1147.0. The CLI BUNDLES its dependencies (the published package
+    // declares none), so a finding inside it cannot be patched with another
+    // `npm install` — the pin is the only lever, and the stale one shipped a
+    // `tar` old enough to fail the plugin vulnerability gate. A version skew
+    // here also means `cdk synth` and `cdk deploy` run different CLIs against
+    // one app, which is its own class of confusing failure.
+    const pairs: Array<[string, string | undefined]> = [
+      ['bootstrap AWS_CDK_VERSION',
+        grab('deploy/codebuild/bootstrap/Dockerfile', /^ARG AWS_CDK_VERSION="?([0-9.]+)"?\s*$/m)],
+      ['cdk-deploy',
+        grab('deploy/plugins/deploy/cdk-deploy/Dockerfile', /aws-cdk@([0-9.]+)/)],
+      ['cdk-deploy-multi-region',
+        grab('deploy/plugins/deploy/cdk-deploy-multi-region/Dockerfile', /aws-cdk@([0-9.]+)/)],
+    ];
+    // Guards a vacuous pass: a renamed ARG or a reformatted install line would
+    // otherwise make every entry undefined, and undefined equals undefined.
+    for (const [label, version] of pairs) {
+      expect({ label, found: version !== undefined }).toEqual({ label, found: true });
+    }
+    expectAllEqual(pairs);
+  });
+
+  it('is installed by exactly the plugins that need their own CLI', () => {
+    // cdk-synth deliberately installs NO CDK — it is FROM pipeline-bootstrap and
+    // inherits the binary. If it ever grows its own `npm install -g aws-cdk`,
+    // that is a fourth pin and belongs in the list above.
+    const synth = read('deploy/plugins/infrastructure/cdk-synth/Dockerfile');
+    expect(synth).not.toMatch(/aws-cdk@/);
+  });
+});
+
 describe('syft / grype — the release and the plugin service scan with the same tools', () => {
   const projen = read('projenrc/workflow.ts');
   const plugin = read('api/plugin/Dockerfile');

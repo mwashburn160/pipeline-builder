@@ -76,10 +76,21 @@ RUN set -eux; \
 # the npm-install layer cache-correct. Override with --build-arg.
 ARG PIPELINE_MANAGER_VERSION="4.4.11"
 # AWS CDK CLI — `pipeline-manager pipeline synth` shells out to `cdk synth`, so the
-# `cdk` binary must be on PATH. Pinned to match the cdk-synth plugin image
-# (deploy/plugins/infrastructure/cdk-synth/Dockerfile) and the version note
-# in deploy/plugins/README.md; compatible with aws-cdk-lib 2.258.x.
-ARG AWS_CDK_VERSION="2.1126.0"
+# `cdk` binary must be on PATH. Compatible with aws-cdk-lib 2.258.x.
+#
+# HELD EQUAL to the two plugins that install the CLI themselves — cdk-deploy and
+# cdk-deploy-multi-region — by toolchain-drift-contract. It is not "pinned to
+# match cdk-synth": that plugin installs no CDK at all, it is FROM this image
+# and inherits the binary. The old comment also cited a version note in
+# deploy/plugins/README.md that does not exist. Both claims were wrong, and in
+# the meantime the pins DID drift: this sat at 2.1126.0 while the two plugins
+# moved to 2.1147.0, which is how a bundled `tar` old enough to fail the vuln
+# gate survived here.
+#
+# The CLI BUNDLES its dependencies (the published package declares none), so a
+# finding inside it — `tar` in this case — cannot be overridden with another
+# `npm install`. Bumping this pin is the only lever.
+ARG AWS_CDK_VERSION="2.1148.0"
 # esbuild — synth bundles the PluginLookup Lambda via `aws-lambda-nodejs`
 # (NodejsFunction). When esbuild isn't detected it falls back to DOCKER
 # bundling, which a slim no-docker CodeBuild image can't do (`spawnSync docker
