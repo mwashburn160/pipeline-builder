@@ -14,3 +14,18 @@ export type OAuthProviderName = 'google' | 'github' | 'facebook' | 'microsoft' |
 
 /** Runtime tuple matching `OAuthProviderName` for Mongoose enums / Zod schemas. */
 export const OAUTH_PROVIDER_NAMES: readonly OAuthProviderName[] = ['google', 'github', 'facebook', 'microsoft', 'gitlab', 'linkedin'];
+
+/**
+ * Whether `value` names one of the wired providers, narrowing it as it goes.
+ *
+ * The point is to delete casts, not to add a check. Every caller that had a
+ * provider name as a `string` reached its registry through one — `providers[name
+ * as OAuthProviderName]`, or in one place `config.oauth as unknown as
+ * Record<string, …>` — and a cast is exactly as wrong as the name is: a typo or
+ * a renamed provider compiles and resolves to `undefined` at runtime. Narrowing
+ * from this list instead means the compiler checks the lookup, and a name that
+ * is not a provider is handled rather than assumed away.
+ */
+export function isOAuthProviderName(value: string): value is OAuthProviderName {
+  return (OAUTH_PROVIDER_NAMES as readonly string[]).includes(value);
+}
