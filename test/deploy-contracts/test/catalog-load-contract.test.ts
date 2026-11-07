@@ -73,7 +73,19 @@ describe('gitleaks is built with a patched x/crypto', () => {
     // carries fixable Criticals, and 8.30.1 is upstream's LATEST release — so
     // there is nothing to bump to and no waiver would be honest.
     expect(df).toContain('git clone --depth 1 --branch');
-    expect(df).not.toContain('zricethezav/gitleaks');
+    // The published IMAGE, not the Go module path: the version stamp names
+    // github.com/zricethezav/gitleaks/v8/version.Version, as upstream's
+    // goreleaser does.
+    expect(df).not.toMatch(/^FROM\s+(docker\.io\/)?zricethezav\/gitleaks/m);
+    expect(df).toContain('-X=github.com/zricethezav/gitleaks/v8/version.Version=${GITLEAKS_VERSION}');
+  });
+
+  it('raises brotli too: gitleaks bundles the KEV-listed GO-2026-6888', () => {
+    // gitleaks' go.mod pins github.com/andybalholm/brotli at a 2025
+    // pseudo-version below the 1.2.7 fix. Without the raise the rebuilt binary
+    // still fails PLUGIN_VULN_GATE (a KEV Critical is never package-waivable).
+    expect(df).toMatch(/^ARG BROTLI_VERSION=\d+\.\d+\.\d+$/m);
+    expect(df).toContain('github.com/andybalholm/brotli@v${BROTLI_VERSION}');
   });
 
   it('pins the x/crypto it raises to, rather than taking @latest', () => {
@@ -92,10 +104,31 @@ describe('gitleaks is built with a patched x/crypto', () => {
     expect(df).toMatch(/exit 1/);
   });
 
+  it('compares the VERSION FIELD, as >= the pin — never a `$`-anchored grep', () => {
+    // `go version -m` prints the module's h1: checksum AFTER the version, so a
+    // `grep "…v<pin>$"` can never match: it failed every build even with the
+    // raise in place, which is why git-secrets was never in the catalogue.
+    // And MVS may resolve higher than the pin, so equality is wrong too.
+    expect(df).not.toMatch(/grep -qE "golang\.org\/x\/crypto\[\[:space:\]\]\+v\$\{XCRYPTO_VERSION\}\\\$"/);
+    expect(df).toContain(`awk -v m="$1" '$1 == "dep" && $2 == m { print $3 }'`);
+    expect(df).toContain('sort -V | head -1');
+  });
+
   it('retries the clone and the build, like every other network step here', () => {
     // A cold catalogue load does this a hundred times over, through github.com
     // and proxy.golang.org.
     expect(df).toMatch(/for attempt in 1 2 3 4 5/);
+  });
+});
+
+describe('k6 is built from source with the vulnerable modules raised', () => {
+  const df = read('deploy/plugins/testing/k6/Dockerfile');
+
+  it('builds from the module cache, not the committed vendor/ tree', () => {
+    // k6 commits vendor/. Once `go get` raises a requirement, the default
+    // vendor mode refuses ("inconsistent vendoring") on every attempt, so the
+    // stage never produced a binary.
+    expect(df).toMatch(/go build -mod=mod /);
   });
 });
 

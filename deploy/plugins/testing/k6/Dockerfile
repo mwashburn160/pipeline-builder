@@ -32,6 +32,10 @@ ARG XCRYPTO_VERSION=0.58.0
 ARG XTEXT_VERSION=0.43.0
 
 # ─── k6, built from source with the vulnerable modules raised ───
+# `-mod=mod`: k6 commits a vendor/ tree, so once `go get` raises a requirement
+# the default vendor mode refuses with "inconsistent vendoring" — on EVERY
+# attempt, which is how this stage failed before it ever produced a binary.
+# Building from the module cache uses exactly the raised go.mod.
 # `go install go.k6.io/k6/v2@vX` would NOT work: it resolves the module's own
 # go.mod and ignores any override, so the vulnerable versions come straight
 # back. Building from a checked-out tag is what lets the requirements be raised.
@@ -62,7 +66,7 @@ RUN set -eux; \
           "golang.org/x/net@v${XNET_VERSION}" \
           "golang.org/x/crypto@v${XCRYPTO_VERSION}" \
           "golang.org/x/text@v${XTEXT_VERSION}" \
-        && CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o /out/k6 .; then \
+        && CGO_ENABLED=0 go build -mod=mod -trimpath -ldflags "-s -w" -o /out/k6 .; then \
         break; \
       fi; \
       echo "k6 build failed (attempt $attempt/5); retrying" >&2; \
