@@ -129,3 +129,168 @@ describe('a FIRST RUN: the setup catalogue load', () => {
     expect(Math.ceil(SYSTEM_ORG_CAP / SYS_CONC)).toBe(12);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Borrowing idle slots (PLUGIN_BUILD_BORROW_MAX)
+// ---------------------------------------------------------------------------
+
+/**
+ * With borrowing, ONE tier's per-replica ceiling is its floor plus the whole
+ * allowance — correct only while that tier is the only one over its floor,
+ * which is the single-tier case below. For mixed load use {@link fleetCeiling}:
+ * the allowance is a SHARED pool per replica, not one pool per tier.
+ */
+const runningWithBorrow = (tier: string, replicas: number, cap: number, borrow: number) => Math.min(
+  replicas * (BUILD_TIER_CONCURRENCY[tier as keyof typeof BUILD_TIER_CONCURRENCY] + borrow),
+  cap,
+  replicas * BUILD_LADDER_CONCURRENCY_SUM,
+);
+
+/** Orgs of each tier uploading at once. */
+type Demand = Partial<Record<string, number>>;
+
+/**
+ * Concurrent builds across the fleet for a mix of tiers, as the LOWEST of the
+ * three bounds that actually apply:
+ *
+ *  1. per tier: its own ceiling x replicas, cut by the sum of its orgs' caps;
+ *  2. the SHARED allowance: every active tier's floor, plus `borrow` ONCE per
+ *     replica — not once per tier. `borrowedSlots()` in build-gate sums over
+ *     every tier, so two busy tiers compete for the same pool;
+ *  3. the replica budget, because all tier workers share one buildkitd sidecar.
+ *
+ * Bound 2 is the one a per-tier reading of borrowing gets wrong, and it is the
+ * difference between 72 and 56 concurrent builds on a mixed pro+business fleet.
+ */
+function fleetCeiling(demand: Demand, replicas: number, borrow = 0): number {
+  const tiers = Object.keys(demand).filter((t) => (demand[t] ?? 0) > 0);
+  const floor = (t: string) => BUILD_TIER_CONCURRENCY[t as keyof typeof BUILD_TIER_CONCURRENCY];
+  const perTier = tiers.reduce((n, t) => n + Math.min(
+    ORG_CAP_STANDARD[t] * (demand[t] ?? 0),
+    (floor(t) + borrow) * replicas,
+  ), 0);
+  const sharedPool = tiers.reduce((n, t) => n + floor(t) * replicas, 0) + borrow * replicas;
+  return Math.min(perTier, sharedPool, replicas * BUILD_LADDER_CONCURRENCY_SUM);
+}
+
+describe('borrowing: 120 plugin configs on the unlimited tier', () => {
+  it('changes NOTHING for a tenant org on a full eks fleet — its cap already binds', () => {
+    // The answer that is easy to get wrong by assuming more capacity always
+    // helps. `unlimited`'s org cap is 8, and 1 x 8 replicas is already 8, so the
+    // ceiling borrowing lifts is not the one that binds.
+    expect(running('unlimited', 8, ORG_CAP_STANDARD.unlimited)).toBe(8);
+    expect(runningWithBorrow('unlimited', 8, ORG_CAP_STANDARD.unlimited, 2)).toBe(8);
+  });
+
+  it('is where the SYSTEM org differs: its cap is 12, so there is headroom', () => {
+    // The catalogue load. 1 x 8 = 8 today, and the cap above it at 12 — which is
+    // exactly the room borrowing converts into throughput.
+    expect(running('unlimited', 8, SYSTEM_ORG_CAP)).toBe(8);
+    expect(runningWithBorrow('unlimited', 8, SYSTEM_ORG_CAP, 2)).toBe(12);
+  });
+
+  it('pays off most on the small fleets, where replicas cap at 2', () => {
+    // ec2 and minikube: maxReplicaCount 2. Borrowing triples it.
+    expect(running('unlimited', 2, SYSTEM_ORG_CAP)).toBe(2);
+    expect(runningWithBorrow('unlimited', 2, SYSTEM_ORG_CAP, 2)).toBe(6);
+  });
+
+  it('gives a FRESH install parallelism before KEDA has scaled out', () => {
+    // minReplicaCount is 1, so the first stretch of a first-run catalogue load
+    // runs ONE build with twelve slots idle on that replica.
+    expect(running('unlimited', 1, SYSTEM_ORG_CAP)).toBe(1);
+    expect(runningWithBorrow('unlimited', 1, SYSTEM_ORG_CAP, 11)).toBe(12);
+  });
+
+  it('never breaches the replica budget, whatever the allowance is set to', () => {
+    // The bound that exists because all tier workers share one buildkitd
+    // sidecar. An absurd allowance must still not put 40 builds on a replica.
+    expect(runningWithBorrow('unlimited', 1, SYSTEM_ORG_CAP, 40)).toBeLessThanOrEqual(BUILD_LADDER_CONCURRENCY_SUM);
+  });
+
+  it('leaves the shipped default a no-op for every tier', () => {
+    // borrow 0 must reproduce the pre-borrowing figure exactly, or this shipped
+    // a behaviour change rather than an opt-in.
+    for (const tier of BUILD_TIER_LADDER) {
+      for (const replicas of [1, 2, 4, 8]) {
+        const cap = ORG_CAP_STANDARD[tier];
+        expect({ tier, replicas, n: runningWithBorrow(tier, replicas, cap, 0) })
+          .toEqual({ tier, replicas, n: running(tier, replicas, cap) });
+      }
+    }
+  });
+});
+
+describe('many orgs on ONE tier: 10 configs each from pro', () => {
+  // pro's floor is 2 a replica and its org cap is 5, so which one binds depends
+  // on how many orgs are uploading — and that decides whether borrowing helps.
+  it.each([
+    // orgs, eks(8) today, eks(8) at borrow 2, what binds today
+    [1, 5, 5, 'org cap'],
+    [3, 15, 15, 'org caps'],
+    [4, 16, 20, 'tier ceiling'],
+    [10, 16, 32, 'tier ceiling'],
+  ])('%i pro org(s): %i today, %i with borrow 2 (%s)', (orgs, today, borrowed) => {
+    expect(fleetCeiling({ pro: orgs }, 8)).toBe(today);
+    expect(fleetCeiling({ pro: orgs }, 8, 2)).toBe(borrowed);
+  });
+
+  it('crosses over from org-capped to tier-capped at four orgs', () => {
+    // Below the crossover, extra capacity cannot be used by anyone: every org
+    // is already holding its five. This is why "add replicas" did not help.
+    expect(fleetCeiling({ pro: 3 }, 8)).toBe(fleetCeiling({ pro: 3 }, 80));
+    expect(fleetCeiling({ pro: 4 }, 8)).toBeLessThan(fleetCeiling({ pro: 4 }, 80));
+  });
+
+  it('is tier-bound on the small targets whatever the org count', () => {
+    // ec2 and minikube cap at 2 replicas: 2 x 2 = 4, and borrowing doubles it.
+    for (const orgs of [2, 5, 20]) {
+      expect(fleetCeiling({ pro: orgs }, 2)).toBe(4);
+      expect(fleetCeiling({ pro: orgs }, 2, 2)).toBe(8);
+    }
+  });
+});
+
+describe('mixed tiers: pro AND business uploading 8 configs each', () => {
+  it('ADDS capacity rather than dividing it — separate queues, separate workers', () => {
+    // The property per-tier partitioning buys: business brings its own 3 a
+    // replica, so a pro burst and a business burst do not compete.
+    const proAlone = fleetCeiling({ pro: 10 }, 8);
+    const busAlone = fleetCeiling({ business: 10 }, 8);
+    expect(fleetCeiling({ pro: 10, business: 10 }, 8)).toBe(proAlone + busAlone);
+    expect(proAlone).toBe(16);
+    expect(busAlone).toBe(24);
+  });
+
+  it('still leaves most of each replica idle at full saturation', () => {
+    // 40 builds over 8 replicas is 5 of the 13 the ladder sums to, so eight
+    // slots a replica sit unused even with two tiers saturated. That is the
+    // waste `plugin_build_idle_floor_slots` publishes.
+    const total = fleetCeiling({ pro: 10, business: 10 }, 8);
+    expect(total).toBe(40);
+    expect(total / 8).toBe(5);
+    expect(BUILD_LADDER_CONCURRENCY_SUM - 5).toBe(8);
+  });
+
+  it('shares ONE borrow pool between the tiers, not one each', () => {
+    // The misreading this pins. Per-tier borrow would give
+    // (2+2)x8 + (3+2)x8 = 72; the shared pool gives 40 + 2x8 = 56.
+    expect(fleetCeiling({ pro: 10, business: 10 }, 8, 2)).toBe(56);
+    const perTierReading = runningWithBorrow('pro', 8, ORG_CAP_STANDARD.pro * 10, 2)
+      + runningWithBorrow('business', 8, ORG_CAP_STANDARD.business * 10, 2);
+    expect(perTierReading).toBe(72);
+  });
+
+  it('does nothing while both tiers are still org-capped', () => {
+    // Three orgs each: 15 + 15, both under their tier ceilings, so there is no
+    // unmet demand for the allowance to serve.
+    expect(fleetCeiling({ pro: 3, business: 3 }, 8)).toBe(30);
+    expect(fleetCeiling({ pro: 3, business: 3 }, 8, 2)).toBe(30);
+  });
+
+  it('never exceeds the replica budget, however many tiers are busy', () => {
+    // All six tiers saturated with a large allowance: the sidecar bound holds.
+    const all = { developer: 99, pro: 99, team: 99, business: 99, enterprise: 99, unlimited: 99 };
+    expect(fleetCeiling(all, 8, 40)).toBe(8 * BUILD_LADDER_CONCURRENCY_SUM);
+  });
+});

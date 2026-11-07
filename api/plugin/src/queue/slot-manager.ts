@@ -95,10 +95,19 @@ export function maxBuildsPerOrg(tier: QuotaTier, buildClass: BuildClass): number
  *    OOMKilled the image registry, taking 107 of 117 plugins with it.
  *
  * So the system org now holds a real slot from a real counter — finite,
- * `PLUGIN_SYSTEM_ORG_MAX_BUILDS`, high enough never to bind at the shipped
- * concurrency — and a system-org build that cannot get one is re-delayed for as
- * long as it takes instead of failing. The owner-hash growth that argued against
- * a "very large cap" is bounded by the cap itself.
+ * `PLUGIN_SYSTEM_ORG_MAX_BUILDS` — and a system-org build that cannot get one is
+ * re-delayed for as long as it takes instead of failing. The owner-hash growth
+ * that argued against a "very large cap" is bounded by the cap itself.
+ *
+ * WHETHER 12 BINDS depends on borrowing, and it used to be able to say it never
+ * did. At the shipped concurrency the fleet ceiling for this tier is 1 build per
+ * replica (`unlimited`'s ladder row) times the replica count — 8 on eks — so 12
+ * sat above it and the per-TIER limit was always the one that bound. Raising
+ * `PLUGIN_BUILD_BORROW_MAX` lifts that ceiling to (1 + borrow) per replica, and
+ * from borrow >= 1 on a scaled eks fleet it exceeds 12 — so THIS cap becomes the
+ * binding constraint on a catalogue load. That is the right place for the limit
+ * to sit, but it means an operator who enables borrowing to speed up a first-run
+ * install has to raise this too, or stop at 12.
  */
 export function systemOrgSlotCap(): number {
   return envInt('PLUGIN_SYSTEM_ORG_MAX_BUILDS', 12, { min: 1 });

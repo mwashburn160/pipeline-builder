@@ -1,7 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { BUILD_LADDER_CONCURRENCY_SUM, createConcurrencyGate, createLogger, envInt } from '@pipeline-builder/api-core';
+import { BUILD_LADDER_CONCURRENCY_SUM, buildWorkerConcurrencyFor, createKeyedConcurrencyGate, createLogger, envInt, VALID_TIERS } from '@pipeline-builder/api-core';
+import type { QuotaTier } from '@pipeline-builder/api-core';
 import { incCounter, observe, setGauge } from '@pipeline-builder/api-server';
 
 const logger = createLogger('build-gate');
@@ -28,18 +29,83 @@ export function maxBuildsPerReplica(): number {
   return envInt('PLUGIN_MAX_BUILDS_PER_REPLICA', BUILD_LADDER_CONCURRENCY_SUM, { min: 1 });
 }
 
-const gate = createConcurrencyGate({
+/**
+ * How many builds may run ABOVE their tier's floor at once on this replica.
+ *
+ * THE WASTE THIS RECOVERS. A replica runs one worker per tier, each capped at
+ * its own row of the ladder, and a worker only polls its own queue. So a
+ * single-tier backlog uses that tier's row and strands the rest: `unlimited` is
+ * 1 of 13. That is not a corner case — `unlimited` means billing is not
+ * configured, so on a local, minikube or fresh cluster EVERY org is that tier,
+ * and it is the tier the sample catalogue loads under. A first-run install
+ * therefore drains at 1 build per replica with 12 slots idle.
+ *
+ * DEFAULT 0, so this ships as an exact no-op: at zero the predicate below
+ * reduces to "within your floor", which is what the worker concurrency already
+ * enforces. An operator opts in, exactly as `PLUGIN_MAX_BUILDS_PER_REPLICA`
+ * defaults to the ladder sum and only starts binding when someone raises a row.
+ *
+ * WHAT IT COSTS, because this is a real trade and not free capacity. Builds are
+ * NOT preemptible — killing a buildkit build discards all of its work and
+ * re-enters the retry/DLQ accounting — so a lent slot turns a tier's immediate
+ * floor into "guaranteed once at most this many builds finish". Keep it small
+ * on a multi-tenant cluster (2 bounds the wait at two builds); it can be most of
+ * the ladder on a billing-disabled install, where there is no other tier to
+ * protect. It can never exceed the replica budget, which still binds on top.
+ */
+export function buildBorrowMax(): number {
+  return envInt('PLUGIN_BUILD_BORROW_MAX', 0, { min: 0 });
+}
+
+/** A tier's GUARANTEED floor on this replica — the ladder row, unchanged. */
+function floorFor(tier: string): number {
+  return buildWorkerConcurrencyFor(tier as QuotaTier);
+}
+
+/** Slots currently held ABOVE their tier's floor. */
+function borrowedSlots(perKey: ReadonlyMap<string, number>): number {
+  let borrowed = 0;
+  for (const [tier, used] of perKey) borrowed += Math.max(0, used - floorFor(tier));
+  return borrowed;
+}
+
+const gate = createKeyedConcurrencyGate<string>({
   limit: maxBuildsPerReplica,
-  onQueued: (waiting, limit) => {
+  // ONE decision: the total ceiling is checked by the gate, and this adds the
+  // per-tier policy. Within the floor a build always starts. Above it, it needs
+  // the borrowing allowance — which is what keeps a burst from swallowing the
+  // replica and starving a tier that is still inside its own floor.
+  admits: (tier, { perKey }) => (perKey.get(tier) ?? 0) < floorFor(tier)
+    || borrowedSlots(perKey) < buildBorrowMax(),
+  onQueued: (tier, waiting, limit) => {
     incCounter('plugin_build_replica_queued_total', {});
-    logger.info('Build queued: replica at capacity', { limit, waiting });
+    logger.info('Build queued: replica at capacity', { tier, limit, waiting });
   },
-  onOccupancy: (inFlight) => setGauge('plugin_build_replica_inflight', {}, inFlight),
+  onOccupancy: ({ total, perKey }) => {
+    setGauge('plugin_build_replica_inflight', {}, total);
+    const borrowed = borrowedSlots(perKey);
+    setGauge('plugin_build_borrowed_inflight', {}, borrowed);
+    // Floor capacity owed to tiers that are not using it: the waste this knob
+    // exists to recover, published so it can be SEEN before anyone enables
+    // borrowing — and so the effect is measurable afterwards.
+    let idleReserved = 0;
+    for (const tier of VALID_TIERS) idleReserved += Math.max(0, floorFor(tier) - (perKey.get(tier) ?? 0));
+    setGauge('plugin_build_idle_floor_slots', {}, idleReserved);
+  },
 });
 
 /** Occupancy of this replica's build budget — for tests and the gauge. */
 export function buildGateState(): { inFlight: number; waiting: number } {
-  return gate.state();
+  // PROJECTED, not passed through: the keyed gate also carries per-tier counts,
+  // and returning them here would widen a published shape that callers compare
+  // exactly. Per-tier occupancy has its own accessor below.
+  const { inFlight, waiting } = gate.state();
+  return { inFlight, waiting };
+}
+
+/** Per-tier occupancy of the build budget — for the borrowing tests and gauges. */
+export function buildGatePerTier(): ReadonlyMap<string, number> {
+  return gate.state().perKey;
 }
 
 /** Test seam. */
@@ -58,7 +124,7 @@ export function _resetBuildGate(): void {
  */
 export async function withReplicaBuildSlot<T>(tier: string, fn: () => Promise<T>): Promise<T> {
   const queuedAt = Date.now();
-  return gate.run(async () => {
+  return gate.run(tier, async () => {
     observe('plugin_build_replica_wait_seconds', { tier }, (Date.now() - queuedAt) / 1000);
     return fn();
   });

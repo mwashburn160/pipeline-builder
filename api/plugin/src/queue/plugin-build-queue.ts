@@ -35,7 +35,7 @@ import {
   isTierConnectionReady,
   tierForQueueName,
 } from './connections.js';
-import { withReplicaBuildSlot, maxBuildsPerReplica } from './build-gate.js';
+import { withReplicaBuildSlot, maxBuildsPerReplica, buildBorrowMax } from './build-gate.js';
 import { createBuildFailedHandler } from './failure-handler.js';
 import { startDlqWorker, closeDlqWorker } from './plugin-build-dlq.js';
 import { startQueueMetricsScraper, stopQueueMetricsScraper } from './queue-metrics-scraper.js';
@@ -683,11 +683,20 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
     logger.info('Plugin build completed', { jobId: job.id, name: job.name });
   };
 
+  // A worker only polls its OWN tier queue, so its concurrency is the ceiling on
+  // how much of that tier it can ever have in flight. To let a tier borrow idle
+  // slots, the worker has to be allowed to FETCH beyond its floor — admission is
+  // then decided by the replica gate, which enforces both the floor and the
+  // borrowing allowance. With PLUGIN_BUILD_BORROW_MAX at its default of 0 this
+  // is exactly the ladder row, so nothing changes until an operator opts in.
+  const borrowMax = buildBorrowMax();
+  const fetchConcurrency = (tier: QuotaTier): number => tierConcurrency[tier] + borrowMax;
+
   for (const tier of VALID_TIERS) {
     const tierQueue = getTierQueue(tier);
     const tierWorker = new Worker<PluginBuildJobData>(tierQueue.name, processor, {
       connection: getConnectionForTier(tier) as ConnectionOptions,
-      concurrency: tierConcurrency[tier],
+      concurrency: fetchConcurrency(tier),
     });
 
     tierWorker.on('failed', failedHandler);
@@ -728,7 +737,11 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
   // that under-provisions single-tier work (a fresh install's catalogue load is
   // entirely system-org, so each replica absorbs exactly one job of it).
   for (const tier of VALID_TIERS) {
-    setGauge('plugin_build_tier_concurrency', { tier }, tierConcurrency[tier]);
+    // The EFFECTIVE ceiling, not the floor: the scaling query divides this
+    // tier's queue depth by this gauge, so publishing the floor while the
+    // replica will run floor+borrow asks for replicas that borrowing has
+    // already made unnecessary.
+    setGauge('plugin_build_tier_concurrency', { tier }, fetchConcurrency(tier));
   }
   if (ladderSum > replicaBudget) {
     logger.warn(
