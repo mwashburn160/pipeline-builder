@@ -110,7 +110,7 @@ describe('gitleaks is built with a patched x/crypto', () => {
     // raise in place, which is why git-secrets was never in the catalogue.
     // And MVS may resolve higher than the pin, so equality is wrong too.
     expect(df).not.toMatch(/grep -qE "golang\.org\/x\/crypto\[\[:space:\]\]\+v\$\{XCRYPTO_VERSION\}\\\$"/);
-    expect(df).toContain(`awk -v m="$1" '$1 == "dep" && $2 == m { print $3 }'`);
+    expect(df).toContain('awk -v m="$1" \'$1 == "dep" && $2 == m { print $3 }\'');
     expect(df).toContain('sort -V | head -1');
   });
 
