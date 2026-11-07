@@ -2,7 +2,7 @@
 
 k6 performance and load testing plugin for running configurable load tests with virtual users, duration controls, and performance thresholds using AWS CDK CodeBuildStep
 
-**Version:** 1.0.0  
+**Version:** 1.0.1  
 **Category:** testing  
 **Plugin Type:** CodeBuildStep  
 **Compute:** MEDIUM  

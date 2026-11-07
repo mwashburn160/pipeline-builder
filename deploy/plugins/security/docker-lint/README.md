@@ -2,7 +2,7 @@
 
 Docker linting and container security plugin using Hadolint for Dockerfile best practices and Dockle for CIS benchmark compliance using AWS CDK CodeBuildStep
 
-**Version:** 1.0.0  
+**Version:** 1.0.1  
 **Category:** security  
 **Plugin Type:** CodeBuildStep  
 **Compute:** SMALL  

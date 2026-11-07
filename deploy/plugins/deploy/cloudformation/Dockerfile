@@ -5,6 +5,31 @@
 
 # ─── Tool versions (override with --build-arg) ───
 ARG RAIN_VERSION=1.24.4
+# The commit the v${RAIN_VERSION} tag must resolve to (checked after clone).
+ARG RAIN_COMMIT=9b5ed0947472ec1d18e1cb79aa63fb78afe1c2df
+# Same pinned toolchain as api/plugin's tools stage.
+ARG GO_IMAGE=golang:1.27.3-alpine@sha256:d200d2dd76b03a99b52651fd1325aff7dcd35422c35c01bac56571b0507f3deb
+
+# ─── rain, built from source ───
+# The v${RAIN_VERSION} release binary (latest) is built with go1.26.2, whose
+# stdlib carries a Critical, fixable advisory (fixed in go1.26.9). Build the
+# same tagged source with a current toolchain, the way upstream's own
+# build.sh does (`go build ./cmd/rain`). Source integrity: the tag must
+# resolve to the pinned commit, or the build fails.
+FROM ${GO_IMAGE} AS rain-build
+ARG RAIN_VERSION
+ARG RAIN_COMMIT
+ENV CGO_ENABLED=0 GOTOOLCHAIN=local
+RUN apk add --no-cache git
+RUN set -eux; \
+    git clone --depth 1 --branch "v${RAIN_VERSION}" https://github.com/aws-cloudformation/rain.git /src/rain; \
+    got="$(git -C /src/rain rev-parse HEAD)"; \
+    [ "$got" = "${RAIN_COMMIT}" ] || { echo "rain v${RAIN_VERSION} resolved to $got, expected ${RAIN_COMMIT}" >&2; exit 1; }
+WORKDIR /src/rain
+RUN set -eux; \
+    for attempt in 1 2 3 4 5; do go mod download && break; echo "go mod download failed (attempt $attempt/5)" >&2; sleep $((attempt * 5)); done; \
+    go build -mod=readonly -trimpath -buildvcs=false -ldflags "-s -w" -o /out/rain ./cmd/rain; \
+    /out/rain --version
 
 FROM plugin-aws-cli-base:1.0
 
@@ -12,29 +37,14 @@ FROM plugin-aws-cli-base:1.0
 # the image drops back to the unprivileged `plugin` user (uid 1000) at the end.
 USER root
 
-ARG RAIN_VERSION
-
 RUN apt-retry-install python3 python3-pip
 
 # ─── cfn-lint for CloudFormation template validation ───
 RUN pip3 install --no-cache-dir --break-system-packages cfn-lint==1.59.0
 
-# ─── rain for CloudFormation deployment (modern CLI) ───
-# Pinned release zip + pinned digest (upstream publishes no checksum file for
-# rain; digests computed from the v${RAIN_VERSION} release assets).
-ARG RAIN_SHA256_AMD64=5358d6daf35322101566376a38e37d1f89c6588479af2e20240579fc2d4c660a
-ARG RAIN_SHA256_ARM64=938fa4e18659c3e349edaa9843db4e4938e84d48602432d4b2a62b9785a66459
-RUN set -eux; \
-    case "$(dpkg --print-architecture)" in \
-      amd64) arch=amd64; sum="${RAIN_SHA256_AMD64}" ;; \
-      arm64) arch=arm64; sum="${RAIN_SHA256_ARM64}" ;; \
-      *) echo "unsupported architecture: $(dpkg --print-architecture)" >&2; exit 1 ;; \
-    esac; \
-    fetch-verified "https://github.com/aws-cloudformation/rain/releases/download/v${RAIN_VERSION}/rain-v${RAIN_VERSION}_linux-${arch}.zip" "$sum" /tmp/rain.zip; \
-    unzip -q /tmp/rain.zip -d /tmp; \
-    mv "/tmp/rain-v${RAIN_VERSION}_linux-${arch}/rain" /usr/local/bin/rain; \
-    chmod 0755 /usr/local/bin/rain; \
-    rm -rf /tmp/rain*
+# ─── rain for CloudFormation deployment (modern CLI, built from source above) ───
+COPY --from=rain-build /out/rain /usr/local/bin/rain
+RUN chmod 0755 /usr/local/bin/rain
 
 # ─── Runtime configuration defaults ───
 ENV CFN_TEMPLATE=""

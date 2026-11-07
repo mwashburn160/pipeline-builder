@@ -2,7 +2,7 @@
 
 AWS CloudFormation infrastructure provisioning plugin with template validation (cfn-lint), stack deployment, and change set management using AWS CDK CodeBuildStep
 
-**Version:** 1.0.0  
+**Version:** 1.0.1  
 **Category:** deploy  
 **Plugin Type:** CodeBuildStep  
 **Compute:** SMALL  

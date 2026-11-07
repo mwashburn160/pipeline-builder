@@ -6,7 +6,7 @@ keywords:
   - dockle
   - best-practices
 category: security
-version: 1.0.0
+version: 1.0.1
 pluginType: CodeBuildStep
 computeType: SMALL
 timeout: 30
@@ -66,4 +66,5 @@ sourceUrl: https://github.com/mwashburn160/pipeline-builder/tree/main/deploy/plu
 # icon: none — runs Hadolint/Dockle, which have no mark in Simple Icons; Docker's mark would misattribute the tool (monogram; see _icons/SOURCES.md)
 # network.egress: none declared — the step contacts no fixed external host
 changelog: |
+  1.0.1: dockle is built from its v0.4.15 source with go1.27.3 (the published image was built with go1.22.10, carrying Critical Go stdlib advisories); the tag is pinned to its commit. No Critical findings remain.
   1.0.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified.
