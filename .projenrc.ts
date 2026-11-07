@@ -1433,7 +1433,18 @@ const COVERAGE_THRESHOLDS: Record<string, {
     global: { statements: 95, branches: 92, functions: 95, lines: 95 },
   },
   '@pipeline-builder/pipeline-events': {
-    global: { statements: 95, branches: 78, functions: 95, lines: 95 },
+    // branches 78 -> 84 (2026-11-07), from two suites aimed at this package's
+    // branch deficit — the worst in the repo at 95 statements against 78
+    // branches, i.e. the lines ran and their refusal paths did not.
+    //   auth.ts  -> 100% on all four. Its untested branches were every way the
+    //              credential exchange can be refused, and reading them turned
+    //              up a cache that could outlive the token it held.
+    //   scm.ts   -> branches 73 -> 80, over the GitHub compare range: a
+    //              rate-limited, non-2xx or empty compare each fall back
+    //              differently, and getting that wrong ships a DORA lead time
+    //              measured from the wrong commit without ever throwing.
+    // Statements/functions/lines stay at the documented 95 cap.
+    global: { statements: 95, branches: 84, functions: 95, lines: 95 },
   },
   '@pipeline-builder/pipeline-manager': {
     global: { statements: 79, branches: 84, functions: 83, lines: 79 },

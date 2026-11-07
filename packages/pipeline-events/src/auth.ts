@@ -18,9 +18,28 @@ import { fetchWithTimeout, log } from './util.js';
 
 /** Refresh at this fraction of the token's life — never at the last moment. */
 const TOKEN_REFRESH_FRACTION = 0.8;
-/** Floor on the cached lifetime, so a surprisingly short TTL can't cause a
- *  refresh storm (one exchange per batch at worst). */
-const MIN_TOKEN_CACHE_MS = 30_000;
+/**
+ * No FLOOR on the cached lifetime, deliberately.
+ *
+ * There was one — 30s, "so a surprisingly short TTL can't cause a refresh
+ * storm" — and it broke this module's own contract. The cache held
+ * `max(30s, ttl * 0.8)`, so for any `expiresIn` under ~37s the floor WON and the
+ * container kept serving a token that had already died: at `expiresIn=10` the
+ * token expires at 10s and the cache held it for 30s. The batch then presents a
+ * dead token and takes a 401, which is precisely what "refresh EARLY (before
+ * expiry) so a batch never presents a token that dies mid-flight" exists to
+ * prevent.
+ *
+ * It was never reachable in practice — `API_KEY_TOKEN_TTL_SECONDS` is a
+ * hard-coded 300, which caches 240s — so this is a latent contradiction being
+ * removed before someone makes that TTL configurable and it becomes a live 401
+ * loop that looks like a credential problem.
+ *
+ * Dropping it costs nothing the floor actually bought: the worst case it named
+ * is "one exchange per batch", which is the SQS batch rate and is already the
+ * bound, floor or no floor. `cachedTokenExpiresAt` is now always strictly
+ * inside the token's life, which is the invariant the suite asserts.
+ */
 /** Per-request timeout for the exchange call. */
 const EXCHANGE_TIMEOUT_MS = 5000;
 
@@ -78,7 +97,7 @@ export async function getAuthToken(): Promise<string> {
 
   const ttlMs = (typeof body.data?.expiresIn === 'number' && body.data.expiresIn > 0 ? body.data.expiresIn : 300) * 1000;
   cachedToken = accessToken;
-  cachedTokenExpiresAt = Date.now() + Math.max(MIN_TOKEN_CACHE_MS, ttlMs * TOKEN_REFRESH_FRACTION);
+  cachedTokenExpiresAt = Date.now() + ttlMs * TOKEN_REFRESH_FRACTION;
   log.info('Exchanged the stored service-account key for a platform token');
   return accessToken;
 }
