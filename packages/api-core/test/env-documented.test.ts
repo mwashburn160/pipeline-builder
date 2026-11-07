@@ -32,7 +32,7 @@
  */
 
 import { readFileSync, readdirSync, statSync } from 'fs';
-import { join } from 'path';
+import { join, sep } from 'path';
 import { describe, it, expect } from '@jest/globals';
 import { VALID_TIERS } from '../src/types/quota-tiers.js';
 
@@ -126,13 +126,45 @@ describe('docs/environment-variables.md', () => {
 const RAW_READ = /process\.env\.([A-Z][A-Z0-9_]{2,})|process\.env\[\s*['"]([A-Z][A-Z0-9_]{2,})['"]\s*\]/g;
 
 /**
- * Names that are NOT this platform's configuration, so the document does not
- * own them. Each is here for a stated reason — the list is the argument, not a
- * place to silence a failure.
+ * Drop comments before scanning for env reads.
+ *
+ * WHY. Without this, the sweep matched `process.env.LIMITER_MULT_*` inside a
+ * DOC COMMENT and reported `LIMITER_MULT_` as an undocumented variable — a name
+ * that does not exist (the real read is ``process.env[`LIMITER_MULT_${tier}`]``,
+ * and the family is documented as one row per tier). It then had to be excused
+ * in the allowlist, where it also kept the "still read somewhere" check green,
+ * so a comment was propping up an exemption for a variable that was never real.
+ *
+ * Conservative on purpose, because the dangerous direction here is a FALSE
+ * NEGATIVE — silently dropping a real read means an undocumented knob passes.
+ * So this removes only what cannot be code: whole-line comments, and a trailing
+ * `//` comment only when no quote precedes it on that line. A line like
+ * `const u = 'http://x'; const k = process.env.FOO;` keeps its `process.env`
+ * read, which a naive "cut at the first //" would have thrown away.
  */
-const NOT_OUR_CONFIG = new Set([
-  // The AWS SDK credential/region chain. We PROBE these to decide whether a
-  // provider is usable; the SDK and the environment set them, never us.
+function withoutComments(text: string): string {
+  return text
+    .split('\n')
+    .map((line) => {
+      const trimmed = line.trimStart();
+      if (trimmed.startsWith('//') || trimmed.startsWith('*') || trimmed.startsWith('/*')) return '';
+      const slashes = line.indexOf('//');
+      if (slashes === -1) return line;
+      const before = line.slice(0, slashes);
+      return /['"`]/.test(before) ? line : before;
+    })
+    .join('\n');
+}
+
+/**
+ * Set by the RUNTIME, never by an operator — the AWS SDK's credential and
+ * region chain, the Lambda runtime, and the kubelet. The platform only PROBES
+ * these to decide what is available; nothing here is a knob this document owns,
+ * and no deployment writes them into `.env`.
+ */
+const SET_BY_RUNTIME = new Set([
+  // The AWS SDK credential/region chain, read to detect whether a keyless
+  // provider can authenticate (see ai-core's provider registry).
   'AWS_ACCESS_KEY_ID', 'AWS_DEFAULT_REGION', 'AWS_PROFILE',
   'AWS_CONTAINER_CREDENTIALS_FULL_URI', 'AWS_CONTAINER_CREDENTIALS_RELATIVE_URI',
   'AWS_WEB_IDENTITY_TOKEN_FILE',
@@ -140,18 +172,25 @@ const NOT_OUR_CONFIG = new Set([
   'AWS_LAMBDA_FUNCTION_NAME',
   // Injected by the kubelet into every pod; read to detect in-cluster.
   'KUBERNETES_SERVICE_HOST', 'KUBERNETES_SERVICE_PORT',
-  // OpenTelemetry's own convention, honoured by the SDK whether we read it or not.
-  'OTEL_SERVICE_NAME',
-  // A PREFIX for dynamically built names (`LIMITER_MULT_<ROUTE>`), not a
-  // variable. The family it belongs to is documented as a pattern.
-  'LIMITER_MULT_',
-  // Developer tooling inside `src/testing`: opts into rewriting the route
-  // tables when running the suite. Never set on a deployment.
-  'UPDATE_ROUTE_TABLES',
-  // Injected into the build container by the pipeline that runs it, so it is
-  // execution context rather than something an operator configures.
+]);
+
+/**
+ * Injected by the PLATFORM'S OWN generated infrastructure, so again never
+ * authored by an operator — but set by this repo rather than by a third party,
+ * which is a different claim and worth keeping separate.
+ *
+ * Each entry must name the code that sets it, so the exemption is checkable
+ * rather than asserted:
+ *  - `PIPELINE_ID` — `pipeline-builder.ts` puts it in the generated CodeBuild /
+ *    Lambda environment (`PIPELINE_ID: { value: pipelineId }`); the plugin
+ *    lookup handler reads it back to attribute warnings to the pipeline.
+ */
+const INJECTED_BY_PLATFORM = new Set([
   'PIPELINE_ID',
 ]);
+
+/** Every name exempt from the documentation requirement, with its reason above. */
+const NOT_OUR_CONFIG = new Set([...SET_BY_RUNTIME, ...INJECTED_BY_PLATFORM]);
 
 /** Placeholders a pattern row may use, and what they stand for. */
 const PLACEHOLDERS: Record<string, readonly string[]> = {
@@ -215,7 +254,13 @@ describe('raw process.env reads are documented too', () => {
       // deployment, so its env is documented by `--help` rather than here.
       if (root.includes(join('packages', 'pipeline-manager'))) continue;
       for (const file of walk(root)) {
-        for (const match of readFileSync(file, 'utf8').matchAll(RAW_READ)) {
+        // `src/testing` ships developer tooling inside src (suite helpers and
+        // their opt-in switches, e.g. UPDATE_ROUTE_TABLES). It is not
+        // deployment configuration, so it is out of scope BY LOCATION — which
+        // states the real reason and covers future test-only switches, rather
+        // than naming each one in the allowlist.
+        if (file.includes(`${join('src', 'testing')}${sep}`)) continue;
+        for (const match of withoutComments(readFileSync(file, 'utf8')).matchAll(RAW_READ)) {
           const name = match[1] ?? match[2];
           const sites = found.get(name) ?? [];
           sites.push(file.slice(REPO_ROOT.length + 1));
@@ -225,6 +270,20 @@ describe('raw process.env reads are documented too', () => {
     }
     return found;
   }
+
+  it('strips comments without losing a real read', () => {
+    // The property that matters: the stripper must never remove CODE. A naive
+    // "cut at the first //" eats the read on the first line below, because the
+    // `//` it finds is inside a URL string.
+    const src = [
+      "const u = 'http://example.test'; const a = process.env.KEEP_ME_ONE;",
+      '// process.env.DROP_ME_ONE',
+      ' * process.env.DROP_ME_TWO',
+      'const b = process.env.KEEP_ME_TWO; // process.env.DROP_ME_THREE',
+    ].join('\n');
+    const names = [...withoutComments(src).matchAll(RAW_READ)].map((m) => m[1] ?? m[2]);
+    expect(names).toEqual(['KEEP_ME_ONE', 'KEEP_ME_TWO']);
+  });
 
   it('finds the raw reads at all', () => {
     // Guards a vacuous pass, and pins one known raw read so a regex change that
@@ -253,11 +312,19 @@ describe('raw process.env reads are documented too', () => {
     expect(undocumented).toEqual([]);
   });
 
-  it('keeps the not-ours list honest — every entry is still read somewhere', () => {
+  it('keeps both exemption lists honest — every entry is still read somewhere', () => {
     // A name that no longer appears in the source is a stale exemption, and a
-    // stale exemption is how a real knob gets silently excused later.
+    // stale exemption is how a real knob gets silently excused later. Reported
+    // per list, because the two carry different claims: one says a third party
+    // sets it, the other says THIS repo does.
     const read = new Set(rawReads().keys());
-    expect([...NOT_OUR_CONFIG].filter((name) => !read.has(name))).toEqual([]);
+    const stale = (label: string, names: Set<string>) => [...names]
+      .filter((name) => !read.has(name))
+      .map((name) => `${label}: ${name}`);
+    expect([
+      ...stale('SET_BY_RUNTIME', SET_BY_RUNTIME),
+      ...stale('INJECTED_BY_PLATFORM', INJECTED_BY_PLATFORM),
+    ]).toEqual([]);
   });
 });
 
