@@ -384,6 +384,21 @@ function toEntry(method: string, path: string, gates: RouteGate[]): RouteTableEn
         else if (!quota.checked.includes(g.quotaType)) quota.checked.push(g.quotaType);
         break;
       }
+      // A GATE KIND THAT REACHES HERE WOULD BE INVISIBLE, which is the one
+      // failure this table cannot afford. `docs/permission-catalog` and the
+      // permission contract are both DERIVED from these entries, so a kind
+      // nothing projects leaves the route's cell blank — and the contract's
+      // "a weakening fails HERE" test then passes over a route whose real
+      // requirement it never saw. That is exactly what the dynamicAuthz note
+      // above records paying for once: gates that were correct but invisible.
+      //
+      // So this is a compile error, not a runtime one: adding a member to
+      // `RouteGate` fails the build until someone decides how it appears in the
+      // table. The throw is unreachable except through a cast.
+      default: {
+        const _exhaustive: never = g;
+        throw new Error(`Unprojected route gate kind: ${JSON.stringify(_exhaustive)}`);
+      }
     }
   }
   // An exempt route's apiCalls meter + check skip it at runtime, so the table

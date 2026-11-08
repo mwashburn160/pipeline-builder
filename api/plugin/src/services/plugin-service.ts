@@ -2,8 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import {
-  SYSTEM_ACTOR_ID, checkWriteAccess, ConflictError, ErrorCode, ForbiddenError, NotFoundError, entityEvents, createCacheService, createLogger, errorMessage,
+  SYSTEM_ACTOR_ID, checkWriteAccess, ConflictError, ErrorCode, ForbiddenError, NotFoundError, VISIBILITY_WRITE_REFUSAL, entityEvents, createCacheService, createLogger, errorMessage,
   toComplianceAttributes, versionScanFacts, type VulnSeverity,
+  type VisibilityWriteRefusal,
   type WriteAccess,
 } from '@pipeline-builder/api-core';
 import { CoreConstants, ComputeType, PluginType, pluginImageRepository } from '@pipeline-builder/pipeline-core';
@@ -68,16 +69,29 @@ export function assertMayOverwritePlugin(
       'A deleted plugin with this name and version exists. Restore it or purge it before uploading it again.',
     );
   }
-  switch (checkWriteAccess(existing, userId, access)) {
-    case 'needs-publish':
-      throw new ForbiddenError('You lack permission to modify this public resource.');
-    case 'not-author':
-      throw new ConflictError(target === 'default'
-        ? 'The current default version of this plugin belongs to another author.'
-        : 'A plugin with this name and version already exists and belongs to another author.');
-    case 'ok':
-  }
+  // KEYED, and tested for `!== 'ok'` — see the twin in pipeline-service. The
+  // switch this replaces fell out of the block on `case 'ok':`, so a refusal
+  // verdict added to the union would have read as permission on an UPLOAD path.
+  const verdict = checkWriteAccess(existing, userId, access);
+  if (verdict !== 'ok') throw OVERWRITE_REFUSAL[verdict](target);
 }
+
+/**
+ * What each refusal means for a plugin upload that found an existing row.
+ *
+ * Takes the `target` because plugin has two collisions to describe and they are
+ * not the same event: overwriting the row you named, versus demoting the live
+ * default a deploy would replace. `needs-publish` ignores it and reuses
+ * api-core's shared sentence.
+ */
+const OVERWRITE_REFUSAL: Readonly<
+  Record<VisibilityWriteRefusal, (target: 'version' | 'default') => Error>
+> = {
+  'needs-publish': () => new ForbiddenError(VISIBILITY_WRITE_REFUSAL['needs-publish']),
+  'not-author': (target) => new ConflictError(target === 'default'
+    ? 'The current default version of this plugin belongs to another author.'
+    : 'A plugin with this name and version already exists and belongs to another author.'),
+};
 
 /** Plugin CRUD service with multi-tenant access control. */
 /**

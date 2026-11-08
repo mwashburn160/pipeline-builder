@@ -66,19 +66,38 @@ export function requireVisibilityWriteAccess(
 ): boolean {
   const verdict = checkVisibilityWriteAccess(req, resource, userId, publishPermission);
   if (verdict === 'ok') return true;
-  sendError(
-    res,
-    403,
-    verdict === 'needs-publish'
-      ? 'You lack permission to modify this public resource.'
-      : 'Only the author can modify a private resource.',
-    ErrorCode.INSUFFICIENT_PERMISSIONS,
-  );
+  // Keyed, not a ternary: a verdict added to the union has no entry here until
+  // someone writes one, which is a build failure rather than a wrong message.
+  sendError(res, 403, VISIBILITY_WRITE_REFUSAL[verdict], ErrorCode.INSUFFICIENT_PERMISSIONS);
   return false;
 }
 
 /** Why a write was refused, or `'ok'`. See {@link checkVisibilityWriteAccess}. */
 export type VisibilityWriteVerdict = 'ok' | 'needs-publish' | 'not-author';
+
+/** A refusal — every verdict except the one that proceeds. */
+export type VisibilityWriteRefusal = Exclude<VisibilityWriteVerdict, 'ok'>;
+
+/**
+ * Why each refusal happened, in the caller's words. KEYED, which is the point.
+ *
+ * Three places turn a verdict into a message, and none of them used to be
+ * exhaustive: the two services ended their switch on a bare `case 'ok':` that
+ * fell out of the block, so a FOURTH refusal verdict would have let the write
+ * THROUGH, and the helper below used a ternary, so a fourth would have been
+ * reported as `not-author` — wrong, though at least still refused.
+ *
+ * A `Record` over `Exclude<…, 'ok'>` makes adding a verdict a COMPILE error in
+ * every consumer until each says what it means, and it removes the copy: this
+ * public-resource sentence previously existed three times, in three packages.
+ *
+ * The messages name the RUNG, not the permission, because the caller cannot act
+ * on a permission id and the rung is what they would have to change.
+ */
+export const VISIBILITY_WRITE_REFUSAL: Readonly<Record<VisibilityWriteRefusal, string>> = {
+  'needs-publish': 'You lack permission to modify this public resource.',
+  'not-author': 'Only the author can modify a private resource.',
+};
 
 /**
  * The visibility write rule as a PREDICATE, with no response side-effect.

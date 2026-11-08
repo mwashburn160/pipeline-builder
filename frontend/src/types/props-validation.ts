@@ -29,6 +29,22 @@ export function validateFormState(state: FormBuilderState): Record<string, strin
     case 'codecommit':
       if (!state.synth.codecommit.repositoryName.trim()) errors['synth.codecommit.repositoryName'] = 'Repository name is required';
       break;
+    // A SOURCE TYPE THAT REACHES HERE WAS NEVER VALIDATED — it would fall
+    // straight through to assembly and submit whatever the form happened to
+    // hold. `pipeline-core`'s own `source-builder.ts` already guards this exact
+    // union; the two places that FEED it did not.
+    //
+    // The `never` is the real guard: adding a member to `sourceType` fails the
+    // build here until it has a rule. What follows is deliberately an error
+    // ENTRY and not a `throw`, because unlike the backend builder this reads
+    // HYDRATED state — a pipeline saved by a newer backend can carry a type
+    // this build has never heard of, and crashing the form over it is worse
+    // than the gap. Refusing to submit is right; taking the page down is not.
+    default: {
+      const _exhaustive: never = state.synth.sourceType;
+      errors['synth.sourceType'] = `Unsupported source type: ${String(_exhaustive)}`;
+      break;
+    }
   }
 
   if (!state.synth.plugin.name.trim()) errors['synth.plugin.name'] = 'Plugin name is required';

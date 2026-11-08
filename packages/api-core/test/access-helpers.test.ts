@@ -10,6 +10,8 @@ import {
   rejectForbiddenBulkRows,
   requireVisibilityWriteAccess,
   resolveVisibility,
+  VISIBILITY_WRITE_REFUSAL,
+  type VisibilityWriteVerdict,
   type WriteAccess,
 } from '../src/helpers/access-helpers.js';
 
@@ -88,6 +90,63 @@ describe('requireVisibilityWriteAccess', () => {
       expect(requireVisibilityWriteAccess(ADMIN, res, { visibility, createdBy: 'user-2' }, 'admin-1', 'pipelines:publish')).toBe(true);
       expect(res._status).toBe(0);
     }
+  });
+});
+
+describe('VISIBILITY_WRITE_REFUSAL — every refusal has a message, and only refusals do', () => {
+  // The catalog exists so a verdict added to the union cannot reach a consumer
+  // without a message. That guarantee is a COMPILE-time one, so what is
+  // assertable here is its shape: the keys are exactly the non-`ok` verdicts.
+  // If someone widens the union and only "fixes" the type by adding `ok` or by
+  // loosening the Record's key type, this fails.
+  const ALL: VisibilityWriteVerdict[] = ['ok', 'needs-publish', 'not-author'];
+
+  it('covers every verdict except `ok`', () => {
+    expect(Object.keys(VISIBILITY_WRITE_REFUSAL).sort()).toEqual(
+      ALL.filter((v) => v !== 'ok').sort(),
+    );
+  });
+
+  it('carries no entry for `ok` — a success path must not have a refusal message', () => {
+    expect(VISIBILITY_WRITE_REFUSAL).not.toHaveProperty('ok');
+  });
+
+  it('gives every refusal a non-empty, distinct sentence', () => {
+    const messages = Object.values(VISIBILITY_WRITE_REFUSAL);
+    for (const m of messages) expect(m.trim().length).toBeGreaterThan(0);
+    expect(new Set(messages).size).toBe(messages.length);
+  });
+
+  it('is the message the middleware actually sends', () => {
+    // Pins the catalog to the wire, so a reworded entry cannot silently stop
+    // being what a caller sees.
+    const res = createMockRes();
+    requireVisibilityWriteAccess(
+      createMockReq({ sub: 'user-1' }),
+      res,
+      { visibility: 'public', createdBy: 'user-1' },
+      'user-1',
+      'pipelines:publish',
+    );
+    expect(res._status).toBe(403);
+    expect((res._json as { message?: string }).message).toBe(VISIBILITY_WRITE_REFUSAL['needs-publish']);
+  });
+
+  it('sends the AUTHOR message on a private-draft refusal, not the public one', () => {
+    // The ternary this replaced could only ever produce two outcomes, so a
+    // third verdict would have been reported as `not-author`. These two cases
+    // are what prove the keyed lookup picks per verdict rather than by
+    // elimination.
+    const res = createMockRes();
+    requireVisibilityWriteAccess(
+      createMockReq({ sub: 'user-1' }),
+      res,
+      { visibility: 'private', createdBy: 'user-2' },
+      'user-1',
+      'pipelines:publish',
+    );
+    expect(res._status).toBe(403);
+    expect((res._json as { message?: string }).message).toBe(VISIBILITY_WRITE_REFUSAL['not-author']);
   });
 });
 

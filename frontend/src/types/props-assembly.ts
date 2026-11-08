@@ -240,6 +240,15 @@ export function assembleBuilderProps(
         },
       };
       break;
+    // Unreachable once validation above has a rule for every type — but only
+    // when validation RAN. `skipValidation` is passed on draft saves, so this
+    // is the path a draft of an unknown source type takes, and leaving `source`
+    // undefined would assemble a pipeline with NO SOURCE and send it. Refuse
+    // through the same channel the caller already handles.
+    default: {
+      const _exhaustive: never = state.synth.sourceType;
+      return { props: null, errors: { 'synth.sourceType': `Unsupported source type: ${String(_exhaustive)}` } };
+    }
   }
 
   // Synth

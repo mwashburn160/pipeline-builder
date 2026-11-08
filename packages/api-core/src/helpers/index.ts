@@ -15,8 +15,10 @@ export {
   checkWriteAccess,
   rejectForbiddenBulkRows,
   resolveVisibility,
+  VISIBILITY_WRITE_REFUSAL,
   type VisibilityWriteTarget,
   type VisibilityWriteVerdict,
+  type VisibilityWriteRefusal,
   type WriteAccess,
   type BulkWriteRow,
 } from './access-helpers.js';

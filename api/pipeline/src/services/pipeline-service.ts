@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { checkWriteAccess, ConflictError, ErrorCode, ForbiddenError, createLogger, entityEvents, createCacheService, errorMessage, toComplianceAttributes } from '@pipeline-builder/api-core';
-import type { WriteAccess } from '@pipeline-builder/api-core';
+import { checkWriteAccess, ConflictError, ErrorCode, ForbiddenError, VISIBILITY_WRITE_REFUSAL, createLogger, entityEvents, createCacheService, errorMessage, toComplianceAttributes } from '@pipeline-builder/api-core';
+import type { VisibilityWriteRefusal, WriteAccess } from '@pipeline-builder/api-core';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import {
   CrudService, buildPipelineConditions, closePipelineExposures, getTenantContext, schema, viewerCacheSegment, withTenantTx, withViewerContext, type CrudTx, type PipelineFilter,
@@ -68,14 +68,32 @@ function assertMayOverwrite(
       'A deleted pipeline already occupies this project/organization. Restore it or purge it before creating a new one.',
     );
   }
-  switch (checkWriteAccess(existing, userId, access)) {
-    case 'needs-publish':
-      throw new ForbiddenError('You lack permission to modify this public resource.');
-    case 'not-author':
-      throw new ConflictError('A pipeline for this project/organization already exists and belongs to another author.');
-    case 'ok':
-  }
+  // KEYED, and tested for `!== 'ok'` rather than switched on. The switch this
+  // replaces ended in a bare `case 'ok':` that fell out of the block, so a
+  // refusal verdict added to the union would have been treated as permission —
+  // on a CREATE path that overwrites someone else's row. Inverted, the only
+  // verdict that proceeds is the one that names success, and `Record` over the
+  // refusals means a new one cannot compile until it has a message here.
+  const verdict = checkWriteAccess(existing, userId, access);
+  if (verdict !== 'ok') throw OVERWRITE_REFUSAL[verdict]();
 }
+
+/**
+ * What each refusal means for a pipeline CREATE that found an existing row.
+ *
+ * `needs-publish` reuses api-core's shared sentence (the rung is the same
+ * everywhere, so the wording should be too); `not-author` is pipeline's own,
+ * because the caller is creating rather than editing and "already exists and
+ * belongs to another author" is the actionable fact. The error TYPES differ for
+ * the same reason — one is an authority problem (403), the other a collision
+ * (409).
+ */
+const OVERWRITE_REFUSAL: Readonly<Record<VisibilityWriteRefusal, () => Error>> = {
+  'needs-publish': () => new ForbiddenError(VISIBILITY_WRITE_REFUSAL['needs-publish']),
+  'not-author': () => new ConflictError(
+    'A pipeline for this project/organization already exists and belongs to another author.',
+  ),
+};
 
 /** Server-side cache for pipeline reads. */
 const pipelineCache = createCacheService('pipeline:', CoreConstants.CACHE_TTL_ENTITY);

@@ -200,6 +200,16 @@ export async function resolveEcosystemRecipients(
       case 'address':
         addresses.add(spec.email);
         break;
+      // A RECIPIENT KIND THAT REACHES HERE NOTIFIES NOBODY — silently, and
+      // indistinguishably from a rule that legitimately resolved to zero
+      // users. The parser (`parseRecipient` in api-core) rejects kinds it does
+      // not know, so the PAIR fails closed at the edge and silent in the
+      // middle: add a kind to `EcosystemRecipientSpec` plus the parser, forget
+      // this switch, and the rule stores and delivers to no one.
+      default: {
+        const _exhaustive: never = spec;
+        throw new Error(`Unresolved ecosystem recipient kind: ${JSON.stringify(_exhaustive)}`);
+      }
     }
   }
   return { users, addresses };
