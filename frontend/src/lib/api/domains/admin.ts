@@ -5,6 +5,7 @@ import type { ApiCore } from '../core';
 import { buildQuery } from '../util';
 import type { ApiResponse, OrgQuotaResponse, OrgIdpConfigDto, OrgIdpConfigCreate, User, QuotaTier, QuotaType, QuotaUsageParams, QuotaUsageBreakdown, QuotaNoticeSettings } from '@/types';
 import type { AuditLogEvent, AuditChainVerification } from '@/types/audit';
+import type { ConsoleClass } from '@/lib/admin-console';
 
 /**
  * One quota dimension an org is at/over the threshold on.
@@ -26,6 +27,32 @@ export interface AtRiskDimension {
 
 export function adminApi(core: ApiCore) {
   return {
+    // ============================================
+    // Operator consoles
+    // ============================================
+    /**
+     * Mint the `pb_admin_console` cookie for `consoleClass`, server-side.
+     *
+     * The dashboard used to write that cookie itself with `document.cookie`, so
+     * entering pgAdmin left no server-side record at all — every FAILED attempt
+     * was audited and every successful one was not. Platform cannot audit the
+     * `auth_request` check instead: nginx fires it per asset, so one Grafana
+     * dashboard would write dozens of rows. This is the one call per console
+     * entry, so it is the one place the row belongs.
+     *
+     * `X-PB-Console` names the class, the same header the gateway sets — so
+     * platform's `consoleGate` requires the matching `*_console:open` permission
+     * here too, and a caller holding none is refused before any cookie exists.
+     *
+     * 204 with a `Set-Cookie`, so `requestRaw`: there is no envelope to read.
+     */
+    openConsoleSession: async (consoleClass: ConsoleClass): Promise<void> => {
+      await core.requestRaw('/api/admin/console-session', {
+        method: 'POST',
+        headers: { 'X-PB-Console': consoleClass },
+      });
+    },
+
     // ============================================
     // Audit events (sysadmin / org-admin)
     // ============================================

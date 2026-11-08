@@ -1,6 +1,6 @@
 // GENERATED FROM docs/permissions.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 899320b07c637980e442b58634fd109de101d74d2d125e8c26d78676aaafa98e
+// SOURCE-SHA256: da351014128613eb76e0692fc347405063952db085d821b4b8fe295f4ed3e951
 // SPDX-License-Identifier: Apache-2.0
 import { UserCog } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -800,6 +800,10 @@ export const permissionsTopic: HelpTopic = {
         {
           "type": "text",
           "content": "All five are listed on the dashboard's Operator consoles card, on every target that serves them — the two AWS trees, minikube and docker. The docker compose stack runs no Istio, so it has no Kiali tile. Only the AWS gateways run the auth_request; on the local targets the same location blocks are served unauthenticated, because reaching those gateways already means local access to the cluster or the host, so the card does not demand a second factor there for a console that checks nothing."
+        },
+        {
+          "type": "text",
+          "content": "Entering one is audited. Opening a console calls POST /api/admin/console-session, which re-checks the class's permission, the system org and AAL2, writes one admin.console.session audit row naming the class, and returns the pb_admin_console cookie the gateway reads. That row is the only record of an admitted session: the gateway's auth_request fires on every asset a console loads, so a row per check would be dozens per page view and would bury the trail it was meant to create. The row matters most for the second class — the audit chain records writes made through the platform, so a shell reading every tenant's customer rows otherwise leaves nothing behind."
         },
         {
           "type": "text",

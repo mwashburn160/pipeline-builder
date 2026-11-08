@@ -1,6 +1,6 @@
 // GENERATED FROM docs/environment-variables.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: dcd818213299456a83da5439eb8b72f09df508a2aacb1f3ba97f8c936cd02eaa
+// SOURCE-SHA256: 5bf26a4d7d65493af5ce5c1b40a03a40afcaa1e410992acd0a87915c2bb161a0
 // SPDX-License-Identifier: Apache-2.0
 import { FileCode } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -4572,6 +4572,11 @@ export const envVariablesTopic: HelpTopic = {
               "AUDIT_RETENTION_DAYS",
               "90",
               "Retention for platform audit events. Drives the Mongo TTL index"
+            ],
+            [
+              "LOG_RETENTION_HOURS",
+              "720 (30 days)",
+              "How long Loki keeps logs, AND how far back a log query may reach — one variable for both, because they were two. loki-config.yml expands it into retention_period (-config.expand-env=true) and platform's log controller clamps queries to it. A clamp narrower than retention hides data that exists; a wider one returns an empty tail that reads as \"nothing happened\" rather than \"nothing is kept\", which is why toolchain-drift-contract asserts the two defaults match. Raising it costs object-store space: chunks and index live in the RustFS loki bucket on a 20Gi volume shared with the registry, Thanos blocks and plugin build contexts, so watch PersistentVolumeFillingUp. Hours, not days: h is the suffix proven to parse in that config, and a config Loki cannot read is a Loki that will not start"
             ],
             [
               "MONGO_MAX_POOL",

@@ -1322,6 +1322,19 @@ deployContracts.eslint?.addRules(rules);
  * `jest --coverage` summary into `global` here; re-measure with the path files
  * excluded, or the build fails with two figures that look irreconcilable.
  *
+ * RE-MEASURED 2026-11-07, and the ratchet had stopped ratcheting. Every floor
+ * was behind what the suites actually cover, by 2 to EIGHTEEN points —
+ * reporting's functions floor read 78 against a measured 95.8, so a change
+ * removing a fifth of its tested functions would have passed. A floor that far
+ * behind is worse than a low one: it stops being a regression guard while still
+ * looking like one.
+ *
+ * Re-pinned from the gate's own per-project coverage summary at
+ * floor(measured) - 1, so each keeps about a point of headroom (coverage moves
+ * slightly between runs, and a floor with none trips on unrelated work — see
+ * below). Raise-only: no floor was lowered. Re-measure the same way after any
+ * pass that adds suites, because nothing else will.
+ *
  * Every number is additionally CAPPED AT 95. A measured 100 becomes a floor that
  * one new uncovered branch fails, which is the "unrelated work trips it" failure
  * this ratchet is supposed to avoid.
@@ -1331,7 +1344,7 @@ const COVERAGE_THRESHOLDS: Record<string, {
   paths?: Record<string, Record<string, number>>;
 }> = {
   '@pipeline-builder/api-core': {
-    global: { statements: 95, branches: 91, functions: 91, lines: 95 },
+    global: { statements: 95, branches: 91, functions: 92, lines: 95 },
     paths: {
       // logAuditEvent — fully covered by test/log-audit-event.test.ts.
       'src/utils/audit.ts': { statements: 95, branches: 95, functions: 95, lines: 95 },
@@ -1341,13 +1354,13 @@ const COVERAGE_THRESHOLDS: Record<string, {
     global: { statements: 95, branches: 88, functions: 95, lines: 95 },
   },
   '@pipeline-builder/pipeline-core': {
-    global: { statements: 95, branches: 86, functions: 92, lines: 95 },
+    global: { statements: 95, branches: 86, functions: 95, lines: 95 },
   },
   '@pipeline-builder/pipeline-data': {
-    global: { statements: 94, branches: 93, functions: 87, lines: 94 },
+    global: { statements: 95, branches: 93, functions: 89, lines: 95 },
   },
   'billing': {
-    global: { statements: 93, branches: 84, functions: 90, lines: 93 },
+    global: { statements: 93, branches: 85, functions: 91, lines: 93 },
     paths: {
       // Money paths. Stripe invoice handling — test/stripe-invoice-handlers.test.ts.
       'src/helpers/stripe-invoice-handlers.ts': { statements: 95, branches: 90, functions: 95, lines: 95 },
@@ -1380,10 +1393,10 @@ const COVERAGE_THRESHOLDS: Record<string, {
     },
   },
   'message': {
-    global: { statements: 93, branches: 83, functions: 75, lines: 93 },
+    global: { statements: 94, branches: 88, functions: 77, lines: 94 },
   },
   'pipeline': {
-    global: { statements: 87, branches: 82, functions: 81, lines: 87 },
+    global: { statements: 90, branches: 85, functions: 86, lines: 90 },
   },
   'plugin': {
     global: { statements: 95, branches: 87, functions: 94, lines: 95 },
@@ -1403,10 +1416,10 @@ const COVERAGE_THRESHOLDS: Record<string, {
     global: { statements: 95, branches: 91, functions: 95, lines: 95 },
   },
   'reporting': {
-    global: { statements: 95, branches: 89, functions: 78, lines: 95 },
+    global: { statements: 95, branches: 89, functions: 94, lines: 95 },
   },
   'platform': {
-    global: { statements: 86, branches: 83, functions: 78, lines: 86 },
+    global: { statements: 87, branches: 85, functions: 83, lines: 87 },
     paths: {
       // SCIM provisioning (scim-filter/-render/-users/-groups/-discovery/-errors,
       // each file checked on its own) — test/scim-provisioning.test.ts covers the
@@ -1427,10 +1440,21 @@ const COVERAGE_THRESHOLDS: Record<string, {
     },
   },
   'ask': {
-    global: { statements: 94, branches: 79, functions: 93, lines: 94 },
+    // Re-measured 2026-11-07 and found WELL above these: 98.27 statements,
+    // 86.57 branches, 96.87 functions. The old figures were not a coverage gap,
+    // they were a stale floor — which is worse than a low one, because the
+    // ratchet stops ratcheting and a real drop of several points still passes.
+    //
+    // ai-metrics.ts is what moved branches (37.5 -> 100): two of its four
+    // emitters were never called by any test, and the suite added for them pins
+    // the LABEL SETS rather than the lines — the module documents that a label
+    // per cited doc "would multiply the series by the size of the corpus", and
+    // nothing enforced it. Statements/functions/lines sit at the documented 95
+    // cap; branches take the measured figure.
+    global: { statements: 95, branches: 86, functions: 95, lines: 95 },
   },
   '@pipeline-builder/ai-core': {
-    global: { statements: 95, branches: 92, functions: 95, lines: 95 },
+    global: { statements: 95, branches: 93, functions: 95, lines: 95 },
   },
   '@pipeline-builder/pipeline-events': {
     // branches 78 -> 84 (2026-11-07), from two suites aimed at this package's
@@ -1447,10 +1471,10 @@ const COVERAGE_THRESHOLDS: Record<string, {
     global: { statements: 95, branches: 84, functions: 95, lines: 95 },
   },
   '@pipeline-builder/pipeline-manager': {
-    global: { statements: 79, branches: 84, functions: 83, lines: 79 },
+    global: { statements: 80, branches: 84, functions: 83, lines: 80 },
   },
   'frontend': {
-    global: { statements: 84, branches: 78, functions: 63, lines: 84 },
+    global: { statements: 85, branches: 78, functions: 64, lines: 85 },
   },
 };
 

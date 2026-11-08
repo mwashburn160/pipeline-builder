@@ -160,10 +160,10 @@
     ],
     "coverageThreshold": {
       "global": {
-        "statements": 86,
-        "branches": 83,
-        "functions": 78,
-        "lines": 86
+        "statements": 87,
+        "branches": 85,
+        "functions": 83,
+        "lines": 87
       },
       "**/src/services/scim-*.ts": {
         "statements": 95,

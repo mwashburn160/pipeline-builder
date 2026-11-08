@@ -1297,8 +1297,16 @@ The permission is one of three, by blast radius: `observability_console:open`
 (Grafana, Kiali), `database_console:open` (pgAdmin, mongo-express) or
 `objectstore_console:open` (RustFS). All three are system-org-only, a superadmin
 holds every one implicitly, and the seeded **Console Administrator** Role carries
-all three — see [Roles & Permissions](permissions.md#operator-consoles). For
-occasional use prefer `kubectl -n pipeline-builder port-forward svc/grafana 3000`.
+all three — see [Roles & Permissions](permissions.md#operator-consoles).
+
+Opening a console goes through **`POST /api/admin/console-session`**, which
+re-checks all three conditions, writes one **`admin.console.session`** audit row
+naming the class entered, and returns the cookie itself. It is the only record of
+an admitted console session: the gateway's `auth_request` fires on every asset a
+console loads, so auditing the check instead would write dozens of rows per page
+view. Query it with `action=admin.console.session` to answer "who opened pgAdmin,
+and when". For occasional use prefer
+`kubectl -n pipeline-builder port-forward svc/grafana 3000`.
 
 The **RustFS object-store console** rides the same flag and the same
 `auth_request`, but on its own port rather than a path, because its UI resolves

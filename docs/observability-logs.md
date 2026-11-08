@@ -18,7 +18,7 @@ Application logs from every Pipeline Builder service, searchable in the dashboar
 - **You never write LogQL.** A small search syntax is compiled server-side; raw queries from the browser are refused. That indirection is what makes the surface safe to expose per-tenant.
 - **Credentials are masked before they are stored**, not just on display — and a search term that looks like a credential is rejected.
 - **Export is a separate permission** (`logs:export`) from viewing (`observability:read`), because bulk egress leaves the building and outlives a revoked session.
-- **Retention is 7 days**, platform-wide. A wider request is narrowed with a banner rather than rejected.
+- **Retention is 30 days** by default, platform-wide, from `LOG_RETENTION_HOURS` (720). A wider request is narrowed with a banner rather than rejected. That one variable sets both Loki's `retention_period` and the query clamp, so they cannot drift apart.
 - **Not the audit trail.** `/dashboard/audit` records *who did what*; these are the services' own log lines.
 
 ## Overview
@@ -65,7 +65,7 @@ All four live in each target's `config/loki/loki-config.yml`.
 | `multi_tenant_queries_enabled: true` | Lets an administrator read several tenants in one query |
 | `allow_structured_metadata: true` | Required, or Loki rejects the `orgId` metadata promtail attaches |
 | `deletion_mode: filter-and-delete` | Enables per-tenant deletion when an organization is removed |
-| `retention_period: 168h` | 7 days, platform-wide |
+| `retention_period: ${LOG_RETENTION_HOURS:-720}h` | 30 days by default; expanded by `-config.expand-env` |
 
 ### Steps
 
@@ -110,7 +110,7 @@ Regular expressions are safe to use freely: Loki evaluates them with RE2, which 
 
 ### Time range
 
-Presets (15m / 1h / 6h / 24h / 7d), or an absolute range. Clicking a bar in the volume histogram zooms to that bucket. Because retention is 7 days, a wider request is narrowed to that window with a banner.
+Presets (15m / 1h / 6h / 24h / 7d / 30d), or an absolute range. Clicking a bar in the volume histogram zooms to that bucket. Because retention is 7 days, a wider request is narrowed to that window with a banner.
 
 ## Reading an entry
 

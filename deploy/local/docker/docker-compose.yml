@@ -585,6 +585,8 @@ services:
     # OOM-killed, which for the single primary is write downtime.
     command: >-
       postgres -c listen_addresses=*
+      -c log_connections=on
+      -c log_disconnections=on
       -c max_connections=200
       -c shared_buffers=512MB
       -c effective_cache_size=1200MB
@@ -971,6 +973,7 @@ services:
       ALERT_DESTINATION_MAX_LABEL: ${ALERT_DESTINATION_MAX_LABEL:-}
       ALERT_DESTINATION_MAX_TARGET: ${ALERT_DESTINATION_MAX_TARGET:-}
       AUDIT_RETENTION_DAYS: ${AUDIT_RETENTION_DAYS:-}
+      LOG_RETENTION_HOURS: ${LOG_RETENTION_HOURS:-}
       # The standby replica ceiling, read by the Postgres rung controller so a
       # standby only scales UP once KEDA has run out of room (out before up).
       # Inert on this target — there is no Kubernetes API to patch, so the
@@ -2692,6 +2695,9 @@ services:
     # now live in RustFS; /loki is just ephemeral WAL + shipper cache).
     command: -config.file=/etc/loki/loki-config.yml -config.expand-env=true
     environment:
+      # Expanded into retention_period by -config.expand-env; the SAME variable
+      # platform clamps log queries to, so the two cannot drift.
+      LOG_RETENTION_HOURS: ${LOG_RETENTION_HOURS:-720}
       LOKI_S3_ACCESS_KEY: ${LOKI_S3_ACCESS_KEY}
       LOKI_S3_SECRET_KEY: ${LOKI_S3_SECRET_KEY}
     volumes:

@@ -136,8 +136,8 @@
     "coverageThreshold": {
       "global": {
         "statements": 93,
-        "branches": 84,
-        "functions": 90,
+        "branches": 85,
+        "functions": 91,
         "lines": 93
       },
       "**/src/helpers/stripe-invoice-handlers.ts": {

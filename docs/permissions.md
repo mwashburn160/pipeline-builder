@@ -390,6 +390,16 @@ unauthenticated, because reaching those gateways already means local access to
 the cluster or the host, so the card does not demand a second factor there for a
 console that checks nothing.
 
+**Entering one is audited.** Opening a console calls
+`POST /api/admin/console-session`, which re-checks the class's permission, the
+system org and AAL2, writes one **`admin.console.session`** audit row naming the
+class, and returns the `pb_admin_console` cookie the gateway reads. That row is
+the only record of an *admitted* session: the gateway's `auth_request` fires on
+every asset a console loads, so a row per check would be dozens per page view and
+would bury the trail it was meant to create. The row matters most for the second
+class — the audit chain records writes made *through the platform*, so a shell
+reading every tenant's customer rows otherwise leaves nothing behind.
+
 The last two are split because they are the two halves of the audit
 tamper-evidence design: the chain's HMAC key lives outside the database, so a
 Mongo shell can tamper but cannot forge a consistent chain — except by

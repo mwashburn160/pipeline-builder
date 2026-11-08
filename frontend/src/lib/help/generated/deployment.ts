@@ -1,6 +1,6 @@
 // GENERATED FROM docs/aws-deployment.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: ec26d20872cd9997e67bb4631cfb17c100ea0fa15be9d989cae5044a901e0063
+// SOURCE-SHA256: f6da0da4cf1315e7ad805f5d2b1e013f6c3330572463bc17317a00bb4d9bad56
 // SPDX-License-Identifier: Apache-2.0
 import { Server } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -2395,7 +2395,11 @@ export const deploymentTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "The admin consoles are on by default on AWS (ADMIN_CONSOLES_ENABLED=true; set it false in .env and re-run setup to make the routes 404). Every request to them first passes an nginx auth_request to platform GET /admin/console-check — a live session holding that console's own permission, with the system org as the active org, at AAL2 — with the token taken from the pb_admin_console cookie and stripped before the console sees the request. The permission is one of three, by blast radius: observability_console:open (Grafana, Kiali), database_console:open (pgAdmin, mongo-express) or objectstore_console:open (RustFS). All three are system-org-only, a superadmin holds every one implicitly, and the seeded Console Administrator Role carries all three — see Roles & Permissions. For occasional use prefer kubectl -n pipeline-builder port-forward svc/grafana 3000."
+          "content": "The admin consoles are on by default on AWS (ADMIN_CONSOLES_ENABLED=true; set it false in .env and re-run setup to make the routes 404). Every request to them first passes an nginx auth_request to platform GET /admin/console-check — a live session holding that console's own permission, with the system org as the active org, at AAL2 — with the token taken from the pb_admin_console cookie and stripped before the console sees the request. The permission is one of three, by blast radius: observability_console:open (Grafana, Kiali), database_console:open (pgAdmin, mongo-express) or objectstore_console:open (RustFS). All three are system-org-only, a superadmin holds every one implicitly, and the seeded Console Administrator Role carries all three — see Roles & Permissions."
+        },
+        {
+          "type": "text",
+          "content": "Opening a console goes through POST /api/admin/console-session, which re-checks all three conditions, writes one admin.console.session audit row naming the class entered, and returns the cookie itself. It is the only record of an admitted console session: the gateway's auth_request fires on every asset a console loads, so auditing the check instead would write dozens of rows per page view. Query it with action=admin.console.session to answer \"who opened pgAdmin, and when\". For occasional use prefer kubectl -n pipeline-builder port-forward svc/grafana 3000."
         },
         {
           "type": "text",

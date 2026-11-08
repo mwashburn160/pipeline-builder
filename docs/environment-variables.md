@@ -1395,6 +1395,7 @@ Lower-level knobs read through api-core's shared env readers (`envInt` / `envBoo
 | `AUTH_VERIFICATION_TOKEN_TTL_MS` | `86400000` | Lifetime of an email-verification / password-reset token (24h) |
 | `SESSION_REVOCATION_TTL_SECONDS` | `3600` | How long a published `tokenVersion` bump is retained in Redis. Must exceed the access-token lifetime or a revocation can lapse before the token it revokes |
 | `AUDIT_RETENTION_DAYS` | `90` | Retention for platform audit events. Drives the Mongo TTL index |
+| `LOG_RETENTION_HOURS` | `720` (30 days) | How long Loki keeps logs, AND how far back a log query may reach — one variable for both, because they were two. `loki-config.yml` expands it into `retention_period` (`-config.expand-env=true`) and platform's log controller clamps queries to it. A clamp narrower than retention hides data that exists; a wider one returns an empty tail that reads as "nothing happened" rather than "nothing is kept", which is why `toolchain-drift-contract` asserts the two defaults match. **Raising it costs object-store space**: chunks and index live in the RustFS `loki` bucket on a 20Gi volume shared with the registry, Thanos blocks and plugin build contexts, so watch `PersistentVolumeFillingUp`. Hours, not days: `h` is the suffix proven to parse in that config, and a config Loki cannot read is a Loki that will not start |
 | `MONGO_MAX_POOL` | `20` | Mongo connection-pool ceiling |
 | `MONGO_MIN_POOL` | `2` | Mongo connection-pool floor |
 | `MONGO_SERVER_SELECTION_MS` | `5000` | Mongo server-selection timeout |

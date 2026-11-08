@@ -294,6 +294,15 @@ spec:
           # postgres-replica-parity.test.ts asserts this list equals the
           # primary's, so the two cannot drift.
           args:
+            # ---- Console attribution ----
+            # Held equal to the primary by postgres-replica-contract: a replica
+            # that logged differently would answer "who connected" for only half
+            # the fleet, and a read-only standby is exactly where a console
+            # session is most likely to be pointed.
+            - "-c"
+            - "log_connections=on"
+            - "-c"
+            - "log_disconnections=on"
             - "-c"
             - "max_connections=200"
             - "-c"

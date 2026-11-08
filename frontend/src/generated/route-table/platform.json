@@ -30,6 +30,36 @@
   },
   {
     "method": "POST",
+    "path": "/admin/console-session",
+    "auth": true,
+    "permissions": [],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "dynamicAuthz": [
+      "The same chain as the console check: observability_console:open, database_console:open or objectstore_console:open by the class the caller states in `X-PB-Console`, sysadmin for an unrecognised one, plus the system org and AAL2."
+    ],
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 2,
+    "features": [],
+    "scopes": [],
+    "audit": [
+      "admin.console.session"
+    ],
+    "dynamicReachableBy": [
+      "superadmin",
+      "system-org"
+    ],
+    "dynamicPermissions": [
+      "database_console:open",
+      "objectstore_console:open",
+      "observability_console:open"
+    ],
+    "systemOrg": true
+  },
+  {
+    "method": "POST",
     "path": "/admin/impersonate/:userId",
     "auth": true,
     "permissions": [],

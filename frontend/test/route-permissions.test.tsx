@@ -2566,6 +2566,16 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
     category: 'no-ui',
     why: 'nginx auth_request target on the AWS gateway (deploy/aws/*/nginx/admin-consoles.conf): every request to /pgadmin/ /mongo-express/ /grafana/ /kiali/ is checked here (sysadmin + aal2) before it is proxied. No dashboard code calls it; the browser only carries the pb_admin_console cookie nginx turns into the bearer.',
   },
+  'platform POST /admin/console-session': {
+    category: 'sysadmin-console',
+    why: 'The "Open <console>" button on the Operator consoles tab of pages/dashboard/admin/settings.tsx '
+      + '(src/components/admin/AdminConsoleLinks.tsx, api.openConsoleSession) — it mints the pb_admin_console '
+      + 'cookie SERVER-side so entering a console writes one admin.console.session audit row, which the '
+      + 'gateway\'s per-asset auth_request above cannot do. Same gate as that check: the class\'s own '
+      + '*_console:open permission, the system org and aal2; the card refuses a single-factor session before '
+      + 'it calls. A write with no state of its own — it hands back the caller\'s OWN access token, so the '
+      + 'authority is unchanged and the row is the point.',
+  },
   'platform GET /internal/notify-email/status': {
     category: 'machine-only',
     why: 'Service-principal route (callers: plugin): the plugin service asks whether outbound email is configured before it enables anonymous submissions; no user token is admitted.',

@@ -259,6 +259,17 @@ spec:
           # that turns a generous work_mem into an OOM kill rather than a
           # speed-up, and an OOM on a single primary is write downtime.
           args:
+            # ---- Console attribution ----
+            # WHO connected and from where. Paired with the per-role
+            # `log_statement=mod` postgres-init sets on the bootstrap superuser:
+            # the statements say what was run, this says which session ran them,
+            # and together they distinguish a human in pgAdmin from the
+            # application. One line per connection — negligible, and pgbouncer
+            # means the app's connections are few and long-lived.
+            - "-c"
+            - "log_connections=on"
+            - "-c"
+            - "log_disconnections=on"
             - "-c"
             - "max_connections=200"
             - "-c"

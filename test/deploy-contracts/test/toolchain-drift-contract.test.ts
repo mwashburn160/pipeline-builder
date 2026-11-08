@@ -97,6 +97,50 @@ describe('pnpm', () => {
   });
 });
 
+describe('log retention', () => {
+  it('is ONE number: platform\'s query clamp and Loki\'s retention_period', () => {
+    // These were two. The clamp was hard-coded at 7 days with a comment pointing
+    // at `retention_period: 168h`, and only that comment kept them equal — so
+    // raising retention alone would have kept 30 days of logs while the
+    // dashboard still refused to show more than 7, and lowering it alone would
+    // have returned an empty tail that reads as "nothing happened" rather than
+    // "nothing is kept".
+    //
+    // Both now read LOG_RETENTION_HOURS. The DEFAULTS are what can still drift,
+    // since each states its own fallback, so those are what this compares.
+    const platform = grab(
+      'platform/src/observability/log-controller.ts',
+      /envInt\('LOG_RETENTION_HOURS',\s*(\d+)/,
+    );
+    const pairs: Array<[string, string | undefined]> = [['platform log-controller', platform]];
+    for (const tree of ['deploy/local/docker', 'deploy/local/minikube', 'deploy/aws/eks', 'deploy/aws/ec2']) {
+      pairs.push([`${tree} loki-config`, grab(
+        `${tree}/config/loki/loki-config.yml`,
+        /retention_period:\s*\$\{LOG_RETENTION_HOURS:-(\d+)\}h/,
+      )]);
+    }
+    // Guards a vacuous pass: a renamed variable or a reformatted line would
+    // otherwise make every entry undefined, and undefined equals undefined.
+    for (const [label, value] of pairs) {
+      expect({ label, found: value !== undefined }).toEqual({ label, found: true });
+    }
+    expectAllEqual(pairs);
+  });
+
+  it('reaches the Loki container in every target that runs one', () => {
+    // `-config.expand-env` only helps if the variable is actually in the
+    // container's environment; an unset one expands to the empty string and
+    // Loki fails to parse `h` on its own.
+    for (const tree of ['deploy/aws/eks', 'deploy/aws/ec2', 'deploy/local/minikube']) {
+      expect({ tree, wired: read(`${tree}/k8s/loki.yaml`).includes('LOG_RETENTION_HOURS') })
+        .toEqual({ tree, wired: true });
+    }
+    const compose = read('deploy/local/docker/docker-compose.yml');
+    // Twice: the loki service expands it, and platform clamps to it.
+    expect(compose.match(/LOG_RETENTION_HOURS/g)?.length).toBeGreaterThanOrEqual(2);
+  });
+});
+
 describe('AWS CDK CLI', () => {
   it('is one version across the bootstrap image and every plugin that installs it', () => {
     // WHY THIS EXISTS. Nothing held these equal and they drifted: the CodeBuild

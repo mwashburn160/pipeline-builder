@@ -25,6 +25,7 @@ import {
   parseQueryString,
   sendError,
   sendSuccess,
+  envInt,
 } from '@pipeline-builder/api-core';
 import type { Request, Response } from 'express';
 import {
@@ -41,8 +42,23 @@ import { sendUpstreamFailure } from './upstream.js';
 import { audit } from '../helpers/audit.js';
 import { ensureAuthenticated, withController } from '../helpers/controller-helper.js';
 
-/** Loki keeps 7 days (`retention_period: 168h`); a wider ask is clamped, not rejected. */
-const MAX_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+/**
+ * How far back a log query may reach: Loki's own retention, read from the SAME
+ * variable Loki is configured with. A wider ask is clamped, not rejected.
+ *
+ * ONE SOURCE, because this was two. The clamp was hard-coded at 7 days with a
+ * comment pointing at `retention_period: 168h`, and the only thing keeping them
+ * equal was that comment. A clamp narrower than retention makes data that
+ * exists unqueryable; one wider returns an empty tail that reads as "nothing
+ * happened" rather than "nothing is kept". `LOG_RETENTION_HOURS` now drives
+ * both — `loki-config.yml` expands it (`-config.expand-env=true`), this reads
+ * it, and a deploy contract asserts the two defaults match.
+ *
+ * Hours rather than days: `h` is the suffix already proven to parse in that
+ * config, and a config Loki cannot read is a Loki that does not start.
+ */
+const LOG_RETENTION_HOURS = envInt('LOG_RETENTION_HOURS', 720, { min: 1 });
+const MAX_WINDOW_MS = LOG_RETENTION_HOURS * 60 * 60 * 1000;
 const MAX_LIMIT = 1000;
 const DEFAULT_LIMIT = 100;
 
@@ -65,6 +81,9 @@ const PRESETS: Record<string, number> = {
   '6h': 6 * 60 * 60_000,
   '24h': 24 * 60 * 60_000,
   '7d': 7 * 24 * 60 * 60_000,
+  // Added with the move to 30-day retention: without it the widest thing the UI
+  // could ask for was a quarter of what is kept.
+  '30d': 30 * 24 * 60 * 60_000,
 };
 
 /**

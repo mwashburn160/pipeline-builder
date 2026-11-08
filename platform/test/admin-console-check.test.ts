@@ -19,10 +19,30 @@ import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const logWarn = jest.fn();
+const logInfo = jest.fn();
+const incCounter = jest.fn<(name: string, labels?: Record<string, string>) => void>();
+
+// The route module also carries `POST /session`, which audits — and `audit`
+// reaches `src/config`, which refuses to load without an encryption key. Stubbed
+// so this suite stays about the GET gate's refusals; the session route has its
+// own suite (`admin-console-session.test.ts`).
+jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: jest.fn() }));
+// The route counts admitted access through platform's own metrics wrapper
+// (the convention here, 40 call sites to api-server's 4).
+jest.unstable_mockModule('../src/observability/metrics.js', () => ({
+  incCounter: (...a: unknown[]) => incCounter(...(a as [string, Record<string, string>])),
+  observe: jest.fn(),
+  setGauge: jest.fn(),
+}));
 // Overrides go THROUGH apiCoreMock, never spread around it: a hand-rolled
 // namespace drops every export it forgets, and they link as undefined.
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
-  createLogger: () => ({ warn: (...a: unknown[]) => logWarn(...a), info: jest.fn(), error: jest.fn(), debug: jest.fn() }),
+  createLogger: () => ({
+    warn: (...a: unknown[]) => logWarn(...a),
+    info: (...a: unknown[]) => logInfo(...a),
+    error: jest.fn(),
+    debug: jest.fn(),
+  }),
   // Pass-through: the assurance gate is exercised through its own suites.
   requireAssurance: () => (_req: unknown, _res: unknown, next: () => void) => next(),
 }));
@@ -228,5 +248,58 @@ describe('GET /admin/console-check — refusal is explained', () => {
     await call();
 
     expect(JSON.stringify(logWarn.mock.calls)).not.toMatch(/authorization|bearer/i);
+  });
+});
+
+describe('GET /admin/console-check — ADMITTED access is recorded', () => {
+  // The gap this closes: refusals were logged and audited while an admitted
+  // request recorded nothing at all, so "who opened pgAdmin, and when?" could
+  // not be answered while every failed attempt could.
+  beforeEach(() => {
+    jest.clearAllMocks();
+    authOutcome = 'pass';
+    adminOutcome = 'pass';
+    activeOrg = SYSTEM_ORG;
+  });
+
+  it.each([
+    ['database', 'database'],
+    ['observability', 'observability'],
+    ['objectstore', 'objectstore'],
+  ])('counts a %s console admission, labelled by class', async (header, expected) => {
+    const { status } = await call({ 'X-PB-Console': header });
+    expect(status).toBe(204);
+    expect(incCounter).toHaveBeenCalledWith('admin_console_access_total', { console_class: expected });
+  });
+
+  it('labels an unrecognised console rather than omitting the label', async () => {
+    // A console added to nginx and named nowhere still gates on the flag, and
+    // its access must still be countable — otherwise the one path most likely
+    // to be misconfigured is the one with no signal.
+    const { status } = await call({ 'X-Original-URI': '/something-new/' });
+    expect(status).toBe(204);
+    expect(incCounter).toHaveBeenCalledWith('admin_console_access_total', { console_class: 'unrecognised' });
+  });
+
+  it('logs who was admitted, so the gateway log can be correlated', async () => {
+    await call({ 'X-PB-Console': 'database' });
+    expect(logInfo).toHaveBeenCalledWith('Admin console access admitted', expect.objectContaining({
+      consoleClass: 'database', userId: 'u-1',
+    }));
+  });
+
+  it('carries NO per-user or per-URI label on the metric', async () => {
+    // Cardinality: three bounded classes. A user id would be a series per
+    // operator and a URI unbounded; the log line carries the user instead.
+    await call({ 'X-PB-Console': 'database' });
+    expect(Object.keys(incCounter.mock.calls[0]?.[1] ?? {})).toEqual(['console_class']);
+  });
+
+  it('still admits the request when the counter throws', async () => {
+    // A metrics misconfiguration must not turn every admin console into a 500:
+    // this handler runs on EVERY request the gateway proxies.
+    incCounter.mockImplementationOnce(() => { throw new Error('Metrics registry not set'); });
+    const { status } = await call({ 'X-PB-Console': 'database' });
+    expect(status).toBe(204);
   });
 });

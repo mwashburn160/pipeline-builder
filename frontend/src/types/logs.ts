@@ -10,7 +10,7 @@
  */
 
 /** Presets offered alongside the absolute picker. Must match the server's list. */
-export type LogRangePreset = '15m' | '1h' | '6h' | '24h' | '7d';
+export type LogRangePreset = '15m' | '1h' | '6h' | '24h' | '7d' | '30d';
 
 /**
  * A query window: a preset, or an absolute pair.

@@ -357,6 +357,18 @@ export const PLATFORM_AUDIT_ACTIONS = [
   // time configuration.
   'admin.superadmin.grant',
   'admin.superadmin.revoke',
+  // A platform operator ENTERING an admin console (pgAdmin, mongo-express,
+  // Grafana, Kiali, the RustFS console). Written once per session, where the
+  // console cookie is minted — NOT per request: nginx's `auth_request` fires on
+  // every asset the console loads, so auditing the check itself would write
+  // dozens of rows per page view and bury the trail.
+  //
+  // WHY IT EXISTS. pgAdmin and mongo-express are a read/write shell over every
+  // tenant's rows, and the audit chain records DAMAGE (writes through the
+  // platform), not ACCESS. A superadmin reading every tenant's customer rows
+  // left nothing behind. `details.consoleClass` says which of the three
+  // authority classes was entered.
+  'admin.console.session',
   // Per-org KMS config admin endpoint. `upsert` covers both first set and
   // rotation; `delete` clears the config and reverts the org to the shared
   // master fallback. Both emit `affectedOrgId` for cross-org filtering.

@@ -3520,5 +3520,38 @@ BEGIN
 END $$;
 SELECT set_config('pb.reader_password', '', false) AS pb_reader_password_cleared \gset
 
+-- ============================================================================
+-- Console statement logging (pgAdmin / psql, not the application)
+-- ============================================================================
+-- WHO THIS CATCHES. The application connects as DB_USER, which this file
+-- creates NOSUPERUSER NOBYPASSRLS and refuses to create at all if it names a
+-- superuser. pgAdmin's usefulness is the opposite: it is reached as the
+-- BOOTSTRAP SUPERUSER, which is what lets an operator read across tenants. So
+-- the two identities are already separate, and `log_statement` set on this role
+-- alone records console writes while the application's traffic stays unlogged.
+--
+-- WHY NOT GLOBALLY. `log_statement = 'mod'` in postgresql.conf would log every
+-- INSERT/UPDATE/DELETE the platform itself performs, with customer data in the
+-- parameters, into Loki for its full retention. Per-role keeps the volume and
+-- the data exposure to the handful of statements a human actually ran.
+--
+-- WHY 'mod' AND NOT 'ddl'. The realistic console risk is editing or deleting
+-- rows, which is DML and invisible to 'ddl'. 'mod' covers DML + DDL.
+--
+-- WHAT IT STILL DOES NOT COVER: SELECT. `log_statement` has no value that
+-- includes reads without including everything; read auditing needs the pgaudit
+-- extension, which this image does not carry.
+--
+-- Paired with `log_connections=on` in the server args, which answers "who
+-- connected, from where" — the question that makes these statements attributable.
+DO $$
+BEGIN
+    -- `current_user` is the bootstrap superuser running this file, whatever it
+    -- was named (POSTGRES_USER). Hard-coding `postgres` would silently no-op on
+    -- a deployment that renamed it.
+    EXECUTE format('ALTER ROLE %I SET log_statement = %L', current_user, 'mod');
+    RAISE NOTICE 'postgres-init: log_statement=mod set on %, so console (pgAdmin/psql) writes are logged; the application role is unaffected', current_user;
+END $$;
+
 \echo ''
 \echo '=== SCHEMA UPDATE COMPLETE ==='

@@ -14,8 +14,18 @@
  * The cookie holds the CURRENT access token, so it lives exactly as long as that
  * token: `Max-Age` never outlasts the token's `exp`, it is re-written when the
  * token rotates while set (refresh, a sibling tab's handoff) and removed when
- * the session ends or changes org. It is set only when a sysadmin opens a
+ * the session ends or changes org. It exists only once an operator opens a
  * console — nobody else ever carries it.
+ *
+ * WHO WRITES IT, and why it is split. The FIRST write is the server's:
+ * `POST /api/admin/console-session` re-checks the class's permission, the system
+ * org and AAL2, writes ONE `admin.console.session` audit row, and returns the
+ * cookie. Opening a cross-tenant database shell is the thing worth attributing,
+ * and it cannot be attributed at the gateway's `auth_request` check — nginx
+ * fires that per asset, so a row per check would be dozens per page view.
+ * SUBSEQUENT writes are this module's, from `syncAdminConsoleCookie` below: a
+ * token rotation is the same operator in the same org continuing the same
+ * session, so it is not a new entry and does not get a new row.
  */
 
 import { isAwsTarget } from '@/lib/deploy-target';
@@ -213,9 +223,15 @@ export function tokenSecondsLeft(token: string, nowMs = Date.now()): number {
 }
 
 /**
- * Write the console cookie for `token`. Returns false (and clears any old
- * cookie) when the token has no time left — a cookie that outlives its token
- * would only make the gateway answer 401.
+ * Re-write the console cookie for a ROTATED `token`. Returns false (and clears
+ * any old cookie) when the token has no time left — a cookie that outlives its
+ * token would only make the gateway answer 401.
+ *
+ * Not the path that OPENS a console: that is `api.openConsoleSession`, which
+ * mints the cookie server-side so the entry is audited. This keeps an
+ * already-open console working across a refresh without minting a second
+ * session, so the audit trail stays one row per entry rather than one per
+ * rotation.
  */
 export function setAdminConsoleCookie(token: string, nowMs = Date.now()): boolean {
   const maxAge = tokenSecondsLeft(token, nowMs);

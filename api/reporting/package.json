@@ -133,7 +133,7 @@
       "global": {
         "statements": 95,
         "branches": 89,
-        "functions": 78,
+        "functions": 94,
         "lines": 95
       }
     }

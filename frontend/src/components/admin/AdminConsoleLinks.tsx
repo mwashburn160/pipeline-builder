@@ -11,7 +11,7 @@ import { useFeatures } from '@/hooks/useFeatures';
 import { readSessionAssurance } from '@/hooks/useSessionAssurance';
 import api from '@/lib/api';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
-import { adminConsolesAvailable, consoleAccess, consolesAreGated, setAdminConsoleCookie, visibleConsoles, type AdminConsole } from '@/lib/admin-console';
+import { adminConsolesAvailable, consoleAccess, consolesAreGated, visibleConsoles, type AdminConsole } from '@/lib/admin-console';
 import type { User } from '@/types';
 
 /**
@@ -73,8 +73,16 @@ export function AdminConsoleLinks({ user }: { user: Pick<User, 'isSuperAdmin' | 
     void (async () => {
       try {
         await api.ensureFreshToken();
-        const token = api.getAccessToken();
-        if (!token || !setAdminConsoleCookie(token)) throw new Error('Your session has no usable access token — sign in again.');
+        // THE SERVER MINTS THE COOKIE, and audits it. This used to be a local
+        // `document.cookie` write, which meant opening a cross-tenant database
+        // shell produced no server-side record — platform can only count the
+        // gateway's per-asset check, not audit it. One call per console entry is
+        // the one point where that access is a discrete act.
+        //
+        // It also re-checks the class's permission, the system org and AAL2, so
+        // a refusal lands HERE with a message instead of as a bare 401 from the
+        // gateway after the tab has already opened.
+        await api.openConsoleSession(console_.requires);
         if (win) {
           win.opener = null;
           win.location.href = href;

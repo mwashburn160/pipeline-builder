@@ -1,6 +1,6 @@
 // GENERATED FROM docs/observability-logs.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: b9912574e800502b29307244d2b068065b640353998856d353c99e711a9183ca
+// SOURCE-SHA256: be4c9296b1eacbd1dd6813fc7313f3ad5ebcf3ba7a0d7fb127a9971cbb8afd5e
 // SPDX-License-Identifier: Apache-2.0
 import { FileSearch } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -36,7 +36,7 @@ export const observabilityLogsTopic: HelpTopic = {
             "You never write LogQL. A small search syntax is compiled server-side; raw queries from the browser are refused. That indirection is what makes the surface safe to expose per-tenant.",
             "Credentials are masked before they are stored, not just on display — and a search term that looks like a credential is rejected.",
             "Export is a separate permission (logs:export) from viewing (observability:read), because bulk egress leaves the building and outlives a revoked session.",
-            "Retention is 7 days, platform-wide. A wider request is narrowed with a banner rather than rejected.",
+            "Retention is 30 days by default, platform-wide, from LOG_RETENTION_HOURS (720). A wider request is narrowed with a banner rather than rejected. That one variable sets both Loki's retention_period and the query clamp, so they cannot drift apart.",
             "Not the audit trail. /dashboard/audit records who did what; these are the services' own log lines."
           ]
         }
@@ -153,8 +153,8 @@ export const observabilityLogsTopic: HelpTopic = {
               "Enables per-tenant deletion when an organization is removed"
             ],
             [
-              "retention_period: 168h",
-              "7 days, platform-wide"
+              "retention_period: ${LOG_RETENTION_HOURS:-720}h",
+              "30 days by default; expanded by -config.expand-env"
             ]
           ]
         },
@@ -261,7 +261,7 @@ export const observabilityLogsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Presets (15m / 1h / 6h / 24h / 7d), or an absolute range. Clicking a bar in the volume histogram zooms to that bucket. Because retention is 7 days, a wider request is narrowed to that window with a banner."
+          "content": "Presets (15m / 1h / 6h / 24h / 7d / 30d), or an absolute range. Clicking a bar in the volume histogram zooms to that bucket. Because retention is 7 days, a wider request is narrowed to that window with a banner."
         }
       ]
     },

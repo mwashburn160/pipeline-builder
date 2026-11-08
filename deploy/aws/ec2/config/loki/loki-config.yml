@@ -1,7 +1,7 @@
 # =============================================================================
 # Loki Configuration — Local Development
 # =============================================================================
-# RustFS (S3)-backed chunks + index, 7-day retention (compactor + retention_period).
+# RustFS (S3)-backed chunks + index, 30-day retention (compactor + retention_period).
 # Docs: https://grafana.com/docs/loki/latest/configure/
 
 # Multi-tenant. Each ORGANIZATION is a Loki tenant: Alloy routes every line
@@ -61,9 +61,11 @@ querier:
   multi_tenant_queries_enabled: true
 
 limits_config:
-  # 7-day retention — REQUIRED for the compactor's retention_enabled to actually
+  # 30-day retention by default, from LOG_RETENTION_HOURS so this and platform's
+  # query clamp cannot drift (`-config.expand-env=true` is set on the Loki
+  # container). REQUIRED for the compactor's retention_enabled to actually
   # delete; without it deletion never fires and the loki bucket grows unbounded.
-  retention_period: 168h
+  retention_period: ${LOG_RETENTION_HOURS:-720}h
   reject_old_samples: true
   reject_old_samples_max_age: 168h
   ingestion_rate_mb: 10

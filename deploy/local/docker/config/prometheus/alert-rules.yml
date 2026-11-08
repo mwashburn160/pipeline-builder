@@ -794,6 +794,17 @@ groups:
       # exemption is meant to be temporary and narrow, so both of its failure
       # modes are worth waking up for: one that is silently doing nothing, and
       # one that is about to lapse under a deploy nobody has planned.
+      - alert: DatabaseConsoleAccessed
+        expr: increase(admin_console_access_total{console_class="database"}[10m]) > 0
+        for: 0m
+        labels:
+          severity: warning
+          component: platform
+          tenancy: platform
+        annotations:
+          summary: "A platform operator opened pgAdmin or mongo-express"
+          description: "pgAdmin and mongo-express are a read/write shell over EVERY tenant's rows, and a READ leaves nothing in the audit chain — the chain records damage, not access. So this notifies on entry: the gate already demands a platform admin, in the system org, at AAL2, with database_console:open, which makes this rare and deliberate. Expected during a migration or an incident; unexpected otherwise, and then the question is who and why. Correlate `userId` from platform's 'Admin console access admitted' log line with the gateway access log. `for: 0m` on purpose — one entry is the event, and waiting would only delay it."
+
       - alert: PluginVulnWaiverInvalid
         expr: plugin_vuln_waivers_invalid > 0
         for: 10m

@@ -72,6 +72,11 @@ spec:
             - "-config.file=/etc/loki/loki-config.yml"
             - "-config.expand-env=true"
           env:
+            # Drives `retention_period` in loki-config.yml, and is held equal to
+            # platform's LOG_RETENTION_HOURS by a deploy contract — a clamp
+            # narrower than retention hides data that exists.
+            - name: LOG_RETENTION_HOURS
+              valueFrom: { configMapKeyRef: { name: app-env, key: LOG_RETENTION_HOURS, optional: true } }
             - name: LOKI_S3_ACCESS_KEY
               valueFrom: { secretKeyRef: { name: rustfs-secret, key: loki-access-key } }
             - name: LOKI_S3_SECRET_KEY
