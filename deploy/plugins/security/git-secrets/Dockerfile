@@ -21,6 +21,11 @@ ARG TRUFFLEHOG_VERSION=3.99.8
 # Revisit when a gitleaks release ships a current x/crypto: this whole stage
 # then collapses back to the one-line COPY it replaced.
 ARG XCRYPTO_VERSION=0.58.0
+# Gitleaks' go.mod also pins github.com/andybalholm/brotli at a 2025
+# pseudo-version (v1.1.2-0.20250424…), which carries GO-2026-6888 — Critical
+# and CISA KEV-listed, fixed in 1.2.7. Raised to the same v1.2.8 testing/k6
+# and api/plugin use; without it the rebuilt binary still fails the gate.
+ARG BROTLI_VERSION=1.2.8
 
 FROM trufflesecurity/trufflehog:${TRUFFLEHOG_VERSION} AS trufflehog-src
 
@@ -32,6 +37,7 @@ FROM trufflesecurity/trufflehog:${TRUFFLEHOG_VERSION} AS trufflehog-src
 FROM plugin-go-base:1.0 AS gitleaks-src
 ARG GITLEAKS_VERSION
 ARG XCRYPTO_VERSION
+ARG BROTLI_VERSION
 USER root
 # RETRIED for the same reason the `go install` plugins retry: the clone and the
 # module fetches go through github.com and proxy.golang.org, both of which fail
@@ -49,7 +55,10 @@ RUN set -eux; \
     mkdir -p /out; \
     for attempt in 1 2 3 4 5; do \
       if go get "golang.org/x/crypto@v${XCRYPTO_VERSION}" \
-        && CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o /out/gitleaks .; then \
+          "github.com/andybalholm/brotli@v${BROTLI_VERSION}" \
+        && CGO_ENABLED=0 go build -trimpath \
+          -ldflags "-s -w -X=github.com/zricethezav/gitleaks/v8/version.Version=${GITLEAKS_VERSION}" \
+          -o /out/gitleaks .; then \
         break; \
       fi; \
       echo "gitleaks build failed (attempt $attempt/5); retrying" >&2; \
@@ -59,10 +68,20 @@ RUN set -eux; \
     # Fail the BUILD if the patch did not take, rather than shipping an image
     # that merely looks fixed: the whole point of this stage is the module
     # version baked into the binary, and `go get` can be silently overridden by
-    # a transitive requirement.
-    go version -m /out/gitleaks | grep -qE "golang.org/x/crypto[[:space:]]+v${XCRYPTO_VERSION}\$" \
-      || { echo "x/crypto was not raised to v${XCRYPTO_VERSION} in the built binary" >&2; \
-           go version -m /out/gitleaks | grep "x/crypto" >&2; exit 1; }
+    # a transitive requirement. Compare the VERSION FIELD, as >= the pin (MVS may
+    # resolve higher): the old `grep "…v<pin>$"` could never match, because
+    # `go version -m` prints the module's h1: checksum AFTER the version, so this
+    # step failed every build even with the raise in place.
+    atleast() { \
+      _got="$(go version -m /out/gitleaks | awk -v m="$1" '$1 == "dep" && $2 == m { print $3 }')"; \
+      [ -n "$_got" ] || { echo "$1 is not linked into gitleaks" >&2; exit 1; }; \
+      [ "$(printf '%s\n%s\n' "v$2" "$_got" | sort -V | head -1)" = "v$2" ] \
+        || { echo "$1 is $_got in gitleaks, expected >= v$2" >&2; exit 1; }; \
+      echo "ok: $1 $_got (>= v$2)"; \
+    }; \
+    atleast golang.org/x/crypto "${XCRYPTO_VERSION}"; \
+    atleast github.com/andybalholm/brotli "${BROTLI_VERSION}"; \
+    /out/gitleaks version
 
 FROM plugin-base:26.10
 
