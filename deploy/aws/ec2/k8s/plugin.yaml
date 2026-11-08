@@ -511,9 +511,25 @@ spec:
         # threshold's meaning with it, which is why 13 is written as the sum and not
         # as a magic number.
         # WEIGHTED by what a replica can actually absorb. One replica clears
-        # `plugin_build_tier_concurrency` jobs of a tier, so "replicas needed" is
-        # `jobs / concurrency` summed over tiers — and the threshold is then 1,
-        # because the query is already denominated in replicas.
+        # `plugin_build_tier_concurrency` jobs of a tier, so a tier's own ask is
+        # `jobs / concurrency` — and the threshold is then 1, because the query is
+        # already denominated in replicas.
+        #
+        # MAX over tiers, NOT the sum, and the difference is a whole fleet. One
+        # replica runs a worker for EVERY tier at once, so it serves all of them
+        # simultaneously rather than one at a time: 8 waiting developer jobs (1
+        # per replica) and 10 waiting pro jobs (2 per replica) need max(8, 5) = 8
+        # replicas, and at 8 replicas pro's capacity is 16, so both are served.
+        # Summing would ask for 13 and over-provision by roughly the tier count —
+        # which is the same mistake as the flat `/2` below, arrived at from the
+        # other direction.
+        #
+        # BORROW-AWARE, because the gauge is the EFFECTIVE ceiling (floor +
+        # PLUGIN_BUILD_BORROW_MAX), not the ladder row — see `fetchConcurrency` in
+        # plugin-build-queue.ts. So enabling borrowing LOWERS this ask: it buys
+        # density instead of replicas, and 20 `unlimited` jobs want 2 dense pods
+        # rather than 8 sparse ones. Publishing the floor here instead would be
+        # the inverse bug — scaling to 8 while each pod already absorbs 13.
         #
         # Two wrong answers this replaces. A flat `(waiting+active)/2` treated 600
         # queued jobs as 300 replicas' worth, pinning the fleet at its ceiling

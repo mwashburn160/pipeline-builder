@@ -52,6 +52,22 @@ export function maxBuildsPerReplica(): number {
  * on a multi-tenant cluster (2 bounds the wait at two builds); it can be most of
  * the ladder on a billing-disabled install, where there is no other tier to
  * protect. It can never exceed the replica budget, which still binds on top.
+ *
+ * AND IT CONCENTRATES BLAST RADIUS, which is the half an operator does not see
+ * coming. This knob feeds `fetchConcurrency` in plugin-build-queue.ts, which is
+ * BOTH the worker's fetch concurrency and the `plugin_build_tier_concurrency`
+ * gauge the autoscaler divides a backlog by. So raising it LOWERS the replica
+ * count the fleet asks for — it buys density instead of pods, which is the point
+ * on a per-pod-sidecar workload. But every pod then holds more in flight, and a
+ * replica going away takes all of it with it: a scale-down, eviction, restart or
+ * Karpenter consolidation aborts every build on that pod ("stalled more than
+ * allowable limit"). At the default 0 an `unlimited` replica loses ONE build; at
+ * 12 it loses up to 13, and none of that work is recoverable.
+ *
+ * So the two effects compound in the same direction: fewer pods, each more
+ * expensive to lose. The HPA's 300s scale-down stabilization window damps the
+ * scale-down case; consolidation is the one it does not cover. Raise this on a
+ * fleet whose pods are stable, not one that is churning.
  */
 export function buildBorrowMax(): number {
   return envInt('PLUGIN_BUILD_BORROW_MAX', 0, { min: 0 });
