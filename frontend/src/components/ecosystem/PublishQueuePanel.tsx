@@ -60,6 +60,11 @@ function formatAge(hours: number): string {
 /** The queue overview: approver headroom, pending counts, bootstrap and Official auto-approval state. */
 function OverviewHeader({ overview }: { overview: EcosystemOverview }) {
   const moderate = overview.approvers.moderate;
+  // The server returns BOTH standings; only `moderate` was ever read. A
+  // `publishers:verify` shortage stalls two-person Verified and unsuspend
+  // approvals exactly as a `plugins:moderate` shortage stalls the queue, and it
+  // was the one nobody could see.
+  const verify = overview.approvers.verify;
   const managers = moderate.count?.holders ?? null;
   const resignPending = overview.resignJobs?.length ?? 0;
   const tiles: Array<{ label: string; value: string | number; tone?: 'warn' | 'danger' }> = [
@@ -67,7 +72,12 @@ function OverviewHeader({ overview }: { overview: EcosystemOverview }) {
     { label: 'Standard lane', value: overview.pending.standard },
     { label: 'Security lane', value: overview.pending.security, tone: overview.pending.security > 0 ? 'danger' : undefined },
     { label: 'Awaiting second approval', value: overview.pending.secondApproval },
-    { label: 'Verification', value: overview.pending.verify },
+    // COUNTS FOUR KINDS, and the list below it shows one. `pending.verify` is
+    // the server's count over VERIFY_REQUEST_KINDS — transfer, claim,
+    // profile_change, verify — while the Verified-applications list fetches
+    // `kind: 'verify'` alone. "Verification: 7" beside a list of 2 was not a
+    // bug in either number; nothing said they were counting different things.
+    { label: 'Verification queue', value: overview.pending.verify },
   ];
   return (
     <div className="space-y-3" data-testid="queue-overview">
@@ -80,6 +90,7 @@ function OverviewHeader({ overview }: { overview: EcosystemOverview }) {
         ))}
       </dl>
       <ApproverStandingNotice standing={moderate} minimum={overview.approvers.minimum} scope="console" />
+      <ApproverStandingNotice standing={verify} minimum={overview.approvers.minimum} scope="console" />
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-fg-muted">
         <span>
           Bootstrap exception:{' '}

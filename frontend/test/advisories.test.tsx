@@ -419,7 +419,10 @@ describe('AdvisoriesPanel (console)', () => {
     render(<AdvisoriesPanel can={() => false} />);
     await screen.findByTestId('eco-advisory-a1');
     expect(screen.queryByRole('button', { name: /publish the advisory/i })).toBeNull();
-    expect(screen.queryByRole('button', { name: /new draft/i })).toBeNull();
+    // SHOWN AND LOCKED, not hidden — see the note in the auto-approval twin.
+    const newDraft = screen.getByRole('button', { name: /new draft/i });
+    expect(newDraft).toBeDisabled();
+    expect(newDraft).toHaveAttribute('title', expect.stringContaining('plugins:moderate'));
   });
 });
 

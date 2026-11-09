@@ -43,7 +43,9 @@ export function PublisherAdvisoriesPanel({ canManage }: { canManage: boolean }) 
   const listingsQ = useFetch(async (signal) => {
     if (!submitting) return null;
     const res = await api.listPublisherListings({ signal });
-    return res.data?.listings ?? [];
+    // See AdvisoriesPanel: coalescing a failure to [] leaves a dead form.
+    if (!res.success || !res.data) throw new Error(res.message || 'Failed to load listings');
+    return res.data.listings;
   }, [submitting]);
 
   const withdraw = async () => {

@@ -19,6 +19,7 @@
  *    decide it on the spot (decisions.ts).
  */
 
+import { COMMUNITY_PUBLISHER_HANDLE } from '@pipeline-builder/pipeline-data';
 import {
   isoOrNull,
   actorId,
@@ -237,6 +238,12 @@ async function securityAdvisory(advisoryId: unknown, listingId: string | null): 
  * image failing `vuln` at once — which is a rate question this counter now makes
  * askable, not an individual event.
  */
+/** The community publisher's listing of this name — the only claimable kind. */
+async function communityListingByName(name: string): Promise<PluginListing | null> {
+  const community = await publishers.byHandle(COMMUNITY_PUBLISHER_HANDLE);
+  return community ? listings.byName(community.id, name) : null;
+}
+
 function assertGates(gates: Gate[], subject?: { name?: string; version?: string }): void {
   const failing = gates.filter((g) => !g.ok);
   if (failing.length === 0) return;
@@ -362,7 +369,16 @@ async function buildRequest(caller: Caller, publisher: Publisher, kind: PublishR
         if (refusal.code !== ErrorCode.PUBLISHER_HANDLE_RESERVED) throw new EcosystemError(refusal.code, refusal.message);
         return { reason: optionalText(body.reason, 1000), payload: { name: `handle:${handle}`, target: { handle }, submitter } };
       }
-      const listing = await listings.byId(requiredText(target.listingId, 'target.listingId', 64));
+      // BY ID, or BY NAME — and the name is what a claimer actually has. The
+      // public directory deliberately exposes no listing ids (a card is
+      // `publisher.handle` + `name`), so an id-only target made this request
+      // impossible to build from the page where someone discovers their own
+      // plugin. A name is unambiguous here precisely because only COMMUNITY
+      // listings are claimable, and the community publisher holds one listing
+      // per name; the ownership check below is unchanged either way.
+      const listing = typeof target.listingId === 'string' && target.listingId.trim()
+        ? await listings.byId(requiredText(target.listingId, 'target.listingId', 64))
+        : await communityListingByName(requiredText(target.name, 'target.name', 128));
       const owner = listing ? await publishers.byId(listing.publisherId) : null;
       if (!listing || owner?.ownerOrgId !== null) throw new EcosystemError(ErrorCode.NOT_FOUND, 'Only listings of the platform community publisher can be claimed.');
       // the claimer's VERIFIED email, hashed, so approval can link the

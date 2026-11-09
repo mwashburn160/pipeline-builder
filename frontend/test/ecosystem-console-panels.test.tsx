@@ -174,32 +174,42 @@ describe('Publish queue — overview and filters', () => {
     await waitFor(() => expect(within(ov).getByText('3')).toBeInTheDocument());
     expect(within(ov).getByRole('link', { name: /moderation runbook/i }))
       .toHaveAttribute('href', expect.stringContaining('docs/runbooks/ecosystem-moderation.md'));
-    expect(screen.queryByText(/fewer than two ecosystem managers/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/fewer than two approvers with moderation rights/i)).not.toBeInTheDocument();
   });
 
-  it('warns when fewer than two Ecosystem Managers hold the permission (the overview\'s count)', async () => {
+  it('warns when fewer than two approvers hold MODERATION rights, naming which (the overview\'s count)', async () => {
     api.getEcosystemOverview.mockResolvedValue({ success: true, data: overview(1) });
     render(<PublishQueuePanel can={canAll} />);
-    expect(await screen.findByText(/fewer than two ecosystem managers/i)).toBeInTheDocument();
-    expect(screen.getByText(/keep at least 3/i)).toBeInTheDocument();
+    expect(await screen.findByText(/fewer than two approvers with moderation rights/i)).toBeInTheDocument();
+    // BOTH standings are surfaced now. The server has always returned
+    // `verify` beside `moderate` and the console read only the first, so a
+    // publisher-verification shortage — which stalls Verified and unsuspend
+    // approvals — was invisible while the moderation one warned. Two notices,
+    // each naming its own rights, is the point.
+    expect(screen.getByText(/fewer than two approvers with publisher-verification rights/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/keep at least 3/i)).toHaveLength(2);
   });
 
   it('warns below the staffing minimum of three', async () => {
     api.getEcosystemOverview.mockResolvedValue({ success: true, data: overview(2) });
     render(<PublishQueuePanel can={canAll} />);
-    expect(await screen.findByText(/below 3 ecosystem managers/i)).toBeInTheDocument();
-    expect(screen.queryByText(/fewer than two ecosystem managers/i)).not.toBeInTheDocument();
+    expect(await screen.findByText(/below 3 approvers with moderation rights/i)).toBeInTheDocument();
+    expect(screen.queryByText(/fewer than two approvers with moderation rights/i)).not.toBeInTheDocument();
   });
 
   it('shows no approver warning when the count is unknown', async () => {
     const o = overview(1);
+    // BOTH, since the console now renders a notice per standing: leaving
+    // `verify` populated would (correctly) warn about verification rights and
+    // this case is about an unknown count warning for nothing.
     o.approvers.moderate = { ...o.approvers.moderate, count: null as never, belowMinimum: false, belowTwoPerson: false };
+    o.approvers.verify = { ...o.approvers.verify, count: null as never, belowMinimum: false, belowTwoPerson: false };
     api.getEcosystemOverview.mockResolvedValue({ success: true, data: o });
     render(<PublishQueuePanel can={canAll} />);
     const ov = await screen.findByTestId('queue-overview');
     expect(within(ov).getByText('—')).toBeInTheDocument();
     expect(screen.queryByText(/ecosystem managers/i, { selector: '[role="alert"] *' })).not.toBeInTheDocument();
-    expect(screen.queryByText(/fewer than two ecosystem managers/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/fewer than two approvers with moderation rights/i)).not.toBeInTheDocument();
   });
 
   it('re-queries with the chosen status, kind and lane; highlights the security lane', async () => {
@@ -402,11 +412,19 @@ describe('Auto-approval rules', () => {
     expect(screen.getByRole('button', { name: /new rule/i })).toBeEnabled();
   });
 
-  it('shows no write controls without plugins:moderate', async () => {
+  it('LOCKS the write controls without plugins:moderate, rather than hiding them', async () => {
+    // The page's own contract says a viewer without the permission "should
+    // still SEE the console (writes stay disabled)" — and under read-only
+    // impersonation `can()` is false for every mutation permission, so hiding
+    // left an operator staring at a console with no way to tell whether the
+    // control was missing, broken, or merely not theirs.
     api.listAutoRules.mockResolvedValue({ success: true, data: { rules: [rule({ pendingChange: pendingChange('u-other') })] } });
     render(<AutoApprovalRulesPanel can={() => false} currentUserId="u-me" />);
     await screen.findByTestId('rule-rule-1');
-    expect(screen.queryByRole('button', { name: /new rule|disable|approve the change|delete/i })).not.toBeInTheDocument();
+    const newRule = screen.getByRole('button', { name: /new rule/i });
+    expect(newRule).toBeDisabled();
+    expect(newRule).toHaveAttribute('title', expect.stringContaining('plugins:moderate'));
+    expect(screen.queryByRole('button', { name: /disable|approve the change|delete/i })).not.toBeInTheDocument();
   });
 });
 

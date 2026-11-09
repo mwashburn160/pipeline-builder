@@ -60,7 +60,15 @@ export interface ReviewBody {
 /** One review in the Ecosystem console's moderation queue. */
 export interface ModerationReview {
   id: string;
-  listing: { id: string; publisher: string; name: string };
+  listing: {
+    id: string;
+    publisher: string;
+    name: string;
+    /** Null on a listing the queue could not resolve. */
+    state: string | null;
+    pausedAt: string | null;
+    publisherSuspended: boolean;
+  };
   rating: number;
   title: string | null;
   bodyHtml: string | null;

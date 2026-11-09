@@ -198,6 +198,7 @@ const TARGET_SPECIFIC: Record<string, { targets: string[]; why: string }> = {
   REDIS_SENTINELS: { targets: ['ec2', 'eks'], why: 'Sentinel HA; docker/minikube run one redis and use REDIS_URL' },
   REDIS_SENTINEL_MASTER: { targets: ['ec2', 'eks'], why: 'Sentinel master name; meaningless without Sentinel' },
   AUTH_LIMITER_MAX: { targets: ['docker', 'minikube'], why: 'raised for local setup runs; the AWS targets keep the strict code default' },
+  PLUGIN_BUILD_CONCURRENCY_UNLIMITED: { targets: ['eks'], why: "the system org's private tier once billing is on (constantTierFor hands `unlimited` to it alone), raised so the one-time sample-catalogue load is not stuck at one build per replica; eks is the only target that scales out far enough for the row to matter" },
   PLUGIN_BUILD_BORROW_MAX: { targets: ['docker', 'minikube'], why: 'build-slot borrowing is ON locally, where billing is off so every org sits on the bottom tier rung (floor 1 of 13) with no other tier to protect; the AWS targets ship it off because a lent slot delays another tenant\'s guarantee by non-preemptible builds' },
   KIALI_SIGNING_KEY: { targets: ['minikube', 'ec2', 'eks'], why: 'Kiali ships with the service mesh, which only the k8s targets run' },
   OTEL_TRACING_ENABLED: { targets: ['minikube', 'ec2', 'eks'], why: 'tracing collector is a k8s-target workload' },

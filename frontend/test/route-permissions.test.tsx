@@ -2264,6 +2264,11 @@ const CONTROLS: Control[] = [
       renders: ECO_PANEL_RENDERS,
       mount: ecoPanel('../src/components/ecosystem/AutoApprovalRulesPanel', 'AutoApprovalRulesPanel', { currentUserId: 'u1' }),
       api: { listAutoRules: { rules: [] } },
+      // LOCKED, not hidden: the ecosystem console's own contract says a viewer
+      // without the permission still SEES it with writes disabled, and under
+      // read-only impersonation `can()` is false for every mutation permission
+      // — so hiding left an operator unable to tell "not mine" from "broken".
+      absence: 'disabled',
       find: button(/new rule/i),
     },
   },

@@ -145,3 +145,48 @@ export function buildPreviewCard(input: {
     state: 'listed',
   };
 }
+
+/**
+ * Whether a listing is actually REACHABLE in the public directory.
+ *
+ * The directory's own contract, in one place, because it was open-coded as
+ * `state === 'listed'` at two call sites and that is wrong in BOTH directions:
+ *
+ *  - an `unmaintained` listing IS in the directory (the views select
+ *    `state IN ('listed','unmaintained')`), so testing for `listed` alone hides
+ *    a working public page from its own publisher;
+ *  - a PAUSED listing is not, so the same test offered a "View public page"
+ *    link — directly beneath the panel's own "Paused" badge — to a 404.
+ *
+ * `publisherSuspended` is the third term the views apply (`p.suspended_at IS
+ * NULL`). Pass it where the caller knows it; omitted means "not suspended",
+ * which is the right default for a publisher looking at its OWN listings — a
+ * suspended publisher cannot reach that surface.
+ */
+export function isInPublicDirectory(
+  listing: { state?: string | null; pausedAt?: string | null },
+  publisherSuspended = false,
+): boolean {
+  return (listing.state === 'listed' || listing.state === 'unmaintained')
+    && !listing.pausedAt
+    && !publisherSuspended;
+}
+
+/**
+ * Why a listing has no public page — the counterpart to
+ * {@link isInPublicDirectory}, for surfaces that must EXPLAIN the absence
+ * rather than quietly drop a link.
+ *
+ * Ordered by what the reader can act on: suspension is the publisher's whole
+ * account and outranks a single listing's pause, which in turn outranks a state
+ * that was never public.
+ */
+export function noPublicPageReason(
+  listing: { state?: string | null; pausedAt?: string | null },
+  publisherSuspended = false,
+): string {
+  if (publisherSuspended) return 'No public page: the publisher is suspended';
+  if (listing.pausedAt) return 'No public page: paused by its publisher';
+  if (listing.state === 'listed' || listing.state === 'unmaintained') return 'No public page';
+  return `No public page: the listing is ${listing.state ?? 'not resolvable'}`;
+}

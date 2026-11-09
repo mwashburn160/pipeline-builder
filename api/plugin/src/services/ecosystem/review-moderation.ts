@@ -39,7 +39,21 @@ function moderationView(
 ) {
   return {
     id: r.id,
-    listing: { id: r.listingId, publisher: publisher?.handle ?? '', name: listing?.name ?? '' },
+    // STATE, not just a name. The console linked every one of these straight to
+    // the public page, which 404s whenever the listing is paused or its
+    // publisher suspended — and a moderator deciding about a review on a listing
+    // they do not know has no way to tell. These three come free: this function
+    // already holds the full listing and publisher rows (it reads `name` and
+    // `handle` off them), so the queue answers "is there a public page, and if
+    // not why" without another query.
+    listing: {
+      id: r.listingId,
+      publisher: publisher?.handle ?? '',
+      name: listing?.name ?? '',
+      state: listing?.state ?? null,
+      pausedAt: isoOrNull(listing?.pausedAt ?? null),
+      publisherSuspended: publisher?.suspendedAt != null,
+    },
     rating: r.rating,
     title: r.title,
     bodyHtml: r.bodyHtml,

@@ -252,11 +252,16 @@ export function AutoApprovalRulesPanel({ can, currentUserId }: Props) {
       icon={Zap}
       title="Auto-approval rules"
       description="Routine requests these rules match are approved without a human. Anything riskier waits in the queue."
-      actions={mayModerate ? (
-        <Button size="sm" onClick={() => setPending({ kind: 'form', rule: null })}>
+      actions={(
+        <Button
+          size="sm"
+          onClick={() => setPending({ kind: 'form', rule: null })}
+          disabled={!mayModerate}
+          title={mayModerate ? undefined : 'Requires plugins:moderate — unavailable in a read-only session'}
+        >
           <Plus className="w-4 h-4 mr-1" aria-hidden />New rule
         </Button>
-      ) : undefined}
+      )}
     >
       {mayModerate && tooFewApprovers && (
         <p className="mb-3 text-xs text-warning-strong" data-testid="rules-too-few-approvers">

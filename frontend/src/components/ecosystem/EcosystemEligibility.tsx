@@ -84,10 +84,15 @@ export function ApproverStandingNotice({ standing, minimum = 3, scope, requiresT
       </p>
     );
   }
+  // NAMES THE PERMISSION. The console renders one of these per standing, and
+  // the two stall different things — `plugins:moderate` the publish queue,
+  // `publishers:verify` the Verified and unsuspend decisions. Two identical
+  // "Ecosystem Managers" callouts would say nothing about which is short.
+  const rights = standing.permission === 'publishers:verify' ? 'publisher-verification' : 'moderation';
   if (standing.belowTwoPerson) {
     return (
-      <Callout variant="warning" title="Fewer than two Ecosystem Managers">
-        Only {count.holders} system-org member{count.holders === 1 ? ' holds' : 's hold'} the Ecosystem Manager permissions, so
+      <Callout variant="warning" title={`Fewer than two approvers with ${rights} rights`}>
+        Only {count.holders} system-org member{count.holders === 1 ? ' holds' : 's hold'} {rights} rights, so
         two-person approvals need a superadmin as the other approver. Keep at least {minimum}: add managers on the
         Ecosystem Managers tab.
       </Callout>
@@ -95,8 +100,8 @@ export function ApproverStandingNotice({ standing, minimum = 3, scope, requiresT
   }
   if (standing.belowMinimum) {
     return (
-      <Callout variant="warning" title={`Below ${minimum} Ecosystem Managers`}>
-        {count.holders} managers can cover two-person approval today, but not an absence. Keep at least
+      <Callout variant="warning" title={`Below ${minimum} approvers with ${rights} rights`}>
+        {count.holders} can cover two-person approval today, but not an absence. Keep at least
         {' '}{minimum}.
       </Callout>
     );

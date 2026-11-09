@@ -64,7 +64,12 @@ export function AdvisoriesPanel({ can }: Props) {
   const listingsQ = useFetch(async (signal) => {
     if (action?.kind !== 'new-form') return null;
     const res = await api.listEcosystemListings(undefined, { signal });
-    return res.data?.listings ?? [];
+    // THROW, don't coalesce to []. A failed fetch used to read as "this
+    // deployment has no listings": the select rendered "No listings", and
+    // Confirm stayed disabled because `listingId` was never set — a dead form
+    // with no stated reason, indistinguishable from an empty catalog.
+    if (!res.success || !res.data) throw new Error(res.message || 'Failed to load listings');
+    return res.data.listings;
   }, [action?.kind === 'new-form']);
 
   /** Back to the form with what was typed, and the reason it was refused. */
@@ -122,11 +127,16 @@ export function AdvisoriesPanel({ can }: Props) {
       icon={ShieldAlert}
       title="Security advisories"
       description="Draft, publish and withdraw advisories. Publishing notifies every organization that installed an affected version."
-      actions={mayModerate ? (
-        <Button size="sm" onClick={() => setAction({ kind: 'new-form' })}>
+      actions={(
+        <Button
+          size="sm"
+          onClick={() => setAction({ kind: 'new-form' })}
+          disabled={!mayModerate}
+          title={mayModerate ? undefined : 'Requires plugins:moderate — unavailable in a read-only session'}
+        >
           <Plus className="w-4 h-4 mr-1" aria-hidden />New draft
         </Button>
-      ) : undefined}
+      )}
     >
       <div className="space-y-4">
         <FormField label="State" className="max-w-[12rem]">

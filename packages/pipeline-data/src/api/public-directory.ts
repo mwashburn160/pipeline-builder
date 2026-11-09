@@ -329,11 +329,21 @@ export function encodeOffsetCursor(offset: number): string {
   return Buffer.from(JSON.stringify({ o: offset })).toString('base64url');
 }
 
+/**
+ * How deep the directory may be paged. A bound on enumeration, not a page size:
+ * past it the decoder refuses the cursor, so a caller cannot walk the whole
+ * catalog by incrementing an offset.
+ */
+export const MAX_DIRECTORY_OFFSET = 10_000;
+
+/** The facet bucket for rows whose nullable key is NULL — see the facet loop. */
+export const FACET_NONE = '(none)';
+
 export function decodeOffsetCursor(cursor: string | undefined): number {
   if (!cursor) return 0;
   try {
     const o = (JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')) as { o?: unknown }).o;
-    return typeof o === 'number' && Number.isInteger(o) && o >= 0 && o <= 10_000 ? o : 0;
+    return typeof o === 'number' && Number.isInteger(o) && o >= 0 && o <= MAX_DIRECTORY_OFFSET ? o : 0;
   } catch {
     return 0;
   }
@@ -466,12 +476,18 @@ export async function searchPublicListings(params: DirectorySearchParams): Promi
     g_secrets: number;
     n: number | string;
   };
+  // A NULL key is a real bucket, not a row to drop. `license` and
+  // `compute_type` are nullable, and skipping their NULL groups made the facets
+  // unreconcilable with `total`: a listing with no license was counted in the
+  // total and in no facet, so a client summing the buckets came up short with
+  // nothing to explain the gap. `(none)` names the bucket the rows are actually
+  // in — a filterable value, and visibly different from a missing one.
   for (const r of resultRows<FacetRow>(facetRes)) {
     const n = num(r.n);
     if (Number(r.g_category) === 0 && r.category) facets.category[r.category] = n;
     else if (Number(r.g_tier) === 0 && r.publisher_tier) facets.tier[r.publisher_tier] = n;
-    else if (Number(r.g_license) === 0 && r.license) facets.license[r.license] = n;
-    else if (Number(r.g_compute) === 0 && r.compute_type) facets.computeType[r.compute_type] = n;
+    else if (Number(r.g_license) === 0) facets.license[r.license ?? FACET_NONE] = n;
+    else if (Number(r.g_compute) === 0) facets.computeType[r.compute_type ?? FACET_NONE] = n;
     else if (Number(r.g_secrets) === 0 && r.needs_secrets !== null) facets.needsSecrets[r.needs_secrets ? 'true' : 'false'] = n;
   }
 
@@ -479,7 +495,16 @@ export async function searchPublicListings(params: DirectorySearchParams): Promi
     items,
     facets,
     total,
-    nextCursor: offset + items.length < total ? encodeOffsetCursor(offset + items.length) : null,
+    // NEVER past the ceiling the decoder enforces. This used to emit a cursor
+    // for any `offset + items.length < total`, including offsets above
+    // MAX_DIRECTORY_OFFSET — which `decodeOffsetCursor` then refuses by
+    // returning 0. A client following `nextCursor` got PAGE ONE back and looped
+    // forever, with no error and no way to tell it had stopped advancing.
+    // Ending the pages at the ceiling is the honest answer: the bound exists,
+    // so say so by running out of cursor rather than by silently restarting.
+    nextCursor: offset + items.length < total && offset + items.length <= MAX_DIRECTORY_OFFSET
+      ? encodeOffsetCursor(offset + items.length)
+      : null,
   };
 }
 

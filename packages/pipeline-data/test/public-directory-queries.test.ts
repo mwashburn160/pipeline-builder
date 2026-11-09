@@ -129,14 +129,17 @@ describe('searchPublicListings', () => {
       { compute_type: 'SMALL', g_category: 1, g_tier: 1, g_license: 1, g_compute: 0, g_secrets: 1, n: 5 },
       { needs_secrets: true, g_category: 1, g_tier: 1, g_license: 1, g_compute: 1, g_secrets: 0, n: 1 },
       { needs_secrets: false, g_category: 1, g_tier: 1, g_license: 1, g_compute: 1, g_secrets: 0, n: 6 },
-      // A NULL group value (e.g. no license) is not a facet bucket.
+      // A NULL group value (e.g. no license) IS a bucket, named `(none)`.
+      // Dropping it made the facets unreconcilable with `total`: the rows were
+      // counted in the total and in no bucket, so a client summing them came up
+      // short with nothing to explain the difference.
       { license: null, g_category: 1, g_tier: 1, g_license: 0, g_compute: 1, g_secrets: 1, n: 9 },
     ]];
     const { facets, total, items } = await searchPublicListings({});
     expect(facets).toEqual({
       category: { iac: 4 },
       tier: { official: 2 },
-      license: { MIT: 3 },
+      license: { 'MIT': 3, '(none)': 9 },
       computeType: { SMALL: 5 },
       needsSecrets: { true: 1, false: 6 },
     });

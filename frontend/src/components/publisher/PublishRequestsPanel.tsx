@@ -137,7 +137,18 @@ export function PublishRequestsPanel({ canPublish, canManage }: Props) {
 
   return (
     <div className="space-y-6">
-      {canManage && incoming.length > 0 && (
+      {/* THE ERROR IS SHOWN, not swallowed. `incomingQ.error` used to be read
+          nowhere and the card rendered only on `incoming.length > 0`, so a
+          failed fetch made the ONLY Accept/Decline control for a listing
+          another publisher is transferring to you disappear — no message, no
+          retry, and nothing saying it had ever existed. The loop also throws on
+          any one of up to 20 pages, so a single failed page lost them all. */}
+      {canManage && incomingQ.error && (
+        <SectionCard icon={ArrowRightLeft} title="Incoming transfers" description="Listings other publishers want to transfer to you.">
+          <RetryError message={formatError(incomingQ.error, 'Failed to load incoming transfers')} onRetry={incomingQ.refetch} />
+        </SectionCard>
+      )}
+      {canManage && !incomingQ.error && incoming.length > 0 && (
         <SectionCard icon={ArrowRightLeft} title="Incoming transfers" description="Listings other publishers want to transfer to you. The ecosystem team approves after you accept.">
           <ul className="divide-y divide-default" aria-label="Incoming transfers">
             {incoming.map((r) => (

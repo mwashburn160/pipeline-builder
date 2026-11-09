@@ -35,7 +35,7 @@ const ok = (data: unknown) => Promise.resolve({ success: true, statusCode: 200, 
 
 function modReview(over: Partial<ModerationReview> = {}): ModerationReview {
   return {
-    id: 'rv1', listing: { id: 'l1', publisher: 'acme', name: 'eslint' }, rating: 1, title: 'Scam',
+    id: 'rv1', listing: { id: 'l1', publisher: 'acme', name: 'eslint', state: 'listed', pausedAt: null, publisherSuspended: false }, rating: 1, title: 'Scam',
     bodyHtml: '<p>Buy <a href="https://x.test" rel="nofollow ugc noopener">this</a></p>', version: '1.0.0',
     author: { userId: 'u-42', displayName: 'Spammy' }, verifiedUse: true, status: 'held', holdReason: 'reports',
     moderationReason: null, helpfulCount: 0, openReportCount: 2,
@@ -141,6 +141,26 @@ describe('ReviewModerationPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Removed' }));
     await waitFor(() => expect(api.listModerationReviews).toHaveBeenLastCalledWith({ queue: 'removed' }, expect.anything()));
     expect(await screen.findByText('No removed reviews')).toBeInTheDocument();
+  });
+
+  // THE LINK USED TO BE UNCONDITIONAL, and the directory refuses a paused
+  // listing or a suspended publisher — so a moderator following it got a 404
+  // with nothing saying why. Hiding the link instead would be no better here:
+  // unlike the publisher's own panel there is no "Paused" badge beside it, so
+  // an absent link reads as a UI that never offered one.
+  it('links the listing only when it has a public page, and says why when it does not', async () => {
+    api.listModerationReviews.mockImplementation(() => ok({ reviews: [modReview()] }));
+    const { unmount } = render(<ReviewModerationPanel can={canAll} />);
+    expect(await screen.findByRole('link', { name: 'acme/eslint' })).toBeInTheDocument();
+    unmount();
+
+    api.listModerationReviews.mockImplementation(() => ok({
+      reviews: [modReview({ listing: { id: 'l1', publisher: 'acme', name: 'eslint', state: 'listed', pausedAt: '2026-09-21T00:00:00Z', publisherSuspended: false } })],
+    }));
+    render(<ReviewModerationPanel can={canAll} />);
+    expect(await screen.findByTestId('mod-review-rv1-no-public-page'))
+      .toHaveAttribute('title', 'No public page: paused by its publisher');
+    expect(screen.queryByRole('link', { name: 'acme/eslint' })).not.toBeInTheDocument();
   });
 
   it('shows a retry when the queue fails to load', async () => {

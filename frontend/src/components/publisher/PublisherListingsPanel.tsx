@@ -20,7 +20,7 @@ import { VulnSummary } from '@/components/plugin/VulnSummary';
 import { useFetch } from '@/hooks/useFetch';
 import api from '@/lib/api';
 import { formatError } from '@/lib/constants';
-import { LISTING_STATE_COLORS, LISTING_STATE_LABELS } from '@/lib/ecosystem';
+import { isInPublicDirectory, LISTING_STATE_COLORS, LISTING_STATE_LABELS } from '@/lib/ecosystem';
 import { pluginPagePath } from '@/lib/public-directory/links';
 import type { ListingVersionView, ListingView } from '@/types/ecosystem';
 import { RequestListingUpdateDialog } from './RequestListingUpdateDialog';
@@ -120,7 +120,7 @@ export function PublisherListingsPanel({ canPublish, canManage }: Props) {
                     )}
                   </div>
                   {l.summary && <p className="text-sm text-fg-muted">{l.summary}</p>}
-                  {l.state === 'listed' && (
+                  {isInPublicDirectory(l) && (
                     <Link href={pluginPagePath(l.publisherHandle, l.name)} className="action-link inline-flex items-center gap-1 text-xs">
                       <Globe className="w-3.5 h-3.5" aria-hidden /> View public page
                     </Link>

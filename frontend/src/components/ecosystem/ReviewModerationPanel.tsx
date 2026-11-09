@@ -22,6 +22,7 @@ import { formatError } from '@/lib/constants';
 import {
   HOLD_REASON_LABELS, REPORT_CATEGORY_LABELS, REVIEW_STATUS_COLORS, REVIEW_STATUS_LABELS,
 } from '@/lib/plugin-reviews';
+import { isInPublicDirectory, noPublicPageReason } from '@/lib/ecosystem';
 import { pluginPagePath } from '@/lib/public-directory/links';
 import type { ModerationReview, ReviewModerationQueue } from '@/types/plugin-reviews';
 import { EcosystemActionDialog } from './EcosystemActionDialog';
@@ -66,6 +67,9 @@ const ACTION_COPY: Record<ActionKind, {
  * remove a review, and remove a publisher reply. Reviewer org is never shown;
  * the user id is, for moderators only.
  */
+/** Mirrors REVIEW_QUEUE_LIMIT in api/plugin's review-moderation service. */
+const REVIEW_QUEUE_CAP = 200;
+
 export function ReviewModerationPanel({ can }: Props) {
   const toast = useToast();
   const mayModerate = can('plugins:moderate');
@@ -78,6 +82,11 @@ export function ReviewModerationPanel({ can }: Props) {
     return res.data.reviews;
   }, [queue]);
   const reviews = reviewsQ.data ?? [];
+  // THE QUEUE IS CAPPED SERVER-SIDE (REVIEW_QUEUE_LIMIT) with no cursor and no
+  // total, so past the cap the list is silently incomplete — a moderator sees a
+  // full-looking page and no sign that anything is missing. A returned length
+  // equal to the cap is the only signal available, and it is enough to say so.
+  const truncated = reviews.length >= REVIEW_QUEUE_CAP;
 
   const run = async (text: string) => {
     if (!action) return;
@@ -121,13 +130,36 @@ export function ReviewModerationPanel({ can }: Props) {
           <EmptyState compact icon={MessageSquareWarning} title={queue === 'open' ? 'No reviews need moderation' : 'No removed reviews'} />
         ) : (
           <ul className="space-y-3" aria-label="Reviews to moderate">
+            {truncated && (
+              <li className="pb-2 text-xs text-warning-strong" data-testid="review-queue-truncated">
+                Showing the first {REVIEW_QUEUE_CAP} — the queue is longer. Work through these, or
+                switch queue, to see the rest.
+              </li>
+            )}
             {reviews.map((r) => (
               <li key={r.id} className="space-y-2 rounded-lg border border-default p-3" data-testid={`mod-review-${r.id}`}>
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div className="flex flex-wrap items-center gap-2 text-sm">
-                    <Link href={pluginPagePath(r.listing.publisher, r.listing.name)} className="font-mono font-medium text-fg hover:underline">
-                      {r.listing.publisher}/{r.listing.name}
-                    </Link>
+                    {/* EXPLAINED, not hidden. A moderator deciding about a
+                        review on a listing they do not know gains nothing from
+                        a silently absent link — it reads the same as a UI that
+                        never offered one. Checking what the PUBLIC sees is the
+                        relevant context for whether a review stays up, so the
+                        link is here when there is a page and states its reason
+                        when there is not. */}
+                    {isInPublicDirectory(r.listing, r.listing.publisherSuspended) ? (
+                      <Link href={pluginPagePath(r.listing.publisher, r.listing.name)} className="font-mono font-medium text-fg hover:underline">
+                        {r.listing.publisher}/{r.listing.name}
+                      </Link>
+                    ) : (
+                      <span
+                        className="font-mono font-medium text-fg-muted"
+                        title={noPublicPageReason(r.listing, r.listing.publisherSuspended)}
+                        data-testid={`mod-review-${r.id}-no-public-page`}
+                      >
+                        {r.listing.publisher}/{r.listing.name}
+                      </span>
+                    )}
                     <Stars rating={r.rating} />
                     <Badge color={REVIEW_STATUS_COLORS[r.status]}>{REVIEW_STATUS_LABELS[r.status]}</Badge>
                     {r.holdReason && <Badge color="purple">{HOLD_REASON_LABELS[r.holdReason]}</Badge>}

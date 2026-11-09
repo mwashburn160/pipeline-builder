@@ -47,7 +47,13 @@ export function ReservedNamesPanel({ can }: Props) {
   }, []);
   const publishersQ = useFetch(async (signal) => {
     const res = await api.listEcosystemPublishers({}, { signal });
-    return res.data?.publishers ?? [];
+    // THROW. This is the swallow with teeth: coalescing to [] collapsed the
+    // "Reserved for" select to its single remaining option — "Nobody (refuse
+    // everyone)" — so a moderator who meant to reserve a name FOR one publisher
+    // would silently have created a GLOBAL refusal instead. A failure here must
+    // stop the form, not quietly widen what it does.
+    if (!res.success || !res.data) throw new Error(res.message || 'Failed to load publishers');
+    return res.data.publishers;
   }, []);
   const handleOf = useMemo(() => {
     const map = new Map((publishersQ.data ?? []).map((p) => [p.id, p.handle]));
@@ -121,13 +127,26 @@ export function ReservedNamesPanel({ can }: Props) {
               <FormField label="Reason (optional)" className="min-w-[14rem] flex-1">
                 <Input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Vendor brand" maxLength={500} disabled={busy} />
               </FormField>
-              <FormField label="Reserved for" className="min-w-[12rem]">
-                <Select value={publisherId} onChange={(e) => setPublisherId(e.target.value)} disabled={busy} aria-label="Reserved for publisher">
+              {/* The publisher list FAILING must not look like "there are no
+                  publishers": the only option left is the widest one, so the
+                  form would quietly reserve the name against everybody. Say so
+                  and disable the choice instead. */}
+              <FormField
+                label="Reserved for"
+                className="min-w-[12rem]"
+                error={publishersQ.error ? 'Publishers could not be loaded — reserve for a specific publisher once they load' : undefined}
+              >
+                <Select
+                  value={publisherId}
+                  onChange={(e) => setPublisherId(e.target.value)}
+                  disabled={busy || !!publishersQ.error}
+                  aria-label="Reserved for publisher"
+                >
                   <option value="">Nobody (refuse everyone)</option>
                   {(publishersQ.data ?? []).map((p) => <option key={p.id} value={p.id}>{p.handle}</option>)}
                 </Select>
               </FormField>
-              <Button type="submit" loading={busy} disabled={!normalized || invalid || busy}>
+              <Button type="submit" loading={busy} disabled={!normalized || invalid || busy || !!publishersQ.error}>
                 <Plus className="w-4 h-4 mr-1" aria-hidden />Reserve
               </Button>
             </div>

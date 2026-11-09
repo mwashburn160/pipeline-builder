@@ -17,6 +17,7 @@ import { PublicLayout, DirectoryHead } from '@/components/public-directory/Publi
 import { PluginIdentity } from '@/components/public-directory/PluginIcon';
 import { RatingSummary, formatCount, formatDay } from '@/components/public-directory/ListingCardView';
 import { useClientAuth } from '@/components/public-directory/PublicHeader';
+import { ClaimListingNotice, COMMUNITY_PUBLISHER } from '@/components/public-directory/ClaimListingNotice';
 import { AdvisoryBanner } from '@/components/public-directory/AdvisoryBanner';
 import { HealthBadge, HealthBreakdownPanel } from '@/components/public-directory/HealthBadge';
 import {
@@ -86,6 +87,7 @@ function SignedInInstall({ listing }: { listing: ListingDetail }) {
 }
 
 function PluginPageBody({ listing, tab, siteUrl, initialReviews }: { listing: ListingDetail; tab: ListingTab; siteUrl: string; initialReviews?: ReviewPage | null }) {
+  const { signedIn } = useClientAuth();
   const path = pluginPagePath(listing.publisher.handle, listing.name);
   const url = `${siteUrl}${path}`;
   const disclaimer = vendorDisclaimer(listing);
@@ -120,6 +122,15 @@ function PluginPageBody({ listing, tab, siteUrl, initialReviews }: { listing: Li
             <span className="text-fg-subtle">@{listing.publisher.handle}</span>
           </p>
           <p className="text-fg">{listing.summary}</p>
+          {/* The claim path existed end-to-end EXCEPT for a way to start it:
+              the backend accepts it and the moderator console renders the whole
+              decision side, but nothing created the request. This is the
+              surface where a maintainer finds their own plugin. */}
+          {listing.publisher.handle === COMMUNITY_PUBLISHER && (
+            <div className="pt-2">
+              <ClaimListingNotice listingName={listing.name} signedIn={signedIn} loginHref={loginHref(path)} />
+            </div>
+          )}
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1 pt-1 text-xs text-fg-subtle">
             <span className="font-mono">v{listing.latestVersion}</span>
             <span>{listing.license}</span>

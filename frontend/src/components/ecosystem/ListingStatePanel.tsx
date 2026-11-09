@@ -104,6 +104,9 @@ function NeedsAttention({ loading, error, onRetry, flagged, staleOrUnscanned, on
  * unyanking are two-person — they create a request for a second approver.
  * Every write is step-up gated.
  */
+/** Mirrors the slice in api/plugin's ecosystem console `listListings`. */
+const LISTING_CAP = 500;
+
 export function ListingStatePanel({ can }: Props) {
   const toast = useToast();
   const mayModerate = can('plugins:moderate');
@@ -121,6 +124,10 @@ export function ListingStatePanel({ can }: Props) {
     return res.data.listings;
   }, [state, debouncedQ]);
   const listings = listingsQ.data ?? [];
+  // Same shape as the review queue: the console slices at LISTING_CAP with no
+  // cursor, and this list also feeds the advisory listing picker — so past the
+  // cap a listing cannot be given an advisory from here, with nothing saying so.
+  const truncated = listings.length >= LISTING_CAP;
 
   // Listed versions a rescan flagged since publication, and ones whose scan is
   // stale or missing — the moderation triage list. Its own fetch, so a failure
@@ -165,11 +172,17 @@ export function ListingStatePanel({ can }: Props) {
       icon={LayoutList}
       title="Listings"
       description="Listing state and version yanks across the ecosystem."
-      actions={mayModerate ? (
-        <Button variant="secondary" size="sm" onClick={() => setAction({ kind: 'resign' })}>
+      actions={(
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={() => setAction({ kind: 'resign' })}
+          disabled={!mayModerate}
+          title={mayModerate ? undefined : 'Requires plugins:moderate — unavailable in a read-only session'}
+        >
           <Stamp className="w-4 h-4 mr-1" aria-hidden />Re-sign all published images
         </Button>
-      ) : undefined}
+      )}
     >
       <div className="space-y-4">
         <div className="flex flex-wrap items-end gap-3">
@@ -203,6 +216,11 @@ export function ListingStatePanel({ can }: Props) {
           <EmptyState compact icon={LayoutList} title="No listings match" />
         ) : (
           <ul className="space-y-3" aria-label="Ecosystem listings">
+            {truncated && (
+              <li className="pb-2 text-xs text-warning-strong" data-testid="listing-list-truncated">
+                Showing the first {LISTING_CAP} listings — narrow the search to reach the rest.
+              </li>
+            )}
             {listings.map((l) => (
               <li key={l.id} className="rounded-lg border border-default p-3 space-y-2" data-testid={`eco-listing-${l.name}`}>
                 <div className="flex flex-wrap items-start justify-between gap-2">

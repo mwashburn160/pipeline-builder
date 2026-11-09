@@ -275,7 +275,11 @@ export type PublishRequestBody =
   | { kind: 'yank'; listingId: string; version: string; reason: string }
   | { kind: 'unpause'; listingId: string; version?: string; reason?: string }
   | { kind: 'transfer'; listingId: string; target: { targetPublisherHandle: string }; reason?: string }
-  | { kind: 'claim'; target: { handle: string } | { listingId: string }; reason?: string }
+  // `name` is the variant a CLAIMER can actually build: the public directory
+  // exposes no listing ids, so the page where someone finds their own plugin
+  // has only the handle and the name. Unambiguous because community listings
+  // are the only claimable ones.
+  | { kind: 'claim'; target: { handle: string } | { listingId: string } | { name: string }; reason?: string }
   | { kind: 'profile_change'; target: { handle?: string; displayName?: string }; reason?: string }
   | { kind: 'verify'; application: { domain?: string; notes?: string } }
   | { kind: 'advisory'; listingId: string; advisory: AdvisoryInput };
