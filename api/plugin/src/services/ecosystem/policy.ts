@@ -9,7 +9,7 @@
  */
 
 import {
-  envInt, failOnLabel, gatedFixableCount, lastScannedAt, pluginVulnFailOn, scanStaleHours, PLUGIN_CATALOG_LINK_FIELDS,
+  envInt, failOnLabel, gatedFindingCount, gatedFixableCount, lastScannedAt, pluginVulnFailOn, scanStaleHours, PLUGIN_CATALOG_LINK_FIELDS,
   STEP_UP_REQUEST_KINDS,
   VERIFY_REQUEST_KINDS,
   type PluginCatalogField,
@@ -192,7 +192,20 @@ export function versionGates(p: PluginRow, now: Date = new Date()): Gate[] {
   const hasImage = p.imageDigest !== null;
   const maxFindings = vulnGateMaxFindings();
   const failOn = pluginVulnFailOn();
-  const gatedFixable = gatedFixableCount(p, failOn);
+  // WAIVER- AND KEV-AWARE, falling back to the raw scanner columns when the
+  // stored summary cannot answer (no summary, truncated findings, or a digest
+  // that describes a different image). This gate used to read
+  // `gatedFixableCount` alone, which is documented as knowing nothing about
+  // waivers — so a Critical the operator had waived stopped blocking the BUILD
+  // and went on blocking the LISTING, with no server-side trace of the refusal.
+  // The fallback is deliberately the old, stricter answer: failing closed here
+  // leaves a plugin unlisted, while failing open lists one nothing vetted.
+  const gatedFixable = gatedFindingCount(
+    p.scanSummary,
+    { pluginName: p.name, orgId: p.orgId, pluginVersion: p.version, imageDigest: p.imageDigest },
+    failOn,
+    now,
+  ) ?? gatedFixableCount(p, failOn);
   const scannedAt = lastScannedAt(p);
   const staleHours = scanStaleHours();
   const fresh = scannedAt !== null && now.getTime() - scannedAt.getTime() <= staleHours * 3_600_000;

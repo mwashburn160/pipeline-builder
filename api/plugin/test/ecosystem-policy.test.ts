@@ -122,6 +122,84 @@ describe('versionGates — FIXABLE criticals', () => {
   });
 });
 
+describe('versionGates — the publish gate honours waivers, as the build gate does', () => {
+  // THE BUG THIS PINS. The build floor applies PLUGIN_VULN_WAIVERS and the
+  // publish gate did not: it read `vulnCriticalFixable`, a column documented as
+  // knowing nothing about waivers. So an operator-waived Critical stopped
+  // blocking the build and went on blocking the LISTING — the plugin built,
+  // went public in the catalog, and was never listed in the public directory.
+  const SYSTEM_ORG = '000000000000000000000001';
+  const DIGEST = `sha256:${'a'.repeat(64)}`;
+  const FUTURE = '2099-01-01';
+
+  const scanned = (findings: unknown[], extra: Record<string, unknown> = {}) => ({
+    criticalFixable: findings.length,
+    highFixable: 0,
+    critical: findings.length,
+    high: 0,
+    medium: 0,
+    low: 0,
+    kev: 0,
+    findings,
+    truncated: false,
+    waived: [],
+    scannedAt: new Date().toISOString(),
+    trigger: 'rescan',
+    imageDigest: DIGEST,
+    dbBuiltAt: null,
+    uncataloguedBinaries: [],
+    ...extra,
+  });
+  const CRIT = { id: 'CVE-2026-115557', severity: 'critical', packageName: 'python3.14', packageVersion: '3.14.8', fixedIn: ['3.14.9'] };
+  /** A system-org plugin whose one Critical is the waived bundled-Python CVE. */
+  const waivable = (extra: Record<string, unknown> = {}) => pluginRow({
+    orgId: SYSTEM_ORG,
+    name: 'aws-cli',
+    imageDigest: DIGEST,
+    vulnCritical: 1,
+    vulnCriticalFixable: 1,
+    scanSummary: scanned([CRIT], extra),
+  });
+
+  afterEach(() => { delete process.env.PLUGIN_VULN_WAIVERS; });
+
+  it('BLOCKS the listing when nothing waives the Critical', () => {
+    expect(versionGates(waivable() as any).find((g) => g.id === 'vuln')!.ok).toBe(false);
+  });
+
+  it('ADMITS it once a waiver covers it — the raw column still says 1', () => {
+    process.env.PLUGIN_VULN_WAIVERS = `aws-cli:${FUTURE}:python3.14`;
+    const gate = versionGates(waivable() as any).find((g) => g.id === 'vuln')!;
+    expect(gate.ok).toBe(true);
+  });
+
+  it('keeps blocking a TENANT plugin of the same name — waivers are system-org only', () => {
+    process.env.PLUGIN_VULN_WAIVERS = `aws-cli:${FUTURE}:python3.14`;
+    const tenant = pluginRow({
+      orgId: 'org-acme',
+      name: 'aws-cli',
+      imageDigest: DIGEST,
+      vulnCritical: 1,
+      vulnCriticalFixable: 1,
+      scanSummary: scanned([CRIT]),
+    });
+    expect(versionGates(tenant as any).find((g) => g.id === 'vuln')!.ok).toBe(false);
+  });
+
+  it('FAILS CLOSED on a truncated summary, even with the waiver set', () => {
+    // What is missing from a capped list cannot be counted, so the raw column
+    // stands: unlisted is the safe direction, listed-unvetted is not.
+    process.env.PLUGIN_VULN_WAIVERS = `aws-cli:${FUTURE}:python3.14`;
+    expect(versionGates(waivable({ truncated: true }) as any).find((g) => g.id === 'vuln')!.ok).toBe(false);
+  });
+
+  it('FAILS CLOSED when the summary describes a different image', () => {
+    process.env.PLUGIN_VULN_WAIVERS = `aws-cli:${FUTURE}:python3.14`;
+    const moved = waivable({ imageDigest: `sha256:${'b'.repeat(64)}` });
+    expect(versionGates(moved as any).find((g) => g.id === 'vuln')!.ok).toBe(false);
+  });
+});
+
 describe('decision rules', () => {
   it('routes publisher-level kinds to publishers:verify and the rest to plugins:moderate', () => {
     expect(requiredDecisionPermission('verify')).toBe('publishers:verify');

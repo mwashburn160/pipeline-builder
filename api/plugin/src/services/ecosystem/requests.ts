@@ -22,7 +22,9 @@
 import {
   isoOrNull,
   actorId,
+  createLogger,
   ErrorCode,
+  errorMessage,
   findConfusableName,
   isPluginPublishingEnabled,
   isSystemOrgId,
@@ -36,6 +38,7 @@ import {
   type PluginCatalogEdits,
   parsePage,
 } from '@pipeline-builder/api-core';
+import { incCounter } from '@pipeline-builder/api-server';
 import {
   isUniqueViolation,
   OFFICIAL_PUBLISHER_HANDLE,
@@ -69,6 +72,8 @@ import { isActiveListing, optionalText, requiredText } from './util.js';
 import { assertVerifiedEligible, checkVerifiedEligibility } from './verified-eligibility.js';
 import { listingView, publisherView, requestView } from './views.js';
 import { pluginService } from '../plugin-service.js';
+
+const logger = createLogger('ecosystem-requests');
 
 type Req = PluginPublishRequest;
 
@@ -209,11 +214,46 @@ async function securityAdvisory(advisoryId: unknown, listingId: string | null): 
   return advisory.id;
 }
 
-function assertGates(gates: Gate[]): void {
+/**
+ * Refuse a request that fails a submit gate — and SAY SO SERVER-SIDE.
+ *
+ * `PUBLISH_GATE_FAILED` used to exist in exactly one place: the throw below.
+ * No log, no audit, no counter. The error reaches the caller, which for an
+ * automated catalogue load is the build's own log stream, so a refusal left
+ * nothing behind anywhere an operator looks — and a gate that quietly refused
+ * every plugin on one base image went unnoticed until someone counted the
+ * public directory by hand.
+ *
+ * Labelled by gate ID, which is a closed set (`visibility`, `license`,
+ * `readme`, `signed`, `scanned`, `vuln`, `listing_state`, `already_listed`,
+ * `name`), so the counter answers "what is the directory actually rejecting,
+ * and is it suddenly rejecting more?" without tenant cardinality. The log line
+ * carries the plugin and the reasons; the counter is what an alert can watch.
+ *
+ * `refused`, NOT `failed`: nothing here is broken. A publisher submitting a
+ * version that is not ready is the gate working, and `failure-metrics-alerted`
+ * would rightly demand an alert for a name that claimed otherwise. What is
+ * worth alerting on is a SUSTAINED refusal on one gate — every plugin on a base
+ * image failing `vuln` at once — which is a rate question this counter now makes
+ * askable, not an individual event.
+ */
+function assertGates(gates: Gate[], subject?: { name?: string; version?: string }): void {
   const failing = gates.filter((g) => !g.ok);
-  if (failing.length > 0) {
-    throw new EcosystemError(ErrorCode.PUBLISH_GATE_FAILED, `The request can't be submitted: ${failing.map((g) => g.message).join('; ')}`, { gates: failing });
+  if (failing.length === 0) return;
+  for (const gate of failing) {
+    try {
+      incCounter('ecosystem_publish_gate_refused_total', { gate: gate.id });
+    } catch (err) {
+      logger.debug('publish-gate counter not emitted', { error: errorMessage(err) });
+    }
   }
+  logger.warn('Publish request refused by a submit gate', {
+    plugin: subject?.name,
+    version: subject?.version,
+    gates: failing.map((g) => g.id),
+    reasons: failing.map((g) => g.message),
+  });
+  throw new EcosystemError(ErrorCode.PUBLISH_GATE_FAILED, `The request can't be submitted: ${failing.map((g) => g.message).join('; ')}`, { gates: failing });
 }
 
 function parseEdits(raw: unknown): PluginCatalogEdits {
@@ -245,7 +285,7 @@ async function buildRequest(caller: Caller, publisher: Publisher, kind: PublishR
       if (!quota.ok) {
         throw new EcosystemError(ErrorCode.QUOTA_EXCEEDED, quota.message, { quotaType: 'listings', used: quota.used, limit: quota.limit });
       }
-      assertGates(gates);
+      assertGates(gates, { name: plugin.name, version: plugin.version });
       const metadata: RequestMetadata = kind === 'new_listing' ? applyEdits(effectiveMetadata(plugin), parseEdits(body.metadata)) : effectiveMetadata(plugin);
       const bump = versionBump(listing?.latestVersion ?? null, plugin.version);
       // freeze first — a digest that moved since the caller looked fails closed.

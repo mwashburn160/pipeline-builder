@@ -227,6 +227,7 @@ export {
   atOrAboveFailOn,
   exceedsVulnFloor,
   failOnLabel,
+  gatedFindingCount,
   gatedFixableCount,
   isGatedFinding,
   newScanFindings,

@@ -229,6 +229,61 @@ export function gatedFixableCount(
   return (counts.vulnCriticalFixable ?? 0) + (failOn === 'high' ? counts.vulnHighFixable ?? 0 : 0);
 }
 
+/**
+ * The gated count a STORED scan summary implies, with waivers re-evaluated now.
+ *
+ * WHY THIS EXISTS. {@link gatedFixableCount} reads the scanner's fixable
+ * columns, and those columns — as the note on it says — know nothing about
+ * waivers or KEV. The build floor never trusted them: it derives its count from
+ * the findings. The PUBLISH gate did trust them, so the two halves of the system
+ * disagreed about whether a plugin was shippable. A waived Critical stopped
+ * blocking the build and went on blocking the listing, silently, and a KEV-listed
+ * UNFIXABLE Critical did the reverse — blocked the build and was invisible to the
+ * listing. One definition, called from both, is the only thing that keeps them
+ * from drifting again.
+ *
+ * WAIVERS ARE RE-EVALUATED, NOT REPLAYED. `summary.waived` records what a waiver
+ * exempted AT SCAN TIME, and replaying those keys would be the cheaper fix and
+ * the wrong one: `PLUGIN_VULN_WAIVERS` entries carry an inclusive expiry, so a
+ * frozen key list would honour an exemption forever and an expiry that stopped
+ * blocking builds would never start blocking listings again. Re-running the
+ * waivers against the stored findings is what makes the expiry mean something on
+ * both paths.
+ *
+ * Returns `null` when the summary cannot be trusted to answer the question, so
+ * the caller falls back to the raw columns — FAIL CLOSED, because the failure
+ * this guards is "list something unvetted", not "leave something unlisted":
+ *
+ *  - no summary at all (a version scanned before the column existed);
+ *  - `truncated`: findings were capped at {@link SCAN_SUMMARY_MAX_FINDINGS}, so
+ *    what is missing cannot be counted and a derived figure would undercount by
+ *    an unknown amount;
+ *  - a digest mismatch: the summary describes a DIFFERENT artifact, and a
+ *    version rebuilt on a patched base is a different artifact.
+ */
+export function gatedFindingCount(
+  summary: PluginScanSummary | null | undefined,
+  subject: { pluginName: string; orgId?: string; pluginVersion?: string; imageDigest?: string | null },
+  failOn: PluginVulnFailOn = pluginVulnFailOn(),
+  now: Date = new Date(),
+): number | null {
+  if (!summary || summary.truncated) return null;
+  if (!Array.isArray(summary.findings)) return null;
+  // An absent digest on either side is not a match: the point of the check is
+  // proving the summary describes THIS image, and two unknowns prove nothing.
+  if (!summary.imageDigest || !subject.imageDigest || summary.imageDigest !== subject.imageDigest) return null;
+  const { counted } = applyVulnWaivers(
+    subject.pluginName,
+    summary.findings,
+    undefined,
+    now,
+    subject.orgId,
+    subject.pluginVersion,
+  );
+  const kevGate = pluginVulnGateKev();
+  return counted.filter((f) => isGatedFinding(f, kevGate, failOn)).length;
+}
+
 /** `Critical` / `Critical or High` — the gated severities, for messages. */
 export function failOnLabel(failOn: PluginVulnFailOn = pluginVulnFailOn()): string {
   return failOn === 'critical' ? 'Critical' : 'Critical or High';

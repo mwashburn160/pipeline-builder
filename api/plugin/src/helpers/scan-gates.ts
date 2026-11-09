@@ -88,7 +88,11 @@ interface FloorDecision {
  *
  * The count is derived from the findings rather than trusting
  * the scanner's fixable counts: those know nothing about waivers or KEV, so
- * adjusting them would drift the moment the two disagree. When there are no
+ * adjusting them would drift the moment the two disagree. They did drift — the
+ * publish gate read those counts for months — which is why api-core now has
+ * `gatedFindingCount`, the same waivers-then-`isGatedFinding` pairing applied to
+ * a STORED summary. Keep the two in step: this one answers from live findings,
+ * that one from the row, and they must reach the same verdict. When there are no
  * findings to count (an older scan recorded counts only), the scanner's
  * fixable count at or above the threshold stands and no waiver can apply.
  */
