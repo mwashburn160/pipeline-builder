@@ -64,7 +64,10 @@ jest.unstable_mockModule('../src/services/ecosystem/advisories.js', () => ({ ope
 const mockInstallingOrgs = jest.fn<(...a: any[]) => Promise<Array<{ orgId: string; install: null }>>>();
 jest.unstable_mockModule('../src/services/ecosystem/install-notify.js', () => ({ installingOrgs: mockInstallingOrgs }));
 const LISTING = { id: 'l-1', name: 'lint', state: 'listed', publisherId: 'pub-1' };
-const PUBLISHER = { id: 'pub-1', handle: 'acme', tier: 'verified', suspendedAt: null };
+// A TENANT publisher: `ownerOrgId` is its own org, never the system org. The
+// rescan keys the vulnerability-waiver decision on this, so the field is
+// load-bearing rather than decoration — see the orgId assertions below.
+const PUBLISHER = { id: 'pub-1', handle: 'acme', tier: 'verified', suspendedAt: null, ownerOrgId: 'org-acme' };
 jest.unstable_mockModule('../src/services/ecosystem/store.js', () => ({
   listings: { byId: async (id: string) => (id === LISTING.id ? LISTING : null) },
   publishers: { byId: async (id: string) => (id === PUBLISHER.id ? PUBLISHER : null) },
@@ -442,6 +445,34 @@ describe('rescanAllPlugins — (a) tenant plugin rows', () => {
 });
 
 describe('rescanAllPlugins — (b) listed versions from their own public image', () => {
+  // THE WAIVER BOUNDARY. `PLUGIN_VULN_WAIVERS` is system-org-only on purpose:
+  // listing names are chosen by whoever publishes them, so matching on the name
+  // alone would let any publisher inherit the operator's exemption by picking
+  // it. This pass handed `SYSTEM_ORG_ID` to every listed version, which is that
+  // inheritance — and it reached the flag, the N31 notice, the advisory draft
+  // and the exposure sync, all of which key off the suppressed result.
+  describe('REGRESSION: an operator waiver does not reach a tenant publisher', () => {
+    afterEach(() => { delete process.env.PLUGIN_VULN_WAIVERS; });
+
+    it('still flags a tenant listing whose name matches a fleet waiver', async () => {
+      process.env.PLUGIN_VULN_WAIVERS = 'lint:2099-01-01:openssl';
+      listed('lv-w', { scanSummary: null });
+      mockScanPluginImage.mockResolvedValue(scanned(scan(1, 0, {
+        criticalFixable: 1,
+        findings: [finding('CVE-2026-9')],
+      })));
+
+      await rescan.rescanAllPlugins();
+
+      // Scanned as the TENANT, so no waiver applies and the flag stands.
+      expect(mockScanPluginImage).toHaveBeenCalledWith(
+        expect.objectContaining({ orgId: 'org-acme' }),
+        expect.anything(), 'rescan', expect.anything());
+      expect(listedRow('lv-w').scanFlaggedAt).toBeInstanceOf(Date);
+      expect(listedRow('lv-w')).toMatchObject({ scanFlag: expect.objectContaining({ gated: 1 }) });
+    });
+  });
+
   it('REGRESSION: a listed version whose source plugin was force-deleted is still rescanned from public/*, updated, and gets its drafts + N31', async () => {
     // The publisher's org row is gone (force-deleted / purged); only the listing copy remains.
     listed('lv-1', { sourcePluginId: 'gone', vulnCritical: 0, scanSummary: null });
@@ -451,8 +482,13 @@ describe('rescanAllPlugins — (b) listed versions from their own public image',
 
     const r = await rescan.rescanAllPlugins();
 
+    // The PUBLISHER'S org, not the system org. This pass used to hand
+    // `SYSTEM_ORG_ID` to every listed version while taking the plugin name from
+    // the tenant's own repo path (`public/acme/lint` -> `lint`) — which is the
+    // pair `applyVulnWaivers` is system-org-only to prevent: an operator waiver
+    // named `lint` would have silently suppressed this tenant's scan flag.
     expect(mockScanPluginImage).toHaveBeenCalledWith(
-      { orgId: '000000000000000000000001', name: 'lint', imageDigest: DIGEST('b'), imageRepository: 'public/acme/lint' },
+      { orgId: 'org-acme', name: 'lint', imageDigest: DIGEST('b'), imageRepository: 'public/acme/lint' },
       expect.objectContaining({ host: 'registry' }), 'rescan', { dbBuiltAt: DB_BUILT_AT });
     expect(listedRow('lv-1')).toMatchObject({ vulnCritical: 1, vulnCriticalFixable: 1, scanFlag: expect.objectContaining({ gated: 1 }) });
     expect(listedRow('lv-1').scanFlaggedAt).toBeInstanceOf(Date);

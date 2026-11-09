@@ -398,12 +398,32 @@ const publisherOfRepository = (repo: string): string | null => {
 async function rescanListedVersion(ctx: PassContext, lv: ListedRow): Promise<'rescanned' | 'failed'> {
   const repo = lv.imageRepository!;
   const name = nameOfRepository(repo);
-  const image = await scanOnce(ctx, { orgId: SYSTEM_ORG_ID, name, imageDigest: lv.imageDigest!, imageRepository: repo });
+  // THE PUBLISHER'S OWN ORG, never a blanket SYSTEM_ORG_ID.
+  //
+  // This pass used to pass `SYSTEM_ORG_ID` for every listed version, while the
+  // plugin name came from the tenant's public repo path (`public/<handle>/<name>`
+  // -> `<name>`). Together those are exactly the inheritance `applyVulnWaivers`
+  // exists to refuse: "Matching on the name alone would hand every one of them
+  // the operator's exemption, so a tenant could inherit a waiver simply by
+  // choosing the name." A waiver like `lint:<date>:openssl` silently suppressed
+  // the scan flag on any tenant's `lint` — and with the flag went the resolution
+  // warning, the N31 notice, the advisory draft and the exposure sync.
+  //
+  // `?? ''` and NOT `?? SYSTEM_ORG_ID` for the community publisher: an unknown
+  // owner must fall AWAY from the exemption, not into it. `applyVulnWaivers`
+  // returns everything counted for any org that is not the system org.
+  // Resolved BEFORE the scan because the waiver decision depends on it. The
+  // same two reads this function already made further down for the N31
+  // notification, hoisted rather than duplicated.
+  const listing = await listings.byId(lv.listingId);
+  const publisher = listing ? await publishers.byId(listing.publisherId) : null;
+  const orgId = publisher?.ownerOrgId ?? '';
+  const image = await scanOnce(ctx, { orgId, name, imageDigest: lv.imageDigest!, imageRepository: repo });
   if (!image) return 'failed';
   const { scan } = image;
 
   const cols = scanColumns(scan);
-  const { newFindings, audits, ...gate } = evaluate(ctx, image, { ...lv, imageDigest: lv.imageDigest! }, name, { kind: 'listing-version', orgId: SYSTEM_ORG_ID });
+  const { newFindings, audits, ...gate } = evaluate(ctx, image, { ...lv, imageDigest: lv.imageDigest! }, name, { kind: 'listing-version', orgId });
   await withTenantTx((tx) => tx
     .update(schema.pluginListingVersion)
     .set({
@@ -434,8 +454,6 @@ async function rescanListedVersion(ctx: PassContext, lv: ListedRow): Promise<'re
   // install already pinned to it keeps running it until it is moved — those
   // orgs are exactly the ones a new Critical in it concerns.
   try {
-    const listing = await listings.byId(lv.listingId);
-    const publisher = listing ? await publishers.byId(listing.publisherId) : null;
     if (listing && publisher) {
       // Installing orgs (active listings only), PLUS every org whose pipelines
       // reference this image — a suspended listing, an uninstalled one, a team

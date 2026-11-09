@@ -164,6 +164,28 @@ export const verifyAuditChainHandler = withController('Verify audit chain', asyn
     return sendError(res, 400, 'orgId query parameter is required');
   }
 
+  // PINNED UNLESS PLATFORM SYSADMIN — the same rule `listAuditEvents` applies
+  // above, and for the same reason, which this handler was missing.
+  //
+  // `requirePlatformPermission` reads as though it settles this: its doc says a
+  // cross-tenant surface is safe on a permission "because the permission is in
+  // `SYSTEM_ORG_ONLY_PERMISSIONS`, it can never be granted inside a tenant org".
+  // That is true of its other call sites and FALSE here — `audit:read` is
+  // org-assignable, in the admin bundle, and delegatable to a plain member
+  // through a custom Role. So any tenant's holder could name another org in
+  // `?orgId=` and read its chain state: ok, brokenAt, reason, count, lastSeq,
+  // publishedHead. Hashes and a boolean, but a cross-tenant answer about
+  // whether someone else's audit trail is intact.
+  //
+  // Keyed on the FLAG, not on `isOrgAdmin`: the delegate is not an org admin
+  // either, which is precisely how the sibling handler's version of this bug
+  // stayed open.
+  const admin = getAdminContext(req);
+  if (!admin.isSuperAdmin && orgId !== req.user!.organizationId) {
+    recordAuthzDenial(req, 'audit:read');
+    return sendError(res, 403, 'Forbidden: verifying another organization\'s audit chain requires a platform administrator');
+  }
+
   // Verified against the chain's PUBLISHED (write-once) head too, when an export
   // target is configured — that's what exposes tail truncation.
   const result = await verifyAuditChainAnchored(orgId);

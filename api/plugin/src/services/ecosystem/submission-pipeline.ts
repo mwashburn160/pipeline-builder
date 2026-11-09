@@ -40,6 +40,8 @@ import {
   errorMessage,
   failOnLabel,
   gatedFixableCount,
+  isGatedFinding,
+  pluginVulnGateKev,
   isAllowedSpdxId,
   pluginVulnFailOn,
   scanPluginSourceHeuristics,
@@ -305,8 +307,36 @@ export async function runSubmissionGates(submissionId: string): Promise<GateRunO
     const scanned = facts.scannedAt !== null;
     const maxFindings = vulnGateMaxFindings();
     const failOn = pluginVulnFailOn();
-    const gatedFixable = gatedFixableCount(facts, failOn);
-    const floor = scanned ? vulnGateError({ ...facts, findings: outcome.findings, pluginName: s.name, orgId: SYSTEM_ORG_ID, pluginVersion: s.version }) : null;
+    // ONE QUESTION, ONE ANSWER — and no waiver inheritance. Both halves of this
+    // changed together, deliberately, because each was covering for the other.
+    //
+    // `gatedFixableCount` reads the raw scanner columns, which know nothing
+    // about waivers or KEV; `vulnGateError` is waiver- and KEV-aware. Two gates
+    // below asked the same question through those two inputs and could disagree,
+    // which is the shape that kept 23 listed plugins unlisted elsewhere.
+    //
+    // The second half is the one that matters more. That waiver-aware call used
+    // to pass `orgId: SYSTEM_ORG_ID`, and submission names are SUBMITTER-CHOSEN:
+    // an anonymous submitter who named a plugin after an operator waiver entry
+    // inherited that exemption. The raw-column gate happened to re-block it, so
+    // the two bugs cancelled — which is exactly why fixing only the count would
+    // have opened the hole it was hiding.
+    //
+    // An anonymous submission belongs to no org, so NO waiver applies: the
+    // findings stand on their own. `undefined` is the honest orgId here, and
+    // `applyVulnWaivers` counts everything for it.
+    const floor = scanned
+      ? vulnGateError({ ...facts, findings: outcome.findings, pluginName: s.name, orgId: undefined, pluginVersion: s.version })
+      : null;
+    // From the LIVE findings, which this path has in hand — so no stored summary
+    // and no `gatedFindingCount` (that one answers from a row). Same pairing it
+    // uses: waivers, then `isGatedFinding`. With no org there are no waivers to
+    // apply, which leaves the KEV half — the reason this is not simply the raw
+    // column: a KEV-listed UNFIXABLE Critical gates the floor and the column
+    // cannot see it. Falls back to the column only when nothing was scanned.
+    const gatedFixable = scanned
+      ? outcome.findings.filter((f) => isGatedFinding(f, pluginVulnGateKev(), failOn)).length
+      : gatedFixableCount(facts, failOn);
     gates.push(
       gate('scanned', scanned, 'Image scanned', 'The image could not be scanned for vulnerabilities'),
       gate('vuln', scanned && gatedFixable <= maxFindings,

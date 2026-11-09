@@ -27,7 +27,7 @@
  * access until a deploy.
  */
 
-import { sendError, sendSuccess } from '@pipeline-builder/api-core';
+import { sendError, sendSuccess, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
 import { audit } from '../helpers/audit.js';
 import { requireSystemAdmin, withController } from '../helpers/controller-helper.js';
 import { User } from '../models/index.js';
@@ -64,9 +64,18 @@ export const addUserGrant = withController('Add user grant', async (req, res) =>
     // clears the refresh-session slots) atomically, so a later recompute can't revert it.
     const { changed } = await grantPlatformAdmin(userId);
     if (changed) {
+      // `affectedOrgId` is the SYSTEM org, not whatever org the operator happens
+      // to be browsing. Without it `audit()` falls back to the actor's active
+      // org, so minting a platform administrator from a tenant context wrote the
+      // row into THAT tenant: it entered the tenant's hash chain (keyed on
+      // `affectedOrgId ?? orgId`), the tenant's own `audit:read` holders could
+      // read it, and the system org's trail never showed the grant at all. This
+      // route has no `requireSystemOrg`, so a tenant context is reachable; every
+      // sibling operator action in user-admin.ts already passes this.
       audit(req, 'admin.superadmin.grant', {
         targetType: 'user',
         targetId: userId,
+        affectedOrgId: SYSTEM_ORG_ID,
         details: { email: user.email, source: 'admin-api', grant: parsed.grant },
       });
     }
@@ -104,9 +113,18 @@ export const removeUserGrant = withController('Remove user grant', async (req, r
     // legacy user who had the flag set directly but never held the Role.
     const { changed } = await revokePlatformAdmin(userId);
     if (changed) {
+      // `affectedOrgId` is the SYSTEM org, not whatever org the operator happens
+      // to be browsing. Without it `audit()` falls back to the actor's active
+      // org, so minting a platform administrator from a tenant context wrote the
+      // row into THAT tenant: it entered the tenant's hash chain (keyed on
+      // `affectedOrgId ?? orgId`), the tenant's own `audit:read` holders could
+      // read it, and the system org's trail never showed the grant at all. This
+      // route has no `requireSystemOrg`, so a tenant context is reachable; every
+      // sibling operator action in user-admin.ts already passes this.
       audit(req, 'admin.superadmin.revoke', {
         targetType: 'user',
         targetId: userId,
+        affectedOrgId: SYSTEM_ORG_ID,
         details: { email: user.email, source: 'admin-api', grant: parsed.grant },
       });
     }
