@@ -21,6 +21,27 @@ export const REFRESH_RETRY_DELAYS_MS: readonly number[] = [500, 2000];
 /** After a refresh gives up on transient failures, don't try again for this long. */
 export const REFRESH_FAILURE_COOLDOWN_MS = 30 * 1000;
 
+/**
+ * One `/auth/refresh` attempt is abandoned (and counted as a transient failure)
+ * after this long. The refresh runs INSIDE the cross-tab Web Lock, so a request
+ * that never settles would hold that lock for good and every other tab's page
+ * load would wait on it forever — the "Verifying…" spinner that never ends.
+ */
+export const REFRESH_REQUEST_TIMEOUT_MS = 10 * 1000;
+
+/**
+ * How long a tab waits for ANOTHER tab's refresh to release the cross-tab lock
+ * before giving up and reporting "no session restored" (the page then shows
+ * Sign in rather than spinning). Longer than the worst case a healthy holder
+ * can take — every attempt timing out plus every backoff — so a working sibling
+ * is never pre-empted; only a holder that is stuck (frozen, or from a build
+ * without the request timeout) is.
+ */
+export const REFRESH_LOCK_WAIT_MS =
+  REFRESH_REQUEST_TIMEOUT_MS * (REFRESH_RETRY_DELAYS_MS.length + 1)
+  + REFRESH_RETRY_DELAYS_MS.reduce((a, b) => a + b, 0)
+  + 5 * 1000;
+
 /** Module-level plugin cache time-to-live in ms. */
 export const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
