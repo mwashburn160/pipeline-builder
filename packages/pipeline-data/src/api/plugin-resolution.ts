@@ -559,6 +559,11 @@ export function listedPluginRecord(res: ListingResolved): Record<string, unknown
     source: 'listing',
     publisher: publisher.handle,
     publisherTier: publisher.tier,
+    // The org that OWNS the listing — the vulnerability-waiver decision is keyed
+    // on it (waivers are the operator's, system-org-only). Distinct from the
+    // CONSUMING org doing the lookup; without it the assessment could not apply
+    // waivers at all and reported a waived Critical as an error to every tenant.
+    ownerOrgId: publisher.ownerOrgId ?? null,
     listingId: listing.id,
     install: mode.kind,
     name: listing.name,

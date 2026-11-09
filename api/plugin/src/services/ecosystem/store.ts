@@ -178,13 +178,25 @@ export const versions = {
 };
 
 /**
- * Point a listing's `latestVersion` at its newest live (non-yanked) version.
- * `exceptId` is treated as yanked and `includeId` as live — for a yank or
- * unyank written in the same transaction.
+ * Point a listing's `latestVersion` at its newest live version — neither yanked
+ * NOR PAUSED. `exceptId` is treated as yanked and `includeId` as live — for a
+ * yank or unyank written in the same transaction.
+ *
+ * Pause used to be missing here, and it is not symmetric with yank by accident:
+ * the public directory's view excludes `v.paused_at IS NOT NULL`, so a paused
+ * `latestVersion` made the directory's lateral join yield NOTHING for the
+ * listing. The listing then vanished from `?computeType=` filtering while
+ * `?needsSecrets=false` still INCLUDED it (the secrets column coalesced to an
+ * empty array) — so a plugin that does require secrets was advertised as
+ * requiring none, and the detail page disagreed with the search page about both,
+ * because `getPublicListing` falls back to the newest non-yanked version.
+ *
+ * A publisher can pause its own latest version, so this was reachable without
+ * any moderator action.
  */
 export async function recomputeLatest(listingId: string, opts: { exceptId?: string; includeId?: string } = {}): Promise<PluginListing | null> {
   const live = (await versions.forListings([listingId]))
-    .filter((v) => v.id !== opts.exceptId && (!v.yankedAt || v.id === opts.includeId))
+    .filter((v) => v.id !== opts.exceptId && (!v.yankedAt || v.id === opts.includeId) && !v.pausedAt)
     .map((v) => v.version);
   return listings.update(listingId, { latestVersion: latestVersion(live) });
 }

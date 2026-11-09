@@ -228,6 +228,8 @@ export {
   exceedsVulnFloor,
   failOnLabel,
   gatedFindingCount,
+  summaryContradicts,
+  summaryDescribes,
   gatedFixableCount,
   isGatedFinding,
   newScanFindings,

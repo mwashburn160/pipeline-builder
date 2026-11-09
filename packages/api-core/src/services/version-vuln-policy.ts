@@ -32,7 +32,7 @@ import { createComplianceClient, type ComplianceViolation } from './compliance-c
 import { getServiceAuthHeader } from '../middleware/service-tokens.js';
 import { isSystemOrgId } from '../middleware/system-org.js';
 import {
-  asScanFlag, describeFindings, failOnLabel, isGatedFinding, pluginVulnGateKev, scanFindingKey,
+  applyVulnWaivers, asScanFlag, describeFindings, failOnLabel, isGatedFinding, pluginVulnGateKev, scanFindingKey, summaryContradicts,
   type PluginScanFinding, type PluginScanFlag,
 } from '../types/plugin-scan.js';
 import { envInt } from '../utils/env.js';
@@ -62,6 +62,17 @@ export function scanStaleHours(): number {
 export interface ScannedRecord extends PluginImageRow {
   name: string;
   version: string;
+  /**
+   * The org that OWNS this plugin/listing — NOT the consuming org on
+   * {@link VersionVulnInput}, which is whoever is asking. Vulnerability waivers
+   * are the operator's and are system-org-only, so without this the module
+   * could not apply them at all: a Critical the operator had waived still
+   * reported as an `error` to every tenant resolving the version, long after it
+   * stopped blocking the build and the listing. Optional because most callers
+   * have no owner to hand (a tenant's own row is its own owner) and absent means
+   * "no waiver applies", which is the safe direction.
+   */
+  ownerOrgId?: string | null;
   scannedAt?: Date | string | null;
   scanSummary?: unknown;
   scanFlaggedAt?: Date | string | null;
@@ -185,8 +196,13 @@ export interface VersionScanFacts {
 export function versionScanFacts(record: ScannedRecord): VersionScanFacts {
   const flag = record.scanFlaggedAt ? asScanFlag(record.scanFlag) : null;
   const raw = summaryOf(record);
-  const digest = typeof raw?.imageDigest === 'string' ? raw.imageDigest : null;
-  const summary = raw && (digest === null || !record.imageDigest || digest === record.imageDigest) ? raw : null;
+  // CONTRADICTS, not describes — the permissive half of the pair, deliberately.
+  // A digest-less summary is the only findings this reader has; discarding it
+  // makes the warning quieter and the delete-safety refusal less informative,
+  // which is the wrong failure for a consumer-facing grade. The publish gate
+  // asks the strict question because ITS wrong failure is listing something
+  // unvetted. See the note on `summaryDescribes`.
+  const summary = raw && !summaryContradicts(raw, typeof record.imageDigest === 'string' ? record.imageDigest : null) ? raw : null;
   const findings = summary && Array.isArray(summary.findings)
     ? (summary.findings as PluginScanFinding[]).filter((f) => f && typeof f.id === 'string').map((f) => ({ ...f, fixedIn: Array.isArray(f.fixedIn) ? f.fixedIn : [] }))
     : (flag?.findings ?? []);
@@ -195,6 +211,15 @@ export function versionScanFacts(record: ScannedRecord): VersionScanFacts {
   return {
     flagged: flag !== null,
     flag,
+    // NOT falling back to `record.vulnCriticalFixable`, though `highFixable`
+    // does fall back to its column one line down. The asymmetry is real and
+    // predates this module's current shape; closing it here would raise
+    // VULN_CRITICAL_FIXABLE for every record that has the column set and no
+    // summary at all — a broad change to warning VOLUME, which is a product
+    // decision rather than a consequence of tightening the digest check above.
+    // The digest change only affects records whose summary names another image,
+    // and those fall back to the flag's findings exactly as a summary-less
+    // record always has.
     criticalFixable: num(summary?.criticalFixable),
     highFixable: num(summary?.highFixable) ?? num(record.vulnHighFixable),
     critical: num(summary?.critical),
@@ -289,9 +314,23 @@ export async function assessVersionVulns(input: VersionVulnInput): Promise<Versi
     const gated = facts.findings.filter((f) => isGatedFinding(f, pluginVulnGateKev(), flag.failOn ?? 'critical'));
     finding('VULN_FLAGGED', 'error', `${ref} is flagged: a rescan found ${flag.gated} gated ${failOnLabel(flag.failOn ?? 'critical')} finding${flag.gated === 1 ? '' : 's'} over the platform limit${flag.findings.length ? ` (fix: ${describeFindings(flag.findings)})` : ''}.`,
       gated.length > 0 ? gated : flag.findings, { plugin: record.name, version: record.version, gated: flag.gated, high: flag.high });
-  } else if ((facts.criticalFixable ?? 0) > 0) {
-    const crits = facts.findings.filter((f) => f.severity === 'critical' && f.fixedIn.length > 0);
-    finding('VULN_CRITICAL_FIXABLE', 'error', `${ref} has ${facts.criticalFixable} fixable Critical finding${facts.criticalFixable === 1 ? '' : 's'}${crits.length ? `: ${describeFindings(crits)}` : ''}.`, crits);
+  } else {
+    // WAIVER-AWARE, which this branch could not be until the record carried its
+    // owner. Derived from the findings when they can carry the answer — the
+    // same rule `gatedFindingCount` applies — and from the raw column when they
+    // cannot (truncated, or none itemized), which keeps the warning rather than
+    // losing it. A waiver silences the warning only where it already silences
+    // the build floor and the publish gate.
+    const waivedKeys = new Set(
+      applyVulnWaivers(record.name, facts.findings, undefined, now, record.ownerOrgId ?? undefined, record.version)
+        .waived.map(scanFindingKey),
+    );
+    const crits = facts.findings.filter((f) => f.severity === 'critical' && f.fixedIn.length > 0 && !waivedKeys.has(scanFindingKey(f)));
+    const derivable = !facts.truncated && facts.findings.length > 0;
+    const criticalFixable = derivable ? crits.length : (facts.criticalFixable ?? 0);
+    if (criticalFixable > 0) {
+      finding('VULN_CRITICAL_FIXABLE', 'error', `${ref} has ${criticalFixable} fixable Critical finding${criticalFixable === 1 ? '' : 's'}${crits.length ? `: ${describeFindings(crits)}` : ''}.`, crits);
+    }
   }
   const highFixable = facts.highFixable ?? 0;
   if (highFixable > 0) {

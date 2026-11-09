@@ -27,7 +27,7 @@ import { ecosystemAudit } from './audit.js';
 import { can, ecosystemDeps, EcosystemError, type Caller } from './context.js';
 import { notifyListingPaused } from './install-notify.js';
 import { listingStats } from './reviews-store.js';
-import { requests as requestStore, listings, publishers, reservedNames, versions, OPEN_STATUSES } from './store.js';
+import { requests as requestStore, listings, publishers, recomputeLatest, reservedNames, versions, OPEN_STATUSES } from './store.js';
 import { listingView, publisherView } from './views.js';
 
 /** Publisher display-name / description caps (mirror the columns). */
@@ -255,7 +255,13 @@ export async function pause(caller: Caller, listingId: string, version: string |
   if (version) {
     const v = await versions.get(listing.id, version);
     if (!v) throw new EcosystemError(ErrorCode.NOT_FOUND, 'Version not found');
-    if (!v.pausedAt) await versions.update(v.id, { pausedAt: now });
+    if (!v.pausedAt) {
+      await versions.update(v.id, { pausedAt: now });
+      // `latestVersion` must not name a paused version: the public directory
+      // joins on it and excludes paused rows, so the listing would drop out of
+      // filtered search while still being counted — see `recomputeLatest`.
+      await recomputeLatest(listing.id);
+    }
     ecosystemAudit({ ...base, action: 'plugin.version.pause', targetType: 'plugin-listing-version', targetId: v.id, details: { listing: listing.name, version } });
   } else {
     if (!listing.pausedAt) await listings.update(listing.id, { pausedAt: now });

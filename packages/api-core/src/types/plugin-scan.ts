@@ -230,6 +230,47 @@ export function gatedFixableCount(
 }
 
 /**
+ * The two questions a caller can ask about a stored summary's image — and they
+ * are DIFFERENT questions, which is the thing worth writing down.
+ *
+ * A summary carries the digest of the image it described. A version rebuilt on
+ * a patched base is a different artifact, so a summary naming another digest is
+ * about something else. But a summary may also carry NO digest (an older row),
+ * and that is where the two callers legitimately part company:
+ *
+ *  - {@link summaryDescribes} — "can this summary be SHOWN to describe this
+ *    image?" Unknown counts as no. The publish gate asks this, because its
+ *    failure is listing something unvetted; falling back to the raw columns
+ *    merely leaves a plugin unlisted.
+ *  - {@link summaryContradicts} — "is this summary KNOWN to be about another
+ *    image?" Unknown counts as no. The resolver and the delete-safety grading
+ *    ask this, because their failure is the opposite one: discarding a
+ *    digest-less summary throws away the only findings they have and makes a
+ *    warning quieter or a refusal less informative.
+ *
+ * They used to be two open-coded expressions that happened to differ, with
+ * nothing saying whether that was reasoning or accident. It was reasoning; this
+ * is that reasoning, named.
+ */
+export function summaryDescribes(
+  summary: { imageDigest?: unknown } | null | undefined,
+  imageDigest: string | null | undefined,
+): boolean {
+  const stored = typeof summary?.imageDigest === 'string' ? summary.imageDigest : null;
+  return stored !== null && !!imageDigest && stored === imageDigest;
+}
+
+/** See {@link summaryDescribes} — the permissive twin, for readers that lose
+ *  information by discarding a digest-less summary. */
+export function summaryContradicts(
+  summary: { imageDigest?: unknown } | null | undefined,
+  imageDigest: string | null | undefined,
+): boolean {
+  const stored = typeof summary?.imageDigest === 'string' ? summary.imageDigest : null;
+  return stored !== null && !!imageDigest && stored !== imageDigest;
+}
+
+/**
  * The gated count a STORED scan summary implies, with waivers re-evaluated now.
  *
  * WHY THIS EXISTS. {@link gatedFixableCount} reads the scanner's fixable
@@ -269,9 +310,7 @@ export function gatedFindingCount(
 ): number | null {
   if (!summary || summary.truncated) return null;
   if (!Array.isArray(summary.findings)) return null;
-  // An absent digest on either side is not a match: the point of the check is
-  // proving the summary describes THIS image, and two unknowns prove nothing.
-  if (!summary.imageDigest || !subject.imageDigest || summary.imageDigest !== subject.imageDigest) return null;
+  if (!summaryDescribes(summary, subject.imageDigest)) return null;
   const { counted } = applyVulnWaivers(
     subject.pluginName,
     summary.findings,

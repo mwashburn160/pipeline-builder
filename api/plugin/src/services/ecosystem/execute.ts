@@ -264,6 +264,9 @@ async function executeUnpause(e: Execution): Promise<void> {
     const v = await versions.get(l.id, r.version);
     if (!v) throw new EcosystemError(ErrorCode.NOT_FOUND, 'Version not found');
     await versions.update(v.id, { pausedAt: null });
+    // The reverse of the pause path: an unpaused version is live again and may
+    // be the newest, so `latestVersion` is recomputed rather than left behind.
+    await recomputeLatest(l.id);
   } else {
     await listings.update(l.id, { pausedAt: null });
   }
