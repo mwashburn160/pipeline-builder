@@ -2080,14 +2080,50 @@ tests:
               component: dns
               tenancy: platform
             exp_annotations:
-              summary: "CoreDNS is up but receiving no queries"
-              description: "CoreDNS is answering its metrics scrape and has served ZERO queries for 10 minutes. A cluster that is running always resolves something, so this means pods cannot reach the resolver rather than that nothing needed it - check the egress policies, and allow-dns-egress in particular: a ports-only rule there does not survive the VPC CNI's `except` denies. Expect EAI_AGAIN across every service."
+              summary: "No DNS queries are reaching any resolver"
+              description: "CoreDNS is answering its metrics scrape, yet neither it nor ztunnel's DNS proxy has served a query for 10 minutes. A cluster that is running always resolves something, so this means pods cannot reach a resolver rather than that nothing needed one - check the egress policies, and allow-dns-egress in particular: a ports-only rule there does not survive the VPC CNI's `except` denies. Expect EAI_AGAIN across every service."
       - eval_time: 15m
         alertname: CoreDnsUnreachable
         exp_alerts: []
       - eval_time: 15m
         alertname: DnsResolutionFailing
         exp_alerts: []
+
+  # AMBIENT, HEALTHY: ztunnel answers the mesh's lookups, so CoreDNS sits flat
+  # while DNS works. This was the live false positive on EKS — must NOT fire.
+  - interval: 1m
+    input_series:
+      - series: 'coredns_dns_requests_total{server="dns://:53",zone=".",proto="udp",family="1",type="A"}'
+        values: '5000+0x30'
+      - series: 'istio_dns_requests_total{request_query_type="a",request_protocol="udp",source_canonical_service="platform"}'
+        values: '0+2700x30'
+      - series: 'up{job="kube-dns",pod="coredns-abc"}'
+        values: '1+0x30'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: DnsQueriesAbsent
+        exp_alerts: []
+
+  # AMBIENT, OUTAGE: ztunnel is present but serves nothing either. Still fires.
+  - interval: 1m
+    input_series:
+      - series: 'coredns_dns_requests_total{server="dns://:53",zone=".",proto="udp",family="1",type="A"}'
+        values: '5000+0x30'
+      - series: 'istio_dns_requests_total{request_query_type="a",request_protocol="udp",source_canonical_service="platform"}'
+        values: '9000+0x30'
+      - series: 'up{job="kube-dns",pod="coredns-abc"}'
+        values: '1+0x30'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: DnsQueriesAbsent
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              component: dns
+              tenancy: platform
+            exp_annotations:
+              summary: "No DNS queries are reaching any resolver"
+              description: "CoreDNS is answering its metrics scrape, yet neither it nor ztunnel's DNS proxy has served a query for 10 minutes. A cluster that is running always resolves something, so this means pods cannot reach a resolver rather than that nothing needed one - check the egress policies, and allow-dns-egress in particular: a ports-only rule there does not survive the VPC CNI's `except` denies. Expect EAI_AGAIN across every service."
 
   # Healthy DNS: queries flowing, no SERVFAIL. Nothing may fire.
   - interval: 1m

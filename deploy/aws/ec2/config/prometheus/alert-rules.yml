@@ -3111,9 +3111,21 @@ groups:
       # REACH it — which is exactly what a `to`-less egress policy produces: the
       # resolver is up, the pods cannot route to it, and every service fails on
       # name resolution while CoreDNS itself looks perfect.
+      #
+      # ztunnel's DNS proxy COUNTS AS A RESOLVER. Under the ambient mesh
+      # (dnsCapture pinned true) ztunnel answers every mesh pod's ClusterIP name
+      # itself and forwards only what it cannot synthesize, so CoreDNS can sit at
+      # ~0 queries on a perfectly healthy cluster — on EKS it did, and this rule
+      # fired for as long as the cluster was up. Its traffic is
+      # istio_dns_requests_total. `or vector(0)` keeps a target with no mesh on
+      # the CoreDNS-only reading; the CoreDNS term deliberately has NO fallback,
+      # so its series vanishing stays CoreDnsUnreachable's alert, not this one.
       - alert: DnsQueriesAbsent
         expr: |
-          sum(rate(coredns_dns_requests_total[5m])) == 0
+          (
+            sum(rate(coredns_dns_requests_total[5m]))
+            + (sum(rate(istio_dns_requests_total[5m])) or vector(0))
+          ) == 0
           and on () max(up{job="kube-dns"}) == 1
         for: 10m
         labels:
@@ -3121,8 +3133,8 @@ groups:
           component: dns
           tenancy: platform
         annotations:
-          summary: "CoreDNS is up but receiving no queries"
-          description: "CoreDNS is answering its metrics scrape and has served ZERO queries for 10 minutes. A cluster that is running always resolves something, so this means pods cannot reach the resolver rather than that nothing needed it - check the egress policies, and allow-dns-egress in particular: a ports-only rule there does not survive the VPC CNI's `except` denies. Expect EAI_AGAIN across every service."
+          summary: "No DNS queries are reaching any resolver"
+          description: "CoreDNS is answering its metrics scrape, yet neither it nor ztunnel's DNS proxy has served a query for 10 minutes. A cluster that is running always resolves something, so this means pods cannot reach a resolver rather than that nothing needed one - check the egress policies, and allow-dns-egress in particular: a ports-only rule there does not survive the VPC CNI's `except` denies. Expect EAI_AGAIN across every service."
 
       - alert: DnsResolutionFailing
         expr: |

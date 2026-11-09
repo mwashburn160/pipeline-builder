@@ -1,6 +1,6 @@
 // GENERATED FROM docs/deploy-operations.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: eec8737816218699d602d495db928416c4a540dcf759b07bf208acb7a57495b4
+// SOURCE-SHA256: 60c0507792e3e67ed7cf9d2067a6ddb2c268a2379bbb50d1b7918f37f1d1855c
 // SPDX-License-Identifier: Apache-2.0
 import { Wrench } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -1413,7 +1413,7 @@ export const deployOperationsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "outage this section exists for: allow-dns-egress once shipped without a to:, the AWS VPC CNI would not let that override the per-app except denies, and 10.0.0.0/8 covered the kube-dns IP. The resolver stayed up while no pod could route to it. It presented as platform CrashLooping on KMS GetPublicKey failed ... EAI_AGAIN, plugin stuck at 1/2 with \"All sentinels are unreachable\", and redis replicas stranded on a stale master IP — and nothing named DNS through five disproven theories."
+          "content": "outage this section exists for: allow-dns-egress once shipped without a to:, the AWS VPC CNI would not let that override the per-app except denies, and 10.0.0.0/8 covered the kube-dns IP. The resolver stayed up while no pod could route to it. It presented as platform CrashLooping on KMS GetPublicKey failed ... EAI_AGAIN, plugin stuck at 1/2 with \"All sentinels are unreachable\", and redis replicas stranded on a stale master IP — and nothing named DNS through five disproven theories. It counts ztunnel's DNS proxy as a resolver too (istio_dns_requests_total): with ambient dnsCapture on, ztunnel answers every mesh pod's ClusterIP lookups itself, so CoreDNS alone can sit at ~0 on a healthy cluster. Counting only CoreDNS made this fire for the whole life of every EKS install. The ztunnel term falls back to 0 where there is no mesh; the CoreDNS term does not, so its series vanishing stays CoreDnsUnreachable."
         },
         {
           "type": "list",
