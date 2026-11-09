@@ -767,7 +767,12 @@ three failures are genuinely different:
   route to it. It presented as platform CrashLooping on `KMS GetPublicKey failed
   ... EAI_AGAIN`, plugin stuck at 1/2 with "All sentinels are unreachable", and
   redis replicas stranded on a stale master IP — and nothing named DNS through
-  five disproven theories.
+  five disproven theories. It counts **ztunnel's DNS proxy as a resolver too**
+  (`istio_dns_requests_total`): with ambient `dnsCapture` on, ztunnel answers
+  every mesh pod's ClusterIP lookups itself, so CoreDNS alone can sit at ~0 on a
+  healthy cluster. Counting only CoreDNS made this fire for the whole life of
+  every EKS install. The ztunnel term falls back to 0 where there is no mesh;
+  the CoreDNS term does not, so its series vanishing stays `CoreDnsUnreachable`.
 - `DnsResolutionFailing` — pods **do** reach CoreDNS and it cannot answer (>5%
   SERVFAIL). An upstream or forwarded-zone problem. External names fail while
   ClusterIP names keep working, because ztunnel answers those from the mesh

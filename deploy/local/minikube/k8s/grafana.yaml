@@ -136,7 +136,12 @@ spec:
       annotations:
         prometheus.io/scrape: "true"
         prometheus.io/port: "3000"
-        prometheus.io/path: /metrics
+        # /grafana/metrics, NOT /metrics: GF_SERVER_SERVE_FROM_SUB_PATH serves
+        # everything under /grafana/, so /metrics answers 301 to
+        # http://localhost/grafana/metrics — which Prometheus follows to ITS OWN
+        # localhost:80 and gets "connection refused". The target then reads as
+        # down and ServiceDown{service="grafana"} fires on a healthy Grafana.
+        prometheus.io/path: /grafana/metrics
     spec:
       serviceAccountName: grafana
       automountServiceAccountToken: false
