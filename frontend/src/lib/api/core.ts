@@ -3,7 +3,7 @@
 
 import { ASK_AGENT_PROPOSER } from '@pipeline-builder/api-core/ask-proposals';
 import type { AuthTokens, ApiResponse } from '@/types';
-import { REFRESH_BUFFER_MS, REFRESH_RETRY_DELAYS_MS, REFRESH_FAILURE_COOLDOWN_MS, API_REQUEST_TIMEOUT_MS } from '../constants';
+import { REFRESH_BUFFER_MS, REFRESH_RETRY_DELAYS_MS, REFRESH_FAILURE_COOLDOWN_MS, API_REQUEST_TIMEOUT_MS, REFRESH_REQUEST_TIMEOUT_MS, REFRESH_LOCK_WAIT_MS } from '../constants';
 import { ApiError, MfaRequiredError, QuotaExceededError, StepUpRequiredError } from './errors';
 import { API_URL, base64UrlDecode, isMfaErrorCode, isStepUpErrorCode, type ProposedByOptions } from './util';
 
@@ -863,7 +863,23 @@ export class ApiCore {
   private withCrossTabRefreshLock(fn: () => Promise<boolean>): Promise<boolean> {
     const locks = typeof navigator !== 'undefined' ? navigator.locks : undefined;
     if (!locks?.request) return fn();
-    return locks.request(REFRESH_LOCK_NAME, fn);
+    // The wait is BOUNDED. A tab whose refresh never settled (frozen, or a build
+    // without REFRESH_REQUEST_TIMEOUT_MS) would otherwise hold the lock for good,
+    // and every page load in every other tab would wait on it with no request
+    // ever sent. Giving up reports `false` — the same answer as a transient
+    // failure: the session marker is kept, nothing is rotated, and the caller
+    // shows its signed-out state instead of spinning. Running `fn` WITHOUT the
+    // lock is deliberately not the fallback: a stuck holder may still present
+    // the pre-rotation cookie, which the server reads as reuse.
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), REFRESH_LOCK_WAIT_MS);
+    return locks.request(REFRESH_LOCK_NAME, { signal: controller.signal }, async () => {
+      clearTimeout(timer);
+      return fn();
+    }).catch((err: unknown) => {
+      if (controller.signal.aborted) return false;
+      throw err;
+    }).finally(() => clearTimeout(timer));
   }
 
   /**
@@ -881,15 +897,23 @@ export class ApiCore {
    */
   private async attemptRefresh(): Promise<'ok' | 'rejected' | 'throttled' | 'transient' | 'failed'> {
     let response: Response;
+    // Bounded: this runs inside the cross-tab lock, so a request that never
+    // settles would hold it for good (see REFRESH_REQUEST_TIMEOUT_MS). A timeout
+    // is an outage, not a verdict on the cookie — 'transient', retried, session kept.
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), REFRESH_REQUEST_TIMEOUT_MS);
     try {
       response = await fetch(`${API_URL}/api/auth/refresh`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', [CLIENT_TYPE_HEADER]: CLIENT_TYPE },
         credentials: 'same-origin',
         body: '{}',
+        signal: controller.signal,
       });
     } catch {
       return 'transient';
+    } finally {
+      clearTimeout(timer);
     }
     // Decide from the REAL HTTP status, never a body `statusCode` field — a proxy
     // may inject/lie about it (mirrors request()).

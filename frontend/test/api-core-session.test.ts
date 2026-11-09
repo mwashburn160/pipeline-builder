@@ -20,7 +20,7 @@ import { describe, it, expect, jest, beforeEach, afterEach } from '@jest/globals
 import type { AnyFn } from './helpers/mock-fn';
 import { ApiCore, SESSION_REFRESH_UNAVAILABLE } from '../src/lib/api/core';
 import { ApiError } from '../src/lib/api/errors';
-import { REFRESH_RETRY_DELAYS_MS, REFRESH_FAILURE_COOLDOWN_MS } from '../src/lib/constants';
+import { REFRESH_RETRY_DELAYS_MS, REFRESH_FAILURE_COOLDOWN_MS, REFRESH_REQUEST_TIMEOUT_MS, REFRESH_LOCK_WAIT_MS } from '../src/lib/constants';
 
 /** A decodable access token whose `exp` is `secondsFromNow` out. */
 function accessToken(sub: string, secondsFromNow = 3600): string {
@@ -288,6 +288,85 @@ describe('ApiCore.restoreSession', () => {
 
     await expect(core.restoreSession()).resolves.toBe(false);
     expect(localStorage.getItem('pb.session')).toBeNull();
+  });
+});
+
+/**
+ * A page load must never wait forever on the refresh. Both waits are inside the
+ * cross-tab Web Lock: the request itself, and — for every OTHER tab — the lock.
+ * A refresh request that never settled once left every new tab on its
+ * "Verifying…" spinner, with no request ever sent.
+ */
+describe('ApiCore refresh is bounded', () => {
+  let fetchMock: jest.Mock<AnyFn>;
+  const hadLocks = 'locks' in navigator;
+
+  /** Stand in for navigator.locks (jsdom ships none). */
+  function stubLocks(request: (name: string, opts: { signal?: AbortSignal }, fn: () => Promise<boolean>) => Promise<boolean>) {
+    Object.defineProperty(navigator, 'locks', { value: { request }, configurable: true });
+  }
+
+  /** A fetch that only ever ends by being aborted — the hung request. */
+  function hangingFetch(_url: unknown, init?: RequestInit): Promise<Response> {
+    return new Promise((_, reject) => {
+      init?.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+    });
+  }
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    fetchMock = jest.fn<AnyFn>();
+    global.fetch = fetchMock as unknown as typeof fetch;
+    localStorage.setItem('pb.session', '1');
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+    jest.restoreAllMocks();
+    if (!hadLocks) delete (navigator as unknown as Record<string, unknown>).locks;
+    localStorage.clear();
+    sessionStorage.clear();
+  });
+
+  it('abandons a refresh request that never settles, retries it, and keeps the session', async () => {
+    fetchMock.mockImplementation(hangingFetch as AnyFn);
+    const core = new ApiCore();
+
+    const done = core.restoreSession();
+    await jest.advanceTimersByTimeAsync(REFRESH_REQUEST_TIMEOUT_MS * maxAttempts + totalBackoff + 1);
+
+    await expect(done).resolves.toBe(false);
+    expect(fetchMock).toHaveBeenCalledTimes(maxAttempts);
+    // A timeout is an outage, not a verdict on the cookie.
+    expect(localStorage.getItem('pb.session')).toBe('1');
+  });
+
+  it('gives up waiting on a lock another tab never releases, instead of spinning forever', async () => {
+    // The holder never lets go: the request callback is never run.
+    stubLocks((_name, opts) => new Promise((_, reject) => {
+      opts.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+    }));
+    const core = new ApiCore();
+
+    const done = core.restoreSession();
+    await jest.advanceTimersByTimeAsync(REFRESH_LOCK_WAIT_MS + 1);
+
+    await expect(done).resolves.toBe(false);
+    // Nothing was sent: presenting the cookie behind a stuck holder risks a reuse revocation.
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(localStorage.getItem('pb.session')).toBe('1');
+  });
+
+  it('still refreshes normally under the lock, and waits longer than a healthy holder can take', async () => {
+    let lockOpts: { signal?: AbortSignal } | undefined;
+    stubLocks((_name, opts, fn) => { lockOpts = opts; return fn(); });
+    fetchMock.mockResolvedValue(res(200, { data: ROTATED }));
+    const core = new ApiCore();
+
+    await expect(core.restoreSession()).resolves.toBe(true);
+    expect(core.getAccessToken()).toBe(ROTATED.accessToken);
+    expect(lockOpts?.signal).toBeDefined();
+    expect(REFRESH_LOCK_WAIT_MS).toBeGreaterThan(REFRESH_REQUEST_TIMEOUT_MS * maxAttempts + totalBackoff);
   });
 });
 
