@@ -64,7 +64,7 @@ spec:
       # conversation state is client-held; the docs corpus is in the image).
       containers:
         - name: ask
-          image: ghcr.io/mwashburn160/ask:4.6.10@sha256:2d0a2f4c12255501ea300a633ef2074a2e90cc1ccbfbb10a07319313076647db
+          image: ghcr.io/mwashburn160/ask:4.6.10@sha256:ec3f69eddd7a56fa2fe551c8ab2bd11c6f4ed047d8cac2dd907afee0f34dd02e
           securityContext:
             runAsNonRoot: true
             runAsUser: 1000

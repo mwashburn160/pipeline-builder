@@ -87,7 +87,7 @@ spec:
               echo "Dependencies ready"
       containers:
         - name: message
-          image: ghcr.io/mwashburn160/message:4.4.10@sha256:0a1e09df36d3bdbd05330f8ea8d633ccb95f24c1a069bbf2416e1cca17f7bbd8
+          image: ghcr.io/mwashburn160/message:4.4.10@sha256:b396d5700e0b2d41fc297572ee8c917077c82a21befa4dd8ddcc3c41ca6cb070
           securityContext:
             runAsNonRoot: true
             runAsUser: 1000
