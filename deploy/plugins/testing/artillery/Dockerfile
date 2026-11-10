@@ -13,6 +13,13 @@ FROM plugin-node-base:1.0
 # No newer Artillery release exists yet that bumps either; re-check on the
 # next scan whether a fix has shipped before assuming this is still open.
 ARG ARTILLERY_VERSION=2.0.34
+# NO BROWSER. Artillery's Playwright engine dependency (@playwright/browser-chromium)
+# downloads Chromium during `npm install`, which added 281 fixable Criticals and
+# ~650 MB to an image whose job is HTTP and WebSocket load testing — nothing here
+# drives a browser. Skipping the download clears every Critical (grype: 281 -> 0)
+# and the per-plugin `chromium,chrome` waiver it needed. Browser scenarios belong
+# in testing/playwright, which ships its own browser on purpose.
+ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 RUN npm install -g "artillery@${ARTILLERY_VERSION}"
 
 WORKDIR /app
