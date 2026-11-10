@@ -1,6 +1,6 @@
 // GENERATED FROM docs/permissions.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: da351014128613eb76e0692fc347405063952db085d821b4b8fe295f4ed3e951
+// SOURCE-SHA256: dbac71f80b24a4021ff343a6548a0732e8858041ddc2be9c023c0e5e3498f582
 // SPDX-License-Identifier: Apache-2.0
 import { UserCog } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -137,7 +137,7 @@ export const permissionsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "also seeds Super Admin and Ecosystem Manager (see Ecosystem Manager). A startup backfill re-syncs each built-in Role's permission set to the current catalog, so new permissions reach existing orgs."
+          "content": "also seeds Super Admin, Ecosystem Manager, Publisher Verifier and the job Roles (see Ecosystem Manager). A startup backfill re-syncs each built-in Role's permission set to the current catalog, so new permissions reach existing orgs."
         },
         {
           "type": "list",
@@ -267,7 +267,7 @@ export const permissionsTopic: HelpTopic = {
             [
               "Plugin ecosystem (system org only)",
               "plugins:moderate, publishers:verify",
-              "System-org only — never grantable to a custom Role in any org; held only through the built-in Ecosystem Manager Role or as a Super Admin. See the carve-out below."
+              "System-org only — never grantable to a Role authored in a tenant. plugins:moderate is the built-in Ecosystem Manager Role (approve listings and versions, yank, advisories, auto-approval rules, reserved names, review moderation); publishers:verify is the built-in Publisher Verifier Role (award Verified, suspend, unsuspend). Also held by a Super Admin, or by a custom Role a Super Admin authors in the system org. See the carve-out below."
             ],
             [
               "Platform operations (system org only)",
@@ -398,7 +398,11 @@ export const permissionsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "The ecosystem pair governs the plugin ecosystem, which only the system org may manage or approve (governance). They're in no member/admin/owner bundle and a custom Role requesting either is rejected with RL_PERMISSION_NOT_ASSIGNABLE in every org — the system org and a Super Admin author included. The only holders are Super Admins (implicit-all) and members of the system org's built-in Ecosystem Manager Role."
+          "content": "The ecosystem pair governs the plugin ecosystem, which only the system org may manage or approve (governance). They're in no member/admin/owner bundle, and a custom Role requesting either is rejected with RL_PERMISSION_NOT_ASSIGNABLE in every tenant, whoever the author is. One case is allowed: a Super Admin authoring a Role inside the system org may carry them (mayComposeSystemOrgRole), which is the escape hatch for a job no seeded Role covers. So there are three holders — a Super Admin (implicit-all), a seeded system-org Role, and a custom system-org Role a Super Admin composed."
+        },
+        {
+          "type": "text",
+          "content": "The two seeded carriers are Ecosystem Manager (plugins:moderate — the moderation job) and Publisher Verifier (publishers:verify — awarding Verified, suspending and unsuspending). They used to be one Role carrying both, which meant everyone triaging the publish queue could also mint a Verified publisher; the split follows this document's own rule of separating by what a mistaken grant costs. Staff at least two Publisher Verifiers: a Verified application and an unsuspend are both two-person decisions and the same person cannot give both approvals."
         },
         {
           "type": "text",
@@ -407,7 +411,16 @@ export const permissionsTopic: HelpTopic = {
         {
           "type": "list",
           "items": [
-            "Authoring — sanitizePermissions refuses them in any custom Role.",
+            "Authoring — sanitizePermissions refuses them in any custom Role except"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "one a Super Admin authors in the system org itself."
+        },
+        {
+          "type": "list",
+          "items": [
             "Assignment — only a Super Admin may assign or unassign a Role carrying"
           ]
         },

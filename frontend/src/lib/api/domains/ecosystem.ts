@@ -260,15 +260,24 @@ export function ecosystemApi(core: ApiCore) {
     listReservedNames: async (opts?: { signal?: AbortSignal }) =>
       core.request<ApiResponse<{ names: ReservedName[] }>>('/api/plugins/ecosystem/reserved-names', { signal: opts?.signal }),
 
-    /** Reserve (or re-reason) a handle / listing name; `publisherId` makes it claimable by that publisher only. */
-    putReservedName: async (name: string, body: { reason?: string | null; publisherId?: string | null }) =>
+    /**
+     * Reserve (or re-reason) a handle / listing name; `publisherId` makes it
+     * claimable by that publisher only. Step-up gated — a reservation decides
+     * who may take a name.
+     */
+    putReservedName: async (name: string, body: { reason?: string | null; publisherId?: string | null }, stepUpToken?: string) =>
       core.request<ApiResponse<Omit<ReservedName, 'createdAt'>>>(`/api/plugins/ecosystem/reserved-names/${enc(name)}`, {
         method: 'PUT',
         ...json(body),
+        headers: core.stepUpHeader(stepUpToken),
       }),
 
-    deleteReservedName: async (name: string) =>
-      core.request<ApiResponse<{ deleted: true }>>(`/api/plugins/ecosystem/reserved-names/${enc(name)}`, { method: 'DELETE' }),
+    /** Step-up gated: freeing a name lets the next caller register it. */
+    deleteReservedName: async (name: string, stepUpToken?: string) =>
+      core.request<ApiResponse<{ deleted: true }>>(`/api/plugins/ecosystem/reserved-names/${enc(name)}`, {
+        method: 'DELETE',
+        headers: core.stepUpHeader(stepUpToken),
+      }),
 
     // ── Console: community submissions ───────────────────────────────
     /**

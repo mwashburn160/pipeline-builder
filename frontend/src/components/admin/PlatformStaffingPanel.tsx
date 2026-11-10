@@ -24,9 +24,12 @@ interface Props {
 /**
  * **Platform staffing** — who does each of the vendor's own jobs.
  *
- * WHY THIS EXISTS. Every permission behind these Roles is system-org-only, which
- * means no custom Role in any org may carry one: the ONLY grant path is a
- * superadmin assigning one of the seeded Roles. The generic Role admin can do
+ * WHY THIS EXISTS. Every permission behind these Roles is system-org-only, so no
+ * Role authored in a TENANT may carry one — a superadmin can still compose a
+ * custom Role inside the system org that does (platform's `sanitizePermissions`,
+ * `mayComposeSystemOrgRole`), which is the escape hatch for a job no seeded Role
+ * covers. For the jobs below, assigning the seeded Role is the path that does
+ * not require composing anything. The generic Role admin can do
  * that — it is the same two routes underneath — but it asks the operator to know
  * which of six Roles maps to which job, and to go looking for the system org's
  * Role list to find out. The observed outcome of that is people reaching for the

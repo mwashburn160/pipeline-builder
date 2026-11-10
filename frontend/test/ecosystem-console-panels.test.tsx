@@ -154,7 +154,7 @@ describe('Publish queue — overview and filters', () => {
     api.listEcosystemRequests
       .mockResolvedValueOnce({ success: true, data: { requests: [baseItem], total: 2, nextCursor: 'c1' } })
       .mockResolvedValueOnce({ success: true, data: { requests: [{ ...baseItem, id: 'r2' }], total: 2, nextCursor: null } });
-    render(<PublishQueuePanel can={canAll} />);
+    render(<PublishQueuePanel can={canAll} holds={canAll} />);
     expect(await screen.findByTestId('queue-count')).toHaveTextContent('Showing 1 of 2 — oldest first');
     fireEvent.click(screen.getByRole('button', { name: 'Load more' }));
     await waitFor(() => expect(api.listEcosystemRequests).toHaveBeenLastCalledWith(expect.objectContaining({ status: 'open', cursor: 'c1' })));
@@ -164,7 +164,7 @@ describe('Publish queue — overview and filters', () => {
   });
 
   it('shows pending counts, bootstrap state and the runbook link', async () => {
-    render(<PublishQueuePanel can={canAll} />);
+    render(<PublishQueuePanel can={canAll} holds={canAll} />);
     const ov = await screen.findByTestId('queue-overview');
     expect(within(ov).getByText('Security lane')).toBeInTheDocument();
     expect(within(ov).getByText(/closed/)).toBeInTheDocument();
@@ -179,7 +179,7 @@ describe('Publish queue — overview and filters', () => {
 
   it('warns when fewer than two approvers hold MODERATION rights, naming which (the overview\'s count)', async () => {
     api.getEcosystemOverview.mockResolvedValue({ success: true, data: overview(1) });
-    render(<PublishQueuePanel can={canAll} />);
+    render(<PublishQueuePanel can={canAll} holds={canAll} />);
     expect(await screen.findByText(/fewer than two approvers with moderation rights/i)).toBeInTheDocument();
     // BOTH standings are surfaced now. The server has always returned
     // `verify` beside `moderate` and the console read only the first, so a
@@ -192,7 +192,7 @@ describe('Publish queue — overview and filters', () => {
 
   it('warns below the staffing minimum of three', async () => {
     api.getEcosystemOverview.mockResolvedValue({ success: true, data: overview(2) });
-    render(<PublishQueuePanel can={canAll} />);
+    render(<PublishQueuePanel can={canAll} holds={canAll} />);
     expect(await screen.findByText(/below 3 approvers with moderation rights/i)).toBeInTheDocument();
     expect(screen.queryByText(/fewer than two approvers with moderation rights/i)).not.toBeInTheDocument();
   });
@@ -205,7 +205,7 @@ describe('Publish queue — overview and filters', () => {
     o.approvers.moderate = { ...o.approvers.moderate, count: null as never, belowMinimum: false, belowTwoPerson: false };
     o.approvers.verify = { ...o.approvers.verify, count: null as never, belowMinimum: false, belowTwoPerson: false };
     api.getEcosystemOverview.mockResolvedValue({ success: true, data: o });
-    render(<PublishQueuePanel can={canAll} />);
+    render(<PublishQueuePanel can={canAll} holds={canAll} />);
     const ov = await screen.findByTestId('queue-overview');
     expect(within(ov).getByText('—')).toBeInTheDocument();
     expect(screen.queryByText(/ecosystem managers/i, { selector: '[role="alert"] *' })).not.toBeInTheDocument();
@@ -217,7 +217,7 @@ describe('Publish queue — overview and filters', () => {
       success: true,
       data: { requests: [{ ...baseItem, lane: 'security', slaHours: 4, slaBreached: true }] },
     });
-    render(<PublishQueuePanel can={canAll} />);
+    render(<PublishQueuePanel can={canAll} holds={canAll} />);
     expect(await screen.findByText(/security lane · 4h sla/i)).toBeInTheDocument();
     expect(screen.getByText('SLA breached')).toBeInTheDocument();
     expect(api.listEcosystemRequests).toHaveBeenCalledWith({ status: 'open', limit: 100 }, expect.anything());
@@ -233,7 +233,7 @@ describe('Publish queue — overview and filters', () => {
 
 describe('Publish queue — review diff', () => {
   it('shows provenance, the highlighted edited link, contract deltas, vuln, Dockerfile and SBOM', async () => {
-    render(<PublishQueuePanel can={canAll} />);
+    render(<PublishQueuePanel can={canAll} holds={canAll} />);
     await openDetail({});
     expect(screen.getByText(/edited links — check where they go/i)).toBeInTheDocument();
     expect(screen.getByText('minor bump')).toBeInTheDocument();
@@ -255,7 +255,7 @@ describe('Publish queue — review diff', () => {
 
 describe('Publish queue — decisions', () => {
   it('a conflict of interest disables every decision, with the reason', async () => {
-    render(<PublishQueuePanel can={canAll} />);
+    render(<PublishQueuePanel can={canAll} holds={canAll} />);
     await openDetail({ conflictOfInterest: true, conflictReason: 'You belong to the submitting organization.' });
     expect(screen.getByText('You belong to the submitting organization.')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /^approve$/i })).toBeDisabled();
@@ -264,7 +264,7 @@ describe('Publish queue — decisions', () => {
 
   it('explains that a two-person first approval only moves it to second approval', async () => {
     api.approveEcosystemRequest.mockResolvedValue({ success: true, data: { request: { ...baseItem, status: 'pending_second_approval' } } });
-    render(<PublishQueuePanel can={canAll} />);
+    render(<PublishQueuePanel can={canAll} holds={canAll} />);
     await openDetail({ requiresTwoPerson: true });
     expect(screen.getByTestId('two-person-note')).toHaveTextContent(/awaiting second approval/i);
 
@@ -276,7 +276,7 @@ describe('Publish queue — decisions', () => {
   });
 
   it('offers Second-approve on a request awaiting the second approval', async () => {
-    render(<PublishQueuePanel can={canAll} />);
+    render(<PublishQueuePanel can={canAll} holds={canAll} />);
     await openDetail({ status: 'pending_second_approval', requiresTwoPerson: true, firstApprovedBy: 'mod-a' });
     expect(screen.getByTestId('two-person-note')).toHaveTextContent(/first approved by mod-a/i);
     fireEvent.click(screen.getByRole('button', { name: /second-approve/i }));
@@ -285,7 +285,7 @@ describe('Publish queue — decisions', () => {
   });
 
   it('runs step-up before a step-up kind and forwards the token and note', async () => {
-    render(<PublishQueuePanel can={canAll} />);
+    render(<PublishQueuePanel can={canAll} holds={canAll} />);
     await openDetail({ kind: 'yank', requiresStepUp: true, payload: {}, listingName: 'eslint', version: '1.0.0' });
     fireEvent.click(screen.getByRole('button', { name: /^approve$/i }));
     const stepUp = screen.getByTestId('step-up');
@@ -295,7 +295,7 @@ describe('Publish queue — decisions', () => {
   });
 
   it('rejecting needs a reason', async () => {
-    render(<PublishQueuePanel can={canAll} />);
+    render(<PublishQueuePanel can={canAll} holds={canAll} />);
     await openDetail({});
     fireEvent.click(screen.getByRole('button', { name: /^reject$/i }));
     const dialog = screen.getByRole('dialog');
@@ -307,7 +307,7 @@ describe('Publish queue — decisions', () => {
   });
 
   it('hides the decision controls from a viewer without the required permission', async () => {
-    render(<PublishQueuePanel can={(p) => p === 'plugins:moderate'} />);
+    render(<PublishQueuePanel can={(p) => p === 'plugins:moderate'} holds={(p) => p === 'plugins:moderate'} />);
     await openDetail({ kind: 'verify', requiredPermission: 'publishers:verify' });
     expect(screen.queryByTestId('queue-decision')).not.toBeInTheDocument();
     expect(screen.getByTestId('review-diff')).toBeInTheDocument();
@@ -444,14 +444,14 @@ describe('Publisher verification', () => {
   });
 
   it('lists pending applications and publishers', async () => {
-    render(<PublisherVerificationPanel can={canAll} />);
+    render(<PublisherVerificationPanel can={canAll} holds={canAll} />);
     expect(await screen.findByText(/acme\.dev/)).toBeInTheDocument();
     expect(api.listEcosystemRequests).toHaveBeenCalledWith({ status: 'open', kind: 'verify' }, expect.anything());
     expect(await screen.findByTestId('publisher-bad')).toHaveTextContent('Suspended');
   });
 
   it('suspending needs a reason and step-up', async () => {
-    render(<PublisherVerificationPanel can={canAll} />);
+    render(<PublisherVerificationPanel can={canAll} holds={canAll} />);
     fireEvent.click(await screen.findByRole('button', { name: 'Suspend acme' }));
     // The reason is required BEFORE the step-up can be spent.
     expect(screen.getByRole('button', { name: 'Verify step-up' })).toBeDisabled();
@@ -462,7 +462,7 @@ describe('Publisher verification', () => {
   });
 
   it('lifting a suspension and awarding Verified are two-person requests', async () => {
-    render(<PublisherVerificationPanel can={canAll} />);
+    render(<PublisherVerificationPanel can={canAll} holds={canAll} />);
     fireEvent.click(await screen.findByRole('button', { name: 'Lift the suspension of bad' }));
     fireEvent.click(screen.getByRole('button', { name: 'Verify step-up' }));
     await waitFor(() => expect(api.unsuspendPublisher).toHaveBeenCalledWith('pub2', undefined, 'step-tok'));
@@ -479,7 +479,7 @@ describe('Publisher verification', () => {
       success: true,
       data: { request: { ...baseItem, id: 'v1', kind: 'verify', requiredPermission: 'publishers:verify' }, review: { ...review, contract: null, vuln: null, dockerfile: null, sbom: null, icon: null, metadata: [] } },
     });
-    render(<PublisherVerificationPanel can={canAll} />);
+    render(<PublisherVerificationPanel can={canAll} holds={canAll} />);
     fireEvent.click(await screen.findByRole('button', { name: /review application from acme/i }));
     expect(await screen.findByTestId('queue-detail')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /back to publishers/i }));
@@ -487,7 +487,7 @@ describe('Publisher verification', () => {
   });
 
   it('shows no write controls without publishers:verify', async () => {
-    render(<PublisherVerificationPanel can={() => false} />);
+    render(<PublisherVerificationPanel can={() => false} holds={() => true} />);
     await screen.findByTestId('publisher-acme');
     expect(screen.queryByRole('button', { name: /suspend|verified|community/i })).not.toBeInTheDocument();
   });
@@ -573,7 +573,7 @@ describe('Verified eligibility checks', () => {
       data: { requests: [{ ...baseItem, id: 'v1', kind: 'verify', payload: { application: { domain: 'acme.dev' }, eligibility: eligibility() } }] },
     });
     api.listEcosystemPublishers.mockResolvedValue({ success: true, data: { publishers: [] } });
-    render(<PublisherVerificationPanel can={canAll} />);
+    render(<PublisherVerificationPanel can={canAll} holds={canAll} />);
     const checks = await screen.findByTestId('verified-checks');
     expect(checks).toHaveTextContent('Plan ✓');
     expect(checks).toHaveTextContent('Verified domain ✓');
@@ -581,7 +581,7 @@ describe('Verified eligibility checks', () => {
   });
 
   it('the review shows the LIVE re-check with each failing detail', async () => {
-    render(<PublishQueuePanel can={canAll} />);
+    render(<PublishQueuePanel can={canAll} holds={canAll} />);
     const item = { ...baseItem, kind: 'verify', requiredPermission: 'publishers:verify', payload: { eligibility: eligibility() } };
     api.listEcosystemRequests.mockResolvedValue({ success: true, data: { requests: [item] } });
     api.getEcosystemRequest.mockResolvedValue({
@@ -597,7 +597,7 @@ describe('Verified eligibility checks', () => {
   });
 
   it('a decided application falls back to the submit-time snapshot', async () => {
-    render(<PublishQueuePanel can={canAll} />);
+    render(<PublishQueuePanel can={canAll} holds={canAll} />);
     const item = { ...baseItem, kind: 'verify', status: 'approved', payload: { eligibility: eligibility() } };
     api.listEcosystemRequests.mockResolvedValue({ success: true, data: { requests: [item] } });
     api.getEcosystemRequest.mockResolvedValue({ success: true, data: { request: item, review, approvers: null, eligibility: null } });
@@ -608,7 +608,7 @@ describe('Verified eligibility checks', () => {
 
 describe('Per-request eligible approvers', () => {
   it('says how many managers can decide after the requester\'s conflicts, and when a superadmin is needed', async () => {
-    render(<PublishQueuePanel can={canAll} />);
+    render(<PublishQueuePanel can={canAll} holds={canAll} />);
     const item = { ...baseItem, requiresTwoPerson: true };
     api.listEcosystemRequests.mockResolvedValue({ success: true, data: { requests: [item] } });
     api.getEcosystemRequest.mockResolvedValue({
@@ -671,12 +671,16 @@ describe('Reserved names', () => {
     expect(await screen.findByText(/publisher not found/i)).toBeInTheDocument();
   });
 
-  it('removes a reservation after confirmation', async () => {
+  it('removes a reservation through step-up, forwarding the token', async () => {
+    // Freeing a name lets the next caller register what the reservation held
+    // back, so the route is step-up gated and the step-up dialog IS the
+    // confirmation (the console's one-dialog rule).
     render(<ReservedNamesPanel can={canAll} />);
     fireEvent.click(await screen.findByRole('button', { name: 'Remove reserved name trivy' }));
+    expect(screen.getByTestId('step-up')).toBeInTheDocument();
     expect(screen.getByText(/anyone can then claim this name/i)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Remove' }));
-    await waitFor(() => expect(api.deleteReservedName).toHaveBeenCalledWith('trivy'));
+    fireEvent.click(screen.getByRole('button', { name: 'Verify step-up' }));
+    await waitFor(() => expect(api.deleteReservedName).toHaveBeenCalledWith('trivy', 'step-tok'));
     expect(pageToast.success).toHaveBeenCalledWith('trivy is no longer reserved');
   });
 

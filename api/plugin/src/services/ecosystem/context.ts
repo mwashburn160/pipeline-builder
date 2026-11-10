@@ -42,6 +42,14 @@ export interface Caller {
   isSuperAdmin: boolean;
   permissions: readonly string[];
   features: readonly string[];
+  /**
+   * A read-only impersonation session. The WRITE is already refused upstream by
+   * method (`isImpersonationWriteBlocked` rejects every non-GET), so nothing
+   * here is a security gate — it exists so a viewer-state read can say the
+   * session may not write, instead of offering an affordance that dead-ends on
+   * that refusal.
+   */
+  readOnlySession: boolean;
 }
 
 /**
@@ -74,6 +82,7 @@ export function callerFromRequest(req: Request): Caller {
     isSuperAdmin: u.isSuperAdmin === true,
     permissions: Array.isArray(u.permissions) ? (u.permissions as string[]) : [],
     features: Array.isArray(u.features) ? (u.features as string[]) : [],
+    readOnlySession: u.impersonationReadOnly === true,
   };
 }
 

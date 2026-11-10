@@ -77,10 +77,20 @@ export function pluginReviewsApi(core: ApiCore) {
         ...json(note ? { note } : {}),
       }),
 
-    removeReview: async (id: string, reason: string) =>
-      core.request<ApiResponse<{ review: ModerationReview }>>(`/api/plugins/ecosystem/reviews/${enc(id)}/remove`, { method: 'POST', ...json({ reason }) }),
+    /** Step-up gated: a removal has no undo, so pass the token from `StepUpModal`. */
+    removeReview: async (id: string, reason: string, stepUpToken?: string) =>
+      core.request<ApiResponse<{ review: ModerationReview }>>(`/api/plugins/ecosystem/reviews/${enc(id)}/remove`, {
+        method: 'POST',
+        ...json({ reason }),
+        headers: core.stepUpHeader(stepUpToken),
+      }),
 
-    removeReviewReply: async (id: string, reason: string) =>
-      core.request<ApiResponse<{ review: ModerationReview }>>(`/api/plugins/ecosystem/reviews/${enc(id)}/remove-reply`, { method: 'POST', ...json({ reason }) }),
+    /** Step-up gated: the reply is deleted outright. */
+    removeReviewReply: async (id: string, reason: string, stepUpToken?: string) =>
+      core.request<ApiResponse<{ review: ModerationReview }>>(`/api/plugins/ecosystem/reviews/${enc(id)}/remove-reply`, {
+        method: 'POST',
+        ...json({ reason }),
+        headers: core.stepUpHeader(stepUpToken),
+      }),
   };
 }

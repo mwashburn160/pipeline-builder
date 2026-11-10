@@ -64,7 +64,8 @@ Read [The model](#the-model) first, then the [permission catalog](#permission-ca
   returns the deduplicated union of every assigned Role's permissions. No Role
   assigned → no permissions (a Super Admin short-circuits to all).
 - **Built-in Roles** — every org seeds **Admin** and **Member**; the system org
-  also seeds **Super Admin** and **Ecosystem Manager** (see
+  also seeds **Super Admin**, **Ecosystem Manager**, **Publisher Verifier** and
+  the job Roles (see
   [Ecosystem Manager](#ecosystem-manager-system-org-only)). A startup backfill re-syncs each built-in Role's
   permission set to the current catalog, so new permissions reach existing orgs.
 - **Custom Roles** — admins with `roles:manage` can author additional Roles from
@@ -116,7 +117,7 @@ Enforcement lives in exactly two places, so no entity can drift:
 | Templates | `templates:read`, `templates:write`, `templates:publish` | Golden-path [pipeline templates](templates.md). Split out of `pipelines:*` so a platform team can curate starters without pipeline write access. `:write` covers the `private` and `org` rungs; `:publish` is required for `public`. **Instantiating** a template creates a pipeline, so that still needs `pipelines:write`. |
 | Plugins | `plugins:read`, `plugins:write`, `plugins:publish` | `:publish` allows the `public` rung, and submitting plugin-ecosystem publish requests for the org's `public` versions |
 | Plugin ecosystem | `plugins:install`, `plugin_installs:manage`, `publishers:manage` | [Plugin Installing](plugin-installing.md). `plugins:install` (member/admin/owner): install, upgrade (change version or policy) or uninstall listings, and withdraw one's own request — it only **requests** an install when the org's policy requires approval for the listing's tier, and moving an approval-tier install across a major or `breaking` version also needs `plugin_installs:manage`. `plugin_installs:manage` (admin/owner): the org's consumption policy (`PUT /plugins/install-policy`, step-up; `org.plugin-install-policy.update`), approving and denying install requests *within the org* (Plugins → Approvals), and installing approval-tier listings directly; holders are the org approvers who receive install notices ([Plugin Installing](plugin-installing.md)). `publishers:manage` (admin/owner): the org's publisher profile (claim a handle, accept terms, edit description/homepage) and **submitting** publisher-level requests — handle/name changes, transfers and their acceptance (step-up), claims, the Verified application; every decision belongs to the system org ([Plugin Publishing](plugin-publishing.md)). `plugins:publish` also submits new-listing, new-version, listing-update, yank and unpause requests and pauses the org's own listings. Reading the catalog, installs, policy and shadowing needs only `plugins:read`. Installing is free on every plan and no consumption control is plan-gated. |
-| Plugin ecosystem (system org only) | `plugins:moderate`, `publishers:verify` | **System-org only** — never grantable to a custom Role in any org; held only through the built-in **Ecosystem Manager** Role or as a Super Admin. See the carve-out below. |
+| Plugin ecosystem (system org only) | `plugins:moderate`, `publishers:verify` | **System-org only** — never grantable to a Role authored in a tenant. `plugins:moderate` is the built-in **Ecosystem Manager** Role (approve listings and versions, yank, advisories, auto-approval rules, reserved names, review moderation); `publishers:verify` is the built-in **Publisher Verifier** Role (award Verified, suspend, unsuspend). Also held by a Super Admin, or by a custom Role a Super Admin authors in the system org. See the carve-out below. |
 | Platform operations (system org only) | `platform:read`, `orgs:read`, `billing:operate` | **System-org only**, and in no tenant-grantable Role. `platform:read` reads the deploy's own configuration (the Platform settings page: RLS context mode, per-org KMS, the rendered alert rules). `orgs:read` is the **customer roster** — the all-organizations list and drilling into one org's rows. Those were one permission until the split: three of the four job Roles carried it for the roster alone and got the deploy's internals with it, which is the same mistake `consoles:datastore` made before it was split by blast radius. `billing:operate` runs the cross-tenant finance surfaces — discount tokens and promotion campaigns. |
 | Cross-tenant administration (system org only) | `subscriptions:read`, `subscriptions:manage`, `orgs:manage`, `quotas:manage`, `plugin_queue:manage` | **System-org only.** The vendor's own operational tasks, each one replacing a `requireSystemAdmin` gate so that one job can be staffed with a Role. `subscriptions:*` is the cross-tenant plan surface (read split from write because a read-only holder — someone reporting on plan mix — is a real job); `orgs:manage` renames, re-tiers, moves and deletes any organization; `quotas:manage` changes another org's limits while *viewing* them rides `platform:read`; `plugin_queue:manage` reads build-queue depth and purges the dead-letter queue. Carried by **Platform Operator** and **Account Manager** as described below. |
 | Operator consoles (system org only) | `observability_console:open`, `database_console:open`, `objectstore_console:open` | **System-org only.** One permission per console class, by blast radius: Grafana and Kiali; pgAdmin and mongo-express; the RustFS (S3) console. Only the first is in the **Platform Operator** Role — staffing an operator must not hand over a shell over every tenant's rows as a side effect, nor the object store that holds the signed audit chain heads. The gateway checks the matching permission plus system org plus an MFA-grade session on **every** request to a console. See [Operator consoles](#operator-consoles). |
@@ -185,17 +186,29 @@ Operator Role rather than on its own.
 The ecosystem pair governs the plugin
 ecosystem, which only the system org may manage or approve
 ([governance](plugin-publishing.md#why-the-ecosystem-works-this-way)).
-They're in **no** member/admin/owner bundle and a custom Role requesting either
-is rejected with `RL_PERMISSION_NOT_ASSIGNABLE` in **every** org — the system
-org and a Super Admin author included. The only holders are Super Admins
-(implicit-all) and members of the system org's built-in **Ecosystem Manager**
-Role.
+They're in **no** member/admin/owner bundle, and a custom Role requesting either
+is rejected with `RL_PERMISSION_NOT_ASSIGNABLE` in every **tenant**, whoever the
+author is. One case is allowed: a Super Admin authoring a Role **inside the
+system org** may carry them (`mayComposeSystemOrgRole`), which is the escape
+hatch for a job no seeded Role covers. So there are three holders — a Super
+Admin (implicit-all), a seeded system-org Role, and a custom system-org Role a
+Super Admin composed.
+
+The two seeded carriers are **Ecosystem Manager** (`plugins:moderate` — the
+moderation job) and **Publisher Verifier** (`publishers:verify` — awarding
+Verified, suspending and unsuspending). They used to be one Role carrying both,
+which meant everyone triaging the publish queue could also mint a Verified
+publisher; the split follows this document's own rule of separating by what a
+mistaken grant costs. Staff **at least two** Publisher Verifiers: a Verified
+application and an unsuspend are both two-person decisions and the same person
+cannot give both approvals.
 
 The class is enforced in five places, each tested
 (`platform/test/ecosystem-manager-isolation.test.ts` walks every path a tenant
 could try — custom Role, assignment, invitation, IdP mapping, token):
 
-1. **Authoring** — `sanitizePermissions` refuses them in any custom Role.
+1. **Authoring** — `sanitizePermissions` refuses them in any custom Role except
+   one a Super Admin authors in the system org itself.
 2. **Assignment** — only a Super Admin may assign or unassign a Role carrying
    them, and only inside the system org (below).
 3. **Invitation** — an invitation may name Roles to grant on acceptance

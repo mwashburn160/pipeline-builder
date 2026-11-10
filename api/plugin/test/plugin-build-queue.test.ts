@@ -484,7 +484,7 @@ function makeDlqJob(dataOverrides: Partial<PluginBuildJobData> = {}, jobOverride
 // Tests
 
 /** A system admin re-runs (the only retrier a slot-less re-run is allowed for). */
-const SYSADMIN = { userId: 'op-1', isSystemAdmin: true, canPublish: true, caller: { userId: 'op-1', orgId: 'system', principalType: 'user', isSuperAdmin: true, permissions: [], features: [] } };
+const SYSADMIN = { userId: 'op-1', isSystemAdmin: true, canPublish: true, caller: { userId: 'op-1', orgId: 'system', principalType: 'user', isSuperAdmin: true, permissions: [], features: [], readOnlySession: false } };
 
 describe('plugin-build-queue', () => {
   let queueModule: typeof import('../src/queue/plugin-build-queue.js');
@@ -881,7 +881,7 @@ describe('plugin-build-queue', () => {
       queueModule.startWorker(sse, makeQuotaService());
       mockBuildAndPush.mockResolvedValue({ fullImage: 'img', digest: `sha256:${'e'.repeat(64)}`, imageSource: 'built' });
       mockDeployVersion.mockResolvedValue({ id: 'plugin-9', name: 'my-plugin', version: '1.0.0' });
-      const caller = { userId: 'sa-1', orgId: 'org-1', principalType: 'service_account', name: 'official-catalog-loader', isSuperAdmin: false, permissions: [], features: [] };
+      const caller = { userId: 'sa-1', orgId: 'org-1', principalType: 'service_account', name: 'official-catalog-loader', isSuperAdmin: false, permissions: [], features: [], readOnlySession: false };
 
       mockSubmitAfterBuild.mockResolvedValueOnce({ ok: true, message: 'Publish request approved', requestId: 'r-1', status: 'approved' });
       await getMainProcessor()(makeJob(makeJobData({ publish: { caller } })));
@@ -1014,7 +1014,7 @@ describe('plugin-build-queue', () => {
           queueModule.startWorker(sse, makeQuotaService());
           mockBuildAndPush.mockResolvedValue({ fullImage: 'img', digest: DIGEST, imageSource: 'built' });
           refusedScan();
-          const caller = { userId: 'sa-loader', orgId: SYSTEM_ORG, principalType: 'service_account', isSuperAdmin: false, permissions: [], features: [] };
+          const caller = { userId: 'sa-loader', orgId: SYSTEM_ORG, principalType: 'service_account', isSuperAdmin: false, permissions: [], features: [], readOnlySession: false };
           const err = await getMainProcessor()(makeJob(systemJob({ setupLoad: true, publish: { caller } }))).catch((e: unknown) => e);
 
           expect(err).toMatchObject({ code: 'PLUGIN_VULN_GATE', details: expect.objectContaining({ refusedImage: 'kept_setup_load', findings: [CRIT] }) });
@@ -1833,7 +1833,7 @@ describe('plugin-build-queue', () => {
     });
 
     // a re-run carries the RETRIER's authority, never the uploader's snapshot.
-    const MEMBER = { userId: 'retrier-1', isSystemAdmin: false, canPublish: false, caller: { userId: 'retrier-1', orgId: 'org-1', principalType: 'user', isSuperAdmin: false, permissions: ['plugins:write'], features: [] } };
+    const MEMBER = { userId: 'retrier-1', isSystemAdmin: false, canPublish: false, caller: { userId: 'retrier-1', orgId: 'org-1', principalType: 'user', isSuperAdmin: false, permissions: ['plugins:write'], features: [], readOnlySession: false } };
 
     it('runs the replay as the retrier: their userId + access, public clamped to org and the publish dropped without plugins:publish', async () => {
       const quota = makeQuotaService();

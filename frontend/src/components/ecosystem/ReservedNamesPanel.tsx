@@ -76,15 +76,22 @@ export function ReservedNamesPanel({ can }: Props) {
     if (!normalized || invalid) return;
     setBusy(true);
     setError(null);
-    try {
-      await api.putReservedName(normalized, { reason: reason.trim() || null, publisherId: publisherId || null });
+    const done = () => {
       toast.success(`Reserved ${normalized}`);
       setName('');
       setReason('');
       setPublisherId('');
       void namesQ.refetch();
+    };
+    try {
+      await api.putReservedName(normalized, { reason: reason.trim() || null, publisherId: publisherId || null });
+      done();
     } catch (err) {
-      setError(formatError(err, 'Failed to reserve the name'));
+      // Step-up gated, and this is an inline form rather than an
+      // `EcosystemActionDialog`, so there is no dialog to carry the token: the
+      // route's refusal opens the step-up and resumes the request, the same way
+      // `remove` below handles an expired one.
+      if (!continueAfterStepUp(err, done)) setError(formatError(err, 'Failed to reserve the name'));
     } finally {
       setBusy(false);
     }
@@ -95,7 +102,7 @@ export function ReservedNamesPanel({ can }: Props) {
   // was missing is the step-up replay — handled here, where the post-write work
   // lives. Returning normally closes this dialog, so the global step-up dialog
   // never stacks on top of it.
-  const remove = async () => {
+  const remove = async (_reason: string, stepUpToken?: string) => {
     if (!removing) return;
     const reserved = removing.name;
     const done = () => {
@@ -103,8 +110,9 @@ export function ReservedNamesPanel({ can }: Props) {
       void namesQ.refetch();
     };
     try {
-      await api.deleteReservedName(reserved);
+      await api.deleteReservedName(reserved, stepUpToken);
     } catch (err) {
+      // The dialog supplies a token, so this is the expired/replayed case.
       if (continueAfterStepUp(err, done)) return;
       throw err;
     }
@@ -188,7 +196,7 @@ export function ReservedNamesPanel({ can }: Props) {
           title={`Stop reserving ${removing.name}?`}
           action={`Remove the reservation of ${removing.name}`}
           details={<p>Anyone can then claim this name as a handle or listing name.</p>}
-          stepUp={false}
+          stepUp
           tone="danger"
           confirmLabel="Remove"
           onSubmit={remove}

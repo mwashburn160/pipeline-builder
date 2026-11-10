@@ -7,12 +7,6 @@ import {
   ALL_PERMISSIONS,
   ORG_ASSIGNABLE_CATEGORIES,
   ORG_ASSIGNABLE_PERMISSIONS,
-  ACCOUNT_MANAGER_PERMISSIONS,
-  CONSOLE_ADMIN_PERMISSIONS,
-  PLATFORM_OPERATOR_PERMISSIONS,
-  SUPPORT_AGENT_PERMISSIONS,
-  REGISTRY_OPERATOR_PERMISSIONS,
-  SUPPORT_LEAD_PERMISSIONS,
   ROLE_TEMPLATES,
   SEED_BUNDLES,
   SEED_BUNDLE_IDS,
@@ -28,6 +22,7 @@ import {
   SUPERADMIN_ONLY_PERMISSIONS,
   SYSTEM_ORG_ONLY_PERMISSIONS,
   ECOSYSTEM_MANAGER_PERMISSIONS,
+  PUBLISHER_VERIFIER_PERMISSIONS,
   READ_ONLY_PERMISSIONS,
   hasPermission,
   intersectPermissions,
@@ -494,15 +489,12 @@ describe('PERMISSION_CATALOG (the single catalog the browser also imports)', () 
    * NO carrier is the bug.
    */
   it('gives every system-org-only permission at least one seeded carrier', () => {
-    const bundles: Record<string, readonly string[]> = {
-      platform_operator: PLATFORM_OPERATOR_PERMISSIONS,
-      account_manager: ACCOUNT_MANAGER_PERMISSIONS,
-      console_admin: CONSOLE_ADMIN_PERMISSIONS,
-      support_agent: SUPPORT_AGENT_PERMISSIONS,
-      registry_operator: REGISTRY_OPERATOR_PERMISSIONS,
-      support_lead: SUPPORT_LEAD_PERMISSIONS,
-      ecosystem_manager: ECOSYSTEM_MANAGER_PERMISSIONS,
-    };
+    // Derived from SEED_BUNDLES, not hand-listed: this map used to spell the
+    // bundles again, so adding one (publisher_verifier) left its permissions
+    // reported as orphaned while they had a perfectly good carrier.
+    const bundles: Record<string, readonly string[]> = Object.fromEntries(
+      SEED_BUNDLE_IDS.map((id) => [id, SEED_BUNDLES[id].permissions]),
+    );
     const orphaned = SYSTEM_ORG_ONLY_PERMISSIONS.filter(
       (p) => !Object.values(bundles).some((b) => b.includes(p)),
     );
@@ -518,13 +510,7 @@ describe('PERMISSION_CATALOG (the single catalog the browser also imports)', () 
   it('keeps every superadmin-only permission out of every seeded bundle', () => {
     const bundles: Record<string, readonly string[]> = {
       ...ROLE_PERMISSIONS,
-      platform_operator: PLATFORM_OPERATOR_PERMISSIONS,
-      account_manager: ACCOUNT_MANAGER_PERMISSIONS,
-      console_admin: CONSOLE_ADMIN_PERMISSIONS,
-      support_agent: SUPPORT_AGENT_PERMISSIONS,
-      registry_operator: REGISTRY_OPERATOR_PERMISSIONS,
-      support_lead: SUPPORT_LEAD_PERMISSIONS,
-      ecosystem_manager: ECOSYSTEM_MANAGER_PERMISSIONS,
+      ...Object.fromEntries(SEED_BUNDLE_IDS.map((id) => [id, SEED_BUNDLES[id].permissions])),
     };
     for (const [name, bundle] of Object.entries(bundles)) {
       for (const p of SUPERADMIN_ONLY_PERMISSIONS) {
@@ -757,18 +743,42 @@ describe('plugin ecosystem permissions (docs/plugin-publishing.md)', () => {
     for (const p of SYSTEM_ORG_ONLY_PERMISSIONS) expect(perms).toContain(p);
   });
 
-  it('ECOSYSTEM_MANAGER_PERMISSIONS: the ecosystem system-org-only pair + moderator reads, nothing tenant-facing', () => {
+  it('ECOSYSTEM_MANAGER_PERMISSIONS: moderation + moderator reads, and NOT the verify half', () => {
     expect([...ECOSYSTEM_MANAGER_PERMISSIONS].sort()).toEqual(
-      ['messages:read', 'observability:read', 'plugins:moderate', 'plugins:read', 'publishers:verify'],
+      ['messages:read', 'observability:read', 'plugins:moderate', 'plugins:read'],
     );
     for (const p of ECOSYSTEM_MANAGER_PERMISSIONS) expect(isValidPermission(p)).toBe(true);
-    for (const p of ECOSYSTEM_SYSTEM_ORG_ONLY) expect(ECOSYSTEM_MANAGER_PERMISSIONS).toContain(p);
+    // The split that matters: triaging the publish queue must not also award
+    // Verified status. `publishers:verify` lives in PUBLISHER_VERIFIER_PERMISSIONS.
+    expect(ECOSYSTEM_MANAGER_PERMISSIONS).not.toContain('publishers:verify');
     // And NOT `oncall:manage`, although it is system-org-only: paging is the
     // vendor's own operational concern, and widening this Role to carry it
     // would hand the pager to people hired to review plugins.
     expect(ECOSYSTEM_MANAGER_PERMISSIONS).not.toContain('oncall:manage');
     for (const p of ['members:manage', 'roles:manage', 'registry:read', 'registry:write'] as const) {
       expect(ECOSYSTEM_MANAGER_PERMISSIONS).not.toContain(p);
+    }
+  });
+
+  it('PUBLISHER_VERIFIER_PERMISSIONS: the verify half, and NOT moderation', () => {
+    expect([...PUBLISHER_VERIFIER_PERMISSIONS].sort()).toEqual(
+      ['messages:read', 'observability:read', 'plugins:read', 'publishers:verify'],
+    );
+    for (const p of PUBLISHER_VERIFIER_PERMISSIONS) expect(isValidPermission(p)).toBe(true);
+    expect(PUBLISHER_VERIFIER_PERMISSIONS).not.toContain('plugins:moderate');
+    expect(PUBLISHER_VERIFIER_PERMISSIONS).not.toContain('oncall:manage');
+  });
+
+  it('the two ecosystem bundles PARTITION the system-org-only ecosystem pair', () => {
+    // Neither Role may carry both, and between them they must carry both — a
+    // permission in neither would be superadmin-only in practice, and one in
+    // both would put the split back where it started.
+    for (const p of ECOSYSTEM_SYSTEM_ORG_ONLY) {
+      const carriers = [
+        ...(ECOSYSTEM_MANAGER_PERMISSIONS.includes(p) ? ['ecosystem_manager'] : []),
+        ...(PUBLISHER_VERIFIER_PERMISSIONS.includes(p) ? ['publisher_verifier'] : []),
+      ];
+      expect({ permission: p, carriers }).toEqual({ permission: p, carriers: [expect.any(String)] });
     }
   });
 });

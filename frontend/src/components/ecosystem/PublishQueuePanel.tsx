@@ -32,6 +32,13 @@ import { ClaimEmailMatchNotice, SubmissionReviewSection } from './SubmissionRevi
 interface Props {
   /** `useAuthGuard().can` — false for every ecosystem action during a read-only impersonation. */
   can: (permission: Permission) => boolean;
+  /**
+   * Whether the viewer HOLDS a permission, ignoring read-only impersonation.
+   * Reads need this and not `can`: the ecosystem permissions are write-class, so
+   * `can` goes false in a read-only session — which may still legitimately GET
+   * the submission artifacts.
+   */
+  holds: (permission: Permission) => boolean;
 }
 
 const STATUS_OPTIONS: ReadonlyArray<{ value: QueueStatusFilter; label: string }> = [
@@ -120,9 +127,10 @@ function OverviewHeader({ overview }: { overview: EcosystemOverview }) {
 type Decision = 'approve' | 'second-approve' | 'reject';
 
 /** One request with its review diff and the decision controls. */
-export function QueueItemDetail({ id, can, onBack, onDecided, backLabel = 'Back to the queue' }: {
+export function QueueItemDetail({ id, can, holds, onBack, onDecided, backLabel = 'Back to the queue' }: {
   id: string;
   can: Props['can'];
+  holds: Props['holds'];
   onBack: () => void;
   onDecided: () => void;
   backLabel?: string;
@@ -231,7 +239,7 @@ export function QueueItemDetail({ id, can, onBack, onDecided, backLabel = 'Back 
       )}
 
       {item.kind === 'claim' && <ClaimEmailMatchNotice match={claimEmailMatch} />}
-      {isSubmission && <SubmissionReviewSection submission={submission} />}
+      {isSubmission && <SubmissionReviewSection submission={submission} canReadArtifacts={holds('plugins:moderate')} />}
 
       <ReviewDiffView review={review} />
 
@@ -287,7 +295,7 @@ const OLDEST_FIRST_STATUSES = new Set<QueueStatusFilter>(['open', 'pending', 'pe
  * respect separation of duties (`conflictOfInterest`), two-person approval and
  * step-up exactly as the server reports them per item.
  */
-export function PublishQueuePanel({ can }: Props) {
+export function PublishQueuePanel({ can, holds }: Props) {
   const [status, setStatus] = useState<QueueStatusFilter>('open');
   const [kind, setKind] = useState<PublishRequestKind | ''>('');
   const [lane, setLane] = useState<PublishRequestLane | ''>('');
@@ -340,7 +348,7 @@ export function PublishQueuePanel({ can }: Props) {
           : overviewQ.data ? <OverviewHeader overview={overviewQ.data} /> : <Skeleton className="h-20 w-full" />}
 
         {selected ? (
-          <QueueItemDetail id={selected} can={can} onBack={() => setSelected(null)} onDecided={refreshAll} />
+          <QueueItemDetail id={selected} can={can} holds={holds} onBack={() => setSelected(null)} onDecided={refreshAll} />
         ) : (
           <>
             <div className="flex flex-wrap items-end gap-3">

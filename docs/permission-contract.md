@@ -576,11 +576,11 @@ Contacting support is self-service — every member who can open the Messages pa
 | plugin | GET | `/plugins/ecosystem/flagged-versions` | `system-org + any(plugins:moderate) + aal2` |
 | plugin | POST | `/plugins/ecosystem/reviews/:id/hold` | `system-org + any(plugins:moderate) + aal2` |
 | plugin | POST | `/plugins/ecosystem/reviews/:id/release` | `system-org + any(plugins:moderate) + aal2` |
-| plugin | POST | `/plugins/ecosystem/reviews/:id/remove` | `system-org + any(plugins:moderate) + aal2` |
-| plugin | POST | `/plugins/ecosystem/reviews/:id/remove-reply` | `system-org + any(plugins:moderate) + aal2` |
+| plugin | POST | `/plugins/ecosystem/reviews/:id/remove` | `system-org + any(plugins:moderate) + aal2 + step-up(any)` |
+| plugin | POST | `/plugins/ecosystem/reviews/:id/remove-reply` | `system-org + any(plugins:moderate) + aal2 + step-up(any)` |
 | plugin | GET | `/plugins/ecosystem/reserved-names` | `system-org + any(plugins:moderate) + aal2` |
-| plugin | DELETE | `/plugins/ecosystem/reserved-names/:name` | `system-org + any(plugins:moderate) + aal2` |
-| plugin | PUT | `/plugins/ecosystem/reserved-names/:name` | `system-org + any(plugins:moderate) + aal2` |
+| plugin | DELETE | `/plugins/ecosystem/reserved-names/:name` | `system-org + any(plugins:moderate) + aal2 + step-up(any)` |
+| plugin | PUT | `/plugins/ecosystem/reserved-names/:name` | `system-org + any(plugins:moderate) + aal2 + step-up(any)` |
 | plugin | GET | `/plugins/ecosystem/rules` | `system-org + any(plugins:moderate) + aal2` |
 | plugin | POST | `/plugins/ecosystem/rules` | `system-org + any(plugins:moderate) + aal2 + step-up(any)` |
 | plugin | DELETE | `/plugins/ecosystem/rules/:id` | `system-org + any(plugins:moderate) + aal2 + step-up(any)` |

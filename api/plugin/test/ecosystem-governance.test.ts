@@ -139,24 +139,32 @@ describe('plugin ecosystem governance', () => {
     }
   });
 
-  it('requires a step-up for the transfer answer and every console write except request decisions and reserved names', () => {
+  it('requires a step-up for the transfer answer and every console write except request decisions and reversible review triage', () => {
     expect(table.find((e) => key(e) === 'POST /plugins/publish-requests/:id/transfer-response')!.stepUp).toBe(true);
     const unguarded = table
       .filter((e) => e.path.startsWith('/plugins/ecosystem') && e.method !== 'GET' && !e.stepUp)
       .map(key)
       .sort();
-    // Decisions step up per request KIND (stepUpForSensitiveRequest); reserved names are not destructive;
-    // review moderation only hides or restores user content (so it asks no step-up).
+    // What is left unguarded, and why:
+    //
+    //  - the three DECISIONS step up per request KIND instead
+    //    (`stepUpForSensitiveRequest`), so a blanket gate here would double it;
+    //  - hold and release are REVERSIBLE triage — a hold is undone by a release
+    //    in the same panel — and the highest-volume work on the console.
+    //
+    // This list used to also hold both reserved-name writes and both review
+    // REMOVALS, on the reasons "reserved names are not destructive" and "review
+    // moderation only hides or restores user content". The second was wrong:
+    // `removeReview` has no un-remove route (it refuses a review that is already
+    // removed) and `removeReply` deletes the reply outright. The first measured
+    // the row rather than the consequence — a reserved name is this deployment's
+    // typosquat defence, and freeing one lets the next caller register it.
     expect(unguarded).toEqual([
-      'DELETE /plugins/ecosystem/reserved-names/:name',
       'POST /plugins/ecosystem/requests/:id/approve',
       'POST /plugins/ecosystem/requests/:id/reject',
       'POST /plugins/ecosystem/requests/:id/second-approve',
       'POST /plugins/ecosystem/reviews/:id/hold',
       'POST /plugins/ecosystem/reviews/:id/release',
-      'POST /plugins/ecosystem/reviews/:id/remove',
-      'POST /plugins/ecosystem/reviews/:id/remove-reply',
-      'PUT /plugins/ecosystem/reserved-names/:name',
     ]);
   });
 });

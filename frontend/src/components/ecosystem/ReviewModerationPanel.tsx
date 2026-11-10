@@ -40,24 +40,35 @@ const QUEUE_OPTIONS = [
   { value: 'removed', label: 'Removed' },
 ] as const;
 
+/**
+ * `stepUp` mirrors the route: hold and release are reversible triage and carry
+ * no step-up, the two removals have no undo and do. Reading it from this table
+ * keeps the dialog and the route from drifting apart — a `stepUp: false` here
+ * against a gated route shows a confirm dialog that then 401s.
+ */
 const ACTION_COPY: Record<ActionKind, {
-  label: string; title: string; details: string; reasonLabel: string; required: boolean; tone: 'primary' | 'danger'; done: string;
+  label: string; title: string; details: string; reasonLabel: string; required: boolean;
+  tone: 'primary' | 'danger'; done: string; stepUp: boolean;
 }> = {
   hold: {
     label: 'Hold', title: 'Hold this review?', reasonLabel: 'Reason', required: true, tone: 'primary', done: 'Review held',
     details: 'The review leaves the public page until it is released. Its author sees it as awaiting moderation.',
+    stepUp: false,
   },
   release: {
     label: 'Release', title: 'Release this review?', reasonLabel: 'Note', required: false, tone: 'primary', done: 'Review released',
     details: 'The review is published again and its open reports are resolved.',
+    stepUp: false,
   },
   remove: {
     label: 'Remove', title: 'Remove this review?', reasonLabel: 'Reason', required: true, tone: 'danger', done: 'Review removed',
     details: 'The review and its rating are taken down. The author sees the reason and can no longer edit it.',
+    stepUp: true,
   },
   'remove-reply': {
     label: 'Remove reply', title: 'Remove the publisher reply?', reasonLabel: 'Reason', required: true, tone: 'danger', done: 'Reply removed',
     details: 'The publisher response is taken down; the review itself stays.',
+    stepUp: true,
   },
 };
 
@@ -88,13 +99,13 @@ export function ReviewModerationPanel({ can }: Props) {
   // equal to the cap is the only signal available, and it is enough to say so.
   const truncated = reviews.length >= REVIEW_QUEUE_CAP;
 
-  const run = async (text: string) => {
+  const run = async (text: string, stepUpToken?: string) => {
     if (!action) return;
     const { kind, review } = action;
     if (kind === 'hold') await api.holdReview(review.id, text);
     else if (kind === 'release') await api.releaseReview(review.id, text || undefined);
-    else if (kind === 'remove') await api.removeReview(review.id, text);
-    else await api.removeReviewReply(review.id, text);
+    else if (kind === 'remove') await api.removeReview(review.id, text, stepUpToken);
+    else await api.removeReviewReply(review.id, text, stepUpToken);
     toast.success(ACTION_COPY[kind].done);
     void reviewsQ.refetch();
   };
@@ -223,7 +234,7 @@ export function ReviewModerationPanel({ can }: Props) {
           reasonRequired={ACTION_COPY[action.kind].required}
           confirmLabel={ACTION_COPY[action.kind].label}
           tone={ACTION_COPY[action.kind].tone}
-          stepUp={false}
+          stepUp={ACTION_COPY[action.kind].stepUp}
           onSubmit={run}
           onClose={() => setAction(null)}
         />

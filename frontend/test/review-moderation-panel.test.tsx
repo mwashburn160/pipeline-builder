@@ -6,16 +6,35 @@
  *  - the open queue renders each review's listing, stars, sanitized body, author
  *    display name + user id, verified-use badge, status, hold reason, reports and reply;
  *  - hold / remove / remove-reply need a reason, release takes an optional note;
+ *  - the two REMOVALS are step-up gated (neither has an undo), so the step-up
+ *    dialog is their confirmation and its token is forwarded; hold and release
+ *    are reversible triage and use the plain dialog;
  *  - a viewer without `plugins:moderate` (incl. a read-only impersonation) gets no actions;
  *  - the Removed filter reads the other queue.
  */
 import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import type { ReactNode } from 'react';
 import type { AnyFn } from './helpers/mock-fn';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { ModerationReview } from '../src/types/plugin-reviews';
 import { pageToast } from './helpers/pageMocks';
 
 jest.mock('@/components/ui/Toast', () => require('./helpers/pageMocks').toastModule());
+// The step-up dialog, same stand-in the other console panels use: it renders its
+// details (the reason field lives there) and "verifies" with a fixed token.
+jest.mock('@/components/admin/StepUpModal', () => ({
+  __esModule: true,
+  StepUpModal: ({ title, details, onConfirmed, onClose, confirmDisabledReason }: {
+    title?: string; details?: ReactNode; onConfirmed: (t: string) => Promise<void>; onClose: () => void; confirmDisabledReason?: string | null;
+  }) => (
+    <div data-testid="step-up">
+      <p>{title}</p>
+      {details}
+      {confirmDisabledReason && <p>{confirmDisabledReason}</p>}
+      <button disabled={!!confirmDisabledReason} onClick={() => { void onConfirmed('step-tok').then(onClose, () => {}); }}>Verify step-up</button>
+    </div>
+  ),
+}));
 
 const api = {
   listModerationReviews: jest.fn<AnyFn>(),
@@ -106,18 +125,31 @@ describe('ReviewModerationPanel', () => {
     await waitFor(() => expect(api.releaseReview).toHaveBeenCalledWith('rv1', undefined));
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
 
+    // The removals are step-up gated, so the step-up dialog replaces the plain
+    // one and carries the reason field — and the token reaches the api call.
     fireEvent.click(await screen.findByRole('button', { name: 'Remove: review rv1' }));
-    dialog = screen.getByRole('dialog');
-    fireEvent.change(within(dialog).getByLabelText(/Reason/), { target: { value: 'Abusive' } });
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Remove' }));
-    await waitFor(() => expect(api.removeReview).toHaveBeenCalledWith('rv1', 'Abusive'));
-    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    let stepUp = screen.getByTestId('step-up');
+    fireEvent.change(within(stepUp).getByLabelText(/Reason/), { target: { value: 'Abusive' } });
+    fireEvent.click(within(stepUp).getByRole('button', { name: 'Verify step-up' }));
+    await waitFor(() => expect(api.removeReview).toHaveBeenCalledWith('rv1', 'Abusive', 'step-tok'));
 
     fireEvent.click(await screen.findByRole('button', { name: 'Remove reply: review rv1' }));
-    dialog = screen.getByRole('dialog');
-    fireEvent.change(within(dialog).getByLabelText(/Reason/), { target: { value: 'Harassing the reviewer' } });
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Remove reply' }));
-    await waitFor(() => expect(api.removeReviewReply).toHaveBeenCalledWith('rv1', 'Harassing the reviewer'));
+    stepUp = screen.getByTestId('step-up');
+    fireEvent.change(within(stepUp).getByLabelText(/Reason/), { target: { value: 'Harassing the reviewer' } });
+    fireEvent.click(within(stepUp).getByRole('button', { name: 'Verify step-up' }));
+    await waitFor(() => expect(api.removeReviewReply).toHaveBeenCalledWith('rv1', 'Harassing the reviewer', 'step-tok'));
+  });
+
+  it('keeps hold and release on the plain dialog — no step-up for reversible triage', async () => {
+    // Hold is only offered on a PUBLISHED review; the default fixture is held.
+    api.listModerationReviews.mockImplementation(() => ok({ reviews: [modReview({ status: 'published', holdReason: null, reply: null })] }));
+    render(<ReviewModerationPanel can={canAll} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Hold: review rv1' }));
+    expect(screen.queryByTestId('step-up')).toBeNull();
+    const dialog = screen.getByRole('dialog');
+    fireEvent.change(within(dialog).getByLabelText(/Reason/), { target: { value: 'Looks like spam' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Hold' }));
+    await waitFor(() => expect(api.holdReview).toHaveBeenCalledWith('rv1', 'Looks like spam'));
   });
 
   it('keeps the dialog open with the error when an action fails', async () => {

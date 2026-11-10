@@ -1,6 +1,6 @@
 // GENERATED FROM docs/plugin-publishing.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 9af3f7ad268e889a4401ae55c96d155f83cd46860e2da418864c70549cb4b3f0
+// SOURCE-SHA256: 5fed32a2a9280ac5831f3546ac0f8d60c92f5a41a6b33201c56e02394b8d84bc
 // SPDX-License-Identifier: Apache-2.0
 import { Store } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -839,7 +839,31 @@ export const pluginPublishingTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Governance. Only the system organization decides what enters or changes the ecosystem. Its Ecosystem Manager role (built in, system-org only, assigned by superadmins, never grantable through custom roles) holds plugins:moderate and publishers:verify, so managers don't need full superadmin. The permissions are already separate, so splitting the role later is only a seed change. Tenant orgs still decide what runs in their own pipelines (their consumption policy) — that governs only their org, never the ecosystem. See the moderation runbook and Permissions."
+          "content": "Governance. Only the system organization decides what enters or changes the ecosystem, through two built-in system-org roles (assigned by superadmins, never grantable through a role authored in a tenant), so neither job needs full superadmin:"
+        },
+        {
+          "type": "list",
+          "items": [
+            "Ecosystem Manager — plugins:moderate: approve listings and versions,"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "yank, publish advisories, write the auto-approval rules, reserve names, moderate reviews and submissions."
+        },
+        {
+          "type": "list",
+          "items": [
+            "Publisher Verifier — publishers:verify: award Verified status, suspend a"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "publisher, lift a suspension. Staff at least two people — each of those decisions needs two different verifiers."
+        },
+        {
+          "type": "text",
+          "content": "One role used to carry both, which meant everyone triaging the publish queue could also mint a Verified publisher. Tenant orgs still decide what runs in their own pipelines (their consumption policy) — that governs only their org, never the ecosystem. See the moderation runbook and Permissions."
         },
         {
           "type": "text",

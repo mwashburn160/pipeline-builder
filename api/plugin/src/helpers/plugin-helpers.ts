@@ -237,6 +237,13 @@ export interface PublishCaller {
   isSuperAdmin: boolean;
   permissions: readonly string[];
   features: readonly string[];
+  /**
+   * Always false, and carried anyway so this snapshot stays assignable to the
+   * ecosystem `Caller` it is replayed as. An upload is a POST, and a read-only
+   * impersonation token cannot make one (`isImpersonationWriteBlocked`), so no
+   * read-only session can ever reach the snapshot site.
+   */
+  readOnlySession: boolean;
 }
 
 /** Parameters for creating a plugin build job. */

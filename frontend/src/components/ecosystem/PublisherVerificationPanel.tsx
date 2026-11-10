@@ -27,6 +27,8 @@ import { QueueItemDetail } from './PublishQueuePanel';
 
 interface Props {
   can: (permission: Permission) => boolean;
+  /** Held permissions, ignoring read-only impersonation — see `PublishQueuePanel`. */
+  holds: (permission: Permission) => boolean;
 }
 
 type Action =
@@ -41,7 +43,7 @@ type Action =
  * to Community apply at once; lifting a suspension and awarding Verified are
  * two-person requests. Every write is step-up gated.
  */
-export function PublisherVerificationPanel({ can }: Props) {
+export function PublisherVerificationPanel({ can, holds }: Props) {
   const toast = useToast();
   const mayVerify = can('publishers:verify');
   const [tier, setTier] = useState('');
@@ -71,7 +73,7 @@ export function PublisherVerificationPanel({ can }: Props) {
   if (reviewing) {
     return (
       <SectionCard icon={BadgeCheck} title="Publisher verification">
-        <QueueItemDetail id={reviewing} can={can} backLabel="Back to publishers" onBack={() => setReviewing(null)} onDecided={refresh} />
+        <QueueItemDetail id={reviewing} can={can} holds={holds} backLabel="Back to publishers" onBack={() => setReviewing(null)} onDecided={refresh} />
       </SectionCard>
     );
   }

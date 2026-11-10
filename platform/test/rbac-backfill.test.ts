@@ -173,7 +173,7 @@ describe('backfillRbacRoles — Pass 0: built-in Roles an org is missing', () =>
       // its Member Role. Both are "the source list grew (or a seed failed) and
       // Pass A cannot help, because it only re-syncs a Role that exists".
       ...['Super Admin', 'Admin', 'Member', 'Pipeline Automation', 'Pipeline Registration', 'Ecosystem Manager',
-        'Platform Observer', 'Platform Operator', 'Account Manager']
+        'Publisher Verifier', 'Platform Observer', 'Platform Operator', 'Account Manager']
         .map((name) => ({ organizationId: SYSTEM_ORG, name })),
       ...['Admin', 'Pipeline Automation', 'Pipeline Registration'].map((name) => ({ organizationId: TENANT, name })),
     ]));

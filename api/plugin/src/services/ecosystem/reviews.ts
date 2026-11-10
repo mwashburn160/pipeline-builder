@@ -255,14 +255,20 @@ export async function reviewState(caller: Caller, handle: string, name: string) 
   const enabled = isPluginReviewsEnabled();
   const own = isOwnPublisher(caller, publisher);
   const person = caller.principalType === 'user';
-  const blocked = !enabled ? 'reviews_disabled' : !person ? 'machine_credential' : own ? 'own_publisher' : null;
+  // A read-only impersonation session is listed FIRST because it is the one
+  // reason that has nothing to do with the viewer's standing: the operator may
+  // be perfectly entitled to review, and the refusal comes from the session.
+  // Without it both affordances below rendered and then died on the method gate.
+  const blocked = caller.readOnlySession ? 'read_only_session'
+    : !enabled ? 'reviews_disabled' : !person ? 'machine_credential' : own ? 'own_publisher' : null;
   return {
     myReview: mine ? ownReviewView(mine, reply, publisher) : null,
     helpfulReviewIds: helpful,
     reportedReviewIds: reported,
     canReview: blocked === null,
     reviewBlockedReason: blocked,
-    canReply: enabled && person && !!publisher.ownerOrgId && caller.orgId === publisher.ownerOrgId.toLowerCase() && can(caller, 'publishers:manage'),
+    canReply: !caller.readOnlySession && enabled && person && !!publisher.ownerOrgId
+      && caller.orgId === publisher.ownerOrgId.toLowerCase() && can(caller, 'publishers:manage'),
     verifiedUse: verified,
   };
 }

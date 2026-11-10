@@ -1,6 +1,6 @@
 // GENERATED FROM docs/runbooks/ecosystem-moderation.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 5589494eae1b97209acad94a484b4c17bcaada2120b32bc0eeb39e3b3c23d57a
+// SOURCE-SHA256: b6f1a89c74635ab42d0d2163e14e31bd4507aa6a2715a58ea44326abf9754c12
 // SPDX-License-Identifier: Apache-2.0
 import { ShieldCheck } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -34,7 +34,7 @@ export const runbookEcosystemModerationTopic: HelpTopic = {
           "items": [
             "The system org is the only place this works. Every console route refuses a token from any other org with 403 SYSTEM_ORG_REQUIRED, even for the same person.",
             "An MFA-grade session (aal2) is required, and the consequential actions ask you to re-authenticate on top of that.",
-            "Keep at least three Ecosystem Managers, so two-person approval and holiday cover both work.",
+            "Keep at least three Ecosystem Managers and three Publisher Verifiers, so two-person approval and holiday cover both work for each job.",
             "Separation of duties is enforced, not advisory. You cannot decide your own org's request, your own upload, or supply both approvals of a two-person decision.",
             "The security lane has a 4-hour SLA; the standard lane has 48 hours. Both are alerted on.",
             "Auto-approval rules have a daily cap, and an anomaly alert fires when one runs near it or far above its usual rate.",
@@ -84,8 +84,8 @@ export const runbookEcosystemModerationTopic: HelpTopic = {
           "type": "list",
           "items": [
             "Switch your active org to the system organization, then go to Dashboard → Admin → Ecosystem.",
-            "Sign in at aal2. Suspensions, yanks, rule changes, re-signs and every publishers:verify decision will also step you up.",
-            "Assign the Ecosystem Manager role to at least three people. Only a superadmin can assign it; it grants plugins:moderate and publishers:verify.",
+            "Sign in at aal2. Suspensions, yanks, rule changes, re-signs, review removals, reserved-name changes and every publishers:verify decision will also step you up.",
+            "Assign both ecosystem roles to at least three people each. Only a superadmin can assign them. Ecosystem Manager grants plugins:moderate (the publish queue, yanks, advisories, rules, reserved names, review moderation); Publisher Verifier grants publishers:verify (Verified, suspend, unsuspend). They are separate roles so triaging the queue does not also carry the power to award Verified status.",
             "Set the SLAs if the defaults do not fit — see Queues and SLAs.",
             "Configure auto-approval rules deliberately, and watch their caps — see Auto-approval rules.",
             "Know where the kill switches are before you need them — see Kill switches.",
@@ -116,17 +116,17 @@ export const runbookEcosystemModerationTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "rule changes, re-signs and every publishers:verify decision also ask you to re-authenticate (step-up)."
+          "content": "rule changes, re-signs, removing a review or a publisher reply, reserving or freeing a name, and every publishers:verify decision also ask you to re-authenticate (step-up). Holding and releasing a review do not: a hold is undone by a release, and it is the highest-volume action here."
         },
         {
           "type": "list",
           "items": [
-            "Role. The built-in Ecosystem Manager role grants plugins:moderate"
+            "Roles. Two built-in roles, each assignable only by a superadmin:"
           ]
         },
         {
           "type": "text",
-          "content": "and publishers:verify. Only a superadmin can assign it. Keep at least three holders so two-person approval and holiday cover always work. The queue overview shows the headcount platform reports (holders of plugins:moderate in the system org) and warns below three, and more strongly below two, when a superadmin has to be every second approver. Each open request also says how many managers can still decide it, after its conflicts of interest (members of the requesting, publishing and receiving orgs, the submitter, and the first approver) are taken out."
+          "content": "Ecosystem Manager (plugins:moderate) and Publisher Verifier (publishers:verify). Keep at least three holders of each so two-person approval and holiday cover always work. The queue overview shows the headcount platform reports (holders of plugins:moderate in the system org) and warns below three, and more strongly below two, when a superadmin has to be every second approver. Each open request also says how many managers can still decide it, after its conflicts of interest (members of the requesting, publishing and receiving orgs, the submitter, and the first approver) are taken out."
         }
       ]
     },
@@ -196,7 +196,7 @@ export const runbookEcosystemModerationTopic: HelpTopic = {
             ],
             [
               "EcosystemApproverShortage",
-              "A superadmin adds managers on the Ecosystem Managers tab."
+              "A superadmin adds holders on the Ecosystem Managers tab — the notice names the permission that is short, so add to the Ecosystem Manager roster for plugins:moderate or the Publisher Verifier roster for publishers:verify."
             ],
             [
               "EcosystemNotificationsDropped",
@@ -534,7 +534,7 @@ export const runbookEcosystemModerationTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Reserved names (the Reserved names tab, plugins:moderate). Hold back a handle or listing name (a vendor's brand, a confusable). A name reserved for a publisher is claimable by that publisher only; a name reserved for nobody refuses everyone, and claims come to the queue. Adding and removing apply at once and are audited as ecosystem.reserved-name.update. The built-in reserved words (official, pipeline-builder, …) aren't listed; they can't be removed."
+          "content": "Reserved names (the Reserved names tab, plugins:moderate). Hold back a handle or listing name (a vendor's brand, a confusable). A name reserved for a publisher is claimable by that publisher only; a name reserved for nobody refuses everyone, and claims come to the queue. Adding and removing apply at once, are audited as ecosystem.reserved-name.update, and both ask for a step-up — freeing a name is the one that matters, because it lets the next caller register what the reservation was holding back. The built-in reserved words (official, pipeline-builder, …) aren't listed; they can't be removed."
         }
       ]
     },
@@ -588,7 +588,7 @@ export const runbookEcosystemModerationTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "The console's Review moderation tab lists the open queue (held reviews, and published reviews with unresolved reports) newest activity first, and, under Removed, reviews already taken down. Each item shows the listing, the stars, the rendered body, the author's display name and user id (never their organization), the verified-use badge, why it is held, its reports (category, reason, date) and the publisher's reply. No step-up is asked: hiding or restoring user content is reversible, and every decision is audited."
+          "content": "The console's Review moderation tab lists the open queue (held reviews, and published reviews with unresolved reports) newest activity first, and, under Removed, reviews already taken down. Each item shows the listing, the stars, the rendered body, the author's display name and user id (never their organization), the verified-use badge, why it is held, its reports (category, reason, date) and the publisher's reply. Every decision is audited. Holding and releasing ask no step-up — a hold is undone by a release, and this is the highest-volume work on the console. Removing a review or a publisher reply does: there is no un-remove, and a removed reply is deleted outright."
         },
         {
           "type": "text",

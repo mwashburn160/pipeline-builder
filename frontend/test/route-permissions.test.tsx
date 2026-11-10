@@ -2277,6 +2277,10 @@ const CONTROLS: Control[] = [
     file: 'src/components/ecosystem/ReservedNamesPanel.tsx',
     permissions: ['plugins:moderate'],
     minAssurance: 2,
+    // Both writes step up. Freeing a name is the reason: a reservation is this
+    // deployment's typosquat defence, and removing one lets the next caller
+    // register what it was holding back.
+    stepUp: true,
     routes: [
       'plugin GET /plugins/ecosystem/reserved-names',
       'plugin PUT /plugins/ecosystem/reserved-names/:name',

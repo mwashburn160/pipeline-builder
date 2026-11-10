@@ -15,7 +15,7 @@ import type { ReviewReply } from '@/lib/public-directory/types';
 import type { ReviewHoldReason, ReviewReportCategory, ReviewStatus } from '@pipeline-builder/api-core';
 
 export type { ReviewHoldReason, ReviewReportCategory, ReviewStatus };
-export type ReviewBlockedReason = 'own_publisher' | 'reviews_disabled' | 'machine_credential';
+export type ReviewBlockedReason = 'own_publisher' | 'reviews_disabled' | 'machine_credential' | 'read_only_session';
 export type ReviewModerationQueue = 'open' | 'removed';
 
 /** The viewer's own review of a listing, in any status. */

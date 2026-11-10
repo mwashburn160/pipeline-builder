@@ -473,12 +473,17 @@ export const SUPERADMIN_ONLY_PERMISSIONS: readonly Permission[] = [
 /**
  * Permissions that govern the PLUGIN ECOSYSTEM and may be held only inside the
  * system org (docs/plugin-publishing.md). Like
- * {@link SUPERADMIN_ONLY_PERMISSIONS} they are in no member/admin/owner bundle
- * and are never grantable through a custom Role in ANY org (platform
- * `sanitizePermissions` refuses them). The only holders are superadmins
- * (implicit-all) and members of the built-in "Ecosystem Manager" Role, which is
- * seeded in the system org alone from {@link ECOSYSTEM_MANAGER_PERMISSIONS} and
- * assignable only by a superadmin.
+ * {@link SUPERADMIN_ONLY_PERMISSIONS} they are in no member/admin/owner bundle,
+ * and no Role authored in a TENANT may carry one: platform's
+ * `sanitizePermissions` admits them only when the author is a superadmin AND
+ * the Role is being written in the system org itself (`mayComposeSystemOrgRole`).
+ *
+ * So there are three grant paths, not one: a superadmin (implicit-all), one of
+ * the seeded system-org Roles, and a CUSTOM system-org Role a superadmin
+ * composed. The third is what makes the split between `plugins:moderate` and
+ * `publishers:verify` usable without waiting for a new seed bundle — worth
+ * knowing before reading either permission as "unreachable except via
+ * {@link ECOSYSTEM_MANAGER_PERMISSIONS}".
  *
  * `oncall:manage` is carried by **Platform Operator** and by no other named
  * role. That split is deliberate rather than an oversight: paging is the
@@ -1062,9 +1067,51 @@ export const ROLE_TEMPLATES: readonly RoleTemplate[] = [
   },
 ];
 
+/**
+ * Seed bundle for the built-in "Ecosystem Manager" Role — the MODERATION job.
+ *
+ * It carries `plugins:moderate` and NOT `publishers:verify`, because the two are
+ * not peers. `plugins:moderate` is the wide surface: yank a version (which
+ * breaks pipelines already running it), publish an advisory (which alarms every
+ * consumer of a listing), rewrite the auto-approval rules (which decide what
+ * publishes with no human review at all), reserve names, moderate reviews,
+ * re-sign. `publishers:verify` is three routes — suspend, unsuspend, tier — but
+ * one of them GRANTS VERIFIED STATUS, which is the badge consumers read as "this
+ * deployment vouches for the publisher".
+ *
+ * Bundling them, as this Role used to, meant everyone hired to triage the queue
+ * could also mint a Verified publisher. Three mechanisms already assume the
+ * split can bind — `requiredDecisionPermission` per request kind, the queue's
+ * per-row `can(requiredPermission)`, and the approver-shortage counts that
+ * `EcosystemEligibility` tracks SEPARATELY for each permission — and with one
+ * combined Role none of them could ever discriminate.
+ *
+ * {@link PUBLISHER_VERIFIER_PERMISSIONS} is the other half.
+ */
 export const ECOSYSTEM_MANAGER_PERMISSIONS: readonly Permission[] = [
   'plugins:read',
   'plugins:moderate',
+  'messages:read',
+  'observability:read',
+];
+
+/**
+ * Seed bundle for the built-in "Publisher Verifier" Role — the TRUST decision.
+ *
+ * The other half of the ecosystem split described on
+ * {@link ECOSYSTEM_MANAGER_PERMISSIONS}: who may award Verified, suspend a
+ * publisher and lift a suspension. Carries `plugins:read` so the holder can see
+ * what a publisher ships before vouching for them, and the same two ambient
+ * reads as its sibling.
+ *
+ * STAFF AT LEAST TWO PEOPLE. A Verified application and an unsuspend are both
+ * `needsTwoPerson`, and `conflictOfInterest` refuses the same person twice, so a
+ * single holder cannot complete either decision alone. The console's approver
+ * standing notice is what surfaces that shortage — and splitting this Role out
+ * is what finally lets that notice report a figure its sibling's does not.
+ */
+export const PUBLISHER_VERIFIER_PERMISSIONS: readonly Permission[] = [
+  'plugins:read',
   'publishers:verify',
   'messages:read',
   'observability:read',
@@ -1224,6 +1271,7 @@ export function hasPermission(
  */
 export const SEED_BUNDLES = {
   ecosystem_manager: { name: 'Ecosystem Manager', permissions: ECOSYSTEM_MANAGER_PERMISSIONS },
+  publisher_verifier: { name: 'Publisher Verifier', permissions: PUBLISHER_VERIFIER_PERMISSIONS },
   team_lead: { name: 'Team Lead', permissions: TEAM_LEAD_PERMISSIONS },
   platform_observer: { name: 'Platform Observer', permissions: PLATFORM_OBSERVER_PERMISSIONS },
   platform_operator: { name: 'Platform Operator', permissions: PLATFORM_OPERATOR_PERMISSIONS },
@@ -1253,6 +1301,7 @@ export type SeedBundleId = keyof typeof SEED_BUNDLES;
  */
 export const SYSTEM_ORG_JOB_BUNDLES: readonly SeedBundleId[] = [
   'ecosystem_manager',
+  'publisher_verifier',
   'platform_observer',
   'platform_operator',
   'account_manager',

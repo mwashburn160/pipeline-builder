@@ -24,9 +24,10 @@
  *    operator look like the same kind of act as staffing the support desk.
  *  - **Admin / Member / Team Lead.** Ordinary org Roles, managed where every
  *    org manages them.
- *  - **Ecosystem Manager.** It has its own panel on the Ecosystem console,
- *    beside the queue it governs, which is where the people who use it already
- *    are. It renders the SAME roster component as these.
+ *  - **Ecosystem Manager** and **Publisher Verifier.** Both have their panels on
+ *    the Ecosystem console, beside the queue they govern, which is where the
+ *    people who use them already are. Both render the SAME roster component as
+ *    these.
  */
 
 import { SEED_BUNDLES } from '@pipeline-builder/api-core/permissions';

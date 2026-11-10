@@ -76,10 +76,14 @@ export default function EcosystemConsolePage() {
   // VISIBILITY uses the held permissions, not `can()`: the ecosystem
   // permissions are write-class, so `can()` is false during a read-only
   // impersonation — which should still SEE the console (writes stay disabled).
-  const allowed = canSeeEcosystemConsole(user, (p) => hasPermission(user, p));
+  // The same held-permission reading the tab filter uses, handed to the panels
+  // for their READ affordances (`can` is false for these during a read-only
+  // impersonation, which may still GET).
+  const holds = (p: Parameters<typeof hasPermission>[1]) => hasPermission(user, p);
+  const allowed = canSeeEcosystemConsole(user, holds);
   // Same rule for the tabs: HELD permissions, so a read-only session still sees
   // what it may read.
-  const visibleTabs = TABS.filter((t) => isSuperAdmin || t.requires.some((p) => hasPermission(user, p)));
+  const visibleTabs = TABS.filter((t) => isSuperAdmin || t.requires.some((p) => holds(p)));
   const activeTab: TabId = visibleTabs.some((t) => t.id === tab) ? tab : (visibleTabs[0]?.id ?? 'queue');
 
   return (
@@ -105,8 +109,8 @@ export default function EcosystemConsolePage() {
             className="mb-4"
           />
           <div {...tabPanelProps(TAB_PREFIX, activeTab)}>
-            {activeTab === 'queue' && <PublishQueuePanel can={can} />}
-            {activeTab === 'publishers' && <PublisherVerificationPanel can={can} />}
+            {activeTab === 'queue' && <PublishQueuePanel can={can} holds={holds} />}
+            {activeTab === 'publishers' && <PublisherVerificationPanel can={can} holds={holds} />}
             {activeTab === 'listings' && <ListingStatePanel can={can} />}
             {activeTab === 'advisories' && <AdvisoriesPanel can={can} />}
             {activeTab === 'vulnerabilities' && <FleetVulnerabilityPanel />}

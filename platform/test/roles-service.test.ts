@@ -231,6 +231,9 @@ describe('seedDefaultRoles', () => {
       // no bundle is Super-Admin-only in practice, which api-core's
       // "at least one seeded carrier" assertion now refuses to let happen.
       'Super Admin', 'Admin', 'Member', 'Pipeline Automation', 'Pipeline Registration', 'Ecosystem Manager',
+      // `Publisher Verifier` is the verify half of what Ecosystem Manager used
+      // to carry on its own; both rosters live on the Ecosystem console.
+      'Publisher Verifier',
       'Platform Observer', 'Platform Operator', 'Account Manager',
       // In api-core's `SYSTEM_ORG_JOB_BUNDLES` order, which the staffing panel
       // renders from too. `Support Lead` is Support Agent plus
@@ -244,7 +247,7 @@ describe('seedDefaultRoles', () => {
     expect(mockUserUpdateOne).toHaveBeenCalledWith({ _id: 'u1' }, { $set: { isSuperAdmin: true } }, expect.anything());
   });
 
-  it('seeds the Ecosystem Manager Role ONLY in the system org: member grant, its own bundle, creator not added', async () => {
+  it('seeds the two ecosystem Roles ONLY in the system org: member grant, own bundles, creator not added', async () => {
     await seedDefaultRoles('000000000000000000000001', 'u1', { isSystemOrg: true });
 
     const seeded = mockGroupCreate.mock.calls[0][0] as Array<{
@@ -256,9 +259,18 @@ describe('seedDefaultRoles', () => {
     expect(em.seedBundle).toBe('ecosystem_manager');
     expect([...em.permissions].sort()).toEqual([...ECOSYSTEM_MANAGER_PERMISSIONS].sort());
     expect(em.permissions).toContain('plugins:moderate');
-    expect(em.permissions).toContain('publishers:verify');
     expect(em.permissions).not.toContain('members:manage');
     expect(em.permissions).not.toContain('registry:read');
+
+    // The verify half is its OWN seeded Role, so triaging the queue does not
+    // carry the ability to award Verified status.
+    const pv = seeded.find((g) => g.name === 'Publisher Verifier')!;
+    expect(pv.grantsRole).toBe('member');
+    expect(pv.system).toBe(true);
+    expect(pv.seedBundle).toBe('publisher_verifier');
+    expect(pv.permissions).toContain('publishers:verify');
+    expect(pv.permissions).not.toContain('plugins:moderate');
+    expect(em.permissions).not.toContain('publishers:verify');
     // The Member Role keeps the plain member bundle (no ecosystem permissions).
     const member = seeded.find((g) => g.name === 'Member')!;
     expect(member.permissions).not.toContain('plugins:moderate');

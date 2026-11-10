@@ -206,6 +206,11 @@ export function createEcosystemConsoleRoutes(): Router {
     sendSuccess(res, 200, await reviewQueue(req.query as Record<string, unknown>));
   }));
 
+  // hold/release carry NO step-up on purpose: a hold is undone by a release in
+  // the same panel, so this pair is reversible triage, and it is the highest
+  // volume work on the console. The three writes below DO carry one — none of
+  // them has an undo (`removeReview` refuses a review that is already removed,
+  // and there is no un-remove route).
   router.post('/reviews/:id/hold', ...moderate, a('plugin.review.hold'), ecosystemRoute(async ({ req, res, caller }) => {
     sendSuccess(res, 200, await holdReview(caller, param(req, 'id'), bodyOf(req)));
   }));
@@ -214,15 +219,18 @@ export function createEcosystemConsoleRoutes(): Router {
     sendSuccess(res, 200, await releaseReview(caller, param(req, 'id'), bodyOf(req)));
   }));
 
-  router.post('/reviews/:id/remove', ...moderate, a('plugin.review.remove'), ecosystemRoute(async ({ req, res, caller }) => {
+  router.post('/reviews/:id/remove', ...moderate, stepUp, a('plugin.review.remove'), ecosystemRoute(async ({ req, res, caller }) => {
     sendSuccess(res, 200, await removeReview(caller, param(req, 'id'), bodyOf(req)));
   }));
 
-  router.post('/reviews/:id/remove-reply', ...moderate, a('plugin.review.reply.delete'), ecosystemRoute(async ({ req, res, caller }) => {
+  router.post('/reviews/:id/remove-reply', ...moderate, stepUp, a('plugin.review.reply.delete'), ecosystemRoute(async ({ req, res, caller }) => {
     sendSuccess(res, 200, await removeReply(caller, param(req, 'id'), bodyOf(req)));
   }));
 
   // -- Reserved names --------------------------------------------------------
+  // Both writes are step-up gated. DELETE is the one that matters: a reserved
+  // name is this deployment's typosquat defence, and freeing one lets the next
+  // caller register it.
   // Listed versions a rescan flagged AFTER they were published (oldest flag
   // first), and those whose scan is stale or missing: the listing gate checked
   // them once, at request time, and nothing else puts them back in front of a
@@ -231,11 +239,11 @@ export function createEcosystemConsoleRoutes(): Router {
 
   router.get('/reserved-names', ...moderate, ecosystemRoute(async ({ res }) => { sendSuccess(res, 200, { names: await listReserved() }); }));
 
-  router.put('/reserved-names/:name', ...moderate, a('ecosystem.reserved-name.update'), ecosystemRoute(async ({ req, res, caller }) => {
+  router.put('/reserved-names/:name', ...moderate, stepUp, a('ecosystem.reserved-name.update'), ecosystemRoute(async ({ req, res, caller }) => {
     sendSuccess(res, 200, await putReserved(caller, param(req, 'name'), bodyOf(req)));
   }));
 
-  router.delete('/reserved-names/:name', ...moderate, a('ecosystem.reserved-name.update'), ecosystemRoute(async ({ req, res, caller }) => {
+  router.delete('/reserved-names/:name', ...moderate, stepUp, a('ecosystem.reserved-name.update'), ecosystemRoute(async ({ req, res, caller }) => {
     sendSuccess(res, 200, await deleteReserved(caller, param(req, 'name')));
   }));
 

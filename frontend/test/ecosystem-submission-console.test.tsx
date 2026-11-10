@@ -110,7 +110,7 @@ const openDetail = async () => {
 
 describe('Publish queue — community submissions', () => {
   it('labels the row and offers the kind in the filter', async () => {
-    render(<PublishQueuePanel can={() => true} />);
+    render(<PublishQueuePanel can={() => true} holds={() => true} />);
     const row = await screen.findByTestId('queue-item-r-sub');
     expect(within(row).getByText('Community submission')).toBeInTheDocument();
     expect(within(row).getByText('eslint-runner v1.2.0')).toBeInTheDocument();
@@ -118,8 +118,26 @@ describe('Publish queue — community submissions', () => {
     expect(within(screen.getByLabelText('Kind')).getByRole('option', { name: 'Community submission' })).toHaveValue('submission');
   });
 
+  it('withholds the SBOM and scan downloads from a publishers:verify-only manager', async () => {
+    // The request READS open to either ecosystem permission, but the two
+    // artifact routes are `plugins:moderate`-only — so a verifier who opens a
+    // submission used to get two buttons that answered 403.
+    //
+    // `holds`, not `can`: these are READS, and `can` is false for every
+    // ecosystem permission during a read-only impersonation, which may still GET.
+    render(<PublishQueuePanel can={() => true} holds={(p) => p === 'publishers:verify'} />);
+    const section = await within(await openDetail()).findByTestId('submission-review-section');
+    expect(within(section).getByTestId('submission-artifacts-gated')).toBeInTheDocument();
+    expect(within(section).queryByRole('button', { name: 'SBOM' })).not.toBeInTheDocument();
+    expect(within(section).queryByRole('button', { name: 'Vulnerability scan' })).not.toBeInTheDocument();
+    // Everything already in the payload still renders — the gate is on the two
+    // downloads, not on reviewing the submission.
+    expect(within(section).getByTestId('gate-smoke_test')).toBeInTheDocument();
+    expect(within(section).getByText('registry:5000/quarantine/sub-1:1.2.0@sha256:q')).toBeInTheDocument();
+  });
+
   it('shows the gate report, every heuristics finding, the quarantine image, downloads and the diff vs the prior version', async () => {
-    render(<PublishQueuePanel can={() => true} />);
+    render(<PublishQueuePanel can={() => true} holds={() => true} />);
     const detail = await openDetail();
     expect(within(detail).getByRole('heading', { name: 'Community submission' })).toBeInTheDocument();
 
@@ -160,13 +178,13 @@ describe('Publish queue — community submissions', () => {
         submission: { ...submission, heuristics: [{ id: 'miner.xmrig', severity: 'high', path: 'run.sh', line: 1, excerpt: 'xmrig' }] },
       },
     });
-    const { unmount } = render(<PublishQueuePanel can={() => true} />);
+    const { unmount } = render(<PublishQueuePanel can={() => true} holds={() => true} />);
     const detail = await openDetail();
     expect(within(detail).getByText('Failed checks on a queued submission')).toBeInTheDocument();
     unmount();
 
     api.getEcosystemRequest.mockResolvedValueOnce({ success: true, data: { request: submissionItem, review, approvers: null, eligibility: null, submission: null } });
-    render(<PublishQueuePanel can={() => true} />);
+    render(<PublishQueuePanel can={() => true} holds={() => true} />);
     const again = await openDetail();
     expect(within(again).getByText('Submission details unavailable')).toBeInTheDocument();
   });
@@ -188,7 +206,7 @@ describe('Publish queue — community submissions', () => {
         },
       },
     });
-    render(<PublishQueuePanel can={() => true} />);
+    render(<PublishQueuePanel can={() => true} holds={() => true} />);
     const section = await within(await openDetail()).findByTestId('submission-review-section');
     expect(within(section).getByText('Update to an existing listing')).toBeInTheDocument();
     expect(within(section).getByTestId('gate-vuln')).toHaveTextContent('No critical vulnerabilities');
@@ -199,7 +217,7 @@ describe('Publish queue — community submissions', () => {
   });
 
   it('rejecting says the submitter is emailed the reason', async () => {
-    render(<PublishQueuePanel can={() => true} />);
+    render(<PublishQueuePanel can={() => true} holds={() => true} />);
     const detail = await openDetail();
     fireEvent.click(within(detail).getByRole('button', { name: 'Reject' }));
     const dialog = await screen.findByRole('dialog');
@@ -207,7 +225,7 @@ describe('Publish queue — community submissions', () => {
   });
 
   it('approving explains where it is published', async () => {
-    render(<PublishQueuePanel can={() => true} />);
+    render(<PublishQueuePanel can={() => true} holds={() => true} />);
     const detail = await openDetail();
     fireEvent.click(within(detail).getByRole('button', { name: 'Approve' }));
     const dialog = await screen.findByRole('dialog');
@@ -221,7 +239,7 @@ describe('Publish queue — claims on community listings', () => {
   it('an email mismatch warns and makes the approval note a required justification', async () => {
     api.listEcosystemRequests.mockResolvedValue({ success: true, data: { requests: [claim] } });
     api.getEcosystemRequest.mockResolvedValue({ success: true, data: { request: claim, review, approvers: null, eligibility: null, claimEmailMatch: false } });
-    render(<PublishQueuePanel can={() => true} />);
+    render(<PublishQueuePanel can={() => true} holds={() => true} />);
     fireEvent.click(await screen.findByRole('button', { name: /^review handle claim/i }));
     const detail = await screen.findByTestId('queue-detail');
     expect(within(detail).getByText('Email does not match submitter')).toBeInTheDocument();
@@ -233,7 +251,7 @@ describe('Publish queue — claims on community listings', () => {
   it('a match is confirmed', async () => {
     api.listEcosystemRequests.mockResolvedValue({ success: true, data: { requests: [claim] } });
     api.getEcosystemRequest.mockResolvedValue({ success: true, data: { request: claim, review, approvers: null, eligibility: null, claimEmailMatch: true } });
-    render(<PublishQueuePanel can={() => true} />);
+    render(<PublishQueuePanel can={() => true} holds={() => true} />);
     fireEvent.click(await screen.findByRole('button', { name: /^review handle claim/i }));
     expect(await screen.findByText('Email matches the submitter')).toBeInTheDocument();
   });

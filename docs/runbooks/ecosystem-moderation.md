@@ -16,7 +16,7 @@ For **Ecosystem Managers** and superadmins: the people in the system organizatio
 
 - **The system org is the only place this works.** Every console route refuses a token from any other org with `403 SYSTEM_ORG_REQUIRED`, even for the same person.
 - **An MFA-grade session (aal2) is required**, and the consequential actions ask you to re-authenticate on top of that.
-- **Keep at least three Ecosystem Managers**, so two-person approval and holiday cover both work.
+- **Keep at least three Ecosystem Managers and three Publisher Verifiers**, so two-person approval and holiday cover both work for each job.
 - **Separation of duties is enforced, not advisory.** You cannot decide your own org's request, your own upload, or supply both approvals of a two-person decision.
 - **The security lane has a 4-hour SLA**; the standard lane has 48 hours. Both are alerted on.
 - **Auto-approval rules have a daily cap**, and an anomaly alert fires when one runs near it or far above its usual rate.
@@ -42,8 +42,8 @@ Publisher-facing behaviour, and the reasoning behind the governance model, is in
 ## Configuration
 
 1. **Switch your active org to the system organization**, then go to Dashboard → Admin → **Ecosystem**.
-2. **Sign in at aal2.** Suspensions, yanks, rule changes, re-signs and every `publishers:verify` decision will also step you up.
-3. **Assign the Ecosystem Manager role** to at least three people. Only a superadmin can assign it; it grants `plugins:moderate` and `publishers:verify`.
+2. **Sign in at aal2.** Suspensions, yanks, rule changes, re-signs, review removals, reserved-name changes and every `publishers:verify` decision will also step you up.
+3. **Assign both ecosystem roles** to at least three people each. Only a superadmin can assign them. **Ecosystem Manager** grants `plugins:moderate` (the publish queue, yanks, advisories, rules, reserved names, review moderation); **Publisher Verifier** grants `publishers:verify` (Verified, suspend, unsuspend). They are separate roles so triaging the queue does not also carry the power to award Verified status.
 4. **Set the SLAs** if the defaults do not fit — see [Queues and SLAs](#queues-and-slas).
 5. **Configure auto-approval rules** deliberately, and watch their caps — see [Auto-approval rules](#auto-approval-rules).
 6. **Know where the kill switches are** before you need them — see [Kill switches](#kill-switches).
@@ -55,11 +55,14 @@ Publisher-facing behaviour, and the reasoning behind the governance model, is in
   as your active org. Every console route refuses a token from any other org
   (`403 SYSTEM_ORG_REQUIRED`), even for the same person.
 - **Session.** An MFA-grade sign-in (aal2) is required. Suspensions, yanks,
-  rule changes, re-signs and every `publishers:verify` decision also ask you to
-  re-authenticate (step-up).
-- **Role.** The built-in **Ecosystem Manager** role grants `plugins:moderate`
-  and `publishers:verify`. Only a superadmin can assign it. Keep **at least
-  three** holders so two-person approval and holiday cover always work. The
+  rule changes, re-signs, removing a review or a publisher reply, reserving or
+  freeing a name, and every `publishers:verify` decision also ask you to
+  re-authenticate (step-up). Holding and releasing a review do not: a hold is
+  undone by a release, and it is the highest-volume action here.
+- **Roles.** Two built-in roles, each assignable only by a superadmin:
+  **Ecosystem Manager** (`plugins:moderate`) and **Publisher Verifier**
+  (`publishers:verify`). Keep **at least
+  three** holders of each so two-person approval and holiday cover always work. The
   queue overview shows the headcount platform reports (holders of
   `plugins:moderate` in the system org) and warns below three, and more
   strongly below two, when a superadmin has to be every second approver. Each
@@ -95,7 +98,7 @@ The paging half is Prometheus (all targets; the list is in
 | `EcosystemSecurityLaneSLABreach` (critical) | Decide the security-lane request now. If nobody eligible is available (conflicts, two-person), a superadmin can be the second approver. |
 | `EcosystemStandardLaneSLABreach` | Work the queue oldest first; check the headcount if two-person requests are piling up in *awaiting second approval*. |
 | `EcosystemResignFailures` / `EcosystemResignStalled` | See [Re-sign job](#re-sign-job): check image-registry health and the plugin service's `ecosystem-resign` logs. The job resumes by itself once the cause is fixed. |
-| `EcosystemApproverShortage` | A superadmin adds managers on the **Ecosystem Managers** tab. |
+| `EcosystemApproverShortage` | A superadmin adds holders on the **Ecosystem Managers** tab — the notice names the permission that is short, so add to the **Ecosystem Manager** roster for `plugins:moderate` or the **Publisher Verifier** roster for `publishers:verify`. |
 | `EcosystemNotificationsDropped` | Check platform's `/internal/notify-email` relay and SMTP. The in-app copy is usually still delivered. |
 | `SubmissionBacklogHigh` | Many anonymous submissions waiting. See [Anonymous submissions](#anonymous-submissions). |
 | `SubmissionGateFailureSpike` | One gate failing often: abuse (heuristics / secrets) or a broken gate (vuln scan, smoke test). See [Anonymous submissions](#anonymous-submissions). |
@@ -254,7 +257,9 @@ lookup.
 back a handle or listing name (a vendor's brand, a confusable). A name reserved
 for a publisher is claimable by that publisher only; a name reserved for nobody
 refuses everyone, and claims come to the queue. Adding and removing apply at
-once and are audited as `ecosystem.reserved-name.update`. The built-in reserved
+once, are audited as `ecosystem.reserved-name.update`, and both ask for a
+step-up — **freeing** a name is the one that matters, because it lets the next
+caller register what the reservation was holding back. The built-in reserved
 words (`official`, `pipeline-builder`, …) aren't listed; they can't be removed.
 
 ## Re-sign job
@@ -291,8 +296,11 @@ and published reviews with unresolved reports) newest activity first, and,
 under **Removed**, reviews already taken down. Each item shows the listing,
 the stars, the rendered body, the author's display name and user id (never
 their organization), the verified-use badge, why it is held, its reports
-(category, reason, date) and the publisher's reply. No step-up is asked:
-hiding or restoring user content is reversible, and every decision is audited.
+(category, reason, date) and the publisher's reply. Every decision is audited.
+**Holding and releasing ask no step-up** — a hold is undone by a release, and
+this is the highest-volume work on the console. **Removing a review or a
+publisher reply does**: there is no un-remove, and a removed reply is deleted
+outright.
 
 Why a review is held (`holdReason`):
 

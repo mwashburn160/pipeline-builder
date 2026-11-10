@@ -407,6 +407,20 @@ describe('reviewState', () => {
     expect(await reviewsSvc.reviewState(MANAGER(), 'acme', 'lint')).toMatchObject({ canReview: false, reviewBlockedReason: 'reviews_disabled', canReply: false });
   });
 
+  it('refuses BOTH affordances in a read-only impersonation session', async () => {
+    await published();
+    // The write itself is already refused upstream by METHOD, so this is about
+    // the viewer state not offering what the session cannot do: without it the
+    // console rendered "Write a review" and the publisher reply box, and both
+    // died on that refusal.
+    expect(await reviewsSvc.reviewState(REVIEWER({ readOnlySession: true }), 'acme', 'lint'))
+      .toMatchObject({ canReview: false, reviewBlockedReason: 'read_only_session' });
+    // MANAGER owns the publisher, so it is the reply side that matters here: it
+    // is `true` for the same caller in a normal session (asserted above).
+    expect(await reviewsSvc.reviewState(MANAGER({ readOnlySession: true }), 'acme', 'lint'))
+      .toMatchObject({ canReview: false, reviewBlockedReason: 'read_only_session', canReply: false });
+  });
+
   it('shows the author why a removed review was removed', async () => {
     await published({ status: 'removed', moderationReason: 'Off-topic' });
     expect((await reviewsSvc.reviewState(REVIEWER(), 'acme', 'lint')).myReview).toMatchObject({ status: 'removed', moderationReason: 'Off-topic' });

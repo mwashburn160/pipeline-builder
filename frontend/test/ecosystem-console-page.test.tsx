@@ -224,11 +224,25 @@ describe('Ecosystem console — Ecosystem Managers', () => {
     expect(getOrganizationMembers).not.toHaveBeenCalled();
   });
 
-  it('says so when the built-in role is missing', async () => {
+  it('says so when a built-in role is missing — for BOTH ecosystem rosters', async () => {
     getOrganizationRoles.mockResolvedValue({ success: true, data: { roles: [], pagination: { total: 0, offset: 0, limit: 0, hasMore: false } } });
     render(<EcosystemConsolePage />);
     await openManagers();
-    expect(await screen.findByText(/role not found/i)).toBeInTheDocument();
+    // Two rosters since the moderation and publisher-verification jobs were
+    // split into their own seeded Roles: Ecosystem Manager and Publisher
+    // Verifier. Both look their Role up by its seeded NAME, so both report it.
+    expect(await screen.findAllByText(/role not found/i)).toHaveLength(2);
+  });
+
+  it('renders a roster for each of the two ecosystem Roles', async () => {
+    render(<EcosystemConsolePage />);
+    await openManagers();
+    // The tab label says "Ecosystem Managers" too, hence the heading role.
+    expect(await screen.findByRole('heading', { name: /ecosystem managers/i })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /publisher verifiers/i })).toBeInTheDocument();
+    // The verifier roster says why one name is not enough: awarding Verified and
+    // lifting a suspension each need two different verifiers.
+    expect(screen.getByText(/two different verifiers/i)).toBeInTheDocument();
   });
 
   it('shows an empty roster', async () => {

@@ -47,8 +47,16 @@ function DownloadButton({ path, label, fallbackName }: { path: string; label: st
  * EVERY heuristics finding (including the medium ones the submitter never
  * sees), the quarantine image, and its SBOM and scan report. The diff against
  * the previous approved version is the normal review diff below it.
+ *
+ * `canReadArtifacts` is `plugins:moderate`. The REQUEST reads open to either
+ * ecosystem permission, but the two artifact routes
+ * (`/requests/:id/submission-sbom` and `-scan`) are moderate-only — so without
+ * this a `publishers:verify`-only manager was shown two download buttons that
+ * answered 403.
  */
-export function SubmissionReviewSection({ submission: raw }: { submission: EcosystemRequestDetail['submission'] }) {
+export function SubmissionReviewSection(
+  { submission: raw, canReadArtifacts }: { submission: EcosystemRequestDetail['submission']; canReadArtifacts: boolean },
+) {
   const submission = normalizeSubmissionModeration(raw);
   if (!submission) {
     return (
@@ -109,14 +117,20 @@ export function SubmissionReviewSection({ submission: raw }: { submission: Ecosy
         ) : (
           <p className="text-xs text-warning-strong">No scan result recorded.</p>
         )}
-        <div className="flex flex-wrap gap-2">
-          {submission.sbomUrl
-            ? <DownloadButton path={submission.sbomUrl} label="SBOM" fallbackName={`submission-${submission.id}.spdx.json`} />
-            : <span className="text-xs text-fg-muted">No SBOM.</span>}
-          {submission.scanUrl
-            ? <DownloadButton path={submission.scanUrl} label="Vulnerability scan" fallbackName={`submission-${submission.id}-scan.json`} />
-            : <span className="text-xs text-fg-muted">No scan report.</span>}
-        </div>
+        {canReadArtifacts ? (
+          <div className="flex flex-wrap gap-2">
+            {submission.sbomUrl
+              ? <DownloadButton path={submission.sbomUrl} label="SBOM" fallbackName={`submission-${submission.id}.spdx.json`} />
+              : <span className="text-xs text-fg-muted">No SBOM.</span>}
+            {submission.scanUrl
+              ? <DownloadButton path={submission.scanUrl} label="Vulnerability scan" fallbackName={`submission-${submission.id}-scan.json`} />
+              : <span className="text-xs text-fg-muted">No scan report.</span>}
+          </div>
+        ) : (
+          <p className="text-xs text-fg-muted" data-testid="submission-artifacts-gated">
+            The SBOM and scan report need plugins:moderate.
+          </p>
+        )}
       </Section>
     </div>
   );

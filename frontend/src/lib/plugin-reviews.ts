@@ -18,6 +18,7 @@ export const REVIEW_BLOCKED_COPY: Record<ReviewBlockedReason, string> = {
   own_publisher: "You can't review your own organization's plugins.",
   reviews_disabled: 'Reviews are read-only right now.',
   machine_credential: 'Sign in as a person to write a review.',
+  read_only_session: 'This is a read-only session, so it can\u2019t post a review.',
 };
 
 export const REPORT_CATEGORY_LABELS: Record<ReviewReportCategory, string> = {

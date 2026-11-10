@@ -366,12 +366,21 @@ dependency, like an npm package or a GitHub Action, and the rules below all
 follow from keeping "uploaded" and "trusted to run" separate.
 
 **Governance.** Only the system organization decides what enters or changes the
-ecosystem. Its **Ecosystem Manager** role (built in, system-org only, assigned by
-superadmins, never grantable through custom roles) holds `plugins:moderate` and
-`publishers:verify`, so managers don't need full superadmin. The permissions are
-already separate, so splitting the role later is only a seed change. Tenant orgs
-still decide what runs **in their own pipelines** (their consumption policy) —
-that governs only their org, never the ecosystem. See the
+ecosystem, through two built-in system-org roles (assigned by superadmins, never
+grantable through a role authored in a tenant), so neither job needs full
+superadmin:
+
+- **Ecosystem Manager** — `plugins:moderate`: approve listings and versions,
+  yank, publish advisories, write the auto-approval rules, reserve names,
+  moderate reviews and submissions.
+- **Publisher Verifier** — `publishers:verify`: award Verified status, suspend a
+  publisher, lift a suspension. Staff at least two people — each of those
+  decisions needs two different verifiers.
+
+One role used to carry both, which meant everyone triaging the publish queue
+could also mint a Verified publisher. Tenant orgs still decide what runs **in
+their own pipelines** (their consumption policy) — that governs only their org,
+never the ecosystem. See the
 [moderation runbook](runbooks/ecosystem-moderation.md) and
 [Permissions](permissions.md).
 
