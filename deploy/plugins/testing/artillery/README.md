@@ -2,7 +2,7 @@
 
 Artillery load testing plugin for running HTTP and WebSocket performance tests with configurable scenarios and reporting using AWS CDK CodeBuildStep
 
-**Version:** 1.0.0  
+**Version:** 1.0.1  
 **Category:** testing  
 **Plugin Type:** CodeBuildStep  
 **Compute:** MEDIUM  
