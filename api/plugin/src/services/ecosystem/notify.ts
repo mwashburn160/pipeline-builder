@@ -121,7 +121,15 @@ export function notifySecondApprovalNeeded(input: {
 export function notifyDecision(input: {
   kind: string; title: string; publisherOrgId: string | null; approved: boolean; reason?: string | null; auto?: boolean;
 }): Promise<void> {
-  if (!input.publisherOrgId) return Promise.resolve();
+  if (!input.publisherOrgId) {
+    // The COMMUNITY publisher has no owner org, so every anonymous submission's
+    // decision took this path and the moderator copy was never sent — silently,
+    // with no counter and no log. The submitter still gets N4, so the loss is
+    // invisible from the outside too. Say so rather than returning as if there
+    // were nothing to send.
+    logger.debug('Decision notice skipped: the publisher has no owner org (community publisher)', { kind: input.kind, title: input.title });
+    return Promise.resolve();
+  }
   const verb = input.approved ? (input.auto ? 'auto-approved' : 'approved') : 'rejected';
   const text = `${input.title} was ${verb}${input.reason ? `: ${input.reason}` : '.'}`;
   if (input.kind === 'verify') {

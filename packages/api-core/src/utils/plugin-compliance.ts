@@ -18,7 +18,15 @@
  *   `vuln*` counts are present only then — an unscanned image sends no counts,
  *   so a numeric rule like `vulnCritical lt 1` cannot pass on a missing value.
  *   `vulnCriticalFixable` / `vulnHighFixable` count only the findings grype
- *   reports a fixed version for (what the platform floor gates on).
+ *   reports a fixed version for. They are NOT what the platform floor gates on,
+ *   though they used to be: the floor is `isGatedFinding` — fixable OR
+ *   KEV-listed, minus any `PLUGIN_VULN_WAIVERS` exemption. So a BLOCK-mode rule
+ *   written to mirror the floor (`vulnCriticalFixable lt 1`) is blind to a
+ *   KEV-gated UNFIXABLE Critical, which the floor does block. These attributes
+ *   describe the SCAN; they are not a restatement of the gate, and a rule that
+ *   needs the gate's answer should not be built from them.
+ *   (The waiver half cannot bite here: `complianceVulnWarnings` skips the
+ *   system org, and waivers are system-org-only.)
  * - `runAsRoot`: the image config's effective USER is root (empty, `0`, `root`).
  * - `packages`: package names from the signed SBOM.
  * - `tags`: the plugin's keywords plus `key=value` labels (CIS 2.1 inventory).

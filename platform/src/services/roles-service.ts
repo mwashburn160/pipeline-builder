@@ -157,8 +157,10 @@ export const SYSTEM_ORG_ROLES: readonly BuiltinRoleSpec[] = [
 
 /**
  * Seed the default permission Roles for a freshly-created org and assign the
- * creator the right Role(s). For a normal org: Admin + Member + Team Lead,
- * creator → Admin (never Team Lead — an admin hands that out). For the **system** org: also Super Admin and Ecosystem
+ * creator the right Role(s). For a normal org: Admin + Member — `Team Lead` is
+ * a TEMPLATE now (api-core `ROLE_TEMPLATES`), not seeded; an org adds it when
+ * it wants it, and orgs that already hold the seeded Role keep it. Creator →
+ * Admin. For the **system** org: also Super Admin and Ecosystem
  * Manager (never seeded anywhere else), and the creator joins
  * **Super Admin + Admin** (not Ecosystem Manager) and is flagged
  * `User.isSuperAdmin` (this is how the bootstrap user becomes a platform admin

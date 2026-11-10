@@ -23,7 +23,7 @@
  * portability) before pulling the trigger.
  */
 
-import { createLogger, createSafeClient, errorMessage, getServiceAuthHeader, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import { isSystemOrgId, createLogger, createSafeClient, errorMessage, getServiceAuthHeader, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
 import { runWithTenantContext, softDeleteRetentionMs, withTenantTx } from '@pipeline-builder/pipeline-data';
 import { eq, sql } from 'drizzle-orm';
 import type { Types } from 'mongoose';
@@ -169,7 +169,7 @@ export interface CascadeReport {
  * affected tables. Sysadmins bypass RLS via the `is_sysadmin` GUC.
  */
 export async function cascadeDeleteOrg(orgId: string, actorOrgId: string): Promise<CascadeReport> {
-  if (orgId === SYSTEM_ORG_ID) {
+  if (isSystemOrgId(orgId)) {
     throw new Error(SYSTEM_ORG_DELETE_FORBIDDEN);
   }
 
@@ -531,7 +531,7 @@ export async function softDeleteOrg(
   actorOrgId: string,
   deletedBy: string,
 ): Promise<SoftDeleteResult> {
-  if (orgId === SYSTEM_ORG_ID) {
+  if (isSystemOrgId(orgId)) {
     throw new Error(SYSTEM_ORG_DELETE_FORBIDDEN);
   }
 

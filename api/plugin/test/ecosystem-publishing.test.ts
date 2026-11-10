@@ -14,11 +14,13 @@ import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 
 import {
   DIGEST_A, DIGEST_B, SYSTEM_ORG, loader, pluginRow, seedPublishers, setupEcosystemHarness, tenant, wireEcosystemHarness,
+  moderator,
 } from './helpers/ecosystem-harness.js';
 
 const h = setupEcosystemHarness();
 const publishersSvc = await import('../src/services/ecosystem/publishers.js');
 const requestsSvc = await import('../src/services/ecosystem/requests.js');
+const decisionsSvc = await import('../src/services/ecosystem/decisions.js');
 const bootstrap = await import('../src/services/ecosystem/bootstrap.js');
 await wireEcosystemHarness(h);
 
@@ -577,6 +579,31 @@ describe('Official catalog auto-approval rule', () => {
     db.tables.plugin_publish_requests!.filter((r) => r.version === '1.0.4').forEach((r) => { r.decidedAt = new Date(Date.now() - 48 * 3_600_000); });
     const second = db.seed('plugins', pluginRow({ orgId: SYSTEM_ORG, version: '1.0.5' }));
     expect((await requestsSvc.submitAfterBuild(loader() as any, second.id)).status).toBe('pending');
+  });
+
+  // THE GATES ARE RE-ENFORCED AT APPROVAL, not only at submit. `assertGates`
+  // runs when the request is created and the console recomputes them for the
+  // moderator, but nothing re-checked them at execute — so a request whose
+  // gates went red while it waited could still publish. That window is real:
+  // PLUGIN_SCAN_STALE_HOURS is 72h against a 48h moderation SLA, and a
+  // two-person approval takes longer, so a scan can go stale or an overnight
+  // rescan can flag the version under an approver who saw it green.
+  it('REGRESSION: refuses to publish a version whose gates went red after submit', async () => {
+    const { acme } = seedPublishers(db, { tenantTier: 'verified' });
+    seedListed(acme, 'lint', '1.0.0');
+    const patch = db.seed('plugins', pluginRow({ version: '1.0.1' }));
+    const req = await requestsSvc.submit(tenant() as any, { kind: 'new_version', pluginId: patch.id });
+    expect(req.request.status).toBe('pending');
+
+    // The scan goes stale while the request waits — the `scanned` gate flips.
+    const row = db.tables.plugins!.find((p) => p.id === patch.id)!;
+    row.scannedAt = new Date('2020-01-01');
+
+    await rejects(
+      decisionsSvc.approve(moderator('mod-1') as any, req.request.id, null),
+      'CONFLICT',
+    );
+    expect(db.tables.plugin_listing_versions!.find((v) => v.version === '1.0.1')).toBeUndefined();
   });
 
   it('auto-approves a Verified publisher\'s patch through the Verified rule, and leaves it pending when publishing fails', async () => {

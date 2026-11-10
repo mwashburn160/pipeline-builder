@@ -11,6 +11,7 @@
  */
 
 import {
+  isSystemOrgId,
   actorId,
   BUILTIN_RESERVED_HANDLES,
   ErrorCode,
@@ -72,7 +73,12 @@ export async function handleRefusal(handle: string, forPublisherId: string | nul
 /** The org's listings-quota standing: live listings vs the plan limit (-1 = unlimited). */
 export async function listingsQuota(orgId: string, publisherId: string | null): Promise<{ used: number; limit: number; failOpen: boolean }> {
   const used = publisherId ? await listings.countActive(publisherId) : 0;
-  if (orgId === SYSTEM_ORG_ID) return { used, limit: -1, failOpen: false };
+  if (isSystemOrgId(orgId)) return { used, limit: -1, failOpen: false };
+  // An org we cannot name is not an org we can read a quota for. Answering
+  // `failOpen` says exactly that — the caller already refuses rather than
+  // over-listing on an unreadable quota — instead of calling the quota service
+  // with an empty id and interpreting whatever comes back.
+  if (!orgId) return { used, limit: 0, failOpen: true };
   const result = await ecosystemDeps().quotaService.check(orgId, 'listings', getQuotaServiceAuthHeader(orgId));
   // `failOpen` = the quota service could not be read; the -1 it then reports is
   // NOT a real "unlimited", and callers must not act on it.

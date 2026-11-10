@@ -193,7 +193,20 @@ export const QUOTA_CATALOG: Readonly<Record<QuotaType, QuotaTypeMeta>> = {
   alertRules: { label: 'Alert rule', labelPlural: 'Alert rules', render: 'count', accrual: 'stock', observed: 'metered', description: 'Alert rules currently defined' },
   alertDestinations: { label: 'Alert destination', labelPlural: 'Alert destinations', render: 'count', accrual: 'stock', observed: 'metered', description: 'Alert destinations currently defined' },
   idpConfigs: { label: 'IdP configuration', labelPlural: 'IdP configurations', render: 'count', accrual: 'stock', observed: 'metered', description: 'Identity-provider configurations currently defined' },
-  listings: { label: 'Plugin listing', labelPlural: 'Plugin listings', render: 'count', accrual: 'stock', observed: 'metered', description: 'Active plugin listings you publish' },
+  // MEASURED, not metered — the label was wrong, not the behaviour. Nothing has
+  // ever incremented a `listings` counter: enforcement reads the live count from
+  // the plugin service's own rows (`listings.countActive`), which IS the system
+  // of record for what a publisher has listed. Declaring it `metered` meant the
+  // dashboard showed "0 of N" forever and the 80%/100% threshold notices could
+  // never fire, because `threshold-notifier` drops any notice whose source does
+  // not match `observed` and no increment was ever coming.
+  //
+  // Wiring an increment instead would have been the wrong repair: it creates a
+  // SECOND number for a fact the plugin service already owns exactly, and the
+  // two then drift on every yank, transfer, suspension and purge that does not
+  // remember to decrement. Same shape as `storageBytes`, which is measured for
+  // the same reason.
+  listings: { label: 'Plugin listing', labelPlural: 'Plugin listings', render: 'count', accrual: 'stock', observed: 'measured', description: 'Active plugin listings you publish' },
 };
 
 /**

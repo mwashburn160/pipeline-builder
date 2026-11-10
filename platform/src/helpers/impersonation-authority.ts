@@ -68,10 +68,15 @@ export type ImpersonationAuthority =
  * without being the only path.
  */
 export function hasPlatformImpersonationAuthority(req: Request): boolean {
-  // BOTH spellings, as `isOrgAdmin` does: the system org is identified by its
-  // id (a 24-hex ObjectId) or by its `system` slug, and a token may carry
-  // either. Passing only the id silently refuses a caller identified by name.
-  const inSystemOrg = isSystemOrgId(req.user?.organizationId, req.user?.organizationName);
+  // BY ID ONLY. The name branch was justified by "a token may carry either",
+  // and it no longer can: `lastActiveOrgId` is validated as an ObjectId
+  // (models/user.ts) — the `'system'` string sentinel is gone. So matching on
+  // the NAME refuses nothing and admits something, because an org merely NAMED
+  // "system" would resolve to `{ kind: 'platform' }`: cross-tenant
+  // impersonation of any target, from a tenant context. That is exactly what
+  // api-core's `isSystemOrgRequest` spells out it must not do ("an org merely
+  // NAMED 'system' never qualifies"), and what `requireSystemOrg` exists for.
+  const inSystemOrg = isSystemOrgId(req.user?.organizationId);
   return inSystemOrg && userHasPermission(req, 'impersonation:open');
 }
 

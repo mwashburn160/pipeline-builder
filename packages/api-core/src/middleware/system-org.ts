@@ -7,12 +7,25 @@
 
 /**
  * The system tenant's canonical org **id** — a fixed, well-known ObjectId (NOT
- * the string 'system'). This is the single knob every service resolves the
- * system tenant through; override via the `SYSTEM_ORG_ID` env for alternate
- * installs. The system org's human identifier stays the slug/name 'system'
- * (see {@link SYSTEM_ORG_SLUG}); only its `_id` is this ObjectId.
+ * the string 'system'). The single value every service resolves the system
+ * tenant through. The system org's human identifier stays the slug/name
+ * 'system' (see {@link SYSTEM_ORG_SLUG}); only its `_id` is this ObjectId.
+ *
+ * NOT ENV-OVERRIDABLE, and the removed override is worth a note so nobody
+ * re-adds it. It read `process.env.SYSTEM_ORG_ID` "for alternate installs" —
+ * but the schema contradicts it: `postgres-init.sql` hardcodes this literal as
+ * the DEFAULT on 23 org-scoped columns and seeds its rows with it. So an
+ * override moved the application's idea of the system org while the database's
+ * stayed put, which is a half-feature that fails in the worst possible
+ * place — tenancy. The divergence was already being worked around in two spots
+ * (`query-builders.ts` drops an orgId predicate over it; the ecosystem
+ * bootstrap repairs the Official publisher), and the knob appeared in no
+ * `.env.example`, so nothing could set it deliberately anyway.
+ *
+ * An alternate install changes the DDL and this constant together, or not at
+ * all.
  */
-export const SYSTEM_ORG_ID = (process.env.SYSTEM_ORG_ID || '000000000000000000000001').toLowerCase();
+export const SYSTEM_ORG_ID = '000000000000000000000001';
 
 /** The system org's well-known slug/name (the human identifier; its `_id` is {@link SYSTEM_ORG_ID}). */
 export const SYSTEM_ORG_SLUG = 'system';

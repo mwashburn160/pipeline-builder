@@ -1,9 +1,10 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { DEFAULT_TIER, QUOTA_TIERS, SYSTEM_ORG_ID, tierAllowsTeams } from '@pipeline-builder/api-core';
+import { isSystemOrgId, DEFAULT_TIER, QUOTA_TIERS, SYSTEM_ORG_SLUG, tierAllowsTeams } from '@pipeline-builder/api-core';
 import type { Types } from 'mongoose';
 import { ORG_NOT_FOUND, SYSTEM_ORG_DELETE_FORBIDDEN, ORG_SLUG_TAKEN } from './org-errors.js';
+import { RESERVED_ORG_NAME } from './auth-errors.js';
 import { orgHierarchyService } from './org-hierarchy-service.js';
 import { applyAIProviderKeyUpdates, buildProvidersMap } from './organization-ai-secrets.js';
 import {
@@ -104,6 +105,26 @@ interface UpdateOrgInput {
 }
 
 /** An org's editable identity, as `update` returns it (and its `before`). */
+/**
+ * Refuse a tenant org named `system`, whatever it is called today.
+ *
+ * The reserved name was enforced at REGISTRATION only (auth-service: register,
+ * OAuth/SSO JIT, onboarding), so `POST /organization` and
+ * `PATCH /organization/:id/identity` could each put a tenant org on the
+ * reserved name afterwards — and `org_settings:write` is an ordinary org-admin
+ * permission.
+ *
+ * It matters less than it did now that nothing keys the system org off a NAME
+ * (see `hasPlatformImpersonationAuthority`), but the invariant is the one the
+ * registration path states, and a name the system org answers to should not be
+ * claimable by a tenant at any point in its life.
+ */
+function assertNotReservedOrgName(name: string | undefined): void {
+  if (name !== undefined && name.trim().toLowerCase() === SYSTEM_ORG_SLUG) {
+    throw new Error(RESERVED_ORG_NAME);
+  }
+}
+
 export interface OrgIdentity {
   id: string;
   name: string;
@@ -243,6 +264,7 @@ class OrganizationService {
         quotas = { ...QUOTA_TIERS[tier].limits };
       }
 
+      assertNotReservedOrgName(body.name);
       const orgData: Record<string, unknown> = {
         name: body.name,
         description: body.description || '',
@@ -428,6 +450,7 @@ class OrganizationService {
     // The identity being replaced — the audit row's `before`.
     const before: OrgIdentity = { id: org._id.toString(), name: org.name, slug: org.slug, description: org.description || '' };
 
+    assertNotReservedOrgName(body.name);
     if (body.name !== undefined) org.name = body.name;
     if (body.description !== undefined) org.description = body.description;
     if (body.slug !== undefined) {
@@ -463,7 +486,7 @@ class OrganizationService {
    * these to HTTP status via withController's error map.
    */
   async delete(id: string): Promise<void> {
-    if (id === SYSTEM_ORG_ID) {
+    if (isSystemOrgId(id)) {
       throw new Error(SYSTEM_ORG_DELETE_FORBIDDEN);
     }
 

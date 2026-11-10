@@ -238,7 +238,12 @@ export async function runResignJobs(budget = 200, signal?: AbortSignal): Promise
     }
     for (const l of listingRows) {
       const repos = new Set(targets.filter((v) => v.listingId === l.id).map((v) => v.imageRepository!));
-      for (const imageRepository of repos) await invalidateVerifyCache({ imageRepository }).catch(() => undefined);
+      for (const imageRepository of repos) {
+        await invalidateVerifyCache({ imageRepository }).catch((err) => {
+          incCounter('ecosystem_trust_cache_invalidate_failed_total', {});
+          logger.warn('Trust-cache invalidation failed (positive-only cache, 60s TTL — it expires on its own)', { error: errorMessage(err) });
+        });
+      }
     }
     if (!await settleJob(job, true)) {
       logger.info('Re-sign job was superseded mid-run; the newer one continues', { scope: job.scope, id: job.id });

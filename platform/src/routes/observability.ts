@@ -54,8 +54,10 @@ const router: Router = Router();
 // observability must not still see the org's metrics, logs and firing alerts.
 // Per-route, never a router-level `use`, so nothing leaks onto the siblings.
 // The in-controller `$ORG` substitution / org-scoped filtering stays orthogonal
-// to this capability gate. The two cross-tenant reads take `requireSystemAdmin`
-// instead, mirroring their handlers' own gate.
+// to this capability gate. The two cross-tenant reads take
+// `requireSystemOrgPermission('platform:read')` instead — system org + the
+// permission + aal2 — so an operator can be staffed with a Role rather than the
+// superadmin flag, which is the whole point of that helper.
 
 /**
  * POST /observability/query/batch  a dashboard's catalog queries (Prometheus,

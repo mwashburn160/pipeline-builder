@@ -20,7 +20,7 @@ import { EcosystemError } from './context.js';
 import { announceNewVersion } from './install-notify.js';
 import { effectiveMetadata, listingColumns, type RequestMetadata } from './metadata.js';
 import { notifyModerationAction, notifyTransferUpdate } from './notify.js';
-import { specSnapshot } from './policy.js';
+import { versionGates, specSnapshot } from './policy.js';
 import { handleRefusal, listingsQuotaOrThrow } from './publishers.js';
 import { invalidateVerifyCache, publishImage, retagImage, yankImage } from './registry.js';
 import { enqueueResign, kickResignJobs, signedAs, trustFor } from './resign.js';
@@ -130,6 +130,25 @@ async function publishVersion(r: Req, publisher: Publisher, actor: string): Prom
     }
   }
 
+  // RE-CHECKED AT APPROVAL, not only at submit. `assertGates` runs when the
+  // request is created and the console RECOMPUTES the gates live for the
+  // moderator — but nothing re-enforced them here, so approval could publish a
+  // version whose gates had gone red since. That is reachable rather than
+  // theoretical: `PLUGIN_SCAN_STALE_HOURS` is 72h against a 48h moderation SLA,
+  // and a two-person approval takes longer still, so the `scanned` gate can
+  // expire while a request waits — or an overnight rescan can flag the version
+  // and turn `vuln` red under an approver who saw it green.
+  //
+  // Refused with the gate's OWN message, so the moderator is told what changed
+  // rather than seeing a generic failure for a request they just approved.
+  const gatesNow = versionGates(plugin);
+  const failedNow = gatesNow.filter((g) => !g.ok);
+  if (failedNow.length > 0) {
+    throw new ConflictError(
+      `The version no longer passes its publish checks: ${failedNow.map((g) => g.message).join('; ')}`,
+    );
+  }
+
   let imageRepository: string | null = null;
   if (plugin.imageDigest) {
     const published = await publishImage({
@@ -210,7 +229,10 @@ export async function yankListedVersion(listing: PluginListing, publisher: Publi
       incCounter('ecosystem_registry_yank_failed_total', {});
       logger.warn('public/* tag removal failed (the version is yanked in the catalog regardless)', { version, error: errorMessage(err) });
     });
-    await invalidateVerifyCache({ imageRepository: v.imageRepository, digest: v.imageDigest }).catch(() => undefined);
+    await invalidateVerifyCache({ imageRepository: v.imageRepository, digest: v.imageDigest }).catch((err) => {
+      incCounter('ecosystem_trust_cache_invalidate_failed_total', {});
+      logger.warn('Trust-cache invalidation failed (positive-only cache, 60s TTL — it expires on its own)', { error: errorMessage(err) });
+    });
   }
   ecosystemAudit({ action: 'plugin.version.yank', actor, affectedOrgId: publisher.ownerOrgId, targetType: 'plugin-listing-version', targetId: v.id, details: { listing: `${publisher.handle}/${listing.name}`, version, reason: reason.slice(0, 200) } });
   await notifyModerationAction({
@@ -417,7 +439,10 @@ async function unyankVersion(r: Req, publisher: Publisher, listing: PluginListin
         incCounter('ecosystem_registry_retag_failed_total', {});
         logger.warn('Re-tagging the unyanked version failed; pinned digests still pull', { error: errorMessage(err) });
       });
-    await invalidateVerifyCache({ imageRepository: v.imageRepository, digest: v.imageDigest }).catch(() => undefined);
+    await invalidateVerifyCache({ imageRepository: v.imageRepository, digest: v.imageDigest }).catch((err) => {
+      incCounter('ecosystem_trust_cache_invalidate_failed_total', {});
+      logger.warn('Trust-cache invalidation failed (positive-only cache, 60s TTL — it expires on its own)', { error: errorMessage(err) });
+    });
   }
   const latest = await atomically(async () => {
     await versions.update(v.id, { yankedAt: null, yankReason: null });

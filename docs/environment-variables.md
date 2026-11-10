@@ -92,7 +92,6 @@ Use the [Table of Contents](#table-of-contents) below to jump to a section.
 | `SERVICE_NAME` | `api` | Service name in logs |
 | `CORS_CREDENTIALS` | `true` | Allow credentials in CORS requests |
 | `CORS_ORIGIN` | — | CORS allowed origins (optional) |
-| `SYSTEM_ORG_ID` | `000000000000000000000001` | ObjectId of the well-known system tenant (the org with `slug:'system'` + `isSystem:true`). Lowercased at module load and compared case-insensitively. **If you override it, you must mirror the new value in the Postgres RLS policy** (`deploy/**/postgres-init.sql` hardcodes `000000000000000000000001` as the always-visible system org), or system-org content becomes invisible to other orgs. |
 
 ---
 

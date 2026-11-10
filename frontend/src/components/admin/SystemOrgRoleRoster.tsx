@@ -64,6 +64,17 @@ export function SystemOrgRoleRoster({
 }: SystemOrgRoleRosterProps) {
   const toast = useToast();
   const canAssign = isSuperAdmin && canWrite;
+  /**
+   * WHY the controls are locked, when they are. The Callout below explains the
+   * `!isSuperAdmin` case; a SUPERADMIN under read-only impersonation just lost
+   * Add and Remove with nothing said, because `canWrite` is false for every
+   * mutation in that session. Same information, stated rather than implied.
+   */
+  const lockedReason = !isSuperAdmin
+    ? 'Only a platform superadmin can change this roster'
+    : !canWrite
+      ? 'Read-only session: staffing changes are disabled while viewing as another user'
+      : undefined;
 
   const rolesQ = useFetch(async (signal): Promise<OrganizationRole | null> => {
     const res = await api.getOrganizationRoles(SYSTEM_ORG_ID, undefined, { signal });
@@ -143,12 +154,13 @@ export function SystemOrgRoleRoster({
                     <div className="text-sm font-medium text-fg truncate">{m.username}</div>
                     <div className="text-xs text-fg-muted truncate">{m.email}</div>
                   </div>
-                  {canAssign && (
+                  {isSuperAdmin && (
                     <Button
                       variant="secondary"
                       size="sm"
                       loading={busy === m.id}
-                      disabled={busy !== null}
+                      disabled={busy !== null || !canAssign}
+                      title={lockedReason}
                       onClick={() => remove(m)}
                       aria-label={`Remove ${m.username} from ${roleName}`}
                     >

@@ -78,7 +78,12 @@ describe('searchPublicListings', () => {
       expect(sql).toMatch(/FROM public_listings l/);
       expect(sql).toMatch(/FROM public_listed_versions pv/);
       expect(sql).not.toMatch(/FROM plugins\b|plugin_listings\b/);
-      expect(sql).toContain('l.paused_at IS NULL');
+      // Pause is the VIEW's filter now, not a term repeated in every query —
+      // so the absence here is the point. Reading only `public_*` (asserted
+      // above) is what makes a paused listing unreachable; the per-query copies
+      // existed because three of the four views did not filter it, and
+      // `ecosystem-schema.test.ts` pins that they now do.
+      expect(sql).not.toContain('paused_at');
     }
   });
 

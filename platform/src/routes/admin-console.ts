@@ -14,9 +14,12 @@
  *
  * The gate is the admin surface's own, plus one condition specific to the
  * consoles: an access token for a live session (requireAuth: signature, type,
- * tokenVersion) of a PLATFORM administrator (requireSystemAdmin; org admins do
- * not qualify) whose ACTIVE ORG is the system org (requireSystemOrg) and whose
- * session reached AAL2 (a second factor).
+ * tokenVersion) holding the CONSOLE CLASS's own permission — see
+ * `CONSOLE_PERMISSION` below, where `observability` / `database` /
+ * `objectstore` each map to one system-org-only permission and only an
+ * UNRECOGNISED class falls back to `requireSystemAdmin` — whose ACTIVE ORG is
+ * the system org (requireSystemOrg) and whose session reached AAL2 (a second
+ * factor). Org admins do not qualify for any of it.
  *
  * WHY THE ACTIVE ORG TOO, when the superadmin flag already decides this.
  * Because this is the only route where a cross-tenant tool is handed to a

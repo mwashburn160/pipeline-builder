@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, paginationMeta, parsePage, sendError, sendSuccess } from '@pipeline-builder/api-core';
+import { SYSTEM_ORG_ONLY_PERMISSIONS, createLogger, paginationMeta, parsePage, sendError, sendSuccess } from '@pipeline-builder/api-core';
 import type { Request } from 'express';
 import { audit } from '../helpers/audit.js';
 import {
@@ -107,7 +107,7 @@ export const updateOrganizationRole = withController('Update role', async (req, 
   // The assignment actor (not the narrower authoring ceiling): update also has
   // to check what the role ALREADY grants, so it needs `isOrgAdmin` to let an
   // admin/owner through the same way delete does.
-  const { role, before } = await updateRole(id, roleId, body, roleAssignmentActor(req));
+  const { role, before, bumpedMemberIds } = await updateRole(id, roleId, body, roleAssignmentActor(req));
   audit(req, 'org.role.update', {
     targetType: 'role',
     targetId: roleId,
@@ -118,6 +118,19 @@ export const updateOrganizationRole = withController('Update role', async (req, 
       after: { name: role.name, ...(role.description ? { description: role.description } : {}), permissions: role.permissions },
     },
   });
+  // EDITING A ROLE PROMOTES ITS HOLDERS, and nothing told anyone. Adding one
+  // member to a system-org Role notifies every superadmin (below); adding
+  // `plugins:moderate` or `database_console:open` to a Role that already has
+  // members promoted ALL of them silently — and the narrow relaxation in
+  // `role-authority.ts` permits exactly that edit. Same notice, keyed on the
+  // Role having become (or stopped being) system-org-only.
+  const wasSystemOrgRole = SYSTEM_ORG_ONLY_PERMISSIONS.some((perm) => before.permissions.includes(perm));
+  const isSystemOrgRole = SYSTEM_ORG_ONLY_PERMISSIONS.some((perm) => role.permissions.includes(perm));
+  if (isSystemOrgRole !== wasSystemOrgRole) {
+    for (const userId of bumpedMemberIds) {
+      void notifyEcosystemManagerChange({ userId, added: isSystemOrgRole, actorUserId: req.user!.sub, role: role.name });
+    }
+  }
   sendSuccess(res, 200, { role }, 'Role updated');
 }, {
   [RL_ROLE_NOT_FOUND]: { status: 404, message: 'Role not found' },
@@ -176,7 +189,7 @@ export const addRoleMember = withController('Add role member', async (req, res) 
     roleId,
     ...(ecosystemRole ? { details: { role: ecosystemRole } } : {}),
   });
-  if (ecosystemRole) void notifyEcosystemManagerChange({ userId, added: true, actorUserId: req.user!.sub });
+  if (ecosystemRole) void notifyEcosystemManagerChange({ userId, added: true, actorUserId: req.user!.sub, role: ecosystemRole });
   sendSuccess(res, 200, { userId }, 'Member added to role');
 }, {
   [RL_ROLE_NOT_FOUND]: { status: 404, message: 'Role not found' },
@@ -215,7 +228,7 @@ export const removeRoleMember = withController('Remove role member', async (req,
     roleId,
     ...(ecosystemRole ? { details: { role: ecosystemRole } } : {}),
   });
-  if (ecosystemRole) void notifyEcosystemManagerChange({ userId, added: false, actorUserId: req.user!.sub });
+  if (ecosystemRole) void notifyEcosystemManagerChange({ userId, added: false, actorUserId: req.user!.sub, role: ecosystemRole });
   sendSuccess(res, 200, undefined, 'Member removed from role');
 }, {
   [RL_ROLE_NOT_FOUND]: { status: 404, message: 'Role not found' },

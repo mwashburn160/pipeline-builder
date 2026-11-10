@@ -7,6 +7,7 @@
  * proof-of-work, and the per-email / per-IP daily caps.
  */
 
+import { incCounter } from '@pipeline-builder/api-server';
 import { createHash, createHmac } from 'crypto';
 
 import {
@@ -36,6 +37,22 @@ const logger = createLogger('ecosystem-submission-guards');
 const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 /** The canonical form of a submitter email, or null when it isn't one. */
+/**
+ * One counter for every way the anonymous door refuses, labelled by a CLOSED
+ * set of reasons — never by the submitter, hashed or otherwise, which would put
+ * unbounded cardinality in the metric store.
+ *
+ * Guarded: a metrics misconfiguration must not turn a refusal into a 500 on a
+ * public endpoint.
+ */
+function countSubmissionRefusal(reason: string): void {
+  try {
+    incCounter('ecosystem_submission_refused_total', { reason });
+  } catch {
+    // Losing the count is acceptable; losing the refusal is not.
+  }
+}
+
 export function normalizeEmail(raw: unknown): string | null {
   if (typeof raw !== 'string') return null;
   const email = raw.trim().toLowerCase();
@@ -145,9 +162,16 @@ export async function consumeDailyCaps(keys: string[], max: number, what: string
       n = await dailyCaps.incr(key, DAY_MS);
     } catch (err) {
       logger.warn('Submission cap store unavailable; refusing', { error: errorMessage(err) });
+      countSubmissionRefusal('cap_store_unavailable');
       throw new EcosystemError(ErrorCode.SERVICE_UNAVAILABLE, 'Submissions are temporarily unavailable; try again shortly.');
     }
     if (!Number.isFinite(n) || n > max) {
+      // COUNTED. The anonymous front door emitted no metric of any kind, so a
+      // cap-exhaustion episode, a proof-of-work flood and a stuck availability
+      // gate were all invisible — the same gap `ecosystem_publish_gate_refused_total`
+      // was added to close on the authenticated side. Labelled by the bucket
+      // that ran out, never by the hashed submitter.
+      countSubmissionRefusal(what === 'submissions' ? 'daily_cap' : 'ip_cap');
       throw new EcosystemError(ErrorCode.SUBMISSION_LIMIT, `At most ${max} ${what} a day; try again tomorrow.`);
     }
   }
@@ -175,11 +199,13 @@ export async function consumeProofOfWork(raw: unknown): Promise<void> {
     }
   }
   if (!solution || typeof solution !== 'object') {
+    countSubmissionRefusal('pow_missing');
     throw new EcosystemError(ErrorCode.PROOF_OF_WORK_INVALID, 'A proof-of-work answer is required (GET /challenge, then solve it).');
   }
   const cfg = submissionConfig();
   const verdict = verifyProofOfWork(solution as { challenge?: string; nonce?: string }, cfg.powSecret, { minDifficulty: cfg.powDifficulty });
   if (!verdict.ok) {
+    countSubmissionRefusal('pow_invalid');
     throw new EcosystemError(ErrorCode.PROOF_OF_WORK_INVALID, `The proof-of-work answer was refused (${verdict.reason}); request a new challenge.`, { reason: verdict.reason });
   }
   let first: boolean;
@@ -189,6 +215,9 @@ export async function consumeProofOfWork(raw: unknown): Promise<void> {
     logger.warn('Proof-of-work replay store unavailable; refusing', { error: errorMessage(err) });
     throw new EcosystemError(ErrorCode.SERVICE_UNAVAILABLE, 'Submissions are temporarily unavailable; try again shortly.');
   }
-  if (!first) throw new EcosystemError(ErrorCode.PROOF_OF_WORK_INVALID, 'That proof-of-work answer was already used; request a new challenge.', { reason: 'replayed' });
+  if (!first) {
+    countSubmissionRefusal('pow_replayed');
+    throw new EcosystemError(ErrorCode.PROOF_OF_WORK_INVALID, 'That proof-of-work answer was already used; request a new challenge.', { reason: 'replayed' });
+  }
 }
 

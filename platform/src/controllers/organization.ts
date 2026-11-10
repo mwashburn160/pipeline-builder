@@ -12,7 +12,7 @@ import type { QuotaTier } from '../models/organization.js';
 import { organizationService, orgHierarchyService, changedAiProviderFields } from '../services/index.js';
 import { exportOrg, softDeleteOrg } from '../services/org-cascade-service.js';
 import {
-  ORG_NOT_FOUND, SYSTEM_ORG_DELETE_FORBIDDEN, ORG_SLUG_TAKEN, ORG_AI_KEY_TOO_LONG, ORG_ALREADY_DELETED, ORG_SNAPSHOT_FAILED,
+  ORG_NOT_FOUND, SYSTEM_ORG_DELETE_FORBIDDEN, SYSTEM_ORG_LIMIT_FORBIDDEN, ORG_SLUG_TAKEN, ORG_AI_KEY_TOO_LONG, ORG_ALREADY_DELETED, ORG_SNAPSHOT_FAILED,
   ORG_TEAM_NOT_FOUND, ORG_SEAT_LIMIT, ORG_RESTORE_PARENT_GONE, ORG_RESTORE_PARENT_INELIGIBLE,
   ORG_MOVE_SYSTEM, ORG_MOVE_DELETED, ORG_MOVE_SELF, ORG_MOVE_CYCLE, ORG_MOVE_HAS_TEAMS, ORG_MOVE_TARGET_NOT_FOUND,
   ORG_MOVE_TARGET_NOT_ROOT, ORG_MOVE_TARGET_TIER, ORG_MOVE_NOOP, ORG_MOVE_BILLED, ORG_MOVE_BILLING_UNVERIFIED,
@@ -310,6 +310,7 @@ export const deleteOrganization = withController('Delete organization', async (r
   [ORG_ALREADY_DELETED]: { status: 409, message: 'Organization is already scheduled for deletion' },
   [ORG_SNAPSHOT_FAILED]: { status: 502, message: 'Could not capture the recovery snapshot — the organization was NOT deleted. Retry once the datastore recovers.' },
   [SYSTEM_ORG_DELETE_FORBIDDEN]: { status: 400, message: 'Cannot delete system organization' },
+  [SYSTEM_ORG_LIMIT_FORBIDDEN]: { status: 400, message: 'The system organization has no tier or seat limit to set' },
 });
 
 /**

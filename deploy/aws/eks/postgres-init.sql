@@ -2850,6 +2850,7 @@ FROM plugin_listings l
 JOIN publishers p ON p.id = l.publisher_id
 LEFT JOIN plugin_stats s ON s.listing_id = l.id
 WHERE l.state IN ('listed', 'unmaintained')
+  AND l.paused_at IS NULL
   AND p.suspended_at IS NULL;
 
 CREATE OR REPLACE VIEW public_listed_versions WITH (security_barrier = true) AS
@@ -2887,11 +2888,17 @@ SELECT
     -- Appended (CREATE OR REPLACE VIEW only adds columns at the end).
     v.vuln_critical_fixable,
     v.vuln_high_fixable,
-    v.scan_flagged_at
+    v.scan_flagged_at,
+    -- Set when the GC deleted this version's public/* image. The directory must
+    -- stop advertising a signed image and an SBOM download that cannot be
+    -- served, and it had no way to know: `signed` was derived from digest
+    -- PRESENCE alone, which outlives the image.
+    (v.image_collected_at IS NOT NULL) AS image_collected
 FROM plugin_listing_versions v
 JOIN plugin_listings l ON l.id = v.listing_id
 JOIN publishers p ON p.id = l.publisher_id
 WHERE l.state IN ('listed', 'unmaintained')
+  AND l.paused_at IS NULL
   AND p.suspended_at IS NULL
   AND v.paused_at IS NULL;
 
@@ -2915,6 +2922,7 @@ JOIN plugin_listings l ON l.id = a.listing_id
 JOIN publishers p ON p.id = l.publisher_id
 WHERE a.state = 'published'
   AND l.state IN ('listed', 'unmaintained')
+  AND l.paused_at IS NULL
   AND p.suspended_at IS NULL;
 
 -- Published reviews of public listings (W4), public columns only: the author's

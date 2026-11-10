@@ -167,7 +167,7 @@ export async function updateRole(
   roleId: string,
   input: { name?: string; description?: string; permissions?: string[] },
   actor: RoleAssignmentActor,
-): Promise<{ role: RoleWithMembers; before: RoleSnapshot }> {
+): Promise<{ role: RoleWithMembers; before: RoleSnapshot; bumpedMemberIds: string[] }> {
   const oid = toOrgId(orgId);
   const role = await Role.findOne({ _id: roleId, organizationId: oid });
   if (!role) throw new Error(RL_ROLE_NOT_FOUND);
@@ -233,6 +233,11 @@ export async function updateRole(
       members: [],
     },
     before,
+    // The users whose claims were just invalidated — i.e. exactly the holders a
+    // permission change promoted or demoted. Returned rather than re-queried by
+    // the caller: this set was already computed for the JWT bump, and a second
+    // read could legitimately differ from the one that took effect.
+    bumpedMemberIds: bumpedMemberIds.map((id) => id.toString()),
   };
 }
 

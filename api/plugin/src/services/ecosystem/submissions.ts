@@ -221,7 +221,15 @@ export interface InspectResult {
  */
 export async function inspectSubmission(zipPath: string, pow: unknown, clientIp: string): Promise<InspectResult> {
   await consumeProofOfWork(pow);
-  await consumeDailyCaps([`inspect:ip:${hashClientIp(clientIp || 'unknown')}`], INSPECTS_PER_DAY, 'inspections');
+  // A MISSING IP IS NOT A SHARED IDENTITY. `req.ip` can be empty (a proxy that
+  // strips it, a socket with no remote address), and `|| 'unknown'` hashed every
+  // such caller into ONE bucket — so with SUBMISSIONS_PER_DAY at 3 the whole
+  // instance shared a 3-a-day cap and everyone was refused, with nothing to
+  // alert on. Refuse the individual request instead: a submitter we cannot
+  // rate-limit is one we cannot admit, and that fails one caller rather than
+  // all of them.
+  if (!clientIp) throw new EcosystemError(ErrorCode.VALIDATION_ERROR, 'The caller address could not be determined; inspection is unavailable.');
+  await consumeDailyCaps([`inspect:ip:${hashClientIp(clientIp)}`], INSPECTS_PER_DAY, 'inspections');
   return withExtractSlot(() => inspectPackage(zipPath));
 }
 
@@ -289,7 +297,9 @@ export async function createSubmission(input: CreateSubmissionInput): Promise<{ 
   }
 
   const emailHash = hashEmail(email);
-  const ipHash = hashClientIp(input.clientIp || 'unknown');
+  // See the inspect path: an absent address must not become a shared bucket.
+  if (!input.clientIp) throw new EcosystemError(ErrorCode.VALIDATION_ERROR, 'The caller address could not be determined; submission is unavailable.');
+  const ipHash = hashClientIp(input.clientIp);
   // Counted before the package is even opened: a refused attempt (a zip bomb, a
   // bad spec) still spends its slot, so the caps bound the parsing work too.
   await consumeDailyCaps([`submit:email:${emailHash}`, `submit:ip:${ipHash}`], SUBMISSIONS_PER_DAY, 'submissions');

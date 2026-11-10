@@ -199,12 +199,19 @@ describe('Ecosystem console — Ecosystem Managers', () => {
     await waitFor(() => expect(pageToast.error).toHaveBeenCalledWith('Only superadmins can assign this role'));
   });
 
-  it('a read-only impersonation still sees the console, with no write controls', async () => {
+  it('a read-only impersonation still sees the console, with its write controls LOCKED and explained', async () => {
+    // The page's own contract is that a viewer without the permission "should
+    // still SEE the console (writes stay disabled)". Hiding Remove satisfied
+    // the letter and not the point: a SUPERADMIN under read-only impersonation
+    // holds the authority and simply cannot use it right now, and an absent
+    // button cannot say that — it reads as missing or broken.
     mockAuthGuard({ user: { ...systemUser, isSuperAdmin: true }, isSuperAdmin: true, isReadOnly: true });
     render(<EcosystemConsolePage />);
     await openManagers();
     expect(await screen.findByText('moddy')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /remove/i })).not.toBeInTheDocument();
+    const remove = screen.getByRole('button', { name: /remove/i });
+    expect(remove).toBeDisabled();
+    expect(remove).toHaveAttribute('title', expect.stringMatching(/read-only/i));
   });
 
   it('a non-superadmin holder sees the roster read-only', async () => {

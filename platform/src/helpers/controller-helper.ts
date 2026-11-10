@@ -32,8 +32,18 @@ export function withController(
         // A thrown refusal the map answers 403 (a Role grant above the caller's
         // ceiling, a target outside their scope) is an authorization denial like
         // any gate's — record it on the same trail, named by its error code.
+        //
+        // 400 counts too, for the ones that are a REFUSAL rather than a bad
+        // request. `RL_SYSTEM_ORG_ROLE_OUTSIDE_SYSTEM_ORG` is the last guard
+        // that a Role carrying `plugins:moderate` / `database_console:open` is
+        // not being held outside the system org, and it answers 400 — so on a
+        // 403-only rule it refused with no audit row, no log line and no
+        // metric, while its sibling `…_REQUIRES_SUPERADMIN` (403) was recorded.
+        // Two halves of one guard with different observability is how a
+        // refusal goes unnoticed.
         const code = err instanceof Error ? err.message : undefined;
-        if (code && errorMap?.[code]?.status === 403) recordAuthzDenial(req, code);
+        if (code && RECORDED_DENIAL_CODES.has(code)) recordAuthzDenial(req, code);
+        else if (code && errorMap?.[code]?.status === 403) recordAuthzDenial(req, code);
         handleControllerError(res, err, `[${label}] Error`, errorMap);
       }
     }
@@ -66,9 +76,25 @@ export function isOrgAdmin(req: Request): boolean {
   const role = req.user?.role;
   if (role !== 'admin' && role !== 'owner') return false;
   if (isSystemAdmin(req)) return false;
-  if (isSystemOrgId(req.user?.organizationId, req.user?.organizationName)) return false;
+  // BY ID ONLY — see `hasPlatformImpersonationAuthority`. Matching the NAME
+  // here fails in the opposite direction: an org that renames itself to
+  // "system" would stop being administrable by its own admins.
+  if (isSystemOrgId(req.user?.organizationId)) return false;
   return true;
 }
+
+/**
+ * Refusals recorded on the authz trail despite not answering 403.
+ *
+ * Status is normally a good proxy for "was this an authorization decision",
+ * which is why the rule below keys on it. These are the exceptions: a guard
+ * that refuses on WHERE a Role may be held reads as a client mistake (400) and
+ * is an authority decision, so it belongs on the same trail as the gate that
+ * refuses on WHO holds it.
+ */
+const RECORDED_DENIAL_CODES = new Set<string>([
+  'RL_SYSTEM_ORG_ROLE_OUTSIDE_SYSTEM_ORG',
+]);
 
 /** The one 401 message the controller guards answer with. */
 const AUTH_REQUIRED = 'Authentication required';

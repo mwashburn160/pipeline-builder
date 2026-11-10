@@ -16,6 +16,7 @@
  */
 
 import {
+  createLogger, errorMessage,
   actorId,
   ErrorCode,
   isOfficialAutoApprovalEnabled,
@@ -26,6 +27,7 @@ import {
   VERIFY_REQUEST_KINDS,
   parsePage,
 } from '@pipeline-builder/api-core';
+import { incCounter } from '@pipeline-builder/api-server';
 import {
   type EcosystemAutoApprovalRule,
   type PluginListing,
@@ -54,10 +56,12 @@ import { reviewDiff } from './review.js';
 import { listingStats } from './reviews-store.js';
 import { atomically, decodeRequestCursor, encodeRequestCursor, listings, OPEN_STATUSES, plugins, publishers, REQUEST_STATUS_FILTERS, requests, reservedNames, rules, versions } from './store.js';
 import { claimEmailMatch, submissionReview } from './submission-moderation.js';
-import { optionalText, requiredText } from './util.js';
+import { isOfficialPublisher, optionalText, requiredText } from './util.js';
 import { assertVerifiedEligible, checkVerifiedEligibility } from './verified-eligibility.js';
 import { listingView, publisherView, queueItemView, ruleView } from './views.js';
 import { listingTargets, notifyWithdrawal, withdrawalImpact } from '../version-withdrawal.js';
+
+const logger = createLogger('ecosystem-console');
 
 const actor = (c: Caller) => actorId({ userId: c.userId });
 
@@ -213,7 +217,8 @@ export async function requestDetail(moderator: Caller, id: string) {
   const plugin = r.pluginId ? await plugins.byId(r.pluginId) : null;
   const listingName = r.listingId ? (await listings.byId(r.listingId))?.name ?? null : null;
   const conflict = OPEN_STATUSES.includes(r.status)
-    ? await conflictOfInterest(moderator, r, publisher, { deep: true, plugin: publisher.ownerOrgId === SYSTEM_ORG_ID ? plugin : null })
+    // Same predicate the DECISION uses — see `isOfficialPublisher`.
+    ? await conflictOfInterest(moderator, r, publisher, { deep: true, plugin: isOfficialPublisher(publisher) ? plugin : null })
     : { conflict: false, reason: null };
   const open = OPEN_STATUSES.includes(r.status);
   return {
@@ -303,7 +308,7 @@ async function publisherOr404(id: string): Promise<Publisher> {
 export async function suspendPublisher(moderator: Caller, id: string, body: Record<string, unknown>) {
   const reason = requiredText(body.reason, 'reason', 1000);
   const p = await publisherOr404(id);
-  if (p.ownerOrgId === SYSTEM_ORG_ID) throw new EcosystemError(ErrorCode.VALIDATION_ERROR, 'The Official publisher cannot be suspended; suspend or yank its listings instead.');
+  if (isOfficialPublisher(p)) throw new EcosystemError(ErrorCode.VALIDATION_ERROR, 'The Official publisher cannot be suspended; suspend or yank its listings instead.');
   if (p.suspendedAt) throw new EcosystemError(ErrorCode.CONFLICT, 'The publisher is already suspended.');
   // One transaction: a suspension never lands without its re-sign job. No
   // grace (previous = null): the old signature stops being trusted at once.
@@ -313,7 +318,10 @@ export async function suspendPublisher(moderator: Caller, id: string, body: Reco
     return u;
   });
   kickResignJobs();
-  await invalidateVerifyCache({}).catch(() => undefined);
+  await invalidateVerifyCache({}).catch((err) => {
+    incCounter('ecosystem_trust_cache_invalidate_failed_total', {});
+    logger.warn('Trust-cache invalidation failed (positive-only cache, 60s TTL — it expires on its own)', { error: errorMessage(err) });
+  });
   const owned = await listings.list({ publisherId: p.id });
   const vs = await versions.forListings(owned.map((l) => l.id));
   const targets = owned.flatMap((l) => listingTargets(p.handle, l.name, vs.filter((v) => v.listingId === l.id)));
@@ -423,7 +431,12 @@ export async function setListingState(moderator: Caller, id: string, body: Recor
   if (state === 'suspended') {
     const vs = await versions.forListings([listing.id]);
     for (const v of vs) {
-      if (v.imageRepository) await invalidateVerifyCache({ imageRepository: v.imageRepository }).catch(() => undefined);
+      if (v.imageRepository) {
+        await invalidateVerifyCache({ imageRepository: v.imageRepository }).catch((err) => {
+          incCounter('ecosystem_trust_cache_invalidate_failed_total', {});
+          logger.warn('Trust-cache invalidation failed (positive-only cache, 60s TTL — it expires on its own)', { error: errorMessage(err) });
+        });
+      }
     }
     impact = await withdrawalImpact(listingTargets(publisher.handle, listing.name, vs), { viewerOrgId: moderator.orgId, label: ref, kind: 'listing_suspended' });
   }

@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { AUTOMATION_ACCOUNT_BUNDLES, createLogger, emitCounter, emitGauge, SYSTEM_ACTOR_ID, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import { isSystemOrgId, AUTOMATION_ACCOUNT_BUNDLES, createLogger, emitCounter, emitGauge, SYSTEM_ACTOR_ID, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
 import type { Types } from 'mongoose';
 import { builtinRolePermissions } from './role-authority.js';
 import { DEFAULT_ORG_ROLES, SYSTEM_ORG_ROLES, type BuiltinRoleSpec } from './roles-service.js';
@@ -128,7 +128,7 @@ export async function backfillRbacRoles(): Promise<RbacBackfillSummary> {
   // lets a new catalog permission reach an existing org's Admin Role. It cannot
   // help a newly-added ROLE: on a deployment that already ran `seedDefaultRoles`,
   // a Role added to the source afterwards simply would not be there. Both source
-  // lists have grown that way — the system org's six job Roles (whose
+  // lists have grown that way — the system org's eight job Roles (whose
   // system-org-only permissions nothing else can grant, most recently
   // `Registry Operator` carrying `registry:write`) and `Team Lead` in every
   // tenant (whose `reports:write` / `reports:publish` likewise have no other
@@ -159,7 +159,7 @@ export async function backfillRbacRoles(): Promise<RbacBackfillSummary> {
   }
 
   const specsFor = (orgId: string): readonly BuiltinRoleSpec[] =>
-    (orgId === SYSTEM_ORG_ID ? SYSTEM_ORG_ROLES : DEFAULT_ORG_ROLES);
+    (isSystemOrgId(orgId) ? SYSTEM_ORG_ROLES : DEFAULT_ORG_ROLES);
 
   const toCreate: Array<{ orgId: string; spec: BuiltinRoleSpec }> = [];
   for (const [orgId, have] of namesByOrg) {

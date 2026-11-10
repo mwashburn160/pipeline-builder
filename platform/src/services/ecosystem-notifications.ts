@@ -290,7 +290,7 @@ export async function deliverEcosystemNotification(request: EcosystemNotifyReque
  * Manager role. Tells every superadmin and the affected user (in-app + email,
  * transactional). Fire-and-forget: never throws, never blocks the assignment.
  */
-export async function notifyEcosystemManagerChange(input: { userId: string; added: boolean; actorUserId?: string }): Promise<void> {
+export async function notifyEcosystemManagerChange(input: { userId: string; added: boolean; actorUserId?: string; role?: string }): Promise<void> {
   try {
     const [user, actor] = await Promise.all([
       User.findById(input.userId).select('email username').lean(),
@@ -303,6 +303,7 @@ export async function notifyEcosystemManagerChange(input: { userId: string; adde
       user: label(user) ?? input.userId,
       added: input.added,
       ...(label(actor) ? { actor: label(actor) } : {}),
+      ...(input.role ? { role: input.role } : {}),
     });
     await deliverEcosystemNotification({
       event: 'N23',

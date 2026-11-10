@@ -192,5 +192,16 @@ const platformDefaults = (): Record<string, unknown> => ({
  */
 export function apiCoreMock(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   const merged = { ...platformDefaults(), ...overrides };
+  // A suite that overrides SYSTEM_ORG_ID must get a matching `isSystemOrgId`.
+  // The real one closes over the real constant, so overriding the id alone left
+  // the predicate answering about a DIFFERENT org — a suite could set
+  // `SYSTEM_ORG_ID: 'sys'`, pass `'sys'`, and watch the guard not fire. That is
+  // a trap: the override looks total and is not, and the failure appears in
+  // whatever the guard was protecting rather than at the override.
+  if (overrides.SYSTEM_ORG_ID !== undefined && overrides.isSystemOrgId === undefined) {
+    const id = String(overrides.SYSTEM_ORG_ID).toLowerCase();
+    merged.isSystemOrgId = (orgId?: string, orgName?: string) =>
+      orgId?.toLowerCase() === id || orgName?.toLowerCase() === 'system';
+  }
   return withInternalServiceGate(primitiveApiCoreMock(actualApiCore, merged), overrides);
 }

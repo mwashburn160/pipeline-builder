@@ -3,8 +3,10 @@
 
 import { useState } from 'react';
 import type { Permission } from '@pipeline-builder/api-core/permissions';
-import { Archive, Ban, LayoutList, RotateCcw, ShieldAlert, Stamp } from 'lucide-react';
+import { Archive, Ban, Globe, LayoutList, RotateCcw, ShieldAlert, Stamp } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
+import { pluginPagePath } from '@/lib/public-directory/links';
+import Link from 'next/link';
 import { Button } from '@/components/ui/Button';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { FormField } from '@/components/ui/FormField';
@@ -19,7 +21,7 @@ import { useDebounce } from '@/hooks/useDebounce';
 import { useFetch } from '@/hooks/useFetch';
 import api from '@/lib/api';
 import { formatError } from '@/lib/constants';
-import { LISTING_STATE_COLORS, LISTING_STATE_LABELS } from '@/lib/ecosystem';
+import { isInPublicDirectory, noPublicPageReason, LISTING_STATE_COLORS, LISTING_STATE_LABELS } from '@/lib/ecosystem';
 import type { ListingState, ListingVersionView, ListingView } from '@/types/ecosystem';
 import { EcosystemActionDialog } from './EcosystemActionDialog';
 import { postureVersionLabel } from './FleetVulnerabilityPanel';
@@ -229,6 +231,23 @@ export function ListingStatePanel({ can }: Props) {
                     <TrustTierBadge tier={l.publisherTier} compact />
                     <Badge color={LISTING_STATE_COLORS[l.state]}>{LISTING_STATE_LABELS[l.state]}</Badge>
                     {l.pausedAt && <Badge color="yellow">Paused by publisher</Badge>}
+                    {/* A moderator deciding a listing's STATE could not see
+                        what the directory currently shows for it — this panel
+                        had no public-page link at all. Present when there is a
+                        page, and saying why when there is not, so the two
+                        cases are distinguishable before acting. */}
+                    {isInPublicDirectory(l) ? (
+                      <Link
+                        href={pluginPagePath(l.publisherHandle, l.name)}
+                        className="action-link inline-flex items-center gap-1 text-xs"
+                        target="_blank"
+                        rel="noopener"
+                      >
+                        <Globe className="w-3.5 h-3.5" aria-hidden /> Public page
+                      </Link>
+                    ) : (
+                      <span className="text-xs text-fg-subtle" title={noPublicPageReason(l)}>No public page</span>
+                    )}
                   </div>
                   {mayModerate && l.state !== 'transferred' && (
                     <div className="flex flex-wrap gap-1">

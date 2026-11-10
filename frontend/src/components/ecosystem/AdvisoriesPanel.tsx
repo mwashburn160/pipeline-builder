@@ -184,6 +184,10 @@ export function AdvisoriesPanel({ can }: Props) {
                         size="xs"
                         onClick={() => setAction({ kind: 'discard', advisory: a })}
                         disabled={!a.requestId}
+                        // The Publish button immediately above carries this
+                        // same reason; an identically-disabled Discard with no
+                        // title reads as broken rather than inapplicable.
+                        title={a.requestId ? undefined : 'This draft has no open request'}
                         aria-label={`Discard the draft for ${a.listingName}`}
                       >
                         <X className="w-3.5 h-3.5 mr-1" aria-hidden />Discard

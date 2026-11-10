@@ -113,8 +113,10 @@ export interface UserData {
   password?: string;
   /**
    * Last organization the user interacted with. Stored as a string for
-   * predictable indexing — values are either an ObjectId hex (24 chars) or
-   * the literal `'system'`. Replaces the former `organizationId` field.
+   * predictable indexing; the value is an ObjectId hex (24 chars) and the
+   * validator below refuses anything else — the former `'system'` string
+   * sentinel is gone, which is why nothing may key the system org off a NAME.
+   * Replaces the former `organizationId` field.
    */
   lastActiveOrgId?: string;
   isEmailVerified: boolean;

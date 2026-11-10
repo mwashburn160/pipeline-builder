@@ -20,6 +20,19 @@ export const ORG_NOT_FOUND = 'ORG_NOT_FOUND';
 /** The system org can never be deleted. → 400 */
 export const SYSTEM_ORG_DELETE_FORBIDDEN = 'SYSTEM_ORG_DELETE_FORBIDDEN';
 
+/**
+ * The system org's entitlement is not a tenant's to set.
+ *
+ * Delete and move were already refused; tier and seats were not, and they are
+ * the ones reachable with a plain `orgs:manage` — carried by the seeded Account
+ * Manager Role, no superadmin flag needed. Applying a tenant preset to the
+ * system org replaces the deliberately uncapped seeding with finite limits, and
+ * `middleware/quota.ts` has no system-org exemption, so the vendor's own org
+ * then gets METERED on the surfaces it uses to run the platform. `force: true`
+ * skips the over-cap guard, so it does not even fail loudly.
+ */
+export const SYSTEM_ORG_LIMIT_FORBIDDEN = 'SYSTEM_ORG_LIMIT_FORBIDDEN';
+
 /** An explicit slug collides with another org. → 409 */
 export const ORG_SLUG_TAKEN = 'ORG_SLUG_TAKEN';
 

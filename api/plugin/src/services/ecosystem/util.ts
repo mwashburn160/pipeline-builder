@@ -3,7 +3,7 @@
 
 /** Small shared helpers of the ecosystem services (no I/O). */
 
-import { ErrorCode } from '@pipeline-builder/api-core';
+import { isSystemOrgId, ErrorCode } from '@pipeline-builder/api-core';
 import type { PluginListing } from '@pipeline-builder/pipeline-data';
 
 import { EcosystemError } from './context.js';
@@ -44,4 +44,23 @@ export function requiredText(value: unknown, field: string, max: number): string
   const text = optionalText(value, max);
   if (text === null) throw new EcosystemError(ErrorCode.MISSING_REQUIRED_FIELD, `${field} is required`);
   return text;
+}
+
+/**
+ * Is this the OFFICIAL publisher — the vendor's own curated catalog?
+ *
+ * One predicate, because there were three and two of them answered the SAME
+ * question in different ways: the uploader-conflict rule ENFORCED on
+ * `handle === OFFICIAL_PUBLISHER_HANDLE` while the console's display of that
+ * same conflict keyed on `ownerOrgId === SYSTEM_ORG_ID`, and a third site used
+ * `tier === 'official'`. They agree only while `ensureOfficialPublisher` holds
+ * all three in sync; if they drift, the console shows "no conflict" and the
+ * decision then refuses with SEPARATION_OF_DUTIES, or the reverse.
+ *
+ * Keyed on the OWNER ORG, which is the fact the others are proxies for: a
+ * handle can be renamed and a tier is a label, while owning the system org is
+ * what makes a publisher the vendor.
+ */
+export function isOfficialPublisher(publisher: { ownerOrgId?: string | null } | null | undefined): boolean {
+  return isSystemOrgId(publisher?.ownerOrgId ?? undefined);
 }

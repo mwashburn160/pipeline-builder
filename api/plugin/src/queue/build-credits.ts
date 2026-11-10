@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { buildSizeMultiplier, SYSTEM_ORG_ID, envInt, createLogger, errorMessage, getServiceAuthHeader } from '@pipeline-builder/api-core';
+import { isSystemOrgId, buildSizeMultiplier, envInt, createLogger, errorMessage, getServiceAuthHeader } from '@pipeline-builder/api-core';
 import type { BuildSize, QuotaService } from '@pipeline-builder/api-core';
 import { incCounter } from '@pipeline-builder/api-server';
 import type { Job } from 'bullmq';
@@ -74,7 +74,13 @@ export function creditsForBuild(processedOn?: number, finishedOn?: number, build
  * asked for, which is the same line `meteredQuotaTypeFor` draws for API calls.
  */
 export function buildSpendsCredits(data: Pick<PluginBuildJobData, 'orgId' | 'setupLoad'>): boolean {
-  if (data.orgId === SYSTEM_ORG_ID) return false;
+  // `isSystemOrgId`, not `===`: it lowercases, and this is the one site where
+  // a near-miss fails UNSAFE. `callerFromRequest` lowercases an incoming org
+  // id, but a build job's `data.orgId` is not normalised on its way through
+  // the queue — so an id that differs only in hex case would make the SYSTEM
+  // org spend a tenant's CPU credits. The other guards deny on a mismatch;
+  // this one charges.
+  if (isSystemOrgId(data.orgId)) return false;
   if (data.setupLoad) return false;
   return true;
 }

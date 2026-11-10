@@ -81,6 +81,10 @@ const EXEMPT: Record<string, Exemption> = {
     reason: 'non-blocking',
     why: 'Removing the `public/*` tag during a yank. The version is yanked in the catalog regardless and resolution goes through the catalog, so the tag is a tidy-up.',
   },
+  ecosystem_trust_cache_invalidate_failed_total: {
+    reason: 'self-healing',
+    why: 'Dropping image-registry\'s POSITIVE verify cache after a suspension, a state change or a re-sign (services/ecosystem/console.ts, services/ecosystem/resign.ts). The catalog row is already authoritative, and the cache only ever holds successful verifications for PUBLIC_VERIFY_CACHE_TTL_MS (60s), so a failed invalidation lets a replica serve stale trust annotations for at most that one TTL and then expires on its own.',
+  },
   ecosystem_review_verified_use_failed_total: {
     reason: 'non-blocking',
     why: '`verifiedUse()` in services/ecosystem/reviews.ts is documented "Fails closed (unverified)" and returns false on any probe error, so the review publishes WITHOUT the verified-use badge. A missing badge is the safe outcome; the rating, the review body and the integrity rules are all unaffected.',

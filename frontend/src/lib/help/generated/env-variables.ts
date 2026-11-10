@@ -1,6 +1,6 @@
 // GENERATED FROM docs/environment-variables.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 92ea51cd42ef52bdc4aa313c43a2f7c4fc9b2b9f7dd8e6e354d95893cae6d69f
+// SOURCE-SHA256: ac7de4bcf798186ec7b0fb4377e4bccd33f2abeb4565426b820c7044a5fd4b94
 // SPDX-License-Identifier: Apache-2.0
 import { FileCode } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -198,11 +198,6 @@ export const envVariablesTopic: HelpTopic = {
               "CORS_ORIGIN",
               "—",
               "CORS allowed origins (optional)"
-            ],
-            [
-              "SYSTEM_ORG_ID",
-              "000000000000000000000001",
-              "ObjectId of the well-known system tenant (the org with slug:'system' + isSystem:true). Lowercased at module load and compared case-insensitively. If you override it, you must mirror the new value in the Postgres RLS policy (deploy/**/postgres-init.sql hardcodes 000000000000000000000001 as the always-visible system org), or system-org content becomes invisible to other orgs."
             ]
           ]
         }

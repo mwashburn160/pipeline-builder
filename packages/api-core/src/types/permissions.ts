@@ -480,12 +480,13 @@ export const SUPERADMIN_ONLY_PERMISSIONS: readonly Permission[] = [
  * seeded in the system org alone from {@link ECOSYSTEM_MANAGER_PERMISSIONS} and
  * assignable only by a superadmin.
  *
- * `oncall:manage` is in NEITHER named role, which makes it superadmin-only in
- * practice. That is deliberate rather than an oversight: paging is the vendor's
- * own operational concern and has nothing to do with ecosystem moderation, so
- * widening the Ecosystem Manager role to carry it would hand the pager to
- * people hired to review plugins. It is not a placeholder — it gates two live
- * routes (the paging posture read and the test page), unlike `registry:*`.
+ * `oncall:manage` is carried by **Platform Operator** and by no other named
+ * role. That split is deliberate rather than an oversight: paging is the
+ * vendor's own operational concern and has nothing to do with ecosystem
+ * moderation, so widening the Ecosystem Manager role to carry it would hand the
+ * pager to people hired to review plugins. It is not a placeholder — it gates
+ * two live routes (the paging posture read and the test page), unlike
+ * `registry:*`.
  */
 export const SYSTEM_ORG_ONLY_PERMISSIONS: readonly Permission[] = [
   'plugins:moderate',

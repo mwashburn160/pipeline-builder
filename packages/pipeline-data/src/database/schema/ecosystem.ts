@@ -924,6 +924,8 @@ export const publicListedVersions = pgView('public_listed_versions', {
   vulnCriticalFixable: integer('vuln_critical_fixable'),
   vulnHighFixable: integer('vuln_high_fixable'),
   scanFlaggedAt: timestamp('scan_flagged_at', { withTimezone: true }),
+  /** The GC deleted this version's public image — see the view's own note. */
+  imageCollected: boolean('image_collected').notNull(),
 }).existing();
 
 /**

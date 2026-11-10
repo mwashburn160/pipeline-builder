@@ -62,8 +62,12 @@ export const addUserGrant = withController('Add user grant', async (req, res) =>
     // Single-source: the system-org Super Admin Role is authoritative. This
     // assigns it + recomputes (which flips isSuperAdmin + bumps tokenVersion +
     // clears the refresh-session slots) atomically, so a later recompute can't revert it.
-    const { changed } = await grantPlatformAdmin(userId);
-    if (changed) {
+    const { changed, roleGranted } = await grantPlatformAdmin(userId);
+    // `changed` is the FLAG flipping; `roleGranted` is the system-org Super
+    // Admin membership being created. They differ for a user who already
+    // carried the flag without the Role — the self-heal — and that path used to
+    // write a system-org Role assignment with no audit row anywhere.
+    if (changed || roleGranted) {
       // `affectedOrgId` is the SYSTEM org, not whatever org the operator happens
       // to be browsing. Without it `audit()` falls back to the actor's active
       // org, so minting a platform administrator from a tenant context wrote the
@@ -76,7 +80,7 @@ export const addUserGrant = withController('Add user grant', async (req, res) =>
         targetType: 'user',
         targetId: userId,
         affectedOrgId: SYSTEM_ORG_ID,
-        details: { email: user.email, source: 'admin-api', grant: parsed.grant },
+        details: { email: user.email, source: 'admin-api', grant: parsed.grant, ...(changed ? {} : { selfHeal: true }) },
       });
     }
     return sendSuccess(res, 200, { userId, grant: parsed.grant, changed });

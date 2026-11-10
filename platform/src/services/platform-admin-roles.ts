@@ -33,7 +33,7 @@ import { withMongoTransaction } from '../utils/mongo-tx.js';
  * granted user is a no-op. Returns whether the effective grant changed (for the
  * caller's audit + response).
  */
-export async function grantPlatformAdmin(userId: UserId): Promise<{ changed: boolean }> {
+export async function grantPlatformAdmin(userId: UserId): Promise<{ changed: boolean; roleGranted: boolean }> {
   const result = await withMongoTransaction(async (session) => {
     const role = await Role.findOne({ organizationId: SYSTEM_ORG_ID, grantsRole: 'superadmin', system: true })
       .session(session).select('_id').lean();
@@ -41,18 +41,25 @@ export async function grantPlatformAdmin(userId: UserId): Promise<{ changed: boo
     const before = await User.findById(userId).select('+isSuperAdmin').session(session).lean();
     const wasSuperadmin = before?.isSuperAdmin === true;
 
-    await RoleAssignment.updateOne(
+    // Whether this upsert actually CREATED the membership, not just whether the
+    // flag flipped. The two come apart for a user who already carries
+    // `isSuperAdmin` but holds no Super Admin Role — the self-heal case this
+    // function exists for. `changed` is false there, so the caller audited
+    // nothing, and a new system-org Role assignment appeared with no audit row
+    // from any path: it bypasses `org.role.member.add` entirely.
+    const assignment = await RoleAssignment.updateOne(
       { userId, roleId: role._id },
       { $setOnInsert: { userId, roleId: role._id, organizationId: SYSTEM_ORG_ID } },
       { upsert: true, session },
     );
+    const roleGranted = (assignment.upsertedCount ?? 0) > 0;
     // recompute reads the Super Admin Role assignment, sets isSuperAdmin, and
     // bumps tokenVersion only on a genuine flip.
     await recomputeUserOrgRole(userId, SYSTEM_ORG_ID, session);
     if (!wasSuperadmin) {
       await User.updateOne({ _id: userId }, { $set: { refreshSessions: [] } }, { session });
     }
-    return { changed: !wasSuperadmin };
+    return { changed: !wasSuperadmin, roleGranted };
   });
   // Post-commit: on a genuine flip, recompute bumped tokenVersion — publish it.
   if (result.changed) await publishUserRevocation(String(userId));

@@ -202,15 +202,19 @@ describe('cross-organization rule: impersonation (real hierarchy)', () => {
     await expect(resolveImpersonationAuthority(adminOf('root'), 'root')).resolves.toEqual({ kind: 'none' });
   });
 
-  it('allows the vendor (system organization) into any organization', async () => {
-    // The system org is identified by its 24-hex id OR by its `system` slug,
-    // and `isSystemOrgId` accepts the slug only in the NAME position — a real
-    // token's `organizationId` is always the id. Both shapes are covered.
+  it('allows the vendor (system organization) into any organization — BY ID ONLY', async () => {
+    // The system org is identified by its id. Full stop.
     const sys = reqWith({ isSuperAdmin: true, role: 'member', organizationId: SYSTEM_ORG_ID });
     await expect(resolveImpersonationAuthority(sys, 'other-team')).resolves.toEqual({ kind: 'platform' });
 
+    // AN ORG MERELY NAMED "system" DOES NOT QUALIFY. This used to resolve to
+    // `platform` — cross-tenant impersonation of any target, from a tenant
+    // context, for an org that simply took the name. The justification was that
+    // "a token may carry either", and it no longer can: `lastActiveOrgId` is
+    // validated as an ObjectId, so the string sentinel is gone and the name
+    // branch refused nothing while admitting this.
     const byName = reqWith({ isSuperAdmin: true, role: 'member', organizationId: 'sys-1', organizationName: 'system' });
-    await expect(resolveImpersonationAuthority(byName, 'other-team')).resolves.toEqual({ kind: 'platform' });
+    await expect(resolveImpersonationAuthority(byName, 'other-team')).resolves.toEqual({ kind: 'none' });
 
     // And without the flag: a Support Lead holding `impersonation:open` in the
     // system org reaches the same place. That is the point of the permission.

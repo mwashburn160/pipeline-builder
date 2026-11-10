@@ -1,9 +1,9 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, getServiceAuthHeader, QUOTA_TIERS, TIER_FEATURES, VALID_TIERS, tierAllowsTeams, type QuotaTierLimits } from '@pipeline-builder/api-core';
+import { isSystemOrgId, createLogger, getServiceAuthHeader, QUOTA_TIERS, TIER_FEATURES, VALID_TIERS, tierAllowsTeams, type QuotaTierLimits } from '@pipeline-builder/api-core';
 import type { ClientSession, Types } from 'mongoose';
-import { ORG_SEAT_LIMIT_NOT_ROOT } from './org-errors.js';
+import { SYSTEM_ORG_LIMIT_FORBIDDEN, ORG_SEAT_LIMIT_NOT_ROOT } from './org-errors.js';
 import { config } from '../config/index.js';
 import { expandOrgScope, resolveOrgLineage } from '../helpers/org-hierarchy.js';
 import { toOrgId } from '../helpers/org-id.js';
@@ -238,6 +238,9 @@ export async function setSeatLimit(
   supportContacts?: number,
   supportPremiumContacts?: number,
 ): Promise<SeatLimitResult | null> {
+  // Same reasoning as `setTier`: a seat cap on the org that owns the platform
+  // is a tenant limit applied to the one org that is not a tenant.
+  if (isSystemOrgId(orgId)) throw new Error(SYSTEM_ORG_LIMIT_FORBIDDEN);
   const { rootOrgId } = await resolveOrgLineage(orgId);
   if (String(rootOrgId) !== String(orgId)) throw new Error(ORG_SEAT_LIMIT_NOT_ROOT);
   const set: Record<string, unknown> = { 'quotas.seats': seats };
@@ -444,6 +447,11 @@ export async function checkTierOvercap(
  * service shouldn't leave the org-doc tier unchanged.
  */
 export async function setTier(id: string, newTier: QuotaTier): Promise<{ id: string; previousTier: QuotaTier; tier: QuotaTier; featuresRemoved?: string[] } | null> {
+  // The system org's tier is a CONSTANT, not a stored value: `constantTierFor`
+  // answers `unlimited` for it without a lookup, so writing one here cannot
+  // change what the services read — it only replaces the uncapped quota seeding
+  // with a tenant preset and leaves the two disagreeing.
+  if (isSystemOrgId(id)) throw new Error(SYSTEM_ORG_LIMIT_FORBIDDEN);
   const org = await Organization.findById(toOrgId(id));
   if (!org) return null;
 

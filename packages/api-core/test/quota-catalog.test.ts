@@ -131,12 +131,19 @@ describe('QUOTA_CATALOG', () => {
     // notifying every one of them.
     expect(quotaAccrual('dashboards')).toBe('stock');
     expect(quotaObservation('dashboards')).toBe('metered');
+    // `listings` is a stock that is MEASURED, which is the other half of the
+    // same point: nothing has ever incremented it, and the plugin service's own
+    // rows are the system of record (`listings.countActive`). Declaring it
+    // metered is what kept its dashboard figure at 0 forever and made its
+    // threshold notices unreachable — `threshold-notifier` drops a notice whose
+    // source does not match `observed`, and no increment was ever coming.
     expect(quotaAccrual('listings')).toBe('stock');
-    expect(quotaObservation('listings')).toBe('metered');
-    // Storage is the ONLY measured quota type: nothing increments it, the
-    // registry walks its own catalog on demand.
-    const measured = Object.entries(QUOTA_CATALOG).filter(([, m]) => m.observed === 'measured').map(([t]) => t);
-    expect(measured).toEqual(['storageBytes']);
+    expect(quotaObservation('listings')).toBe('measured');
+    // The measured types: nothing increments them, the owning service answers
+    // on demand — the registry walks its catalog, the plugin service counts its
+    // listings.
+    const measured = Object.entries(QUOTA_CATALOG).filter(([, m]) => m.observed === 'measured').map(([t]) => t).sort();
+    expect(measured).toEqual(['listings', 'storageBytes']);
     // Seats are measured too — counted live at invite time — which is part of
     // why they are not a QuotaType.
     expect(quotaObservation('seats')).toBe('measured');

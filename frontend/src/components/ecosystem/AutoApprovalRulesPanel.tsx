@@ -305,7 +305,17 @@ export function AutoApprovalRulesPanel({ can, currentUserId }: Props) {
                           <PowerOff className="w-3.5 h-3.5 mr-1" aria-hidden />Disable
                         </Button>
                       ) : (
-                        <Button variant="ghost" size="xs" onClick={() => setPending({ kind: 'enable', rule: r })} disabled={!!r.pendingChange} aria-label={`Enable ${r.name}`}>
+                        <Button
+                          variant="ghost"
+                          size="xs"
+                          onClick={() => setPending({ kind: 'enable', rule: r })}
+                          disabled={!!r.pendingChange}
+                          // Explained only indirectly, by the pending-change
+                          // block further down the row — which a reader who
+                          // clicked here has already scrolled past.
+                          title={r.pendingChange ? 'A proposed change is awaiting a second approval' : undefined}
+                          aria-label={`Enable ${r.name}`}
+                        >
                           <Power className="w-3.5 h-3.5 mr-1" aria-hidden />Enable
                         </Button>
                       )}

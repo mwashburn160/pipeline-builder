@@ -314,16 +314,34 @@ export function renderEcosystemManagerChange(input: {
   added: boolean;
   /** Who made the change (superadmins only can), when known. */
   actor?: string;
+  /**
+   * The Role actually granted. This notice fires for ANY Role carrying a
+   * system-org-only permission — `ecosystemRoleName` returns whichever one it
+   * is — so hard-coding "Ecosystem Manager" announced staffing **Console
+   * Administrator** (a read/write shell over every tenant's rows) or **Support
+   * Lead** (`impersonation:open`) as a plugin-moderation grant. The audit row
+   * had the name all along; the message operators actually read did not.
+   */
+  role?: string;
 }): EcosystemNotificationContent {
   const verb = input.added ? 'added to' : 'removed from';
   const by = input.actor ? ` by ${input.actor}` : '';
+  const role = input.role ?? 'Ecosystem Manager';
+  // The body describes what the ROLE does, so it can only speak for the one it
+  // was written about. For any other, say what happened and leave the
+  // capabilities to the Role itself rather than describing the wrong ones.
+  const ecosystem = role === 'Ecosystem Manager';
   return {
-    subject: `${input.user} was ${verb} the Ecosystem Manager role`,
+    subject: `${input.user} was ${verb} the ${role} role`,
     text: input.added
-      ? `${input.user} was ${verb} the Ecosystem Manager role${by}. Ecosystem Managers decide publish requests, `
-        + 'moderate submissions and reviews, verify publishers and publish advisories for the whole plugin ecosystem. '
-        + 'The role works only from the system organization and requires a two-factor sign-in.'
-      : `${input.user} was ${verb} the Ecosystem Manager role${by} and can no longer manage or approve anything in the plugin ecosystem.`,
+      ? `${input.user} was ${verb} the ${role} role${by}.`
+        + (ecosystem
+          ? ' Ecosystem Managers decide publish requests, moderate submissions and reviews, verify publishers'
+            + ' and publish advisories for the whole plugin ecosystem.'
+          : ' It carries system-org-only permissions.')
+        + ' The role works only from the system organization and requires a two-factor sign-in.'
+      : `${input.user} was ${verb} the ${role} role${by}`
+        + (ecosystem ? ' and can no longer manage or approve anything in the plugin ecosystem.' : '.'),
   };
 }
 

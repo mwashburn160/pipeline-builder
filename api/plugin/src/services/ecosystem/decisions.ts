@@ -20,9 +20,10 @@
  * failed execution rolls the status back.
  */
 
+import { isOfficialPublisher } from './util.js';
 import { actorId, ConflictError, ErrorCode } from '@pipeline-builder/api-core';
 import { incCounter } from '@pipeline-builder/api-server';
-import { OFFICIAL_PUBLISHER_HANDLE, type PluginPublishRequest, type Publisher, type PublishRequestStatus } from '@pipeline-builder/pipeline-data';
+import { type PluginPublishRequest, type Publisher, type PublishRequestStatus } from '@pipeline-builder/pipeline-data';
 
 import { discardDraft } from './advisories.js';
 import { ecosystemAudit, type PluginAuditAction } from './audit.js';
@@ -58,7 +59,9 @@ async function loadForDecision(moderator: Caller, id: string): Promise<{ r: Req;
 }
 
 async function assertNoConflict(moderator: Caller, r: Req, publisher: Publisher, attempted: PluginAuditAction): Promise<void> {
-  const plugin = r.pluginId && publisher.handle === OFFICIAL_PUBLISHER_HANDLE ? await plugins.byId(r.pluginId) : null;
+  // Shared predicate: the console RENDERS this same conflict and used to key
+  // on `ownerOrgId === SYSTEM_ORG_ID` while this ENFORCED on the handle.
+  const plugin = r.pluginId && isOfficialPublisher(publisher) ? await plugins.byId(r.pluginId) : null;
   const c = await conflictOfInterest(moderator, r, publisher, { deep: true, plugin });
   if (c.conflict) {
     incCounter('ecosystem_separation_of_duties_refused_total', { kind: r.kind });

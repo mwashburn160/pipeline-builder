@@ -7,10 +7,22 @@
  *
  * Every query here reads ONLY the `public_listings`, `public_listed_versions`,
  * `public_advisories` and `public_reviews` views, through the `ecosystem_public_reader`
- * connection ({@link getPublicReaderDb}). Those views already filter to public
- * rows (listed/unmaintained listings of non-suspended publishers, non-paused
- * versions, published advisories) and project public columns only, so nothing
- * here needs — or has — a tenant context.
+ * connection ({@link getPublicReaderDb}). Those views filter to public rows
+ * (listed/unmaintained listings of non-suspended publishers, non-paused
+ * listings and versions, published advisories) and project public columns only,
+ * so nothing here needs — or has — a tenant context.
+ *
+ * PAUSE IS THE VIEWS' JOB, and only theirs. Every query here used to repeat
+ * `l.paused_at IS NULL` because three of the four views did not filter it —
+ * `public_reviews` alone did — so the predicate lived in six places and the
+ * header claimed a guarantee the DDL did not make. The views now filter it,
+ * which is the single place it belongs: a query added later inherits the rule
+ * instead of having to remember it, which is exactly the failure the six copies
+ * were compensating for.
+ *
+ * The DDL in `postgres-init.sql` runs when the database is created, so this is
+ * the contract from the install forward rather than something layered on. It is
+ * pinned per view by `ecosystem-schema.test.ts`.
  *
  * Search: Postgres full-text (`search_vector`, weighted name A / keywords and
  * category B / summary C / README D, `english` config) OR a trigram match on the
@@ -18,6 +30,7 @@
  * Bayesian rating and install count when present. Paused listings are hidden.
  */
 
+import { PUBLISHER_TIERS, type PublisherTier } from '@pipeline-builder/api-core';
 import { sql, type SQL } from 'drizzle-orm';
 
 import { advisoryRangeCovers } from './plugin-advisories.js';
@@ -30,14 +43,23 @@ import { getPublicReaderDb } from '../database/public-reader.js';
 // Public contract (mirrors frontend/src/lib/public-directory/types.ts)
 // -----------------------------------------------------------------------------
 
-export type DirectoryTrustTier = 'official' | 'verified' | 'community' | 'unverified';
+/**
+ * DERIVED from api-core's canonical `PUBLISHER_TIERS`, not restated.
+ *
+ * This was a hand-written copy of the same four values, and the copy is what
+ * the public route's zod enum validated — while the view types in the same
+ * package already used `PublisherTier`. A fifth tier would have been stored and
+ * displayed and then silently unfilterable, because the filter would still only
+ * accept the four this list remembered.
+ */
+export type DirectoryTrustTier = PublisherTier;
 
 export type DirectoryIconKind = 'vendor' | 'uploaded' | 'monogram' | 'category';
 export type DirectorySort = 'relevance' | 'rating' | 'installs' | 'updated' | 'name' | 'health';
 
 export const DIRECTORY_SORTS: readonly DirectorySort[] = ['relevance', 'rating', 'installs', 'updated', 'name', 'health'];
 
-export const DIRECTORY_TIERS: readonly DirectoryTrustTier[] = ['official', 'verified', 'community', 'unverified'];
+export const DIRECTORY_TIERS: readonly DirectoryTrustTier[] = PUBLISHER_TIERS;
 
 /** Minimum `word_similarity(query, name)` for a fuzzy name match (typo tolerance). */
 export const FUZZY_NAME_THRESHOLD = 0.3;
@@ -111,11 +133,33 @@ export interface DirectoryListingVersion {
   changelog: string | null;
   vulnCritical: number | null;
   vulnHigh: number | null;
-  /** Of those, the findings grype reports a fixed version for. */
+  /**
+   * Of those, the findings grype reports a fixed version for.
+   *
+   * RAW SCANNER COUNTS, deliberately — they describe the IMAGE, not the
+   * platform's verdict on it. The floor the build and publish gates apply is
+   * `isGatedFinding` (fixable OR KEV-listed) minus any operator waiver, and
+   * publishing THAT number here would be wrong in a way that matters to a
+   * third party: a Critical the vendor waived for its own catalog would be
+   * advertised to everyone else as "0 Critical", when the image still contains
+   * it and their risk is unchanged. A waiver is the vendor's decision about
+   * the vendor's own use; it is not a statement about the artifact.
+   *
+   * So the counts stay truthful and the VERDICT is disclosed separately — see
+   * `scanFlaggedAt` below, which is what says the platform gated it.
+   */
   vulnCriticalFixable: number | null;
   vulnHighFixable: number | null;
   scannedAt: string | null;
-  /** When the nightly rescan flagged this version (fixable criticals over the platform floor); null = not flagged. */
+  /**
+   * When the nightly rescan flagged this version — the platform's own verdict,
+   * which is waiver- and KEV-aware (`isGatedFinding`). Null = not flagged.
+   *
+   * This is the field to read for "did the platform gate this", and the counts
+   * above for "what does the image contain". They can legitimately disagree: a
+   * waived Critical leaves a non-zero count and no flag, and a KEV-listed
+   * UNFIXABLE Critical leaves `vulnCriticalFixable: 0` and a flag.
+   */
   scanFlaggedAt: string | null;
   /** Ids of the published advisories whose range covers this version. */
   advisoryIds: string[];
@@ -359,7 +403,11 @@ function clampLimit(limit: number | undefined): number {
  * reads through this, so they can't disagree about what's visible.
  */
 function baseQuery(params: DirectorySearchParams, q: string): SQL {
-  const where: SQL[] = [sql`l.paused_at IS NULL`];
+  // Can legitimately be EMPTY: an unfiltered browse of the directory. It never
+  // could be before, because `l.paused_at IS NULL` was always pushed first —
+  // the view owns that now, so the `WHERE` itself has to become conditional or
+  // an unfiltered search emits a bare `WHERE` and fails to parse.
+  const where: SQL[] = [];
   if (q) {
     // Full text, OR a fuzzy match against the best-matching PART of the name
     // (word_similarity: "terafrom" → terraform-plan scores 0.36, while unrelated
@@ -399,7 +447,7 @@ function baseQuery(params: DirectorySearchParams, q: string): SQL {
          WHERE pv.listing_id = l.id AND pv.version = l.latest_version AND NOT pv.yanked
          LIMIT 1
       ) v ON true
-     WHERE ${sql.join(where, sql` AND `)}`;
+     ${where.length > 0 ? sql`WHERE ${sql.join(where, sql` AND `)}` : sql``}`;
 }
 
 function orderBy(sort: DirectorySort, hasQuery: boolean): SQL {
@@ -522,7 +570,6 @@ export async function listPublicCategories(topPerCategory = 3): Promise<Director
                                 ORDER BY l.rating_bayes DESC NULLS LAST, l.install_count DESC, l.name ASC) AS rn,
              COUNT(*) OVER (PARTITION BY l.category) AS category_count
         FROM public_listings l
-       WHERE l.paused_at IS NULL
     )
     SELECT * FROM ranked WHERE rn <= ${Math.max(0, Math.min(topPerCategory, 10))} ORDER BY category ASC, rn ASC`);
 
@@ -556,6 +603,8 @@ type VersionRow = {
   vuln_high_fixable: number | null;
   scanned_at: Date | string | null;
   scan_flagged_at: Date | string | null;
+  /** The GC deleted this version's public image — see `supplyChain.signed`. */
+  image_collected: boolean;
   image_digest: string | null;
   image_source: string | null;
   plugin_type: string | null;
@@ -586,7 +635,7 @@ export async function getPublicListing(publisherHandle: string, name: string): P
   const db = getPublicReaderDb();
   const listingRes = await db.execute(sql`
     SELECT * FROM public_listings
-     WHERE publisher_handle = ${publisherHandle} AND name = ${name} AND paused_at IS NULL
+     WHERE publisher_handle = ${publisherHandle} AND name = ${name}
      LIMIT 1`);
   const row = resultRows<PublicListingRow>(listingRes)[0];
   if (!row) return null;
@@ -636,8 +685,14 @@ export async function getPublicListing(publisherHandle: string, name: string): P
       pluginType: current?.plugin_type ?? '',
     },
     supplyChain: {
-      // A listed version exists only after the platform re-signed it in public/*.
-      signed: current?.image_digest != null,
+      // A listed version exists only after the platform re-signed it in
+      // public/*, so a digest means it WAS signed — but not that the image is
+      // still there. The GC deletes a yanked version's public image and stamps
+      // `image_collected_at`; the digest column outlives it, so deriving
+      // `signed` from presence alone kept advertising an artifact nobody can
+      // pull, with vuln counts frozen at whatever the last scan saw (the rescan
+      // skips collected images) and nothing saying so.
+      signed: current?.image_digest != null && !current.image_collected,
       digest: current?.image_digest ?? null,
       imageSource: current?.image_source ?? null,
       scannedAt: current?.scanned_at ? iso(current.scanned_at) : null,
@@ -646,7 +701,9 @@ export async function getPublicListing(publisherHandle: string, name: string): P
       vulnCriticalFixable: current?.vuln_critical_fixable ?? null,
       vulnHighFixable: current?.vuln_high_fixable ?? null,
       scanFlaggedAt: current?.scan_flagged_at ? iso(current.scan_flagged_at) : null,
-      sbomUrl: current?.image_digest
+      // Same condition: the SBOM is served FROM the image, so offering the link
+      // for a collected one is a download that cannot succeed.
+      sbomUrl: current?.image_digest && !current.image_collected
         ? `/api/public/plugins/${encodeURIComponent(row.publisher_handle)}/${encodeURIComponent(row.name)}/versions/${encodeURIComponent(current.version)}/sbom`
         : null,
     },
@@ -678,7 +735,6 @@ export async function getPublicListedVersion(
   const res = await db.execute(sql`
     SELECT image_repository, image_digest FROM public_listed_versions
      WHERE publisher_handle = ${publisherHandle} AND name = ${name} AND version = ${version} AND NOT yanked
-       AND listing_id IN (SELECT id FROM public_listings WHERE paused_at IS NULL)
      LIMIT 1`);
   const row = resultRows<{ image_repository: string | null; image_digest: string | null }>(res)[0];
   if (!row?.image_repository || !row.image_digest) return null;
@@ -752,7 +808,7 @@ export async function listPublicReviews(publisherHandle: string, name: string, q
   const db = getPublicReaderDb();
   const listing = resultRows<{ id: string }>(await db.execute(sql`
     SELECT id FROM public_listings
-     WHERE publisher_handle = ${publisherHandle} AND name = ${name} AND paused_at IS NULL
+     WHERE publisher_handle = ${publisherHandle} AND name = ${name}
      LIMIT 1`))[0];
   if (!listing) return null;
 
@@ -786,7 +842,7 @@ export async function listPublicListingsForSitemap(max = 5000): Promise<{ publis
   const db = getPublicReaderDb();
   const res = await db.execute(sql`
     SELECT publisher_handle, name, updated_at FROM public_listings
-     WHERE paused_at IS NULL ORDER BY updated_at DESC LIMIT ${Math.min(Math.max(max, 1), 50_000)}`);
+     ORDER BY updated_at DESC LIMIT ${Math.min(Math.max(max, 1), 50_000)}`);
   return resultRows<{ publisher_handle: string; name: string; updated_at: Date | string }>(res)
     .map((r) => ({ publisher: r.publisher_handle, name: r.name, updatedAt: iso(r.updated_at) }));
 }

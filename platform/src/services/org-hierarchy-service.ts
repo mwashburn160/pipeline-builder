@@ -20,6 +20,7 @@
  */
 
 import {
+  isSystemOrgId,
   createSafeClient,
   DEFAULT_TIER,
   expandOrgScopeWith,
@@ -293,7 +294,7 @@ class OrgHierarchyService {
     tier: QuotaTier;
     membersInvalidated: number;
   }> {
-    if (orgId === SYSTEM_ORG_ID || parentOrgId === SYSTEM_ORG_ID) throw new Error(ORG_MOVE_SYSTEM);
+    if (isSystemOrgId(orgId) || isSystemOrgId(parentOrgId ?? undefined)) throw new Error(ORG_MOVE_SYSTEM);
     if (parentOrgId !== null && String(parentOrgId) === String(orgId)) throw new Error(ORG_MOVE_SELF);
 
     const org = await Organization.findById(toOrgId(orgId))

@@ -230,17 +230,26 @@ describe('ecosystem_public_reader can read the public views and nothing else', (
     });
   });
 
-  it('filters to listed listings of non-suspended publishers (and non-paused versions)', () => {
-    // Unmaintained listings stay public (banner); suspended/transferred don't.
-    expect(DDL).toMatch(/WHERE l\.state IN \('listed', 'unmaintained'\)\s+AND p\.suspended_at IS NULL;/);
+  it('filters to listed, NON-PAUSED listings of non-suspended publishers (and non-paused versions)', () => {
+    // EVERY view filters the LISTING's pause, not just `public_reviews`.
+    // Three of the four did not, so a paused listing stayed reachable through
+    // them and only the hand-written predicate in public-directory.ts kept it
+    // out of the directory — one query that trusted the views would have
+    // exposed it. Asserted per view rather than once, because the gap was that
+    // they disagreed.
+    for (const where of [
+      // public_listings
+      /WHERE l\.state IN \('listed', 'unmaintained'\)\s+AND l\.paused_at IS NULL\s+AND p\.suspended_at IS NULL;/,
+      // public_listed_versions — the listing's pause AND the version's
+      /AND l\.paused_at IS NULL\s+AND p\.suspended_at IS NULL\s+AND v\.paused_at IS NULL;/,
+      // public_advisories
+      /WHERE a\.state = 'published'\s+AND l\.state IN \('listed', 'unmaintained'\)\s+AND l\.paused_at IS NULL\s+AND p\.suspended_at IS NULL;/,
+    ]) expect(DDL).toMatch(where);
     expect(DDL).not.toMatch(/l\.state = 'listed'/);
-    // Paused versions are hidden. Yanked ones stay visible, FLAGGED, so the
-    // directory can mark them; nothing resolves through the view.
-    expect(DDL).toMatch(/AND p\.suspended_at IS NULL\s+AND v\.paused_at IS NULL;/);
+    // Yanked versions stay visible, FLAGGED, so the directory can mark them;
+    // nothing resolves through the view.
     expect(DDL).not.toMatch(/AND v\.yanked_at IS NULL/);
     expect(DDL).toContain('(v.yanked_at IS NOT NULL) AS yanked');
-    // Only PUBLISHED advisories are public.
-    expect(DDL).toMatch(/WHERE a\.state = 'published'\s+AND l\.state IN \('listed', 'unmaintained'\)\s+AND p\.suspended_at IS NULL;/);
     // Only PUBLISHED reviews of public, non-paused listings; no author ids.
     expect(DDL).toMatch(/WHERE r\.status = 'published'\s+AND l\.state IN \('listed', 'unmaintained'\)\s+AND l\.paused_at IS NULL\s+AND p\.suspended_at IS NULL;/);
     // Active-org count stays hidden below the display threshold.

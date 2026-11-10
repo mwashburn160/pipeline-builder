@@ -1,6 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { PUBLISH_REQUEST_KINDS, type PublishRequestKind } from './wire-vocabulary.js';
+
 /**
  * Plugin-ecosystem constants shared by the plugin service (publishers, the
  * publish-request queue, auto-approval) and its callers
@@ -71,10 +73,24 @@ export const BUILTIN_RESERVED_HANDLES: readonly string[] = [
  * `advisory` request carries a security-advisory DRAFT; only the system org
  * publishes it (approving the request) or withdraws it.
  */
-export const TENANT_REQUEST_KINDS = [
-  'new_listing', 'new_version', 'listing_update', 'yank', 'unpause',
-  'transfer', 'claim', 'profile_change', 'verify', 'advisory',
-] as const;
+/**
+ * DERIVED from `PUBLISH_REQUEST_KINDS` by exclusion, not hand-copied.
+ *
+ * This is the TENANT submit gate (`requests.ts` checks membership before
+ * accepting a request), and it was a transcription of the canonical list minus
+ * two entries. A kind added to the canonical list therefore needed a second,
+ * entirely un-enforced edit here before a publisher could submit it — the kind
+ * would exist, be decidable in the console, and be rejected at the door.
+ *
+ * Stating the EXCLUSIONS instead makes the relationship the code: `moderation`
+ * and `submission` are opened by the system org on a tenant's behalf, never
+ * submitted by the tenant, so they are the two that do not belong here.
+ */
+const SYSTEM_OPENED_REQUEST_KINDS = ['moderation', 'submission'] as const;
+
+export const TENANT_REQUEST_KINDS = PUBLISH_REQUEST_KINDS
+  .filter((k): k is Exclude<PublishRequestKind, typeof SYSTEM_OPENED_REQUEST_KINDS[number]> =>
+    !(SYSTEM_OPENED_REQUEST_KINDS as readonly string[]).includes(k));
 
 /** Kinds submitted under `plugins:publish` (the rest need `publishers:manage`). */
 export const PUBLISH_PERMISSION_REQUEST_KINDS: readonly string[] = [

@@ -909,7 +909,11 @@ describe('grantPlatformAdmin / revokePlatformAdmin (single-source: Super Admin R
     expect(mockUserUpdateOne).toHaveBeenCalledWith({ _id: 'u1' }, { $inc: { claimsVersion: 1 } }, expect.anything());
     // a real change clears the refresh-session slots
     expect(mockUserUpdateOne).toHaveBeenCalledWith({ _id: 'u1' }, { $set: { refreshSessions: [] } }, expect.anything());
-    expect(result).toEqual({ changed: true });
+    // `roleGranted` says whether the system-org Super Admin MEMBERSHIP was
+    // created, which is distinct from the flag flipping — the self-heal case
+    // (flag already set, Role missing) used to write that membership with no
+    // audit row from any path.
+    expect(result).toEqual({ changed: true, roleGranted: expect.any(Boolean) });
   });
 
   it('grant: idempotent (already superadmin) → no refresh drop, changed:false', async () => {
@@ -924,7 +928,7 @@ describe('grantPlatformAdmin / revokePlatformAdmin (single-source: Super Admin R
 
     const result = await grantPlatformAdmin('u1');
 
-    expect(result).toEqual({ changed: false });
+    expect(result).toEqual({ changed: false, roleGranted: expect.any(Boolean) });
     // no flip (current already true) → no tokenVersion bump, no refresh drop
     expect(mockUserUpdateOne).not.toHaveBeenCalledWith({ _id: 'u1' }, { $set: { refreshSessions: [] } }, expect.anything());
     expect(mockUserUpdateOne).not.toHaveBeenCalledWith({ _id: 'u1' }, { $inc: { claimsVersion: 1 } }, expect.anything());

@@ -33,7 +33,6 @@ import {
   PLUGIN_CATALOG_FIELDS,
   PUBLISH_PERMISSION_REQUEST_KINDS,
   publisherTermsVersion,
-  SYSTEM_ORG_ID,
   TENANT_REQUEST_KINDS,
   type Permission,
   type PluginCatalogEdits,
@@ -139,7 +138,15 @@ async function versionRequestGates(publisher: Publisher | null, plugin: PluginRo
 
 /** The listings-quota standing for a request of `kind` (open new-listing requests count toward the limit). */
 async function quotaGate(publisher: Publisher, kind: string, securityLane: boolean): Promise<Gate & { used: number; limit: number }> {
-  const quota = await listingsQuota(publisher.ownerOrgId ?? SYSTEM_ORG_ID, publisher.id);
+  // NOT `?? SYSTEM_ORG_ID`. An owner-less publisher is the platform COMMUNITY
+  // publisher, and defaulting it to the system org handed it the system org's
+  // exemption — `limit: -1`, unlimited listings — because an unknown org fell
+  // INTO the carve-out rather than away from it. Only reachable for the
+  // community publisher today (its listings arrive via `publishSubmission`
+  // instead), so this is the direction being wrong rather than a live leak, and
+  // a limit whose default is "no limit" is the wrong default whichever way it
+  // is currently reached.
+  const quota = await listingsQuota(publisher.ownerOrgId ?? '', publisher.id);
   if (quota.limit === -1) return { id: 'quota', ok: true, message: 'Unlimited listings', ...quota };
   if (kind === 'new_listing') {
     const pendingNew = await requests.count({ publisherId: publisher.id, statuses: OPEN_STATUSES, kinds: ['new_listing'] });
