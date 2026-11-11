@@ -81,7 +81,7 @@ spec:
               echo "Dependencies ready"
       containers:
         - name: pipeline
-          image: ghcr.io/mwashburn160/pipeline:5.3.10@sha256:cd8d4ee512271983862eb5370a2d80a5f3e57f7b12e0b77eb3bcad1628fa55c1
+          image: ghcr.io/mwashburn160/pipeline:5.3.10@sha256:dfb881ee1e1d7b71ca569d2be9874e7f5183ac61b7f9148f56cc0a36ba59783b
           securityContext:
             runAsNonRoot: true
             runAsUser: 1000
