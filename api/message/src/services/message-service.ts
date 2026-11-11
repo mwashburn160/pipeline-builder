@@ -234,7 +234,11 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
       ...(priority ? { priority } : {}),
       ...(channel ? { channel } : {}),
     };
-    return this.findPaginated(filter, orgId, options);
+    // `includeTotal` so the tab carries its own server-side count — the
+    // Announcements / Conversations tabs are filtered server-side precisely so
+    // the total describes the whole corpus rather than the pages fetched, and
+    // without the COUNT that total came back undefined.
+    return this.findPaginated(filter, orgId, { ...options, includeTotal: true });
   }
 
   /**

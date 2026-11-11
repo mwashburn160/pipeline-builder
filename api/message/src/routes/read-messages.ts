@@ -102,7 +102,13 @@ export function createReadMessageRoutes(): Router {
     const result = await messageService.findPaginated(
       filter,
       orgId,
-      { limit, offset, sortBy: sortBy || 'createdAt', sortOrder: sortOrder || 'desc' },
+      // `includeTotal`: the COUNT is opt-in and nobody here had opted in, so
+      // `pagination.total` was omitted on every inbox response. The dashboard
+      // wants it twice — the heading count ("the SERVER's total for the active
+      // tab + search + filters") and the remove-from-inbox button, which is
+      // sized by it — and both silently read `null`, so the heading showed no
+      // number and the button never rendered at all.
+      { limit, offset, sortBy: sortBy || 'createdAt', sortOrder: sortOrder || 'desc', includeTotal: true },
     );
 
     ctx.log('COMPLETED', 'Messages fetched', { count: result.data.length, total: result.total });

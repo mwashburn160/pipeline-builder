@@ -693,3 +693,27 @@ describe('GET /messages/support/cases/export', () => {
     expect(mockListOrgCases).toHaveBeenCalledWith('org-1', 5000);
   });
 });
+
+describe('inbox total — the COUNT the dashboard is sized by', () => {
+  const handler = getHandler(readRouter, 'get', '/');
+
+  beforeEach(() => { jest.clearAllMocks(); });
+
+  it('asks the service for the total, which is opt-in and was never opted into', () => {
+    // `findPaginated` runs its COUNT(*) only when `includeTotal` is set, and no
+    // message route passed it — so `pagination.total` was omitted from every
+    // inbox response. Two surfaces read it and both failed silently: the
+    // heading count rendered nothing, and "Remove N from inbox" is gated on
+    // `total > 0`, so the control never appeared at all.
+    mockFindPaginated.mockResolvedValue({ data: [], total: 0, limit: 25, offset: 0, hasMore: false });
+    const req = mockReq({ query: {} });
+    const res = mockRes();
+    void handler(req, res);
+
+    expect(mockFindPaginated).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ includeTotal: true }),
+    );
+  });
+});

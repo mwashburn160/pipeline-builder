@@ -187,7 +187,11 @@ describe('MessageService', () => {
       expect(mockFindPaginated).toHaveBeenCalledWith(
         { isActive: true, threadId: null, messageType: 'announcement' },
         'org-1',
-        { limit: 25, offset: 0, sortBy: 'createdAt', sortOrder: 'desc' },
+        // `includeTotal`: the tabs are filtered SERVER-side so their count
+        // describes the whole corpus, not the pages fetched — without the
+        // COUNT the total came back undefined and the dashboard's heading and
+        // its remove-from-inbox button both read null.
+        { limit: 25, offset: 0, sortBy: 'createdAt', sortOrder: 'desc', includeTotal: true },
       );
       expect(result).toEqual(page);
     });
@@ -200,7 +204,9 @@ describe('MessageService', () => {
       expect(mockFindPaginated).toHaveBeenCalledWith(
         { isActive: true, threadId: null, messageType: 'conversation' },
         'org-1',
-        {},
+        // Empty options still carry the COUNT opt-in — the caller's options are
+        // spread INTO it, so a caller that passes none still gets a total.
+        { includeTotal: true },
       );
     });
   });
@@ -215,7 +221,7 @@ describe('MessageService', () => {
       expect(mockFindPaginated).toHaveBeenCalledWith(
         { isActive: true, threadId: null, messageType: 'announcement' },
         'org-1',
-        { limit: 25, offset: 0 },
+        { limit: 25, offset: 0, includeTotal: true },
       );
       expect(result).toEqual(page);
     });
@@ -231,7 +237,7 @@ describe('MessageService', () => {
       expect(mockFindPaginated).toHaveBeenCalledWith(
         { isActive: true, threadId: null, messageType: 'conversation' },
         'org-1',
-        { limit: 25, offset: 0 },
+        { limit: 25, offset: 0, includeTotal: true },
       );
       expect(result).toEqual(page);
     });

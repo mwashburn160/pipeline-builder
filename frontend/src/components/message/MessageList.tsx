@@ -271,11 +271,18 @@ export function MessageList({ messages, onSelect, selectedId, currentOrgId, reso
               </div>
             </div>
 
-            {/* Delete button (visible on hover), only where the server would allow it */}
+            {/* Delete button — DIMMED, never hidden, and only where the server
+                would allow it.
+                It was `opacity-0 group-hover:opacity-100`, which on a touch
+                device means it never appears at all: there is no hover on an
+                iPad, so the control was unreachable, and with no `focus:`
+                escape it was unreachable by keyboard too. Reduced emphasis does
+                the same visual job as hiding without taking the action away
+                from a whole class of input. */}
             {onDelete && (!canDelete || canDelete(msg)) && (
               <button
                 onClick={(e) => { e.stopPropagation(); onDelete(msg.id); }}
-                className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-lg text-fg-subtle hover:text-danger hover:bg-danger-bg opacity-0 group-hover:opacity-100 transition-all"
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-lg text-fg-subtle hover:text-danger hover:bg-danger-bg opacity-60 group-hover:opacity-100 focus:opacity-100 transition-all"
                 title="Delete message"
                 aria-label="Delete message"
               >
