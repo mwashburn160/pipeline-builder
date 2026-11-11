@@ -7,6 +7,7 @@
  */
 
 import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import { mockAuthGuard } from './helpers/pageMocks';
 import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { OrgHierarchyCard } from '../src/components/admin/org-detail/OrgHierarchyCard';
@@ -17,6 +18,12 @@ import type { OrganizationDetail } from '../src/lib/api/domains/organizations';
 
 const toast = { success: jest.fn<AnyFn>(), error: jest.fn<AnyFn>(), warning: jest.fn<AnyFn>(), info: jest.fn<AnyFn>() };
 jest.mock('@/components/ui/Toast', () => require('./helpers/pageMocks').toastModule(() => toast));
+// These cards now gate their LIFECYCLE controls on `orgs:manage` — the page is
+// reached on `orgs:read`, which four of the five job Roles hold without it.
+// The suite's subject is the tier/teams logic, so the default holder keeps it;
+// the gate itself is pinned by `org-row-actions-permissions.test.tsx` and the
+// `orgs:manage` case below.
+jest.mock('@/hooks/useAuthGuard', () => require('./helpers/pageMocks').authGuardModule());
 jest.mock('@/lib/api-cache', () => ({ __esModule: true, invalidate: { organizations: jest.fn<AnyFn>() } }));
 jest.mock('@/hooks/useDebounce', () => ({ __esModule: true, useDebounce: (v: unknown) => v }));
 jest.mock('next/router', () => require('./helpers/pageMocks').routerModule(() => ({ push: jest.fn<AnyFn>(), asPath: '/dashboard' })));
@@ -47,6 +54,7 @@ const base = (over: Partial<OrganizationDetail> = {}): OrganizationDetail => ({
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockAuthGuard({ can: () => true, user: { id: 'me', organizationId: 'system' }, isSuperAdmin: true });
   listOrganizations.mockImplementation(async (p: { tier: string }) => ({
     success: true,
     data: {
@@ -189,6 +197,16 @@ describe('OrgOperationsCard — delete vs. live teams', () => {
   it('offers the delete on an org with no teams', () => {
     render(<OrgOperationsCard org={base()} />);
     expect(screen.getByRole('button', { name: /delete organization/i })).toBeEnabled();
+  });
+
+  it('shows it INERT to orgs:read alone, naming the permission', () => {
+    // A Platform Observer reaches this page (orgs:read) and holds no
+    // orgs:manage. The card used to offer them a live Delete.
+    mockAuthGuard({ can: (p: string) => p !== 'orgs:manage', user: { id: 'me', organizationId: 'system' }, isSuperAdmin: false });
+    render(<OrgOperationsCard org={base()} />);
+    const del = screen.getByRole('button', { name: /delete organization/i });
+    expect(del).toBeDisabled();
+    expect(del).toHaveAttribute('title', expect.stringContaining('orgs:manage'));
   });
 
   it('refuses up front on a root with live teams, and says what to do', () => {

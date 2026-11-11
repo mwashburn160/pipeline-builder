@@ -8,6 +8,7 @@ import api from '@/lib/api';
 import { invalidate } from '@/lib/api-cache';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
+import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { LinkButton } from '@/components/ui/LinkButton';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { useToast } from '@/components/ui/Toast';
@@ -23,6 +24,14 @@ import type { OrganizationDetail } from '@/lib/api/domains/organizations';
  * operations state what they cost inside the step-up dialog itself.
  */
 export function OrgOperationsCard({ org }: { org: OrganizationDetail }) {
+  // `orgs:manage`, which is NOT what gets you this page — that is `orgs:read`,
+  // split out of `platform:read` so the read-only job Roles could find an org by
+  // name. Four of the five (Platform Observer, Console Administrator, Support
+  // Agent, Platform Operator) hold the read and not the manage, and this card
+  // offered every one of them a Delete that answered 403. `can` rather than
+  // `hasPermission` so a read-only impersonation is refused too.
+  const { can } = useAuthGuard();
+  const mayManage = can('orgs:manage');
   // A root with live teams cannot be deleted — the backend refuses (400) so the
   // teams aren't orphaned. Refusing here, BEFORE the step-up re-auth, turns a
   // dead end into an answer with the way out in it. Read off the org on screen
@@ -89,8 +98,10 @@ export function OrgOperationsCard({ org }: { org: OrganizationDetail }) {
         <Button
           variant="danger"
           onClick={() => setPendingOp('delete')}
-          disabled={blockedByTeams}
-          title={blockedByTeams ? 'This organization has teams — move or delete them first' : undefined}
+          disabled={blockedByTeams || !mayManage}
+          title={!mayManage
+            ? 'Requires the orgs:manage permission'
+            : blockedByTeams ? 'This organization has teams — move or delete them first' : undefined}
           className="inline-flex items-center gap-2 text-sm disabled:opacity-60"
         >
           <Trash2 className="w-4 h-4" /> Delete organization

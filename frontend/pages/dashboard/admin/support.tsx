@@ -38,9 +38,16 @@ function waitLabel(seconds: number): string {
 /**
  * The support queue: every open case across all tenants, longest-waiting first.
  *
- * `systemAdminOnly` in `nav.ts`, which is also this page's read gate —
+ * `support_cases:write` in `nav.ts`, which is also this page's read gate —
  * `page-access.ts` derives the route requirement from that declaration and
- * `useAuthGuard()` applies it, so the gate is stated once.
+ * `useAuthGuard()` applies it, so the gate is stated once. (It said
+ * `systemAdminOnly` until 2026-11-10; the page moved onto the Support Agent
+ * Role's permission and the comment did not follow.)
+ *
+ * The canned-reply library below writes under `support_content:write`, a
+ * DIFFERENT permission. The seeded Support Agent bundle carries both, so they
+ * travel together in practice — but a superadmin may compose a system-org Role
+ * with only one, and then those controls refuse.
  */
 export default function SupportQueuePage() {
   const { isReady, accessDenied } = useAuthGuard();

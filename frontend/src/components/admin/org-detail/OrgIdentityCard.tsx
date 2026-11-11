@@ -6,6 +6,7 @@ import { Building2, Users } from 'lucide-react';
 import api from '@/lib/api';
 import { invalidate } from '@/lib/api-cache';
 import { Card } from '@/components/ui/Card';
+import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { CopyableId } from '@/components/ui/CopyableId';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 import { FilterSelect } from '@/components/ui/FilterSelect';
@@ -48,6 +49,11 @@ export function OrgIdentityCard({
   /** Jump to the member roster tab. */
   onShowMembers: () => void;
 }) {
+  // Rename and re-tier are `orgs:manage`; this page is `orgs:read`. See
+  // `OrgOperationsCard` for why the two part company — four of the five job
+  // Roles hold the read alone, and both controls here answered 403 for them.
+  const { can } = useAuthGuard();
+  const mayManage = can('orgs:manage');
   const toast = useToast();
   const editForm = useFormState();
   const [editing, setEditing] = useState(false);
@@ -130,12 +136,18 @@ export function OrgIdentityCard({
           <h3 className="text-base font-semibold text-fg">Identity</h3>
         </div>
         <div className="flex items-center gap-3">
-          <button type="button" onClick={openEdit} className="action-link text-sm">Edit</button>
+          {mayManage && <button type="button" onClick={openEdit} className="action-link text-sm">Edit</button>}
           {/* Selecting a different tier opens the step-up confirmation; the
               current tier is a no-op so a stray click never prompts. A team's
               tier is its root's, so it is never offered an edit here. */}
           {isTeam ? (
             <span className="text-xs text-fg-muted">Tier inherited from parent</span>
+          ) : !mayManage ? (
+            // Still SHOWN, because the tier is worth reading; inert, and saying
+            // which permission would change it.
+            <span className="text-xs text-fg-muted" title="Requires the orgs:manage permission">
+              {getTierMeta(currentTier).label}
+            </span>
           ) : (
             <FilterSelect
               value={currentTier}

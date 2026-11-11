@@ -68,7 +68,11 @@ const PAGE_TAB_IDS: readonly PageTab[] = PAGE_TABS.map((t) => t.id);
 
 /** Organization management page (system admin only). Lists all organizations with delete capability. */
 export default function OrganizationsPage() {
-  // The sysadmin gate comes from the nav entry (`systemAdminOnly`) via page-access.
+  // The page gate comes from the nav entry via page-access — `orgs:read`, NOT
+  // `systemAdminOnly` as this said until 2026-11-10. That matters for anything
+  // added here: `orgs:read` was split out of `platform:read` so the read-only
+  // job Roles could find an org by name, so reaching this page proves nothing
+  // about being able to CHANGE one. Gate each write on its own permission.
   const { accessDenied, user, isReady, isAuthenticated, isSuperAdmin, can } = useAuthGuard();
 
   // Top-level view: the org list vs. the aggregated "Deleted items" (trash)
@@ -271,6 +275,7 @@ export default function OrganizationsPage() {
             <RowActionsMenu
               canKms={can('org_kms:write')}
               canIdp={can('org_idp:write')}
+              canManage={can('orgs:manage')}
               onKms={() => setKmsOrg(org)}
               onIdp={() => setIdpOrg(org)}
               // A team's tier is its root's (pooled), so only roots get a tier edit.

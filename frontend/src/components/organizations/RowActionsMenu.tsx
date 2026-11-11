@@ -12,10 +12,16 @@ import { IconButton } from '@/components/ui/IconButton';
  * the table's `overflow-x-auto` scroll container.
  */
 export function RowActionsMenu({
-  canKms, canIdp, onKms, onIdp, onTier, onNamespace, onDelete,
+  canKms, canIdp, canManage, onKms, onIdp, onTier, onNamespace, onDelete,
 }: {
   canKms: boolean;
   canIdp: boolean;
+  /**
+   * `orgs:manage` — the org LIFECYCLE (re-tier, delete). Not what opens this
+   * page: that is `orgs:read`, which four of the five job Roles hold WITHOUT
+   * the manage half, so both items used to answer 403 for a Platform Observer.
+   */
+  canManage: boolean;
   onKms: () => void;
   onIdp: () => void;
   /** Omitted for a team — its tier is inherited from its root, never edited. */
@@ -111,7 +117,7 @@ export function RowActionsMenu({
               <ShieldCheck className="w-3.5 h-3.5 text-fg-subtle" /> SSO / IdP config
             </button>
           )}
-          {onTier && (
+          {onTier && canManage && (
             <button type="button" role="menuitem" onClick={run(onTier)} className={itemClass}>
               <Layers className="w-3.5 h-3.5 text-fg-subtle" /> Change tier
             </button>
@@ -119,18 +125,22 @@ export function RowActionsMenu({
           <button type="button" role="menuitem" onClick={run(onNamespace)} className={itemClass}>
             <FileDown className="w-3.5 h-3.5 text-fg-subtle" /> Namespace YAML
           </button>
-          <div className="my-1 border-t border-default" />
-          <button
-            type="button"
-            role="menuitem"
-            onClick={run(onDelete)}
-            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-danger hover:bg-danger-bg transition-colors"
-          >
-            <Trash2 className="w-3.5 h-3.5" /> Delete organization
-          </button>
-          <p className="px-3 pt-1 pb-1.5 text-2xs leading-snug text-fg-subtle">
-            Removes all members from the org (users aren&apos;t deleted). Cannot be undone.
-          </p>
+          {canManage && (
+            <>
+              <div className="my-1 border-t border-default" />
+              <button
+                type="button"
+                role="menuitem"
+                onClick={run(onDelete)}
+                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-danger hover:bg-danger-bg transition-colors"
+              >
+                <Trash2 className="w-3.5 h-3.5" /> Delete organization
+              </button>
+              <p className="px-3 pt-1 pb-1.5 text-2xs leading-snug text-fg-subtle">
+                Removes all members from the org (users aren&apos;t deleted). Cannot be undone.
+              </p>
+            </>
+          )}
         </div>
       )}
     </>
