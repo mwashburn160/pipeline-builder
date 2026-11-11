@@ -18,6 +18,9 @@ function fakeCore() {
       return Promise.resolve({ success: true, statusCode: 200, data: {} });
     }),
     stepUpHeader: (t?: string) => (t ? { 'X-Step-Up-Token': t } : {}),
+    // `requestInstallChange` declares the Ask proposer on the request it FILES,
+    // so the approver can see an assistant drafted it.
+    proposedByHeader: (o?: { proposedByAgent?: boolean }) => (o?.proposedByAgent ? { 'X-PB-Proposed-By': 'ask-agent' } : {}),
   } as unknown as ApiCore;
   return { api: pluginInstallsApi(core), calls };
 }

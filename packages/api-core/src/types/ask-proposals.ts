@@ -177,6 +177,53 @@ export function withProposalProvenance(
 // -----------------------------------------------------------------------------
 
 /** A value an allowlisted org setting can hold. */
+/**
+ * The proposal kinds the Ask agent can draft.
+ *
+ * Mirrors the frontend's `ProposalKind`; the two are pinned to each other by
+ * `ask-proposal-permissions.test.ts` in the frontend, which is where both are
+ * visible at once.
+ */
+export type AskProposalKind =
+  | 'pipeline'
+  | 'plugin'
+  | 'template'
+  | 'pipeline-edit'
+  | 'plugin-edit'
+  | 'template-edit'
+  | 'org-settings-edit'
+  | 'install-change-request'
+  | 'compliance-exemption-request';
+
+/**
+ * The permission a caller needs to COMMIT each proposal kind — the one fact the
+ * ask service and the dashboard must agree on, so it lives here rather than in
+ * either of them.
+ *
+ * `org-settings-edit` is null because it has no single answer: its requirement
+ * is the union of `permission` over the {@link ORG_SETTING_PROPOSAL_ALLOWLIST}
+ * rows the proposal actually touches, which only the proposal itself decides.
+ *
+ * NOT a gate anywhere. The service uses it to TELL the caller (and the model)
+ * whether a draft is appliable; the dashboard uses it to disable the Apply
+ * button and name what is missing. Enforcement stays with the owning service,
+ * which re-checks the caller's own token on the commit.
+ */
+export const ASK_PROPOSAL_PERMISSION: Readonly<Record<AskProposalKind, Permission | null>> = {
+  'pipeline': 'pipelines:write',
+  'plugin': 'plugins:write',
+  'template': 'templates:write',
+  'pipeline-edit': 'pipelines:write',
+  'plugin-edit': 'plugins:write',
+  'template-edit': 'templates:write',
+  'org-settings-edit': null,
+  // Filing a request, not making the change: any member who may install may ASK,
+  // and `plugin_installs:manage` decides. Same shape for the exemption below —
+  // `compliance:read` requests, `compliance:write` decides.
+  'install-change-request': 'plugins:install',
+  'compliance-exemption-request': 'compliance:read',
+};
+
 export type OrgSettingValue = string | number | boolean;
 
 /** Which per-org record (and therefore which API) a field belongs to. */

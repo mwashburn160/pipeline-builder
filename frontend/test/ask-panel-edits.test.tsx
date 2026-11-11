@@ -519,16 +519,38 @@ describe('AskPanel remediation proposals', () => {
   it('a read-only impersonation session cannot file a request, even behind a READ permission', async () => {
     // `compliance:read` is not a mutation permission, so `can()` alone would let
     // this through — every commit here is a write, so the session check applies.
-    mockAuthGuard({ can: () => true, isReadOnly: true });
+    //
+    // The draft is produced in a NORMAL session and reached again after
+    // switching to read-only, because a read-only session can no longer ask at
+    // all: the turn is a POST, which `requireAuth` refuses outright. The
+    // transcript survives in sessionStorage, so this is the real path to a
+    // proposal card in such a session — an operator with earlier history who
+    // starts viewing an account read-only.
     propose(EXEMPTION);
-
-    render(<AskPanel onClose={jest.fn<AnyFn>()} />);
+    const { rerender } = render(<AskPanel onClose={jest.fn<AnyFn>()} />);
     ask('request an exemption');
-
     await waitFor(() => expect(screen.getByText('Proposed compliance exemption')).toBeInTheDocument());
+
+    // The session becomes read-only with the draft already on screen — the
+    // panel keeps its transcript, and the card must go inert.
+    mockAuthGuard({ can: () => true, isReadOnly: true });
+    rerender(<AskPanel onClose={jest.fn<AnyFn>()} />);
+
+    expect(screen.getByText('Proposed compliance exemption')).toBeInTheDocument();
     const request = screen.getByRole('button', { name: /Request exemption/i });
     expect(request).toBeDisabled();
     fireEvent.click(request);
     expect(createExemption).not.toHaveBeenCalled();
+  });
+
+  it('a read-only impersonation session cannot ask in the first place', async () => {
+    // The composer used to accept input and every send answered 403: the turn is
+    // POST /ask/agent/stream and `requireAuth` refuses every non-GET under a
+    // read-only impersonation token — documentation lookups included.
+    mockAuthGuard({ can: () => true, isReadOnly: true });
+    render(<AskPanel onClose={jest.fn<AnyFn>()} />);
+
+    expect(screen.getByRole('button', { name: /^send$/i })).toBeDisabled();
+    expect(screen.getByLabelText(/ask a question/i)).toBeDisabled();
   });
 });

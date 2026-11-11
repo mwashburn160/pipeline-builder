@@ -19,7 +19,9 @@
  * in pipeline-data; this module applies it for the plugin service's routes.
  */
 
-import { isoOrNull, actorId, ConflictError, ErrorCode, paginationMeta, type Permission, parsePage, type ShadowingMode } from '@pipeline-builder/api-core';
+import type { IncomingHttpHeaders } from 'node:http';
+
+import { isoOrNull, actorId, ConflictError, ErrorCode, paginationMeta, type Permission, parsePage, type ShadowingMode, withProposalProvenance } from '@pipeline-builder/api-core';
 import {
   isUniqueViolation,
   applyPolicyUpdate,
@@ -445,7 +447,19 @@ function changeRequestView(row: PluginInstall, ref: string) {
  * stored on the install as its ONE pending change, the org's approvers told
  * (N11). A change that needs no approval is refused here — PATCH it.
  */
-export async function requestInstallChange(caller: Caller, id: string, body: Record<string, unknown>) {
+export async function requestInstallChange(
+  caller: Caller,
+  id: string,
+  body: Record<string, unknown>,
+  /**
+   * The request headers, for the Ask-proposer claim. Threaded in rather than
+   * read here because the audit is written in this service while the header
+   * only exists at the route — and the approver who decides this row (N11,
+   * `plugin_installs:manage`) is the reader who needs to know an assistant
+   * drafted it.
+   */
+  headers?: IncomingHttpHeaders,
+) {
   need(caller, 'plugins:install');
   const row = await ownRow(caller, id);
   if (row.pendingChange) throw new ConflictError('This install already has a change waiting for approval.', ErrorCode.DUPLICATE_ENTRY);
@@ -467,9 +481,9 @@ export async function requestInstallChange(caller: Caller, id: string, body: Rec
     affectedOrgId: caller.orgId,
     targetType: 'plugin-install',
     targetId: row.id,
-    details: {
+    details: withProposalProvenance(headers ?? {}, {
       listing: plan.ref, from: { versionPolicy: row.versionPolicy, version: row.pinnedVersion }, to: { versionPolicy: plan.versionPolicy, version: plan.target.version },
-    },
+    }),
   });
   await sendNotice('N11', [orgApprovers(caller.orgId)], {
     subject: `Install change requested: ${plan.ref}`,

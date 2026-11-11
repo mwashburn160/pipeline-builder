@@ -121,6 +121,20 @@ describe('handleAIError — provider failures map on STATUS, with a sanitized me
     expect(res.end).toHaveBeenCalled();
   });
 
+  it('a provider 4xx names the STATUS but never the body (a tools-rejection must be diagnosable)', () => {
+    // A self-hosted OpenAI-compatible server that does not implement function
+    // calling answers 400 to the Ask agent, which always sends `tools`. The
+    // status is the only safe part of that refusal: the body carries org ids,
+    // request ids and the prompt.
+    const res = mockRes();
+    handleAIError(res, providerError(400, LEAK), 'The assistant failed to respond');
+    expect(res.statusCode).toBe(502);
+    expect(res.body.message).toContain('HTTP 400');
+    expect(res.body.message).toContain('The assistant failed to respond');
+    expect(res.body.message).not.toContain('acct-123456');
+    expect(res.body.message).not.toContain('the user secret text');
+  });
+
   it('an unrelated Error gets the fallback with NO details (the raw message stays in the log)', () => {
     const res = mockRes();
     handleAIError(res, new Error('stack-ish internal text'), 'The assistant failed to respond');

@@ -137,15 +137,26 @@ describe('askModelScheduleNotice — when the schedule is the explanation', () =
   });
 });
 
-describe('askModelScheduleNotice — when the schedule is NOT the explanation', () => {
-  it('is silent with no schedule configured', () => {
+describe('askModelScheduleNotice — unreachable, but no schedule to describe', () => {
+  // These two asserted SILENCE until 2026-11-10, which left the generic "The
+  // assistant failed to respond" as the whole answer whenever a schedule was
+  // not configured — an operator who scaled ask-model down by hand, or an .env
+  // predating ASK_SCHEDULE_ENABLED. That is the exact outcome this module's
+  // header calls the thing it exists to prevent, so the flag now decides how
+  // much is said, not whether anything is.
+  it('still says the self-hosted model is not responding when the flag is false', () => {
     process.env.ASK_SCHEDULE_ENABLED = 'false';
-    expect(askModelScheduleNotice(SELF_HOSTED, UNREACHABLE, at('2026-10-09T02:00:00Z'))).toBeUndefined();
+    const notice = askModelScheduleNotice(SELF_HOSTED, UNREACHABLE, at('2026-10-09T02:00:00Z'));
+    expect(notice).toContain('self-hosted model is not responding');
+    // No window was configured, so it must not name one or promise a return time.
+    expect(notice).not.toMatch(/\d{2}:\d{2}/);
+    expect(notice).not.toContain('available again');
   });
 
-  it('is silent when the variable is absent entirely (docker/minikube)', () => {
+  it('says the same when the variable is absent entirely (docker/minikube)', () => {
     delete process.env.ASK_SCHEDULE_ENABLED;
-    expect(askModelScheduleNotice(SELF_HOSTED, UNREACHABLE, at('2026-10-09T02:00:00Z'))).toBeUndefined();
+    expect(askModelScheduleNotice(SELF_HOSTED, UNREACHABLE, at('2026-10-09T02:00:00Z')))
+      .toContain('self-hosted model is not responding');
   });
 
   it('never blames the window for a CLOUD provider failing', () => {

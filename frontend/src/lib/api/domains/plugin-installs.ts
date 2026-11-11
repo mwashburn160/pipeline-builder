@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import type { ApiCore } from '../core';
-import { buildQuery } from '../util';
+import { buildQuery, type ProposedByOptions } from '../util';
 import type { ApiResponse } from '@/types';
 import type {
   CatalogEntry, ConsumptionPolicy, CreateInstallBody, InstallPolicyResponse, InstallState, InstallStatusFilter,
@@ -101,10 +101,11 @@ export function pluginInstallsApi(core: ApiCore) {
     /** REQUEST an install change that needs an approver (the PATCH refused it
      *  with `details.requestable`). 409 DUPLICATE_ENTRY while one is pending; 400
      *  when the change needs no approval (PATCH it instead). */
-    requestInstallChange: async (id: string, body: InstallChangeRequestBody) =>
+    requestInstallChange: async (id: string, body: InstallChangeRequestBody, opts?: ProposedByOptions) =>
       core.request<ApiResponse<{ changeRequest: InstallChangeRequestView }>>(`/api/plugins/installs/${enc(id)}/change-requests`, {
         method: 'POST',
         body: JSON.stringify(body),
+        headers: core.proposedByHeader(opts),
       }),
 
     /** The org's pending install changes, oldest first (`plugin_installs:manage`). */

@@ -16,6 +16,8 @@ import {
   requirePermission,
   actorId,
   recordAudit,
+  proposable,
+  withProposalProvenance,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
@@ -114,7 +116,10 @@ export function createExemptionRoutes(): Router {
   // POST / — request a new exemption. Deduped on (org, rule, entity) at the DB
   // level (same unique index as POST /bulk): a duplicate triple returns a clean
   // 409 instead of the raw unique-violation 500.
-  router.post('/', requireComplianceRead, audited('compliance.exemption.request'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  // `proposable`: this row is decided by someone ELSE holding `compliance:write`
+  // (PUT /:id/review below), and that approver is the one reader who cannot
+  // otherwise tell the request was drafted by the Ask agent.
+  router.post('/', requireComplianceRead, audited('compliance.exemption.request'), proposable, withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const validation = validateBody(req, ExemptionCreateSchema);
     if (!validation.ok) {
       return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
@@ -130,12 +135,12 @@ export function createExemptionRoutes(): Router {
         orgId,
         targetType: 'exemption',
         targetId: exemption.id,
-        details: {
+        details: withProposalProvenance(req.headers, {
           ruleId: exemption.ruleId,
           entityType: exemption.entityType,
           entityId: exemption.entityId,
           expiresAt: exemption.expiresAt ? exemption.expiresAt.toISOString() : null,
-        },
+        }),
       });
       return sendSuccess(res, 201, { exemption });
     } catch (err) {

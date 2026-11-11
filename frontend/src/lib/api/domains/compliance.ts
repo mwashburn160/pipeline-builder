@@ -280,11 +280,16 @@ export function complianceApi(core: ApiCore) {
       return core.request<ApiResponse<{ exemptions: ComplianceExemption[]; pagination?: { total: number; limit: number; offset: number; hasMore: boolean } }>>(`/api/compliance/exemptions${buildQuery(params)}`);
     },
 
-    /** Request an exemption */
-    createExemption: async (data: ExemptionCreate) => {
+    /**
+     * Request an exemption. Takes `opts` so an Ask proposal can declare itself:
+     * this row is DECIDED by someone else holding `compliance:write`, and that
+     * approver is exactly who needs to know an assistant drafted it.
+     */
+    createExemption: async (data: ExemptionCreate, opts?: ProposedByOptions) => {
       return core.request<ApiResponse<{ exemption: ComplianceExemption }>>('/api/compliance/exemptions', {
         method: 'POST',
         body: JSON.stringify(data),
+        headers: core.proposedByHeader(opts),
       });
     },
 

@@ -104,6 +104,9 @@ const makeTools = (overrides: Partial<Parameters<typeof buildAgentTools>[0]> = {
     chargeAiCall,
     maxOutputTokens: 512,
     onRefusedFields,
+    // Default: the caller holds everything, so the existing assertions see the
+    // drafts exactly as before. `appliable` has its own tests below.
+    holdsPermission: () => true,
     ...overrides,
   }) as unknown as Record<string, ToolEntry>;
 
@@ -1123,5 +1126,31 @@ describe('edge cases', () => {
     compliance.post.mockRejectedValue(new Error('POST /compliance/validate/pipeline/dry-run -> 503'));
     const out = await call('propose_pipeline', { prompt: 'x' });
     expect(out.compliance).toMatchObject({ checked: false, compliant: false });
+  });
+});
+
+// -- appliability (advisory, never a gate) ------------------------------------
+
+describe('appliable — what the CALLER can commit', () => {
+  const draft = (overrides: Record<string, unknown>) =>
+    (makeTools(overrides) as unknown as Record<string, ToolEntry>);
+
+  it('marks a draft the caller cannot apply, and still returns the draft', async () => {
+    const tools = draft({ holdsPermission: (p: string) => p !== 'pipelines:write' });
+    const out = await tools.propose_pipeline.execute({ prompt: 'x' }, {}) as Record<string, unknown>;
+    expect(out.appliable).toEqual({ ok: false, requires: ['pipelines:write'], missing: ['pipelines:write'] });
+    // The POINT: refusing would take away a draft the user can hand to an admin.
+    expect(out.kind).toBe('pipeline');
+    expect(out.props).toBeDefined();
+  });
+
+  it('marks it appliable when the caller holds the permission', async () => {
+    const out = await call('propose_pipeline', { prompt: 'x' }) as Record<string, unknown>;
+    expect(out.appliable).toEqual({ ok: true, requires: ['pipelines:write'], missing: [] });
+  });
+
+  it('leaves NON-propose tools untouched', async () => {
+    const out = await call('answer_how_to', { query: 'how do I deploy' }) as Record<string, unknown>;
+    expect(out.appliable).toBeUndefined();
   });
 });

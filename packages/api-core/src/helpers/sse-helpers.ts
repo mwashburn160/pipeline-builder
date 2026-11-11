@@ -151,7 +151,18 @@ export function classifyAIError(error: unknown, fallbackMessage: string): AIErro
     if (providerStatus === 401 || providerStatus === 403) {
       return { status: 502, code: ErrorCode.INTERNAL_ERROR, message: 'The AI provider rejected the API key used for this request. Check the key in Settings, or the one you supplied.' };
     }
-    return { status: 502, code: ErrorCode.INTERNAL_ERROR, message: fallbackMessage };
+    // A 4xx that is not 401/403/429: the provider understood us and refused.
+    // The BODY never surfaces — it carries org ids, request ids and the prompt
+    // (see the leak assertions in handle-ai-error.test.ts) — but the STATUS is
+    // a bare number and is the only thing that makes this refusal diagnosable.
+    // The case that drove this: a self-hosted OpenAI-compatible server that
+    // rejects the `tools` field answers 400, and the Ask AGENT always sends
+    // tools, so the whole feature failed with a message that named nothing.
+    return {
+      status: 502,
+      code: ErrorCode.INTERNAL_ERROR,
+      message: `${fallbackMessage} — the AI provider refused the request (HTTP ${providerStatus}). Check the service log for the reason.`,
+    };
   }
   if (isTimeout(error)) {
     return { status: 504, code: ErrorCode.SERVICE_UNAVAILABLE, message: 'The AI provider did not respond in time. Try again, or ask for something smaller.' };

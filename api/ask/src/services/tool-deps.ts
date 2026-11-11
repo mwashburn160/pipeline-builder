@@ -6,6 +6,7 @@
  * tool module can depend on the deps without depending on the composer.
  */
 
+import type { Permission } from '@pipeline-builder/api-core';
 import type { GroundingIndex, ResolvedModelSelection } from '@pipeline-builder/ai-core';
 import { z } from 'zod';
 
@@ -71,6 +72,19 @@ export interface AgentToolDeps {
   chargeAiCall: (tool: string) => Promise<AiToolCharge | null>;
   /** Output-token cap for in-process generations. */
   maxOutputTokens: number;
+  /**
+   * Whether the CALLER holds a permission. Advisory, never a gate: the tools
+   * still draft what the caller cannot apply, because a draft they hand to an
+   * admin is the point of drafting (the UI keeps the Apply button visible and
+   * inert for the same reason). What this buys is that a propose tool's RESULT
+   * can say so, which is what lets the agent finish the thought — "you'll need
+   * `pipelines:write`; send this to an admin" — instead of handing back a draft
+   * that dead-ends at a greyed-out button.
+   *
+   * Enforcement is unaffected and lives where it always did: every tool rides
+   * the caller's bearer token and each owning service re-checks.
+   */
+  holdsPermission: (permission: Permission) => boolean;
   /**
    * Design rule 10: a proposal naming a field outside the tool's allowlist is
    * the injection signal, so it gets a counter and a log line rather than a

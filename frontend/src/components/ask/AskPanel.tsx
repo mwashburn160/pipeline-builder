@@ -23,6 +23,7 @@ import { formatError } from '@/lib/constants';
 import { formatAIError, streamEventError } from '@/lib/ai-errors';
 import { AIServedBy, type AIServedByInfo, type AIUsageInfo } from '@/components/ui/AIServedBy';
 import { AIQuotaHint } from '@/components/ui/AIQuotaHint';
+import { ReadOnlyNotice, READ_ONLY_REASON } from '@/components/ui/ReadOnlyNotice';
 import { useAIQuota } from '@/hooks/useAIQuota';
 import { aiKeySource, aiQuotaBlocked } from '@/lib/ai-quota';
 import { useUnmountedRef } from '../../hooks/useUnmountedRef';
@@ -522,6 +523,10 @@ export function AskPanel({ onClose }: { onClose: () => void }) {
                   // visible (the draft is still worth reading) but inert, saying why.
                   const allowed = commitAllowed(proposal);
                   const needed = requiredPermissions(proposal).join(' + ');
+                  // WHY it is inert, not just that it is. In a read-only session
+                  // the operator may well hold the permission — naming it would
+                  // send them to look for a grant they already have.
+                  const blockedReason = isReadOnly ? READ_ONLY_REASON : `Requires the ${needed} permission`;
                   return (
                     <div className="mt-2 rounded-xl border border-default p-3 bg-surface">
                       <div className="flex items-center gap-2 text-sm font-medium text-fg">
@@ -580,7 +585,7 @@ export function AskPanel({ onClose }: { onClose: () => void }) {
                           <button
                             onClick={() => commitProposal(i)}
                             disabled={m.proposalStatus === 'creating' || !ready || !allowed}
-                            title={allowed ? undefined : `Requires the ${needed} permission`}
+                            title={allowed ? undefined : blockedReason}
                             className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-white text-xs disabled:opacity-50"
                             style={{ background: 'var(--pb-brand)' }}
                           >
@@ -668,6 +673,7 @@ export function AskPanel({ onClose }: { onClose: () => void }) {
           className="mt-3 pt-3 border-t border-default"
           onSubmit={(e) => { e.preventDefault(); void send(input); }}
         >
+          <ReadOnlyNotice show={isReadOnly} className="mb-2" />
           <AIQuotaHint quota={quota} keySource={keySource} className="mb-2" />
           <div className="flex items-end gap-2">
             <textarea
@@ -678,13 +684,19 @@ export function AskPanel({ onClose }: { onClose: () => void }) {
                 if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send(input); }
               }}
               rows={2}
-              placeholder="Ask a question…"
-              disabled={busy}
+              placeholder={isReadOnly ? 'Unavailable in a read-only session' : 'Ask a question…'}
+              disabled={busy || isReadOnly}
+              title={isReadOnly ? READ_ONLY_REASON : undefined}
               className="flex-1 resize-none rounded-lg border border-default bg-surface px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand disabled:opacity-60"
             />
             <button
               type="submit"
-              disabled={busy || quotaBlocked || !input.trim()}
+              // A turn is POST /ask/agent/stream, and `requireAuth` refuses every
+              // non-GET under a read-only impersonation token — so the whole
+              // assistant, documentation lookups included, is unavailable here.
+              // Without this the composer accepted input and every send 403'd.
+              disabled={busy || quotaBlocked || isReadOnly || !input.trim()}
+              title={isReadOnly ? READ_ONLY_REASON : undefined}
               aria-label="Send"
               className="p-2 rounded-lg text-white disabled:opacity-40"
               style={{ background: 'var(--pb-brand)' }}

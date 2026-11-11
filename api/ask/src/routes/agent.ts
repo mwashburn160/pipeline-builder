@@ -17,6 +17,7 @@ import {
   clientAbortSignal,
   createLogger,
   errorMessage,
+  hasPermission,
   initSSEStream,
   requireFeature,
   requireOrgAIEnabled,
@@ -96,6 +97,10 @@ const AGENT_SYSTEM = [
   'A draft carries its compliance verdict: if it names a violated rule, say so plainly rather than',
   'presenting the draft as ready. Creating a plugin runs an async build. Never say you created,',
   'changed, upgraded or requested something — say you drafted it for review.',
+  '',
+  'A draft also carries `appliable`. When `ok` is false the user cannot apply it themselves: say so',
+  'in one sentence, name what `missing` lists, and suggest they pass it to someone who holds that',
+  'permission. The draft is still worth giving them — do not withhold it, and do not retry the tool.',
   '',
   'Be concise and concrete. This assistant never changes anything: it reads, and it proposes.',
 ].join('\n');
@@ -220,6 +225,10 @@ export function createAgentRoutes(quotaService: QuotaService): Router {
         ? { sub: req.user.sub, organizationId: req.user.organizationId }
         : undefined;
       const tools = buildAgentTools({
+        // Advisory only — see `withAppliability`. Read from the VERIFIED token,
+        // never from anything the model can reach, and `isSuperAdmin` counts
+        // because a superadmin holds every permission implicitly.
+        holdsPermission: (permission) => hasPermission(req.user?.permissions, permission, req.user?.isSuperAdmin),
         index,
         pipeline: pipelineClient(userAuth, onBehalf),
         plugin: pluginClient(userAuth, onBehalf),

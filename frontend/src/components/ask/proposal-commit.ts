@@ -177,12 +177,17 @@ async function applyPayload(p: Proposal, payload: Row): Promise<void> {
     case 'template-edit':
       await api.updatePipelineTemplate(p.id as string, body<Parameters<typeof api.updatePipelineTemplate>[1]>(payload), PROPOSED_BY_AGENT);
       return;
+    // These two FILE A REQUEST that a different person decides, under a
+    // different permission (`plugin_installs:manage`, `compliance:write`). They
+    // carry the proposer for the same reason the edits do, and with more cause:
+    // the approver is the one reader who cannot otherwise tell that an
+    // assistant drafted what they are being asked to approve.
     case 'install-change-request':
-      await api.requestInstallChange(p.id as string, body<Parameters<typeof api.requestInstallChange>[1]>(payload));
+      await api.requestInstallChange(p.id as string, body<Parameters<typeof api.requestInstallChange>[1]>(payload), PROPOSED_BY_AGENT);
       invalidate.plugins();
       return;
     case 'compliance-exemption-request':
-      await api.createExemption(body<Parameters<typeof api.createExemption>[0]>(payload));
+      await api.createExemption(body<Parameters<typeof api.createExemption>[0]>(payload), PROPOSED_BY_AGENT);
       return;
     default:
       throw incomplete('unknown proposal kind');

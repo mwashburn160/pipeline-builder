@@ -30,7 +30,7 @@
  */
 
 import {
-  ASK_AGENT_PROPOSER, diffOrgSettings, pickAllowed,
+  ASK_AGENT_PROPOSER, ASK_PROPOSAL_PERMISSION, diffOrgSettings, pickAllowed,
   type OrgSettingChange, type OrgSettingKey, type OrgSettingPatch,
 } from '@pipeline-builder/api-core/ask-proposals';
 import { GitBranch, LayoutTemplate, Package, PackageCheck, Settings, ShieldCheck } from 'lucide-react';
@@ -367,7 +367,10 @@ export function proposalDiff(p: Proposal): ProposalDiff {
  */
 export function requiredPermissions(p: Proposal): Permission[] {
   const out = new Set<Permission>();
-  const base = PROPOSAL_META[p.kind]?.permission;
+  // From api-core's shared table, not a copy here: the ask service reads the
+  // same one to tell the caller whether a draft is appliable, and two tables
+  // would drift into the dashboard disabling a button the service called fine.
+  const base = ASK_PROPOSAL_PERMISSION[p.kind];
   if (base) out.add(base);
 
   if (p.kind === 'org-settings-edit') {

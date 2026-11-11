@@ -24,7 +24,7 @@
  *   GET /plugins/shadowing plugins:read
  */
 
-import { audited, requirePermission, requireStepUp, sendSuccess } from '@pipeline-builder/api-core';
+import { audited, proposable, requirePermission, requireStepUp, sendSuccess } from '@pipeline-builder/api-core';
 import { Router, type RequestHandler } from 'express';
 
 import { bodyOf, ecosystemRoute, param } from './ecosystem-route.js';
@@ -62,9 +62,12 @@ export function createInstallRoutes(): Router {
     sendSuccess(res, 200, await listInstallChangeRequests(caller));
   }));
 
+  // `proposable`: the row this files is decided by a DIFFERENT person holding
+  // `plugin_installs:manage`, so the proposer travels with it to the approver.
   router.post('/installs/:id/change-requests', requirePermission('plugins:install') as RequestHandler, audited('plugin.install.change-request') as RequestHandler,
+    proposable as RequestHandler,
     ecosystemRoute(async ({ req, res, caller }) => {
-      sendSuccess(res, 201, await requestInstallChange(caller, param(req, 'id'), bodyOf(req)));
+      sendSuccess(res, 201, await requestInstallChange(caller, param(req, 'id'), bodyOf(req), req.headers));
     }));
 
   router.post('/installs/:id/change-requests/approve', requirePermission('plugin_installs:manage') as RequestHandler,

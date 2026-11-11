@@ -230,9 +230,20 @@ function evaluateWindow(now: Date): WindowState {
 }
 
 /**
- * A user-facing explanation when the self-hosted model is unreachable AND a
- * business-hours schedule is configured, or undefined when the schedule is not
- * the explanation.
+ * A user-facing explanation when the SELF-HOSTED model is unreachable, or
+ * undefined when this is not the explanation.
+ *
+ * The two conditions that actually matter are the provider and the shape of the
+ * failure. `ASK_SCHEDULE_ENABLED` decides how MUCH can be said — with a window
+ * configured the answer names it and when the model returns — but it is not a
+ * precondition for saying anything, because nothing about "the model at this
+ * address did not answer" depends on a schedule existing.
+ *
+ * It used to gate the whole function, and that left the exact hole this module
+ * was written to close: an operator who scaled `ask-model` down by hand, or
+ * whose `.env` predates `ASK_SCHEDULE_ENABLED`, got "The assistant failed to
+ * respond" — the generic fallback, indistinguishable from a broken model, which
+ * is what sends people to an operator over a deliberate setting.
  *
  * @param providerId - The RESOLVED provider that failed (not the requested one,
  *   which is often absent — the registry picks the first configured provider).
@@ -241,9 +252,14 @@ function evaluateWindow(now: Date): WindowState {
  *   which carry no timezone.
  */
 export function askModelScheduleNotice(providerId: string | undefined, failure: string, now: Date = new Date()): string | undefined {
-  if (process.env.ASK_SCHEDULE_ENABLED !== 'true') return undefined;
   if (providerId !== OPENAI_COMPATIBLE_PROVIDER_ID) return undefined;
   if (!CONNECTION_FAILURE.test(failure)) return undefined;
+  if (process.env.ASK_SCHEDULE_ENABLED !== 'true') {
+    // No schedule to describe: say what is known and nothing more. Naming the
+    // address would leak an internal host, and guessing at a window nobody
+    // configured would be a lie.
+    return 'The Ask assistant\'s self-hosted model is not responding. It may be switched off — ask an operator to check it.';
+  }
 
   const state = evaluateWindow(now);
   // Times are stated as UTC explicitly. The CronJobs have no timezone, so a

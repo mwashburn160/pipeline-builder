@@ -82,7 +82,10 @@ describe('install routes', () => {
     ['post', '/installs/:id/approve', { params: { id: 'i-1' } }, svc.approveInstall, 200, [caller, 'i-1']],
     ['post', '/installs/:id/deny', { params: { id: 'i-1' }, body: { reason: 'no' } }, svc.denyInstall, 200, [caller, 'i-1', 'no']],
     ['get', '/installs/change-requests', {}, svc.listInstallChangeRequests, 200, [caller]],
-    ['post', '/installs/:id/change-requests', { params: { id: 'i-1' }, body: { version: '2.0.0' } }, svc.requestInstallChange, 201, [caller, 'i-1', { version: '2.0.0' }]],
+    // The 4th argument is `req.headers`, threaded in so the SERVICE's audit row
+    // can carry the Ask-proposer claim — the approver who decides this request
+    // is the one reader who cannot otherwise tell an assistant drafted it.
+    ['post', '/installs/:id/change-requests', { params: { id: 'i-1' }, body: { version: '2.0.0' } }, svc.requestInstallChange, 201, [caller, 'i-1', { version: '2.0.0' }, {}]],
     ['post', '/installs/:id/change-requests/approve', { params: { id: 'i-1' } }, svc.approveInstallChange, 200, [caller, 'i-1']],
     ['post', '/installs/:id/change-requests/reject', { params: { id: 'i-1' }, body: { reason: 'no' } }, svc.rejectInstallChange, 200, [caller, 'i-1', 'no']],
     ['get', '/install-policy', {}, svc.getPolicy, 200, [caller]],
