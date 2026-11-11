@@ -355,6 +355,21 @@ export function buildMessageConditions(
     );
   }
 
+  // Removed from THIS org's inbox. Applies to the system org too — "sees all"
+  // is about tenancy, not about a row somebody here chose to clear.
+  //
+  // It lives in this shared builder on purpose: `getUnreadCount` composes the
+  // same conditions so the badge cannot diverge from the inbox, and a hidden
+  // unread message would otherwise leave a count the user has no way to clear.
+  //
+  // `coalesce` for the same reason `readBy` needs it: `NULL ? org` is NULL, and
+  // `NOT NULL` is NULL, which drops the row instead of keeping it.
+  //
+  // Per MESSAGE, not per thread, which is what makes it self-correcting: a
+  // later reply is a new row with an empty map, so clearing a conversation
+  // today never buries the answer that arrives tomorrow.
+  conditions.push(sql`not (coalesce(${schema.message.hiddenBy}, '{}'::jsonb) ? ${normalizedOrgId})`);
+
   // Active filter (default to active only)
   if (filter.isActive !== undefined) {
     conditions.push(eq(schema.message.isActive, parseBooleanFilter(filter.isActive)));

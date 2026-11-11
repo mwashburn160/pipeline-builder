@@ -432,6 +432,27 @@ export function messagesApi(core: ApiCore) {
       });
     },
 
+    /**
+     * Remove every message matching the given filters from THIS org's inbox.
+     *
+     * Not a delete: it stamps the viewer's own `hiddenBy`, so the row, the other
+     * participants and the retention sweep are untouched — which is why it needs
+     * only `messages:read`, the same permission that marks a message read.
+     * Filters mirror the list exactly; an empty body means the whole tab.
+     */
+    hideMessages: async (body: {
+      messageType?: 'announcement' | 'conversation';
+      isRead?: boolean;
+      priority?: string;
+      channel?: string;
+      search?: string;
+    }) => {
+      return core.request<ApiResponse<{ hidden: number }>>('/api/messages/hide', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      });
+    },
+
     /** Delete a message (soft delete) */
     deleteMessage: async (id: string) => {
       return core.request<ApiResponse<{ message: string }>>(`/api/messages/${id}`, {

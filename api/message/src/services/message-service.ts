@@ -296,6 +296,60 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
   }
 
   /**
+   * Remove every message matching the caller's CURRENT view from this org's
+   * inbox, stamping `hiddenBy[orgId]`.
+   *
+   * NOT a delete, and deliberately a different operation from one. `delete`
+   * takes the message away from everyone, which is why it is the author's (or a
+   * sysadmin's) alone; this takes it out of one org's view and leaves the row,
+   * the other participants, the retention sweep and the audit trail untouched.
+   * That is what makes it safe to do in bulk: the worst outcome is that this org
+   * stops seeing its own copy.
+   *
+   * Takes the SAME `InboxFilters` the list takes, and routes them through the
+   * same `buildConditions`, so "remove everything I'm looking at" removes
+   * exactly what was on screen — never a wider set because a filter was dropped
+   * on the way. Already-hidden rows are excluded by that builder, so the count
+   * is what actually changed and a repeat call is a no-op.
+   *
+   * @param messageType - The tab (inbox / sent / announcements / all)
+   * @param orgId - The viewing org: scopes access AND identifies whose inbox
+   * @param userId - Who did it (for `updatedBy`)
+   * @param filters - The active list filters (read state, priority, channel, search)
+   * @returns How many messages were removed from this org's view
+   */
+  async hideFromInbox(
+    messageType: 'announcement' | 'conversation' | undefined,
+    orgId: string,
+    userId: string,
+    filters: InboxFilters = {},
+  ): Promise<number> {
+    const { search, isRead, priority, channel } = filters;
+    const filter: Partial<MessageFilter> = {
+      isActive: true,
+      threadId: null,
+      // Undefined = the "all" tab: both kinds, which is what the list does too.
+      ...(messageType ? { messageType } : {}),
+      ...(search ? { search } : {}),
+      ...(isRead !== undefined ? { isRead } : {}),
+      ...(priority ? { priority } : {}),
+      ...(channel ? { channel } : {}),
+    };
+    const now = new Date().toISOString();
+    const updated = await withTenantTx(async (tx) => tx
+      .update(schema.message)
+      .set({
+        hiddenBy: sql`coalesce(${schema.message.hiddenBy}, '{}'::jsonb) || ${JSON.stringify({ [orgId]: now })}::jsonb`,
+        updatedBy: userId,
+        updatedAt: new Date(),
+      })
+      .where(and(...this.buildConditions(filter, orgId)))
+      .returning({ id: schema.message.id }));
+    if (updated.length > 0) await this.invalidateMessageCaches(orgId);
+    return updated.length;
+  }
+
+  /**
    * Mark a single message as read for the calling org.
    * Stamps `readBy[orgId] = now()` — per-participant. The recipient
    * marking the thread does NOT flip the sender's view.

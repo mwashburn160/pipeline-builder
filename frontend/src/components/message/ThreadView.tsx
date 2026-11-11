@@ -64,6 +64,12 @@ interface ThreadViewProps {
   /** Callback to delete the conversation (root message + replies). */
   onDelete?: (id: string) => void;
   /**
+   * Whether the viewer may delete THIS thread's root. Same server rule as the
+   * list's trash icon: `messages:write` plus author-and-root for anyone who is
+   * not a sysadmin.
+   */
+  canDelete?: (msg: Message) => boolean;
+  /**
    * Whether the viewer holds `messages:write` — what PATCH /messages/:id,
    * POST /messages/:id/reply and POST /messages/attachments all require. Without
    * it the edit affordance is not rendered and the reply composer (text, attach
@@ -91,7 +97,7 @@ function PriorityBadge({ priority }: { priority: string }) {
 }
 
 /** Chat-style thread view displaying a conversation with reply input. */
-export function ThreadView({ rootMessage, currentOrgId, currentUserId, resolveOrgName, fetchMembers, onBack, onThreadRead, onDelete, canWrite = false, supportCase, supportContacts = [], onCaseChanged }: ThreadViewProps) {
+export function ThreadView({ rootMessage, currentOrgId, currentUserId, resolveOrgName, fetchMembers, onBack, onThreadRead, onDelete, canDelete, canWrite = false, supportCase, supportContacts = [], onCaseChanged }: ThreadViewProps) {
   const { organizations } = useAuth();
   // The current org's own display name, for labelling optimistic (own) bubbles
   // before the server round-trip returns the resolved name.
@@ -379,7 +385,7 @@ export function ThreadView({ rootMessage, currentOrgId, currentUserId, resolveOr
             {rootMessage.subject}
           </p>
         </div>
-        {onDelete && (
+        {onDelete && (!canDelete || canDelete(rootMessage)) && (
           <IconButton
             onClick={() => { onDelete(rootMessage.id); onBack(); }}
             tone="danger"

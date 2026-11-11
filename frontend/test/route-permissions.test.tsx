@@ -2983,7 +2983,7 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
   ...group('platform', ['PUT /users/:id', 'DELETE /users/:id', 'POST /users/bulk-delete', 'PUT /users/:id/features'], {
     category: 'sysadmin-console', why: 'Sysadmin users page — edit / delete / bulk delete / per-user feature overrides; systemAdmin + step-up on an MFA-grade session.',
   }),
-  'platform DELETE /organization/:id': { category: 'sysadmin-console', why: 'Org drill-down / All Organizations — soft-delete an org; orgs:manage + system-org + aal2 + step-up.' },
+  'platform DELETE /organization/:id': { category: 'sysadmin-console', why: 'Org drill-down / All Organizations — soft-delete an org; orgs:manage + system-org + aal2 + step-up. The PAGE is reached on orgs:read, which four of the five job Roles hold without orgs:manage, so the control is gated on orgs:manage in its own right (RowActionsMenu `canManage`, OrgOperationsCard) rather than relying on this being a sysadmin-only console — it stopped being one when orgs:read was split out of platform:read.' },
   'platform PATCH /organization/:id/tier': { category: 'sysadmin-console', why: 'Change-tier dialog; orgs:manage + system-org + aal2 + step-up.' },
   'platform GET /admin/orgs/:orgId/k8s-namespace.yaml': { category: 'sysadmin-console', why: 'Org drill-down — namespace manifest download; platform:read + system-org + aal2 + step-up.' },
   ...group('image-registry', [
@@ -3024,10 +3024,10 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
     coveredBy: 'Compliance reads (rules, policies, scans)',
     why: '"Dry run" in src/components/compliance/RuleEditor.tsx (compliance:write — stricter than the route), "Check compliance" in CreatePipelineModal, and an auto-fire in src/components/pipeline/PipelineContextCard.tsx on the pipelines:read-gated detail page. The last one is best-effort: a viewer without compliance:read gets a silent 403 and an empty card.',
   }),
-  ...group('message', ['PUT /messages/:id/read', 'PUT /messages/:id/thread/read', 'POST /messages/notifications/ticket'], {
+  ...group('message', ['PUT /messages/:id/read', 'PUT /messages/:id/thread/read', 'POST /messages/notifications/ticket', 'POST /messages/hide'], {
     category: 'same-control',
     coveredBy: 'Message reads',
-    why: 'Implicit reads: opening a message / thread marks it read, and the Messages page mints an SSE ticket on mount. All three need exactly the messages:read the page is gated on.',
+    why: 'Per-participant VIEW state, all on exactly the messages:read the page is gated on: opening a message / thread marks it read, the page mints an SSE ticket on mount, and "Remove N from inbox" stamps hiddenBy for this org. The last one writes, but what it writes is the viewer\'s own inbox — not the message — which is why it shares the read gate rather than messages:write (that one also sends cross-org and deletes other people\'s threads). It is hidden in a read-only session.',
   }),
   ...group('billing', ['POST /billing/subscriptions/:id/addons/preview', 'POST /billing/subscriptions/:id/discounts/preview'], {
     category: 'same-control',

@@ -8,6 +8,8 @@ import { useMessages, type MessageView, type MessageFilters } from '@/hooks/useM
 import { useDebounce } from '@/hooks/useDebounce';
 import { useFetch } from '@/hooks/useFetch';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
+import { useToast } from '@/components/ui/Toast';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { useDelete } from '@/hooks/useDelete';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { Card } from '@/components/ui/Card';
@@ -89,6 +91,19 @@ export default function MessagesPage() {
   // vs. the support-only contact form. Broadcast-to-all-orgs announcements stay
   // sysadmin-only (see ComposeModal `isSuperAdmin`). Role-admins hold the perm.
   const canWrite = can('messages:write');
+  /**
+   * Who may delete a message, matching the server exactly: `messages:write`
+   * PLUS, for anyone who is not a sysadmin, their OWN root message
+   * (`authorizeOwnRootMessage` — author only, and never a reply).
+   *
+   * Without the ownership half the trash icon appeared on every received
+   * message and the request came back 403. `createdBy` is already on the row,
+   * so this costs nothing to check.
+   */
+  const canDeleteMessage = useCallback(
+    (msg: Message) => canWrite && (isSuperAdmin || (msg.createdBy === user?.id && !msg.threadId)),
+    [canWrite, isSuperAdmin, user?.id],
+  );
   const { organizations } = useAuth();
   const { supportAlias, supportAliases } = useFeatures();
   const [searchInput, setSearchInput] = useState('');
@@ -249,7 +264,35 @@ export default function MessagesPage() {
     }
   }, [deleteMessage, selectedMessage]);
 
+  const toast = useToast();
   const del = useDelete<string>(handleDelete);
+  // Bulk remove-from-inbox. Its own confirm rather than `useDelete`, which keys
+  // on a target id — this one acts on a FILTER, not a row.
+  const [confirmHide, setConfirmHide] = useState(false);
+  const [hiding, setHiding] = useState(false);
+  const removeFromInbox = useCallback(async () => {
+    setHiding(true);
+    try {
+      // The SAME filters the list is showing. `messageFilter` is the tab; 'all'
+      // sends no type, exactly as the list does.
+      const res = await api.hideMessages({
+        ...(messageFilter === 'conversations' ? { messageType: 'conversation' as const } : {}),
+        ...(messageFilter === 'announcements' ? { messageType: 'announcement' as const } : {}),
+        ...(readFilter ? { isRead: readFilter === 'read' } : {}),
+        ...(priorityFilter ? { priority: priorityFilter } : {}),
+        ...(channelFilter ? { channel: channelFilter } : {}),
+        ...(debouncedSearch ? { search: debouncedSearch } : {}),
+      });
+      const removed = res.data?.hidden ?? 0;
+      toast.success(`Removed ${removed} message${removed === 1 ? '' : 's'} from your inbox`);
+      setConfirmHide(false);
+      await fetchMessages();
+    } catch (err) {
+      toast.error(formatError(err, 'Could not remove those messages'));
+    } finally {
+      setHiding(false);
+    }
+  }, [messageFilter, readFilter, priorityFilter, channelFilter, debouncedSearch, fetchMessages, toast]);
   const pendingSubject = messages.find((m) => m.id === del.target)?.subject;
 
   const handleSend = useCallback(async (data: Parameters<typeof sendMessage>[0]): Promise<boolean> => {
@@ -447,6 +490,18 @@ export default function MessagesPage() {
                   Clear
                 </button>
               )}
+              {/* Remove-from-inbox acts on exactly what the filters describe, so
+                  it sits with them. `total` is the SERVER's count for this tab +
+                  search + filters, which is what will actually be removed. */}
+              {(total ?? 0) > 0 && !isReadOnly && (
+                <button
+                  type="button"
+                  onClick={() => setConfirmHide(true)}
+                  className="ml-auto text-xs font-medium text-danger hover:underline"
+                >
+                  Remove {total ?? 0} from inbox
+                </button>
+              )}
             </div>
 
             {/* Live-updates status — only shown when SSE has dropped after a
@@ -474,6 +529,7 @@ export default function MessagesPage() {
                 currentOrgId={currentOrgId}
                 resolveOrgName={resolveOrgName}
                 onDelete={canWrite ? ((id: string) => del.open(id)) : undefined}
+                canDelete={canDeleteMessage}
                 hasMore={hasMore}
                 loadingMore={loadingMore}
                 onLoadMore={loadMore}
@@ -508,6 +564,7 @@ export default function MessagesPage() {
                 onBack={handleBack}
                 onThreadRead={markThreadAsRead}
                 onDelete={canWrite ? ((id: string) => del.open(id)) : undefined}
+                canDelete={canDeleteMessage}
                 canWrite={canWrite}
               />
             ) : (
@@ -548,6 +605,29 @@ export default function MessagesPage() {
       />
       )}
 
+      {/* `ConfirmDialog`, not `DeleteConfirmModal`: this deletes nothing and is
+          not irreversible, and that component's copy says both. It is the
+          documented non-delete sibling for a consequential action the server
+          does not step-up gate (see `test/one-dialog-rule.test.ts`, which names
+          the three confirmation primitives and why a fourth is not wanted). */}
+      {confirmHide && (
+        <ConfirmDialog
+          title="Remove from your inbox?"
+          confirmLabel="Remove"
+          tone="danger"
+          loading={hiding}
+          onCancel={() => setConfirmHide(false)}
+          onConfirm={() => void removeFromInbox()}
+        >
+          <p className="text-sm text-fg-muted mb-1">
+            Remove <strong className="text-fg">{total ?? 0} message{total === 1 ? '' : 's'}</strong> from your organization&apos;s inbox?
+          </p>
+          <p className="text-sm text-fg-muted">
+            This clears them from your view only. Nothing is deleted — the sender keeps their copy,
+            and a later reply still arrives.
+          </p>
+        </ConfirmDialog>
+      )}
       {del.target && (
         <DeleteConfirmModal
           title="Delete message"

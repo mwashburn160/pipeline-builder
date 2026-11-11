@@ -426,6 +426,12 @@ CREATE TABLE IF NOT EXISTS messages (    -- Identity & Audit Fields
     -- read_by is the per-participant read-receipt map: orgId → ISO timestamp.
     -- Empty {} means nobody has read it yet.
     read_by JSONB NOT NULL DEFAULT '{}'::jsonb,
+    -- hidden_by is the per-participant INBOX map: orgId → ISO timestamp, set
+    -- when an org removes a message from its own view. The message itself is
+    -- untouched — the other participants, the retention sweep and the audit
+    -- trail all still see it — so this is NOT a delete and never destroys the
+    -- other side's copy of a conversation.
+    hidden_by JSONB NOT NULL DEFAULT '{}'::jsonb,
     priority VARCHAR(20) NOT NULL DEFAULT 'normal'
                         CHECK (priority IN ('normal', 'high', 'urgent')),
 
@@ -1034,6 +1040,9 @@ CREATE INDEX IF NOT EXISTS message_active_idx
 
 CREATE INDEX IF NOT EXISTS message_read_by_idx
     ON messages USING GIN (read_by);
+
+CREATE INDEX IF NOT EXISTS message_hidden_by_idx
+    ON messages USING GIN (hidden_by);
 
 CREATE INDEX IF NOT EXISTS message_recipient_active_created_idx
     ON messages(recipient_org_id, is_active, created_at);

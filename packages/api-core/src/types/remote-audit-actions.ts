@@ -170,6 +170,11 @@ export const REMOTE_AUDIT_ACTIONS = [
   // (subject/type/scope), NEVER message body content.
   'message.announcement.create',
   'message.delete',
+  // Bulk "remove from my inbox": a per-participant VIEW change, not a delete —
+  // the row, the other participants and the retention sweep are untouched. One
+  // row per bulk call with `details.count` and the filter scope, never per
+  // message and never the search text.
+  'message.hide',
   'message.restore',
   // Manual on-demand PURGE (permanent hard-delete) of an already-soft-deleted
   // message tombstone — the destructive finalizer the retention sweep would

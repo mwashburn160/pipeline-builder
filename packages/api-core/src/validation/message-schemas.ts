@@ -168,3 +168,19 @@ export const MessageReplySchema = z.object({
 export const MessageEditSchema = z.object({
   content: z.string().min(1, 'Content is required').max(MESSAGE_CONTENT_MAX, `Content must be at most ${MESSAGE_CONTENT_MAX} characters`),
 });
+
+/**
+ * Bulk "remove from my inbox", scoped by the SAME filters the list takes.
+ *
+ * Every field is optional and every one NARROWS: an empty body means "the whole
+ * tab". There is deliberately no `orgId` and no id list — the org comes from the
+ * authenticated route, and letting a body name rows would turn a per-viewer
+ * action into a way to address somebody else's.
+ */
+export const MessageHideSchema = z.object({
+  messageType: z.enum(['announcement', 'conversation']).optional(),
+  isRead: z.boolean().optional(),
+  priority: z.enum(['normal', 'high', 'urgent']).optional(),
+  channel: z.string().max(64).optional(),
+  search: z.string().max(200).optional(),
+});

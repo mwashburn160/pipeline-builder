@@ -306,6 +306,7 @@ Contacting support is self-service — every member who can open the Messages pa
 | message | PATCH | `/messages/:id` | `any(messages:write)` |
 | message | GET | `/messages/:id/attachments` | `any(messages:read)` |
 | message | POST | `/messages/:id/purge` | `any(messages:write) + step-up(any)` |
+| message | POST | `/messages/hide` | `any(messages:read)` |
 | message | PUT | `/messages/:id/read` | `any(messages:read)` |
 | message | POST | `/messages/:id/reply` | `any(messages:write)` |
 | message | POST | `/messages/:id/restore` | `any(messages:write) + step-up(any)` |

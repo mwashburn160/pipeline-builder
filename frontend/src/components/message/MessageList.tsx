@@ -86,6 +86,13 @@ interface MessageListProps {
   resolveOrgName?: (id?: string | null) => string | undefined;
   /** Callback to delete a message by ID. */
   onDelete?: (id: string) => void;
+  /**
+   * Whether THIS message is deletable by the viewer. Without it the row showed a
+   * trash icon on every message while the server allows a non-sysadmin to delete
+   * only their OWN root messages — so every inbox row offered an action that
+   * came back "Only admins or the message sender can delete messages".
+   */
+  canDelete?: (msg: Message) => boolean;
   /** True when more inbox pages exist beyond what's rendered. */
   hasMore?: boolean;
   /** True while the next page is loading (disables the button + shows a spinner). */
@@ -150,7 +157,7 @@ function getAvatarLetters(name: string): string {
 }
 
 /** Scrollable inbox list displaying message previews with unread indicators. */
-export function MessageList({ messages, onSelect, selectedId, currentOrgId, resolveOrgName, onDelete, hasMore, loadingMore, onLoadMore, casesByThread, emptyTitle, emptyDescription }: MessageListProps) {
+export function MessageList({ messages, onSelect, selectedId, currentOrgId, resolveOrgName, onDelete, canDelete, hasMore, loadingMore, onLoadMore, casesByThread, emptyTitle, emptyDescription }: MessageListProps) {
   if (messages.length === 0) {
     return (
       <div className="flex-1 flex items-center justify-center">
@@ -264,8 +271,8 @@ export function MessageList({ messages, onSelect, selectedId, currentOrgId, reso
               </div>
             </div>
 
-            {/* Delete button (visible on hover) */}
-            {onDelete && (
+            {/* Delete button (visible on hover), only where the server would allow it */}
+            {onDelete && (!canDelete || canDelete(msg)) && (
               <button
                 onClick={(e) => { e.stopPropagation(); onDelete(msg.id); }}
                 className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-lg text-fg-subtle hover:text-danger hover:bg-danger-bg opacity-0 group-hover:opacity-100 transition-all"

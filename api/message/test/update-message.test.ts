@@ -24,6 +24,7 @@ const mockMarkAsRead = jest.fn<AnyFn>();
 const mockEditContent = jest.fn<AnyFn>();
 const mockMarkThreadAsRead = jest.fn<AnyFn>();
 const mockGetUnreadCount = jest.fn<AnyFn>();
+const mockHideFromInbox = jest.fn<AnyFn>();
 
 jest.unstable_mockModule('../src/services/message-service.js', () => ({
   messageService: {
@@ -31,6 +32,7 @@ jest.unstable_mockModule('../src/services/message-service.js', () => ({
     editContent: mockEditContent,
     markThreadAsRead: mockMarkThreadAsRead,
     getUnreadCount: mockGetUnreadCount,
+    hideFromInbox: mockHideFromInbox,
     // Writes are scoped inside the service predicates — no pre-read lookups.
     findById: forbiddenLookup('findById'),
     findVisibleById: forbiddenLookup('findVisibleById'),
@@ -227,5 +229,60 @@ describe('SSE notification resilience (update)', () => {
     await handler(req, res);
 
     expect(res.status).toHaveBeenCalledWith(200);
+  });
+});
+
+describe('POST /messages/hide — remove from this org\'s inbox', () => {
+  const handler = getHandler(updateRouter, 'post', '/hide');
+
+  beforeEach(() => { jest.clearAllMocks(); });
+
+  it('forwards the ACTIVE filters and the tab, and reports what changed', async () => {
+    mockHideFromInbox.mockResolvedValue(7);
+    mockGetUnreadCount.mockResolvedValue(0);
+
+    const req = mockReq({ body: { messageType: 'conversation', isRead: true, priority: 'normal', channel: 'support', search: 'invoice' } });
+    const res = mockRes();
+    await handler(req, res);
+
+    // The tab goes through as its own argument; the rest as list filters — the
+    // same shape the inbox query uses, so "remove what I'm looking at" cannot
+    // quietly widen by dropping one.
+    expect(mockHideFromInbox).toHaveBeenCalledWith(
+      'conversation', 'org-1', expect.any(String),
+      { isRead: true, priority: 'normal', channel: 'support', search: 'invoice' },
+    );
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json).toHaveBeenCalledWith(
+      expect.objectContaining({ success: true, data: expect.objectContaining({ hidden: 7 }) }),
+    );
+  });
+
+  it('audits ONCE with the count and scope, and never the search TEXT', async () => {
+    mockHideFromInbox.mockResolvedValue(400);
+    mockGetUnreadCount.mockResolvedValue(0);
+
+    const req = mockReq({ body: { isRead: true, search: 'quarterly revenue' } });
+    const res = mockRes();
+    await handler(req, res);
+
+    expect(mockAuditRecord).toHaveBeenCalledTimes(1);
+    const row = mockAuditRecord.mock.calls[0][0] as { action: string; details: Record<string, unknown> };
+    expect(row.action).toBe('message.hide');
+    expect(row.details).toMatchObject({ count: 400, scope: 'all', isRead: true, searched: true });
+    // The query can carry anything the user typed; the trail records THAT there
+    // was one, not what it said.
+    expect(JSON.stringify(row.details)).not.toContain('quarterly revenue');
+  });
+
+  it('signals the unread badge, which a hidden unread message would otherwise strand', async () => {
+    mockHideFromInbox.mockResolvedValue(3);
+    mockGetUnreadCount.mockResolvedValue(0);
+
+    const req = mockReq({ body: { isRead: false } });
+    const res = mockRes();
+    await handler(req, res);
+
+    expect(mockSseManager.send).toHaveBeenCalledWith('org-1', 'MESSAGE', 'Unread count changed', { action: 'UNREAD_COUNT' });
   });
 });

@@ -81,6 +81,22 @@ export const message = pgTable('messages', {
     .$type<Record<string, string>>()
     .default({})
     .notNull(),
+  /**
+   * The per-participant INBOX map: orgId → ISO timestamp, stamped when an org
+   * removes a message from its own view.
+   *
+   * Deliberately NOT a delete. `deletedAt` takes the message away from
+   * everyone, which is why it is restricted to the author (or a sysadmin); this
+   * takes it out of ONE org's inbox and leaves the row, the other participants,
+   * the retention sweep and the audit trail untouched. Mirrors `readBy` exactly
+   * — same shape, same GIN index, same `coalesce` requirement in predicates —
+   * because it is the same kind of thing: the viewer's own state, not the
+   * message's.
+   */
+  hiddenBy: jsonb('hidden_by')
+    .$type<Record<string, string>>()
+    .default({})
+    .notNull(),
   priority: varchar('priority', { length: 20 })
     .$type<MessagePriority>()
     .default('normal' as MessagePriority)
@@ -128,6 +144,7 @@ export const message = pgTable('messages', {
   orgActiveIdx: index('message_org_active_idx').on(table.orgId, table.isActive),
   // GIN over the per-participant read receipts (`read_by ? <orgId>` unread counts).
   readByIdx: index('message_read_by_idx').using('gin', table.readBy),
+  hiddenByIdx: index('message_hidden_by_idx').using('gin', table.hiddenBy),
 }));
 
 /**

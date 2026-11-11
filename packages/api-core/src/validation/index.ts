@@ -36,6 +36,7 @@ export {
   MessageCreateSchema,
   MessageReplySchema,
   MessageEditSchema,
+  MessageHideSchema,
 } from './message-schemas.js';
 export * from './ai-schemas.js';
 export {

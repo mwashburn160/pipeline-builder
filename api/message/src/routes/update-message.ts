@@ -11,6 +11,7 @@ import {
   errorMessage,
   validateBody,
   MessageEditSchema,
+  MessageHideSchema,
   audited,
   actorId,
   recordAudit,
@@ -159,6 +160,62 @@ export function createUpdateMessageRoutes(sseManager: SSEManager): Router {
     signalUnreadCountChanged(sseManager, orgId, ctx.log);
 
     return sendSuccess(res, 200, { updated: total }, 'Thread marked as read');
+  }));
+
+  /**
+   * POST /messages/hide — remove every message matching the caller's current
+   * view from THIS org's inbox.
+   *
+   * `messages:read`, not `:write`, and that is the deliberate part. The row it
+   * writes is `hiddenBy[orgId]` — the viewer's own state, exactly like the
+   * `readBy` stamp the two routes above make under the same permission. Gating
+   * it on `messages:write` would mean only the people who can send cross-org and
+   * delete other people's threads could tidy their own inbox, which is the wrong
+   * half of the org: the members with a full inbox are the ones without it.
+   *
+   * ORG-PINNED FOR EVERYONE, system org included. `orgId` comes from the
+   * authenticated route and is never a body field. A sysadmin's per-message
+   * delete deliberately drops the org pin to moderate across tenants
+   * (`deleteAsSysadmin`); doing that behind a bulk filter would turn one click
+   * on "all read" into a cross-tenant sweep.
+   *
+   * Audited ONCE with the scope and the count. A per-row event on "cleared 400
+   * notices" buries the entries that matter.
+   */
+  router.post('/hide', ...createAuthenticatedWithOrgRoute(), requirePermission('messages:read'), audited('message.hide'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
+    const validation = validateBody(req, MessageHideSchema);
+    if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
+    const { messageType, isRead, priority, channel, search } = validation.value;
+
+    ctx.log('INFO', 'Hiding messages from inbox', { messageType: messageType ?? 'all' });
+
+    const hidden = await messageService.hideFromInbox(messageType, orgId, userId, {
+      ...(search ? { search } : {}),
+      ...(isRead !== undefined ? { isRead } : {}),
+      ...(priority ? { priority } : {}),
+      ...(channel ? { channel } : {}),
+    });
+
+    recordAudit({
+      action: 'message.hide',
+      actorId: actorId({ userId }),
+      orgId,
+      targetType: 'message',
+      // No ids and no search TEXT: the count and the scope are what an auditor
+      // needs, and the query can carry whatever the user typed.
+      details: {
+        count: hidden,
+        scope: messageType ?? 'all',
+        ...(isRead !== undefined ? { isRead } : {}),
+        ...(priority ? { priority } : {}),
+        ...(channel ? { channel } : {}),
+        searched: !!search,
+      },
+    });
+
+    ctx.log('COMPLETED', 'Messages hidden', { count: hidden });
+    signalUnreadCountChanged(sseManager, orgId, ctx.log);
+    return sendSuccess(res, 200, { hidden }, `Removed ${hidden} message${hidden === 1 ? '' : 's'} from your inbox`);
   }));
 
   return router;

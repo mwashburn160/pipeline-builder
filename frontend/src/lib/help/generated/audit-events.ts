@@ -1,6 +1,6 @@
 // GENERATED FROM docs/audit-events.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 5494780ffc215414bde2b40c72756af4b8a42a4bbffbd1c50789c3296cf02ccf
+// SOURCE-SHA256: d4a12898128e8855d64eb06d2c7f42c0cca962fce4349ee61eb093e608f2dde4
 // SPDX-License-Identifier: Apache-2.0
 import { ScrollText } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -689,7 +689,7 @@ export const auditEventsTopic: HelpTopic = {
             ],
             [
               "Message",
-              "message.announcement.create, message.delete, message.restore, message.purge (admin broadcasts + the destructive lifecycle; the retention sweep's hard-deletes record message.purge too, once per tick with system actor, details.trigger: retention, the tick's runId and the count), message.update (an author editing a sent message — details.contentLength, threadId, messageType; a refused edit of a message that is not the caller's, or does not exist, is a failure row), message.attachment.upload (details.surface = message/support, contentType, sizeBytes — never the bytes and not the filename, which is user-chosen content), message.notify.internal (a SYSTEM notification an internal service dropped into an org's inbox; system actor, details.caller names the service, targeted, priority), message.org.purge (the platform org-delete cascade reclaiming an org's attachment blobs — details.blobsDeleted, or a failure row when the reclaim did not complete, the orphaned-data case). 1:1 sends and replies are still deliberately NOT audited, and no message body, subject or edit text ever reaches details"
+              "message.announcement.create, message.delete, message.hide (bulk \"remove from my inbox\" — a per-participant VIEW change, not a delete: the row, the other participants and the retention sweep are untouched; ONE row per bulk call carrying details.count and the filter scope, never one per message and never the search text), message.restore, message.purge (admin broadcasts + the destructive lifecycle; the retention sweep's hard-deletes record message.purge too, once per tick with system actor, details.trigger: retention, the tick's runId and the count), message.update (an author editing a sent message — details.contentLength, threadId, messageType; a refused edit of a message that is not the caller's, or does not exist, is a failure row), message.attachment.upload (details.surface = message/support, contentType, sizeBytes — never the bytes and not the filename, which is user-chosen content), message.notify.internal (a SYSTEM notification an internal service dropped into an org's inbox; system actor, details.caller names the service, targeted, priority), message.org.purge (the platform org-delete cascade reclaiming an org's attachment blobs — details.blobsDeleted, or a failure row when the reclaim did not complete, the orphaned-data case). 1:1 sends and replies are still deliberately NOT audited, and no message body, subject or edit text ever reaches details"
             ],
             [
               "Support",
