@@ -1,6 +1,6 @@
 {
   "name": "@pipeline-builder/pipeline-manager",
-  "description": "CLI for Pipeline Builder — deploy and run software factories on AWS. ",
+  "description": "CLI for Pipeline Builder — deploy and run software factories on AWS.",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/mwashburn160/pipeline-builder.git"
