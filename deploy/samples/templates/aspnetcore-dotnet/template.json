@@ -42,7 +42,7 @@
         "name": "BuildSynth",
         "filter": {
           "name": "cdk-synth",
-          "version": "1.0.0",
+          "version": "1.0.2",
           "visibility": "public",
           "isActive": true,
           "isDefault": true
@@ -96,7 +96,7 @@
               "name": "trivy",
               "filter": {
                 "name": "trivy",
-                "version": "1.0.0",
+                "version": "1.1.0",
                 "visibility": "public",
                 "isActive": true,
                 "isDefault": true
@@ -113,7 +113,7 @@
               "name": "git-secrets",
               "filter": {
                 "name": "git-secrets",
-                "version": "1.0.0",
+                "version": "1.0.1",
                 "visibility": "public",
                 "isActive": true,
                 "isDefault": true
