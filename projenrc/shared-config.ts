@@ -29,7 +29,8 @@ import type { Tasks } from 'projen';
  * `>=4.3 <7` and `@typescript-eslint/parser` at `>=4.8.4 <6.1.0` — while the
  * real TS 7 native compiler is installed alongside as `@typescript/native`,
  * which is what `tsc` actually runs. That is not a stopgap for a lagging tool;
- * it is how TS 7 is consumed until the ecosystem moves to the `unstable` API.
+ * it is how TS 7 is consumed until the ecosystem moves to the `./sync` / `./async`
+ * / `./ast` API (named `./unstable/*` in 7.0, promoted to the root in 7.1).
  *
  * These live here, not in `.projenrc.ts`, because `configureEsmJest` adds them
  * to EVERY ESM project and `.projenrc.ts` adds them to the frontend. They were
@@ -38,7 +39,10 @@ import type { Tasks } from 'projen';
  * typechecks, installs, and is invisible until the two versions behave
  * differently.
  */
-export const TS_NATIVE_DEP = '@typescript/native@npm:typescript@^7.0.2';
+// Pinned EXACTLY, not with a caret: this is a prerelease tag, and `^7.1.0-beta`
+// would float onto whatever the next beta publishes — a compiler change arriving
+// unannounced in a `pnpm install`. Bump it deliberately.
+export const TS_NATIVE_DEP = '@typescript/native@npm:typescript@7.1.0-beta';
 /** ts-jest, pinned to the newest 29.4.x: 30.x does not exist and 29.x caps TS below 7. */
 export const TS_JEST_DEP = 'ts-jest@29.4.15';
 

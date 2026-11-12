@@ -143,7 +143,7 @@
           "exec": "node ../../scripts/emit-export-manifest.mjs"
         },
         {
-          "exec": "copyfiles -f ./pnpm-lock.yaml lib/handlers/ --verbose --error"
+          "exec": "esbuild lib/handlers/plugin-lookup-handler.js --bundle --platform=node --format=esm --target=es2022 --minify --external:@aws-sdk/* --external:aws-cdk-lib --external:aws-cdk-lib/* --external:constructs --outfile=lib/handlers/bundle/index.mjs"
         }
       ]
     },

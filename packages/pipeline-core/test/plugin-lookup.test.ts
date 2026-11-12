@@ -6,9 +6,13 @@ import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 // Mock CDK and heavy dependencies before imports
-const mockNodejsFunction = jest.fn<AnyFn>().mockImplementation(() => ({
+// `Function` + a prebuilt `Code.fromAsset`, not `NodejsFunction`: the handler is
+// bundled once at release (see `.projenrc.ts`), so nothing is built here at
+// synth and there is no `depsLockFilePath` to ship.
+const mockFunction = jest.fn<AnyFn>().mockImplementation(() => ({
   addToRolePolicy: jest.fn<AnyFn>(),
 }));
+const mockCodeFromAsset = jest.fn<AnyFn>().mockImplementation((path: string) => ({ path }));
 const mockLogGroup = jest.fn<AnyFn>();
 const mockProvider = jest.fn<AnyFn>().mockImplementation(() => ({
   serviceToken: 'arn:aws:lambda:us-east-1:123456789:function:provider',
@@ -54,10 +58,8 @@ jest.unstable_mockModule('aws-cdk-lib/aws-lambda', () => ({
   ),
   RuntimeFamily: { NODEJS: 0 },
   Architecture: { ARM_64: 'arm64' },
-}));
-
-jest.unstable_mockModule('aws-cdk-lib/aws-lambda-nodejs', () => ({
-  NodejsFunction: mockNodejsFunction,
+  Function: mockFunction,
+  Code: { fromAsset: mockCodeFromAsset },
 }));
 
 // LogGroup needs both the constructor stub AND the static `fromLogGroupName`
@@ -155,7 +157,7 @@ describe('PluginLookup', () => {
         uniqueId: createUniqueId(),
       });
 
-      const callArgs = mockNodejsFunction.mock.calls[0][2];
+      const callArgs = mockFunction.mock.calls[0][2];
       const env = callArgs.environment || {};
       expect(env).not.toHaveProperty('PLATFORM_EMAIL');
       expect(env).not.toHaveProperty('PLATFORM_PASSWORD');
@@ -171,8 +173,8 @@ describe('PluginLookup', () => {
         uniqueId: createUniqueId(),
       });
 
-      // The mock NodejsFunction should have addToRolePolicy called
-      const fnInstance = mockNodejsFunction.mock.results[0].value;
+      // The mock Function should have addToRolePolicy called
+      const fnInstance = mockFunction.mock.results[0].value;
       expect(fnInstance.addToRolePolicy).toHaveBeenCalled();
     });
   });
@@ -513,7 +515,7 @@ describe('PluginLookup', () => {
         architecture: 'x86_64' as never,
       });
 
-      expect(mockNodejsFunction).toHaveBeenCalledWith(
+      expect(mockFunction).toHaveBeenCalledWith(
         expect.anything(),
         expect.any(String),
         expect.objectContaining({ architecture: 'x86_64' }),
@@ -529,7 +531,7 @@ describe('PluginLookup', () => {
         uniqueId: createUniqueId(),
       });
 
-      expect(mockNodejsFunction).toHaveBeenCalledWith(
+      expect(mockFunction).toHaveBeenCalledWith(
         expect.anything(),
         expect.any(String),
         expect.objectContaining({
@@ -538,7 +540,7 @@ describe('PluginLookup', () => {
       );
     });
 
-    it('should enable minification and exclude AWS SDK from bundle', () => {
+    it('ships a PREBUILT asset and bundles nothing at synth', () => {
       new PluginLookup(mockScope, 'TestLookup', {
         organization: 'my-org',
         orgId: 'test-org',
@@ -547,20 +549,33 @@ describe('PluginLookup', () => {
         uniqueId: createUniqueId(),
       });
 
-      expect(mockNodejsFunction).toHaveBeenCalledWith(
-        expect.anything(),
-        expect.any(String),
-        expect.objectContaining({
-          bundling: expect.objectContaining({
-            minify: true,
-            sourceMap: false,
-            target: 'es2022',
-            // Runtime-provided (@aws-sdk) + synth-only libs guarded out of the
-            // Lambda bundle so a stray transitive import can't drag aws-cdk-lib in.
-            externalModules: ['@aws-sdk/*', 'aws-cdk-lib', 'aws-cdk-lib/*', 'constructs'],
-          }),
-        }),
+      // The deploy-time build is gone. It required a `depsLockFilePath`, and the
+      // stub lock that satisfied it was called `pnpm-lock.yaml` — a name `pnpm
+      // pack` strips — so no published copy of the CLI ever had it and every
+      // deploy died at synth before reaching AWS.
+      const opts = mockFunction.mock.calls[0][2] as Record<string, unknown>;
+      expect(opts).not.toHaveProperty('bundling');
+      expect(opts).not.toHaveProperty('depsLockFilePath');
+      expect(opts).not.toHaveProperty('entry');
+      expect(opts.handler).toBe('index.handler');
+      expect(mockCodeFromAsset).toHaveBeenCalledWith(expect.stringContaining('handlers/bundle'));
+    });
+
+    it('keeps the CDK out of the RELEASE bundle (the guard moved, not vanished)', async () => {
+      // The `externalModules` guard used to live in the synth-time bundling
+      // options asserted here. It now lives in the release esbuild command, and
+      // it still matters for the same reason: a stray transitive import of
+      // aws-cdk-lib would drag hundreds of MB into a Lambda bundle.
+      const { readFileSync } = await import('node:fs');
+      const { fileURLToPath } = await import('node:url');
+      const projenrc = readFileSync(
+        fileURLToPath(new URL('../../../.projenrc.ts', import.meta.url)),
+        'utf8',
       );
+      const cmd = projenrc.slice(projenrc.indexOf('esbuild lib/handlers/plugin-lookup-handler.js'));
+      for (const ext of ['@aws-sdk/*', 'aws-cdk-lib', 'aws-cdk-lib/*', 'constructs']) {
+        expect(cmd).toContain(`--external:${ext}`);
+      }
     });
   });
 });

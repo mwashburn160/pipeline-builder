@@ -27,7 +27,7 @@
     },
     {
       "name": "@typescript/native",
-      "version": "npm:typescript@^7.0.2",
+      "version": "npm:typescript@7.1.0-beta",
       "type": "build"
     },
     {
@@ -65,32 +65,32 @@
     },
     {
       "name": "@ai-sdk/amazon-bedrock",
-      "version": "5.0.128",
+      "version": "5.0.139",
       "type": "runtime"
     },
     {
       "name": "@ai-sdk/anthropic",
-      "version": "4.0.92",
+      "version": "4.0.102",
       "type": "runtime"
     },
     {
       "name": "@ai-sdk/google",
-      "version": "4.0.108",
+      "version": "4.0.118",
       "type": "runtime"
     },
     {
       "name": "@ai-sdk/openai-compatible",
-      "version": "3.0.81",
+      "version": "3.0.90",
       "type": "runtime"
     },
     {
       "name": "@ai-sdk/openai",
-      "version": "4.0.105",
+      "version": "4.0.115",
       "type": "runtime"
     },
     {
       "name": "@ai-sdk/xai",
-      "version": "5.0.33",
+      "version": "5.0.43",
       "type": "runtime"
     },
     {
@@ -105,7 +105,7 @@
     },
     {
       "name": "ai",
-      "version": "7.0.157",
+      "version": "7.0.170",
       "type": "runtime"
     }
   ],

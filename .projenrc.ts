@@ -32,7 +32,8 @@ const constructsPeerRange = '10.5.0';
 // TypeScript 7 (native Go compiler) via the dual-package pattern. `typescript@7`
 // is ESM-only and its package root exports ONLY `{ version, versionMajorMinor }`
 // (lib/version.cjs) — the classic JS compiler API is gone, replaced by the
-// separate `./unstable/{sync,async,ast}` surface. Every tool here that drives the
+// separate `./sync`, `./async` and `./ast` entry points (7.0 shipped these under
+// an `./unstable/` prefix; 7.1 promoted them to the package root). Every tool here that drives the
 // compiler programmatically needs the classic API: ts-jest's ConfigSet
 // (peer `typescript: ">=4.3 <7"`), `@typescript-eslint/parser` (peer
 // `typescript: ">=4.8.4 <6.1.0"`), and this very file (`ts.isInterfaceDeclaration`
@@ -42,6 +43,11 @@ const constructsPeerRange = '10.5.0';
 // `@typescript/native` (see the shared devDeps), which is what `tsc` runs.
 // This is not a stopgap for a lagging tool: it is how TS 7 is consumed until the
 // ecosystem moves to the `unstable` API.
+//
+// The native compiler tracks the 7.1 BETA (`TS_NATIVE_DEP`), pinned exactly. The
+// compat alias below stays on 6.x: it exists to serve the classic API to ts-jest
+// and typescript-eslint, whose peer ranges cap below 7 — moving it in step with
+// the compiler would defeat the split.
 const typescriptVersion = 'npm:@typescript/typescript6@^6.0.2';
 const cdkVersion = '2.275.0';
 // The AWS SDK v3 clients, as ONE constant. These used to be hardcoded at every
@@ -586,7 +592,7 @@ const pipelineData = new PackageProject({
   deps: [`@pipeline-builder/api-core@${pkg.apiCore}`, 'pg@8.23.1', 'drizzle-orm@0.45.4'],
   // PGlite: in-process Postgres (WASM) for the RLS integration suite, which
   // applies the real postgres-init.sql — no Docker needed in CI.
-  devDeps: [typesNode, '@types/pg@8.23.1', 'drizzle-kit@0.31.11', `typescript@${typescriptVersion}`, '@electric-sql/pglite@0.5.13'],
+  devDeps: [typesNode, '@types/pg@8.23.1', 'drizzle-kit@0.31.11', `typescript@${typescriptVersion}`, '@electric-sql/pglite@0.5.16'],
 });
 pipelineData.eslint?.addRules(rules);
 publishToNpm(pipelineData);
@@ -600,7 +606,7 @@ const pipelineCore = new PackageProject({
   deps: [
     `@pipeline-builder/api-core@${pkg.apiCore}`,
     `@pipeline-builder/pipeline-data@${pkg.pipelineData}`,
-    'axios@1.21.0',
+    'axios@1.21.1',
   ],
   // `aws-cdk-lib` / `constructs` are PEER deps, not regular deps  the standard
   // shape for a published CDK construct library. As regular deps they were a
@@ -620,7 +626,11 @@ const pipelineCore = new PackageProject({
   devDeps: [
     `constructs@${constructsVersion}`, `aws-cdk-lib@${cdkVersion}`,
     typesNode, '@types/aws-lambda@8.10.164', '@types/jsonwebtoken@9.0.10',
-    `@aws-sdk/client-secrets-manager@${awsSdkVersion}`, 'copyfiles@2.4.1',
+    `@aws-sdk/client-secrets-manager@${awsSdkVersion}`,
+    // Bundles the PluginLookup handler at RELEASE time (post-compile below), so
+    // a deploy needs no esbuild of its own. `copyfiles` used to sit here for the
+    // stub-lock copy that bundling replaced.
+    'esbuild@0.25.12',
   ],
 });
 pipelineCore.eslint?.addRules(rules);
@@ -647,7 +657,30 @@ pipelineCore.package.addField('typesVersions', {
 });
 addPackageMetadata(pipelineCore, 'AWS CDK construct library for Pipeline Builder: the Builder construct that assembles plugin specs into a CodePipeline stack, PluginLookup custom resource, pipeline/plugin domain types, and shared configuration.');
 if (pipelineCore.jest) pipelineCore.jest.config.maxWorkers = 1;
-pipelineCore.postCompileTask.exec('copyfiles -f ./pnpm-lock.yaml lib/handlers/ --verbose --error');
+// Ship the PluginLookup Lambda READY TO RUN.
+//
+// It used to be built on the deploying machine by CDK's `NodejsFunction`, which
+// needs a `depsLockFilePath` — so a 146-byte stub `pnpm-lock.yaml` was copied in
+// here. That stub never reached anyone: `pnpm pack` strips a file by that name,
+// so every published copy shipped without it (111 files via `npm pack`, 110 via
+// pnpm — the difference was exactly this file) and every deploy failed at synth
+// before reaching AWS.
+//
+// Bundling once at release removes the whole class of problem: no lock file to
+// ship, no esbuild on the deploying machine, and the artifact is identical for
+// every deploy — the bundling options were already static (minify, es2022, a
+// fixed `externalModules` list), so nothing per-deploy is lost.
+//
+// ESM to match the package (`"type": "module"`) and the handler's
+// `export const handler`; Lambda resolves `index.handler` to `index.mjs`.
+// `aws-cdk-lib` and `constructs` stay external as a guard — they are synth-only,
+// and a stray transitive import dragging the CDK in would OOM the bundler.
+pipelineCore.postCompileTask.exec([
+  'esbuild lib/handlers/plugin-lookup-handler.js',
+  '--bundle --platform=node --format=esm --target=es2022 --minify',
+  '--external:@aws-sdk/* --external:aws-cdk-lib --external:aws-cdk-lib/* --external:constructs',
+  '--outfile=lib/handlers/bundle/index.mjs',
+].join(' '));
 
 // -- API Server --
 const apiServer = new PackageProject({
@@ -659,15 +692,15 @@ const apiServer = new PackageProject({
     `@pipeline-builder/pipeline-data@${pkg.pipelineData}`,
     `@pipeline-builder/pipeline-core@${pkg.pipelineCore}`,
     `express@${expressVersion}`,
-    'express-rate-limit@8.7.1', 'helmet@8.3.0', 'cors@2.8.6', 'compression@1.8.2',
+    'express-rate-limit@8.7.4', 'helmet@8.3.0', 'cors@2.8.6', 'compression@1.8.2',
     'uuid@14.0.3', 'prom-client@15.1.3',
     'swagger-ui-express@5.0.1', 'rate-limit-redis@6.0.2',
-    '@opentelemetry/sdk-node@0.300.0', '@opentelemetry/exporter-trace-otlp-http@0.300.0',
-    '@opentelemetry/resources@3.0.0', '@opentelemetry/auto-instrumentations-node@0.82.0',
+    '@opentelemetry/sdk-node@0.301.1', '@opentelemetry/exporter-trace-otlp-http@0.301.1',
+    '@opentelemetry/resources@3.1.1', '@opentelemetry/auto-instrumentations-node@0.83.0',
     // Direct dep so the ESM loader hook (hook.mjs) is resolvable from the
     // otel-bootstrap preload (it patches `import`ed modules; the CJS
     // require-in-the-middle path doesn't cover ESM services).
-    '@opentelemetry/instrumentation@0.300.0',
+    '@opentelemetry/instrumentation@0.301.1',
     '@opentelemetry/api@1.10.0',
     // Server-side untrusted-markdown renderer (`lib/markdown.js`, plugin
     // READMEs / advisories / reviews).
@@ -694,9 +727,9 @@ const aiCore = new PackageProject({
   outdir: './packages/ai-core',
   deps: [
     `@pipeline-builder/api-core@${pkg.apiCore}`,
-    'ai@7.0.157',
-    '@ai-sdk/anthropic@4.0.92', '@ai-sdk/openai@4.0.105', '@ai-sdk/google@4.0.108',
-    '@ai-sdk/xai@5.0.33', '@ai-sdk/amazon-bedrock@5.0.128', '@ai-sdk/openai-compatible@3.0.81',
+    'ai@7.0.170',
+    '@ai-sdk/anthropic@4.0.102', '@ai-sdk/openai@4.0.115', '@ai-sdk/google@4.0.118',
+    '@ai-sdk/xai@5.0.43', '@ai-sdk/amazon-bedrock@5.0.139', '@ai-sdk/openai-compatible@3.0.90',
     // Bedrock is the one KEYLESS provider: it authenticates with the runtime's
     // IAM role (EKS Pod Identity / IRSA / EC2 instance profile). The ai-sdk
     // provider only reads static keys unless it is handed a credential provider,
@@ -782,8 +815,8 @@ const manager = new ManagerProject({
     // `infra redrive-events` calls SQS StartMessageMoveTask (DLQ → main queue) —
     // the manual fallback for the events Lambda's self-healing redrive.
     `@aws-sdk/client-sqs@${awsSdkVersion}`,
-    'form-data@4.0.6', 'commander@15.0.0', 'figlet@1.12.0',
-    'axios@1.21.0', 'progress@2.0.3', 'picocolors@1.1.1', 'yaml@2.9.1', 'ora@9.4.1',
+    'form-data@4.0.6', 'commander@15.1.0', 'figlet@1.12.0',
+    'axios@1.21.1', 'progress@2.0.3', 'picocolors@1.1.1', 'yaml@2.9.1', 'ora@10.0.0',
     'zod@4.6.7',
   ],
   devDeps: ['@types/figlet@1.12.0', '@types/progress@2.0.7', 'copyfiles@2.4.1', 'esbuild@0.28.2'],
@@ -825,8 +858,8 @@ const platform = new FunctionProject({
     // Pulled in for the dashboards CRUD path (Postgres-backed); platform's
     // identity/auth/observability code remains Mongo-backed.
     `@pipeline-builder/pipeline-data@${pkg.pipelineData}`,
-    `express@${expressVersion}`, 'express-rate-limit@8.7.1',
-    'nodemailer@10.2.1', 'zod@4.6.7', `@aws-sdk/client-sesv2@${awsSdkVersion}`,
+    `express@${expressVersion}`, 'express-rate-limit@8.7.4',
+    'nodemailer@10.5.0', 'zod@4.6.7', `@aws-sdk/client-sesv2@${awsSdkVersion}`,
     // ES256 user-token signing with the private key held in KMS
     // (asymmetric ECC_NIST_P256, sign-only) on the AWS targets. Lazily
     // imported — a local-file-signer install never constructs a KMS client.
@@ -842,13 +875,13 @@ const platform = new FunctionProject({
     // WebAuthn/passkey ceremonies (registration, assertion, step-up). Dual
     // CJS/ESM, Node >= 20; the browser half is `@simplewebauthn/browser` in the
     // frontend and the two MUST stay on the same major (v14 response shapes).
-    '@simplewebauthn/server@14.0.3',
+    '@simplewebauthn/server@14.1.0',
     // SAML 2.0 sign-in (#4): XML-signature verification of IdP assertions.
     // Node's `crypto` cannot do this — XML-DSig needs canonicalization and
     // reference resolution — so a maintained library is the right call here.
     // CJS, but its named exports resolve cleanly from platform's ESM.
     '@node-saml/node-saml@5.2.0',
-    'mongoose@9.11.4', 'helmet@8.3.0', 'cors@2.8.6',
+    'mongoose@9.12.1', 'helmet@8.3.0', 'cors@2.8.6',
     // `drizzle-orm` only, with no `pg`: platform uses the SCHEMA half
     // (`drizzle-orm/pg-core`) and never builds a Pool or a drizzle instance — every
     // connection comes from pipeline-data, which owns the driver. `ioredis` is gone for
@@ -922,7 +955,7 @@ const frontend = new FrontEndProject({
     // imports its root, which carries server/CDK-side code.
     `@pipeline-builder/pipeline-core@${pkg.pipelineCore}`,
     'react@19.3.1', 'react-dom@19.3.1',
-    'lucide-react@1.64.0', 'tailwindcss@4.3.3', 'framer-motion@14.7.1',
+    'lucide-react@1.72.0', 'tailwindcss@4.3.5', 'framer-motion@14.12.0',
     // Browser half of the WebAuthn/passkey ceremonies (registration, assertion,
     // conditional-UI autofill). Must stay on the same major as platform's
     // `@simplewebauthn/server` — v14 changed the JSON response shapes.
@@ -943,13 +976,13 @@ const frontend = new FrontEndProject({
   ],
   devDeps: [
     typesNode, '@types/react@19.3.0', '@types/react-dom@19.3.0',
-    '@tailwindcss/postcss@4.3.3', 'autoprefixer@10.6.2',
+    '@tailwindcss/postcss@4.3.5', 'autoprefixer@10.6.2',
     'postcss@8.5.32', TS_JEST_DEP, `typescript@${typescriptVersion}`, TS_NATIVE_DEP,
     // No @types/react-grid-layout: v2 ships its own types (Layout = readonly LayoutItem[]).
     // RTL stack for component / page render tests.
     '@testing-library/react@16.3.3',
     '@testing-library/jest-dom@7.0.1',
-    '@testing-library/user-event@14.6.8',
+    '@testing-library/user-event@14.6.9',
     // Test globals are imported from `@jest/globals` (self-typed), like every
     // other package — there is no `@types/jest`. Same pin as configureEsmJest.
     '@jest/globals@30.5.2',
@@ -1019,7 +1052,7 @@ const frontendEslint = new Eslint(frontend, {
 // was pinned here at the time and these two were missed.
 // Tell-tale: an entry in frontend/.projen/deps.json carrying a name and type
 // but NO version, while its neighbours have one.
-frontend.addDeps('next@16.4.3', 'react@19.3.1', 'react-dom@19.3.1');
+frontend.addDeps('next@16.4.6', 'react@19.3.1', 'react-dom@19.3.1');
 frontend.addDevDeps('eslint-plugin-react@7.37.5', 'eslint-plugin-react-hooks@7.1.1', 'eslint-plugin-jsx-a11y@6.10.2');
 frontendEslint.addPlugins('react', 'react-hooks', 'jsx-a11y');
 frontendEslint.addExtends('plugin:react/recommended', 'plugin:react/jsx-runtime', 'plugin:jsx-a11y/recommended');
@@ -1133,18 +1166,18 @@ const services: Array<{ name: string; deps: string[]; devDeps?: string[] }> = [
     name: 'quota',
     // HTTP middleware (cors/helmet/rate limit) and JWT/logging come from
     // api-server/api-core; a service lists only what its own code imports.
-    deps: ['mongoose@9.11.4', 'zod@4.6.7'],
+    deps: ['mongoose@9.12.1', 'zod@4.6.7'],
   },
   {
     name: 'billing',
     deps: [
       `@pipeline-builder/pipeline-data@${pkg.pipelineData}`,
-      'mongoose@9.11.4', 'zod@4.6.7',
+      'mongoose@9.12.1', 'zod@4.6.7',
       `@aws-sdk/client-marketplace-metering@${awsSdkVersion}`, `@aws-sdk/client-marketplace-entitlement-service@${awsSdkVersion}`,
       // stripe v22's CJS type entry (`export = StripeConstructor`) doesn't expose
       // the `Stripe.Subscription` namespace to NodeNext+CJS — but billing is ESM,
       // so it resolves stripe's ESM types and uses `Stripe.Subscription` natively.
-      'stripe@23.0.1',
+      'stripe@23.1.0',
     ],
   },
   {
@@ -1160,7 +1193,7 @@ const services: Array<{ name: string; deps: string[]; devDeps?: string[] }> = [
       // `pg` removed: drizzle's schema/query-builder half only — pipeline-data owns the driver.
       'drizzle-orm@0.45.4', 'uuid@14.0.3', 'yaml@2.9.1',
       'adm-zip@0.6.1', 'yauzl@3.4.0', 'multer@2.5.0', `@pipeline-builder/ai-core@${pkg.aiCore}`, 'zod@4.6.7',
-      'bullmq@6.5.1', 'ioredis@6.0.0', `@aws-sdk/client-s3@${awsSdkVersion}`,
+      'bullmq@6.7.5', 'ioredis@6.0.0', `@aws-sdk/client-s3@${awsSdkVersion}`,
     ],
     devDeps: ['jsonwebtoken@9.0.3', '@types/jsonwebtoken@9.0.10', '@types/pg@8.23.1', '@types/adm-zip@0.6.0', '@types/yauzl@3.4.0', '@types/multer@2.3.0'],
   },
@@ -1212,7 +1245,7 @@ const services: Array<{ name: string; deps: string[]; devDeps?: string[] }> = [
       // pointed at it
       // (REPORT_PDF_CHROMIUM_PATH). Imported lazily, so a reporting process that never
       // renders a PDF never loads it (services/report-pdf.ts).
-      'puppeteer-core@25.16.0',
+      'puppeteer-core@25.17.0',
     ],
   },
   {
@@ -1237,7 +1270,7 @@ const services: Array<{ name: string; deps: string[]; devDeps?: string[] }> = [
     // against platform JWTs, the build service account, or platform user
     // creds; signs outgoing registry tokens with RS256.
     name: 'image-registry',
-    deps: ['jsonwebtoken@9.0.3', 'zod@4.6.7', 'axios@1.21.0'],
+    deps: ['jsonwebtoken@9.0.3', 'zod@4.6.7', 'axios@1.21.1'],
     devDeps: ['@types/jsonwebtoken@9.0.10'],
   },
 ];

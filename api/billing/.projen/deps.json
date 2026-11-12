@@ -32,7 +32,7 @@
     },
     {
       "name": "@typescript/native",
-      "version": "npm:typescript@^7.0.2",
+      "version": "npm:typescript@7.1.0-beta",
       "type": "build"
     },
     {
@@ -105,12 +105,12 @@
     },
     {
       "name": "mongoose",
-      "version": "9.11.4",
+      "version": "9.12.1",
       "type": "runtime"
     },
     {
       "name": "stripe",
-      "version": "23.0.1",
+      "version": "23.1.0",
       "type": "runtime"
     },
     {

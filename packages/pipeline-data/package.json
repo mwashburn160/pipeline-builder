@@ -22,14 +22,14 @@
     "projen": "pnpm dlx projen"
   },
   "devDependencies": {
-    "@electric-sql/pglite": "0.5.13",
+    "@electric-sql/pglite": "0.5.16",
     "@jest/globals": "30.5.2",
     "@stylistic/eslint-plugin": "^2",
     "@types/node": "^26",
     "@types/pg": "8.23.1",
     "@typescript-eslint/eslint-plugin": "^8",
     "@typescript-eslint/parser": "^8",
-    "@typescript/native": "npm:typescript@^7.0.2",
+    "@typescript/native": "npm:typescript@7.1.0-beta",
     "drizzle-kit": "0.31.11",
     "eslint": "^9",
     "eslint-import-resolver-typescript": "^4.4.5",

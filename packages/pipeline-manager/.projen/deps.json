@@ -37,7 +37,7 @@
     },
     {
       "name": "@typescript/native",
-      "version": "npm:typescript@^7.0.2",
+      "version": "npm:typescript@7.1.0-beta",
       "type": "build"
     },
     {
@@ -130,12 +130,12 @@
     },
     {
       "name": "axios",
-      "version": "1.21.0",
+      "version": "1.21.1",
       "type": "runtime"
     },
     {
       "name": "commander",
-      "version": "15.0.0",
+      "version": "15.1.0",
       "type": "runtime"
     },
     {
@@ -155,7 +155,7 @@
     },
     {
       "name": "ora",
-      "version": "9.4.1",
+      "version": "10.0.0",
       "type": "runtime"
     },
     {

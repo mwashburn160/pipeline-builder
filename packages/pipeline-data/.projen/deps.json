@@ -2,7 +2,7 @@
   "dependencies": [
     {
       "name": "@electric-sql/pglite",
-      "version": "0.5.13",
+      "version": "0.5.16",
       "type": "build"
     },
     {
@@ -37,7 +37,7 @@
     },
     {
       "name": "@typescript/native",
-      "version": "npm:typescript@^7.0.2",
+      "version": "npm:typescript@7.1.0-beta",
       "type": "build"
     },
     {

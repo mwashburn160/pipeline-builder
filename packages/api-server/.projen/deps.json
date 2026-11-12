@@ -62,7 +62,7 @@
     },
     {
       "name": "@typescript/native",
-      "version": "npm:typescript@^7.0.2",
+      "version": "npm:typescript@7.1.0-beta",
       "type": "build"
     },
     {
@@ -110,27 +110,27 @@
     },
     {
       "name": "@opentelemetry/auto-instrumentations-node",
-      "version": "0.82.0",
+      "version": "0.83.0",
       "type": "runtime"
     },
     {
       "name": "@opentelemetry/exporter-trace-otlp-http",
-      "version": "0.300.0",
+      "version": "0.301.1",
       "type": "runtime"
     },
     {
       "name": "@opentelemetry/instrumentation",
-      "version": "0.300.0",
+      "version": "0.301.1",
       "type": "runtime"
     },
     {
       "name": "@opentelemetry/resources",
-      "version": "3.0.0",
+      "version": "3.1.1",
       "type": "runtime"
     },
     {
       "name": "@opentelemetry/sdk-node",
-      "version": "0.300.0",
+      "version": "0.301.1",
       "type": "runtime"
     },
     {
@@ -160,7 +160,7 @@
     },
     {
       "name": "express-rate-limit",
-      "version": "8.7.1",
+      "version": "8.7.4",
       "type": "runtime"
     },
     {

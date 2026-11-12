@@ -37,7 +37,7 @@
     },
     {
       "name": "@typescript/native",
-      "version": "npm:typescript@^7.0.2",
+      "version": "npm:typescript@7.1.0-beta",
       "type": "build"
     },
     {
@@ -90,7 +90,7 @@
     },
     {
       "name": "axios",
-      "version": "1.21.0",
+      "version": "1.21.1",
       "type": "runtime"
     },
     {

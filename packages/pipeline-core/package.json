@@ -30,10 +30,10 @@
     "@types/node": "^26",
     "@typescript-eslint/eslint-plugin": "^8",
     "@typescript-eslint/parser": "^8",
-    "@typescript/native": "npm:typescript@^7.0.2",
+    "@typescript/native": "npm:typescript@7.1.0-beta",
     "aws-cdk-lib": "2.275.0",
     "constructs": "10.8.1",
-    "copyfiles": "2.4.1",
+    "esbuild": "0.25.12",
     "eslint": "^9",
     "eslint-import-resolver-typescript": "^4.4.5",
     "eslint-plugin-import": "^2.32.0",
@@ -49,7 +49,7 @@
   "dependencies": {
     "@pipeline-builder/api-core": "workspace:*",
     "@pipeline-builder/pipeline-data": "workspace:*",
-    "axios": "1.21.0"
+    "axios": "1.21.1"
   },
   "keywords": [
     "software-factory",

@@ -70,6 +70,22 @@ interface ProviderTokens {
   idToken?: string;
 }
 
+/**
+ * Options for {@link OAuthProvider.buildAuthorizeUrl}.
+ *
+ * Named rather than inlined because the implementations destructure it with a
+ * `= {}` default, and TypeScript 7.1 no longer infers the members' types from
+ * that default — an unannotated `{ reauth = false, codeVerifier } = {}` makes
+ * `codeVerifier` an implicit `any` (TS7031). One type, used by the signature and
+ * both implementations, so they cannot drift.
+ */
+interface AuthorizeOptions {
+  /** Add the provider's "make the user sign in again" params (step-up re-auth). */
+  reauth?: boolean;
+  /** When set, send its S256 challenge. */
+  codeVerifier?: string;
+}
+
 interface OAuthProvider {
   enabled: boolean;
   clientId: string;
@@ -83,7 +99,7 @@ interface OAuthProvider {
   /** @param opts.reauth add the provider's "make the user sign in again" params
    *  (step-up re-auth — see {@link verifyOAuthReauthCode}).
    *  @param opts.codeVerifier when set, send its S256 challenge. */
-  buildAuthorizeUrl(state: string, opts?: { reauth?: boolean; codeVerifier?: string }): string;
+  buildAuthorizeUrl(state: string, opts?: AuthorizeOptions): string;
   /** @param codeVerifier the verifier whose challenge went out with the
    *  authorization request. Sent as `code_verifier` on the exchange. */
   exchangeCode(code: string, codeVerifier?: string): Promise<ProviderTokens>;
@@ -201,7 +217,7 @@ function createOidcStyleProvider(opts: {
     enabled: opts.enabled,
     clientId: opts.clientId,
     supportsPkce: opts.supportsPkce ?? true,
-    buildAuthorizeUrl(state: string, { reauth = false, codeVerifier } = {}) {
+    buildAuthorizeUrl(state: string, { reauth = false, codeVerifier }: AuthorizeOptions = {}) {
       const params = new URLSearchParams({
         client_id: opts.clientId,
         redirect_uri: callbackUrl,
@@ -278,7 +294,7 @@ function createGitHubProvider(): OAuthProvider {
     enabled,
     clientId,
     supportsPkce: true,
-    buildAuthorizeUrl(state: string, { reauth = false, codeVerifier } = {}) {
+    buildAuthorizeUrl(state: string, { reauth = false, codeVerifier }: AuthorizeOptions = {}) {
       const params = new URLSearchParams({
         client_id: clientId,
         redirect_uri: callbackUrl,

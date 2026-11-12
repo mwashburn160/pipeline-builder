@@ -7,8 +7,7 @@ import { createLogger, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
 import type { PluginFilter, Plugin } from '@pipeline-builder/pipeline-data';
 import { CustomResource, Token, Duration } from 'aws-cdk-lib';
 import { PolicyStatement, Effect } from 'aws-cdk-lib/aws-iam';
-import { Runtime, Architecture } from 'aws-cdk-lib/aws-lambda';
-import { NodejsFunction } from 'aws-cdk-lib/aws-lambda-nodejs';
+import { Runtime, Architecture, Function, Code } from 'aws-cdk-lib/aws-lambda';
 import { LogGroup } from 'aws-cdk-lib/aws-logs';
 import { Provider } from 'aws-cdk-lib/custom-resources';
 import { Construct } from 'constructs';
@@ -232,20 +231,33 @@ export class PluginLookup extends Construct {
    * Create the secret before deploying with:
    *   pipeline-manager infra store-token --days 30 --region <region>
    */
-  private createLambdaFunction(): NodejsFunction {
+  private createLambdaFunction(): Function {
     if (!this._orgId) {
       throw new Error('orgId is required for PluginLookup — needed to resolve the per-org platform secret');
     }
     const secretName = CoreConstants.secretPath(this._orgId, 'platform');
     const caBundle = platformCaBundle();
 
-    const fn = new NodejsFunction(this, this._uniqueId.generate('onevent:handler'), {
+    // PREBUILT at release (see `.projenrc.ts`, pipeline-core post-compile), not
+    // built here.
+    //
+    // This was a `NodejsFunction`, which bundles with esbuild during synth on
+    // whichever machine runs the deploy and therefore requires a
+    // `depsLockFilePath`. The stub lock that satisfied it was named
+    // `pnpm-lock.yaml`, and `pnpm pack` strips files by that name — so no
+    // published copy of the CLI ever had it and every deploy died at synth.
+    //
+    // Shipping the bundle instead costs nothing that was being used: the
+    // bundling options were all static, so each machine was rebuilding a
+    // byte-identical artifact. It also takes esbuild off the deploy path
+    // entirely, which is what the CodeBuild bootstrap image was carrying it for.
+    const fn = new Function(this, this._uniqueId.generate('onevent:handler'), {
       runtime: this._runtime,
       timeout: this._timeout,
       memorySize: this._memorySize,
       architecture: this._architecture,
-      entry: join(MODULE_DIR, '/../handlers/plugin-lookup-handler.js'),
-      depsLockFilePath: join(MODULE_DIR, '/../handlers/pnpm-lock.yaml'),
+      code: Code.fromAsset(join(MODULE_DIR, '/../handlers/bundle')),
+      handler: 'index.handler',
       reservedConcurrentExecutions: this._reservedConcurrentExecutions,
       environment: {
         PLATFORM_SECRET_NAME: secretName,
@@ -257,26 +269,6 @@ export class PluginLookup extends Construct {
         ...(caBundle && { [PLATFORM_CA_BUNDLE_ENV]: caBundle }),
         // The lookup reports its warnings against this pipeline (contract C1).
         ...(this._pipelineId && { PIPELINE_ID: this._pipelineId }),
-      },
-      bundling: {
-        minify: true,
-        sourceMap: false,
-        target: 'es2022',
-        externalModules: [
-          // Provided by the Lambda Node.js runtime — never bundle.
-          '@aws-sdk/*',
-          // Synth-only libraries that must NEVER end up in a Lambda bundle.
-          // The handler doesn't use them; this is a guard so a stray transitive
-          // import (e.g. via a config module that pulls infrastructure-config →
-          // aws-cdk-lib) can't drag the entire ~hundreds-of-MB CDK into the
-          // bundle and OOM-kill esbuild during cold-start synth. If one of these
-          // is ever genuinely reached at runtime the Lambda will fail loudly at
-          // init (module not found) rather than silently OOM at synth — which is
-          // the correct signal, since CDK has no business running in this Lambda.
-          'aws-cdk-lib',
-          'aws-cdk-lib/*',
-          'constructs',
-        ],
       },
     });
 

@@ -32,7 +32,7 @@
     },
     {
       "name": "@typescript/native",
-      "version": "npm:typescript@^7.0.2",
+      "version": "npm:typescript@7.1.0-beta",
       "type": "build"
     },
     {
@@ -100,7 +100,7 @@
     },
     {
       "name": "puppeteer-core",
-      "version": "25.16.0",
+      "version": "25.17.0",
       "type": "runtime"
     },
     {

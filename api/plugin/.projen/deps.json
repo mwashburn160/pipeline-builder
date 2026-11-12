@@ -57,7 +57,7 @@
     },
     {
       "name": "@typescript/native",
-      "version": "npm:typescript@^7.0.2",
+      "version": "npm:typescript@7.1.0-beta",
       "type": "build"
     },
     {
@@ -135,7 +135,7 @@
     },
     {
       "name": "bullmq",
-      "version": "6.5.1",
+      "version": "6.7.5",
       "type": "runtime"
     },
     {

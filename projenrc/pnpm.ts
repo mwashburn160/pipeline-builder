@@ -128,10 +128,10 @@ export const pnpmWorkspaceYamlOptions = {
   //   against it. Drop this override once jimp moves to zod 4.
   // - zod@4 → 4.6.7: same advisory; other dependents resolved the 4.x line to 4.6.5.
   overrides: {
-    'brace-expansion@5': '5.0.12',
-    'follow-redirects@1': '1.16.2',
+    'brace-expansion@5': '5.0.13',
+    'follow-redirects@1': '1.16.3',
     'body-parser@2': '2.4.0',
-    'undici@7': '7.30.1',
+    'undici@7': '7.30.2',
     'systeminformation@5': '5.33.19',
     'zod@3': '4.6.7',
     'zod@4': '4.6.7',
