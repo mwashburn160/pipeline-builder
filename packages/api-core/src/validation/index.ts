@@ -38,7 +38,9 @@ export {
   MessageReplySchema,
   MessageEditSchema,
   MessageHideSchema,
-  MESSAGE_HIDE_MAX_IDS,
+  MessageBulkIdsSchema,
+  MessageBulkReadSchema,
+  MESSAGE_BULK_MAX_IDS,
 } from './message-schemas.js';
 export * from './ai-schemas.js';
 export {

@@ -39,6 +39,12 @@ export interface InboxFilters {
   channel?: string;
   /** Sender relative to the viewer — see `MessageFilter.sentBy`. */
   sentBy?: MessageFilter['sentBy'];
+  /** A specific author (`created_by`). */
+  senderUserId?: string;
+  /** A specific counterparty org (sent by it, or addressed to it). */
+  counterpartyOrgId?: string;
+  /** List what this org REMOVED from its inbox instead of the inbox. */
+  hidden?: boolean;
 }
 
 /** What a bulk hide acts on: the list filters, optionally cut to an explicit selection. */
@@ -55,6 +61,9 @@ function inboxFilterFields(f: InboxFilters): Partial<MessageFilter> {
     ...(f.priority ? { priority: f.priority } : {}),
     ...(f.channel ? { channel: f.channel } : {}),
     ...(f.sentBy ? { sentBy: f.sentBy } : {}),
+    ...(f.senderUserId ? { senderUserId: f.senderUserId } : {}),
+    ...(f.counterpartyOrgId ? { counterpartyOrgId: f.counterpartyOrgId } : {}),
+    ...(f.hidden ? { hidden: true } : {}),
   };
 }
 
@@ -275,13 +284,15 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
     // `sentBy: 'me'` makes ANY view viewer-specific (it reads `created_by`), so
     // an announcements page filtered to "sent by me" needs the segment too.
     const viewer = view === 'conversations' || f.sentBy === 'me' ? currentViewerUserId() ?? '' : '';
+    // Free-text ids are URI-encoded so a ':' inside one can't alias another key.
+    const party = `${encodeURIComponent(f.senderUserId ?? '')}:${encodeURIComponent(f.counterpartyOrgId ?? '')}`;
     // Every filter is its own segment (absent ⇒ empty, the unfiltered page).
     // Read state is per-org, and markAsRead invalidates the reader's `${orgId}:*`
     // keys, so an "unread" page can't outlive the read that emptied it.
     // `search` is the LAST segment so a term containing ':' can't alias another
     // key (priority/channel are schema-constrained to [a-z0-9_-]).
     const readSeg = f.isRead === undefined ? '' : String(f.isRead);
-    return `${orgId}:${view}:${viewer}:${o.limit ?? ''}:${o.offset ?? ''}:${o.sortBy ?? ''}:${o.sortOrder ?? ''}:${readSeg}:${f.priority ?? ''}:${f.channel ?? ''}:${f.sentBy ?? ''}:${f.search ?? ''}`;
+    return `${orgId}:${view}:${viewer}:${o.limit ?? ''}:${o.offset ?? ''}:${o.sortBy ?? ''}:${o.sortOrder ?? ''}:${readSeg}:${f.priority ?? ''}:${f.channel ?? ''}:${f.sentBy ?? ''}:${party}:${f.hidden ? 'hidden' : ''}:${f.search ?? ''}`;
   }
 
   /**
@@ -368,6 +379,83 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
       })
       .where(and(...this.buildConditions(filter, orgId)))
       .returning({ id: schema.message.id }));
+    if (updated.length > 0) await this.invalidateMessageCaches(orgId);
+    return updated.length;
+  }
+
+  /**
+   * Put ticked rows back into this org's inbox — the undo of `hideFromInbox`.
+   *
+   * Removes only THIS org's key from `hiddenBy`, and only on rows this org
+   * actually hid (`hidden: true` in the shared builder), so an id the caller
+   * can't see — or one it never removed — is not matched and not counted.
+   *
+   * @returns How many messages were restored to this org's view
+   */
+  async unhideFromInbox(ids: string[], orgId: string, userId: string): Promise<number> {
+    const updated = await withTenantTx(async (tx) => tx
+      .update(schema.message)
+      .set({
+        hiddenBy: sql`coalesce(${schema.message.hiddenBy}, '{}'::jsonb) - ${orgId.toLowerCase()}::text`,
+        updatedBy: userId,
+        updatedAt: new Date(),
+      })
+      .where(and(...this.buildConditions({ isActive: true, threadId: null, hidden: true, ids }, orgId)))
+      .returning({ id: schema.message.id }));
+    if (updated.length > 0) await this.invalidateMessageCaches(orgId);
+    return updated.length;
+  }
+
+  /**
+   * Set THIS org's read state on ticked root messages.
+   *
+   * `isRead: true` stamps the roots AND their replies — what opening the thread
+   * does — so a thread whose root was read but whose answer wasn't actually
+   * clears from the unread count. `false` clears the ROOT's stamp only: that is
+   * what makes the row render unread again, and un-reading replies the person
+   * did read would invent unread messages in the count.
+   *
+   * Visibility is the shared builder's, twice: the roots are resolved through it
+   * first, and the reply sweep runs through it again (a private reply in a
+   * thread targeted at another member stays untouched).
+   *
+   * @returns How many rows changed (roots + replies for read; roots for unread)
+   */
+  async setReadState(ids: string[], isRead: boolean, orgId: string, userId: string): Promise<number> {
+    const now = new Date().toISOString();
+    const readKey = sql`coalesce(${schema.message.readBy}, '{}'::jsonb) ? ${orgId}`;
+    const updated = await withTenantTx(async (tx) => {
+      if (!isRead) {
+        return tx
+          .update(schema.message)
+          .set({
+            readBy: sql`coalesce(${schema.message.readBy}, '{}'::jsonb) - ${orgId}::text`,
+            updatedBy: userId,
+            updatedAt: new Date(),
+          })
+          .where(and(...this.buildConditions({ isActive: true, threadId: null, ids }, orgId), readKey))
+          .returning({ id: schema.message.id });
+      }
+      const roots = await tx
+        .select({ id: schema.message.id })
+        .from(schema.message)
+        .where(and(...this.buildConditions({ isActive: true, threadId: null, ids }, orgId)));
+      const rootIds = roots.map((r) => r.id);
+      if (rootIds.length === 0) return [];
+      return tx
+        .update(schema.message)
+        .set({
+          readBy: sql`coalesce(${schema.message.readBy}, '{}'::jsonb) || ${JSON.stringify({ [orgId]: now })}::jsonb`,
+          updatedBy: userId,
+          updatedAt: new Date(),
+        })
+        .where(and(
+          ...this.buildConditions({ isActive: true }, orgId),
+          or(inArray(schema.message.id, rootIds), inArray(schema.message.threadId, rootIds))!,
+          sql`not (${readKey})`,
+        ))
+        .returning({ id: schema.message.id });
+    });
     if (updated.length > 0) await this.invalidateMessageCaches(orgId);
     return updated.length;
   }

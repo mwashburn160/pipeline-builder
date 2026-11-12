@@ -30,6 +30,19 @@ export const MessageSentBySchema = z.enum(MESSAGE_SENT_BY);
 export const MessageChannelSchema = z.string().min(1).max(50).regex(/^[a-z0-9_-]+$/);
 
 /**
+ * Narrowing by a SPECIFIC party, shared by the list query and the bulk hide:
+ * - `senderUserId` — rows that user authored (`created_by`).
+ * - `counterpartyOrgId` — rows exchanged with that org (it sent them or
+ *   received them).
+ * Both are AND-ed onto the visibility scope, so naming a user or org the
+ * caller has never corresponded with simply matches nothing.
+ */
+const MessagePartyFilterFields = {
+  senderUserId: z.string().trim().min(1).max(255).optional(),
+  counterpartyOrgId: z.string().trim().min(1).max(255).optional(),
+};
+
+/**
  * Message filter schema for query parameters.
  *
  * Convention for `threadId`:
@@ -51,6 +64,11 @@ export const MessageFilterSchema = BaseFilterSchema.extend({
   priority: MessagePrioritySchema.optional(),
   channel: MessageChannelSchema.optional(),
   sentBy: MessageSentBySchema.optional(),
+  ...MessagePartyFilterFields,
+  // `true` lists what THIS org removed from its inbox (the "Removed" view)
+  // instead of the inbox itself. It never widens visibility — it only flips
+  // which side of the org's own `hiddenBy` stamp is shown.
+  hidden: BooleanQuerySchema.optional(),
   // Free-text inbox search over subject/content. Bounded so a pathological term
   // can't blow up the LIKE; the query builder escapes wildcards + ignores blanks.
   search: z.string().trim().min(1).max(200).optional(),
@@ -175,8 +193,8 @@ export const MessageEditSchema = z.object({
   content: z.string().min(1, 'Content is required').max(MESSAGE_CONTENT_MAX, `Content must be at most ${MESSAGE_CONTENT_MAX} characters`),
 });
 
-/** Most rows one explicit-selection hide may name (one page of checkboxes is 25). */
-export const MESSAGE_HIDE_MAX_IDS = 200;
+/** Most rows one bulk call (hide / unhide / read / delete) may name; a page of checkboxes is 25. */
+export const MESSAGE_BULK_MAX_IDS = 200;
 
 /**
  * Bulk "remove from my inbox", scoped by the SAME filters the list takes —
@@ -191,11 +209,30 @@ export const MESSAGE_HIDE_MAX_IDS = 200;
  * `hiddenBy[orgId]`.
  */
 export const MessageHideSchema = z.object({
-  ids: z.array(z.string().uuid()).min(1).max(MESSAGE_HIDE_MAX_IDS).optional(),
+  ids: z.array(z.string().uuid()).min(1).max(MESSAGE_BULK_MAX_IDS).optional(),
   messageType: z.enum(['announcement', 'conversation']).optional(),
   isRead: z.boolean().optional(),
   priority: z.enum(['normal', 'high', 'urgent']).optional(),
   channel: z.string().max(64).optional(),
   sentBy: MessageSentBySchema.optional(),
+  ...MessagePartyFilterFields,
   search: z.string().max(200).optional(),
 });
+
+/** An explicit checkbox selection — the body shared by the bulk id routes. */
+const BulkIdsSchema = z.array(z.string().uuid()).min(1).max(MESSAGE_BULK_MAX_IDS);
+
+/**
+ * `POST /messages/unhide` and `POST /messages/delete`: the ticked rows.
+ * Ids only — never a filter: restoring is the undo of a specific removal, and
+ * delete is per-row author-only, so neither may run against "everything
+ * matching".
+ */
+export const MessageBulkIdsSchema = z.object({ ids: BulkIdsSchema });
+
+/**
+ * `POST /messages/read` — set THIS org's read state on the ticked rows.
+ * `isRead: true` also marks each thread's replies read (as opening it does);
+ * `false` clears the root's stamp only, which is what puts it back to unread.
+ */
+export const MessageBulkReadSchema = z.object({ ids: BulkIdsSchema, isRead: z.boolean() });

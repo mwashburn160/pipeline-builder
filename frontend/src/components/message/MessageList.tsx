@@ -115,8 +115,9 @@ interface MessageListProps {
    * absent (with `onToggleSelect`) = no checkboxes, as before.
    */
   selectedIds?: ReadonlySet<string>;
-  /** Tick / untick one row. Never opens the message. */
-  onToggleSelect?: (id: string) => void;
+  /** Tick / untick one row; `range` is a shift-click (extend from the last
+   *  toggled row). Never opens the message. */
+  onToggleSelect?: (id: string, range: boolean) => void;
   /** Empty-state title override (e.g. "No results" when a search is active). */
   emptyTitle?: string;
   /** Empty-state description override. */
@@ -206,11 +207,15 @@ export function MessageList({ messages, onSelect, selectedId, currentOrgId, reso
             {/* Bulk-selection checkbox. Its clicks and keys stop here so ticking
                 a row never opens it (the row itself is a button). */}
             {onToggleSelect && (
+              // Toggled from CLICK, not change: only the mouse event carries
+              // `shiftKey` (a range), and Space on a focused checkbox fires a
+              // click too, so the keyboard path is the same. `onChange` is the
+              // controlled-input no-op React requires.
               <Checkbox
                 className="flex-shrink-0"
                 checked={isTicked}
-                onChange={() => onToggleSelect(msg.id)}
-                onClick={(e) => e.stopPropagation()}
+                onChange={() => {}}
+                onClick={(e) => { e.stopPropagation(); onToggleSelect(msg.id, e.shiftKey); }}
                 onKeyDown={(e) => e.stopPropagation()}
                 aria-label={`Select message: ${msg.subject || displayName}`}
               />

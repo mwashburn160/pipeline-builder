@@ -1,6 +1,6 @@
 // GENERATED FROM docs/api-reference.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 2fb958fa8785ad9c0ff4648f6368d2de9a0ee653d0ff453faafc5b804f78eb02
+// SOURCE-SHA256: 917a9f90ca14b77a4dea0b9743526acc5e65e335381035ac1b4fc6e980f1ec9c
 // SPDX-License-Identifier: Apache-2.0
 import { Code } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -1076,7 +1076,9 @@ export const apiReferenceTopic: HelpTopic = {
             [
               "GET",
               "/messages",
-              "Inbox (root messages), paginated + viewer-scoped; ?search= matches subject/content",
+              "Inbox (root messages), paginated + viewer-scoped. Filters (all three list routes): ?search= (subject/content), isRead, priority, channel, `sentBy=me\\",
+              "org\\",
+              "others, senderUserId, counterpartyOrgId, and hidden=true` for the rows this org removed from its inbox",
               "messages:read"
             ],
             [
@@ -1141,6 +1143,30 @@ export const apiReferenceTopic: HelpTopic = {
               "/messages/:id[/restore]",
               "Soft-delete / restore (restore + step-up)",
               "messages:write"
+            ],
+            [
+              "POST",
+              "/messages/delete",
+              "Bulk soft-delete { ids } (≤ 200). Same per-row rule as DELETE /messages/:id — a non-admin's own root messages only — so refused / missing ids come back in refused / notFound rather than failing the call; one message.delete audit row per deleted message",
+              "messages:write"
+            ],
+            [
+              "POST",
+              "/messages/hide",
+              "Remove from THIS org's inbox — a view change, not a delete. Body is the list filters (an empty body = the whole tab) and/or ids (≤ 200), AND-ed with visibility",
+              "messages:read"
+            ],
+            [
+              "POST",
+              "/messages/unhide",
+              "Put { ids } back into this org's inbox (the undo of /hide)",
+              "messages:read"
+            ],
+            [
+              "POST",
+              "/messages/read",
+              "Set this org's read state on { ids, isRead }. true also marks each thread's replies read; false clears the root only",
+              "messages:read"
             ]
           ]
         },

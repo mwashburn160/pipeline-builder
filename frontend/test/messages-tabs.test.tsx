@@ -85,6 +85,23 @@ describe('useMessages view routing', () => {
     expect(getMessages).toHaveBeenCalledTimes(1);
   });
 
+  it('sends the sender / counterparty / removed filters to EVERY tab endpoint', async () => {
+    getMessages.mockResolvedValue(page([], 0));
+    getAnnouncements.mockResolvedValue(page([], 0));
+    getConversations.mockResolvedValue(page([], 0));
+    const filters = { sentBy: 'others' as const, counterpartyOrgId: 'org-9', hidden: true };
+
+    const { rerender } = renderHook(
+      ({ view }: { view: 'all' | 'announcements' | 'conversations' }) => useMessages('org-1', '', view, filters),
+      { initialProps: { view: 'all' as 'all' | 'announcements' | 'conversations' } },
+    );
+    await waitFor(() => expect(getMessages).toHaveBeenCalledWith(expect.objectContaining(filters)));
+    rerender({ view: 'announcements' });
+    await waitFor(() => expect(getAnnouncements).toHaveBeenCalledWith(expect.objectContaining(filters)));
+    rerender({ view: 'conversations' });
+    await waitFor(() => expect(getConversations).toHaveBeenCalledWith(expect.objectContaining(filters)));
+  });
+
   /**
    * THE regression test: the announcement the user is looking for is NOT in the
    * inbox page. Under the old client-side filter the Announcements tab would

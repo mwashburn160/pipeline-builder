@@ -883,7 +883,7 @@ const CONTROLS: Control[] = [
     control: 'Send / delete a message',
     file: 'pages/dashboard/messages.tsx',
     permissions: ['messages:write'],
-    routes: ['message POST /messages', 'message DELETE /messages/:id'],
+    routes: ['message POST /messages', 'message DELETE /messages/:id', 'message POST /messages/delete'],
     behaviour: {
       // Without `messages:write` the same button becomes "Contact Support" —
       // a different control that drives a different flow, so the composer's
@@ -3024,10 +3024,10 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
     coveredBy: 'Compliance reads (rules, policies, scans)',
     why: '"Dry run" in src/components/compliance/RuleEditor.tsx (compliance:write — stricter than the route), "Check compliance" in CreatePipelineModal, and an auto-fire in src/components/pipeline/PipelineContextCard.tsx on the pipelines:read-gated detail page. The last one is best-effort: a viewer without compliance:read gets a silent 403 and an empty card.',
   }),
-  ...group('message', ['PUT /messages/:id/read', 'PUT /messages/:id/thread/read', 'POST /messages/notifications/ticket', 'POST /messages/hide'], {
+  ...group('message', ['PUT /messages/:id/read', 'PUT /messages/:id/thread/read', 'POST /messages/notifications/ticket', 'POST /messages/hide', 'POST /messages/unhide', 'POST /messages/read'], {
     category: 'same-control',
     coveredBy: 'Message reads',
-    why: 'Per-participant VIEW state, all on exactly the messages:read the page is gated on: opening a message / thread marks it read, the page mints an SSE ticket on mount, and the inbox bulk "Remove" (ticked rows, or "Remove all N" for the active filters) stamps hiddenBy for this org. The last one writes, but what it writes is the viewer\'s own inbox — not the message — which is why it shares the read gate rather than messages:write (that one also sends cross-org and deletes other people\'s threads). It is hidden in a read-only session.',
+    why: 'Per-participant VIEW state, all on exactly the messages:read the page is gated on: opening a message / thread marks it read, the page mints an SSE ticket on mount, the inbox bulk "Remove" (ticked rows, or "Remove all N" for the active filters) stamps hiddenBy for this org, its Undo / the Removed view\'s "Restore" clears that stamp, and bulk "Read" / "Unread" set the org\'s own receipt. The last one writes, but what it writes is the viewer\'s own inbox — not the message — which is why it shares the read gate rather than messages:write (that one also sends cross-org and deletes other people\'s threads). It is hidden in a read-only session.',
   }),
   ...group('billing', ['POST /billing/subscriptions/:id/addons/preview', 'POST /billing/subscriptions/:id/discounts/preview'], {
     category: 'same-control',

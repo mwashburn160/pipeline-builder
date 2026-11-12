@@ -281,6 +281,20 @@ export interface MessageFilter extends CommonFilter {
    */
   readonly sentBy?: 'me' | 'org' | 'others';
 
+  /** Rows a specific user authored (`created_by`, compared case-preserving). */
+  readonly senderUserId?: string;
+
+  /** Rows exchanged with a specific org: it sent them, or it received them. */
+  readonly counterpartyOrgId?: string;
+
+  /**
+   * Which side of the requesting org's own `hidden_by` stamp to return:
+   * absent/false → the inbox (rows this org has NOT removed — the default);
+   * true → only rows this org removed (the "Removed" view, and the scope of
+   * an unhide). Never widens visibility.
+   */
+  readonly hidden?: boolean;
+
   /**
    * Explicit row selection (`id IN (...)`). Narrows only — AND-ed with the
    * visibility scope like every other field, so it can never reach a row the

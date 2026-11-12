@@ -8,6 +8,15 @@ import { DEFAULT_TOAST_DURATION_MS, ERROR_TOAST_DURATION_MS, MAX_VISIBLE_TOASTS,
 
 type ToastType = 'success' | 'error' | 'warning' | 'info';
 
+/**
+ * One inline action on a toast (e.g. "Undo"). Clicking it runs `onClick` and
+ * dismisses the toast — an action is a one-shot answer to what just happened.
+ */
+export interface ToastAction {
+  label: string;
+  onClick: () => void;
+}
+
 interface ToastItem {
   id: string;
   type: ToastType;
@@ -15,14 +24,15 @@ interface ToastItem {
   duration: number;
   /** How many times this exact message fired while it was showing (dedupe). */
   count: number;
+  action?: ToastAction;
 }
 
 interface ToastContextValue {
-  toast: (type: ToastType, message: string, duration?: number) => void;
-  success: (message: string, duration?: number) => void;
-  error: (message: string, duration?: number) => void;
-  warning: (message: string, duration?: number) => void;
-  info: (message: string, duration?: number) => void;
+  toast: (type: ToastType, message: string, duration?: number, action?: ToastAction) => void;
+  success: (message: string, duration?: number, action?: ToastAction) => void;
+  error: (message: string, duration?: number, action?: ToastAction) => void;
+  warning: (message: string, duration?: number, action?: ToastAction) => void;
+  info: (message: string, duration?: number, action?: ToastAction) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -127,17 +137,18 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     if (duration > 0) timersRef.current.set(id, setTimeout(() => removeToast(id), duration));
   }, [clearTimer, removeToast]);
 
-  const addToast = useCallback((type: ToastType, message: string, duration = defaultDuration(type)) => {
+  const addToast = useCallback((type: ToastType, message: string, duration = defaultDuration(type), action?: ToastAction) => {
     const existing = toastsRef.current.find((t) => t.type === type && t.message === message);
     if (existing) {
-      const bumped = { ...existing, count: existing.count + 1, duration };
+      // The newest action wins: it refers to the latest occurrence.
+      const bumped = { ...existing, count: existing.count + 1, duration, ...(action ? { action } : {}) };
       // Move it to the newest slot so a repeat stays visible under the cap.
       commit((prev) => [...prev.filter((t) => t.id !== existing.id), bumped]);
       armTimer(existing.id, duration);
       return;
     }
     const id = String(++nextId);
-    commit((prev) => [...prev, { id, type, message, duration, count: 1 }]);
+    commit((prev) => [...prev, { id, type, message, duration, count: 1, ...(action ? { action } : {}) }]);
     armTimer(id, duration);
   }, [armTimer, commit]);
 
@@ -161,10 +172,10 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   // is a stable useCallback, so the value identity is stable for the session.
   const value = useMemo<ToastContextValue>(() => ({
     toast: addToast,
-    success: (msg, dur) => addToast('success', msg, dur),
-    error: (msg, dur) => addToast('error', msg, dur),
-    warning: (msg, dur) => addToast('warning', msg, dur),
-    info: (msg, dur) => addToast('info', msg, dur),
+    success: (msg, dur, action) => addToast('success', msg, dur, action),
+    error: (msg, dur, action) => addToast('error', msg, dur, action),
+    warning: (msg, dur, action) => addToast('warning', msg, dur, action),
+    info: (msg, dur, action) => addToast('info', msg, dur, action),
   }), [addToast]);
 
   const hidden = toasts.slice(0, Math.max(0, toasts.length - MAX_VISIBLE_TOASTS));
@@ -206,6 +217,15 @@ export function ToastProvider({ children }: { children: ReactNode }) {
                 <span className="flex-shrink-0 text-xs font-semibold opacity-80" aria-label={`repeated ${t.count} times`}>
                   ×{t.count}
                 </span>
+              )}
+              {t.action && (
+                <button
+                  type="button"
+                  onClick={() => { const run = t.action!.onClick; removeToast(t.id); run(); }}
+                  className="flex-shrink-0 text-sm font-semibold underline underline-offset-2 hover:no-underline"
+                >
+                  {t.action.label}
+                </button>
               )}
               <button
                 onClick={() => removeToast(t.id)}

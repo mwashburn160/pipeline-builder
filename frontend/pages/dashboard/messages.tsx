@@ -4,7 +4,9 @@ import { useRouter } from 'next/router';
 import { Plus, MessageCircle, Search, X } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { AccessDenied } from '@/components/ui/AccessDenied';
-import { useMessages, type MessageView, type MessageFilters } from '@/hooks/useMessages';
+import { useMessages, type MessageView } from '@/hooks/useMessages';
+import { useInboxQuery, inboxListFilters, inboxFiltersActive, type ReadFilter, type PriorityFilter, type ChannelFilter, type FromFilter } from '@/hooks/useInboxQuery';
+import { useInboxSelection } from '@/hooks/useInboxSelection';
 import { useDebounce } from '@/hooks/useDebounce';
 import { useFetch } from '@/hooks/useFetch';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
@@ -24,13 +26,11 @@ import { useAuth } from '@/hooks/useAuth';
 import { useFeatures } from '@/hooks/useFeatures';
 import { MessageBadge } from '@/components/message/MessageBadge';
 import { LiveStatusIndicator } from '@/components/message/LiveStatusIndicator';
-import { MessageBulkBar } from '@/components/message/MessageBulkBar';
+import { MessageBulkBar, SelectAllCheckbox } from '@/components/message/MessageBulkBar';
 import api from '@/lib/api';
 import { aliasLocalPart } from '@/lib/support-label';
 import { SYSTEM_ORG_ID, formatError } from '@/lib/constants';
-import { withStepUpResume } from '@/lib/api/errors';
-import type { MessageSentBy } from '@pipeline-builder/api-core';
-import type { Message, MessagePriority, SupportCaseSummary } from '@/types';
+import type { Message, SupportCaseSummary } from '@/types';
 import type { MemberOption } from '@/components/message/RecipientPicker';
 
 // Loaded on demand: compose only mounts while open, and the recently-deleted
@@ -61,25 +61,23 @@ const FILTER_NOUN: Record<MessageFilter, string> = {
 };
 
 /**
- * Server-side list filters. `''` means "any" (the filter is not sent). Each
- * narrows the ACTIVE tab on the server, so the list, its count and its empty
- * state describe the whole corpus rather than the pages loaded so far.
- */
-type ReadFilter = '' | 'unread' | 'read';
-type PriorityFilter = '' | MessagePriority;
-/** Known channels (open-ended server-side; `support` is the one the product sends). */
-type ChannelFilter = '' | 'support';
-/** Sender relative to the viewer: me / my org (any member) / another org. */
-type SentByFilter = '' | MessageSentBy;
-
-/**
  * What a confirmed remove-from-inbox acts on: the ticked rows, or EVERY
  * message the active tab + filters + search match on the server.
  */
 type RemoveScope = { kind: 'ids'; ids: string[] } | { kind: 'matching'; count: number };
 
-/** Most ids `POST /messages/hide` takes per call (mirrors api-core's `MESSAGE_HIDE_MAX_IDS`). */
-const MESSAGE_HIDE_MAX_IDS = 200;
+/** Most ids one bulk call takes (mirrors api-core's `MESSAGE_BULK_MAX_IDS`); larger selections are chunked. */
+const MESSAGE_BULK_MAX_IDS = 200;
+
+/** Split `ids` into bulk-route-sized chunks. */
+function chunks(ids: string[]): string[][] {
+  const out: string[][] = [];
+  for (let i = 0; i < ids.length; i += MESSAGE_BULK_MAX_IDS) out.push(ids.slice(i, i + MESSAGE_BULK_MAX_IDS));
+  return out;
+}
+
+/** "1 message" / "3 messages". */
+const plural = (n: number, noun = 'message') => `${n} ${noun}${n === 1 ? '' : 's'}`;
 
 /** Query-string key of the message deep link: `/dashboard/messages?message=<id>`. */
 export const MESSAGE_QUERY_KEY = 'message';
@@ -120,23 +118,21 @@ export default function MessagesPage() {
   );
   const { organizations } = useAuth();
   const { supportAlias, supportAliases } = useFeatures();
-  const [searchInput, setSearchInput] = useState('');
+  const router = useRouter();
+  // Tab, filters and search live in the URL (linkable, survive reload).
+  const [inboxQuery, setQuery] = useInboxQuery(router);
+  const searchInput = inboxQuery.q;
+  const setSearchInput = useCallback((q: string) => setQuery({ q }), [setQuery]);
   // Debounce so each keystroke doesn't fire a request; the hook refetches page 0
   // server-side whenever this settles.
   const debouncedSearch = useDebounce(searchInput.trim(), 300);
-  // Declared before the data hook: the tab IS the endpoint the hook fetches.
-  const [messageFilter, setMessageFilter] = useState<MessageFilter>('all');
-  const [readFilter, setReadFilter] = useState<ReadFilter>('');
-  const [priorityFilter, setPriorityFilter] = useState<PriorityFilter>('');
-  const [channelFilter, setChannelFilter] = useState<ChannelFilter>('');
-  const [sentByFilter, setSentByFilter] = useState<SentByFilter>('');
-  const listFilters = useMemo<MessageFilters>(() => ({
-    ...(readFilter ? { isRead: readFilter === 'read' } : {}),
-    ...(priorityFilter ? { priority: priorityFilter } : {}),
-    ...(channelFilter ? { channel: channelFilter } : {}),
-    ...(sentByFilter ? { sentBy: sentByFilter } : {}),
-  }), [readFilter, priorityFilter, channelFilter, sentByFilter]);
-  const filtersActive = !!(readFilter || priorityFilter || channelFilter || sentByFilter);
+  // The tab IS the endpoint the data hook fetches.
+  const messageFilter: MessageFilter = inboxQuery.tab;
+  const removedView = inboxQuery.removed;
+  const listFiltersKey = JSON.stringify(inboxListFilters(inboxQuery));
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on the serialised filters, not the query object
+  const listFilters = useMemo(() => inboxListFilters(inboxQuery), [listFiltersKey]);
+  const filtersActive = inboxFiltersActive(inboxQuery);
   const {
     messages,
     loading,
@@ -152,9 +148,9 @@ export default function MessagesPage() {
     markThreadAsRead,
     deleteMessage,
     fetchMessages,
+    fetchUnreadCount,
   } = useMessages(user?.organizationId, debouncedSearch, messageFilter, listFilters);
 
-  const router = useRouter();
   const [selectedMessage, setSelectedMessage] = useState<Message | null>(null);
   const [showCompose, setShowCompose] = useState(false);
   const [deepLinkError, setDeepLinkError] = useState<string | null>(null);
@@ -284,44 +280,53 @@ export default function MessagesPage() {
   const del = useDelete<string>(handleDelete);
 
   // ── Bulk selection ────────────────────────────────────────────────────────
-  // Ticked row ids, plus whether the person escalated to "all N matching" (the
-  // server-side set, loaded or not). Both reset whenever the query changes: a
-  // selection made under one tab/filter must never be acted on under another.
-  const [ticked, setTicked] = useState<ReadonlySet<string>>(() => new Set());
-  const [allMatching, setAllMatching] = useState(false);
-  const clearSelection = useCallback(() => { setTicked(new Set()); setAllMatching(false); }, []);
-  useEffect(() => { clearSelection(); }, [clearSelection, messageFilter, listFilters, debouncedSearch]);
-  // Only rows still on screen count — SSE deletes and refetches drop rows
-  // without touching the selection state.
-  const selectedMessages = useMemo(() => messages.filter((m) => ticked.has(m.id)), [messages, ticked]);
-  const selectedIds = useMemo(() => new Set(selectedMessages.map((m) => m.id)), [selectedMessages]);
-  const toggleTicked = useCallback((id: string) => {
-    setAllMatching(false);
-    setTicked((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      return next;
-    });
-  }, []);
-  const toggleAllLoaded = useCallback(() => {
-    if (allMatching || (selectedIds.size > 0 && selectedIds.size === messages.length)) clearSelection();
-    else setTicked(new Set(messages.map((m) => m.id)));
-  }, [allMatching, selectedIds.size, messages, clearSelection]);
-  // Loading another page while "all matching" is on keeps everything ticked.
-  useEffect(() => {
-    if (allMatching) setTicked(new Set(messages.map((m) => m.id)));
-  }, [allMatching, messages]);
+  // Resets whenever the query changes: a selection made under one tab / filter
+  // / search must never be acted on under another.
+  const selection = useInboxSelection(messages, `${messageFilter}|${listFiltersKey}|${debouncedSearch}`);
+  const { selectedMessages, selectedIds, allMatching, clear: clearSelection } = selection;
 
   /** The list's active filters as the hide route takes them (`'all'` sends no type). */
-  const activeHideFilters = useMemo(() => ({
-    ...(messageFilter === 'conversations' ? { messageType: 'conversation' as const } : {}),
-    ...(messageFilter === 'announcements' ? { messageType: 'announcement' as const } : {}),
-    ...(readFilter ? { isRead: readFilter === 'read' } : {}),
-    ...(priorityFilter ? { priority: priorityFilter } : {}),
-    ...(channelFilter ? { channel: channelFilter } : {}),
-    ...(sentByFilter ? { sentBy: sentByFilter } : {}),
-    ...(debouncedSearch ? { search: debouncedSearch } : {}),
-  }), [messageFilter, readFilter, priorityFilter, channelFilter, sentByFilter, debouncedSearch]);
+  const activeHideFilters = useMemo(() => {
+    const { hidden: _hidden, ...rest } = listFilters;
+    return {
+      ...(messageFilter === 'conversations' ? { messageType: 'conversation' as const } : {}),
+      ...(messageFilter === 'announcements' ? { messageType: 'announcement' as const } : {}),
+      ...rest,
+      ...(debouncedSearch ? { search: debouncedSearch } : {}),
+    };
+  }, [messageFilter, listFilters, debouncedSearch]);
+
+  /** Close the open thread when a bulk action took it out of the list. */
+  const closeIfAffected = useCallback((ids: string[] | 'all') => {
+    if (selectedMessage && (ids === 'all' || ids.includes(selectedMessage.id))) {
+      setSelectedMessage(null);
+      writeMessageParam(null);
+    }
+  }, [selectedMessage, writeMessageParam]);
+
+  /** After any bulk write: drop the selection, refetch the page AND the badge. */
+  const afterBulk = useCallback(async () => {
+    clearSelection();
+    await Promise.all([fetchMessages(), fetchUnreadCount()]);
+  }, [clearSelection, fetchMessages, fetchUnreadCount]);
+
+  const [bulkBusy, setBulkBusy] = useState(false);
+
+  /** Put rows back into the inbox (Restore in the Removed view, and Undo). */
+  const restoreToInbox = useCallback(async (ids: string[]) => {
+    setBulkBusy(true);
+    try {
+      let restored = 0;
+      for (const part of chunks(ids)) restored += (await api.unhideMessages(part)).data?.restored ?? 0;
+      toast.success(`Restored ${plural(restored)} to your inbox`);
+      if (removedView) closeIfAffected(ids);
+      await afterBulk();
+    } catch (err) {
+      toast.error(formatError(err, 'Could not restore those messages'));
+    } finally {
+      setBulkBusy(false);
+    }
+  }, [toast, removedView, closeIfAffected, afterBulk]);
 
   // Remove-from-inbox. Its own confirm rather than `useDelete`, which keys on a
   // single target id — this one acts on a selection or a whole filter.
@@ -333,75 +338,111 @@ export default function MessagesPage() {
       // A selection sends ONLY its ids: the rows were picked off this screen,
       // and a filter added on top could silently skip one whose read state
       // moved since. "All matching" sends the filters the list is showing.
-      // A selection larger than the route's per-call cap goes in chunks.
       let removed = 0;
       if (scope.kind === 'ids') {
-        for (let i = 0; i < scope.ids.length; i += MESSAGE_HIDE_MAX_IDS) {
-          const res = await api.hideMessages({ ids: scope.ids.slice(i, i + MESSAGE_HIDE_MAX_IDS) });
-          removed += res.data?.hidden ?? 0;
-        }
+        for (const part of chunks(scope.ids)) removed += (await api.hideMessages({ ids: part })).data?.hidden ?? 0;
       } else {
-        const res = await api.hideMessages(activeHideFilters);
-        removed = res.data?.hidden ?? 0;
+        removed = (await api.hideMessages(activeHideFilters)).data?.hidden ?? 0;
       }
-      toast.success(`Removed ${removed} message${removed === 1 ? '' : 's'} from your inbox`);
+      // Undo for a selection (the ids are known); for "all matching" the ids
+      // never reached the client, so point at the Removed view instead.
+      toast.success(
+        `Removed ${plural(removed)} from your inbox`,
+        undefined,
+        scope.kind === 'ids'
+          ? { label: 'Undo', onClick: () => void restoreToInbox(scope.ids) }
+          : { label: 'View removed', onClick: () => setQuery({ removed: true }) },
+      );
       setPendingRemove(null);
-      clearSelection();
-      if (selectedMessage && (scope.kind === 'matching' || scope.ids.includes(selectedMessage.id))) {
-        setSelectedMessage(null);
-        writeMessageParam(null);
-      }
-      await fetchMessages();
+      closeIfAffected(scope.kind === 'ids' ? scope.ids : 'all');
+      await afterBulk();
     } catch (err) {
       toast.error(formatError(err, 'Could not remove those messages'));
     } finally {
       setHiding(false);
     }
-  }, [activeHideFilters, fetchMessages, toast, clearSelection, selectedMessage, writeMessageParam]);
+  }, [activeHideFilters, toast, restoreToInbox, setQuery, closeIfAffected, afterBulk]);
   const removeSelected = useCallback(() => {
     setPendingRemove(allMatching ? { kind: 'matching', count: total ?? messages.length } : { kind: 'ids', ids: [...selectedIds] });
   }, [allMatching, total, messages.length, selectedIds]);
   const removeCount = pendingRemove ? (pendingRemove.kind === 'ids' ? pendingRemove.ids.length : pendingRemove.count) : 0;
 
+  /** Bulk read / unread for the ticked rows — no confirm: it is reversible view state. */
+  const setReadState = useCallback(async (isRead: boolean) => {
+    const ids = [...selectedIds];
+    setBulkBusy(true);
+    try {
+      for (const part of chunks(ids)) await api.setMessagesReadState(part, isRead);
+      toast.success(`Marked ${plural(ids.length)} ${isRead ? 'read' : 'unread'}`);
+      await afterBulk();
+    } catch (err) {
+      toast.error(formatError(err, `Could not mark those messages ${isRead ? 'read' : 'unread'}`));
+    } finally {
+      setBulkBusy(false);
+    }
+  }, [selectedIds, toast, afterBulk]);
+
   // Bulk delete — the ticked rows only, and only when EVERY one is deletable by
-  // this viewer (the bar disables it otherwise). There is no bulk delete route:
-  // delete is per-row, author-only and audited per message on the server, so
-  // this runs them one at a time. `DELETE /messages/:id` is not step-up gated
-  // today (only restore/purge are); `withStepUpResume` is there so that, if it
-  // ever is, a refusal waits on the dialog instead of failing — but step-up
-  // tokens are single-use (`jti`), so a gated route would prompt PER ROW and
-  // would need a real bulk route. It STOPS at the first failure rather than
-  // ploughing on through rows that will fail the same way.
+  // this viewer (the bar disables it otherwise). One `POST /messages/delete`
+  // per chunk: the server runs the same per-row rule as the single delete and
+  // reports any row it refused instead of failing the whole call.
   const [pendingBulkDelete, setPendingBulkDelete] = useState<string[] | null>(null);
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const canDeleteSelected = selectedMessages.length > 0 && selectedMessages.every(canDeleteMessage);
   const deleteSelected = useCallback(async (ids: string[]) => {
     setBulkDeleting(true);
-    let deleted = 0;
+    const deleted: string[] = [];
+    let leftOver = 0;
     let failure: unknown = null;
-    for (const id of ids) {
-      try {
-        await withStepUpResume(() => api.deleteMessage(id));
-        deleted++;
-      } catch (err) {
-        failure = err;
-        break;
+    try {
+      for (const part of chunks(ids)) {
+        const res = await api.deleteMessages(part);
+        deleted.push(...(res.data?.deleted ?? []));
+        leftOver += (res.data?.refused?.length ?? 0) + (res.data?.notFound?.length ?? 0);
       }
+    } catch (err) {
+      failure = err;
     }
     setBulkDeleting(false);
     setPendingBulkDelete(null);
-    clearSelection();
-    if (selectedMessage && ids.includes(selectedMessage.id)) {
-      setSelectedMessage(null);
-      writeMessageParam(null);
+    closeIfAffected(deleted);
+    if (deleted.length > 0) toast.success(`Deleted ${plural(deleted.length)}`);
+    const notDeleted = ids.length - deleted.length;
+    if (failure) toast.error(`${formatError(failure, 'Delete failed')} — ${plural(notDeleted)} not deleted`);
+    else if (leftOver > 0) toast.error(`${plural(leftOver)} could not be deleted (already gone, or not yours to delete)`);
+    await afterBulk();
+  }, [closeIfAffected, toast, afterBulk]);
+
+  // ── Sender / counterparty filter options ───────────────────────────────────
+  // Teammates for "Sent by <person>": fetched on first use of the sender
+  // select (or when a linked URL already names one), not on every inbox load.
+  const [membersWanted, setMembersWanted] = useState(false);
+  const wantMembers = membersWanted || inboxQuery.from.startsWith('user:');
+  const membersQ = useFetch(async () => {
+    if (!wantMembers || !user?.organizationId) return [];
+    try {
+      const res = await api.getOrganizationMembers(user.organizationId, { limit: 50, status: 'active' });
+      return (res.data?.members ?? []).map((m) => ({ id: m.id, label: m.username || m.email || m.id }));
+    } catch {
+      return []; // best-effort: no teammate options, the relative choices still work
     }
-    if (deleted > 0) toast.success(`Deleted ${deleted} message${deleted === 1 ? '' : 's'}`);
-    if (failure) {
-      const left = ids.length - deleted;
-      toast.error(`${formatError(failure, 'Delete failed')} — ${left} message${left === 1 ? ' was' : 's were'} not deleted`);
-    }
-    await fetchMessages();
-  }, [clearSelection, selectedMessage, writeMessageParam, toast, fetchMessages]);
+  }, [wantMembers, currentOrgId]);
+  const teammateOptions = useMemo(() => {
+    const list = (membersQ.data ?? []).filter((m) => m.id !== user?.id);
+    const linked = inboxQuery.from.startsWith('user:') ? inboxQuery.from.slice('user:'.length) : '';
+    if (linked && !list.some((m) => m.id === linked) && linked !== user?.id) list.unshift({ id: linked, label: linked });
+    return list;
+  }, [membersQ.data, inboxQuery.from, user?.id]);
+  // Counterparty orgs: every org this inbox knows a name for (memberships +
+  // orgs on loaded rows), minus our own, plus a linked one not yet seen.
+  const counterpartyOptions = useMemo(() => {
+    const out = [...orgNameById.entries()]
+      .filter(([id]) => id !== currentOrgId && id !== '*')
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    if (inboxQuery.org && !out.some((o) => o.id === inboxQuery.org.toLowerCase())) out.unshift({ id: inboxQuery.org, name: inboxQuery.org });
+    return out;
+  }, [orgNameById, currentOrgId, inboxQuery.org]);
   const pendingSubject = messages.find((m) => m.id === del.target)?.subject;
 
   const handleSend = useCallback(async (data: Parameters<typeof sendMessage>[0]): Promise<boolean> => {
@@ -510,12 +551,22 @@ export default function MessagesPage() {
             <div className="flex items-center justify-between px-3 py-3 border-b border-default">
               {/* Heading names the ACTIVE tab and carries the server's total for
                   it, so the count can't disagree with what the backend holds. */}
+              <div className="flex items-center gap-2 min-w-0">
+                {!loading && !error && !isReadOnly && (
+                  <SelectAllCheckbox
+                    loadedCount={messages.length}
+                    selectedCount={selectedIds.size}
+                    allMatching={allMatching}
+                    onToggle={selection.toggleAllLoaded}
+                  />
+                )}
               <h2 className="text-sm font-semibold text-fg-muted capitalize">
-                {noun}
+                {removedView ? `Removed ${noun}` : noun}
                 {headingCount !== null && (
                   <span className="ml-1.5 font-normal text-fg-subtle">{headingCount}</span>
                 )}
               </h2>
+              </div>
               <Button
                 size="sm"
                 onClick={() => setShowCompose(true)}
@@ -562,7 +613,7 @@ export default function MessagesPage() {
               {FILTER_TABS.map(({ key, label }) => (
                 <button
                   key={key}
-                  onClick={() => setMessageFilter(key)}
+                  onClick={() => setQuery({ tab: key })}
                   className={`px-2.5 py-1 text-xs font-medium rounded-full transition-colors ${
                     messageFilter === key
                       ? 'bg-info-bg text-info'
@@ -573,36 +624,70 @@ export default function MessagesPage() {
                 </button>
               ))}
             </div>
-            {/* Server-side filters — read state, priority, channel. */}
+            {/* Server-side filters — inbox vs removed, read state, priority,
+                channel, sender and counterparty. */}
             <div className="flex flex-wrap items-center gap-1.5 px-3 py-2 border-b border-default">
-              <FilterSelect aria-label="Filter by read state" value={readFilter} onChange={(e) => setReadFilter(e.target.value as ReadFilter)} className="text-xs">
+              <FilterSelect aria-label="Show inbox or removed" value={removedView ? 'removed' : 'inbox'} onChange={(e) => setQuery({ removed: e.target.value === 'removed' })} className="text-xs">
+                <option value="inbox">Inbox</option>
+                <option value="removed">Removed</option>
+              </FilterSelect>
+              <FilterSelect aria-label="Filter by read state" value={inboxQuery.read} onChange={(e) => setQuery({ read: e.target.value as ReadFilter })} className="text-xs">
                 <option value="">Any status</option>
                 <option value="unread">Unread</option>
                 <option value="read">Read</option>
               </FilterSelect>
-              <FilterSelect aria-label="Filter by priority" value={priorityFilter} onChange={(e) => setPriorityFilter(e.target.value as PriorityFilter)} className="text-xs">
+              <FilterSelect aria-label="Filter by priority" value={inboxQuery.priority} onChange={(e) => setQuery({ priority: e.target.value as PriorityFilter })} className="text-xs">
                 <option value="">Any priority</option>
                 <option value="normal">Normal</option>
                 <option value="high">High</option>
                 <option value="urgent">Urgent</option>
               </FilterSelect>
-              <FilterSelect aria-label="Filter by channel" value={channelFilter} onChange={(e) => setChannelFilter(e.target.value as ChannelFilter)} className="text-xs">
+              <FilterSelect aria-label="Filter by channel" value={inboxQuery.channel} onChange={(e) => setQuery({ channel: e.target.value as ChannelFilter })} className="text-xs">
                 <option value="">All channels</option>
                 <option value="support">Support</option>
               </FilterSelect>
-              <FilterSelect aria-label="Filter by sender" value={sentByFilter} onChange={(e) => setSentByFilter(e.target.value as SentByFilter)} className="text-xs">
+              <FilterSelect
+                aria-label="Filter by sender"
+                value={inboxQuery.from}
+                onChange={(e) => setQuery({ from: e.target.value as FromFilter })}
+                onFocus={() => setMembersWanted(true)}
+                className="text-xs"
+              >
                 <option value="">Sent by anyone</option>
                 <option value="me">Sent by me</option>
                 <option value="org">Sent by my org</option>
                 <option value="others">Received</option>
+                {teammateOptions.length > 0 && (
+                  <optgroup label="Teammate">
+                    {teammateOptions.map((m) => <option key={m.id} value={`user:${m.id}`}>{m.label}</option>)}
+                  </optgroup>
+                )}
               </FilterSelect>
+              {counterpartyOptions.length > 0 && (
+                <FilterSelect aria-label="Filter by organization" value={inboxQuery.org} onChange={(e) => setQuery({ org: e.target.value })} className="text-xs">
+                  <option value="">Any organization</option>
+                  {counterpartyOptions.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
+                </FilterSelect>
+              )}
               {filtersActive && (
                 <button
                   type="button"
-                  onClick={() => { setReadFilter(''); setPriorityFilter(''); setChannelFilter(''); setSentByFilter(''); }}
+                  onClick={() => setQuery({ read: '', priority: '', channel: '', from: '', org: '' })}
                   className="text-xs font-medium text-info hover:underline"
                 >
                   Clear
+                </button>
+              )}
+              {/* "Remove all" acts on exactly what the filters describe, so it
+                  sits with them. `total` is the SERVER's count for this tab +
+                  search + filters, which is what will actually be removed. */}
+              {!removedView && (total ?? 0) > 0 && !isReadOnly && selectedIds.size === 0 && (
+                <button
+                  type="button"
+                  onClick={() => setPendingRemove({ kind: 'matching', count: total ?? 0 })}
+                  className="ml-auto text-xs font-medium text-danger hover:underline"
+                >
+                  Remove all {total}
                 </button>
               )}
             </div>
@@ -615,22 +700,25 @@ export default function MessagesPage() {
               </div>
             )}
 
-            {/* Selection header + bulk actions. Hidden while the list is
-                loading or errored — there is nothing on screen to act on. */}
+            {/* Bulk actions — only once something is ticked. Hidden while the
+                list is loading or errored: there is nothing on screen to act on. */}
             {!loading && !error && (
               <MessageBulkBar
                 loadedCount={messages.length}
                 selectedCount={selectedIds.size}
                 allMatching={allMatching}
                 total={total}
-                onToggleAllLoaded={toggleAllLoaded}
-                onSelectAllMatching={() => setAllMatching(true)}
+                onSelectAllMatching={selection.selectAllMatching}
                 onClear={clearSelection}
-                canRemove={!isReadOnly}
+                removedView={removedView}
+                canAct={!isReadOnly}
                 canDeleteAny={canWrite && !isReadOnly}
                 canDeleteSelected={canDeleteSelected}
-                onRemoveSelected={removeSelected}
-                onRemoveMatching={() => setPendingRemove({ kind: 'matching', count: total ?? 0 })}
+                busy={bulkBusy || hiding || bulkDeleting}
+                onMarkRead={() => void setReadState(true)}
+                onMarkUnread={() => void setReadState(false)}
+                onRemove={removeSelected}
+                onRestore={() => void restoreToInbox([...selectedIds])}
                 onDelete={() => setPendingBulkDelete([...selectedIds])}
               />
             )}
@@ -658,13 +746,14 @@ export default function MessagesPage() {
                 onLoadMore={loadMore}
                 casesByThread={supportCasesQ.data ?? undefined}
                 selectedIds={selectedIds}
-                onToggleSelect={toggleTicked}
-                emptyTitle={debouncedSearch || messageFilter !== 'all' || filtersActive ? `No matching ${noun}` : undefined}
+                onToggleSelect={isReadOnly ? undefined : selection.toggle}
+                emptyTitle={removedView ? `No removed ${noun}` : debouncedSearch || messageFilter !== 'all' || filtersActive ? `No matching ${noun}` : undefined}
                 emptyDescription={
                   // The tab and filters are server-side, so "no announcements"
                   // means the SERVER has none for this org — not "none in the
                   // pages we happened to load".
-                  debouncedSearch ? `No ${noun} match "${debouncedSearch}"`
+                  removedView ? 'Messages you remove from your inbox show up here, and can be restored.'
+                  : debouncedSearch ? `No ${noun} match "${debouncedSearch}"`
                     : filtersActive ? `No ${noun} match these filters — clear them to see everything.`
                       : messageFilter === 'announcements' ? 'No announcements have been sent to your organization.'
                         : messageFilter === 'conversations' ? 'No conversations yet — start one with the + button.'
@@ -750,14 +839,14 @@ export default function MessagesPage() {
           </p>
           <p className="text-sm text-fg-muted">
             This clears them from your view only. Nothing is deleted — the sender keeps their copy,
-            and a later reply still arrives.
+            a later reply still arrives, and you can restore them from the Removed view.
           </p>
         </ConfirmDialog>
       )}
       {pendingBulkDelete && (
         <DeleteConfirmModal
           title={`Delete ${pendingBulkDelete.length} message${pendingBulkDelete.length === 1 ? '' : 's'}`}
-          itemName={`${pendingBulkDelete.length} selected message${pendingBulkDelete.length === 1 ? '' : 's'} and their replies`}
+          itemName={pendingBulkDelete.length === 1 ? '1 selected message and its replies' : `${pendingBulkDelete.length} selected messages and their replies`}
           loading={bulkDeleting}
           onCancel={() => setPendingBulkDelete(null)}
           onConfirm={() => void deleteSelected(pendingBulkDelete)}

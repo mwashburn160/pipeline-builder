@@ -368,7 +368,11 @@ export function buildMessageConditions(
   // Per MESSAGE, not per thread, which is what makes it self-correcting: a
   // later reply is a new row with an empty map, so clearing a conversation
   // today never buries the answer that arrives tomorrow.
-  conditions.push(sql`not (coalesce(${schema.message.hiddenBy}, '{}'::jsonb) ? ${normalizedOrgId})`);
+  //
+  // `hidden: true` flips it to ONLY the rows this org removed (the "Removed"
+  // view / unhide scope) — still inside the same visibility branch above.
+  const hiddenHere = sql`(coalesce(${schema.message.hiddenBy}, '{}'::jsonb) ? ${normalizedOrgId})`;
+  conditions.push(filter.hidden ? hiddenHere : sql`not ${hiddenHere}`);
 
   // Active filter (default to active only)
   if (filter.isActive !== undefined) {
@@ -453,6 +457,17 @@ export function buildMessageConditions(
     } else {
       conditions.push(ne(schema.message.orgId, normalizedOrgId));
     }
+  }
+
+  // A specific author. Raw user id, case-preserving (like `viewerUserId`).
+  if (filter.senderUserId !== undefined) {
+    conditions.push(eq(schema.message.createdBy, filter.senderUserId));
+  }
+
+  // A specific counterparty org: it sent the row, or the row was addressed to it.
+  if (filter.counterpartyOrgId !== undefined) {
+    const other = normalizeStringFilter(filter.counterpartyOrgId);
+    conditions.push(or(eq(schema.message.orgId, other), eq(schema.message.recipientOrgId, other))!);
   }
 
   // Free-text inbox search — case-insensitive substring over subject OR content.

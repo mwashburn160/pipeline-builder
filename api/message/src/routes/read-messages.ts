@@ -24,13 +24,27 @@ import { attachmentService } from '../services/attachment-service.js';
 import { messageService, type InboxFilters } from '../services/message-service.js';
 
 /** The tab-view filters from a validated query — absent keys stay absent. */
-function inboxFiltersOf(v: { search?: string; isRead?: boolean; priority?: InboxFilters['priority']; channel?: string; sentBy?: InboxFilters['sentBy'] }): InboxFilters {
+interface TabQuery {
+  search?: string;
+  isRead?: boolean;
+  priority?: InboxFilters['priority'];
+  channel?: string;
+  sentBy?: InboxFilters['sentBy'];
+  senderUserId?: string;
+  counterpartyOrgId?: string;
+  hidden?: boolean;
+}
+
+function inboxFiltersOf(v: TabQuery): InboxFilters {
   return {
     ...(v.search && { search: v.search }),
     ...(v.isRead !== undefined && { isRead: v.isRead }),
     ...(v.priority && { priority: v.priority }),
     ...(v.channel && { channel: v.channel }),
     ...(v.sentBy && { sentBy: v.sentBy }),
+    ...(v.senderUserId && { senderUserId: v.senderUserId }),
+    ...(v.counterpartyOrgId && { counterpartyOrgId: v.counterpartyOrgId }),
+    ...(v.hidden && { hidden: true }),
   };
 }
 
@@ -79,7 +93,7 @@ export function createReadMessageRoutes(): Router {
     if (!validation.ok) {
       return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
     }
-    const { messageType, priority, channel, isRead, sentBy, threadId, search } = validation.value;
+    const { messageType, priority, channel, isRead, sentBy, senderUserId, counterpartyOrgId, hidden, threadId, search } = validation.value;
 
     ctx.log('INFO', 'Fetching messages inbox', { orgId, messageType, channel, isRead, search: search ? '(set)' : undefined });
 
@@ -98,6 +112,9 @@ export function createReadMessageRoutes(): Router {
       ...(channel && { channel }),
       ...(isRead !== undefined && { isRead }),
       ...(sentBy && { sentBy }),
+      ...(senderUserId && { senderUserId }),
+      ...(counterpartyOrgId && { counterpartyOrgId }),
+      ...(hidden && { hidden: true }),
       ...(search && { search }),
     };
 

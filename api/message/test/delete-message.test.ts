@@ -172,7 +172,11 @@ describe('DELETE /messages/:id', () => {
     await handler(req, res);
 
     expect(res.status).toHaveBeenCalledWith(200);
-    expect(mockSseManager.send).not.toHaveBeenCalled();
+    // No MESSAGE_DELETED fan-out for a '*' broadcast — the only push is the
+    // deleter's OWN unread-badge signal (a deleted unread row leaves its count).
+    const pushes = (mockSseManager.send as jest.Mock<AnyFn>).mock.calls;
+    expect(pushes.filter((c) => (c[3] as { action?: string })?.action === 'MESSAGE_DELETED')).toEqual([]);
+    expect(pushes).toEqual([['org-1', 'MESSAGE', 'Unread count changed', { action: 'UNREAD_COUNT' }]]);
   });
 });
 
@@ -238,5 +242,52 @@ describe('Remote audit emissions (delete)', () => {
       targetType: 'message',
       targetId: 'msg-2',
     }));
+  });
+});
+
+describe('POST /messages/delete — bulk', () => {
+  const handler = getHandler(deleteRouter, 'post', '/delete');
+  const MINE = '00000000-0000-4000-8000-0000000000a1';
+  const THEIRS = '00000000-0000-4000-8000-0000000000b2';
+  const GONE = '00000000-0000-4000-8000-0000000000c3';
+
+  beforeEach(() => { jest.clearAllMocks(); });
+
+  it('runs the per-row rule: deletes own roots, reports refused + not-found, audits per deleted row', async () => {
+    (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(false);
+    mockFindById.mockImplementation(async (id: unknown) => {
+      if (id === MINE) return { id: MINE, createdBy: 'user-1', threadId: null, orgId: 'org-1', recipientOrgId: 'org-2' };
+      if (id === THEIRS) return { id: THEIRS, createdBy: 'someone-else', threadId: null, orgId: 'org-2', recipientOrgId: 'org-1' };
+      return null;
+    });
+    mockDelete.mockResolvedValue({ id: MINE, threadId: null, orgId: 'org-1', recipientOrgId: 'org-2', messageType: 'conversation' });
+    mockDeleteThread.mockResolvedValue(undefined);
+
+    const req = mockReq({ body: { ids: [MINE, THEIRS, GONE, MINE] } });
+    const res = mockRes();
+    await handler(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+      data: { deleted: [MINE], notFound: [GONE], refused: [THEIRS] },
+    }));
+    // Duplicates collapse; only the deletable row reached the delete.
+    expect(mockDelete).toHaveBeenCalledTimes(1);
+    expect(mockDeleteThread).toHaveBeenCalledWith(MINE, expect.any(String), 'org-1', false);
+    const deletes = mockAuditRecord.mock.calls.map((c) => c[0] as { action: string; targetId: string });
+    expect(deletes).toEqual([expect.objectContaining({ action: 'message.delete', targetId: MINE })]);
+  });
+
+  it('a sysadmin deletes any row without the ownership lookup', async () => {
+    (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(true);
+    mockDeleteAsSysadmin.mockResolvedValue({ id: THEIRS, threadId: null, orgId: 'org-2', recipientOrgId: 'org-3', messageType: 'conversation' });
+    mockDeleteThread.mockResolvedValue(undefined);
+
+    const req = mockReq({ body: { ids: [THEIRS] } });
+    const res = mockRes();
+    await handler(req, res);
+
+    expect(mockFindById).not.toHaveBeenCalled();
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ data: { deleted: [THEIRS], notFound: [], refused: [] } }));
   });
 });

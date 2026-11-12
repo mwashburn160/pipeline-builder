@@ -25,6 +25,8 @@ const mockEditContent = jest.fn<AnyFn>();
 const mockMarkThreadAsRead = jest.fn<AnyFn>();
 const mockGetUnreadCount = jest.fn<AnyFn>();
 const mockHideFromInbox = jest.fn<AnyFn>();
+const mockUnhideFromInbox = jest.fn<AnyFn>();
+const mockSetReadState = jest.fn<AnyFn>();
 
 jest.unstable_mockModule('../src/services/message-service.js', () => ({
   messageService: {
@@ -33,6 +35,8 @@ jest.unstable_mockModule('../src/services/message-service.js', () => ({
     markThreadAsRead: mockMarkThreadAsRead,
     getUnreadCount: mockGetUnreadCount,
     hideFromInbox: mockHideFromInbox,
+    unhideFromInbox: mockUnhideFromInbox,
+    setReadState: mockSetReadState,
     // Writes are scoped inside the service predicates — no pre-read lookups.
     findById: forbiddenLookup('findById'),
     findVisibleById: forbiddenLookup('findVisibleById'),
@@ -299,6 +303,64 @@ describe('POST /messages/hide — remove from this org\'s inbox', () => {
     const res = mockRes();
     await handler(req, res);
 
+    expect(mockSseManager.send).toHaveBeenCalledWith('org-1', 'MESSAGE', 'Unread count changed', { action: 'UNREAD_COUNT' });
+  });
+});
+
+const IDS = ['00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000002'];
+
+describe('POST /messages/hide — party filters', () => {
+  const handler = getHandler(updateRouter, 'post', '/hide');
+  beforeEach(() => { jest.clearAllMocks(); });
+
+  it('forwards senderUserId / counterpartyOrgId and audits only THAT they were set', async () => {
+    mockHideFromInbox.mockResolvedValue(4);
+    const req = mockReq({ body: { senderUserId: 'user-42', counterpartyOrgId: 'org-9' } });
+    const res = mockRes();
+    await handler(req, res);
+
+    expect(mockHideFromInbox).toHaveBeenCalledWith(undefined, 'org-1', expect.any(String), { senderUserId: 'user-42', counterpartyOrgId: 'org-9' });
+    const row = mockAuditRecord.mock.calls[0][0] as { details: Record<string, unknown> };
+    expect(row.details).toMatchObject({ bySender: true, byCounterparty: true });
+    expect(JSON.stringify(row.details)).not.toContain('user-42');
+    expect(JSON.stringify(row.details)).not.toContain('org-9');
+  });
+});
+
+describe('POST /messages/unhide — put ticked rows back', () => {
+  const handler = getHandler(updateRouter, 'post', '/unhide');
+  beforeEach(() => { jest.clearAllMocks(); });
+
+  it('restores the ids for THIS org, audits once with counts, and signals the badge', async () => {
+    mockUnhideFromInbox.mockResolvedValue(2);
+    const req = mockReq({ body: { ids: IDS } });
+    const res = mockRes();
+    await handler(req, res);
+
+    expect(mockUnhideFromInbox).toHaveBeenCalledWith(IDS, 'org-1', expect.any(String));
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ restored: 2 }) }));
+    expect(mockAuditRecord).toHaveBeenCalledTimes(1);
+    const row = mockAuditRecord.mock.calls[0][0] as { action: string; details: Record<string, unknown> };
+    expect(row.action).toBe('message.unhide');
+    expect(row.details).toEqual({ count: 2, selected: 2 });
+    expect(mockSseManager.send).toHaveBeenCalledWith('org-1', 'MESSAGE', 'Unread count changed', { action: 'UNREAD_COUNT' });
+  });
+});
+
+describe('POST /messages/read — bulk read state', () => {
+  const handler = getHandler(updateRouter, 'post', '/read');
+  beforeEach(() => { jest.clearAllMocks(); });
+
+  it.each([true, false])('sets isRead=%s on the ticked ids for THIS org, unaudited', async (isRead) => {
+    mockSetReadState.mockResolvedValue(3);
+    const req = mockReq({ body: { ids: IDS, isRead } });
+    const res = mockRes();
+    await handler(req, res);
+
+    expect(mockSetReadState).toHaveBeenCalledWith(IDS, isRead, 'org-1', expect.any(String));
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(mockAuditRecord).not.toHaveBeenCalled();
     expect(mockSseManager.send).toHaveBeenCalledWith('org-1', 'MESSAGE', 'Unread count changed', { action: 'UNREAD_COUNT' });
   });
 });

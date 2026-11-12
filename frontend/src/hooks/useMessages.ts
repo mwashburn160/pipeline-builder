@@ -27,8 +27,8 @@ import { usePolling } from './usePolling';
 export type MessageView = 'all' | 'announcements' | 'conversations';
 
 /** Server-side narrowing applied to whichever view is active — read state,
- *  priority, channel, sender (search is its own argument because the page
- *  debounces it separately). */
+ *  priority, channel, sender, counterparty, inbox-vs-removed (search is its
+ *  own argument because the page debounces it separately). */
 export type MessageFilters = Omit<MessageListFilters, 'search'>;
 
 /**
@@ -127,7 +127,7 @@ export function useMessages(orgId?: string | null, search = '', view: MessageVie
   // `{}` literal from the caller doesn't refetch on every render.
   const filtersRef = useRef(filters);
   filtersRef.current = filters;
-  const filterKey = JSON.stringify([filters.isRead, filters.priority, filters.channel, filters.sentBy]);
+  const filterKey = JSON.stringify([filters.isRead, filters.priority, filters.channel, filters.sentBy, filters.senderUserId, filters.counterpartyOrgId, filters.hidden]);
   // Current page contents, readable from the (stable) SSE handler.
   const messagesRef = useRef<Message[]>(messages);
   messagesRef.current = messages;
@@ -141,7 +141,7 @@ export function useMessages(orgId?: string | null, search = '', view: MessageVie
 
   /** Fetch one page of the ACTIVE view from its own endpoint. */
   const fetchPage = useCallback((offset: number) => {
-    const { isRead, priority, channel, sentBy } = filtersRef.current;
+    const { isRead, priority, channel, sentBy, senderUserId, counterpartyOrgId, hidden } = filtersRef.current;
     const params = {
       limit: MESSAGE_PAGE_SIZE,
       offset,
@@ -150,6 +150,9 @@ export function useMessages(orgId?: string | null, search = '', view: MessageVie
       ...(priority ? { priority } : {}),
       ...(channel ? { channel } : {}),
       ...(sentBy ? { sentBy } : {}),
+      ...(senderUserId ? { senderUserId } : {}),
+      ...(counterpartyOrgId ? { counterpartyOrgId } : {}),
+      ...(hidden ? { hidden } : {}),
     };
     if (viewRef.current === 'announcements') return api.getAnnouncements(params);
     if (viewRef.current === 'conversations') return api.getConversations(params);

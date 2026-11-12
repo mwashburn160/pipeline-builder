@@ -248,6 +248,55 @@ describe('MessageService', () => {
   // they need to write the per-org `readBy` jsonb column with raw SQL.
   // Tests assert on the db chain rather than the service base methods.
 
+  describe('bulk view-state writes', () => {
+    const IDS = ['m-1', 'm-2'];
+    const wireUpdate = (rows: unknown[]) => {
+      const returningFn = jest.fn<() => Promise<unknown>>().mockResolvedValue(rows);
+      const whereFn = jest.fn<AnyFn>().mockReturnValue({ returning: returningFn });
+      const setFn = jest.fn<AnyFn>().mockReturnValue({ where: whereFn });
+      mockDbUpdate.mockReturnValue({ set: setFn });
+      return setFn;
+    };
+
+    it('unhideFromInbox scopes to rows THIS org hid, cut to the ids', async () => {
+      wireUpdate([{ id: 'm-1' }]);
+      const n = await service.unhideFromInbox(IDS, 'org-1', 'user-1');
+
+      expect(n).toBe(1);
+      expect(mockBuildMessageConditions).toHaveBeenCalledWith(
+        expect.objectContaining({ hidden: true, ids: IDS, threadId: null, isActive: true }), 'org-1',
+      );
+    });
+
+    it('setReadState(false) clears only the ROOTS among the ids', async () => {
+      wireUpdate([{ id: 'm-1' }, { id: 'm-2' }]);
+      const n = await service.setReadState(IDS, false, 'org-1', 'user-1');
+
+      expect(n).toBe(2);
+      expect(mockDbSelect).not.toHaveBeenCalled();
+      expect(mockBuildMessageConditions).toHaveBeenCalledWith(expect.objectContaining({ ids: IDS, threadId: null }), 'org-1');
+    });
+
+    it('setReadState(true) resolves visible roots first, then stamps roots + replies', async () => {
+      mockDbSelect.mockReturnValue({ from: jest.fn<AnyFn>().mockReturnValue({ where: jest.fn<() => Promise<unknown>>().mockResolvedValue([{ id: 'm-1' }]) }) });
+      wireUpdate([{ id: 'm-1' }, { id: 'r-1' }]);
+      const n = await service.setReadState(IDS, true, 'org-1', 'user-1');
+
+      expect(n).toBe(2);
+      // Roots through the shared builder (visibility), then the reply sweep
+      // through it AGAIN with no thread restriction.
+      expect(mockBuildMessageConditions).toHaveBeenCalledWith(expect.objectContaining({ ids: IDS, threadId: null }), 'org-1');
+      expect(mockBuildMessageConditions).toHaveBeenCalledWith(expect.not.objectContaining({ threadId: expect.anything() }), 'org-1');
+    });
+
+    it('setReadState(true) writes nothing when no named root is visible', async () => {
+      mockDbSelect.mockReturnValue({ from: jest.fn<AnyFn>().mockReturnValue({ where: jest.fn<() => Promise<unknown>>().mockResolvedValue([]) }) });
+      mockDbUpdate.mockClear();
+      expect(await service.setReadState(IDS, true, 'org-1', 'user-1')).toBe(0);
+      expect(mockDbUpdate).not.toHaveBeenCalled();
+    });
+  });
+
   describe('markAsRead', () => {
     it('upserts readBy[orgId] for the calling org', async () => {
       const updated = { id: 'msg-1', readBy: { 'org-1': '2026-04-27T00:00:00Z' } };
@@ -535,6 +584,39 @@ describe('MessageService', () => {
       );
       // No term ⇒ no `search` key at all (an empty filter, not `search: ''`).
       expect(mockFindPaginated.mock.calls[2][0]).not.toHaveProperty('search');
+    });
+
+    it('keys the tab cache on sentBy / sender / counterparty / hidden, and forwards each', async () => {
+      mockFindPaginated.mockResolvedValue({ data: [], total: 0, limit: 25, offset: 0, hasMore: false });
+      mockCurrentViewerUserId.mockReturnValue('user-a');
+
+      await service.findAnnouncements('org-1', { limit: 25, offset: 0 }, { sentBy: 'others' });
+      await service.findAnnouncements('org-1', { limit: 25, offset: 0 }, { senderUserId: 'u:1' });
+      await service.findAnnouncements('org-1', { limit: 25, offset: 0 }, { counterpartyOrgId: 'org-9' });
+      await service.findAnnouncements('org-1', { limit: 25, offset: 0 }, { hidden: true });
+      await service.findAnnouncements('org-1', { limit: 25, offset: 0 });
+
+      const keys = mockCacheGetOrSet.mock.calls.map((c) => c[0]);
+      expect(new Set(keys).size).toBe(5);
+      // A ':' inside a free-text id is encoded, so it can't alias another key's segments.
+      expect(keys[1]).toContain('u%3A1');
+      expect(mockFindPaginated).toHaveBeenNthCalledWith(1, expect.objectContaining({ sentBy: 'others' }), 'org-1', expect.any(Object));
+      expect(mockFindPaginated).toHaveBeenNthCalledWith(2, expect.objectContaining({ senderUserId: 'u:1' }), 'org-1', expect.any(Object));
+      expect(mockFindPaginated).toHaveBeenNthCalledWith(3, expect.objectContaining({ counterpartyOrgId: 'org-9' }), 'org-1', expect.any(Object));
+      expect(mockFindPaginated).toHaveBeenNthCalledWith(4, expect.objectContaining({ hidden: true }), 'org-1', expect.any(Object));
+    });
+
+    it("makes the ANNOUNCEMENTS key viewer-specific once sentBy is 'me'", async () => {
+      mockFindPaginated.mockResolvedValue({ data: [], total: 0, limit: 25, offset: 0, hasMore: false });
+
+      mockCurrentViewerUserId.mockReturnValue('user-a');
+      await service.findAnnouncements('org-1', { limit: 25, offset: 0 }, { sentBy: 'me' });
+      mockCurrentViewerUserId.mockReturnValue('user-b');
+      await service.findAnnouncements('org-1', { limit: 25, offset: 0 }, { sentBy: 'me' });
+
+      // "Sent by me" reads created_by — user A's page must never be served to B.
+      const keys = mockCacheGetOrSet.mock.calls.map((c) => c[0]);
+      expect(keys[0]).not.toEqual(keys[1]);
     });
 
     it('applies read-state / priority / channel to the tab query and keys the cache on each', async () => {

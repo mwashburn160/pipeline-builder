@@ -90,6 +90,12 @@ const EXCEPTIONS: RouteCoverageException[] = [
     waive: 'audit',
     reason: 'Per-reader UI state flip for a whole thread — extremely high volume and no security consequence.',
   },
+  {
+    method: 'POST',
+    path: '/messages/read',
+    waive: 'audit',
+    reason: 'Bulk per-reader UI state flip (read ↔ unread) on ticked rows — the batched form of the two read routes above, with the same lack of security consequence.',
+  },
 ];
 
 /**

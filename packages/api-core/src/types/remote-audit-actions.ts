@@ -175,6 +175,9 @@ export const REMOTE_AUDIT_ACTIONS = [
   // row per bulk call with `details.count` and the filter scope, never per
   // message and never the search text.
   'message.hide',
+  // The undo of `message.hide`: rows put back into this org's inbox. Same
+  // shape — one row per call with `details.count`, never the ids.
+  'message.unhide',
   'message.restore',
   // Manual on-demand PURGE (permanent hard-delete) of an already-soft-deleted
   // message tombstone — the destructive finalizer the retention sweep would

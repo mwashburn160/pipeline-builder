@@ -12,6 +12,8 @@ import {
   validateBody,
   MessageEditSchema,
   MessageHideSchema,
+  MessageBulkIdsSchema,
+  MessageBulkReadSchema,
   audited,
   actorId,
   recordAudit,
@@ -48,6 +50,9 @@ function signalUnreadCountChanged(sseManager: SSEManager, orgId: string, log: Ro
  * Routes:
  *   PUT /messages/:id/read        — Mark a single message as read
  *   PUT /messages/:id/thread/read — Mark all messages in a thread as read
+ *   POST /messages/hide           — Remove ticked / matching messages from this org's inbox
+ *   POST /messages/unhide         — Put ticked messages back (undo of hide)
+ *   POST /messages/read           — Set this org's read state on ticked messages
  * @param sseManager - SSE manager for pushing real-time notifications
  */
 export function createUpdateMessageRoutes(sseManager: SSEManager): Router {
@@ -185,7 +190,7 @@ export function createUpdateMessageRoutes(sseManager: SSEManager): Router {
   router.post('/hide', ...createAuthenticatedWithOrgRoute(), requirePermission('messages:read'), audited('message.hide'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const validation = validateBody(req, MessageHideSchema);
     if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
-    const { ids, messageType, isRead, priority, channel, sentBy, search } = validation.value;
+    const { ids, messageType, isRead, priority, channel, sentBy, senderUserId, counterpartyOrgId, search } = validation.value;
 
     ctx.log('INFO', 'Hiding messages from inbox', { messageType: messageType ?? 'all', selected: ids?.length });
 
@@ -196,6 +201,8 @@ export function createUpdateMessageRoutes(sseManager: SSEManager): Router {
       ...(priority ? { priority } : {}),
       ...(channel ? { channel } : {}),
       ...(sentBy ? { sentBy } : {}),
+      ...(senderUserId ? { senderUserId } : {}),
+      ...(counterpartyOrgId ? { counterpartyOrgId } : {}),
     });
 
     recordAudit({
@@ -212,6 +219,9 @@ export function createUpdateMessageRoutes(sseManager: SSEManager): Router {
         ...(priority ? { priority } : {}),
         ...(channel ? { channel } : {}),
         ...(sentBy ? { sentBy } : {}),
+        // Whether a party narrowed it — not WHO (an id is not scope metadata).
+        ...(senderUserId ? { bySender: true } : {}),
+        ...(counterpartyOrgId ? { byCounterparty: true } : {}),
         // How many rows were NAMED, not which: a selection is the scope.
         ...(ids ? { selected: ids.length } : {}),
         searched: !!search,
@@ -221,6 +231,55 @@ export function createUpdateMessageRoutes(sseManager: SSEManager): Router {
     ctx.log('COMPLETED', 'Messages hidden', { count: hidden });
     signalUnreadCountChanged(sseManager, orgId, ctx.log);
     return sendSuccess(res, 200, { hidden }, `Removed ${hidden} message${hidden === 1 ? '' : 's'} from your inbox`);
+  }));
+
+  /**
+   * POST /messages/unhide — put ticked messages back into THIS org's inbox.
+   *
+   * The undo of `/hide`, under the same `messages:read` and for the same
+   * reason: it changes the viewer's own inbox, not the message. Ids only —
+   * restoring is always about specific rows the person can see in the
+   * "Removed" view (or just removed), never "everything matching".
+   */
+  router.post('/unhide', ...createAuthenticatedWithOrgRoute(), requirePermission('messages:read'), audited('message.unhide'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
+    const validation = validateBody(req, MessageBulkIdsSchema);
+    if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
+    const { ids } = validation.value;
+
+    ctx.log('INFO', 'Restoring messages to inbox', { selected: ids.length });
+    const restored = await messageService.unhideFromInbox(ids, orgId, userId);
+
+    recordAudit({
+      action: 'message.unhide',
+      actorId: actorId({ userId }),
+      orgId,
+      targetType: 'message',
+      details: { count: restored, selected: ids.length },
+    });
+
+    ctx.log('COMPLETED', 'Messages restored to inbox', { count: restored });
+    signalUnreadCountChanged(sseManager, orgId, ctx.log);
+    return sendSuccess(res, 200, { restored }, `Restored ${restored} message${restored === 1 ? '' : 's'} to your inbox`);
+  }));
+
+  /**
+   * POST /messages/read — set THIS org's read state on ticked messages.
+   *
+   * `messages:read`, like the single-message and thread read routes: it is the
+   * viewer's own receipt. Not audited, for the same reason they aren't — read
+   * state is per-participant view state, not an action on the message.
+   */
+  router.post('/read', ...createAuthenticatedWithOrgRoute(), requirePermission('messages:read'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
+    const validation = validateBody(req, MessageBulkReadSchema);
+    if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
+    const { ids, isRead } = validation.value;
+
+    ctx.log('INFO', 'Setting read state', { selected: ids.length, isRead });
+    const updated = await messageService.setReadState(ids, isRead, orgId, userId);
+
+    ctx.log('COMPLETED', 'Read state set', { count: updated });
+    signalUnreadCountChanged(sseManager, orgId, ctx.log);
+    return sendSuccess(res, 200, { updated }, `Marked ${ids.length} message${ids.length === 1 ? '' : 's'} ${isRead ? 'read' : 'unread'}`);
   }));
 
   return router;

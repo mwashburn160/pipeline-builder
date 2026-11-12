@@ -316,7 +316,7 @@ Base path `/api/messages`. Reads require `messages:read`; writes require `messag
 
 | Method | Endpoint | Description | Permission |
 |--------|----------|-------------|------------|
-| `GET` | `/messages` | Inbox (root messages), paginated + viewer-scoped; `?search=` matches subject/content | `messages:read` |
+| `GET` | `/messages` | Inbox (root messages), paginated + viewer-scoped. Filters (all three list routes): `?search=` (subject/content), `isRead`, `priority`, `channel`, `sentBy=me\|org\|others`, `senderUserId`, `counterpartyOrgId`, and `hidden=true` for the rows this org removed from its inbox | `messages:read` |
 | `GET` | `/messages/conversations` \| `/announcements` | Conversations / announcements views | `messages:read` |
 | `GET` | `/messages/unread/count` | Unread count for the caller | `messages:read` |
 | `GET` | `/messages/:id` \| `/:id/thread` | A message / its full thread (viewer-scoped) | `messages:read` |
@@ -327,6 +327,10 @@ Base path `/api/messages`. Reads require `messages:read`; writes require `messag
 | `GET` | `/messages/attachments/:id` | Download an attachment (auth-gated, inherits message visibility); `?thumb=1` serves the downscaled image thumbnail, falling back to the original | `messages:read` |
 | `GET` | `/messages/:id/attachments` | List a message's attachment metadata | `messages:read` |
 | `DELETE` \| `POST` | `/messages/:id[/restore]` | Soft-delete / restore (restore + step-up) | `messages:write` |
+| `POST` | `/messages/delete` | Bulk soft-delete `{ ids }` (≤ 200). Same per-row rule as `DELETE /messages/:id` — a non-admin's own root messages only — so refused / missing ids come back in `refused` / `notFound` rather than failing the call; one `message.delete` audit row per deleted message | `messages:write` |
+| `POST` | `/messages/hide` | Remove from THIS org's inbox — a view change, not a delete. Body is the list filters (an empty body = the whole tab) and/or `ids` (≤ 200), AND-ed with visibility | `messages:read` |
+| `POST` | `/messages/unhide` | Put `{ ids }` back into this org's inbox (the undo of `/hide`) | `messages:read` |
+| `POST` | `/messages/read` | Set this org's read state on `{ ids, isRead }`. `true` also marks each thread's replies read; `false` clears the root only | `messages:read` |
 
 **Contacting support:** reaching support is self-service, so `POST /messages/support` is gated on `messages:read` — the same authority the inbox needs — rather than `messages:write`. A read-only member can therefore file a request although they cannot send ordinary messages. The route is safe at that floor because the recipient is not a caller input: it is always the system support org, on the reserved `support` channel. Everything else (validation, attachment linking, the SSE ping, the send rate limit) matches `POST /messages`; announcements, broadcasts and per-user targeting do not apply. Attachments must still be uploaded through `POST /messages/attachments`, which remains `messages:write`.
 

@@ -39,6 +39,12 @@ export type MessageListFilters = {
   /** Sender relative to the viewer: `me` (I wrote it), `org` (my org sent it),
    *  `others` (another org sent it — received mail and announcements). */
   sentBy?: MessageSentBy;
+  /** A specific author (user id). */
+  senderUserId?: string;
+  /** A specific counterparty org (it sent the message, or received it). */
+  counterpartyOrgId?: string;
+  /** List what THIS org removed from its inbox (the "Removed" view). */
+  hidden?: boolean;
 };
 
 /** Paging + sort for the inbox lists. */
@@ -452,11 +458,44 @@ export function messagesApi(core: ApiCore) {
       priority?: string;
       channel?: string;
       sentBy?: MessageSentBy;
+      senderUserId?: string;
+      counterpartyOrgId?: string;
       search?: string;
     }) => {
       return core.request<ApiResponse<{ hidden: number }>>('/api/messages/hide', {
         method: 'POST',
         body: JSON.stringify(body),
+      });
+    },
+
+    /** Put ticked messages back into THIS org's inbox — the undo of `hideMessages`. */
+    unhideMessages: async (ids: string[]) => {
+      return core.request<ApiResponse<{ restored: number }>>('/api/messages/unhide', {
+        method: 'POST',
+        body: JSON.stringify({ ids }),
+      });
+    },
+
+    /**
+     * Set THIS org's read state on ticked messages. Read also clears each
+     * thread's replies (as opening it does); unread clears the root only.
+     */
+    setMessagesReadState: async (ids: string[], isRead: boolean) => {
+      return core.request<ApiResponse<{ updated: number }>>('/api/messages/read', {
+        method: 'POST',
+        body: JSON.stringify({ ids, isRead }),
+      });
+    },
+
+    /**
+     * Soft-delete ticked messages in one request. Same per-row rule as
+     * `deleteMessage` (own root messages, or any as sysadmin); rows that fail
+     * it come back in `refused` / `notFound` instead of failing the call.
+     */
+    deleteMessages: async (ids: string[]) => {
+      return core.request<ApiResponse<{ deleted: string[]; notFound: string[]; refused: string[] }>>('/api/messages/delete', {
+        method: 'POST',
+        body: JSON.stringify({ ids }),
       });
     },
 

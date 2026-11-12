@@ -10,7 +10,7 @@ import {
   MessageCreateSchema,
   MessageReplySchema,
   MessageHideSchema,
-  MESSAGE_HIDE_MAX_IDS,
+  MESSAGE_BULK_MAX_IDS,
 } from '../src/validation/message-schemas.js';
 
 describe('MessageTypeSchema', () => {
@@ -211,6 +211,6 @@ describe('MessageHideSchema', () => {
 
   it('rejects non-uuid ids and an over-cap selection', () => {
     expect(MessageHideSchema.safeParse({ ids: ['not-a-uuid'] }).success).toBe(false);
-    expect(MessageHideSchema.safeParse({ ids: Array.from({ length: MESSAGE_HIDE_MAX_IDS + 1 }, () => id) }).success).toBe(false);
+    expect(MessageHideSchema.safeParse({ ids: Array.from({ length: MESSAGE_BULK_MAX_IDS + 1 }, () => id) }).success).toBe(false);
   });
 });
