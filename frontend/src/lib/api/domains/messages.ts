@@ -4,6 +4,7 @@
 import type { ApiCore } from '../core';
 import { buildQuery } from '../util';
 import { ApiError } from '../errors';
+import type { MessageSentBy } from '@pipeline-builder/api-core';
 import type { ApiResponse, CannedResponse, Message, MessageAttachment, MessageType, MessagePriority, SupportCaseNote, SupportCaseSummary, SupportQueueRow } from '@/types';
 
 /**
@@ -35,6 +36,9 @@ export type MessageListFilters = {
   isRead?: boolean;
   priority?: MessagePriority;
   channel?: string;
+  /** Sender relative to the viewer: `me` (I wrote it), `org` (my org sent it),
+   *  `others` (another org sent it — received mail and announcements). */
+  sentBy?: MessageSentBy;
 };
 
 /** Paging + sort for the inbox lists. */
@@ -439,12 +443,15 @@ export function messagesApi(core: ApiCore) {
      * participants and the retention sweep are untouched — which is why it needs
      * only `messages:read`, the same permission that marks a message read.
      * Filters mirror the list exactly; an empty body means the whole tab.
+     * `ids` cuts that set down to an explicit checkbox selection.
      */
     hideMessages: async (body: {
+      ids?: string[];
       messageType?: 'announcement' | 'conversation';
       isRead?: boolean;
       priority?: string;
       channel?: string;
+      sentBy?: MessageSentBy;
       search?: string;
     }) => {
       return core.request<ApiResponse<{ hidden: number }>>('/api/messages/hide', {

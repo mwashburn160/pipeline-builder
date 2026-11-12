@@ -273,6 +273,22 @@ export interface MessageFilter extends CommonFilter {
   readonly isRead?: boolean;
 
   /**
+   * Sender, relative to the viewer:
+   * - `'me'`     → rows the viewing USER authored (`created_by = viewerUserId`);
+   *                with no viewer id it matches nothing (fail-closed).
+   * - `'org'`    → rows the viewing ORG sent (any member).
+   * - `'others'` → rows another org sent (received mail + announcements).
+   */
+  readonly sentBy?: 'me' | 'org' | 'others';
+
+  /**
+   * Explicit row selection (`id IN (...)`). Narrows only — AND-ed with the
+   * visibility scope like every other field, so it can never reach a row the
+   * caller couldn't already list.
+   */
+  readonly ids?: readonly string[];
+
+  /**
    * Free-text inbox search. Case-insensitive substring match against the
    * message `subject` OR `content` (LIKE wildcards in the term are escaped, so a
    * literal `%`/`_` matches itself). Applied on top of the visibility scope, so

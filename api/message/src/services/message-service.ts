@@ -37,6 +37,25 @@ export interface InboxFilters {
   isRead?: boolean;
   priority?: MessageFilter['priority'];
   channel?: string;
+  /** Sender relative to the viewer — see `MessageFilter.sentBy`. */
+  sentBy?: MessageFilter['sentBy'];
+}
+
+/** What a bulk hide acts on: the list filters, optionally cut to an explicit selection. */
+export interface HideScope extends InboxFilters {
+  /** Checkbox selection. AND-ed with the filters and the visibility scope. */
+  ids?: string[];
+}
+
+/** `InboxFilters` → the builder's `MessageFilter` fields (absent keys stay absent). */
+function inboxFilterFields(f: InboxFilters): Partial<MessageFilter> {
+  return {
+    ...(f.search ? { search: f.search } : {}),
+    ...(f.isRead !== undefined ? { isRead: f.isRead } : {}),
+    ...(f.priority ? { priority: f.priority } : {}),
+    ...(f.channel ? { channel: f.channel } : {}),
+    ...(f.sentBy ? { sentBy: f.sentBy } : {}),
+  };
 }
 
 export class MessageService extends CrudService<Message, MessageFilter, MessageInsert, MessageUpdate> {
@@ -224,15 +243,11 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
     options: QueryOptions = {},
     filters: InboxFilters = {},
   ): Promise<PaginatedResult<Message>> {
-    const { search, isRead, priority, channel } = filters;
     const filter: Partial<MessageFilter> = {
       isActive: true,
       threadId: null, // SQL-level IS NULL — root messages only
       messageType,
-      ...(search ? { search } : {}),
-      ...(isRead !== undefined ? { isRead } : {}),
-      ...(priority ? { priority } : {}),
-      ...(channel ? { channel } : {}),
+      ...inboxFilterFields(filters),
     };
     // `includeTotal` so the tab carries its own server-side count — the
     // Announcements / Conversations tabs are filtered server-side precisely so
@@ -257,14 +272,16 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
    * a divergence here is a cross-user read, not just a stale page.
    */
   private inboxCacheKey(orgId: string, view: 'announcements' | 'conversations', o: QueryOptions, f: InboxFilters): string {
-    const viewer = view === 'conversations' ? currentViewerUserId() ?? '' : '';
+    // `sentBy: 'me'` makes ANY view viewer-specific (it reads `created_by`), so
+    // an announcements page filtered to "sent by me" needs the segment too.
+    const viewer = view === 'conversations' || f.sentBy === 'me' ? currentViewerUserId() ?? '' : '';
     // Every filter is its own segment (absent ⇒ empty, the unfiltered page).
     // Read state is per-org, and markAsRead invalidates the reader's `${orgId}:*`
     // keys, so an "unread" page can't outlive the read that emptied it.
     // `search` is the LAST segment so a term containing ':' can't alias another
     // key (priority/channel are schema-constrained to [a-z0-9_-]).
     const readSeg = f.isRead === undefined ? '' : String(f.isRead);
-    return `${orgId}:${view}:${viewer}:${o.limit ?? ''}:${o.offset ?? ''}:${o.sortBy ?? ''}:${o.sortOrder ?? ''}:${readSeg}:${f.priority ?? ''}:${f.channel ?? ''}:${f.search ?? ''}`;
+    return `${orgId}:${view}:${viewer}:${o.limit ?? ''}:${o.offset ?? ''}:${o.sortBy ?? ''}:${o.sortOrder ?? ''}:${readSeg}:${f.priority ?? ''}:${f.channel ?? ''}:${f.sentBy ?? ''}:${f.search ?? ''}`;
   }
 
   /**
@@ -319,25 +336,27 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
    * @param messageType - The tab (inbox / sent / announcements / all)
    * @param orgId - The viewing org: scopes access AND identifies whose inbox
    * @param userId - Who did it (for `updatedBy`)
-   * @param filters - The active list filters (read state, priority, channel, search)
+   * An `ids` selection (the inbox's checkboxes) narrows the same predicate
+   * further — it is never a separate code path, so a selected id the viewer
+   * can't see, or one outside the active filters, is simply not matched.
+   *
+   * @param filters - The active list filters (read state, priority, channel,
+   *   sender, search) plus an optional explicit `ids` selection
    * @returns How many messages were removed from this org's view
    */
   async hideFromInbox(
     messageType: 'announcement' | 'conversation' | undefined,
     orgId: string,
     userId: string,
-    filters: InboxFilters = {},
+    filters: HideScope = {},
   ): Promise<number> {
-    const { search, isRead, priority, channel } = filters;
     const filter: Partial<MessageFilter> = {
       isActive: true,
       threadId: null,
       // Undefined = the "all" tab: both kinds, which is what the list does too.
       ...(messageType ? { messageType } : {}),
-      ...(search ? { search } : {}),
-      ...(isRead !== undefined ? { isRead } : {}),
-      ...(priority ? { priority } : {}),
-      ...(channel ? { channel } : {}),
+      ...inboxFilterFields(filters),
+      ...(filters.ids ? { ids: filters.ids } : {}),
     };
     const now = new Date().toISOString();
     const updated = await withTenantTx(async (tx) => tx

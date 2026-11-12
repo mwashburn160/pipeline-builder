@@ -56,6 +56,14 @@ export type MessageType = (typeof MESSAGE_TYPES)[number];
 export const MESSAGE_PRIORITIES = ['normal', 'high', 'urgent'] as const;
 export type MessagePriority = (typeof MESSAGE_PRIORITIES)[number];
 
+/**
+ * Who SENT a root message, relative to the viewer: `me` (the viewing user
+ * authored it), `org` (the viewing org sent it — any member), `others` (it
+ * arrived from another org, announcements included).
+ */
+export const MESSAGE_SENT_BY = ['me', 'org', 'others'] as const;
+export type MessageSentBy = (typeof MESSAGE_SENT_BY)[number];
+
 // -----------------------------------------------------------------------------
 // Billing
 // -----------------------------------------------------------------------------

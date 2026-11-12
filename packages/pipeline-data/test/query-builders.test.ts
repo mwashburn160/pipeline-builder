@@ -259,6 +259,56 @@ describe('buildMessageConditions', () => {
     expect(emptyIdConditions.length).toBe(withId.length);
   });
 
+  describe('explicit `ids` selection', () => {
+    const dialect = new PgDialect();
+    const render = (f: Parameters<typeof buildMessageConditions>[0]) =>
+      dialect.sqlToQuery(and(...buildMessageConditions(f, 'org-1'))!);
+
+    it('matches EVERY named id (not just the first, unlike `id`)', () => {
+      const q = render({ ids: ['a', 'b', 'c'] });
+      expect(q.sql).toMatch(/"id" in \(\$\d+, \$\d+, \$\d+\)/);
+      expect(q.params).toEqual(expect.arrayContaining(['a', 'b', 'c']));
+    });
+
+    it('is AND-ed onto the visibility scope, so it can only narrow', () => {
+      const scoped = buildMessageConditions({ ids: ['a'] }, 'org-1');
+      expect(scoped.length).toBe(buildMessageConditions({}, 'org-1').length + 1);
+      // The org pin is still there alongside the id list.
+      expect(render({ ids: ['a'] }).params).toEqual(expect.arrayContaining(['org-1', 'a']));
+    });
+
+    it('an EMPTY list matches nothing rather than dropping the filter', () => {
+      expect(render({ ids: [] }).sql).toContain('false');
+    });
+  });
+
+  describe('`sentBy`', () => {
+    const dialect = new PgDialect();
+    const render = (f: Parameters<typeof buildMessageConditions>[0]) =>
+      dialect.sqlToQuery(and(...buildMessageConditions(f, 'ORG-1'))!);
+
+    it("'me' pins created_by to the viewer", () => {
+      const q = render({ sentBy: 'me', viewerUserId: 'user-7' });
+      expect(q.sql).toMatch(/"created_by" = \$\d+/);
+      expect(q.params).toContain('user-7');
+    });
+
+    it("'me' with no viewer fails CLOSED (matches nothing)", () => {
+      const q = render({ sentBy: 'me' });
+      expect(q.sql).not.toContain('"created_by"');
+      expect(q.sql).toContain('false');
+    });
+
+    it("'org' / 'others' compare the sender org against the (lowercased) viewer org", () => {
+      const own = render({ sentBy: 'org' });
+      const others = render({ sentBy: 'others' });
+      expect(own.sql).toMatch(/"org_id" = \$\d+\)?$/);
+      expect(others.sql).toMatch(/"org_id" <> \$\d+/);
+      expect(others.params).toContain('org-1');
+      expect(others.params).not.toContain('ORG-1');
+    });
+  });
+
   it('normalizes orgId to lowercase', () => {
     // Should not throw even with uppercase orgId
     const conditions = buildMessageConditions({}, 'ORG-1');

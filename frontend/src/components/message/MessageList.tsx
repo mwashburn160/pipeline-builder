@@ -2,6 +2,7 @@ import { Megaphone, MessageCircle, Trash2, User } from 'lucide-react';
 import { formatRelativeTime } from '@/lib/relative-time';
 import { SYSTEM_ORG_ID } from '@/lib/constants';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { Checkbox } from '@/components/ui/Checkbox';
 import type { Message, SupportCaseSummary } from '@/types';
 
 /** Props for the MessageList component. */
@@ -109,6 +110,13 @@ interface MessageListProps {
    * and poisoned the first-response metric). Those rows simply show no case chip.
    */
   casesByThread?: Record<string, SupportCaseSummary>;
+  /**
+   * Rows ticked for a bulk action. Rendering a checkbox per row is opt-in:
+   * absent (with `onToggleSelect`) = no checkboxes, as before.
+   */
+  selectedIds?: ReadonlySet<string>;
+  /** Tick / untick one row. Never opens the message. */
+  onToggleSelect?: (id: string) => void;
   /** Empty-state title override (e.g. "No results" when a search is active). */
   emptyTitle?: string;
   /** Empty-state description override. */
@@ -157,7 +165,7 @@ function getAvatarLetters(name: string): string {
 }
 
 /** Scrollable inbox list displaying message previews with unread indicators. */
-export function MessageList({ messages, onSelect, selectedId, currentOrgId, resolveOrgName, onDelete, canDelete, hasMore, loadingMore, onLoadMore, casesByThread, emptyTitle, emptyDescription }: MessageListProps) {
+export function MessageList({ messages, onSelect, selectedId, currentOrgId, resolveOrgName, onDelete, canDelete, hasMore, loadingMore, onLoadMore, casesByThread, selectedIds, onToggleSelect, emptyTitle, emptyDescription }: MessageListProps) {
   if (messages.length === 0) {
     return (
       <div className="flex-1 flex items-center justify-center">
@@ -177,6 +185,7 @@ export function MessageList({ messages, onSelect, selectedId, currentOrgId, reso
         const displayName = getDisplayName(msg, currentOrgId, resolveOrgName);
         const isAnnouncement = msg.messageType === 'announcement';
         const isSelected = selectedId === msg.id;
+        const isTicked = selectedIds?.has(msg.id) ?? false;
 
         return (
           <div
@@ -185,7 +194,7 @@ export function MessageList({ messages, onSelect, selectedId, currentOrgId, reso
             tabIndex={0}
             aria-current={isSelected ? 'true' : undefined}
             className={`group relative w-full text-left px-3 py-3 flex items-center gap-3 transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--pb-ring)] focus-visible:ring-inset ${
-              isSelected
+              isSelected || isTicked
                 ? 'bg-info-bg'
                 : 'hover:bg-surface-muted'
             }`}
@@ -194,6 +203,19 @@ export function MessageList({ messages, onSelect, selectedId, currentOrgId, reso
               if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(msg); }
             }}
           >
+            {/* Bulk-selection checkbox. Its clicks and keys stop here so ticking
+                a row never opens it (the row itself is a button). */}
+            {onToggleSelect && (
+              <Checkbox
+                className="flex-shrink-0"
+                checked={isTicked}
+                onChange={() => onToggleSelect(msg.id)}
+                onClick={(e) => e.stopPropagation()}
+                onKeyDown={(e) => e.stopPropagation()}
+                aria-label={`Select message: ${msg.subject || displayName}`}
+              />
+            )}
+
             {/* Avatar */}
             <div
               className={`w-10 h-10 rounded-full flex-shrink-0 flex items-center justify-center text-sm font-semibold relative ${

@@ -30,6 +30,7 @@ export {
   isAllowedAttachmentType,
   MessageTypeSchema,
   MessagePrioritySchema,
+  MessageSentBySchema,
   MessageFilterSchema,
   MESSAGE_ATTACHMENT_MAX_BYTES,
   MESSAGE_ATTACHMENT_ALLOWED_MIME,
@@ -37,6 +38,7 @@ export {
   MessageReplySchema,
   MessageEditSchema,
   MessageHideSchema,
+  MESSAGE_HIDE_MAX_IDS,
 } from './message-schemas.js';
 export * from './ai-schemas.js';
 export {

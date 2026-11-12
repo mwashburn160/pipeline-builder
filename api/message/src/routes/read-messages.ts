@@ -24,12 +24,13 @@ import { attachmentService } from '../services/attachment-service.js';
 import { messageService, type InboxFilters } from '../services/message-service.js';
 
 /** The tab-view filters from a validated query — absent keys stay absent. */
-function inboxFiltersOf(v: { search?: string; isRead?: boolean; priority?: InboxFilters['priority']; channel?: string }): InboxFilters {
+function inboxFiltersOf(v: { search?: string; isRead?: boolean; priority?: InboxFilters['priority']; channel?: string; sentBy?: InboxFilters['sentBy'] }): InboxFilters {
   return {
     ...(v.search && { search: v.search }),
     ...(v.isRead !== undefined && { isRead: v.isRead }),
     ...(v.priority && { priority: v.priority }),
     ...(v.channel && { channel: v.channel }),
+    ...(v.sentBy && { sentBy: v.sentBy }),
   };
 }
 
@@ -78,7 +79,7 @@ export function createReadMessageRoutes(): Router {
     if (!validation.ok) {
       return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
     }
-    const { messageType, priority, channel, isRead, threadId, search } = validation.value;
+    const { messageType, priority, channel, isRead, sentBy, threadId, search } = validation.value;
 
     ctx.log('INFO', 'Fetching messages inbox', { orgId, messageType, channel, isRead, search: search ? '(set)' : undefined });
 
@@ -96,6 +97,7 @@ export function createReadMessageRoutes(): Router {
       ...(priority && { priority }),
       ...(channel && { channel }),
       ...(isRead !== undefined && { isRead }),
+      ...(sentBy && { sentBy }),
       ...(search && { search }),
     };
 
@@ -126,7 +128,7 @@ export function createReadMessageRoutes(): Router {
   // can never fetch/cache an unbounded set).
   //
   // This is the endpoint the UI's "Announcements" tab drives. It accepts the same
-  // `search` / `isRead` / `priority` / `channel` filters the `/` inbox does, so a
+  // `search` / `isRead` / `priority` / `channel` / `sentBy` filters the `/` inbox does, so a
   // tab is filtered SERVER-side over the whole corpus (with its own
   // `total`/`hasMore`) instead of client-side over whichever inbox pages
   // happened to be loaded.

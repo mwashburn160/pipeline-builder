@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { SYSTEM_ORG_ID, type Lifecycle } from '@pipeline-builder/api-core';
-import { and, asc, desc, eq, ilike, isNull, not, or, gte, lte, sql, SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, ilike, inArray, isNull, ne, not, or, gte, lte, sql, SQL } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
 import {
   AccessControlQueryBuilder,
@@ -435,6 +435,24 @@ export function buildMessageConditions(
   // ID filter
   if (filter.id !== undefined) {
     conditions.push(idEquals(schema.message.id, filter.id));
+  }
+
+  // Explicit selection. An EMPTY list matches nothing (never "no filter"), so a
+  // caller that lost its selection can't turn a bulk action into "everything".
+  if (filter.ids !== undefined) {
+    conditions.push(filter.ids.length > 0 ? inArray(schema.message.id, [...filter.ids]) : IMPOSSIBLE);
+  }
+
+  // Sender, relative to the viewer. `org_id` is stored lowercase (see the
+  // visibility branch above), `created_by` is the raw user id.
+  if (filter.sentBy !== undefined) {
+    if (filter.sentBy === 'me') {
+      conditions.push(filter.viewerUserId ? eq(schema.message.createdBy, filter.viewerUserId) : IMPOSSIBLE);
+    } else if (filter.sentBy === 'org') {
+      conditions.push(eq(schema.message.orgId, normalizedOrgId));
+    } else {
+      conditions.push(ne(schema.message.orgId, normalizedOrgId));
+    }
   }
 
   // Free-text inbox search — case-insensitive substring over subject OR content.

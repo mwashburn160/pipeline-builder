@@ -3,7 +3,7 @@
 
 import { z } from 'zod';
 import { BaseFilterSchema, BooleanQuerySchema } from './common-schemas.js';
-import { MESSAGE_PRIORITIES, MESSAGE_TYPES } from '../types/wire-vocabulary.js';
+import { MESSAGE_PRIORITIES, MESSAGE_SENT_BY, MESSAGE_TYPES } from '../types/wire-vocabulary.js';
 import { envInt } from '../utils/env.js';
 
 /**
@@ -15,6 +15,11 @@ export const MessageTypeSchema = z.enum(MESSAGE_TYPES);
  * Message priority schema
  */
 export const MessagePrioritySchema = z.enum(MESSAGE_PRIORITIES);
+
+/**
+ * Sender filter, relative to the viewer (see `MESSAGE_SENT_BY`).
+ */
+export const MessageSentBySchema = z.enum(MESSAGE_SENT_BY);
 
 /**
  * Channel/inbox-bucket schema. Open-ended string up to 50 chars so we
@@ -45,6 +50,7 @@ export const MessageFilterSchema = BaseFilterSchema.extend({
   isRead: BooleanQuerySchema.optional(),
   priority: MessagePrioritySchema.optional(),
   channel: MessageChannelSchema.optional(),
+  sentBy: MessageSentBySchema.optional(),
   // Free-text inbox search over subject/content. Bounded so a pathological term
   // can't blow up the LIKE; the query builder escapes wildcards + ignores blanks.
   search: z.string().trim().min(1).max(200).optional(),
@@ -169,18 +175,27 @@ export const MessageEditSchema = z.object({
   content: z.string().min(1, 'Content is required').max(MESSAGE_CONTENT_MAX, `Content must be at most ${MESSAGE_CONTENT_MAX} characters`),
 });
 
+/** Most rows one explicit-selection hide may name (one page of checkboxes is 25). */
+export const MESSAGE_HIDE_MAX_IDS = 200;
+
 /**
- * Bulk "remove from my inbox", scoped by the SAME filters the list takes.
+ * Bulk "remove from my inbox", scoped by the SAME filters the list takes —
+ * optionally narrowed further to an explicit `ids` selection (the inbox's
+ * checkboxes).
  *
  * Every field is optional and every one NARROWS: an empty body means "the whole
- * tab". There is deliberately no `orgId` and no id list — the org comes from the
- * authenticated route, and letting a body name rows would turn a per-viewer
- * action into a way to address somebody else's.
+ * tab". There is deliberately no `orgId` — the org comes from the authenticated
+ * route. `ids` cannot widen anything either: it is AND-ed with the same
+ * visibility conditions the list uses, so naming a row the caller cannot see
+ * simply matches nothing, and the write only ever stamps the caller's OWN
+ * `hiddenBy[orgId]`.
  */
 export const MessageHideSchema = z.object({
+  ids: z.array(z.string().uuid()).min(1).max(MESSAGE_HIDE_MAX_IDS).optional(),
   messageType: z.enum(['announcement', 'conversation']).optional(),
   isRead: z.boolean().optional(),
   priority: z.enum(['normal', 'high', 'urgent']).optional(),
   channel: z.string().max(64).optional(),
+  sentBy: MessageSentBySchema.optional(),
   search: z.string().max(200).optional(),
 });

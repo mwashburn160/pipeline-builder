@@ -258,6 +258,22 @@ describe('POST /messages/hide — remove from this org\'s inbox', () => {
     );
   });
 
+  it('forwards an explicit checkbox selection and the sender filter', async () => {
+    mockHideFromInbox.mockResolvedValue(2);
+    mockGetUnreadCount.mockResolvedValue(0);
+
+    const ids = ['00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000002'];
+    const req = mockReq({ body: { ids, sentBy: 'others' } });
+    const res = mockRes();
+    await handler(req, res);
+
+    expect(mockHideFromInbox).toHaveBeenCalledWith(undefined, 'org-1', expect.any(String), { ids, sentBy: 'others' });
+    // The trail records HOW MANY were named, never which.
+    const row = mockAuditRecord.mock.calls[0][0] as { details: Record<string, unknown> };
+    expect(row.details).toMatchObject({ count: 2, selected: 2, sentBy: 'others' });
+    expect(JSON.stringify(row.details)).not.toContain(ids[0]);
+  });
+
   it('audits ONCE with the count and scope, and never the search TEXT', async () => {
     mockHideFromInbox.mockResolvedValue(400);
     mockGetUnreadCount.mockResolvedValue(0);

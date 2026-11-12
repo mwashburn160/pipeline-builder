@@ -24,9 +24,12 @@ import { useAuth } from '@/hooks/useAuth';
 import { useFeatures } from '@/hooks/useFeatures';
 import { MessageBadge } from '@/components/message/MessageBadge';
 import { LiveStatusIndicator } from '@/components/message/LiveStatusIndicator';
+import { MessageBulkBar } from '@/components/message/MessageBulkBar';
 import api from '@/lib/api';
 import { aliasLocalPart } from '@/lib/support-label';
 import { SYSTEM_ORG_ID, formatError } from '@/lib/constants';
+import { withStepUpResume } from '@/lib/api/errors';
+import type { MessageSentBy } from '@pipeline-builder/api-core';
 import type { Message, MessagePriority, SupportCaseSummary } from '@/types';
 import type { MemberOption } from '@/components/message/RecipientPicker';
 
@@ -66,6 +69,17 @@ type ReadFilter = '' | 'unread' | 'read';
 type PriorityFilter = '' | MessagePriority;
 /** Known channels (open-ended server-side; `support` is the one the product sends). */
 type ChannelFilter = '' | 'support';
+/** Sender relative to the viewer: me / my org (any member) / another org. */
+type SentByFilter = '' | MessageSentBy;
+
+/**
+ * What a confirmed remove-from-inbox acts on: the ticked rows, or EVERY
+ * message the active tab + filters + search match on the server.
+ */
+type RemoveScope = { kind: 'ids'; ids: string[] } | { kind: 'matching'; count: number };
+
+/** Most ids `POST /messages/hide` takes per call (mirrors api-core's `MESSAGE_HIDE_MAX_IDS`). */
+const MESSAGE_HIDE_MAX_IDS = 200;
 
 /** Query-string key of the message deep link: `/dashboard/messages?message=<id>`. */
 export const MESSAGE_QUERY_KEY = 'message';
@@ -115,12 +129,14 @@ export default function MessagesPage() {
   const [readFilter, setReadFilter] = useState<ReadFilter>('');
   const [priorityFilter, setPriorityFilter] = useState<PriorityFilter>('');
   const [channelFilter, setChannelFilter] = useState<ChannelFilter>('');
+  const [sentByFilter, setSentByFilter] = useState<SentByFilter>('');
   const listFilters = useMemo<MessageFilters>(() => ({
     ...(readFilter ? { isRead: readFilter === 'read' } : {}),
     ...(priorityFilter ? { priority: priorityFilter } : {}),
     ...(channelFilter ? { channel: channelFilter } : {}),
-  }), [readFilter, priorityFilter, channelFilter]);
-  const filtersActive = !!(readFilter || priorityFilter || channelFilter);
+    ...(sentByFilter ? { sentBy: sentByFilter } : {}),
+  }), [readFilter, priorityFilter, channelFilter, sentByFilter]);
+  const filtersActive = !!(readFilter || priorityFilter || channelFilter || sentByFilter);
   const {
     messages,
     loading,
@@ -266,33 +282,126 @@ export default function MessagesPage() {
 
   const toast = useToast();
   const del = useDelete<string>(handleDelete);
-  // Bulk remove-from-inbox. Its own confirm rather than `useDelete`, which keys
-  // on a target id — this one acts on a FILTER, not a row.
-  const [confirmHide, setConfirmHide] = useState(false);
+
+  // ── Bulk selection ────────────────────────────────────────────────────────
+  // Ticked row ids, plus whether the person escalated to "all N matching" (the
+  // server-side set, loaded or not). Both reset whenever the query changes: a
+  // selection made under one tab/filter must never be acted on under another.
+  const [ticked, setTicked] = useState<ReadonlySet<string>>(() => new Set());
+  const [allMatching, setAllMatching] = useState(false);
+  const clearSelection = useCallback(() => { setTicked(new Set()); setAllMatching(false); }, []);
+  useEffect(() => { clearSelection(); }, [clearSelection, messageFilter, listFilters, debouncedSearch]);
+  // Only rows still on screen count — SSE deletes and refetches drop rows
+  // without touching the selection state.
+  const selectedMessages = useMemo(() => messages.filter((m) => ticked.has(m.id)), [messages, ticked]);
+  const selectedIds = useMemo(() => new Set(selectedMessages.map((m) => m.id)), [selectedMessages]);
+  const toggleTicked = useCallback((id: string) => {
+    setAllMatching(false);
+    setTicked((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }, []);
+  const toggleAllLoaded = useCallback(() => {
+    if (allMatching || (selectedIds.size > 0 && selectedIds.size === messages.length)) clearSelection();
+    else setTicked(new Set(messages.map((m) => m.id)));
+  }, [allMatching, selectedIds.size, messages, clearSelection]);
+  // Loading another page while "all matching" is on keeps everything ticked.
+  useEffect(() => {
+    if (allMatching) setTicked(new Set(messages.map((m) => m.id)));
+  }, [allMatching, messages]);
+
+  /** The list's active filters as the hide route takes them (`'all'` sends no type). */
+  const activeHideFilters = useMemo(() => ({
+    ...(messageFilter === 'conversations' ? { messageType: 'conversation' as const } : {}),
+    ...(messageFilter === 'announcements' ? { messageType: 'announcement' as const } : {}),
+    ...(readFilter ? { isRead: readFilter === 'read' } : {}),
+    ...(priorityFilter ? { priority: priorityFilter } : {}),
+    ...(channelFilter ? { channel: channelFilter } : {}),
+    ...(sentByFilter ? { sentBy: sentByFilter } : {}),
+    ...(debouncedSearch ? { search: debouncedSearch } : {}),
+  }), [messageFilter, readFilter, priorityFilter, channelFilter, sentByFilter, debouncedSearch]);
+
+  // Remove-from-inbox. Its own confirm rather than `useDelete`, which keys on a
+  // single target id — this one acts on a selection or a whole filter.
+  const [pendingRemove, setPendingRemove] = useState<RemoveScope | null>(null);
   const [hiding, setHiding] = useState(false);
-  const removeFromInbox = useCallback(async () => {
+  const removeFromInbox = useCallback(async (scope: RemoveScope) => {
     setHiding(true);
     try {
-      // The SAME filters the list is showing. `messageFilter` is the tab; 'all'
-      // sends no type, exactly as the list does.
-      const res = await api.hideMessages({
-        ...(messageFilter === 'conversations' ? { messageType: 'conversation' as const } : {}),
-        ...(messageFilter === 'announcements' ? { messageType: 'announcement' as const } : {}),
-        ...(readFilter ? { isRead: readFilter === 'read' } : {}),
-        ...(priorityFilter ? { priority: priorityFilter } : {}),
-        ...(channelFilter ? { channel: channelFilter } : {}),
-        ...(debouncedSearch ? { search: debouncedSearch } : {}),
-      });
-      const removed = res.data?.hidden ?? 0;
+      // A selection sends ONLY its ids: the rows were picked off this screen,
+      // and a filter added on top could silently skip one whose read state
+      // moved since. "All matching" sends the filters the list is showing.
+      // A selection larger than the route's per-call cap goes in chunks.
+      let removed = 0;
+      if (scope.kind === 'ids') {
+        for (let i = 0; i < scope.ids.length; i += MESSAGE_HIDE_MAX_IDS) {
+          const res = await api.hideMessages({ ids: scope.ids.slice(i, i + MESSAGE_HIDE_MAX_IDS) });
+          removed += res.data?.hidden ?? 0;
+        }
+      } else {
+        const res = await api.hideMessages(activeHideFilters);
+        removed = res.data?.hidden ?? 0;
+      }
       toast.success(`Removed ${removed} message${removed === 1 ? '' : 's'} from your inbox`);
-      setConfirmHide(false);
+      setPendingRemove(null);
+      clearSelection();
+      if (selectedMessage && (scope.kind === 'matching' || scope.ids.includes(selectedMessage.id))) {
+        setSelectedMessage(null);
+        writeMessageParam(null);
+      }
       await fetchMessages();
     } catch (err) {
       toast.error(formatError(err, 'Could not remove those messages'));
     } finally {
       setHiding(false);
     }
-  }, [messageFilter, readFilter, priorityFilter, channelFilter, debouncedSearch, fetchMessages, toast]);
+  }, [activeHideFilters, fetchMessages, toast, clearSelection, selectedMessage, writeMessageParam]);
+  const removeSelected = useCallback(() => {
+    setPendingRemove(allMatching ? { kind: 'matching', count: total ?? messages.length } : { kind: 'ids', ids: [...selectedIds] });
+  }, [allMatching, total, messages.length, selectedIds]);
+  const removeCount = pendingRemove ? (pendingRemove.kind === 'ids' ? pendingRemove.ids.length : pendingRemove.count) : 0;
+
+  // Bulk delete — the ticked rows only, and only when EVERY one is deletable by
+  // this viewer (the bar disables it otherwise). There is no bulk delete route:
+  // delete is per-row, author-only and audited per message on the server, so
+  // this runs them one at a time. `DELETE /messages/:id` is not step-up gated
+  // today (only restore/purge are); `withStepUpResume` is there so that, if it
+  // ever is, a refusal waits on the dialog instead of failing — but step-up
+  // tokens are single-use (`jti`), so a gated route would prompt PER ROW and
+  // would need a real bulk route. It STOPS at the first failure rather than
+  // ploughing on through rows that will fail the same way.
+  const [pendingBulkDelete, setPendingBulkDelete] = useState<string[] | null>(null);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const canDeleteSelected = selectedMessages.length > 0 && selectedMessages.every(canDeleteMessage);
+  const deleteSelected = useCallback(async (ids: string[]) => {
+    setBulkDeleting(true);
+    let deleted = 0;
+    let failure: unknown = null;
+    for (const id of ids) {
+      try {
+        await withStepUpResume(() => api.deleteMessage(id));
+        deleted++;
+      } catch (err) {
+        failure = err;
+        break;
+      }
+    }
+    setBulkDeleting(false);
+    setPendingBulkDelete(null);
+    clearSelection();
+    if (selectedMessage && ids.includes(selectedMessage.id)) {
+      setSelectedMessage(null);
+      writeMessageParam(null);
+    }
+    if (deleted > 0) toast.success(`Deleted ${deleted} message${deleted === 1 ? '' : 's'}`);
+    if (failure) {
+      const left = ids.length - deleted;
+      toast.error(`${formatError(failure, 'Delete failed')} — ${left} message${left === 1 ? ' was' : 's were'} not deleted`);
+    }
+    await fetchMessages();
+  }, [clearSelection, selectedMessage, writeMessageParam, toast, fetchMessages]);
   const pendingSubject = messages.find((m) => m.id === del.target)?.subject;
 
   const handleSend = useCallback(async (data: Parameters<typeof sendMessage>[0]): Promise<boolean> => {
@@ -481,25 +590,19 @@ export default function MessagesPage() {
                 <option value="">All channels</option>
                 <option value="support">Support</option>
               </FilterSelect>
+              <FilterSelect aria-label="Filter by sender" value={sentByFilter} onChange={(e) => setSentByFilter(e.target.value as SentByFilter)} className="text-xs">
+                <option value="">Sent by anyone</option>
+                <option value="me">Sent by me</option>
+                <option value="org">Sent by my org</option>
+                <option value="others">Received</option>
+              </FilterSelect>
               {filtersActive && (
                 <button
                   type="button"
-                  onClick={() => { setReadFilter(''); setPriorityFilter(''); setChannelFilter(''); }}
+                  onClick={() => { setReadFilter(''); setPriorityFilter(''); setChannelFilter(''); setSentByFilter(''); }}
                   className="text-xs font-medium text-info hover:underline"
                 >
                   Clear
-                </button>
-              )}
-              {/* Remove-from-inbox acts on exactly what the filters describe, so
-                  it sits with them. `total` is the SERVER's count for this tab +
-                  search + filters, which is what will actually be removed. */}
-              {(total ?? 0) > 0 && !isReadOnly && (
-                <button
-                  type="button"
-                  onClick={() => setConfirmHide(true)}
-                  className="ml-auto text-xs font-medium text-danger hover:underline"
-                >
-                  Remove {total ?? 0} from inbox
                 </button>
               )}
             </div>
@@ -510,6 +613,26 @@ export default function MessagesPage() {
               <div className="px-3 py-2 border-b border-default">
                 <LiveStatusIndicator paused={livePaused} />
               </div>
+            )}
+
+            {/* Selection header + bulk actions. Hidden while the list is
+                loading or errored — there is nothing on screen to act on. */}
+            {!loading && !error && (
+              <MessageBulkBar
+                loadedCount={messages.length}
+                selectedCount={selectedIds.size}
+                allMatching={allMatching}
+                total={total}
+                onToggleAllLoaded={toggleAllLoaded}
+                onSelectAllMatching={() => setAllMatching(true)}
+                onClear={clearSelection}
+                canRemove={!isReadOnly}
+                canDeleteAny={canWrite && !isReadOnly}
+                canDeleteSelected={canDeleteSelected}
+                onRemoveSelected={removeSelected}
+                onRemoveMatching={() => setPendingRemove({ kind: 'matching', count: total ?? 0 })}
+                onDelete={() => setPendingBulkDelete([...selectedIds])}
+              />
             )}
 
             {/* Message list */}
@@ -534,6 +657,8 @@ export default function MessagesPage() {
                 loadingMore={loadingMore}
                 onLoadMore={loadMore}
                 casesByThread={supportCasesQ.data ?? undefined}
+                selectedIds={selectedIds}
+                onToggleSelect={toggleTicked}
                 emptyTitle={debouncedSearch || messageFilter !== 'all' || filtersActive ? `No matching ${noun}` : undefined}
                 emptyDescription={
                   // The tab and filters are server-side, so "no announcements"
@@ -610,23 +735,33 @@ export default function MessagesPage() {
           documented non-delete sibling for a consequential action the server
           does not step-up gate (see `test/one-dialog-rule.test.ts`, which names
           the three confirmation primitives and why a fourth is not wanted). */}
-      {confirmHide && (
+      {pendingRemove && (
         <ConfirmDialog
           title="Remove from your inbox?"
           confirmLabel="Remove"
           tone="danger"
           loading={hiding}
-          onCancel={() => setConfirmHide(false)}
-          onConfirm={() => void removeFromInbox()}
+          onCancel={() => setPendingRemove(null)}
+          onConfirm={() => void removeFromInbox(pendingRemove)}
         >
           <p className="text-sm text-fg-muted mb-1">
-            Remove <strong className="text-fg">{total ?? 0} message{total === 1 ? '' : 's'}</strong> from your organization&apos;s inbox?
+            Remove <strong className="text-fg">{removeCount} {pendingRemove.kind === 'ids' ? 'selected ' : ''}message{removeCount === 1 ? '' : 's'}</strong>
+            {pendingRemove.kind === 'matching' && (filtersActive || debouncedSearch) ? ' matching the current filters' : ''} from your organization&apos;s inbox?
           </p>
           <p className="text-sm text-fg-muted">
             This clears them from your view only. Nothing is deleted — the sender keeps their copy,
             and a later reply still arrives.
           </p>
         </ConfirmDialog>
+      )}
+      {pendingBulkDelete && (
+        <DeleteConfirmModal
+          title={`Delete ${pendingBulkDelete.length} message${pendingBulkDelete.length === 1 ? '' : 's'}`}
+          itemName={`${pendingBulkDelete.length} selected message${pendingBulkDelete.length === 1 ? '' : 's'} and their replies`}
+          loading={bulkDeleting}
+          onCancel={() => setPendingBulkDelete(null)}
+          onConfirm={() => void deleteSelected(pendingBulkDelete)}
+        />
       )}
       {del.target && (
         <DeleteConfirmModal

@@ -3027,7 +3027,7 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
   ...group('message', ['PUT /messages/:id/read', 'PUT /messages/:id/thread/read', 'POST /messages/notifications/ticket', 'POST /messages/hide'], {
     category: 'same-control',
     coveredBy: 'Message reads',
-    why: 'Per-participant VIEW state, all on exactly the messages:read the page is gated on: opening a message / thread marks it read, the page mints an SSE ticket on mount, and "Remove N from inbox" stamps hiddenBy for this org. The last one writes, but what it writes is the viewer\'s own inbox — not the message — which is why it shares the read gate rather than messages:write (that one also sends cross-org and deletes other people\'s threads). It is hidden in a read-only session.',
+    why: 'Per-participant VIEW state, all on exactly the messages:read the page is gated on: opening a message / thread marks it read, the page mints an SSE ticket on mount, and the inbox bulk "Remove" (ticked rows, or "Remove all N" for the active filters) stamps hiddenBy for this org. The last one writes, but what it writes is the viewer\'s own inbox — not the message — which is why it shares the read gate rather than messages:write (that one also sends cross-org and deletes other people\'s threads). It is hidden in a read-only session.',
   }),
   ...group('billing', ['POST /billing/subscriptions/:id/addons/preview', 'POST /billing/subscriptions/:id/discounts/preview'], {
     category: 'same-control',

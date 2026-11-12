@@ -9,6 +9,8 @@ import {
   MessageFilterSchema,
   MessageCreateSchema,
   MessageReplySchema,
+  MessageHideSchema,
+  MESSAGE_HIDE_MAX_IDS,
 } from '../src/validation/message-schemas.js';
 
 describe('MessageTypeSchema', () => {
@@ -180,5 +182,35 @@ describe('MessageReplySchema', () => {
 
   it('should reject content over 32768 chars', () => {
     expect(() => MessageReplySchema.parse({ content: 'b'.repeat(32769) })).toThrow();
+  });
+});
+
+describe('MessageFilterSchema — sentBy', () => {
+  it('accepts me / org / others', () => {
+    for (const v of ['me', 'org', 'others']) {
+      expect(MessageFilterSchema.parse({ sentBy: v }).sentBy).toBe(v);
+    }
+  });
+
+  it('rejects anything else', () => {
+    expect(MessageFilterSchema.safeParse({ sentBy: 'user-1' }).success).toBe(false);
+  });
+});
+
+describe('MessageHideSchema', () => {
+  const id = '00000000-0000-4000-8000-000000000001';
+
+  it('accepts an explicit id selection alongside the filters', () => {
+    const v = MessageHideSchema.parse({ ids: [id], sentBy: 'others', isRead: true });
+    expect(v).toEqual({ ids: [id], sentBy: 'others', isRead: true });
+  });
+
+  it('rejects an EMPTY selection — "nothing ticked" must not mean "everything"', () => {
+    expect(MessageHideSchema.safeParse({ ids: [] }).success).toBe(false);
+  });
+
+  it('rejects non-uuid ids and an over-cap selection', () => {
+    expect(MessageHideSchema.safeParse({ ids: ['not-a-uuid'] }).success).toBe(false);
+    expect(MessageHideSchema.safeParse({ ids: Array.from({ length: MESSAGE_HIDE_MAX_IDS + 1 }, () => id) }).success).toBe(false);
   });
 });

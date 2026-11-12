@@ -164,7 +164,7 @@ export function createUpdateMessageRoutes(sseManager: SSEManager): Router {
 
   /**
    * POST /messages/hide — remove every message matching the caller's current
-   * view from THIS org's inbox.
+   * view (optionally cut to an explicit `ids` selection) from THIS org's inbox.
    *
    * `messages:read`, not `:write`, and that is the deliberate part. The row it
    * writes is `hiddenBy[orgId]` — the viewer's own state, exactly like the
@@ -185,15 +185,17 @@ export function createUpdateMessageRoutes(sseManager: SSEManager): Router {
   router.post('/hide', ...createAuthenticatedWithOrgRoute(), requirePermission('messages:read'), audited('message.hide'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const validation = validateBody(req, MessageHideSchema);
     if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
-    const { messageType, isRead, priority, channel, search } = validation.value;
+    const { ids, messageType, isRead, priority, channel, sentBy, search } = validation.value;
 
-    ctx.log('INFO', 'Hiding messages from inbox', { messageType: messageType ?? 'all' });
+    ctx.log('INFO', 'Hiding messages from inbox', { messageType: messageType ?? 'all', selected: ids?.length });
 
     const hidden = await messageService.hideFromInbox(messageType, orgId, userId, {
+      ...(ids ? { ids } : {}),
       ...(search ? { search } : {}),
       ...(isRead !== undefined ? { isRead } : {}),
       ...(priority ? { priority } : {}),
       ...(channel ? { channel } : {}),
+      ...(sentBy ? { sentBy } : {}),
     });
 
     recordAudit({
@@ -209,6 +211,9 @@ export function createUpdateMessageRoutes(sseManager: SSEManager): Router {
         ...(isRead !== undefined ? { isRead } : {}),
         ...(priority ? { priority } : {}),
         ...(channel ? { channel } : {}),
+        ...(sentBy ? { sentBy } : {}),
+        // How many rows were NAMED, not which: a selection is the scope.
+        ...(ids ? { selected: ids.length } : {}),
         searched: !!search,
       },
     });
