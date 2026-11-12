@@ -1,5 +1,6 @@
 {
   "name": "frontend",
+  "description": "Pipeline Builder web UI.",
   "scripts": {
     "build": "pnpm dlx projen build",
     "compile": "pnpm dlx projen compile",

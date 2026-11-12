@@ -1,5 +1,6 @@
 {
   "name": "billing",
+  "description": "Pipeline Builder billing service — subscriptions, usage metering, and Stripe/marketplace billing.",
   "scripts": {
     "build": "pnpm dlx projen build",
     "compile": "pnpm dlx projen compile",

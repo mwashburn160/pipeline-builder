@@ -1,5 +1,6 @@
 {
   "name": "reporting",
+  "description": "Pipeline Builder reporting service — dashboards, metrics, and reporting.",
   "scripts": {
     "build": "pnpm dlx projen build",
     "compile": "pnpm dlx projen compile",

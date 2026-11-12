@@ -1,6 +1,6 @@
 {
   "name": "@pipeline-builder/ai-core",
-  "description": "Shared AI provider registry for Pipeline Builder: lazily initialized SDK wrappers for Anthropic, OpenAI, Google, xAI, and Bedrock used by AI-assisted pipeline and plugin generation.",
+  "description": "One AI provider registry for Pipeline Builder — Anthropic, OpenAI, Google, xAI and Bedrock.",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/mwashburn160/pipeline-builder.git"

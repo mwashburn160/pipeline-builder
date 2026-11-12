@@ -1,6 +1,6 @@
 {
   "name": "@pipeline-builder/pipeline-manager",
-  "description": "CLI for Pipeline Builder  a platform for deploying and running software factories on AWS: secure delivery pipelines, 125 signed containerized plugins, supply-chain controls, per-org compliance enforcement, and per-organization (and team) isolation.",
+  "description": "CLI for Pipeline Builder — deploy and run software factories on AWS.",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/mwashburn160/pipeline-builder.git"

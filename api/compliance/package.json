@@ -1,5 +1,6 @@
 {
   "name": "compliance",
+  "description": "Pipeline Builder compliance service — policy rules, plugin/pipeline validation, exemptions, and scans.",
   "scripts": {
     "build": "pnpm dlx projen build",
     "compile": "pnpm dlx projen compile",

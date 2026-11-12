@@ -344,7 +344,23 @@ const IMAGE_DESCRIPTIONS: Record<string, string> = {
   reporting: 'Pipeline Builder reporting service — dashboards, metrics, and reporting.',
   compliance: 'Pipeline Builder compliance service — policy rules, plugin/pipeline validation, exemptions, and scans.',
   'image-registry': 'Pipeline Builder image-registry service — Docker registry token authorization for plugin images.',
+  ask: 'Pipeline Builder ask service — the documentation-grounded assistant and its proposal agent.',
 };
+
+/**
+ * Give an image project its `package.json` description from the SAME map the
+ * OCI annotation uses.
+ *
+ * The services, platform and frontend had no description at all — so `npm pkg
+ * get description` was empty for eleven of the twenty projects while their
+ * registry pages carried a perfectly good one. Reading both from
+ * {@link IMAGE_DESCRIPTIONS} means a service is described once; writing them
+ * separately is how the two would drift.
+ */
+function addImageDescription(project: { package: { addField: (k: string, v: unknown) => void } }, name: string): void {
+  const description = IMAGE_DESCRIPTIONS[name];
+  if (description) project.package.addField('description', description);
+}
 
 /**
  * Projects shipped as Docker images / published to npm. Filled as the projects
@@ -582,7 +598,7 @@ apiCore.package.addField('typesVersions', {
 // Test helpers are workspace-only: `pnpm deploy --prod` (every service image)
 // packs by the npmignore, so this keeps lib/testing out of production.
 apiCore.addPackageIgnore('/lib/testing/');
-addPackageMetadata(apiCore, 'Core server-side utilities (auth middleware, response helpers, error codes, quota service, HTTP client, logging, AI provider catalog) shared by every Pipeline Builder backend service.');
+addPackageMetadata(apiCore, 'Auth, permissions, responses and quota helpers shared by every Pipeline Builder service.');
 
 // -- Pipeline Data --
 const pipelineData = new PackageProject({
@@ -596,7 +612,7 @@ const pipelineData = new PackageProject({
 });
 pipelineData.eslint?.addRules(rules);
 publishToNpm(pipelineData);
-addPackageMetadata(pipelineData, 'Database layer for Pipeline Builder: Drizzle ORM schemas, connection management, query builders, and the generic CrudService base class with per-organization (and team) access control.');
+addPackageMetadata(pipelineData, 'Drizzle ORM schemas and organization-scoped data access for Pipeline Builder.');
 
 // -- Pipeline Core --
 const pipelineCore = new PackageProject({
@@ -655,7 +671,7 @@ pipelineCore.package.addField('typesVersions', {
     template: ['lib/template/tokenizer.d.ts'],
   },
 });
-addPackageMetadata(pipelineCore, 'AWS CDK construct library for Pipeline Builder: the Builder construct that assembles plugin specs into a CodePipeline stack, PluginLookup custom resource, pipeline/plugin domain types, and shared configuration.');
+addPackageMetadata(pipelineCore, 'AWS CDK constructs that turn a Pipeline Builder spec into a CodePipeline stack.');
 if (pipelineCore.jest) pipelineCore.jest.config.maxWorkers = 1;
 // Ship the PluginLookup Lambda READY TO RUN.
 //
@@ -717,7 +733,7 @@ const apiServer = new PackageProject({
 });
 apiServer.eslint?.addRules({...rules, 'import/no-unresolved': 'off' });
 publishToNpm(apiServer);
-addPackageMetadata(apiServer, 'Express server infrastructure for Pipeline Builder: app factory, middleware (CORS, Helmet, rate limiting, idempotency, ETag), request context, route wrappers, health-check helpers, and SSE support.');
+addPackageMetadata(apiServer, 'Express app factory, middleware and route wrappers for Pipeline Builder services.');
 if (apiServer.jest) apiServer.jest.config.maxWorkers = 1;
 
 // -- AI Core --
@@ -744,7 +760,7 @@ aiCore.eslint?.addRules(rules);
 // of pipeline-manager can't resolve `@pipeline-builder/ai-core@<version>`.
 // publishToNpm registers it with the release workflow.
 publishToNpm(aiCore);
-addPackageMetadata(aiCore, 'Shared AI provider registry for Pipeline Builder: lazily initialized SDK wrappers for Anthropic, OpenAI, Google, xAI, and Bedrock used by AI-assisted pipeline and plugin generation.');
+addPackageMetadata(aiCore, 'One AI provider registry for Pipeline Builder — Anthropic, OpenAI, Google, xAI and Bedrock.');
 
 // -- Pipeline Events (CodePipeline → Reporting Lambda) --
 const pipelineEvents = new PackageProject({
@@ -789,7 +805,7 @@ if (pipelineEvents.jest) {
 // uploads (see commands/setup-events.ts), so it must be on the registry and
 // version-synced; publishToNpm registers it with the release workflow.
 publishToNpm(pipelineEvents);
-addPackageMetadata(pipelineEvents, 'AWS Lambda handler for Pipeline Builder that ingests CodePipeline state-change events from EventBridge and forwards normalized payloads to the reporting service.');
+addPackageMetadata(pipelineEvents, 'Lambda that forwards CodePipeline state changes to Pipeline Builder reporting.');
 
 // =============================================================================
 // Pipeline Manager CLI
@@ -823,7 +839,7 @@ const manager = new ManagerProject({
 });
 manager.eslint?.addRules({...rules, '@typescript-eslint/no-shadow': 'off' });
 publishToNpm(manager);
-addPackageMetadata(manager, 'CLI for Pipeline Builder  a platform for deploying and running software factories on AWS: secure delivery pipelines, 125 signed containerized plugins, supply-chain controls, per-org compliance enforcement, and per-organization (and team) isolation.');
+addPackageMetadata(manager, 'CLI for Pipeline Builder — deploy and run software factories on AWS.');
 manager.addPackageIgnore('/dist/js/');
 // `infra store-token --schedule` uploads the token-renew handler as the ONE file
 // in its Lambda zip, so the build bundles it (shared platform-credential code).
@@ -908,6 +924,7 @@ const platform = new FunctionProject({
 });
 platform.postCompileTask.exec('copyfiles -f ./src/utils/email-templates/*.html lib/utils/email-templates/ --verbose --error');
 platform.addScripts(dockerScripts('platform'));
+addImageDescription(platform, 'platform');
 platform.eslint?.addRules(rules);
 
 // =============================================================================
@@ -1145,6 +1162,7 @@ if (frontend.jest) {
   frontend.jest.config.setupFilesAfterEnv = ['<rootDir>/test/jest.setup.ts', '<rootDir>/../jest-env-guard.js'];
 }
 frontend.addScripts(dockerScripts('frontend'));
+addImageDescription(frontend, 'frontend');
 // Override the shared `start`: the api-services variant preloads
 // `@pipeline-builder/api-server/lib/otel-bootstrap.js` and runs `lib/index.js`,
 // neither of which exists for a Next app — the image runs the standalone
@@ -1283,6 +1301,7 @@ for (const svc of services) {
     devDeps: [...commonServiceDevDeps,...(svc.devDeps ?? [])],
   });
   const scripts = dockerScripts(svc.name);
+  addImageDescription(project, svc.name);
   if (svc.name === 'ask') {
     // The ask image bundles the docs grounding corpus. buildx's context is the
     // service dir, so stage the repo's docs/ into ./docs before the build (the

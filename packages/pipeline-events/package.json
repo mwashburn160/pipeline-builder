@@ -1,6 +1,6 @@
 {
   "name": "@pipeline-builder/pipeline-events",
-  "description": "AWS Lambda handler for Pipeline Builder that ingests CodePipeline state-change events from EventBridge and forwards normalized payloads to the reporting service.",
+  "description": "Lambda that forwards CodePipeline state changes to Pipeline Builder reporting.",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/mwashburn160/pipeline-builder.git"

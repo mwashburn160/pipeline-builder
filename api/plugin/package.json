@@ -1,5 +1,6 @@
 {
   "name": "plugin",
+  "description": "Pipeline Builder plugin service — plugin upload, BuildKit image builds, and registry publishing.",
   "scripts": {
     "build": "pnpm dlx projen build",
     "compile": "pnpm dlx projen compile",

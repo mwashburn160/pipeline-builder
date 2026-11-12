@@ -1,5 +1,6 @@
 {
   "name": "image-registry",
+  "description": "Pipeline Builder image-registry service — Docker registry token authorization for plugin images.",
   "scripts": {
     "build": "pnpm dlx projen build",
     "compile": "pnpm dlx projen compile",

@@ -1,5 +1,6 @@
 {
   "name": "message",
+  "description": "Pipeline Builder message service — in-app notifications and messaging.",
   "scripts": {
     "build": "pnpm dlx projen build",
     "compile": "pnpm dlx projen compile",

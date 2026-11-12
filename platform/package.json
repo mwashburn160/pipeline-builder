@@ -1,5 +1,6 @@
 {
   "name": "platform",
+  "description": "Pipeline Builder platform service — authentication, organizations, users, and admin APIs.",
   "scripts": {
     "build": "pnpm dlx projen build",
     "compile": "pnpm dlx projen compile",

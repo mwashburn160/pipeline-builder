@@ -1,6 +1,6 @@
 {
   "name": "@pipeline-builder/api-core",
-  "description": "Core server-side utilities (auth middleware, response helpers, error codes, quota service, HTTP client, logging, AI provider catalog) shared by every Pipeline Builder backend service.",
+  "description": "Auth, permissions, responses and quota helpers shared by every Pipeline Builder service.",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/mwashburn160/pipeline-builder.git"

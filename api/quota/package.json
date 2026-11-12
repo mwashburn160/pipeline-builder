@@ -1,5 +1,6 @@
 {
   "name": "quota",
+  "description": "Pipeline Builder quota service — per-org usage quotas and metering.",
   "scripts": {
     "build": "pnpm dlx projen build",
     "compile": "pnpm dlx projen compile",

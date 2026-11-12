@@ -1,5 +1,6 @@
 {
   "name": "pipeline",
+  "description": "Pipeline Builder pipeline service — pipeline CRUD and CDK pipeline synthesis.",
   "scripts": {
     "build": "pnpm dlx projen build",
     "compile": "pnpm dlx projen compile",

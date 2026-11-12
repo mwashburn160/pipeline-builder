@@ -1,6 +1,6 @@
 {
   "name": "@pipeline-builder/pipeline-core",
-  "description": "AWS CDK construct library for Pipeline Builder: the Builder construct that assembles plugin specs into a CodePipeline stack, PluginLookup custom resource, pipeline/plugin domain types, and shared configuration.",
+  "description": "AWS CDK constructs that turn a Pipeline Builder spec into a CodePipeline stack.",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/mwashburn160/pipeline-builder.git"

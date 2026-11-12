@@ -1,6 +1,6 @@
 {
   "name": "@pipeline-builder/api-server",
-  "description": "Express server infrastructure for Pipeline Builder: app factory, middleware (CORS, Helmet, rate limiting, idempotency, ETag), request context, route wrappers, health-check helpers, and SSE support.",
+  "description": "Express app factory, middleware and route wrappers for Pipeline Builder services.",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/mwashburn160/pipeline-builder.git"
