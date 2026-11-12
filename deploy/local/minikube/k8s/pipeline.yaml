@@ -37,7 +37,7 @@ spec:
       labels:
         app: pipeline
         app.kubernetes.io/component: backend
-        version: "5.3.11"
+        version: "5.3.12"
         track: stable
       annotations:
         prometheus.io/scrape: "true"
@@ -81,7 +81,7 @@ spec:
               echo "Dependencies ready"
       containers:
         - name: pipeline
-          image: ghcr.io/mwashburn160/pipeline:5.3.11@sha256:fad28aedc683fec73af228f487cf5ebe1bde6ed3ffdbdecae97cd0664380d1ba
+          image: ghcr.io/mwashburn160/pipeline:5.3.12@sha256:56059d628f1633cbf5b0df5063d81620c70c3229ffdb3718c4ba744a5d89e8f8
           securityContext:
             runAsNonRoot: true
             runAsUser: 1000
