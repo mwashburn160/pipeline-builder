@@ -133,7 +133,13 @@ export function AccessKeyTable({
     {
       id: 'lastUsed',
       header: 'Last used',
-      render: (k) => (k.lastUsedAt ? <RelativeTime value={k.lastUsedAt} /> : <span className="text-fg-subtle">never</span>),
+      render: (k) => (k.lastUsedAt ? (
+        <div className="flex flex-col gap-0.5">
+          <RelativeTime value={k.lastUsedAt} />
+          {/* Caller-claimed, so a hint for "who still runs an old CLI", not a fact. */}
+          {k.lastClientVersion && <span className="text-xs text-fg-subtle">CLI {k.lastClientVersion}</span>}
+        </div>
+      ) : <span className="text-fg-subtle">never</span>),
     },
     {
       id: 'actions',

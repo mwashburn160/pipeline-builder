@@ -32,6 +32,7 @@ import {
   resolveUserPermissions,
 } from '@pipeline-builder/api-core/lib/types/permissions.js';
 import { REMOTE_AUDIT_ACTIONS } from '@pipeline-builder/api-core/lib/types/remote-audit-actions.js';
+import { clientVersionGate, clientVersionOf } from '@pipeline-builder/api-core/lib/middleware/client-version.js';
 import { scrubAwsIdentifiers } from '@pipeline-builder/api-core/lib/utils/aws-scrub.js';
 import {
   MockNotFoundError,
@@ -153,6 +154,9 @@ const platformDefaults = (): Record<string, unknown> => ({
   REMOTE_AUDIT_ACTIONS,
   isRemoteAuditAction: (value: string) => (REMOTE_AUDIT_ACTIONS as readonly string[]).includes(value),
   scrubAwsIdentifiers,
+  // Real: the key exchange stamps the caller's CLI version; index.ts mounts the gate.
+  clientVersionOf,
+  clientVersionGate,
   // Fine-grained RBAC helpers (faithful to api-core): superadmins hold all;
   // otherwise the resolved `permissions` claim must include it.
   userHasPermission: (req: { user?: { isSuperAdmin?: boolean; permissions?: string[] } }, perm: string) =>

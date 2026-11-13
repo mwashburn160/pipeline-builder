@@ -281,6 +281,17 @@ Every value below has a working default; none needs to be set.
 | `DEVICE_APPROVAL_GRACE_MS` | `300000` | How long an approval's step-up proof remains good for the step-up token `auth pat` collects on its next poll |
 | `DEVICE_MAX_PENDING` | `1000` | Cap on the in-memory pending-state fallback, used only when no Redis is configured |
 
+### CLI version (pipeline-manager)
+
+Every platform call from `pipeline-manager` 4.4.21+ carries `X-Pb-Client-Version`. See
+[pipeline-manager → Upgrading](pipeline-manager.md#upgrading).
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PIPELINE_MANAGER_MIN_VERSION` | *(empty: no gate)* | Oldest CLI the APIs accept. An older CLI gets `426 CLIENT_UPGRADE_REQUIRED` with "run: pipeline-manager --upgrade". Requests without the header (browsers, older CLIs) pass. A value that isn't a semver stops the service from starting. Read by every api-server service and platform |
+| `PIPELINE_MANAGER_NO_UPDATE_CHECK` | *(unset)* | **CLI side.** Any value turns off the daily "update available" check and notice. It is already off in CI and when stderr is not a terminal |
+| `PIPELINE_MANAGER_UPGRADE_SKIP_VERIFY` | *(unset)* | **CLI side.** `1` lets `--upgrade` install without checking the registry signature, for a mirror that doesn't serve `/-/npm/v1/keys`. Leave it unset otherwise |
+
 ### Passkeys (WebAuthn)
 
 The relying party is **derived from `PLATFORM_FRONTEND_URL`** and is never read

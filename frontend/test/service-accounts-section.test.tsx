@@ -80,6 +80,7 @@ function saKey(overrides: Record<string, unknown> = {}) {
     expiresAt: new Date(Date.now() + 30 * DAY).toISOString(),
     lastUsedAt: null,
     createdFrom: null,
+    lastClientVersion: null,
     createdIp: null,
     revoked: false,
     status: 'active',

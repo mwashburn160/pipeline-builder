@@ -1,6 +1,6 @@
 // GENERATED FROM docs/environment-variables.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: ac7de4bcf798186ec7b0fb4377e4bccd33f2abeb4565426b820c7044a5fd4b94
+// SOURCE-SHA256: d1ca955bb292a99e05a59fb7f808f957547251fa1fee2b03dbf4082476c799f4
 // SPDX-License-Identifier: Apache-2.0
 import { FileCode } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -829,6 +829,39 @@ export const envVariablesTopic: HelpTopic = {
               "DEVICE_MAX_PENDING",
               "1000",
               "Cap on the in-memory pending-state fallback, used only when no Redis is configured"
+            ]
+          ]
+        },
+        {
+          "type": "text",
+          "content": "CLI version (pipeline-manager)"
+        },
+        {
+          "type": "text",
+          "content": "Every platform call from pipeline-manager 4.4.21+ carries X-Pb-Client-Version. See pipeline-manager → Upgrading."
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Variable",
+            "Default",
+            "Description"
+          ],
+          "rows": [
+            [
+              "PIPELINE_MANAGER_MIN_VERSION",
+              "(empty: no gate)",
+              "Oldest CLI the APIs accept. An older CLI gets 426 CLIENT_UPGRADE_REQUIRED with \"run: pipeline-manager --upgrade\". Requests without the header (browsers, older CLIs) pass. A value that isn't a semver stops the service from starting. Read by every api-server service and platform"
+            ],
+            [
+              "PIPELINE_MANAGER_NO_UPDATE_CHECK",
+              "(unset)",
+              "CLI side. Any value turns off the daily \"update available\" check and notice. It is already off in CI and when stderr is not a terminal"
+            ],
+            [
+              "PIPELINE_MANAGER_UPGRADE_SKIP_VERIFY",
+              "(unset)",
+              "CLI side. 1 lets --upgrade install without checking the registry signature, for a mirror that doesn't serve /-/npm/v1/keys. Leave it unset otherwise"
             ]
           ]
         },

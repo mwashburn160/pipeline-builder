@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendSuccess, sendError, generateOpenApiSpec, ErrorCode, createLogger, verifyServicePrincipal, createHealthRouter, setCounterEmitter, setGaugeEmitter, requireAuth, safeEqual, createEnvSseTicketStore, SSE_TICKET_TTL_MS, auditContextFromRequest, runWithAuditContext, sanitizeCorrelationId } from '@pipeline-builder/api-core';
+import { sendSuccess, sendError, generateOpenApiSpec, ErrorCode, createLogger, verifyServicePrincipal, createHealthRouter, clientVersionGate, setCounterEmitter, setGaugeEmitter, requireAuth, safeEqual, createEnvSseTicketStore, SSE_TICKET_TTL_MS, auditContextFromRequest, runWithAuditContext, sanitizeCorrelationId } from '@pipeline-builder/api-core';
 import type { OpenApiSpecOptions } from '@pipeline-builder/api-core';
 import { Config, CoreConstants } from '@pipeline-builder/pipeline-core';
 import { getConnection } from '@pipeline-builder/pipeline-data';
@@ -489,6 +489,9 @@ export function createApp(options: CreateAppOptions = {}): CreateAppResult {
   });
 
   mountInfraEndpoints(app, options, serviceName, enableOpenApi);
+  // A CLI older than PIPELINE_MANAGER_MIN_VERSION gets 426 "run --upgrade"
+  // (no-op while unset). After the infra endpoints, so probes never see it.
+  app.use(clientVersionGate());
   if (enableRateLimit) mountRateLimiter(app, serviceName);
   applyRequestTelemetry(app);
 

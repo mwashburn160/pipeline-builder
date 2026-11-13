@@ -369,6 +369,20 @@ describe('list — metadata only, newest first', () => {
     expect(JSON.stringify(views)).not.toContain('keyHash');
   });
 
+  it('shows the CLI version a key was last used with (null until one is seen)', async () => {
+    seedKey({ name: 'cli', createdAt: new Date('2026-04-02T00:00:00.000Z'), lastClientVersion: '4.4.21' });
+    seedKey({ name: 'web', createdAt: new Date('2026-04-01T00:00:00.000Z') });
+    const byName = new Map((await apiKeyService.list(USER_ID)).map((v) => [v.name, v]));
+    expect(byName.get('cli')?.lastClientVersion).toBe('4.4.21');
+    expect(byName.get('web')?.lastClientVersion).toBeNull();
+  });
+
+  it('a usage stamp sets the CLI version only when one was sent', async () => {
+    const { usageStamp } = await import('../src/services/api-key-service.js');
+    expect(usageStamp('4.4.21')).toEqual({ lastUsedAt: expect.any(Date), lastClientVersion: '4.4.21' });
+    expect(usageStamp()).toEqual({ lastUsedAt: expect.any(Date) });
+  });
+
   it('labels each key active / expired / revoked, and flags the ones worth acting on', async () => {
     seedKey({ name: 'live', createdAt: new Date('2026-04-01T00:00:00.000Z') });
     seedKey({ name: 'soon', createdAt: new Date('2026-03-01T00:00:00.000Z'), expiresAt: new Date(Date.now() + 3 * DAY * 1000) });

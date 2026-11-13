@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, ErrorCode, hasValidIdentityClaims, isOpaqueApiKey, isServiceTokenDenied, isSystemAdmin, recordAuthzDenial, resolveUserPermissions, runDeferredQuotaCheck, sendError, tagRouteGate } from '@pipeline-builder/api-core';
+import { clientVersionOf, createLogger, ErrorCode, hasValidIdentityClaims, isOpaqueApiKey, isServiceTokenDenied, isSystemAdmin, recordAuthzDenial, resolveUserPermissions, runDeferredQuotaCheck, sendError, tagRouteGate } from '@pipeline-builder/api-core';
 import type { Request, Response, NextFunction } from 'express';
 import { accessTokenVersion } from '../helpers/access-version.js';
 import { bootstrapSessionMayReach } from '../helpers/bootstrap-admin.js';
@@ -238,7 +238,7 @@ export async function requireAuth(
     const { apiKeyService } = await import('../services/api-key-service.js');
     // `req.ip` is Express's `trust proxy`-aware client address — the value a
     // service-account key's IP allowlist is checked against.
-    const resolved = await apiKeyService.exchange(token, req.ip);
+    const resolved = await apiKeyService.exchange(token, req.ip, clientVersionOf(req));
     if (!resolved.ok) {
       logger.warn('Rejected access key', { reason: resolved.reason });
       incCounter('platform_api_key_auth_failed_total', { reason: resolved.reason });

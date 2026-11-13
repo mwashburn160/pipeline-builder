@@ -2,7 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { randomUUID } from 'node:crypto';
+import { CLIENT_VERSION_HEADER } from '@pipeline-builder/api-core';
 import { correlationHeaders, sanitizeCorrelationValue } from '@pipeline-builder/pipeline-core';
+import { APP_VERSION } from '../config/cli.constants.js';
 
 /**
  * The audit-correlation headers every platform call from this CLI carries, so
@@ -21,6 +23,8 @@ import { correlationHeaders, sanitizeCorrelationValue } from '@pipeline-builder/
  *   plugin verify, security-report), once the command knows it
  *   ({@link setPipelineId}). The quota service's usage ledger records it, so
  *   "what spent our calls?" can answer "this pipeline's builds".
+ * - `X-Pb-Client-Version` — this CLI's version, so a platform with
+ *   `PIPELINE_MANAGER_MIN_VERSION` set can answer 426 "run --upgrade".
  *
  * Never an ARN — nothing here can carry an AWS account id.
  */
@@ -59,6 +63,7 @@ export function requestCorrelationHeaders(env: NodeJS.ProcessEnv = process.env):
   // never sent mangled.
   const pipeline = sanitizeCorrelationValue(pipelineId);
   if (pipeline) headers[PIPELINE_ID_HEADER] = pipeline;
+  headers[CLIENT_VERSION_HEADER] = APP_VERSION;
   return headers;
 }
 

@@ -199,6 +199,9 @@ function resolveExitCode(err: unknown, fallback: ErrorCode): ErrorCode {
     if (status === 403) return ERROR_CODES.AUTHORIZATION;
     if (status === 404) return ERROR_CODES.NOT_FOUND;
     if (status === 408 || status === 504) return ERROR_CODES.TIMEOUT;
+    // CLIENT_UPGRADE_REQUIRED: this CLI is below the platform's minimum — a
+    // local-install problem (fix: --upgrade), so scripts can tell it apart.
+    if (status === 426) return ERROR_CODES.CONFIGURATION;
     if (status && status >= 500) return ERROR_CODES.API_REQUEST;
     // A request that got no HTTP response never reached the server (DNS / refused
     // / reset) — that's a network failure, not an API-response error.

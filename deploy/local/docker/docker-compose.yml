@@ -145,6 +145,9 @@ x-common-env: &common-env
   # Postgres/Mongo/Redis/peers at boot — failures show up as connection
   # TIMEOUTS. See UV_THREADPOOL_SIZE in .env.example for the measurement.
   UV_THREADPOOL_SIZE: ${UV_THREADPOOL_SIZE:-64}
+  # Oldest pipeline-manager CLI the API accepts (426 "run --upgrade" below it);
+  # empty = no gate. See PIPELINE_MANAGER_MIN_VERSION in .env.example.
+  PIPELINE_MANAGER_MIN_VERSION: ${PIPELINE_MANAGER_MIN_VERSION:-}
   # INTERNAL service-to-service tokens: each service signs with its OWN
   # ES256 key, mounted read-only at the path below, and verifies its peers
   # against the shared PUBLIC bundle. There is no shared signing secret left —

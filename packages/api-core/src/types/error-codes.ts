@@ -93,6 +93,11 @@ export enum ErrorCode {
   TEMPLATE_SIZE_EXCEEDED = 'TEMPLATE_SIZE_EXCEEDED',
   TEMPLATE_VALIDATION_FAILED = 'TEMPLATE_VALIDATION_FAILED',
 
+  // Client too old (426)
+  /** The pipeline-manager CLI is older than the platform's
+   *  `PIPELINE_MANAGER_MIN_VERSION`; the fix is `pipeline-manager --upgrade`. */
+  CLIENT_UPGRADE_REQUIRED = 'CLIENT_UPGRADE_REQUIRED',
+
   // Quota/Rate limit errors (429)
   QUOTA_EXCEEDED = 'QUOTA_EXCEEDED',
   /** The caller's per-member share of the org's `aiCalls` (org setting
@@ -238,6 +243,7 @@ export const ErrorCodeStatus: Record<ErrorCode, number> = {
   [ErrorCode.TEMPLATE_CONTRACT_VIOLATION]: 400,
   [ErrorCode.TEMPLATE_SIZE_EXCEEDED]: 400,
   [ErrorCode.TEMPLATE_VALIDATION_FAILED]: 400,
+  [ErrorCode.CLIENT_UPGRADE_REQUIRED]: 426,
   [ErrorCode.QUOTA_EXCEEDED]: 429,
   [ErrorCode.AI_MEMBER_SHARE_EXCEEDED]: 429,
   [ErrorCode.AI_TOKEN_BUDGET_EXCEEDED]: 429,

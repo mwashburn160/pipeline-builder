@@ -73,6 +73,8 @@ export interface AccessKeyView {
   createdAt: string;
   expiresAt: string;
   lastUsedAt: string | null;
+  /** pipeline-manager version last seen using the key (caller-claimed, display only), or null. */
+  lastClientVersion: string | null;
   /** Where it was created ("pipeline-manager CLI on macOS"), or null. */
   createdFrom: string | null;
   /** IP it was created from, or null. Kept only as long as the record. */
@@ -139,6 +141,15 @@ export interface KeyRefusal<R extends string> {
 }
 
 /** The refusal-side identity of a resolved key record. */
+/**
+ * The `$set` for a successful exchange: `lastUsedAt`, plus the CLI version
+ * when the caller sent one — an exchange without it (a background refresh, a
+ * non-CLI client) keeps the version already recorded.
+ */
+export function usageStamp(clientVersion?: string): { lastUsedAt: Date; lastClientVersion?: string } {
+  return { lastUsedAt: new Date(), ...(clientVersion ? { lastClientVersion: clientVersion } : {}) };
+}
+
 function refusalOf<R extends string>(
   reason: R,
   record: { _id: unknown; organizationId?: unknown } | null | undefined,
@@ -225,6 +236,7 @@ function toView(
     createdAt: (doc.createdAt instanceof Date ? doc.createdAt : new Date(doc.createdAt)).toISOString(),
     expiresAt: expiresAt.toISOString(),
     lastUsedAt: isoOrNull(doc.lastUsedAt),
+    lastClientVersion: doc.lastClientVersion ?? null,
     createdFrom: doc.createdUserAgent ?? null,
     createdIp: doc.createdIp ?? null,
     revoked: doc.revoked,
@@ -436,7 +448,7 @@ class ApiKeyService {
    * live, IP allowlist, its own exchange budget). `presentedIp` is the address
    * platform sees for this exchange and is what the allowlist is checked against.
    */
-  async exchange(rawKey: string, presentedIp?: string): Promise<ExchangeResult> {
+  async exchange(rawKey: string, presentedIp?: string, clientVersion?: string): Promise<ExchangeResult> {
     if (!isOpaqueApiKey(rawKey)) return { ok: false, reason: 'malformed' };
     const prefix = apiKeyPrefixOf(rawKey);
 
@@ -452,7 +464,7 @@ class ApiKeyService {
     }
 
     if (prefix === 'pb_sa') {
-      return this.exchangeServiceAccountKey(record, presentedIp);
+      return this.exchangeServiceAccountKey(record, presentedIp, clientVersion);
     }
 
     const user = await User.findById(record.userId).select('+tokenVersion +isSuperAdmin');
@@ -502,7 +514,7 @@ class ApiKeyService {
     // Last-used is stamped on every exchange (at most once per token lifetime
     // per consumer), so the keys page is accurate no matter which service the
     // key is actually used against.
-    void PersonalAccessToken.updateOne({ _id: record._id }, { $set: { lastUsedAt: new Date() } })
+    void PersonalAccessToken.updateOne({ _id: record._id }, { $set: usageStamp(clientVersion) })
       .catch((err) => logger.warn('Failed to stamp access-key lastUsedAt', { error: String(err) }));
 
     return {
@@ -532,6 +544,7 @@ class ApiKeyService {
   private async exchangeServiceAccountKey(
     record: PersonalAccessTokenData & { _id: unknown },
     presentedIp?: string,
+    clientVersion?: string,
   ): Promise<ExchangeResult> {
     // Lazily imported: service-account-service imports THIS module for its key
     // operations, so a static import would be a cycle. The specifier must be a
@@ -547,7 +560,7 @@ class ApiKeyService {
     const scope = (record.scope ?? undefined) as TokenScope | undefined;
     const accessToken = await signServiceAccountToken(resolved.context, String(record._id), scope);
 
-    void PersonalAccessToken.updateOne({ _id: record._id }, { $set: { lastUsedAt: new Date() } })
+    void PersonalAccessToken.updateOne({ _id: record._id }, { $set: usageStamp(clientVersion) })
       .catch((err) => logger.warn('Failed to stamp service-account key lastUsedAt', { error: String(err) }));
 
     return {

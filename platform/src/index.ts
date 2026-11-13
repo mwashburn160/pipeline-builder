@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import crypto from 'crypto';
-import { ANONYMOUS_ACTOR_ID, JWKS_PATH, auditContextFromRequest, runWithAuditContext, sanitizeCorrelationId, createHealthRouter, createLogger, emitCounter, installCrashHandlers, mongoSanitize, resolveRedisConnection, errorMessage, retryForever, type Scheduler, sleep } from '@pipeline-builder/api-core';
+import { ANONYMOUS_ACTOR_ID, JWKS_PATH, clientVersionGate, auditContextFromRequest, runWithAuditContext, sanitizeCorrelationId, createHealthRouter, createLogger, emitCounter, installCrashHandlers, mongoSanitize, resolveRedisConnection, errorMessage, retryForever, type Scheduler, sleep } from '@pipeline-builder/api-core';
 import { withTenantContext, readinessGuard, setReady, isReady, mongoHealthCheck, registerSecretRotationGauge } from '@pipeline-builder/api-server';
 import cors from 'cors';
 import express, { type Request, type Response, type NextFunction } from 'express';
@@ -188,6 +188,10 @@ app.use(jwksRoutes);
 // Narrow allowlist (NOT the shared default): the default bypass list includes
 // `/logs` for api-server's SSE log relay, which platform does not have.
 app.use(readinessGuard(['/health', '/ready', '/metrics', JWKS_PATH]));
+
+// A CLI older than PIPELINE_MANAGER_MIN_VERSION gets 426 "run --upgrade" (no-op
+// while unset) — same gate api-server's createApp mounts, so login is covered too.
+app.use(clientVersionGate());
 
 /**
  * Tenant-context middleware (RLS enforcement).

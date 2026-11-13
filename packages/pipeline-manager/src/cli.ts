@@ -32,6 +32,7 @@ import { status } from './commands/status.js';
 import { storeToken } from './commands/store-token.js';
 import { synth } from './commands/synth.js';
 import { testPlugin } from './commands/test-plugin.js';
+import { registerUpgradeOption } from './commands/upgrade.js';
 import { uploadPlugin } from './commands/upload-plugin.js';
 import { validatePlugin } from './commands/validate-plugin.js';
 import { validateTemplatesCommand } from './commands/validate-templates.js';
@@ -51,6 +52,7 @@ import { loadSession } from './utils/credential-store.js';
 import { ERROR_CODES, handleError } from './utils/error-handler.js';
 import { printInfo, printError, printWarning, printDebug, printSection } from './utils/output-utils.js';
 import { preflightCommandTools } from './utils/preflight.js';
+import { scheduleUpdateNotice } from './utils/update-notice.js';
 
 /**
  * CLI initialization options
@@ -91,18 +93,28 @@ interface CliOptions {
    * @default false
    */
   noColor?: boolean;
+  /**
+   * `--upgrade` / `--upgrade-check`: talks only to the npm registry, never to
+   * the platform, so it must work signed out and without the sign-in warning.
+   */
+  selfUpdate?: boolean;
+}
+
+/** Whether argv asks for a self-update (`--upgrade` / `--upgrade-check`, with or without a version). */
+export function isSelfUpdate(argv: string[]): boolean {
+  return argv.some((a) => a === '--upgrade' || a === '--upgrade-check' || a.startsWith('--upgrade=') || a.startsWith('--upgrade-check='));
 }
 
 /**
  * Check environment and display warnings
  */
-function checkEnvironment(): void {
+function checkEnvironment({ signInRelevant = true }: { signInRelevant?: boolean } = {}): void {
   const warnings: string[] = [];
 
   // Not signed in AT ALL: neither an explicit token nor a stored browser
   // sign-in. Either alone is enough, so the warning only fires when both are
   // missing — otherwise `auth login` users would be nagged on every command.
-  if (!process.env[ENV_VARS.PLATFORM_TOKEN] && !loadSession(getApiConfig().api.baseUrl)) {
+  if (signInRelevant && !process.env[ENV_VARS.PLATFORM_TOKEN] && !loadSession(getApiConfig().api.baseUrl)) {
     warnings.push('Not signed in (no PLATFORM_TOKEN, no stored session)');
     warnings.push('Run "pipeline-manager auth login" — API operations will fail until you do');
   }
@@ -184,6 +196,7 @@ Environment Variables:
 
 Examples:
   $ ${APP_NAME} version
+  $ ${APP_NAME} --upgrade            (--upgrade <version> for a specific one, --upgrade-check to only look)
   $ ${APP_NAME} auth login
   $ ${APP_NAME} pipeline list --project my-app
   $ ${APP_NAME} pipeline get --id pipe-123 --format json
@@ -348,6 +361,9 @@ function registerCommands(): void {
     .option('--no-color', 'Disable colored output', false)
     .addHelpText('after', HELP_TEXT);
 
+  // --upgrade [version]: self-update, handled like --version (listener + exit).
+  registerUpgradeOption(program);
+
   // Fail-fast preflight: before ANY command's action runs, verify the local
   // tools that command needs. Commander skips this for --help/--version and for
   // help output, so those always work; API-only commands declare no requirements
@@ -442,6 +458,7 @@ export function initializeCli(options: CliOptions = {}): void {
     verbose = false,
     quiet = false,
     noColor = false,
+    selfUpdate = false,
   } = options;
 
   // Handle color output
@@ -468,7 +485,7 @@ export function initializeCli(options: CliOptions = {}): void {
 
   // Check environment
   if (!quiet) {
-    checkEnvironment();
+    checkEnvironment({ signInRelevant: !selfUpdate });
   }
 
   // Setup error handlers
@@ -603,7 +620,10 @@ if (isMainModule) {
     quiet: process.argv.includes('--quiet') || process.argv.includes('--token'),
     verbose: process.argv.includes('--verbose'),
     noColor: process.argv.includes('--no-color') || process.env.NO_COLOR === '1',
+    selfUpdate: isSelfUpdate(process.argv.slice(2)),
   };
 
+  // Daily background check; prints "update available" to stderr on exit.
+  scheduleUpdateNotice();
   main(options);
 }

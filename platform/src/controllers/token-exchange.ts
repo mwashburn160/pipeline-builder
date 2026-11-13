@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendError, sendSuccess } from '@pipeline-builder/api-core';
+import { clientVersionOf, sendError, sendSuccess } from '@pipeline-builder/api-core';
 import type { Request } from 'express';
 import { audit } from '../helpers/audit.js';
 import { withController } from '../helpers/controller-helper.js';
@@ -37,7 +37,7 @@ export const exchangeToken = withController('Exchange access key', async (req, r
   // call, or the calling service's address when a peer service exchanges on a
   // client's behalf — see docs/authentication.md for what that means in
   // practice.
-  const result = await apiKeyService.exchange(key, req.ip);
+  const result = await apiKeyService.exchange(key, req.ip, clientVersionOf(req));
 
   if (!result.ok) {
     incCounter('platform_api_key_exchange_failed_total', { reason: result.reason });

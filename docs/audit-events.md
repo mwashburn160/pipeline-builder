@@ -232,6 +232,7 @@ a CodeBuild step — can make its calls traceable by sending:
 | `X-Pipeline-Execution-Id` | `details._context.pipelineExecutionId` |
 | `X-CodeBuild-Build-Id` | `details._context.codebuildBuildId` |
 | `X-Source-Event-Id` | `details._context.sourceEventId` |
+| `X-Pb-Client-Version` | `details._context.clientVersion`: the pipeline-manager version the caller *claims*. It is useful for compatibility questions but is not evidence, because the caller sets it |
 
 Each is validated like `X-Request-Id` (an invalid value is dropped, never
 truncated). No AWS account id is stored: an ARN has its account segment emptied

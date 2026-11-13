@@ -81,6 +81,8 @@ export interface PersonalAccessTokenData {
   createdAt: Date;
   expiresAt: Date;
   lastUsedAt?: Date | null;
+  /** The pipeline-manager version last seen using this key (as the caller CLAIMED it — display only). */
+  lastClientVersion?: string | null;
   revoked: boolean;
   revokedAt?: Date | null;
 }
@@ -116,6 +118,7 @@ const personalAccessTokenSchema = new Schema<PersonalAccessTokenData>(
     aalAssertedBy: { type: String, default: null },
     expiresAt: { type: Date, required: true },
     lastUsedAt: { type: Date, default: null },
+    lastClientVersion: { type: String, default: null },
     revoked: { type: Boolean, default: false },
     revokedAt: { type: Date, default: null },
   },

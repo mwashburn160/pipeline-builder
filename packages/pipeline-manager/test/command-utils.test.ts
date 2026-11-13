@@ -37,6 +37,8 @@ jest.unstable_mockModule('../src/config/cli.constants.js', () => ({
   formatDuration: jest.fn((ms: number) => `${ms}ms`),
   // Real value needed by the api-client transitively imported via command-utils.
   TIMEOUTS: { HTTP_REQUEST: 30000, CDK_COMMAND: 0, HEALTH_CHECK: 5000, UPLOAD: 300000 },
+  // request-context sends it as X-Pb-Client-Version on every platform call.
+  APP_VERSION: '0.0.0-test',
 }));
 
 const { validateEntityId, printCommandHeader, printSslWarning, printExecutionSummary } =

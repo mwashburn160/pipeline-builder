@@ -9,6 +9,7 @@
 import type { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { refuseForAssurance } from './assurance.js';
+import { clientVersionOf } from './client-version.js';
 import { runDeferredQuotaCheck } from './deferred-quota-check.js';
 import { hasValidIdentityClaims, verifyBearerToken } from './jwt-verify.js';
 import { recordAuthzDenial } from './permission-gates.js';
@@ -152,7 +153,7 @@ async function resolveApiKey(
   const { exchangeApiKey, ApiKeyExchangeUnavailableError } = await import('../services/api-key-exchange.js');
   let token: string;
   try {
-    token = await exchangeApiKey(key);
+    token = await exchangeApiKey(key, clientVersionOf(req));
   } catch (error) {
     if (error instanceof ApiKeyExchangeUnavailableError) {
       return sendError(

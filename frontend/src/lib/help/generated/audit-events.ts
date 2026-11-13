@@ -1,6 +1,6 @@
 // GENERATED FROM docs/audit-events.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 5af0ce9a51a3bef0de271b46bef0334c774a065a8136ef3c50594b3b686f6222
+// SOURCE-SHA256: bce83f597bb4f272d0256726b96fb8ebde0e3de3aa7b2b2d38562e5bc03273ec
 // SPDX-License-Identifier: Apache-2.0
 import { ScrollText } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -426,6 +426,10 @@ export const auditEventsTopic: HelpTopic = {
             [
               "X-Source-Event-Id",
               "details._context.sourceEventId"
+            ],
+            [
+              "X-Pb-Client-Version",
+              "details._context.clientVersion: the pipeline-manager version the caller claims. It is useful for compatibility questions but is not evidence, because the caller sets it"
             ]
           ]
         },

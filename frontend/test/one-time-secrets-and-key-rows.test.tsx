@@ -41,6 +41,7 @@ function key(overrides: Partial<KeyRow> = {}): KeyRow {
     expiresAt: new Date(Date.now() + 90 * DAY).toISOString(),
     lastUsedAt: new Date(Date.now() - DAY).toISOString(),
     createdFrom: null,
+    lastClientVersion: null,
     createdIp: null,
     revoked: false,
     status: 'active',
@@ -86,6 +87,11 @@ describe('every access key is reviewed the same way', () => {
     render(<AccessKeyTable keys={[key({ neverUsed: true, lastUsedAt: null, expiringSoon: true })]} readOnly={false} onRevoke={jest.fn<AnyFn>()} />);
     expect(screen.getByText(/never used/)).toBeInTheDocument();
     expect(screen.getByText(/expiring soon/)).toBeInTheDocument();
+  });
+
+  it('shows the CLI version a key was last used with, so an admin can spot an outdated pipeline-manager', () => {
+    render(<AccessKeyTable keys={[key({ lastClientVersion: '4.4.21' })]} readOnly={false} onRevoke={jest.fn<AnyFn>()} />);
+    expect(screen.getByText('CLI 4.4.21')).toBeInTheDocument();
   });
 
   it('names the narrowing on a machine key — scope AND IP allowlist', () => {

@@ -38,7 +38,7 @@ beforeEach(() => {
 afterAll(() => { process.argv = argv; });
 
 /** Run main() on a fresh module instance; the exit code it ended with, if any. */
-async function runMain(args: string[]): Promise<number | undefined> {
+async function runMain(args: string[], options: { quiet?: boolean; selfUpdate?: boolean } = { quiet: true }): Promise<number | undefined> {
   // argv[1] must be a real file that is NOT cli.ts, or the module's
   // "executed directly" check would run main() itself on import.
   const self = fileURLToPath(import.meta.url);
@@ -46,7 +46,7 @@ async function runMain(args: string[]): Promise<number | undefined> {
   const { main } = await import('../src/cli.js');
   process.argv = ['node', self, ...args];
   try {
-    main({ quiet: true });
+    main(options);
     return undefined;
   } catch (e) {
     if (e instanceof ExitError) return e.code;
@@ -69,5 +69,34 @@ describe('main()', () => {
   it('ends non-zero on an unknown command', async () => {
     const code = await runMain(['definitely-not-a-command']);
     expect(code).toBeGreaterThan(0);
+  });
+});
+
+describe('self-update needs no sign-in', () => {
+  it('isSelfUpdate spots --upgrade / --upgrade-check in any form', async () => {
+    const { isSelfUpdate } = await import('../src/cli.js');
+    for (const a of [['--upgrade'], ['--upgrade', '4.4.22'], ['--upgrade=next'], ['--upgrade-check'], ['--upgrade-check=4.4.22']]) {
+      expect(isSelfUpdate(a)).toBe(true);
+    }
+    expect(isSelfUpdate(['pipeline', 'list'])).toBe(false);
+    expect(isSelfUpdate(['--upgrades'])).toBe(false);
+  });
+
+  it('runs signed out without the "Not signed in" warning, which other commands still get', async () => {
+    const token = process.env.PLATFORM_TOKEN;
+    delete process.env.PLATFORM_TOKEN;
+    try {
+      // An invalid spec exits before any registry call, so this stays offline.
+      // The FIRST exit is the listener's: the mocked exit throws, and the CLI's
+      // catch-all then exits again, which a real process never reaches.
+      await runMain(['--upgrade-check', 'x;y'], { selfUpdate: true });
+      expect(jest.mocked(process.exit).mock.calls[0]?.[0]).toBe(2);
+      expect(logged.join('\n')).not.toContain('Not signed in');
+      logged.length = 0;
+      await runMain(['completions', 'fish'], {});
+      expect(logged.join('\n')).toContain('Not signed in');
+    } finally {
+      process.env.PLATFORM_TOKEN = token;
+    }
   });
 });

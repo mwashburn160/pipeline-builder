@@ -1,6 +1,6 @@
 // GENERATED FROM docs/pipeline-manager.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 7bfd6ff11a555f5161643fe093ce111a474a1ee754eeda85108ec2f86b702351
+// SOURCE-SHA256: e6c107fae9ef63985a385159f8a624ede2dc9dc8a3a0bd926204d2e4b2bd8e98
 // SPDX-License-Identifier: Apache-2.0
 import { Terminal } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -123,6 +123,94 @@ export const cliReferenceTopic: HelpTopic = {
           "type": "code",
           "content": "pipeline-manager --help            # global help\npipeline-manager <command> --help  # full flag reference for any command\npipeline-manager version           # CLI version info",
           "language": "bash"
+        },
+        {
+          "type": "text",
+          "content": "Upgrading"
+        },
+        {
+          "type": "code",
+          "content": "pipeline-manager --upgrade                # move to the latest release\npipeline-manager --upgrade 4.4.22         # move to a specific version (or a dist-tag), downgrades included\npipeline-manager --upgrade-check          # only report: exit 0 = current, 1 = a newer release exists",
+          "language": "bash"
+        },
+        {
+          "type": "text",
+          "content": "--upgrade is available from 4.4.21. An older install needs one manual npm install -g @pipeline-builder/pipeline-manager first."
+        },
+        {
+          "type": "text",
+          "content": "No sign-in needed. --upgrade and --upgrade-check talk only to the npm registry, never to the platform. They read no stored session or token and work signed out, so a CLI too old to sign in can still upgrade itself."
+        },
+        {
+          "type": "text",
+          "content": "It reinstalls the CLI with the package manager that owns it (npm or pnpm, global). It uses the npm that belongs to the running Node, not whichever one is first on PATH. Before installing, it checks:"
+        },
+        {
+          "type": "list",
+          "items": [
+            "Ownership. The running copy must be a global npm or pnpm install. It refuses (exit 8) for npx, a project dependency, a source checkout or Volta, because reinstalling globally would leave that copy unchanged. Update those with whatever installed them.",
+            "Direction. A bare --upgrade never moves backwards. Naming a version is how to downgrade, but not below 4.4.21, which would leave no --upgrade to come back with.",
+            "Node. The target's engines.node must accept the running Node.",
+            "Permissions. The global directory must be writable, checked before anything is downloaded. If it isn't, the CLI prints the one command that needs root (sudo npm install -g @pipeline-builder/pipeline-manager@<version>) or how to move npm globals into your home directory. It never suggests sudo pipeline-manager, which would run the whole CLI, including its credential store, as root.",
+            "Signature. It downloads the release with npm pack. It checks that the tarball's sha512 matches the registry's dist.integrity and that npm's ECDSA signature over it verifies. Then it installs that tarball. npm's signing keys always come from https://registry.npmjs.org/-/npm/v1/keys, even when a mirror is configured: a mirror passes npm's signatures through, so it can't substitute its own key. With no route to registry.npmjs.org it fails closed. Set PIPELINE_MANAGER_UPGRADE_SKIP_VERIFY=1 to install unverified."
+          ]
+        },
+        {
+          "type": "text",
+          "content": "Afterwards it reads the installed version back from disk and prints a link to the changes between the two releases."
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Exit",
+            "Meaning"
+          ],
+          "rows": [
+            [
+              "0",
+              "upgraded, or already current"
+            ],
+            [
+              "1",
+              "the download failed verification, or the version on disk is not the target (for --upgrade-check: a newer release exists)"
+            ],
+            [
+              "2",
+              "not a semver or dist-tag, no such version or tag, or a version below 4.4.21"
+            ],
+            [
+              "7",
+              "the registry could not be reached"
+            ],
+            [
+              "8",
+              "not a global npm/pnpm install, or the target needs a newer Node"
+            ],
+            [
+              "9",
+              "the global directory is not writable, or the install failed; the old version is still installed"
+            ]
+          ]
+        },
+        {
+          "type": "text",
+          "content": "Update notice. Once a day, a detached background process asks the registry for the latest release; no command ever waits on it. When a newer release is known, the CLI prints Update available … run pipeline-manager --upgrade to stderr on exit. It stays silent in CI (CI set), when stderr is not a terminal, under --quiet / --token, and when PIPELINE_MANAGER_NO_UPDATE_CHECK=1 is set. The cache lives in ~/.pipeline-manager/update-check.json."
+        },
+        {
+          "type": "text",
+          "content": "Minimum CLI version (operators). Every platform call carries X-Pb-Client-Version. If PIPELINE_MANAGER_MIN_VERSION is set on the services (docker-compose passes it through x-common-env; in Kubernetes, add it to each service's env), an older CLI gets 426 CLIENT_UPGRADE_REQUIRED with \"run: pipeline-manager --upgrade\". Requests without the header pass: browsers, other clients and CLIs from before 4.4.21. A malformed value stops the service from starting."
+        },
+        {
+          "type": "list",
+          "items": [
+            "CI is never refused. A request carrying X-CodeBuild-Build-Id runs the CLI baked into a plugin image and can't upgrade itself, so it is counted (caller=\"ci\") but never refused. Raising the minimum therefore can't break pipelines; their images move when the plugin is rebuilt.",
+            "A compatibility check, not a security control. The version header is set by the caller: a CLI can omit it or claim any version. Never use the minimum to shut out a CLI with a security flaw; revoke its tokens instead.",
+            "An older CLI gets exit code 8 from a 426, the same as a local configuration problem, so scripts can tell it apart."
+          ]
+        },
+        {
+          "type": "text",
+          "content": "Before raising the minimum, check what is still calling. pipeline_manager_requests_total{version} counts requests per CLI version whether or not a minimum is set. Versions are reduced to x.y.z, and past 64 distinct values per process new ones count as other, because the header arrives before authentication. pipeline_manager_upgrade_required_total{version,min} counts the 426s. Audit rows record the CLI as details._context.clientVersion, as the caller claimed it. Each access key records the CLI version it was last used with (lastClientVersion), and Settings → Access keys shows it under Last used. An org admin can see which members' keys and service accounts still run an old CLI before the minimum goes up."
         },
         {
           "type": "text",

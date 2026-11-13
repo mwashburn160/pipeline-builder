@@ -29,6 +29,8 @@ export interface AuditCorrelation {
   codebuildBuildId?: string;
   /** `X-Source-Event-Id` — the upstream event (EventBridge / webhook) being handled. */
   sourceEventId?: string;
+  /** `X-Pb-Client-Version` — the pipeline-manager CLI version that made the call. */
+  clientVersion?: string;
 }
 
 /** Background-work identity for events recorded outside any request. */
@@ -113,6 +115,7 @@ export const AUDIT_CORRELATION_HEADERS = {
   pipelineExecutionId: 'x-pipeline-execution-id',
   codebuildBuildId: 'x-codebuild-build-id',
   sourceEventId: 'x-source-event-id',
+  clientVersion: 'x-pb-client-version',
 } as const;
 
 /** Max length of a stored correlation id / request id. */

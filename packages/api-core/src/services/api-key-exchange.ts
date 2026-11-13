@@ -33,6 +33,7 @@
  * platform's audit trail.
  */
 
+import { CLIENT_VERSION_HEADER } from '../middleware/client-version.js';
 import { getServiceAuthHeader } from '../middleware/service-tokens.js';
 import { SYSTEM_ORG_ID } from '../middleware/system-org.js';
 import { InternalHttpClient } from '../services/http-client.js';
@@ -142,7 +143,7 @@ interface ExchangeResponse {
 }
 
 /** One real round-trip to platform. Throws the two typed errors above. */
-async function performExchange(key: string, hash: string): Promise<CacheEntry> {
+async function performExchange(key: string, hash: string, clientVersion?: string): Promise<CacheEntry> {
   const client = platformClient();
   let status: number;
   let body: ExchangeResponse;
@@ -150,6 +151,10 @@ async function performExchange(key: string, hash: string): Promise<CacheEntry> {
     const res = await client.post<ExchangeResponse>('/auth/token/exchange', { key }, {
       headers: {
         Authorization: getServiceAuthHeader({ serviceName, role: 'member', orgId: SYSTEM_ORG_ID }),
+        // The CLI version the key's holder is calling with (validated by the
+        // caller), so platform can stamp it on the key ("last CLI version") for
+        // org admins. Absent → platform keeps the version it already has.
+        ...(clientVersion ? { [CLIENT_VERSION_HEADER]: clientVersion } : {}),
       },
       // The exchange is a pure read of the key record plus a token mint — safe to
       // retry, and a lost retry only costs one extra mint.
@@ -199,10 +204,10 @@ async function performExchange(key: string, hash: string): Promise<CacheEntry> {
 }
 
 /** Exchange, sharing a single in-flight round-trip per key. */
-function exchangeOnce(key: string, hash: string): Promise<CacheEntry> {
+function exchangeOnce(key: string, hash: string, clientVersion?: string): Promise<CacheEntry> {
   const pending = inFlight.get(hash);
   if (pending) return pending;
-  const promise = performExchange(key, hash).finally(() => inFlight.delete(hash));
+  const promise = performExchange(key, hash, clientVersion).finally(() => inFlight.delete(hash));
   inFlight.set(hash, promise);
   return promise;
 }
@@ -210,9 +215,11 @@ function exchangeOnce(key: string, hash: string): Promise<CacheEntry> {
 /**
  * The JWT for `key`, from cache when possible. Throws {@link ApiKeyRejectedError}
  * when platform refused the key and {@link ApiKeyExchangeUnavailableError} when
- * it could not be asked.
+ * it could not be asked. `clientVersion` is the presenting request's
+ * `X-Pb-Client-Version` (already validated — see `clientVersionOf`), forwarded
+ * so platform can record which CLI the key is used with.
  */
-export async function exchangeApiKey(key: string): Promise<string> {
+export async function exchangeApiKey(key: string, clientVersion?: string): Promise<string> {
   const hash = hashApiKey(key);
   const now = Date.now();
 
@@ -232,7 +239,7 @@ export async function exchangeApiKey(key: string): Promise<string> {
       // background refresh is not this request's problem — the cached token is
       // still valid, and the next request past expiry exchanges inline.
       emitCounter('api_key_exchange_cache_total', { result: 'refresh' });
-      void exchangeOnce(key, hash).catch(() => { /* logged + counted in performExchange */ });
+      void exchangeOnce(key, hash, clientVersion).catch(() => { /* logged + counted in performExchange */ });
     } else {
       emitCounter('api_key_exchange_cache_total', { result: 'hit' });
     }
@@ -240,7 +247,7 @@ export async function exchangeApiKey(key: string): Promise<string> {
   }
 
   emitCounter('api_key_exchange_cache_total', { result: 'miss' });
-  return (await exchangeOnce(key, hash)).token;
+  return (await exchangeOnce(key, hash, clientVersion)).token;
 }
 
 /**

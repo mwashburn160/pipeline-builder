@@ -97,7 +97,8 @@ describe('requireAuth — opaque access key', () => {
 
     await (requireAuth as any)(r, res, next);
 
-    expect(mockExchange).toHaveBeenCalledWith(KEY, '203.0.113.7');
+    // No X-Pb-Client-Version on this request, so no CLI version to stamp.
+    expect(mockExchange).toHaveBeenCalledWith(KEY, '203.0.113.7', undefined);
     // The user lookup + tokenVersion comparison belong to the SESSION path; a
     // key's claims were just re-derived, so there is nothing stale to check.
     expect(mockUserFindById).not.toHaveBeenCalled();

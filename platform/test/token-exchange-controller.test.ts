@@ -173,7 +173,7 @@ describe('POST /auth/token/exchange — a service-account key', () => {
   it('trims the presented key, so a trailing newline from a shell heredoc still exchanges', async () => {
     mockExchange.mockResolvedValue(SUCCESS);
     await run({ key: `  ${SA_KEY}\n` });
-    expect(mockExchange).toHaveBeenCalledWith(SA_KEY, '203.0.113.7');
+    expect(mockExchange).toHaveBeenCalledWith(SA_KEY, '203.0.113.7', undefined);
   });
 
   it('rejects a non-string key as a bad request', async () => {

@@ -92,3 +92,10 @@ export {
   isQuotaExemptRoute,
   type QuotaExemptRoute,
 } from './quota-exempt-routes.js';
+export {
+  clientVersionGate,
+  CLIENT_VERSION_HEADER,
+  MIN_CLIENT_VERSION_HEADER,
+  CI_CALLER_HEADER,
+  clientVersionOf,
+} from './client-version.js';

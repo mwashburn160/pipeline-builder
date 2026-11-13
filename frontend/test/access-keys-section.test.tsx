@@ -69,6 +69,7 @@ function key(overrides: Record<string, unknown> = {}) {
     expiresAt: new Date(Date.now() + 90 * DAY).toISOString(),
     lastUsedAt: new Date(Date.now() - DAY).toISOString(),
     createdFrom: 'pipeline-manager CLI on macOS',
+    lastClientVersion: null,
     createdIp: '203.0.113.7',
     revoked: false,
     status: 'active',

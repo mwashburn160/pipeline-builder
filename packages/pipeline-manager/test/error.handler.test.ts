@@ -86,6 +86,7 @@ describe('handleError — standard exit codes', () => {
     expect(exitCodeFor(axios(401))).toBe(ERROR_CODES.AUTHENTICATION); // 4
     expect(exitCodeFor(axios(403))).toBe(ERROR_CODES.AUTHORIZATION); // 5
     expect(exitCodeFor(axios(404))).toBe(ERROR_CODES.NOT_FOUND); // 6
+    expect(exitCodeFor(axios(426))).toBe(ERROR_CODES.CONFIGURATION); // 8 (CLIENT_UPGRADE_REQUIRED: run --upgrade)
     expect(exitCodeFor(axios(504))).toBe(ERROR_CODES.TIMEOUT); // 10
     expect(exitCodeFor(axios(500))).toBe(ERROR_CODES.API_REQUEST); // 3
     expect(exitCodeFor(axios())).toBe(ERROR_CODES.NETWORK); // 7 (no response = never reached server)

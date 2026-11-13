@@ -79,6 +79,8 @@ export interface AccessKeyMeta {
   createdAt: string;
   expiresAt: string;
   lastUsedAt: string | null;
+  /** pipeline-manager version last seen using the key — as the caller claimed it, so display only. */
+  lastClientVersion: string | null;
   /** Where the key was created ("pipeline-manager CLI on macOS"), or null. */
   createdFrom: string | null;
   createdIp: string | null;

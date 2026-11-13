@@ -75,6 +75,15 @@ describe('exchangeApiKey', () => {
     expect((post.mock.calls[0][2] as any).headers.Authorization).toBe('Bearer svc');
   });
 
+  it("forwards the presenting CLI's version so platform can stamp it on the key", async () => {
+    post.mockResolvedValue(ok('jwt-v'));
+    await exchangeApiKey(KEY, '4.4.21');
+    expect((post.mock.calls[0][2] as any).headers['X-Pb-Client-Version']).toBe('4.4.21');
+    resetApiKeyExchangeCache();
+    await exchangeApiKey(KEY); // no CLI version on the request
+    expect((post.mock.calls[1][2] as any).headers['X-Pb-Client-Version']).toBeUndefined();
+  });
+
   it('shares ONE round-trip across concurrent callers', async () => {
     let release: (v: unknown) => void = () => {};
     post.mockImplementation(() => new Promise((r) => { release = r; }));

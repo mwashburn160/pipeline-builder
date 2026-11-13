@@ -129,6 +129,16 @@ suite('access keys (real Mongo)', () => {
       .toBe(apiKeyUtils.API_KEY_TOKEN_TTL_SECONDS);
   });
 
+  it('stamps the CLI version a key is used with, and keeps it across an exchange without one', async () => {
+    const { key, view } = await createKey();
+    await apiKeyService.exchange(key, undefined, '4.4.21');
+    await new Promise((r) => setTimeout(r, 50));
+    expect((await m.PersonalAccessToken.findById(view.id).lean()).lastClientVersion).toBe('4.4.21');
+    await apiKeyService.exchange(key); // a background refresh carries no version
+    await new Promise((r) => setTimeout(r, 50));
+    expect((await m.PersonalAccessToken.findById(view.id).lean()).lastClientVersion).toBe('4.4.21');
+  });
+
   it('stamps last-used on every exchange', async () => {
     const { key, view } = await createKey();
     expect((await m.PersonalAccessToken.findById(view.id).lean()).lastUsedAt).toBeNull();
