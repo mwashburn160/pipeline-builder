@@ -201,13 +201,27 @@ export function isTargetId(value: unknown): value is TargetId {
 export const COMMON_SPARSE_PATHS: readonly string[] = ['deploy/bin'];
 
 /**
+ * The managed toolchain release's build inputs: init-platform.sh always builds
+ * `build-plugin-images.sh --only pipeline-bootstrap,cdk-synth` (after the `_base`
+ * images), and `--build-bootstrap` runs `--only pipeline-bootstrap`, so every
+ * clone that runs either needs these folders — with or without `--with-plugins`.
+ * The release has its own source root, `deploy/toolchain` (both halves), beside
+ * the plugin catalog; of the catalog it needs only the `_base` images.
+ */
+export const TOOLCHAIN_SPARSE_PATHS: readonly string[] = [
+  'deploy/plugins/_base',
+  'deploy/toolchain',
+];
+
+/**
  * Opt-in post-install load steps. Each maps a provision `--with-*` flag to the
  * init-platform env var that enables it AND the repo folder(s) it reads — so the
  * sparse checkout grows exactly with the selected options.
  */
 export const LOAD_STEPS = [
-  // The plugin build reads deploy/plugins/_base AND deploy/codebuild/bootstrap.
-  { id: 'plugins', flag: 'withPlugins', env: 'LOAD_PLUGINS', paths: ['deploy/plugins', 'deploy/codebuild'] },
+  // The catalog. The toolchain release (deploy/toolchain) and the _base images it
+  // builds on are always in the clone (TOOLCHAIN_SPARSE_PATHS).
+  { id: 'plugins', flag: 'withPlugins', env: 'LOAD_PLUGINS', paths: ['deploy/plugins'] },
   { id: 'compliance', flag: 'withCompliance', env: 'LOAD_COMPLIANCE', paths: ['deploy/compliance'] },
   { id: 'samples', flag: 'withSamples', env: 'LOAD_TEMPLATES', paths: ['deploy/samples'] },
 ] as const;
@@ -216,11 +230,13 @@ export type LoadStepId = (typeof LOAD_STEPS)[number]['id'];
 
 /**
  * The de-duplicated set of sparse paths for a target plus the enabled load
- * steps: common base ∪ target folder(s) ∪ each enabled step's folder(s).
+ * steps: common base ∪ target folder(s) ∪ the toolchain build inputs ∪ each
+ * enabled step's folder(s).
  */
 export function sparsePathsFor(target: TargetId, enabledLoadIds: readonly string[]): string[] {
   const paths = new Set<string>(COMMON_SPARSE_PATHS);
   for (const p of TARGETS[target].sparsePaths) paths.add(p);
+  for (const p of TOOLCHAIN_SPARSE_PATHS) paths.add(p);
   for (const step of LOAD_STEPS) {
     if (enabledLoadIds.includes(step.id)) for (const p of step.paths) paths.add(p);
   }

@@ -17,6 +17,19 @@ import { REPO_ROOT, read } from '../src/index.js';
 type Doc = Record<string, any>;
 const docsOf = (rel: string): Doc[] => parseAllDocuments(read(rel)).map((d) => d.toJSON()).filter(Boolean);
 
+/** The managed toolchain release's own source root (one release, not catalog plugins). */
+const BOOTSTRAP_DIR = 'deploy/toolchain/pipeline-bootstrap';
+const SYNTH_DIR = 'deploy/toolchain/cdk-synth';
+/** org.pipeline-builder.toolchain.<label> → the variable its value comes from. */
+const TOOLCHAIN_LABEL_ARGS: Record<string, string> = {
+  'pipeline-manager': 'PIPELINE_MANAGER_VERSION',
+  'aws-cdk': 'AWS_CDK_VERSION',
+  'cdk-assets': 'CDK_ASSETS_VERSION',
+  'esbuild': 'ESBUILD_VERSION',
+  'pnpm': 'PNPM_VERSION',
+  'node': 'NODE_VERSION',
+};
+
 const SERVICE_DIRS = ['platform', 'frontend', 'api/ask', 'api/billing', 'api/compliance', 'api/image-registry',
   'api/message', 'api/pipeline', 'api/plugin', 'api/quota', 'api/reporting'];
 
@@ -27,7 +40,7 @@ describe('release images', () => {
     expect(existsSync(join(REPO_ROOT, dir, 'self-signed.crt'))).toBe(false);
   });
 
-  it.each([...SERVICE_DIRS, 'deploy/codebuild/bootstrap'])('%s: builds FROM a digest-pinned base', (dir) => {
+  it.each([...SERVICE_DIRS, BOOTSTRAP_DIR])('%s: builds FROM a digest-pinned base', (dir) => {
     const df = read(`${dir}/Dockerfile`);
     const arg = /^ARG NODE_IMAGE=(\S+)$/m.exec(df);
     expect(arg?.[1]).toMatch(/^node:[0-9.]+-(alpine|slim)@sha256:[0-9a-f]{64}$/);
@@ -364,7 +377,7 @@ describe('release supply chain', () => {
       '.github/workflows/test.yml',
       '.github/workflows/image-rescan.yml',
       '.github/workflows/plugin-base-freshness.yml',
-      'deploy/bin/build-codebuild-bootstrap.sh',
+      'deploy/bin/build-plugin-images.sh',
       'deploy/bin/scan-pinned-images.sh',
     ];
     for (const f of gates) {
@@ -430,13 +443,58 @@ describe('image and tool freshness', () => {
     expect(froms).toEqual([expect.stringMatching(/^FROM public\.ecr\.aws\/docker\/library\/ubuntu:26\.10@sha256:[0-9a-f]{64}$/)]);
   });
 
-  it('bakes a PINNED pipeline-manager into the CodeBuild bootstrap, kept current by the release sync', () => {
-    expect(read('deploy/codebuild/bootstrap/Dockerfile')).toMatch(/^ARG PIPELINE_MANAGER_VERSION="\d+\.\d+\.\d+"$/m);
+  it('bakes a PINNED pipeline-manager into pipeline-bootstrap, kept current by the release sync', () => {
+    expect(read(`${BOOTSTRAP_DIR}/Dockerfile`)).toMatch(/^ARG PIPELINE_MANAGER_VERSION="\d+\.\d+\.\d+"$/m);
     const sync = read('deploy/bin/sync-image-tags.sh');
-    expect(sync).toContain('deploy/codebuild/bootstrap/Dockerfile');
+    expect(sync).toContain('deploy/toolchain/pipeline-bootstrap');
     expect(sync).toContain('ARG PIPELINE_MANAGER_VERSION=');
-    // And the build script gates it on a scan before it reaches a registry.
-    expect(read('deploy/bin/build-codebuild-bootstrap.sh')).toContain('--only-fixed --fail-on "$GRYPE_FAIL_ON"');
+    // And the build script's base stage gates it on a scan before it reaches a registry.
+    expect(read('deploy/bin/build-plugin-images.sh')).toContain('grype "docker:$BOOTSTRAP_TAG" --only-fixed --fail-on "$GRYPE_FAIL_ON"');
+  });
+
+  it('pipeline-bootstrap: runs as root (global npm installs), with no build-arg override of a pinned tool', () => {
+    const df = read(`${BOOTSTRAP_DIR}/Dockerfile`);
+    expect(df).not.toMatch(/^USER\s/m);
+    // The base stage passes NO --build-arg to the bootstrap build (the image's
+    // LABELs and the spec's toolchain must name the Dockerfile's own ARGs), and
+    // the old `latest` resolution is gone.
+    const build = read('deploy/bin/build-plugin-images.sh');
+    expect(build).toMatch(/docker build --progress plain --platform "\$PUBLISH_PLATFORM" \\\n\s+-t "\$BOOTSTRAP_TAG" "\$BOOTSTRAP_DIR"/);
+    expect(build).not.toContain('npm view @pipeline-builder/pipeline-manager');
+  });
+
+  it('pipeline-bootstrap: each toolchain LABEL equals the ARG it is installed from', () => {
+    const df = read(`${BOOTSTRAP_DIR}/Dockerfile`);
+    const labels = Object.fromEntries(
+      [...df.matchAll(/org\.pipeline-builder\.toolchain\.([a-z-]+)="\$\{([A-Z_]+)\}"/g)].map((m) => [m[1]!, m[2]!]),
+    );
+    expect(labels).toEqual(TOOLCHAIN_LABEL_ARGS);
+    for (const [label, arg] of Object.entries(TOOLCHAIN_LABEL_ARGS)) {
+      // `node` reads the official node base image's own NODE_VERSION; every other
+      // label reads an ARG declared (pinned) in this Dockerfile, and that ARG is
+      // the one the install line uses.
+      if (label === 'node') continue;
+      expect([label, new RegExp(`^ARG ${arg}="\\d+\\.\\d+\\.\\d+"$`, 'm').test(df)]).toEqual([label, true]);
+      expect([label, df.includes(`@\${${arg}}`)]).toEqual([label, true]);
+    }
+  });
+
+  it('pipeline-bootstrap: spec toolchain equals the Dockerfile ARGs, and version names cdk-synth\'s base', () => {
+    const df = read(`${BOOTSTRAP_DIR}/Dockerfile`);
+    const spec = parse(read(`${BOOTSTRAP_DIR}/plugin-spec.yaml`)) as Doc;
+    const arg = (name: string) => new RegExp(`^ARG ${name}="?([^"\\s]+)"?\\s*$`, 'm').exec(df)?.[1];
+    expect(spec.pluginType).toBe('BuildImage');
+    expect(spec.toolchain).toEqual({
+      pipelineManager: arg('PIPELINE_MANAGER_VERSION'),
+      awsCdk: arg('AWS_CDK_VERSION'),
+      cdkAssets: arg('CDK_ASSETS_VERSION'),
+      esbuild: arg('ESBUILD_VERSION'),
+      pnpm: arg('PNPM_VERSION'),
+      node: /^ARG NODE_IMAGE=node:(\d+\.\d+\.\d+)-/m.exec(df)?.[1],
+    });
+    for (const k of ['commands', 'installCommands', 'metadata']) expect([k, k in spec]).toEqual([k, false]);
+    expect(read(`${SYNTH_DIR}/Dockerfile`))
+      .toContain(`ARG BOOTSTRAP_IMAGE="pipeline-bootstrap:${spec.version}"`);
   });
 
   it('leaves npm to projen and never lets Renovate re-pin this repo\'s own images', () => {

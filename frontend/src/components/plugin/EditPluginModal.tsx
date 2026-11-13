@@ -31,6 +31,7 @@ import { isOrgAdmin, isSystemAdmin } from '@/lib/auth-helpers';
 import { useUnmountedRef } from '@/hooks/useUnmountedRef';
 import { useAutoCloseTimer } from '@/hooks/useAutoCloseTimer';
 import { invalidate } from '@/lib/api-cache';
+import { TOOLCHAIN_MANAGED_NOTE, isManagedToolchainVersion } from './PluginLifecycleModal';
 
 /** Props for the EditPluginModal component. */
 interface EditPluginModalProps {
@@ -93,6 +94,10 @@ export default function EditPluginModal({ plugin, canPublish, onClose, onSaved }
 
   const unmountedRef = useUnmountedRef();
   const autoClose = useAutoCloseTimer();
+  /** A managed toolchain version is edited (default included) only in the
+   *  Toolchain console; the API refuses every edit here, so the form is read-only. */
+  const managed = isManagedToolchainVersion(plugin);
+  const readOnly = saving || managed;
 
   // Fetch the full plugin by ID (the list row lacks the catalog metadata and
   // owner); useEntityFetch only re-fires on id change so a stale re-mount won't
@@ -204,7 +209,7 @@ export default function EditPluginModal({ plugin, canPublish, onClose, onSaved }
       <Button variant="secondary" onClick={onClose} disabled={saving}>
         Cancel
       </Button>
-      <Button onClick={() => void handleSave()} disabled={saving || loadingRecord}>
+      <Button onClick={() => void handleSave()} disabled={readOnly || loadingRecord}>
         {saving ? (<><LoadingSpinner size="sm" className="mr-2" />Saving...</>) : 'Save Changes'}
       </Button>
     </div>
@@ -221,16 +226,16 @@ export default function EditPluginModal({ plugin, canPublish, onClose, onSaved }
     return (
       <FormField key={field} label={label} hint={hint} error={fieldErrors[field]} className="mb-3">
         {kind === 'textarea' ? (
-          <Textarea value={value} onChange={(e) => onChange(e.target.value)} rows={field === 'description' ? 3 : 5} disabled={saving} />
+          <Textarea value={value} onChange={(e) => onChange(e.target.value)} rows={field === 'description' ? 3 : 5} disabled={readOnly} />
         ) : kind === 'select' ? (
-          <Select value={value} onChange={(e) => onChange(e.target.value)} disabled={saving}>
+          <Select value={value} onChange={(e) => onChange(e.target.value)} disabled={readOnly}>
             <option value="">— None —</option>
             {PLUGIN_CATEGORIES.map((c) => <option key={c} value={c}>{CATEGORY_DISPLAY_NAMES[c]}</option>)}
             {value && !(PLUGIN_CATEGORIES as readonly string[]).includes(value) && <option value={value}>{value}</option>}
           </Select>
         ) : (
           <Input
-            type="text" value={value} onChange={(e) => onChange(e.target.value)} disabled={saving}
+            type="text" value={value} onChange={(e) => onChange(e.target.value)} disabled={readOnly}
             placeholder={kind === 'keywords' ? 'keyword1, keyword2, keyword3' : undefined}
           />
         )}
@@ -252,6 +257,7 @@ export default function EditPluginModal({ plugin, canPublish, onClose, onSaved }
         />
       )}
       <SuccessAlert message={success} />
+      {managed && <InfoAlert message={TOOLCHAIN_MANAGED_NOTE} />}
 
       {!p && fetchError ? (
         <ErrorAlert message={formatError(fetchError, 'Failed to load plugin')} />
@@ -292,7 +298,7 @@ export default function EditPluginModal({ plugin, canPublish, onClose, onSaved }
             <h3 className="text-sm font-medium text-fg-muted mb-3">Access & Status</h3>
             <div className="grid grid-cols-2 gap-4 mb-3">
               <FormField label="Visibility" hint={visibilityHint(canPublish, 'plugins:publish', true)}>
-                <VisibilitySelect value={visibility} onChange={setVisibility} canPublish={canPublish} disabled={saving} />
+                <VisibilitySelect value={visibility} onChange={setVisibility} canPublish={canPublish} disabled={readOnly} />
               </FormField>
               {/* Owner + team access — the same control the pipeline editor uses,
                   because the backend rules are the same: admin-only owner write,
@@ -307,18 +313,22 @@ export default function EditPluginModal({ plugin, canPublish, onClose, onSaved }
                 entityNoun="plugins"
                 publishPermission="plugins:publish"
                 idPrefix="editPlugin"
-                disabled={saving}
+                disabled={readOnly}
               />
             </div>
             <div className="flex items-center space-x-6">
               <div className="flex items-center">
-                <Checkbox id="editIsActive" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} className="h-4 w-4 text-brand focus:ring-[color:var(--pb-ring)]" disabled={saving} />
+                <Checkbox id="editIsActive" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} className="h-4 w-4 text-brand focus:ring-[color:var(--pb-ring)]" disabled={readOnly} />
                 <label htmlFor="editIsActive" className="ml-2 block text-sm text-fg-muted">Active</label>
               </div>
-              <div className="flex items-center">
-                <Checkbox id="editIsDefault" checked={isDefault} onChange={(e) => setIsDefault(e.target.checked)} className="h-4 w-4 text-brand focus:ring-[color:var(--pb-ring)]" disabled={saving} />
-                <label htmlFor="editIsDefault" className="ml-2 block text-sm text-fg-muted">Default</label>
-              </div>
+              {/* A managed toolchain version never uses the plugin default: the
+                  platform default is set in the Toolchain console. */}
+              {!managed && (
+                <div className="flex items-center">
+                  <Checkbox id="editIsDefault" checked={isDefault} onChange={(e) => setIsDefault(e.target.checked)} className="h-4 w-4 text-brand focus:ring-[color:var(--pb-ring)]" disabled={saving} />
+                  <label htmlFor="editIsDefault" className="ml-2 block text-sm text-fg-muted">Default</label>
+                </div>
+              )}
             </div>
           </div>
         </div>

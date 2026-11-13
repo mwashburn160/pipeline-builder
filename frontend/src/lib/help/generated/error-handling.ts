@@ -1,6 +1,6 @@
 // GENERATED FROM docs/error-handling.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: c3c26b4ea5157f4ace15ecf8a2b5db4ce88ccb3386c374d7582c670bc72f6105
+// SOURCE-SHA256: e801889b488dfe103a830664318d3c24b3ee8a21ddde5fbaead06b21eb320991
 // SPDX-License-Identifier: Apache-2.0
 import { TriangleAlert } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -352,6 +352,49 @@ export const errorHandlingTopic: HelpTopic = {
               "PLUGIN_VULN_GATE",
               "422",
               "A build outcome: the image has more fixable findings at or above PLUGIN_VULN_FAIL_ON (default Critical) than PLUGIN_VULN_MAX_FINDINGS. The message lists the top CVEs with their fixed versions; the build stream's ERROR event carries code and details (gated, high, maxFindings, failOn, findings[])"
+            ]
+          ]
+        },
+        {
+          "type": "text",
+          "content": "Managed toolchain"
+        },
+        {
+          "type": "text",
+          "content": "pipeline-bootstrap and cdk-synth are the managed toolchain: one release, published by the system org, never listed in the ecosystem, and managed in the Toolchain console."
+        },
+        {
+          "type": "table",
+          "headers": [
+            "code",
+            "Status",
+            "When"
+          ],
+          "rows": [
+            [
+              "PLUGIN_MANAGED_NAME_RESERVED",
+              "403",
+              "An organization other than the system org uploaded a plugin under a managed toolchain name. Publish a custom synth environment under another name"
+            ],
+            [
+              "PLUGIN_MANAGED_NOT_LISTABLE",
+              "400",
+              "A managed toolchain name in a publish request (including publishRequest=true on upload), an anonymous submission or an install"
+            ],
+            [
+              "PLUGIN_MANAGED_PRERELEASE",
+              "400",
+              "An upload of a prerelease (-dev.N) version of a managed toolchain name"
+            ],
+            [
+              "PLUGIN_VERSION_IMMUTABLE",
+              "409",
+              "A re-upload of an existing managed toolchain version. Build a new release version instead"
+            ],
+            [
+              "TOOLCHAIN_USE_CONSOLE",
+              "400",
+              "A generic plugin route (update, deprecate, yank, delete, purge) was called on a managed toolchain version, from any organization"
             ]
           ]
         },

@@ -159,6 +159,12 @@ export async function parsePluginZip(zipPath: string, opts: ParseZipOptions = {}
     if (requiredProblem) throw new ValidationError(requiredProblem);
     const identityProblem = pluginIdentityProblem(pluginSpec);
     if (identityProblem) throw new ValidationError(identityProblem);
+    // A managed build image is uploaded as the image build-plugin-images.sh
+    // built and saved (`prebuilt`): the platform never builds it from source.
+    // The checked-in config.yaml says build_image until that script flips it.
+    if (pluginSpec.pluginType === 'BuildImage' && buildType !== 'prebuilt') {
+      throw new ValidationError('A BuildImage plugin must be uploaded prebuilt (config.yaml buildType: prebuilt)');
+    }
 
     // --- Template validation: batch-check all {{ ... }} tokens ----------------
     validatePluginTemplates(pluginSpec);

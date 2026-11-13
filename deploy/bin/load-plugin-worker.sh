@@ -43,7 +43,11 @@ _count() {
 
 specfile="$plugin_dir/plugin-spec.yaml"
 errors=""
-for field in name description version pluginType computeType; do
+# A BuildImage (the managed toolchain's build image) is not a step: it has no
+# computeType.
+_required="name description version pluginType computeType"
+[ "$(get_spec_field pluginType "$specfile")" = BuildImage ] && _required="name description version pluginType"
+for field in $_required; do
   grep -q "^${field}:" "$specfile" 2>/dev/null || errors="${errors}Missing ${field} "
 done
 if [ -n "$errors" ]; then
@@ -147,6 +151,10 @@ fi
 # patch/minor update; anything else waits for two Ecosystem Managers.
 # A version that is already listed is immutable: its re-upload answers 409,
 # which curl_with_retry counts as "exists" (skipped).
+# The managed toolchain names (pipeline-bootstrap, cdk-synth) are NEVER listed:
+# no publish request is sent for them (the upload route refuses one). They stay
+# system-org rows, resolved by the platform default, and a re-upload of an
+# existing managed version answers 409 like a listed one.
 # `setupLoad=true` marks this as the setup catalog load: an image the scan gates
 # refuse is KEPT for promotion (POST /api/plugins/kept-setup-images/:id/promote,
 # after a fix or an advisory-id waiver) instead of discarded. Honoured for the
@@ -161,13 +169,17 @@ fi
 # $jwt_org_id`), and api-core's getIdentity ignores the header outright for a
 # user or service-account principal — so sending one only looked like it chose
 # the org. The `official-catalog-loader` account already lives in the system org.
+_publish_args=(-F "publishRequest=true")
+case "$(get_spec_field name "$specfile")" in
+  pipeline-bootstrap|cdk-synth) _publish_args=() ;;
+esac
 _rc=0
 curl_with_retry "$label" \
   -X POST "${PLATFORM_BASE_URL}/api/plugins/upload" \
   --max-time "$UPLOAD_TIMEOUT" \
   -F "plugin=@${zip_file}" \
   -F "visibility=public" \
-  -F "publishRequest=true" \
+  "${_publish_args[@]+"${_publish_args[@]}"}" \
   -F "setupLoad=true" || _rc=$?
 case "$_rc" in
   0)

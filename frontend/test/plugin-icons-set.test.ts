@@ -3,7 +3,8 @@
 
 /**
  * The committed curated icon set (`deploy/plugins/_icons/`):
- * every Official spec's `icon` key and badge resolves to a file, every file has a
+ * every Official spec's — the catalog's and the managed toolchain root's
+ * (`deploy/toolchain/`, paths `toolchain/<name>`) — `icon` key and badge resolves to a file, every file has a
  * `SOURCES.md` row (and vice versa), every SVG passes the lint, and every spec's
  * category has a glyph. Specs without a key must say why (`# icon: none — …`).
  */
@@ -15,6 +16,7 @@ import { CATEGORY_ICONS } from '../src/lib/plugin-category-icons';
 import { PLUGIN_ICONS } from '../src/generated/plugin-icons';
 
 const PLUGINS = resolve(__dirname, '..', '..', 'deploy', 'plugins');
+const TOOLCHAIN = resolve(__dirname, '..', '..', 'deploy', 'toolchain');
 const ICONS = join(PLUGINS, '_icons');
 const KEY_RE = /^[a-z0-9-]+$/;
 
@@ -28,6 +30,10 @@ function specs(): Spec[] {
       const file = join(PLUGINS, cat.name, p.name, 'plugin-spec.yaml');
       if (p.isDirectory() && existsSync(file)) out.push({ path: `${cat.name}/${p.name}`, text: readFileSync(file, 'utf8') });
     }
+  }
+  for (const p of readdirSync(TOOLCHAIN, { withFileTypes: true })) {
+    const file = join(TOOLCHAIN, p.name, 'plugin-spec.yaml');
+    if (p.isDirectory() && existsSync(file)) out.push({ path: `toolchain/${p.name}`, text: readFileSync(file, 'utf8') });
   }
   return out;
 }
@@ -59,6 +65,8 @@ describe('curated plugin icon set', () => {
 
   it('finds the plugin specs', () => {
     expect(all.length).toBeGreaterThan(100);
+    expect(all.filter((s) => s.path.startsWith('toolchain/')).map((s) => s.path).sort())
+      .toEqual(['toolchain/cdk-synth', 'toolchain/pipeline-bootstrap']);
   });
 
   it('every spec has an icon key or an explained `# icon: none` comment', () => {

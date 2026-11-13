@@ -11,6 +11,14 @@ set -euo pipefail
 #   ./build-plugin-images.sh --force            # rebuild all, no prompt
 #   ./build-plugin-images.sh --category language # build one category
 #   ./build-plugin-images.sh --reset            # revert all to build_image
+#   ./build-plugin-images.sh --only pipeline-bootstrap,cdk-synth  # named plugins only
+#   ./build-plugin-images.sh --category toolchain   # the managed toolchain release only
+#
+# Two source roots: the managed toolchain release (deploy/toolchain/<name>/ —
+# pipeline-bootstrap + cdk-synth, one version) and the plugin catalog
+# (deploy/plugins/<category>/<name>/). Stages, in order: the `_base` images,
+# then the toolchain (pipeline-bootstrap's base stage — see build_toolchain_base
+# below — then cdk-synth FROM it), then the catalog walk.
 #
 # NOTE: docker save captures single-platform images only. For multi-platform
 # (ARM/x86), use docker buildx with --platform and save each platform
@@ -30,6 +38,7 @@ BASES_ONLY=false
 # Default false — local/minikube/ec2 build the bases as before.
 BASES_PREBUILT="${BASES_PREBUILT:-false}"
 CATEGORY_FILTER=""
+ONLY_FILTER=""
 MAX_IMAGE_SIZE_MB="${MAX_IMAGE_SIZE_MB:-4096}"
 
 # Platform all plugin/base images are built for. An explicit PUBLISH_PLATFORM
@@ -101,6 +110,10 @@ while [ $# -gt 0 ]; do
     # init-platform.sh. Plain assignment silently kept only the LAST flag.
     --category)  [ $# -ge 2 ] || { echo "ERROR: $1 requires a value" >&2; exit 1; }
                  CATEGORY_FILTER="${CATEGORY_FILTER:+$CATEGORY_FILTER,}$2"; shift 2 ;;
+    # Plugin NAMES (directory names), comma-separated and/or repeated. Searches
+    # every category and overrides --category. Unknown names are an error.
+    --only)      [ $# -ge 2 ] || { echo "ERROR: $1 requires a value" >&2; exit 1; }
+                 ONLY_FILTER="${ONLY_FILTER:+$ONLY_FILTER,}$2"; shift 2 ;;
     --max-image-size) [ $# -ge 2 ] || { echo "ERROR: $1 requires a value" >&2; exit 1; }
                  MAX_IMAGE_SIZE_MB="$2"
                  [[ "$MAX_IMAGE_SIZE_MB" =~ ^[1-9][0-9]*$ ]] || { echo "ERROR: --max-image-size requires a positive integer" >&2; exit 1; }
@@ -116,8 +129,21 @@ while [ $# -gt 0 ]; do
       echo "  --skip-bases         Trust prebuilt bases already in the registry; skip the base"
       echo "                       docker build+push (also: BASES_PREBUILT=true). For hosts with"
       echo "                       no Docker daemon (e.g. a CI runner) where bases are seeded out-of-band."
-      echo "  --category CATS      Comma-separated categories (e.g., language,security)"
+      echo "  --category CATS      Comma-separated categories (e.g., language,security);"
+      echo "                       'toolchain' selects the managed toolchain release (deploy/toolchain)"
+      echo "  --only NAMES         Comma-separated plugin names (e.g. pipeline-bootstrap,cdk-synth);"
+      echo "                       searches the toolchain and every category, overrides --category"
       echo "  --max-image-size MB  Skip images larger than MB (default: 4096)"
+      echo ""
+      echo "Env (managed toolchain base stage — pipeline-bootstrap):"
+      echo "  DEPLOY_TARGET     docker | minikube | ec2 | eks — push transport (default: docker)"
+      echo "  PUBLISH_PLATFORM  build/push platform for every image, bootstrap included"
+      echo "  BOOTSTRAP_SCAN    true|false — grype-gate the bootstrap before publishing"
+      echo "                    (default: true when grype is on PATH)"
+      echo "  GRYPE_FAIL_ON     severity that blocks publishing, fixable findings only:"
+      echo "                    negligible|low|medium|high|critical (default: critical)"
+      echo "  --force never applies to pipeline-bootstrap or cdk-synth: a managed version is"
+      echo "  immutable, so a change ships as a new release (deploy/bin/sync-image-tags.sh)."
       exit 0
       ;;
     *) echo "Unknown option: $1" >&2; exit 1 ;;
@@ -442,7 +468,8 @@ fi
 if [ "$RESET" = true ]; then
   echo "=== Resetting all plugins to build_image ==="
   count=0
-  for category_dir in "$PLUGINS_DIR"/*/; do
+  # The toolchain root's two directories first, then the catalog.
+  for category_dir in "$TOOLCHAIN_DIR"/ "$PLUGINS_DIR"/*/; do
     # `_*` dirs (e.g. `_base`) are infrastructure, not plugins — excluded from
     # the upload/load flow everywhere else (see the `! -name '_*'` filter note
     # above); skip them here too so reset never rewrites a base-image config.
@@ -476,6 +503,198 @@ if [ "$RESET" = true ]; then
   exit 0
 fi
 
+# ---- Managed toolchain base stage (pipeline-bootstrap) ----
+#
+# pipeline-bootstrap and cdk-synth are ONE release: both specs carry the same
+# `version` (deploy/bin/sync-image-tags.sh keeps it, with the bootstrap spec's
+# `toolchain` and `sourceDigest`). This stage runs after the `_base` images and
+# before any plugin, whenever either half is selected, because cdk-synth is
+# built FROM the bootstrap by digest:
+#   1. build `pipeline-bootstrap:<V>` (or reuse the local image / image.tar of V)
+#   2. grype-gate it: --only-fixed --fail-on "$GRYPE_FAIL_ON"
+#   3. push `library/pipeline-bootstrap:<V>` via push-base-images.sh (the same
+#      per-DEPLOY_TARGET transports as the bases). A published V is IMMUTABLE:
+#      the push is refused when V already holds different bits.
+#   4. save image.tar + flip config.yaml to prebuilt (like every plugin; --reset
+#      reverts it, load-plugins.sh --cleanup deletes image.tar)
+#   5. export BOOTSTRAP_DIGEST / BOOTSTRAP_IMAGE_REF, which the plugin loop
+#      passes to cdk-synth as --build-arg BOOTSTRAP_IMAGE=<registry>/library/pipeline-bootstrap@<digest>
+#
+# No dev overrides: no PIPELINE_MANAGER_VERSION=latest resolution and no
+# in-place --force. Either would put different bits under the same V, or an
+# image whose pipeline-manager disagrees with the spec's `toolchain`.
+#
+# Both halves live in their own source root, $TOOLCHAIN_DIR (common.sh), not in
+# the catalog: they are built here, FIRST, outside the catalog walk below.
+_is_managed() { case " $MANAGED_TOOLCHAIN_PLUGINS " in *" $1 "*) return 0 ;; esac; return 1; }
+BOOTSTRAP_DIR="$TOOLCHAIN_DIR/pipeline-bootstrap"
+SYNTH_DIR="$TOOLCHAIN_DIR/cdk-synth"
+BOOTSTRAP_TAG=""
+BOOTSTRAP_DIGEST=""
+BOOTSTRAP_IMAGE_REF=""
+BOOTSTRAP_STAGE_RAN=false
+
+# Is plugin directory name $1 (in category $2) selected by --only / --category?
+_selected() {
+  if [ -n "$ONLY_FILTER" ]; then
+    case ",$ONLY_FILTER," in *",$1,"*) return 0 ;; esac
+    return 1
+  fi
+  case " $CATEGORIES " in *" $2 "*) return 0 ;; esac
+  return 1
+}
+
+# Is toolchain half $1 selected? By --only (its name), by an unfiltered run, or
+# by --category naming the `toolchain` pseudo-category.
+_toolchain_selected() {
+  [ -n "$ONLY_FILTER" ] && { _selected "$1" ""; return; }
+  [ -z "$CATEGORY_FILTER" ] && return 0
+  case " $CATEGORIES " in *" $TOOLCHAIN_CATEGORY "*) return 0 ;; esac
+  return 1
+}
+
+if [ -n "$ONLY_FILTER" ]; then
+  CATEGORIES=$(list_categories "$PLUGINS_DIR" | tr '\n' ' ')
+  for _n in $(echo "$ONLY_FILTER" | tr ',' ' '); do
+    _found=false
+    _is_managed "$_n" && [ -f "$TOOLCHAIN_DIR/$_n/plugin-spec.yaml" ] && _found=true
+    for _c in $CATEGORIES; do [ -f "$PLUGINS_DIR/$_c/$_n/plugin-spec.yaml" ] && _found=true; done
+    [ "$_found" = true ] || { echo "ERROR: --only: no plugin named '$_n' under $TOOLCHAIN_DIR or $PLUGINS_DIR" >&2; exit 1; }
+  done
+fi
+
+build_toolchain_base() {
+  local _spec="$BOOTSTRAP_DIR/plugin-spec.yaml" _v _sv
+  [ -f "$BOOTSTRAP_DIR/Dockerfile" ] && [ -f "$_spec" ] \
+    || { echo "ERROR: $BOOTSTRAP_DIR must hold Dockerfile + plugin-spec.yaml" >&2; return 1; }
+  _v=$(get_spec_field version "$_spec" | tr -d "\"'")
+  _sv=$(get_spec_field version "$SYNTH_DIR/plugin-spec.yaml" | tr -d "\"'")
+  [[ "$_v" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+    || { echo "ERROR: pipeline-bootstrap version '$_v' is not a release X.Y.Z (managed images take no prerelease or dev tag)" >&2; return 1; }
+  if [ "$_v" != "$_sv" ]; then
+    echo "ERROR: pipeline-bootstrap is $_v but cdk-synth is $_sv — one release, one version." >&2
+    echo "  Run deploy/bin/sync-image-tags.sh --toolchain-only." >&2
+    return 1
+  fi
+  BOOTSTRAP_TAG="pipeline-bootstrap:${_v}"
+  BOOTSTRAP_STAGE_RAN=true
+
+  echo "=== Managed toolchain release $_v: $BOOTSTRAP_TAG ==="
+  [ -n "${PIPELINE_MANAGER_VERSION:-}" ] && \
+    echo "  NOTE: PIPELINE_MANAGER_VERSION is ignored — the release pins it in the Dockerfile ARG (spec toolchain.pipelineManager)." >&2
+  [ "$FORCE" = true ] && \
+    echo "  NOTE: --force does not rebuild managed images: $BOOTSTRAP_TAG is immutable. Ship a change as a new release." >&2
+  if [ "$DRY_RUN" = true ]; then
+    echo "  (dry-run) would build, scan, push library/$BOOTSTRAP_TAG and save image.tar"
+    BOOTSTRAP_IMAGE_REF="${REGISTRY_HOST}/library/pipeline-bootstrap@<digest>"
+    return 0
+  fi
+
+  # ---- Build (or reuse the exact bits of V) ----
+  # A local image of V, else this directory's image.tar of V (docker load
+  # restores the identical image, e.g. after a `docker system prune`), else a
+  # fresh build. Reuse comes first because a fresh build of an already-published
+  # V is different bits (the Dockerfile runs a full apt upgrade) and the push
+  # below would refuse it.
+  local _tar="$BOOTSTRAP_DIR/image.tar" _ptag
+  _ptag=$(compute_image_tag "$BOOTSTRAP_DIR")
+  if docker image inspect "$BOOTSTRAP_TAG" >/dev/null 2>&1; then
+    echo "  = $BOOTSTRAP_TAG present in the local docker cache"
+  elif [ -f "$_tar" ] && [ "$(get_spec_field imageTag "$BOOTSTRAP_DIR/config.yaml")" = "$_ptag" ] \
+       && docker load -i "$_tar" >/dev/null 2>&1 && docker image inspect "$BOOTSTRAP_TAG" >/dev/null 2>&1; then
+    echo "  = $BOOTSTRAP_TAG restored from image.tar"
+  else
+    # PUBLISH_PLATFORM may differ from the host arch: register QEMU/binfmt first
+    # (idempotent, best-effort by contract — a missing emulator surfaces as the
+    # build failure below, not as a silent skip).
+    bash "$SCRIPT_DIR/ensure-binfmt.sh" "$PUBLISH_PLATFORM" || true
+    # No --build-arg: every toolchain version is the Dockerfile's own pinned
+    # ARG, so the image is reproducible from the tree and its LABELs match the
+    # spec's `toolchain`.
+    local _log _rc=0 _attempt=1 _max=${BUILD_MAX_ATTEMPTS:-3}
+    _log=$(mktemp)
+    while :; do
+      _rc=0
+      docker build --progress plain --platform "$PUBLISH_PLATFORM" \
+        -t "$BOOTSTRAP_TAG" "$BOOTSTRAP_DIR" > "$_log" 2>&1 || _rc=$?
+      [ "$_rc" -eq 0 ] && break
+      if [ "$_attempt" -lt "$_max" ] && _is_transient_failure "$_log"; then
+        echo "    transient network failure on attempt $_attempt/$_max — sleeping $((_attempt * 10))s"
+        sleep $((_attempt * 10)); _attempt=$((_attempt + 1)); continue
+      fi
+      echo "  ✗ $BOOTSTRAP_TAG — build failed (last 30 lines):" >&2
+      tail -30 "$_log" | sed 's/^/    /' >&2
+      rm -f "$_log"
+      return 1
+    done
+    rm -f "$_log"
+    echo "  ✓ built $BOOTSTRAP_TAG"
+  fi
+
+  # ---- Vulnerability gate ----
+  # The bootstrap is built HERE, per deployment, so the release's sign/scan
+  # path never sees it. Scan it before it reaches a registry with the release's
+  # bar: any FIXABLE finding at or above GRYPE_FAIL_ON (default critical). CI
+  # scans it too (plugin-catalog PR smoke build, plugin-base-freshness weekly).
+  # BOOTSTRAP_SCAN=false skips (e.g. an air-gapped host without the grype DB).
+  local _scan="${BOOTSTRAP_SCAN:-auto}"
+  if [ "$_scan" = auto ]; then
+    if command -v grype >/dev/null 2>&1; then _scan=true; else
+      _scan=false
+      echo "  NOTE: grype not on PATH — $BOOTSTRAP_TAG is published UNSCANNED here (the plugin service still scans it on upload)" >&2
+    fi
+  fi
+  if [ "$_scan" = true ]; then
+    GRYPE_FAIL_ON="${GRYPE_FAIL_ON:-critical}"
+    case "$GRYPE_FAIL_ON" in negligible|low|medium|high|critical) ;; *) echo "ERROR: GRYPE_FAIL_ON must be negligible|low|medium|high|critical (got '$GRYPE_FAIL_ON')" >&2; return 1 ;; esac
+    echo "  scanning $BOOTSTRAP_TAG (grype, fixable at/above $GRYPE_FAIL_ON)"
+    grype "docker:$BOOTSTRAP_TAG" --only-fixed --fail-on "$GRYPE_FAIL_ON" \
+      || { echo "ERROR: $BOOTSTRAP_TAG has fixable vulnerabilities at/above $GRYPE_FAIL_ON — not publishing. Ship the fix as a new release." >&2; return 1; }
+  fi
+
+  # ---- Digest ----
+  # crane pushes the `docker save` tarball as-is, so `crane digest --tarball`
+  # over the same tarball is exactly the manifest digest the registry will hold.
+  # Same pinned crane image the pusher uses (read from push-base-images.sh, so
+  # the two can't drift). Mandatory: cdk-synth is built FROM this digest.
+  local _crane _digest
+  _crane="${CRANE_IMAGE:-$(sed -nE 's/^CRANE_IMAGE="\$\{CRANE_IMAGE:-([^}]+)\}".*/\1/p' "$SCRIPT_DIR/push-base-images.sh")}"
+  _digest="$(docker save "$BOOTSTRAP_TAG" | docker run --rm -i --entrypoint sh "$_crane" \
+     -c 'cat > /tmp/img.tar && crane digest --tarball /tmp/img.tar' 2>/dev/null || true)"
+  if ! printf '%s' "$_digest" | grep -Eq '^sha256:[0-9a-f]{64}$'; then
+    echo "ERROR: could not compute ${BOOTSTRAP_TAG}'s digest (crane: $_crane)" >&2
+    return 1
+  fi
+
+  # ---- Publish (immutable) ----
+  echo "  publishing $BOOTSTRAP_TAG to ${REGISTRY_HOST}/library/ ($_digest)"
+  PUSH_TAGS="$BOOTSTRAP_TAG" PUSH_IMMUTABLE=true PUSH_IMMUTABLE_DIGEST="$_digest" \
+    REGISTRY_HOST="$REGISTRY_HOST" DEPLOY_TARGET="${DEPLOY_TARGET:-docker}" \
+    bash "$SCRIPT_DIR/push-base-images.sh" || return 1
+
+  # ---- image.tar + config.yaml (prebuilt), for load-plugins.sh ----
+  if [ ! -f "$_tar" ] || [ "$(get_spec_field imageTag "$BOOTSTRAP_DIR/config.yaml")" != "$_ptag" ]; then
+    docker save "$BOOTSTRAP_TAG" -o "$_tar" || { rm -f "$_tar"; echo "ERROR: docker save $BOOTSTRAP_TAG failed" >&2; return 1; }
+    TAG="$_ptag" yq -i '
+      del(.imageTag) | del(.dockerfile)
+      | .buildType = "prebuilt"
+      | .imageTag = strenv(TAG)
+    ' "$BOOTSTRAP_DIR/config.yaml"
+  fi
+
+  BOOTSTRAP_DIGEST="$_digest"
+  BOOTSTRAP_IMAGE_REF="${REGISTRY_HOST}/library/pipeline-bootstrap@${_digest}"
+  export BOOTSTRAP_DIGEST BOOTSTRAP_IMAGE_REF
+  echo "  ✓ $BOOTSTRAP_TAG → $BOOTSTRAP_IMAGE_REF"
+  echo ""
+}
+
+SYNTH_SELECTED=false
+_toolchain_selected cdk-synth && SYNTH_SELECTED=true
+if _toolchain_selected pipeline-bootstrap || [ "$SYNTH_SELECTED" = true ]; then
+  build_toolchain_base || { echo "ERROR: the managed toolchain base stage failed — no plugin was built." >&2; exit 1; }
+fi
+
 # ---- Main build loop ----
 
 echo "=== Building Plugin Images ==="
@@ -491,14 +710,26 @@ BUILT=0; SKIPPED=0; FAILED=0
 # The EXIT trap that removes it (and the buildkit auth dir) is already installed
 # above build_base_images.
 PLUGIN_LIST_FILE=$(mktemp)
+# The catalog only: the toolchain root is not walked (cdk-synth is built on its
+# own below, pipeline-bootstrap was built by the base stage above).
 for category_dir in "$PLUGINS_DIR"/*/; do
   category=$(basename "$category_dir")
   case " $CATEGORIES " in *" $category "*) ;; *) continue ;; esac
   for plugin_dir in "$category_dir"*/; do
+    _selected "$(basename "$plugin_dir")" "$category" || continue
     [ -f "$plugin_dir/plugin-spec.yaml" ] && [ -f "$plugin_dir/Dockerfile" ] && echo "$plugin_dir" >> "$PLUGIN_LIST_FILE"
   done
 done
 TOTAL=$(wc -l < "$PLUGIN_LIST_FILE" | tr -d ' ')
+[ "$SYNTH_SELECTED" = true ] && TOTAL=$((TOTAL + 1))
+
+# `--only pipeline-bootstrap` builds nothing after the base stage: it was the
+# whole job, and it succeeded (it exits on failure).
+if [ "$TOTAL" -eq 0 ] && [ "$BOOTSTRAP_STAGE_RAN" = true ]; then
+  echo "=== Summary ==="
+  echo "  Built: $BOOTSTRAP_TAG (base stage); no other plugin selected"
+  exit 0
+fi
 
 # An empty list is NOT a successful build of nothing — it means the plugins tree
 # is missing or `--category` named something that does not exist. Falling through
@@ -507,21 +738,18 @@ TOTAL=$(wc -l < "$PLUGIN_LIST_FILE" | tr -d ' ')
 if [ "$TOTAL" -eq 0 ]; then
   echo "ERROR: no buildable plugins found under $PLUGINS_DIR for categories: ${CATEGORY_FILTER:-all}" >&2
   echo "  A buildable plugin needs both plugin-spec.yaml and Dockerfile." >&2
-  echo "  Known categories: $(list_categories "$PLUGINS_DIR" | tr '\n' ' ')" >&2
+  echo "  Known categories: $TOOLCHAIN_CATEGORY $(list_categories "$PLUGINS_DIR" | tr '\n' ' ')" >&2
   exit 1
 fi
 
-CURRENT=0
-# Feed the loop from fd 3, NOT stdin. Two things depended on stdin staying the
-# terminal and both were broken while the list was piped in on fd 0:
-#   - the "source changed, rebuild?" prompt below is guarded by `[ -t 0 ]`, which
-#     is false when fd 0 is the list file — so the documented interactive mode
-#     never actually prompted;
-#   - any child that reads stdin (a `docker run -i`-wrapped yq, for instance)
-#     swallowed the remaining plugin paths, ending the loop after one plugin
-#     while the summary still reported the full TOTAL.
-while IFS= read -r plugin_dir <&3; do
-    [ -n "$plugin_dir" ] || continue
+# build_plugin_dir <plugin_dir> [docker build args...] — build one plugin image,
+# save image.tar and flip its config.yaml to prebuilt. Shared by cdk-synth (from
+# the toolchain root, with its BOOTSTRAP_IMAGE args) and the catalog walk.
+# Updates CURRENT / BUILT / SKIPPED / FAILED; always returns 0 (a failure is
+# counted, not raised, so one bad plugin doesn't abort the run).
+build_plugin_dir() {
+    local plugin_dir="$1"; shift
+    local _extra_build_args="$*"
     category=$(basename "$(dirname "$plugin_dir")")
 
     CURRENT=$((CURRENT + 1))
@@ -529,10 +757,13 @@ while IFS= read -r plugin_dir <&3; do
     if [ -z "$name" ]; then
       echo "  [${CURRENT}/${TOTAL}] FAIL ${category}/$(basename "$plugin_dir") (plugin-spec.yaml has no name:)"
       FAILED=$((FAILED + 1))
-      continue
+      return 0
     fi
     label="${category}/${name}"
     tag=$(compute_image_tag "$plugin_dir")
+    # Managed images take no in-place --force (immutable per version).
+    _force="$FORCE"
+    _is_managed "$name" && _force=false
 
     # Build-skip decision tree. The build tag lives inside config.yaml as
     # `imageTag:` — same file the platform parses on upload, so build
@@ -553,7 +784,7 @@ while IFS= read -r plugin_dir <&3; do
     #      rebuild so the next load-plugins step has something to upload.
     #   3. `image.tar` exists but `imageTag` is missing or mismatched →
     #      can't verify freshness, treat as stale and prompt/rebuild.
-    if [ "$FORCE" != true ]; then
+    if [ "$_force" != true ]; then
       # An ABSENT `imageTag:` is the NORMAL case (a plugin that has never been
       # built, or one just reverted by --reset); it yields "" per
       # get_spec_field's contract and the decision tree above handles it.
@@ -564,14 +795,14 @@ while IFS= read -r plugin_dir <&3; do
       if [ "$hash_matches" = true ] && [ "$tar_present" = true ]; then
         echo "  [${CURRENT}/${TOTAL}] SKIP $label (image.tar exists, hash unchanged)"
         SKIPPED=$((SKIPPED + 1))
-        continue
+        return 0
       fi
       if [ "$hash_matches" = true ] && [ "$tar_present" = false ] && [ "${REGISTRY_CHECK:-false}" = true ]; then
         # image.tar was likely deleted by --cleanup. Source is unchanged,
         # so the registry should still hold the previously-uploaded copy.
         echo "  [${CURRENT}/${TOTAL}] SKIP $label (image.tar missing, hash unchanged — trusting registry copy)"
         SKIPPED=$((SKIPPED + 1))
-        continue
+        return 0
       fi
       if [ "$tar_present" = true ] && [ "$hash_matches" != true ]; then
         # Hash mismatch with an existing tar — source changed since the
@@ -582,7 +813,7 @@ while IFS= read -r plugin_dir <&3; do
           if [ "$_answer" = "n" ] || [ "$_answer" = "N" ]; then
             echo "    Skipped (manual)"
             SKIPPED=$((SKIPPED + 1))
-            continue
+            return 0
           fi
         fi
       elif [ "$tar_present" = false ] && [ "$hash_matches" = true ]; then
@@ -595,7 +826,7 @@ while IFS= read -r plugin_dir <&3; do
     if [ "$DRY_RUN" = true ]; then
       echo "  [${CURRENT}/${TOTAL}] BUILD $label -> $tag (dry-run)"
       BUILT=$((BUILT + 1))
-      continue
+      return 0
     fi
 
     echo "  [${CURRENT}/${TOTAL}] BUILD $label -> $tag"
@@ -611,6 +842,7 @@ while IFS= read -r plugin_dir <&3; do
     # `--build-arg K=V` flags from the spec's buildArgs, one per line from
     # yq_buildargs, flattened so `$build_args` word-splits into docker's argv.
     build_args=$(yq_buildargs "$plugin_dir/plugin-spec.yaml" | tr '\n' ' ')
+    build_args="$build_args $_extra_build_args"
     build_log=$(mktemp)
     max_attempts=${BUILD_MAX_ATTEMPTS:-3}
     attempt=1
@@ -637,7 +869,7 @@ while IFS= read -r plugin_dir <&3; do
       tail -20 "$build_log" | sed 's/^/      /'
       rm -f "$build_log"
       FAILED=$((FAILED + 1))
-      continue
+      return 0
     fi
     rm -f "$build_log"
 
@@ -648,7 +880,7 @@ while IFS= read -r plugin_dir <&3; do
       rm -f "$tar_path"
       docker rmi "plugin:${tag}" > /dev/null 2>&1 || true
       FAILED=$((FAILED + 1))
-      continue
+      return 0
     fi
 
     # Check size
@@ -658,7 +890,7 @@ while IFS= read -r plugin_dir <&3; do
       rm -f "$tar_path"
       docker rmi "plugin:${tag}" > /dev/null 2>&1 || true
       SKIPPED=$((SKIPPED + 1))
-      continue
+      return 0
     fi
 
     # Update config.yaml. Synthesize a minimal one if the plugin lacks it
@@ -686,6 +918,34 @@ while IFS= read -r plugin_dir <&3; do
 
     echo "    OK (${tar_size_mb}MB)"
     BUILT=$((BUILT + 1))
+}
+
+CURRENT=0
+# cdk-synth first, built FROM this run's bootstrap by DIGEST. The host daemon
+# cannot pull from the in-cluster registry, so --build-context maps that digest
+# ref to the local image the digest was computed from — the same bits.
+if [ "$SYNTH_SELECTED" = true ]; then
+  if [ "$DRY_RUN" != true ] && [ -z "$BOOTSTRAP_DIGEST" ]; then
+    CURRENT=$((CURRENT + 1))
+    echo "  [${CURRENT}/${TOTAL}] FAIL $TOOLCHAIN_CATEGORY/cdk-synth (no pipeline-bootstrap digest from the base stage)"
+    FAILED=$((FAILED + 1))
+  else
+    build_plugin_dir "$SYNTH_DIR/" --build-arg "BOOTSTRAP_IMAGE=${BOOTSTRAP_IMAGE_REF}" \
+      --build-context "${BOOTSTRAP_IMAGE_REF}=docker-image://${BOOTSTRAP_TAG}"
+  fi
+fi
+
+# Feed the loop from fd 3, NOT stdin. Two things depended on stdin staying the
+# terminal and both were broken while the list was piped in on fd 0:
+#   - the "source changed, rebuild?" prompt (build_plugin_dir) is guarded by `[ -t 0 ]`, which
+#     is false when fd 0 is the list file — so the documented interactive mode
+#     never actually prompted;
+#   - any child that reads stdin (a `docker run -i`-wrapped yq, for instance)
+#     swallowed the remaining plugin paths, ending the loop after one plugin
+#     while the summary still reported the full TOTAL.
+while IFS= read -r plugin_dir <&3; do
+    [ -n "$plugin_dir" ] || continue
+    build_plugin_dir "$plugin_dir"
 done 3< "$PLUGIN_LIST_FILE"
 
 echo ""

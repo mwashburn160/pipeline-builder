@@ -17,13 +17,21 @@ import { z } from 'zod';
 import {
   IconKeySchema, PLUGIN_CATALOG_FIELD_SCHEMAS, ProjectUrlSchema, isAllowedSpdxId,
 } from './plugin-catalog-metadata.js';
-import { PLUGIN_CHANGELOG_MAX_BYTES } from '../types/plugin-catalog.js';
+import { PLUGIN_CHANGELOG_MAX_BYTES, isManagedToolchainPlugin } from '../types/plugin-catalog.js';
 
 // -----------------------------------------------------------------------------
 // Vocabularies
 // -----------------------------------------------------------------------------
 
-export const PLUGIN_TYPES = ['CodeBuildStep', 'ShellStep', 'ManualApprovalStep'] as const;
+/**
+ * `BuildImage` is the managed toolchain's build image (`pipeline-bootstrap`,
+ * docs/plans/bootstrap-image-versioning.md §1): a prebuilt image with no
+ * commands, never a pipeline step. {@link STEP_PLUGIN_TYPES} is the subset a
+ * step (or a generator) may use.
+ */
+export const PLUGIN_TYPES = ['CodeBuildStep', 'ShellStep', 'ManualApprovalStep', 'BuildImage'] as const;
+/** The plugin types a pipeline step can use — every type except `BuildImage`. */
+export const STEP_PLUGIN_TYPES = ['CodeBuildStep', 'ShellStep', 'ManualApprovalStep'] as const;
 export const PLUGIN_COMPUTE_TYPES = ['SMALL', 'MEDIUM', 'LARGE', 'X2_LARGE'] as const;
 export const PLUGIN_FAILURE_BEHAVIORS = ['fail', 'warn', 'ignore'] as const;
 export const PLUGIN_BUILD_TYPES = ['build_image', 'prebuilt', 'metadata_only'] as const;
@@ -52,6 +60,32 @@ const EGRESS_HOST_PATTERN = /^(?:\*\.)?(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.
 export function isValidEgressHost(host: string): boolean {
   return host.length <= 253 && EGRESS_HOST_PATTERN.test(host);
 }
+
+// -----------------------------------------------------------------------------
+// Managed toolchain metadata (BuildImage specs)
+// -----------------------------------------------------------------------------
+
+/** An EXACT semver (no range): `1.2.3`, optionally `-pre` / `+build`. */
+const EXACT_SEMVER_PATTERN = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$/;
+const exactSemver = z.string().regex(EXACT_SEMVER_PATTERN, { message: 'must be an exact semver version (e.g. 1.2.3)' });
+
+/**
+ * The tool versions a managed build image carries, written by
+ * `sync-image-tags.sh` from the Dockerfile `ARG`s. Every field is required and
+ * exact: this is what the release IS, not what it accepts.
+ */
+export const PluginToolchainSchema = z.object({
+  pipelineManager: exactSemver,
+  awsCdk: exactSemver,
+  cdkAssets: exactSemver,
+  esbuild: exactSemver,
+  pnpm: exactSemver,
+  node: exactSemver,
+}).strict();
+export type PluginToolchain = z.infer<typeof PluginToolchainSchema>;
+
+/** A build-input hash: 64 lowercase hex characters (sha256), optionally `sha256:`-prefixed. */
+export const PLUGIN_SOURCE_DIGEST_PATTERN = /^(sha256:)?[a-f0-9]{64}$/;
 
 // -----------------------------------------------------------------------------
 // config.yaml
@@ -146,8 +180,50 @@ export const PluginSpecSchema = z.object({
       message: 'must be a bare hostname (no scheme, port or path; one leading *. allowed)',
     })).max(EGRESS_MAX_HOSTS).optional(),
   }).strict().optional(),
-}).strict();
+  // Managed toolchain metadata — `BuildImage` specs only (see the check below).
+  toolchain: PluginToolchainSchema.optional(),
+  sourceDigest: z.string().regex(PLUGIN_SOURCE_DIGEST_PATTERN, { message: 'must be a sha256 hex digest' }).optional(),
+}).strict().superRefine((spec, ctx) => {
+  for (const issue of buildImageSpecProblems(spec)) ctx.addIssue({ code: 'custom', path: [issue.path], message: issue.message });
+});
 export type PluginSpecInput = z.infer<typeof PluginSpecSchema>;
+
+/**
+ * The `BuildImage` rules (docs/plans/bootstrap-image-versioning.md §1): a
+ * managed build image uses a managed toolchain name, carries `toolchain` and
+ * `sourceDigest`, and declares nothing a step would run (`commands`,
+ * `installCommands`, `metadata`). Conversely `toolchain` / `sourceDigest` are
+ * refused on every other type. That it is `prebuilt` is the upload path's
+ * check: the checked-in `config.yaml` says `build_image` until the build
+ * script flips it.
+ */
+interface BuildImageCheckInput {
+  name?: string;
+  pluginType?: string;
+  toolchain?: unknown;
+  sourceDigest?: unknown;
+  commands?: unknown;
+  installCommands?: unknown;
+  metadata?: unknown;
+}
+
+function buildImageSpecProblems(spec: BuildImageCheckInput): Array<{ path: string; message: string }> {
+  const out: Array<{ path: string; message: string }> = [];
+  if (spec.pluginType !== 'BuildImage') {
+    if (spec.toolchain !== undefined) out.push({ path: 'toolchain', message: 'is only allowed on a BuildImage plugin' });
+    if (spec.sourceDigest !== undefined) out.push({ path: 'sourceDigest', message: 'is only allowed on a BuildImage plugin' });
+    return out;
+  }
+  if (spec.name !== undefined && !isManagedToolchainPlugin(spec.name)) {
+    out.push({ path: 'pluginType', message: 'BuildImage is reserved for the managed toolchain plugins' });
+  }
+  if (spec.toolchain === undefined) out.push({ path: 'toolchain', message: 'is required on a BuildImage plugin' });
+  if (spec.sourceDigest === undefined) out.push({ path: 'sourceDigest', message: 'is required on a BuildImage plugin' });
+  for (const field of ['commands', 'installCommands', 'metadata'] as const) {
+    if (spec[field] !== undefined) out.push({ path: field, message: 'is not allowed on a BuildImage plugin' });
+  }
+  return out;
+}
 
 /**
  * Result of checking a parsed YAML document against a package schema:
@@ -182,11 +258,12 @@ export function checkPluginConfig(raw: unknown): PackageCheck<PluginConfigInput>
 
 /**
  * The required-field contract: `name` and `version` always, `commands` for
- * every type except `ManualApprovalStep`. Returns the upload's message, or null.
+ * every type except `ManualApprovalStep` and `BuildImage` (neither runs
+ * commands). Returns the upload's message, or null.
  */
 export function pluginSpecRequiredFieldsProblem(spec: Pick<PluginSpecInput, 'name' | 'version' | 'commands' | 'pluginType'>): string | null {
-  const isApprovalStep = spec.pluginType === 'ManualApprovalStep';
-  if (!spec.name || !spec.version || (!isApprovalStep && !spec.commands)) {
+  const runsNoCommands = spec.pluginType === 'ManualApprovalStep' || spec.pluginType === 'BuildImage';
+  if (!spec.name || !spec.version || (!runsNoCommands && !spec.commands)) {
     return 'Invalid spec: name, version, and commands are required';
   }
   return null;

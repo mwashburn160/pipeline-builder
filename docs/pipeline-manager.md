@@ -127,7 +127,8 @@ esbuild cannot run locally. Switching to Docker bundling
 
 Install esbuild **and** pnpm (the handler's lockfile is `pnpm-lock.yaml`, so CDK
 uses pnpm to run esbuild) — plus the CDK CLI — globally, matching the versions the
-CodeBuild bootstrap image bakes in:
+`pipeline-bootstrap` image bakes in (its `toolchain` in
+`deploy/toolchain/pipeline-bootstrap/plugin-spec.yaml`):
 
 ```bash
 npm install -g esbuild@0.28.1 pnpm@10.33.0 aws-cdk@2.1126.0
@@ -136,7 +137,7 @@ npm install -g esbuild@0.28.1 pnpm@10.33.0 aws-cdk@2.1126.0
 With esbuild on `PATH`, `NodejsFunction` bundles **locally** (no Docker) and the
 Lambda resolves correctly. In CodeBuild this is handled for you — the bootstrap
 image ships these tools (see
-[AWS deployment → CodeBuild bootstrap image](aws-deployment.md#build-the-codebuild-bootstrap-image-build-codebuild-bootstrapsh)).
+[AWS deployment → the managed toolchain release](aws-deployment.md#build-the-managed-toolchain-release)).
 
 ---
 
@@ -197,7 +198,7 @@ pipeline-manager infra provision --target docker --repo --with-all --with-smoke-
 - **AI-optional.** Set `ANTHROPIC_API_KEY` (or `AI_PROVIDER` + its key) to parse a natural-language `--prompt` and add free-form failure diagnosis; without a key it falls back to the deterministic issue matcher.
 - **Bootstrap a fresh machine (`--repo`).** Without a checkout, `--repo` git-clones the platform repo first, then runs from it. The clone is **sparse + partial** (`--filter=blob:none` + cone `sparse-checkout`, git ≥ 2.27 — else a full-clone fallback): it materializes only the deploy folders the selected target + options need. Re-syncs are **additive** — a single `--workdir` can accumulate multiple targets. Override with `--repo <url>`, `--ref <branch|tag>`, `--workdir <dir>`.
 - **Run in Docker, zero host installs.** [`deploy/bin/provision-docker.sh`](https://github.com/mwashburn160/pipeline-builder/blob/main/deploy/bin/provision-docker.sh) runs `infra provision` inside a throwaway `node:26-slim` container, installing only the tools the chosen target needs. Args pass straight through. (On macOS the container can't drive Docker Desktop's CLI, so run **local** on the host instead — the wrapper shines for the AWS targets.)
-- **Post-install steps.** After deploy + health, `infra provision` registers the admin (non-interactive with `--admin-email`/`--admin-password`) and runs opt-in loads — passed as flags or **offered interactively after the clone** when none are given: `--with-plugins` (adds `deploy/plugins` + `deploy/codebuild`), `--with-compliance`, `--with-samples`, `--with-all`, `--with-smoke-test`, **`--with-events`** (AWS event ingestion: three `infra store-token` runs write the platform, `registry:push` and `reporting:ingest` service-account keys to Secrets Manager, then `infra setup-events --scoped-ingest` deploys the EventBridge → SQS → Lambda), and repeatable `--post-step "<cmd>"`. Default is register-only; `--init skip` skips even that. All steps are idempotent.
+- **Post-install steps.** After deploy + health, `infra provision` registers the admin (non-interactive with `--admin-email`/`--admin-password`) and runs opt-in loads — passed as flags or **offered interactively after the clone** when none are given: `--with-plugins` (adds `deploy/plugins`), `--with-compliance`, `--with-samples`, `--with-all`, `--with-smoke-test`, **`--with-events`** (AWS event ingestion: three `infra store-token` runs write the platform, `registry:push` and `reporting:ingest` service-account keys to Secrets Manager, then `infra setup-events --scoped-ingest` deploys the EventBridge → SQS → Lambda), and repeatable `--post-step "<cmd>"`. Default is register-only; `--init skip` skips even that. All steps are idempotent.
 
 The underlying `bin/setup.sh` / `bin/shutdown.sh` scripts (and `aws cloudformation delete-stack` for ec2) remain the source of truth and can always be run directly. Full guide: [AWS deployment → AI-assisted install](aws-deployment.md#ai-assisted-install-infra-provision).
 

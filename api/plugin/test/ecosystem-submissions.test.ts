@@ -868,3 +868,13 @@ describe('maintenance', () => {
     expect(out).toMatchObject({ submissionsExpired: 0, submitterEmailsPurged: 0 });
   });
 });
+
+// docs/plans/bootstrap-image-versioning.md D5: managed toolchain names are never listed.
+describe('managed toolchain names', () => {
+  it.each(['cdk-synth', 'pipeline-bootstrap'])('refuses an anonymous submission named %s with 400 PLUGIN_MANAGED_NOT_LISTABLE', async (name) => {
+    const res = await submit({ zip: goodZip(name) });
+    expect(res.status).toBe(400);
+    expect(res.body.code ?? res.body.error?.code).toBe('PLUGIN_MANAGED_NOT_LISTABLE');
+    expect(db.tables.plugin_submissions ?? []).toHaveLength(0);
+  });
+});

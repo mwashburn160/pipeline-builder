@@ -184,3 +184,23 @@ describe('POST /plugins/:id/yank', () => {
     expect(b.status).toHaveBeenCalledWith(404);
   });
 });
+
+// docs/plans/bootstrap-image-versioning.md §5 — the managed toolchain's
+// lifecycle is the Toolchain console's, for the system org too.
+describe('managed toolchain names', () => {
+  const managedRow = { ...row, name: 'cdk-synth', orgId: '000000000000000000000001', isDefault: true };
+
+  it.each([
+    ['/:id/deprecate', {}],
+    ['/:id/yank', { reason: 'bad image' }],
+  ])('%s answers 400 TOOLCHAIN_USE_CONSOLE and never reaches the service', async (path, body) => {
+    mockFindById.mockResolvedValue(managedRow);
+    const r = res();
+    await handler(path)(req(body), r);
+    expect(r.status).toHaveBeenCalledWith(400);
+    expect(r.json).toHaveBeenCalledWith(expect.objectContaining({ code: 'TOOLCHAIN_USE_CONSOLE' }));
+    expect(mockSetDeprecated).not.toHaveBeenCalled();
+    expect(mockYankVersion).not.toHaveBeenCalled();
+    expect(mockEmitPluginAudit).not.toHaveBeenCalled();
+  });
+});

@@ -47,3 +47,25 @@ export const METADATA_SOURCES = ['spec', 'readme', 'dockerfile', 'derived', 'use
 export type MetadataSource = typeof METADATA_SOURCES[number];
 /** Per-field provenance of a version's catalog metadata. */
 export type MetadataSources = Partial<Record<PluginCatalogField, MetadataSource>>;
+
+// -----------------------------------------------------------------------------
+// Managed toolchain names (docs/plans/bootstrap-image-versioning.md §1, D5)
+// -----------------------------------------------------------------------------
+
+/**
+ * The managed toolchain plugins. `pipeline-bootstrap` (the CodeBuild image the
+ * synth and self-mutation run on) and `cdk-synth` (the synth step) are ONE
+ * release, published by the system org. Their names are reserved: only the
+ * system org creates rows with them, they are never listed in the ecosystem,
+ * an upload never promotes or overwrites them, and their lifecycle (default,
+ * deprecate, yank, delete) is driven only by the Toolchain console, never the
+ * generic plugin routes. Here (dependency-free) so the browser shares the list.
+ */
+export const MANAGED_TOOLCHAIN_PLUGINS = ['pipeline-bootstrap', 'cdk-synth'] as const;
+export type ManagedToolchainPlugin = typeof MANAGED_TOOLCHAIN_PLUGINS[number];
+
+/** Whether `name` is one of the reserved {@link MANAGED_TOOLCHAIN_PLUGINS} (exact, case-insensitive). */
+export function isManagedToolchainPlugin(name: string | null | undefined): name is ManagedToolchainPlugin {
+  if (typeof name !== 'string') return false;
+  return (MANAGED_TOOLCHAIN_PLUGINS as readonly string[]).includes(name.trim().toLowerCase());
+}

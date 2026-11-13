@@ -40,6 +40,10 @@ export enum ErrorCode {
    *  was called from an active org other than the system org — a token minted in
    *  a tenant org is refused even for the same user. Switch to the system org. */
   SYSTEM_ORG_REQUIRED = 'SYSTEM_ORG_REQUIRED',
+  /** A non-system org tried to create a plugin under a managed toolchain name
+   *  (`MANAGED_TOOLCHAIN_PLUGINS`: `pipeline-bootstrap`, `cdk-synth`). A custom
+   *  synth environment is published under another name. */
+  PLUGIN_MANAGED_NAME_RESERVED = 'PLUGIN_MANAGED_NAME_RESERVED',
   /** The publisher hasn't accepted the CURRENT publisher terms version, so it
    *  can't submit new requests (existing listings are unaffected). */
   PUBLISHER_TERMS_REQUIRED = 'PUBLISHER_TERMS_REQUIRED',
@@ -92,6 +96,16 @@ export enum ErrorCode {
   TEMPLATE_CONTRACT_VIOLATION = 'TEMPLATE_CONTRACT_VIOLATION',
   TEMPLATE_SIZE_EXCEEDED = 'TEMPLATE_SIZE_EXCEEDED',
   TEMPLATE_VALIDATION_FAILED = 'TEMPLATE_VALIDATION_FAILED',
+  /** A managed toolchain name in a publish, submission, listing or install path:
+   *  managed releases are never listed in the ecosystem. */
+  PLUGIN_MANAGED_NOT_LISTABLE = 'PLUGIN_MANAGED_NOT_LISTABLE',
+  /** An upload of a prerelease (`-dev.N`) version of a managed toolchain name:
+   *  a release version is always a plain semver. */
+  PLUGIN_MANAGED_PRERELEASE = 'PLUGIN_MANAGED_PRERELEASE',
+  /** A generic plugin route (update, deprecate/yank, delete, purge) was called on
+   *  a managed toolchain name — for the system org too. Release lifecycle lives
+   *  only in the Toolchain console, which acts on both halves at once. */
+  TOOLCHAIN_USE_CONSOLE = 'TOOLCHAIN_USE_CONSOLE',
 
   // Client too old (426)
   /** The pipeline-manager CLI is older than the platform's
@@ -131,6 +145,9 @@ export enum ErrorCode {
   /** A freeze named an image digest that is not the version's stored digest
    *  (fail closed: what was requested is not what would be published). */
   PLUGIN_DIGEST_MISMATCH = 'PLUGIN_DIGEST_MISMATCH',
+  /** A re-upload of an existing (name, version) of a managed toolchain name:
+   *  a release is immutable — build a new version instead. */
+  PLUGIN_VERSION_IMMUTABLE = 'PLUGIN_VERSION_IMMUTABLE',
   /** A publish request needs the org's publisher profile, which doesn't exist
    *  yet (docs/plugin-publishing.md). Claim a handle first. */
   PUBLISHER_REQUIRED = 'PUBLISHER_REQUIRED',
@@ -215,6 +232,7 @@ export const ErrorCodeStatus: Record<ErrorCode, number> = {
   [ErrorCode.REAUTH_REQUIRED]: 401,
   [ErrorCode.INSUFFICIENT_PERMISSIONS]: 403,
   [ErrorCode.SYSTEM_ORG_REQUIRED]: 403,
+  [ErrorCode.PLUGIN_MANAGED_NAME_RESERVED]: 403,
   [ErrorCode.PUBLISHER_TERMS_REQUIRED]: 403,
   [ErrorCode.PUBLISHER_ROOT_ORG_REQUIRED]: 403,
   [ErrorCode.PUBLISHER_SUSPENDED]: 403,
@@ -243,6 +261,9 @@ export const ErrorCodeStatus: Record<ErrorCode, number> = {
   [ErrorCode.TEMPLATE_CONTRACT_VIOLATION]: 400,
   [ErrorCode.TEMPLATE_SIZE_EXCEEDED]: 400,
   [ErrorCode.TEMPLATE_VALIDATION_FAILED]: 400,
+  [ErrorCode.PLUGIN_MANAGED_NOT_LISTABLE]: 400,
+  [ErrorCode.PLUGIN_MANAGED_PRERELEASE]: 400,
+  [ErrorCode.TOOLCHAIN_USE_CONSOLE]: 400,
   [ErrorCode.CLIENT_UPGRADE_REQUIRED]: 426,
   [ErrorCode.QUOTA_EXCEEDED]: 429,
   [ErrorCode.AI_MEMBER_SHARE_EXCEEDED]: 429,
@@ -257,6 +278,7 @@ export const ErrorCodeStatus: Record<ErrorCode, number> = {
   [ErrorCode.PLUGIN_VERSION_FROZEN]: 409,
   [ErrorCode.PLUGIN_VERSION_IN_USE]: 409,
   [ErrorCode.PLUGIN_DIGEST_MISMATCH]: 409,
+  [ErrorCode.PLUGIN_VERSION_IMMUTABLE]: 409,
   [ErrorCode.PUBLISHER_REQUIRED]: 409,
   [ErrorCode.PUBLISHER_HANDLE_RESERVED]: 409,
   [ErrorCode.PUBLISH_GATE_FAILED]: 409,

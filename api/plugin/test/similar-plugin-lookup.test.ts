@@ -81,6 +81,8 @@ describe('findSimilarPlugins', () => {
     expect(where).toContain('"isNull":"deprecatedAt"');
     expect(where).toContain('"isNull":"yankedAt"');
     expect(where).toContain('["deprecated","yanked"]');
+    // The managed toolchain is never offered as a plugin to reuse.
+    expect(where).toContain('["pipeline-bootstrap","cdk-synth"]');
     expect(calls.limit[0]).toBeGreaterThan(0);
     expect(Object.keys(calls.select[0] as object).sort()).toEqual(['category', 'description', 'id', 'keywords', 'name', 'summary', 'version']);
   });

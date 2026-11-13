@@ -156,3 +156,22 @@ describe('PluginLifecycleModal', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('nope');
   });
 });
+
+// docs/plans/bootstrap-image-versioning.md §11: the managed toolchain's lifecycle
+// is the Toolchain console's.
+describe('managed toolchain versions', () => {
+  it('offer no lifecycle actions', () => {
+    expect(lifecycleActionsFor({ name: 'pipeline-bootstrap', deprecatedAt: null, yankedAt: null })).toEqual([]);
+    expect(lifecycleActionsFor({ name: 'cdk-synth', deprecatedAt: '2026-09-01', yankedAt: null })).toEqual([]);
+    expect(lifecycleActionsFor({ name: 'my-synth', deprecatedAt: null, yankedAt: null })).toEqual(['deprecate', 'yank']);
+  });
+
+  it('the dialog explains instead of calling the API', async () => {
+    const { onClose } = renderModal('yank', { ...PLUGIN, name: 'cdk-synth' } as PluginSummary);
+    expect(screen.getByText(/managed in the Toolchain console/)).toBeInTheDocument();
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    expect(onClose).toHaveBeenCalled();
+    expect(yankPlugin).not.toHaveBeenCalled();
+  });
+});

@@ -209,6 +209,8 @@
           "sharedGlobals",
           "{workspaceRoot}/docs/**/*",
           "{workspaceRoot}/deploy/plugins/_icons/*",
+          "{workspaceRoot}/deploy/plugins/*/*/plugin-spec.yaml",
+          "{workspaceRoot}/deploy/toolchain/*/plugin-spec.yaml",
           "!{projectRoot}/lib/**/*",
           "!{projectRoot}/dist/**/*"
         ]
@@ -220,6 +222,8 @@
           "sharedGlobals",
           "{workspaceRoot}/docs/**/*",
           "{workspaceRoot}/deploy/plugins/_icons/*",
+          "{workspaceRoot}/deploy/plugins/*/*/plugin-spec.yaml",
+          "{workspaceRoot}/deploy/toolchain/*/plugin-spec.yaml",
           "!{projectRoot}/lib/**/*",
           "!{projectRoot}/dist/**/*"
         ]

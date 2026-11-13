@@ -1,0 +1,4 @@
+# The managed toolchain release (pipeline-bootstrap + cdk-synth): build outputs
+# written by deploy/bin/build-plugin-images.sh and load-plugins.sh.
+image.tar
+plugin.zip

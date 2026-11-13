@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Load all plugins from deploy/plugins into the platform.
+# Load the managed toolchain release (deploy/toolchain) and every plugin in the
+# catalog (deploy/plugins) into the platform — the toolchain first.
 #
 # Usage:
 #   ./load-plugins.sh                                        # parallel mode (default)
@@ -9,6 +10,7 @@ set -euo pipefail
 #   ./load-plugins.sh --parallel 8                           # 8 concurrent uploads
 #   ./load-plugins.sh --dry-run                              # validate only, no upload
 #   ./load-plugins.sh --category language,security           # filter by category
+#   ./load-plugins.sh --category toolchain                   # only the managed toolchain release
 #   ./load-plugins.sh --rebuild                              # force rebuild all plugin.zip
 #   ./load-plugins.sh --cleanup                              # remove plugin.zip + image.tar after upload
 
@@ -73,7 +75,8 @@ while [ $# -gt 0 ]; do
       echo "  --cleanup              Remove plugin.zip and image.tar after upload"
       echo "  --serial               Upload one at a time with delays"
       echo "  --parallel N           Number of concurrent uploads (default: 1)"
-      echo "  --category CATEGORIES  Comma-separated categories (e.g., language,security)"
+      echo "  --category CATEGORIES  Comma-separated categories (e.g., language,security);"
+      echo "                         'toolchain' selects the managed toolchain release (deploy/toolchain)"
       echo "  --timeout SECONDS      Upload timeout in seconds (default: 900)"
       echo ""
       echo "Environment:"
@@ -105,19 +108,48 @@ is_eligible_plugin() {
 
 # ---- Category selection ----
 
+# The managed toolchain release (deploy/toolchain) is loaded on an unfiltered
+# run, and on a filtered one only when it names the `toolchain` pseudo-category;
+# it is never one of the catalog categories walked below.
+LOAD_TOOLCHAIN=false
 if [ -n "$CATEGORY_FILTER" ]; then
   CATEGORIES=$(echo "$CATEGORY_FILTER" | tr ',' ' ')
 elif [ -t 0 ]; then
   select_categories "$PLUGINS_DIR" || exit 0
   CATEGORIES=$(echo "$SELECTED_CATEGORIES" | tr ',' ' ')
+  # "Load all" answers every catalog category; that run loads the toolchain too.
+  [ "$SELECTED_CATEGORIES" = "$(list_categories "$PLUGINS_DIR" | paste -sd, -)" ] && LOAD_TOOLCHAIN=true
 else
   CATEGORIES=$(list_categories "$PLUGINS_DIR")
+  LOAD_TOOLCHAIN=true
 fi
+_catalog_categories=""
+for category in $CATEGORIES; do
+  if [ "$category" = "$TOOLCHAIN_CATEGORY" ]; then LOAD_TOOLCHAIN=true; else _catalog_categories="$_catalog_categories $category"; fi
+done
+CATEGORIES="${_catalog_categories# }"
 
 # ---- Build plugin list + count ----
-
+#
+# The managed toolchain release (deploy/toolchain: pipeline-bootstrap +
+# cdk-synth, one version) goes FIRST and serially, in MANAGED_TOOLCHAIN_PLUGINS
+# order (bootstrap before cdk-synth) — not in the parallel pool, where the order
+# is lost. Both halves are required: half a release is not a release. The
+# catalog (deploy/plugins) follows in the usual order.
+MANAGED_LIST=""
 PLUGIN_LIST=""
 TOTAL=0
+if [ "$LOAD_TOOLCHAIN" = true ]; then
+  for _managed in $MANAGED_TOOLCHAIN_PLUGINS; do
+    plugin_dir="${TOOLCHAIN_DIR}/${_managed}/"
+    if [ ! -d "$plugin_dir" ] || ! is_eligible_plugin "$plugin_dir"; then
+      echo "ERROR: ${plugin_dir} is missing or not loadable — the managed toolchain release needs both halves." >&2
+      exit 1
+    fi
+    MANAGED_LIST="${MANAGED_LIST}${plugin_dir} "
+    TOTAL=$((TOTAL + 1))
+  done
+fi
 for category in $CATEGORIES; do
   for plugin_dir in "${PLUGINS_DIR}/${category}"/*/; do
     is_eligible_plugin "$plugin_dir" || continue
@@ -126,13 +158,25 @@ for category in $CATEGORIES; do
   done
 done
 
+# pipeline-bootstrap is only ever uploaded PREBUILT: its image is the release's
+# exact bits, built, scanned and pushed to library/ by build-plugin-images.sh's
+# base stage (cdk-synth is FROM it by digest). A source build at upload time would
+# be different bits under the same immutable version.
+for plugin_dir in $MANAGED_LIST; do
+  if [ "$(basename "$plugin_dir")" = pipeline-bootstrap ] && [ ! -f "${plugin_dir}image.tar" ]; then
+    echo "ERROR: ${plugin_dir}image.tar is missing — the managed toolchain release cannot be loaded without it." >&2
+    echo "  Build it first: deploy/bin/build-plugin-images.sh --category toolchain" >&2
+    exit 1
+  fi
+done
+
 # Loading nothing is not a successful load. An empty list means the plugins tree
 # is missing or `--category` named something that does not exist; falling through
 # printed a 0/0/0 summary and exited 0, which init-platform.sh and CI read as a
 # clean load.
 if [ "$TOTAL" -eq 0 ]; then
   echo "ERROR: no eligible plugins found under $PLUGINS_DIR for categories: ${CATEGORY_FILTER:-all}" >&2
-  echo "  Known categories: $(list_categories "$PLUGINS_DIR" | tr '\n' ' ')" >&2
+  echo "  Known categories: $TOOLCHAIN_CATEGORY $(list_categories "$PLUGINS_DIR" | tr '\n' ' ')" >&2
   exit 1
 fi
 
@@ -163,26 +207,44 @@ START_TIME=$(date +%s)
 echo ""
 echo "=== Processing $TOTAL plugin(s) ==="
 
-if [ "$SERIAL_MODE" = true ]; then
-  PROCESSED=0
-  for category in $CATEGORIES; do
-    echo ""
-    echo "--- ${category} ---"
-    for plugin_dir in "${PLUGINS_DIR}/${category}"/*/; do
-      is_eligible_plugin "$plugin_dir" || continue
-      PROCESSED=$((PROCESSED + 1))
-      echo "  [$PROCESSED/$TOTAL] $(basename "$(dirname "$plugin_dir")")/$(basename "$plugin_dir")"
-      "$WORKER_SCRIPT" "$plugin_dir" || true
-      remaining=$((TOTAL - PROCESSED))
-      [ "$DRY_RUN" = false ] && [ "$UPLOAD_DELAY" -gt 0 ] && [ "$remaining" -gt 0 ] && sleep "$UPLOAD_DELAY"
-    done
+PROCESSED=0
+# The managed release first, serially, in order. A failed bootstrap upload stops
+# cdk-synth from being uploaded alone: half a release is not a release. (An
+# already-present version — exit 2 — is fine: the pair can still complete.)
+_bootstrap_failed=false
+if [ -n "$MANAGED_LIST" ]; then
+  echo ""
+  echo "--- managed toolchain release ---"
+  for plugin_dir in $MANAGED_LIST; do
+    PROCESSED=$((PROCESSED + 1))
+    _mname=$(basename "$plugin_dir")
+    echo "  [$PROCESSED/$TOTAL] $TOOLCHAIN_CATEGORY/${_mname}"
+    if [ "$_mname" = cdk-synth ] && [ "$_bootstrap_failed" = true ]; then
+      echo "  FAIL $TOOLCHAIN_CATEGORY/cdk-synth (not uploaded: its pipeline-bootstrap half failed)"
+      echo "1" >> "$COUNTER_DIR/failed"
+      continue
+    fi
+    _wrc=0
+    "$WORKER_SCRIPT" "$plugin_dir" || _wrc=$?
+    [ "$_mname" = pipeline-bootstrap ] && [ "$_wrc" -eq 1 ] && _bootstrap_failed=true
   done
+fi
+
+if [ "$SERIAL_MODE" = true ]; then
+  while IFS= read -r plugin_dir; do
+    [ -n "$plugin_dir" ] || continue
+    PROCESSED=$((PROCESSED + 1))
+    echo "  [$PROCESSED/$TOTAL] $(basename "$(dirname "$plugin_dir")")/$(basename "$plugin_dir")"
+    "$WORKER_SCRIPT" "$plugin_dir" || true
+    remaining=$((TOTAL - PROCESSED))
+    [ "$DRY_RUN" = false ] && [ "$UPLOAD_DELAY" -gt 0 ] && [ "$remaining" -gt 0 ] && sleep "$UPLOAD_DELAY"
+  done < <(printf '%b' "$PLUGIN_LIST")
 else
   # `|| true`: a worker exits 1 (fail) or 2 (skip/already-exists); xargs returns
   # 123 for any 1-125 exit, which under `set -e` would abort before the summary.
   # The real result lives in the counter files; the exit gate at the end of the
   # script propagates any failure.
-  printf '%b' "$PLUGIN_LIST" | xargs -P "$PARALLEL_JOBS" -I{} "$WORKER_SCRIPT" "{}" || true
+  [ -n "$PLUGIN_LIST" ] && { printf '%b' "$PLUGIN_LIST" | xargs -P "$PARALLEL_JOBS" -I{} "$WORKER_SCRIPT" "{}" || true; }
 fi
 
 # ---- Summary ----
@@ -342,12 +404,17 @@ if [ "$CLEANUP" = true ]; then
   echo ""
   echo "=== Cleaning up build artifacts ==="
   _cleaned=0
+  # The toolchain halves this run loaded ($MANAGED_LIST), then the catalog.
+  _cleanup_dirs="$MANAGED_LIST"
   for category in $CATEGORIES; do
     for _pdir in "${PLUGINS_DIR}/${category}"/*/; do
       [ -d "$_pdir" ] || continue
-      for _artifact in "$_pdir/plugin.zip" "$_pdir/image.tar"; do
-        [ -f "$_artifact" ] && rm -f "$_artifact" && _cleaned=$((_cleaned + 1))
-      done
+      _cleanup_dirs="${_cleanup_dirs}${_pdir} "
+    done
+  done
+  for _pdir in $_cleanup_dirs; do
+    for _artifact in "${_pdir%/}/plugin.zip" "${_pdir%/}/image.tar"; do
+      [ -f "$_artifact" ] && rm -f "$_artifact" && _cleaned=$((_cleaned + 1))
     done
   done
   echo "  Removed ${_cleaned} artifact file(s)"

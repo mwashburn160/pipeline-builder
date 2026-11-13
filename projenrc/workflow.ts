@@ -1402,8 +1402,10 @@ export class Workflow extends Component {
                         'set -euo pipefail',
                         Workflow.CHECK_GRYPE_FAIL_ON,
                         Workflow.DIFF_BASE,
-                        // Service + CodeBuild Dockerfiles; plugin images have their own pipeline.
-                        'if [ -n "$BASE" ]; then FILES=$(git diff --name-only "$BASE" HEAD | grep -E \'(^|/)Dockerfile$\' | grep -v \'^deploy/plugins/\' || true); else FILES=$(git ls-files | grep -E \'(^|/)Dockerfile$\' | grep -v \'^deploy/plugins/\'); fi',
+                        // Service Dockerfiles only: plugin images (deploy/plugins) and the
+                        // managed toolchain release (deploy/toolchain — cdk-synth builds FROM
+                        // a bootstrap tag only plugin-catalog.yml builds) have their own pipeline.
+                        'if [ -n "$BASE" ]; then FILES=$(git diff --name-only "$BASE" HEAD | grep -E \'(^|/)Dockerfile$\' | grep -vE \'^deploy/(plugins|toolchain)/\' || true); else FILES=$(git ls-files | grep -E \'(^|/)Dockerfile$\' | grep -vE \'^deploy/(plugins|toolchain)/\'); fi',
                         'if [ -z "$FILES" ]; then echo "No service Dockerfile changed."; exit 0; fi',
                         'failed=""',
                         'for f in $FILES; do [ -f "$f" ] || continue; d=$(dirname "$f"); echo "::group::docker build $f"; mkdir -p "$d/.docker-build/node_modules" "$d/.docker-build/lib" "$d/.next/standalone" "$d/.next/static" "$d/public"; [ -f "$d/.docker-build/package.json" ] || echo \'{}\' > "$d/.docker-build/package.json"; tag="pb-smoke:d-$(printf %s "$d" | tr -c \'a-zA-Z0-9\' \'-\')"; docker buildx build --platform linux/amd64 --load -t "$tag" -f "$f" "$d"; echo "::endgroup::"; echo "::group::grype $f"; grype "docker:$tag" --only-fixed --fail-on "$GRYPE_FAIL_ON" || failed="$failed $f"; echo "::endgroup::"; done',

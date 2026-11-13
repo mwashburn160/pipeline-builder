@@ -36,7 +36,7 @@
 
 import {
   assessVersionVulns, createLogger, errorMessage, maxSeverity, PluginFilterSchema, pluginRunsOwnImage,
-  type VulnConsumptionPolicy, type VulnSeverity,
+  type PluginType, type VulnConsumptionPolicy, type VulnSeverity,
 } from '@pipeline-builder/api-core';
 import {
   checkPluginContract,
@@ -123,7 +123,34 @@ export interface StepContractViolation {
   /** Supplied keys whose value doesn't match the declared type. */
   invalid: Array<{ key: string; expected: string; message: string }>;
   /** Why the step's plugin can't resolve at all (not installed, blocked, yanked …). */
-  refusal?: { code: ResolutionRefusal['code']; reason: string; message: string };
+  refusal?: { code: ResolutionRefusal['code'] | 'VALIDATION_ERROR'; reason: string; message: string };
+}
+
+/**
+ * The managed build image (`pipeline-bootstrap`, pluginType `BuildImage`) is the
+ * image the synth and self-mutation RUN ON, never a step of its own
+ * (docs/plans/bootstrap-image-versioning.md §1). Refused by name before any
+ * lookup (a tenant can't resolve the system row, and the name is reserved) and
+ * by the resolved plugin's type.
+ */
+const BUILD_IMAGE_NAME = 'pipeline-bootstrap';
+/** `PluginType.BUILD_IMAGE`. */
+const BUILD_IMAGE: PluginType = 'BuildImage';
+
+function buildImageStepViolation(step: { path: string; label: string; name: string; publisher?: string | null }, version: string): StepContractViolation {
+  return {
+    path: step.path,
+    step: step.label,
+    plugin: step.publisher ? `${step.publisher}/${step.name}` : step.name,
+    version,
+    missing: [],
+    invalid: [],
+    refusal: {
+      code: 'VALIDATION_ERROR',
+      reason: 'build_image_not_a_step',
+      message: `${step.name} is a build image (pluginType BuildImage), not a pipeline step; the toolchain release runs every synth on it.`,
+    },
+  };
 }
 
 /** What a step's reference resolves to: a plugin, a refusal, or nothing at all. */
@@ -373,6 +400,11 @@ export async function checkPluginContracts(
   const violations: StepContractViolation[] = [];
   const resolvedSteps: Array<{ path: string; step: string; plugin: ResolvedContractPlugin }> = [];
   for (const step of steps) {
+    const stepVersion = typeof step.filter?.version === 'string' ? step.filter.version : '';
+    if (step.name === BUILD_IMAGE_NAME) {
+      violations.push(buildImageStepViolation(step, stepVersion));
+      continue;
+    }
     const resolution = await resolve(pluginLookupFilter(step));
     if (!resolution) continue;
     if ('refusal' in resolution) {
@@ -386,6 +418,10 @@ export async function checkPluginContracts(
         invalid: [],
         refusal: { code, reason, message },
       });
+      continue;
+    }
+    if (resolution.plugin.pluginType === BUILD_IMAGE) {
+      violations.push(buildImageStepViolation(step, resolution.plugin.version));
       continue;
     }
     resolvedSteps.push({ path: step.path, step: step.label, plugin: resolution.plugin });

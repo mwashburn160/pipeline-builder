@@ -321,3 +321,30 @@ describe('recordPipelineResolution', () => {
     await expect(recordPipelineResolution('pipe-1', 'org-a', undefined, { stages: [] })).resolves.toBeUndefined();
   });
 });
+
+// docs/plans/bootstrap-image-versioning.md §1: the managed build image is what
+// a pipeline runs ON, never a step.
+describe('BuildImage plugins are never a step', () => {
+  it('refuses pipeline-bootstrap by name, before any lookup', async () => {
+    const violations = await findPluginContractViolations({
+      stages: [{ stageName: 'build', steps: [{ plugin: { name: 'pipeline-bootstrap' } }] }],
+    }, 'org-a');
+    expect(captured).toHaveLength(0);
+    expect(violations).toEqual([expect.objectContaining({
+      path: 'stages[0].steps[0]',
+      plugin: 'pipeline-bootstrap',
+      refusal: expect.objectContaining({ code: 'VALIDATION_ERROR', reason: 'build_image_not_a_step' }),
+    })]);
+    expect(formatContractViolations(violations)).toContain('not a pipeline step');
+  });
+
+  it('refuses any step whose resolved plugin is a BuildImage', async () => {
+    results = [[plugin({ name: 'odd-image', pluginType: 'BuildImage' })]];
+    const violations = await findPluginContractViolations({
+      stages: [{ stageName: 'build', steps: [{ plugin: { name: 'odd-image' } }] }],
+    }, 'org-a');
+    expect(violations).toEqual([expect.objectContaining({
+      plugin: 'odd-image', version: '2.0.0', refusal: expect.objectContaining({ reason: 'build_image_not_a_step' }),
+    })]);
+  });
+});

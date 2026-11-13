@@ -270,10 +270,10 @@
       "groupName": "image digest refreshes"
     },
     {
-      "description": "Plugin + bootstrap base images and plugin tool pins",
+      "description": "Plugin + managed toolchain (deploy/toolchain) base images and plugin tool pins",
       "matchFileNames": [
         "deploy/plugins/**",
-        "deploy/codebuild/**"
+        "deploy/toolchain/**"
       ],
       "groupName": "plugin images"
     },

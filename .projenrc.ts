@@ -1646,15 +1646,18 @@ const REPO_FIXTURE_INPUTS: Record<string, string[]> = {
     '{workspaceRoot}/projenrc/*', '{workspaceRoot}/.projenrc.ts', '{workspaceRoot}/package.json', '{workspaceRoot}/renovate.json', '{workspaceRoot}/SECURITY.md'],
   // org-namespace-template.test.ts: the served manifest vs the per-org templates.
   'platform': ['{workspaceRoot}/deploy/*/*/k8s/per-org/*'],
-  // plugin-spec-smoke.test.ts: every catalog plugin spec.
-  'plugin': ['{workspaceRoot}/deploy/plugins/**/*'],
+  // plugin-spec-smoke.test.ts: every catalog plugin spec, and the managed
+  // toolchain release's two (deploy/toolchain — same upload API, own root).
+  'plugin': ['{workspaceRoot}/deploy/plugins/**/*', '{workspaceRoot}/deploy/toolchain/**/*'],
   // The schema/RLS suites boot PGlite from the docker target's init script.
   '@pipeline-builder/pipeline-data': ['{workspaceRoot}/deploy/local/docker/postgres-init.sql'],
   // Target discovery, scaffolding and ports read most of the deploy tree.
   '@pipeline-builder/pipeline-manager': ['{workspaceRoot}/deploy/**/*'],
   // Help is generated from docs/ (help-generated-drift, permission-contract);
-  // the plugin-icon suites read the curated icon set.
-  'frontend': ['{workspaceRoot}/docs/**/*', '{workspaceRoot}/deploy/plugins/_icons/*'],
+  // the plugin-icon suites read the curated icon set and every spec's icon key
+  // (the catalog's and the managed toolchain root's).
+  'frontend': ['{workspaceRoot}/docs/**/*', '{workspaceRoot}/deploy/plugins/_icons/*',
+    '{workspaceRoot}/deploy/plugins/*/*/plugin-spec.yaml', '{workspaceRoot}/deploy/toolchain/*/plugin-spec.yaml'],
   // env-documented.test.ts: every env var the shared readers read is documented.
   '@pipeline-builder/api-core': ['{workspaceRoot}/docs/environment-variables.md'],
 };

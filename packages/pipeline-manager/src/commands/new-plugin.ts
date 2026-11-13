@@ -4,7 +4,7 @@
 import fs from 'fs';
 import path from 'path';
 import {
-  PLUGIN_BASE_IMAGES, PLUGIN_CATEGORIES, PLUGIN_COMPUTE_TYPES, PLUGIN_NAME_PATTERN, PLUGIN_SUMMARY_MAX, PLUGIN_TYPES,
+  PLUGIN_BASE_IMAGES, PLUGIN_CATEGORIES, PLUGIN_COMPUTE_TYPES, PLUGIN_NAME_PATTERN, PLUGIN_SUMMARY_MAX, STEP_PLUGIN_TYPES,
   isAllowedSpdxId, validateCatalogField, type PluginBaseImage,
 } from '@pipeline-builder/api-core';
 import { Command } from 'commander';
@@ -64,7 +64,7 @@ export function resolveScaffoldInput(options: NewPluginOptions, now = new Date()
   const base = PLUGIN_BASE_IMAGES.find(b => b.key === (options.base ?? 'plugin'));
   if (!base) throw new ValidationError(`--base must be one of: ${PLUGIN_BASE_IMAGES.map(b => b.key).join(', ')} (see --list-bases)`, 'base', options.base);
   const pluginType = options.type ?? 'CodeBuildStep';
-  if (!(PLUGIN_TYPES as readonly string[]).includes(pluginType)) throw new ValidationError(`--type must be one of: ${PLUGIN_TYPES.join(', ')}`, 'type', pluginType);
+  if (!(STEP_PLUGIN_TYPES as readonly string[]).includes(pluginType)) throw new ValidationError(`--type must be one of: ${STEP_PLUGIN_TYPES.join(', ')}`, 'type', pluginType);
   const computeType = options.compute ?? 'SMALL';
   if (!(PLUGIN_COMPUTE_TYPES as readonly string[]).includes(computeType)) throw new ValidationError(`--compute must be one of: ${PLUGIN_COMPUTE_TYPES.join(', ')}`, 'compute', computeType);
   const license = options.license ?? 'Apache-2.0';
@@ -319,7 +319,7 @@ export function newPlugin(program: Command): void {
     .option('--license <spdx>', 'SPDX license id', 'Apache-2.0')
     .option('--icon <key>', 'Curated icon key (Official/Verified listings only), or none', 'none')
     .option('--author <name>', 'Copyright holder for LICENSE')
-    .option('--type <type>', `Plugin type: ${PLUGIN_TYPES.join(' | ')}`, 'CodeBuildStep')
+    .option('--type <type>', `Plugin type: ${STEP_PLUGIN_TYPES.join(' | ')}`, 'CodeBuildStep')
     .option('--compute <compute>', `Compute type: ${PLUGIN_COMPUTE_TYPES.join(' | ')}`, 'SMALL')
     .option('--dir <path>', 'Target directory (default ./<name>)')
     .option('--force', 'Overwrite an existing directory', false)

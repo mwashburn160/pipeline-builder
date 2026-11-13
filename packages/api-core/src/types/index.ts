@@ -51,6 +51,9 @@ export {
   METADATA_SOURCES,
   type MetadataSource,
   type MetadataSources,
+  MANAGED_TOOLCHAIN_PLUGINS,
+  type ManagedToolchainPlugin,
+  isManagedToolchainPlugin,
 } from './plugin-catalog.js';
 export {
   type HttpRequest,

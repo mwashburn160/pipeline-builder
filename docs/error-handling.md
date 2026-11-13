@@ -121,6 +121,18 @@ Vulnerability state never refuses a pipeline request — save, synth, deploy or 
 | `IMAGE_SCAN_UNAVAILABLE` | 422 | A **build** outcome, not a request answer: the built image could not be vulnerability-scanned after every retry, so nothing was saved (`PLUGIN_ALLOW_UNSCANNED` persists it unscanned instead). Carried as `code` on the build stream's `ERROR` event and as `details.errorCode` on `plugin.build.failed` |
 | `PLUGIN_VULN_GATE` | 422 | A **build** outcome: the image has more fixable findings at or above `PLUGIN_VULN_FAIL_ON` (default Critical) than `PLUGIN_VULN_MAX_FINDINGS`. The message lists the top CVEs with their fixed versions; the build stream's `ERROR` event carries `code` and `details` (`gated`, `high`, `maxFindings`, `failOn`, `findings[]`) |
 
+### Managed toolchain
+
+`pipeline-bootstrap` and `cdk-synth` are the managed toolchain: one release, published by the system org, never listed in the ecosystem, and managed in the Toolchain console.
+
+| `code` | Status | When |
+|--------|:------:|------|
+| `PLUGIN_MANAGED_NAME_RESERVED` | 403 | An organization other than the system org uploaded a plugin under a managed toolchain name. Publish a custom synth environment under another name |
+| `PLUGIN_MANAGED_NOT_LISTABLE` | 400 | A managed toolchain name in a publish request (including `publishRequest=true` on upload), an anonymous submission or an install |
+| `PLUGIN_MANAGED_PRERELEASE` | 400 | An upload of a prerelease (`-dev.N`) version of a managed toolchain name |
+| `PLUGIN_VERSION_IMMUTABLE` | 409 | A re-upload of an existing managed toolchain version. Build a new release version instead |
+| `TOOLCHAIN_USE_CONSOLE` | 400 | A generic plugin route (update, deprecate, yank, delete, purge) was called on a managed toolchain version, from any organization |
+
 ### How pipeline create reports install failures
 
 Pipeline create and update report the install codes **per step** in a single `400`: every qualified plugin reference (one with `publisher`) that isn't installed, is blocked by policy or can't resolve is listed with its reason. See [Plugin Installing](plugin-installing.md#errors-you-may-see).

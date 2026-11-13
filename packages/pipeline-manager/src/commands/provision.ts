@@ -102,11 +102,11 @@ export function provision(program: Command): void {
     .option('--ref <ref>', 'Git branch/tag to check out when bootstrapping (default: main)')
     .option('--workdir <dir>', 'Directory to clone into / run from when bootstrapping (default: pipeline-builder)')
     // Post-install loads — each opt-in step also adds its deploy folder to the sparse clone.
-    .option('--with-plugins', 'Post-install: build + load plugins (adds deploy/plugins, deploy/codebuild)', false)
+    .option('--with-plugins', 'Post-install: build + load plugins (adds deploy/plugins)', false)
     .option('--with-compliance', 'Post-install: load sample compliance rules/policies (adds deploy/compliance)', false)
     .option('--with-samples', 'Post-install: load sample pipeline templates (adds deploy/samples)', false)
     .option('--with-all', 'Post-install: plugins + compliance + samples', false)
-    .option('--build-bootstrap', 'Build + publish the CodeBuild bootstrap image during register (adds deploy/codebuild)', false)
+    .option('--build-bootstrap', 'Build + publish the pipeline-bootstrap image (build-plugin-images.sh --only pipeline-bootstrap; uses deploy/toolchain + deploy/plugins/_base) before register', false)
     .option('--with-smoke-test', 'Post-install: read-only API reachability check', false)
     .option('--with-events', 'Post-install (AWS): event ingestion bundle — store-token (JWT → Secrets Manager) then setup-events (EventBridge/Lambda)', false)
     .option('--post-step <cmd>', 'Run an extra command after the loads (repeatable, in order)', collectStep, [])
@@ -148,7 +148,9 @@ export function provision(program: Command): void {
           // resolvePostSteps, so a self-initializing ec2/eks deploy doesn't also print a manual
           // register step. For manual mode (or local/minikube) the register step is surfaced.
           autoInit: selfInit,
-          buildBootstrap: options.buildBootstrap === true || enabledLoadIds.includes('plugins'),
+          // init-platform.sh builds the toolchain release itself, so loading plugins
+          // no longer implies a separate bootstrap build.
+          buildBootstrap: options.buildBootstrap === true,
           smokeTest: options.withSmokeTest === true,
           events: options.withEvents === true,
           steps: (options.postStep ?? []) as string[],
@@ -205,7 +207,6 @@ export function provision(program: Command): void {
           // from. Explicit `--with-*` flags override; `--init manual` / `--init skip` opt out.
           willPromptLoads = false;
           enabledLoadIds = LOAD_STEPS.map((s) => s.id);
-          postStepFlags.buildBootstrap = options.buildBootstrap === true || enabledLoadIds.includes('plugins');
         }
         // minikube/local keep the interactive picker (local-dev; no `--init auto` load parity).
 

@@ -105,7 +105,6 @@ These specs carry `# icon: none — <reason>` instead of an `icon:` key.
 | deploy/cloudformation | AWS marks were removed from Simple Icons at AWS's request; no confirmed press-kit permission |
 | deploy/ecs-deploy | AWS marks were removed from Simple Icons at AWS's request; no confirmed press-kit permission |
 | deploy/lambda-deploy | AWS marks were removed from Simple Icons at AWS's request; no confirmed press-kit permission |
-| infrastructure/cdk-synth | AWS marks were removed from Simple Icons at AWS's request; no confirmed press-kit permission |
 | infrastructure/manual-approval | generic pipeline step with no vendor |
 | infrastructure/manual-approval-custom | generic pipeline step with no vendor |
 | infrastructure/s3-cache | AWS marks were removed from Simple Icons at AWS's request; no confirmed press-kit permission |
@@ -138,6 +137,8 @@ These specs carry `# icon: none — <reason>` instead of an `icon:` key.
 | testing/health-check | generic pipeline step with no vendor |
 | testing/minitest-coverage | no mark in Simple Icons 16.32.0; no confirmed vendor press-kit permission |
 | testing/playwright | Playwright (Microsoft) mark was removed from Simple Icons at the vendor's request; no confirmed press-kit permission |
+| toolchain/cdk-synth | AWS marks were removed from Simple Icons at AWS's request; no confirmed press-kit permission |
+| toolchain/pipeline-bootstrap | managed toolchain build image (not a step); no vendor mark |
 
 No vendor press-kit marks are used yet: none of the vendors whose marks were
 removed from Simple Icons had brand terms confirmed to permit third-party

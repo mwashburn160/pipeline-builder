@@ -18,13 +18,14 @@
 # one pass, and test/deploy-contracts holds them equal), so scanning compose
 # covers every target without scanning the same digest four times.
 #
-# The CodeBuild bootstrap image (pipeline-bootstrap — the default build image
-# of every pipeline step without a plugin image, and the base of cdk-synth) is
+# The managed toolchain's build image (pipeline-bootstrap — the build image of
+# every pipeline step without a plugin image, and the base of cdk-synth) is
 # built PER DEPLOYMENT into the platform's own registry, so it is not in
 # compose. Pass its digest-pinned ref as BOOTSTRAP_IMAGE_REF
-# (`<registry>/library/pipeline-bootstrap@sha256:…`, i.e. the image +
-# CODEBUILD_DEFAULT_IMAGE_DIGEST) to scan it with the rest; CI's
-# plugin-base-freshness rebuilds and scans the image from source weekly.
+# (`<registry>/library/pipeline-bootstrap@sha256:…` — the BOOTSTRAP_IMAGE_REF
+# build-plugin-images.sh prints for the release it built) to scan it with the
+# rest; CI's plugin-base-freshness rebuilds and scans the image from source
+# weekly, at the release version in its plugin-spec.yaml.
 #
 # Usage: scan-pinned-images.sh [compose-file]
 #   BOOTSTRAP_IMAGE_REF  digest-pinned bootstrap image ref to include (optional)

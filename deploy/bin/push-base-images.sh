@@ -176,10 +176,19 @@ fi
 # bases (`plugin-<name>-base:1.0`) produced by build-plugin-images.sh.
 #
 # Operator override: setting `PUSH_TAGS` (space-separated) bypasses
-# discovery and pushes exactly that list. Used by
-# `build-codebuild-bootstrap.sh` to publish `pipeline-bootstrap:1.0`
-# through the same multi-target push pipeline without conflating it with
-# the plugin-base regex.
+# discovery and pushes exactly that list. Used by build-plugin-images.sh's base
+# stage to publish `pipeline-bootstrap:<release version>` (the version in
+# deploy/toolchain/pipeline-bootstrap/plugin-spec.yaml) through the
+# same multi-target push pipeline without conflating it with the plugin-base
+# regex.
+#
+# PUSH_IMMUTABLE=true + PUSH_IMMUTABLE_DIGEST=sha256:… (one PUSH_TAGS entry):
+# the tag is a managed, immutable version. It is never re-pushed — FORCE_PUSH is
+# ignored — and when the remote already holds it, its digest must EQUAL the
+# expected one, or this exits non-zero: the same version with different bits is
+# exactly what managed versions exist to prevent.
+PUSH_IMMUTABLE="${PUSH_IMMUTABLE:-false}"
+PUSH_IMMUTABLE_DIGEST="${PUSH_IMMUTABLE_DIGEST:-}"
 BASE_TAGS=()
 if [ -n "${PUSH_TAGS:-}" ]; then
   # shellcheck disable=SC2206
@@ -205,6 +214,12 @@ if [ "${#BASE_TAGS[@]}" -eq 0 ]; then
   echo "ERROR: no base images found in local docker cache." >&2
   echo "  Run deploy/bin/build-plugin-images.sh first." >&2
   exit 1
+fi
+if [ "$PUSH_IMMUTABLE" = true ]; then
+  if [ "${#BASE_TAGS[@]}" -ne 1 ] || ! printf '%s' "$PUSH_IMMUTABLE_DIGEST" | grep -Eq '^sha256:[0-9a-f]{64}$'; then
+    echo "ERROR: PUSH_IMMUTABLE=true needs exactly one PUSH_TAGS entry and PUSH_IMMUTABLE_DIGEST=sha256:<64 hex>" >&2
+    exit 1
+  fi
 fi
 
 # -----------------------------------------------------------------------
@@ -362,12 +377,12 @@ for _tag in "${BASE_TAGS[@]}"; do
   _remotes_to_check+=("${REGISTRY_HOST}/library/${_tag}")
 done
 
-# Build the existence-check shell snippet — printed remote name on a
+# Build the existence-check shell snippet — prints "<remote> <digest>" on a
 # line if `crane digest` succeeds, silent otherwise. Shared by both
 # the local and k8s transports below.
 _build_check_cmd() {
   # shellcheck disable=SC2016
-  printf 'for img in %s; do crane --insecure digest "$img" >/dev/null 2>&1 && echo "$img"; done' \
+  printf 'for img in %s; do d=$(crane --insecure digest "$img" 2>/dev/null) && echo "$img $d"; done' \
     "$(printf '%s ' "${_remotes_to_check[@]}")"
 }
 
@@ -428,13 +443,20 @@ _discover_existing() {
 }
 
 EXISTING_REMOTES=""
+# An immutable push always looks first: it must never overwrite (FORCE_PUSH is
+# ignored for it) and has to compare an existing tag's digest.
+[ "$PUSH_IMMUTABLE" = true ] && FORCE_PUSH=false
 if [ "$FORCE_PUSH" != "true" ]; then
   echo "=== Checking which base images are already in ${REGISTRY_HOST}/library/ ==="
   EXISTING_REMOTES="$(_discover_existing)"
 fi
 
 _already_exists() {
-  [ -n "$EXISTING_REMOTES" ] && printf '%s\n' "$EXISTING_REMOTES" | grep -Fxq "$1"
+  [ -n "$EXISTING_REMOTES" ] && printf '%s\n' "$EXISTING_REMOTES" | awk -v r="$1" '$1 == r { f = 1 } END { exit !f }'
+}
+# The digest the registry reported for an existing remote ("" when absent).
+_remote_digest() {
+  printf '%s\n' "$EXISTING_REMOTES" | awk -v r="$1" '$1 == r { print $2; exit }'
 }
 
 # -----------------------------------------------------------------------
@@ -444,9 +466,9 @@ echo "=== Pushing base images to ${REGISTRY_HOST}/library/ ($DEPLOY_TARGET) ==="
 for _tag in "${BASE_TAGS[@]}"; do
   # A tag we were asked to push but cannot find is a hard failure, not a skip.
   # Warn-and-continue would publish nothing on the PUSH_TAGS path
-  # (build-codebuild-bootstrap.sh) and still exit 0, leaving
-  # CODEBUILD_DEFAULT_IMAGE absent and every CodeBuild run dying later with
-  # BUILD_CONTAINER_UNABLE_TO_PULL_IMAGE.
+  # (build-plugin-images.sh's pipeline-bootstrap stage) and still exit 0,
+  # leaving the bootstrap absent from library/ and cdk-synth's build FROM it
+  # failing later with a misleading pull error.
   if ! docker image inspect "$_tag" >/dev/null 2>&1; then
     echo "ERROR: $_tag is not in the local image cache — cannot push it." >&2
     echo "  Build it first (deploy/bin/build-plugin-images.sh), or correct PUSH_TAGS." >&2
@@ -457,6 +479,18 @@ for _tag in "${BASE_TAGS[@]}"; do
   # Idempotency short-circuit: skip if the tag already exists at the
   # remote. Set FORCE_PUSH=true to re-push (e.g. after rebuilding the
   # base image without bumping its tag).
+  if [ "$PUSH_IMMUTABLE" = true ] && _already_exists "$_remote"; then
+    _have="$(_remote_digest "$_remote")"
+    if [ "$_have" = "$PUSH_IMMUTABLE_DIGEST" ]; then
+      echo "  = $_tag already published with this digest ($_have)"
+      continue
+    fi
+    echo "ERROR: $_remote is already published as ${_have:-<unknown digest>}, but this build is $PUSH_IMMUTABLE_DIGEST." >&2
+    echo "  A managed version is immutable and is never re-pushed. Ship the change as a new" >&2
+    echo "  release: run deploy/bin/sync-image-tags.sh --toolchain-only (it bumps the patch when" >&2
+    echo "  the build inputs changed), or bump minor/major in both specs by hand." >&2
+    exit 1
+  fi
   if _already_exists "$_remote"; then
     echo "  = $_tag already in registry (skipping; FORCE_PUSH=true to override)"
     continue

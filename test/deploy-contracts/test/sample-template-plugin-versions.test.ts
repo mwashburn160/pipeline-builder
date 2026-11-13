@@ -26,9 +26,26 @@ import { REPO_ROOT, read } from '../src/index.js';
 
 const TEMPLATES_DIR = 'deploy/samples/templates';
 
-/** name -> version, from every deploy/plugins/<category>/<name>/plugin-spec.yaml. */
+/**
+ * name -> version, from every deploy/plugins/<category>/<name>/plugin-spec.yaml
+ * and the managed toolchain release's deploy/toolchain/<name>/plugin-spec.yaml
+ * (templates pin cdk-synth, which lives there).
+ */
 function catalogueVersions(): Map<string, string> {
   const out = new Map<string, string>();
+  const record = (spec: string) => {
+    const name = /^name:\s*(\S+)/m.exec(spec)?.[1];
+    const version = /^version:\s*(\S+)/m.exec(spec)?.[1];
+    if (name && version) out.set(name, version);
+  };
+  for (const half of readdirSync(join(REPO_ROOT, 'deploy/toolchain'), { withFileTypes: true })) {
+    if (!half.isDirectory()) continue;
+    try {
+      record(read(`deploy/toolchain/${half.name}/plugin-spec.yaml`));
+    } catch {
+      continue;
+    }
+  }
   const root = join(REPO_ROOT, 'deploy/plugins');
   for (const category of readdirSync(root, { withFileTypes: true })) {
     if (!category.isDirectory() || category.name.startsWith('_')) continue;
@@ -40,9 +57,7 @@ function catalogueVersions(): Map<string, string> {
       } catch {
         continue;
       }
-      const name = /^name:\s*(\S+)/m.exec(spec)?.[1];
-      const version = /^version:\s*(\S+)/m.exec(spec)?.[1];
-      if (name && version) out.set(name, version);
+      record(spec);
     }
   }
   return out;
@@ -73,6 +88,9 @@ describe('sample templates pin the plugin versions the catalogue publishes', () 
   it('finds the templates and the catalogue it checks them against', () => {
     expect(templates.length).toBeGreaterThan(0);
     expect(catalogue.size).toBeGreaterThan(100);
+    // The toolchain root is read too: templates pin cdk-synth.
+    expect(catalogue.get('cdk-synth')).toBe(catalogue.get('pipeline-bootstrap'));
+    expect(catalogue.get('cdk-synth')).toMatch(/^\d+\.\d+\.\d+$/);
   });
 
   it.each(templates)('%s', (template) => {

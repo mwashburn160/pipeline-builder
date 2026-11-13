@@ -23,6 +23,8 @@ const mockEnqueueBuild = jest.fn<(...a: any[]) => Promise<void>>(async () => und
 const mockDeployVersion = jest.fn<(...a: any[]) => Promise<any>>(async () => ({ id: 'p-1' }));
 const mockSubmitAfterBuild = jest.fn<(...a: any[]) => Promise<any>>(async () => ({ ok: true, message: 'Publish request submitted', requestId: 'r-1', status: 'pending' }));
 const producesImage = { value: false };
+const spec = { value: { name: 'lint', version: '1.0.0', commands: ['lint'], description: 'Lints.' } as Record<string, unknown> };
+const mockOrgId = { value: 'org-1' };
 
 // The CPU-credit admission gate fails CLOSED when the quota service cannot
 // answer (D6). This suite's quota double does not implement `check`, so without
@@ -55,7 +57,7 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => {
     withTenantContext: () => pass,
     rateLimitByOrg: () => pass,
     withRoute: (handler: (a: unknown) => Promise<void>) => async (req: any, res: any) =>
-      handler({ req, res, ctx: { log: jest.fn(), requestId: 'req-1' }, orgId: 'org-1', userId: 'user-1' }),
+      handler({ req, res, ctx: { log: jest.fn(), requestId: 'req-1' }, orgId: mockOrgId.value, userId: 'user-1' }),
   });
 });
 jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@pipeline-builder/pipeline-core', {
@@ -64,7 +66,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@p
 }));
 jest.unstable_mockModule('../src/helpers/plugin-spec.js', () => ({
   parsePluginZip: async () => ({
-    pluginSpec: { name: 'lint', version: '1.0.0', commands: ['lint'], description: 'Lints.' },
+    pluginSpec: spec.value,
     extractDir: fs.mkdtempSync(path.join(uploadDir, 'x-')),
     dockerfile: 'Dockerfile',
     dockerfileContent: null,
@@ -108,6 +110,8 @@ function call(body: Record<string, unknown>, permissions: string[]) {
 beforeEach(() => {
   jest.clearAllMocks();
   producesImage.value = false;
+  spec.value = { name: 'lint', version: '1.0.0', commands: ['lint'], description: 'Lints.' };
+  mockOrgId.value = 'org-1';
 });
 
 describe('POST /plugins with publishRequest=true', () => {
@@ -143,6 +147,46 @@ describe('POST /plugins with publishRequest=true', () => {
 
   it('leaves an ordinary upload alone', async () => {
     const { res, done } = call({ visibility: 'public' }, ['plugins:write', 'plugins:publish']);
+    await done;
+    expect(res.status).toHaveBeenCalledWith(201);
+    expect(mockSubmitAfterBuild).not.toHaveBeenCalled();
+  });
+});
+
+// docs/plans/bootstrap-image-versioning.md §5 — the upload entry point for the
+// managed toolchain names (pipeline-bootstrap, cdk-synth).
+describe('POST /plugins with a managed toolchain name', () => {
+  const { SYSTEM_ORG_ID } = jest.requireActual('@pipeline-builder/api-core') as { SYSTEM_ORG_ID: string };
+  const publisher = ['plugins:write', 'plugins:publish'];
+
+  it('refuses a customer org with 403 PLUGIN_MANAGED_NAME_RESERVED', async () => {
+    spec.value = { name: 'cdk-synth', version: '1.0.0', commands: ['cdk synth'] };
+    const { done } = call({ visibility: 'public' }, publisher);
+    await expect(done).rejects.toMatchObject({ statusCode: 403, code: 'PLUGIN_MANAGED_NAME_RESERVED' });
+    expect(mockDeployVersion).not.toHaveBeenCalled();
+  });
+
+  it('refuses publishRequest=true from the system org with 400 PLUGIN_MANAGED_NOT_LISTABLE', async () => {
+    mockOrgId.value = SYSTEM_ORG_ID;
+    spec.value = { name: 'pipeline-bootstrap', version: '1.0.0', pluginType: 'BuildImage' };
+    const { done } = call({ publishRequest: 'true', visibility: 'public' }, publisher);
+    await expect(done).rejects.toMatchObject({ statusCode: 400, code: 'PLUGIN_MANAGED_NOT_LISTABLE' });
+    expect(mockDeployVersion).not.toHaveBeenCalled();
+    expect(mockSubmitAfterBuild).not.toHaveBeenCalled();
+  });
+
+  it('refuses a prerelease with 400 PLUGIN_MANAGED_PRERELEASE', async () => {
+    mockOrgId.value = SYSTEM_ORG_ID;
+    spec.value = { name: 'pipeline-bootstrap', version: '1.1.0-dev.3', pluginType: 'BuildImage' };
+    const { done } = call({ visibility: 'public' }, publisher);
+    await expect(done).rejects.toMatchObject({ statusCode: 400, code: 'PLUGIN_MANAGED_PRERELEASE' });
+    expect(mockDeployVersion).not.toHaveBeenCalled();
+  });
+
+  it('accepts a plain release from the system org without a publish request', async () => {
+    mockOrgId.value = SYSTEM_ORG_ID;
+    spec.value = { name: 'pipeline-bootstrap', version: '1.1.0', pluginType: 'BuildImage' };
+    const { res, done } = call({ visibility: 'public' }, publisher);
     await done;
     expect(res.status).toHaveBeenCalledWith(201);
     expect(mockSubmitAfterBuild).not.toHaveBeenCalled();

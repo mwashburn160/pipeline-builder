@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Verify all download URLs in plugin Dockerfiles are reachable.
+# Verify all download URLs in plugin Dockerfiles are reachable — the catalog's
+# (deploy/plugins) and the managed toolchain release's (deploy/toolchain).
 # Catches stale versions, moved repos, and renamed assets before they break builds.
 #
 # Usage:
 #   ./verify-plugin-urls.sh                    # check all plugins
 #   ./verify-plugin-urls.sh security/trivy     # check a specific plugin
+#   ./verify-plugin-urls.sh toolchain/pipeline-bootstrap  # one toolchain half
 #
 # Exit codes — THE convention shared by every deploy/bin/verify-*.sh:
 #   0  verified: everything checked passed
@@ -51,6 +53,7 @@ DOCKERFILES_SEEN=0
 verify_dockerfile() {
   local dockerfile="$1"
   local rel_path="${dockerfile#"$PLUGINS_DIR"/}"
+  [ "$rel_path" = "$dockerfile" ] && rel_path="$TOOLCHAIN_CATEGORY/${dockerfile#"$TOOLCHAIN_DIR"/}"
   DOCKERFILES_SEEN=$((DOCKERFILES_SEEN + 1))
 
   log_info "$rel_path"
@@ -129,6 +132,7 @@ echo "========================"
 
 if [ -n "$SPECIFIC_PLUGIN" ]; then
   dockerfile="$PLUGINS_DIR/$SPECIFIC_PLUGIN/Dockerfile"
+  case "$SPECIFIC_PLUGIN" in "$TOOLCHAIN_CATEGORY"/*) dockerfile="$TOOLCHAIN_DIR/${SPECIFIC_PLUGIN#*/}/Dockerfile" ;; esac
   if [ -f "$dockerfile" ]; then
     verify_dockerfile "$dockerfile"
   else
@@ -137,6 +141,9 @@ if [ -n "$SPECIFIC_PLUGIN" ]; then
     exit 3
   fi
 else
+  for _managed in $MANAGED_TOOLCHAIN_PLUGINS; do
+    [ -f "$TOOLCHAIN_DIR/$_managed/Dockerfile" ] && verify_dockerfile "$TOOLCHAIN_DIR/$_managed/Dockerfile"
+  done
   for category_dir in "$PLUGINS_DIR"/*/; do
     category_dir="${category_dir%/}"
     [ -d "$category_dir" ] || continue

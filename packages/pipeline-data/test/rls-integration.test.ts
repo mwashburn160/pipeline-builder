@@ -16,6 +16,8 @@
  *   - the dedicated policies: templates' public-only system catalog, messages'
  *     recipient read + read-state-only update, attachments following their
  *     message, dashboard panels following their dashboard;
+ *   - managed toolchain tables: `toolchain_*` system-org only; an org's
+ *     override + history own-org (history append-only), system org reads all;
  *   - reflection: every table with an `org_id` has RLS enabled AND forced.
  */
 
@@ -153,7 +155,13 @@ async function pkOf(table: string): Promise<string> {
 
 /** Tables governed by the GENERIC org-scope policy set (have `org_id` + rls_org_read). */
 async function genericTables(): Promise<string[]> {
-  const dedicated = new Set(['messages', 'message_attachments', 'pipeline_templates']);
+  // `org_toolchain_default*` reuse the rls_org_* names for their own-org legs but
+  // have NO system-row-visible carve-out (system org reads all instead), so the
+  // generic expectations don't apply — they get their own suite below.
+  const dedicated = new Set([
+    'messages', 'message_attachments', 'pipeline_templates',
+    'org_toolchain_default', 'org_toolchain_default_history',
+  ]);
   const r = await db.query<{ tablename: string }>(
     `SELECT DISTINCT p.tablename FROM pg_policies p
        JOIN information_schema.columns c ON c.table_name = p.tablename AND c.column_name = 'org_id'
@@ -386,6 +394,174 @@ describe('dashboard_panels — scoped through the dashboard', () => {
       expect(ids).not.toContain(bPanel.id);
       expect((await q.query('DELETE FROM dashboard_panels WHERE id = $1', [sysPanel.id])).affectedRows).toBe(0);
       expect((await q.query('DELETE FROM dashboard_panels WHERE id = $1', [aPanel.id])).affectedRows).toBe(1);
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Managed toolchain releases (docs/plans/bootstrap-image-versioning.md §1).
+// ---------------------------------------------------------------------------
+
+const SYSTEM_ONLY_TOOLCHAIN_TABLES = [
+  'toolchain_release', 'toolchain_platform_default', 'toolchain_default_history', 'toolchain_rollout',
+] as const;
+
+/** Seed one release + platform default + history + a canary row naming ORG_A (as superuser). */
+async function seedToolchain(version: string): Promise<void> {
+  await db.query("INSERT INTO toolchain_release (release_version, created_by) VALUES ($1, 'u-sys')", [version]);
+  await db.query(
+    `INSERT INTO toolchain_platform_default (release_version, set_by) VALUES ($1, 'u-sys')
+     ON CONFLICT (singleton) DO UPDATE SET release_version = EXCLUDED.release_version`, [version]);
+  await db.query("INSERT INTO toolchain_default_history (release_version, set_by, kind) VALUES ($1, 'u-sys', 'initial')", [version]);
+  await db.query(
+    `INSERT INTO toolchain_rollout (org_id, release_version, added_by) VALUES ($1, $2, 'u-sys')
+     ON CONFLICT (org_id) DO UPDATE SET release_version = EXCLUDED.release_version`, [ORG_A, version]);
+}
+
+describe('toolchain_* — system org only', () => {
+  beforeAll(async () => { await seedToolchain('1.0.0'); });
+
+  it('every toolchain table is RLS-enabled and FORCEd', async () => {
+    const r = await db.query<{ relname: string; relrowsecurity: boolean; relforcerowsecurity: boolean }>(
+      'SELECT relname, relrowsecurity, relforcerowsecurity FROM pg_class WHERE relname = ANY($1) ORDER BY 1',
+      [[...SYSTEM_ONLY_TOOLCHAIN_TABLES, 'org_toolchain_default', 'org_toolchain_default_history']]);
+    expect(r.rows).toHaveLength(6);
+    expect(r.rows.filter((x) => !x.relrowsecurity || !x.relforcerowsecurity)).toEqual([]);
+  });
+
+  it('a customer org reads no row of any toolchain_* table — not even the canary row naming it', async () => {
+    await asTenant(db, { orgId: ORG_A }, async (q) => {
+      for (const t of SYSTEM_ONLY_TOOLCHAIN_TABLES) {
+        expect({ t, n: (await q.query(`SELECT 1 FROM ${t}`)).rows.length }).toEqual({ t, n: 0 });
+      }
+    });
+  });
+
+  it('a customer org can neither insert, update nor delete toolchain_* rows', async () => {
+    await expectRlsError(asTenant(db, { orgId: ORG_A }, (q) =>
+      q.query("INSERT INTO toolchain_release (release_version, created_by) VALUES ('9.9.9', 'u-a')")));
+    await expectRlsError(asTenant(db, { orgId: ORG_A }, (q) =>
+      q.query("INSERT INTO toolchain_rollout (org_id, release_version, added_by) VALUES ($1, '1.0.0', 'u-a')", [ORG_B])));
+    await expectRlsError(asTenant(db, { orgId: ORG_A }, (q) =>
+      q.query("INSERT INTO toolchain_default_history (release_version, set_by, kind) VALUES ('1.0.0', 'u-a', 'set')")));
+    await asTenant(db, { orgId: ORG_A }, async (q) => {
+      expect((await q.query("UPDATE toolchain_platform_default SET set_by = 'u-a'")).affectedRows).toBe(0);
+      expect((await q.query("UPDATE toolchain_rollout SET added_by = 'u-a' WHERE org_id = $1", [ORG_A])).affectedRows).toBe(0);
+      for (const t of SYSTEM_ONLY_TOOLCHAIN_TABLES) {
+        expect({ t, n: (await q.query(`DELETE FROM ${t}`)).affectedRows }).toEqual({ t, n: 0 });
+      }
+    });
+  });
+
+  it('no tenant context sees nothing', async () => {
+    await asTenant(db, {}, async (q) => {
+      for (const t of SYSTEM_ONLY_TOOLCHAIN_TABLES) {
+        expect({ t, n: (await q.query(`SELECT 1 FROM ${t}`)).rows.length }).toEqual({ t, n: 0 });
+      }
+    });
+  });
+
+  it('the system org (without the superadmin flag) and a sysadmin read and write them', async () => {
+    for (const scope of [{ orgId: SYSTEM_ORG }, { orgId: ORG_A, isSysadmin: true }]) {
+      await asTenant(db, scope, async (q) => {
+        for (const t of SYSTEM_ONLY_TOOLCHAIN_TABLES) {
+          expect({ t, n: (await q.query(`SELECT 1 FROM ${t}`)).rows.length > 0 }).toEqual({ t, n: true });
+        }
+        await q.query("INSERT INTO toolchain_release (release_version, created_by) VALUES ('1.1.0', 'u-sys')");
+        await q.query("INSERT INTO toolchain_default_history (release_version, previous_release_version, set_by, kind) VALUES ('1.1.0', '1.0.0', 'u-sys', 'set')");
+        expect((await q.query("UPDATE toolchain_platform_default SET release_version = '1.1.0'")).affectedRows).toBe(1);
+        expect((await q.query("UPDATE toolchain_rollout SET release_version = '1.1.0' WHERE org_id = $1", [ORG_A])).affectedRows).toBe(1);
+      });
+    }
+  });
+
+  it('the platform default is a singleton and must name an existing release', async () => {
+    await expect(db.query("INSERT INTO toolchain_platform_default (release_version, set_by) VALUES ('1.0.0', 'u-sys')"))
+      .rejects.toThrow(/duplicate key|unique/i);
+    await expect(db.query("INSERT INTO toolchain_platform_default (singleton, release_version, set_by) VALUES (false, '1.0.0', 'u-sys')"))
+      .rejects.toThrow(/check constraint/i);
+    await expect(db.query("UPDATE toolchain_platform_default SET release_version = '7.7.7'"))
+      .rejects.toThrow(/foreign key/i);
+  });
+
+  it('a release referenced by the default, a canary or an org default cannot be deleted', async () => {
+    await expect(db.query("DELETE FROM toolchain_release WHERE release_version = '1.0.0'")).rejects.toThrow(/foreign key/i);
+  });
+
+  it('release versions are plain X.Y.Z and history kinds are an enum', async () => {
+    await expect(db.query("INSERT INTO toolchain_release (release_version, created_by) VALUES ('1.0.0-dev.1', 'u-sys')"))
+      .rejects.toThrow(/check constraint/i);
+    await expect(db.query("INSERT INTO toolchain_default_history (release_version, set_by, kind) VALUES ('1.0.0', 'u-sys', 'promote')"))
+      .rejects.toThrow(/check constraint/i);
+  });
+});
+
+describe('org_toolchain_default (+ history) — own org; system org reads all', () => {
+  beforeAll(async () => {
+    await db.query("INSERT INTO toolchain_release (release_version, created_by) VALUES ('2.0.0', 'u-sys') ON CONFLICT DO NOTHING");
+    for (const org of [ORG_A, ORG_B, SYSTEM_ORG]) {
+      await db.query(
+        "INSERT INTO org_toolchain_default (org_id, release_version, set_by) VALUES ($1, '2.0.0', 'u') ON CONFLICT (org_id) DO NOTHING", [org]);
+      await db.query("INSERT INTO org_toolchain_default_history (org_id, release_version, set_by) VALUES ($1, '2.0.0', 'u')", [org]);
+    }
+  });
+
+  it('an org reads only its own override and history — no system-row carve-out', async () => {
+    await asTenant(db, { orgId: ORG_A }, async (q) => {
+      for (const t of ['org_toolchain_default', 'org_toolchain_default_history']) {
+        const orgs = [...new Set((await q.query<{ org_id: string }>(`SELECT org_id FROM ${t}`)).rows.map((r) => r.org_id))];
+        expect({ t, orgs }).toEqual({ t, orgs: [ORG_A] });
+      }
+    });
+  });
+
+  it('an org writes only its own override', async () => {
+    await asTenant(db, { orgId: ORG_A }, async (q) => {
+      expect((await q.query("UPDATE org_toolchain_default SET reason = 'x' WHERE org_id = $1", [ORG_A])).affectedRows).toBe(1);
+      expect((await q.query("UPDATE org_toolchain_default SET reason = 'x' WHERE org_id = $1", [ORG_B])).affectedRows).toBe(0);
+      expect((await q.query("UPDATE org_toolchain_default SET reason = 'x' WHERE org_id = $1", [SYSTEM_ORG])).affectedRows).toBe(0);
+      expect((await q.query('DELETE FROM org_toolchain_default WHERE org_id = $1', [ORG_B])).affectedRows).toBe(0);
+      expect((await q.query('DELETE FROM org_toolchain_default WHERE org_id = $1', [ORG_A])).affectedRows).toBe(1);
+      await q.query("INSERT INTO org_toolchain_default (org_id, release_version, set_by) VALUES ($1, '2.0.0', 'u-a')", [ORG_A]);
+    });
+    await expectRlsError(asTenant(db, { orgId: ORG_A }, (q) =>
+      q.query("INSERT INTO org_toolchain_default (org_id, release_version, set_by) VALUES ('org-c', '2.0.0', 'u-a')")));
+    await expectRlsError(asTenant(db, { orgId: ORG_A }, (q) =>
+      q.query('UPDATE org_toolchain_default SET org_id = $2 WHERE org_id = $1', [ORG_A, 'org-c'])));
+  });
+
+  it('an org appends to its own history but can never rewrite or delete it, nor write another org’s', async () => {
+    await asTenant(db, { orgId: ORG_A }, async (q) => {
+      await q.query('INSERT INTO org_toolchain_default_history (org_id, release_version, set_by) VALUES ($1, NULL, $2)', [ORG_A, 'u-a']);
+      expect((await q.query("UPDATE org_toolchain_default_history SET reason = 'x' WHERE org_id = $1", [ORG_A])).affectedRows).toBe(0);
+      expect((await q.query('DELETE FROM org_toolchain_default_history WHERE org_id = $1', [ORG_A])).affectedRows).toBe(0);
+    });
+    await expectRlsError(asTenant(db, { orgId: ORG_A }, (q) =>
+      q.query("INSERT INTO org_toolchain_default_history (org_id, release_version, set_by) VALUES ($1, '2.0.0', 'u-a')", [ORG_B])));
+  });
+
+  it('the system org reads every org’s override and history, but writes only its own', async () => {
+    await asTenant(db, { orgId: SYSTEM_ORG }, async (q) => {
+      for (const t of ['org_toolchain_default', 'org_toolchain_default_history']) {
+        const orgs = new Set((await q.query<{ org_id: string }>(`SELECT org_id FROM ${t}`)).rows.map((r) => r.org_id));
+        expect({ t, all: [ORG_A, ORG_B, SYSTEM_ORG].every((o) => orgs.has(o)) }).toEqual({ t, all: true });
+      }
+      expect((await q.query("UPDATE org_toolchain_default SET reason = 'x' WHERE org_id = $1", [ORG_B])).affectedRows).toBe(0);
+      expect((await q.query('DELETE FROM org_toolchain_default WHERE org_id = $1', [ORG_B])).affectedRows).toBe(0);
+    });
+  });
+
+  it('a sysadmin (the resolver’s elevated read, the org-purge cascade) reaches every row', async () => {
+    await asTenant(db, { isSysadmin: true }, async (q) => {
+      expect((await q.query('SELECT 1 FROM org_toolchain_default WHERE org_id = ANY($1)', [[ORG_A, ORG_B]])).rows).toHaveLength(2);
+      expect((await q.query('DELETE FROM org_toolchain_default_history WHERE org_id = $1', [ORG_B])).affectedRows).toBeGreaterThan(0);
+    });
+  });
+
+  it('no tenant context sees nothing', async () => {
+    await asTenant(db, {}, async (q) => {
+      expect((await q.query('SELECT 1 FROM org_toolchain_default')).rows).toEqual([]);
+      expect((await q.query('SELECT 1 FROM org_toolchain_default_history')).rows).toEqual([]);
     });
   });
 });

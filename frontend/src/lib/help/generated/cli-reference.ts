@@ -1,6 +1,6 @@
 // GENERATED FROM docs/pipeline-manager.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: e6c107fae9ef63985a385159f8a624ede2dc9dc8a3a0bd926204d2e4b2bd8e98
+// SOURCE-SHA256: e89043f5b5c20eba99677d3d1b12daa7389c3960cac9ae021dca429224118af6
 // SPDX-License-Identifier: Apache-2.0
 import { Terminal } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -226,7 +226,7 @@ export const cliReferenceTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Install esbuild and pnpm (the handler's lockfile is pnpm-lock.yaml, so CDK uses pnpm to run esbuild) — plus the CDK CLI — globally, matching the versions the CodeBuild bootstrap image bakes in:"
+          "content": "Install esbuild and pnpm (the handler's lockfile is pnpm-lock.yaml, so CDK uses pnpm to run esbuild) — plus the CDK CLI — globally, matching the versions the pipeline-bootstrap image bakes in (its toolchain in deploy/toolchain/pipeline-bootstrap/plugin-spec.yaml):"
         },
         {
           "type": "code",
@@ -235,7 +235,7 @@ export const cliReferenceTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "With esbuild on PATH, NodejsFunction bundles locally (no Docker) and the Lambda resolves correctly. In CodeBuild this is handled for you — the bootstrap image ships these tools (see AWS deployment → CodeBuild bootstrap image)."
+          "content": "With esbuild on PATH, NodejsFunction bundles locally (no Docker) and the Lambda resolves correctly. In CodeBuild this is handled for you — the bootstrap image ships these tools (see AWS deployment → the managed toolchain release)."
         }
       ]
     },
@@ -276,7 +276,7 @@ export const cliReferenceTopic: HelpTopic = {
             "AI-optional. Set ANTHROPIC_API_KEY (or AI_PROVIDER + its key) to parse a natural-language --prompt and add free-form failure diagnosis; without a key it falls back to the deterministic issue matcher.",
             "Bootstrap a fresh machine (--repo). Without a checkout, --repo git-clones the platform repo first, then runs from it. The clone is sparse + partial (--filter=blob:none + cone sparse-checkout, git ≥ 2.27 — else a full-clone fallback): it materializes only the deploy folders the selected target + options need. Re-syncs are additive — a single --workdir can accumulate multiple targets. Override with --repo <url>, --ref <branch|tag>, --workdir <dir>.",
             "Run in Docker, zero host installs. deploy/bin/provision-docker.sh runs infra provision inside a throwaway node:26-slim container, installing only the tools the chosen target needs. Args pass straight through. (On macOS the container can't drive Docker Desktop's CLI, so run local on the host instead — the wrapper shines for the AWS targets.)",
-            "Post-install steps. After deploy + health, infra provision registers the admin (non-interactive with --admin-email/--admin-password) and runs opt-in loads — passed as flags or offered interactively after the clone when none are given: --with-plugins (adds deploy/plugins + deploy/codebuild), --with-compliance, --with-samples, --with-all, --with-smoke-test, --with-events (AWS event ingestion: three infra store-token runs write the platform, registry:push and reporting:ingest service-account keys to Secrets Manager, then infra setup-events --scoped-ingest deploys the EventBridge → SQS → Lambda), and repeatable --post-step \"<cmd>\". Default is register-only; --init skip skips even that. All steps are idempotent."
+            "Post-install steps. After deploy + health, infra provision registers the admin (non-interactive with --admin-email/--admin-password) and runs opt-in loads — passed as flags or offered interactively after the clone when none are given: --with-plugins (adds deploy/plugins), --with-compliance, --with-samples, --with-all, --with-smoke-test, --with-events (AWS event ingestion: three infra store-token runs write the platform, registry:push and reporting:ingest service-account keys to Secrets Manager, then infra setup-events --scoped-ingest deploys the EventBridge → SQS → Lambda), and repeatable --post-step \"<cmd>\". Default is register-only; --init skip skips even that. All steps are idempotent."
           ]
         },
         {

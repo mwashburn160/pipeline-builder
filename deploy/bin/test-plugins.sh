@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Validate all catalog plugins. The spec schema, catalog metadata and Dockerfile
+# Validate all catalog plugins (deploy/plugins) and the managed toolchain
+# release (deploy/toolchain — pipeline-bootstrap + cdk-synth). The spec schema, catalog metadata and Dockerfile
 # rules (non-root final USER, no pipe-to-shell installers, every download through
 # fetch-verified, …) are the ONE TypeScript implementation the upload API and
 # publishers use — `pipeline-manager plugin validate --lint` — run per plugin.
@@ -15,6 +16,7 @@ set -euo pipefail
 # Usage:
 #   ./test-plugins.sh                       # test all plugins
 #   ./test-plugins.sh language/java         # test a specific plugin
+#   ./test-plugins.sh toolchain/cdk-synth   # test one half of the toolchain release
 #   ./test-plugins.sh --spec-only           # only validate specs (no Docker checks)
 #   ./test-plugins.sh --build               # build Docker images (slow)
 #   PLUGINS_DIR=/tmp/p ./test-plugins.sh security/my-scan  # a tree outside the repo
@@ -25,6 +27,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # PLUGINS_DIR overrides the catalog root (a `<category>/<plugin>` tree), e.g. to
 # check a scaffold from `pipeline-manager plugin new` outside the repo.
+# An overridden PLUGINS_DIR tests that tree alone: the toolchain root is part of
+# this repo's tree, not of an outside catalog.
+TEST_TOOLCHAIN=true
+[ -n "${PLUGINS_DIR:-}" ] && TEST_TOOLCHAIN=false
 PLUGINS_DIR="${PLUGINS_DIR:-$DEPLOY_DIR/plugins}"
 SPEC_ONLY=false
 BUILD_IMAGES=false
@@ -163,6 +169,13 @@ test_plugin() {
   # THIS plugin's failure below — never as an abort of the whole run.
   local plugin_type
   plugin_type=$(get_spec_field pluginType "$specfile")
+  # A BuildImage (pipeline-bootstrap) is not a step: no commands, no smoke test,
+  # and it runs as root by design (global npm installs). It is gated by
+  # build-plugin-images.sh's base stage and the deploy contracts instead.
+  if [ "$plugin_type" = "BuildImage" ]; then
+    log_info "Skipping ${fqn} (pluginType: BuildImage — not a step plugin)"
+    return
+  fi
   if [ "$plugin_type" != "ManualApprovalStep" ] && [ ! -f "$dockerfile" ]; then
     log_fail "Missing Dockerfile" "$fqn"
     return
@@ -176,7 +189,14 @@ test_plugin() {
     log_pass "Name matches directory"
   fi
   spec_category=$(get_spec_field category "$specfile")
-  if [ "$spec_category" != "$category" ]; then
+  # The toolchain root is not a category: its directories are the two managed
+  # names, and their spec category is ordinary catalog metadata.
+  if [ "$(dirname "$plugin_dir")" = "${TOOLCHAIN_DIR%/}" ]; then
+    case " $MANAGED_TOOLCHAIN_PLUGINS " in
+      *" $plugin_name "*) log_pass "Managed toolchain name" ;;
+      *) log_fail "Not a managed toolchain name: '${plugin_name}' (deploy/toolchain holds only: ${MANAGED_TOOLCHAIN_PLUGINS})" "$fqn" ;;
+    esac
+  elif [ "$spec_category" != "$category" ]; then
     log_fail "Category mismatch: spec='${spec_category}' directory='${category}'" "$fqn"
   else
     log_pass "Category matches directory"
@@ -259,6 +279,9 @@ fi
 
 if [ -n "$SPECIFIC_PLUGIN" ]; then
   plugin_path="${PLUGINS_DIR}/${SPECIFIC_PLUGIN}"
+  case "$SPECIFIC_PLUGIN" in
+    "$TOOLCHAIN_CATEGORY"/*) [ "$TEST_TOOLCHAIN" = true ] && plugin_path="${TOOLCHAIN_DIR}/${SPECIFIC_PLUGIN#*/}" ;;
+  esac
   if [ -d "$plugin_path" ]; then
     test_plugin "$plugin_path"
   else
@@ -266,6 +289,11 @@ if [ -n "$SPECIFIC_PLUGIN" ]; then
     exit 1
   fi
 else
+  if [ "$TEST_TOOLCHAIN" = true ]; then
+    for _managed in $MANAGED_TOOLCHAIN_PLUGINS; do
+      test_plugin "${TOOLCHAIN_DIR}/${_managed}"
+    done
+  fi
   for category_dir in "${PLUGINS_DIR}"/*/; do
     [ -d "$category_dir" ] || continue
     # Skip `_`-prefixed dirs (e.g. _base — shared base image, not a plugin).

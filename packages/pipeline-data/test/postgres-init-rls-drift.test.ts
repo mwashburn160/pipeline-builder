@@ -87,6 +87,62 @@ describe('postgres-init.sql RLS drift-guard', () => {
     expect(docker).toMatch(/BEFORE UPDATE ON messages/);
   });
 
+  describe('managed toolchain tables (dedicated policies, not the generic loop)', () => {
+    const SYSTEM_ONLY = ['toolchain_release', 'toolchain_platform_default', 'toolchain_default_history', 'toolchain_rollout'];
+    const OWN_ORG = ['org_toolchain_default', 'org_toolchain_default_history'];
+    const SYSTEM_SCOPE = "current_is_sysadmin() OR current_org_id() = ''000000000000000000000001''";
+
+    it('none of the six rides the generic org loop (its system-row read carve-out would expose them)', () => {
+      const genericList = docker.match(/SELECT unnest\(ARRAY\[([\s\S]*?)\]\)/)![1];
+      for (const t of [...SYSTEM_ONLY, ...OWN_ORG]) expect(genericList).not.toContain(`'${t}'`);
+    });
+
+    it('the system-only four get system-scope policies for every command, and nothing else', () => {
+      const loop = docker.match(/FOREACH t IN ARRAY ARRAY\[\s*'toolchain_release'([\s\S]*?)\]\s*LOOP([\s\S]*?)END LOOP;/);
+      expect(loop).not.toBeNull();
+      const tables = [...("'toolchain_release'" + loop![1]).matchAll(/'(\w+)'/g)].map((m) => m[1]);
+      expect(tables.sort()).toEqual([...SYSTEM_ONLY].sort());
+      const body = loop![2];
+      expect(body).toContain('PERFORM pb_reset_policies(t)');
+      const policies = [...body.matchAll(/CREATE POLICY (\w+) ON %I FOR (\w+)[\s\S]*?\)',\s*t/g)];
+      expect(policies.map((m) => `${m[1]} ${m[2]}`)).toEqual([
+        'rls_system_read SELECT', 'rls_system_insert INSERT', 'rls_system_update UPDATE', 'rls_system_delete DELETE',
+      ]);
+      for (const m of policies) {
+        // Only the system scope; no own-org leg (a canary row's org_id is a member, not an owner).
+        expect(m[0]).toContain(SYSTEM_SCOPE);
+        expect(m[0]).not.toMatch(/org_id = current_org_id\(\)/);
+      }
+    });
+
+    it('org_toolchain_default: own-org read/write, system-org read, no system-row carve-out', () => {
+      const readPolicy = docker.match(/CREATE POLICY rls_org_read ON org_toolchain_default FOR SELECT[\s\S]*?;/)![0];
+      expect(readPolicy).toContain('org_id = current_org_id()');
+      expect(readPolicy).toContain("current_org_id() = '000000000000000000000001'");
+      expect(readPolicy).not.toContain("org_id = '000000000000000000000001'");
+      for (const cmd of ['insert', 'update', 'delete']) {
+        expect(docker).toMatch(new RegExp(`CREATE POLICY rls_org_${cmd} ON org_toolchain_default FOR ${cmd.toUpperCase()}`));
+      }
+    });
+
+    it('org_toolchain_default_history: own-org read + insert; update/delete are sysadmin-only', () => {
+      const readPolicy = docker.match(/CREATE POLICY rls_org_read ON org_toolchain_default_history FOR SELECT[\s\S]*?;/)![0];
+      expect(readPolicy).toContain('org_id = current_org_id()');
+      expect(readPolicy).not.toContain("org_id = '000000000000000000000001'");
+      expect(docker).toContain('CREATE POLICY rls_org_insert ON org_toolchain_default_history FOR INSERT');
+      expect(docker).not.toMatch(/CREATE POLICY rls_org_(update|delete) ON org_toolchain_default_history/);
+      for (const cmd of ['update', 'delete']) {
+        const p = docker.match(new RegExp(`CREATE POLICY rls_staff_${cmd} ON org_toolchain_default_history[\\s\\S]*?;`))![0];
+        expect(p).not.toContain('current_org_id()');
+      }
+    });
+
+    it('all six are ENABLEd and FORCEd', () => {
+      for (const t of OWN_ORG) expect(docker).toContain(`ALTER TABLE ${t} ENABLE ROW LEVEL SECURITY`);
+      for (const t of [...SYSTEM_ONLY, ...OWN_ORG]) expect(docker).toContain(`ALTER TABLE ${t} FORCE ROW LEVEL SECURITY`);
+    });
+  });
+
   it('the banner counts the FORCEd tenant tables it lists', () => {
     const forced = new Set([...docker.matchAll(/ALTER TABLE (\w+) FORCE ROW LEVEL SECURITY/g)].map((m) => m[1]));
     const loopForced = docker.match(/FOREACH t IN ARRAY ARRAY\[|FOR t IN\s+SELECT unnest\(ARRAY\[\s*'compliance_policies'[\s\S]*?\]\)/);

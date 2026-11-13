@@ -10,7 +10,7 @@ set -euo pipefail
 #   ./init-platform.sh ec2                                     # EC2 (requires PLATFORM_BASE_URL or stack name)
 #   ./init-platform.sh eks                                     # EKS (port-forwards to nginx via kubectl; or set PLATFORM_BASE_URL)
 #   ./init-platform.sh --cleanup ec2                           # Clean up plugin.zip + image.tar after upload
-#   ./init-platform.sh --force ec2                             # Force rebuild of base images + CodeBuild bootstrap (ignore caches)
+#   ./init-platform.sh --force ec2                             # Force rebuild of base + non-managed plugin images (ignore caches)
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
@@ -47,16 +47,17 @@ CLEANUP_AFTER_UPLOAD=false
 # still get loaded; the failed ones are skipped by load-plugins (no image.tar
 # = no upload, no spurious 500).
 CONTINUE_ON_BUILD_FAILURE=false
-# --force: rebuild the base images AND the CodeBuild bootstrap image from scratch,
-# ignoring the docker-cache / registry-tag idempotency skips. Base images honor this
-# via FORCE_REBUILD (already threaded to build-plugin-images.sh --force); the bootstrap
-# image gets --force + FORCE_PUSH so both the local build and the remote republish rerun.
+# --force: rebuild the base images and non-managed plugin images from scratch,
+# ignoring the docker-cache / registry-tag idempotency skips, via FORCE_REBUILD
+# (threaded to build-plugin-images.sh --force). The managed toolchain images
+# (pipeline-bootstrap, cdk-synth) are immutable per version and never rebuilt in
+# place — a change to them ships as a new release.
 FORCE_REBUILD_ALL=false
 
 # Parse the target and flags in ANY order — flags may come before OR after the
 # target (e.g. both `init-platform.sh --force ec2` and `init-platform.sh ec2
 # --force` work). Stopping at the first non-flag would silently drop a trailing
-# `--force`, and the bootstrap image would never be rebuilt or republished.
+# `--force`, and the base images would never be rebuilt or republished.
 TARGET=""
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -81,8 +82,8 @@ TARGET="${TARGET:-docker}"
 NAMESPACE="${NAMESPACE:-pipeline-builder}"   # env-overridable, matching push-base-images.sh
 TUNNEL_PID=""
 
-# Accept y / yes / true (any case) as affirmative, so the LOAD_* toggles and BUILD_BOOTSTRAP
-# agree on what counts as "on" (BUILD_BOOTSTRAP's case test already allows y|yes|true).
+# Accept y / yes / true (any case) as affirmative, so every LOAD_* toggle agrees on
+# what counts as "on".
 _truthy() { case "$(printf '%s' "${1:-}" | tr '[:upper:]' '[:lower:]')" in y|yes|true) return 0 ;; *) return 1 ;; esac; }
 
 # ---- Cleanup ----
@@ -320,42 +321,18 @@ echo "=== Creating the Official catalog loader service account ==="
 official_loader_service_account_key
 
 
-# Build + publish the CodeBuild bootstrap image (pipeline-bootstrap:1.0).
-# Backs CODEBUILD_DEFAULT_IMAGE so cold-start synth runs against an image
-# with pipeline-manager pre-installed, instead of paying ~30s for the
-# npm install on every pipeline. Idempotent — push step skips when the
-# tag is already in the registry library, so this is cheap to re-run.
-# Independent of plugin loading: the runtime image is needed even when
-# plugins aren't being uploaded (e.g. operator only refreshing services).
-#
-# Non-interactive runs (no TTY): skip by default. Set BUILD_BOOTSTRAP=true
-# in CI env to opt in, BUILD_BOOTSTRAP=false to be explicit. Auto-running
-# a docker build + registry push under set -e on a headless host wasn't
-# what callers wanted.
+# Build + publish the managed toolchain release: pipeline-bootstrap (the build
+# image of every pipeline step without a plugin image) and cdk-synth, which is
+# FROM it by digest. One version for both halves, read from their specs. Always
+# runs — the toolchain is needed even when no other plugin is loaded — and is
+# idempotent: a version already published with the same bits is not re-pushed,
+# and one published with DIFFERENT bits is refused (a managed version is
+# immutable). For the same reason --force never applies here: FORCE_REBUILD
+# rebuilds non-managed images only. Both halves are uploaded by the plugin load
+# below (load-plugins.sh puts them first).
 echo ""
-BUILD_BOOTSTRAP="${BUILD_BOOTSTRAP:-}"
-if [ -z "$BUILD_BOOTSTRAP" ] && [ -t 0 ]; then
-  printf "Build + publish CodeBuild bootstrap image (pipeline-bootstrap:1.0)? [Y/n] "
-  read -r BUILD_BOOTSTRAP
-  BUILD_BOOTSTRAP="${BUILD_BOOTSTRAP:-y}"
-fi
-# With --force, rebuild the local bootstrap image (--force) and republish it even when
-# the remote tag already exists (FORCE_PUSH) — otherwise the idempotency skips would keep
-# a stale image.
-BOOTSTRAP_ARGS=""
-BOOTSTRAP_FORCE_PUSH="${FORCE_PUSH:-}"
-if [ "$FORCE_REBUILD_ALL" = true ]; then
-  BOOTSTRAP_ARGS="--force"
-  BOOTSTRAP_FORCE_PUSH=true
-fi
-# _truthy (case-insensitive) so BUILD_BOOTSTRAP agrees with the LOAD_* toggles
-# on what counts as "on": an inline `case` here would miss `Yes` / `TRUE`.
-if _truthy "$BUILD_BOOTSTRAP"; then
-  # shellcheck disable=SC2086  # $BOOTSTRAP_ARGS is intentionally word-split (empty or --force)
-  DEPLOY_TARGET="$TARGET" FORCE_PUSH="$BOOTSTRAP_FORCE_PUSH" "$SCRIPT_DIR/build-codebuild-bootstrap.sh" $BOOTSTRAP_ARGS
-else
-  echo "  Skipping CodeBuild bootstrap image."
-fi
+echo "=== Building the managed toolchain release (pipeline-bootstrap + cdk-synth) ==="
+DEPLOY_TARGET="$TARGET" "$SCRIPT_DIR/build-plugin-images.sh" --only pipeline-bootstrap,cdk-synth
 
 # Gate a sample load on the backend services it actually talks to — beyond the
 # platform readiness already waited for above. The plugin upload and pipeline
@@ -425,6 +402,11 @@ if _truthy "$LOAD_PLUGINS"; then
 
   CATEGORY_ARG=""
   [ -n "$SELECTED_CATEGORIES" ] && CATEGORY_ARG="--category $SELECTED_CATEGORIES"
+  # The load also uploads the managed toolchain release built above
+  # (deploy/toolchain — not a catalog category, so it is named explicitly and
+  # goes first). The catalog build below takes CATEGORY_ARG alone: the toolchain
+  # stage already ran.
+  LOAD_CATEGORY_ARG="--category ${TOOLCHAIN_CATEGORY},${SELECTED_CATEGORIES:-$(list_categories "$DEPLOY_DIR/plugins" | paste -sd, -)}"
 
   # Base images must be present in the in-cluster registry for *both*
   # strategies — even build_image plugin Dockerfiles use bare
@@ -522,7 +504,7 @@ if _truthy "$LOAD_PLUGINS"; then
     PLATFORM_BASE_URL="$PLATFORM_BASE_URL" \
     PLATFORM_TOKEN="$LOADER_SA_KEY" \
     SKIP_MISSING_IMAGE_TAR="$CONTINUE_ON_BUILD_FAILURE" \
-    "$SCRIPT_DIR/load-plugins.sh" --rebuild $CATEGORY_ARG $CLEANUP_ARG
+    "$SCRIPT_DIR/load-plugins.sh" --rebuild $LOAD_CATEGORY_ARG $CLEANUP_ARG
 else
   echo "  Skipping plugin loading."
 fi

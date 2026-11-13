@@ -21,6 +21,7 @@ export * from './schema/reporting-analytics.js';
 export * from './schema/reporting-stakeholder.js';
 export * from './schema/alert.js';
 export * from './schema/ecosystem.js';
+export * from './schema/toolchain.js';
 
 import { orgAlertDestination, orgAlertRule } from './schema/alert.js';
 import {
@@ -68,6 +69,14 @@ import { plugin, pluginKeptSetupImage } from './schema/plugin.js';
 import { doraDeployment, executionDailyRollup, pipelinePluginResolution, pipelineSecurityReport, pipelineStepLookup, pluginVulnExposure } from './schema/reporting-analytics.js';
 import { reportDefinition, reportRun, reportShareLink, reportRecipient } from './schema/reporting-stakeholder.js';
 import { supportCase, supportCaseCounter, supportContact, supportCaseNote, supportCannedResponse } from './schema/support.js';
+import {
+  toolchainRelease,
+  toolchainPlatformDefault,
+  toolchainDefaultHistory,
+  toolchainRollout,
+  orgToolchainDefault,
+  orgToolchainDefaultHistory,
+} from './schema/toolchain.js';
 
 /**
  * Complete Drizzle schema export
@@ -148,6 +157,14 @@ export const schema = {
   pluginInstallPolicy,
   pluginAdvisoryDelivery,
   pluginSecurityNotificationPref,
+  // Managed toolchain releases (dedicated RLS: system-org only, plus the
+  // own-org override and its history — see schema/toolchain.ts)
+  toolchainRelease,
+  toolchainPlatformDefault,
+  toolchainDefaultHistory,
+  toolchainRollout,
+  orgToolchainDefault,
+  orgToolchainDefaultHistory,
   // (The public_listings / public_listed_versions views are exported from
   // ./schema/ecosystem but are not tables, so they are not listed here.)
 } as const;

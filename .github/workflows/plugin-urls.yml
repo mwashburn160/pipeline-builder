@@ -17,6 +17,7 @@ on:
   pull_request:
     paths:
       - 'deploy/plugins/**/Dockerfile'
+      - 'deploy/toolchain/**/Dockerfile'
       - 'deploy/bin/verify-plugin-urls.sh'
       - 'deploy/bin/common.sh'
       - '.github/workflows/plugin-urls.yml'

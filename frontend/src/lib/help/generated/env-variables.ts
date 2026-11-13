@@ -1,6 +1,6 @@
 // GENERATED FROM docs/environment-variables.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: d1ca955bb292a99e05a59fb7f808f957547251fa1fee2b03dbf4082476c799f4
+// SOURCE-SHA256: e0ea5ec7ca9d6bcb8276c497fefc2541f317724b8164a0a983bac99adcfb60d1
 // SPDX-License-Identifier: Apache-2.0
 import { FileCode } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -3457,7 +3457,7 @@ export const envVariablesTopic: HelpTopic = {
             [
               "CODEBUILD_DEFAULT_IMAGE_DIGEST",
               "—",
-              "Registry manifest digest (sha256:<64 hex>) of CODEBUILD_DEFAULT_IMAGE, printed by deploy/bin/build-codebuild-bootstrap.sh after it publishes. Set → the default image is pulled as <registry>/library/<repo>@<digest>; unset → by its mutable tag, with a synth warning; malformed → synth fails. Propagated into the pipeline's CodeBuild environment so a self-mutating synth keeps the pin."
+              "Registry manifest digest (sha256:<64 hex>) of CODEBUILD_DEFAULT_IMAGE, the digest in the BOOTSTRAP_IMAGE_REF that deploy/bin/build-plugin-images.sh prints after it publishes pipeline-bootstrap. Set → the default image is pulled as <registry>/library/<repo>@<digest>; unset → by its mutable tag, with a synth warning; malformed → synth fails. Propagated into the pipeline's CodeBuild environment so a self-mutating synth keeps the pin."
             ],
             [
               "PLATFORM_CA_BUNDLE",

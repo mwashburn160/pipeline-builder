@@ -17,6 +17,7 @@ import { resolveBuildShape } from '../helpers/build-shape.js';
 import { getOrgTier } from '../queue/connections.js';
 import { catalogColumns } from '../helpers/catalog-metadata.js';
 import { DEFAULT_PLUGIN_VERSION } from '../helpers/default-version.js';
+import { assertManagedUploadAllowed } from '../helpers/managed-toolchain.js';
 import { createBuildJobData, toPluginInsert } from '../helpers/plugin-helpers.js';
 import { parsePluginZip, specContractFields, validateBuildArgs, type ParsedPlugin } from '../helpers/plugin-spec.js';
 import { admitBuildOnCredits } from '../queue/build-credits.js';
@@ -239,6 +240,11 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
             const version = s.version || DEFAULT_PLUGIN_VERSION;
 
             ctx.log('INFO', 'Spec validated', { pluginName: s.name, version });
+
+            // Managed toolchain names (pipeline-bootstrap, cdk-synth): system org
+            // only, never listed, never a prerelease. Typed 403/400; the slot is
+            // refunded like every refusal here.
+            assertManagedUploadAllowed(orgId, s.name, version, { publishRequest });
 
             // Refuse up front (before compliance, S3 staging and an image build) a
             // re-upload that would overwrite a version the caller can't write or

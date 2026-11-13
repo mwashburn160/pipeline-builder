@@ -622,3 +622,19 @@ describe('Official catalog auto-approval rule', () => {
     expect(db.tables.plugin_publish_requests!.find((r) => r.version === '1.0.2')).toMatchObject({ status: 'pending', autoRuleId: null });
   });
 });
+
+// -----------------------------------------------------------------------------
+// Managed toolchain names are never listed (docs/plans/bootstrap-image-versioning.md D5)
+// -----------------------------------------------------------------------------
+
+describe('managed toolchain names', () => {
+  it.each(['pipeline-bootstrap', 'cdk-synth'])('refuses a publish request for %s with PLUGIN_MANAGED_NOT_LISTABLE, before freezing', async (name) => {
+    seedPublishers(db);
+    const row = db.seed('plugins', pluginRow({ orgId: SYSTEM_ORG, name, createdBy: 'sa-loader' }));
+    await rejects(requestsSvc.submit(loader() as any, { kind: 'new_listing', pluginId: row.id }), 'PLUGIN_MANAGED_NOT_LISTABLE');
+    expect(row.frozenAt ?? null).toBeNull();
+    // The build worker's after-build submit reports it, and nothing is listed.
+    expect(await requestsSvc.submitAfterBuild(loader() as any, row.id)).toMatchObject({ ok: false });
+    expect(db.tables.plugin_listings ?? []).toHaveLength(0);
+  });
+});

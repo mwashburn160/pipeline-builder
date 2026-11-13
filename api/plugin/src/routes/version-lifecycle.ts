@@ -28,6 +28,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 
 import { onPluginDeprecated } from '../helpers/deprecation-notice.js';
+import { assertNotManaged } from '../helpers/managed-toolchain.js';
 import { shapePlugin } from '../helpers/plugin-helpers.js';
 import { pluginService } from '../services/plugin-service.js';
 import { onVersionWithdrawn } from '../services/version-withdrawal.js';
@@ -53,6 +54,8 @@ export function createVersionLifecycleRoutes(): Router {
 
     const existing = await pluginService.findById(id, orgId);
     if (!existing) return sendEntityNotFound(res, 'Plugin');
+    // Managed toolchain releases are deprecated in the Toolchain console (both halves at once).
+    assertNotManaged(existing.name);
     if (!requireVisibilityWriteAccess(req, res, existing, userId, 'plugins:publish')) return;
 
     const wasDeprecated = existing.deprecatedAt !== null && existing.deprecatedAt !== undefined;
@@ -85,6 +88,9 @@ export function createVersionLifecycleRoutes(): Router {
 
     const existing = await pluginService.findById(id, orgId);
     if (!existing) return sendEntityNotFound(res, 'Plugin');
+    // Managed toolchain releases are yanked in the Toolchain console, which
+    // restores the previous platform default; never promoteNextDefault.
+    assertNotManaged(existing.name);
     if (!requireVisibilityWriteAccess(req, res, existing, userId, 'plugins:publish')) return;
 
     // Throws 409 PLUGIN_VERSION_FROZEN for a version published to the ecosystem.
