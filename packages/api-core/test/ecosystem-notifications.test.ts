@@ -33,15 +33,15 @@ const { createEcosystemNotifyClient, NOTIFY_EMAIL_PATH } = await import('../src/
 const base = { event: 'N23', subject: 'S', text: 'T', recipients: [{ kind: 'superadmins' }] };
 
 describe('ECOSYSTEM_NOTIFICATION_EVENTS', () => {
-  it('covers N1..N33 exactly', () => {
-    expect(Object.keys(ECOSYSTEM_NOTIFICATION_EVENTS)).toEqual(Array.from({ length: 33 }, (_, i) => `N${i + 1}`));
-    expect(isEcosystemNotificationEvent('N33')).toBe(true);
-    expect(isEcosystemNotificationEvent('N34')).toBe(false);
+  it('covers N1..N34 exactly', () => {
+    expect(Object.keys(ECOSYSTEM_NOTIFICATION_EVENTS)).toEqual(Array.from({ length: 34 }, (_, i) => `N${i + 1}`));
+    expect(isEcosystemNotificationEvent('N34')).toBe(true);
+    expect(isEcosystemNotificationEvent('N35')).toBe(false);
     expect(isEcosystemNotificationEvent('toString')).toBe(false);
   });
 
   it('makes the notification transactional and security notices non-optional', () => {
-    for (const n of ['N1', 'N3', 'N4', 'N5', 'N7', 'N8', 'N9', 'N10', 'N18', 'N19', 'N20', 'N21', 'N22', 'N23', 'N25', 'N28', 'N29', 'N30', 'N31', 'N32', 'N33'] as const) {
+    for (const n of ['N1', 'N3', 'N4', 'N5', 'N7', 'N8', 'N9', 'N10', 'N18', 'N19', 'N20', 'N21', 'N22', 'N23', 'N25', 'N28', 'N29', 'N30', 'N31', 'N32', 'N33', 'N34'] as const) {
       expect([n, ECOSYSTEM_NOTIFICATION_EVENTS[n].preference]).toEqual([n, null]);
     }
   });
@@ -127,6 +127,12 @@ describe('parseEcosystemNotifyRequest', () => {
         .toMatchObject({ recipients: [{ kind: 'address', email: 'sec@example.com' }] });
     }
     expect(parseEcosystemNotifyRequest({ ...base, event: 'N20', recipients: [{ kind: 'address', email: 'sec@example.com' }] })).toMatch(/only allowed/);
+  });
+
+  it('accepts toolchain:manage holders (the toolchain hygiene notice N34), never a raw address there', () => {
+    expect(parseEcosystemNotifyRequest({ ...base, event: 'N34', recipients: [{ kind: 'org_permission', orgId: 'o', permission: 'toolchain:manage', inheritFromRoot: true }] }))
+      .toMatchObject({ recipients: [{ kind: 'org_permission', orgId: 'o', permission: 'toolchain:manage', inheritFromRoot: true }] });
+    expect(parseEcosystemNotifyRequest({ ...base, event: 'N34', recipients: [{ kind: 'address', email: 'sec@example.com' }] })).toMatch(/only allowed/);
   });
 
   it('accepts pipelines:write holders (the pipeline-owner notices N32/N33)', () => {

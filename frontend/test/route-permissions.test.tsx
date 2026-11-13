@@ -1442,6 +1442,31 @@ const CONTROLS: Control[] = [
     },
   },
   {
+    control: 'Set / clear the org pipeline toolchain default (Settings → Organization)',
+    file: 'pages/dashboard/settings.tsx',
+    gateFiles: ['src/components/settings/PipelineToolchainSettings.tsx'],
+    // The card mounts with `pipelines:read` (read-only there); the write controls
+    // need `toolchain:manage` (docs/plans/bootstrap-image-versioning.md D13), and
+    // every write steps up. The negative render takes away `toolchain:manage`.
+    permissions: ['toolchain:manage', 'pipelines:read'],
+    stepUp: true,
+    routes: ['plugin PUT /plugins/toolchain/org-default', 'plugin DELETE /plugins/toolchain/org-default'],
+    behaviour: {
+      mount: page('../pages/dashboard/settings'),
+      router: { query: { tab: 'organization' }, pathname: '/dashboard/settings' },
+      api: {
+        getToolchainOrgDefault: {
+          effective: { releaseVersion: '1.1.0', resolvedVia: 'default' }, orgDefault: null, inheritedFrom: null,
+          canary: { member: false, releaseVersion: null, effective: false }, platformDefault: '1.1.0',
+          counts: { pipelines: 1, pinned: 0, behind: 0 },
+        },
+        getToolchainEligible: { platformDefault: '1.1.0', releases: [] },
+        getToolchainOrgDefaultHistory: { history: [] },
+      },
+      find: button(/^save toolchain default$/i),
+    },
+  },
+  {
     control: 'Edit / test plugin security notifications (Settings → Organization)',
     file: 'pages/dashboard/settings.tsx',
     gateFiles: ['src/components/settings/PluginSecurityNotificationSettings.tsx'],

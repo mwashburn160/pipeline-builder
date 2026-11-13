@@ -1,6 +1,6 @@
 // GENERATED FROM docs/permissions.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: dbac71f80b24a4021ff343a6548a0732e8858041ddc2be9c023c0e5e3498f582
+// SOURCE-SHA256: d144bc2fcb6a4d2193fa18cd77785e5331a1eb487681f3ebbf492162c3c330da
 // SPDX-License-Identifier: Apache-2.0
 import { UserCog } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -250,6 +250,11 @@ export const permissionsTopic: HelpTopic = {
               ":publish allows the public rung. pipeline_registry:write records and removes the deployed stack and step manifest behind a pipeline (POST/DELETE /pipelines/registry). It is split out of pipelines:write so the CI synth can register with a key that edits nothing else. People hold it next to pipelines:write (Member and Admin); see Automation service accounts."
             ],
             [
+              "Pipeline toolchain",
+              "toolchain:manage",
+              "Admin/Owner; never Member or any pipeline-editor bundle, and grantable to a custom Role. Sets or clears the org's toolchain default — which managed toolchain release every unpinned pipeline in the org (and its teams without their own) builds with on its next run (PUT/DELETE /plugins/toolchain/org-default, step-up; toolchain.org_default.set / .clear). Split from pipelines:write (one pipeline's toolchain.release pin) and plugin_installs:manage (future installs) by blast radius. Reading the default, its history and the eligible releases needs only pipelines:read. Confers nothing on the platform default, canary or catalog. See Organization Benefits → Pipeline toolchain default"
+            ],
+            [
               "Templates",
               "templates:read, templates:write, templates:publish",
               "Golden-path pipeline templates. Split out of pipelines:* so a platform team can curate starters without pipeline write access. :write covers the private and org rungs; :publish is required for public. Instantiating a template creates a pipeline, so that still needs pipelines:write."
@@ -480,7 +485,7 @@ export const permissionsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Super-Admin-only registry:purge and the system-org-only class, registry browse/copy and the ecosystem pair included). Includes pipelines:publish, templates:publish, plugins:publish, reports:rollup, plugin_installs:manage and publishers:manage."
+          "content": "Super-Admin-only registry:purge and the system-org-only class, registry browse/copy and the ecosystem pair included). Includes pipelines:publish, templates:publish, plugins:publish, reports:rollup, plugin_installs:manage, publishers:manage and toolchain:manage."
         },
         {
           "type": "list",

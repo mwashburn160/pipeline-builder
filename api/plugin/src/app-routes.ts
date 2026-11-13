@@ -13,6 +13,7 @@ import { createGeneratePluginRoutes } from './routes/generate-plugin.js';
 import { createInstallRoutes } from './routes/installs.js';
 import { createInternalRoutes } from './routes/internal.js';
 import { createKeptSetupImageRoutes } from './routes/kept-setup-images.js';
+import { createOrgToolchainDefaultRoutes } from './routes/org-toolchain-default.js';
 import { createPipelineSecurityRoutes } from './routes/pipeline-security.js';
 import { createPublicDirectoryRoutes } from './routes/public-directory.js';
 import { createPublicSubmissionRoutes } from './routes/public-submissions.js';
@@ -80,7 +81,8 @@ export function mountRoutes(app: Express, { quotaService, sseManager }: PluginRo
   //    requireInternalService(['deploy-bootstrap'])) — the only route in this
   //    service that opts in to that signer — so
   //    BEFORE the shared org chain below — that service token carries no
-  //    tenant org. The Toolchain console routes (Phase 5) join this mount.
+  //    tenant org. The org-default routes are mounted on the same prefix
+  //    BEHIND the shared chain below (they act on the caller's own org).
   app.use(TOOLCHAIN_MOUNT, createToolchainRoutes());
 
   // -- Upload route FIRST — manages its own middleware (auth → orgId →
@@ -109,6 +111,10 @@ export function mountRoutes(app: Express, { quotaService, sseManager }: PluginRo
   //    system org + plugins:moderate / publishers:verify + aal2); the publisher
   //    routes only submit requests or restrict the caller's own listings.
   app.use('/plugins/ecosystem', createEcosystemConsoleRoutes());
+  // The org toolchain default + the eligible-release list — the caller's OWN
+  // org, each route owns its gate (pipelines:read to look, toolchain:manage +
+  // step-up to change); before the read routes so `/:id` can't catch "toolchain".
+  app.use(TOOLCHAIN_MOUNT, createOrgToolchainDefaultRoutes());
   app.use('/plugins', createPublisherRoutes());
   // Installs + the org consumption policy + the in-app catalog —
   // org-local, each route owns its gate; before the read routes for `/:id`.

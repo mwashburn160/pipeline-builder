@@ -28,6 +28,7 @@ jest.mock('@/components/settings/MfaPolicySettings', () => ({ MfaPolicySettings:
 jest.mock('@/components/settings/PasswordPolicySettings', () => ({ PasswordPolicySettings: () => null }));
 jest.mock('@/components/settings/AuthenticatorPolicySettings', () => ({ AuthenticatorPolicySettings: () => null }));
 jest.mock('@/components/settings/AIProviderConfig', () => ({ AIProviderConfig: () => null }));
+jest.mock('@/components/settings/PipelineToolchainSettings', () => ({ PipelineToolchainSettings: () => null }));
 jest.mock('@/components/admin/StepUpModal', () => ({ StepUpModal: () => null }));
 
 jest.mock('@/lib/api', () => ({

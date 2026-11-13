@@ -16,7 +16,11 @@ import { SYSTEM_ORG, asTenant, bootInitDb } from './helpers/pglite-init.js';
 import {
   isEligibleRelease,
   isEligibleReleaseWith,
+  listEligibleReleases,
+  listEligibleReleasesWith,
   ManagedToolchainError,
+  readOrgToolchainOverview,
+  readOrgToolchainOverviewWith,
   managedToolchainRefusal,
   resolveManagedToolchain,
   resolveManagedToolchainHalf,
@@ -401,5 +405,81 @@ describe('resolveManagedToolchain — standing warnings and broken invariants', 
     expect(await resolve(SYSTEM_ORG, undefined, d)).toMatchObject({ releaseVersion: '1.0.0', resolvedVia: 'default' });
     expect(d.getParent).not.toHaveBeenCalled();
     expect(await isEligibleReleaseWith(d, SYSTEM_ORG, '1.0')).toBe(false);
+  });
+});
+
+describe('readOrgToolchainOverview — the org-default panel\'s reads', () => {
+  it('own default, the ancestor a team inherits from, the nearest canary and the platform default', async () => {
+    await release('1.0.0');
+    await release('1.1.0');
+    await release('1.2.0');
+    await setPlatformDefault('1.0.0');
+    await setPlatformDefault('1.1.0');
+    await canary(MID, '1.2.0');
+    await orgDefault(ROOT, '1.0.0');
+
+    const team = await readOrgToolchainOverviewWith(deps(), TEAM);
+    expect(team).toMatchObject({
+      chain: [TEAM, MID, ROOT],
+      effective: { releaseVersion: '1.0.0', resolvedVia: 'org-default' },
+      ownDefault: null,
+      inheritedFrom: { orgId: ROOT, releaseVersion: '1.0.0' },
+      canaryRelease: '1.2.0',
+      platformDefault: '1.1.0',
+    });
+
+    const root = await readOrgToolchainOverviewWith(deps(), ROOT);
+    expect(root).toMatchObject({ ownDefault: { orgId: ROOT, releaseVersion: '1.0.0' }, inheritedFrom: null, canaryRelease: null });
+
+    const other = await readOrgToolchainOverviewWith(deps(), OTHER);
+    expect(other).toMatchObject({ effective: { releaseVersion: '1.1.0', resolvedVia: 'default' }, ownDefault: null, inheritedFrom: null, canaryRelease: null });
+  });
+
+  it('nothing set anywhere: no walk; no platform default → TOOLCHAIN_NO_DEFAULT', async () => {
+    const d = deps();
+    expect((await rejection(readOrgToolchainOverviewWith(d, TEAM))).code).toBe('TOOLCHAIN_NO_DEFAULT');
+    expect(d.getParent).not.toHaveBeenCalled();
+  });
+});
+
+describe('listEligibleReleases — D15 as a list', () => {
+  it('only live, complete releases that were promoted or are the caller\'s own canary, newest first', async () => {
+    await release('1.0.0');
+    await release('1.1.0');
+    await setPlatformDefault('1.0.0');
+    await setPlatformDefault('1.1.0');
+    await release('1.2.0', { yanked: true });
+    await setPlatformDefault('1.2.0');
+    await setPlatformDefault('1.1.0');
+    await release('1.3.0', { synth: false });
+    await canary(ROOT, '1.3.0');
+    await release('1.4.0');
+    await canary(MID, '1.4.0');
+    await release('1.10.0');
+    await canary(OTHER, '1.10.0');
+
+    const team = await listEligibleReleasesWith(deps(), TEAM);
+    expect(team.platformDefault).toBe('1.1.0');
+    expect(team.releases.map((r) => [r.releaseVersion, r.isPlatformDefault, r.isCanary])).toEqual([
+      ['1.4.0', false, true], ['1.1.0', true, false], ['1.0.0', false, false],
+    ]);
+    // Semver order, not string order; another org's canary is never listed.
+    expect((await listEligibleReleasesWith(deps(), OTHER)).releases.map((r) => r.releaseVersion)).toEqual(['1.10.0', '1.1.0', '1.0.0']);
+    // The list and the predicate agree.
+    for (const v of ['1.0.0', '1.1.0', '1.2.0', '1.3.0', '1.4.0', '1.10.0']) {
+      expect([v, await isEligibleReleaseWith(deps(), TEAM, v)]).toEqual([v, team.releases.some((r) => r.releaseVersion === v)]);
+    }
+  });
+
+  it('the production entry points answer from the injected deps', async () => {
+    await release('1.0.0');
+    await setPlatformDefault('1.0.0');
+    setManagedToolchainDepsForTests(deps());
+    try {
+      expect((await listEligibleReleases(ROOT)).releases.map((r) => r.releaseVersion)).toEqual(['1.0.0']);
+      expect((await readOrgToolchainOverview(ROOT)).effective).toMatchObject({ releaseVersion: '1.0.0', resolvedVia: 'default' });
+    } finally {
+      setManagedToolchainDepsForTests(null);
+    }
   });
 });

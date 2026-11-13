@@ -71,6 +71,50 @@ on every run:
   Node runtime pinned (`runtime-versions.nodejs`), so a defective release can
   always be rolled back.
 
+**Pinning a release.** A pipeline pins the whole release — both halves — in its
+config; a managed `cdk-synth` can't be pinned on its own
+(`TOOLCHAIN_PIN_VIA_RELEASE`):
+
+```jsonc
+{
+  "plugin": { "name": "cdk-synth" },
+  "toolchain": { "release": "1.4.2" },   // optional; omit = org default, canary or platform default
+  "stages": [ ... ]
+}
+```
+
+- **Only eligible releases.** A pin is checked when it changes (`pipelines:write`):
+  it must name a live release that has been the platform default or is your
+  organization's canary (`GET /plugins/toolchain/eligible` lists them), else
+  `TOOLCHAIN_RELEASE_NOT_ELIGIBLE`. A pipeline whose pinned release was later
+  yanked still saves for unrelated edits.
+- **Exact selection keeps working.** A yanked, deprecated or never-promoted pin
+  still resolves, and `pipeline synth` prints its warning
+  (`TOOLCHAIN_RELEASE_YANKED`, `_DEPRECATED`, `_INACTIVE`, `_NOT_PROMOTED`,
+  [Error handling](error-handling.md#managed-toolchain)). A deleted one is a 404 and
+  the synth stops with `BOOTSTRAP_IMAGE_UNRESOLVED`.
+- **Templates never carry a pin.** Saving a template strips `toolchain`, and
+  instantiating one ignores it.
+- **The org's default** (Settings → Organization → Pipeline toolchain,
+  `toolchain:manage`) applies to every pipeline that does not pin — see
+  [Organization Benefits → Pipeline toolchain default](organization-benefits.md#pipeline-toolchain-default).
+- **Escape hatch.** The raw `aws:cdk:codebuild:buildenvironment:buildimage`
+  metadata key still overrides the image per step.
+
+**Recovering a pipeline on a bad release.** Deployed pipelines pull the release
+they were synthesized with by digest, so a yank changes nothing until the next
+synth. To move one:
+
+1. Change (or remove) its `toolchain.release` pin — or, for unpinned pipelines,
+   change the org default or follow the platform default.
+2. Re-run the pipeline, or `pipeline-manager pipeline deploy` it, so the next
+   synth resolves the new release. Self-mutation runs on the AWS curated image,
+   so it is never stuck on the bad one.
+3. A pipeline whose **synth step itself** can't run on the bad release can't heal
+   itself: redeploy it from a workstation with
+   `pipeline-manager pipeline deploy --id <pipelineId>` (or `--local-spec` with a
+   `--toolchain-file` exported for a good release).
+
 **Local-spec deploys.** `pipeline deploy --local-spec` never contacts the
 platform, so it takes the release from a file:
 

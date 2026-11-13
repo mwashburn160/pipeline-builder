@@ -1,6 +1,6 @@
 // GENERATED FROM docs/cdk-usage.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: aa68be753d6657f1dddfecf1a75de196dfa7d95954b085fad12ef5391479a3ed
+// SOURCE-SHA256: 7294aecd940fe0b895a91bb911beb516655b2406e5687cb8e14293f8f91aa7a4
 // SPDX-License-Identifier: Apache-2.0
 import { Boxes } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -190,6 +190,12 @@ export const cdkUsageTopic: HelpTopic = {
               "Record<string, string>",
               "No",
               "Tags applied to all pipeline resources"
+            ],
+            [
+              "toolchain",
+              "{ release: string }",
+              "No",
+              "Pin the whole managed toolchain release (pipeline-bootstrap + cdk-synth, e.g. { \"release\": \"1.4.2\" }). Omit to follow your organization's default, its canary or the platform default. Must name an eligible release when it changes (TOOLCHAIN_RELEASE_NOT_ELIGIBLE); a pin whose release is later yanked keeps resolving, with a warning. Templates never carry it. See Pipeline Manager → The toolchain release"
             ]
           ]
         }

@@ -147,6 +147,10 @@ export {
   resolveManagedToolchainWith,
   resolveManagedToolchainHalf,
   isEligibleRelease,
+  readOrgToolchainOverview,
+  readOrgToolchainOverviewWith,
+  listEligibleReleases,
+  listEligibleReleasesWith,
   isEligibleReleaseWith,
   ManagedToolchainError,
   managedToolchainRefusal,
@@ -167,6 +171,8 @@ export {
   type ToolchainDb,
   type ReleaseHalves,
   type ReleaseLifecycleProblem,
+  type OrgToolchainOverview,
+  type EligibleToolchainRelease,
 } from './api/managed-toolchain.js';
 export {
   findVersionReferences,

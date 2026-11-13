@@ -1,6 +1,6 @@
 // GENERATED FROM docs/audit-events.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: aa5b96ca08d9803a5a1130a4509bcd4d61cc389aea6e4a98debca5a0e80f2eb2
+// SOURCE-SHA256: bd63896b5a06cf24bb6b24e03ef2240757f9dd445c8a07951148f96191aaf954
 // SPDX-License-Identifier: Apache-2.0
 import { ScrollText } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -729,7 +729,7 @@ export const auditEventsTopic: HelpTopic = {
             ],
             [
               "Pipeline toolchain releases",
-              "The managed toolchain (pipeline-bootstrap + cdk-synth, one release version; plan). Platform default: toolchain.default.set (system org, step-up; details: releaseVersion, previousReleaseVersion, and gateOverride: { reason } when the canary gate was overridden), toolchain.default.initial (the fresh-install default set by the deploy-bootstrap service principal; details.acceptVulnerabilities with the operator's reason when the vulnerability floor was overridden), toolchain.default.restore (the previous default restored by yanking the current one). Canary and releases: toolchain.rollout.update (details: added and removed org ids), toolchain.release.notes, toolchain.release.deprecate, toolchain.release.yank, toolchain.release.delete (each acts on both halves; a refusal is the same action with outcome failure and details.refusal). toolchain.recovery.notify — owners of pipelines stranded on a release were sent the redeploy command (details: release, pipeline and org counts). Org overrides: toolchain.org_default.set / toolchain.org_default.clear (affectedOrgId the org; details: releaseVersion, previousReleaseVersion)"
+              "The managed toolchain (pipeline-bootstrap + cdk-synth, one release version; plan). Platform default: toolchain.default.set (system org, step-up; details: releaseVersion, previousReleaseVersion, and gateOverride: { reason } when the canary gate was overridden), toolchain.default.initial (the fresh-install default set by the deploy-bootstrap service principal; details.acceptVulnerabilities with the operator's reason when the vulnerability floor was overridden), toolchain.default.restore (the previous default restored by yanking the current one). Canary and releases: toolchain.rollout.update (details: added and removed org ids), toolchain.release.notes, toolchain.release.deprecate, toolchain.release.yank, toolchain.release.delete (each acts on both halves; a refusal is the same action with outcome failure and details.refusal). toolchain.recovery.notify — owners of pipelines stranded on a release were sent the redeploy command (details: release, pipeline and org counts). Org overrides: toolchain.org_default.set / toolchain.org_default.clear (recorded on the org itself, by the toolchain:manage holder who stepped up; targetType: 'org-toolchain-default'; details: releaseVersion — null on a clear — previousReleaseVersion, and reason when one was given)"
             ],
             [
               "Plugin ecosystem: governance rules",

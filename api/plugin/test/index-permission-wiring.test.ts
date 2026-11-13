@@ -48,6 +48,7 @@ const ROUTERS = {
   reviews: { __router: 'reviews' },
   securityNotifications: { __router: 'securityNotifications' },
   publicSecurityNotifications: { __router: 'publicSecurityNotifications' },
+  orgToolchainDefault: { __router: 'orgToolchainDefault' },
 } as const;
 
 /** Stand-ins for the shared middleware so their placement can be asserted. */
@@ -129,6 +130,7 @@ const actualData = jest.requireActual('@pipeline-builder/pipeline-data') as Reco
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', { ...actualData, createSoftDeletePurgeScheduler: () => null }));
 jest.unstable_mockModule('../src/routes/publisher.js', () => ({ createPublisherRoutes: () => ROUTERS.publisher }));
 jest.unstable_mockModule('../src/routes/installs.js', () => ({ createInstallRoutes: () => ROUTERS.installs }));
+jest.unstable_mockModule('../src/routes/org-toolchain-default.js', () => ({ createOrgToolchainDefaultRoutes: () => ROUTERS.orgToolchainDefault }));
 jest.unstable_mockModule('../src/routes/ecosystem-console.js', () => ({ createEcosystemConsoleRoutes: () => ROUTERS.ecosystemConsole }));
 jest.unstable_mockModule('../src/routes/reviews.js', () => ({ createReviewRoutes: () => ROUTERS.reviews }));
 jest.unstable_mockModule('../src/routes/security-notifications.js', () => ({
@@ -255,6 +257,15 @@ describe('src/index.ts — plugin ecosystem', () => {
       expect(useCalls.indexOf(mount)).toBeGreaterThan(chainAt);
       expect(useCalls.indexOf(mount)).toBeLessThan(readAt);
     }
+  });
+
+  it('mounts the org toolchain default routes on /plugins/toolchain after the auth chain, before the read routes, with no mount-level gate (each route owns toolchain:manage + step-up or pipelines:read)', () => {
+    const mount = mountFor(ROUTERS.orgToolchainDefault);
+    expect(mount).toEqual(['/plugins/toolchain', ROUTERS.orgToolchainDefault]);
+    expect(useCalls.indexOf(mount)).toBeGreaterThan(useCalls.findIndex((c) => c.includes(AUTH_CHAIN)));
+    expect(useCalls.indexOf(mount)).toBeLessThan(useCalls.indexOf(mountFor(ROUTERS.read)));
+    // Never behind the plugins:write mount or its shared step-up layer.
+    expect(useCalls.indexOf(mount)).toBeLessThan(useCalls.findIndex((c) => c.includes(STEP_UP)));
   });
 
   it('puts no mount-level gate on the ecosystem routers (every route owns its own)', () => {

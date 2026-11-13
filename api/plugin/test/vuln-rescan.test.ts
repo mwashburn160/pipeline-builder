@@ -75,6 +75,9 @@ jest.unstable_mockModule('../src/services/ecosystem/store.js', () => ({
 const mockNotifyRescanFindings = jest.fn<(...a: any[]) => Promise<number>>();
 const mockNotifyAcceptancesLapsed = jest.fn<(...a: any[]) => Promise<number>>(async () => 0);
 jest.unstable_mockModule('../src/services/plugin-security-notifications.js', () => ({ notifyRescanFindings: mockNotifyRescanFindings, notifyAcceptancesLapsed: mockNotifyAcceptancesLapsed }));
+// The §10 toolchain hygiene notice (its own suite: toolchain-hygiene.test.ts); here only WHEN it fires.
+const mockNotifyToolchainHygiene = jest.fn<(...a: any[]) => Promise<unknown>>(async () => ({ orgDefaultOrgs: 0, pinnedOrgs: 0 }));
+jest.unstable_mockModule('../src/services/toolchain-hygiene.js', () => ({ notifyToolchainHygiene: mockNotifyToolchainHygiene }));
 // The kept-setup-image sweep rides the scheduler tick (its own suite: kept-setup-images.test.ts).
 const mockSweepKeptSetupImages = jest.fn<(...a: any[]) => Promise<unknown>>(async () => ({ discarded: 0, remaining: 0 }));
 jest.unstable_mockModule('../src/services/kept-setup-images.js', () => ({ sweepKeptSetupImages: mockSweepKeptSetupImages }));
@@ -441,6 +444,38 @@ describe('rescanAllPlugins — (a) tenant plugin rows', () => {
     mockRefreshVulnDb.mockRejectedValue(new Error('db offline'));
     await expect(rescan.rescanAllPlugins()).rejects.toThrow('db offline');
     expect(mockScanPluginImage).not.toHaveBeenCalled();
+  });
+});
+
+describe('rescanAllPlugins — managed toolchain hygiene (§10)', () => {
+  const SYSTEM = '000000000000000000000001';
+
+  it('a system-org managed half picking up a fixable Critical or a KEV notifies the orgs whose default it is', async () => {
+    // Paged by id: `a-synth` scans first.
+    plugin('a-synth', { orgId: SYSTEM, name: 'cdk-synth', version: '1.4.2' });
+    plugin('b-boot', { orgId: SYSTEM, name: 'pipeline-bootstrap', version: '1.4.2', imageDigest: DIGEST('d') });
+    mockScanPluginImage
+      .mockResolvedValueOnce(scanned(scan(1, 0, { criticalFixable: 1, findings: [finding('CVE-1')] })))
+      .mockResolvedValueOnce(scanned(scan(0, 1, { findings: [{ ...finding('CVE-2', 'high', []), kev: true }] })));
+    await rescan.rescanAllPlugins();
+    expect(mockNotifyToolchainHygiene.mock.calls.map((c) => c[0]).sort((a: any, b: any) => a.plugin.localeCompare(b.plugin))).toEqual([
+      { kind: 'vulnerable', releaseVersion: '1.4.2', plugin: 'cdk-synth', criticalFixable: 1, kev: 0 },
+      { kind: 'vulnerable', releaseVersion: '1.4.2', plugin: 'pipeline-bootstrap', criticalFixable: 0, kev: 1 },
+    ]);
+  });
+
+  it('stays quiet for an unfixable non-KEV Critical, a High, a tenant\'s same-named row, or nothing new', async () => {
+    plugin('a', { orgId: SYSTEM, name: 'cdk-synth', version: '1.4.2' });
+    plugin('b', { orgId: SYSTEM, name: 'pipeline-bootstrap', version: '1.4.2', imageDigest: DIGEST('d') });
+    plugin('c', { orgId: 'org-1', name: 'cdk-synth', version: '9.0.0', imageDigest: DIGEST('e') });
+    plugin('d', { orgId: SYSTEM, name: 'cdk-synth', version: '1.4.3', imageDigest: DIGEST('f'), scanSummary: summary([finding('CVE-9')]) });
+    mockScanPluginImage
+      .mockResolvedValueOnce(scanned(scan(1, 0, { findings: [finding('CVE-1', 'critical', [])] })))
+      .mockResolvedValueOnce(scanned(scan(0, 1, { highFixable: 1, findings: [finding('CVE-2', 'high')] })))
+      .mockResolvedValueOnce(scanned(scan(1, 0, { criticalFixable: 1, findings: [finding('CVE-3')] })))
+      .mockResolvedValueOnce(scanned(scan(1, 0, { criticalFixable: 1, findings: [finding('CVE-9')] })));
+    await rescan.rescanAllPlugins();
+    expect(mockNotifyToolchainHygiene).not.toHaveBeenCalled();
   });
 });
 

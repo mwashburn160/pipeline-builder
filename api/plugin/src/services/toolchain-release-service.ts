@@ -32,6 +32,7 @@ import {
 import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 
 import { pluginService, type Plugin } from './plugin-service.js';
+import { notifyToolchainHygiene } from './toolchain-hygiene.js';
 
 type TenantTx = Parameters<Parameters<typeof withTenantTx>[0]>[0];
 
@@ -355,6 +356,8 @@ export async function setPlatformDefault(input: SetPlatformDefaultInput): Promis
   return auditRefusal(input.actor, action, input.releaseVersion, async () => {
     const { result, audit } = await elevated(() => withTenantTx((tx) => applyPlatformDefault(tx, input)));
     if (audit) emitAudit(input.actor, audit);
+    // §10 hygiene: org defaults this move left more than K releases behind. Best-effort, after COMMIT.
+    if (result.changed) void notifyToolchainHygiene({ kind: 'behind', platformDefault: result.releaseVersion, previousDefault: result.previousReleaseVersion });
     return result;
   });
 }
@@ -408,6 +411,8 @@ export async function deprecateRelease(input: ReleaseLifecycleInput & { message?
       action: 'toolchain.release.deprecate',
       details: { releaseVersion: input.releaseVersion, message: input.message ?? null, removedRolloutOrgs: out.removedRollout },
     });
+    // §10 hygiene: the orgs whose default it is. Best-effort, after COMMIT.
+    void notifyToolchainHygiene({ kind: 'deprecated', releaseVersion: input.releaseVersion, message: input.message ?? null });
     return out;
   });
 }
@@ -476,6 +481,8 @@ export async function yankRelease(input: ReleaseLifecycleInput & { reason: strin
         ...(out.restored ? { restoredReleaseVersion: out.restored.result.releaseVersion } : {}),
       },
     });
+    // §10 hygiene: orgs whose default it is, and owners of pipelines pinned to it. Best-effort, after COMMIT.
+    void notifyToolchainHygiene({ kind: 'yanked', releaseVersion: input.releaseVersion, reason: input.reason.trim() });
     return { plugins: out.plugins, restored: out.restored?.result ?? null, removedRollout: out.removedRollout };
   });
 }

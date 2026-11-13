@@ -12,6 +12,7 @@ import StagesSection from './sections/StagesSection';
 import CollapsibleSection from './editors/CollapsibleSection';
 import MetadataEditor from './editors/MetadataEditor';
 import VarsEditor from './editors/VarsEditor';
+import ToolchainReleaseSelector from './editors/ToolchainReleaseSelector';
 import WizardStepper from './WizardStepper';
 import { WIZARD_STEPS, validateStep, getStepStatuses } from '@/lib/wizard-validation';
 import { formatError } from '@/lib/constants';
@@ -58,6 +59,12 @@ interface FormBuilderTabProps {
    * `<Modal dirty>` so closing mid-edit asks before discarding.
    */
   onDirtyChange?: (dirty: boolean) => void;
+  /**
+   * Leave out the "Toolchain" release selector — for TEMPLATES, which never
+   * carry `toolchain` (the server strips it on save and ignores it on
+   * instantiation, D12), so offering it there would be a control that does nothing.
+   */
+  hideToolchain?: boolean;
 }
 
 /**
@@ -68,7 +75,7 @@ interface FormBuilderTabProps {
  * through a ref for the parent modal to retrieve assembled BuilderProps.
  */
 const FormBuilderTab = forwardRef<FormBuilderTabRef, FormBuilderTabProps>(
-  ({ disabled, initialProps, initialDescription, initialKeywords, currentStep = 0, onStepChange, accessStatusSlot, onDirtyChange }, ref) => {
+  ({ disabled, initialProps, initialDescription, initialKeywords, currentStep = 0, onStepChange, accessStatusSlot, onDirtyChange, hideToolchain = false }, ref) => {
     const initialStateRef = useRef<FormBuilderState | undefined>(
       initialProps
         ? {
@@ -199,6 +206,18 @@ const FormBuilderTab = forwardRef<FormBuilderTabRef, FormBuilderTabProps>(
           disabled={disabled}
           errors={validationErrors}
         />
+
+        {!hideToolchain && (
+          <CollapsibleSection title="Toolchain" hasContent={state.toolchainRelease !== ''}>
+            <div className="mt-3">
+              <ToolchainReleaseSelector
+                value={state.toolchainRelease}
+                onChange={(v) => dispatch({ type: 'SET_TOOLCHAIN_RELEASE', value: v })}
+                disabled={disabled}
+              />
+            </div>
+          </CollapsibleSection>
+        )}
       </PipelineConfigSection>
     );
 

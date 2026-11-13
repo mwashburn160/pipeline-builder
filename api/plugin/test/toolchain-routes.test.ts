@@ -137,6 +137,14 @@ describe('POST /plugins/toolchain/initial-default', () => {
     expect(mockSetPlatformDefault).not.toHaveBeenCalled();
   });
 
+  it('refuses a holder of toolchain:manage — the ORG default permission never reaches the platform default (403)', async () => {
+    for (const orgId of ['aaaaaaaaaaaaaaaaaaaaaaa1', SYSTEM_ORG_ID]) {
+      const res = await call('POST', INITIAL, userToken({ organizationId: orgId, role: 'admin', isSuperAdmin: false, permissions: ['toolchain:manage', 'pipelines:read'] }), { releaseVersion: '1.1.0' });
+      expect([orgId, res.status]).toEqual([orgId, 403]);
+    }
+    expect(mockSetPlatformDefault).not.toHaveBeenCalled();
+  });
+
   it('refuses an org service account (403)', async () => {
     const res = await call('POST', INITIAL, userToken({ principalType: 'service_account', sub: 'sa-1' }), { releaseVersion: '1.1.0' });
     expect(res.status).toBe(403);
@@ -167,7 +175,11 @@ describe('the deploy-bootstrap token everywhere else', () => {
 
   it('sweeps a real route table', () => {
     expect(others.length).toBeGreaterThan(100);
-    expect(others.some((e) => e.path.startsWith('/plugins/toolchain'))).toBe(false);
+    // The org-default routes share the prefix; the bootstrap token is refused there like everywhere else.
+    expect(others.filter((e) => e.path.startsWith('/plugins/toolchain')).map((e) => `${e.method} ${e.path}`).sort()).toEqual([
+      'DELETE /plugins/toolchain/org-default', 'GET /plugins/toolchain/eligible', 'GET /plugins/toolchain/org-default',
+      'GET /plugins/toolchain/org-default/history', 'PUT /plugins/toolchain/org-default',
+    ]);
   });
 
   // deploy-bootstrap is an OPT-IN signer (api-core): every requireAuth that

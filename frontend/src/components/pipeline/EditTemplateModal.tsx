@@ -303,6 +303,7 @@ export default function EditTemplateModal({ template, canPublish, onClose, onSav
             currentStep={currentStep}
             onStepChange={setCurrentStep}
             accessStatusSlot={templateMetaSlot}
+            hideToolchain
           />
         </>
       )}

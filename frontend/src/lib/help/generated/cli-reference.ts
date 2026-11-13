@@ -1,6 +1,6 @@
 // GENERATED FROM docs/pipeline-manager.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: fe6e5ed7762682b1d991c7ad72a1959ddacca1969ab6ce0c76d3983d41618b63
+// SOURCE-SHA256: f772235620987116c5a1e13097bfad5180f39717c42ac314d6d82685ae1c5b8f
 // SPDX-License-Identifier: Apache-2.0
 import { Terminal } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -134,6 +134,99 @@ export const cliReferenceTopic: HelpTopic = {
         {
           "type": "text",
           "content": "Node runtime pinned (runtime-versions.nodejs), so a defective release can always be rolled back."
+        },
+        {
+          "type": "text",
+          "content": "Pinning a release. A pipeline pins the whole release — both halves — in its config; a managed cdk-synth can't be pinned on its own (TOOLCHAIN_PIN_VIA_RELEASE):"
+        },
+        {
+          "type": "code",
+          "content": "{\n  \"plugin\": { \"name\": \"cdk-synth\" },\n  \"toolchain\": { \"release\": \"1.4.2\" },   // optional; omit = org default, canary or platform default\n  \"stages\": [ ... ]\n}",
+          "language": "jsonc"
+        },
+        {
+          "type": "list",
+          "items": [
+            "Only eligible releases. A pin is checked when it changes (pipelines:write):"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "it must name a live release that has been the platform default or is your organization's canary (GET /plugins/toolchain/eligible lists them), else TOOLCHAIN_RELEASE_NOT_ELIGIBLE. A pipeline whose pinned release was later yanked still saves for unrelated edits."
+        },
+        {
+          "type": "list",
+          "items": [
+            "Exact selection keeps working. A yanked, deprecated or never-promoted pin"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "still resolves, and pipeline synth prints its warning (TOOLCHAIN_RELEASE_YANKED, _DEPRECATED, _INACTIVE, _NOT_PROMOTED, Error handling). A deleted one is a 404 and the synth stops with BOOTSTRAP_IMAGE_UNRESOLVED."
+        },
+        {
+          "type": "list",
+          "items": [
+            "Templates never carry a pin. Saving a template strips toolchain, and"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "instantiating one ignores it."
+        },
+        {
+          "type": "list",
+          "items": [
+            "The org's default (Settings → Organization → Pipeline toolchain,"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "toolchain:manage) applies to every pipeline that does not pin — see Organization Benefits → Pipeline toolchain default."
+        },
+        {
+          "type": "list",
+          "items": [
+            "Escape hatch. The raw aws:cdk:codebuild:buildenvironment:buildimage"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "metadata key still overrides the image per step."
+        },
+        {
+          "type": "text",
+          "content": "Recovering a pipeline on a bad release. Deployed pipelines pull the release they were synthesized with by digest, so a yank changes nothing until the next synth. To move one:"
+        },
+        {
+          "type": "list",
+          "items": [
+            "Change (or remove) its toolchain.release pin — or, for unpinned pipelines,"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "change the org default or follow the platform default."
+        },
+        {
+          "type": "list",
+          "items": [
+            "Re-run the pipeline, or pipeline-manager pipeline deploy it, so the next"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "synth resolves the new release. Self-mutation runs on the AWS curated image, so it is never stuck on the bad one."
+        },
+        {
+          "type": "list",
+          "items": [
+            "A pipeline whose synth step itself can't run on the bad release can't heal"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "itself: redeploy it from a workstation with pipeline-manager pipeline deploy --id <pipelineId> (or --local-spec with a --toolchain-file exported for a good release)."
         },
         {
           "type": "text",

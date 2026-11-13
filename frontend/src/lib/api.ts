@@ -19,6 +19,7 @@ import { askApi } from './api/domains/ask';
 import { ecosystemApi } from './api/domains/ecosystem';
 import { pluginInstallsApi } from './api/domains/plugin-installs';
 import { pluginReviewsApi } from './api/domains/plugin-reviews';
+import { toolchainApi } from './api/domains/toolchain';
 
 const core = new ApiCore();
 
@@ -41,6 +42,7 @@ export const api = Object.assign(
   ecosystemApi(core),
   pluginInstallsApi(core),
   pluginReviewsApi(core),
+  toolchainApi(core),
 ) as ApiCore
   & ReturnType<typeof authApi>
   & ReturnType<typeof organizationsApi>
@@ -58,7 +60,8 @@ export const api = Object.assign(
   & ReturnType<typeof askApi>
   & ReturnType<typeof ecosystemApi>
   & ReturnType<typeof pluginInstallsApi>
-  & ReturnType<typeof pluginReviewsApi>;
+  & ReturnType<typeof pluginReviewsApi>
+  & ReturnType<typeof toolchainApi>;
 
 export default api;
 

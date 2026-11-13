@@ -851,3 +851,30 @@ describe('machine Roles — least privilege for the stored credentials', () => {
     }
   });
 });
+
+describe('toolchain:manage (docs/plans/bootstrap-image-versioning.md D13)', () => {
+  it('is in the catalog as an org-assignable Pipelines permission, never system-org-only', () => {
+    expect(ALL_PERMISSIONS).toContain('toolchain:manage');
+    expect(PERMISSION_CATALOG.find((m) => m.id === 'toolchain:manage')?.category).toBe('Pipelines');
+    expect(ORG_ASSIGNABLE_PERMISSIONS).toContain('toolchain:manage');
+    expect(SYSTEM_ORG_ONLY_PERMISSIONS).not.toContain('toolchain:manage');
+    expect(SUPERADMIN_ONLY_PERMISSIONS).not.toContain('toolchain:manage');
+    // A custom Role may carry it: the authoring picker lists it.
+    expect(ORG_ASSIGNABLE_CATEGORIES.flatMap((c) => c.permissions.map((m) => m.id))).toContain('toolchain:manage');
+  });
+
+  it('Admin and Owner hold it; Member does not', () => {
+    expect(ROLE_PERMISSIONS.admin).toContain('toolchain:manage');
+    expect(ROLE_PERMISSIONS.owner).toContain('toolchain:manage');
+    expect(ROLE_PERMISSIONS.member).not.toContain('toolchain:manage');
+  });
+
+  it('no other seed bundle or role template carries it (no pipeline-editor bundle moves every pipeline)', () => {
+    for (const [id, bundle] of Object.entries(SEED_BUNDLES)) {
+      expect({ id, holds: (bundle.permissions as readonly string[]).includes('toolchain:manage') }).toEqual({ id, holds: false });
+    }
+    for (const t of ROLE_TEMPLATES) {
+      expect({ id: t.id, holds: (t.permissions as readonly string[]).includes('toolchain:manage') }).toEqual({ id: t.id, holds: false });
+    }
+  });
+});

@@ -2753,7 +2753,7 @@ groups:
       # failure here is the one case where our silence looks to the customer exactly like
       # "there was nothing to tell you".
       - alert: SecurityNoticeDeliveryFailing
-        expr: sum(increase(plugin_security_notification_failed_total[1h])) > 0 or sum(increase(ecosystem_advisory_rescan_draft_failed_total[1h])) > 0 or sum(increase(plugin_deprecation_notice_failures_total[1h])) > 0 or sum(increase(plugin_withdrawal_notice_failures_total[1h])) > 0
+        expr: sum(increase(plugin_security_notification_failed_total[1h])) > 0 or sum(increase(ecosystem_advisory_rescan_draft_failed_total[1h])) > 0 or sum(increase(plugin_deprecation_notice_failures_total[1h])) > 0 or sum(increase(plugin_withdrawal_notice_failures_total[1h])) > 0 or sum(increase(toolchain_hygiene_notice_failures_total[1h])) > 0
         for: 0m
         labels:
           severity: warning

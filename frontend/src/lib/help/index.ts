@@ -32,13 +32,13 @@ let corpus: Promise<HelpTopicGroup[]> | null = null;
  * `docs/` (the source of truth). Order within a group goes overview → detail.
  *
  * Hand-authored topics (getting-started, pipelines, plugins, ai-generation,
- * registry) have no 1:1 doc; the rest are produced from `docs/*.md` by
+ * registry, pipeline-toolchain) have no 1:1 doc; the rest are produced from `docs/*.md` by
  * `npm run generate:help` and must not be edited under `./generated/`.
  */
 export function loadHelpGroups(): Promise<HelpTopicGroup[]> {
   corpus ??= (async () => {
     const [
-      gettingStarted, pipelines, plugins, aiGeneration, registry,
+      gettingStarted, pipelines, plugins, aiGeneration, registry, pipelineToolchain,
       organizationBenefits, onboarding, architectureFlow, developerGuide, developerPortal, pluginPublishing, pluginInstalling,
       templates, metadataKeys, cdkUsage, samples, deployment, cliReference,
       deployOperations, serviceMesh, observabilityLogs, notifications, doraMetrics, stakeholderReports, incidentsWebhook, oncallPaging,
@@ -52,6 +52,7 @@ export function loadHelpGroups(): Promise<HelpTopicGroup[]> {
       import('./plugins'),
       import('./ai-generation'),
       import('./registry'),
+      import('./pipeline-toolchain'),
       import('./generated/organization-benefits'),
       import('./generated/onboarding'),
       import('./generated/architecture-flow'),
@@ -107,6 +108,7 @@ export function loadHelpGroups(): Promise<HelpTopicGroup[]> {
         category: 'Building',
         topics: [
           pipelines.pipelinesTopic,
+          pipelineToolchain.pipelineToolchainTopic,
           plugins.pluginsTopic,
           pluginPublishing.pluginPublishingTopic,
           pluginInstalling.pluginInstallingTopic,

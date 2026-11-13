@@ -39,6 +39,9 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@p
   withTenantTx: testDb.withTenantTx,
   findVersionReferences: mockFindVersionReferences,
 }));
+// The §10 hygiene notices are their own suite (toolchain-hygiene.test.ts); here only WHEN they fire.
+const mockNotifyToolchainHygiene = jest.fn<AnyFn>(async () => ({ orgDefaultOrgs: 0, pinnedOrgs: 0 }));
+jest.unstable_mockModule('../src/services/toolchain-hygiene.js', () => ({ notifyToolchainHygiene: mockNotifyToolchainHygiene }));
 // A deploy re-resolves declared ranges in the background; not this suite's concern.
 jest.unstable_mockModule('../src/services/declared-resolution-refresh.js', () => ({ refreshDeclaredResolutions: jest.fn(async () => undefined) }));
 
@@ -419,6 +422,7 @@ describe('release lifecycle', () => {
       ['cdk-synth', 'deprecated', 'superseded'], ['pipeline-bootstrap', 'deprecated', 'superseded'],
     ]);
     expect(audits('toolchain.release.deprecate')).toEqual([expect.objectContaining({ details: { releaseVersion: '1.1.0', message: 'superseded', removedRolloutOrgs: 1 } })]);
+    expect(mockNotifyToolchainHygiene).toHaveBeenCalledWith({ kind: 'deprecated', releaseVersion: '1.1.0', message: 'superseded' });
     await expect(set('1.1.0', '1.0.0', { overrideReason: 'r' })).rejects.toMatchObject({ code: 'TOOLCHAIN_GUARD_PAIR_INCOMPLETE' });
     await expect(svc.deprecateRelease({ releaseVersion: '9.9.9', actor: 'u-op' })).rejects.toMatchObject({ statusCode: 404 });
     expect(audits('toolchain.release.deprecate').at(-1)).toMatchObject({ outcome: 'failure', details: { refusal: 'NOT_FOUND' } });
@@ -432,6 +436,19 @@ describe('release lifecycle', () => {
     expect(out.plugins.every((p) => p.lifecycle === 'yanked' && p.yankReason === 'bad build' && p.yankedAt !== null && !p.isDefault)).toBe(true);
     expect(await platformDefault()).toBe('1.1.0');
     expect(audits('toolchain.default.restore')).toEqual([]);
+    expect(mockNotifyToolchainHygiene).toHaveBeenCalledWith({ kind: 'yanked', releaseVersion: '1.2.0', reason: 'bad build' });
+  });
+
+  it('a platform-default change checks the behind threshold; a no-op set and a refused yank notify nothing', async () => {
+    await defaultChain();
+    expect(mockNotifyToolchainHygiene.mock.calls.map((c) => c[0])).toEqual([
+      { kind: 'behind', platformDefault: '1.0.0', previousDefault: null },
+      { kind: 'behind', platformDefault: '1.1.0', previousDefault: '1.0.0' },
+    ]);
+    mockNotifyToolchainHygiene.mockClear();
+    await set('1.1.0', '1.1.0');
+    await svc.yankRelease({ releaseVersion: '7.7.7', actor: 'u-op', reason: 'r' }).catch(() => undefined);
+    expect(mockNotifyToolchainHygiene).not.toHaveBeenCalled();
   });
 
   it('yank of the platform default restores the default it replaced (kind restore, gate waived)', async () => {

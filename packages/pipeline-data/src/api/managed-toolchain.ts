@@ -27,14 +27,14 @@
  */
 
 import {
-  AppError, createLogger, envInt, ErrorCode, fetchParentOrgId, getStatusForErrorCode, isSystemOrgId,
+  AppError, compareSemver, createLogger, envInt, ErrorCode, fetchParentOrgId, getStatusForErrorCode, isSystemOrgId,
   MANAGED_TOOLCHAIN_PLUGINS, MAX_ORG_DEPTH, SYSTEM_ORG_ID, TOOLCHAIN_RELEASE_VERSION_PATTERN, toolchainFromMetadata, toOrgIdString,
   type GetParentOrgId, type ManagedToolchainPlugin, type PluginToolchain,
 } from '@pipeline-builder/api-core';
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import type { CrudTx } from './crud-service.js';
 import type { ResolutionRefusal } from './plugin-resolution.js';
-import { schema, type Plugin, type ToolchainRelease } from '../database/drizzle-schema.js';
+import { schema, type OrgToolchainDefault, type Plugin, type ToolchainRelease } from '../database/drizzle-schema.js';
 import { runWithTenantContext, withTenantTx } from '../database/tenancy.js';
 
 const logger = createLogger('managed-toolchain');
@@ -427,6 +427,124 @@ export async function isEligibleReleaseWith(deps: ManagedToolchainDeps, orgId: s
  */
 export function isEligibleRelease(orgId: string, releaseVersion: string): Promise<boolean> {
   return isEligibleReleaseWith(defaultDeps, orgId, releaseVersion);
+}
+
+// -----------------------------------------------------------------------------
+// The org's own picture: the org-default panel and the eligible-release list
+// (docs/plans/bootstrap-image-versioning.md §5, Phase 4, D15)
+// -----------------------------------------------------------------------------
+
+/**
+ * What the org-default panel shows a caller about ITS OWN org: never another
+ * org's choice, and of the ancestors only which one's default applies.
+ */
+export interface OrgToolchainOverview {
+  /** The caller's chain, own org first (lowercased). */
+  chain: string[];
+  /** What the org's UNPINNED pipelines resolve to now. */
+  effective: { releaseVersion: string; resolvedVia: ToolchainResolvedVia; warnings: ManagedToolchainWarning[] };
+  /** The caller org's own `org_toolchain_default` row, if it set one. */
+  ownDefault: OrgToolchainDefault | null;
+  /** The ancestor whose org default applies, when the org set none of its own. */
+  inheritedFrom: { orgId: string; releaseVersion: string } | null;
+  /** The caller's canary release (its NEAREST membership on the chain), or null. */
+  canaryRelease: string | null;
+  platformDefault: string | null;
+}
+
+/** {@link readOrgToolchainOverview} with injected reads and hierarchy (tests). */
+export async function readOrgToolchainOverviewWith(deps: ManagedToolchainDeps, orgId: string): Promise<OrgToolchainOverview> {
+  const self = orgId.toLowerCase();
+  const walk = await deps.read((db) => anyOrgSettings(db));
+  const chain = walk ? await toolchainOrgChain(self, deps.getParent) : [self];
+  return deps.read(async (db) => {
+    const rows = await db.select().from(schema.orgToolchainDefault)
+      .where(inArray(sql<string>`lower(${schema.orgToolchainDefault.orgId})`, chain)) as OrgToolchainDefault[];
+    const depthOf = (r: OrgToolchainDefault) => chain.indexOf(r.orgId.toLowerCase());
+    const ownDefault = rows.find((r) => depthOf(r) === 0) ?? null;
+    const nearest = rows.filter((r) => depthOf(r) >= 0).sort((a, b) => depthOf(a) - depthOf(b))[0] ?? null;
+    const [canary, platformDefault, resolution] = await Promise.all([
+      nearestOnChain(db, schema.toolchainRollout, chain),
+      currentPlatformDefault(db),
+      resolveOnChain(db, chain),
+    ]);
+    return {
+      chain,
+      effective: { releaseVersion: resolution.releaseVersion, resolvedVia: resolution.resolvedVia, warnings: resolution.warnings },
+      ownDefault,
+      inheritedFrom: !ownDefault && nearest ? { orgId: nearest.orgId, releaseVersion: nearest.releaseVersion } : null,
+      canaryRelease: canary?.releaseVersion ?? null,
+      platformDefault,
+    };
+  });
+}
+
+/**
+ * The caller org's toolchain overview (elevated reads, the same chain walk and
+ * precedence as {@link resolveManagedToolchain}). Throws what the resolver
+ * throws — TOOLCHAIN_NO_DEFAULT (409) when nothing resolves at all.
+ */
+export function readOrgToolchainOverview(orgId: string): Promise<OrgToolchainOverview> {
+  return readOrgToolchainOverviewWith(defaultDeps, orgId);
+}
+
+/** One release the caller may pin or set (D15), with what the selectors show. */
+export interface EligibleToolchainRelease {
+  releaseVersion: string;
+  release: ToolchainRelease;
+  bootstrap: Plugin;
+  synth: Plugin;
+  /** THE platform default now. */
+  isPlatformDefault: boolean;
+  /** The caller's canary release (nearest membership). */
+  isCanary: boolean;
+}
+
+/** {@link listEligibleReleases} with injected reads and hierarchy (tests). */
+export async function listEligibleReleasesWith(deps: ManagedToolchainDeps, orgId: string): Promise<{ platformDefault: string | null; releases: EligibleToolchainRelease[] }> {
+  const self = orgId.toLowerCase();
+  const walk = await deps.read((db) => anyOrgSettings(db));
+  const chain = walk ? await toolchainOrgChain(self, deps.getParent) : [self];
+  return deps.read(async (db) => {
+    const [releases, rows, history, platformDefault, canary] = await Promise.all([
+      db.select().from(schema.toolchainRelease) as Promise<ToolchainRelease[]>,
+      db.select().from(schema.plugin).where(and(
+        sql`lower(${schema.plugin.orgId}) = ${SYSTEM_ORG_ID}`,
+        inArray(schema.plugin.name, [...MANAGED_TOOLCHAIN_PLUGINS]),
+        isNull(schema.plugin.deletedAt),
+      )) as Promise<Plugin[]>,
+      db.select({ releaseVersion: schema.toolchainDefaultHistory.releaseVersion }).from(schema.toolchainDefaultHistory) as Promise<Array<{ releaseVersion: string }>>,
+      currentPlatformDefault(db),
+      nearestOnChain(db, schema.toolchainRollout, chain),
+    ]);
+    const promoted = new Set(history.map((h) => h.releaseVersion));
+    if (platformDefault) promoted.add(platformDefault);
+    const out: EligibleToolchainRelease[] = [];
+    for (const release of releases) {
+      const v = release.releaseVersion;
+      const halves: ReleaseHalves = {
+        releaseVersion: v,
+        release,
+        bootstrap: rows.find((p) => p.name === BOOTSTRAP && p.version === v) ?? null,
+        synth: rows.find((p) => p.name === SYNTH && p.version === v) ?? null,
+      };
+      if (!releaseExists(halves) || releaseLifecycleProblems(halves).length > 0) continue;
+      const isCanary = canary?.releaseVersion === v;
+      if (!promoted.has(v) && !isCanary) continue;
+      out.push({ releaseVersion: v, release, bootstrap: halves.bootstrap, synth: halves.synth, isPlatformDefault: platformDefault === v, isCanary });
+    }
+    out.sort((a, b) => compareSemver(b.releaseVersion, a.releaseVersion));
+    return { platformDefault, releases: out };
+  });
+}
+
+/**
+ * Every release `orgId` may SET as a pipeline pin or its org default (D15, the
+ * same rule as {@link isEligibleRelease}), newest first. Never another org's
+ * data: a canary appears only when it is the caller's own (nearest) membership.
+ */
+export function listEligibleReleases(orgId: string): Promise<{ platformDefault: string | null; releases: EligibleToolchainRelease[] }> {
+  return listEligibleReleasesWith(defaultDeps, orgId);
 }
 
 // -----------------------------------------------------------------------------
