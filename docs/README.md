@@ -479,8 +479,7 @@ change, what it deliberately would not, and any decision it is waiting on.
 
 | Plan | Covers |
 |------|--------|
-| [Usage-driven expansion offers](plans/sales-agent.md) | An internal process that reads an organization's usage, trajectory and profile, decides whether an expansion offer is warranted, and spends a bounded campaign budget to make it — six signal classes rather than threshold crossings, rules that decide money with the model confined to signals and copy, a 45-day offer rate, a mandatory holdout, and why the crossover offer (an account already paying more in packs than the next tier costs) needs no discount at all |
-| [CPU-credit chargeback](plans/cpu-credits.md) | Charging an organization for the compute its plugin builds occupy — a per-period `cpuCredits` quota, tier sizing bounded by the build pool's real capacity, a capacity pack priced against both the tier ladder and the GitHub/CircleCI market rate, a cheaper deferred build class that the free tier gets exclusively, and why the scope is stated in the copy rather than encoded in the name |
+| [Versioned toolchain releases](plans/bootstrap-image-versioning.md) | Moving the CodeBuild bootstrap image out of operator env vars into the plugin catalog as a versioned toolchain release (bootstrap + `cdk-synth`), resolved per pipeline: its pin, else its org default, else a canary, else the platform default |
 
 ---
 
