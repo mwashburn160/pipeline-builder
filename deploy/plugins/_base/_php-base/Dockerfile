@@ -31,8 +31,8 @@ RUN apt-retry-install \
 
 # Composer: the pinned composer.phar release, verified against the
 # .sha256sum getcomposer.org publishes beside it (no `curl | php` installer).
-ARG COMPOSER_VERSION=2.11.1
-ARG COMPOSER_SHA256=6f1b891e1d4927d62740276c540fb490e47689e19e102c49e8da849794882f8c
+ARG COMPOSER_VERSION=2.11.2
+ARG COMPOSER_SHA256=dd158c0afd41d15fac89e1b4e47b5d42911fe316c3687cd5edac98319b25d028
 RUN fetch-verified "https://getcomposer.org/download/${COMPOSER_VERSION}/composer.phar" "${COMPOSER_SHA256}" /usr/local/bin/composer \
     && chmod 0755 /usr/local/bin/composer
 

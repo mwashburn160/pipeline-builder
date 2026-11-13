@@ -6,7 +6,7 @@ keywords:
   - stack
   - infrastructure
 category: deploy
-version: 1.0.1
+version: 1.0.2
 pluginType: CodeBuildStep
 computeType: SMALL
 timeout: 45
@@ -127,5 +127,6 @@ network:
   egress:
     - "*.amazonaws.com"
 changelog: |
+  1.0.2: Pin refresh 2026-11-13 — rain rebuilt with Go 1.27.4, cfn-lint 1.60.1; rebuilt on the refreshed base images (AWS CLI 2.40.2).
   1.0.1: rain is built from its v1.24.4 source with go1.27.3 (the release binary was built with go1.26.2, carrying a Critical Go stdlib advisory); the tag is pinned to its commit.
   1.0.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified.

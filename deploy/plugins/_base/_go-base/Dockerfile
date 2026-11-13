@@ -21,16 +21,22 @@ RUN apt-retry-install build-essential
 # toolchain, so the finding was fleet-wide, not per-plugin — and it is the same
 # toolchain bump the api/plugin and api/image-registry images needed.
 #
-# 1.27.2 -> 1.27.3: routine, taking the newest patch on the line. The three
-# places Go is pinned move TOGETHER and are meant to stay equal — here, plus
+# 1.27.2 -> 1.27.3: routine, taking the newest patch on the line.
+#
+# 1.27.3 -> 1.27.4 (2026-11-13): routine, newest patch on the line. The three
+# GO_IMAGE pins inside this tree (docker-lint, cloudformation, k6) moved with it;
+# api/plugin and api/image-registry are service images and move with a service
+# release.
+#
+# The places Go is pinned move TOGETHER and are meant to stay equal — here, plus
 # GO_IMAGE in api/plugin/Dockerfile and api/image-registry/Dockerfile. They are
 # separate pins because one is a tarball and two are images, not because they
 # may differ. 1.26.x is the other supported line if a 1.26 pin is ever
 # wanted. GOPATH (module cache + `go install`
 # target) is owned by the plugin user so builds and `go install` work non-root.
-ARG GO_VERSION=1.27.3
-ARG GO_SHA256_AMD64=65efbc80fdc1fa2cd2631cad5b481777a68e8725f34e89f50fc6ac714e379b40
-ARG GO_SHA256_ARM64=a06e99309dbcbdca1a8ccd2282c3ee146e55930886e26b4f1193269587165f49
+ARG GO_VERSION=1.27.4
+ARG GO_SHA256_AMD64=7226736c2339719cda28fbf3a54d71aa63bcefe376e98cef00034268dab24840
+ARG GO_SHA256_ARM64=3392582988a273a87ab5043ee1b2c9c17a2c3c00580bf9326c47a2e0aaaeac92
 ENV GO_HOME=/opt/go-sdk
 ENV GOPATH=/opt/go
 RUN set -eux; \

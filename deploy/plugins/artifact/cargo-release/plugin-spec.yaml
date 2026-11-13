@@ -6,7 +6,7 @@ keywords:
   - cross-compilation
   - release
 category: artifact
-version: 1.0.0
+version: 1.0.1
 pluginType: CodeBuildStep
 computeType: MEDIUM
 timeout: 30
@@ -48,4 +48,5 @@ network:
     - "index.crates.io"
     - "static.crates.io"
 changelog: |
+  1.0.1: Pin refresh 2026-11-13 — Rebuilt on the refreshed base images (Rust 1.100.0).
   1.0.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified.

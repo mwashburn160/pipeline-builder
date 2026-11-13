@@ -8,7 +8,7 @@ ARG RAIN_VERSION=1.24.4
 # The commit the v${RAIN_VERSION} tag must resolve to (checked after clone).
 ARG RAIN_COMMIT=9b5ed0947472ec1d18e1cb79aa63fb78afe1c2df
 # Same pinned toolchain as api/plugin's tools stage.
-ARG GO_IMAGE=golang:1.27.3-alpine@sha256:d200d2dd76b03a99b52651fd1325aff7dcd35422c35c01bac56571b0507f3deb
+ARG GO_IMAGE=golang:1.27.4-alpine@sha256:0a5f7fe796599ff487605987432e7619ae45beeb2fba4c2ce0b907879932aebf
 
 # ─── rain, built from source ───
 # The v${RAIN_VERSION} release binary (latest) is built with go1.26.2, whose
@@ -40,7 +40,7 @@ USER root
 RUN apt-retry-install python3 python3-pip
 
 # ─── cfn-lint for CloudFormation template validation ───
-RUN pip3 install --no-cache-dir --break-system-packages cfn-lint==1.59.0
+RUN pip3 install --no-cache-dir --break-system-packages cfn-lint==1.60.1
 
 # ─── rain for CloudFormation deployment (modern CLI, built from source above) ───
 COPY --from=rain-build /out/rain /usr/local/bin/rain

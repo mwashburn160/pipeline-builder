@@ -6,7 +6,7 @@ keywords:
   - fortify
   - vulnerability
 category: security
-version: 1.0.0
+version: 1.0.1
 pluginType: CodeBuildStep
 computeType: MEDIUM
 timeout: 30
@@ -90,4 +90,5 @@ network:
   egress:
     - "*.fortify.com"
 changelog: |
+  1.0.1: Pin refresh 2026-11-13 — fcli 3.30.0.
   1.0.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified.

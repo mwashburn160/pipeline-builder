@@ -6,7 +6,7 @@ keywords:
   - checkov
   - compliance
 category: security
-version: 1.0.0
+version: 1.0.1
 pluginType: CodeBuildStep
 computeType: MEDIUM
 timeout: 30
@@ -101,4 +101,5 @@ network:
     - "*.prismacloud.io"
     - "*.twistlock.com"
 changelog: |
+  1.0.1: Pin refresh 2026-11-13 — Checkov 3.4.5.
   1.0.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified.

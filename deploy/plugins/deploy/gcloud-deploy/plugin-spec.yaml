@@ -6,7 +6,7 @@ keywords:
   - gke
   - deploy
 category: deploy
-version: 1.0.0
+version: 1.0.1
 pluginType: CodeBuildStep
 computeType: MEDIUM
 timeout: 45
@@ -127,4 +127,5 @@ network:
     - "*.googleapis.com"
     - "oauth2.googleapis.com"
 changelog: |
+  1.0.1: Pin refresh 2026-11-13 — Terraform 1.17.2.
   1.0.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified.

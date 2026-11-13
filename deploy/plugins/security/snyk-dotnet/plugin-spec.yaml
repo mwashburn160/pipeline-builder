@@ -6,7 +6,7 @@ keywords:
   - vulnerability
   - dependency-scan
 category: security
-version: 1.0.0
+version: 1.0.1
 pluginType: CodeBuildStep
 computeType: SMALL
 timeout: 15
@@ -47,4 +47,5 @@ network:
     - "api.snyk.io"
     - "api.nuget.org"
 changelog: |
+  1.0.1: Pin refresh 2026-11-13 — Rebuilt on the refreshed base images (.NET SDK 10.0.404, a 2026-11-10 security release).
   1.0.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified.

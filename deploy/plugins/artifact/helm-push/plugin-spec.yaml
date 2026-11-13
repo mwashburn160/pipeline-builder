@@ -6,7 +6,7 @@ keywords:
   - oci
   - registry
 category: artifact
-version: 1.1.0
+version: 1.1.1
 pluginType: CodeBuildStep
 computeType: SMALL
 timeout: 15
@@ -71,5 +71,6 @@ network:
   egress:
     - "github.com"
 changelog: |
+  1.1.1: Pin refresh 2026-11-13 — Helm 4.3.2; rebuilt on the refreshed base images (AWS CLI 2.40.2).
   1.0.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified.
   1.1.0: BREAKING — removed HELM_REGISTRY_TYPE=chartmuseum. The helm-cm-push binary it needed is unmaintained (latest v0.11.1, Feb 2026) and carries 9 fixable Critical CVEs that fail PLUGIN_VULN_GATE, with no newer release to move to. OCI registries (ECR, GHCR, Harbor, ACR) are unaffected and use helm's native `helm push`.

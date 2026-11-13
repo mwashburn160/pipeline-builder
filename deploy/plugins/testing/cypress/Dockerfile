@@ -23,11 +23,11 @@ RUN install -d -o 1000 -g 1000 "${CYPRESS_CACHE_FOLDER}"
 # Installed as uid 1000 into the base's uid-1000-owned Node prefix.
 USER 1000:1000
 
-# Pinned to 16.2.1, the current latest stable. (History: 16.1.1 fixed three
+# Pinned to 16.3.0, the current latest stable. (History: 16.1.1 fixed three
 # dependency CVEs present in 16.1.0: node-forge (CVE-2026-33896), form-data
 # CRLF injection (CVE-2026-12143), and proxy-addr user impersonation
 # (CVE-2026-90711).)
-ARG CYPRESS_VERSION=16.2.1
+ARG CYPRESS_VERSION=16.3.0
 
 # The Criticals the gate reports in Cypress's own dependency tree cannot be
 # cleared by bumping Cypress, so they are overridden: lodash and ansi-regex.
@@ -41,7 +41,7 @@ ARG CYPRESS_VERSION=16.2.1
 # silently or not at all, and the image would otherwise ship the vulnerable
 # version while looking fixed.
 ARG CYPRESS_LODASH_VERSION=4.18.1
-ARG CYPRESS_ANSI_REGEX_VERSION=6.5.0
+ARG CYPRESS_ANSI_REGEX_VERSION=6.6.0
 # root for the dir + the /usr/local/bin symlinks; the install itself is uid 1000.
 USER root
 RUN install -d -o 1000 -g 1000 /opt/cypress \

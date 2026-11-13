@@ -7,7 +7,7 @@
 # ca-certificates, gnupg, wget, unzip, zip, xz-utils + apt mirror swap +
 # retry hardening). Adds Node.js, Python, Docker CLI, AWS CLI, AWS CDK.
 
-ARG NODE_VERSION=26.13.0
+ARG NODE_VERSION=26.13.1
 FROM plugin-aws-cli-base:1.0
 
 # Build steps below need root (apt, writes under /usr/local, /opt or /etc);
@@ -24,8 +24,8 @@ RUN apt-retry-install python3 python3-pip libatomic1
 # SHASUMS256.txt for this release), installed under /usr/local.
 # Node 25+ no longer bundles corepack, so it is installed from npm (pinned).
 ARG COREPACK_VERSION=0.36.0
-ARG NODE_SHA256_AMD64=5848553868b402d3fabb5b09270649977780a390f832155721025a08b5104455
-ARG NODE_SHA256_ARM64=439e9c438acdf6a6ffe47418da709153d66c4bed812e30a473faacb107dd2791
+ARG NODE_SHA256_AMD64=518674de2b621728a5e4486f5fb3b7d2900bb3cc4aa97969edaa463db99f9778
+ARG NODE_SHA256_ARM64=80a330b35415382878df18d41afbd106ea89bfb3be0087d6608e289a14c5cc7d
 RUN set -eux; \
     case "$(dpkg --print-architecture)" in \
       amd64) NODE_ARCH=x64;   sum="${NODE_SHA256_AMD64}" ;; \
@@ -52,7 +52,7 @@ RUN fetch-apt-key https://download.docker.com/linux/ubuntu/gpg /etc/apt/keyrings
 # AWS CLI v2 — inherited from plugin-aws-cli-base.
 
 # AWS CDK + TS toolchain. Versions pinned for reproducibility.
-RUN npm install -g aws-cdk@2.1148.0 typescript@6.0.3 ts-node@10.9.2
+RUN npm install -g aws-cdk@2.1148.1 typescript@6.0.3 ts-node@10.9.2
 
 # Runtime `npm install -g` (the spec installs yarn/pnpm for projects that use
 # them) goes to a prefix the plugin user owns: the Node install under

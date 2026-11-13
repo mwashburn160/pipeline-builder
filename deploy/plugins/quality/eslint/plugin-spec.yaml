@@ -6,7 +6,7 @@ keywords:
   - linter
   - code-quality
 category: quality
-version: 1.0.0
+version: 1.0.1
 pluginType: CodeBuildStep
 computeType: SMALL
 timeout: 10
@@ -59,4 +59,5 @@ network:
     - "registry.npmjs.org"
     - "registry.yarnpkg.com"
 changelog: |
+  1.0.1: Pin refresh 2026-11-13 — Rebuilt on the refreshed base images (Node.js 26.13.1).
   1.0.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified.

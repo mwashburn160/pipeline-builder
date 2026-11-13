@@ -43,7 +43,7 @@ jobs:
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
         with:
           cache: pnpm
-          node-version: 26.13.0
+          node-version: 26.13.1
           package-manager-cache: pnpm
       - name: Configure npm registry
         id: configure_npm_registry
@@ -114,7 +114,7 @@ jobs:
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
         with:
           cache: pnpm
-          node-version: 26.13.0
+          node-version: 26.13.1
           package-manager-cache: pnpm
       - name: Configure npm registry
         id: configure_npm_registry
@@ -258,7 +258,7 @@ jobs:
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
         with:
           cache: pnpm
-          node-version: 26.13.0
+          node-version: 26.13.1
           package-manager-cache: pnpm
       - name: Configure npm registry
         id: configure_npm_registry

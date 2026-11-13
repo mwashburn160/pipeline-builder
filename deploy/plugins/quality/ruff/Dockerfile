@@ -7,7 +7,7 @@
 
 FROM plugin-python-base:1.0
 
-ARG RUFF_VERSION=0.17.4
+ARG RUFF_VERSION=0.17.5
 RUN pip3 install --no-cache-dir "ruff==${RUFF_VERSION}"
 
 WORKDIR /app

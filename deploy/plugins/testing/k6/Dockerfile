@@ -4,11 +4,11 @@
 # Multi-version support
 
 # ─── Tool versions (override with --build-arg) ───
-ARG K6_VERSION=2.3.0
+ARG K6_VERSION=2.4.0
 # The commit the v${K6_VERSION} tag must resolve to (checked after clone).
-ARG K6_COMMIT=e0887846143ab176d4b5483c9d52cf3b3e009f1a
+ARG K6_COMMIT=dd9395906d48437a8d7ab53e309afa47ad8d67e0
 # Same pinned toolchain as api/plugin's tools stage.
-ARG GO_IMAGE=golang:1.27.3-alpine@sha256:d200d2dd76b03a99b52651fd1325aff7dcd35422c35c01bac56571b0507f3deb
+ARG GO_IMAGE=golang:1.27.4-alpine@sha256:0a5f7fe796599ff487605987432e7619ae45beeb2fba4c2ce0b907879932aebf
 
 # ─── k6, built from source ───
 # The v${K6_VERSION} release (latest 2.x) carries Critical, fixable findings the
@@ -16,7 +16,8 @@ ARG GO_IMAGE=golang:1.27.3-alpine@sha256:d200d2dd76b03a99b52651fd1325aff7dcd3542
 # CISA KEV; fixed in 1.2.7), golang.org/x/net v0.58.0 (GO-2026-6612; fixed in
 # 0.60.0) and a go1.27.1 stdlib. Build the same tagged source with a current
 # toolchain and the two modules raised through a side modfile, as api/plugin
-# does for syft and grype (brotli v1.2.8 and x/net v0.62.0, the same pins).
+# does for syft and grype (brotli v1.3.0 and x/net v0.62.0; api/plugin is still on
+# brotli v1.2.8, which also clears GO-2026-6888).
 # Build flags follow upstream's own Dockerfile. Source integrity: the tag must
 # resolve to the pinned commit, or the build fails.
 FROM ${GO_IMAGE} AS k6-build
@@ -43,7 +44,7 @@ WORKDIR /src/k6
 RUN set -eux; \
     cp go.mod /tmp/k6.mod; cp go.sum /tmp/k6.sum; \
     for attempt in 1 2 3 4 5; do \
-      go get -modfile=/tmp/k6.mod golang.org/x/net@v0.62.0 github.com/andybalholm/brotli@v1.2.8 \
+      go get -modfile=/tmp/k6.mod golang.org/x/net@v0.62.0 github.com/andybalholm/brotli@v1.3.0 \
         && go mod download -modfile=/tmp/k6.mod all && break; \
       echo "go get/mod download failed (attempt $attempt/5)" >&2; sleep $((attempt * 5)); \
     done; \
@@ -72,7 +73,7 @@ RUN set -eux; \
       fi; \
       echo "ok: $_m $_got (>= $_want)"; \
     }; \
-    atleast github.com/andybalholm/brotli 1.2.8; \
+    atleast github.com/andybalholm/brotli 1.3.0; \
     atleast golang.org/x/net 0.62.0
 
 FROM plugin-base:26.10

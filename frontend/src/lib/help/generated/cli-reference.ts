@@ -1,6 +1,6 @@
 // GENERATED FROM docs/pipeline-manager.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: e6c107fae9ef63985a385159f8a624ede2dc9dc8a3a0bd926204d2e4b2bd8e98
+// SOURCE-SHA256: b6eed21e6f8a65eb524d6651f5a498cfa92309737e5a879c899e2d7385987a7a
 // SPDX-License-Identifier: Apache-2.0
 import { Terminal } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -117,7 +117,7 @@ export const cliReferenceTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Requires Node.js 26.13.0+. The binary is exposed as pipeline-manager."
+          "content": "Requires Node.js 26.13.1+. The binary is exposed as pipeline-manager."
         },
         {
           "type": "code",

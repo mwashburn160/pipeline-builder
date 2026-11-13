@@ -38,9 +38,9 @@ RUN install -d -o 1000 -g 1000 "${GOPATH}" "${GOPATH}/bin"
 # vulnerable to a worktree symlink-traversal issue (CVE-2026-71556, fixed
 # upstream in go-git v6.0.0-alpha.5). Pulumi picked up the fixed go-git in
 # 3.266.0; now pinned to the current latest stable, 3.273.0.
-ARG PULUMI_VERSION=3.274.1
-ARG PULUMI_SHA256_AMD64=32ae6d09d0df51637db7a0affb3ceb7d0511093b22d477aff5f20214d0b7e471
-ARG PULUMI_SHA256_ARM64=3deec71250f46c8f63e2b1f2078b08f5a8df4815d0e5e141420eb4e7f072f36e
+ARG PULUMI_VERSION=3.276.0
+ARG PULUMI_SHA256_AMD64=99f6b4626be083a3326517a46ba33b995f44812058143a018d9dffaa027ec3bf
+ARG PULUMI_SHA256_ARM64=dbf8d1efd39f3fc3f0d9cefa37c6caba8fdf937562dbaa93b6c284ded4f2c904
 RUN set -eux; \
     case "$(dpkg --print-architecture)" in \
       amd64) arch=x64;   sum="${PULUMI_SHA256_AMD64}" ;; \

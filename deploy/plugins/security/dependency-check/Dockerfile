@@ -31,11 +31,11 @@ RUN apt-retry-install openjdk-17-jre-headless python3 python3-pip libicu-dev lib
 
 # Node.js — official tarball, pinned version + pinned digest (nodejs.org
 # SHASUMS256.txt for this release), installed under /usr/local.
-ARG NODE_VERSION=26.13.0
+ARG NODE_VERSION=26.13.1
 # Node 25+ no longer bundles corepack, so it is installed from npm (pinned).
 ARG COREPACK_VERSION=0.36.0
-ARG NODE_SHA256_AMD64=5848553868b402d3fabb5b09270649977780a390f832155721025a08b5104455
-ARG NODE_SHA256_ARM64=439e9c438acdf6a6ffe47418da709153d66c4bed812e30a473faacb107dd2791
+ARG NODE_SHA256_AMD64=518674de2b621728a5e4486f5fb3b7d2900bb3cc4aa97969edaa463db99f9778
+ARG NODE_SHA256_ARM64=80a330b35415382878df18d41afbd106ea89bfb3be0087d6608e289a14c5cc7d
 RUN set -eux; \
     case "$(dpkg --print-architecture)" in \
       amd64) NODE_ARCH=x64;   sum="${NODE_SHA256_AMD64}" ;; \
@@ -67,9 +67,9 @@ RUN install -d -o 1000 -g 1000 "${GOPATH}" "${GOPATH}/bin" && go version
 # Pinned .NET 9 SDK (was `dotnet-install.sh --channel 9.0`, i.e. latest 9.0.x
 # via a downloaded installer script). Digests are the SHA-512s Microsoft
 # publishes in the 9.0 releases.json.
-ARG DOTNET_SDK_VERSION=9.0.320
-ARG DOTNET_SDK_SHA512_AMD64=eb371100b5c40641a812b3683bfda1772f0b69e5232091293c715d49eb837f52174b9b9a93375d692bddbfd1d57005f1a9aa774b4b30276665b0c0b1a9b66427
-ARG DOTNET_SDK_SHA512_ARM64=88d78bf798432e9b92fe93cbffdad3ff3cc7b3e93b640c75ef46a2caa2d4d0b6dfdca002fcd007d4e95725f2e974ffbd99ae4e3a9d7999a57a667ab5d00ef0e8
+ARG DOTNET_SDK_VERSION=9.0.321
+ARG DOTNET_SDK_SHA512_AMD64=612bae8e90be6e69b65b904647b88a28d0d8c4d79ed4b208d9fdfa61ab34be57e6fd018ab46c3897dc08aad203380130e6af3e748f742a09aa11f8f189cab7e8
+ARG DOTNET_SDK_SHA512_ARM64=5b47e5f85c5841d1d189a264e133860d74307f48537232a03ac3bd39d2ba41413a87bf27d7a74579e175d7456932c0841718103d69e1ebcf6539cf463c0f14ef
 ENV DOTNET_ROOT=/opt/dotnet
 RUN set -eux; \
     case "$(dpkg --print-architecture)" in \

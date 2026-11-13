@@ -65,7 +65,7 @@ const jestVersion = '30.5.2';
 // @types/node for EVERY project — ONE constant, tracking the runtime.
 //
 // Now ^26 across the board, because the fleet is finally uniform: the container
-// images run node 26.13.0 (LTS Lithium) and AWS Lambda runs `nodejs26.x`.
+// images run node 26.13.1 (LTS Lithium) and AWS Lambda runs `nodejs26.x`.
 //
 // That Lambda runtime is a PUBLIC PREVIEW one (announced 2026-08). AWS does not
 // cover preview runtimes under the Lambda SLA or Support plans and advises
@@ -106,9 +106,9 @@ const root = new TypeScriptProject({
   defaultReleaseBranch: branch,
   projenVersion: '0.104.20',
   // The FLOOR: `engines.node` for every package. The whole fleet is on node 26
-  // now — images on 26.13.0, Lambda on the nodejs26.x preview — so the floor
+  // now — images on 26.13.1, Lambda on the nodejs26.x preview — so the floor
   // moves with it. It tracks the OLDEST runtime, not the newest; see `typesNode`.
-  minNodeVersion: '26.13.0',
+  minNodeVersion: '26.13.1',
   minMajorVersion: 4,
   packageManager: NodePackageManager.PNPM,
   // projen emits pnpm-workspace.yaml itself; our workspace settings (package
