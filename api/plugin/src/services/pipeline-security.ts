@@ -20,7 +20,7 @@ import {
   type ScannedRecord, type VulnSeverity, type VulnWarning,
 } from '@pipeline-builder/api-core';
 import {
-  executeRows, pipelineExposures, pipelineStepLookups, scopeOrgIds, stepLabelOf, triageExposure, exposureById,
+  anyText, executeRows, pipelineExposures, pipelineStepLookups, scopeOrgIds, stepLabelOf, triageExposure, exposureById,
   withTenantTx, type PipelineExposure, type ResolutionScope,
 } from '@pipeline-builder/pipeline-data';
 import { sql } from 'drizzle-orm';
@@ -56,7 +56,7 @@ export async function recordsByDigest(scope: ResolutionScope, digests: readonly 
       SELECT id::text AS id, name, version, image_digest, build_type, plugin_type, scanned_at, scan_summary, scan_flagged_at, scan_flag,
              vuln_high_fixable, deleted_at IS NOT NULL AS deleted, is_active, yanked_at IS NOT NULL AS yanked
         FROM plugins
-       WHERE image_digest = ANY(${wanted}) AND lower(org_id) = ANY(${orgIds})
+       WHERE image_digest = ${anyText(wanted)} AND lower(org_id) = ${anyText(orgIds)}
        ORDER BY deleted_at NULLS FIRST, updated_at DESC
     `);
     const listed = await executeRows<Record<string, unknown>>(tx, sql`
@@ -65,7 +65,7 @@ export async function recordsByDigest(scope: ResolutionScope, digests: readonly 
         FROM plugin_listing_versions v
         JOIN plugin_listings l ON l.id = v.listing_id
         JOIN publishers p ON p.id = l.publisher_id
-       WHERE v.image_digest = ANY(${wanted})
+       WHERE v.image_digest = ${anyText(wanted)}
     `);
     return { own, listed };
   });

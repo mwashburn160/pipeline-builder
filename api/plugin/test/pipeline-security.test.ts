@@ -33,6 +33,8 @@ const mockResolveListing = jest.fn<AnyFn>(async () => null);
 const mockInUse = jest.fn<AnyFn>(async () => [DIGEST]);
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
   executeRows: async () => rowsQueue.shift() ?? [],
+  // The fake executor ignores the SQL, so the array clause only has to build.
+  anyText: (values: Iterable<string>) => [...values],
   withTenantTx: async (fn: AnyFn) => fn({}),
   runWithTenantContext: async (_c: unknown, fn: AnyFn) => fn(),
   scopeOrgIds: (s: { orgId: string; rootOrgId?: string }) => (s.rootOrgId ? [s.orgId, s.rootOrgId] : [s.orgId]),

@@ -39,6 +39,7 @@ import { randomUUID } from 'node:crypto';
 import { asScanFlag, createLogger, errorMessage, scanFindingKey, type PluginScanFinding, type VulnAcceptance } from '@pipeline-builder/api-core';
 import { and, eq, inArray, isNull, lte, sql, type SQL } from 'drizzle-orm';
 import { schema } from '../../database/drizzle-schema.js';
+import { anyText } from '../../database/pg-result.js';
 import type { ExposureSource } from '../../database/schema/reporting-analytics.js';
 import { withTenantTx } from '../../database/tenancy.js';
 
@@ -534,7 +535,7 @@ export async function pipelinesOnVersion(ref: PluginVersionRef): Promise<Pipelin
     ? sql``
     : ref.pluginPublisher === null ? sql` AND ${sql.raw(col)} IS NULL` : sql` AND ${sql.raw(col)} = ${ref.pluginPublisher}`);
   const digestSql = (col: string) => (ref.imageDigest ? sql` AND ${sql.raw(col)} = ${ref.imageDigest}` : sql``);
-  const orgSql = (col: string) => (ref.orgIds ? sql` AND ${sql.raw(col)} = ANY(${[...ref.orgIds]})` : sql``);
+  const orgSql = (col: string) => (ref.orgIds ? sql` AND ${sql.raw(col)} = ${anyText([...ref.orgIds])}` : sql``);
   if (ref.orgIds && ref.orgIds.length === 0) return [];
   const result = await withTenantTx((tx) => tx.execute(sql`
     SELECT x.org_id, x.pipeline_id, x.source, MIN(x.plugin_publisher) AS plugin_publisher, MIN(x.image_digest) AS image_digest,

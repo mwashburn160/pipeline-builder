@@ -201,5 +201,6 @@ export {
   isUniqueViolation,
   resultRows,
   executeRows,
+  anyText,
   type SqlExecutor,
 } from './pg-result.js';

@@ -53,6 +53,7 @@ import { and, eq, gte, inArray, lt, sql } from 'drizzle-orm';
 import { FAILURE_CATEGORY_LABELS, isTeamActionable } from './failure-classifier.js';
 import { liveExposurePredicate } from './plugin-exposure.js';
 import { schema } from '../../database/drizzle-schema.js';
+import { anyText } from '../../database/pg-result.js';
 import type { FailureCategory } from '../../database/schema/reporting-analytics.js';
 import { withTenantTxRead } from '../../database/tenancy.js';
 
@@ -112,7 +113,7 @@ export async function getPipelineBreakdown(scope: AnalyticsScope, limit = 10): P
         MAX(r.p95_ms)::int AS p95_ms,
         SUM(r.build_seconds)::int AS build_seconds
       FROM execution_daily_rollups r
-      WHERE r.org_id ${scope.orgIds?.length ? sql`= ANY(${scope.orgIds})` : sql`= ${scope.orgId}`}
+      WHERE r.org_id ${scope.orgIds?.length ? sql`= ${anyText(scope.orgIds)}` : sql`= ${scope.orgId}`}
         AND r.day >= ${scope.from}::timestamptz AND r.day < ${scope.to}::timestamptz
         -- The pipeline-level grain only: summing the stage rows too would count
         -- every run once per stage.
@@ -122,7 +123,7 @@ export async function getPipelineBreakdown(scope: AnalyticsScope, limit = 10): P
     deploys AS (
       SELECT pipeline_id, COUNT(*)::int AS deploys
       FROM dora_deployments
-      WHERE org_id ${scope.orgIds?.length ? sql`= ANY(${scope.orgIds})` : sql`= ${scope.orgId}`}
+      WHERE org_id ${scope.orgIds?.length ? sql`= ${anyText(scope.orgIds)}` : sql`= ${scope.orgId}`}
         AND deployed_at >= ${scope.from}::timestamptz AND deployed_at < ${scope.to}::timestamptz
         AND succeeded = true
       GROUP BY pipeline_id
@@ -131,7 +132,7 @@ export async function getPipelineBreakdown(scope: AnalyticsScope, limit = 10): P
       -- The most recent failing STAGE row per pipeline: what to look at first.
       SELECT DISTINCT ON (pipeline_id) pipeline_id, day, stage_name
       FROM execution_daily_rollups
-      WHERE org_id ${scope.orgIds?.length ? sql`= ANY(${scope.orgIds})` : sql`= ${scope.orgId}`}
+      WHERE org_id ${scope.orgIds?.length ? sql`= ${anyText(scope.orgIds)}` : sql`= ${scope.orgId}`}
         AND day >= ${scope.from}::timestamptz AND day < ${scope.to}::timestamptz
         AND stage_name <> '' AND failed > 0
       ORDER BY pipeline_id, day DESC, failed DESC
@@ -224,7 +225,7 @@ async function categoryCounts(scope: AnalyticsScope): Promise<Map<FailureCategor
   const rows = await withTenantTxRead((tx) => tx.execute(sql`
     SELECT key AS category, SUM(value::int)::int AS count
     FROM execution_daily_rollups r, jsonb_each(r.failures_by_category)
-    WHERE r.org_id ${scope.orgIds?.length ? sql`= ANY(${scope.orgIds})` : sql`= ${scope.orgId}`}
+    WHERE r.org_id ${scope.orgIds?.length ? sql`= ${anyText(scope.orgIds)}` : sql`= ${scope.orgId}`}
       AND r.day >= ${scope.from}::timestamptz AND r.day < ${scope.to}::timestamptz
       AND r.stage_name = ''
     GROUP BY key
@@ -253,7 +254,7 @@ async function topPipelinesByCategory(
       FROM execution_daily_rollups r
       CROSS JOIN LATERAL jsonb_each(r.failures_by_category) e
       LEFT JOIN pipelines p ON p.id::text = r.pipeline_id
-      WHERE r.org_id ${scope.orgIds?.length ? sql`= ANY(${scope.orgIds})` : sql`= ${scope.orgId}`}
+      WHERE r.org_id ${scope.orgIds?.length ? sql`= ${anyText(scope.orgIds)}` : sql`= ${scope.orgId}`}
         AND r.day >= ${scope.from}::timestamptz AND r.day < ${scope.to}::timestamptz
         AND r.stage_name = ''
       GROUP BY e.key, r.pipeline_id, p.pipeline_name
@@ -377,7 +378,7 @@ export async function getResourceConsumption(scope: AnalyticsScope, limit = 20):
       SUM(r.runs)::int AS runs
     FROM execution_daily_rollups r
     LEFT JOIN pipelines p ON p.id::text = r.pipeline_id
-    WHERE r.org_id ${scope.orgIds?.length ? sql`= ANY(${scope.orgIds})` : sql`= ${scope.orgId}`}
+    WHERE r.org_id ${scope.orgIds?.length ? sql`= ${anyText(scope.orgIds)}` : sql`= ${scope.orgId}`}
       AND r.day >= ${scope.from}::timestamptz AND r.day < ${scope.to}::timestamptz
       AND r.stage_name = ''
     GROUP BY p.project, r.pipeline_id, p.pipeline_name
@@ -425,7 +426,7 @@ export async function getPromotionView(
   const rows = await withTenantTxRead((tx) => tx.execute(sql`
     SELECT commit_sha, environment, MIN(deployed_at) AS deployed_at
     FROM dora_deployments
-    WHERE org_id ${scope.orgIds?.length ? sql`= ANY(${scope.orgIds})` : sql`= ${scope.orgId}`}
+    WHERE org_id ${scope.orgIds?.length ? sql`= ${anyText(scope.orgIds)}` : sql`= ${scope.orgId}`}
       AND deployed_at >= ${scope.from}::timestamptz AND deployed_at < ${scope.to}::timestamptz
       AND succeeded = true
       AND commit_sha IS NOT NULL
@@ -495,7 +496,7 @@ export async function getOutdatedPlugins(scope: AnalyticsScope, limit = 50): Pro
       r.resolved_version, r.latest_version, r.version_gap, r.within_policy
     FROM pipeline_plugin_resolution r
     LEFT JOIN pipelines p ON p.id::text = r.pipeline_id
-    WHERE r.org_id ${scope.orgIds?.length ? sql`= ANY(${scope.orgIds})` : sql`= ${scope.orgId}`}
+    WHERE r.org_id ${scope.orgIds?.length ? sql`= ${anyText(scope.orgIds)}` : sql`= ${scope.orgId}`}
       AND (r.version_gap IN ('major', 'minor', 'patch') OR r.within_policy = false)
     ORDER BY CASE r.version_gap WHEN 'major' THEN 0 WHEN 'minor' THEN 1 WHEN 'patch' THEN 2 ELSE 3 END,
              r.pipeline_id
@@ -554,7 +555,7 @@ export async function getPluginVulnerabilities(scope: AnalyticsScope, limit = 50
       v.plugin_version, v.source, v.critical_count, v.high_count, v.top_findings, v.flagged_at
     FROM plugin_vuln_exposure v
     LEFT JOIN pipelines p ON p.id::text = v.pipeline_id
-    WHERE v.org_id ${scope.orgIds?.length ? sql`= ANY(${scope.orgIds})` : sql`= ${scope.orgId}`}
+    WHERE v.org_id ${scope.orgIds?.length ? sql`= ${anyText(scope.orgIds)}` : sql`= ${scope.orgId}`}
       AND ${liveExposurePredicate(now, 'v')}
     ORDER BY v.critical_count DESC, v.high_count DESC
     LIMIT ${limit}
@@ -605,20 +606,20 @@ export async function getAdoption(scope: AnalyticsScope, timeSavedMinutes?: numb
     WITH scoped AS (
       SELECT id::text AS id, org_id, creation_source
       FROM pipelines
-      WHERE org_id ${scope.orgIds?.length ? sql`= ANY(${scope.orgIds})` : sql`= ${scope.orgId}`}
+      WHERE org_id ${scope.orgIds?.length ? sql`= ${anyText(scope.orgIds)}` : sql`= ${scope.orgId}`}
         AND deleted_at IS NULL
     ),
     active AS (
       SELECT DISTINCT pipeline_id, org_id
       FROM execution_daily_rollups
-      WHERE org_id ${scope.orgIds?.length ? sql`= ANY(${scope.orgIds})` : sql`= ${scope.orgId}`}
+      WHERE org_id ${scope.orgIds?.length ? sql`= ${anyText(scope.orgIds)}` : sql`= ${scope.orgId}`}
         AND day >= ${scope.from}::timestamptz AND day < ${scope.to}::timestamptz
         AND stage_name = '' AND runs > 0
     ),
     tracked AS (
       SELECT DISTINCT pipeline_id
       FROM dora_deployments
-      WHERE org_id ${scope.orgIds?.length ? sql`= ANY(${scope.orgIds})` : sql`= ${scope.orgId}`}
+      WHERE org_id ${scope.orgIds?.length ? sql`= ${anyText(scope.orgIds)}` : sql`= ${scope.orgId}`}
         AND deployed_at >= ${scope.from}::timestamptz AND deployed_at < ${scope.to}::timestamptz
     )
     SELECT
@@ -683,7 +684,7 @@ export async function getPipelineStreaks(
              SUM(succeeded)::int AS succeeded,
              SUM(failed)::int    AS failed
       FROM execution_daily_rollups
-      WHERE org_id ${scope.orgIds?.length ? sql`= ANY(${scope.orgIds})` : sql`= ${scope.orgId}`}
+      WHERE org_id ${scope.orgIds?.length ? sql`= ${anyText(scope.orgIds)}` : sql`= ${scope.orgId}`}
         AND day >= ${since}::timestamptz AND day < ${scope.to}::timestamptz
       GROUP BY pipeline_id, day
     ),
@@ -721,7 +722,7 @@ export async function getUntrackedPipelines(scope: AnalyticsScope): Promise<stri
     WITH active AS (
       SELECT pipeline_id
       FROM execution_daily_rollups
-      WHERE org_id ${scope.orgIds?.length ? sql`= ANY(${scope.orgIds})` : sql`= ${scope.orgId}`}
+      WHERE org_id ${scope.orgIds?.length ? sql`= ${anyText(scope.orgIds)}` : sql`= ${scope.orgId}`}
         AND day >= ${scope.from}::timestamptz AND day < ${scope.to}::timestamptz
         AND stage_name = ''
       GROUP BY pipeline_id
@@ -730,7 +731,7 @@ export async function getUntrackedPipelines(scope: AnalyticsScope): Promise<stri
     tracked AS (
       SELECT DISTINCT pipeline_id
       FROM dora_deployments
-      WHERE org_id ${scope.orgIds?.length ? sql`= ANY(${scope.orgIds})` : sql`= ${scope.orgId}`}
+      WHERE org_id ${scope.orgIds?.length ? sql`= ${anyText(scope.orgIds)}` : sql`= ${scope.orgId}`}
         AND deployed_at >= ${scope.from}::timestamptz AND deployed_at < ${scope.to}::timestamptz
     )
     SELECT a.pipeline_id FROM active a
@@ -758,7 +759,7 @@ export async function getVulnerablePipelines(scope: AnalyticsScope): Promise<str
   const rows = await withTenantTxRead((tx) => tx.execute(sql`
     SELECT DISTINCT pipeline_id
     FROM plugin_vuln_exposure
-    WHERE org_id ${scope.orgIds?.length ? sql`= ANY(${scope.orgIds})` : sql`= ${scope.orgId}`}
+    WHERE org_id ${scope.orgIds?.length ? sql`= ${anyText(scope.orgIds)}` : sql`= ${scope.orgId}`}
       AND critical_count > 0
       AND ${liveExposurePredicate(now)}
   `));
@@ -781,7 +782,7 @@ export async function getPipelineConfigChanges(scope: AnalyticsScope): Promise<M
   const rows = await withTenantTxRead((tx) => tx.execute(sql`
     SELECT id::text AS id, updated_at
     FROM pipelines
-    WHERE org_id ${scope.orgIds?.length ? sql`= ANY(${scope.orgIds})` : sql`= ${scope.orgId}`}
+    WHERE org_id ${scope.orgIds?.length ? sql`= ${anyText(scope.orgIds)}` : sql`= ${scope.orgId}`}
       AND deleted_at IS NULL
       AND updated_at IS NOT NULL
   `));

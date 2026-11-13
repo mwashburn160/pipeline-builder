@@ -11,7 +11,7 @@
  * scoped by the explicit org ids — the parent's rows sit outside the caller's RLS).
  */
 
-import { executeRows, isVersionRange, scopeOrgIds, type ResolutionScope } from '@pipeline-builder/pipeline-data';
+import { anyText, executeRows, isVersionRange, scopeOrgIds, type ResolutionScope } from '@pipeline-builder/pipeline-data';
 import { sql } from 'drizzle-orm';
 
 import { elevated } from './ecosystem/store.js';
@@ -28,7 +28,7 @@ export async function pluginRowState(scope: ResolutionScope, filter: { id?: unkn
   const rows = await elevated((tx) => executeRows<{ deleted: boolean; active: boolean; yanked: boolean }>(tx, sql`
     SELECT deleted_at IS NOT NULL AS deleted, is_active AS active, yanked_at IS NOT NULL AS yanked
       FROM plugins
-     WHERE lower(org_id) = ANY(${orgIds})
+     WHERE lower(org_id) = ${anyText(orgIds)}
        AND ${byId ? sql`id::text = ${filter.id as string}` : sql`name = ${filter.name as string}`}
        ${exact && !byId ? sql`AND version = ${exact}` : sql``}
      LIMIT 200

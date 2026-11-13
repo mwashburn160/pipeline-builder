@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import type { SQL } from 'drizzle-orm';
+import { sql, type SQL } from 'drizzle-orm';
 
 /** PostgreSQL SQLSTATE for `unique_violation`. */
 export const PG_UNIQUE_VIOLATION = '23505';
@@ -37,4 +37,17 @@ export interface SqlExecutor {
 /** Run a raw SQL query and return its rows typed as `T`. */
 export async function executeRows<T>(executor: SqlExecutor, query: SQL): Promise<T[]> {
   return resultRows<T>(await executor.execute(query));
+}
+
+/**
+ * `ANY(<one text[] parameter>)` for a raw `sql` template.
+ *
+ * Never write `= ANY(${values})`: Drizzle expands a JS array into a parameter
+ * LIST, so that renders `ANY(($1, $2))`, a row value Postgres rejects
+ * ("op ANY/ALL (array) requires array on right side", or "malformed array
+ * literal" for one element). This binds the whole array as a single parameter
+ * that node-postgres sends as a real array. An empty list matches nothing.
+ */
+export function anyText(values: Iterable<string>): SQL {
+  return sql`ANY(${sql.param([...values])}::text[])`;
 }

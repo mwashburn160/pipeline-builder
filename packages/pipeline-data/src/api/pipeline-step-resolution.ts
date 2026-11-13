@@ -20,7 +20,7 @@
 import { and, eq, sql } from 'drizzle-orm';
 import type { ExposureStep, ResolvedStep, ScanState } from './reporting/plugin-exposure.js';
 import { schema } from '../database/drizzle-schema.js';
-import { executeRows } from '../database/pg-result.js';
+import { anyText, executeRows } from '../database/pg-result.js';
 import { withTenantTx } from '../database/tenancy.js';
 
 /** One plugin step of a pipeline, as pipeline-core's `collectPluginSteps` + `pluginLookupFilter` describe it. */
@@ -159,11 +159,11 @@ export async function declaredPipelinesForPlugin(
     const wanted = ids.slice(0, limit).map((r) => r.pipeline_id);
     if (wanted.length === 0) return { pipelines: [], truncated: false };
     const pipelines = await executeRows<{ id: string; org_id: string; props: unknown }>(tx, sql`
-      SELECT p.id::text AS id, p.org_id, p.props FROM pipelines p WHERE p.id::text = ANY(${wanted}) AND p.deleted_at IS NULL
+      SELECT p.id::text AS id, p.org_id, p.props FROM pipelines p WHERE p.id::text = ${anyText(wanted)} AND p.deleted_at IS NULL
     `);
     const steps = await executeRows<{ pipeline_id: string; stage_name: string; step_name: string; resolved_version: string | null; resolved_digest: string | null; root_org_id: string | null }>(tx, sql`
       SELECT pipeline_id, stage_name, step_name, resolved_version, resolved_digest, root_org_id
-        FROM pipeline_plugin_resolution WHERE pipeline_id = ANY(${wanted})
+        FROM pipeline_plugin_resolution WHERE pipeline_id = ${anyText(wanted)}
     `);
     return {
       truncated,
