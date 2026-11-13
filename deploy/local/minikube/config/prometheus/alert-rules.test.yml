@@ -3054,6 +3054,9 @@ tests:
               severity: critical
               component: audit
               tenancy: platform
+            exp_annotations:
+              description: "12 audit event(s) in the last hour stored a HASH_ERROR sentinel instead of a digest — they can never be verified and cannot be repaired. Not tampering: the write-time hash threw, almost certainly on a `details` payload that cannot be serialized (a cycle or a BigInt). Find the emitting action with sum by (action) (increase(platform_audit_hash_error_total[6h])) and fix what it puts in `details`. /audit/verify counts these as `unverifiable` rather than hiding them."
+              summary: "Audit events written with an un-computable digest"
 
   - interval: 5m
     input_series:
@@ -3081,6 +3084,9 @@ tests:
               severity: warning
               component: plugin
               tenancy: platform
+            exp_annotations:
+              description: "10 concurrent builds on one replica, against a budget of PLUGIN_MAX_BUILDS_PER_REPLICA (default 13 = the ladder's sum). They share one buildkitd sidecar and one BUILDKIT_MEMORY_LIMIT, so this is the number to compare against that limit before raising either. Lower the budget, or raise the sidecar's memory — never raise a tier's concurrency without one of the two."
+              summary: "A plugin replica is near its build budget"
 
   - interval: 1m
     input_series:
@@ -3122,6 +3128,9 @@ tests:
               severity: critical
               component: support
               tenancy: platform
+            exp_annotations:
+              description: "p90 first response for premium cases is 11h 24m 0s over 6h, against a SOLD target of 8 hours any day of the week. This is a contractual number rather than an operational guess: premium's clock does not pause for nights or weekends, so there is no business-hours exemption to fall back on. The alert fires at 6h to leave two hours to act. Paused time (awaiting customer) is already excluded, so this is our latency — if no rota is awake, that is the cause."
+              summary: "Premium support is about to breach its 8-hour response target"
 
   - interval: 15m
     input_series:
@@ -3161,6 +3170,9 @@ tests:
               component: support
               tenancy: platform
               level: support_priority
+            exp_annotations:
+              description: "p90 first response for support_priority is 1d 21h 36m 0s over 6h. Priority sells a next-business-day response and standard two business days, so 24h of OUR time (customer wait excluded) is not itself a breach — it is the point past which the queue is plainly not being worked, which is a different and earlier signal. For the contractual check on these two levels, measure against the business calendar, not this alert."
+              summary: "support_priority first response is past a business day"
 
   - interval: 15m
     input_series:
@@ -3214,6 +3226,9 @@ tests:
               severity: warning
               component: support
               tenancy: platform
+            exp_annotations:
+              description: "60 support sends in the last hour created no case because the sending org has no designated contact of its own. Check whether an account bought support but never designated contacts in the team that is writing in — the contact allowance pools at the root, ownership does not."
+              summary: "Many support sends are arriving with no entitlement"
 
   - interval: 5m
     input_series:
@@ -3232,13 +3247,18 @@ tests:
       - series: 'support_cases_total{action="open_failed",service="message",pod="message-aaa"}'
         values: '0 0 1 1 1 1 1 1'
     alert_rule_test:
-      - eval_time: 30m
+      # 15m, not 30m: the failure lands at 10m, so by 30m it has slid out of the
+      # rule's [15m] increase window and the alert has correctly gone quiet.
+      - eval_time: 15m
         alertname: SupportCaseInsertFailing
         exp_alerts:
           - exp_labels:
               severity: critical
               component: support
               tenancy: platform
+            exp_annotations:
+              description: "A support message committed but its case row did not. The tenant saw success and has no case number; the case will never appear in the queue. Likely the per-org number allocator or the support_case_org_number_uq backstop — check the message service logs for 'Support case insert failed'."
+              summary: "Support case inserts are failing after the message was accepted"
 
   - interval: 5m
     input_series:
@@ -3255,12 +3275,15 @@ tests:
   # a stale DB returns a confident FALSE-CLEAN result; the absent case is worse,
   # because an age comparison against nothing is silently never true. Hence both
   # alerts, and hence both of these.
-  - interval: 15m
+  # Gauges are sampled every MINUTE here and below: a series is only visible for
+  # the 5m lookback after its last sample, so a sparser interval drops the gauge
+  # between samples, resets every `for:` and makes negative cases pass vacuously.
+  - interval: 1m
     input_series:
       # Built 48h before the series starts, never refreshed. Timestamps are
       # absolute seconds, so the value stays put while time() advances.
       - series: 'plugin_vuln_db_built_timestamp_seconds{service="plugin",pod="plugin-aaa"}'
-        values: '-172800+0x20'
+        values: '-172800+0x80'
     alert_rule_test:
       - eval_time: 1h
         alertname: PluginVulnDbStale
@@ -3269,6 +3292,9 @@ tests:
               severity: warning
               component: plugin
               tenancy: platform
+            exp_annotations:
+              description: "The installed grype DB was built 2d 1h 0m 0s ago. The nightly rescan refuses to run on it (plugin_vuln_rescan_runs_total{outcome=\"stale_db\"}) and build scans warn that their result predates the DB. Check whatever refreshes it: plugin_vuln_db_updates_total{outcome=\"failed\"} and the plugin logs for the in-process refresh, or the grype-db CronJob on EKS."
+              summary: "Plugin vulnerability DB is older than 36h"
       - eval_time: 1h
         # The age is KNOWN here, so the twin must stay quiet: firing both would
         # tell an operator to look in two places for one fault.
@@ -3289,6 +3315,9 @@ tests:
               severity: warning
               component: plugin
               tenancy: platform
+            exp_annotations:
+              description: "plugin_vuln_db_built_timestamp_seconds has been absent for 3h: no valid grype DB is installed (or the rescan scheduler is not ticking — see PluginVulnRescanNeverCompleted). Every build scan then lands UNSCANNED and fails IMAGE_SCAN_UNAVAILABLE. Check the grype-db volume and its refresh."
+              summary: "No plugin pod can read the vulnerability DB's build time"
       - eval_time: 4h
         # And the age alert CANNOT fire, which is the whole reason its twin exists.
         alertname: PluginVulnDbStale
@@ -3298,11 +3327,11 @@ tests:
   # cause (a base image, a bundled toolchain), which is actionable. A gradual
   # climb is the fleet growing and must stay quiet, or the signal that identifies
   # a common cause gets muted by ordinary churn.
-  - interval: 1h
+  - interval: 1m
     input_series:
       # Flat at 4 for a day, then 12: eight more than 24h ago.
       - series: 'plugin_vuln_flagged_versions{service="plugin",pod="plugin-aaa"}'
-        values: '4+0x24 12+0x6'
+        values: '4+0x1440 12+0x360'
     alert_rule_test:
       - eval_time: 26h
         alertname: PluginVulnFlaggedVersionsJump
@@ -3311,12 +3340,15 @@ tests:
               severity: warning
               component: plugin
               tenancy: platform
+            exp_annotations:
+              description: "Look at what the newly flagged versions share (audit plugin.vuln.flagged, details.findings) — usually one base image or one bundled toolchain. Rebuild the base and its dependants; if no fix exists yet, a fleet-wide advisory-id waiver (PLUGIN_VULN_WAIVERS='*:<date>:<id>') is the narrow lever."
+              summary: "8 more plugin versions were flagged by the vulnerability rescan than a day ago"
 
-  - interval: 1h
+  - interval: 1m
     input_series:
       # Four more over a whole day, one at a time: below the step threshold.
       - series: 'plugin_vuln_flagged_versions{service="plugin",pod="plugin-aaa"}'
-        values: '4+0x12 5+0x4 6+0x4 7+0x4 8+0x6'
+        values: '4+0x720 5+0x240 6+0x240 7+0x240 8+0x360'
     alert_rule_test:
       - eval_time: 26h
         alertname: PluginVulnFlaggedVersionsJump
@@ -3324,12 +3356,12 @@ tests:
 
   # The three waiver alerts. A waiver is someone asserting "this CVE is accepted",
   # so each failure mode is a belief that has quietly stopped being true.
-  - interval: 15m
+  - interval: 1m
     input_series:
       # Unmatched: the entry exempts a finding no scanned version carries. Usually
       # a misspelled target — matched exactly, case-insensitively.
       - series: 'plugin_vuln_waiver_unmatched{plugin="my-plugin",targets="CVE-2026-0001",service="plugin",pod="plugin-aaa"}'
-        values: '1+0x20'
+        values: '1+0x200'
     alert_rule_test:
       - eval_time: 2h
         alertname: PluginVulnWaiverUnmatched
@@ -3340,39 +3372,48 @@ tests:
               tenancy: platform
               plugin: my-plugin
               targets: CVE-2026-0001
+            exp_annotations:
+              description: "No scanned version of my-plugin carries a finding this PLUGIN_VULN_WAIVERS entry exempts. If upstream fixed it, delete the entry; if it never matched, the target is likely misspelled (package names and advisory ids are matched exactly, case-insensitively)."
+              summary: "Vulnerability waiver my-plugin:CVE-2026-0001 matched nothing in the last rescan"
 
-  - interval: 15m
+  - interval: 1m
     input_series:
       # A waiver that IS matching must not page: this is the normal state of an
       # accepted risk.
       - series: 'plugin_vuln_waiver_unmatched{plugin="my-plugin",targets="CVE-2026-0001",service="plugin",pod="plugin-aaa"}'
-        values: '0+0x20'
+        values: '0+0x200'
     alert_rule_test:
       - eval_time: 2h
         alertname: PluginVulnWaiverUnmatched
         exp_alerts: []
 
-  - interval: 15m
+  - interval: 1m
     input_series:
       - series: 'plugin_vuln_waivers_invalid{service="plugin",pod="plugin-aaa"}'
-        values: '2+0x20'
+        values: '2+0x200'
     alert_rule_test:
       - eval_time: 1h
         alertname: PluginVulnWaiverInvalid
         exp_alerts:
+          # The rule does not aggregate, so the source series' labels survive.
           - exp_labels:
               severity: warning
               component: plugin
               tenancy: platform
+              service: plugin
+              pod: plugin-aaa
+            exp_annotations:
+              description: "The parser drops an entry it cannot read rather than treating it as a wildcard, so the gate is still blocking for those plugins — but nothing in the build output says why, which is how this is usually discovered hours later. The plugin service logged each one at boot with the reason; grammar is <plugin>[@<version>]:<YYYY-MM-DD>:<package>[,<package>…]."
+              summary: "2 PLUGIN_VULN_WAIVERS entr(ies) are malformed and being ignored"
 
-  - interval: 15m
+  - interval: 1m
     input_series:
       # Expiring inside two weeks fires; a waiver with a month left does not. The
       # point is lead time to rebuild or renew, not the expiry itself.
       - series: 'plugin_vuln_waiver_days_remaining{plugin="my-plugin",service="plugin",pod="plugin-aaa"}'
-        values: '9+0x20'
+        values: '9+0x200'
       - series: 'plugin_vuln_waiver_days_remaining{plugin="other-plugin",service="plugin",pod="plugin-aaa"}'
-        values: '30+0x20'
+        values: '30+0x200'
     alert_rule_test:
       - eval_time: 2h
         alertname: PluginVulnWaiverExpiringSoon
@@ -3382,6 +3423,11 @@ tests:
               component: plugin
               tenancy: platform
               plugin: my-plugin
+              service: plugin
+              pod: plugin-aaa
+            exp_annotations:
+              description: "Expiry is deliberate — a waiver nobody revisits would otherwise be permanent — but the first sign is a build that used to pass starting to fail PLUGIN_VULN_GATE. Check whether upstream has shipped a fix: if it has, DELETE the entry and rebuild the plugin rather than extending it. A negative value means the entry has already lapsed and is doing nothing."
+              summary: "Vulnerability waiver my-plugin: expires in 9 day(s)"
 
   # OffersCycleErroring — one account the cycle threw on fires; a cycle that is
   # simply quiet (nothing eligible, the normal state of a small install) does not.
@@ -3398,6 +3444,9 @@ tests:
               severity: warning
               component: billing
               tenancy: platform
+            exp_annotations:
+              description: "6 accounts threw during the last 30m of offer cycles. The cycle skips the account and carries on, so nothing fails loudly — the offers simply never get made. Check the billing logs for 'Offer cycle skipped an account' and the usage-profile reads it starts with."
+              summary: "The expansion-offer cycle is failing on accounts"
 
   - interval: 5m
     input_series:
@@ -3426,6 +3475,9 @@ tests:
               severity: warning
               component: billing
               tenancy: platform
+            exp_annotations:
+              description: "12 offer emails failed in the last hour. Delivery is in-app first and email second, so the offer still exists in the dashboard — but the email is what prompts the account to look. Check platform's /internal/notify-email leg for the `billing` caller and the relay's own health."
+              summary: "Expansion-offer emails are being refused"
 
   - interval: 5m
     input_series:
@@ -3453,13 +3505,19 @@ tests:
               severity: info
               component: billing
               tenancy: platform
+            exp_annotations:
+              description: "48 offers lapsed in 24h and nothing converted. A zero rate over that many offers is more likely a delivery or targeting fault than a market one: check billing_offer_emails_total by outcome (consent / no_copy / failed / no_recipients) before changing the rules — `no_copy` in particular means the mailer refused to name a limit and a price, so the offer went out with nothing to act on."
+              summary: "Expansion offers are expiring with no conversions at all"
 
   - interval: 30m
     input_series:
       - series: 'billing_offers_expired_total{service="billing",pod="billing-aaa"}'
         values: '0+1x60'
       - series: 'billing_offer_conversions_total{type="pack",bucket="within_window",service="billing",pod="billing-aaa"}'
-        values: '0 0 0 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1'
+        # The one conversion lands at 5h — inside the (2h, 26h] window the rule
+        # reads at 26h. At 1.5h, as this case first had it, it had already aged
+        # out and the alert rightly fired.
+        values: '0+0x9 1+0x51'
     alert_rule_test:
       - eval_time: 26h
         alertname: OffersExpiringUnseen
