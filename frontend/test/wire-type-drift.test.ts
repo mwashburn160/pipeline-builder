@@ -86,6 +86,8 @@ const REGISTERED: ReadonlyArray<readonly [string, string, string]> = [
   ['SsoTestReport', 'frontend/src/types/sso.ts', 'platform/src/helpers/sso-test-flow.ts'],
   ['StepUpgrade', 'frontend/src/lib/api/pipeline-security-types.ts', 'api/pipeline/src/helpers/plugin-upgrades.ts'],
   ['TeamUsageRow', 'frontend/src/lib/api/domains/billing.ts', 'api/billing/src/helpers/team-usage.ts'],
+  // How a pipeline's toolchain release was chosen (the Build image row; pipeline-core, not importable).
+  ['ToolchainResolvedVia', 'frontend/src/lib/api/pipeline-security-types.ts', 'packages/pipeline-core/src/core/plugin-lookup-envelope.ts'],
   ['TotpEnrolment', 'frontend/src/types/identity.ts', 'platform/src/services/totp-service.ts'],
   ['TrendDirection', 'frontend/src/lib/api/domains/stakeholder-reports.ts', 'packages/pipeline-data/src/api/reporting/stakeholder/compose.ts'],
   ['UpgradeReason', 'frontend/src/lib/api/pipeline-security-types.ts', 'api/pipeline/src/helpers/plugin-upgrades.ts'],

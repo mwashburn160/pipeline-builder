@@ -98,7 +98,7 @@ beforeEach(async () => {
   await raw.exec(`
     DELETE FROM toolchain_platform_default; DELETE FROM toolchain_default_history; DELETE FROM toolchain_rollout;
     DELETE FROM org_toolchain_default; DELETE FROM org_toolchain_default_history; DELETE FROM toolchain_release;
-    DELETE FROM plugins; DELETE FROM pipelines;`);
+    DELETE FROM pipeline_step_manifests; DELETE FROM plugins; DELETE FROM pipelines;`);
 });
 
 describe('upload registers the release', () => {
@@ -168,11 +168,27 @@ describe('setPlatformDefault — the §8 guards, each with its own code', () => 
     await expect(initial('1.0.0')).rejects.toMatchObject({ statusCode: 409, code: 'TOOLCHAIN_GUARD_METADATA' });
   });
 
-  it('canary gate (stubbed closed): a never-default release → TOOLCHAIN_GUARD_CANARY_GATE unless overridden with a reason', async () => {
+  it('canary gate: a never-default release without canary runs → TOOLCHAIN_GUARD_CANARY_GATE (with the numbers) unless overridden with a reason', async () => {
     await release('1.0.0');
     await release('1.1.0');
     await initial('1.0.0');
-    await expect(set('1.1.0', '1.0.0')).rejects.toMatchObject({ statusCode: 409, code: 'TOOLCHAIN_GUARD_CANARY_GATE' });
+    await expect(set('1.1.0', '1.0.0')).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'TOOLCHAIN_GUARD_CANARY_GATE',
+      details: {
+        releaseVersion: '1.1.0',
+        gate: {
+          passed: false,
+          releaseVersion: '1.1.0',
+          params: { minRuns: 20, minOrgs: 2, maxFailurePointsAboveDefault: 5 },
+          perOrgCap: 10,
+          countedRuns: 0,
+          orgs: 0,
+          baselineReleaseVersion: '1.0.0',
+          shortfalls: ['runs', 'orgs', 'failure-rate'],
+        },
+      },
+    });
     await expect(set('1.1.0', '1.0.0', { overrideReason: '   ' })).rejects.toMatchObject({ code: 'TOOLCHAIN_GUARD_CANARY_GATE' });
     expect(audits('toolchain.default.set')).toEqual([
       expect.objectContaining({ outcome: 'failure', details: { releaseVersion: '1.1.0', refusal: 'TOOLCHAIN_GUARD_CANARY_GATE' } }),
@@ -183,12 +199,87 @@ describe('setPlatformDefault — the §8 guards, each with its own code', () => 
     expect(await platformDefault()).toBe('1.1.0');
     expect(audits('toolchain.default.set').at(-1)).toMatchObject({
       outcome: 'success',
-      details: { releaseVersion: '1.1.0', previousReleaseVersion: '1.0.0', gateOverride: { reason: 'hotfix for CVE-2026-1' } },
+      details: { releaseVersion: '1.1.0', previousReleaseVersion: '1.0.0', gateOverride: { reason: 'hotfix for CVE-2026-1', gate: { passed: false, countedRuns: 0 } } },
     });
     expect((await history()).at(-1)).toEqual({ release_version: '1.1.0', previous_release_version: '1.0.0', kind: 'set', reason: 'hotfix for CVE-2026-1' });
   });
 
-  it('re-promoting a former default bypasses the stub-closed gate (rollback)', async () => {
+  describe('canary gate over the stamped run rows (§6)', () => {
+    /** Terminal synth runs of `releaseVersion` in `orgId`, as api/reporting stamps them. */
+    async function synthRuns(orgId: string, releaseVersion: string, succeeded: number, failed = 0) {
+      for (let i = 0; i < succeeded + failed; i++) {
+        await raw.query(
+          `INSERT INTO pipeline_events (pipeline_id, org_id, event_source, event_type, status, execution_id, stage_name, action_name, completed_at, toolchain_release)
+           VALUES ($1, $2, 'codepipeline', 'ACTION', $3, $4, 'Build', 'cdk-synth-0a1b', now(), $5)`,
+          [randomUUID(), orgId, i < failed ? 'FAILED' : 'SUCCEEDED', randomUUID(), releaseVersion]);
+      }
+    }
+    beforeEach(async () => { await raw.exec('DELETE FROM pipeline_events'); });
+
+    it('opens at N runs across M orgs within T points of the default: the promotion needs no override', async () => {
+      await release('1.0.0');
+      await release('1.1.0');
+      await initial('1.0.0');
+      await synthRuns('org-base', '1.0.0', 49, 1); // default: 2%
+      await synthRuns('org-a', '1.1.0', 10);
+      await synthRuns('org-b', '1.1.0', 9);
+      await expect(set('1.1.0', '1.0.0')).rejects.toMatchObject({
+        code: 'TOOLCHAIN_GUARD_CANARY_GATE',
+        details: { gate: { countedRuns: 19, orgs: 2, baselineRuns: 50, baselineFailureRate: 2, shortfalls: ['runs'] } },
+      });
+      await synthRuns('org-b', '1.1.0', 1);
+      await expect(set('1.1.0', '1.0.0')).resolves.toMatchObject({ releaseVersion: '1.1.0', changed: true });
+      // A passed gate is not an override.
+      expect(audits('toolchain.default.set').at(-1)?.details).toEqual({ releaseVersion: '1.1.0', previousReleaseVersion: '1.0.0' });
+    });
+
+    it('one org cannot satisfy N alone: it counts for ceil(N/M) runs', async () => {
+      await release('1.0.0');
+      await release('1.1.0');
+      await initial('1.0.0');
+      await synthRuns('org-a', '1.1.0', 60);
+      await expect(set('1.1.0', '1.0.0')).rejects.toMatchObject({
+        code: 'TOOLCHAIN_GUARD_CANARY_GATE',
+        details: { gate: { perOrgCap: 10, countedRuns: 10, totalRuns: 60, orgs: 1, shortfalls: ['runs', 'orgs'] } },
+      });
+    });
+
+    it('stays closed on a failure rate more than T points over the default, and the console thresholds apply', async () => {
+      await release('1.0.0');
+      await release('1.1.0');
+      await initial('1.0.0');
+      await synthRuns('org-base', '1.0.0', 50);
+      await synthRuns('org-a', '1.1.0', 8, 2);
+      await synthRuns('org-b', '1.1.0', 10);
+      await expect(set('1.1.0', '1.0.0')).rejects.toMatchObject({
+        code: 'TOOLCHAIN_GUARD_CANARY_GATE',
+        message: expect.stringContaining('failure rate 10% is 10 points over'),
+        details: { gate: { failureRate: 10, pointsAboveDefault: 10, shortfalls: ['failure-rate'] } },
+      });
+      // A looser T set on the console opens it.
+      await expect(set('1.1.0', '1.0.0', { canaryGate: { maxFailurePointsAboveDefault: 10 } })).resolves.toMatchObject({ changed: true });
+    });
+
+    it('the override still works on a closed gate, and records the numbers it overrode', async () => {
+      await release('1.0.0');
+      await release('1.1.0');
+      await initial('1.0.0');
+      await synthRuns('org-a', '1.1.0', 3);
+      await set('1.1.0', '1.0.0', { overrideReason: 'urgent CVE' });
+      expect(audits('toolchain.default.set').at(-1)?.details).toMatchObject({ gateOverride: { reason: 'urgent CVE', gate: { countedRuns: 3, orgs: 1, passed: false } } });
+    });
+
+    it('stays waived for restore (yank of the default) with no canary runs at all', async () => {
+      await release('1.0.0');
+      await release('1.1.0');
+      await initial('1.0.0');
+      await set('1.1.0', '1.0.0', { overrideReason: 'promote' });
+      await expect(svc.yankRelease({ releaseVersion: '1.1.0', actor: 'u-op', reason: 'broken synth' })).resolves.toBeDefined();
+      expect(await platformDefault()).toBe('1.0.0');
+    });
+  });
+
+  it('re-promoting a former default bypasses the canary gate (rollback)', async () => {
     await release('1.0.0');
     await release('1.1.0');
     await initial('1.0.0');
@@ -406,6 +497,44 @@ describe('release lifecycle', () => {
     expect(mockFindVersionReferences).toHaveBeenCalledWith(expect.objectContaining({ pluginName: 'pipeline-bootstrap', pluginVersion: '1.1.0' }));
     expect(audits('toolchain.release.delete').every((a) => a.outcome === 'failure' && a.details.refusal === 'PLUGIN_VERSION_IN_USE')).toBe(true);
     expect((await raw.query('SELECT count(*)::int AS n FROM plugins WHERE deleted_at IS NULL')).rows).toEqual([{ n: 4 }]);
+  });
+
+  it('a release referenced ONLY through a deployed build-image row: delete and purge of either half → 409 PLUGIN_VERSION_IN_USE', async () => {
+    // The REAL deploy-reference read (pipeline-data's SQL), on this database.
+    mockFindVersionReferences.mockImplementation((target: any) => realPipelineData.findVersionReferences(target, testDb.withTenantTx));
+    await release('1.0.0');
+    await release('1.1.0');
+    await initial('1.0.0');
+    // A pipeline on a CUSTOM synth plugin: nothing but its build image holds 1.1.0.
+    const [{ id: pipelineId }] = (await raw.query<{ id: string }>(`INSERT INTO pipelines (org_id, project, organization, pipeline_name, props, created_by, updated_by)
+      VALUES ('org-a', 'web', 'acme', 'web', '{}'::jsonb, 'u', 'u') RETURNING id`)).rows;
+    await raw.query(`INSERT INTO pipeline_step_manifests (pipeline_id, org_id, stage_name, action_name, plugin_name, plugin_version, image_digest, image_repository, step_key, resolved_via)
+      SELECT $1, 'org-a', '(toolchain)', 'build-image', name, version, image_digest, 'system/pipeline-bootstrap', 'build-image', 'org-default'
+        FROM plugins WHERE name = 'pipeline-bootstrap' AND version = '1.1.0'`, [pipelineId]);
+
+    await expect(svc.deleteRelease({ releaseVersion: '1.1.0', actor: 'u-op' })).rejects.toMatchObject({
+      statusCode: 409, code: 'PLUGIN_VERSION_IN_USE', details: { deployedPipelines: 1, pinnedPipelines: 0, orgDefaults: 0, platformDefault: false },
+    });
+    expect((await raw.query("SELECT count(*)::int AS n FROM plugins WHERE version = '1.1.0' AND deleted_at IS NULL")).rows).toEqual([{ n: 2 }]);
+
+    // Each half on its own — delete and purge — is held by the same build-image row.
+    const noSuggestion = jest.spyOn(pluginService, 'findFirst').mockResolvedValue(null as never);
+    const halves = await realPipelineData.runWithTenantContext({ isSuperAdmin: true }, () => testDb.withTenantTx((tx) => tx.select().from(realPipelineData.schema.plugin)
+      .where(sql`version = '1.1.0'`))) as any[];
+    expect(halves.map((h) => h.name).sort()).toEqual(['cdk-synth', 'pipeline-bootstrap']);
+    for (const half of halves) {
+      for (const action of ['delete', 'purge'] as const) {
+        await expect(pluginService.assertRemovable(half, action)).rejects.toMatchObject({
+          statusCode: 409, code: 'PLUGIN_VERSION_IN_USE', details: { pipelineCount: 1, orgCount: 1 },
+        });
+      }
+    }
+    noSuggestion.mockRestore();
+
+    // Redeployed off the release: nothing holds it any more.
+    await raw.query('DELETE FROM pipeline_step_manifests');
+    const out = await svc.deleteRelease({ releaseVersion: '1.1.0', actor: 'u-op' });
+    expect(out.plugins.map((p) => p.name).sort()).toEqual(['cdk-synth', 'pipeline-bootstrap']);
   });
 
   it('delete of an unreferenced release tombstones both halves and drops the release row', async () => {

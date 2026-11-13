@@ -700,9 +700,21 @@ export const pipelineStepManifest = pgTable('pipeline_step_manifests', {
   imageRepository: varchar('image_repository', { length: 512 }),
   /** The step's key as synth sends it in lookup `context` (joins lookups / runtime checks to the deployed row). */
   stepKey: varchar('step_key', { length: 255 }),
+  /**
+   * The BUILD-IMAGE row only (`step_key` `build-image`, api-core
+   * `BUILD_IMAGE_MANIFEST_*`): how synth chose the toolchain release
+   * (`plugin_version` is the release version), and the last release change
+   * between consecutive deploys — the run-history "toolchain X → Y" marker.
+   * NULL on every step row.
+   */
+  resolvedVia: varchar('resolved_via', { length: 20 }),
+  previousReleaseVersion: varchar('previous_release_version', { length: 50 }),
+  releaseChangedAt: timestamp('release_changed_at', { withTimezone: true }),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => ({
   pk: primaryKey({ columns: [table.pipelineId, table.stageName, table.actionName] }),
+  resolvedViaCheck: check('pipeline_step_manifests_resolved_via_check',
+    sql`${table.resolvedVia} IS NULL OR ${table.resolvedVia} IN ('pin', 'org-default', 'canary', 'default')`),
   orgIdx: index('pipeline_step_manifest_org_idx').on(table.orgId),
   // public/* GC guard: "does any manifest still reference this digest?"
   digestIdx: index('pipeline_step_manifest_digest_idx').on(table.imageDigest),

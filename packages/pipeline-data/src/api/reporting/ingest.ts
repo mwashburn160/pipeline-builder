@@ -15,6 +15,10 @@ import { invalidateOrgReports } from './caches.js';
 import { upsertDeployments } from './deploy-rollup.js';
 import { classifyFailure } from './failure-classifier.js';
 import { scrubOptional } from './sql-helpers.js';
+import {
+  deployedToolchainOf, readPlatformDefaultRelease, SELF_MUTATION_ACTION, SELF_MUTATION_STAGE, toolchainActionOf,
+  toolchainOutcomeOf, type DeployedToolchain,
+} from './toolchain-runs.js';
 import type { IngestCaller, IngestEvent, IngestMetric, IngestResult } from './types.js';
 import { schema } from '../../database/drizzle-schema.js';
 import { withTenantTx } from '../../database/tenancy.js';
@@ -46,13 +50,17 @@ function stepKey(pipelineId: string, stageName: string, actionName: string): str
 }
 
 /**
- * Plugin attribution: the step manifests of every pipeline with an attributable
- * event, in ONE read per batch, keyed for an in-memory join. Names are compared
- * post-scrub on both sides (the manifest stores them scrubbed the same way).
+ * Plugin attribution AND the deployed toolchain release: the step manifests of
+ * every pipeline with an attributable event, in ONE read per batch, keyed for
+ * an in-memory join. Names are compared post-scrub on both sides (the manifest
+ * stores them scrubbed the same way).
+ *
+ * The toolchain map is the PLATFORM's record of what was deployed (the
+ * manifest's `build-image` entry) — the only source the §7 run stamp may use.
  */
-async function loadStepPlugins(tx: CrudTx, attributable: IngestEvent[]): Promise<Map<string, StepPlugin>> {
+async function loadStepPlugins(tx: CrudTx, attributable: IngestEvent[]): Promise<{ steps: Map<string, StepPlugin>; toolchain: Map<string, DeployedToolchain> }> {
   const pipelineIds = [...new Set(attributable.map((e) => e.pipelineId))];
-  if (pipelineIds.length === 0) return new Map();
+  if (pipelineIds.length === 0) return { steps: new Map(), toolchain: new Map() };
   const rows = await tx
     .select({
       pipelineId: schema.pipelineStepManifest.pipelineId,
@@ -63,10 +71,14 @@ async function loadStepPlugins(tx: CrudTx, attributable: IngestEvent[]): Promise
       pluginPublisherId: schema.pipelineStepManifest.pluginPublisherId,
       pluginName: schema.pipelineStepManifest.pluginName,
       pluginVersion: schema.pipelineStepManifest.pluginVersion,
+      stepKey: schema.pipelineStepManifest.stepKey,
     })
     .from(schema.pipelineStepManifest)
     .where(inArray(schema.pipelineStepManifest.pipelineId, pipelineIds));
-  return new Map(rows.map((m) => [stepKey(m.pipelineId, m.stageName, m.actionName), m]));
+  return {
+    steps: new Map(rows.map((m) => [stepKey(m.pipelineId, m.stageName, m.actionName), m])),
+    toolchain: deployedToolchainOf(rows),
+  };
 }
 
 /**
@@ -124,7 +136,13 @@ function pbFailureCode(detail: Record<string, unknown> | undefined): string | nu
   return typeof code === 'string' && /^[A-Z][A-Z0-9_]{0,63}$/.test(code) ? code : null;
 }
 
-function toEventRow(event: IngestEvent, registry: { pipelineId: string; orgId: string }, plugin: StepPlugin | undefined, keyId: string | undefined): PipelineEventInsert {
+function toEventRow(
+  event: IngestEvent,
+  registry: { pipelineId: string; orgId: string },
+  plugin: StepPlugin | undefined,
+  keyId: string | undefined,
+  toolchainRelease: string | null,
+): PipelineEventInsert {
   const detail = event.sourceMessageId !== undefined
     ? { ...(event.detail ?? {}), sourceMessageId: event.sourceMessageId }
     : event.detail;
@@ -162,6 +180,9 @@ function toEventRow(event: IngestEvent, registry: { pipelineId: string; orgId: s
     pluginPublisherId: plugin?.pluginPublisherId ?? null,
     pluginName: plugin?.pluginName ?? null,
     pluginVersion: plugin?.pluginVersion ?? null,
+    // The managed toolchain release a synth / self-mutation action ran on, from
+    // the platform's deployed manifest (never the payload). NULL otherwise.
+    toolchainRelease,
     // WHAT KIND of thing broke, classified here rather than at read time: the
     // error text is scrubbed above and eventually swept by retention, so a
     // category derived later would have nothing left to read. NULL for anything
@@ -202,14 +223,31 @@ function emitIngestMetrics(
     eventType: string;
     status: string;
     stageName: string | null;
+    actionName?: string | null;
     environment: string | null;
     durationMs?: number | null;
     detail?: Record<string, unknown> | null;
+    toolchainRelease?: string | null;
   }>,
   onMetric: (m: IngestMetric) => void,
+  platformDefaultRelease: string | null,
 ): void {
   for (const r of rows) {
     if (!r.pipelineId) continue;
+
+    // Toolchain runs (§7, alerting only): a terminal outcome on a stamped row.
+    // Not exclusive — the same action is also a compute measurement below.
+    const outcome = r.toolchainRelease ? toolchainOutcomeOf(r.status) : null;
+    if (r.toolchainRelease && outcome) {
+      onMetric({
+        kind: 'toolchain',
+        toolchainRelease: r.toolchainRelease,
+        // Stamped rows are only ever synth or self-mutation.
+        action: r.stageName === SELF_MUTATION_STAGE && r.actionName === SELF_MUTATION_ACTION ? 'self-mutation' : 'synth',
+        outcome,
+        platformDefaultRelease,
+      });
+    }
 
     // Compute consumption: every TERMINAL action, measurable or not. The
     // unmeasurable ones are the point — they are what the coverage ratio counts.
@@ -280,7 +318,7 @@ export async function ingestEvents(
   // Caches are invalidated AFTER the tx resolves: doing it inside held the pg
   // locks open across unrelated cache round-trips. The TTL is 2-5 min, so a
   // fire-and-forget post-commit invalidation is an acceptable trade.
-  const { inserted, skipped, unregisteredPipelineIds, affectedOrgs, droppedForeignOrg, droppedInvalidTime, foreignPipelineIds, insertedRows } = await withTenantTx(async (tx) => {
+  const { inserted, skipped, unregisteredPipelineIds, affectedOrgs, droppedForeignOrg, droppedInvalidTime, foreignPipelineIds, insertedRows, platformDefaultRelease } = await withTenantTx(async (tx) => {
     // Batch-resolve all unique pipeline ids in one query
     const uniqueIds = [...new Set(events.map(e => e.pipelineId))];
     const registryRows = await tx
@@ -292,7 +330,7 @@ export async function ingestEvents(
       .where(inArray(schema.pipelineRegistry.pipelineId, uniqueIds));
 
     const idMap = new Map(registryRows.map(r => [r.pipelineId, r]));
-    const stepPlugins = await loadStepPlugins(tx, events.filter((e) => isAttributable(e) && idMap.has(e.pipelineId)));
+    const { steps: stepPlugins, toolchain } = await loadStepPlugins(tx, events.filter((e) => isAttributable(e) && idMap.has(e.pipelineId)));
 
     // Build insert batch (skip events whose pipeline isn't registered)
     const rows: PipelineEventInsert[] = [];
@@ -336,9 +374,16 @@ export async function ingestEvents(
       const step = isAttributable(event) && stageName && actionName
         ? stepPlugins.get(stepKey(registry.pipelineId, stageName, actionName))
         : undefined;
+      // The toolchain stamp: is this the pipeline's synth / self-mutation
+      // action, and which release did the platform deploy it with?
+      const deployed = toolchain.get(registry.pipelineId);
+      const sameOrgDeployed = deployed && deployed.orgId === registry.orgId ? deployed : undefined;
+      const toolchainRelease = toolchainActionOf({ eventType: event.eventType, stageName, actionName }, sameOrgDeployed)
+        ? sameOrgDeployed!.releaseVersion
+        : null;
       // Same-org guard: a manifest row is only ever written by the org that
       // owns the pipeline, but the ingest runs cross-tenant, so don't lean on it.
-      rows.push(toEventRow(event, registry, step && step.orgId === registry.orgId ? step : undefined, caller?.keyId));
+      rows.push(toEventRow(event, registry, step && step.orgId === registry.orgId ? step : undefined, caller?.keyId, toolchainRelease));
     }
 
     // SQS is at-least-once, so EventBridge can deliver the same state-change
@@ -356,7 +401,9 @@ export async function ingestEvents(
           eventType: schema.pipelineEvent.eventType,
           status: schema.pipelineEvent.status,
           stageName: schema.pipelineEvent.stageName,
+          actionName: schema.pipelineEvent.actionName,
           environment: schema.pipelineEvent.environment,
+          toolchainRelease: schema.pipelineEvent.toolchainRelease,
           // For the per-deploy rollup below: everything `dora_deployments` needs,
           // taken from the rows that ACTUALLY landed so a re-delivery cannot
           // produce a second deploy.
@@ -390,7 +437,14 @@ export async function ingestEvents(
       });
     }
 
+    // The platform default, for the alert's baseline gauge — read only when a
+    // toolchain run landed, so ordinary batches pay nothing.
+    const defaultRelease = landed.some((r) => r.toolchainRelease)
+      ? await readPlatformDefaultRelease(tx)
+      : null;
+
     return {
+      platformDefaultRelease: defaultRelease,
       inserted: landed.length,
       skipped: skippedLocal,
       unregisteredPipelineIds: unregisteredLocal,
@@ -402,7 +456,7 @@ export async function ingestEvents(
     };
   });
 
-  if (onMetric) emitIngestMetrics(insertedRows, onMetric);
+  if (onMetric) emitIngestMetrics(insertedRows, onMetric, platformDefaultRelease);
 
   // Per-deploy rollup. AFTER the events commit and outside their transaction: the
   // events are the durable record and `dora_deployments` is derived from them, so

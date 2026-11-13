@@ -263,6 +263,16 @@ export const pipelineEvent = pgTable('pipeline_events', {
    */
   failureCategory: varchar('failure_category', { length: 30 }),
   /**
+   * The managed toolchain release (docs/plans/bootstrap-image-versioning.md §7)
+   * a `synth` or `self-mutation` ACTION ran on. Stamped at ingest from the
+   * PLATFORM's deployed step manifest for the pipeline (its `build-image`
+   * entry) — never from the payload or a pipeline tag, both of which the
+   * customer controls. NULL for every other row, and for a pipeline whose
+   * manifest records no release. The canary gate and the Affected view are
+   * queries over these rows (`api/reporting/toolchain-runs.ts`).
+   */
+  toolchainRelease: varchar('toolchain_release', { length: 50 }),
+  /**
    * Provenance. `sourceEventId` is the EventBridge event id the forwarder
    * received this state change as (NULL for plugin-build events) — the
    * strongest dedup key there is, and the thread an audit row or a DORA
@@ -324,6 +334,12 @@ export const pipelineEvent = pgTable('pipeline_events', {
   // aren't indexed. The default run-based DORA path (no environment) can't use
   // this partial index; it relies on event_pipeline_type_started_idx below.
   // Created by postgres-init.sql.
+  // The canary gate's scan: one release's stamped toolchain runs over a window.
+  // Partial — only synth / self-mutation rows carry a release. Created by
+  // postgres-init.sql.
+  toolchainReleaseIdx: index('event_toolchain_release_idx')
+    .on(table.toolchainRelease, table.createdAt)
+    .where(sql`toolchain_release IS NOT NULL`),
   envTypeStartedIdx: index('event_env_type_started_idx')
     .on(table.environment, table.eventType, table.startedAt)
     .where(sql`environment IS NOT NULL`),

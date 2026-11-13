@@ -100,3 +100,17 @@ export function toolchainReleasePin(props: unknown): string | undefined {
   const release = toolchain && typeof toolchain === 'object' ? (toolchain as { release?: unknown }).release : undefined;
   return typeof release === 'string' && release.trim() !== '' ? release.trim() : undefined;
 }
+
+/**
+ * Where a pipeline's BUILD IMAGE (the toolchain release's `pipeline-bootstrap`
+ * half) is recorded in its deployed step manifest (docs/plans/
+ * bootstrap-image-versioning.md §4). The bootstrap is not a step, so its entry
+ * is a non-step row: `step_key` is {@link BUILD_IMAGE_STEP_KEY} (the key its
+ * lookup warnings are recorded under too) and its (stage, action) are these
+ * sentinels. The stage name holds characters CodePipeline never allows in a
+ * stage name, so event ingest's (pipeline, stage, action) join can never match
+ * it to a real action.
+ */
+export const BUILD_IMAGE_STEP_KEY = 'build-image';
+export const BUILD_IMAGE_MANIFEST_STAGE = '(toolchain)';
+export const BUILD_IMAGE_MANIFEST_ACTION = 'build-image';

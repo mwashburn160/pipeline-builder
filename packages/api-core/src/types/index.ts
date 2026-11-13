@@ -57,6 +57,9 @@ export {
   managedToolchainRefName,
   managedRefPinsVersion,
   toolchainReleasePin,
+  BUILD_IMAGE_STEP_KEY,
+  BUILD_IMAGE_MANIFEST_STAGE,
+  BUILD_IMAGE_MANIFEST_ACTION,
 } from './plugin-catalog.js';
 export {
   type HttpRequest,

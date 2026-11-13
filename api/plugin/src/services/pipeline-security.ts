@@ -16,12 +16,13 @@
  */
 
 import {
-  assessVersionVulns, ErrorCode, maxSeverity, recordAudit, scanFreshness, severityAtLeast, SYSTEM_ACTOR_ID, versionScanFacts,
+  assessVersionVulns, BUILD_IMAGE_MANIFEST_ACTION, BUILD_IMAGE_MANIFEST_STAGE, BUILD_IMAGE_STEP_KEY, ErrorCode, maxSeverity,
+  recordAudit, scanFreshness, severityAtLeast, SYSTEM_ACTOR_ID, SYSTEM_ORG_ID, versionScanFacts,
   type ScannedRecord, type VulnSeverity, type VulnWarning,
 } from '@pipeline-builder/api-core';
 import {
-  anyText, executeRows, pipelineExposures, pipelineStepLookups, scopeOrgIds, stepLabelOf, triageExposure, exposureById,
-  withTenantTx, type PipelineExposure, type ResolutionScope,
+  anyText, compareSemver, executeRows, pipelineExposures, pipelineStepLookups, resolveManagedToolchain, scopeOrgIds, stepLabelOf, triageExposure,
+  exposureById, withTenantTx, type PipelineExposure, type ResolutionScope,
 } from '@pipeline-builder/pipeline-data';
 import { sql } from 'drizzle-orm';
 
@@ -40,6 +41,30 @@ export interface DigestRecord extends ScannedRecord {
 
 const SHA256 = /^sha256:[0-9a-f]{64}$/;
 
+/** The `plugins` columns {@link ownRecord} reads. */
+const OWN_RECORD_COLUMNS = sql.raw(`id::text AS id, name, version, image_digest, build_type, plugin_type, scanned_at, scan_summary, scan_flagged_at, scan_flag,
+             vuln_high_fixable, deleted_at IS NOT NULL AS deleted, is_active, yanked_at IS NOT NULL AS yanked`);
+
+/** A `plugins` row ({@link OWN_RECORD_COLUMNS}) as a digest record. */
+function ownRecord(r: Record<string, unknown>): DigestRecord {
+  return {
+    id: String(r.id),
+    source: 'org',
+    publisher: null,
+    name: String(r.name),
+    version: String(r.version),
+    imageDigest: String(r.image_digest),
+    buildType: r.build_type as string,
+    pluginType: r.plugin_type as string,
+    scannedAt: r.scanned_at as Date | null,
+    scanSummary: r.scan_summary,
+    scanFlaggedAt: r.scan_flagged_at as Date | null,
+    scanFlag: r.scan_flag,
+    vulnHighFixable: r.vuln_high_fixable,
+    state: r.deleted ? 'deleted' : r.yanked ? 'yanked' : r.is_active === false ? 'inactive' : 'live',
+  };
+}
+
 /**
  * The records each digest belongs to: the org's (or, for a team, its root's)
  * own plugin rows — deleted ones too, since a running pipeline may still be on
@@ -53,8 +78,7 @@ export async function recordsByDigest(scope: ResolutionScope, digests: readonly 
   const orgIds = scopeOrgIds(scope);
   const rows = await elevated(async (tx) => {
     const own = await executeRows<Record<string, unknown>>(tx, sql`
-      SELECT id::text AS id, name, version, image_digest, build_type, plugin_type, scanned_at, scan_summary, scan_flagged_at, scan_flag,
-             vuln_high_fixable, deleted_at IS NOT NULL AS deleted, is_active, yanked_at IS NOT NULL AS yanked
+      SELECT ${OWN_RECORD_COLUMNS}
         FROM plugins
        WHERE image_digest = ${anyText(wanted)} AND lower(org_id) = ${anyText(orgIds)}
        ORDER BY deleted_at NULLS FIRST, updated_at DESC
@@ -71,23 +95,7 @@ export async function recordsByDigest(scope: ResolutionScope, digests: readonly 
   });
   for (const r of rows.own) {
     const digest = String(r.image_digest);
-    if (out.has(digest)) continue;
-    out.set(digest, {
-      id: String(r.id),
-      source: 'org',
-      publisher: null,
-      name: String(r.name),
-      version: String(r.version),
-      imageDigest: digest,
-      buildType: r.build_type as string,
-      pluginType: r.plugin_type as string,
-      scannedAt: r.scanned_at as Date | null,
-      scanSummary: r.scan_summary,
-      scanFlaggedAt: r.scan_flagged_at as Date | null,
-      scanFlag: r.scan_flag,
-      vulnHighFixable: r.vuln_high_fixable,
-      state: r.deleted ? 'deleted' : r.yanked ? 'yanked' : r.is_active === false ? 'inactive' : 'live',
-    });
+    if (!out.has(digest)) out.set(digest, ownRecord(r));
   }
   for (const r of rows.listed) {
     const digest = String(r.image_digest);
@@ -268,20 +276,22 @@ export async function pipelineSecurity(scope: ResolutionScope, pipeline: { id: s
     pipelineStepLookups(orgId, pipeline.id),
     pipelineExposures(orgId, pipeline.id),
   ]);
-  const keys = new Set<string>([...declared.map((d) => stepLabelOf(d.stage_name, d.step_name)), ...lookups.map((l) => l.stepKey)]);
-  const digests = [...declared.map((d) => d.resolved_digest), ...lookups.map((l) => l.imageDigest)].filter((d): d is string => !!d);
+  // The build image is not a step: its lookup (and manifest row) feed the
+  // separate Build image row below.
+  const stepLookups = lookups.filter((l) => l.stepKey !== BUILD_IMAGE_STEP_KEY);
+  const keys = new Set<string>([...declared.map((d) => stepLabelOf(d.stage_name, d.step_name)), ...stepLookups.map((l) => l.stepKey)]);
+  const digests = [...declared.map((d) => d.resolved_digest), ...stepLookups.map((l) => l.imageDigest)].filter((d): d is string => !!d);
   const [records, policy] = await Promise.all([recordsByDigest(scope, digests), consumptionPolicyFor(scope)]);
   const acceptances = await acceptancesFor(orgId, pipeline.id);
   const steps = [];
   let grade: Grade = 'ok';
   for (const stepKey of [...keys].sort()) {
     const d = declared.find((x) => stepLabelOf(x.stage_name, x.step_name) === stepKey) ?? null;
-    const l = lookups.find((x) => x.stepKey === stepKey) ?? null;
+    const l = stepLookups.find((x) => x.stepKey === stepKey) ?? null;
     const digest = l?.imageDigest ?? d?.resolved_digest ?? null;
     const name = l?.pluginName ?? d?.plugin_name ?? null;
     const version = l?.resolvedVersion ?? d?.resolved_version ?? null;
     const record = digest ? records.get(digest) ?? null : null;
-    const facts = record ? versionScanFacts(record) : null;
     const assessment = record ? await assessVersionVulns({ orgId, record, policy, acceptance: acceptanceFor(acceptances, record), compliance: false }) : null;
     const severity: Grade = assessment?.severity ?? 'ok';
     grade = louder(grade, severity);
@@ -297,23 +307,152 @@ export async function pipelineSecurity(scope: ResolutionScope, pipeline: { id: s
       warnings: l?.warnings ?? [],
       refusal: l?.refusal ?? null,
       catalogState: record?.state ?? null,
-      scan: facts && record ? {
-        flagged: facts.flagged,
-        kev: facts.kev,
-        criticalFixable: facts.criticalFixable,
-        highFixable: facts.highFixable,
-        critical: facts.critical,
-        high: facts.high,
-        scannedAt: facts.scannedAt?.toISOString() ?? null,
-        stale: scanFreshness(record).state === 'stale',
-        unscanned: scanFreshness(record).state === 'unscanned',
-      } : null,
+      scan: record ? scanView(record) : null,
       severity,
       currentWarnings: assessment?.warnings.map((w) => ({ code: w.code, severity: w.severity, message: w.message })) ?? [],
       exposures: exposures.filter((e) => e.pluginName === name && e.pluginVersion === version && (!digest || !e.imageDigest || e.imageDigest === digest)).map(shapeExposure),
     });
   }
-  return { pipeline, severity: grade, steps, exposures: exposures.map(shapeExposure) };
+  const synthDeclared = declared.find((d) => stepLabelOf(d.stage_name, d.step_name) === 'synth') ?? null;
+  const buildImage = await buildImageView(scope, pipeline.id, {
+    lookup: lookups.find((l) => l.stepKey === BUILD_IMAGE_STEP_KEY) ?? null,
+    synthDeclared: synthDeclared ? { publisher: synthDeclared.plugin_publisher, name: synthDeclared.plugin_name } : null,
+    policy,
+    acceptances,
+    exposures,
+  });
+  if (buildImage) grade = louder(grade, buildImage.severity);
+  return { pipeline, severity: grade, steps, buildImage, exposures: exposures.map(shapeExposure) };
+}
+
+/** The managed synth half: a pipeline whose synth runs anything else has an unmanaged toolchain. */
+const MANAGED_SYNTH = 'cdk-synth';
+const BOOTSTRAP = 'pipeline-bootstrap';
+
+/** A version's scan facts as the security view returns them. */
+function scanView(record: DigestRecord) {
+  const facts = versionScanFacts(record);
+  const freshness = scanFreshness(record).state;
+  return {
+    flagged: facts.flagged,
+    kev: facts.kev,
+    criticalFixable: facts.criticalFixable,
+    highFixable: facts.highFixable,
+    critical: facts.critical,
+    high: facts.high,
+    scannedAt: facts.scannedAt?.toISOString() ?? null,
+    stale: freshness === 'stale',
+    unscanned: freshness === 'unscanned',
+  };
+}
+
+/**
+ * The pipeline's "Build image" row (docs/plans/bootstrap-image-versioning.md
+ * §11): the toolchain release its last deploy runs on (the manifest's
+ * `build-image` row) or, before a deploy, the last bootstrap lookup — with the
+ * image's scan state, the lookup's warnings, whether it is BEHIND the org's
+ * EFFECTIVE default (what `resolveManagedToolchain` answers the org without a
+ * pin: org default, canary or platform default — never `isDefault`, which
+ * managed rows don't use), whether the synth step runs the managed `cdk-synth`
+ * at all ("toolchain unmanaged" when not), and the last release change between
+ * consecutive deploys (the run-history marker). Null when nothing is recorded.
+ */
+async function buildImageView(
+  scope: ResolutionScope,
+  pipelineId: string,
+  ctx: {
+    lookup: Awaited<ReturnType<typeof pipelineStepLookups>>[number] | null;
+    synthDeclared: { publisher: string | null; name: string } | null;
+    policy: Awaited<ReturnType<typeof consumptionPolicyFor>>;
+    acceptances: Awaited<ReturnType<typeof acceptancesFor>>;
+    exposures: PipelineExposure[];
+  },
+) {
+  const orgId = scope.orgId;
+  const manifest = await withTenantTx((tx) => executeRows<{
+    step_key: string | null;
+    stage_name: string;
+    action_name: string;
+    plugin_publisher: string | null;
+    plugin_name: string;
+    plugin_version: string;
+    image_digest: string | null;
+    image_repository: string | null;
+    resolved_via: string | null;
+    previous_release_version: string | null;
+    release_changed_at: Date | string | null;
+    updated_at: Date | string;
+  }>(tx, sql`
+    SELECT step_key, stage_name, action_name, plugin_publisher, plugin_name, plugin_version, image_digest, image_repository,
+           resolved_via, previous_release_version, release_changed_at, updated_at
+      FROM pipeline_step_manifests
+     WHERE pipeline_id = ${pipelineId} AND lower(org_id) = ${orgId.toLowerCase()}
+       AND ((stage_name = ${BUILD_IMAGE_MANIFEST_STAGE} AND action_name = ${BUILD_IMAGE_MANIFEST_ACTION}) OR step_key = 'synth')
+  `));
+  const deployed = manifest.find((m) => m.stage_name === BUILD_IMAGE_MANIFEST_STAGE && m.action_name === BUILD_IMAGE_MANIFEST_ACTION) ?? null;
+  const l = ctx.lookup;
+  if (!deployed && !l) return null;
+  const releaseVersion = deployed?.plugin_version ?? l?.resolvedVersion ?? null;
+  const digest = deployed?.image_digest ?? l?.imageDigest ?? null;
+
+  // The release's bootstrap row and notes are the system org's: elevated, by
+  // the exact digest the pipeline runs.
+  const { record, releaseNotes } = await elevated(async (tx) => {
+    const rows = digest && SHA256.test(digest) ? await executeRows<Record<string, unknown>>(tx, sql`
+      SELECT ${OWN_RECORD_COLUMNS}
+        FROM plugins
+       WHERE org_id = ${SYSTEM_ORG_ID} AND name = ${BOOTSTRAP} AND image_digest = ${digest}
+       ORDER BY deleted_at NULLS FIRST, updated_at DESC
+       LIMIT 1
+    `) : [];
+    const notes = releaseVersion ? await executeRows<{ release_notes: string | null }>(tx, sql`
+      SELECT release_notes FROM toolchain_release WHERE release_version = ${releaseVersion}
+    `) : [];
+    return { record: rows[0] ? ownRecord(rows[0]) : null, releaseNotes: notes[0]?.release_notes ?? null };
+  });
+  const assessment = record
+    ? await assessVersionVulns({ orgId, record, policy: ctx.policy, acceptance: acceptanceFor(ctx.acceptances, record), compliance: false })
+    : null;
+
+  // The org's effective default — what an unpinned pipeline of it resolves now.
+  let effectiveDefault: { releaseVersion: string; resolvedVia: string } | null = null;
+  try {
+    const resolved = await resolveManagedToolchain({ orgId });
+    effectiveDefault = { releaseVersion: resolved.releaseVersion, resolvedVia: resolved.resolvedVia };
+  } catch {
+    // No default (or an unresolvable one) is not this view's failure: "behind" is just unknown.
+  }
+
+  const synthRow = manifest.find((m) => m.step_key === 'synth') ?? null;
+  const synth = synthRow ? { publisher: synthRow.plugin_publisher, name: synthRow.plugin_name } : ctx.synthDeclared;
+  const iso = (v: Date | string | null | undefined) => (v ? new Date(v).toISOString() : null);
+  return {
+    stepKey: BUILD_IMAGE_STEP_KEY,
+    plugin: BOOTSTRAP,
+    releaseVersion,
+    digest,
+    imageRepository: deployed?.image_repository ?? null,
+    resolvedVia: deployed?.resolved_via ?? null,
+    deployedAt: iso(deployed?.updated_at),
+    lastLookupAt: iso(l?.lookedUpAt),
+    /** The warnings the last bootstrap lookup answered (recorded under `build-image`). */
+    warnings: l?.warnings ?? [],
+    refusal: l?.refusal ?? null,
+    catalogState: record?.state ?? null,
+    scan: record ? scanView(record) : null,
+    severity: (assessment?.severity ?? 'ok') as Grade,
+    currentWarnings: assessment?.warnings.map((w) => ({ code: w.code, severity: w.severity, message: w.message })) ?? [],
+    exposures: ctx.exposures.filter((e) => e.pluginName === BOOTSTRAP && e.pluginVersion === releaseVersion && !e.pluginPublisher).map(shapeExposure),
+    effectiveDefault,
+    behindDefault: !!(releaseVersion && effectiveDefault && compareSemver(releaseVersion, effectiveDefault.releaseVersion) < 0),
+    synthPlugin: synth ? (synth.publisher ? `${synth.publisher}/${synth.name}` : synth.name) : null,
+    toolchainUnmanaged: !!synth && (synth.publisher !== null || synth.name !== MANAGED_SYNTH),
+    /** The last release change between consecutive deploys (the run-history "toolchain X → Y" marker). */
+    change: deployed?.previous_release_version && deployed.release_changed_at
+      ? { from: deployed.previous_release_version, to: deployed.plugin_version, changedAt: iso(deployed.release_changed_at)! }
+      : null,
+    releaseNotes,
+  };
 }
 
 /** `PLUGIN_RISK_ACCEPTANCE_MAX_DAYS` (default 90): the longest an acceptance may run. */

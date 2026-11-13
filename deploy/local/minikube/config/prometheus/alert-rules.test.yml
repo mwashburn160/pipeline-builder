@@ -3610,3 +3610,75 @@ tests:
             exp_annotations:
               summary: "Background job digest has not completed a run in two intervals"
               description: "No replica has finished a successful digest cycle for 30m 0s, more than twice its configured interval plus 15m. Usual causes: every cycle is throwing (see the owning service's 'Scheduler cycle failed' logs), the lock is held by a dead pod whose key has not expired (redis-cli TTL digest), Redis is unreachable (LeaderLockUnavailable), or the owning service is down."
+  # PipelineToolchainFailureSpike (docs/plans/bootstrap-image-versioning.md §7).
+  # a) a canary release failing half its runs while the default fails none
+  #    fires — for the canary only. Two reporting pods disagree about the
+  #    default; the FRESHER observation (1.0.0) is the baseline, so neither the
+  #    stale 0.9.0 nor the default itself is a candidate.
+  - interval: 1m
+    input_series:
+      - series: 'pipeline_toolchain_runs_total{toolchain_release="1.1.0",action="synth",outcome="failed",service="reporting",pod="reporting-a"}'
+        values: '0+1x80'
+      - series: 'pipeline_toolchain_runs_total{toolchain_release="1.1.0",action="synth",outcome="succeeded",service="reporting",pod="reporting-a"}'
+        values: '0+1x80'
+      - series: 'pipeline_toolchain_runs_total{toolchain_release="1.0.0",action="synth",outcome="succeeded",service="reporting",pod="reporting-b"}'
+        values: '0+2x80'
+      - series: 'pipeline_toolchain_platform_default_seen_timestamp_seconds{toolchain_release="0.9.0",service="reporting",pod="reporting-a"}'
+        values: '100x80'
+      - series: 'pipeline_toolchain_platform_default_seen_timestamp_seconds{toolchain_release="1.0.0",service="reporting",pod="reporting-b"}'
+        values: '200x80'
+    alert_rule_test:
+      - eval_time: 70m
+        alertname: PipelineToolchainFailureSpike
+        exp_alerts:
+          - exp_labels: { severity: warning, component: pipeline, tenancy: platform, toolchain_release: "1.1.0" }
+            exp_annotations:
+              summary: "Toolchain release 1.1.0 is failing more than the platform default"
+              description: "Release 1.1.0's synth / self-mutation failure rate over the last hour exceeds the platform default's by 50% (percentage points), on at least 10 runs. Check the Toolchain console's Affected view; if the release is the default, 'Set previous as default'. Outcomes are customer-reported, so confirm against the failing pipelines before acting."
+
+  # b) a release failing exactly as often as the default — the customers' code
+  #    is broken, not the toolchain — stays quiet.
+  - interval: 1m
+    input_series:
+      - series: 'pipeline_toolchain_runs_total{toolchain_release="1.1.0",action="synth",outcome="failed",service="reporting",pod="reporting-a"}'
+        values: '0+1x80'
+      - series: 'pipeline_toolchain_runs_total{toolchain_release="1.1.0",action="synth",outcome="succeeded",service="reporting",pod="reporting-a"}'
+        values: '0+1x80'
+      - series: 'pipeline_toolchain_runs_total{toolchain_release="1.0.0",action="synth",outcome="failed",service="reporting",pod="reporting-a"}'
+        values: '0+3x80'
+      - series: 'pipeline_toolchain_runs_total{toolchain_release="1.0.0",action="synth",outcome="succeeded",service="reporting",pod="reporting-a"}'
+        values: '0+3x80'
+      - series: 'pipeline_toolchain_platform_default_seen_timestamp_seconds{toolchain_release="1.0.0",service="reporting",pod="reporting-a"}'
+        values: '200x80'
+    alert_rule_test:
+      - eval_time: 70m
+        alertname: PipelineToolchainFailureSpike
+        exp_alerts: []
+
+  # c) below the volume floor (~5 runs in the hour) even 100% failure is quiet:
+  #    one failure there is 20 points on its own.
+  - interval: 12m
+    input_series:
+      - series: 'pipeline_toolchain_runs_total{toolchain_release="1.1.0",action="synth",outcome="failed",service="reporting",pod="reporting-a"}'
+        values: '0+1x12'
+      - series: 'pipeline_toolchain_runs_total{toolchain_release="1.0.0",action="synth",outcome="succeeded",service="reporting",pod="reporting-a"}'
+        values: '0+10x12'
+      - series: 'pipeline_toolchain_platform_default_seen_timestamp_seconds{toolchain_release="1.0.0",service="reporting",pod="reporting-a"}'
+        values: '200x12'
+    alert_rule_test:
+      - eval_time: 2h
+        alertname: PipelineToolchainFailureSpike
+        exp_alerts: []
+
+  # d) the default failing is never "worse than the default" — that is the
+  #    per-org stage alerts' job, not this one's.
+  - interval: 1m
+    input_series:
+      - series: 'pipeline_toolchain_runs_total{toolchain_release="1.0.0",action="synth",outcome="failed",service="reporting",pod="reporting-a"}'
+        values: '0+1x80'
+      - series: 'pipeline_toolchain_platform_default_seen_timestamp_seconds{toolchain_release="1.0.0",service="reporting",pod="reporting-a"}'
+        values: '200x80'
+    alert_rule_test:
+      - eval_time: 70m
+        alertname: PipelineToolchainFailureSpike
+        exp_alerts: []

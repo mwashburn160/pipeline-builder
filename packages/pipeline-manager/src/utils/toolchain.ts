@@ -16,7 +16,7 @@
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { ErrorCode, errorMessage } from '@pipeline-builder/api-core';
+import { BUILD_IMAGE_STEP_KEY, ErrorCode, errorMessage } from '@pipeline-builder/api-core';
 import {
   type LookupToolchain, type LookupWarning, type ResolvedBootstrap, parseLookupToolchain, pluginArtifactAlias, unwrapLookup,
 } from '@pipeline-builder/pipeline-core';
@@ -26,9 +26,6 @@ import { bakePlatformRegistry } from './registry.js';
 
 export const BOOTSTRAP_PLUGIN = 'pipeline-bootstrap';
 export const SYNTH_PLUGIN = 'cdk-synth';
-
-/** The step key the bootstrap's lookup warnings are recorded against (the pipeline's "Build image" row). */
-export const BUILD_IMAGE_STEP_KEY = 'build-image';
 
 /** `toolchain export` file format version. */
 export const TOOLCHAIN_FILE_FORMAT = 1;
@@ -119,6 +116,7 @@ export async function resolveBootstrapImage(
   const pipelineId = typeof props.pipelineId === 'string' && props.pipelineId.length > 0 ? props.pipelineId : undefined;
   const { plugin, toolchain, warnings } = await lookupManaged(
     client, BOOTSTRAP_PLUGIN, toolchainReleasePin(props),
+    // Recorded against the pipeline's "Build image" row (api-core BUILD_IMAGE_STEP_KEY).
     pipelineId ? { pipelineId, stepKeys: [BUILD_IMAGE_STEP_KEY] } : undefined,
   );
   for (const warning of warnings) {

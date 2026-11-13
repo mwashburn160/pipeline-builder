@@ -349,6 +349,7 @@ export class PipelineBuilder extends Construct {
       const defaultBuildImage = resolveDefaultBuildImage(this, props.orgId, props.resolvedBootstrap.plugin);
 
       const stepManifest = new StepManifestRecorder();
+      stepManifest.recordBuildImage(props.resolvedBootstrap.plugin, props.resolvedBootstrap.toolchain);
       const synth = createCodeBuildStep({
         ...this.config.synthCustomization,
         id: uniqueId.generate('cdk:synth'),

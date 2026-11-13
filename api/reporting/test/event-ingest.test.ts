@@ -27,9 +27,13 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
   runServer: jest.fn<AnyFn>(),
   attachRequestContext: () => jest.fn<AnyFn>(),
   incCounter: (...a: unknown[]) => mockIncCounter(...a),
+  setGauge: (...a: unknown[]) => mockSetGauge(...a),
+  resetGauge: (...a: unknown[]) => mockResetGauge(...a),
 }));
 
 const mockIncCounter = jest.fn<(...a: unknown[]) => void>();
+const mockSetGauge = jest.fn<(...a: unknown[]) => void>();
+const mockResetGauge = jest.fn<(...a: unknown[]) => void>();
 const mockRecordAudit = jest.fn<(e: unknown) => void>();
 
 // WHO the caller is, for the ingest tenancy check. The real events Lambda holds a
@@ -311,6 +315,50 @@ describe('POST /reports/events', () => {
 
       expect(mockIncCounter).not.toHaveBeenCalledWith('pipeline_stage_result_total', expect.anything());
       expect(mockIncCounter).not.toHaveBeenCalledWith('pipeline_deploy_result_total', expect.anything());
+    });
+  });
+
+  /**
+   * Managed toolchain runs (docs/plans/bootstrap-image-versioning.md §7) —
+   * ALERTING ONLY. The release label is what the ingest stamped from the
+   * platform's manifest; the series carries no org (the gate reads the rows).
+   */
+  describe('pipeline_toolchain_runs_total', () => {
+    const toolchain = (over: Record<string, unknown> = {}) => ({
+      kind: 'toolchain', toolchainRelease: '1.1.0', action: 'synth', outcome: 'failed', platformDefaultRelease: '1.0.0', ...over,
+    });
+    const ok = { inserted: 1, skipped: 0, unregisteredPipelineIds: [], affectedOrgs: ['acme'], foreignPipelineIds: [], insertedPipelineIds: [], insertedExecutionIds: [] };
+
+    it('counts by release, action and outcome — and nothing else', async () => {
+      mockIngestEvents.mockImplementationOnce(async (_e: unknown, onMetric: (m: unknown) => void) => {
+        onMetric(toolchain());
+        onMetric(toolchain({ action: 'self-mutation', outcome: 'succeeded' }));
+        return ok;
+      });
+      await getHandler()(ingestReq(), res());
+      expect(mockIncCounter).toHaveBeenCalledWith('pipeline_toolchain_runs_total', { toolchain_release: '1.1.0', action: 'synth', outcome: 'failed' });
+      expect(mockIncCounter).toHaveBeenCalledWith('pipeline_toolchain_runs_total', { toolchain_release: '1.1.0', action: 'self-mutation', outcome: 'succeeded' });
+      // Never a stage outcome.
+      expect(mockIncCounter).not.toHaveBeenCalledWith('pipeline_stage_result_total', expect.anything());
+    });
+
+    it('publishes the default it saw as the alert baseline, one series per pod', async () => {
+      mockIngestEvents.mockImplementationOnce(async (_e: unknown, onMetric: (m: unknown) => void) => {
+        onMetric(toolchain());
+        return ok;
+      });
+      await getHandler()(ingestReq(), res());
+      expect(mockResetGauge).toHaveBeenCalledWith('pipeline_toolchain_platform_default_seen_timestamp_seconds');
+      expect(mockSetGauge).toHaveBeenCalledWith('pipeline_toolchain_platform_default_seen_timestamp_seconds', { toolchain_release: '1.0.0' }, expect.any(Number));
+    });
+
+    it('publishes no baseline when there is no platform default', async () => {
+      mockIngestEvents.mockImplementationOnce(async (_e: unknown, onMetric: (m: unknown) => void) => {
+        onMetric(toolchain({ platformDefaultRelease: null }));
+        return ok;
+      });
+      await getHandler()(ingestReq(), res());
+      expect(mockSetGauge).not.toHaveBeenCalled();
     });
   });
 

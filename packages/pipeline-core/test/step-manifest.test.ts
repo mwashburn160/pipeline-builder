@@ -12,7 +12,7 @@
 import { jest, describe, it, expect } from '@jest/globals';
 import { App, Stack } from 'aws-cdk-lib';
 import { Template } from 'aws-cdk-lib/assertions';
-import { TEST_REGISTRY, bootstrapFixture } from './helpers/bootstrap-fixture.js';
+import { BOOTSTRAP_DIGEST, TEST_REGISTRY, bootstrapFixture } from './helpers/bootstrap-fixture.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 import type { BuilderProps } from '../src/pipeline/pipeline-builder.js';
 
@@ -53,7 +53,8 @@ jest.unstable_mockModule('../src/pipeline/plugin-lookup.js', async () => {
 });
 
 const { PipelineBuilder } = await import('../src/pipeline/pipeline-builder.js');
-const { pluginImageRepository } = await import('../src/core/step-manifest.js');
+const { pluginImageRepository, isBuildImageEntry } = await import('../src/core/step-manifest.js');
+const { StepManifestRecorder } = await import('../src/pipeline/step-manifest-recorder.js');
 
 function build(props: Partial<BuilderProps>) {
   const stack = new Stack(new App(), 'PbManifestStack');
@@ -89,7 +90,7 @@ describe('PipelineBuilder.stepManifest', () => {
       ],
     });
 
-    const manifest = builder.stepManifest as unknown as Array<Record<string, unknown>>;
+    const manifest = (builder.stepManifest as unknown as Array<Record<string, unknown>>).filter((e) => e.kind !== 'build-image');
     expect(manifest.map((e) => e.pluginName).sort()).toEqual(['cdk-synth', 'eslint', 'jest', 'trivy']);
     for (const e of manifest) {
       expect(synthesized.has(`${e.stageName}/${e.actionName}`)).toBe(true);
@@ -117,7 +118,43 @@ describe('PipelineBuilder.stepManifest', () => {
       // No resolvedPlugins → the synth step bootstraps (placeholder).
       stages: [{ stageName: 'Test', steps: [{ plugin: { name: 'unresolved' } }, { plugin: { name: 'jest' } }] }],
     });
-    expect((builder.stepManifest as Array<{ pluginName: string }>).map((e) => e.pluginName)).toEqual(['jest']);
+    expect((builder.stepManifest as Array<{ pluginName: string }>).map((e) => e.pluginName)).toEqual(['jest', 'pipeline-bootstrap']);
+  });
+});
+
+describe('build-image entry', () => {
+  it('records the resolved bootstrap as one non-step entry, last, with the release it came from', () => {
+    const { builder, synthesized } = build({
+      resolvedBootstrap: { ...bootstrapFixture({ releaseVersion: '1.4.2' }), toolchain: { ...bootstrapFixture({ releaseVersion: '1.4.2' }).toolchain, resolvedVia: 'pin' } },
+      stages: [{ stageName: 'Test', steps: [{ plugin: { name: 'jest' } }] }],
+    });
+    const manifest = builder.stepManifest;
+    const entries = manifest.filter(isBuildImageEntry);
+    expect(entries).toEqual([{
+      kind: 'build-image',
+      stageName: '(toolchain)',
+      actionName: 'build-image',
+      stepKey: 'build-image',
+      pluginId: '00000000-0000-0000-0000-0000000000b0',
+      pluginName: 'pipeline-bootstrap',
+      pluginVersion: '1.4.2',
+      imageDigest: BOOTSTRAP_DIGEST,
+      releaseVersion: '1.4.2',
+      imageRepository: 'system/pipeline-bootstrap',
+      resolvedVia: 'pin',
+    }]);
+    expect(manifest[manifest.length - 1]).toBe(entries[0]);
+    // Never a CodePipeline action: its (stage, action) can't collide with one.
+    expect(synthesized.has('(toolchain)/build-image')).toBe(false);
+    expect(manifest.filter((e) => !isBuildImageEntry(e)).every((e) => synthesized.has(`${e.stageName}/${e.actionName}`))).toBe(true);
+  });
+
+  it('a recorder with no build image (or a placeholder one) emits no build-image entry', () => {
+    const recorder = new StepManifestRecorder();
+    const pipeline = { stages: [] } as never;
+    expect(recorder.entries(pipeline)).toEqual([]);
+    recorder.recordBuildImage({ ...bootstrapFixture().plugin, id: '00000000-0000-0000-0000-000000000000' } as never, bootstrapFixture().toolchain);
+    expect(recorder.entries(pipeline)).toEqual([]);
   });
 });
 

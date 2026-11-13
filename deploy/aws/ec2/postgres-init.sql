@@ -505,6 +505,11 @@ CREATE TABLE IF NOT EXISTS pipeline_events (    id UUID PRIMARY KEY DEFAULT gen_
     -- category derived later would have nothing to read — and the AI summary is
     -- shown the category, never the raw error.
     failure_category VARCHAR(30),
+    -- The managed toolchain release a synth / self-mutation ACTION ran on,
+    -- stamped at ingest from the PLATFORM's deployed step manifest (its
+    -- build-image entry) — never from the payload or a pipeline tag. NULL on
+    -- every other row. The canary gate and the Affected view read it.
+    toolchain_release VARCHAR(50),
     -- Provenance: the EventBridge event id the forwarder received this state
     -- change as (NULL for plugin-build events, which have no AWS origin), and
     -- the access-key id of the ingest credential that wrote the row. A key ID,
@@ -827,6 +832,13 @@ CREATE INDEX IF NOT EXISTS event_org_type_created_idx
 
 CREATE INDEX IF NOT EXISTS event_org_source_status_idx
     ON pipeline_events(org_id, event_source, status);
+
+-- The toolchain canary gate's scan: one release's stamped runs over a window.
+-- Partial: only synth / self-mutation rows carry a release. Matches the drizzle
+-- event_toolchain_release_idx.
+CREATE INDEX IF NOT EXISTS event_toolchain_release_idx
+    ON pipeline_events(toolchain_release, created_at)
+    WHERE toolchain_release IS NOT NULL;
 
 -- DORA deploy-scoped reads (partial: only PIPELINE events tagged with an
 -- environment). event_type is included because the events Lambda tags every
@@ -2597,6 +2609,17 @@ CREATE TABLE IF NOT EXISTS pipeline_step_manifests (
     -- The step's key as synth sends it in lookup `context`: joins the step's
     -- lookups and runtime checks to this deployed row.
     step_key VARCHAR(255),
+    -- The BUILD-IMAGE row only (step_key 'build-image', stage '(toolchain)'):
+    -- the toolchain release's pipeline-bootstrap half the pipeline runs on.
+    -- plugin_version IS the release version. resolved_via is how synth chose
+    -- it; previous_release_version / release_changed_at are the last release
+    -- change between consecutive deploys (the run-history marker). NULL on
+    -- every step row.
+    resolved_via VARCHAR(20)
+                    CONSTRAINT pipeline_step_manifests_resolved_via_check
+                    CHECK (resolved_via IS NULL OR resolved_via IN ('pin', 'org-default', 'canary', 'default')),
+    previous_release_version VARCHAR(50),
+    release_changed_at TIMESTAMPTZ,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (pipeline_id, stage_name, action_name)
 );

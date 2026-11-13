@@ -86,11 +86,51 @@ export interface PipelineSecurityStep {
   exposures: PipelineExposureView[];
 }
 
+/** How a pipeline's toolchain release was chosen at synth. */
+export type ToolchainResolvedVia = 'pin' | 'org-default' | 'canary' | 'default';
+
+/**
+ * The pipeline's "Build image" row: the toolchain release (its
+ * `pipeline-bootstrap` half) the last deploy runs on, or — before a deploy —
+ * the last bootstrap lookup. Not a step.
+ */
+export interface PipelineBuildImage {
+  /** Always `build-image` (the key its lookup warnings are recorded under). */
+  stepKey: string;
+  plugin: string;
+  releaseVersion: string | null;
+  digest: string | null;
+  imageRepository: string | null;
+  resolvedVia: ToolchainResolvedVia | string | null;
+  deployedAt: string | null;
+  lastLookupAt: string | null;
+  warnings: Array<{ code: string; message: string; severity?: VulnSeverity; suggestedVersion?: string }>;
+  refusal: { code?: string; message?: string } | null;
+  catalogState: 'live' | 'inactive' | 'yanked' | 'deleted' | null;
+  scan: StepScanFacts | null;
+  severity: VulnGrade;
+  currentWarnings: GradedPluginWarning[];
+  exposures: PipelineExposureView[];
+  /** What an unpinned pipeline of this org resolves now (org default, canary or platform default). */
+  effectiveDefault: { releaseVersion: string; resolvedVia: ToolchainResolvedVia | string } | null;
+  /** The release is older than {@link effectiveDefault} (never `isDefault`). */
+  behindDefault: boolean;
+  /** The synth step's plugin (`publisher/name` or `name`). */
+  synthPlugin: string | null;
+  /** The synth step is not the managed `cdk-synth`. */
+  toolchainUnmanaged: boolean;
+  /** The last release change between consecutive deploys (the run-history marker). */
+  change: { from: string; to: string; changedAt: string } | null;
+  releaseNotes: string | null;
+}
+
 /** `GET /plugins/pipelines/:pipelineId/security` (`pipelines:read`). */
 export interface PipelineSecurity {
   pipeline: { id: string; name: string | null };
   severity: VulnGrade;
   steps: PipelineSecurityStep[];
+  /** Null until a deploy (or a bootstrap lookup) recorded one. */
+  buildImage: PipelineBuildImage | null;
   exposures: PipelineExposureView[];
 }
 

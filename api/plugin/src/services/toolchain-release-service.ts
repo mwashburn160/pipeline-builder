@@ -25,7 +25,10 @@ import {
   pluginVulnMaxFindings, recordAudit, toolchainFromMetadata,
   type PluginScanSummary, type RemoteAuditAction,
 } from '@pipeline-builder/api-core';
-import { executeRows, runWithTenantContext, schema, withTenantTx, type ToolchainDefaultKind } from '@pipeline-builder/pipeline-data';
+import {
+  executeRows, readCanaryGate, runWithTenantContext, schema, withTenantTx,
+  type CanaryGateParams, type CanaryGateResult, type ToolchainDefaultKind,
+} from '@pipeline-builder/pipeline-data';
 import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 
 import { pluginService, type Plugin } from './plugin-service.js';
@@ -52,6 +55,11 @@ export interface SetPlatformDefaultInput {
   expectedCurrentDefault?: string | null;
   /** A written reason that overrides the canary gate (`set` only). Recorded in history and the audit. */
   overrideReason?: string;
+  /**
+   * The canary gate's thresholds (N runs, M orgs, T points), as the console
+   * sets them (Phase 5). Omitted fields take `DEFAULT_CANARY_GATE` (20 / 2 / 5).
+   */
+  canaryGate?: Partial<CanaryGateParams>;
   /**
    * `initial` ONLY: the operator's reason for accepting a release over the
    * fixable-Critical floor (`--accept-initial-vulnerabilities`). The only
@@ -174,13 +182,29 @@ function floorBreach(row: Plugin): { gated: number; flagged: boolean } | null {
 }
 
 /**
- * The Phase 3 canary gate (N synth runs across M orgs, failure rate within T
- * points of the default) needs the run rows Phase 3 adds. Until then it is
- * STUBBED CLOSED: a `set` passes only where the gate is waived (a former
- * default) or overridden with a reason.
+ * The §6 canary gate: at least N synth runs across at least M orgs (each org
+ * capped at ceil(N/M)), with a failure rate within T points of the CURRENT
+ * default's — a query over the run rows api/reporting stamps with the release
+ * from the platform's deployed manifest (pipeline-data `readCanaryGate`).
+ * Read in this transaction, under the platform-default lock, so the baseline
+ * is the default the change replaces. ADVISORY: outcomes are customer-reported,
+ * so it informs the operator and an override records a reason.
  */
-async function canaryGatePassed(_tx: TenantTx, _releaseVersion: string): Promise<boolean> {
-  return false;
+function canaryGate(tx: TenantTx, releaseVersion: string, currentDefault: string | null, params?: Partial<CanaryGateParams>): Promise<CanaryGateResult> {
+  return readCanaryGate(tx, releaseVersion, currentDefault, params);
+}
+
+/** One line naming what the gate is short of. */
+function describeGate(g: CanaryGateResult): string {
+  const parts: string[] = [];
+  if (g.shortfalls.includes('runs')) parts.push(`${g.countedRuns} of ${g.params.minRuns} synth runs (at most ${g.perOrgCap} per org)`);
+  if (g.shortfalls.includes('orgs')) parts.push(`${g.orgs} of ${g.params.minOrgs} orgs`);
+  if (g.shortfalls.includes('failure-rate')) {
+    parts.push(g.pointsAboveDefault === null
+      ? 'no failure rate yet'
+      : `failure rate ${g.failureRate}% is ${g.pointsAboveDefault} points over the default's ${g.baselineFailureRate}% (at most ${g.params.maxFailurePointsAboveDefault})`);
+  }
+  return parts.join('; ');
 }
 
 // -- The guards + write ------------------------------------------------------
@@ -278,17 +302,21 @@ async function applyPlatformDefault(tx: TenantTx, input: SetPlatformDefaultInput
   }
 
   // Canary gate: waived for initial, restore and a former default; otherwise
-  // passed, or overridden with a written reason.
-  let gateOverride: { reason: string } | undefined;
-  if (kind === 'set' && !(await wasEverDefault(tx, releaseVersion)) && !(await canaryGatePassed(tx, releaseVersion))) {
-    if (!nonEmpty(input.overrideReason)) {
-      throw refusal(
-        ErrorCode.TOOLCHAIN_GUARD_CANARY_GATE,
-        `Release ${releaseVersion} has not passed the canary gate; promote it with a written override reason, or wait for the canary.`,
-        { releaseVersion },
-      );
+  // passed, or overridden with a written reason. The refusal (and an
+  // override's audit) carries the gate's numbers, for the console to show.
+  let gateOverride: { reason: string; gate: CanaryGateResult } | undefined;
+  if (kind === 'set' && !(await wasEverDefault(tx, releaseVersion))) {
+    const gate = await canaryGate(tx, releaseVersion, current, input.canaryGate);
+    if (!gate.passed) {
+      if (!nonEmpty(input.overrideReason)) {
+        throw refusal(
+          ErrorCode.TOOLCHAIN_GUARD_CANARY_GATE,
+          `Release ${releaseVersion} has not passed the canary gate (${describeGate(gate)}); promote it with a written override reason, or wait for the canary.`,
+          { releaseVersion, gate },
+        );
+      }
+      gateOverride = { reason: input.overrideReason.trim(), gate };
     }
-    gateOverride = { reason: input.overrideReason.trim() };
   }
 
   const now = new Date();

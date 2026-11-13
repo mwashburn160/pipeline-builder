@@ -23,11 +23,43 @@
  * Matched by image digest when the version has one (a team running its parent's
  * plugin, or another org's install, pins the same digest), else by name +
  * version within the owner org and its teams.
+ *
+ * A MANAGED TOOLCHAIN half (the system org's `pipeline-bootstrap` / `cdk-synth`,
+ * docs/plans/bootstrap-image-versioning.md §4/§5) is referenced whenever its
+ * RELEASE is: a pipeline deploying or declaring EITHER half of the same version
+ * references both. A pipeline that only runs the release's build image (the
+ * manifest's non-step `build-image` row) still holds its synth half, and the
+ * reverse — the release is one unit, created, deleted and purged together.
  */
 
+import {
+  BUILD_IMAGE_STEP_KEY, isManagedToolchainPlugin, isSystemOrgId, MANAGED_TOOLCHAIN_PLUGINS, SYSTEM_ORG_ID,
+} from '@pipeline-builder/api-core';
 import { sql, type SQL } from 'drizzle-orm';
 import { executeRows } from '../database/pg-result.js';
 import { withTenantTx } from '../database/tenancy.js';
+
+/** The managed toolchain names as an SQL list (constants, never input). */
+const MANAGED_NAMES_SQL = sql.raw(MANAGED_TOOLCHAIN_PLUGINS.map((n) => `'${n}'`).join(', '));
+const SYSTEM_ORG_ID_LOWER = SYSTEM_ORG_ID.toLowerCase();
+
+/**
+ * "This row is a release half whose RELEASE some pipeline references": a
+ * system-org managed row, and a manifest / resolution / open deployed exposure
+ * naming either half at its version. Managed names are reserved to the system
+ * org, so a publisher-less row with one IS that release's.
+ */
+function managedReleaseReferenced(cols: { name: SQL; version: SQL; orgId: SQL }): SQL {
+  // COALESCE: a caller passing NULL columns (the listing image GC) must read
+  // FALSE here, never NULL — `NOT NULL` would silently keep every image.
+  return sql`COALESCE(lower(${cols.orgId}) = ${SYSTEM_ORG_ID_LOWER} AND ${cols.name} IN (${MANAGED_NAMES_SQL}) AND (
+      EXISTS (SELECT 1 FROM pipeline_step_manifests m WHERE m.plugin_name IN (${MANAGED_NAMES_SQL}) AND m.plugin_version = ${cols.version}
+                AND m.plugin_publisher IS NULL)
+      OR EXISTS (SELECT 1 FROM pipeline_plugin_resolution r JOIN pipelines lp ON lp.id::text = r.pipeline_id AND lp.deleted_at IS NULL
+                  WHERE r.plugin_name IN (${MANAGED_NAMES_SQL}) AND r.resolved_version = ${cols.version} AND r.plugin_publisher IS NULL)
+      OR EXISTS (SELECT 1 FROM plugin_vuln_exposure e WHERE e.plugin_name IN (${MANAGED_NAMES_SQL}) AND e.plugin_version = ${cols.version}
+                  AND e.plugin_publisher IS NULL AND e.source = 'deployed' AND e.fixed_at IS NULL)), false)`;
+}
 
 /** A version / image whose references are wanted. */
 export interface VersionReferenceTarget {
@@ -38,6 +70,11 @@ export interface VersionReferenceTarget {
   ownerOrgId?: string | null;
   /** The listing's publisher handle (a listing version); null/omitted for an org plugin. */
   publisher?: string | null;
+}
+
+/** Whether `target` is a managed toolchain half (matched release-wide, see the module doc). */
+function isManagedReleaseTarget(target: VersionReferenceTarget): boolean {
+  return isManagedToolchainPlugin(target.pluginName) && !target.publisher && isSystemOrgId(target.ownerOrgId ?? '');
 }
 
 /** One pipeline referencing a version. */
@@ -58,6 +95,7 @@ export interface VersionReference {
  */
 export function versionReferencedPredicate(cols: { digest: SQL; name: SQL; version: SQL; orgId: SQL }): SQL {
   return sql`(
+    ${managedReleaseReferenced(cols)} OR
     (${cols.digest} IS NOT NULL AND (
       EXISTS (SELECT 1 FROM pipeline_step_manifests m WHERE m.image_digest = ${cols.digest})
       OR EXISTS (SELECT 1 FROM pipeline_plugin_resolution r JOIN pipelines p ON p.id::text = r.pipeline_id AND p.deleted_at IS NULL
@@ -78,9 +116,17 @@ export function versionReferencedPredicate(cols: { digest: SQL; name: SQL; versi
  * names other orgs' pipelines; callers show the OWNER only counts and its own
  * org's pipelines, and notify each referencing org about its own.
  */
-export async function findVersionReferences(target: VersionReferenceTarget): Promise<VersionReference[]> {
+export async function findVersionReferences(
+  target: VersionReferenceTarget,
+  run: <T>(fn: (tx: Parameters<Parameters<typeof withTenantTx>[0]>[0]) => Promise<T>) => Promise<T> = withTenantTx,
+): Promise<VersionReference[]> {
   const digest = target.imageDigest ?? null;
   const owner = target.ownerOrgId?.toLowerCase() ?? null;
+  const managed = isManagedReleaseTarget(target);
+  // A managed half: either half of the release, at its version (module doc).
+  const release = (alias: 'r' | 'm' | 'e', versionCol: string) => (managed
+    ? sql` OR (${sql.raw(`${alias}.plugin_name`)} IN (${MANAGED_NAMES_SQL}) AND ${sql.raw(`${alias}.${versionCol}`)} = ${target.pluginVersion} AND ${sql.raw(`${alias}.plugin_publisher`)} IS NULL)`
+    : sql``);
   const declaredMatch = digest
     ? sql`r.resolved_digest = ${digest}`
     : sql`r.plugin_name = ${target.pluginName} AND r.resolved_version = ${target.pluginVersion}
@@ -93,7 +139,7 @@ export async function findVersionReferences(target: VersionReferenceTarget): Pro
     ? sql`e.image_digest = ${digest}`
     : sql`e.plugin_name = ${target.pluginName} AND e.plugin_version = ${target.pluginVersion}
           AND ${target.publisher ? sql`e.plugin_publisher = ${target.publisher}` : sql`e.plugin_publisher IS NULL AND lower(e.org_id) = ${owner}`}`;
-  const rows = await withTenantTx((tx) => executeRows<{ pipeline_id: string; org_id: string; source: VersionReference['source']; pipeline_name: string | null; deleted: boolean; steps: string[] | null }>(tx, sql`
+  const rows = await run((tx) => executeRows<{ pipeline_id: string; org_id: string; source: VersionReference['source']; pipeline_name: string | null; deleted: boolean; steps: string[] | null }>(tx, sql`
     SELECT x.pipeline_id, x.org_id, x.source, p.pipeline_name, (p.id IS NULL OR p.deleted_at IS NOT NULL) AS deleted,
            array_agg(DISTINCT x.step) FILTER (WHERE x.step IS NOT NULL) AS steps
       FROM (
@@ -101,13 +147,14 @@ export async function findVersionReferences(target: VersionReferenceTarget): Pro
                CASE WHEN r.stage_name = 'synth' AND r.step_name = 'synth' THEN 'synth' ELSE r.stage_name || '/' || r.step_name END AS step
           FROM pipeline_plugin_resolution r
           JOIN pipelines lp ON lp.id::text = r.pipeline_id AND lp.deleted_at IS NULL
-         WHERE ${declaredMatch}
+         WHERE (${declaredMatch}${release('r', 'resolved_version')})
         UNION ALL
-        SELECT m.pipeline_id::text, m.org_id, 'deployed', m.stage_name || '/' || m.action_name
-          FROM pipeline_step_manifests m WHERE ${deployedMatch}
+        SELECT m.pipeline_id::text, m.org_id, 'deployed',
+               CASE WHEN m.step_key = ${BUILD_IMAGE_STEP_KEY} THEN ${BUILD_IMAGE_STEP_KEY} ELSE m.stage_name || '/' || m.action_name END
+          FROM pipeline_step_manifests m WHERE (${deployedMatch}${release('m', 'plugin_version')})
         UNION ALL
         SELECT e.pipeline_id, e.org_id, 'exposure', NULL
-          FROM plugin_vuln_exposure e WHERE ${exposureMatch} AND e.source = 'deployed' AND e.fixed_at IS NULL
+          FROM plugin_vuln_exposure e WHERE (${exposureMatch}${release('e', 'plugin_version')}) AND e.source = 'deployed' AND e.fixed_at IS NULL
       ) x
       LEFT JOIN pipelines p ON p.id::text = x.pipeline_id
      GROUP BY x.pipeline_id, x.org_id, x.source, p.pipeline_name, p.id, p.deleted_at
