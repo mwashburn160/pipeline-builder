@@ -59,7 +59,7 @@ describe('infrastructure config loaders', () => {
     expect(loadDockerConfig()).toMatchObject({ timeoutMs: 900_000, buildkitAddr: 'unix:///run/buildkit/buildkitd.sock' });
     const aws = loadAWSConfig();
     expect(aws.lambda).toMatchObject({ runtime: 'nodejs26.x', architecture: 'arm64', reservedConcurrentExecutions: undefined });
-    expect(aws.codeBuild).toEqual({ computeType: 'SMALL', defaultImage: 'pipeline-bootstrap:1.0', defaultImageDigest: '' });
+    expect(aws.codeBuild).toEqual({ computeType: 'SMALL' });
   });
 
   it('parse typed overrides from the environment', () => {

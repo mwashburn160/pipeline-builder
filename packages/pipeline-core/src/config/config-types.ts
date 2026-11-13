@@ -268,42 +268,6 @@ export interface AWSConfig {
   readonly codeBuild: {
     /** CodeBuild compute type name, e.g. `'SMALL'` (env: `CODEBUILD_COMPUTE_TYPE`). */
     readonly computeType: string;
-    /**
-     * Image used for CodeBuild steps that don't have a plugin-baked image
-     * (cold-start synth bootstrap, ShellSteps with no registry, and
-     * `metadata_only` plugins). env: `CODEBUILD_DEFAULT_IMAGE`. Default
-     * `pipeline-bootstrap:1.0` — the local tag built by
-     * `deploy/codebuild/bootstrap/Dockerfile`, with `pipeline-manager`
-     * baked in.
-     *
-     * Contract: the image MUST have `pipeline-manager` on PATH. The
-     * bootstrap synth path does not self-heal via `npm install -g`;
-     * pointing this at an image without the tool gets exit 127 on the
-     * first cold-start build.
-     *
-     * Resolution:
-     * - Bare tag (no `/`) → auto-prefixed to
-     *   `<registry-host>:<port>/library/<tag>` using the registry config,
-     *   with the per-org platform Secret as Basic auth (same flow as
-     *   plugin images).
-     * - Fully-qualified registry URI (contains `/`) → used as-is, no
-     *   auth wired (operator owns making it pullable).
-     * - When the registry isn't configured or per-org auth isn't
-     *   available at the call site, falls back to
-     *   `aws/codebuild/standard:8.0` with a warning — cold-start synth
-     *   will then fail on `pipeline-manager: not found`, surfacing the
-     *   misconfiguration loudly instead of silently swapping images.
-     */
-    readonly defaultImage: string;
-    /**
-     * Registry manifest digest (`sha256:<64 hex>`) of {@link defaultImage},
-     * printed by `deploy/bin/build-codebuild-bootstrap.sh` after it publishes.
-     * env: `CODEBUILD_DEFAULT_IMAGE_DIGEST`. When set, a bare-tag image is
-     * pulled as `<registry>/library/<repo>@<digest>` — by the artifact that
-     * was built and scanned, never by the mutable tag. Empty → the tag is used
-     * and synth warns loudly; malformed → synth fails.
-     */
-    readonly defaultImageDigest: string;
   };
 }
 

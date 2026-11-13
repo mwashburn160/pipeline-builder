@@ -217,8 +217,7 @@ function serviceMessage(err: unknown): string | null {
  * the deploy-time custom resource Lambda uses. Returning the full Plugin
  * record at synth time is what allows the resulting CFN template to ship
  * with real CodeBuild image URIs (`<host>/<ns>/<name>:<version>`) rather than
- * the `aws/codebuild/standard:7.0` fallback that the synth-time token path
- * forces.
+ * the pipeline's default image that the synth-time token path forces.
  *
  * Failures are non-fatal: a missing plugin or unreachable API logs a warning
  * and falls through to the deploy-time custom resource path so partial

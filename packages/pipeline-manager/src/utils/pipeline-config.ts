@@ -31,7 +31,7 @@ export interface FetchedPipeline {
  *  - GET the pipeline and validate it has `props`,
  *  - assemble `propsWithIds` (props + pipelineId + orgId),
  *  - pre-resolve plugins so the template ships real CodeBuild image URIs
- *    (otherwise CDK falls back to standard:7.0 at deploy time),
+ *    (otherwise the steps fall back to the deploy-time lookup path),
  *  - resolve the toolchain release's pipeline-bootstrap (FATAL on any
  *    failure, D2) with the same `toolchain.release` pin a managed cdk-synth
  *    reference sent, and check both halves are one release,

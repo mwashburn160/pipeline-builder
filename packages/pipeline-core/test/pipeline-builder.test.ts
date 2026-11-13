@@ -489,18 +489,6 @@ describe('PipelineBuilder', () => {
       expect(() => build(baseProps({ resolvedBootstrap: undefined as never }))).toThrow(/BOOTSTRAP_IMAGE_UNRESOLVED.*resolvedBootstrap/);
     });
 
-    it('carries no CODEBUILD_DEFAULT_IMAGE* anywhere in the template, even when the env sets them', () => {
-      process.env.CODEBUILD_DEFAULT_IMAGE = 'pipeline-bootstrap:1.0';
-      process.env.CODEBUILD_DEFAULT_IMAGE_DIGEST = `sha256:${'c'.repeat(64)}`;
-      try {
-        const { template } = build(baseProps({ pipelineId: 'pl-1' }));
-        expect(JSON.stringify(template.toJSON())).not.toMatch(/CODEBUILD_DEFAULT_IMAGE/);
-      } finally {
-        delete process.env.CODEBUILD_DEFAULT_IMAGE;
-        delete process.env.CODEBUILD_DEFAULT_IMAGE_DIGEST;
-      }
-    });
-
     it('pins the default image to system/pipeline-bootstrap@<digest> with the registry-push credential', () => {
       const { template } = build(baseProps());
       const ref = `registry.example.com/system/pipeline-bootstrap@${BOOTSTRAP_DIGEST}`;

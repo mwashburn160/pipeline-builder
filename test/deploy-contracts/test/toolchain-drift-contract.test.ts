@@ -319,25 +319,12 @@ describe('managed toolchain release (pipeline-bootstrap + cdk-synth)', () => {
     return hits;
   }
 
-  // Still carrying the old literal ON PURPOSE, each with the phase that removes it:
-  //  - pipeline-core: its CODEBUILD_DEFAULT_IMAGE default and doc comments are
-  //    replaced by the resolver (Phase 2) and deleted with the env var (Phase 7).
-  //  - the four .env.example files, docs/environment-variables.md and its
-  //    generated help topic: the CODEBUILD_DEFAULT_IMAGE row itself (Phase 7).
-  //  - api/plugin/src/helpers/docker-build.ts: a comment in the api/plugin
-  //    Phase 1 change set (not this one).
-  // Drop an entry when its phase lands; never add one for new code.
-  const PENDING = [
-    /^packages\/pipeline-core\//,
-    /^deploy\/(local\/docker|local\/minikube|aws\/ec2|aws\/eks)\/\.env\.example$/,
-    /^docs\/environment-variables\.md$/,
-    /^frontend\/src\/lib\/help\/generated\/env-variables\.ts$/,
-    /^api\/plugin\/src\/helpers\/docker-build\.ts$/,
-  ];
-  const unexpected = (hits: string[]) => hits.filter((f) => !PENDING.some((re) => re.test(f)));
-
   it('no literal pipeline-bootstrap:1.0 tag anywhere (the tag is the release version)', () => {
-    expect(unexpected(filesContaining(new RegExp('pipeline-' + 'bootstrap:1\\.0(?![.\\d])')))).toEqual([]);
+    expect(filesContaining(new RegExp('pipeline-' + 'bootstrap:1\\.0(?![.\\d])'))).toEqual([]);
+  });
+
+  it('the CODEBUILD_DEFAULT_IMAGE[_DIGEST] env vars are gone (the toolchain release replaces them)', () => {
+    expect(filesContaining(new RegExp('CODEBUILD_' + 'DEFAULT_IMAGE'))).toEqual([]);
   });
 
   it('the toolchain root holds exactly the two halves, and the catalog holds neither', () => {
@@ -359,6 +346,6 @@ describe('managed toolchain release (pipeline-bootstrap + cdk-synth)', () => {
   it('nothing references the deleted deploy/codebuild/ or its build script', () => {
     expect(existsSync(join(REPO_ROOT, 'deploy', 'codebuild'))).toBe(false);
     expect(existsSync(join(REPO_ROOT, 'deploy/bin', 'build-codebuild-bootstrap.sh'))).toBe(false);
-    expect(unexpected(filesContaining(new RegExp(['deploy/' + 'codebuild', 'build-' + 'codebuild-bootstrap\\.sh'].join('|'))))).toEqual([]);
+    expect(filesContaining(new RegExp(['deploy/' + 'codebuild', 'build-' + 'codebuild-bootstrap\\.sh'].join('|')))).toEqual([]);
   });
 });

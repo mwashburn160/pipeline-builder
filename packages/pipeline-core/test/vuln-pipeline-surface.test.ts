@@ -146,19 +146,6 @@ describe('default build image = the resolved pipeline-bootstrap, pinned like a p
       .toThrow(/BOOTSTRAP_IMAGE_UNRESOLVED/);
   });
 
-  it('never reads CODEBUILD_DEFAULT_IMAGE[_DIGEST]', () => {
-    process.env.CODEBUILD_DEFAULT_IMAGE = 'aws/codebuild/standard:8.0';
-    process.env.CODEBUILD_DEFAULT_IMAGE_DIGEST = `sha256:${'d'.repeat(64)}`;
-    try {
-      Config._resetForTesting();
-      const image = resolveDefaultBuildImage(new Stack(new App(), 'S'), 'org1', bootstrapFixture({ digest: DIGEST }).plugin) as { imageId: string };
-      expect(image.imageId).toBe(`registry.example.com/system/pipeline-bootstrap@${DIGEST}`);
-    } finally {
-      delete process.env.CODEBUILD_DEFAULT_IMAGE;
-      delete process.env.CODEBUILD_DEFAULT_IMAGE_DIGEST;
-    }
-  });
-
   it('the default-image project has exactly a plugin step\'s Image / RegistryCredential shape', () => {
     // Phase 0: CodeBuild pulls system/pipeline-bootstrap exactly as it already
     // pulls every system plugin (cdk-synth et al.).

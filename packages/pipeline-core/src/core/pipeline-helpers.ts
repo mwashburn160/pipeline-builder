@@ -198,8 +198,9 @@ function resolveExternalPullTarget(
  *      sending the per-org platform Secret as Basic auth to
  *      `pipeline-image-registry`'s `/token` endpoint; the JWT in `password`
  *      resolves to a registry token scoped to the org.
- *   3. If `metadata_only`, return `undefined` so CodeBuild uses its default
- *      (`standard:7.0`).
+ *   3. If `metadata_only`, return `undefined` so the step runs on the
+ *      pipeline's default image (`codeBuildDefaults`: the toolchain release's
+ *      `system/pipeline-bootstrap@<digest>`, see {@link resolveDefaultBuildImage}).
  *
  * `scope` and `orgId` are required: the per-org platform Secret is named
  * `pipeline-builder/<orgId>/platform`, and `Secret.fromSecretNameV2()`
@@ -466,10 +467,10 @@ export function createCodeBuildStep(options: CodeBuildStepOptions): ShellStep | 
 
   const programmatic = { input, installCommands, commands };
 
-  // Resolve the plugin's runtime image. CodeBuild defaults to
-  // `aws/codebuild/standard:7.0` when no `buildImage` is set — that's the
-  // AWS-managed Ubuntu image and DOES NOT have any plugin-baked tools
-  // (pipeline-manager, snyk, terraform, etc.). Wiring the plugin's image
+  // Resolve the plugin's runtime image. A step with no `buildImage` runs on
+  // the pipeline's default image (the toolchain release's pipeline-bootstrap,
+  // via `codeBuildDefaults`), which carries pipeline-manager and the CDK CLI
+  // but NONE of a plugin's baked tools (snyk, terraform, etc.). Wiring the plugin's image
   // here means CodeBuild pulls from our private registry and the tools
   // installed in the plugin's Dockerfile are actually available.
   const pluginBuildImage = resolvePluginImage(scope, plugin, orgId);
@@ -477,7 +478,8 @@ export function createCodeBuildStep(options: CodeBuildStepOptions): ShellStep | 
   // ShellStep branch.
   // ShellStep itself doesn't accept `buildEnvironment`/`buildImage`. CDK
   // pipelines wraps ShellSteps in a default CodeBuild action that runs on
-  // `aws/codebuild/standard:7.0` — which won't have the plugin's tools.
+  // the pipeline's default image (pipeline-bootstrap) — which won't have the
+  // plugin's tools.
   //
   // So when a SHELL_STEP plugin DOES have an image (because its author
   // baked tools into a Dockerfile), we PROMOTE it to a CodeBuildStep with

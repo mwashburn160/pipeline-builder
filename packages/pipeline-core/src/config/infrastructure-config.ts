@@ -181,8 +181,6 @@ export function loadAWSConfig(): AWSConfig {
 
     codeBuild: {
       computeType: (envStr('CODEBUILD_COMPUTE_TYPE', 'SMALL')).toUpperCase(),
-      defaultImage: envStr('CODEBUILD_DEFAULT_IMAGE', 'pipeline-bootstrap:1.0'),
-      defaultImageDigest: envStr('CODEBUILD_DEFAULT_IMAGE_DIGEST', ''),
     },
   };
 }

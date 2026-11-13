@@ -20,7 +20,7 @@ Complete reference for every environment variable across the Pipeline Builder se
 - **Several switches interact.** A master switch being off makes everything beneath it inert — `EMAIL_ENABLED`, `BILLING_ENABLED`, `BILLING_DISCOUNTS_ENABLED`, `REPORT_SCHEDULER_ENABLED`.
 - **Per-tier overrides follow a pattern**: `QUOTA_TIER_<TIER>_<LIMIT>`, `BILLING_PLAN_<TIER>_MONTHLY`, `JWT_EXPIRES_IN_*`.
 - **Secrets belong in a sealed secret or SSM**, not in a ConfigMap. The k8s targets build `app-env` from the whole `.env`, so anything you put there is mounted.
-- **Some values must match something outside the app** — `EMAIL_FROM` against the SES IAM condition, `SES_REGION` against the identity's region, `CODEBUILD_DEFAULT_IMAGE` against the pushed bootstrap tag.
+- **Some values must match something outside the app** — `EMAIL_FROM` against the SES IAM condition, `SES_REGION` against the identity's region.
 
 ## Overview
 
@@ -50,7 +50,7 @@ This is for anyone deploying or operating the platform. Pair it with the per-tar
 3. **Override only what you need.** Everything else is documented here so you can confirm the default rather than restate it.
 4. **Put real secrets in a sealed secret or SSM** — `STRIPE_SECRET_KEY`, `AUDIT_CHAIN_HMAC_KEY`, `BILLING_DISCOUNT_KEYS`, `SECRET_ENCRYPTION_KEY` and the signing keys.
 5. **On k8s, update the Secret and the ConfigMap, then `kubectl rollout restart`** the affected Deployments. Editing `.env` alone changes nothing already running.
-6. **Check the cross-system matches** before you call it done — `EMAIL_FROM` against the SES policy condition, `SES_REGION` against the identity, `CODEBUILD_DEFAULT_IMAGE` against the tag you actually pushed.
+6. **Check the cross-system matches** before you call it done — `EMAIL_FROM` against the SES policy condition, `SES_REGION` against the identity.
 
 Use the [Table of Contents](#table-of-contents) below to jump to a section.
 
@@ -1034,8 +1034,6 @@ Billing computes the effective window (`tierBase + Σ pack grant`, `-1` = unlimi
 | `LAMBDA_ARCHITECTURE` | `ARM_64` | Plugin-lookup Lambda architecture: `ARM_64` or `x86_64` |
 | `LAMBDA_RESERVED_CONCURRENCY` | — | Reserved concurrency for the plugin-lookup Lambda; unset → unreserved |
 | `CODEBUILD_COMPUTE_TYPE` | `SMALL` | `SMALL`, `MEDIUM`, `LARGE`, `X2_LARGE` |
-| `CODEBUILD_DEFAULT_IMAGE` | `pipeline-bootstrap:1.0` | Image for the synth (bootstrap) CodeBuild step; must have `pipeline-manager` on PATH |
-| `CODEBUILD_DEFAULT_IMAGE_DIGEST` | — | Registry manifest digest (`sha256:<64 hex>`) of `CODEBUILD_DEFAULT_IMAGE`, the digest in the `BOOTSTRAP_IMAGE_REF` that `deploy/bin/build-plugin-images.sh` prints after it publishes `pipeline-bootstrap`. Set → the default image is pulled as `<registry>/library/<repo>@<digest>`; unset → by its mutable tag, with a synth warning; malformed → synth fails. Propagated into the pipeline's CodeBuild environment so a self-mutating synth keeps the pin. |
 | `PLATFORM_CA_BUNDLE` | — | PEM text of a private CA the platform's certificate chains to. Trusted (on top of Node's roots) by `pipeline-manager`'s API client, propagated into every CodeBuild step and the plugin-lookup Lambda — so the CodeBuild synth verifies TLS instead of disabling it. |
 | `PLATFORM_TLS_VERIFY` | `true` | Whether pipelines verify the platform's TLS certificate. Read at synth time. `false` (a dev platform on a self-signed certificate with no CA to distribute) adds `--no-verify-ssl` to the self-mutating synth and sets `NODE_TLS_REJECT_UNAUTHORIZED=0` on every CodeBuild step and the plugin-lookup Lambda; `NODE_TLS_REJECT_UNAUTHORIZED=0` in the synth's environment is treated the same. Prefer `PLATFORM_CA_BUNDLE`, which keeps verification on. Credentialed unverified calls are still refused when `NODE_ENV=production`. |
 | `LOG_GROUP_NAME` | `/pipeline-builder/logs` | CloudWatch log group |
