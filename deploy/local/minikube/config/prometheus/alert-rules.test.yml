@@ -3464,3 +3464,91 @@ tests:
       - eval_time: 26h
         alertname: OffersExpiringUnseen
         exp_alerts: []
+
+  # SchedulerJobStale — judged against each job's OWN published interval.
+  # A 2m job whose last success stopped advancing at t=0 crosses 2*120+900 =
+  # 1140s (19m), then holds for 5m: firing by 30m.
+  - interval: 1m
+    input_series:
+      - series: 'scheduler_interval_seconds{key="pb:lock:sweep",service="platform",pod="platform-aaa"}'
+        values: '120+0x40'
+      - series: 'scheduler_started_timestamp_seconds{key="pb:lock:sweep",service="platform",pod="platform-aaa"}'
+        values: '0+0x40'
+      - series: 'scheduler_last_success_timestamp_seconds{key="pb:lock:sweep",service="platform",pod="platform-aaa"}'
+        values: '0+0x40'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: SchedulerJobStale
+        exp_alerts:
+          - exp_labels:
+              key: pb:lock:sweep
+              severity: warning
+              component: background-jobs
+              tenancy: platform
+            exp_annotations:
+              summary: "Background job pb:lock:sweep has not completed a run in two intervals"
+              description: "No replica has finished a successful pb:lock:sweep cycle for 30m 0s, more than twice its configured interval plus 15m. Usual causes: every cycle is throwing (see the owning service's 'Scheduler cycle failed' logs), the lock is held by a dead pod whose key has not expired (redis-cli TTL pb:lock:sweep), Redis is unreachable (LeaderLockUnavailable), or the owning service is down."
+
+  # The same 2m job succeeding every cycle stays quiet — on the holder pod only;
+  # the contending replica publishes the interval but never a success.
+  - interval: 2m
+    input_series:
+      - series: 'scheduler_interval_seconds{key="pb:lock:sweep",service="platform",pod="platform-aaa"}'
+        values: '120+0x30'
+      - series: 'scheduler_interval_seconds{key="pb:lock:sweep",service="platform",pod="platform-bbb"}'
+        values: '120+0x30'
+      - series: 'scheduler_started_timestamp_seconds{key="pb:lock:sweep",service="platform",pod="platform-bbb"}'
+        values: '0+0x30'
+      - series: 'scheduler_last_success_timestamp_seconds{key="pb:lock:sweep",service="platform",pod="platform-aaa"}'
+        values: '0+120x30'
+    alert_rule_test:
+      - eval_time: 50m
+        alertname: SchedulerJobStale
+        exp_alerts: []
+
+  # A 6h job last successful 10h ago is fine (threshold 2*21600+900 = 12h15m).
+  # The old fixed 1h-window rule paged on exactly this.
+  - interval: 1m
+    input_series:
+      - series: 'scheduler_interval_seconds{key="pb:lock:purge",service="platform",pod="platform-aaa"}'
+        values: '21600+0x800'
+      - series: 'scheduler_last_success_timestamp_seconds{key="pb:lock:purge",service="platform",pod="platform-aaa"}'
+        values: '0+0x800'
+    alert_rule_test:
+      - eval_time: 10h
+        alertname: SchedulerJobStale
+        exp_alerts: []
+      - eval_time: 13h
+        alertname: SchedulerJobStale
+        exp_alerts:
+          - exp_labels:
+              key: pb:lock:purge
+              severity: warning
+              component: background-jobs
+              tenancy: platform
+            exp_annotations:
+              summary: "Background job pb:lock:purge has not completed a run in two intervals"
+              description: "No replica has finished a successful pb:lock:purge cycle for 13h 0m 0s, more than twice its configured interval plus 15m. Usual causes: every cycle is throwing (see the owning service's 'Scheduler cycle failed' logs), the lock is held by a dead pod whose key has not expired (redis-cli TTL pb:lock:purge), Redis is unreachable (LeaderLockUnavailable), or the owning service is down."
+
+  # Started but NEVER succeeded on any pod: ages from the oldest start.
+  - interval: 1m
+    input_series:
+      - series: 'scheduler_interval_seconds{key="digest",service="message",pod="message-aaa"}'
+        values: '120+0x40'
+      - series: 'scheduler_started_timestamp_seconds{key="digest",service="message",pod="message-aaa"}'
+        values: '0+0x40'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: SchedulerJobStale
+        exp_alerts: []
+      - eval_time: 30m
+        alertname: SchedulerJobStale
+        exp_alerts:
+          - exp_labels:
+              key: digest
+              severity: warning
+              component: background-jobs
+              tenancy: platform
+            exp_annotations:
+              summary: "Background job digest has not completed a run in two intervals"
+              description: "No replica has finished a successful digest cycle for 30m 0s, more than twice its configured interval plus 15m. Usual causes: every cycle is throwing (see the owning service's 'Scheduler cycle failed' logs), the lock is held by a dead pod whose key has not expired (redis-cli TTL digest), Redis is unreachable (LeaderLockUnavailable), or the owning service is down."

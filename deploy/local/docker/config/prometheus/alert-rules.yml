@@ -2651,26 +2651,44 @@ groups:
           summary: "Background job {{ $labels.key }} cannot reach Redis — nobody is running it"
           description: "The leader lock for {{ $labels.key }} could not be taken because Redis was unreachable, so no replica ran the job. Sweeps fail closed rather than risk running on every pod, so this is a silent stop, not a duplicate-work risk. Check Redis reachability from the owning service."
 
-      # A job whose lock is never ACQUIRED is not running anywhere. This is the
-      # condition that matters most and the one with no previous signal at all:
-      # contention is healthy (exactly one acquire per window fleet-wide), but
-      # zero acquires over an hour means the job is dead — a crashed holder whose
-      # key has not expired, a scheduler that never started, or a service down.
-      # Scoped to keys Prometheus has already seen, so a job that has never run
-      # cannot fire it (nothing to compare against).
-      - alert: LeaderLockNeverAcquired
+      # A job that has not SUCCEEDED in two of its own intervals (plus 15m of
+      # slack) is not doing its work anywhere. Every job runs through api-core's
+      # createScheduler, which publishes its interval and, on the pod that held
+      # the lock, the time of the last cycle that ran and returned without
+      # throwing. Comparing the two is what lets one rule cover every job at its
+      # own cadence: a 2m job fires after ~19m, a 6h job after ~12h15m, a 24h job
+      # after ~48h15m — and an interval overridden through the environment is
+      # judged against the interval it actually runs at, with no table to update.
+      #
+      # The second clause is the job that started but has NEVER succeeded on any
+      # pod (the success gauge is per-process, so it is also how a restart that
+      # wiped it ages out): it ages from the OLDEST live start instead.
+      #
+      # Replaces LeaderLockNeverAcquired, which used a fixed 1h window and so
+      # fired on every job that legitimately runs less often than hourly, and
+      # counted lock grabs rather than runs that worked.
+      - alert: SchedulerJobStale
         expr: |
-          sum by (key) (increase(leader_lock_acquired_total[1h])) == 0
-          and
-          sum by (key) (leader_lock_acquired_total) > 0
-        for: 1h
+          (
+            time() - max by (key) (scheduler_last_success_timestamp_seconds)
+              > 2 * max by (key) (scheduler_interval_seconds) + 900
+          )
+          or
+          (
+            (
+              time() - min by (key) (scheduler_started_timestamp_seconds)
+                > 2 * max by (key) (scheduler_interval_seconds) + 900
+            )
+            unless on (key) scheduler_last_success_timestamp_seconds
+          )
+        for: 5m
         labels:
           severity: warning
           component: background-jobs
           tenancy: platform
         annotations:
-          summary: "Background job {{ $labels.key }} has not run for an hour"
-          description: "No replica has acquired the {{ $labels.key }} leader lock in 1h, so the job is not running anywhere. Usual causes: the pod holding it died without releasing and the key has not expired yet (TTL is a crash-recovery window), the owning service is down, or its scheduler never started. Check: redis-cli TTL {{ $labels.key }}"
+          summary: "Background job {{ $labels.key }} has not completed a run in two intervals"
+          description: "No replica has finished a successful {{ $labels.key }} cycle for {{ $value | humanizeDuration }}, more than twice its configured interval plus 15m. Usual causes: every cycle is throwing (see the owning service's 'Scheduler cycle failed' logs), the lock is held by a dead pod whose key has not expired (redis-cli TTL {{ $labels.key }}), Redis is unreachable (LeaderLockUnavailable), or the owning service is down."
 
       # Losing a lock MID-RUN means a heartbeat found another holder or the key
       # gone — the run is now racing a second pod. The run's abort signal stops it

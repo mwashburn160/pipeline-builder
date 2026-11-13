@@ -3,6 +3,7 @@
 
 import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 import { createScheduler } from '../src/services/scheduler.js';
+import { resetGaugeEmitter, setGaugeEmitter } from '../src/utils/metric-emitter.js';
 
 describe('createScheduler', () => {
   beforeEach(() => { jest.useFakeTimers(); });
@@ -83,5 +84,76 @@ describe('createScheduler', () => {
     await jest.advanceTimersByTimeAsync(0);
     expect(run).not.toHaveBeenCalled();
     s.stop();
+  });
+});
+
+describe('createScheduler liveness gauges', () => {
+  type Set = { name: string; labels: Record<string, string>; value: number };
+  let sets: Set[];
+  const named = (n: string) => sets.filter((g) => g.name === n);
+
+  beforeEach(() => {
+    jest.useFakeTimers({ now: 1_700_000_000_000 });
+    sets = [];
+    setGaugeEmitter((name, labels, value) => { sets.push({ name, labels, value }); });
+  });
+  afterEach(() => { resetGaugeEmitter(); jest.clearAllTimers(); jest.useRealTimers(); });
+
+  it('publishes the interval and the start time on start, keyed by the lock key', () => {
+    const redis = { set: jest.fn(async (..._a: unknown[]) => 'OK'), get: jest.fn(async () => null), del: jest.fn(async () => 1) };
+    const s = createScheduler({ name: 'job', intervalMs: 6 * 3600_000, run: async () => {}, runOnStart: false, lock: { redis: () => redis, key: 'lock:purge', ttlMs: 500 } });
+    s.start();
+    expect(named('scheduler_interval_seconds')).toEqual([{ name: 'scheduler_interval_seconds', labels: { key: 'lock:purge' }, value: 21600 }]);
+    expect(named('scheduler_started_timestamp_seconds')).toEqual([{ name: 'scheduler_started_timestamp_seconds', labels: { key: 'lock:purge' }, value: 1_700_000_000 }]);
+    s.stop();
+  });
+
+  it('an unlocked scheduler is keyed by its name, and stamps each successful cycle', async () => {
+    const s = createScheduler({ name: 'digest', intervalMs: 1000, run: async () => {} });
+    s.start();
+    await jest.advanceTimersByTimeAsync(0);
+    await jest.advanceTimersByTimeAsync(1000);
+    const stamps = named('scheduler_last_success_timestamp_seconds');
+    expect(stamps.map((g) => g.labels)).toEqual([{ key: 'digest' }, { key: 'digest' }]);
+    expect(stamps[1]!.value).toBeGreaterThan(stamps[0]!.value);
+    s.stop();
+  });
+
+  it('a throwing cycle is not a success', async () => {
+    const s = createScheduler({ name: 'boom', intervalMs: 1000, run: async () => { throw new Error('boom'); } });
+    s.start();
+    await jest.advanceTimersByTimeAsync(1000);
+    expect(named('scheduler_last_success_timestamp_seconds')).toEqual([]);
+    s.stop();
+  });
+
+  it('a pod that loses the lock race does not stamp — only the holder does', async () => {
+    const contended = { set: jest.fn(async (..._a: unknown[]) => null), get: jest.fn(async () => null), del: jest.fn(async () => 1) };
+    const run = jest.fn<() => Promise<void>>(async () => {});
+    const s = createScheduler({ name: 'job', intervalMs: 1000, run, lock: { redis: () => contended, key: 'k', ttlMs: 500 } });
+    s.start();
+    await jest.advanceTimersByTimeAsync(0);
+    expect(run).not.toHaveBeenCalled();
+    expect(named('scheduler_last_success_timestamp_seconds')).toEqual([]);
+    s.stop();
+  });
+
+  it('the lock holder stamps after its run returns', async () => {
+    const held = { set: jest.fn(async (..._a: unknown[]) => 'OK'), get: jest.fn(async () => null), del: jest.fn(async () => 1) };
+    const s = createScheduler({ name: 'job', intervalMs: 1000, run: async () => {}, lock: { redis: () => held, key: 'k', ttlMs: 500 } });
+    s.start();
+    await jest.advanceTimersByTimeAsync(0);
+    expect(named('scheduler_last_success_timestamp_seconds').map((g) => g.labels)).toEqual([{ key: 'k' }]);
+    s.stop();
+  });
+
+  it('a cycle cut short by stop() is not stamped', async () => {
+    let release!: () => void;
+    const s = createScheduler({ name: 'slow', intervalMs: 10_000, run: () => new Promise<void>((r) => { release = r; }) });
+    s.start();
+    s.stop();
+    release();
+    await jest.advanceTimersByTimeAsync(0);
+    expect(named('scheduler_last_success_timestamp_seconds')).toEqual([]);
   });
 });

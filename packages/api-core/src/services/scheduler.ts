@@ -3,6 +3,7 @@
 
 import { acquireSharedEnvLock, releaseSharedEnvLock, withLeaderLock, type LeaderLockRun, type LockRedis } from './leader-lock.js';
 import { createLogger } from '../utils/logger.js';
+import { emitGauge } from '../utils/metric-emitter.js';
 import { errorMessage } from '../utils/response.js';
 
 /**
@@ -59,6 +60,27 @@ export interface Scheduler {
 }
 
 /**
+ * Liveness gauges every scheduler publishes, labelled `{key}` (the lock key, or
+ * the scheduler's name when it has no lock). Together they let ONE alert rule
+ * cover every job at its own cadence — the interval is published rather than
+ * written into the rule, so a job whose interval an operator overrides through
+ * the environment is judged against the interval it actually runs at.
+ *
+ * - `scheduler_interval_seconds` — the configured interval, set on `start()`.
+ * - `scheduler_started_timestamp_seconds` — when `start()` ran, so a job that
+ *   started but has NEVER succeeded on any pod still has something to age.
+ * - `scheduler_last_success_timestamp_seconds` — the end of the last cycle that
+ *   actually ran the job and returned without throwing. Only the pod that held
+ *   the lock publishes it; a contended or unavailable lock is not a success.
+ *
+ * The values live in process memory, so a restart drops the last success until
+ * the next cycle republishes it. Most jobs run on start, so the gap is minutes.
+ */
+export const SCHEDULER_INTERVAL_METRIC = 'scheduler_interval_seconds';
+export const SCHEDULER_STARTED_METRIC = 'scheduler_started_timestamp_seconds';
+export const SCHEDULER_LAST_SUCCESS_METRIC = 'scheduler_last_success_timestamp_seconds';
+
+/**
  * A periodic background job: a single unref'd `setInterval` with start-once
  * semantics, error isolation (a throwing cycle is logged, never crashes the
  * loop), an optional startup delay, and an optional cross-pod leader lock.
@@ -69,6 +91,7 @@ export interface Scheduler {
  */
 export function createScheduler(opts: SchedulerOptions): Scheduler {
   const log = createLogger(opts.name);
+  const metricLabels = { key: opts.lock?.key ?? opts.name };
   let interval: ReturnType<typeof setInterval> | null = null;
   let startup: ReturnType<typeof setTimeout> | null = null;
   let stopped = false;
@@ -80,6 +103,11 @@ export function createScheduler(opts: SchedulerOptions): Scheduler {
   let shutdown = new AbortController();
   /** The in-flight cycle, so `stop()` can wait for it before closing the client. */
   let inFlight: Promise<void> | null = null;
+
+  /** A cycle that was cut short by `stop()` is not stamped: it did not finish. */
+  const stampSuccess = (): void => {
+    emitGauge(SCHEDULER_LAST_SUCCESS_METRIC, metricLabels, Date.now() / 1000);
+  };
 
   const cycle = async (): Promise<void> => {
     // Same-pod re-entrancy guard: setInterval doesn't await the async cycle, so
@@ -100,10 +128,12 @@ export function createScheduler(opts: SchedulerOptions): Scheduler {
         // signal for both "lock lost" and "shutting down".
         const ran = await withLeaderLock(redis, opts.lock.key, opts.lock.ttlMs, opts.run, { signal });
         if (!ran) log.debug('Cycle skipped — another pod holds the lock');
+        else if (!signal.aborted) stampSuccess();
       } else {
         // Unlocked: still give the job a signal, so `stop()` can cut a long cycle
         // short rather than waiting for it during shutdown.
         await opts.run({ signal });
+        if (!signal.aborted) stampSuccess();
       }
     } catch (err) {
       log.error('Scheduler cycle failed', { error: errorMessage(err) });
@@ -132,6 +162,8 @@ export function createScheduler(opts: SchedulerOptions): Scheduler {
       // A restart needs a fresh controller: the previous stop() aborted the old
       // one, and an already-aborted signal would make every cycle a no-op.
       if (shutdown.signal.aborted) shutdown = new AbortController();
+      emitGauge(SCHEDULER_INTERVAL_METRIC, metricLabels, opts.intervalMs / 1000);
+      emitGauge(SCHEDULER_STARTED_METRIC, metricLabels, Date.now() / 1000);
       if (opts.lock && !opts.lock.redis && !holdsEnvLock) {
         envLock = acquireSharedEnvLock();
         holdsEnvLock = true;

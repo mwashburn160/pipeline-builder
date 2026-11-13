@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import crypto from 'crypto';
-import { ANONYMOUS_ACTOR_ID, JWKS_PATH, clientVersionGate, auditContextFromRequest, runWithAuditContext, sanitizeCorrelationId, createHealthRouter, createLogger, emitCounter, installCrashHandlers, mongoSanitize, resolveRedisConnection, errorMessage, retryForever, type Scheduler, sleep } from '@pipeline-builder/api-core';
+import { ANONYMOUS_ACTOR_ID, JWKS_PATH, clientVersionGate, auditContextFromRequest, runWithAuditContext, sanitizeCorrelationId, createHealthRouter, createLogger, emitCounter, installCrashHandlers, setCounterEmitter, setGaugeEmitter, mongoSanitize, resolveRedisConnection, errorMessage, retryForever, type Scheduler, sleep } from '@pipeline-builder/api-core';
 import { withTenantContext, readinessGuard, setReady, isReady, mongoHealthCheck, registerSecretRotationGauge } from '@pipeline-builder/api-server';
 import cors from 'cors';
 import express, { type Request, type Response, type NextFunction } from 'express';
@@ -47,8 +47,15 @@ collectDefaultMetrics({ register: metricsRegistry });
 // exposed below.
 // Deferred (post-registry) load via top-level await — keeps the original lazy
 // ordering (register the registry before the metrics module's call sites bind).
-const { setMetricsRegistry } = await import('./observability/metrics.js');
+const { setMetricsRegistry, incCounter, setGauge } = await import('./observability/metrics.js');
 setMetricsRegistry(metricsRegistry);
+// Route api-core's counter/gauge seam to THIS registry. api-server's app-factory
+// wires it to api-server's own default registry, which platform does not serve,
+// so every api-core metric platform raised — the leader-lock counters and the
+// scheduler liveness gauges its sweeps publish — was emitted into a registry no
+// /metrics endpoint exposed. Set after the imports, so this wins.
+setCounterEmitter(incCounter);
+setGaugeEmitter(setGauge);
 // Rotation visibility: `secret_rotation_previous_set{secret}` is 1 while a
 // credential's overlap is still open. Platform registers the ones only it holds
 // (the ES256 user-token signing key's retiring `kid`, the at-rest master key,
