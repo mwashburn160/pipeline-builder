@@ -6,7 +6,7 @@ keywords:
   - cloudformation
   - synthesize
 category: infrastructure
-version: 1.0.2
+version: 1.0.3
 pluginType: CodeBuildStep
 computeType: MEDIUM
 timeout: 45
@@ -51,5 +51,6 @@ network:
     - "pypi.org"
     - "files.pythonhosted.org"
 changelog: |
+  1.0.3: Rebuilt on the pipeline-bootstrap image carrying pipeline-manager 4.4.19 (pipeline-core 4.4.7, which ships the prebuilt PluginLookup bundle). 1.0.2's CLI failed every synth with `Lock file ... pipeline-core/lib/handlers/pnpm-lock.yaml doesn't exist`.
   1.0.2: Dropped the unpinned `npm install -g pipeline-manager` self-heal (the image always carries the pinned CLI); the platform health check verifies TLS against PLATFORM_CA_BUNDLE when set.
   1.0.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified.
