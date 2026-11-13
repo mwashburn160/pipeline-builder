@@ -13,7 +13,8 @@
 // system UI font, so render on macOS to match the committed images.
 //
 // Keep the numbers true, and re-check them when a card changes:
-//   plugin count     find deploy/plugins -name plugin-spec.yaml   (119)
+//   plugin count     find deploy/plugins -name plugin-spec.yaml   (118; the managed
+//                    toolchain release's two specs live in deploy/toolchain)
 //   rule operators   RULE_OPERATORS in packages/api-core/src/types/wire-vocabulary.ts (18)
 //   trust tiers      TrustTier in frontend/src/lib/public-directory/types (4)
 //   AI models        packages/api-core/src/constants/ai-providers.ts (14)

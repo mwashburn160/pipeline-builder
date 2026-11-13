@@ -373,6 +373,8 @@ export function assembleBuilderProps(
     ...(state.pipelineName && { pipelineName: state.pipelineName }),
     ...(globalMeta && { global: globalMeta }),
     ...(varsAssembled && { vars: varsAssembled }),
+    // Omitted when following the default: an absent key IS "follow".
+    ...(state.toolchainRelease.trim() && { toolchain: { release: state.toolchainRelease.trim() } }),
     ...(defaults && { defaults }),
     ...(role && { role }),
     synth,

@@ -572,9 +572,26 @@ export interface ComputeIngestMetric {
   credits: number | null;
 }
 
+/**
+ * One terminal managed-toolchain run (docs/plans/bootstrap-image-versioning.md
+ * §7): a `synth` or `self-mutation` action whose row was stamped with the
+ * release from the platform's deployed manifest. ALERTING ONLY — the canary
+ * gate and the Affected view read the rows, never this metric.
+ *
+ * `platformDefaultRelease` is the default at ingest time, for the alert's
+ * baseline (`pipeline_toolchain_platform_default_seen_timestamp_seconds`).
+ */
+export interface ToolchainIngestMetric {
+  kind: 'toolchain';
+  toolchainRelease: string;
+  action: 'synth' | 'self-mutation';
+  outcome: 'succeeded' | 'failed';
+  platformDefaultRelease: string | null;
+}
+
 /** What the ingest fans out to its caller's metric registry. Discriminated, so
  *  a new kind cannot be silently counted as a stage outcome. */
-export type IngestMetric = StageIngestMetric | ComputeIngestMetric;
+export type IngestMetric = StageIngestMetric | ComputeIngestMetric | ToolchainIngestMetric;
 
 /** Counts + the (possibly truncated) list of unregistered pipeline ids the caller can log. */
 export interface IngestResult {

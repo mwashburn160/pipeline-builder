@@ -424,3 +424,23 @@ describe('PUT /plugins/:id (update)', () => {
     }));
   });
 });
+
+// docs/plans/bootstrap-image-versioning.md §5: a managed toolchain release is
+// edited (isDefault included) only in the Toolchain console — for the system org too.
+describe('PUT /plugins/:id — managed toolchain names', () => {
+  const handler = getHandler('put', '/:id');
+
+  beforeEach(() => { jest.clearAllMocks(); });
+
+  it.each([
+    [{ isDefault: true }],
+    [{ description: 'new words' }],
+    [{ isActive: false }],
+  ])('refuses %j with TOOLCHAIN_USE_CONSOLE before anything is written', async (body) => {
+    mockFindById.mockResolvedValue({ ...existingPlugin, name: 'cdk-synth', orgId: '000000000000000000000001' });
+    const res = mockRes();
+    await handler(mockReq({ body, context: { identity: { orgId: '000000000000000000000001', userId: 'admin' }, log: jest.fn<AnyFn>(), requestId: 'r' } }), res);
+    expect(mockUpdate).not.toHaveBeenCalled();
+    expect(mockSendInternalErrorForRoute).toHaveBeenCalledWith(res, expect.stringContaining('Toolchain console'));
+  });
+});

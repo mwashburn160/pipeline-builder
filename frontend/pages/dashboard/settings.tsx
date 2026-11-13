@@ -26,6 +26,7 @@ import { MfaPolicySettings } from '@/components/settings/MfaPolicySettings';
 import { PasswordPolicySettings } from '@/components/settings/PasswordPolicySettings';
 import { AuthenticatorPolicySettings } from '@/components/settings/AuthenticatorPolicySettings';
 import { PluginSecurityNotificationSettings } from '@/components/settings/PluginSecurityNotificationSettings';
+import { PipelineToolchainSettings } from '@/components/settings/PipelineToolchainSettings';
 import { StepUpModal } from '@/components/admin/StepUpModal';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 import Link from 'next/link';
@@ -62,6 +63,8 @@ export default function SettingsPage() {
   const canSeeImpersonationPolicy = hasPermission(user, 'org_impersonation:write');
   // Plugin security notifications: readable with `plugins:read`, edited with `org_settings:write`.
   const canSeePluginSecurity = canSeeOrgSettings || hasPermission(user, 'plugins:read');
+  // Pipeline toolchain: readable with `pipelines:read`, edited with `toolchain:manage`.
+  const canSeeToolchain = hasPermission(user, 'pipelines:read');
 
   // Active tab, hydrated from `?tab=` and kept in sync (shallow) so it's
   // shareable / back-forward-friendly — same pattern as the Billing page.
@@ -288,6 +291,17 @@ export default function SettingsPage() {
               <PluginSecurityNotificationSettings
                 orgId={user.organizationId}
                 canEdit={canSeeOrgSettings}
+                readOnly={isReadOnly}
+              />
+            )}
+
+            {/* Pipeline toolchain: which managed build-image + cdk-synth release
+                this org's unpinned pipelines run (teams: inherit the root's).
+                Read with `pipelines:read`; writes need `toolchain:manage` and
+                are step-up gated server-side. */}
+            {canSeeToolchain && (
+              <PipelineToolchainSettings
+                canEdit={hasPermission(user, 'toolchain:manage')}
                 readOnly={isReadOnly}
               />
             )}

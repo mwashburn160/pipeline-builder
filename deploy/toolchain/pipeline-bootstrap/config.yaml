@@ -1,0 +1,3 @@
+pluginSpec: plugin-spec.yaml
+dockerfile: Dockerfile
+buildType: build_image

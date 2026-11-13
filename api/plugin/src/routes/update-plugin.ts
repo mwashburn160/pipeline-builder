@@ -11,6 +11,7 @@ import { withRoute } from '@pipeline-builder/api-server';
 import { renderUntrustedMarkdown } from '@pipeline-builder/api-server/lib/markdown.js';
 import { Router } from 'express';
 import { onPluginDeprecated } from '../helpers/deprecation-notice.js';
+import { assertNotManaged } from '../helpers/managed-toolchain.js';
 import { shapePlugin } from '../helpers/plugin-helpers.js';
 import { checkUpdateCompliance, needsComplianceRecheck } from '../helpers/update-compliance.js';
 import { pluginService, type Plugin } from '../services/plugin-service.js';
@@ -121,6 +122,10 @@ export function createUpdatePluginRoutes(): Router {
     const existing = await pluginService.findById(id, orgId);
 
     if (!existing) return sendEntityNotFound(res, 'Plugin');
+
+    // A managed toolchain release (pipeline-bootstrap, cdk-synth) is edited only
+    // in the Toolchain console — isDefault included, the system org included.
+    assertNotManaged(existing.name);
 
     // Visibility ladder: `public` needs plugins:publish, `private` is author-only.
     if (!requireVisibilityWriteAccess(req, res, existing, userId, 'plugins:publish')) return;

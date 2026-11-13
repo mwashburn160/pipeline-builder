@@ -1,6 +1,6 @@
 // GENERATED FROM docs/permissions.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: dbac71f80b24a4021ff343a6548a0732e8858041ddc2be9c023c0e5e3498f582
+// SOURCE-SHA256: a0f512d0c37b938ea1715fe5af18babbb31a5fca69793c25f62ed95bdb915d03
 // SPDX-License-Identifier: Apache-2.0
 import { UserCog } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -250,6 +250,11 @@ export const permissionsTopic: HelpTopic = {
               ":publish allows the public rung. pipeline_registry:write records and removes the deployed stack and step manifest behind a pipeline (POST/DELETE /pipelines/registry). It is split out of pipelines:write so the CI synth can register with a key that edits nothing else. People hold it next to pipelines:write (Member and Admin); see Automation service accounts."
             ],
             [
+              "Pipeline toolchain",
+              "toolchain:manage",
+              "Admin/Owner; never Member or any pipeline-editor bundle, and grantable to a custom Role. Sets or clears the org's toolchain default — which managed toolchain release every unpinned pipeline in the org (and its teams without their own) builds with on its next run (PUT/DELETE /plugins/toolchain/org-default, step-up; toolchain.org_default.set / .clear). Split from pipelines:write (one pipeline's toolchain.release pin) and plugin_installs:manage (future installs) by blast radius. Reading the default, its history and the eligible releases needs only pipelines:read. Confers nothing on the platform default, canary or catalog. See Organization Benefits → Pipeline toolchain default"
+            ],
+            [
               "Templates",
               "templates:read, templates:write, templates:publish",
               "Golden-path pipeline templates. Split out of pipelines:* so a platform team can curate starters without pipeline write access. :write covers the private and org rungs; :publish is required for public. Instantiating a template creates a pipeline, so that still needs pipelines:write."
@@ -273,6 +278,11 @@ export const permissionsTopic: HelpTopic = {
               "Platform operations (system org only)",
               "platform:read, orgs:read, billing:operate",
               "System-org only, and in no tenant-grantable Role. platform:read reads the deploy's own configuration (the Platform settings page: RLS context mode, per-org KMS, the rendered alert rules). orgs:read is the customer roster — the all-organizations list and drilling into one org's rows. Those were one permission until the split: three of the four job Roles carried it for the roster alone and got the deploy's internals with it, which is the same mistake consoles:datastore made before it was split by blast radius. billing:operate runs the cross-tenant finance surfaces — discount tokens and promotion campaigns."
+            ],
+            [
+              "Pipeline toolchain console (system org only)",
+              "toolchain:operate",
+              "System-org only (plan D9), carried by Platform Operator. Runs the Toolchain console (/dashboard/toolchain, /plugins/toolchain/releases, /history, /affected, /cleanup): canary membership, release notes, deprecate / yank / delete releases, notify the owners of pipelines stranded on a release, and set the platform default — which every org without its own default follows on its next run. Every write steps up and is audited (toolchain.*); reads never step up. It must be system-org-only because ADMIN_PERMISSIONS derives from the org-assignable list, so otherwise every tenant Admin would hold it. The org-level toolchain:manage confers none of it."
             ],
             [
               "Cross-tenant administration (system org only)",
@@ -394,7 +404,7 @@ export const permissionsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "System-org-only carve-out. plugins:moderate, publishers:verify, platform:read, orgs:read, registry:read, registry:write, billing:operate, the three *_console:open ids, impersonation:open and oncall:manage are in SYSTEM_ORG_ONLY_PERMISSIONS (predicate isSystemOrgOnlyPermission), a second non-assignable class next to the Super-Admin-only registry:purge. oncall:manage differs from the rest in one way worth stating: it is in no built-in Role either, so Super Admins are its only holders. That is deliberate rather than an omission — paging is the vendor's own operational concern and has nothing to do with ecosystem moderation. Every other member of this class has at least one seeded carrier, and that is an asserted invariant (packages/api-core/test/permissions.test.ts): a permission no custom Role may carry and no bundle grants is Super-Admin-only in practice, which is the exact failure this class exists to avoid — it is how platform:read shipped, and it is why splitting registry:write out of the purge rung came with a Registry Operator Role rather than on its own."
+          "content": "System-org-only carve-out. plugins:moderate, publishers:verify, platform:read, orgs:read, registry:read, registry:write, billing:operate, the three *_console:open ids, impersonation:open, toolchain:operate and oncall:manage are in SYSTEM_ORG_ONLY_PERMISSIONS (predicate isSystemOrgOnlyPermission), a second non-assignable class next to the Super-Admin-only registry:purge. oncall:manage differs from the rest in one way worth stating: it is in no built-in Role either, so Super Admins are its only holders. That is deliberate rather than an omission — paging is the vendor's own operational concern and has nothing to do with ecosystem moderation. Every other member of this class has at least one seeded carrier, and that is an asserted invariant (packages/api-core/test/permissions.test.ts): a permission no custom Role may carry and no bundle grants is Super-Admin-only in practice, which is the exact failure this class exists to avoid — it is how platform:read shipped, and it is why splitting registry:write out of the purge rung came with a Registry Operator Role rather than on its own."
         },
         {
           "type": "text",
@@ -480,7 +490,7 @@ export const permissionsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Super-Admin-only registry:purge and the system-org-only class, registry browse/copy and the ecosystem pair included). Includes pipelines:publish, templates:publish, plugins:publish, reports:rollup, plugin_installs:manage and publishers:manage."
+          "content": "Super-Admin-only registry:purge and the system-org-only class, registry browse/copy and the ecosystem pair included). Includes pipelines:publish, templates:publish, plugins:publish, reports:rollup, plugin_installs:manage, publishers:manage and toolchain:manage."
         },
         {
           "type": "list",
@@ -661,7 +671,7 @@ export const permissionsTopic: HelpTopic = {
             ],
             [
               "Permissions",
-              "platform:read, orgs:read, oncall:manage, observability_console:open, quotas:manage, plugin_queue:manage, plus the reads that make those views usable: registry:read, observability:read, dashboards:read, subscriptions:read. (billing:operate moved to Account Manager — minting a discount token is commercial, not operational.)"
+              "platform:read, orgs:read, oncall:manage, observability_console:open, quotas:manage, plugin_queue:manage, toolchain:operate, plus the reads that make those views usable: registry:read, observability:read, dashboards:read, subscriptions:read. (billing:operate moved to Account Manager — minting a discount token is commercial, not operational.)"
             ],
             [
               "Deliberately not carrying",
@@ -702,7 +712,7 @@ export const permissionsTopic: HelpTopic = {
             [
               "Platform Operator",
               "running the deployment",
-              "platform:read, orgs:read, oncall:manage, observability_console:open, quotas:manage, plugin_queue:manage, plus the reads that make those views usable (registry:read, observability:read, dashboards:read, subscriptions:read)."
+              "platform:read, orgs:read, oncall:manage, observability_console:open, quotas:manage, plugin_queue:manage, toolchain:operate, plus the reads that make those views usable (registry:read, observability:read, dashboards:read, subscriptions:read)."
             ],
             [
               "Account Manager",

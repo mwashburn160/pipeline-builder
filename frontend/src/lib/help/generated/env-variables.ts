@@ -1,6 +1,6 @@
 // GENERATED FROM docs/environment-variables.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: d1ca955bb292a99e05a59fb7f808f957547251fa1fee2b03dbf4082476c799f4
+// SOURCE-SHA256: 13a3c9b68a8792a371b461e440f3b4eccd42dbba9af2000af92e0429c1bec809
 // SPDX-License-Identifier: Apache-2.0
 import { FileCode } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -38,7 +38,7 @@ export const envVariablesTopic: HelpTopic = {
             "Several switches interact. A master switch being off makes everything beneath it inert — EMAIL_ENABLED, BILLING_ENABLED, BILLING_DISCOUNTS_ENABLED, REPORT_SCHEDULER_ENABLED.",
             "Per-tier overrides follow a pattern: QUOTA_TIER_<TIER>_<LIMIT>, BILLING_PLAN_<TIER>_MONTHLY, JWT_EXPIRES_IN_*.",
             "Secrets belong in a sealed secret or SSM, not in a ConfigMap. The k8s targets build app-env from the whole .env, so anything you put there is mounted.",
-            "Some values must match something outside the app — EMAIL_FROM against the SES IAM condition, SES_REGION against the identity's region, CODEBUILD_DEFAULT_IMAGE against the pushed bootstrap tag."
+            "Some values must match something outside the app — EMAIL_FROM against the SES IAM condition, SES_REGION against the identity's region."
           ]
         }
       ]
@@ -98,7 +98,7 @@ export const envVariablesTopic: HelpTopic = {
             "Override only what you need. Everything else is documented here so you can confirm the default rather than restate it.",
             "Put real secrets in a sealed secret or SSM — STRIPE_SECRET_KEY, AUDIT_CHAIN_HMAC_KEY, BILLING_DISCOUNT_KEYS, SECRET_ENCRYPTION_KEY and the signing keys.",
             "On k8s, update the Secret and the ConfigMap, then kubectl rollout restart the affected Deployments. Editing .env alone changes nothing already running.",
-            "Check the cross-system matches before you call it done — EMAIL_FROM against the SES policy condition, SES_REGION against the identity, CODEBUILD_DEFAULT_IMAGE against the tag you actually pushed."
+            "Check the cross-system matches before you call it done — EMAIL_FROM against the SES policy condition, SES_REGION against the identity."
           ]
         },
         {
@@ -3448,16 +3448,6 @@ export const envVariablesTopic: HelpTopic = {
               "CODEBUILD_COMPUTE_TYPE",
               "SMALL",
               "SMALL, MEDIUM, LARGE, X2_LARGE"
-            ],
-            [
-              "CODEBUILD_DEFAULT_IMAGE",
-              "pipeline-bootstrap:1.0",
-              "Image for the synth (bootstrap) CodeBuild step; must have pipeline-manager on PATH"
-            ],
-            [
-              "CODEBUILD_DEFAULT_IMAGE_DIGEST",
-              "—",
-              "Registry manifest digest (sha256:<64 hex>) of CODEBUILD_DEFAULT_IMAGE, printed by deploy/bin/build-codebuild-bootstrap.sh after it publishes. Set → the default image is pulled as <registry>/library/<repo>@<digest>; unset → by its mutable tag, with a synth warning; malformed → synth fails. Propagated into the pipeline's CodeBuild environment so a self-mutating synth keeps the pin."
             ],
             [
               "PLATFORM_CA_BUNDLE",

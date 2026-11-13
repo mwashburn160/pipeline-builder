@@ -490,14 +490,14 @@ if [ "${AUTO_INIT:-false}" = "true" ]; then
   # environment (not .env) for its private-mode prerequisite gate — pass them through.
   # PLATFORM_PASSWORD is passed explicitly (runuser does not carry the exported var).
   runuser -u minikube -- env \
-    BUILD_BOOTSTRAP=y LOAD_PLUGINS=y LOAD_COMPLIANCE=y LOAD_TEMPLATES=y \
+    LOAD_PLUGINS=y LOAD_COMPLIANCE=y LOAD_TEMPLATES=y \
     PLATFORM_BASE_URL="https://${DOMAIN}" \
     PLATFORM_PASSWORD="$ADMIN_PASSWORD" \
     DEPLOY_MODE="${DEPLOY_MODE:-private}" \
     PIPELINE_VPC_ID="${PIPELINE_VPC_ID:-}" \
     PIPELINE_SUBNET_IDS="${PIPELINE_SUBNET_IDS:-}" \
     bash "${INSTALL_DIR}/deploy/bin/init-platform.sh" --continue-on-build-failure ec2 \
-    || echo "WARNING: auto-init exited non-zero — re-run on the box (the LOAD_* gates are REQUIRED; they default to OFF): sudo -iu minikube; cd ${INSTALL_DIR}; PLATFORM_BASE_URL=https://${DOMAIN} BUILD_BOOTSTRAP=y LOAD_PLUGINS=y LOAD_COMPLIANCE=y LOAD_TEMPLATES=y ./deploy/bin/init-platform.sh ec2"
+    || echo "WARNING: auto-init exited non-zero — re-run on the box (the LOAD_* gates are REQUIRED; they default to OFF): sudo -iu minikube; cd ${INSTALL_DIR}; PLATFORM_BASE_URL=https://${DOMAIN} LOAD_PLUGINS=y LOAD_COMPLIANCE=y LOAD_TEMPLATES=y ./deploy/bin/init-platform.sh ec2"
 fi
 
 # =============================================================================

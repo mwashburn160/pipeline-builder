@@ -93,6 +93,7 @@ import {
 import { closeSubmissionRequest } from './submission-moderation.js';
 import { listingOwnerHash, submissions, topInstalledListings, trustedListingsNamed } from './submissions-store.js';
 import { DEFAULT_PLUGIN_VERSION } from '../../helpers/default-version.js';
+import { assertListable } from '../../helpers/managed-toolchain.js';
 import { readPackageFiles } from '../../helpers/package-files.js';
 import type { ParsedPlugin } from '../../helpers/plugin-spec.js';
 import { deletePluginArtifact, pluginQuarantineBucket, putPluginArtifact, submissionArtifactKey } from '../plugin-artifact-storage.js';
@@ -318,6 +319,8 @@ async function stageSubmission(
     const spec = plugin.pluginSpec;
     name = spec.name;
     version = spec.version ?? DEFAULT_PLUGIN_VERSION;
+    // Managed toolchain names are never listed (D5), anonymously least of all.
+    assertListable(name);
     const gate = await submissionNameGate(name, emailHash);
     assertName(gate);
     if (gate.listing && await versions.get(gate.listing.id, version)) {

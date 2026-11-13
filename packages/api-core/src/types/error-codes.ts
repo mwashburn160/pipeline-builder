@@ -40,6 +40,10 @@ export enum ErrorCode {
    *  was called from an active org other than the system org — a token minted in
    *  a tenant org is refused even for the same user. Switch to the system org. */
   SYSTEM_ORG_REQUIRED = 'SYSTEM_ORG_REQUIRED',
+  /** A non-system org tried to create a plugin under a managed toolchain name
+   *  (`MANAGED_TOOLCHAIN_PLUGINS`: `pipeline-bootstrap`, `cdk-synth`). A custom
+   *  synth environment is published under another name. */
+  PLUGIN_MANAGED_NAME_RESERVED = 'PLUGIN_MANAGED_NAME_RESERVED',
   /** The publisher hasn't accepted the CURRENT publisher terms version, so it
    *  can't submit new requests (existing listings are unaffected). */
   PUBLISHER_TERMS_REQUIRED = 'PUBLISHER_TERMS_REQUIRED',
@@ -92,6 +96,41 @@ export enum ErrorCode {
   TEMPLATE_CONTRACT_VIOLATION = 'TEMPLATE_CONTRACT_VIOLATION',
   TEMPLATE_SIZE_EXCEEDED = 'TEMPLATE_SIZE_EXCEEDED',
   TEMPLATE_VALIDATION_FAILED = 'TEMPLATE_VALIDATION_FAILED',
+  /** A managed toolchain name in a publish, submission, listing or install path:
+   *  managed releases are never listed in the ecosystem. */
+  PLUGIN_MANAGED_NOT_LISTABLE = 'PLUGIN_MANAGED_NOT_LISTABLE',
+  /** An upload of a prerelease (`-dev.N`) version of a managed toolchain name:
+   *  a release version is always a plain semver. */
+  PLUGIN_MANAGED_PRERELEASE = 'PLUGIN_MANAGED_PRERELEASE',
+  /** A generic plugin route (update, deprecate/yank, delete, purge) was called on
+   *  a managed toolchain name — for the system org too. Release lifecycle lives
+   *  only in the Toolchain console, which acts on both halves at once. */
+  TOOLCHAIN_USE_CONSOLE = 'TOOLCHAIN_USE_CONSOLE',
+  // Pipeline toolchain releases (docs/plans/bootstrap-image-versioning.md §13).
+  /** The CLI could not resolve the bootstrap image (D2) — unreachable platform,
+   *  no default, a deleted pin, a signature failure, or a local-spec deploy
+   *  without `--toolchain-file`. Never falls back. */
+  BOOTSTRAP_IMAGE_UNRESOLVED = 'BOOTSTRAP_IMAGE_UNRESOLVED',
+  /** No platform default release exists (D11). Never "highest version". */
+  TOOLCHAIN_NO_DEFAULT = 'TOOLCHAIN_NO_DEFAULT',
+  /** The resolver found halves with different release versions — a bug, never served. */
+  TOOLCHAIN_PAIR_MISMATCH = 'TOOLCHAIN_PAIR_MISMATCH',
+  /** A pin or org default names a release that is not eligible (D15) at set time. */
+  TOOLCHAIN_RELEASE_NOT_ELIGIBLE = 'TOOLCHAIN_RELEASE_NOT_ELIGIBLE',
+  /** A managed `cdk-synth` step carries its own version; pin the release instead. */
+  TOOLCHAIN_PIN_VIA_RELEASE = 'TOOLCHAIN_PIN_VIA_RELEASE',
+  /** Yanking the platform default with no live previous default to restore. */
+  TOOLCHAIN_DEFAULT_REQUIRED = 'TOOLCHAIN_DEFAULT_REQUIRED',
+  /** `expectedCurrentDefault` did not match the current platform default. */
+  TOOLCHAIN_DEFAULT_CHANGED = 'TOOLCHAIN_DEFAULT_CHANGED',
+  /** A second D14 initial-default call. */
+  TOOLCHAIN_INITIAL_ALREADY_SET = 'TOOLCHAIN_INITIAL_ALREADY_SET',
+  /** §8 guards on setting the platform default — one code per guard. */
+  TOOLCHAIN_GUARD_UNSCANNED = 'TOOLCHAIN_GUARD_UNSCANNED',
+  TOOLCHAIN_GUARD_VULN_FLOOR = 'TOOLCHAIN_GUARD_VULN_FLOOR',
+  TOOLCHAIN_GUARD_METADATA = 'TOOLCHAIN_GUARD_METADATA',
+  TOOLCHAIN_GUARD_PAIR_INCOMPLETE = 'TOOLCHAIN_GUARD_PAIR_INCOMPLETE',
+  TOOLCHAIN_GUARD_CANARY_GATE = 'TOOLCHAIN_GUARD_CANARY_GATE',
 
   // Client too old (426)
   /** The pipeline-manager CLI is older than the platform's
@@ -131,6 +170,9 @@ export enum ErrorCode {
   /** A freeze named an image digest that is not the version's stored digest
    *  (fail closed: what was requested is not what would be published). */
   PLUGIN_DIGEST_MISMATCH = 'PLUGIN_DIGEST_MISMATCH',
+  /** A re-upload of an existing (name, version) of a managed toolchain name:
+   *  a release is immutable — build a new version instead. */
+  PLUGIN_VERSION_IMMUTABLE = 'PLUGIN_VERSION_IMMUTABLE',
   /** A publish request needs the org's publisher profile, which doesn't exist
    *  yet (docs/plugin-publishing.md). Claim a handle first. */
   PUBLISHER_REQUIRED = 'PUBLISHER_REQUIRED',
@@ -215,6 +257,7 @@ export const ErrorCodeStatus: Record<ErrorCode, number> = {
   [ErrorCode.REAUTH_REQUIRED]: 401,
   [ErrorCode.INSUFFICIENT_PERMISSIONS]: 403,
   [ErrorCode.SYSTEM_ORG_REQUIRED]: 403,
+  [ErrorCode.PLUGIN_MANAGED_NAME_RESERVED]: 403,
   [ErrorCode.PUBLISHER_TERMS_REQUIRED]: 403,
   [ErrorCode.PUBLISHER_ROOT_ORG_REQUIRED]: 403,
   [ErrorCode.PUBLISHER_SUSPENDED]: 403,
@@ -243,6 +286,23 @@ export const ErrorCodeStatus: Record<ErrorCode, number> = {
   [ErrorCode.TEMPLATE_CONTRACT_VIOLATION]: 400,
   [ErrorCode.TEMPLATE_SIZE_EXCEEDED]: 400,
   [ErrorCode.TEMPLATE_VALIDATION_FAILED]: 400,
+  [ErrorCode.PLUGIN_MANAGED_NOT_LISTABLE]: 400,
+  [ErrorCode.PLUGIN_MANAGED_PRERELEASE]: 400,
+  [ErrorCode.TOOLCHAIN_USE_CONSOLE]: 400,
+  [ErrorCode.TOOLCHAIN_RELEASE_NOT_ELIGIBLE]: 400,
+  [ErrorCode.TOOLCHAIN_PIN_VIA_RELEASE]: 400,
+  [ErrorCode.TOOLCHAIN_NO_DEFAULT]: 409,
+  [ErrorCode.TOOLCHAIN_DEFAULT_REQUIRED]: 409,
+  [ErrorCode.TOOLCHAIN_DEFAULT_CHANGED]: 409,
+  [ErrorCode.TOOLCHAIN_INITIAL_ALREADY_SET]: 409,
+  [ErrorCode.TOOLCHAIN_GUARD_UNSCANNED]: 409,
+  [ErrorCode.TOOLCHAIN_GUARD_VULN_FLOOR]: 409,
+  [ErrorCode.TOOLCHAIN_GUARD_METADATA]: 409,
+  [ErrorCode.TOOLCHAIN_GUARD_PAIR_INCOMPLETE]: 409,
+  [ErrorCode.TOOLCHAIN_GUARD_CANARY_GATE]: 409,
+  [ErrorCode.TOOLCHAIN_PAIR_MISMATCH]: 500,
+  // BOOTSTRAP_IMAGE_UNRESOLVED is raised by the CLI, never sent by a service.
+  [ErrorCode.BOOTSTRAP_IMAGE_UNRESOLVED]: 500,
   [ErrorCode.CLIENT_UPGRADE_REQUIRED]: 426,
   [ErrorCode.QUOTA_EXCEEDED]: 429,
   [ErrorCode.AI_MEMBER_SHARE_EXCEEDED]: 429,
@@ -257,6 +317,7 @@ export const ErrorCodeStatus: Record<ErrorCode, number> = {
   [ErrorCode.PLUGIN_VERSION_FROZEN]: 409,
   [ErrorCode.PLUGIN_VERSION_IN_USE]: 409,
   [ErrorCode.PLUGIN_DIGEST_MISMATCH]: 409,
+  [ErrorCode.PLUGIN_VERSION_IMMUTABLE]: 409,
   [ErrorCode.PUBLISHER_REQUIRED]: 409,
   [ErrorCode.PUBLISHER_HANDLE_RESERVED]: 409,
   [ErrorCode.PUBLISH_GATE_FAILED]: 409,

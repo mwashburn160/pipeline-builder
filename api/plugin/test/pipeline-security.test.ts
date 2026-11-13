@@ -31,6 +31,7 @@ const mockReplace = jest.fn<AnyFn>(async () => 0);
 const mockReconcile = jest.fn<AnyFn>(async () => ({ opened: 0, closed: 0 }));
 const mockResolveListing = jest.fn<AnyFn>(async () => null);
 const mockInUse = jest.fn<AnyFn>(async () => [DIGEST]);
+const mockResolveManaged = jest.fn<AnyFn>(async () => { throw new Error('no default'); });
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
   executeRows: async () => rowsQueue.shift() ?? [],
   // The fake executor ignores the SQL, so the array clause only has to build.
@@ -48,6 +49,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@p
   triageExposure: (...a: unknown[]) => mockTriage(...a),
   exposureById: (...a: unknown[]) => mockExposureById(...a),
   declaredPipelinesForPlugin: (...a: unknown[]) => mockDeclaredPipelines(...a),
+  resolveManagedToolchainHalf: (...a: unknown[]) => mockManagedHalf(...a),
   declaredResolution: async (input: { steps: Array<{ label: string; lookupFilter: Record<string, unknown> }>; resolve: AnyFn; pipelineId: string; orgId: string }) => {
     const rows = [];
     for (const s of input.steps) {
@@ -61,6 +63,8 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@p
   reconcilePipelineExposures: (...a: unknown[]) => mockReconcile(...a),
   resolveListingReference: (...a: unknown[]) => mockResolveListing(...a),
   orgImageDigestsInUse: (...a: unknown[]) => mockInUse(...a),
+  resolveManagedToolchain: (...a: unknown[]) => mockResolveManaged(...a),
+  compareSemver: (a: string, b: string) => a.localeCompare(b, undefined, { numeric: true }),
 }));
 jest.unstable_mockModule('../src/services/ecosystem/store.js', () => ({
   elevated: async (fn: AnyFn) => fn({}),
@@ -70,6 +74,7 @@ jest.unstable_mockModule('../src/services/ecosystem/installs-store.js', () => ({
 const mockNotify = jest.fn<AnyFn>(async () => undefined);
 jest.unstable_mockModule('../src/services/plugin-security-notifications.js', () => ({ notifyPipelineVulnerable: (...a: unknown[]) => mockNotify(...a) }));
 const mockFindFirst = jest.fn<AnyFn>(async () => null);
+const mockManagedHalf = jest.fn<AnyFn>();
 jest.unstable_mockModule('../src/services/plugin-service.js', () => ({ pluginService: { findFirst: (...a: unknown[]) => mockFindFirst(...a) } }));
 jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@pipeline-builder/pipeline-core', {
   collectPluginSteps: (props: { steps?: Array<{ label: string; name: string; publisher?: string; filter?: Record<string, unknown> }> }) => props.steps ?? [],
@@ -201,6 +206,120 @@ describe('pipelineSecurity', () => {
     expect(view.steps.map((s) => s.stepKey)).toEqual(['Build/scan', 'synth']);
     expect(view.steps[0]).toMatchObject({ plugin: 'lint', version: '1.0.0', scan: expect.objectContaining({ flagged: true }), severity: 'error', exposures: [expect.objectContaining({ id: 'e1', acceptance: expect.objectContaining({ active: true }) })] });
     expect(view.steps[1]).toMatchObject({ plugin: 'acme/cdk', warnings: [{ code: 'X', message: 'm' }], scan: null, severity: 'ok' });
+    // Nothing recorded for the build image: no row.
+    expect(view.buildImage).toBeNull();
+    expect(mockResolveManaged).not.toHaveBeenCalled();
+  });
+});
+
+describe('pipelineSecurity — the Build image row', () => {
+  const BOOT = `sha256:${'b'.repeat(64)}`;
+  const changedAt = new Date('2026-11-10T09:00:00.000Z');
+  const buildImageRow = (over: Record<string, unknown> = {}) => ({
+    step_key: 'build-image',
+    stage_name: '(toolchain)',
+    action_name: 'build-image',
+    plugin_publisher: null,
+    plugin_name: 'pipeline-bootstrap',
+    plugin_version: '1.4.2',
+    image_digest: BOOT,
+    image_repository: 'system/pipeline-bootstrap',
+    resolved_via: 'pin',
+    previous_release_version: null,
+    release_changed_at: null,
+    updated_at: changedAt,
+    ...over,
+  });
+  const synthRow = (name: string, publisher: string | null = null) => ({
+    step_key: 'synth',
+    stage_name: 'Build',
+    action_name: 'Synth',
+    plugin_publisher: publisher,
+    plugin_name: name,
+    plugin_version: '1.4.2',
+    image_digest: null,
+    image_repository: null,
+    resolved_via: null,
+    previous_release_version: null,
+    release_changed_at: null,
+    updated_at: changedAt,
+  });
+  const bootRecord = (over: Record<string, unknown> = {}) => ownRow({ id: 'boot', name: 'pipeline-bootstrap', version: '1.4.2', image_digest: BOOT, build_type: 'prebuilt', plugin_type: 'BuildImage', ...over });
+
+  it('shows the deployed release, its scan state, the build-image lookup warnings, behind the EFFECTIVE default, and the last change', async () => {
+    // declared (none), the manifest rows, the system bootstrap row, the release notes.
+    rowsQueue = [
+      [],
+      [buildImageRow({ previous_release_version: '1.4.1', release_changed_at: changedAt }), synthRow('cdk-synth')],
+      [bootRecord({ scan_flagged_at: new Date(), scan_flag: { gated: 1, high: 0, maxFindings: 0, findings: [finding] } })],
+      [{ release_notes: 'Bumps aws-cdk.' }],
+    ];
+    mockLookups.mockResolvedValueOnce([{
+      stepKey: 'build-image',
+      pluginName: 'pipeline-bootstrap',
+      pluginPublisher: null,
+      resolvedVersion: '1.4.2',
+      imageDigest: BOOT,
+      lookedUpAt: changedAt,
+      warnings: [{ code: 'TOOLCHAIN_RELEASE_DEPRECATED', message: 'deprecated', severity: 'warning' }],
+      refusal: null,
+      requestedVersion: null,
+    }]);
+    // The org's effective default (its org default here) is newer than the pinned release.
+    mockResolveManaged.mockResolvedValueOnce({ releaseVersion: '1.5.0', resolvedVia: 'org-default' });
+    const view = await sec.pipelineSecurity(scope, { id: PIPE, name: 'web' });
+
+    // The build image is a row of its own, never a step.
+    expect(view.steps).toEqual([]);
+    expect(mockResolveManaged).toHaveBeenCalledWith({ orgId: 'org-1' });
+    expect(view.buildImage).toMatchObject({
+      stepKey: 'build-image',
+      releaseVersion: '1.4.2',
+      digest: BOOT,
+      imageRepository: 'system/pipeline-bootstrap',
+      resolvedVia: 'pin',
+      warnings: [{ code: 'TOOLCHAIN_RELEASE_DEPRECATED', message: 'deprecated', severity: 'warning' }],
+      catalogState: 'live',
+      scan: expect.objectContaining({ flagged: true }),
+      severity: 'error',
+      effectiveDefault: { releaseVersion: '1.5.0', resolvedVia: 'org-default' },
+      behindDefault: true,
+      synthPlugin: 'cdk-synth',
+      toolchainUnmanaged: false,
+      change: { from: '1.4.1', to: '1.4.2', changedAt: changedAt.toISOString() },
+      releaseNotes: 'Bumps aws-cdk.',
+    });
+    // Its grade counts toward the pipeline's.
+    expect(view.severity).toBe('error');
+  });
+
+  it('a custom synth plugin is "toolchain unmanaged"; on the effective default it is not behind; no change, no marker', async () => {
+    rowsQueue = [[], [buildImageRow({ resolved_via: 'default' }), synthRow('my-synth')], [bootRecord()], []];
+    mockResolveManaged.mockResolvedValueOnce({ releaseVersion: '1.4.2', resolvedVia: 'default' });
+    const view = await sec.pipelineSecurity(scope, { id: PIPE, name: 'web' });
+    expect(view.buildImage).toMatchObject({ releaseVersion: '1.4.2', behindDefault: false, toolchainUnmanaged: true, synthPlugin: 'my-synth', change: null, severity: 'ok' });
+
+    // A listed synth under the managed NAME is still not the managed synth.
+    rowsQueue = [[], [buildImageRow(), synthRow('cdk-synth', 'acme')], [bootRecord()], []];
+    mockResolveManaged.mockResolvedValueOnce({ releaseVersion: '1.4.2', resolvedVia: 'default' });
+    expect((await sec.pipelineSecurity(scope, { id: PIPE, name: 'web' })).buildImage).toMatchObject({ toolchainUnmanaged: true, synthPlugin: 'acme/cdk-synth' });
+  });
+
+  it('before any deploy, the bootstrap lookup alone gives the row; no effective default leaves "behind" false', async () => {
+    rowsQueue = [[], [], [bootRecord()], []];
+    mockLookups.mockResolvedValueOnce([{
+      stepKey: 'build-image',
+      pluginName: 'pipeline-bootstrap',
+      pluginPublisher: null,
+      resolvedVersion: '1.4.2',
+      imageDigest: BOOT,
+      lookedUpAt: changedAt,
+      warnings: [],
+      refusal: null,
+      requestedVersion: null,
+    }]);
+    const view = await sec.pipelineSecurity(scope, { id: PIPE, name: 'web' });
+    expect(view.buildImage).toMatchObject({ releaseVersion: '1.4.2', resolvedVia: null, deployedAt: null, effectiveDefault: null, behindDefault: false, toolchainUnmanaged: false, synthPlugin: null });
   });
 });
 
@@ -362,6 +481,29 @@ describe('refreshDeclaredResolutions', () => {
     expect(mockReplace).toHaveBeenCalledWith('p-changed', [expect.objectContaining({ resolvedVersion: '1.1.0' })]);
     expect(mockReconcile).toHaveBeenCalledWith(expect.objectContaining({ pipelineId: 'p-changed', source: 'declared' }));
     expect(resolutionRefreshMax()).toBe(500);
+  });
+
+  it('re-resolves a managed toolchain step through the toolchain resolver with the pipeline\'s release pin, never a row or listing', async () => {
+    mockFindFirst.mockClear();
+    mockResolveListing.mockClear();
+    mockReplace.mockClear();
+    mockDeclaredPipelines.mockResolvedValueOnce({
+      truncated: false,
+      pipelines: [
+        { pipelineId: 'p-tc', orgId: 'org-1', rootOrgId: null, props: { toolchain: { release: '1.2.0' }, steps: [{ label: 'synth', name: 'BuildSynth', filter: { name: 'cdk-synth' } }] }, current: new Map() },
+        { pipelineId: 'p-pinned', orgId: 'org-1', rootOrgId: null, props: { steps: [{ label: 'synth', name: 'cdk-synth', filter: { version: '1.0.0' } }] }, current: new Map() },
+      ],
+    });
+    mockManagedHalf.mockResolvedValueOnce({ plugin: { id: 'sys-1', name: 'cdk-synth', version: '1.2.0', imageDigest: DIGEST, scanSummary: null, scanFlag: null, scanFlaggedAt: null } });
+    const out = await refreshDeclaredResolutions({ pluginName: 'cdk-synth', orgId: 'org-1' });
+    expect(out.refreshed).toBe(2);
+    expect(mockManagedHalf).toHaveBeenCalledTimes(1);
+    expect(mockManagedHalf).toHaveBeenCalledWith({ orgId: 'org-1' }, 'cdk-synth', { releasePin: '1.2.0' });
+    expect(mockFindFirst).not.toHaveBeenCalled();
+    expect(mockResolveListing).not.toHaveBeenCalled();
+    expect(mockReplace).toHaveBeenCalledWith('p-tc', [expect.objectContaining({ resolvedVersion: '1.2.0' })]);
+    // A step pinning a managed half's own version resolves to nothing (refused).
+    expect(mockReplace).toHaveBeenCalledWith('p-pinned', [expect.objectContaining({ resolvedVersion: null })]);
   });
 
   it('never throws', async () => {

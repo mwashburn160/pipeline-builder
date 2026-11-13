@@ -15,9 +15,9 @@ import { useFetch } from '@/hooks/useFetch';
 import api from '@/lib/api';
 import { formatError } from '@/lib/constants';
 import type {
-  ExposureTriageBody, PipelineExposureView, PipelineSecurity, PipelineSecurityStep,
+  ExposureTriageBody, PipelineBuildImage, PipelineExposureView, PipelineSecurity, PipelineSecurityStep, StepScanFacts,
 } from '@/lib/api/pipeline-security-types';
-import { exposureHasKev, shortDigest } from '@/lib/pipeline-security';
+import { RESOLVED_VIA_LABELS, exposureHasKev, shortDigest } from '@/lib/pipeline-security';
 import { ExposureTriageModal } from './ExposureTriageModal';
 import { PluginUpgradePanel } from './PluginUpgradePanel';
 import { ArtifactSecurityReportsCard } from './ArtifactSecurityReportsCard';
@@ -28,7 +28,7 @@ const TRIAGE_BADGE: Record<string, { color: BadgeColor; label: string }> = {
   false_positive: { color: 'gray', label: 'False positive' },
 };
 
-function ScanFacts({ step }: { step: PipelineSecurityStep }) {
+function ScanFacts({ step }: { step: { scan: StepScanFacts | null } }) {
   const s = step.scan;
   if (!s) return <span className="text-fg-subtle">—</span>;
   if (s.unscanned) return <span className="text-warning-strong">Never scanned</span>;
@@ -88,6 +88,57 @@ function StepsTable({ steps }: { steps: PipelineSecurityStep[] }) {
           ))}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+/**
+ * The pipeline's build image — the toolchain release its default CodeBuild
+ * image comes from. Not a step: one row with the release, how it was chosen,
+ * its scan state and warnings, and whether it is behind the org's EFFECTIVE
+ * default (org default, else platform default) or the synth isn't managed.
+ */
+function BuildImageRow({ image }: { image: PipelineBuildImage }) {
+  const warnings = [
+    ...image.warnings.map((w) => ({ code: w.code, severity: w.severity ?? 'warning', message: w.message })),
+    ...image.currentWarnings,
+  ];
+  return (
+    <div className="mb-4 rounded-lg border border-default p-3" data-testid="security-build-image">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-sm font-medium text-fg">Build image</span>
+        <span className="font-mono text-xs text-fg">{image.plugin}{image.releaseVersion ? `@${image.releaseVersion}` : ''}</span>
+        <span className="font-mono text-xs text-fg-muted" title={image.digest ?? undefined}>{shortDigest(image.digest)}</span>
+        <VulnSeverityBadge grade={image.severity} />
+        {image.resolvedVia && <Badge color="gray">{RESOLVED_VIA_LABELS[image.resolvedVia] ?? image.resolvedVia}</Badge>}
+        {image.behindDefault && image.effectiveDefault && (
+          <span data-testid="build-image-behind"><Badge color="yellow">Behind default ({image.effectiveDefault.releaseVersion})</Badge></span>
+        )}
+        {image.toolchainUnmanaged && (
+          <span data-testid="build-image-unmanaged"><Badge color="yellow">Toolchain unmanaged</Badge></span>
+        )}
+        {image.catalogState && image.catalogState !== 'live' && <Badge color="yellow">{image.catalogState}</Badge>}
+      </div>
+      {image.toolchainUnmanaged && (
+        <p className="mt-1 text-xs text-fg-muted">
+          The synth step runs <span className="font-mono">{image.synthPlugin}</span>, not the managed cdk-synth, so only the build image follows toolchain releases.
+        </p>
+      )}
+      <div className="mt-2 grid gap-2 text-xs sm:grid-cols-3">
+        <div><span className="block text-fg-subtle">Scan</span><ScanFacts step={image} /></div>
+        <div className="sm:col-span-2">
+          <span className="block text-fg-subtle">Warnings</span>
+          {warnings.length > 0
+            ? <VulnWarningList warnings={warnings} label="Warnings for the build image" itemTestId={(w) => `build-image-warning-${w.code.toLowerCase()}`} />
+            : <span className="text-fg-subtle">None</span>}
+        </div>
+      </div>
+      {image.change && (
+        <p className="mt-2 text-xs text-fg-muted" data-testid="build-image-change">
+          Toolchain {image.change.from} → {image.change.to}, <RelativeTime value={image.change.changedAt} />
+        </p>
+      )}
+      {image.releaseNotes && <p className="mt-1 whitespace-pre-line text-xs text-fg-muted">{image.releaseNotes}</p>}
     </div>
   );
 }
@@ -181,6 +232,7 @@ export function PipelineSecurityTab({ pipelineId, canWrite }: { pipelineId: stri
       >
         {read.loading && !data && <LoadingSpinner />}
         {read.error && <RetryError message={formatError(read.error, 'Failed to load plugin security')} onRetry={read.refetch} />}
+        {data?.buildImage && <BuildImageRow image={data.buildImage} />}
         {data && <StepsTable steps={data.steps} />}
       </SectionCard>
 

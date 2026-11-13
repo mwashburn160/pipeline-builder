@@ -13,7 +13,7 @@ import {
 } from '@pipeline-builder/ai-core';
 import type { AITokenUsage, ResolvedModelSelection, SystemModelMessage } from '@pipeline-builder/ai-core';
 import {
-  PLUGIN_BASE_IMAGES, PLUGIN_COMPUTE_TYPES, PLUGIN_TYPES, createLogger, lintPluginDockerfile,
+  PLUGIN_BASE_IMAGES, PLUGIN_COMPUTE_TYPES, STEP_PLUGIN_TYPES, createLogger, lintPluginDockerfile,
 } from '@pipeline-builder/api-core';
 import { z } from 'zod';
 
@@ -130,7 +130,7 @@ const PluginGenerationSchema = z.object({
   name: z.string().describe('Plugin name (lowercase, alphanumeric with hyphens, e.g. "nodejs-build")'),
   description: z.string().optional().describe('Human-readable description of what this plugin does'),
   version: z.string().describe('Semantic version (e.g. "1.0.0")'),
-  pluginType: z.enum(PLUGIN_TYPES).describe('Plugin execution type'),
+  pluginType: z.enum(STEP_PLUGIN_TYPES).describe('Plugin execution type'),
   computeType: z.enum(PLUGIN_COMPUTE_TYPES).describe('AWS CodeBuild compute size'),
   keywords: z.array(z.string()).describe('Keywords for categorizing this plugin'),
   primaryOutputDirectory: z.string().optional().describe('Primary output directory path (e.g. "dist", "build", "cdk.out")'),

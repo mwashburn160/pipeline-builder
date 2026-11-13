@@ -16,6 +16,7 @@ import { printLookupWarningSummary } from '../utils/plugin-resolver.js';
 import { resolveRegistrationClient } from '../utils/registration-client.js';
 import { setPipelineId } from '../utils/request-context.js';
 import { relaxTlsForCli } from '../utils/tls.js';
+import { applyToolchainFile, toolchainFileRequired } from '../utils/toolchain.js';
 
 /**
  * Registers the `deploy` command with the CLI program.
@@ -36,7 +37,8 @@ export function deploy(program: Command): void {
         .command('deploy')
         .description('Deploy pipeline by ID using AWS CDK, or --local-spec to deploy a local pipeline.json without the platform')
         .option('-i, --id <id>', 'Pipeline ID (fetches config from the platform)')
-        .option('--local-spec <path>', 'Path to a local pipeline.json — deploys without contacting the platform (no auth, no compliance, no plugin lookup)'))
+        .option('--local-spec <path>', 'Path to a local pipeline.json — deploys without contacting the platform (no auth, no compliance, no plugin lookup). Requires --toolchain-file')
+        .option('--toolchain-file <path>', 'With --local-spec: the toolchain release to build on, as written by `pipeline-manager toolchain export`'))
         .option('--require-approval <approval>', 'Deploy approval level: never|any-change|broadening. Defaults to `broadening`: a deploy that widens IAM stops for confirmation. Pass `never` for unattended runs.', 'broadening')
         .option('--output <dir>', 'CDK output directory', 'cdk.out')
         .option('--store-tokens', 'Authenticate using token from AWS Secrets Manager (requires PLATFORM_SECRET_NAME env var)', false),
@@ -55,6 +57,12 @@ export function deploy(program: Command): void {
         if (options.id && options.localSpec) {
           throw new Error('--id and --local-spec are mutually exclusive');
         }
+        if (options.toolchainFile && !options.localSpec) {
+          throw new Error('--toolchain-file applies to --local-spec only (with --id the platform resolves the toolchain release)');
+        }
+        // Without the platform, the toolchain release can only come from a file
+        // (D2: never a fallback image). Refuse before reading anything else.
+        if (options.localSpec && !options.toolchainFile) throw toolchainFileRequired();
 
         auditLog('deploy', { executionId, pipelineId: options.id, profile: options.profile });
         // Attributes this deploy's platform calls to the pipeline (usage ledger).
@@ -120,6 +128,10 @@ export function deploy(program: Command): void {
             ...(pipeline.orgId && { orgId: pipeline.orgId }),
             pipelineId: pipeline.id,
           };
+          // The toolchain release from `toolchain export`: the bootstrap image
+          // and, for a managed cdk-synth, the synth plugin itself.
+          const release = applyToolchainFile(propsWithIds, options.toolchainFile);
+          printInfo('Toolchain release (from file)', { release, file: path.resolve(options.toolchainFile) });
         } else {
           // Remote path: fetch config from platform API. fetchPipelineProps does
           // the fetch + plugin pre-resolution + registry pull-host bake — shared

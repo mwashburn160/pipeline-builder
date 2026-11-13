@@ -21,8 +21,8 @@ const logger = createLogger('docker-build');
 // CodeBuild runtime that runs plugin images. On an amd64 buildkitd host this is
 // native (no-op); on an arm64 host buildkit emulates amd64 via qemu so the
 // registry artifact still matches the runtime. Override PUBLISH_PLATFORM (e.g.
-// linux/arm64) for an all-Graviton stack — same env name the deploy scripts
-// (build-plugin-images.sh / build-codebuild-bootstrap.sh) use.
+// linux/arm64) for an all-Graviton stack — same env name
+// deploy/bin/build-plugin-images.sh uses.
 export const PUBLISH_PLATFORM = process.env.PUBLISH_PLATFORM || 'linux/amd64';
 
 // -----------------------------------------------------------------------------

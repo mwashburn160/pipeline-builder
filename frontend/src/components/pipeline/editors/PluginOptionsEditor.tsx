@@ -1,4 +1,5 @@
 import { useCallback, useId } from 'react';
+import { managedToolchainRefName } from '@pipeline-builder/api-core/plugin-catalog';
 import { FormPluginOptions, FormPluginFilter, createEmptyPluginFilter } from '@/types/form-types';
 import type { PluginPick } from '@/lib/plugin-installs';
 import { Input } from '@/components/ui/Input';
@@ -52,6 +53,13 @@ export default function PluginOptionsEditor({
       return;
     }
     const { plugin } = pick;
+    // A managed toolchain plugin (`cdk-synth`) is pinned only as a whole
+    // release (`toolchain.release`), never by its own version or row id
+    // (TOOLCHAIN_PIN_VIA_RELEASE) — so picking one carries just the name.
+    if (managedToolchainRefName({ name: plugin.name }) !== null) {
+      onChange({ ...value, publisher: '', name: plugin.name, filter: createEmptyPluginFilter() });
+      return;
+    }
     onChange({
       ...value,
       publisher: '',
@@ -68,6 +76,9 @@ export default function PluginOptionsEditor({
       },
     });
   }, [value, onChange]);
+
+  // The release decides a managed plugin's version: no version or id field.
+  const managed = managedToolchainRefName({ name: value.name, filter: { name: value.filter.name } }) !== null;
 
   const hasFilter = value.filter.id !== '' || value.filter.orgId !== '' ||
     value.filter.visibility !== '' || value.filter.isDefault !== '' ||
@@ -118,18 +129,26 @@ export default function PluginOptionsEditor({
       </div>
       <CollapsibleSection title={`${label} Filters`} hasContent={hasFilter}>
         <div className="mt-3 space-y-3">
+          {managed && (
+            <p className="text-xs text-fg-muted" data-testid="managed-toolchain-note">
+              {value.name || value.filter.name} is part of the managed pipeline toolchain: its version comes from the
+              pipeline&apos;s toolchain release (Pipeline settings → Toolchain), so it has no version or ID filter.
+            </p>
+          )}
           <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="label" htmlFor={`${uid}-plugin-id`}>Plugin ID</label>
-              <Input
-                id={`${uid}-plugin-id`}
-                type="text"
-                value={value.filter.id}
-                onChange={(e) => updateFilter({ id: e.target.value })}
-                placeholder="Plugin UUID"
-                disabled={disabled}
-              />
-            </div>
+            {!managed && (
+              <div>
+                <label className="label" htmlFor={`${uid}-plugin-id`}>Plugin ID</label>
+                <Input
+                  id={`${uid}-plugin-id`}
+                  type="text"
+                  value={value.filter.id}
+                  onChange={(e) => updateFilter({ id: e.target.value })}
+                  placeholder="Plugin UUID"
+                  disabled={disabled}
+                />
+              </div>
+            )}
             <div>
               <label className="label" htmlFor={`${uid}-org-id`}>Org ID</label>
               <Input
@@ -196,17 +215,19 @@ export default function PluginOptionsEditor({
               />
             </div>
           </div>
-          <div>
-            <label className="label" htmlFor={`${uid}-version`}>Version</label>
-            <Input
-              id={`${uid}-version`}
-              type="text"
-              value={value.filter.version}
-              onChange={(e) => updateFilter({ version: e.target.value })}
-              placeholder="e.g. 1.0.0"
-              disabled={disabled}
-            />
-          </div>
+          {!managed && (
+            <div>
+              <label className="label" htmlFor={`${uid}-version`}>Version</label>
+              <Input
+                id={`${uid}-version`}
+                type="text"
+                value={value.filter.version}
+                onChange={(e) => updateFilter({ version: e.target.value })}
+                placeholder="e.g. 1.0.0"
+                disabled={disabled}
+              />
+            </div>
+          )}
         </div>
       </CollapsibleSection>
       <CollapsibleSection title={`${label} Metadata`} hasContent={value.metadata.length > 0}>

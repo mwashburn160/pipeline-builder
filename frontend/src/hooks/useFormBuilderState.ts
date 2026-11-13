@@ -30,6 +30,7 @@ type Action =
   | { type: 'SET_KEYWORDS'; value: string }
   | { type: 'SET_GLOBAL_METADATA'; value: MetadataEntry[] }
   | { type: 'SET_VARS'; value: MetadataEntry[] }
+  | { type: 'SET_TOOLCHAIN_RELEASE'; value: string }
   // Defaults
   | { type: 'SET_DEFAULTS_ENABLED'; value: boolean }
   | { type: 'SET_DEFAULTS_NETWORK_TYPE'; value: FormBuilderState['defaults']['networkType'] }
@@ -90,6 +91,8 @@ function formReducer(state: FormBuilderState, action: Action): FormBuilderState 
       return { ...state, global: action.value };
     case 'SET_VARS':
       return { ...state, vars: action.value };
+    case 'SET_TOOLCHAIN_RELEASE':
+      return { ...state, toolchainRelease: action.value };
 
     // Defaults
     case 'SET_DEFAULTS_ENABLED':

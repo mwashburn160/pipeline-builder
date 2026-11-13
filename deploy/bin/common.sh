@@ -908,6 +908,22 @@ list_categories() {
 }
 
 # ---------------------------------------------------------------------------
+# The managed toolchain release — pipeline-bootstrap + cdk-synth, ONE version —
+# has its own source root, deploy/toolchain/<name>/, beside (not inside) the
+# plugin catalog's deploy/plugins/<category>/<name>/: the pair is one release,
+# not catalog plugins. build-plugin-images.sh and load-plugins.sh handle it
+# FIRST, in this order (bootstrap before cdk-synth, which is FROM it), outside
+# their per-plugin catalog walk; `--category toolchain` selects it. Both halves
+# still reach the platform through the ordinary plugin upload API.
+# ---------------------------------------------------------------------------
+# shellcheck disable=SC2034  # read by the scripts that source this file
+TOOLCHAIN_DIR="$DEPLOY_DIR/toolchain"
+# shellcheck disable=SC2034
+MANAGED_TOOLCHAIN_PLUGINS="pipeline-bootstrap cdk-synth"
+# shellcheck disable=SC2034
+TOOLCHAIN_CATEGORY="toolchain"
+
+# ---------------------------------------------------------------------------
 # prompt_toggle <varname> <prompt-text> — resolve a y/n toggle. An env-set value
 #   (automation) is honored as-is; otherwise prompt on a TTY; otherwise default "n".
 #   Sets the named variable in place — no eval (indirect read `${!var}` + printf -v).

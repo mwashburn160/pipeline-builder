@@ -19,6 +19,8 @@ export interface BuilderProps {
   global?: Record<string, string | number | boolean>;
   /** Pipeline-level template variables, exposed to `{{ pipeline.vars.* }}`. */
   vars?: Record<string, string | number | boolean>;
+  /** Pins the whole managed toolchain release (build image + cdk-synth); omit to follow the default. */
+  toolchain?: { release: string };
   defaults?: Record<string, unknown>;
   role?: Record<string, unknown>;
   synth: Record<string, unknown>;

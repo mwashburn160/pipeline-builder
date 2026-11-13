@@ -249,6 +249,30 @@ describe('PUT /pipelines/:id (update)', () => {
     expect(res.status).toHaveBeenCalledWith(400);
   });
 
+  it('refuses a managed cdk-synth pinning its own version: 400 TOOLCHAIN_PIN_VIA_RELEASE, before the contract check', async () => {
+    const res = mockRes();
+    await handler(mockReq({ body: { props: { synth: { plugin: { name: 'cdk-synth', filter: { version: '1.1.0' } } } } } }), res);
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ code: 'TOOLCHAIN_PIN_VIA_RELEASE' }));
+    expect(mockFindContractViolations).not.toHaveBeenCalled();
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it('an unchanged toolchain.release pin is not re-checked for eligibility (the stored row is compared)', async () => {
+    const props = { synth: { plugin: { name: 'cdk-synth' } }, toolchain: { release: '1.2.0' } };
+    mockFindById.mockResolvedValue({ id: 'pipeline-uuid-1', orgId: 'org-1', props });
+    mockFindContractViolations.mockResolvedValueOnce([
+      { path: 'stages[0].steps[0]', step: 'deploy/helm', plugin: 'helm', version: '1.0.0', missing: ['metadata.namespace'], invalid: [] },
+    ]);
+    const res = mockRes();
+    await handler(mockReq({ body: { props } }), res);
+    // Reached the contract check: the pin check passed without an eligibility read.
+    expect(mockFindById).toHaveBeenCalledWith('pipeline-uuid-1', 'org-1');
+    expect(mockFindContractViolations).toHaveBeenCalled();
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ code: 'TEMPLATE_CONTRACT_VIOLATION' }));
+    mockFindById.mockReset();
+  });
+
   it('returns 400 TEMPLATE_CONTRACT_VIOLATION when new props break a plugin contract', async () => {
     mockFindContractViolations.mockResolvedValueOnce([
       { path: 'stages[0].steps[0]', step: 'deploy/helm', plugin: 'helm', version: '1.0.0', missing: ['metadata.namespace'], invalid: [] },

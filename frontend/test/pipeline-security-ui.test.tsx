@@ -41,7 +41,7 @@ import { PluginInUseModal, pluginInUseRefusal } from '../src/components/plugin/P
 import { KeptSetupImagesPanel } from '../src/components/ecosystem/KeptSetupImagesPanel';
 import { ApiError } from '../src/lib/api/errors';
 import {
-  acceptedUntilIso, acceptanceWindow, pluginWarningsToast, shortDigest, triageBody, triageProblem,
+  acceptedUntilIso, acceptanceWindow, pluginWarningsToast, shortDigest, toolchainChangeRunId, triageBody, triageProblem,
 } from '../src/lib/pipeline-security';
 
 const ok = <T,>(data: T) => Promise.resolve({ success: true, data });
@@ -68,7 +68,21 @@ const SECURITY = {
     ],
     exposures: [EXPOSURE],
   }],
+  buildImage: null,
   exposures: [EXPOSURE],
+};
+
+const BUILD_IMAGE = {
+  stepKey: 'build-image', plugin: 'pipeline-bootstrap', releaseVersion: '1.4.2', digest: 'sha256:bbbbbbbbbbbbbbbbbbbb',
+  imageRepository: 'system/pipeline-bootstrap', resolvedVia: 'pin', deployedAt: '2026-11-10T09:00:00Z', lastLookupAt: '2026-11-10T09:00:00Z',
+  warnings: [{ code: 'TOOLCHAIN_RELEASE_DEPRECATED', message: 'Release 1.4.2 is deprecated.', severity: 'warning' }],
+  refusal: null, catalogState: 'live',
+  scan: { flagged: false, kev: 0, criticalFixable: 0, highFixable: 0, critical: 0, high: 1, scannedAt: '2026-11-09T00:00:00Z', stale: false, unscanned: false },
+  severity: 'ok', currentWarnings: [], exposures: [],
+  effectiveDefault: { releaseVersion: '1.5.0', resolvedVia: 'org-default' },
+  behindDefault: true, synthPlugin: 'cdk-synth', toolchainUnmanaged: false,
+  change: { from: '1.4.1', to: '1.4.2', changedAt: '2026-11-10T09:00:00Z' },
+  releaseNotes: 'Bumps aws-cdk to 2.1150.0.',
 };
 
 const PREVIEW = {
@@ -137,6 +151,28 @@ describe('pipeline-security helpers', () => {
   });
 });
 
+describe('toolchainChangeRunId (the run-history marker)', () => {
+  const change = { from: '1.4.1', to: '1.4.2', changedAt: '2026-11-10T09:00:00Z' };
+  const runs = [
+    { execution_id: 'e3', started_at: '2026-11-11T00:00:00Z' },
+    { execution_id: 'e2', started_at: '2026-11-10T09:05:00Z' },
+    { execution_id: 'e1', started_at: '2026-11-09T00:00:00Z' },
+    { execution_id: 'e0', started_at: null },
+  ];
+
+  it('marks only the FIRST run after the change, whatever the order', () => {
+    expect(toolchainChangeRunId(runs, change)).toBe('e2');
+    expect(toolchainChangeRunId([...runs].reverse(), change)).toBe('e2');
+  });
+
+  it('marks nothing without a change, or before any run has started since', () => {
+    expect(toolchainChangeRunId(runs, null)).toBeNull();
+    expect(toolchainChangeRunId(runs.filter((r) => r.execution_id === 'e1'), change)).toBeNull();
+    expect(toolchainChangeRunId(null, change)).toBeNull();
+    expect(toolchainChangeRunId(runs, { ...change, changedAt: 'nope' })).toBeNull();
+  });
+});
+
 describe('PipelineSecurityTab', () => {
   it('shows the overall severity, each step graded with its scan facts, and the exposures', async () => {
     render(<PipelineSecurityTab pipelineId="p1" canWrite />);
@@ -148,6 +184,39 @@ describe('PipelineSecurityTab', () => {
     expect(items.map((i) => i.getAttribute('data-severity'))).toEqual(['critical', 'error']);
     expect(screen.getByTestId('exposure-e1')).toHaveTextContent('acme/trivy@1.4.0');
     expect(screen.queryByText(/blocked/i)).not.toBeInTheDocument();
+  });
+
+  it('shows the Build image row: release, digest, how it was chosen, scan, the build-image lookup warnings, behind the effective default and the last change', async () => {
+    api.getPipelineSecurity.mockReturnValue(ok({ ...SECURITY, buildImage: BUILD_IMAGE }));
+    render(<PipelineSecurityTab pipelineId="p1" canWrite />);
+    const row = await screen.findByTestId('security-build-image');
+    expect(row).toHaveTextContent('pipeline-bootstrap@1.4.2');
+    expect(within(row).getByText('bbbbbbbbbbbb')).toBeInTheDocument();
+    expect(within(row).getByText('Pinned by this pipeline')).toBeInTheDocument();
+    expect(within(row).getByTestId('build-image-behind')).toHaveTextContent('Behind default (1.5.0)');
+    expect(within(row).queryByTestId('build-image-unmanaged')).not.toBeInTheDocument();
+    expect(within(row).getByTestId('build-image-warning-toolchain_release_deprecated')).toHaveTextContent('deprecated');
+    expect(within(row).getByText(/Crit 0\/0/)).toBeInTheDocument();
+    expect(within(row).getByTestId('build-image-change')).toHaveTextContent('Toolchain 1.4.1 → 1.4.2');
+    expect(within(row).getByText('Bumps aws-cdk to 2.1150.0.')).toBeInTheDocument();
+    // Never listed as a step.
+    expect(screen.queryByTestId('security-step-build-image')).not.toBeInTheDocument();
+  });
+
+  it('shows "toolchain unmanaged" for a custom synth, no "behind" on the effective default, and no row before anything is recorded', async () => {
+    api.getPipelineSecurity.mockReturnValue(ok({ ...SECURITY, buildImage: { ...BUILD_IMAGE, behindDefault: false, toolchainUnmanaged: true, synthPlugin: 'my-synth', change: null, effectiveDefault: { releaseVersion: '1.4.2', resolvedVia: 'default' } } }));
+    const { unmount } = render(<PipelineSecurityTab pipelineId="p1" canWrite />);
+    const row = await screen.findByTestId('security-build-image');
+    expect(within(row).getByTestId('build-image-unmanaged')).toHaveTextContent('Toolchain unmanaged');
+    expect(row).toHaveTextContent('my-synth');
+    expect(within(row).queryByTestId('build-image-behind')).not.toBeInTheDocument();
+    expect(within(row).queryByTestId('build-image-change')).not.toBeInTheDocument();
+    unmount();
+
+    api.getPipelineSecurity.mockReturnValue(ok(SECURITY));
+    render(<PipelineSecurityTab pipelineId="p1" canWrite />);
+    await screen.findByTestId('security-step-build/scan');
+    expect(screen.queryByTestId('security-build-image')).not.toBeInTheDocument();
   });
 
   it('accepts a KEV exposure only with the explicit acknowledgement, a reason and a date', async () => {

@@ -29,6 +29,7 @@ import { linkClaimedSubmissions, publishSubmission } from './submission-moderati
 import { isActiveListing } from './util.js';
 import { assertVerifiedEligible, checkVerifiedEligibility } from './verified-eligibility.js';
 import { resolveBaseImageCreatedAt } from '../../helpers/base-image.js';
+import { assertListable } from '../../helpers/managed-toolchain.js';
 import type { RegistryInfo } from '../../helpers/registry-auth.js';
 
 const logger = createLogger('ecosystem-execute');
@@ -109,6 +110,8 @@ async function reusableListing(listing: PluginListing | null, publisher: Publish
  */
 async function publishVersion(r: Req, publisher: Publisher, actor: string): Promise<void> {
   const plugin = await pinnedPlugin(r, publisher);
+  // Managed toolchain names are never listed (D5) — not even by an approval.
+  assertListable(plugin.name);
   const payload = payloadOf(r);
   const metadata = (payload.metadata as RequestMetadata | undefined) ?? effectiveMetadata(plugin);
   let listing = r.listingId ? await listings.byId(r.listingId) : await listings.byName(publisher.id, plugin.name);

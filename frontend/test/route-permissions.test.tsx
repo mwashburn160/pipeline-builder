@@ -1442,6 +1442,31 @@ const CONTROLS: Control[] = [
     },
   },
   {
+    control: 'Set / clear the org pipeline toolchain default (Settings → Organization)',
+    file: 'pages/dashboard/settings.tsx',
+    gateFiles: ['src/components/settings/PipelineToolchainSettings.tsx'],
+    // The card mounts with `pipelines:read` (read-only there); the write controls
+    // need `toolchain:manage` (docs/plans/bootstrap-image-versioning.md D13), and
+    // every write steps up. The negative render takes away `toolchain:manage`.
+    permissions: ['toolchain:manage', 'pipelines:read'],
+    stepUp: true,
+    routes: ['plugin PUT /plugins/toolchain/org-default', 'plugin DELETE /plugins/toolchain/org-default'],
+    behaviour: {
+      mount: page('../pages/dashboard/settings'),
+      router: { query: { tab: 'organization' }, pathname: '/dashboard/settings' },
+      api: {
+        getToolchainOrgDefault: {
+          effective: { releaseVersion: '1.1.0', resolvedVia: 'default' }, orgDefault: null, inheritedFrom: null,
+          canary: { member: false, releaseVersion: null, effective: false }, platformDefault: '1.1.0',
+          counts: { pipelines: 1, pinned: 0, behind: 0 },
+        },
+        getToolchainEligible: { platformDefault: '1.1.0', releases: [] },
+        getToolchainOrgDefaultHistory: { history: [] },
+      },
+      find: button(/^save toolchain default$/i),
+    },
+  },
+  {
     control: 'Edit / test plugin security notifications (Settings → Organization)',
     file: 'pages/dashboard/settings.tsx',
     gateFiles: ['src/components/settings/PluginSecurityNotificationSettings.tsx'],
@@ -2771,6 +2796,7 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
   'image-registry POST /internal/quarantine/:submissionId/credential': { category: 'machine-only', why: 'Service-principal route (callers: plugin): api/plugin/src/services/ecosystem/registry.ts asks for a short-lived, registry-only pull credential scoped to one anonymous submission\'s quarantine image, for the submission build; no user token is admitted.' },
   'plugin GET /internal/plugins/image-references': { category: 'machine-only', why: 'Service-principal route (callers: image-registry): api/image-registry/src/services/plugin-image-references.ts reads the digests an org\'s namespace still needs (plugin rows, pipelines declaring / running them, open deployed exposures) before the age GC deletes anything; no user token is admitted.' },
   'plugin GET /internal/plugins/public-names': { category: 'machine-only', why: 'Service-principal route (callers: image-registry): api/image-registry/src/services/parent-public-plugins.ts reads the names of an org\'s live public plugins — the only repositories of its namespace its teams may pull (E22); no user token is admitted.' },
+  'plugin POST /plugins/toolchain/initial-default': { category: 'machine-only', why: 'Service-principal route (callers: deploy-bootstrap): deploy/bin/init-platform.sh sets the fresh-install platform toolchain default once (D14, docs/plans/bootstrap-image-versioning.md), signed with the deploy\'s own key from an operator shell; requireInternalService refuses every user and service-account token, and the plugin service refuses that identity on every other route. The console route that moves the default later is a separate, step-up route.' },
 
   // ── Machine credentials: a scoped key, never a session ────────────────────
   ...group('platform', [
@@ -2994,6 +3020,17 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
     'POST /api/admin/gc', 'DELETE /api/images/:name', 'DELETE /api/images/:name/manifests/:reference',
     'POST /api/images/copy',
   ], { category: 'sysadmin-console', why: "Registry console (pages/dashboard/registry.tsx, gated on registry:read): the page no longer gates on the flag, so each write control carries its own rung — Copy on can('registry:write'), and Run GC / delete repository / delete tag / bulk delete on can('registry:purge'), which is superadmin-only. The j/k/c/d shortcuts honour the same two." }),
+
+  ...group('plugin', [
+    'GET /plugins/toolchain/releases', 'GET /plugins/toolchain/releases/:v/adoption', 'GET /plugins/toolchain/releases/:v/canary',
+    'GET /plugins/toolchain/releases/:v/default-preview', 'GET /plugins/toolchain/history', 'GET /plugins/toolchain/affected',
+    'GET /plugins/toolchain/cleanup',
+  ], { category: 'sysadmin-console', why: "Toolchain console reads (pages/dashboard/toolchain.tsx and its src/components/toolchain/ panels — Releases, Canary, Adoption, Affected, History, Cleanup, and the set-as-default preview). Here because `toolchain:operate` is system-org-only, so each carries requireSystemOrg + aal2 alongside the permission; the page's own gate is the nav entry's `requiredPermission: 'toolchain:operate'`. No step-up on reads (docs/plans/bootstrap-image-versioning.md §5)." }),
+  ...group('plugin', [
+    'PUT /plugins/toolchain/releases/:v/rollout', 'POST /plugins/toolchain/releases/:v/default', 'PATCH /plugins/toolchain/releases/:v',
+    'POST /plugins/toolchain/releases/:v/deprecate', 'POST /plugins/toolchain/releases/:v/yank', 'DELETE /plugins/toolchain/releases/:v',
+    'POST /plugins/toolchain/affected/notify',
+  ], { category: 'sysadmin-console', why: "Toolchain console writes (pages/dashboard/toolchain.tsx, gated on toolchain:operate): edit notes, canary orgs, set as default (with the blast-radius confirm), deprecate, yank, delete, notify affected owners — each control on can('toolchain:operate'), and every route is toolchain:operate + system-org + aal2 + step-up, audited toolchain.*. A tenant Admin or a toolchain:manage holder never reaches the page or the routes." }),
 
   // ── Driven by a control whose gate a mapped row already proves ───────────
   ...group('compliance', [

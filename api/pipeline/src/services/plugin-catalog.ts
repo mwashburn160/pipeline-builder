@@ -1,10 +1,13 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { isSystemOrgId, scanFreshness, versionScanFacts } from '@pipeline-builder/api-core';
+import { isSystemOrgId, scanFreshness, versionScanFacts, type PluginType } from '@pipeline-builder/api-core';
 import { OFFICIAL_PUBLISHER_HANDLE, schema, withTenantTx } from '@pipeline-builder/pipeline-data';
-import { and, isNull, notInArray } from 'drizzle-orm';
+import { and, isNull, ne, notInArray } from 'drizzle-orm';
 import { availablePluginConditions, findResolvableListings } from './plugin-lookup-service.js';
+
+/** `PluginType.BUILD_IMAGE`: the managed build image a pipeline runs ON — never offered as a step. */
+const BUILD_IMAGE: PluginType = 'BuildImage';
 
 /**
  * The plugin catalog an AI generation is offered: the org's own plugins plus the
@@ -159,7 +162,7 @@ async function getAvailablePlugins(orgId: string): Promise<PluginSummary[]> {
   const listed: PluginSummary[] = listings
     // Never OFFER a deprecated, rescan-flagged or KEV version.
     .map((l) => ({ l, standing: scanStanding({ ...l.scan, name: l.name, version: l.version, pluginType: typeof l.spec.pluginType === 'string' ? l.spec.pluginType : null }) }))
-    .filter(({ l, standing }) => !l.deprecated && standing !== 'exclude')
+    .filter(({ l, standing }) => !l.deprecated && standing !== 'exclude' && l.spec.pluginType !== BUILD_IMAGE)
     .map(({ l, standing }) => {
       const s = l.spec;
       const record = (v: unknown) => (v && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, never> : {});
@@ -225,6 +228,7 @@ async function getAvailablePluginRows(orgId: string): Promise<PluginSummary[]> {
       isNull(schema.plugin.deprecatedAt),
       isNull(schema.plugin.yankedAt),
       notInArray(schema.plugin.lifecycle, ['deprecated', 'yanked']),
+      ne(schema.plugin.pluginType, BUILD_IMAGE),
     ))) as Array<Omit<PluginSummary, 'tier'> & ScanColumns & { orgId?: string | null }>;
   // The system org's shared catalog rows are the Official plugins; the rest are
   // the org's own. Flagged / KEV versions are dropped here (a jsonb `kev` count

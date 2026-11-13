@@ -301,3 +301,19 @@ describe('DELETE /plugins/:id — step-up only for force', () => {
     }));
   });
 });
+
+// docs/plans/bootstrap-image-versioning.md §5: a managed toolchain release is
+// deleted only in the Toolchain console — for the system org too.
+describe('DELETE /plugins/:id — managed toolchain names', () => {
+  const handler = getHandler('delete', '/:id');
+
+  beforeEach(() => { jest.clearAllMocks(); });
+
+  it.each(['pipeline-bootstrap', 'cdk-synth'])('refuses %s with TOOLCHAIN_USE_CONSOLE before the service runs', async (name) => {
+    mockFindById.mockResolvedValue({ ...existingPlugin, name, orgId: '000000000000000000000001', isDefault: true });
+    const res = mockRes();
+    await handler(mockReq({ context: { identity: { orgId: '000000000000000000000001', userId: 'admin' }, log: jest.fn<AnyFn>(), requestId: 'r' } }), res);
+    expect(mockDeleteVersion).not.toHaveBeenCalled();
+    expect(mockSendInternalErrorForRoute).toHaveBeenCalledWith(res, expect.stringContaining('Toolchain console'));
+  });
+});

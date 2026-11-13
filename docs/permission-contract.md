@@ -79,6 +79,12 @@ The install rows (`/plugins/catalog`, `/plugins/listings/*/install-state`, `/plu
 
 Loosening `PUT /plugins/install-policy` below `plugin_installs:manage + step-up(any)` lets any member widen what the org's pipelines may run, which is a weakening.
 
+### Org toolchain default routes
+
+The `/plugins/toolchain/org-default*` and `/plugins/toolchain/eligible` rows act only on the caller's own org; a team acts on the team, and none takes an org id. The writes are `toolchain:manage + step-up(any)` because an org default moves the managed toolchain of every unpinned pipeline in the org (and its teams without their own) on its next run ([plan D13](plans/bootstrap-image-versioning.md)). Loosening either write to `pipelines:write` (one pipeline's pin) or `plugin_installs:manage` (future installs) would let a member move every pipeline at once, which is a weakening; so is dropping the step-up. `toolchain:manage` confers nothing on the platform default, canary or catalog — the `POST /plugins/toolchain/initial-default` row and the Toolchain console stay out of its reach. Eligibility (D15) is decided inside the service, so it does not show in the rows.
+
+The Toolchain console rows (`/plugins/toolchain/releases*`, `/history`, `/affected*`, `/cleanup`) are `system-org + any(toolchain:operate) + aal2`, and every write adds `step-up(any)` ([plan D9](plans/bootstrap-image-versioning.md)). They move or describe THE platform default and canary, which every org without its own default follows, so `toolchain:operate` is system-org-only and carried by Platform Operator. Dropping `system-org` would let a tenant token that somehow carried the permission reach them; replacing `toolchain:operate` with `toolchain:manage` (every tenant Admin) would hand every org the platform default; dropping `step-up` from a write, or adding one to a read, changes the §5 contract. Reads never step up.
+
 ### Plugin security notification routes
 
 The `/plugins/pipelines/:pipelineId/*` rows act only on a pipeline of the caller's own org (any other answers 404). The triage `POST` records a pipeline's risk decision — a time-boxed acceptance (reason + expiry, KEV only with an explicit `kev: true`), a false positive, a reopen — which downgrades that pipeline's vulnerability warnings and notices for the accepted findings; loosening it below `pipelines:write` would let a read-only member silence a pipeline's security signal, which is a weakening. Vulnerability state never blocks a pipeline, so no row here gates one. `GET /internal/plugins/image-references` feeds the image registry's age GC the digests it must never delete; widening its caller list would leak which images an org's pipelines run.
@@ -651,6 +657,26 @@ Contacting support is self-service — every member who can open the Messages pa
 | plugin | POST | `/plugins/queue/failed/:jobId/retry` | `any(plugins:write)` |
 | plugin | GET | `/plugins/queue/status` | `system-org + any(plugin_queue:manage) + aal2` |
 | plugin | GET | `/plugins/queue/triage` | `any(plugins:write)` |
+| plugin | POST | `/plugins/toolchain/initial-default` | `service-principal + internal(deploy-bootstrap)` |
+| plugin | GET | `/plugins/toolchain/eligible` | `any(pipelines:read)` |
+| plugin | GET | `/plugins/toolchain/org-default` | `any(pipelines:read)` |
+| plugin | PUT | `/plugins/toolchain/org-default` | `any(toolchain:manage) + step-up(any)` |
+| plugin | DELETE | `/plugins/toolchain/org-default` | `any(toolchain:manage) + step-up(any)` |
+| plugin | GET | `/plugins/toolchain/org-default/history` | `any(pipelines:read)` |
+| plugin | GET | `/plugins/toolchain/releases` | `system-org + any(toolchain:operate) + aal2` |
+| plugin | GET | `/plugins/toolchain/releases/:v/adoption` | `system-org + any(toolchain:operate) + aal2` |
+| plugin | GET | `/plugins/toolchain/releases/:v/canary` | `system-org + any(toolchain:operate) + aal2` |
+| plugin | GET | `/plugins/toolchain/releases/:v/default-preview` | `system-org + any(toolchain:operate) + aal2` |
+| plugin | PUT | `/plugins/toolchain/releases/:v/rollout` | `system-org + any(toolchain:operate) + aal2 + step-up(any)` |
+| plugin | POST | `/plugins/toolchain/releases/:v/default` | `system-org + any(toolchain:operate) + aal2 + step-up(any)` |
+| plugin | PATCH | `/plugins/toolchain/releases/:v` | `system-org + any(toolchain:operate) + aal2 + step-up(any)` |
+| plugin | POST | `/plugins/toolchain/releases/:v/deprecate` | `system-org + any(toolchain:operate) + aal2 + step-up(any)` |
+| plugin | POST | `/plugins/toolchain/releases/:v/yank` | `system-org + any(toolchain:operate) + aal2 + step-up(any)` |
+| plugin | DELETE | `/plugins/toolchain/releases/:v` | `system-org + any(toolchain:operate) + aal2 + step-up(any)` |
+| plugin | GET | `/plugins/toolchain/history` | `system-org + any(toolchain:operate) + aal2` |
+| plugin | GET | `/plugins/toolchain/affected` | `system-org + any(toolchain:operate) + aal2` |
+| plugin | POST | `/plugins/toolchain/affected/notify` | `system-org + any(toolchain:operate) + aal2 + step-up(any)` |
+| plugin | GET | `/plugins/toolchain/cleanup` | `system-org + any(toolchain:operate) + aal2` |
 | plugin | GET | `/plugins/vuln-waivers` | `any(plugins:read)` |
 | plugin | GET | `/plugins/vulnerabilities/:advisoryId` | `any(plugins:read)` |
 | plugin | GET | `/plugins/vulnerabilities/fleet` | `system-org + any(platform:read|plugins:moderate) + aal2` |

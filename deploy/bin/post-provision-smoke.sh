@@ -27,11 +27,18 @@
 #   4. denied connection (k8s) — a throwaway pod OUTSIDE the mesh, whose egress
 #      no policy opens, tries 1.1.1.1:443. It must be BLOCKED; OPEN means the
 #      CNI is not enforcing NetworkPolicy at all (see eks cluster/nodeclass.yaml).
+#   5. toolchain — inside the plugin pod, resolves the managed toolchain release
+#      for a synthetic smoke org (no org default, no canary, a root) with the
+#      platform's own resolver. It must answer resolvedVia=default with BOTH
+#      halves (pipeline-bootstrap + cdk-synth) of one release, each with a signed
+#      image digest. TOOLCHAIN_NO_DEFAULT means no platform default was ever set
+#      (init-platform.sh sets it), so every pipeline synth would fail.
 #
 # Env: NAMESPACE, PB_SMOKE_KUBECTL (default `kubectl`; ec2 passes
 # `sudo -u minikube kubectl`), SMOKE_EMAIL_TO | ALERT_EMAIL, SLACK_CRITICAL_WEBHOOK_URL /
 # SLACK_WARNING_WEBHOOK_URL (only to decide whether Slack is configured),
-# SMOKE_SKIP=alert,email,codepipeline,netpol (comma list) to skip checks.
+# SMOKE_SKIP=alert,email,codepipeline,netpol,toolchain (comma list) to skip checks,
+# SMOKE_TOOLCHAIN_ORG (default pb-smoke-toolchain) — the synthetic org resolved for.
 
 set -uo pipefail
 
@@ -200,6 +207,41 @@ pb_probe_denied_connection() {
   esac
 }
 
+# ---- 5. toolchain release ---------------------------------------------------
+# The platform's own resolver, in the plugin pod (its DB credentials, elevated
+# reads), for a synthetic ROOT org: getParent answers "no parent", so the org
+# can't inherit anything and the answer must come from the platform default.
+pb_smoke_toolchain() {
+  local org="${SMOKE_TOOLCHAIN_ORG:-pb-smoke-toolchain}" js out
+  case "$org" in *[!A-Za-z0-9._-]*) warn "toolchain — refusing an unusual SMOKE_TOOLCHAIN_ORG: $org"; return 0 ;; esac
+  _ready plugin || return 0
+  js="const pd = await import('@pipeline-builder/pipeline-data');
+if (typeof pd.resolveManagedToolchainWith !== 'function') { console.log('NO_RESOLVER'); process.exit(0); }
+const deps = {
+  read: (fn) => pd.runWithTenantContext({ isSuperAdmin: true }, () => pd.withTenantTx((tx) => fn(tx))),
+  getParent: async () => undefined,
+};
+try {
+  const r = await pd.resolveManagedToolchainWith(deps, { orgId: '${org}' });
+  const ok = (p, n) => p && p.name === n && p.version === r.releaseVersion && /^sha256:[0-9a-f]{64}\$/.test(p.imageDigest || '');
+  console.log(['OK', r.releaseVersion, r.resolvedVia, ok(r.bootstrap, 'pipeline-bootstrap') ? 'pair' : 'nopair', ok(r.synth, 'cdk-synth') ? 'pair' : 'nopair'].join(' '));
+} catch (e) { console.log(['ERR', e.code || e.name || 'Error', String(e.message || e).replace(/\s+/g, ' ')].join(' ')); }
+process.exit(0);"
+  out=$(_exec plugin node --input-type=module -e "$js" 2>&1 | tail -1)
+  case "$out" in
+    'OK '*' default pair pair')
+      pass "toolchain — release $(printf '%s' "$out" | awk '{print $2}') is the platform default; both halves resolve with signed digests" ;;
+    'OK '*)
+      warn "toolchain — resolved '$out' (expected resolvedVia=default with both halves signed: 'OK <release> default pair pair')" ;;
+    'ERR TOOLCHAIN_NO_DEFAULT'*)
+      warn "toolchain — NO platform default release is set: every pipeline synth fails with BOOTSTRAP_IMAGE_UNRESOLVED. Run deploy/bin/init-platform.sh (it uploads the release and sets the initial default)" ;;
+    NO_RESOLVER)
+      warn "toolchain — the plugin image has no managed-toolchain resolver (an image older than this deploy tree)" ;;
+    *)
+      warn "toolchain — could not resolve the managed toolchain release: $out" ;;
+  esac
+}
+
 echo ""
 echo "=== Post-provision smoke checks ($MODE) ==="
 case "$SKIP" in *,alert,*) skip "alert delivery (SMOKE_SKIP)" ;; *) pb_smoke_alert ;; esac
@@ -207,6 +249,7 @@ case "$SKIP" in *,email,*) skip "email (SMOKE_SKIP)" ;; *) pb_smoke_email ;; esa
 if [ "$AWS_CHECKS" = true ]; then
   case "$SKIP" in *,codepipeline,*) skip "codepipeline (SMOKE_SKIP)" ;; *) pb_smoke_codepipeline ;; esac
 fi
+case "$SKIP" in *,toolchain,*) skip "toolchain (SMOKE_SKIP)" ;; *) pb_smoke_toolchain ;; esac
 if [ "$MODE" = k8s ]; then
   case "$SKIP" in *,netpol,*) skip "network policy (SMOKE_SKIP)" ;; *) pb_probe_denied_connection ;; esac
 fi

@@ -35,8 +35,9 @@
   */
 
 import {
-  assessVersionVulns, createLogger, errorMessage, maxSeverity, PluginFilterSchema, pluginRunsOwnImage,
-  type VulnConsumptionPolicy, type VulnSeverity,
+  assessVersionVulns, createLogger, errorMessage, isManagedToolchainPlugin, managedRefPinsVersion, managedToolchainRefName, maxSeverity, PluginFilterSchema,
+  pluginRunsOwnImage, toolchainReleasePin,
+  type ManagedToolchainPlugin, type PluginType, type VulnConsumptionPolicy, type VulnSeverity,
 } from '@pipeline-builder/api-core';
 import {
   checkPluginContract,
@@ -58,6 +59,7 @@ import {
   reconcilePipelineExposures,
   replacePipelineResolution,
   resolveListingReference,
+  resolveManagedToolchainHalf,
   runWithTenantContext,
   schema,
   scopeOrgIds,
@@ -123,11 +125,91 @@ export interface StepContractViolation {
   /** Supplied keys whose value doesn't match the declared type. */
   invalid: Array<{ key: string; expected: string; message: string }>;
   /** Why the step's plugin can't resolve at all (not installed, blocked, yanked …). */
-  refusal?: { code: ResolutionRefusal['code']; reason: string; message: string };
+  refusal?: { code: ResolutionRefusal['code'] | 'VALIDATION_ERROR' | 'TOOLCHAIN_PIN_VIA_RELEASE'; reason: string; message: string };
+}
+
+/**
+ * A managed `cdk-synth` step carrying its own version (or row id): refused —
+ * the toolchain is pinned as a whole release with `toolchain.release` (§5).
+ */
+export function pinViaReleaseViolation(step: { path: string; label: string; name: string; publisher?: string | null }, version: string): StepContractViolation {
+  return {
+    path: step.path,
+    step: step.label,
+    plugin: step.publisher ? `${step.publisher}/${step.name}` : step.name,
+    version,
+    missing: [],
+    invalid: [],
+    refusal: {
+      code: 'TOOLCHAIN_PIN_VIA_RELEASE',
+      reason: 'pin_via_release',
+      message: 'cdk-synth is part of the managed toolchain and can\'t be pinned on its own: remove filter.version and pin the whole release with toolchain.release.',
+    },
+  };
+}
+
+/**
+ * The managed build image (`pipeline-bootstrap`, pluginType `BuildImage`) is the
+ * image the synth and self-mutation RUN ON, never a step of its own
+ * (docs/plans/bootstrap-image-versioning.md §1). Refused by name before any
+ * lookup (a tenant can't resolve the system row, and the name is reserved) and
+ * by the resolved plugin's type.
+ */
+const BUILD_IMAGE_NAME: ManagedToolchainPlugin = 'pipeline-bootstrap';
+/** `PluginType.BUILD_IMAGE`. */
+const BUILD_IMAGE: PluginType = 'BuildImage';
+
+function buildImageStepViolation(step: { path: string; label: string; name: string; publisher?: string | null }, version: string): StepContractViolation {
+  return {
+    path: step.path,
+    step: step.label,
+    plugin: step.publisher ? `${step.publisher}/${step.name}` : step.name,
+    version,
+    missing: [],
+    invalid: [],
+    refusal: {
+      code: 'VALIDATION_ERROR',
+      reason: 'build_image_not_a_step',
+      message: `${step.name} is a build image (pluginType BuildImage), not a pipeline step; the toolchain release runs every synth on it.`,
+    },
+  };
 }
 
 /** What a step's reference resolves to: a plugin, a refusal, or nothing at all. */
 export type ContractResolution = { plugin: ResolvedContractPlugin } | { refusal: ResolutionRefusal } | null;
+
+/**
+ * A managed toolchain half, from the toolchain resolver ONLY (system-org rows,
+ * the caller's pin / org default / canary / platform default) — never a row or
+ * listing of the same name.
+ */
+async function resolveManagedContractPlugin(name: ManagedToolchainPlugin, filter: Partial<PluginFilter>, orgId: string, releasePin?: string): Promise<ContractResolution> {
+  if (managedRefPinsVersion(filter)) {
+    return { refusal: { code: 'PLUGIN_UNAVAILABLE', reason: 'pin_via_release', message: `${name} can't be pinned on its own; pin the release with toolchain.release.` } };
+  }
+  const res = await resolveManagedToolchainHalf({ orgId }, name, releasePin ? { releasePin } : {});
+  if ('refusal' in res) return { refusal: res.refusal };
+  const row = res.plugin;
+  return {
+    plugin: {
+      id: row.id,
+      orgId: row.orgId,
+      publisher: null,
+      name: row.name,
+      version: row.version,
+      requiredMetadata: (row.requiredMetadata ?? []) as string[],
+      requiredVars: (row.requiredVars ?? []) as string[],
+      metadataTypes: (row.metadataTypes ?? {}) as ResolvedContractPlugin['metadataTypes'],
+      varsTypes: (row.varsTypes ?? {}) as ResolvedContractPlugin['varsTypes'],
+      imageDigest: row.imageDigest,
+      buildType: row.buildType,
+      pluginType: row.pluginType,
+      scannedAt: row.scannedAt,
+      vulnHighFixable: row.vulnHighFixable,
+      scan: { imageDigest: row.imageDigest ?? null, scanSummary: row.scanSummary, scanFlag: row.scanFlag, scanFlaggedAt: row.scanFlaggedAt },
+    },
+  };
+}
 
 let listingSourceFor: (tx: Parameters<typeof drizzleListingSource>[0]) => ListingDataSource = drizzleListingSource;
 
@@ -185,8 +267,14 @@ export async function resolveContractPlugin(
   filter: Partial<PluginFilter>,
   orgId: string,
   parentOrgId?: string,
+  opts: { releasePin?: string } = {},
 ): Promise<ContractResolution> {
   const { publisher, ...rowFilter } = filter;
+  // A managed toolchain name resolves through the toolchain resolver only, with
+  // or without a publisher, for the system org too (§2).
+  if (typeof rowFilter.name === 'string' && isManagedToolchainPlugin(rowFilter.name)) {
+    return resolveManagedContractPlugin(rowFilter.name.trim().toLowerCase() as ManagedToolchainPlugin, rowFilter, orgId, opts.releasePin);
+  }
   if (!publisher) {
     const row = await resolveOwnRow(rowFilter, orgId, parentOrgId);
     if (row) return { plugin: row };
@@ -355,6 +443,7 @@ export async function checkPluginContracts(
   const steps = collectPluginSteps(props);
   if (steps.length === 0) return { violations: [], vulnerabilities: [], severity: null };
   const scope = pipelineContractScope((props ?? {}) as ContractScopeProps);
+  const releasePin = toolchainReleasePin(props);
 
   const resolved = new Map<string, Promise<ContractResolution>>();
   const resolve = (filter: Record<string, unknown>) => {
@@ -363,7 +452,7 @@ export async function checkPluginContracts(
     if (!hit) {
       const parsed = PluginFilterSchema.safeParse(filter);
       hit = parsed.success
-        ? resolveContractPlugin(parsed.data as Partial<PluginFilter>, orgId, parentOrgId)
+        ? resolveContractPlugin(parsed.data as Partial<PluginFilter>, orgId, parentOrgId, releasePin ? { releasePin } : {})
         : Promise.resolve(null);
       resolved.set(key, hit);
     }
@@ -373,6 +462,16 @@ export async function checkPluginContracts(
   const violations: StepContractViolation[] = [];
   const resolvedSteps: Array<{ path: string; step: string; plugin: ResolvedContractPlugin }> = [];
   for (const step of steps) {
+    const stepVersion = typeof step.filter?.version === 'string' ? step.filter.version : '';
+    const managed = managedToolchainRefName(step);
+    if (managed === BUILD_IMAGE_NAME) {
+      violations.push(buildImageStepViolation(step, stepVersion));
+      continue;
+    }
+    if (managed && managedRefPinsVersion(step.filter)) {
+      violations.push(pinViaReleaseViolation(step, stepVersion));
+      continue;
+    }
     const resolution = await resolve(pluginLookupFilter(step));
     if (!resolution) continue;
     if ('refusal' in resolution) {
@@ -386,6 +485,10 @@ export async function checkPluginContracts(
         invalid: [],
         refusal: { code, reason, message },
       });
+      continue;
+    }
+    if (resolution.plugin.pluginType === BUILD_IMAGE) {
+      violations.push(buildImageStepViolation(step, resolution.plugin.version));
       continue;
     }
     resolvedSteps.push({ path: step.path, step: step.label, plugin: resolution.plugin });
@@ -448,7 +551,10 @@ export async function recordPipelineResolution(
       })),
       resolve: (filter) => {
         const parsed = PluginFilterSchema.safeParse(filter);
-        return parsed.success ? resolveContractPlugin(parsed.data as Partial<PluginFilter>, orgId, parentOrgId) : Promise.resolve(null);
+        const releasePin = toolchainReleasePin(props);
+        return parsed.success
+          ? resolveContractPlugin(parsed.data as Partial<PluginFilter>, orgId, parentOrgId, releasePin ? { releasePin } : {})
+          : Promise.resolve(null);
       },
     });
     await replacePipelineResolution(pipelineId, rows);

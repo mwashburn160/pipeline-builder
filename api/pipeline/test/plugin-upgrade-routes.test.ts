@@ -149,7 +149,7 @@ describe('POST /plugin-upgrades/apply', () => {
     expect(data.redeployRequired).toBe(true);
     expect(data.results).toEqual([expect.objectContaining({ pipelineId: P1, status: 'upgraded', applied, pluginWarnings: [expect.objectContaining({ code: 'UNSCANNED' })] })]);
     // The pipeline's id reaches the save check, so its risk acceptances apply.
-    expect(mockValidate).toHaveBeenCalledWith({ props: { stages: ['new'] } }, 'acme', 'root', P1);
+    expect(mockValidate).toHaveBeenCalledWith({ props: { stages: ['new'] } }, 'acme', 'root', P1, expect.objectContaining({ id: P1 }));
     expect(mockRecordResolution).toHaveBeenCalledWith(P1, 'acme', 'root', { stages: ['new'] });
     expect(mockRecordAudit).toHaveBeenCalledWith(expect.objectContaining({ action: 'pipeline.plugin.upgraded', targetId: P1, details: expect.objectContaining({ batchId: expect.any(String) }) }));
     expect(data.releases).toEqual([expect.objectContaining({ version: '1.2.0', removable: true })]);

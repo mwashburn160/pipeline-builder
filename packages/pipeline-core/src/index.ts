@@ -72,7 +72,14 @@ export {
   lookupNotFoundState,
   exactPinNotFoundMessage,
   type LookupNotFoundState,
+  parseLookupToolchain,
+  TOOLCHAIN_RESOLVED_VIA,
+  type ToolchainResolvedVia,
+  type ToolchainVersions,
+  type LookupToolchain,
+  type ResolvedBootstrap,
 } from './core/plugin-lookup-envelope.js';
+export * from './core/self-mutation.js';
 export * from './core/synth-failure.js';
 export * from './core/runtime-check.js';
 export * from './core/platform-tls.js';

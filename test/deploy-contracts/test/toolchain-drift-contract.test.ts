@@ -14,10 +14,22 @@
  * hardening-contract.test.ts.
  */
 
-import { readdirSync } from 'fs';
+import { execFileSync } from 'child_process';
+import { createHash } from 'crypto';
+import { existsSync, readdirSync, statSync } from 'fs';
 import { join } from 'path';
 import { describe, it, expect } from '@jest/globals';
+import { parse } from 'yaml';
 import { REPO_ROOT, read } from '../src/index.js';
+
+/**
+ * The managed toolchain release: two directories, one version, in their own
+ * source root (deploy/toolchain) — one release, not catalog plugins.
+ */
+const TOOLCHAIN_ROOT = 'deploy/toolchain';
+const BOOTSTRAP_DIR = `${TOOLCHAIN_ROOT}/pipeline-bootstrap`;
+const SYNTH_DIR = `${TOOLCHAIN_ROOT}/cdk-synth`;
+const BOOTSTRAP_DF = `${BOOTSTRAP_DIR}/Dockerfile`;
 
 /** First capture of `re` in repo file `rel`, or undefined. */
 const grab = (rel: string, re: RegExp): string | undefined => re.exec(read(rel))?.[1];
@@ -54,9 +66,9 @@ describe('Go', () => {
 describe('Node', () => {
   const projenNode = grab('.projenrc.ts', /minNodeVersion:\s*'([0-9.]+)'/);
 
-  it('every service image, the CodeBuild bootstrap, the plugin node base and cdk-deploy* ship projen\'s minNodeVersion', () => {
+  it('every service image, pipeline-bootstrap, the plugin node base and cdk-deploy* ship projen\'s minNodeVersion', () => {
     const pairs: Array<[string, string | undefined]> = [['.projenrc.ts minNodeVersion', projenNode]];
-    for (const df of [...SERVICE_DOCKERFILES, 'deploy/codebuild/bootstrap/Dockerfile']) {
+    for (const df of [...SERVICE_DOCKERFILES, BOOTSTRAP_DF]) {
       pairs.push([`${df} NODE_IMAGE`, grab(df, /^ARG NODE_IMAGE=node:([0-9.]+)-/m)]);
     }
     pairs.push(['deploy/plugins/_base/_node-base NODE_BUILD', grab('deploy/plugins/_base/_node-base/Dockerfile', /^ARG NODE_BUILD=([0-9.]+)\s*$/m)]);
@@ -79,12 +91,12 @@ describe('Node', () => {
 });
 
 describe('pnpm', () => {
-  it('the CodeBuild bootstrap and the generated workflows use the repo\'s pnpm', () => {
+  it('pipeline-bootstrap and the generated workflows use the repo\'s pnpm', () => {
     const pnpm = grab('.projenrc.ts', /const pnpmVersion = '([0-9.]+)'/);
     const pairs: Array<[string, string | undefined]> = [
       ['.projenrc.ts pnpmVersion', pnpm],
       ['package.json packageManager', grab('package.json', /"packageManager":\s*"pnpm@([0-9.]+)"/)],
-      ['deploy/codebuild/bootstrap PNPM_VERSION', grab('deploy/codebuild/bootstrap/Dockerfile', /^ARG PNPM_VERSION="?([0-9.]+)"?\s*$/m)],
+      ['pipeline-bootstrap PNPM_VERSION', grab(BOOTSTRAP_DF, /^ARG PNPM_VERSION="?([0-9.]+)"?\s*$/m)],
     ];
     for (const wf of WORKFLOWS) {
       // pnpm/action-setup `with: version:` — hand-authored workflows omit it
@@ -153,7 +165,7 @@ describe('AWS CDK CLI', () => {
     // one app, which is its own class of confusing failure.
     const pairs: Array<[string, string | undefined]> = [
       ['bootstrap AWS_CDK_VERSION',
-        grab('deploy/codebuild/bootstrap/Dockerfile', /^ARG AWS_CDK_VERSION="?([0-9.]+)"?\s*$/m)],
+        grab(BOOTSTRAP_DF, /^ARG AWS_CDK_VERSION="?([0-9.]+)"?\s*$/m)],
       ['cdk-deploy',
         grab('deploy/plugins/deploy/cdk-deploy/Dockerfile', /aws-cdk@([0-9.]+)/)],
       ['cdk-deploy-multi-region',
@@ -171,7 +183,7 @@ describe('AWS CDK CLI', () => {
     // cdk-synth deliberately installs NO CDK — it is FROM pipeline-bootstrap and
     // inherits the binary. If it ever grows its own `npm install -g aws-cdk`,
     // that is a fourth pin and belongs in the list above.
-    const synth = read('deploy/plugins/infrastructure/cdk-synth/Dockerfile');
+    const synth = read(`${SYNTH_DIR}/Dockerfile`);
     expect(synth).not.toMatch(/aws-cdk@/);
   });
 });
@@ -199,5 +211,141 @@ describe('syft / grype — the release and the plugin service scan with the same
     expectAllEqual(shas);
     // Guards a vacuous pass: the release (and the scans) really install it.
     expect(installers).toBeGreaterThan(0);
+  });
+});
+
+describe('managed toolchain release (pipeline-bootstrap + cdk-synth)', () => {
+  // The failure message IS the runbook (deploy/toolchain/pipeline-bootstrap/README.md,
+  // "Renovate base-digest PRs"): a Renovate `node:` digest PR stays red here until
+  // someone runs the sync on its branch — a base bump is a new release.
+  const SYNC = 'deploy/bin/sync-image-tags.sh --toolchain-only on this branch, then commit both deploy/toolchain/*/plugin-spec.yaml '
+    + '(a Renovate base-digest PR needs this too; see deploy/toolchain/pipeline-bootstrap/README.md)';
+  const bsSpec = () => parse(read(`${BOOTSTRAP_DIR}/plugin-spec.yaml`)) as Record<string, any>;
+  const synthSpec = () => parse(read(`${SYNTH_DIR}/plugin-spec.yaml`)) as Record<string, any>;
+
+  /**
+   * The sourceDigest, recomputed exactly as deploy/bin/sync-image-tags.sh does:
+   * every top-level file of both directories (bootstrap first, names sorted)
+   * except the build outputs, config.yaml and README.md, each framed as
+   * "<dir>/<file>\n" + its lines, with the GENERATED fields dropped — the
+   * specs' version/toolchain/sourceDigest (and changelog), and cdk-synth's
+   * `ARG BOOTSTRAP_IMAGE=` default. Keep the two in step.
+   */
+  function sourceDigest(): string {
+    const hash = createHash('sha256');
+    for (const dir of [BOOTSTRAP_DIR, SYNTH_DIR]) {
+      const names = readdirSync(join(REPO_ROOT, dir))
+        .filter((f) => !['image.tar', 'plugin.zip', 'config.yaml', 'README.md', '.DS_Store'].includes(f))
+        .filter((f) => statSync(join(REPO_ROOT, dir, f)).isFile())
+        .sort();
+      for (const f of names) {
+        const mode = f === 'plugin-spec.yaml' ? 'spec' : (dir === SYNTH_DIR && f === 'Dockerfile' ? 'synth-dockerfile' : 'plain');
+        const lines = read(`${dir}/${f}`).split('\n');
+        if (lines[lines.length - 1] === '') lines.pop();
+        const out: string[] = [];
+        let skip = false;
+        for (const line of lines) {
+          if (mode === 'spec') {
+            if (skip) {
+              if (/^[ \t]/.test(line) || line === '') continue;
+              skip = false;
+            }
+            if (/^(version|toolchain|sourceDigest|changelog):/.test(line)) { skip = true; continue; }
+          }
+          if (mode === 'synth-dockerfile' && /^ARG BOOTSTRAP_IMAGE=/.test(line)) { out.push('ARG BOOTSTRAP_IMAGE=<generated>'); continue; }
+          out.push(line);
+        }
+        hash.update(`${dir.split('/').pop()}/${f}\n`);
+        hash.update(out.map((l) => `${l}\n`).join(''));
+      }
+    }
+    return `sha256:${hash.digest('hex')}`;
+  }
+
+  it('both halves carry the same release version (X.Y.Z, no prerelease)', () => {
+    const v = bsSpec().version;
+    expect(String(v)).toMatch(/^\d+\.\d+\.\d+$/);
+    expect({ cdkSynth: synthSpec().version }).toEqual({ cdkSynth: v });
+  });
+
+  it('the recorded sourceDigest matches the current build inputs', () => {
+    // A stale digest means a build input changed without a new release: the
+    // same version would name different bits. Fix: run the sync, commit both specs.
+    const recorded = bsSpec().sourceDigest;
+    const current = sourceDigest();
+    expect({ sourceDigest: recorded, fix: `run ${SYNC}` }).toEqual({ sourceDigest: current, fix: `run ${SYNC}` });
+  });
+
+  it('toolchain equals the bootstrap Dockerfile ARGs', () => {
+    const arg = (n: string) => grab(BOOTSTRAP_DF, new RegExp(`^ARG ${n}="?([^"\\s]+)"?\\s*$`, 'm'));
+    expect({ toolchain: bsSpec().toolchain, fix: `run ${SYNC}` }).toEqual({
+      toolchain: {
+        pipelineManager: arg('PIPELINE_MANAGER_VERSION'),
+        awsCdk: arg('AWS_CDK_VERSION'),
+        cdkAssets: arg('CDK_ASSETS_VERSION'),
+        esbuild: arg('ESBUILD_VERSION'),
+        pnpm: arg('PNPM_VERSION'),
+        node: grab(BOOTSTRAP_DF, /^ARG NODE_IMAGE=node:(\d+\.\d+\.\d+)-/m),
+      },
+      fix: `run ${SYNC}`,
+    });
+    // pipeline-manager is the released CLI.
+    expect(bsSpec().toolchain.pipelineManager).toBe(JSON.parse(read('packages/pipeline-manager/package.json')).version);
+  });
+
+  it('cdk-synth is built FROM ARG BOOTSTRAP_IMAGE — this release\'s bootstrap — and nothing else', () => {
+    const df = read(`${SYNTH_DIR}/Dockerfile`);
+    expect(df.match(/^FROM\s+\S+/gm)).toEqual(['FROM ${BOOTSTRAP_IMAGE}']);
+    expect(df).toContain(`ARG BOOTSTRAP_IMAGE="pipeline-bootstrap:${bsSpec().version}"`);
+    // build-plugin-images.sh overrides it with the digest of the bootstrap it built.
+    expect(read('deploy/bin/build-plugin-images.sh')).toContain('build_plugin_dir "$SYNTH_DIR/" --build-arg "BOOTSTRAP_IMAGE=${BOOTSTRAP_IMAGE_REF}"');
+  });
+
+  /**
+   * Repo files (tracked + untracked, minus .gitignore'd build output) that
+   * contain `needle`, outside node_modules, .git and docs/plans/.
+   */
+  function filesContaining(needle: RegExp): string[] {
+    const files = execFileSync('git', ['ls-files', '--cached', '--others', '--exclude-standard'], { cwd: REPO_ROOT, encoding: 'utf-8', maxBuffer: 64 * 1024 * 1024 })
+      .split('\n')
+      .filter((f) => f && !f.startsWith('docs/plans/') && !f.split('/').includes('node_modules'))
+      .filter((f) => f !== 'test/deploy-contracts/test/toolchain-drift-contract.test.ts');
+    const hits: string[] = [];
+    for (const f of files) {
+      const abs = join(REPO_ROOT, f);
+      if (!existsSync(abs) || !statSync(abs).isFile() || statSync(abs).size > 8 * 1024 * 1024) continue;
+      if (needle.test(read(f))) hits.push(f);
+    }
+    return hits;
+  }
+
+  it('no literal pipeline-bootstrap:1.0 tag anywhere (the tag is the release version)', () => {
+    expect(filesContaining(new RegExp('pipeline-' + 'bootstrap:1\\.0(?![.\\d])'))).toEqual([]);
+  });
+
+  it('the CODEBUILD_DEFAULT_IMAGE[_DIGEST] env vars are gone (the toolchain release replaces them)', () => {
+    expect(filesContaining(new RegExp('CODEBUILD_' + 'DEFAULT_IMAGE'))).toEqual([]);
+  });
+
+  it('the toolchain root holds exactly the two halves, and the catalog holds neither', () => {
+    const halves = readdirSync(join(REPO_ROOT, TOOLCHAIN_ROOT)).filter((f) => statSync(join(REPO_ROOT, TOOLCHAIN_ROOT, f)).isDirectory()).sort();
+    expect(halves).toEqual(['cdk-synth', 'pipeline-bootstrap']);
+    const catalog = join(REPO_ROOT, 'deploy/plugins');
+    const inCatalog = readdirSync(catalog)
+      .filter((c) => statSync(join(catalog, c)).isDirectory())
+      .flatMap((c) => halves.filter((h) => existsSync(join(catalog, c, h))).map((h) => `deploy/plugins/${c}/${h}`));
+    expect(inCatalog).toEqual([]);
+  });
+
+  it('nothing references the pair\'s old catalog paths (deploy/plugins/infrastructure/…)', () => {
+    // Also the category-relative form (`infrastructure/cdk-synth`) the catalog's
+    // READMEs and icon table used.
+    expect(filesContaining(new RegExp('infrastructure/' + '(pipeline-bootstrap|cdk-synth)\\b'))).toEqual([]);
+  });
+
+  it('nothing references the deleted deploy/codebuild/ or its build script', () => {
+    expect(existsSync(join(REPO_ROOT, 'deploy', 'codebuild'))).toBe(false);
+    expect(existsSync(join(REPO_ROOT, 'deploy/bin', 'build-codebuild-bootstrap.sh'))).toBe(false);
+    expect(filesContaining(new RegExp(['deploy/' + 'codebuild', 'build-' + 'codebuild-bootstrap\\.sh'].join('|')))).toEqual([]);
   });
 });

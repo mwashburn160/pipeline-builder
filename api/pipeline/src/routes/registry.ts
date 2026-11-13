@@ -40,6 +40,11 @@ const StepManifestEntrySchema = z.object({
   imageDigest: z.string().max(71).nullable(),
   /** The step's key as synth sends it in lookup `context` — joins lookups and runtime checks to this row. */
   stepKey: z.string().max(255).optional(),
+  /**
+   * The build-image entry only (the sentinel (stage, action)): how synth chose
+   * the toolchain release. Its release version is re-read from the plugin row.
+   */
+  resolvedVia: z.enum(['pin', 'org-default', 'canary', 'default']).optional(),
 });
 
 /** Upper bound on manifest entries per registration (CodePipeline caps a pipeline far below this). */

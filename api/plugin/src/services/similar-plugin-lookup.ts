@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, errorMessage } from '@pipeline-builder/api-core';
+import { MANAGED_TOOLCHAIN_PLUGINS, createLogger, errorMessage } from '@pipeline-builder/api-core';
 import {
   buildPluginConditions, pluginResolutionOrderBy, schema, withTenantTx, withViewerContext, type PluginFilter,
 } from '@pipeline-builder/pipeline-data';
@@ -76,6 +76,8 @@ export async function findSimilarPlugins(prompt: string, orgId: string, parentOr
         isNull(schema.plugin.deprecatedAt),
         isNull(schema.plugin.yankedAt),
         notInArray(schema.plugin.lifecycle, ['deprecated', 'yanked']),
+        // The managed toolchain is never a plugin to reuse or copy.
+        notInArray(schema.plugin.name, [...MANAGED_TOOLCHAIN_PLUGINS]),
       ))
       .orderBy(asc(schema.plugin.name), ...pluginResolutionOrderBy(orgId, parentOrgId))
       .limit(CANDIDATE_LIMIT)) as SimilarPluginCandidate[];

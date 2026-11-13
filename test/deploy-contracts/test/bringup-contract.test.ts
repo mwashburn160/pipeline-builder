@@ -570,3 +570,104 @@ describe('services.txt consumers', () => {
     }
   });
 });
+
+/**
+ * Every bring-up reaches the managed toolchain step (plan §12, Phase 2). Without
+ * a platform default no pipeline can synthesize (BOOTSTRAP_IMAGE_UNRESOLVED), so
+ * each target's path must end in init-platform.sh, and init-platform.sh must
+ * install the release UNCONDITIONALLY — not behind the optional plugin load.
+ */
+describe('every bring-up reaches the toolchain step', () => {
+  const init = read('deploy/bin/init-platform.sh');
+
+  /** Each target's route into init-platform.sh, as the target's own scripts spell it. */
+  const ROUTE: Record<(typeof ALL_TARGETS)[number], { file: string; invocation: RegExp }> = {
+    // Local targets hand off to init-platform (run by hand or by `infra provision`'s register step).
+    'deploy/local/docker': { file: 'deploy/local/docker/bin/setup.sh', invocation: /\.\/deploy\/bin\/init-platform\.sh docker\b/ },
+    'deploy/local/minikube': { file: 'deploy/local/minikube/bin/setup.sh', invocation: /\.\/deploy\/bin\/init-platform\.sh minikube\b/ },
+    // AWS targets run it themselves (AUTO_INIT, on by default).
+    'deploy/aws/ec2': { file: 'deploy/aws/ec2/bin/bootstrap.sh', invocation: /bash "\$\{INSTALL_DIR\}\/deploy\/bin\/init-platform\.sh"[^\n]* ec2\b/ },
+    'deploy/aws/eks': { file: 'deploy/aws/eks/bin/setup.sh', invocation: /bash "\$INIT_PLATFORM"[^\n]* eks\b/ },
+  };
+
+  it.each(ALL_TARGETS)('%s routes into init-platform.sh', (target) => {
+    const { file, invocation } = ROUTE[target];
+    expect([file, invocation.test(read(file))]).toEqual([file, true]);
+  });
+
+  it('the AWS auto-init is on by default, and infra provision runs init-platform for the others', () => {
+    expect(read('deploy/aws/ec2/bin/setup.sh')).toMatch(/^AUTO_INIT="\$\{AUTO_INIT:-true\}"/m);
+    expect(read('deploy/aws/eks/bin/setup.sh')).toMatch(/^AUTO_INIT="\$\{AUTO_INIT:-true\}"/m);
+    expect(read('deploy/aws/eks/bin/setup.sh')).toContain('INIT_PLATFORM="$DEPLOY_DIR/../../bin/init-platform.sh"');
+    expect(read('packages/pipeline-manager/src/agent/post-steps.ts')).toContain('`./deploy/bin/init-platform.sh ${opts.target}`');
+  });
+
+  /** Offset of a top-level (unindented) line, asserting it is one. */
+  function topLevel(line: string): number {
+    const at = init.indexOf(`\n${line}\n`);
+    expect([line, at >= 0]).toEqual([line, true]);
+    // Not inside an unindented `if … fi` either: as many top-level `if`s opened as closed before it.
+    const before = init.slice(0, at);
+    expect([line, (before.match(/^if /gm) ?? []).length]).toEqual([line, (before.match(/^fi$/gm) ?? []).length]);
+    return at;
+  }
+
+  it('init-platform.sh builds, uploads, waits for and defaults the release unconditionally, before the optional loads', () => {
+    const build = topLevel('DEPLOY_TARGET="$TARGET" "$SCRIPT_DIR/build-plugin-images.sh" --only pipeline-bootstrap,cdk-synth');
+    const upload = init.indexOf('"$SCRIPT_DIR/load-plugins.sh" --rebuild --category "$TOOLCHAIN_CATEGORY"');
+    const wait = topLevel('wait_for_toolchain_release "$TOOLCHAIN_RELEASE" || exit 1');
+    const setDefault = topLevel('set_initial_toolchain_default "$TOOLCHAIN_RELEASE" || exit 1');
+    const loader = init.indexOf('\nofficial_loader_service_account_key\n');
+    const optionalLoads = init.indexOf('\nif _truthy "$LOAD_PLUGINS"; then\n');
+    expect(loader).toBeGreaterThan(0);
+    expect(upload).toBeGreaterThan(build);
+    expect([loader < build, build < upload, upload < wait, wait < setDefault, setDefault < optionalLoads]).toEqual([true, true, true, true, true]);
+  });
+
+  it('the toolchain load is strict, and the wait hard-fails on its deadline', () => {
+    // Forced for this load whatever the caller passed: no skipping a missing
+    // image.tar, no turning the loader's verify off.
+    expect(init).toMatch(/SKIP_MISSING_IMAGE_TAR=false VERIFY_BUILDS=true \\\n\s+"\$SCRIPT_DIR\/load-plugins\.sh" --rebuild --category "\$TOOLCHAIN_CATEGORY"/);
+    const wait = shellFunction(init, 'wait_for_toolchain_release');
+    expect(wait).toMatch(/-ge "\$_deadline" \]; then[\s\S]*?return 1/);
+    expect(wait).toMatch(/\*failed:\*\)[\s\S]*?return 1/);
+    // Ready = a signed digest AND a recorded scan.
+    expect(shellFunction(init, 'toolchain_half_state')).toContain('(.scannedAt // null) == null then "scanning"');
+    // The catalog load that follows never re-uploads the toolchain.
+    expect(init).not.toMatch(/LOAD_CATEGORY_ARG="[^"\n]*TOOLCHAIN_CATEGORY/);
+  });
+
+  it('the initial default goes through the D14 route as deploy-bootstrap, stops on the vuln floor, and honours the audited override', () => {
+    const set = shellFunction(init, 'set_initial_toolchain_default');
+    expect(set).toContain('sign_service_jwt "$BOOTSTRAP_KEY_FILE" "$BOOTSTRAP_BUNDLE_FILE"');
+    expect(set).toContain('/api/plugins/toolchain/initial-default');
+    expect(set).toContain('acceptVulnerabilities: $r');
+    expect(set).toMatch(/409:TOOLCHAIN_INITIAL_ALREADY_SET\)[\s\S]*?return 0/);
+    expect(set).toMatch(/409:TOOLCHAIN_GUARD_VULN_FLOOR\)[\s\S]*?--accept-initial-vulnerabilities[\s\S]*?return 1/);
+    expect(init).toContain('--accept-initial-vulnerabilities)');
+  });
+
+  it('upgrade-toolchain.sh builds and uploads both halves for any target and never promotes', () => {
+    const upgrade = read('deploy/bin/upgrade-toolchain.sh');
+    expect(upgrade).toContain('"$SCRIPT_DIR/build-plugin-images.sh" --only pipeline-bootstrap,cdk-synth');
+    expect(upgrade).toMatch(/SKIP_MISSING_IMAGE_TAR=false \\\n\s+"\$SCRIPT_DIR\/load-plugins\.sh" --rebuild --category "\$TOOLCHAIN_CATEGORY"/);
+    expect(upgrade).toContain('docker|minikube) ;;');
+    expect(upgrade).toContain('ec2|eks)');
+    expect(upgrade).not.toMatch(/initial-default|toolchain\/default|toolchain\/rollout/);
+  });
+
+  it('every edited toolchain script is valid shell', () => {
+    for (const script of ['deploy/bin/init-platform.sh', 'deploy/bin/upgrade-toolchain.sh', 'deploy/bin/post-provision-smoke.sh']) {
+      const r = spawnSync('bash', ['-n', join(REPO_ROOT, script)], { encoding: 'utf-8' });
+      expect([script, r.status, r.stderr]).toEqual([script, 0, '']);
+    }
+  });
+
+  it('post-provision-smoke.sh asserts a platform default whose both halves resolve for a smoke org', () => {
+    const smoke = shellFunction(read('deploy/bin/post-provision-smoke.sh'), 'pb_smoke_toolchain');
+    expect(smoke).toContain('resolveManagedToolchainWith');
+    expect(smoke).toContain('getParent: async () => undefined');
+    expect(smoke).toContain("'OK '*' default pair pair')");
+    expect(smoke).toContain('TOOLCHAIN_NO_DEFAULT');
+  });
+});

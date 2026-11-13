@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { sendSuccess, sendBadRequest, ErrorCode, validateBody, errorMessage, verifyServicePrincipal, audited } from '@pipeline-builder/api-core';
-import { withRoute, incCounter, type SSEManager } from '@pipeline-builder/api-server';
+import { withRoute, incCounter, resetGauge, setGauge, type SSEManager } from '@pipeline-builder/api-server';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { runWithTenantContext, reportingService, type IngestCaller, type IngestMetric } from '@pipeline-builder/pipeline-data';
 import { Router, type Request } from 'express';
@@ -122,6 +122,19 @@ function foldCompute<E extends { computeType?: unknown; detail?: Record<string, 
 }
 
 /**
+ * The alert baseline for `PipelineToolchainFailureSpike`: which release THIS
+ * pod last saw as the platform default, valued with WHEN it saw it. Prometheus
+ * knows nothing of the default, and every reporting replica publishes its own
+ * view — so the rule picks the freshest observation across pods
+ * (`topk(1, max by (toolchain_release) (…))`) rather than trusting any one pod.
+ * Reset first: one series per pod, the current answer only.
+ */
+function observeToolchainPlatformDefault(releaseVersion: string): void {
+  resetGauge('pipeline_toolchain_platform_default_seen_timestamp_seconds');
+  setGauge('pipeline_toolchain_platform_default_seen_timestamp_seconds', { toolchain_release: releaseVersion }, Date.now() / 1000);
+}
+
+/**
  * WHICH ORGS THIS CALLER MAY TOUCH. An event's org is resolved from the pipeline
  * registry, so the `reporting:ingest` scope alone let any holder post events for
  * another org's pipeline id and have them attributed there — and, on the read
@@ -182,6 +195,19 @@ export function createEventIngestRoutes(sseManager: SSEManager): Router {
     // never sees the trusted org). `pipeline_deploy_result_total` is a subset —
     // only stage events that carry a deploy environment.
     const onMetric = (m: IngestMetric): void => {
+      if (m.kind === 'toolchain') {
+        // Managed toolchain runs (docs/plans/bootstrap-image-versioning.md §7),
+        // ALERTING ONLY: the canary gate and the Affected view read the stamped
+        // rows, which carry org_id — this series deliberately does not. The
+        // release label is the platform's deployed manifest, never the payload.
+        incCounter('pipeline_toolchain_runs_total', {
+          toolchain_release: m.toolchainRelease,
+          action: m.action,
+          outcome: m.outcome,
+        });
+        if (m.platformDefaultRelease) observeToolchainPlatformDefault(m.platformDefaultRelease);
+        return;
+      }
       if (m.kind === 'compute') {
         // PHASE 4, MEASUREMENT HALF. Nothing here enters a quota counter: the
         // tier ladder was derived without pipeline execution in it, so charging

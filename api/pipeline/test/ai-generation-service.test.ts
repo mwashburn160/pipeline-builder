@@ -114,6 +114,7 @@ const aiPluginTable = pgTable('plugins', {
   deprecatedAt: timestamp('deprecated_at'),
   yankedAt: timestamp('yanked_at'),
   lifecycle: varchar('lifecycle'),
+  pluginType: varchar('plugin_type'),
 });
 const aiStatsTable = pgTable('plugin_stats', {
   listingId: varchar('listing_id'),
@@ -196,6 +197,20 @@ describe('AI plugin selection lifecycle', () => {
     expect(sql).toContain('"plugins"."yanked_at" is null');
     expect(sql).toMatch(/"plugins"\."lifecycle" not in \(\$\d+, \$\d+\)/);
     expect(params).toEqual(expect.arrayContaining(['deprecated', 'yanked']));
+  });
+
+  it('never offers a managed build image (pluginType BuildImage) — not as an own row, not as a listing', async () => {
+    aiPluginTx.where.mockClear();
+    mockResolvableListings.mockResolvedValueOnce([{
+      publisher: { handle: 'pipeline-builder', tier: 'official' },
+      listing: { name: 'odd-image', keywords: [], category: 'infrastructure', summary: 'x' },
+      resolved: { version: '1.0.0', deprecatedAt: null, specSnapshot: { pluginType: 'BuildImage' } },
+    }]);
+    const plugins = await getFilteredPlugins('org-1', { prompt: '' });
+    const { sql, params } = new PgDialect().sqlToQuery(aiPluginTx.where.mock.calls[0]![0] as never);
+    expect(sql).toMatch(/"plugins"\."plugin_type" <> \$\d+/);
+    expect(params).toContain('BuildImage');
+    expect(plugins.map((p) => p.name)).not.toContain('odd-image');
   });
 });
 

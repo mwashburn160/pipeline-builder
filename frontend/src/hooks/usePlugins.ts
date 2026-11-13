@@ -41,6 +41,15 @@ export function usePluginCatalog(enabled = true) {
 }
 
 /**
+ * Whether a plugin can be picked as a pipeline step (or the synth plugin): every
+ * type except `BuildImage`, the managed toolchain image (`pipeline-bootstrap`)
+ * that the synth and self-mutation run ON, never a step of its own.
+ */
+export function isStepPlugin(plugin: Pick<Plugin, 'pluginType'>): boolean {
+  return plugin.pluginType !== 'BuildImage';
+}
+
+/**
  * Filters plugins by a search query and groups them by category.
  * Plugins with a `category` field are grouped by their category with display names.
  * Plugins without a category fall back to access modifier grouping.

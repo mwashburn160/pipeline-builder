@@ -2,28 +2,34 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, it, expect } from '@jest/globals';
-import { COMMON_SPARSE_PATHS, sparsePathsFor } from '../src/agent/targets.js';
+import { COMMON_SPARSE_PATHS, TOOLCHAIN_SPARSE_PATHS, sparsePathsFor } from '../src/agent/targets.js';
+
+const TOOLCHAIN = ['deploy/plugins/_base', 'deploy/toolchain'];
 
 describe('sparsePathsFor', () => {
   it('common base is just deploy/bin', () => {
     expect(COMMON_SPARSE_PATHS).toEqual(['deploy/bin']);
   });
 
-  it('register-only local = common base + target folder', () => {
-    expect(sparsePathsFor('docker', [])).toEqual(['deploy/bin', 'deploy/local/docker']);
+  it('the toolchain build inputs are the toolchain root (bootstrap + cdk-synth) and the _base images', () => {
+    expect(TOOLCHAIN_SPARSE_PATHS).toEqual(TOOLCHAIN);
+  });
+
+  it('register-only local = common base + target folder + the toolchain build inputs', () => {
+    // init-platform.sh always runs build-plugin-images.sh --only pipeline-bootstrap,cdk-synth,
+    // and --build-bootstrap runs --only pipeline-bootstrap: both read these folders.
+    expect(sparsePathsFor('docker', [])).toEqual(['deploy/bin', 'deploy/local/docker', ...TOOLCHAIN]);
   });
 
   it('minikube is self-contained — no deploy/local/docker', () => {
     const paths = sparsePathsFor('minikube', []);
-    expect(paths).toEqual(['deploy/bin', 'deploy/local/minikube']);
+    expect(paths).toEqual(['deploy/bin', 'deploy/local/minikube', ...TOOLCHAIN]);
     expect(paths).not.toContain('deploy/local/docker');
   });
 
-  it('adds the folders of enabled load steps (plugins pulls codebuild too)', () => {
+  it('adds exactly the folders of enabled load steps', () => {
     const paths = sparsePathsFor('docker', ['plugins', 'samples']);
-    expect(paths).toContain('deploy/plugins');
-    expect(paths).toContain('deploy/codebuild');
-    expect(paths).toContain('deploy/samples');
+    expect(paths).toEqual(['deploy/bin', 'deploy/local/docker', ...TOOLCHAIN, 'deploy/plugins', 'deploy/samples']);
     expect(paths).not.toContain('deploy/compliance');
   });
 

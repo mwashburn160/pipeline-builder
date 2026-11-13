@@ -55,6 +55,7 @@ import { installRows, listingSource, ownPluginsNamed, parentShadowedNames, polic
 import { catalogEntry, installView, isStable, needsApproval, NO_STATS, statsFor } from './installs-views.js';
 import { sendNotice, userRecipient } from './notify.js';
 import { optionalText } from './util.js';
+import { assertListable } from '../../helpers/managed-toolchain.js';
 import { listingTargets, notifyWithdrawal, withdrawalImpact } from '../version-withdrawal.js';
 
 
@@ -312,6 +313,8 @@ export async function createInstall(caller: Caller, body: Record<string, unknown
   if (typeof handle !== 'string' || !HANDLE_RE.test(handle) || typeof name !== 'string' || !NAME_RE.test(name)) {
     throw new EcosystemError(ErrorCode.VALIDATION_ERROR, 'publisher and name are required (a publisher handle and a plugin name)');
   }
+  // Managed toolchain names are never listed, so never installed (D5).
+  assertListable(name);
   const versionPolicy = parsePolicy(body.versionPolicy, 'minor');
   const { publisher, listing } = await listingOr404(handle, name);
   const ref = `${handle}/${name}`;

@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { SYSTEM_ACTOR_ID, audited, sendBadRequest, sendError, sendSuccess, ErrorCode, requireFeature, resolveVisibility, isSystemAdmin, rejectForbiddenBulkRows, userHasPermission, VisibilitySchema, actorId, PLUGIN_CATALOG_FIELDS, type QuotaService, recordAudit } from '@pipeline-builder/api-core';
+import { SYSTEM_ACTOR_ID, audited, sendBadRequest, sendError, sendSuccess, ErrorCode, requireFeature, resolveVisibility, isManagedToolchainPlugin, isSystemAdmin, rejectForbiddenBulkRows, userHasPermission, VisibilitySchema, actorId, PLUGIN_CATALOG_FIELDS, type QuotaService, recordAudit } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { Router } from 'express';
@@ -76,9 +76,14 @@ export function createBulkPluginRoutes(quotaService: QuotaService): Router {
     // published to a listing, or used by the org's pipelines is SKIPPED (bulk
     // has no `force`; delete it on its own with force + step-up) rather than
     // failing the batch.
-    const skipped: Array<{ id: string; reason: 'frozen' | 'listed' | 'in_use' }> = [];
+    const skipped: Array<{ id: string; reason: 'frozen' | 'listed' | 'in_use' | 'managed_toolchain' }> = [];
     for (const row of await pluginService.findByIds(ids, orgId)) {
       if (row.orgId !== orgId) continue; // not the caller's row — bulkDelete skips it
+      // A managed toolchain release is deleted only in the Toolchain console.
+      if (isManagedToolchainPlugin(row.name)) {
+        skipped.push({ id: row.id, reason: 'managed_toolchain' });
+        continue;
+      }
       const blockers = await pluginService.deleteBlockers(row, orgId);
       const reason = blockers.frozen ? 'frozen' : blockers.listed ? 'listed' : blockers.inUse > 0 ? 'in_use' : null;
       if (reason) skipped.push({ id: row.id, reason });
@@ -169,7 +174,8 @@ export function createBulkPluginRoutes(quotaService: QuotaService): Router {
     // Catalog fields and visibility are frozen on a frozen/listed version.
     const catalogEdited = PLUGIN_CATALOG_FIELDS.some((f) => Object.prototype.hasOwnProperty.call(updateData, f))
       || updateData.visibility !== undefined;
-    const matched = (!isSystemAdmin(req) || recheck || catalogEdited) ? await pluginService.findByIds(ids, orgId) : [];
+    // Always loaded: the managed-toolchain skip below reads every row's name.
+    const matched = await pluginService.findByIds(ids, orgId);
     if (!isSystemAdmin(req) && rejectForbiddenBulkRows(
       req, res, matched, userId, 'plugins:publish',
       'Bulk update rejected: you cannot modify one or more of these plugins',
@@ -199,10 +205,15 @@ export function createBulkPluginRoutes(quotaService: QuotaService): Router {
     // publish request, or published to a listing, has its catalog metadata
     // frozen with it. Per row, such a version is SKIPPED with its 409 rather
     // than failing the batch (mirrors bulk delete's skip list).
-    const skipped: Array<{ id: string; reason: 'frozen' | 'listed'; statusCode: 409; code: string }> = [];
+    const skipped: Array<{ id: string; reason: 'frozen' | 'listed' | 'managed_toolchain'; statusCode: 400 | 409; code: string }> = [];
+    // A managed toolchain release is edited only in the Toolchain console.
+    for (const row of matched) {
+      if (isManagedToolchainPlugin(row.name)) skipped.push({ id: row.id, reason: 'managed_toolchain', statusCode: 400, code: ErrorCode.TOOLCHAIN_USE_CONSOLE });
+    }
     if (catalogEdited) {
       for (const row of matched) {
         if (row.orgId !== orgId) continue; // not the caller's row — updateMany won't touch it
+        if (isManagedToolchainPlugin(row.name)) continue; // already skipped above
         const onlyVisibility = !PLUGIN_CATALOG_FIELDS.some((f) => Object.prototype.hasOwnProperty.call(updateData, f));
         if (onlyVisibility && row.visibility === updateData.visibility) continue; // no change to a frozen field
         const reason = await pluginService.versionImmutability(row);

@@ -75,6 +75,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => {
         orgId: 'orgId',
         visibility: 'visibility',
       },
+      toolchainRelease: { table: 'toolchain_release', releaseVersion: 'toolchainRelease.releaseVersion' },
       pipelineStepManifest: {
         orgId: 'manifest.orgId',
         pluginName: 'manifest.pluginName',
@@ -815,6 +816,112 @@ describe('PluginService', () => {
       await expect(service.promoteNextDefault('org-1', { name: 'trivy', version: '2.0.0' }, 'u-1')).resolves.toBeNull();
       expect(set).not.toHaveBeenCalled();
       expect(set2).not.toHaveBeenCalled();
+    });
+  });
+
+  // docs/plans/bootstrap-image-versioning.md §1: a managed toolchain upload never
+  // promotes and never overwrites; its lifecycle is the Toolchain console's.
+  describe('managed toolchain names (pipeline-bootstrap, cdk-synth)', () => {
+    let versionRows: Array<Record<string, unknown>>;
+    let defaultRows: Array<Record<string, unknown>>;
+    const mockReleaseConflict = jest.fn(async (..._args: unknown[]) => []);
+    const mockValues = jest.fn((..._args: unknown[]) => ({
+      onConflictDoUpdate: jest.fn(() => ({ returning: jest.fn(async () => [{ id: 'm-1', orgId: SYSTEM_ORG_ID, name: 'cdk-synth', version: '1.0.0' }]) })),
+      // The release row (toolchain_release): inserted once per version, never overwritten.
+      onConflictDoNothing: mockReleaseConflict,
+    }));
+    const mockInsert = jest.fn((..._args: unknown[]) => ({ values: mockValues }));
+    const mockUpdateSet = jest.fn((..._args: unknown[]) => ({ where: jest.fn<AnyFn>() }));
+    const managed = { orgId: SYSTEM_ORG_ID, name: 'cdk-synth', version: '1.0.0', visibility: 'public' } as any;
+    const admin = { isSystemAdmin: true, canPublish: true };
+
+    beforeEach(() => {
+      versionRows = [];
+      defaultRows = [];
+      pipelineDataMock.withTenantTx.mockImplementation(async (cb: any) => {
+        let call = 0;
+        return cb({
+          execute: jest.fn(async () => []),
+          select: jest.fn(() => {
+            // First select in a transaction: the (name, version) row; second: the live defaults.
+            const rows = call++ === 0 ? versionRows : defaultRows;
+            return { from: () => ({ where: () => Object.assign(Promise.resolve(rows), { for: async () => rows }) }) };
+          }),
+          update: jest.fn(() => ({ set: mockUpdateSet })),
+          insert: mockInsert,
+        });
+      });
+    });
+
+    it('the FIRST managed upload is never the default', async () => {
+      await service.deployVersion(managed, 'loader', admin);
+      expect(mockValues).toHaveBeenCalledWith(expect.objectContaining({ name: 'cdk-synth', isDefault: false }));
+      expect(mockUpdateSet).not.toHaveBeenCalled();
+      expect(mockRefreshLatestForPlugin).not.toHaveBeenCalled();
+    });
+
+    it('a same-major patch never takes over (or demotes) an existing default', async () => {
+      defaultRows = [{ id: 'd-1', version: '1.0.0', visibility: 'public', createdBy: 'loader', deletedAt: null }];
+      await service.deployVersion({ ...managed, version: '1.0.1' }, 'loader', admin);
+      expect(mockValues).toHaveBeenCalledWith(expect.objectContaining({ version: '1.0.1', isDefault: false }));
+      expect(mockUpdateSet).not.toHaveBeenCalled();
+    });
+
+    it('refuses a re-upload of an existing (name, version) with 409 PLUGIN_VERSION_IMMUTABLE — live or tombstone', async () => {
+      versionRows = [{ id: 'm-1', visibility: 'public', createdBy: 'loader', deletedAt: null, frozenAt: null, isDefault: false }];
+      await expect(service.deployVersion(managed, 'loader', admin)).rejects.toMatchObject({ statusCode: 409, code: 'PLUGIN_VERSION_IMMUTABLE' });
+      versionRows = [{ id: 'm-1', visibility: 'public', createdBy: 'loader', deletedAt: new Date(), frozenAt: null, isDefault: false }];
+      await expect(service.deployVersion(managed, 'loader', admin)).rejects.toMatchObject({ code: 'PLUGIN_VERSION_IMMUTABLE' });
+      await expect(service.assertDeployable(SYSTEM_ORG_ID, 'cdk-synth', '1.0.0', 'loader', admin)).rejects.toMatchObject({ code: 'PLUGIN_VERSION_IMMUTABLE' });
+      expect(mockValues).not.toHaveBeenCalled();
+    });
+
+    it('refuses a non-system org (403) and a prerelease (400), up front and under the lock', async () => {
+      await expect(service.deployVersion({ ...managed, orgId: 'org-1' }, 'u-1', admin)).rejects.toMatchObject({ statusCode: 403, code: 'PLUGIN_MANAGED_NAME_RESERVED' });
+      await expect(service.assertDeployable('org-1', 'pipeline-bootstrap', '1.0.0', 'u-1', admin)).rejects.toMatchObject({ code: 'PLUGIN_MANAGED_NAME_RESERVED' });
+      await expect(service.deployVersion({ ...managed, version: '1.1.0-dev.1' }, 'loader', admin)).rejects.toMatchObject({ statusCode: 400, code: 'PLUGIN_MANAGED_PRERELEASE' });
+      expect(mockValues).not.toHaveBeenCalled();
+    });
+
+    it('a managed upload registers its release row in the same transaction (insert-or-keep)', async () => {
+      await service.deployVersion({ ...managed, version: '1.4.2' }, 'loader', admin);
+      expect(mockInsert).toHaveBeenCalledWith(expect.objectContaining({ table: 'toolchain_release' }));
+      expect(mockValues).toHaveBeenCalledWith({ releaseVersion: '1.4.2', createdBy: 'loader' });
+      expect(mockReleaseConflict).toHaveBeenCalledWith({ target: 'toolchainRelease.releaseVersion' });
+    });
+
+    it('a non-managed name still follows the default rule', async () => {
+      await service.deployVersion({ ...managed, name: 'my-synth', orgId: 'org-1' }, 'u-1', admin);
+      expect(mockValues).toHaveBeenCalledWith(expect.objectContaining({ name: 'my-synth', isDefault: true }));
+      // ...and registers no toolchain release.
+      expect(mockInsert).not.toHaveBeenCalledWith(expect.objectContaining({ table: 'toolchain_release' }));
+    });
+
+    const row = { id: 'm-1', orgId: SYSTEM_ORG_ID, name: 'pipeline-bootstrap', version: '1.0.0', isDefault: true, lifecycle: 'production', yankedAt: null, deprecatedAt: null } as any;
+
+    it('yank, deprecate and delete refuse with 400 TOOLCHAIN_USE_CONSOLE before any write, and never promote', async () => {
+      const tx = jest.fn<AnyFn>();
+      pipelineDataMock.withTenantTx.mockImplementation(tx);
+      const promote = jest.spyOn(service, 'promoteNextDefault');
+      await expect(service.yankVersion(row, SYSTEM_ORG_ID, 'u-1', 'why')).rejects.toMatchObject({ statusCode: 400, code: 'TOOLCHAIN_USE_CONSOLE' });
+      await expect(service.setDeprecated(row, SYSTEM_ORG_ID, 'u-1', { deprecated: true })).rejects.toMatchObject({ code: 'TOOLCHAIN_USE_CONSOLE' });
+      await expect(service.deleteVersion(row, SYSTEM_ORG_ID, 'u-1', { force: true })).rejects.toMatchObject({ code: 'TOOLCHAIN_USE_CONSOLE' });
+      expect(tx).not.toHaveBeenCalled();
+      expect(promote).not.toHaveBeenCalled();
+    });
+
+    it('promoteNextDefault is a no-op for a managed name (no transaction at all)', async () => {
+      const tx = jest.fn<AnyFn>();
+      pipelineDataMock.withTenantTx.mockImplementation(tx);
+      await expect(service.promoteNextDefault(SYSTEM_ORG_ID, { name: 'cdk-synth', version: '1.0.0' }, 'u-1')).resolves.toBeNull();
+      expect(tx).not.toHaveBeenCalled();
+    });
+
+    it('a manual purge of a managed tombstone refuses with TOOLCHAIN_USE_CONSOLE', async () => {
+      pipelineDataMock.withTenantTx.mockImplementation(async (cb: any) => cb({
+        select: () => ({ from: () => ({ where: async () => [{ ...row, deletedAt: new Date() }] }) }),
+      }));
+      await expect(service.purgeById('m-1', SYSTEM_ORG_ID)).rejects.toMatchObject({ code: 'TOOLCHAIN_USE_CONSOLE' });
     });
   });
 

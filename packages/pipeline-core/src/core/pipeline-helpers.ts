@@ -15,6 +15,7 @@ import { resolveNetwork } from './network.js';
 import { PluginType, ComputeType, type MetaDataType } from './pipeline-types.js';
 import { pluginArtifactAlias } from './plugin-contract.js';
 import { SECURITY_REPORT_KEY_ENV, SECURITY_REPORT_SECRET_LEAF, SECURITY_REPORT_UPLOAD_ENV } from './security-reports.js';
+import { CURATED_SELF_MUTATION_IMAGE } from './self-mutation.js';
 import { PLUGIN_IMAGE_REPOSITORY_RE } from './step-manifest.js';
 import { Config, CoreConstants } from '../config/app-config.js';
 import type { CodeBuildStepOptions, StepCustomization } from '../pipeline/step-types.js';
@@ -197,8 +198,9 @@ function resolveExternalPullTarget(
  *      sending the per-org platform Secret as Basic auth to
  *      `pipeline-image-registry`'s `/token` endpoint; the JWT in `password`
  *      resolves to a registry token scoped to the org.
- *   3. If `metadata_only`, return `undefined` so CodeBuild uses its default
- *      (`standard:7.0`).
+ *   3. If `metadata_only`, return `undefined` so the step runs on the
+ *      pipeline's default image (`codeBuildDefaults`: the toolchain release's
+ *      `system/pipeline-bootstrap@<digest>`, see {@link resolveDefaultBuildImage}).
  *
  * `scope` and `orgId` are required: the per-org platform Secret is named
  * `pipeline-builder/<orgId>/platform`, and `Secret.fromSecretNameV2()`
@@ -214,7 +216,7 @@ export function resolvePluginImage(scope: Construct | undefined, plugin: Plugin,
   if (!plugin.name || !plugin.version) {
     log.warn(
       `Plugin "${plugin.name}" has buildType=${plugin.buildType} but missing name/version — ` +
-      'CodeBuild will run on aws/codebuild/standard:8.0 and won\'t have the plugin\'s baked tools.',
+      'CodeBuild will run on the default build image and won\'t have the plugin\'s baked tools.',
     );
     return undefined;
   }
@@ -248,7 +250,7 @@ export function resolvePluginImage(scope: Construct | undefined, plugin: Plugin,
     // Config namespace not loaded (e.g., unit tests without full config).
     log.warn(
       `Plugin "${plugin.name}:${plugin.version}" needs the registry config but it's not loaded — ` +
-      'CodeBuild will fall back to aws/codebuild/standard:8.0. ' +
+      'CodeBuild will fall back to the default build image. ' +
       'Set IMAGE_REGISTRY_HOST + IMAGE_REGISTRY_PORT in pipeline-manager\'s environment.',
     );
     return undefined;
@@ -257,7 +259,7 @@ export function resolvePluginImage(scope: Construct | undefined, plugin: Plugin,
   if (!registry?.host) {
     log.warn(
       `Plugin "${plugin.name}:${plugin.version}" needs IMAGE_REGISTRY_HOST but it's empty — ` +
-      'CodeBuild will fall back to aws/codebuild/standard:8.0. ' +
+      'CodeBuild will fall back to the default build image. ' +
       'Set IMAGE_REGISTRY_HOST in pipeline-manager\'s environment to use the plugin image.',
     );
     return undefined;
@@ -312,149 +314,50 @@ export function resolvePluginImage(scope: Construct | undefined, plugin: Plugin,
   });
 }
 
+/** The managed toolchain's build-image plugin name and its (system-org) image repository. */
+export const BOOTSTRAP_PLUGIN_NAME = 'pipeline-bootstrap';
+export const BOOTSTRAP_IMAGE_REPOSITORY = `system/${BOOTSTRAP_PLUGIN_NAME}`;
+
 /**
- * Resolve the fallback CodeBuild image for steps without a plugin-baked one.
+ * The default CodeBuild image — every action without a plugin-baked image (the
+ * pipeline-wide `codeBuildDefaults`, a plugin-less step, asset publishing) —
+ * pinned to the resolved toolchain release's `pipeline-bootstrap` image.
  *
- * Reads `aws.codeBuild.defaultImage` (env: `CODEBUILD_DEFAULT_IMAGE`).
- * Default: `pipeline-bootstrap:1.0` — the local tag built by
- * `deploy/codebuild/bootstrap/Dockerfile`. Pinned by
- * `aws.codeBuild.defaultImageDigest` (env: `CODEBUILD_DEFAULT_IMAGE_DIGEST`)
- * when set, the same way plugin images are pinned by their signed digest.
- *
- * - AWS curated image (`aws/codebuild/*`): use the matching `LinuxBuildImage`
- *   constant so CDK emits `imagePullCredentialsType: CODEBUILD`. Using
- *   `fromDockerRegistry()` here would set SERVICE_ROLE credentials, which
- *   CFN rejects with "cannot use a CodeBuild curated image with
- *   imagePullCredentialsType SERVICE_ROLE".
- * - Bare tag (no `/`): auto-prefixed to
- *   `<registry-host>:<port>/library/<tag>` using the registry config,
- *   with the per-org platform Secret as Basic auth — same path
- *   `resolvePluginImage()` uses for plugin images. Needs `scope` + `orgId`.
- * - Fully-qualified registry URI (contains `/`): used as-is, no auth wired.
- * - Missing registry config or scope/orgId → falls back to
- *   `aws/codebuild/standard:8.0` (as a CURATED image, see above), with a
- *   warning so synth degrades gracefully on partially configured envs.
+ * Exactly the path a system plugin's image takes ({@link resolvePluginImage}):
+ * `<external pull host>/system/pipeline-bootstrap@<signed digest>` with the
+ * org's `registry-push` secret as the pull credential. There is no env-driven
+ * image, no tag pull and no curated fallback: the bootstrap is resolved from
+ * the platform (`pipeline-manager`'s `resolveBootstrapImage`, D2) and anything
+ * short of a pinned, pullable image fails the synth.
  */
-const STANDARD_8_0 = 'aws/codebuild/standard:8.0';
-
-/**
- * aws-cdk-lib 2.258 has no `LinuxBuildImage.STANDARD_8_0` static yet, so the
- * curated 8.0 fallback resolves via `fromCodeBuildImageId` (still CODEBUILD creds).
- */
-const fallbackBuildImage = (): IBuildImage => LinuxBuildImage.fromCodeBuildImageId(STANDARD_8_0);
-
-/**
- * Map AWS curated `aws/codebuild/*` image strings to the matching
- * `LinuxBuildImage` static. Extend when newer standard images ship.
- * Returns `undefined` for non-curated strings — caller should use
- * `fromDockerRegistry()` for those.
- */
-function curatedLinuxBuildImage(imageId: string): IBuildImage | undefined {
-  if (!imageId.startsWith('aws/codebuild/')) return undefined;
-  switch (imageId) {
-    case 'aws/codebuild/standard:6.0': return LinuxBuildImage.STANDARD_6_0;
-    case 'aws/codebuild/standard:5.0': return LinuxBuildImage.STANDARD_5_0;
-    // Newer codenamed images route through fromCodeBuildImageId, which
-    // CDK also marks as CODEBUILD credentials (curated).
-    default: return LinuxBuildImage.fromCodeBuildImageId(imageId);
+export function resolveDefaultBuildImage(scope: Construct, orgId: string | undefined, bootstrap: Plugin): IBuildImage {
+  const fail = (why: string): never => {
+    throw new Error(
+      `BOOTSTRAP_IMAGE_UNRESOLVED: the default build image can't be pinned — ${why}. ` +
+      'Synthesize through `pipeline-manager pipeline synth/deploy` (or pass `--toolchain-file` with `--local-spec`).',
+    );
+  };
+  if (!bootstrap || bootstrap.name !== BOOTSTRAP_PLUGIN_NAME) {
+    fail(`resolvedBootstrap is "${bootstrap?.name ?? 'missing'}", not ${BOOTSTRAP_PLUGIN_NAME}`);
   }
+  const repository = (bootstrap as Plugin & { imageRepository?: string | null }).imageRepository;
+  if (repository !== BOOTSTRAP_IMAGE_REPOSITORY) {
+    fail(`${BOOTSTRAP_PLUGIN_NAME}:${bootstrap.version} has image repository "${repository ?? 'none'}", not ${BOOTSTRAP_IMAGE_REPOSITORY}`);
+  }
+  if (!orgId) fail('the pipeline has no orgId (the registry pull credential is per org)');
+  // Throws on a missing/malformed digest and an unreachable pull host.
+  const image = resolvePluginImage(scope, { ...bootstrap, buildType: 'prebuilt' }, orgId);
+  if (!image) fail('the registry config is not loaded (IMAGE_REGISTRY_HOST / the platform URL)');
+  return image as IBuildImage;
 }
 
-/** A registry manifest digest as CodeBuild accepts it in an image reference. */
-const IMAGE_DIGEST_RE = /^sha256:[0-9a-f]{64}$/;
-
 /**
- * Pull reference for the configured default image's bare `<repo>:<tag>`:
- * `<repo>@<digest>` when the bootstrap digest is configured, else the tag
- * itself with a loud warning. A digest that is set but malformed fails the
- * synth — it is a typo, and silently falling back to the tag would hide it.
+ * The AWS curated image self-mutation runs on (D10): it only needs Node and the
+ * pinned CDK CLI, and a curated image keeps a defective toolchain release
+ * recoverable. Curated ⇒ `fromCodeBuildImageId` (CODEBUILD pull credentials —
+ * `fromDockerRegistry` would set SERVICE_ROLE, which CFN rejects for a curated image).
  */
-function pinnedDefaultImageRef(configured: string, digest: string): string {
-  if (!digest) {
-    log.warn(
-      `CODEBUILD_DEFAULT_IMAGE='${configured}' is pulled by its MUTABLE tag — CODEBUILD_DEFAULT_IMAGE_DIGEST is not set. ` +
-      'Anyone holding a registry push credential for library/ could re-point it. Set CODEBUILD_DEFAULT_IMAGE_DIGEST ' +
-      'to the digest deploy/bin/build-codebuild-bootstrap.sh prints after publishing.',
-    );
-    return configured;
-  }
-  if (!IMAGE_DIGEST_RE.test(digest)) {
-    throw new Error(`CODEBUILD_DEFAULT_IMAGE_DIGEST='${digest}' is not a sha256 manifest digest (sha256:<64 hex>).`);
-  }
-  const repo = configured.replace(/@.*$/, '').replace(/:[^:/]+$/, '');
-  return `${repo}@${digest}`;
-}
-
-export function resolveDefaultBuildImage(scope?: Construct, orgId?: string): IBuildImage {
-  let configured: string;
-  let digest = '';
-  try {
-    const codeBuild = Config.get('aws').codeBuild;
-    configured = codeBuild.defaultImage;
-    digest = codeBuild.defaultImageDigest;
-  } catch {
-    configured = STANDARD_8_0;
-  }
-
-  // AWS curated image → CODEBUILD credentials. MUST go through the
-  // LinuxBuildImage constants, not fromDockerRegistry().
-  const curated = curatedLinuxBuildImage(configured);
-  if (curated) return curated;
-
-  // Fully-qualified URI — operator owns it. No registry/Secret wiring. An
-  // operator-supplied digest is honoured; a tag-only URI is warned about.
-  if (configured.includes('/')) {
-    return LinuxBuildImage.fromDockerRegistry(
-      configured.includes('@sha256:') ? configured : pinnedDefaultImageRef(configured, digest),
-    );
-  }
-
-  // Bare tag → auto-prefix with the platform registry, mirroring
-  // resolvePluginImage(). Bail to the curated standard:8.0 fallback
-  // (with a warning) at each missing prerequisite so synth degrades
-  // gracefully on partially configured environments instead of failing.
-  let registry;
-  try {
-    registry = Config.get('registry');
-  } catch {
-    log.warn(
-      `CODEBUILD_DEFAULT_IMAGE='${configured}' is a bare tag but registry config not loaded — ` +
-      `falling back to ${STANDARD_8_0}. Set IMAGE_REGISTRY_HOST + IMAGE_REGISTRY_PORT.`,
-    );
-    return fallbackBuildImage();
-  }
-  if (!registry?.host) {
-    log.warn(
-      `CODEBUILD_DEFAULT_IMAGE='${configured}' is a bare tag but IMAGE_REGISTRY_HOST is empty — ` +
-      `falling back to ${STANDARD_8_0}.`,
-    );
-    return fallbackBuildImage();
-  }
-  if (!scope || !orgId) {
-    log.warn(
-      `CODEBUILD_DEFAULT_IMAGE='${configured}' needs scope+orgId for Secret auth — ` +
-      `falling back to ${STANDARD_8_0}. (Caller did not supply them.)`,
-    );
-    return fallbackBuildImage();
-  }
-
-  // Use the external pull host/port (not the in-cluster host) — this URI is
-  // consumed by AWS CodeBuild, which can't resolve the `registry:5000` ClusterIP.
-  const { host: pullHost, portPart } = resolveExternalPullTarget(registry);
-  const imageUri = `${pullHost}${portPart}/library/${pinnedDefaultImageRef(configured, digest)}`;
-
-  // Same Secret as resolvePluginImage — the per-org REGISTRY credential, which
-  // CodeBuild sends as Basic auth and image-registry exchanges for a scoped token.
-  const stack = Stack.of(scope);
-  const secretName = CoreConstants.secretPath(orgId, REGISTRY_CREDENTIAL_SECRET);
-  const secretConstructId = `RegistryCreds_${secretName.replace(/[^A-Za-z0-9_-]/g, '_')}`;
-  const credentialsSecret = (stack.node.tryFindChild(secretConstructId) as Secret | undefined)
-    ?? Secret.fromSecretNameV2(stack, secretConstructId, secretName);
-
-  return LinuxBuildImage.fromDockerRegistry(imageUri, {
-    secretsManagerCredentials: credentialsSecret,
-  });
-}
+export const curatedSelfMutationImage = (): IBuildImage => LinuxBuildImage.fromCodeBuildImageId(CURATED_SELF_MUTATION_IMAGE);
 
 /**
  * Create a CodeBuild step or Shell step based on plugin configuration.
@@ -564,10 +467,10 @@ export function createCodeBuildStep(options: CodeBuildStepOptions): ShellStep | 
 
   const programmatic = { input, installCommands, commands };
 
-  // Resolve the plugin's runtime image. CodeBuild defaults to
-  // `aws/codebuild/standard:7.0` when no `buildImage` is set — that's the
-  // AWS-managed Ubuntu image and DOES NOT have any plugin-baked tools
-  // (pipeline-manager, snyk, terraform, etc.). Wiring the plugin's image
+  // Resolve the plugin's runtime image. A step with no `buildImage` runs on
+  // the pipeline's default image (the toolchain release's pipeline-bootstrap,
+  // via `codeBuildDefaults`), which carries pipeline-manager and the CDK CLI
+  // but NONE of a plugin's baked tools (snyk, terraform, etc.). Wiring the plugin's image
   // here means CodeBuild pulls from our private registry and the tools
   // installed in the plugin's Dockerfile are actually available.
   const pluginBuildImage = resolvePluginImage(scope, plugin, orgId);
@@ -575,7 +478,8 @@ export function createCodeBuildStep(options: CodeBuildStepOptions): ShellStep | 
   // ShellStep branch.
   // ShellStep itself doesn't accept `buildEnvironment`/`buildImage`. CDK
   // pipelines wraps ShellSteps in a default CodeBuild action that runs on
-  // `aws/codebuild/standard:7.0` — which won't have the plugin's tools.
+  // the pipeline's default image (pipeline-bootstrap) — which won't have the
+  // plugin's tools.
   //
   // So when a SHELL_STEP plugin DOES have an image (because its author
   // baked tools into a Dockerfile), we PROMOTE it to a CodeBuildStep with
@@ -639,7 +543,7 @@ export function createCodeBuildStep(options: CodeBuildStepOptions): ShellStep | 
     partialBuildSpec: BuildSpec.fromObject({ env: { shell: '/bin/sh' } }),
     buildEnvironment: {
       computeType,
-      buildImage: pluginBuildImage ?? resolveDefaultBuildImage(scope, orgId),
+      buildImage: pluginBuildImage ?? defaultBuildImageOrThrow(options),
       environmentVariables: {
         ...toCodeBuildEnvVars(env),
         ...secretEnvVars,
@@ -663,6 +567,20 @@ export function createCodeBuildStep(options: CodeBuildStepOptions): ShellStep | 
   }
 
   return step;
+}
+
+/**
+ * The default image a plugin-less CodeBuild step runs on. It is resolved once
+ * per pipeline from `resolvedBootstrap` and handed down; a step without one
+ * has no image to run on, so the synth stops rather than let CodeBuild pick
+ * its own.
+ */
+function defaultBuildImageOrThrow(options: CodeBuildStepOptions): IBuildImage {
+  if (options.defaultBuildImage) return options.defaultBuildImage;
+  throw new Error(
+    `BOOTSTRAP_IMAGE_UNRESOLVED: step "${options.id}" (plugin "${options.plugin.name}") has no plugin image and no default build image. ` +
+    'Pass `defaultBuildImage` (PipelineBuilder resolves it from `resolvedBootstrap`).',
+  );
 }
 
 /**

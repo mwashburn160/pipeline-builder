@@ -516,3 +516,46 @@ describe('validateBuildArgs', () => {
     expect(() => validateBuildArgs({ key: 'v'.repeat(4097) })).toThrow('exceeds 4096 characters');
   });
 });
+
+// docs/plans/bootstrap-image-versioning.md §1: the managed build image.
+describe('parsePluginZip — BuildImage', () => {
+  const spec = `
+name: pipeline-bootstrap
+version: "1.0.0"
+pluginType: BuildImage
+toolchain:
+  pipelineManager: "4.4.19"
+  awsCdk: "2.1100.0"
+  cdkAssets: "3.2.0"
+  esbuild: "0.25.0"
+  pnpm: "10.12.1"
+  node: "24.11.0"
+sourceDigest: "${'a'.repeat(64)}"
+`;
+
+  it('accepts a prebuilt BuildImage with no commands', async () => {
+    const result = await parsePluginZip(buildZip({
+      'plugin-spec.yaml': spec,
+      'config.yaml': 'pluginSpec: plugin-spec.yaml\nbuildType: prebuilt\n',
+      'image.tar': 'fake-tar-content',
+    }));
+    expect(result.buildType).toBe('prebuilt');
+    expect(result.pluginSpec.pluginType).toBe('BuildImage');
+  });
+
+  it('refuses a BuildImage the platform would build from source', async () => {
+    await expect(parsePluginZip(buildZip({
+      'plugin-spec.yaml': spec,
+      'config.yaml': 'pluginSpec: plugin-spec.yaml\ndockerfile: Dockerfile\nbuildType: build_image\n',
+      'Dockerfile': 'FROM scratch\n',
+    }))).rejects.toThrow(/must be uploaded prebuilt/);
+  });
+
+  it('refuses a BuildImage carrying commands, or under a non-managed name', async () => {
+    const prebuilt = { 'config.yaml': 'pluginSpec: plugin-spec.yaml\nbuildType: prebuilt\n', 'image.tar': 'x' };
+    await expect(parsePluginZip(buildZip({ ...prebuilt, 'plugin-spec.yaml': `${spec}commands:\n  - echo hi\n` })))
+      .rejects.toThrow(/commands: is not allowed on a BuildImage plugin/);
+    await expect(parsePluginZip(buildZip({ ...prebuilt, 'plugin-spec.yaml': spec.replace('name: pipeline-bootstrap', 'name: my-image') })))
+      .rejects.toThrow(/reserved for the managed toolchain plugins/);
+  });
+});

@@ -2,8 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Smoke test: every existing plugin-spec.yaml in deploy/plugins/ must pass
- * the template validator unchanged.
+ * Smoke test: every existing plugin-spec.yaml in deploy/plugins/ (the
+ * catalog) and deploy/toolchain/ (the managed toolchain release — uploaded
+ * through the same API) must pass the template validator unchanged.
  *
  * This guards against regressions in phase 3's upload-time template
  * validator. If a plugin uses `{{ ... }}` tokens, the scope must be
@@ -18,7 +19,9 @@ import YAML from 'yaml';
 import { validatePluginTemplates } from '../src/helpers/plugin-spec.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const PLUGINS_ROOT = path.resolve(__dirname, '../../../deploy/plugins');
+const DEPLOY_ROOT = path.resolve(__dirname, '../../../deploy');
+const PLUGINS_ROOT = path.join(DEPLOY_ROOT, 'plugins');
+const TOOLCHAIN_ROOT = path.join(DEPLOY_ROOT, 'toolchain');
 
 function findAllPlugins(): string[] {
   const out: string[] = [];
@@ -32,6 +35,12 @@ function findAllPlugins(): string[] {
       if (existsSync(specPath)) out.push(specPath);
     }
   }
+  if (existsSync(TOOLCHAIN_ROOT)) {
+    for (const half of readdirSync(TOOLCHAIN_ROOT, { withFileTypes: true })) {
+      const specPath = path.join(TOOLCHAIN_ROOT, half.name, 'plugin-spec.yaml');
+      if (half.isDirectory() && existsSync(specPath)) out.push(specPath);
+    }
+  }
   return out;
 }
 
@@ -43,7 +52,12 @@ describe('plugin-spec smoke test: existing plugins must validate', () => {
     expect(specs.length).toBeGreaterThanOrEqual(100);
   });
 
-  it.each(specs.map(p => [path.relative(PLUGINS_ROOT, p), p]))(
+  it('includes both halves of the managed toolchain release', () => {
+    expect(specs.filter(p => p.startsWith(TOOLCHAIN_ROOT + path.sep)).map(p => path.relative(DEPLOY_ROOT, p)).sort())
+      .toEqual([path.join('toolchain', 'cdk-synth', 'plugin-spec.yaml'), path.join('toolchain', 'pipeline-bootstrap', 'plugin-spec.yaml')]);
+  });
+
+  it.each(specs.map(p => [path.relative(DEPLOY_ROOT, p), p]))(
     '%s — template validation passes',
     (_rel, specPath) => {
       const text = readFileSync(specPath, 'utf-8');

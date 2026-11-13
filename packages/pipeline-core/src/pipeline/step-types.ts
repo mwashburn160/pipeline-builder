@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import type { PluginFilter, Plugin } from '@pipeline-builder/pipeline-data';
-import type { ComputeType as CdkComputeType } from 'aws-cdk-lib/aws-codebuild';
+import type { ComputeType as CdkComputeType, IBuildImage } from 'aws-cdk-lib/aws-codebuild';
 import type { IFileSetProducer } from 'aws-cdk-lib/pipelines';
 import type { Construct } from 'constructs';
 import type { SourceType } from './source-types.js';
@@ -224,6 +224,15 @@ export interface CodeBuildStepOptions extends StepCustomization {
    * so the build runs inside the specified network.
    */
   readonly network?: NetworkConfig;
+
+  /**
+   * The image a step without a plugin-baked image runs on — the resolved
+   * toolchain release's `pipeline-bootstrap` image
+   * (`resolveDefaultBuildImage`). Required whenever the step's plugin has no
+   * image of its own (a `metadata_only` plugin, the synth bootstrap): such a
+   * step without it fails the synth.
+   */
+  readonly defaultBuildImage?: IBuildImage;
 
   /**
    * Fallback CodeBuild compute type when the plugin doesn't specify one.

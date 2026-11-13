@@ -505,6 +505,11 @@ CREATE TABLE IF NOT EXISTS pipeline_events (    id UUID PRIMARY KEY DEFAULT gen_
     -- category derived later would have nothing to read — and the AI summary is
     -- shown the category, never the raw error.
     failure_category VARCHAR(30),
+    -- The managed toolchain release a synth / self-mutation ACTION ran on,
+    -- stamped at ingest from the PLATFORM's deployed step manifest (its
+    -- build-image entry) — never from the payload or a pipeline tag. NULL on
+    -- every other row. The canary gate and the Affected view read it.
+    toolchain_release VARCHAR(50),
     -- Provenance: the EventBridge event id the forwarder received this state
     -- change as (NULL for plugin-build events, which have no AWS origin), and
     -- the access-key id of the ingest credential that wrote the row. A key ID,
@@ -827,6 +832,13 @@ CREATE INDEX IF NOT EXISTS event_org_type_created_idx
 
 CREATE INDEX IF NOT EXISTS event_org_source_status_idx
     ON pipeline_events(org_id, event_source, status);
+
+-- The toolchain canary gate's scan: one release's stamped runs over a window.
+-- Partial: only synth / self-mutation rows carry a release. Matches the drizzle
+-- event_toolchain_release_idx.
+CREATE INDEX IF NOT EXISTS event_toolchain_release_idx
+    ON pipeline_events(toolchain_release, created_at)
+    WHERE toolchain_release IS NOT NULL;
 
 -- DORA deploy-scoped reads (partial: only PIPELINE events tagged with an
 -- environment). event_type is included because the events Lambda tags every
@@ -2561,7 +2573,7 @@ CREATE TABLE IF NOT EXISTS ecosystem_notification_queue (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     recipient_user_id TEXT,
     recipient_org_id VARCHAR(255),
-    event VARCHAR(8) NOT NULL CHECK (event ~ '^N([1-9]|1[0-9]|2[0-9])$'),
+    event VARCHAR(8) NOT NULL CHECK (event ~ '^N([1-9][0-9]?)$'),
     digest_key VARCHAR(255),
     payload JSONB NOT NULL DEFAULT '{}',
     deliver_after TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -2597,6 +2609,17 @@ CREATE TABLE IF NOT EXISTS pipeline_step_manifests (
     -- The step's key as synth sends it in lookup `context`: joins the step's
     -- lookups and runtime checks to this deployed row.
     step_key VARCHAR(255),
+    -- The BUILD-IMAGE row only (step_key 'build-image', stage '(toolchain)'):
+    -- the toolchain release's pipeline-bootstrap half the pipeline runs on.
+    -- plugin_version IS the release version. resolved_via is how synth chose
+    -- it; previous_release_version / release_changed_at are the last release
+    -- change between consecutive deploys (the run-history marker). NULL on
+    -- every step row.
+    resolved_via VARCHAR(20)
+                    CONSTRAINT pipeline_step_manifests_resolved_via_check
+                    CHECK (resolved_via IS NULL OR resolved_via IN ('pin', 'org-default', 'canary', 'default')),
+    previous_release_version VARCHAR(50),
+    release_changed_at TIMESTAMPTZ,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (pipeline_id, stage_name, action_name)
 );
@@ -2757,6 +2780,104 @@ CREATE UNIQUE INDEX IF NOT EXISTS plugin_kept_setup_image_identity_idx
     ON plugin_kept_setup_images(org_id, plugin_name, plugin_version, image_digest);
 CREATE INDEX IF NOT EXISTS plugin_kept_setup_image_expires_idx
     ON plugin_kept_setup_images(expires_at);
+
+-- ============================================================================
+-- Managed toolchain releases (docs/plans/bootstrap-image-versioning.md §1, §5)
+-- ============================================================================
+-- `pipeline-bootstrap@V` and `cdk-synth@V` are two plugin rows (system org)
+-- sharing ONE release version `V`. These tables hold what the plugin rows don't:
+-- which releases exist, which one is THE platform default, the canary cohort,
+-- each org's override, and the history of every change. Managed plugin rows
+-- never use `plugins.is_default`; the platform default lives here.
+--
+-- RLS is DEDICATED per table (see the RLS block): the first four are
+-- system-org only — the generic loop's system-org READ carve-out would expose
+-- them to every org, and three have no owner `org_id`. Resolution reads them
+-- elevated (`runWithTenantContext({ isSuperAdmin: true })`), the way
+-- `versionReferences` does; customers reach them only through the routes.
+--
+-- Release versions are plain X.Y.Z: a managed name refuses prerelease uploads
+-- (PLUGIN_MANAGED_PRERELEASE), so a `-dev.N` can never become a release.
+
+-- One row per release. Both plugin rows share `release_version`.
+CREATE TABLE IF NOT EXISTS toolchain_release (
+    release_version VARCHAR(50) PRIMARY KEY
+                    CONSTRAINT toolchain_release_version_check
+                    CHECK (release_version ~ '^[0-9]+\.[0-9]+\.[0-9]+$'),
+    release_notes TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_by TEXT NOT NULL
+);
+
+-- THE platform default: at most one row, ever (the PK can only hold TRUE).
+-- Set once at install (`kind: 'initial'`, D14); from then on there is always a
+-- default. A release that is the default can't be deleted (ON DELETE RESTRICT).
+CREATE TABLE IF NOT EXISTS toolchain_platform_default (
+    singleton BOOLEAN PRIMARY KEY DEFAULT TRUE
+              CONSTRAINT toolchain_platform_default_singleton_check CHECK (singleton),
+    release_version VARCHAR(50) NOT NULL
+                    REFERENCES toolchain_release(release_version) ON DELETE RESTRICT,
+    set_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    set_by TEXT NOT NULL
+);
+
+-- Every platform-default change. No FK on the versions: history outlives a
+-- deleted release.
+CREATE TABLE IF NOT EXISTS toolchain_default_history (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    release_version VARCHAR(50) NOT NULL,
+    previous_release_version VARCHAR(50),
+    set_by TEXT NOT NULL,
+    set_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    reason TEXT,
+    kind VARCHAR(16) NOT NULL
+         CONSTRAINT toolchain_default_history_kind_check
+         CHECK (kind IN ('set', 'initial', 'restore'))
+);
+
+CREATE INDEX IF NOT EXISTS toolchain_default_history_set_at_idx
+    ON toolchain_default_history(set_at DESC);
+
+-- Canary membership: ONE release per org. `org_id` is a MEMBER (the org the
+-- canary applies to), not an owner — the rows are written by the system org.
+CREATE TABLE IF NOT EXISTS toolchain_rollout (
+    org_id VARCHAR(255) PRIMARY KEY,
+    release_version VARCHAR(50) NOT NULL
+                    REFERENCES toolchain_release(release_version) ON DELETE RESTRICT,
+    added_by TEXT NOT NULL,
+    added_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS toolchain_rollout_release_idx
+    ON toolchain_rollout(release_version);
+
+-- An org's own override of the platform default (one per org). Inheritance to
+-- teams is resolved in `resolveManagedToolchain` with elevated reads, not here.
+CREATE TABLE IF NOT EXISTS org_toolchain_default (
+    org_id VARCHAR(255) PRIMARY KEY,
+    release_version VARCHAR(50) NOT NULL
+                    REFERENCES toolchain_release(release_version) ON DELETE RESTRICT,
+    set_by TEXT NOT NULL,
+    set_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    reason TEXT
+);
+
+CREATE INDEX IF NOT EXISTS org_toolchain_default_release_idx
+    ON org_toolchain_default(release_version);
+
+-- That org's changes. `release_version` is NULL when the override was cleared
+-- (back to the platform default). No FK: history outlives a deleted release.
+CREATE TABLE IF NOT EXISTS org_toolchain_default_history (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    org_id VARCHAR(255) NOT NULL,
+    release_version VARCHAR(50),
+    set_by TEXT NOT NULL,
+    set_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    reason TEXT
+);
+
+CREATE INDEX IF NOT EXISTS org_toolchain_default_history_org_idx
+    ON org_toolchain_default_history(org_id, set_at DESC);
 
 -- updated_at maintenance
 DO $$
@@ -3319,6 +3440,94 @@ CREATE POLICY rls_org_delete ON dashboard_panels FOR DELETE
         OR EXISTS (SELECT 1 FROM dashboards d WHERE d.id = dashboard_panels.dashboard_id AND d.org_id = current_org_id())
     );
 
+-- Managed toolchain tables. DEDICATED policies, not the generic loop: its
+-- system-org read carve-out would show every org the platform's release state
+-- (and its canary cohort, which names other orgs), and three of the tables have
+-- no owner `org_id` at all.
+--
+-- "System org" here means the sysadmin scope OR the system org's own scope:
+-- the toolchain console is gated by a permission held by system-org Roles, not
+-- by the superadmin flag, so a system-org request without the flag must still
+-- reach these rows. Resolution reads them elevated (isSuperAdmin: true).
+--
+-- The first four are system-org only, reads AND writes: a customer org sees
+-- zero rows and can write none (`toolchain_rollout.org_id` names a MEMBER, so
+-- it grants that org nothing).
+DO $$
+DECLARE
+    t TEXT;
+BEGIN
+    FOREACH t IN ARRAY ARRAY[
+        'toolchain_release', 'toolchain_platform_default',
+        'toolchain_default_history', 'toolchain_rollout'
+    ]
+    LOOP
+        EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
+        PERFORM pb_reset_policies(t);
+        EXECUTE format(
+            'CREATE POLICY rls_system_read ON %I FOR SELECT '
+            'USING (current_is_sysadmin() OR current_org_id() = ''000000000000000000000001'')',
+            t
+        );
+        EXECUTE format(
+            'CREATE POLICY rls_system_insert ON %I FOR INSERT '
+            'WITH CHECK (current_is_sysadmin() OR current_org_id() = ''000000000000000000000001'')',
+            t
+        );
+        EXECUTE format(
+            'CREATE POLICY rls_system_update ON %I FOR UPDATE '
+            'USING (current_is_sysadmin() OR current_org_id() = ''000000000000000000000001'') '
+            'WITH CHECK (current_is_sysadmin() OR current_org_id() = ''000000000000000000000001'')',
+            t
+        );
+        EXECUTE format(
+            'CREATE POLICY rls_system_delete ON %I FOR DELETE '
+            'USING (current_is_sysadmin() OR current_org_id() = ''000000000000000000000001'')',
+            t
+        );
+    END LOOP;
+END $$;
+
+-- An org's toolchain override: the org reads and writes ITS OWN row; the system
+-- org reads every org's (the console's overrides view, recovery). Unlike the
+-- generic loop there is NO "system row visible to everyone" carve-out — the
+-- system org's own override is its business — and the system org gets no write
+-- carve-out: it sets an org's override only as sysadmin.
+ALTER TABLE org_toolchain_default ENABLE ROW LEVEL SECURITY;
+SELECT pb_reset_policies('org_toolchain_default');
+CREATE POLICY rls_org_read ON org_toolchain_default FOR SELECT
+    USING (
+        current_is_sysadmin()
+        OR org_id = current_org_id()
+        OR current_org_id() = '000000000000000000000001'
+    );
+CREATE POLICY rls_org_insert ON org_toolchain_default FOR INSERT
+    WITH CHECK (current_is_sysadmin() OR org_id = current_org_id());
+CREATE POLICY rls_org_update ON org_toolchain_default FOR UPDATE
+    USING (current_is_sysadmin() OR org_id = current_org_id())
+    WITH CHECK (current_is_sysadmin() OR org_id = current_org_id());
+CREATE POLICY rls_org_delete ON org_toolchain_default FOR DELETE
+    USING (current_is_sysadmin() OR org_id = current_org_id());
+
+-- Its history is APPEND-ONLY for the org: it reads and inserts its own rows,
+-- and never rewrites or deletes one. The system org reads all. Only sysadmin
+-- may update/delete (the org-purge cascade).
+ALTER TABLE org_toolchain_default_history ENABLE ROW LEVEL SECURITY;
+SELECT pb_reset_policies('org_toolchain_default_history');
+CREATE POLICY rls_org_read ON org_toolchain_default_history FOR SELECT
+    USING (
+        current_is_sysadmin()
+        OR org_id = current_org_id()
+        OR current_org_id() = '000000000000000000000001'
+    );
+CREATE POLICY rls_org_insert ON org_toolchain_default_history FOR INSERT
+    WITH CHECK (current_is_sysadmin() OR org_id = current_org_id());
+CREATE POLICY rls_staff_update ON org_toolchain_default_history FOR UPDATE
+    USING (current_is_sysadmin())
+    WITH CHECK (current_is_sysadmin());
+CREATE POLICY rls_staff_delete ON org_toolchain_default_history FOR DELETE
+    USING (current_is_sysadmin());
+
 -- Low-write tables. These have a single tight write path (DashboardService +
 -- dashboard-seeder running as sysadmin, plus org-alerting CRUD which already
 -- routes through withTenantTx). Any code path that forgot to set tenant context
@@ -3409,6 +3618,16 @@ ALTER TABLE plugin_advisory_deliveries FORCE ROW LEVEL SECURITY;
 ALTER TABLE plugin_security_notification_prefs FORCE ROW LEVEL SECURITY;
 ALTER TABLE plugin_kept_setup_images FORCE ROW LEVEL SECURITY;
 
+-- Managed toolchain tables (dedicated policies above). Written only by the
+-- toolchain console / org-default routes under withTenantTx and read by the
+-- resolver as sysadmin, so a path with no tenant scope must hard-fail.
+ALTER TABLE toolchain_release FORCE ROW LEVEL SECURITY;
+ALTER TABLE toolchain_platform_default FORCE ROW LEVEL SECURITY;
+ALTER TABLE toolchain_default_history FORCE ROW LEVEL SECURITY;
+ALTER TABLE toolchain_rollout FORCE ROW LEVEL SECURITY;
+ALTER TABLE org_toolchain_default FORCE ROW LEVEL SECURITY;
+ALTER TABLE org_toolchain_default_history FORCE ROW LEVEL SECURITY;
+
 -- Plugin ecosystem, GLOBAL half. These tables have no org_id: the directory is
 -- instance-wide, and who may write what (system-org approval, publisher
 -- managers, review authors) is enforced in the service layer, not by tenant
@@ -3451,13 +3670,15 @@ DROP FUNCTION pb_reset_policies(TEXT);
 
 \echo ''
 \echo '=== RLS POLICIES INSTALLED ==='
-\echo 'FORCE + org scope (SELECT carve-outs; own-org INSERT/UPDATE/DELETE) on every tenant table (46/46):'
+\echo 'FORCE + org scope (SELECT carve-outs; own-org INSERT/UPDATE/DELETE) on every tenant table (52/52):'
 \echo ' - dashboards, dashboard_panels, org_alert_destinations, org_alert_rules'
 \echo ' - messages (+ recipient read-state update), message_attachments, pipeline_registry'
 \echo ' - pipeline_templates, all compliance_* tables incl. compliance_entitlement_watermark'
 \echo ' - plugins, pipelines, pipeline_events, DORA tables (hot path)'
 \echo ' - pipeline_step_manifests, plugin_installs, plugin_install_policies, plugin_advisory_deliveries,'
 \echo '   plugin_security_notification_prefs, plugin_kept_setup_images'
+\echo ' - toolchain_release, toolchain_platform_default, toolchain_default_history, toolchain_rollout (system org only),'
+\echo '   org_toolchain_default, org_toolchain_default_history (own org; system org reads all)'
 \echo 'App-role-only policy (no FORCE) on the 18 ecosystem-global tables'
 
 -- ============================================================================

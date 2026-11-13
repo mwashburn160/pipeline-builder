@@ -2,7 +2,7 @@ import { useState, useCallback, useId } from 'react';
 import { Input } from '@/components/ui/Input';
 import { TrustTierBadge } from '@/components/public-directory/TrustTierBadge';
 import { ShadowingNotice } from '@/components/plugin-installs/ShadowingNotice';
-import { usePlugins, usePluginCatalog, groupPlugins } from '@/hooks/usePlugins';
+import { usePlugins, usePluginCatalog, groupPlugins, isStepPlugin } from '@/hooks/usePlugins';
 import { useCombobox } from '@/hooks/useCombobox';
 import { groupCatalogEntries, shadowedListing, type PluginPick } from '@/lib/plugin-installs';
 
@@ -64,7 +64,8 @@ export default function PluginNameCombobox({
   }, [setOpen]);
 
   const query = filter || value;
-  const pluginGroups = groupPlugins(plugins, query);
+  // A managed build image (BuildImage) is never a step: it isn't offered.
+  const pluginGroups = groupPlugins(plugins.filter(isStepPlugin), query);
   const listingGroups = groupCatalogEntries(entries, query);
   const groups: Array<{ label: string; options: Option[] }> = [
     ...pluginGroups.map((g) => ({

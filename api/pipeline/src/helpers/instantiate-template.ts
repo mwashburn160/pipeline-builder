@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { ValidationError, type TemplateInput } from '@pipeline-builder/api-core';
+import { withoutToolchainPin } from './template-props.js';
 
 /** Request body accepted by the instantiate endpoint (post-validation). */
 export interface InstantiateBody {
@@ -72,8 +73,9 @@ export function instantiateTemplateProps(template: TemplateLike, body: Instantia
   const inputs = (template.inputs ?? []) as TemplateInput[];
   const vars = buildTemplateVars(inputs, body.inputs ?? {});
 
-  // Deep clone so we never mutate the stored template row.
-  const props = JSON.parse(JSON.stringify(template.props ?? {})) as Record<string, unknown>;
+  // Deep clone so we never mutate the stored template row; a stored
+  // `toolchain` (D12) is ignored.
+  const props = withoutToolchainPin(JSON.parse(JSON.stringify(template.props ?? {})) as Record<string, unknown>);
 
   props.project = body.project;
   props.organization = body.organization;

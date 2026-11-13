@@ -80,7 +80,7 @@
 import { randomUUID } from 'crypto';
 
 import {
-  envInt, createLogger, createScheduler, errorMessage, newScanFindings, parseVulnWaivers, recordAudit, runWithAuditContext, scanFindingKey, SYSTEM_ACTOR_ID, SYSTEM_ORG_ID,
+  envInt, createLogger, createScheduler, errorMessage, isManagedToolchainPlugin, isSystemOrgId, newScanFindings, parseVulnWaivers, recordAudit, runWithAuditContext, scanFindingKey, SYSTEM_ACTOR_ID, SYSTEM_ORG_ID,
   vulnWaiverLabels, leaderLockKey, DEFAULT_LEADER_LOCK_TTL_MS,
   type PluginScanFinding, type RemoteAuditEvent, type PluginScanFlag, type PluginScanSummary, type Scheduler, type VulnWaiver,
 } from '@pipeline-builder/api-core';
@@ -115,6 +115,7 @@ import { listings, publishers } from '../services/ecosystem/store.js';
 import { isActiveListing } from '../services/ecosystem/util.js';
 import { sweepKeptSetupImages } from '../services/kept-setup-images.js';
 import { notifyAcceptancesLapsed, notifyRescanFindings } from '../services/plugin-security-notifications.js';
+import { notifyToolchainHygiene } from '../services/toolchain-hygiene.js';
 
 const logger = createLogger('vuln-rescan');
 
@@ -366,6 +367,18 @@ async function rescanTenantRow(ctx: PassContext, row: TenantRow): Promise<'resca
   if (newFindings.length > 0) {
     ctx.result.newCriticalOrHigh++;
     onNewCriticalOrHigh({ id: row.id, orgId: row.orgId, name: row.name, version: row.version, imageDigest: row.imageDigest!, listingVersionIds: [] }, newFindings, scan);
+    // A managed toolchain half picked up a KEV or fixable Critical: the orgs
+    // whose toolchain DEFAULT is this release hear it (§10 hygiene, N34).
+    if (isSystemOrgId(row.orgId) && isManagedToolchainPlugin(row.name)
+      && newFindings.some((f) => f.kev === true || (f.severity === 'critical' && f.fixedIn.length > 0))) {
+      void notifyToolchainHygiene({
+        kind: 'vulnerable',
+        releaseVersion: row.version,
+        plugin: row.name,
+        criticalFixable: scan.criticalFixable,
+        kev: scan.findings.filter((f) => f.kev === true).length,
+      });
+    }
     await notifyRescanFindings({
       versionKey: `plugin:${row.id}`,
       plugin: row.name,

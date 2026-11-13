@@ -622,3 +622,12 @@ describe('store: implicit Official users and shadowing rows', () => {
 });
 
 void DIGEST_B;
+
+describe('managed toolchain names', () => {
+  it('refuses to install pipeline-bootstrap / cdk-synth with PLUGIN_MANAGED_NOT_LISTABLE', async () => {
+    const { acme } = seedPublishers(db, { tenantTier: 'verified' });
+    listing(acme, 'cdk-synth', ['1.0.0']);
+    await rejects(installs.createInstall(MEMBER(), { publisher: 'acme', name: 'cdk-synth' }), 'PLUGIN_MANAGED_NOT_LISTABLE');
+    await rejects(installs.createInstall(MEMBER(), { publisher: 'pipeline-builder', name: 'pipeline-bootstrap' }), 'PLUGIN_MANAGED_NOT_LISTABLE');
+  });
+});

@@ -57,6 +57,16 @@ const props = (version?: string) => ({
   stages: [{ stageName: 'Build', steps: [{ plugin: { name: 'trivy', ...(version ? { filter: { version } } : {}) } }] }],
 });
 
+describe('plugin upgrades — managed toolchain', () => {
+  it('never offers an upgrade for a managed step, however vulnerable its release', async () => {
+    mockResolve.mockReset();
+    mockResolve.mockResolvedValue({ plugin: { ...row('1.0.0', summary(3)), name: 'cdk-synth', publisher: null, scan: { imageDigest: DIGEST, scanSummary: summary(3), scanFlag: null, scanFlaggedAt: null } } });
+    const upgrades = await previewPluginUpgrades({ project: 'p', organization: 'o', synth: { plugin: { name: 'BuildSynth', filter: { name: 'cdk-synth' } } } }, 'org-a');
+    expect(upgrades).toEqual([]);
+    expect(mockResolve).not.toHaveBeenCalled();
+  });
+});
+
 describe('plugin upgrades', () => {
   beforeEach(() => {
     jest.clearAllMocks();

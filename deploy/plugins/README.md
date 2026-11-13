@@ -3,7 +3,7 @@
 > **Public catalog:** [docs/plugins/](../../docs/plugins/README.md) — user-facing reference for what each plugin does, secrets it needs, and parameters it accepts.
 > **This README:** contributor guide for the source layout, build pipeline, and conventions.
 
-119 plugins across 10 categories, by execution type: 118 `CodeBuildStep` (each builds into a Docker image that AWS CodeBuild runs as one pipeline stage) and 1 `ManualApprovalStep` (`infrastructure/manual-approval`, a native CodePipeline approval gate). Plugin sources live here; the build orchestration lives in [`deploy/bin/`](../bin/).
+118 plugins across 10 categories, by execution type: 117 `CodeBuildStep` (each builds into a Docker image that AWS CodeBuild runs as one pipeline stage) and 1 `ManualApprovalStep` (`infrastructure/manual-approval`, a native CodePipeline approval gate). Plugin sources live here; the build orchestration lives in [`deploy/bin/`](../bin/). The managed toolchain release (`pipeline-bootstrap` + `cdk-synth`) is not part of this catalog: it has its own source root, [`deploy/toolchain/`](../toolchain/).
 
 ---
 
@@ -18,13 +18,10 @@ deploy/plugins/
 │   │                            #   plugin-<eco>-base:1.0    (one pinned runtime each)
 │   └── _trivy-base/Dockerfile  #   plugin-trivy-base:1.0    (language-agnostic trivy)
 │
-# CodeBuild bootstrap image (not a plugin) lives at:
-#   ../codebuild/bootstrap/Dockerfile → pipeline-bootstrap:1.0
-#   FROM node:26-slim + pipeline-manager — backs CODEBUILD_DEFAULT_IMAGE
 ├── ai/                         # 1 plugin
 ├── artifact/                   # 16 plugins  (npm/pypi/maven/docker/ECR push)
 ├── deploy/                     # 13 plugins  (CDK/Terraform/k8s/Helm/Lambda)
-├── infrastructure/             # 5  plugins  (cdk-synth, manual-approval, manual-approval-custom, s3-cache, shell)
+├── infrastructure/             # 4  plugins  (manual-approval, manual-approval-custom, s3-cache, shell)
 ├── language/                   # 11 plugins  (Node, Python, Go, Rust, Java, .NET, Ruby, PHP, C++)
 ├── monitoring/                 # 3  plugins  (Datadog, NewRelic, Sentry)
 ├── notification/               # 5  plugins  (Slack, Teams, email, GitHub status, PagerDuty)
@@ -32,6 +29,11 @@ deploy/plugins/
 ├── security/                   # 34 plugins  (SAST, SCA, secrets, container scanning)
 ├── testing/                    # 14 plugins  (unit, integration, load, E2E)
 # (tool/runtime versions are pinned inline as ARG in each base + plugin Dockerfile)
+
+deploy/toolchain/               # THE MANAGED TOOLCHAIN RELEASE (two halves, one version; not catalog plugins)
+├── pipeline-bootstrap/         #   pipeline-bootstrap:<release> (BuildImage;
+│                               #   FROM node:26-slim + pipeline-manager + CDK CLI)
+└── cdk-synth/                  #   FROM pipeline-bootstrap@<digest>
 ```
 
 Each plugin directory contains:
@@ -177,7 +179,7 @@ every PR that touches `deploy/plugins/**` (see [CI](#ci)).
 
 [`.github/workflows/plugin-catalog.yml`](../../.github/workflows/plugin-catalog.yml)
 runs on pull requests touching `deploy/plugins/**`, `deploy/bin/test-plugins.sh`,
-`deploy/bin/common.sh`, `deploy/codebuild/bootstrap/**`, or the validation code in
+`deploy/bin/common.sh`, or the validation code in
 `packages/api-core/src/validation/` / `packages/pipeline-manager/src/`:
 
 1. **static** — `test-plugins.sh` over the whole catalog: the repo layout (name =
@@ -219,30 +221,36 @@ The root base tracks **Ubuntu 26.10 (`stonking`)**, an INTERIM release: standard
 | `plugin-php-base:1.0` | `_base/_php-base/` | one pinned PHP + Composer | PHP plugins |
 | `plugin-trivy-base:1.0` | `_base/_trivy-base/` | trivy binary (COPY from upstream image) | the single language-agnostic `trivy` plugin |
 
-The CodeBuild bootstrap image (`pipeline-bootstrap:1.0`, built `FROM node:26-slim`
-with AWS CLI v2 + the AWS CDK CLI + esbuild + pnpm + pipeline-manager baked in)
-lives separately at `../codebuild/bootstrap/` and is built/published by its own
-script, `deploy/bin/build-codebuild-bootstrap.sh`. It backs `CODEBUILD_DEFAULT_IMAGE`,
-the image cold-start synth runs `pipeline-manager pipeline synth` on (which shells out to
-`cdk synth` and bundles the PluginLookup Lambda locally via esbuild — hence those
-tools). `init-platform.sh` builds and publishes it before plugin loading.
+The managed toolchain release — `deploy/toolchain/pipeline-bootstrap` (built `FROM`
+a digest-pinned `node:26-slim` with AWS CLI v2 + the AWS CDK CLI + cdk-assets +
+esbuild + pnpm + pipeline-manager baked in, `pluginType: BuildImage`) and
+`deploy/toolchain/cdk-synth`, which is `FROM` it by digest — is one release with
+one `version` in both specs. It is the image cold-start synth runs
+`pipeline-manager pipeline synth` on (which shells out to `cdk synth` and
+bundles the PluginLookup Lambda locally via esbuild — hence those tools). See
+[`deploy/toolchain/pipeline-bootstrap/README.md`](../toolchain/pipeline-bootstrap/README.md).
+It lives in its own source root, not in this catalog, because the pair is one
+release, not catalog plugins: the build and load scripts handle it first, outside
+their per-plugin catalog walk (`--category toolchain` selects it).
 
-**Changing the version.** The tag lives in two places that must match: the
-script's tag (override `BOOTSTRAP_IMAGE_TAG`, default `pipeline-bootstrap:1.0`)
-and the deploy's `CODEBUILD_DEFAULT_IMAGE` (what synth pulls). To cut a new
-version without editing the script:
+**Producing a release.** Never edit `version`, `toolchain` or `sourceDigest` by
+hand (bump minor/major by hand, in both specs together). Any change to either
+directory's build inputs — a pipeline-manager release, a Renovate `node:`
+digest bump, a `cdk-synth` edit — changes the `sourceDigest`;
+`deploy/bin/sync-image-tags.sh --toolchain-only` then bumps the patch of both
+specs and rewrites `toolchain` and `sourceDigest`. `toolchain-drift-contract`
+fails until it has been run.
 
-```bash
-BOOTSTRAP_IMAGE_TAG=pipeline-bootstrap:1.1 FORCE_PUSH=true DEPLOY_TARGET=ec2 \
-  deploy/bin/build-codebuild-bootstrap.sh --force
-# then set CODEBUILD_DEFAULT_IMAGE=pipeline-bootstrap:1.1 in the deploy env and restart
-```
-
-A mismatch between the pushed tag and `CODEBUILD_DEFAULT_IMAGE` yields
-`BUILD_CONTAINER_UNABLE_TO_PULL_IMAGE` at synth. To refresh contents in place,
-keep the tag and rebuild with `--force FORCE_PUSH=true` (no env change needed).
-`PIPELINE_MANAGER_VERSION` auto-resolves `@latest` to a concrete version so the
-`npm install` layer cache can't ship a stale pipeline-manager.
+**Into a deployment.** `build-plugin-images.sh --category toolchain`
+builds the bootstrap in its base stage (after the `_base` images, before any
+plugin), grype-gates it, pushes `library/pipeline-bootstrap:<version>`, and
+builds `cdk-synth` with `BOOTSTRAP_IMAGE=<registry>/library/pipeline-bootstrap@<digest>`
+in the same run; `load-plugins.sh` uploads `pipeline-bootstrap` first, then
+`cdk-synth`. `init-platform.sh` does both on every install. A version is
+immutable: the base stage refuses to re-push a published version with
+different bits, and `--force` never rebuilds managed images in place — ship a
+change as a new release instead. Uploading a release never makes it the
+platform default.
 
 **Combined savings:** ~80 MB per plugin from the root base + ~250 MB per
 plugin in each family from the family bases ≈ **~12 GB across the fleet**.
@@ -309,7 +317,7 @@ commands:
   - my-tool scan --severity high
 ```
 
-See [`infrastructure/cdk-synth/plugin-spec.yaml`](infrastructure/cdk-synth/plugin-spec.yaml)
+See [`deploy/toolchain/cdk-synth/plugin-spec.yaml`](../toolchain/cdk-synth/plugin-spec.yaml)
 for a fully-featured example.
 
 ---
@@ -533,7 +541,7 @@ on sight:
 
 - Most individual plugins have NO `README.md`. Only ~10 do (mostly in
   `quality/`). Convention should be: small plugins documented in
-  `docs/plugins/<category>.md`; complex plugins (e.g., `infrastructure/cdk-synth`)
+  `docs/plugins/<category>.md`; complex plugins (e.g., `deploy/toolchain/cdk-synth`)
   get their own `README.md` here.
 
 ---
@@ -553,7 +561,7 @@ on sight:
 | Pip installs | `pip3 install --no-cache-dir <pkg>==<version>` on `plugin-python-base` (add `--break-system-packages` only for apt's system python3) |
 | npm installs | `npm install -g <pkg>@<version>` |
 | Multistage builder name | `builder` (single) or `<thing>-builder` (multiple) |
-| Spec `commands` indentation | 2 spaces (see [cdk-synth](infrastructure/cdk-synth/plugin-spec.yaml) for the canonical layout) |
+| Spec `commands` indentation | 2 spaces (see [cdk-synth](../toolchain/cdk-synth/plugin-spec.yaml) for the canonical layout) |
 
 ---
 

@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { useState } from 'react';
+import Link from 'next/link';
+import { isManagedToolchainPlugin } from '@pipeline-builder/api-core/plugin-catalog';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { FormField } from '@/components/ui/FormField';
 import { Textarea } from '@/components/ui/Textarea';
@@ -10,6 +12,8 @@ import api from '@/lib/api';
 import type { PluginSummary } from '@/lib/api/domains/plugins';
 import { formatError } from '@/lib/constants';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
+import { InfoAlert } from '@/components/ui/InfoAlert';
+import { TOOLCHAIN_CONSOLE_HREF } from '@/lib/toolchain-console';
 
 /** Which version-lifecycle action the dialog confirms. */
 export type PluginLifecycleAction = 'deprecate' | 'undeprecate' | 'yank';
@@ -28,12 +32,44 @@ export function isDeprecated(p: Pick<PluginSummary, 'deprecatedAt'>): boolean {
 }
 
 /**
- * The actions a writer may take on a version's lifecycle: a yanked
- * version is final here, so it offers none; otherwise deprecate or clear it,
- * and yank.
+ * Why a managed toolchain version (`pipeline-bootstrap`, `cdk-synth`) offers no
+ * default / deprecate / yank / delete controls: its releases are managed as a
+ * pair in the Toolchain console, and the plugin routes refuse them.
  */
-export function lifecycleActionsFor(p: Pick<PluginSummary, 'yankedAt' | 'deprecatedAt'>): PluginLifecycleAction[] {
-  if (isYanked(p)) return [];
+export const TOOLCHAIN_MANAGED_NOTE = 'This is a managed toolchain plugin. Its releases (default, deprecate, yank and delete) are managed in the Toolchain console.';
+
+/**
+ * {@link TOOLCHAIN_MANAGED_NOTE}, with "Toolchain console" a link for those who
+ * can open it (`toolchain:operate`, system org) and plain text for everyone
+ * else — a link that lands on "access denied" only advertises the surface.
+ */
+export function ToolchainManagedNote({ canOperateToolchain }: { canOperateToolchain: boolean }) {
+  if (!canOperateToolchain) return <InfoAlert message={TOOLCHAIN_MANAGED_NOTE} />;
+  return (
+    <InfoAlert
+      message={(
+        <span data-testid="toolchain-managed-note">
+          This is a managed toolchain plugin. Its releases (default, deprecate, yank and delete) are managed in the{' '}
+          <Link href={TOOLCHAIN_CONSOLE_HREF} className="font-medium underline">Toolchain console</Link>.
+        </span>
+      )}
+    />
+  );
+}
+
+/** Whether a version belongs to the managed toolchain (no generic lifecycle controls). */
+export function isManagedToolchainVersion(p: { name?: string | null }): boolean {
+  return isManagedToolchainPlugin(p.name);
+}
+
+/**
+ * The actions a writer may take on a version's lifecycle: a yanked
+ * version is final here, so it offers none; a managed toolchain version is
+ * the Toolchain console's, so it offers none either; otherwise deprecate or
+ * clear it, and yank.
+ */
+export function lifecycleActionsFor(p: Pick<PluginSummary, 'yankedAt' | 'deprecatedAt'> & { name?: string | null }): PluginLifecycleAction[] {
+  if (isYanked(p) || isManagedToolchainVersion(p)) return [];
   return [isDeprecated(p) ? 'undeprecate' : 'deprecate', 'yank'];
 }
 
@@ -50,9 +86,11 @@ const COPY: Record<PluginLifecycleAction, { title: string; confirm: string; done
  * for a public version); a version published to the ecosystem refuses a yank
  * with 409, surfaced here as the error.
  */
-export function PluginLifecycleModal({ plugin, action, onClose, onDone }: {
+export function PluginLifecycleModal({ plugin, action, onClose, onDone, canOperateToolchain = false }: {
   plugin: PluginSummary;
   action: PluginLifecycleAction;
+  /** Holds `toolchain:operate`: the managed-toolchain note links to the console. */
+  canOperateToolchain?: boolean;
   onClose: () => void;
   onDone: () => void;
 }) {
@@ -62,6 +100,7 @@ export function PluginLifecycleModal({ plugin, action, onClose, onDone }: {
   const [loading, setLoading] = useState(false);
   const copy = COPY[action];
   const ref = `${plugin.name}@${plugin.version}`;
+  const managed = isManagedToolchainVersion(plugin);
 
   const submit = async () => {
     const trimmed = text.trim();
@@ -91,6 +130,16 @@ export function PluginLifecycleModal({ plugin, action, onClose, onDone }: {
       setLoading(false);
     }
   };
+
+  if (managed) {
+    // Never offered for a managed version (lifecycleActionsFor), but if it is
+    // reached anyway it explains instead of sending a request the API refuses.
+    return (
+      <ConfirmDialog title={copy.title} confirmLabel="Close" tone="primary" onConfirm={onClose} onCancel={onClose}>
+        <ToolchainManagedNote canOperateToolchain={canOperateToolchain} />
+      </ConfirmDialog>
+    );
+  }
 
   return (
     <ConfirmDialog

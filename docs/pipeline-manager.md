@@ -44,6 +44,92 @@ This page covers installation, the [`infra provision`](#installing-the-platform-
 3. Deploy commands shell out to `cdk`, then register the resulting stack with the platform by name and region.
 4. The process exits with a specific code so a CI job fails on the right thing.
 
+### The toolchain release (synth and deploy)
+
+Every pipeline runs on a **toolchain release**: the `pipeline-bootstrap` build
+image (the default CodeBuild image — the synth bootstrap, asset publishing and
+plugin-less steps) and the `cdk-synth` synth plugin, published together under
+one version. `pipeline synth` / `pipeline deploy` resolve it from the platform
+on every run:
+
+- **Which release.** The pipeline's own pin (`toolchain.release` in its config),
+  else its organization's default, a canary the org is in, or the platform
+  default. Both halves are looked up with the same pin, so they always come from
+  one release.
+- **No fallback.** If the bootstrap can't be resolved (platform unreachable, no
+  platform default — `TOOLCHAIN_NO_DEFAULT`, a deleted pin, a refused signature)
+  the synth stops with `BOOTSTRAP_IMAGE_UNRESOLVED`. A managed `cdk-synth`
+  reference is fatal the same way; it has no deploy-time fallback.
+- **What it pins.** The default image is
+  `<platform>/system/pipeline-bootstrap@<digest>`, pulled with the org's
+  `registry-push` secret exactly like a plugin image. `cliVersion` and
+  `cdkAssetsCliVersion` are the release's `aws-cdk` / `cdk-assets` versions
+  (never npm `latest`); explicit pipeline metadata
+  (`aws:cdk:pipelines:codepipeline:cliversion`, `…:cdkassetscliversion`,
+  `…:selfmutationcodebuilddefaults`, `…:assetpublishingcodebuilddefaults`) wins.
+- **Self-mutation** runs on the AWS curated `aws/codebuild/standard:8.0` with its
+  Node runtime pinned (`runtime-versions.nodejs`), so a defective release can
+  always be rolled back.
+
+**Pinning a release.** A pipeline pins the whole release — both halves — in its
+config; a managed `cdk-synth` can't be pinned on its own
+(`TOOLCHAIN_PIN_VIA_RELEASE`):
+
+```jsonc
+{
+  "plugin": { "name": "cdk-synth" },
+  "toolchain": { "release": "1.4.2" },   // optional; omit = org default, canary or platform default
+  "stages": [ ... ]
+}
+```
+
+- **Only eligible releases.** A pin is checked when it changes (`pipelines:write`):
+  it must name a live release that has been the platform default or is your
+  organization's canary (`GET /plugins/toolchain/eligible` lists them), else
+  `TOOLCHAIN_RELEASE_NOT_ELIGIBLE`. A pipeline whose pinned release was later
+  yanked still saves for unrelated edits.
+- **Exact selection keeps working.** A yanked, deprecated or never-promoted pin
+  still resolves, and `pipeline synth` prints its warning
+  (`TOOLCHAIN_RELEASE_YANKED`, `_DEPRECATED`, `_INACTIVE`, `_NOT_PROMOTED`,
+  [Error handling](error-handling.md#managed-toolchain)). A deleted one is a 404 and
+  the synth stops with `BOOTSTRAP_IMAGE_UNRESOLVED`.
+- **Templates never carry a pin.** Saving a template strips `toolchain`, and
+  instantiating one ignores it.
+- **The org's default** (Settings → Organization → Pipeline toolchain,
+  `toolchain:manage`) applies to every pipeline that does not pin — see
+  [Organization Benefits → Pipeline toolchain default](organization-benefits.md#pipeline-toolchain-default).
+- **Escape hatch.** The raw `aws:cdk:codebuild:buildenvironment:buildimage`
+  metadata key still overrides the image per step.
+
+**Recovering a pipeline on a bad release.** Deployed pipelines pull the release
+they were synthesized with by digest, so a yank changes nothing until the next
+synth. To move one:
+
+1. Change (or remove) its `toolchain.release` pin — or, for unpinned pipelines,
+   change the org default or follow the platform default.
+2. Re-run the pipeline, or `pipeline-manager pipeline deploy` it, so the next
+   synth resolves the new release. Self-mutation runs on the AWS curated image,
+   so it is never stuck on the bad one.
+3. A pipeline whose **synth step itself** can't run on the bad release can't heal
+   itself: redeploy it from a workstation with
+   `pipeline-manager pipeline deploy --id <pipelineId>` (or `--local-spec` with a
+   `--toolchain-file` exported for a good release).
+
+**Local-spec deploys.** `pipeline deploy --local-spec` never contacts the
+platform, so it takes the release from a file:
+
+```bash
+# Against the platform, once (add --release <V> to export a specific release):
+pipeline-manager toolchain export --output toolchain.json
+
+# Anywhere, without the platform:
+pipeline-manager pipeline deploy --local-spec pipeline.json --toolchain-file toolchain.json
+```
+
+The file's platform host becomes the registry pull host (unless
+`IMAGE_REGISTRY_PULL_HOST` is set). A pipeline that pins `toolchain.release` must
+be given that release's export.
+
 ## Configuration
 
 1. **Install the CLI** — see [Install](#install).
@@ -127,7 +213,8 @@ esbuild cannot run locally. Switching to Docker bundling
 
 Install esbuild **and** pnpm (the handler's lockfile is `pnpm-lock.yaml`, so CDK
 uses pnpm to run esbuild) — plus the CDK CLI — globally, matching the versions the
-CodeBuild bootstrap image bakes in:
+`pipeline-bootstrap` image bakes in (its `toolchain` in
+`deploy/toolchain/pipeline-bootstrap/plugin-spec.yaml`):
 
 ```bash
 npm install -g esbuild@0.28.1 pnpm@10.33.0 aws-cdk@2.1126.0
@@ -136,7 +223,7 @@ npm install -g esbuild@0.28.1 pnpm@10.33.0 aws-cdk@2.1126.0
 With esbuild on `PATH`, `NodejsFunction` bundles **locally** (no Docker) and the
 Lambda resolves correctly. In CodeBuild this is handled for you — the bootstrap
 image ships these tools (see
-[AWS deployment → CodeBuild bootstrap image](aws-deployment.md#build-the-codebuild-bootstrap-image-build-codebuild-bootstrapsh)).
+[AWS deployment → the managed toolchain release](aws-deployment.md#build-the-managed-toolchain-release)).
 
 ---
 
@@ -197,7 +284,7 @@ pipeline-manager infra provision --target docker --repo --with-all --with-smoke-
 - **AI-optional.** Set `ANTHROPIC_API_KEY` (or `AI_PROVIDER` + its key) to parse a natural-language `--prompt` and add free-form failure diagnosis; without a key it falls back to the deterministic issue matcher.
 - **Bootstrap a fresh machine (`--repo`).** Without a checkout, `--repo` git-clones the platform repo first, then runs from it. The clone is **sparse + partial** (`--filter=blob:none` + cone `sparse-checkout`, git ≥ 2.27 — else a full-clone fallback): it materializes only the deploy folders the selected target + options need. Re-syncs are **additive** — a single `--workdir` can accumulate multiple targets. Override with `--repo <url>`, `--ref <branch|tag>`, `--workdir <dir>`.
 - **Run in Docker, zero host installs.** [`deploy/bin/provision-docker.sh`](https://github.com/mwashburn160/pipeline-builder/blob/main/deploy/bin/provision-docker.sh) runs `infra provision` inside a throwaway `node:26-slim` container, installing only the tools the chosen target needs. Args pass straight through. (On macOS the container can't drive Docker Desktop's CLI, so run **local** on the host instead — the wrapper shines for the AWS targets.)
-- **Post-install steps.** After deploy + health, `infra provision` registers the admin (non-interactive with `--admin-email`/`--admin-password`) and runs opt-in loads — passed as flags or **offered interactively after the clone** when none are given: `--with-plugins` (adds `deploy/plugins` + `deploy/codebuild`), `--with-compliance`, `--with-samples`, `--with-all`, `--with-smoke-test`, **`--with-events`** (AWS event ingestion: three `infra store-token` runs write the platform, `registry:push` and `reporting:ingest` service-account keys to Secrets Manager, then `infra setup-events --scoped-ingest` deploys the EventBridge → SQS → Lambda), and repeatable `--post-step "<cmd>"`. Default is register-only; `--init skip` skips even that. All steps are idempotent.
+- **Post-install steps.** After deploy + health, `infra provision` registers the admin (non-interactive with `--admin-email`/`--admin-password`) and runs opt-in loads — passed as flags or **offered interactively after the clone** when none are given: `--with-plugins` (adds `deploy/plugins`), `--with-compliance`, `--with-samples`, `--with-all`, `--with-smoke-test`, **`--with-events`** (AWS event ingestion: three `infra store-token` runs write the platform, `registry:push` and `reporting:ingest` service-account keys to Secrets Manager, then `infra setup-events --scoped-ingest` deploys the EventBridge → SQS → Lambda), and repeatable `--post-step "<cmd>"`. Default is register-only; `--init skip` skips even that. All steps are idempotent.
 
 The underlying `bin/setup.sh` / `bin/shutdown.sh` scripts (and `aws cloudformation delete-stack` for ec2) remain the source of truth and can always be run directly. Full guide: [AWS deployment → AI-assisted install](aws-deployment.md#ai-assisted-install-infra-provision).
 
@@ -219,7 +306,8 @@ Run `pipeline-manager <command> --help` for the full flag reference on any comma
 | --- | --- |
 | `infra bootstrap` | Scaffold a new pipeline project with `cdk.json` and starter config |
 | `pipeline synth` | Run CDK synth to emit the CloudFormation template for the pipeline |
-| `pipeline deploy` | Deploy the synthesized pipeline stack to AWS (also registers the pipeline with the platform by its `pipelineId`) |
+| `pipeline deploy` | Deploy the synthesized pipeline stack to AWS (also registers the pipeline with the platform by its `pipelineId`). `--local-spec <pipeline.json>` deploys a local spec without contacting the platform; it **requires `--toolchain-file <path>`** (see below) and refuses with `BOOTSTRAP_IMAGE_UNRESOLVED` without one |
+| `toolchain export` | Write the pipeline toolchain release as JSON: the release your organization resolves to now (its own default, a canary, or the platform default), or `--release <V>`. It holds both halves' (`pipeline-bootstrap`, `cdk-synth`) image repositories and signed digests, the release version and its tool versions, and the platform it came from. `--output <file>` (default stdout). Read-only. The input to `pipeline deploy --local-spec --toolchain-file` |
 | `pipeline register` | Re-register a deployed pipeline and drain pending intents queued by prior failed deploys (recovery path; exits non-zero if any registration still fails) |
 | `status` | Report the current deployment and execution status |
 

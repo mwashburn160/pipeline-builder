@@ -3,12 +3,14 @@
 
 import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 import { App, Stack } from 'aws-cdk-lib';
+import { bootstrapFixture } from './helpers/bootstrap-fixture.js';
 
 const { Config } = await import('../src/config/app-config.js');
 const { resolveDefaultBuildImage, resolvePluginImage } = await import('../src/core/pipeline-helpers.js');
 const { parsePlatformBaseUrl } = await import('../src/config/infrastructure-config.js');
 
 const DIGEST = `sha256:${'a'.repeat(64)}`;
+const bootstrap = bootstrapFixture({ digest: DIGEST }).plugin;
 
 /** Minimal image-backed plugin (signed digest recorded) that reaches the pull-host resolution. */
 const imagePlugin = {
@@ -29,14 +31,12 @@ describe('registry pull-host guard (resolveDefaultBuildImage)', () => {
   const REGISTRY_ENV = [
     'IMAGE_REGISTRY_HOST', 'IMAGE_REGISTRY_PORT',
     'IMAGE_REGISTRY_PULL_HOST', 'IMAGE_REGISTRY_PULL_PORT',
-    'PLATFORM_BASE_URL', 'ALLOW_INCLUSTER_PULL_HOST', 'CODEBUILD_DEFAULT_IMAGE',
+    'PLATFORM_BASE_URL', 'ALLOW_INCLUSTER_PULL_HOST',
   ];
   const saved: Record<string, string | undefined> = {};
 
   beforeEach(() => {
     for (const k of REGISTRY_ENV) { saved[k] = process.env[k]; delete process.env[k]; }
-    // A bare tag forces the registry-prefix path (where the guard lives).
-    process.env.CODEBUILD_DEFAULT_IMAGE = 'pipeline-bootstrap:1.0';
     Config._resetForTesting();
   });
 
@@ -50,7 +50,7 @@ describe('registry pull-host guard (resolveDefaultBuildImage)', () => {
   it('throws when the pull host resolves to the in-cluster registry default', () => {
     // IMAGE_REGISTRY_HOST unset → defaults to 'registry'; no pull host configured.
     const stack = new Stack(new App(), 'S');
-    expect(() => resolveDefaultBuildImage(stack, 'org1')).toThrow(/CodeBuild cannot reach/);
+    expect(() => resolveDefaultBuildImage(stack, 'org1', bootstrap)).toThrow(/CodeBuild cannot reach/);
   });
 
   it('does not throw when an external pull host is configured', () => {
@@ -58,21 +58,21 @@ describe('registry pull-host guard (resolveDefaultBuildImage)', () => {
     process.env.IMAGE_REGISTRY_PULL_PORT = '443';
     Config._resetForTesting();
     const stack = new Stack(new App(), 'S');
-    expect(() => resolveDefaultBuildImage(stack, 'org1')).not.toThrow();
+    expect(() => resolveDefaultBuildImage(stack, 'org1', bootstrap)).not.toThrow();
   });
 
   it('derives the pull host from PLATFORM_BASE_URL', () => {
     process.env.PLATFORM_BASE_URL = 'https://pipeline.example.com';
     Config._resetForTesting();
     const stack = new Stack(new App(), 'S');
-    expect(() => resolveDefaultBuildImage(stack, 'org1')).not.toThrow();
+    expect(() => resolveDefaultBuildImage(stack, 'org1', bootstrap)).not.toThrow();
   });
 
   it('bypasses the guard with ALLOW_INCLUSTER_PULL_HOST=true', () => {
     process.env.ALLOW_INCLUSTER_PULL_HOST = 'true';
     Config._resetForTesting();
     const stack = new Stack(new App(), 'S');
-    expect(() => resolveDefaultBuildImage(stack, 'org1')).not.toThrow();
+    expect(() => resolveDefaultBuildImage(stack, 'org1', bootstrap)).not.toThrow();
   });
 
   // The plugin-image path is the common one for real plugins — guard it too.
@@ -103,7 +103,7 @@ describe('registry pull-host guard (resolveDefaultBuildImage)', () => {
     process.env.IMAGE_REGISTRY_PULL_HOST = host as string;
     Config._resetForTesting();
     const stack = new Stack(new App(), 'S');
-    const call = () => resolveDefaultBuildImage(stack, 'org1');
+    const call = () => resolveDefaultBuildImage(stack, 'org1', bootstrap);
     if (unreachable) expect(call).toThrow(/CodeBuild cannot reach/);
     else expect(call).not.toThrow();
   });

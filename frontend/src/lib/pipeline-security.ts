@@ -7,7 +7,7 @@
  * components so the rules are unit-testable.
  */
 
-import type { ExposureTriageBody, PipelineExposureView, PipelineSecurity } from './api/pipeline-security-types';
+import type { ExposureTriageBody, PipelineBuildImage, PipelineExposureView, PipelineSecurity } from './api/pipeline-security-types';
 import { SEVERITY_LABELS, asVulnSeverity, sortBySeverity } from './plugin-vulns';
 
 /**
@@ -110,4 +110,33 @@ export function pluginWarningsToast(warnings: ReadonlyArray<{ severity?: string;
       + `${first.stepKey ? `${first.stepKey}: ` : ''}${first.message}${n > 1 ? ` (+${n - 1} more)` : ''} `
       + 'Vulnerabilities never block a pipeline — see its Plugin security tab.',
   };
+}
+
+/** What the Build image row says about how the release was chosen. */
+export const RESOLVED_VIA_LABELS: Record<string, string> = {
+  pin: 'Pinned by this pipeline',
+  'org-default': 'Organization default',
+  canary: 'Canary',
+  default: 'Platform default',
+};
+
+/**
+ * The run that carries the "toolchain X → Y" marker: the FIRST execution that
+ * started at or after the deploy that changed the release. Null when nothing
+ * changed, or no run has started since. Order-independent.
+ */
+export function toolchainChangeRunId(
+  executions: ReadonlyArray<{ execution_id: string; started_at: string | null }> | null | undefined,
+  change: PipelineBuildImage['change'] | null | undefined,
+): string | null {
+  if (!change || !executions) return null;
+  const at = Date.parse(change.changedAt);
+  if (Number.isNaN(at)) return null;
+  let first: { id: string; t: number } | null = null;
+  for (const ex of executions) {
+    const t = ex.started_at ? Date.parse(ex.started_at) : Number.NaN;
+    if (Number.isNaN(t) || t < at) continue;
+    if (!first || t < first.t) first = { id: ex.execution_id, t };
+  }
+  return first?.id ?? null;
 }

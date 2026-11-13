@@ -132,7 +132,7 @@ pipeline-manager infra provision --target eks --diagnose ./stack-events.txt
 >
 > **Bootstrap a fresh machine (`--repo`).** Without a checkout, `--repo` git-clones the platform repo first and runs from it. The clone is **sparse + partial** — `git clone --filter=blob:none --no-checkout` + cone `sparse-checkout` (git ≥ 2.27; older git falls back to a full clone) — so it materializes **only the deploy folders the selected target + options need**, not the whole repo (`packages/`, `api/`, `frontend/`, … are never downloaded). The common base is just `deploy/bin`; each target adds its own folder (`deploy/local/docker`, `deploy/local/minikube` — self-contained — `deploy/aws/ec2`, `deploy/aws/eks`), and each post-install load adds its folder. Re-syncs are **additive** (`sparse-checkout add`), so one `--workdir` can accumulate multiple targets. Override with `--repo <url>`, `--ref <branch|tag>`, `--workdir <dir>`. (`--ref` is a branch/tag; arbitrary SHAs may not fetch under the shallow clone.)
 >
-> **Post-install steps.** After deploy + health, `infra provision` registers the admin (non-interactive with `--admin-email`/`--admin-password`, which set `PLATFORM_IDENTIFIER`/`PLATFORM_PASSWORD`) and runs **opt-in** loads — each also pulls its folder into the sparse clone: `--with-plugins` (build + load plugins; adds `deploy/plugins` + `deploy/codebuild`), `--with-compliance` (`deploy/compliance`), `--with-samples` (`deploy/samples`), or `--with-all`. Also `--build-bootstrap` (CodeBuild bootstrap image), `--with-smoke-test` (read-only API check), `--with-events` (EC2/EKS event ingestion — a four-step bundle: three **`infra store-token`** runs writing the platform, `registry:push` and `reporting:ingest` service-account keys to Secrets Manager at the `pipeline-builder/{orgId}/…` pattern, then **`infra setup-events --scoped-ingest`** deploying the EventBridge → SQS → Lambda that reads the ingest key; all pull AWS creds from the standard env / `~/.aws` chain, and need `PLATFORM_PASSWORD` for the step-up each key write requires), and repeatable `--post-step "<cmd>"`. The default is **register-only** (minimal clone); the loads are deterministic + idempotent, so re-running with more options just layers them on. On the AWS targets these loads run **deploy-side by default** (so `infra provision` doesn't prompt for them locally) — EC2 on first boot, EKS in `setup.sh`'s final phase over a `kubectl port-forward`. Pass `--init manual` to drive them yourself.
+> **Post-install steps.** After deploy + health, `infra provision` registers the admin (non-interactive with `--admin-email`/`--admin-password`, which set `PLATFORM_IDENTIFIER`/`PLATFORM_PASSWORD`) and runs **opt-in** loads — each also pulls its folder into the sparse clone: `--with-plugins` (build + load plugins; adds `deploy/plugins`), `--with-compliance` (`deploy/compliance`), `--with-samples` (`deploy/samples`), or `--with-all`. Also `--build-bootstrap` (`build-plugin-images.sh --only pipeline-bootstrap`), `--with-smoke-test` (read-only API check), `--with-events` (EC2/EKS event ingestion — a four-step bundle: three **`infra store-token`** runs writing the platform, `registry:push` and `reporting:ingest` service-account keys to Secrets Manager at the `pipeline-builder/{orgId}/…` pattern, then **`infra setup-events --scoped-ingest`** deploying the EventBridge → SQS → Lambda that reads the ingest key; all pull AWS creds from the standard env / `~/.aws` chain, and need `PLATFORM_PASSWORD` for the step-up each key write requires), and repeatable `--post-step "<cmd>"`. The default is **register-only** (minimal clone); the loads are deterministic + idempotent, so re-running with more options just layers them on. On the AWS targets these loads run **deploy-side by default** (so `infra provision` doesn't prompt for them locally) — EC2 on first boot, EKS in `setup.sh`'s final phase over a `kubectl port-forward`. Pass `--init manual` to drive them yourself.
 >
 > ```bash
 > # Fresh box → sparse-clone just deploy/bin + deploy/local/docker, deploy, register, load samples:
@@ -958,63 +958,75 @@ sudo -u minikube PLATFORM_BASE_URL=https://your-ip bash /opt/pipeline/pipeline-b
 
 Use `--cleanup` flag on `init-platform.sh` or `load-plugins.sh` to remove `plugin.zip` and `image.tar` files after upload. Useful on EC2 where prebuilt images can consume 25-75GB of disk.
 
-Use `--force` on `init-platform.sh` to rebuild the base images and the CodeBuild bootstrap image from scratch, ignoring the docker-cache / registry-tag idempotency skips (drives `FORCE_REBUILD` for the base images and `--force` + `FORCE_PUSH` for the bootstrap image). Use it after changing a base `Dockerfile` or the bootstrap image contents, when the cached tag would otherwise be reused.
+Use `--force` on `init-platform.sh` to rebuild the base images and the non-managed plugin images from scratch, ignoring the docker-cache / registry-tag idempotency skips (drives `FORCE_REBUILD`). Use it after changing a base `Dockerfile`, when the cached tag would otherwise be reused. It never rebuilds the managed toolchain images (`pipeline-bootstrap`, `cdk-synth`): a version of those is immutable, so a change ships as a new release (below).
 
 | Script | Purpose |
 |--------|---------|
 | `init-platform.sh` | Register admin + select build strategy + load plugins + pipelines (interactive) |
-| `build-plugin-images.sh` | Pre-build Docker images for plugins (prebuilt strategy) |
+| `build-plugin-images.sh` | Base images, then the managed toolchain release (`pipeline-bootstrap` + `cdk-synth`), then plugin images (prebuilt strategy); `--only <names>` builds just those |
 | `load-plugins.sh` | Upload plugins from `deploy/plugins/` |
 | `load-templates.sh` | Upload pipeline templates from `deploy/samples/templates/` |
 | `test-plugins.sh` | Validate plugin specs and Dockerfiles |
-| `build-codebuild-bootstrap.sh` | Build + publish the CodeBuild bootstrap image (`CODEBUILD_DEFAULT_IMAGE` fallback runtime) |
 
-### Build the CodeBuild bootstrap image (`build-codebuild-bootstrap.sh`)
+### Build the managed toolchain release
 
-The **bootstrap image** backs `CODEBUILD_DEFAULT_IMAGE` — the fallback runtime CodeBuild uses for the synth step and for any plugin step whose own image isn't resolved. `build-codebuild-bootstrap.sh` builds it with Docker and publishes it to the platform's registry. `provision --build-bootstrap` runs this for you; run it directly to refresh the image after a CLI/Dockerfile change.
+The **managed toolchain release** is two plugins with one version:
+`pipeline-bootstrap` (the CodeBuild runtime for the synth step and for any step
+whose own image isn't resolved — Node, AWS CLI v2 and the pinned
+pipeline-manager, AWS CDK CLI, cdk-assets, esbuild and pnpm) and `cdk-synth`,
+built `FROM` it by digest. Both live in `deploy/toolchain/`, the release's own
+source root beside the plugin catalog (`deploy/plugins/`).
+`init-platform.sh` builds and uploads them on every install; run the build
+directly to publish a newer release into a running deployment:
 
 > The bootstrap image bakes in **aws-cdk + esbuild + pnpm** so synth bundles the PluginLookup Lambda locally (no Docker-in-Docker). If you instead run `cdk synth` / `pipeline deploy` **on your own machine**, you need those same tools on `PATH` — otherwise bundling fails with `Could not resolve "axios"`. See [Pipeline Manager → local deploy prerequisites](pipeline-manager.md#prerequisites-for-local-pipeline-deploys).
 
 ```bash
 cd deploy/bin
 
-# Build (if missing) + publish to the EC2 platform registry
-DEPLOY_TARGET=ec2 ./build-codebuild-bootstrap.sh
+# Build the release: the bootstrap (grype-gated, pushed to library/), then
+# cdk-synth FROM it by digest — and save both image.tars
+DEPLOY_TARGET=ec2 ./build-plugin-images.sh --only pipeline-bootstrap,cdk-synth
 
-# Force a rebuild even if the image is cached, and republish over an existing tag
-DEPLOY_TARGET=ec2 FORCE_PUSH=true ./build-codebuild-bootstrap.sh --force
-
-# Pin the pipeline-manager version baked into the image (avoids the @latest
-# layer-cache footgun that can ship stale CLI code)
-DEPLOY_TARGET=ec2 PIPELINE_MANAGER_VERSION=3.4.131 ./build-codebuild-bootstrap.sh --force
-
-# Cut a NEW image version instead of refreshing 1.0 in place
-DEPLOY_TARGET=ec2 BOOTSTRAP_IMAGE_TAG=pipeline-bootstrap:1.1 ./build-codebuild-bootstrap.sh
+# Upload both halves (pipeline-bootstrap first)
+DEPLOY_TARGET=ec2 ./load-plugins.sh --category toolchain
 ```
+
+**What a release is.** The `version` in both specs is the release version, its
+own semver; `toolchain` (the pinned tool versions) and `sourceDigest` (a hash of
+both directories' build inputs) sit in the bootstrap spec. All three are
+generated by `deploy/bin/sync-image-tags.sh --toolchain-only`, which bumps the
+patch of both specs whenever the build inputs change — a pipeline-manager
+release, a Renovate `node:` digest bump, a `cdk-synth` edit. Bump minor or major
+by hand, in both specs together.
+
+**A version is immutable.** The build refuses to re-push a published
+`library/pipeline-bootstrap:<version>` with different bits, `--force` never
+rebuilds a managed image in place, and `PIPELINE_MANAGER_VERSION` overrides are
+ignored — so a version always names the same bits and the same `toolchain`. To
+change anything, produce a new release. Uploading a release never makes it the
+platform default.
 
 **Environment variables**
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `DEPLOY_TARGET` | `docker` | Push transport: `docker` \| `minikube` \| `ec2` \| `eks`. `ec2`/`minikube` push via a `kubectl run` crane pod. |
-| `FORCE_PUSH` | `false` | Republish even when the remote tag already exists. |
-| `BOOTSTRAP_IMAGE_TAG` | `pipeline-bootstrap:1.0` | Image tag to build/push. **Must match the deployment's `CODEBUILD_DEFAULT_IMAGE`** — a mismatch fails CodeBuild with `BUILD_CONTAINER_UNABLE_TO_PULL_IMAGE`. |
-| `PIPELINE_MANAGER_VERSION` | `latest` | npm dist-tag/version baked in; auto-resolved to a concrete version so the Docker layer cache is correct. |
-| `PUBLISH_PLATFORM` | `linux/amd64` | Build/push platform; set `linux/arm64` for an all-Graviton stack. |
-
-`--force` rebuilds the local image; without it an already-cached image skips straight to publish.
+| `PUBLISH_PLATFORM` | host arch (docker/minikube), `linux/amd64` (AWS) | Build/push platform for every image, the bootstrap included; set `linux/arm64` for an all-Graviton stack. |
+| `BOOTSTRAP_SCAN` | `true` when grype is on `PATH` | Grype-gate the bootstrap before publishing. |
+| `GRYPE_FAIL_ON` | `critical` | Severity of a fixable finding that blocks publishing. |
 
 **Run it on the EC2 instance** — the `ec2` transport runs a `kubectl run` crane pod, so it needs both Docker **and** a kubeconfig that reaches the cluster. Two gotchas:
 
 - **Don't run the whole script under `sudo`.** `sudo` runs as root, whose `$HOME` has no kubeconfig, so the publish fails with *"the deploy-bootstrap service key was not found … Available contexts: (none)"*. Instead grant your user Docker access and run without `sudo`:
   ```bash
   sudo usermod -aG docker "$(whoami)" && newgrp docker
-  DEPLOY_TARGET=ec2 ./build-codebuild-bootstrap.sh
+  DEPLOY_TARGET=ec2 ./build-plugin-images.sh --only pipeline-bootstrap,cdk-synth
   ```
   If you must use `sudo`, hand root the kubeconfig + context explicitly:
   ```bash
   sudo KUBECONFIG=/home/minikube/.kube/config KUBECTL_CONTEXT=pipeline-builder \
-    DEPLOY_TARGET=ec2 ./build-codebuild-bootstrap.sh
+    DEPLOY_TARGET=ec2 ./build-plugin-images.sh --only pipeline-bootstrap,cdk-synth
   ```
   (Find the context name with `kubectl config get-contexts`; default is `pipeline-builder`.)
 - **After a fresh deploy** (which generates a new user-token signing key), re-run `infra store-token` before publishing — otherwise the crane push / CodeBuild image pull can 401.

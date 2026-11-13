@@ -26,7 +26,9 @@
  * Resolution mirrors the pipeline service's contract check (and so synth):
  * own/parent org rows first for an unqualified reference, else the listing
  * through the org's install and policy. A step that resolves to nothing
- * contributes nothing. A KEV count is digest-agnostic on purpose: a summary from
+ * contributes nothing. A managed toolchain step (pipeline-bootstrap, cdk-synth)
+ * resolves through the toolchain resolver ONLY, with the pipeline's
+ * `toolchain.release` — never a row or listing of the same name. A KEV count is digest-agnostic on purpose: a summary from
  * a previous build of the SAME version still says the version shipped it.
  *
  * Computed ONLY when an active rule reads a `stepFacts.*` field (see
@@ -35,7 +37,9 @@
  * skipped and reported as such), never guessed.
  */
 
-import { createLogger, errorMessage, PluginFilterSchema, type PluginScanSummary } from '@pipeline-builder/api-core';
+import {
+  createLogger, errorMessage, isManagedToolchainPlugin, PluginFilterSchema, toolchainReleasePin, type ManagedToolchainPlugin, type PluginScanSummary,
+} from '@pipeline-builder/api-core';
 import { collectPluginSteps, pluginLookupFilter } from '@pipeline-builder/pipeline-core';
 import {
   buildPluginConditions,
@@ -43,6 +47,7 @@ import {
   listedPluginRecord,
   pluginResolutionOrderBy,
   resolveListingReference,
+  resolveManagedToolchainHalf,
   runWithTenantContext,
   schema,
   withTenantTx,
@@ -161,8 +166,13 @@ export function derivePipelineStepFacts(props: unknown, resolved: ReadonlyMap<st
 }
 
 /** Resolve one lookup filter the way the pipeline service's contract check does. */
-async function resolveStepPlugin(filter: Partial<PluginFilter>, orgId: string, parentOrgId?: string): Promise<StepPluginFacts | null> {
+async function resolveStepPlugin(filter: Partial<PluginFilter>, orgId: string, parentOrgId?: string, releasePin?: string): Promise<StepPluginFacts | null> {
   const { publisher, ...rowFilter } = filter;
+  if (typeof rowFilter.name === 'string' && isManagedToolchainPlugin(rowFilter.name)) {
+    const res = await resolveManagedToolchainHalf({ orgId }, rowFilter.name.trim().toLowerCase() as ManagedToolchainPlugin, releasePin ? { releasePin } : {});
+    if ('refusal' in res) return null;
+    return { category: res.plugin.category, pluginType: res.plugin.pluginType, kev: kevCount(res.plugin.scanSummary, res.plugin.scanFlag) };
+  }
   if (!publisher) {
     const rows = await withTenantTx(async (tx) => tx
       .select({
@@ -207,13 +217,14 @@ export async function withPipelineStepFacts(
     const resolved = await runWithTenantContext({ isSuperAdmin: true }, async () => {
       const memo = new Map<string, Promise<StepPluginFacts | null>>();
       const out = new Map<string, StepPluginFacts>();
+      const releasePin = toolchainReleasePin(attributes.props);
       for (const step of collectPluginSteps(attributes.props)) {
         const filter = pluginLookupFilter(step);
         const key = JSON.stringify(Object.entries(filter).sort(([a], [b]) => a.localeCompare(b)));
         let hit = memo.get(key);
         if (!hit) {
           const parsed = PluginFilterSchema.safeParse(filter);
-          hit = parsed.success ? resolveStepPlugin(parsed.data as Partial<PluginFilter>, orgId, parentOrgId) : Promise.resolve(null);
+          hit = parsed.success ? resolveStepPlugin(parsed.data as Partial<PluginFilter>, orgId, parentOrgId, releasePin) : Promise.resolve(null);
           memo.set(key, hit);
         }
         const facts = await hit;

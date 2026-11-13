@@ -139,3 +139,26 @@ describe('EditPluginModal — catalog details only', () => {
     expect(screen.getByText(/Request a listing update instead/)).toBeInTheDocument();
   });
 });
+
+// docs/plans/bootstrap-image-versioning.md §11: a managed toolchain version is
+// edited only in the Toolchain console — the API refuses every edit here.
+describe('EditPluginModal — managed toolchain versions', () => {
+  it('hides the Default control, locks the form and explains where the toolchain is managed', async () => {
+    const managed = { ...PLUGIN, name: 'cdk-synth', orgId: '000000000000000000000001' } as unknown as PluginSummary;
+    getPluginById.mockResolvedValue({ success: true, data: { plugin: { ...FULL, name: 'cdk-synth' } } });
+    render(<EditPluginModal plugin={managed} canPublish onClose={jest.fn<AnyFn>()} onSaved={jest.fn<AnyFn>()} />);
+    await screen.findByLabelText('Summary');
+    expect(screen.getByText(/managed in the Toolchain console/)).toBeInTheDocument();
+    expect(screen.queryByLabelText('Default')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Summary')).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Save Changes' })).toBeDisabled();
+    expect(updatePlugin).not.toHaveBeenCalled();
+  });
+
+  it('keeps the Default control for every other plugin', async () => {
+    renderModal();
+    await screen.findByLabelText('Summary');
+    expect(screen.getByLabelText('Default')).toBeInTheDocument();
+    expect(screen.queryByText(/managed in the Toolchain console/)).not.toBeInTheDocument();
+  });
+});

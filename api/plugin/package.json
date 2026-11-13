@@ -180,6 +180,7 @@
           "^default",
           "sharedGlobals",
           "{workspaceRoot}/deploy/plugins/**/*",
+          "{workspaceRoot}/deploy/toolchain/**/*",
           "!{projectRoot}/lib/**/*",
           "!{projectRoot}/dist/**/*"
         ]
@@ -190,6 +191,7 @@
           "^default",
           "sharedGlobals",
           "{workspaceRoot}/deploy/plugins/**/*",
+          "{workspaceRoot}/deploy/toolchain/**/*",
           "!{projectRoot}/lib/**/*",
           "!{projectRoot}/dist/**/*"
         ]

@@ -340,6 +340,20 @@ export const NAV_SECTIONS: NavSection[] = [
       { title: 'All organizations', href: '/dashboard/organizations', icon: Building2, requiredPermission: 'orgs:read' },
       { title: 'All users', href: '/dashboard/users', icon: Users, systemAdminOnly: true },
       { title: 'Registry', href: '/dashboard/registry', icon: Boxes, requiredPermission: 'registry:read' },
+      // The managed pipeline toolchain (build image + cdk-synth releases):
+      // canary, promotion, adoption, recovery (docs/plans/
+      // bootstrap-image-versioning.md §11). `toolchain:operate` is
+      // system-org-only and also the page's read gate; `systemOrgOnly` hides
+      // the row from a superadmin acting inside a tenant org, where the routes
+      // refuse (the page says "not available" on a deep link).
+      {
+        title: 'Toolchain',
+        href: '/dashboard/toolchain',
+        icon: Wrench,
+        requiredPermission: 'toolchain:operate',
+        systemOrgOnly: true,
+        keywords: 'toolchain pipeline-bootstrap cdk-synth build image release canary promote platform default yank rollback',
+      },
       // Fleet-wide billing admin — a single entry that folds Overview, Discounts,
       // and Promotions into one page with a tab bar (BillingAdminTabs), mirroring
       // the Builds queue/triage consolidation. extraActivePaths keeps this item

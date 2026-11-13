@@ -1,6 +1,6 @@
 // GENERATED FROM docs/audit-events.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: bce83f597bb4f272d0256726b96fb8ebde0e3de3aa7b2b2d38562e5bc03273ec
+// SOURCE-SHA256: bd63896b5a06cf24bb6b24e03ef2240757f9dd445c8a07951148f96191aaf954
 // SPDX-License-Identifier: Apache-2.0
 import { ScrollText } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -726,6 +726,10 @@ export const auditEventsTopic: HelpTopic = {
             [
               "Plugin ecosystem: listings and versions",
               "plugin.listing.publish (on approval; carries digest, tier), plugin.listing.update, plugin.listing.state.change (unmaintained / suspended / listed — this is how a listing is withdrawn; a separate unlist action was declared and never emitted, and has been removed), plugin.listing.pause / plugin.listing.unpause (tenant pause; unpause on approval), plugin.version.pause, plugin.version.yank, plugin.version.unyank, plugin.version.deprecate. Distinct from all four, plugin.version.prune is a TENANT retiring a version's registry image to reclaim storageBytes (plugins:write): the others change whether a version resolves and delete nothing, while this one removes the version tag so its layers leave the organization's storage total. details carry repo, tag and freedBytes — the bytes recorded because they cannot be recovered afterwards: once the tag is gone, what it uniquely occupied is unknowable. A refusal is the same action with outcome failure and details.refusal (in_use — a pipeline still references it, published — a published copy whose bytes stay billed until the listing is withdrawn, unknown_version, or registry_unavailable); the registry's own side of the deletion is registry.tag.delete with details.reason: storage_prune. plugin.collection.update is gone too: ecosystem_collections was deleted because nothing ever wrote or read one, and the action outlived the table it audited"
+            ],
+            [
+              "Pipeline toolchain releases",
+              "The managed toolchain (pipeline-bootstrap + cdk-synth, one release version; plan). Platform default: toolchain.default.set (system org, step-up; details: releaseVersion, previousReleaseVersion, and gateOverride: { reason } when the canary gate was overridden), toolchain.default.initial (the fresh-install default set by the deploy-bootstrap service principal; details.acceptVulnerabilities with the operator's reason when the vulnerability floor was overridden), toolchain.default.restore (the previous default restored by yanking the current one). Canary and releases: toolchain.rollout.update (details: added and removed org ids), toolchain.release.notes, toolchain.release.deprecate, toolchain.release.yank, toolchain.release.delete (each acts on both halves; a refusal is the same action with outcome failure and details.refusal). toolchain.recovery.notify — owners of pipelines stranded on a release were sent the redeploy command (details: release, pipeline and org counts). Org overrides: toolchain.org_default.set / toolchain.org_default.clear (recorded on the org itself, by the toolchain:manage holder who stepped up; targetType: 'org-toolchain-default'; details: releaseVersion — null on a clear — previousReleaseVersion, and reason when one was given)"
             ],
             [
               "Plugin ecosystem: governance rules",

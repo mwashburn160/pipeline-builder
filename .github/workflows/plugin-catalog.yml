@@ -2,7 +2,9 @@ name: plugin-catalog
 
 # Official plugin catalog hygiene.
 #
-#   static — deploy/bin/test-plugins.sh over EVERY plugin: repo layout plus
+#   static — deploy/bin/test-plugins.sh over EVERY plugin (the catalog,
+#            deploy/plugins, and the managed toolchain root, deploy/toolchain,
+#            whose entries are named toolchain/<name>): repo layout plus
 #            `pipeline-manager plugin validate --lint` (the upload API's spec and
 #            catalog-metadata schemas and the Dockerfile rules: final USER
 #            non-root, no pipe-to-shell installers, every download through
@@ -22,11 +24,11 @@ on:
   pull_request:
     paths:
       - 'deploy/plugins/**'
+      - 'deploy/toolchain/**'
       - 'deploy/bin/test-plugins.sh'
       - 'deploy/bin/common.sh'
       - 'packages/api-core/src/validation/**'
       - 'packages/pipeline-manager/src/**'
-      - 'deploy/codebuild/bootstrap/**'
       - '.github/workflows/plugin-catalog.yml'
   workflow_dispatch: {}
 
@@ -73,16 +75,24 @@ jobs:
 
       # Changed plugin dirs = deploy/plugins/<category>/<plugin>/… paths in the
       # PR diff whose plugin still exists and has a Dockerfile. A change to a
-      # shared base, the test script or the bootstrap image selects every
-      # plugin. Output: one matrix entry per category (space-separated plugin
-      # list), so a base change fans out across parallel runners.
+      # shared base or the test script selects every plugin. A change under
+      # deploy/toolchain/ selects both halves of the managed toolchain release
+      # (toolchain/pipeline-bootstrap + toolchain/cdk-synth — one release, and
+      # no catalog plugin builds FROM it). Output: one matrix entry per category
+      # (space-separated plugin list; the toolchain is category `toolchain`), so
+      # a base change fans out across parallel runners.
       - name: Pick changed plugins
         id: pick
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           set -euo pipefail
+          toolchain_plugins() {
+            find deploy/toolchain -mindepth 2 -maxdepth 2 -name Dockerfile \
+              | sed -E 's|^deploy/(toolchain/[^/]+)/Dockerfile$|\1|' | sort
+          }
           all_plugins() {
+            toolchain_plugins
             find deploy/plugins -mindepth 3 -maxdepth 3 -name Dockerfile \
               -not -path 'deploy/plugins/_*' \
               | sed -E 's|^deploy/plugins/([^/]+/[^/]+)/Dockerfile$|\1|' | sort
@@ -92,13 +102,16 @@ jobs:
             selected="$(all_plugins)"
           else
             changed="$(git diff --name-only "${BASE_SHA}...HEAD")"
-            if printf '%s\n' "$changed" | grep -qE '^(deploy/plugins/_base/|deploy/bin/test-plugins\.sh$|deploy/bin/common\.sh$|deploy/codebuild/bootstrap/|packages/api-core/src/validation/)'; then
+            if printf '%s\n' "$changed" | grep -qE '^(deploy/plugins/_base/|deploy/bin/test-plugins\.sh$|deploy/bin/common\.sh$|packages/api-core/src/validation/)'; then
               selected="$(all_plugins)"
             else
               selected="$(printf '%s\n' "$changed" \
                 | sed -nE 's|^deploy/plugins/([^_/][^/]*/[^/]+)/.*|\1|p' \
                 | sort -u \
                 | while read -r p; do [ -f "deploy/plugins/$p/Dockerfile" ] && echo "$p"; done || true)"
+              if printf '%s\n' "$changed" | grep -q '^deploy/toolchain/'; then
+                selected="$(printf '%s\n%s\n' "$(toolchain_plugins)" "$selected")"
+              fi
             fi
           fi
           matrix="$(printf '%s\n' "$selected" | sed '/^$/d' \
@@ -162,14 +175,24 @@ jobs:
           PLUGINS: ${{ matrix.plugins }}
         run: |
           set -euo pipefail
-          needed="$(for p in $PLUGINS; do cat "deploy/plugins/$p/Dockerfile"; done \
-            | grep -oE 'plugin-[a-z0-9-]+-base:1\.0|pipeline-bootstrap:1\.0' | sort -u || true)"
+          # pipeline-bootstrap is tagged with the managed toolchain release
+          # version: cdk-synth's `ARG BOOTSTRAP_IMAGE` default names it, and the
+          # bootstrap's own spec carries it (test-plugins.sh skips a BuildImage,
+          # so a bootstrap change is smoke-built here, as cdk-synth's base).
+          # `toolchain/<name>` entries live under deploy/toolchain/, the rest
+          # under deploy/plugins/.
+          pdir() { case "$1" in toolchain/*) echo "deploy/$1" ;; *) echo "deploy/plugins/$1" ;; esac; }
+          needed="$(for p in $PLUGINS; do
+              cat "$(pdir "$p")/Dockerfile"
+              [ "$p" = toolchain/pipeline-bootstrap ] \
+                && sed -nE 's/^version:[[:space:]]*"?([0-9]+\.[0-9]+\.[0-9]+)"?[[:space:]]*$/pipeline-bootstrap:\1/p' "$(pdir "$p")/plugin-spec.yaml"
+            done | grep -oE 'plugin-[a-z0-9-]+-base:1\.0|pipeline-bootstrap:[0-9]+\.[0-9]+\.[0-9]+' | sort -u || true)"
           echo "::group::plugin-base:26.10"
           docker build --progress plain -t plugin-base:26.10 deploy/plugins/_base/_plugin-base
           echo "::endgroup::"
           for tag in $needed; do
             case "$tag" in
-              pipeline-bootstrap:1.0) ctx=deploy/codebuild/bootstrap ;;
+              pipeline-bootstrap:*) ctx=deploy/toolchain/pipeline-bootstrap ;;
               *) name="${tag%%:*}"; ctx="deploy/plugins/_base/_${name#plugin-}" ;;
             esac
             echo "::group::${tag}"

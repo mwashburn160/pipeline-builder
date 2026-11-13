@@ -71,7 +71,10 @@ jobs:
           - { tag: 'plugin-ruby-base:1.0', ctx: deploy/plugins/_base/_ruby-base }
           - { tag: 'plugin-rust-base:1.0', ctx: deploy/plugins/_base/_rust-base }
           - { tag: 'plugin-trivy-base:1.0', ctx: deploy/plugins/_base/_trivy-base }
-          - { tag: 'pipeline-bootstrap:1.0', ctx: deploy/codebuild/bootstrap }
+          # The managed toolchain's build image. Its tag is the release version in
+          # its plugin-spec.yaml, resolved below — never a literal here. A red run
+          # is fixed by a change that moves the sourceDigest, i.e. a new release.
+          - { tag: 'pipeline-bootstrap', ctx: deploy/toolchain/pipeline-bootstrap }
     steps:
       - name: Checkout repository
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -92,30 +95,45 @@ jobs:
           docker system prune -af >/dev/null
           df -h /
 
+      # IMAGE_TAG = the matrix tag, except pipeline-bootstrap, which is tagged
+      # with its release version (the `version` in its plugin-spec.yaml).
+      - name: Resolve the image tag
+        env:
+          TAG: ${{ matrix.tag }}
+          CTX: ${{ matrix.ctx }}
+        run: |
+          set -euo pipefail
+          if [ "$TAG" = pipeline-bootstrap ]; then
+            v="$(sed -nE 's/^version:[[:space:]]*"?([0-9]+\.[0-9]+\.[0-9]+)"?[[:space:]]*$/\1/p' "$CTX/plugin-spec.yaml")"
+            [ -n "$v" ] || { echo "::error::no release version in $CTX/plugin-spec.yaml"; exit 1; }
+            TAG="pipeline-bootstrap:${v}"
+          fi
+          echo "IMAGE_TAG=${TAG}" >> "$GITHUB_ENV"
+
       # Every family base builds FROM plugin-base:26.10, so the root base is
       # built first in every job (it is small; building it per job keeps the
       # matrix entries independent). --pull --no-cache: the point is today's
       # base digest and today's apt archive, not a cached layer from last week.
       - name: Build plugin-base:26.10
-        if: ${{ matrix.tag != 'pipeline-bootstrap:1.0' }}
+        if: ${{ matrix.tag != 'pipeline-bootstrap' }}
         run: docker build --pull --no-cache --progress plain -t plugin-base:26.10 deploy/plugins/_base/_plugin-base
 
       - name: Build ${{ matrix.tag }}
         if: ${{ matrix.tag != 'plugin-base:26.10' }}
         env:
-          TAG: ${{ matrix.tag }}
+          TAG: ${{ env.IMAGE_TAG }}
           CTX: ${{ matrix.ctx }}
         # --pull only where the FROM is a registry image: the family bases'
         # FROM plugin-base:26.10 exists only in the local daemon.
         run: |
           set -euo pipefail
           pull=()
-          [ "$TAG" = "pipeline-bootstrap:1.0" ] && pull=(--pull)
+          case "$TAG" in pipeline-bootstrap:*) pull=(--pull) ;; esac
           docker build "${pull[@]}" --no-cache --progress plain -t "$TAG" "$CTX"
 
       - name: Scan ${{ matrix.tag }} (grype, fixable at/above GRYPE_FAIL_ON)
         env:
-          TAG: ${{ matrix.tag }}
+          TAG: ${{ env.IMAGE_TAG }}
         run: |
           set -euo pipefail
           grype "docker:${TAG}" --only-fixed -o table | tee "$RUNNER_TEMP/grype.txt"

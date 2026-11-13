@@ -25,9 +25,13 @@
  *   - a range / unversioned reference is left alone — the range already selects
  *     the newest version it admits — unless `widen`, which re-anchors it at
  *     `^<suggestedLatest>`.
+ *
+ * Managed toolchain steps (pipeline-bootstrap, cdk-synth) are NEVER offered: the
+ * toolchain moves as one release, through the platform / org default or the
+ * pipeline's `toolchain.release` (docs/plans/bootstrap-image-versioning.md §2, §6).
  */
 
-import { PluginFilterSchema, scanFreshness, versionScanFacts } from '@pipeline-builder/api-core';
+import { managedToolchainRefName, PluginFilterSchema, scanFreshness, versionScanFacts } from '@pipeline-builder/api-core';
 import { collectPluginSteps, pluginLookupFilter, type PluginStepRef } from '@pipeline-builder/pipeline-core';
 import {
   buildPluginConditions,
@@ -181,6 +185,7 @@ export async function previewPluginUpgrades(props: unknown, orgId: string, paren
   const out: StepUpgrade[] = [];
   const candidatesMemo = new Map<string, Promise<Candidate[]>>();
   for (const step of collectPluginSteps(props)) {
+    if (managedToolchainRefName(step)) continue;
     const parsed = PluginFilterSchema.safeParse(pluginLookupFilter(step));
     if (!parsed.success) continue;
     const resolution = await resolveContractPlugin(parsed.data as Partial<PluginFilter>, orgId, parentOrgId);

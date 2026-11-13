@@ -429,16 +429,12 @@ export class PluginLookup extends Construct {
    * Synth plugin with pipeline-manager commands. Cold-start bootstrap for
    * the synth step when pre-resolution by `pipeline-manager pipeline synth/deploy`
    * didn't populate `resolvedPlugins` for the synth plugin. Runs on the
-   * configured `CODEBUILD_DEFAULT_IMAGE` (default `pipeline-bootstrap:1.0`)
-   * and self-bootstraps the real synth via
-   * `pipeline-manager pipeline synth --id ${PIPELINE_ID}`.
+   * resolved toolchain release's `pipeline-bootstrap` image (the pipeline's
+   * `resolvedBootstrap`, pinned by digest) and self-bootstraps the real synth
+   * via `pipeline-manager pipeline synth --id ${PIPELINE_ID}`.
    *
-   * No `installCommands`: the default image already has `pipeline-manager`
-   * baked in (that's the whole point of `pipeline-bootstrap:1.0`). If the
-   * operator points CODEBUILD_DEFAULT_IMAGE at an image lacking it (e.g.
-   * vanilla aws/codebuild/standard:7.0), this step exits 127 — fix that
-   * by using an image with pipeline-manager rather than papering over it
-   * with a per-build `npm install -g`.
+   * No `installCommands`: the bootstrap image has the release's pinned
+   * `pipeline-manager` baked in — that is what the image is for.
    *
    * TLS is VERIFIED by default: this lookup returns the image digests every
    * step is pinned to, so an unverified connection would let a MITM choose what

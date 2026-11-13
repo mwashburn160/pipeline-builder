@@ -1,6 +1,6 @@
 // GENERATED FROM docs/organization-benefits.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 93e7a444fffa10736efcfdc467dd316f179d1e03186123e2b15d0324a895a54a
+// SOURCE-SHA256: 2cd5960caca3279b3d11dbf0b673d7120f2a1529e8dcb7d76d685471760835e9
 // SPDX-License-Identifier: Apache-2.0
 import { Building2 } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -411,6 +411,54 @@ export const organizationBenefitsTopic: HelpTopic = {
             "Service accounts take no seat. An org's service accounts are machine principals, not members — they create no membership row, so however many an org runs, the seat count is unchanged. Each carries its own per-period token-exchange budget instead, so automation is bounded on its own allowance rather than the people's.",
             "Rolled-up analytics. A parent admin can include child-team execution data in reports.",
             "Safe downgrades. Downgrading a root that has teams to a tier that forbids teams (Developer/Pro) is blocked until the teams are resolved, so a tier change can't silently strand them."
+          ]
+        },
+        {
+          "type": "text",
+          "content": "Pipeline toolchain default"
+        },
+        {
+          "type": "text",
+          "content": "Every pipeline synthesizes on a managed toolchain release — the pipeline-bootstrap build image and the cdk-synth step, published together by the system org under one version (Pipeline Manager → The toolchain release). By default an organization follows the platform default: its pipelines move to each newly promoted release on their next run. Settings → Organization → Pipeline toolchain lets an organization hold its own release instead."
+        },
+        {
+          "type": "list",
+          "items": [
+            "Who. Anyone with pipelines:read sees the card: the release the org's unpinned pipelines resolve to now and why (org-default, canary or default), whether the org is in a canary, the platform default, and how many pipelines pin a release or build on one older than the platform default. Changing it needs toolchain:manage (Admin and Owner; grantable to a custom Role) and a step-up on every write, whatever the org's MFA policy.",
+            "What you can choose. \"Follow platform default\", or an eligible release: live (not yanked, deprecated or inactive), both halves present, and either a current or former platform default or your organization's own canary. Anything else is refused with TOOLCHAIN_RELEASE_NOT_ELIGIBLE. A release that picked up a vulnerability after promotion is still eligible; setting it answers with a TOOLCHAIN_RELEASE_VULNERABLE warning.",
+            "Precedence. A pipeline's own toolchain.release pin wins; then the nearest org default (the team's, else its root's); then the org's canary; then the platform default. An org default beats any canary.",
+            "Teams. A team sets its own default the same way. Without one it inherits its root organization's, and the card says so. Nothing a team does touches the root's default, and no organization ever sees or affects another's.",
+            "Rollback. Every change is kept in the org's history (GET /plugins/toolchain/org-default/history, newest first; a clear is a row with no release). \"Revert to previous\" sets the last release again; \"Follow platform default\" deletes the row.",
+            "Notices (N34). The org's toolchain:manage holders are told when its default release is yanked or deprecated, picks up a KEV-listed or fixable Critical finding, or falls more than three promoted releases behind the platform default. When a release is yanked, the pipeline writers of every org with pipelines pinned to it are told too, with those pipelines named. They also hear when the platform default moves (\"updating to X\" while the org follows it; \"a newer platform toolchain is available\" while it has its own default) and when the org is added to a canary; pipeline writers are told which pipeline-manager pipeline deploy --id <id> to run when a pipeline's synth failed on a release and it cannot update itself."
+          ]
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Route",
+            "Gate"
+          ],
+          "rows": [
+            [
+              "GET /plugins/toolchain/org-default",
+              "pipelines:read"
+            ],
+            [
+              "PUT /plugins/toolchain/org-default { releaseVersion, reason? }",
+              "toolchain:manage + step-up; audited toolchain.org_default.set"
+            ],
+            [
+              "DELETE /plugins/toolchain/org-default",
+              "toolchain:manage + step-up; audited toolchain.org_default.clear"
+            ],
+            [
+              "GET /plugins/toolchain/org-default/history",
+              "pipelines:read"
+            ],
+            [
+              "GET /plugins/toolchain/eligible",
+              "pipelines:read — only the releases your org may pin or set"
+            ]
           ]
         },
         {

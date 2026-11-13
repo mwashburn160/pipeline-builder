@@ -106,6 +106,7 @@ new PipelineBuilder(stack, 'MyPipeline', {
 | `role` | `RoleConfig` | No | IAM role for the CodePipeline (omit for auto-creation) |
 | `schedule` | `string` | No | Cron/rate expression for scheduled execution |
 | `tags` | `Record<string, string>` | No | Tags applied to all pipeline resources |
+| `toolchain` | `{ release: string }` | No | Pin the whole managed toolchain release (`pipeline-bootstrap` + `cdk-synth`, e.g. `{ "release": "1.4.2" }`). Omit to follow your organization's default, its canary or the platform default. Must name an eligible release when it changes (`TOOLCHAIN_RELEASE_NOT_ELIGIBLE`); a pin whose release is later yanked keeps resolving, with a warning. Templates never carry it. See [Pipeline Manager → The toolchain release](pipeline-manager.md#the-toolchain-release-synth-and-deploy) |
 
 ---
 

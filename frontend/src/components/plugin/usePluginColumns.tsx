@@ -15,7 +15,7 @@ import { CATEGORY_DISPLAY_NAMES, type PluginCatalogCategory } from '@/lib/plugin
 import { pluginUsageKey, shadowingMessage } from '@/lib/plugin-installs';
 import { registryHrefFor } from './PluginDetailModal';
 import { PluginLifecycleBadges } from './PluginLifecycleBadges';
-import { lifecycleActionsFor, type PluginLifecycleAction } from './PluginLifecycleModal';
+import { isManagedToolchainVersion, lifecycleActionsFor, type PluginLifecycleAction } from './PluginLifecycleModal';
 import { pluginProducesImage } from './PluginSupplyChain';
 import { VulnSummary } from './VulnSummary';
 
@@ -316,7 +316,8 @@ export function usePluginColumns({
                 </IconButton>
               );
             })}
-            {writable && (
+            {/* A managed toolchain version is deleted only in the Toolchain console. */}
+            {writable && !isManagedToolchainVersion(plugin) && (
               <IconButton tone="danger" title="Delete plugin" aria-label="Delete plugin" onClick={() => onDelete(plugin)}>
                 <Trash2 className="h-4 w-4" />
               </IconButton>

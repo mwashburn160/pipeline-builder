@@ -145,6 +145,14 @@ export const HARD_DELETE_TABLES = [
   // this cascade never deletes — listed so the schema-reflection guard holds
   // (no org-scoped table outside the cascade), not because a tenant has rows.
   { table: schema.pluginKeptSetupImage, name: 'plugin_kept_setup_images' },
+  // Pipeline toolchain (docs/plans/bootstrap-image-versioning.md). A purged
+  // org's canary membership and its own toolchain default go with it; the
+  // org's default history is the org's own record and goes too.
+  // `toolchain_release` / `_platform_default` / `_default_history` are
+  // platform-wide (no `org_id`) and are never cascaded.
+  { table: schema.toolchainRollout, name: 'toolchain_rollout' },
+  { table: schema.orgToolchainDefault, name: 'org_toolchain_default' },
+  { table: schema.orgToolchainDefaultHistory, name: 'org_toolchain_default_history' },
 ] as const;
 
 /** Every DB table name the org cascade covers (soft + hard). Exported so a

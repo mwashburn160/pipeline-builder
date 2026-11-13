@@ -26,6 +26,7 @@ const tenantContexts: unknown[] = [];
 const actualData = jest.requireActual('@pipeline-builder/pipeline-data') as Record<string, unknown>;
 const mockReplaceResolution = jest.fn(async (..._args: unknown[]) => 0);
 const mockReconcileExposures = jest.fn(async (..._args: unknown[]) => ({ opened: 0, closed: 0 }));
+const mockManagedHalf = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
   ...actualData,
   withTenantTx: async (fn: (tx: unknown) => Promise<unknown>) => {
@@ -40,6 +41,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@p
   },
   replacePipelineResolution: mockReplaceResolution,
   reconcilePipelineExposures: mockReconcileExposures,
+  resolveManagedToolchainHalf: (...a: unknown[]) => mockManagedHalf(...a),
   runWithTenantContext: (ctx: unknown, fn: () => unknown) => {
     tenantContexts.push(ctx);
     return (actualData.runWithTenantContext as (c: unknown, f: () => unknown) => unknown)(ctx, fn);
@@ -219,14 +221,15 @@ describe('findPluginContractViolations', () => {
   };
 
   it('reports every missing / ill-typed key per step, resolving each distinct filter once', async () => {
+    // The managed cdk-synth comes from the toolchain resolver, not a row query.
+    mockManagedHalf.mockResolvedValue({ plugin: plugin({ name: 'cdk-synth', version: '1.0.0', requiredVars: ['branch'] }) });
     results = [
-      [plugin({ name: 'cdk-synth', version: '1.0.0', requiredVars: ['branch'] })],
       [plugin({ requiredMetadata: ['namespace', 'replicas'], metadataTypes: { replicas: 'number' } })],
       [], // `ghost` resolves to nothing — not a contract problem
     ];
     const violations = await findPluginContractViolations(props, 'org-a');
 
-    expect(captured).toHaveLength(3); // cdk-synth, helm-deploy (shared by two steps), ghost
+    expect(captured).toHaveLength(2); // helm-deploy (shared by two steps), ghost
     expect(violations).toEqual([
       {
         path: 'stages[0].steps[0]',
@@ -253,8 +256,8 @@ describe('findPluginContractViolations', () => {
   });
 
   it('is empty when every contract is met', async () => {
+    mockManagedHalf.mockResolvedValue({ plugin: plugin({ name: 'cdk-synth', requiredVars: ['branch'] }) });
     results = [
-      [plugin({ name: 'cdk-synth', requiredVars: ['branch'] })],
       [plugin({ requiredMetadata: ['replicas'] })],
       [plugin({ name: 'ghost' })],
     ];
@@ -319,5 +322,90 @@ describe('recordPipelineResolution', () => {
     mockReplaceResolution.mockRejectedValueOnce(new Error('db down'));
     results = [[], []];
     await expect(recordPipelineResolution('pipe-1', 'org-a', undefined, { stages: [] })).resolves.toBeUndefined();
+  });
+});
+
+// docs/plans/bootstrap-image-versioning.md §1: the managed build image is what
+// a pipeline runs ON, never a step.
+describe('BuildImage plugins are never a step', () => {
+  it('refuses pipeline-bootstrap by name, before any lookup', async () => {
+    const violations = await findPluginContractViolations({
+      stages: [{ stageName: 'build', steps: [{ plugin: { name: 'pipeline-bootstrap' } }] }],
+    }, 'org-a');
+    expect(captured).toHaveLength(0);
+    expect(violations).toEqual([expect.objectContaining({
+      path: 'stages[0].steps[0]',
+      plugin: 'pipeline-bootstrap',
+      refusal: expect.objectContaining({ code: 'VALIDATION_ERROR', reason: 'build_image_not_a_step' }),
+    })]);
+    expect(formatContractViolations(violations)).toContain('not a pipeline step');
+  });
+
+  it('refuses any step whose resolved plugin is a BuildImage', async () => {
+    results = [[plugin({ name: 'odd-image', pluginType: 'BuildImage' })]];
+    const violations = await findPluginContractViolations({
+      stages: [{ stageName: 'build', steps: [{ plugin: { name: 'odd-image' } }] }],
+    }, 'org-a');
+    expect(violations).toEqual([expect.objectContaining({
+      plugin: 'odd-image', version: '2.0.0', refusal: expect.objectContaining({ reason: 'build_image_not_a_step' }),
+    })]);
+  });
+});
+
+// docs/plans/bootstrap-image-versioning.md §2, §5: a managed cdk-synth resolves
+// through the toolchain resolver only, with the pipeline's release pin.
+describe('managed cdk-synth', () => {
+  const SYSTEM = '000000000000000000000001';
+  const synthRow = (version: string) => ({
+    ...plugin({ id: `cdk-synth-${version}`, orgId: SYSTEM, name: 'cdk-synth', version }),
+    buildType: 'prebuilt',
+    pluginType: 'CodeBuildStep',
+    imageDigest: `sha256:${'d'.repeat(64)}`,
+    scannedAt: new Date(),
+    vulnHighFixable: 0,
+    scanSummary: null,
+    scanFlag: null,
+    scanFlaggedAt: null,
+  });
+  beforeEach(() => { mockManagedHalf.mockReset(); });
+
+  it.each([
+    ['plugin.name', { name: 'cdk-synth' }],
+    ['filter.name', { name: 'BuildSynth', filter: { name: 'cdk-synth', isActive: true, isDefault: true } }],
+  ])('a reference by %s never reaches a row or listing query, and carries the release pin', async (_how, ref) => {
+    mockManagedHalf.mockResolvedValue({ plugin: synthRow('1.2.0') });
+    const violations = await findPluginContractViolations({ toolchain: { release: '1.2.0' }, synth: { plugin: ref } }, 'org-a');
+    expect(violations).toEqual([]);
+    expect(captured).toHaveLength(0);
+    expect(mockManagedHalf).toHaveBeenCalledWith({ orgId: 'org-a' }, 'cdk-synth', { releasePin: '1.2.0' });
+  });
+
+  it('resolves for the system org through the same path (never its own highest row)', async () => {
+    mockManagedHalf.mockResolvedValue({ plugin: synthRow('1.0.0') });
+    await expect(resolveContractPlugin({ name: 'cdk-synth' }, SYSTEM)).resolves.toMatchObject({ plugin: { version: '1.0.0', orgId: SYSTEM, publisher: null } });
+    expect(captured).toHaveLength(0);
+    expect(mockManagedHalf).toHaveBeenCalledWith({ orgId: SYSTEM }, 'cdk-synth', {});
+  });
+
+  it('a managed cdk-synth carrying its own version is refused: TOOLCHAIN_PIN_VIA_RELEASE', async () => {
+    const violations = await findPluginContractViolations({ synth: { plugin: { name: 'cdk-synth', filter: { version: '1.1.0' } } } }, 'org-a');
+    expect(violations).toEqual([expect.objectContaining({
+      path: 'synth', refusal: expect.objectContaining({ code: 'TOOLCHAIN_PIN_VIA_RELEASE', reason: 'pin_via_release' }),
+    })]);
+    expect(mockManagedHalf).not.toHaveBeenCalled();
+  });
+
+  it('a resolver refusal (no platform default, a deleted pin) is a step refusal', async () => {
+    mockManagedHalf.mockResolvedValue({ refusal: { code: 'PLUGIN_UNAVAILABLE', reason: 'toolchain_no_default', message: 'No platform default' } });
+    const violations = await findPluginContractViolations({ synth: { plugin: { name: 'cdk-synth' } } }, 'org-a');
+    expect(violations).toEqual([expect.objectContaining({ refusal: expect.objectContaining({ reason: 'toolchain_no_default' }) })]);
+  });
+
+  it('records the declared side from the toolchain resolver too', async () => {
+    mockReplaceResolution.mockClear();
+    mockManagedHalf.mockResolvedValue({ plugin: synthRow('1.3.0') });
+    await recordPipelineResolution('pipe-1', 'org-a', undefined, { toolchain: { release: '1.3.0' }, synth: { plugin: { name: 'cdk-synth' } } });
+    expect(mockManagedHalf).toHaveBeenCalledWith({ orgId: 'org-a' }, 'cdk-synth', { releasePin: '1.3.0' });
+    expect(mockReplaceResolution).toHaveBeenCalledWith('pipe-1', [expect.objectContaining({ pluginName: 'cdk-synth', resolvedVersion: '1.3.0' })]);
   });
 });

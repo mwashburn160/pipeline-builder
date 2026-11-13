@@ -26,6 +26,8 @@ function clientCapturing(body: unknown, sink: Array<Record<string, unknown>>): A
 }
 
 const PLUGIN = { name: 'java-corretto', version: '1.0.0', commands: ['gradle clean build'] };
+/** The release block a managed-name (cdk-synth) answer carries; ignored for any other name. */
+const TOOLCHAIN = { releaseVersion: '1.1.0', resolvedVia: 'default' };
 
 describe('resolvePluginsForProps — lookup response unwrapping', () => {
   // Regression: the platform's standard success envelope DOUBLE-nests the record
@@ -45,7 +47,7 @@ describe('resolvePluginsForProps — lookup response unwrapping', () => {
   // MUST always carry `ref.name`.
   it('always sends the plugin name in the lookup filter (even when the ref filter omits it)', async () => {
     const sent: Array<Record<string, unknown>> = [];
-    const client = clientCapturing({ data: { plugin: PLUGIN } }, sent);
+    const client = clientCapturing({ data: { plugin: PLUGIN, toolchain: TOOLCHAIN } }, sent);
     await resolvePluginsForProps(client, propsWithPlugin('cdk-synth', {
       version: '1.0.0', visibility: 'public', isActive: true, isDefault: true, // no `name`
     }));
@@ -212,7 +214,7 @@ describe('resolvePluginsForProps — lookup filter carries the plugin name', () 
 
   it('pins the SYNTH lookup to cdk-synth (the exact bug) instead of a name-less match', async () => {
     const sent: Array<Record<string, unknown>> = [];
-    const client = clientCapturing({ data: { plugin: { name: 'cdk-synth' } } }, sent);
+    const client = clientCapturing({ data: { plugin: { name: 'cdk-synth' }, toolchain: TOOLCHAIN } }, sent);
     await resolvePluginsForProps(client, propsWithSynth('cdk-synth', {
       version: '1.0.0', visibility: 'public', isActive: true, isDefault: true,
     }));
@@ -229,7 +231,7 @@ describe('resolvePluginsForProps — lookup filter carries the plugin name', () 
 
   it('sends each plugin its own name when several refs are present', async () => {
     const sent: Array<Record<string, unknown>> = [];
-    const client = clientCapturing({ data: { plugin: PLUGIN } }, sent);
+    const client = clientCapturing({ data: { plugin: PLUGIN, toolchain: TOOLCHAIN } }, sent);
     await resolvePluginsForProps(client, {
       synth: { plugin: { name: 'cdk-synth', alias: 'BuildSynth' } },
       stages: [{
@@ -312,7 +314,7 @@ describe('resolvePluginsForProps — publisher references', () => {
 
 describe('resolvePluginsForProps — lookup context (contract C1)', () => {
   function capturingBodies(sink: unknown[]): ApiClient {
-    return { post: async (_url: string, body: unknown) => { sink.push(body); return { data: { plugin: PLUGIN } }; } } as unknown as ApiClient;
+    return { post: async (_url: string, body: unknown) => { sink.push(body); return { data: { plugin: PLUGIN, toolchain: TOOLCHAIN } }; } } as unknown as ApiClient;
   }
 
   it('sends { pipelineId, stepKeys } — the step LABELS — when the props carry a pipelineId', async () => {
@@ -340,5 +342,54 @@ describe('resolvePluginsForProps — lookup context (contract C1)', () => {
     const bodies: unknown[] = [];
     await resolvePluginsForProps(capturingBodies(bodies), propsWithPlugin('java-corretto'));
     expect(bodies[0]).not.toHaveProperty('context');
+  });
+});
+
+describe('resolvePluginsForProps — managed cdk-synth resolves through the toolchain release', () => {
+  function capturing(sink: unknown[], answer: unknown = { data: { plugin: { name: 'cdk-synth', version: '1.4.0' }, toolchain: { releaseVersion: '1.4.0', resolvedVia: 'pin' } } }): ApiClient {
+    return { post: async (_url: string, body: unknown) => { sink.push(body); return answer; } } as unknown as ApiClient;
+  }
+
+  it('sends the pipeline\'s toolchain.release as releasePin (the same pin the bootstrap sends)', async () => {
+    const bodies: Array<Record<string, unknown>> = [];
+    const sink: Record<string, unknown> = {};
+    await resolvePluginsForProps(capturing(bodies), { toolchain: { release: '1.4.0' }, ...propsWithSynth('cdk-synth') }, undefined, sink as never);
+    expect(bodies[0]).toMatchObject({ filter: { name: 'cdk-synth' }, releasePin: '1.4.0' });
+    expect(sink.BuildSynth).toEqual({ releaseVersion: '1.4.0', resolvedVia: 'pin', versions: {} });
+  });
+
+  it('sends no releasePin without a pin, and never one for a non-managed plugin', async () => {
+    const bodies: Array<Record<string, unknown>> = [];
+    await resolvePluginsForProps(capturing(bodies), { toolchain: { release: '1.4.0' }, ...propsWithPlugin('java-corretto') });
+    expect(bodies[0]).not.toHaveProperty('releasePin');
+    bodies.length = 0;
+    await resolvePluginsForProps(capturing(bodies), propsWithSynth('cdk-synth'));
+    expect(bodies[0]).not.toHaveProperty('releasePin');
+  });
+
+  it('a publisher\'s same-named plugin is not managed', async () => {
+    const bodies: Array<Record<string, unknown>> = [];
+    await resolvePluginsForProps(capturing(bodies, { data: { plugin: PLUGIN } }), {
+      toolchain: { release: '1.4.0' }, synth: { plugin: { name: 'cdk-synth', publisher: 'acme' } },
+    });
+    expect(bodies[0]).not.toHaveProperty('releasePin');
+  });
+
+  it.each([
+    ['409 TOOLCHAIN_NO_DEFAULT', { response: { status: 409, data: { code: 'TOOLCHAIN_NO_DEFAULT', message: 'no default' } } }, 'TOOLCHAIN_NO_DEFAULT'],
+    ['404 deleted pin', { response: { status: 404, data: { code: 'NOT_FOUND', message: 'gone' } } }, 'NOT_FOUND'],
+    ['a network error', new Error('ECONNREFUSED'), 'BOOTSTRAP_IMAGE_UNRESOLVED'],
+  ])('is FATAL on %s (no deploy-time fallback for a managed name)', async (_label, err, code) => {
+    const client = { post: async () => { throw err; } } as unknown as ApiClient;
+    const run = resolvePluginsForProps(client, { toolchain: { release: '1.4.0' }, ...propsWithSynth('cdk-synth') });
+    await expect(run).rejects.toBeInstanceOf(PluginResolutionError);
+    await expect(run).rejects.toMatchObject({ refusals: [{ plugin: 'cdk-synth', code }] });
+  });
+
+  it('is FATAL when the answer carries no record or no release', async () => {
+    await expect(resolvePluginsForProps(clientReturning({ data: { plugin: null } }), propsWithSynth('cdk-synth')))
+      .rejects.toMatchObject({ refusals: [{ code: 'BOOTSTRAP_IMAGE_UNRESOLVED' }] });
+    await expect(resolvePluginsForProps(clientReturning({ data: { plugin: { name: 'cdk-synth' } } }), propsWithSynth('cdk-synth')))
+      .rejects.toThrow(/no toolchain release/);
   });
 });

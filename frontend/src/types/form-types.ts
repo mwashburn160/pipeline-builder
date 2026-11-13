@@ -166,6 +166,11 @@ export interface FormBuilderState {
    *  pipeline config and plugin specs (e.g. a per-org secret path). */
   vars: MetadataEntry[];
 
+  // Toolchain
+  /** The managed toolchain release this pipeline pins (`props.toolchain.release`);
+   *  `''` = follow the org / platform default (the key is omitted). */
+  toolchainRelease: string;
+
   // Defaults
   /** Default network, security group, and metadata applied to steps that don't override them. */
   defaults: {
@@ -309,6 +314,7 @@ export function createInitialFormState(): FormBuilderState {
     keywords: '',
     global: [],
     vars: [],
+    toolchainRelease: '',
     defaults: {
       enabled: false,
       networkType: 'none',

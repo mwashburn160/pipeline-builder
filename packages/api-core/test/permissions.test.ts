@@ -726,6 +726,9 @@ describe('plugin ecosystem permissions (docs/plugin-publishing.md)', () => {
       'support_cases:write', 'support_content:write',
       'subscriptions:read', 'subscriptions:manage',
       'orgs:manage', 'quotas:manage', 'plugin_queue:manage',
+      // The Toolchain console (bootstrap-image-versioning D9): THE platform
+      // default moves every org that follows it.
+      'toolchain:operate',
     ]);
     for (const p of SYSTEM_ORG_ONLY_PERMISSIONS) {
       expect(isSystemOrgOnlyPermission(p)).toBe(true);
@@ -849,5 +852,65 @@ describe('machine Roles — least privilege for the stored credentials', () => {
     for (const b of bundles) {
       if (b.includes('pipelines:write')) expect(b).toContain('pipeline_registry:write');
     }
+  });
+});
+
+describe('toolchain:manage (docs/plans/bootstrap-image-versioning.md D13)', () => {
+  it('is in the catalog as an org-assignable Pipelines permission, never system-org-only', () => {
+    expect(ALL_PERMISSIONS).toContain('toolchain:manage');
+    expect(PERMISSION_CATALOG.find((m) => m.id === 'toolchain:manage')?.category).toBe('Pipelines');
+    expect(ORG_ASSIGNABLE_PERMISSIONS).toContain('toolchain:manage');
+    expect(SYSTEM_ORG_ONLY_PERMISSIONS).not.toContain('toolchain:manage');
+    expect(SUPERADMIN_ONLY_PERMISSIONS).not.toContain('toolchain:manage');
+    // A custom Role may carry it: the authoring picker lists it.
+    expect(ORG_ASSIGNABLE_CATEGORIES.flatMap((c) => c.permissions.map((m) => m.id))).toContain('toolchain:manage');
+  });
+
+  it('Admin and Owner hold it; Member does not', () => {
+    expect(ROLE_PERMISSIONS.admin).toContain('toolchain:manage');
+    expect(ROLE_PERMISSIONS.owner).toContain('toolchain:manage');
+    expect(ROLE_PERMISSIONS.member).not.toContain('toolchain:manage');
+  });
+
+  it('no other seed bundle or role template carries it (no pipeline-editor bundle moves every pipeline)', () => {
+    for (const [id, bundle] of Object.entries(SEED_BUNDLES)) {
+      expect({ id, holds: (bundle.permissions as readonly string[]).includes('toolchain:manage') }).toEqual({ id, holds: false });
+    }
+    for (const t of ROLE_TEMPLATES) {
+      expect({ id: t.id, holds: (t.permissions as readonly string[]).includes('toolchain:manage') }).toEqual({ id: t.id, holds: false });
+    }
+  });
+});
+
+describe('toolchain:operate (docs/plans/bootstrap-image-versioning.md D9)', () => {
+  it('is system-org-only: never org-assignable, so no tenant Admin derives it', () => {
+    expect(ALL_PERMISSIONS).toContain('toolchain:operate');
+    expect(isValidPermission('toolchain:operate')).toBe(true);
+    expect(PERMISSION_CATALOG.find((m) => m.id === 'toolchain:operate')?.category).toBe('Platform operations');
+    expect(isSystemOrgOnlyPermission('toolchain:operate')).toBe(true);
+    expect(isOrgAssignablePermission('toolchain:operate')).toBe(false);
+    expect(ORG_ASSIGNABLE_PERMISSIONS).not.toContain('toolchain:operate');
+    expect(SUPERADMIN_ONLY_PERMISSIONS).not.toContain('toolchain:operate');
+    expect(ORG_ASSIGNABLE_CATEGORIES.flatMap((c) => c.permissions.map((m) => m.id))).not.toContain('toolchain:operate');
+    for (const role of ['member', 'admin', 'owner'] as const) expect(ROLE_PERMISSIONS[role]).not.toContain('toolchain:operate');
+  });
+
+  it('is carried by Platform Operator (a system-org job Role) and by no tenant-facing bundle', () => {
+    expect(SEED_BUNDLES.platform_operator.permissions).toContain('toolchain:operate');
+    expect(SYSTEM_ORG_JOB_BUNDLES).toContain('platform_operator');
+    for (const t of ROLE_TEMPLATES) expect((t.permissions as readonly string[]).includes('toolchain:operate')).toBe(false);
+    for (const id of ['team_lead', 'pipeline_automation', 'pipeline_registration'] as const) {
+      expect((SEED_BUNDLES[id].permissions as readonly string[]).includes('toolchain:operate')).toBe(false);
+    }
+  });
+
+  it('is dropped from a tenant-org token and kept in the system org', () => {
+    expect(confinePermissionsToOrg(['toolchain:operate', 'pipelines:read'], false)).toEqual(['pipelines:read']);
+    expect(confinePermissionsToOrg(['toolchain:operate'], true)).toEqual(['toolchain:operate']);
+  });
+
+  it('toolchain:manage confers nothing here (it stays org-assignable and separate)', () => {
+    expect(isSystemOrgOnlyPermission('toolchain:manage')).toBe(false);
+    expect(hasPermission(['toolchain:manage'], 'toolchain:operate')).toBe(false);
   });
 });

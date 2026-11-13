@@ -5,7 +5,8 @@
  * Post-install steps.
  *
  * After the platform is deployed + health-checked, provision runs an ordered set
- * of post-install steps: **register** (the admin, via `init-platform.sh`, driven
+ * of post-install steps: an optional **build-bootstrap** (`--build-bootstrap`:
+ * `build-plugin-images.sh --only pipeline-bootstrap`), **register** (the admin, via `init-platform.sh`, driven
  * non-interactively by env — which also performs any opt-in plugin/compliance/
  * sample loads), then an optional **smoke-test**, **events** (AWS), and any
  * operator **--post-step** commands. Pure, deterministic assembly here — provision
@@ -44,7 +45,7 @@ export interface PostStepOptions {
   readonly region?: string;
   /** Load-step ids enabled via `--with-*` (drive init-platform's LOAD_* envs + sparse paths). */
   readonly enabledLoadIds: readonly string[];
-  /** `--build-bootstrap`: build the CodeBuild bootstrap image during register. */
+  /** `--build-bootstrap`: build + publish pipeline-bootstrap before register. */
   readonly buildBootstrap: boolean;
   /** False when `--no-init` — skips the register step entirely. */
   readonly init: boolean;
@@ -61,21 +62,33 @@ export interface PostStepOptions {
 }
 
 /** Compute the non-interactive env that drives init-platform's prompts. */
-function registerEnv(enabledLoadIds: readonly string[], buildBootstrap: boolean): Record<string, string> {
-  const env: Record<string, string> = { BUILD_BOOTSTRAP: buildBootstrap ? 'y' : 'n' };
+function registerEnv(enabledLoadIds: readonly string[]): Record<string, string> {
+  const env: Record<string, string> = {};
   for (const step of LOAD_STEPS) env[step.env] = enabledLoadIds.includes(step.id) ? 'y' : 'n';
   return env;
 }
 
 /**
- * Resolve the ordered post-install step list: register → smoke-test → events →
- * custom. `register` carries the load + BUILD_BOOTSTRAP env so init-platform runs
+ * Resolve the ordered post-install step list: build-bootstrap → register →
+ * smoke-test → events → custom. `register` carries the LOAD_* env so init-platform runs
  * the enabled loads non-interactively. Requested-but-inapplicable steps land in
  * `skipped` so the caller can warn rather than silently drop them.
  */
 export function resolvePostSteps(opts: PostStepOptions): ResolvedPostSteps {
   const steps: PostStep[] = [];
   const skipped: SkippedStep[] = [];
+
+  // Runs from the clone (TOOLCHAIN_SPARSE_PATHS), with the target's push transport.
+  // init-platform.sh builds the whole release (both halves) itself; this is the
+  // explicit bootstrap-only build, e.g. with `--init skip`.
+  if (opts.buildBootstrap) {
+    steps.push({
+      id: 'build-bootstrap',
+      label: 'Build + publish the pipeline-bootstrap image',
+      command: './deploy/bin/build-plugin-images.sh --only pipeline-bootstrap',
+      env: { DEPLOY_TARGET: opts.target },
+    });
+  }
 
   // `--init auto` (the default) on the AWS targets: the deploy runs init-platform itself —
   // ec2 on the instance on first boot, eks in setup.sh's final phase — so DON'T add a register
@@ -97,7 +110,7 @@ export function resolvePostSteps(opts: PostStepOptions): ResolvedPostSteps {
       id: 'register',
       label: `Register admin${loads}`,
       command: registerCommand,
-      env: registerEnv(opts.enabledLoadIds, opts.buildBootstrap),
+      env: registerEnv(opts.enabledLoadIds),
     });
   }
 

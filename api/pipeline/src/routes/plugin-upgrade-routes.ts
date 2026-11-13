@@ -155,7 +155,7 @@ export function createPluginUpgradeRoutes(): Router {
           if (applied.length === 0) { results.push({ pipelineId: id, status: 'unchanged' }); continue; }
 
           // The normal write path: templates + plugin contracts, then compliance (fail-closed).
-          const check = await validatePipelineWrite({ props } as never, orgId, parentOrgId, id);
+          const check = await validatePipelineWrite({ props } as never, orgId, parentOrgId, id, existing);
           if (check.rejection) { results.push({ pipelineId: id, status: 'failed', error: check.rejection.message }); continue; }
           const verdict = await checkPipelineUpdateCompliance(orgId, existing, { props });
           if (verdict.status === 'blocked') {

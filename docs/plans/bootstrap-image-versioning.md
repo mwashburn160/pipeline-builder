@@ -188,27 +188,35 @@ and `codeBuildDefaults` has no deploy-time fallback.
   disagrees with the image labels. The Dockerfile gains a pinned
   `CDK_ASSETS_VERSION` `ARG` and install; today there is no `cdk-assets` in the
   image.
-- **Packaging (D4, D16): one ordinary plugin directory.** `deploy/codebuild/`
+- **Packaging (D4, D16): the toolchain's own source root.** `deploy/codebuild/`
   (which holds only this Dockerfile) and `build-codebuild-bootstrap.sh` are
-  deleted:
+  deleted. Both halves live in `deploy/toolchain/`, beside the plugin catalog
+  (`deploy/plugins/`), not in it:
 
   ```
-  deploy/plugins/infrastructure/pipeline-bootstrap/
-    Dockerfile         # git mv from deploy/codebuild/bootstrap/Dockerfile (history kept)
-    config.yaml        # pluginSpec: plugin-spec.yaml; dockerfile: Dockerfile; buildType: build_image
-                       #   (flipped to prebuilt + imageTag by build-plugin-images.sh, reverted on cleanup, like every plugin)
-    plugin-spec.yaml   # name, version (= release), pluginType: BuildImage, toolchain:{…}, sourceDigest, description, category
-    README.md          # what the image is; "version, toolchain and sourceDigest are generated, never edit by hand"
-    image.tar          # gitignored; written by build-plugin-images.sh
+  deploy/toolchain/
+    .gitignore           # image.tar, plugin.zip
+    cdk-synth/           # git mv from deploy/plugins/infrastructure/cdk-synth (history kept)
+    pipeline-bootstrap/
+      Dockerfile         # git mv from deploy/codebuild/bootstrap/Dockerfile (history kept)
+      config.yaml        # pluginSpec: plugin-spec.yaml; dockerfile: Dockerfile; buildType: build_image
+                         #   (flipped to prebuilt + imageTag by build-plugin-images.sh, reverted on cleanup, like every plugin)
+      plugin-spec.yaml   # name, version (= release), pluginType: BuildImage, toolchain:{…}, sourceDigest, description, category
+      README.md          # what the image is; "version, toolchain and sourceDigest are generated, never edit by hand"
+      image.tar          # gitignored; written by build-plugin-images.sh
   ```
 
-  - **Placement:** it sits beside `cdk-synth`, not under `_base/`, because the
-    loader skips `_`-prefixed directories as non-plugins.
+  - **Placement:** the pair is one release, not catalog plugins, so it has its
+    own root. The build and load scripts know it as a second source root
+    (`TOOLCHAIN_DIR` in `common.sh`) and handle it first, outside their
+    per-plugin catalog walk, so the walk needs no "skip `pipeline-bootstrap`"
+    or "managed names first" special cases. `--category toolchain` selects it.
   - **Base stage:** `build-plugin-images.sh` builds it after the `_base`
     images and before any plugin. That stage pushes
     `library/pipeline-bootstrap:<V>` (the base `cdk-synth` builds `FROM`) and
     saves `image.tar`.
-  - **Loader:** `load-plugins.sh` uploads it like any plugin.
+  - **Loader:** `load-plugins.sh` uploads both halves first, serially, through
+    the ordinary plugin upload API, then walks the catalog.
 - **Tables** (all six in the four `postgres-init.sql` copies, plus drizzle
   definitions; §12, §13):
 
@@ -706,33 +714,36 @@ drift is caught by contract tests, never by a shared base.
 
 | File | Change |
 |---|---|
-| `deploy/codebuild/bootstrap/Dockerfile` → `deploy/plugins/infrastructure/pipeline-bootstrap/Dockerfile` | `git mv`, then delete `deploy/codebuild/`. Add toolchain `LABEL`s (`org.pipeline-builder.toolchain.pipeline-manager`, `.aws-cdk`, `.cdk-assets`, `.esbuild`, `.pnpm`, `.node`), each from its `ARG`. Add the pinned `CDK_ASSETS_VERSION` `ARG` and install. |
+| `deploy/codebuild/bootstrap/Dockerfile` → `deploy/toolchain/pipeline-bootstrap/Dockerfile` | `git mv`, then delete `deploy/codebuild/`. Add toolchain `LABEL`s (`org.pipeline-builder.toolchain.pipeline-manager`, `.aws-cdk`, `.cdk-assets`, `.esbuild`, `.pnpm`, `.node`), each from its `ARG`. Add the pinned `CDK_ASSETS_VERSION` `ARG` and install. |
 | `…/pipeline-bootstrap/config.yaml` (new) | `pluginSpec: plugin-spec.yaml`, `dockerfile: Dockerfile`, `buildType: build_image`. It is flipped and reverted by `build-plugin-images.sh` like any plugin. |
 | `…/pipeline-bootstrap/plugin-spec.yaml` (new) | `name`, `version` (release), `pluginType: BuildImage`, `toolchain`, `sourceDigest`, `description`, `category`. The `version`, `toolchain` and `sourceDigest` fields are generated. |
-| `…/pipeline-bootstrap/README.md` (new), `.gitignore` | What the image is and how it's released; ignore `image.tar` |
+| `…/pipeline-bootstrap/README.md` (new), `deploy/toolchain/.gitignore` (new) | What the image is and how it's released; ignore `image.tar` / `plugin.zip` |
+| `deploy/bin/common.sh` | `TOOLCHAIN_DIR` (`deploy/toolchain`), `MANAGED_TOOLCHAIN_PLUGINS` (build/load order) and the `toolchain` pseudo-category, shared by every script that knows the second root. |
 | `deploy/bin/build-codebuild-bootstrap.sh` | **Deleted (D16).** Its duties move to the base stage below: tag, grype, `library/` push, `PIPELINE_MANAGER_VERSION=latest` resolution, `--force`, `DEPLOY_TARGET` transports, `PUBLISH_PLATFORM`, and the digest. |
-| `deploy/bin/build-plugin-images.sh` — base stage | After `_base`, before any plugin: build `pipeline-bootstrap:<V>`, run grype `--only-fixed --fail-on "$GRYPE_FAIL_ON"`, and push `library/pipeline-bootstrap:<V>`. It **refuses to re-push** an existing version (`--force` rebuilds locally only). Then save `image.tar` and export the digest. Adds `--only <names>`. |
-| `deploy/bin/build-plugin-images.sh` — `cdk-synth` and loop | Build `cdk-synth` after the base stage with `BOOTSTRAP_IMAGE=<registry>/library/pipeline-bootstrap@<digest>`. One script means one `PUBLISH_PLATFORM`, which removes today's amd64-vs-host-architecture mismatch. The generic loop skips `pipeline-bootstrap`. |
-| `deploy/bin/sync-image-tags.sh` | Its `_bootstrap` path (line 248) moves to the new directory. It computes `sourceDigest` over both directories. On change it bumps both specs' `version` (patch) and writes `toolchain` from the `ARG`s. Deterministic yq writes, idempotent. |
-| `deploy/plugins/infrastructure/cdk-synth/Dockerfile`, `plugin-spec.yaml` | `ARG BOOTSTRAP_IMAGE` replaces `FROM pipeline-bootstrap:1.0`. `version` = release, written by `sync-image-tags.sh`. |
+| `deploy/bin/build-plugin-images.sh` — base stage | After `_base`, before any plugin: build `pipeline-bootstrap:<V>`, run grype `--only-fixed --fail-on "$GRYPE_FAIL_ON"`, and push `library/pipeline-bootstrap:<V>`. It **refuses to re-push** an existing version (`--force` rebuilds locally only). Then save `image.tar` and export the digest. Adds `--only <names>` (searches the toolchain root and the catalog) and `--category toolchain`. `--reset` also reverts the toolchain root's `config.yaml`s. |
+| `deploy/bin/build-plugin-images.sh` — `cdk-synth` and loop | Build `cdk-synth` from the toolchain root right after the base stage, outside the catalog walk, with `BOOTSTRAP_IMAGE=<registry>/library/pipeline-bootstrap@<digest>` (one shared `build_plugin_dir` serves it and the walk). One script means one `PUBLISH_PLATFORM`, which removes today's amd64-vs-host-architecture mismatch. The catalog walk never sees either half, so it has no toolchain special case. |
+| `deploy/bin/sync-image-tags.sh` | Its `_bootstrap` path (line 248) moves to `deploy/toolchain/pipeline-bootstrap`, cdk-synth's to `deploy/toolchain/cdk-synth`. The hash frames each file by `<dir basename>/<file>`, so the move itself doesn't change it. It computes `sourceDigest` over both directories. On change it bumps both specs' `version` (patch) and writes `toolchain` from the `ARG`s. Deterministic yq writes, idempotent. |
+| `deploy/plugins/infrastructure/cdk-synth/` → `deploy/toolchain/cdk-synth/` (`Dockerfile`, `plugin-spec.yaml`) | `git mv`. `ARG BOOTSTRAP_IMAGE` replaces `FROM pipeline-bootstrap:1.0`. `version` = release, written by `sync-image-tags.sh`. |
 | `deploy/bin/push-base-images.sh` | Derive the bootstrap tag from the spec, not `1.0`. |
 | `deploy/bin/scan-pinned-images.sh` | Its `BOOTSTRAP_IMAGE_REF` defaults to the current platform default's digest from the catalog; the stale comment mentioning `CODEBUILD_DEFAULT_IMAGE` goes. |
-| `deploy/bin/report-plugin-go-stdlib.sh` | No change: it matches `pipeline-bootstrap*` by name (lines 49, 59), not by tag. |
+| `deploy/bin/report-plugin-go-stdlib.sh` | Walks the catalog only: the toolchain root has no upstream build-stage image to report, so its `pipeline-bootstrap*` exclusion is dropped. |
+| `deploy/bin/verify-plugin-urls.sh` | Also walks the toolchain root (the bootstrap downloads the AWS CLI); `toolchain/<name>` selects one half. |
 
 **Catalog load, install and upgrade**
 
 | File | Change |
 |---|---|
-| `deploy/bin/load-plugins.sh` | Uploads as the system-org `official-catalog-loader` (`common.sh:1325-1328`). Uploads `pipeline-bootstrap` before `cdk-synth`. Sends no `publishRequest` for managed names (with `load-plugin-worker.sh`). Fails if `pipeline-bootstrap/image.tar` is missing. Its reconcile (~line 247) checks both halves of each release uploaded. |
-| `deploy/bin/test-plugins.sh` | Skip `pluginType: BuildImage`. |
-| `deploy/bin/init-platform.sh` | `build-plugin-images.sh --only pipeline-bootstrap,cdk-synth`, then upload both. Uploads answer 202 and build, sign and scan asynchronously, so init **blocks until both halves are built and scanned**. It polls with a hard timeout and **fails** the run on timeout. The loader's soft verify (`load-plugins.sh` ~241) and `--no-verify` aren't enough here. For managed names it refuses `--continue-on-build-failure` / `SKIP_MISSING_IMAGE_TAR` and keeps the scan-refused image rather than storing it (`load-plugin-worker.sh:82, 150`). Then it calls the D14 route; on `TOOLCHAIN_GUARD_VULN_FLOOR` it stops with the §8 remediation. The `BUILD_BOOTSTRAP` prompt and opt-out (lines 323-350) are removed. `FORCE_REBUILD_ALL` rebuilds non-managed plugins only (managed images have no in-place `--force`, §1). |
+| `deploy/bin/load-plugins.sh` | Uploads as the system-org `official-catalog-loader` (`common.sh:1325-1328`). Uploads both halves from `deploy/toolchain/` first and serially, `pipeline-bootstrap` before `cdk-synth`, on an unfiltered run or `--category toolchain`; then walks the catalog with no managed-name special case. A missing half fails the run. Sends no `publishRequest` for managed names (with `load-plugin-worker.sh`). Fails if `pipeline-bootstrap/image.tar` is missing. Its reconcile (~line 247) checks both halves of each release uploaded. |
+| `deploy/bin/test-plugins.sh` | Also walks the toolchain root (`toolchain/<name>`; its directories must be the managed names, in place of the category check). Skip `pluginType: BuildImage`. |
+| `deploy/bin/init-platform.sh` | `build-plugin-images.sh --only pipeline-bootstrap,cdk-synth`, then upload both (the plugin load is passed `--category toolchain,<catalog categories>`; the catalog build gets the catalog categories only). Uploads answer 202 and build, sign and scan asynchronously, so init **blocks until both halves are built and scanned**. It polls with a hard timeout and **fails** the run on timeout. The loader's soft verify (`load-plugins.sh` ~241) and `--no-verify` aren't enough here. For managed names it refuses `--continue-on-build-failure` / `SKIP_MISSING_IMAGE_TAR` and keeps the scan-refused image rather than storing it (`load-plugin-worker.sh:82, 150`). Then it calls the D14 route; on `TOOLCHAIN_GUARD_VULN_FLOOR` it stops with the §8 remediation. The `BUILD_BOOTSTRAP` prompt and opt-out (lines 323-350) are removed. `FORCE_REBUILD_ALL` rebuilds non-managed plugins only (managed images have no in-place `--force`, §1). |
 | `deploy/bin/upgrade-toolchain.sh` (new) | Build and upload a new release; never promotes. Supports `DEPLOY_TARGET=docker\|minikube\|ec2\|eks`. Idempotent per version. |
 | `deploy/bin/post-provision-smoke.sh` | Assert a platform default exists and both halves resolve for a smoke org. |
 | `deploy/*/bin/setup.sh` (×4), `deploy/aws/ec2/bootstrap.sh` | Reach the toolchain step through `init-platform.sh`, asserted by `bringup-contract`. |
-| `.github/workflows/plugin-catalog.yml` | The path trigger (line 29) and select-everything regex (line 95) move to `deploy/plugins/infrastructure/pipeline-bootstrap/**`; the tag grep and context mapping (lines 166-172) move too. |
-| `.github/workflows/plugin-base-freshness.yml` | The matrix `ctx` (line 74) moves to the new directory, with the tag from the spec (lines 74, 100, 113). A red run is fixed by a `sourceDigest` bump, which produces a new release. |
-| `renovate.json` (line 276) | `deploy/codebuild/**` → `deploy/plugins/infrastructure/pipeline-bootstrap/**`, or `node:` digest bumps stop arriving. |
-| `pipeline-manager` `agent/targets.ts` (209-210), `commands/provision.ts` (105, 109), `test/provision-targets.test.ts` | Drop `deploy/codebuild` from checkout paths. `--build-bootstrap` checks out `deploy/plugins/infrastructure/pipeline-bootstrap` and `deploy/plugins/_base`, then runs `build-plugin-images.sh --only pipeline-bootstrap`. |
+| `.github/workflows/plugin-catalog.yml` | Path trigger `deploy/toolchain/**`. `select` lists the toolchain root as `toolchain/<name>` entries (category `toolchain`); a `deploy/toolchain/` change selects both halves (no catalog plugin builds FROM the bootstrap). The tag grep and context mapping (lines 166-172) resolve `toolchain/<name>` under `deploy/toolchain/`. `plugin-urls.yml` gains `deploy/toolchain/**/Dockerfile`. |
+| `.github/workflows/plugin-base-freshness.yml` | The matrix `ctx` (line 74) moves to `deploy/toolchain/pipeline-bootstrap`, with the tag from the spec (lines 74, 100, 113). A red run is fixed by a `sourceDigest` bump, which produces a new release. |
+| `renovate.json` (line 276) | `deploy/codebuild/**` → `deploy/toolchain/**`, or `node:` digest bumps stop arriving. |
+| `projenrc/workflow.ts` (generated `test.yml`) | The service-Dockerfile smoke build excludes `deploy/toolchain/` as it does `deploy/plugins/` (cdk-synth builds FROM a bootstrap tag only `plugin-catalog.yml` builds). `.projenrc.ts` adds `deploy/toolchain` to the `plugin` and `frontend` nx test inputs. |
+| `pipeline-manager` `agent/targets.ts` (209-210), `commands/provision.ts` (105, 109), `test/provision-targets.test.ts` | Drop `deploy/codebuild` from checkout paths. `TOOLCHAIN_SPARSE_PATHS` = `deploy/plugins/_base` + `deploy/toolchain`; `--build-bootstrap` runs `build-plugin-images.sh --only pipeline-bootstrap` from them. |
 
 **Schema, environment and docs**
 
@@ -797,7 +808,7 @@ drift is caught by contract tests, never by a shared base.
 | D1 | What moves the platform default? | **Only `setPlatformDefault`:** an explicit promotion, the D14 initial call, or the yank-restore of the previous default. All three go through the §8 guards, with the canary gate waived for the latter two. Uploads, yanks of non-default releases and generic routes never move it. |
 | D2 | Bootstrap unresolved at synth? | **Fail (`BOOTSTRAP_IMAGE_UNRESOLVED`).** This is forced: `codeBuildDefaults` has no deploy-time fallback. Local-spec deploys supply `--toolchain-file`. |
 | D3 | Re-run pipelines on promotion? | **No.** Pipelines move on their next run. |
-| D4 | Packaging | **One ordinary plugin directory**, `deploy/plugins/infrastructure/pipeline-bootstrap/` (`Dockerfile`, `config.yaml`, `plugin-spec.yaml` with `pluginType: BuildImage`), built by `build-plugin-images.sh` and loaded by `load-plugins.sh`. Its pull path is the one every system plugin already uses (Phase 0 table). |
+| D4 | Packaging | **Plugin-shaped directories in the toolchain's own root**: `deploy/toolchain/pipeline-bootstrap/` (`Dockerfile`, `config.yaml`, `plugin-spec.yaml` with `pluginType: BuildImage`) beside `deploy/toolchain/cdk-synth/`, built by `build-plugin-images.sh` and loaded by `load-plugins.sh` through the ordinary plugin upload API, first and outside the catalog walk. Its pull path is the one every system plugin already uses (Phase 0 table). |
 | D5 | How do managed names reach orgs? | **Never listed.** System-org rows only, through `resolveManagedToolchain`. No publish request, listing, install or consumption policy. Building on listings was rejected: frozen listings conflict with yank-and-restore, and implicit installs plus auto-approval make the version uncontrollable. |
 | D6 | Version scheme | **One release version for both halves**, its own semver. Patch is bumped automatically on any `sourceDigest` change; minor and major by hand. pipeline-manager's version is recorded in `toolchain.pipelineManager`, so base-image CVE fixes ship without a pipeline-manager release. |
 | D7 | Org-level default? | **Yes**, from eligible releases only (D15), for the org and its teams unless a team sets its own. Orgs never publish releases or affect other orgs. |
@@ -807,9 +818,9 @@ drift is caught by contract tests, never by a shared base.
 | D11 | No default exists? | **409 `TOOLCHAIN_NO_DEFAULT`**, never "highest version". |
 | D12 | Templates with a pin? | **Stripped.** Templates never carry `toolchain`. |
 | D13 | Who sets an org default? | **A new org-assignable `toolchain:manage`**, held by Admin and Owner, plus `requireStepUp`. See below. |
-| D14 | First default on a fresh install | **A dedicated route, `POST /plugins/toolchain/initial-default`, calling `setPlatformDefault(kind: 'initial')`**, allowed only while no platform default exists. It is **identity-gated, with no step-up**: the caller must be the `deploy-bootstrap` **service principal** (`isServicePrincipalNamed(req, 'deploy-bootstrap')`, `service-tokens.ts:170`), the ES256 token the deploy scripts already sign (`build-plugin-images.sh:265`). The plugin service adds `deploy-bootstrap` to its accepted service signers for **this route only**; today only image-registry accepts it (`auth-resolver.ts`). Two alternatives fail: `official-catalog-loader` is a service **account** (`principalType: 'service_account'`), which `requireServicePrincipal` rejects (it requires `'service'`) and `requireStepUp` refuses (403 `STEP_UP_NOT_AVAILABLE`), and its custom Role can't hold system-only `toolchain:operate`. Audit `toolchain.default.initial`. A second call → `TOOLCHAIN_INITIAL_ALREADY_SET`. |
+| D14 | First default on a fresh install | **A dedicated route, `POST /plugins/toolchain/initial-default`, calling `setPlatformDefault(kind: 'initial')`**, allowed only while no platform default exists. It is **identity-gated, with no step-up**: the caller must be the `deploy-bootstrap` **service principal** (`isServicePrincipalNamed(req, 'deploy-bootstrap')`, `service-tokens.ts:170`), the ES256 token the deploy scripts already sign (`build-plugin-images.sh:265`). `deploy-bootstrap` is an **opt-in** signer (the least-privilege fix, `dab54d260`): every `requireAuth` rejects it unless the route names it, so this route opts in with `requireAuth({ acceptServices: ['deploy-bootstrap'] })` and no other plugin route can admit it. Its token carries no superadmin anywhere. Two alternatives fail: `official-catalog-loader` is a service **account** (`principalType: 'service_account'`), which `requireServicePrincipal` rejects (it requires `'service'`) and `requireStepUp` refuses (403 `STEP_UP_NOT_AVAILABLE`), and its custom Role can't hold system-only `toolchain:operate`. Audit `toolchain.default.initial`. A second call → `TOOLCHAIN_INITIAL_ALREADY_SET`. |
 | D15 | What can a pin or org default name? | **Eligible releases only:** live, both halves complete, and either previously the platform default or currently in canary for the caller. |
-| D16 | `deploy/codebuild/` and its script? | **Consolidated and deleted** (option b). The Dockerfile moves with `git mv`; the script's duties move into `build-plugin-images.sh`; no wrapper is left. |
+| D16 | `deploy/codebuild/` and its script? | **Consolidated and deleted** (option b). The Dockerfile moves with `git mv` to `deploy/toolchain/pipeline-bootstrap/`, and `cdk-synth` moves from `deploy/plugins/infrastructure/` beside it; the script's duties move into `build-plugin-images.sh`; no wrapper is left. Why `deploy/toolchain/` and not the catalog: the pair is one release, not catalog plugins; its own root removes the generic loop's special cases. |
 
 ### D13 — why a new permission
 
@@ -843,6 +854,19 @@ org on its next run.
 ## Phases
 
 Ordered so that nothing depends on a later phase.
+
+**Status** (branch `feat/toolchain-releases`, one commit per phase, not pushed):
+
+| Phase | State |
+|---|---|
+| 0 | No commit of its own: its checks are tests in the Phase 1–3 suites (synth shape, SelfMutate pin, engines contract, D14 identity) |
+| 1 | Done — `e61d98b6c` |
+| 2 | Done — `e08f52eb9` (+ `5111354be`, the post-rebase deploy-bootstrap signer fix) |
+| 3 | Done — `331c94b6b` |
+| 4 | Done — `b9f78643d` |
+| 5 | Done — `a8b7c604b` |
+| 6 | Done — `14e51bf3e`: Renovate runbook (`deploy/toolchain/pipeline-bootstrap/README.md`) and the drift-contract message that names it; notices, smoke check and release notes in the org panel were already built in Phases 2–5; "Upgrading the pipeline toolchain" in the docker and eks READMEs (minikube and ec2 have no README; `deploy/README.md` covers all four). End to end: `api/plugin/test/toolchain-lifecycle-e2e.test.ts` runs steps 1–3 in order on PGlite with the shipped schema and asserts the resolver after each step. **Not run:** a live `local/docker` or `local/minikube` bring-up, and step 4 (`pipeline synth` against a live platform) — the template side is covered by pipeline-core's pipeline-builder suite and pipeline-manager's toolchain suite, not by one run joined to the platform |
+| 7 | Done — `CODEBUILD_DEFAULT_IMAGE[_DIGEST]` deleted everywhere (pipeline-core config, the four `.env.example`, compose, env docs + regenerated help); the drift contract's pending list is gone and it now fails on any reference. Stale comments fixed where they were wrong (`pipeline-helpers.ts`, pipeline-manager, `docker-build.ts`). The `standard:7.0` lines in the bootstrap Dockerfile were left: they describe CDK's real default (aws-cdk-lib 2.275 still uses `STANDARD_7_0`), and editing the Dockerfile changes the `sourceDigest`, which would cut a release |
 
 **Merge units.** Phases 1, 2 and 3 are **one merge unit**: they are built and
 committed in order on the branch, but nothing merges until all three are
@@ -902,16 +926,23 @@ gate, which exist for exactly this. The canary *is* the live verification.
   copies, drizzle definitions, and the four schema contracts (§13).
 - **Deploy scripts in this phase** (the §12 subset):
   - **Image build:** the whole table. That covers consolidation (D16): the
-    `git mv`, the deleted script and `deploy/codebuild/`, the new plugin
-    directory, the base stage and `--only`, `sync-image-tags.sh` with
+    two `git mv`s into `deploy/toolchain/`, the deleted script and
+    `deploy/codebuild/`, the toolchain root and its `common.sh` constants, the
+    base stage and `--only`, `sync-image-tags.sh` with
     `sourceDigest`, the `cdk-synth` `ARG BOOTSTRAP_IMAGE`, and
     `push-base-images.sh` / `scan-pinned-images.sh`.
   - **Path re-pointing**, because the directory moves in this phase:
-    `plugin-catalog.yml`, `plugin-base-freshness.yml`, `renovate.json`, the
-    `pipeline-manager provision` targets, `hardening-contract`, and the doc and
-    comment path references.
-  - **Loader:** the `load-plugins.sh` / `load-plugin-worker.sh` changes and
-    the `test-plugins.sh` skip.
+    `plugin-catalog.yml`, `plugin-base-freshness.yml`, `plugin-urls.yml`,
+    `renovate.json`, `projenrc/workflow.ts` (regenerated `test.yml`), the
+    `pipeline-manager provision` targets, `hardening-contract`,
+    `toolchain-drift-contract`, and the doc and comment path references.
+  - **Second-root walkers** (each also reads `deploy/toolchain/`):
+    `test-plugins.sh`, `verify-plugin-urls.sh`, `sample-template-plugin-versions`,
+    `plugin-spec-smoke`, the pipeline-manager `plugin-lint` suite and the frontend
+    icon-set suite (`SOURCES.md` rows become `toolchain/<name>`).
+  - **Loader:** the `load-plugins.sh` / `load-plugin-worker.sh` changes (the
+    toolchain root first, `--category toolchain`) and the `test-plugins.sh`
+    skip.
   - **Schema:** all four `postgres-init.sql` copies.
 - **Not in this phase:**
   - `init-platform.sh`'s D14 call and its wait-for-scan, and `upgrade-toolchain.sh`
@@ -931,7 +962,9 @@ gate, which exist for exactly this. The canary *is* the live verification.
     idempotent
   - `build-plugin-images.sh`: base stage before `cdk-synth`, grype, `library/`
     push, refusal to re-push, the revert on cleanup, `--only`
-  - `load-plugins.sh` order, and failure on a missing `image.tar`
+  - `load-plugins.sh` order, and failure on a missing `image.tar` or half
+  - `toolchain-drift-contract`: the root holds exactly the two halves, the
+    catalog holds neither, and nothing references the old catalog paths
   - `provision --build-bootstrap` paths
   - RLS: customers can't read any `toolchain_*` table; an org reads and writes
     only its own `org_toolchain_default`

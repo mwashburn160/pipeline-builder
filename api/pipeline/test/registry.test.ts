@@ -489,12 +489,18 @@ describe('POST /pipelines/registry', () => {
     });
 
     /** listing versions (read first, elevated), then select #1 pipeline, #2 existing registry, #3 plugin rows. Captures manifest inserts. */
-    function wireManifest(pluginRows: Array<Record<string, unknown>>, listingVersionRows: Array<Record<string, unknown>> = []) {
+    function wireManifest(
+      pluginRows: Array<Record<string, unknown>>,
+      listingVersionRows: Array<Record<string, unknown>> = [],
+      priorBuildImage: Array<Record<string, unknown>> = [],
+    ) {
       let call = 0;
       mockSelect.mockImplementation(() => ({
         from: jest.fn<AnyFn>().mockImplementation((table: any) => ({
           where: jest.fn<AnyFn>().mockImplementation(() => {
             if (table?._table === 'plugin_listing_versions') return Promise.resolve(listingVersionRows);
+            // The build-image row the new manifest replaces.
+            if (table?._table === 'pipeline_step_manifests') return Promise.resolve(priorBuildImage);
             call++;
             if (call === 1) return Promise.resolve([{ id: 'p-1' }]);
             if (call === 2) return Promise.resolve([]);
@@ -604,6 +610,84 @@ describe('POST /pipelines/registry', () => {
       const rows = manifestValues.mock.calls[0][0] as Array<Record<string, unknown>>;
       expect(rows).toEqual([expect.objectContaining({ actionName: 'd', pluginPublisher: null, imageRepository: 'org-acme/own' })]);
       expect(mockListingSource.installsForOrgs).toHaveBeenCalledWith(['acme', 'root-1']);
+    });
+
+    describe('the build-image entry', () => {
+      const SYSTEM = '000000000000000000000001';
+      const BOOT_ID = '55555555-5555-4555-8555-555555555555';
+      const BOOT = `sha256:${'b'.repeat(64)}`;
+      const bootstrapRow = (over: Record<string, unknown> = {}) => ({ id: BOOT_ID, orgId: SYSTEM, name: 'pipeline-bootstrap', version: '1.4.2', imageDigest: BOOT, buildType: 'prebuilt', ...over });
+      const entry = (over: Record<string, unknown> = {}) => ({
+        kind: 'build-image',
+        stageName: '(toolchain)',
+        actionName: 'build-image',
+        stepKey: 'build-image',
+        pluginId: BOOT_ID,
+        pluginName: 'pipeline-bootstrap',
+        pluginVersion: '1.4.2',
+        imageDigest: BOOT,
+        releaseVersion: '1.4.2',
+        imageRepository: 'system/pipeline-bootstrap',
+        resolvedVia: 'org-default',
+        ...over,
+      });
+      const post = async (steps: unknown[]) => {
+        const res = { status: jest.fn<AnyFn>().mockReturnThis(), json: jest.fn<AnyFn>() };
+        await getHandler('post')({ body: { pipelineId: 'p-1', pipelineName: 'acme-pipeline', steps } }, res);
+        return res;
+      };
+
+      it('persists the system bootstrap as the build-image row: release = the row\'s version, resolvedVia from synth, no change on a first deploy', async () => {
+        const { manifestValues } = wireManifest([bootstrapRow()]);
+        await post([entry({ pluginVersion: '9.9.9' })]);
+        const rows = manifestValues.mock.calls[0][0] as Array<Record<string, unknown>>;
+        expect(rows).toEqual([expect.objectContaining({
+          stageName: '(toolchain)',
+          actionName: 'build-image',
+          stepKey: 'build-image',
+          pluginPublisher: null,
+          pluginName: 'pipeline-bootstrap',
+          pluginVersion: '1.4.2',
+          imageDigest: BOOT,
+          imageRepository: 'system/pipeline-bootstrap',
+          resolvedVia: 'org-default',
+          previousReleaseVersion: null,
+          releaseChangedAt: null,
+        })]);
+        // The deployed exposure path sees the image too.
+        expect(mockReconcileExposures).toHaveBeenCalledWith(expect.objectContaining({ steps: [expect.objectContaining({ pluginName: 'pipeline-bootstrap', imageDigest: BOOT })] }));
+      });
+
+      it('records a release change against the row it replaces, and carries the last change across a same-release redeploy', async () => {
+        const changed = wireManifest([bootstrapRow()], [], [{ version: '1.4.1', previous: null, changedAt: null }]);
+        await post([entry()]);
+        const first = (changed.manifestValues.mock.calls[0][0] as Array<Record<string, unknown>>)[0]!;
+        expect(first).toMatchObject({ pluginVersion: '1.4.2', previousReleaseVersion: '1.4.1', releaseChangedAt: expect.any(Date) });
+
+        const at = new Date('2026-11-10T00:00:00.000Z');
+        const same = wireManifest([bootstrapRow()], [], [{ version: '1.4.2', previous: '1.4.1', changedAt: at }]);
+        await post([entry()]);
+        expect((same.manifestValues.mock.calls[0][0] as Array<Record<string, unknown>>)[0]).toMatchObject({ previousReleaseVersion: '1.4.1', releaseChangedAt: at });
+      });
+
+      it('drops a build-image entry naming anything but the system org\'s pipeline-bootstrap, and keeps the key off step rows', async () => {
+        const OWN = '66666666-6666-4666-8666-666666666666';
+        const { manifestValues } = wireManifest([
+          bootstrapRow({ id: OWN, orgId: 'acme', name: 'my-image' }),
+        ]);
+        await post([
+          entry({ pluginId: OWN }),
+          step({ actionName: 'x', pluginId: OWN, stepKey: 'build-image' }),
+        ]);
+        const rows = manifestValues.mock.calls[0][0] as Array<Record<string, unknown>>;
+        expect(rows).toEqual([expect.objectContaining({ actionName: 'x', stepKey: null })]);
+        expect(rows[0]).not.toHaveProperty('resolvedVia');
+      });
+
+      it('rejects an unknown resolvedVia', async () => {
+        await post([entry({ resolvedVia: 'magic' })]);
+        expect(sendBadRequest).toHaveBeenCalled();
+      });
     });
 
     it('an empty steps array clears the manifest', async () => {

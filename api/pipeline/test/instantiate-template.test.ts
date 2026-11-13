@@ -61,3 +61,11 @@ describe('instantiateTemplateProps', () => {
     expect(template.props.vars).toEqual({});
   });
 });
+
+describe('instantiateTemplateProps — toolchain (D12)', () => {
+  it('ignores a stored toolchain pin', () => {
+    const props = instantiateTemplateProps({ props: { synth: { plugin: { name: 'cdk-synth' } }, toolchain: { release: '1.2.0' } }, inputs: [] }, { project: 'p', organization: 'o' });
+    expect(props).not.toHaveProperty('toolchain');
+    expect(props).toMatchObject({ project: 'p', organization: 'o', synth: { plugin: { name: 'cdk-synth' } } });
+  });
+});

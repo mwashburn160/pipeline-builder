@@ -296,10 +296,10 @@ See [AWS Deployment](aws-deployment.md) for full instructions and post-deploy se
 ./deploy/bin/init-platform.sh minikube
 
 # EC2 (only if --init manual) — requires the minikube user context, on the box
-sudo -u minikube PLATFORM_BASE_URL=https://your-ip BUILD_BOOTSTRAP=y LOAD_PLUGINS=y LOAD_COMPLIANCE=y LOAD_TEMPLATES=y bash /opt/pipeline/pipeline-builder/deploy/bin/init-platform.sh ec2
+sudo -u minikube PLATFORM_BASE_URL=https://your-ip LOAD_PLUGINS=y LOAD_COMPLIANCE=y LOAD_TEMPLATES=y bash /opt/pipeline/pipeline-builder/deploy/bin/init-platform.sh ec2
 
 # EKS (only if --no-auto-init / --init manual) — run with kubectl access; it port-forwards to svc/nginx
-env -u PLATFORM_BASE_URL BUILD_BOOTSTRAP=y LOAD_PLUGINS=y LOAD_COMPLIANCE=y LOAD_TEMPLATES=y ./deploy/bin/init-platform.sh eks
+env -u PLATFORM_BASE_URL LOAD_PLUGINS=y LOAD_COMPLIANCE=y LOAD_TEMPLATES=y ./deploy/bin/init-platform.sh eks
 
 # Non-interactive with prebuilt images and controlled parallelism
 PLUGIN_BUILD_STRATEGY=prebuilt PARALLEL_JOBS=2 ./deploy/bin/init-platform.sh docker

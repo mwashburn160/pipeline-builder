@@ -452,7 +452,6 @@ export async function resolveLoadsInteractively(
     region,
     enabledLoadIds: chosen,
     ...postStepFlags,
-    buildBootstrap: postStepFlags.buildBootstrap || chosen.includes('plugins'),
   });
   return { enabledLoadIds: chosen, steps: resolved.steps, skipped: resolved.skipped };
 }

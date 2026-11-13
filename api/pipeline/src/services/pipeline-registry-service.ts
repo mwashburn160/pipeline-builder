@@ -1,8 +1,10 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, errorMessage, scrubAwsIdentifiersFromString } from '@pipeline-builder/api-core';
-import { pluginImageRepository, type StepManifestEntry } from '@pipeline-builder/pipeline-core';
+import {
+  BUILD_IMAGE_MANIFEST_ACTION, BUILD_IMAGE_MANIFEST_STAGE, BUILD_IMAGE_STEP_KEY, createLogger, errorMessage, isSystemOrgId, scrubAwsIdentifiersFromString,
+} from '@pipeline-builder/api-core';
+import { pluginImageRepository, type StepManifestEntry, type ToolchainResolvedVia } from '@pipeline-builder/pipeline-core';
 import {
   closePipelineExposures, drizzleListingSource, installModeFor, listingBlock, loadOrgInstallContext, reconcilePipelineExposures, runWithTenantContext, schema, withTenantTx,
   type ExposureStep, type ScanState,
@@ -27,12 +29,15 @@ export interface RegistryUpsertInput {
    * manifest is REPLACED with it in the same tx as the registry upsert; when
    * absent (a manual register), the stored manifest is left as is.
    */
-  steps?: StepManifestEntry[];
+  steps?: Array<StepManifestEntry & { resolvedVia?: ToolchainResolvedVia }>;
   /** The caller's parent (root) org when it is a team: its installs apply. */
   parentOrgId?: string;
 }
 
 type Tx = Parameters<Parameters<typeof withTenantTx>[0]>[0];
+
+/** The managed toolchain's build-image half — the only plugin a build-image entry may name. */
+const BOOTSTRAP_PLUGIN = 'pipeline-bootstrap';
 
 /** What a manifest row records about a step's plugin. */
 interface ManifestPlugin {
@@ -45,6 +50,8 @@ interface ManifestPlugin {
   imageRepository: string | null;
   /** The record's stored scan state — what the deployed-side exposure is opened from. */
   scan: ScanState;
+  /** The owning org of an org plugin row (null for a listing version). */
+  ownerOrgId?: string | null;
 }
 
 /**
@@ -108,10 +115,22 @@ async function listedStepPlugins(ids: string[], orgId: string, parentOrgId?: str
  * through an install (`listed`, attributed to the listing's publisher). An
  * entry naming anything else is dropped, so an org can't attribute its runs to
  * someone else's plugin.
+ *
+ * The BUILD-IMAGE entry (the sentinel (stage, action), docs/plans/
+ * bootstrap-image-versioning.md §4) is kept only when it names the system
+ * org's `pipeline-bootstrap`: its `plugin_version` is the release the pipeline
+ * runs. Against the row it replaces, a different release records the change
+ * (`previous_release_version`, `release_changed_at`: the run-history marker);
+ * the same release carries the last change forward.
  */
 async function replaceStepManifest(
-  tx: Tx, pipelineId: string, orgId: string, steps: StepManifestEntry[], listed: Map<string, ManifestPlugin>,
+  tx: Tx, pipelineId: string, orgId: string, steps: NonNullable<RegistryUpsertInput['steps']>, listed: Map<string, ManifestPlugin>,
 ): Promise<{ count: number; plugins: ManifestPlugin[] }> {
+  const M = schema.pipelineStepManifest;
+  const [priorBuildImage] = await tx
+    .select({ version: M.pluginVersion, previous: M.previousReleaseVersion, changedAt: M.releaseChangedAt })
+    .from(M)
+    .where(and(eq(M.pipelineId, pipelineId), eq(M.stageName, BUILD_IMAGE_MANIFEST_STAGE), eq(M.actionName, BUILD_IMAGE_MANIFEST_ACTION)));
   await tx.delete(schema.pipelineStepManifest).where(eq(schema.pipelineStepManifest.pipelineId, pipelineId));
   if (steps.length === 0) return { count: 0, plugins: [] };
 
@@ -140,6 +159,7 @@ async function replaceStepManifest(
       imageDigest: p.imageDigest,
       imageRepository: p.imageDigest ? pluginImageRepository(p) : null,
       scan: { imageDigest: p.imageDigest, scanSummary: p.scanSummary, scanFlag: p.scanFlag, scanFlaggedAt: p.scanFlaggedAt },
+      ownerOrgId: p.orgId,
     });
   }
 
@@ -152,9 +172,19 @@ async function replaceStepManifest(
   for (const step of steps) {
     const plugin = byId.get(step.pluginId);
     if (!plugin) continue;
+    const buildImage = step.stageName === BUILD_IMAGE_MANIFEST_STAGE && step.actionName === BUILD_IMAGE_MANIFEST_ACTION;
+    if (buildImage && !(plugin.publisher === null && plugin.name === BOOTSTRAP_PLUGIN && isSystemOrgId(plugin.ownerOrgId ?? ''))) continue;
     recorded.push(plugin);
     const stageName = scrubAwsIdentifiersFromString(step.stageName);
     const actionName = scrubAwsIdentifiersFromString(step.actionName);
+    // The `build-image` key belongs to the build-image row alone.
+    const stepKey = buildImage
+      ? BUILD_IMAGE_STEP_KEY
+      : typeof step.stepKey === 'string' && step.stepKey && step.stepKey !== BUILD_IMAGE_STEP_KEY ? step.stepKey.slice(0, 255) : null;
+    const change = !buildImage ? null
+      : priorBuildImage && priorBuildImage.version !== plugin.version
+        ? { previousReleaseVersion: priorBuildImage.version, releaseChangedAt: updatedAt }
+        : { previousReleaseVersion: priorBuildImage?.previous ?? null, releaseChangedAt: priorBuildImage?.changedAt ?? null };
     manifest.set(`${stageName}\u0000${actionName}`, {
       pipelineId,
       orgId,
@@ -166,7 +196,8 @@ async function replaceStepManifest(
       pluginVersion: plugin.version,
       imageDigest: plugin.imageDigest,
       imageRepository: plugin.imageRepository,
-      stepKey: typeof step.stepKey === 'string' && step.stepKey ? step.stepKey.slice(0, 255) : null,
+      stepKey,
+      ...(buildImage ? { resolvedVia: step.resolvedVia ?? null, ...change } : {}),
       updatedAt,
     });
   }

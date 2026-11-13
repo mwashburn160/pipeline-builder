@@ -4,6 +4,7 @@
 import { AppError, SYSTEM_ACTOR_ID, audited, getParam, ErrorCode, requireStepUp, requireVisibilityWriteAccess, sendBadRequest, sendSuccess, sendEntityNotFound, actorId, type QuotaService, recordAudit } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router, type NextFunction, type Request, type Response } from 'express';
+import { assertNotManaged } from '../helpers/managed-toolchain.js';
 import { refundPluginSlot } from '../helpers/quota-refund.js';
 import { pluginService } from '../services/plugin-service.js';
 import { onVersionWithdrawn } from '../services/version-withdrawal.js';
@@ -88,6 +89,9 @@ export function createDeletePluginRoutes(quotaService: QuotaService): Router {
     const existing = await pluginService.findById(id, orgId);
 
     if (!existing) return sendEntityNotFound(res, 'Plugin');
+
+    // A managed toolchain release is deleted only in the Toolchain console.
+    assertNotManaged(existing.name);
 
     // Visibility ladder: `public` needs plugins:publish, `private` is author-only.
     if (!requireVisibilityWriteAccess(req, res, existing, userId, 'plugins:publish')) return;

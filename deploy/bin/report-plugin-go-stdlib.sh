@@ -17,7 +17,8 @@
 #
 # Scope: the upstream images named as build stages (`FROM <image> AS <stage>`) in
 # deploy/plugins/**/Dockerfile, resolved against each Dockerfile's own ARG
-# defaults. Binaries a plugin downloads as a release tarball are NOT covered —
+# defaults. The managed toolchain root (deploy/toolchain) is not walked: its two
+# Dockerfiles copy no binary out of an upstream build stage. Binaries a plugin downloads as a release tarball are NOT covered —
 # their Go version shows up only in the built plugin image's scan.
 #
 # Usage: report-plugin-go-stdlib.sh [--strict]
@@ -46,7 +47,7 @@ GO_LINE=$(sed -nE 's/^ARG GO_VERSION=([0-9.]+).*/\1/p' "$ROOT/deploy/plugins/_ba
 version_lt() { [ "$1" != "$2" ] && [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | head -1)" = "$1" ]; }
 
 # Every `FROM <image> AS <stage>` with its Dockerfile's ARG defaults applied.
-# Local bases (plugin-*, pipeline-bootstrap) are built here from pinned sources
+# Local bases (plugin-*) are built here from pinned sources
 # and are not upstream images.
 declare -A WHERE=()
 while IFS= read -r df; do
@@ -56,7 +57,7 @@ while IFS= read -r df; do
       [ -n "$pair" ] || continue
       img="${img//\$\{${pair%%=*}\}/${pair#*=}}"
     done <<< "$args"
-    case "$img" in *'${'*|plugin-*|pipeline-bootstrap*|scratch) continue ;; esac
+    case "$img" in *'${'*|plugin-*|scratch) continue ;; esac
     WHERE["$img"]="${WHERE[$img]:-}${WHERE[$img]:+, }${df#"$ROOT"/deploy/plugins/}"
   done < <(sed -nE 's/^FROM[[:space:]]+(--platform=[^[:space:]]+[[:space:]]+)?([^[:space:]]+)[[:space:]]+[Aa][Ss][[:space:]]+[A-Za-z0-9_-]+.*/\2/p' "$df")
 done < <(find "$ROOT/deploy/plugins" -name Dockerfile | sort)

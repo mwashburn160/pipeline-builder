@@ -23,6 +23,7 @@ import {
   createEmptyStep,
   nextFormId,
 } from './form-types';
+import { toolchainReleasePin } from '@pipeline-builder/api-core/plugin-catalog';
 
 type AnyRecord = Record<string, unknown>;
 
@@ -210,6 +211,9 @@ export function propsToFormState(input: object): FormBuilderState {
   if (rawProps.vars) {
     base.vars = parseMetadataEntries(rawProps.vars);
   }
+
+  // Toolchain release pin
+  base.toolchainRelease = toolchainReleasePin(rawProps) ?? '';
 
   // Defaults
   if (rawProps.defaults) {

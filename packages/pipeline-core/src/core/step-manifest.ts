@@ -14,7 +14,12 @@
  * CodePipeline state-change events report.
  */
 
-import { SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import {
+  BUILD_IMAGE_MANIFEST_ACTION, BUILD_IMAGE_MANIFEST_STAGE, BUILD_IMAGE_STEP_KEY, SYSTEM_ORG_ID,
+} from '@pipeline-builder/api-core';
+import type { ToolchainResolvedVia } from './plugin-lookup-envelope.js';
+
+export { BUILD_IMAGE_MANIFEST_ACTION, BUILD_IMAGE_MANIFEST_STAGE, BUILD_IMAGE_STEP_KEY };
 
 /**
  * File the synth app writes the manifest to, inside the cloud assembly
@@ -54,6 +59,32 @@ export interface StepManifestEntry {
    * manifest row.
    */
   readonly stepKey?: string;
+}
+
+/**
+ * The pipeline's BUILD IMAGE: the toolchain release's `pipeline-bootstrap` half
+ * every plugin-less action runs on (docs/plans/bootstrap-image-versioning.md §4).
+ * Not a step — it rides the manifest as a non-step entry under the
+ * `build-image` key and the sentinel (stage, action) the platform stores it
+ * under, so the deploy-reference path (in-use protection) counts the release.
+ * `pluginVersion` IS the release version (both halves share it); the platform
+ * re-reads name/version/digest from the `pluginId` row as for every entry.
+ */
+export interface BuildImageManifestEntry extends StepManifestEntry {
+  readonly kind: 'build-image';
+  readonly stageName: typeof BUILD_IMAGE_MANIFEST_STAGE;
+  readonly actionName: typeof BUILD_IMAGE_MANIFEST_ACTION;
+  readonly stepKey: typeof BUILD_IMAGE_STEP_KEY;
+  readonly releaseVersion: string;
+  readonly imageRepository: string | null;
+  /** How the release was chosen for this pipeline at synth. */
+  readonly resolvedVia: ToolchainResolvedVia;
+}
+
+/** Whether a manifest entry is the {@link BuildImageManifestEntry}. */
+export function isBuildImageEntry(entry: StepManifestEntry): entry is BuildImageManifestEntry {
+  return (entry as { kind?: unknown }).kind === 'build-image'
+    || (entry.stageName === BUILD_IMAGE_MANIFEST_STAGE && entry.actionName === BUILD_IMAGE_MANIFEST_ACTION);
 }
 
 /** The plugin fields {@link pluginImageRepository} reads. */

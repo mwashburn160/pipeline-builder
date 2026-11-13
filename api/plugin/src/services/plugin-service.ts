@@ -3,6 +3,7 @@
 
 import {
   SYSTEM_ACTOR_ID, checkWriteAccess, ConflictError, ErrorCode, ForbiddenError, NotFoundError, VISIBILITY_WRITE_REFUSAL, entityEvents, createCacheService, createLogger, errorMessage,
+  isManagedToolchainPlugin,
   toComplianceAttributes, versionScanFacts, type VulnSeverity,
   type VisibilityWriteRefusal,
   type WriteAccess,
@@ -20,6 +21,7 @@ import type { PgTable } from 'drizzle-orm/pg-core';
 import { installingOrgs } from './ecosystem/install-notify.js';
 import { listingsWithPublishers, versions as ecosystemVersions } from './ecosystem/store.js';
 import { DEFAULT_PLUGIN_VERSION, shouldBecomeDefault } from '../helpers/default-version.js';
+import { assertManagedUploadAllowed, assertNotManaged } from '../helpers/managed-toolchain.js';
 import { pipelinePluginRefs } from '../helpers/pipeline-plugin-refs.js';
 
 const logger = createLogger('plugin-service');
@@ -92,6 +94,20 @@ const OVERWRITE_REFUSAL: Readonly<
     ? 'The current default version of this plugin belongs to another author.'
     : 'A plugin with this name and version already exists and belongs to another author.'),
 };
+
+/**
+ * A managed toolchain release is immutable: an upload of an existing
+ * (name, version) — live, yanked or a tombstone — is refused rather than
+ * overwritten in place (docs/plans/bootstrap-image-versioning.md §1). The
+ * loader counts a 409 as "already loaded".
+ */
+function managedVersionImmutable(name: string, version: string): ConflictError {
+  return new ConflictError(
+    `${name}@${version} is a managed toolchain release and is immutable; build a new release version instead.`,
+    ErrorCode.PLUGIN_VERSION_IMMUTABLE,
+    { name, version },
+  );
+}
 
 /** Plugin CRUD service with multi-tenant access control. */
 /**
@@ -363,12 +379,17 @@ export class PluginService extends CrudService<
    * lock, which is the authoritative guarantee.
    */
   async assertDeployable(orgId: string, name: string, version: string, userId: string, access: WriteAccess): Promise<void> {
+    assertManagedUploadAllowed(orgId, name, version);
+    const managed = isManagedToolchainPlugin(name);
     await withTenantTx(async (tx) => {
       const [existing] = await this.selectVersionRow(tx, orgId, name, version);
+      if (existing && managed) throw managedVersionImmutable(name, version);
       if (existing) {
         assertMayOverwritePlugin(existing, userId, access);
         await this.assertVersionMutable(tx, existing);
       }
+      // A managed upload never takes over a default (it never sets one).
+      if (managed) return;
       const currentDefaults = await this.selectLiveDefaults(tx, orgId, name);
       if (shouldBecomeDefault(version, existing?.isDefault === true, currentDefaults)) {
         for (const current of currentDefaults) assertMayOverwritePlugin(current, userId, access, 'default');
@@ -550,6 +571,8 @@ export class PluginService extends CrudService<
    * row, or null when nothing in the caller's org matched.
    */
   async deleteVersion(existing: Plugin, orgId: string, userId: string, opts: { force: boolean }): Promise<{ deleted: Plugin | null; inUse: number; listed: boolean; promoted: Plugin | null }> {
+    // A managed toolchain release is deleted only by the Toolchain console.
+    assertNotManaged(existing.name);
     const { frozen, listed, inUse } = await this.deleteBlockers(existing, orgId);
     if (frozen) {
       throw new ConflictError(
@@ -684,6 +707,7 @@ export class PluginService extends CrudService<
     const rows = await runWithTenantContext({ isSuperAdmin: true }, () => withTenantTx((tx) => tx.select().from(schema.plugin)
       .where(and(eq(schema.plugin.id, id), ...(orgId ? [eq(schema.plugin.orgId, orgId)] : [])))));
     const row = (rows as Plugin[])[0];
+    if (row) assertNotManaged(row.name);
     if (row) await this.assertRemovable(row, 'purge');
     return super.purgeById(id, orgId);
   }
@@ -708,6 +732,7 @@ export class PluginService extends CrudService<
     userId: string,
     opts: { deprecated: boolean; message?: string | null },
   ): Promise<Plugin | null> {
+    assertNotManaged(existing.name);
     const now = new Date();
     const yanked = existing.lifecycle === 'yanked' || existing.yankedAt !== null;
     const updated = await withTenantTx(async (tx) => {
@@ -743,6 +768,8 @@ export class PluginService extends CrudService<
    * PLUGIN_VERSION_FROZEN). Yanking the default promotes the next one.
    */
   async yankVersion(existing: Plugin, orgId: string, userId: string, reason: string): Promise<{ yanked: Plugin | null; promoted: Plugin | null }> {
+    // Before anything is written: a managed yank must never reach promoteNextDefault.
+    assertNotManaged(existing.name);
     if (await withTenantTx((tx) => this.isListed(tx, existing.id))) {
       throw new ConflictError(
         'This plugin version is published to the ecosystem; request a yank from the ecosystem instead.',
@@ -773,6 +800,9 @@ export class PluginService extends CrudService<
    * candidate qualifies — resolution then falls back to the highest version.
    */
   async promoteNextDefault(orgId: string, removed: { name: string; version: string }, userId: string): Promise<Plugin | null> {
+    // Managed toolchain rows never use isDefault: the platform default lives in
+    // toolchain_platform_default and moves only through setPlatformDefault.
+    if (isManagedToolchainPlugin(removed.name)) return null;
     const removedMajor = parseSemver(removed.version)?.major ?? Number.MAX_SAFE_INTEGER;
     const promoted = await withTenantTx(async (tx) => {
       await lockPluginName(tx, orgId, removed.name);
@@ -827,6 +857,38 @@ export class PluginService extends CrudService<
     void import('./declared-resolution-refresh.js')
       .then(({ refreshDeclaredResolutions }) => refreshDeclaredResolutions({ pluginName: name, orgId }))
       .catch((err: unknown) => logger.warn('Declared resolution refresh not started', { orgId, name, error: errorMessage(err) }));
+  }
+
+  /**
+   * Soft-delete managed release halves inside the CALLER's transaction (the
+   * Toolchain release delete, which removes the release row in the same one).
+   * The same tombstone columns as {@link CrudService.delete}, purge deadline
+   * included; the caller runs {@link afterManagedWrite} after COMMIT.
+   */
+  async tombstoneManagedRows(tx: TenantTx, ids: readonly string[], userId: string): Promise<Plugin[]> {
+    if (ids.length === 0) return [];
+    const now = new Date();
+    const rows = await tx
+      .update(schema.plugin)
+      .set({ isActive: false, updatedAt: now, updatedBy: userId, deletedAt: now, deletedBy: userId, ...this.purgeAfterStamp(now) })
+      .where(and(inArray(schema.plugin.id, [...ids]), isNull(schema.plugin.deletedAt)))
+      .returning();
+    return rows as Plugin[];
+  }
+
+  /**
+   * The post-COMMIT lifecycle (cache invalidation + entity event) for managed
+   * release halves the Toolchain service wrote directly. Best-effort, like
+   * every other hook here.
+   */
+  async afterManagedWrite(rows: readonly Plugin[], userId: string, event: 'updated' | 'deleted' = 'updated'): Promise<void> {
+    for (const row of rows) {
+      try {
+        await this.invalidateAndEmit(event, row.id, row, userId);
+      } catch (err) {
+        logger.warn('Lifecycle hook failed', { error: errorMessage(err) });
+      }
+    }
   }
 
   /** Post-write lifecycle for the service's own direct writes (cache + event). */
@@ -911,7 +973,13 @@ export class PluginService extends CrudService<
       // can't be raced by a concurrent deploy of the same name.
       // `version` falls back to the column default, which is what the INSERT would store.
       const version = data.version ?? DEFAULT_PLUGIN_VERSION;
+      // Managed toolchain names (authoritative — every upload path, the build
+      // worker included, lands here): system org only, never a prerelease,
+      // never an overwrite, never a default.
+      const managed = isManagedToolchainPlugin(data.name);
+      if (managed) assertManagedUploadAllowed(data.orgId!, data.name, version);
       const [existing] = await this.selectVersionRow(tx, data.orgId!, data.name, version).for('update');
+      if (existing && managed) throw managedVersionImmutable(data.name, version);
       if (existing) {
         assertMayOverwritePlugin(existing, userId, access);
         // Authoritative immutability check: the upload route's
@@ -925,7 +993,8 @@ export class PluginService extends CrudService<
       // or an older version (see shouldBecomeDefault).
       const currentDefaults = await this.selectLiveDefaults(tx, data.orgId!, data.name)
         .for('update');
-      const becomeDefault = shouldBecomeDefault(version, existing?.isDefault === true, currentDefaults);
+      // A managed upload is never the default, not even the first one.
+      const becomeDefault = !managed && shouldBecomeDefault(version, existing?.isDefault === true, currentDefaults);
 
       if (becomeDefault) {
         // Taking over the default is a change to the current default row(s), so
@@ -1039,6 +1108,18 @@ export class PluginService extends CrudService<
           },
         })
         .returning();
+
+      // A managed half registers its release: `toolchain_release` holds one row
+      // per release version, shared by both halves, and the release is complete
+      // once both halves of that version exist. In the same transaction, so a
+      // half never lands without its release row. RLS admits it: only the
+      // system org reaches this branch (asserted above), and the release tables
+      // are writable by the system org's own scope. Never a default (D1).
+      if (managed) {
+        await tx.insert(schema.toolchainRelease)
+          .values({ releaseVersion: version, createdBy: userId })
+          .onConflictDoNothing({ target: schema.toolchainRelease.releaseVersion });
+      }
 
       return {
         row: upserted as Plugin,

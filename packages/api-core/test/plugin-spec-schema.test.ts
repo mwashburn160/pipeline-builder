@@ -9,7 +9,7 @@
 import { describe, it, expect } from '@jest/globals';
 import {
   checkPluginConfig, checkPluginSpec, isValidEgressHost, pluginSpecRequiredFieldsProblem,
-  PLUGIN_NAME_PATTERN, PLUGIN_VERSION_PATTERN,
+  PLUGIN_NAME_PATTERN, PLUGIN_VERSION_PATTERN, toolchainFromMetadata, toolchainMetadata,
 } from '../src/validation/plugin-spec-schema.js';
 
 describe('isValidEgressHost', () => {
@@ -94,6 +94,7 @@ describe('pluginSpecRequiredFieldsProblem', () => {
   it('requires name, version and (except approvals) commands', () => {
     expect(pluginSpecRequiredFieldsProblem({ name: 'a', version: '1.0.0', commands: ['x'] })).toBeNull();
     expect(pluginSpecRequiredFieldsProblem({ name: 'a', version: '1.0.0', pluginType: 'ManualApprovalStep' })).toBeNull();
+    expect(pluginSpecRequiredFieldsProblem({ name: 'pipeline-bootstrap', version: '1.0.0', pluginType: 'BuildImage' })).toBeNull();
     expect(pluginSpecRequiredFieldsProblem({ name: 'a', version: '1.0.0' })).toMatch(/required/);
     expect(pluginSpecRequiredFieldsProblem({ version: '1.0.0', commands: ['x'] })).toMatch(/required/);
   });
@@ -105,5 +106,77 @@ describe('name / version patterns', () => {
     expect(PLUGIN_NAME_PATTERN.test('My_Lint')).toBe(false);
     expect(PLUGIN_VERSION_PATTERN.test('1.2.3-beta.1+build.5')).toBe(true);
     expect(PLUGIN_VERSION_PATTERN.test('1.2')).toBe(false);
+  });
+});
+
+describe('BuildImage specs (managed toolchain)', () => {
+  const toolchain = { pipelineManager: '4.4.19', awsCdk: '2.1100.0', cdkAssets: '3.2.0', esbuild: '0.25.0', pnpm: '10.12.1', node: '24.11.0' };
+  const sourceDigest = 'a'.repeat(64);
+  const buildImage = { name: 'pipeline-bootstrap', version: '1.0.0', pluginType: 'BuildImage', description: 'Bootstrap image', category: 'infrastructure', toolchain, sourceDigest };
+  const issuesOf = (raw: unknown) => {
+    const r = checkPluginSpec(raw);
+    return r.ok ? [] : r.issues;
+  };
+
+  it('accepts a BuildImage spec without commands', () => {
+    expect(checkPluginSpec(buildImage).ok).toBe(true);
+    expect(checkPluginSpec({ ...buildImage, sourceDigest: `sha256:${sourceDigest}` }).ok).toBe(true);
+  });
+
+  it.each(['commands', 'installCommands'])('refuses %s on a BuildImage spec', (field) => {
+    expect(issuesOf({ ...buildImage, [field]: ['echo hi'] })).toEqual([`${field}: is not allowed on a BuildImage plugin`]);
+  });
+
+  it('refuses metadata on a BuildImage spec', () => {
+    expect(issuesOf({ ...buildImage, metadata: { a: 'b' } })).toEqual(['metadata: is not allowed on a BuildImage plugin']);
+  });
+
+  it('requires toolchain and sourceDigest', () => {
+    const { toolchain: _t, sourceDigest: _d, ...bare } = buildImage;
+    expect(issuesOf(bare)).toEqual(['toolchain: is required on a BuildImage plugin', 'sourceDigest: is required on a BuildImage plugin']);
+  });
+
+  it('refuses a BuildImage under a non-managed name', () => {
+    expect(issuesOf({ ...buildImage, name: 'my-bootstrap' })).toEqual(['pluginType: BuildImage is reserved for the managed toolchain plugins']);
+  });
+
+  it('refuses a partial, inexact or extended toolchain, and a malformed digest', () => {
+    const { node: _n, ...partial } = toolchain;
+    expect(issuesOf({ ...buildImage, toolchain: partial }).join('\n')).toContain('toolchain.node');
+    expect(issuesOf({ ...buildImage, toolchain: { ...toolchain, awsCdk: '^2.1100.0' } })).toEqual(['toolchain.awsCdk: must be an exact semver version (e.g. 1.2.3)']);
+    expect(issuesOf({ ...buildImage, toolchain: { ...toolchain, extra: '1.0.0' } }).join('\n')).toMatch(/toolchain/);
+    expect(issuesOf({ ...buildImage, sourceDigest: 'xyz' })).toEqual(['sourceDigest: must be a sha256 hex digest']);
+  });
+
+  it('refuses toolchain / sourceDigest on any other plugin type', () => {
+    expect(issuesOf({ name: 'cdk-synth', version: '1.0.0', pluginType: 'CodeBuildStep', commands: ['cdk synth'], toolchain, sourceDigest })).toEqual([
+      'toolchain: is only allowed on a BuildImage plugin',
+      'sourceDigest: is only allowed on a BuildImage plugin',
+    ]);
+  });
+
+  it('does not require prebuilt in config.yaml (the checked-in config says build_image)', () => {
+    expect(checkPluginConfig({ pluginSpec: 'plugin-spec.yaml', dockerfile: 'Dockerfile', buildType: 'build_image' }).ok).toBe(true);
+  });
+});
+
+describe('toolchainMetadata / toolchainFromMetadata', () => {
+  const toolchain = { pipelineManager: '4.4.20', awsCdk: '2.1148.0', cdkAssets: '4.8.0', esbuild: '0.28.1', pnpm: '12.14.0', node: '26.13.0' };
+
+  it('round-trips through flat toolchain.<field> keys', () => {
+    const meta = toolchainMetadata(toolchain);
+    expect(meta).toMatchObject({ 'toolchain.pipelineManager': '4.4.20', 'toolchain.node': '26.13.0' });
+    expect(Object.values(meta).every((v) => typeof v === 'string')).toBe(true);
+    expect(toolchainFromMetadata({ ...meta, unrelated: 1 })).toEqual(toolchain);
+  });
+
+  it('answers null for anything that is not a complete, exact toolchain', () => {
+    expect(toolchainFromMetadata(null)).toBeNull();
+    expect(toolchainFromMetadata('x')).toBeNull();
+    expect(toolchainFromMetadata({})).toBeNull();
+    const { 'toolchain.pnpm': _drop, ...partial } = toolchainMetadata(toolchain);
+    expect(toolchainFromMetadata(partial)).toBeNull();
+    expect(toolchainFromMetadata({ ...toolchainMetadata(toolchain), 'toolchain.node': '^26' })).toBeNull();
+    expect(toolchainFromMetadata({ ...toolchainMetadata(toolchain), 'toolchain.extra': '1.0.0' })).toBeNull();
   });
 });

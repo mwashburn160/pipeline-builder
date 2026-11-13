@@ -1,6 +1,6 @@
 // GENERATED FROM docs/error-handling.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: c3c26b4ea5157f4ace15ecf8a2b5db4ce88ccb3386c374d7582c670bc72f6105
+// SOURCE-SHA256: 8cdddef634342b20cd3f8eb2f062133ab526a38727b91ad3777a66e64cfb610b
 // SPDX-License-Identifier: Apache-2.0
 import { TriangleAlert } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -352,6 +352,102 @@ export const errorHandlingTopic: HelpTopic = {
               "PLUGIN_VULN_GATE",
               "422",
               "A build outcome: the image has more fixable findings at or above PLUGIN_VULN_FAIL_ON (default Critical) than PLUGIN_VULN_MAX_FINDINGS. The message lists the top CVEs with their fixed versions; the build stream's ERROR event carries code and details (gated, high, maxFindings, failOn, findings[])"
+            ]
+          ]
+        },
+        {
+          "type": "text",
+          "content": "Managed toolchain"
+        },
+        {
+          "type": "text",
+          "content": "pipeline-bootstrap and cdk-synth are the managed toolchain: one release, published by the system org, never listed in the ecosystem, and managed in the Toolchain console."
+        },
+        {
+          "type": "table",
+          "headers": [
+            "code",
+            "Status",
+            "When"
+          ],
+          "rows": [
+            [
+              "PLUGIN_MANAGED_NAME_RESERVED",
+              "403",
+              "An organization other than the system org uploaded a plugin under a managed toolchain name. Publish a custom synth environment under another name"
+            ],
+            [
+              "PLUGIN_MANAGED_NOT_LISTABLE",
+              "400",
+              "A managed toolchain name in a publish request (including publishRequest=true on upload), an anonymous submission or an install"
+            ],
+            [
+              "PLUGIN_MANAGED_PRERELEASE",
+              "400",
+              "An upload of a prerelease (-dev.N) version of a managed toolchain name"
+            ],
+            [
+              "PLUGIN_VERSION_IMMUTABLE",
+              "409",
+              "A re-upload of an existing managed toolchain version. Build a new release version instead"
+            ],
+            [
+              "TOOLCHAIN_USE_CONSOLE",
+              "400",
+              "A generic plugin route (update, deprecate, yank, delete, purge) was called on a managed toolchain version, from any organization"
+            ],
+            [
+              "TOOLCHAIN_RELEASE_NOT_ELIGIBLE",
+              "400",
+              "A pipeline's toolchain.release pin, or PUT /plugins/toolchain/org-default, named a release your organization may not choose: it must be live (not yanked, deprecated or inactive), have both halves, and be a current or former platform default or your organization's canary. GET /plugins/toolchain/eligible lists the ones you may choose. A pin is only checked when it changes"
+            ],
+            [
+              "TOOLCHAIN_PIN_VIA_RELEASE",
+              "400",
+              "A managed cdk-synth step pinned on its own (plugin.filter.version). Pin the whole release with toolchain.release instead"
+            ],
+            [
+              "TOOLCHAIN_NO_DEFAULT",
+              "409",
+              "Nothing resolves: no pin, no org default, no canary, and no platform default is set (a fresh install before init-platform). Never answered with \"the highest version\""
+            ],
+            [
+              "TOOLCHAIN_PAIR_MISMATCH",
+              "500",
+              "The release a default points at is missing a half, or its halves disagree. It is never served"
+            ]
+          ]
+        },
+        {
+          "type": "text",
+          "content": "Resolver warnings. A release that still resolves but should be moved off comes back with a warning (printed by pipeline synth, carried in warnings[] by the lookup and the org-default panel), never a refusal: an exact selection keeps working."
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Warning code",
+            "When"
+          ],
+          "rows": [
+            [
+              "TOOLCHAIN_RELEASE_YANKED",
+              "The pinned release, or your organization's default, was yanked. It resolves only because it is selected exactly; your organization's toolchain managers (and, for a pin, its pipeline writers) were notified"
+            ],
+            [
+              "TOOLCHAIN_RELEASE_DEPRECATED",
+              "The pinned release or org default was deprecated: it can't be chosen for a new pin or default"
+            ],
+            [
+              "TOOLCHAIN_RELEASE_INACTIVE",
+              "A half of the pinned release or org default is inactive"
+            ],
+            [
+              "TOOLCHAIN_RELEASE_NOT_PROMOTED",
+              "A pin or org default names a release that was never the platform default and is not your organization's canary (an ex-canary release, or one set before it lost eligibility)"
+            ],
+            [
+              "TOOLCHAIN_RELEASE_VULNERABLE",
+              "PUT /plugins/toolchain/org-default only: the release you set picked up fixable Critical or KEV findings after it was promoted. It is still eligible, and the default is set"
             ]
           ]
         },

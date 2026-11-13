@@ -106,6 +106,23 @@ deploy/bin/init-platform.sh eks               # admin user, plugins, templates
 deploy/bin/post-provision-smoke.sh k8s --aws
 ```
 
+## Upgrading the pipeline toolchain
+
+`init-platform.sh` (phase 9) installs the managed toolchain release
+(`pipeline-bootstrap` + `cdk-synth`) and sets the initial platform default. A
+newer release goes in without re-running any phase:
+
+```bash
+DEPLOY_TARGET=eks PLATFORM_BASE_URL=https://pb.example.com deploy/bin/upgrade-toolchain.sh
+```
+
+It builds, uploads and never promotes: the release is `available` in the
+Toolchain console (`/dashboard/toolchain`, system org, `toolchain:operate`)
+until an operator canaries it and sets it as the platform default. No
+`setup.sh`/`startup.sh` phase, restart or env var is involved — pipelines pick
+the default up on their next run. `deploy/bin/post-provision-smoke.sh k8s --aws`
+checks that a default is set and both halves resolve.
+
 ## What `setup.sh` does
 
 Numbered as the script's own phase labels, so a phase added there is visible here.

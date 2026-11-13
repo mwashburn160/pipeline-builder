@@ -51,6 +51,8 @@ import type { PipelineDeployment, PipelineRegistrationStatus } from '@/lib/api/d
 import type { Pipeline } from '@/types';
 import { formatError } from '@/lib/constants';
 import { formatDuration } from '@/lib/format';
+import { toolchainChangeRunId } from '@/lib/pipeline-security';
+import type { PipelineBuildImage } from '@/lib/api/pipeline-security-types';
 
 // The edit wizard and save-as-template modal load on first use.
 const EditPipelineModal = dynamic(() => import('@/components/pipeline/EditPipelineModal'), { ssr: false });
@@ -197,6 +199,21 @@ export default function PipelineDetailPage() {
   const execError = execQ.error ? formatError(execQ.error, 'Failed to load executions') : null;
   const loadExecutions = execQ.refetch;
 
+  // The run-history "toolchain X → Y" marker: the Build image row's last
+  // release change (from consecutive deploys' build-image entries), placed on
+  // the first run after it. Read only on the Runs tab; non-blocking.
+  const toolchainQ = useFetch(async (signal): Promise<PipelineBuildImage['change']> => {
+    if (!id) return null;
+    try {
+      const r = await api.getPipelineSecurity(id, { signal });
+      return r.success ? r.data?.buildImage?.change ?? null : null;
+    } catch {
+      return null;
+    }
+  }, [id], { enabled: activeTab === 'runs' });
+  const toolchainChange = toolchainQ.data;
+  const toolchainMarkerRunId = useMemo(() => toolchainChangeRunId(executions, toolchainChange), [executions, toolchainChange]);
+
   // Write actions (AWS CodePipeline trigger / cancel). Ingestion of the new
   // event is asynchronous, so we refetch after a short delay to let the
   // pipeline-events Lambda persist the run before we re-query.
@@ -269,7 +286,20 @@ export default function PipelineDetailPage() {
   if (!isReady || !user) return <LoadingPage />;
 
   const execColumns: Column<PipelineExecution>[] = [
-    { id: 'status', header: 'Status', render: (ex) => <Badge color={statusColor(ex.status)}>{ex.status}</Badge> },
+    {
+      id: 'status',
+      header: 'Status',
+      render: (ex) => (
+        <>
+          <Badge color={statusColor(ex.status)}>{ex.status}</Badge>
+          {toolchainChange && ex.execution_id === toolchainMarkerRunId && (
+            <span className="mt-1 block font-mono text-2xs text-fg-muted" data-testid={`toolchain-marker-${ex.execution_id}`}>
+              toolchain {toolchainChange.from} → {toolchainChange.to}
+            </span>
+          )}
+        </>
+      ),
+    },
     { id: 'started', header: 'Started', render: (ex) => (ex.started_at ? <RelativeTime value={ex.started_at} /> : <span className="text-fg-subtle">—</span>) },
     { id: 'duration', header: 'Duration', cellClassName: 'font-mono text-xs', render: (ex) => formatDuration(ex.duration_ms) },
     {

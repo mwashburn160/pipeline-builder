@@ -2443,7 +2443,7 @@ groups:
       # failure here is the one case where our silence looks to the customer exactly like
       # "there was nothing to tell you".
       - alert: SecurityNoticeDeliveryFailing
-        expr: sum(increase(plugin_security_notification_failed_total[1h])) > 0 or sum(increase(ecosystem_advisory_rescan_draft_failed_total[1h])) > 0 or sum(increase(plugin_deprecation_notice_failures_total[1h])) > 0 or sum(increase(plugin_withdrawal_notice_failures_total[1h])) > 0
+        expr: sum(increase(plugin_security_notification_failed_total[1h])) > 0 or sum(increase(ecosystem_advisory_rescan_draft_failed_total[1h])) > 0 or sum(increase(plugin_deprecation_notice_failures_total[1h])) > 0 or sum(increase(plugin_withdrawal_notice_failures_total[1h])) > 0 or sum(increase(toolchain_hygiene_notice_failures_total[1h])) > 0
         for: 0m
         labels:
           severity: warning
@@ -2552,6 +2552,53 @@ groups:
         annotations:
           summary: "AI provider {{ $labels.provider }} erroring"
           description: "{{ $value | humanize }} failed AI turns/sec for provider {{ $labels.provider }} over 5m sustained for 10m — likely a provider brownout or credential issue. Check the ask/generation logs."
+
+      # ---- Managed toolchain releases (docs/plans/bootstrap-image-versioning.md §7) ----
+      # A toolchain release whose synth / self-mutation actions fail markedly more
+      # often than the platform default's. Fed by api/reporting's ingest, which
+      # stamps each run with the release from the PLATFORM's deployed step
+      # manifest (never a customer tag). The default is not a Prometheus fact, so
+      # each reporting pod publishes the default it last saw, valued with WHEN it
+      # saw it; `topk(1, max by …)` takes the freshest view across pods.
+      #
+      # Thresholds: X = 10 percentage points over the default's 1h failure rate,
+      # with at least 10 terminal runs of the release in the hour (below that one
+      # failure is 10+ points on its own). No default runs in the hour, or no
+      # default seen at all, compares against 0%. NO auto-rollback: this is
+      # outward-facing — the runbook action is "Set previous as default" in the
+      # Toolchain console, and the canary gate (row data, per org) is the place
+      # to judge a candidate before it is promoted.
+      - alert: PipelineToolchainFailureSpike
+        expr: |
+          (
+            (
+              sum by (toolchain_release) (increase(pipeline_toolchain_runs_total{outcome="failed"}[1h]))
+              /
+              (sum by (toolchain_release) (increase(pipeline_toolchain_runs_total[1h])) > 0)
+            )
+            unless on (toolchain_release)
+            topk(1, max by (toolchain_release) (pipeline_toolchain_platform_default_seen_timestamp_seconds))
+          )
+          - on () group_left ()
+          (
+            (
+              sum(increase(pipeline_toolchain_runs_total{outcome="failed"}[1h]) and on (toolchain_release) topk(1, max by (toolchain_release) (pipeline_toolchain_platform_default_seen_timestamp_seconds)))
+              /
+              (sum(increase(pipeline_toolchain_runs_total[1h]) and on (toolchain_release) topk(1, max by (toolchain_release) (pipeline_toolchain_platform_default_seen_timestamp_seconds))) > 0)
+            )
+            or on () vector(0)
+          )
+          > 0.10
+          and on (toolchain_release)
+          sum by (toolchain_release) (increase(pipeline_toolchain_runs_total[1h])) >= 10
+        for: 10m
+        labels:
+          severity: warning
+          component: pipeline
+          tenancy: platform
+        annotations:
+          summary: "Toolchain release {{ $labels.toolchain_release }} is failing more than the platform default"
+          description: "Release {{ $labels.toolchain_release }}'s synth / self-mutation failure rate over the last hour exceeds the platform default's by {{ $value | humanizePercentage }} (percentage points), on at least 10 runs. Check the Toolchain console's Affected view; if the release is the default, 'Set previous as default'. Outcomes are customer-reported, so confirm against the failing pipelines before acting."
 
       # ---- Stakeholder reports (scheduled delivery) ----
       # A scheduled report has no user watching it fail. Everything here is about a

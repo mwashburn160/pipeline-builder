@@ -143,6 +143,38 @@ export {
   type VulnUpgradeAvailableWarning,
 } from './api/plugin-resolution.js';
 export {
+  resolveManagedToolchain,
+  resolveManagedToolchainWith,
+  resolveManagedToolchainHalf,
+  isEligibleRelease,
+  readOrgToolchainOverview,
+  readOrgToolchainOverviewWith,
+  listEligibleReleases,
+  listEligibleReleasesWith,
+  isEligibleReleaseWith,
+  ManagedToolchainError,
+  managedToolchainRefusal,
+  isToolchainReleaseVersion,
+  toolchainOrgChain,
+  loadReleaseHalves,
+  releaseExists,
+  releaseLifecycleProblems,
+  toolchainCandidateProblems,
+  bootstrapToolchainOf,
+  clearToolchainParentCacheForTests,
+  setManagedToolchainDepsForTests,
+  type ManagedToolchainResolution,
+  type ManagedToolchainWarning,
+  type ManagedToolchainCaller,
+  type ManagedToolchainDeps,
+  type ToolchainResolvedVia,
+  type ToolchainDb,
+  type ReleaseHalves,
+  type ReleaseLifecycleProblem,
+  type OrgToolchainOverview,
+  type EligibleToolchainRelease,
+} from './api/managed-toolchain.js';
+export {
   findVersionReferences,
   distinctPipelines,
   versionReferencedPredicate,
@@ -274,6 +306,35 @@ export {
   type ScanState,
   type VersionGap,
 } from './api/reporting/plugin-exposure.js';
+
+// Toolchain run data (docs/plans/bootstrap-image-versioning.md §6, §7, §9): the
+// release stamp on synth / self-mutation rows, the canary gate and the Affected view.
+export {
+  BUILD_IMAGE_PLUGIN,
+  canaryPerOrgCap,
+  DEFAULT_CANARY_GATE,
+  deployedToolchainOf,
+  evaluateCanaryGate,
+  readAffectedPipelines,
+  readCanaryGate,
+  readPlatformDefaultRelease,
+  SELF_MUTATION_ACTION,
+  SELF_MUTATION_STAGE,
+  SYNTH_STEP_KEY,
+  toolchainActionOf,
+  toolchainOutcomeOf,
+  type AffectedOrg,
+  type AffectedPipelines,
+  type CanaryGateInput,
+  type CanaryGateParams,
+  type CanaryGateResult,
+  type CanaryGateShortfall,
+  type DeployedToolchain,
+  type OrgRuns,
+  type ToolchainAction,
+  type ToolchainManifestRow,
+  type ToolchainOutcome,
+} from './api/reporting/toolchain-runs.js';
 
 // The stakeholder-report engine: period resolution, section registry, templates
 // and the composer that freezes a period into a snapshot.

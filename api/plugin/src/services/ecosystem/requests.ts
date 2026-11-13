@@ -71,6 +71,7 @@ import { topInstalledListings } from './submissions-store.js';
 import { isActiveListing, optionalText, requiredText } from './util.js';
 import { assertVerifiedEligible, checkVerifiedEligibility } from './verified-eligibility.js';
 import { listingView, publisherView, requestView } from './views.js';
+import { assertListable } from '../../helpers/managed-toolchain.js';
 import { pluginService } from '../plugin-service.js';
 
 const logger = createLogger('ecosystem-requests');
@@ -290,6 +291,8 @@ async function buildRequest(caller: Caller, publisher: Publisher, kind: PublishR
     case 'new_listing':
     case 'new_version': {
       const plugin = await ownPlugin(caller, body.pluginId);
+      // Before the freeze below: a managed toolchain name is never listed (D5).
+      assertListable(plugin.name);
       const listing = await listings.byName(publisher.id, plugin.name);
       if (kind === 'new_listing' && listing) throw new EcosystemError(ErrorCode.CONFLICT, `${plugin.name} is already listed; submit a new_version request.`);
       if (kind === 'new_version' && !listing) throw new EcosystemError(ErrorCode.CONFLICT, `${plugin.name} isn't listed yet; submit a new_listing request.`);
@@ -462,6 +465,9 @@ export async function submit(caller: Caller, body: Record<string, unknown>): Pro
 
   const built = await buildRequest(caller, publisher, kind, body);
   const listingName = (built.payload as Record<string, unknown>).name as string;
+  // Managed toolchain names are never listed (D5): no request of any kind names
+  // one (new_listing / new_version refused before their freeze, above).
+  assertListable(listingName);
   // A listing can carry several advisory drafts at once (the open-request unique index exempts them too).
   const duplicate = kind === 'advisory' ? undefined : (await requests.list({ publisherId: publisher.id, statuses: OPEN_STATUSES, kinds: [kind] }))
     .find((r) => (r.listingId ?? r.payload?.name) === (built.listingId ?? listingName) && (r.version ?? null) === (built.version ?? null));

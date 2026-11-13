@@ -20,12 +20,14 @@
  * triggered it: every error is caught, logged and counted.
  */
 
-import { createLogger, envInt, errorMessage, PluginFilterSchema } from '@pipeline-builder/api-core';
+import {
+  createLogger, envInt, errorMessage, isManagedToolchainPlugin, managedRefPinsVersion, PluginFilterSchema, toolchainReleasePin, type ManagedToolchainPlugin,
+} from '@pipeline-builder/api-core';
 import { incCounter } from '@pipeline-builder/api-server';
 import { collectPluginSteps, pluginLookupFilter } from '@pipeline-builder/pipeline-core';
 import {
   declaredPipelinesForPlugin, declaredResolution, reconcilePipelineExposures, replacePipelineResolution, resolveListingReference,
-  runWithTenantContext, type DeclaredStepResolution, type PluginFilter,
+  resolveManagedToolchainHalf, runWithTenantContext, type DeclaredStepResolution, type PluginFilter,
 } from '@pipeline-builder/pipeline-data';
 
 import { listingSource } from './ecosystem/installs-store.js';
@@ -41,11 +43,38 @@ export function resolutionRefreshMax(): number {
 /** Whose plugin moved: a listing (by publisher handle) or an org's own plugin. */
 export type RefreshTarget = { pluginName: string; publisher: string } | { pluginName: string; orgId: string };
 
+/**
+ * A managed toolchain step (pipeline-bootstrap, cdk-synth) the way `/plugins/lookup`
+ * answers it: the toolchain resolver, with the pipeline's release pin — never a
+ * row or listing of the same name.
+ */
+async function resolveManagedAsLookup(name: ManagedToolchainPlugin, rowFilter: Partial<PluginFilter>, orgId: string, releasePin?: string): Promise<DeclaredStepResolution> {
+  if (managedRefPinsVersion(rowFilter)) {
+    return { refusal: { code: 'PLUGIN_UNAVAILABLE', reason: 'pin_via_release', message: `${name} can't be pinned on its own; pin the release with toolchain.release.` } };
+  }
+  const res = await resolveManagedToolchainHalf({ orgId }, name, releasePin ? { releasePin } : {});
+  if ('refusal' in res) return { refusal: res.refusal };
+  const row = res.plugin;
+  return {
+    plugin: {
+      id: row.id,
+      publisher: null,
+      name: row.name,
+      version: row.version,
+      imageDigest: row.imageDigest ?? null,
+      scan: { imageDigest: row.imageDigest ?? null, scanSummary: row.scanSummary, scanFlag: row.scanFlag, scanFlaggedAt: row.scanFlaggedAt },
+    },
+  };
+}
+
 /** Resolve one step filter for an org the way `/plugins/lookup` does (no warnings, no verification). */
-async function resolveAsLookup(filter: Record<string, unknown>, orgId: string, rootOrgId: string | null): Promise<DeclaredStepResolution> {
+async function resolveAsLookup(filter: Record<string, unknown>, orgId: string, rootOrgId: string | null, releasePin?: string): Promise<DeclaredStepResolution> {
   const parsed = PluginFilterSchema.safeParse(filter);
   if (!parsed.success) return null;
   const { publisher, ...rowFilter } = parsed.data as Partial<PluginFilter> & { publisher?: string };
+  if (typeof rowFilter.name === 'string' && isManagedToolchainPlugin(rowFilter.name)) {
+    return resolveManagedAsLookup(rowFilter.name.trim().toLowerCase() as ManagedToolchainPlugin, rowFilter, orgId, releasePin);
+  }
   if (!publisher) {
     const row = await pluginService.findFirst({ ...rowFilter, ...(rowFilter.name !== undefined ? { nameMatch: 'exact' as const } : {}), excludeYanked: true }, orgId, rootOrgId ?? undefined);
     if (row) {
@@ -104,7 +133,7 @@ export async function refreshDeclaredResolutions(target: RefreshTarget): Promise
             orgId: p.orgId,
             rootOrgId: p.rootOrgId,
             steps,
-            resolve: (filter) => resolveAsLookup(filter, p.orgId, p.rootOrgId),
+            resolve: (filter) => resolveAsLookup(filter, p.orgId, p.rootOrgId, toolchainReleasePin(p.props)),
           });
           const changed = rows.length !== p.current.size || rows.some((r) => {
             const before = p.current.get(`${r.stageName}\u0000${r.stepName}`);
