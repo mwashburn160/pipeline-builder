@@ -15,17 +15,18 @@
  *   waived, and `acceptVulnerabilities` is the only override of the
  *   vulnerability floor.
  *
- * The `deploy-bootstrap` key sits in the service-key bundle every pod mounts,
- * so `requireAuth` would verify its token on ANY route. This service accepts
- * it on the route above ONLY: {@link refuseDeployBootstrapElsewhere} runs
- * first, ahead of every other mount, and refuses it everywhere else.
+ * `deploy-bootstrap` is an OPT-IN signer (api-core `OPT_IN_SERVICE_SIGNERS`):
+ * every `requireAuth` rejects its token at verification unless the route names
+ * it in `acceptServices`. The route above is the only one in this service that
+ * does, so no other route can admit it — there is no service-wide refusal
+ * middleware to keep in step.
  */
 
 import {
-  ErrorCode, audited, recordAuthzDenial, requireAuth, requireInternalService, sendBadRequest, sendError, sendSuccess, serviceNameOf, validateBody,
+  ErrorCode, audited, requireAuth, requireInternalService, sendBadRequest, sendSuccess, validateBody,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
-import { Router, type NextFunction, type Request, type Response } from 'express';
+import { Router } from 'express';
 import { z } from 'zod';
 
 import { setPlatformDefault } from '../services/toolchain-release-service.js';
@@ -42,41 +43,14 @@ const InitialDefaultBodySchema = z.object({
   acceptVulnerabilities: z.string().trim().min(1, 'acceptVulnerabilities needs a reason').max(1000).optional(),
 }).strict();
 
-/** The bearer token's claims, UNVERIFIED — enough to refuse, never to admit. */
-function unverifiedClaims(req: Request): { principalType?: string; sub?: string } | undefined {
-  const parts = req.headers.authorization?.split(' ');
-  if (!parts || parts.length !== 2 || parts[0] !== 'Bearer') return undefined;
-  const payload = parts[1].split('.')[1];
-  if (!payload) return undefined;
-  try {
-    const claims: unknown = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
-    return claims && typeof claims === 'object' ? claims as { principalType?: string; sub?: string } : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-/**
- * Refuse the `deploy-bootstrap` service principal on every route of this
- * service except `POST /plugins/toolchain/initial-default`. Runs BEFORE
- * `requireAuth`, on the token's unverified claims: it only ever refuses, so a
- * forged token naming the service gains nothing (it is refused here, or by
- * `requireAuth` on the one route that admits the real one).
- */
-export function refuseDeployBootstrapElsewhere(req: Request, res: Response, next: NextFunction): void {
-  if (serviceNameOf(unverifiedClaims(req)) !== DEPLOY_BOOTSTRAP_SERVICE) return next();
-  const path = (req.originalUrl || req.url).split('?')[0].replace(/\/+$/, '');
-  if (req.method === 'POST' && path === `${TOOLCHAIN_MOUNT}${INITIAL_DEFAULT_PATH}`) return next();
-  recordAuthzDenial(req, `${DEPLOY_BOOTSTRAP_SERVICE} outside ${TOOLCHAIN_MOUNT}${INITIAL_DEFAULT_PATH}`);
-  return sendError(res, 403, 'The deploy-bootstrap identity may only set the initial toolchain default', ErrorCode.INSUFFICIENT_PERMISSIONS);
-}
-
 export function createToolchainRoutes(): Router {
   const router: Router = Router();
 
   router.post(
     INITIAL_DEFAULT_PATH,
-    requireAuth,
+    // Opt in to the deploy-bootstrap signer for THIS route only, then require
+    // that exact identity: any other principal the verifier admits is refused.
+    requireAuth({ acceptServices: [DEPLOY_BOOTSTRAP_SERVICE] }),
     requireInternalService({ callers: [DEPLOY_BOOTSTRAP_SERVICE] }),
     audited('toolchain.default.initial'),
     withRoute(async ({ req, res, ctx }) => {

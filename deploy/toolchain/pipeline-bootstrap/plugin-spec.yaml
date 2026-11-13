@@ -9,10 +9,10 @@ version: 1.1.0
 pluginType: BuildImage
 # icon: none — managed toolchain build image, never listed in the catalog (monogram; see _icons/SOURCES.md)
 toolchain:
-  pipelineManager: "4.4.20"
+  pipelineManager: "4.5.1"
   awsCdk: "2.1148.0"
   cdkAssets: "4.8.0"
   esbuild: "0.28.1"
   pnpm: "12.14.0"
   node: "26.13.0"
-sourceDigest: "sha256:a249728bd22721e21498e3f819c39e6a481c0ab4c1f0fa9c621494b9c46ae239"
+sourceDigest: "sha256:6df1adb0d7e535515ee41c410c16ba955fdbe951f5292bfc2d52fd248b25b09c"

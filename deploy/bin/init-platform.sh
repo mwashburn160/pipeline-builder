@@ -466,7 +466,11 @@ wait_for_toolchain_release() {
 # fine, this script never MOVES a default. A guard refusal stops the install.
 set_initial_toolchain_default() {
   local _ver="$1" _jwt _body _resp _status _code
-  _jwt="$(sign_service_jwt "$BOOTSTRAP_KEY_FILE" "$BOOTSTRAP_BUNDLE_FILE")" || _jwt=""
+  # The D14 route is gated on the deploy-bootstrap IDENTITY, not on a permission;
+  # sign_service_jwt requires one, so this carries the same least-privilege
+  # `plugins:write` every other deploy-bootstrap caller asks for. The token is
+  # refused by every service and route that has not opted in to this signer.
+  _jwt="$(sign_service_jwt "$BOOTSTRAP_KEY_FILE" "$BOOTSTRAP_BUNDLE_FILE" plugins:write)" || _jwt=""
   [ -n "$_jwt" ] || { echo "  ERROR: could not sign the deploy-bootstrap service token for the initial-default call." >&2; return 1; }
   _body=$(jq -n --arg v "$_ver" --arg r "$ACCEPT_INITIAL_VULNERABILITIES" \
     '{releaseVersion: $v} + (if $r == "" then {} else {acceptVulnerabilities: $r} end)')

@@ -170,20 +170,32 @@ describe('the deploy-bootstrap token everywhere else', () => {
     expect(others.some((e) => e.path.startsWith('/plugins/toolchain'))).toBe(false);
   });
 
-  it('is refused 403 on every other route this service mounts', async () => {
-    const accepted: string[] = [];
+  // deploy-bootstrap is an OPT-IN signer (api-core): every requireAuth that
+  // does not name it in `acceptServices` rejects the token at verification
+  // (401 TOKEN_INVALID). Once it is no longer trusted as a service principal
+  // the global rate limiter stops skipping it too, so a long sweep can also
+  // see 429 — either way the token is NEVER admitted. A 2xx/403/404 here would
+  // mean some route reached its handler (or its own authz) with that token.
+  const neverAdmitted = (res: { status: number; body?: { code?: string } }): boolean =>
+    (res.status === 401 && res.body?.code === 'TOKEN_INVALID') || res.status === 429;
+
+  it('is rejected at verification on every other route this service mounts', async () => {
+    const admitted: string[] = [];
     for (const e of others) {
       const path = e.path.replace(/:[A-Za-z0-9_]+/g, 'x');
       const res = await call(e.method, path, bootstrapToken(), ['GET', 'DELETE'].includes(e.method) ? undefined : {});
-      if (res.status !== 403 || res.body?.code !== 'INSUFFICIENT_PERMISSIONS') accepted.push(`${e.method} ${e.path} → ${res.status}`);
+      if (!neverAdmitted(res)) admitted.push(`${e.method} ${e.path} → ${res.status} ${res.body?.code ?? ''}`);
     }
-    expect(accepted).toEqual([]);
+    expect(admitted).toEqual([]);
     expect(mockSetPlatformDefault).not.toHaveBeenCalled();
   }, 60_000);
 
-  it('is refused on the initial route under another method or path', async () => {
-    expect((await call('GET', INITIAL, bootstrapToken())).status).toBe(403);
-    expect((await call('POST', '/plugins/toolchain/other', bootstrapToken(), {})).status).toBe(403);
+  it('is never admitted on the initial route under another method or path', async () => {
+    for (const res of [await call('GET', INITIAL, bootstrapToken()), await call('POST', '/plugins/toolchain/other', bootstrapToken(), {})]) {
+      expect(res.status).not.toBeLessThan(400);
+      expect([401, 404, 429]).toContain(res.status);
+    }
+    expect(mockSetPlatformDefault).not.toHaveBeenCalled();
   });
 
   it('other identities still reach the other routes (the refusal is that identity only)', async () => {
