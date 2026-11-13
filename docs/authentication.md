@@ -21,6 +21,7 @@ Four ways to sign in, one optional second factor, and the machine credentials th
 - **A passkey and a TOTP enrolment belong to the person**, not the deployment — nothing to configure centrally.
 - **Rotating the user-token signing key logs nobody out.** It rotates by `kid`, and every service reads JWKS.
 - **Each service signs its own internal tokens** with its own key, mounted into that service alone; they live 5 minutes.
+- **A service token is never an admin.** Its authority is its name plus an explicit `permissions` grant; `isSuperAdmin` and an admin role on it are ignored, and the out-of-cluster `deploy-bootstrap` signer is refused everywhere that has not opted in.
 - **Service accounts take no seat** and carry their own token-exchange budget.
 - **Assurance levels are enforced, not advisory** — `aal2` gates the consequential actions, with one narrow, time-bounded bootstrap exception.
 
@@ -2134,6 +2135,66 @@ Three properties decided that over an HTTP key set per service:
 `deploy/bin/service-signing-keys.sh` generates and rotates both halves; a service
 refuses to start without them. Rotation is by `kid`, two-phase, and needs no
 coordinated restart: [Secret Rotation](runbooks/secret-rotation.md#internal-service-signing-keys-es256-per-service).
+
+### What a service token may claim
+
+A service's authority is **its name plus an explicit `permissions` grant** —
+never an admin flag. The name is bound to the signing key, so a gate can trust
+it (`requireInternalService`, `isServicePrincipalNamed`); the `permissions` claim
+is the least-privilege way to let one call satisfy one permission gate
+(`signServiceToken({ role: 'member', permissions: ['plugins:write'] })`).
+
+Every verifier that accepts a service token — api-core's `requireAuth` and
+`verifyServicePrincipal`, platform's own verifier, image-registry's `/token`
+resolver — goes through `verifyServiceJwt`, which **strips the authority claims a
+service may not assert about itself** (`withoutServiceAuthorityClaims`):
+
+| Claim on the token | What the request sees |
+|---|---|
+| `isSuperAdmin: true` | dropped — superadmin belongs to a person, minted only by platform's user signer |
+| `isAdmin: true` | `false` |
+| `role: owner` / `role: admin` | `member` |
+| `permissions: [...]` | kept, and checked by `requirePermission` like any other principal's |
+
+This is fail-safe: a gate that wrongly leaned on a service token's admin claim
+now answers 403; it can never grant more. A `role` above `member` passed to
+`signServiceToken` therefore confers nothing on the receiving side.
+
+### The deploy-bootstrap signer (opt-in only)
+
+`deploy-bootstrap` is the one signer whose private key lives **outside the
+cluster** — on the operator / CI host (`deploy/<target>/certs/service-keys/deploy-bootstrap.key`,
+and the `service-key-deploy-bootstrap` Secret the push pod reads). The deploy
+scripts sign with it (`sign_service_jwt` in `deploy/bin/common.sh`) to push the
+plugin base images into the in-cluster registry.
+
+Its public key is in the bundle every service mounts, so trust in it is **opted
+into per seam** instead of inherited from the bundle:
+
+- **By default every service refuses it** — `verifyServiceJwt` rejects a valid
+  `deploy-bootstrap` token unless the call site names the signer, and
+  `requireAuth` answers **401 `TOKEN_INVALID`**, exactly as for a key that is not
+  in the bundle (to that service it is not a trusted issuer). The refusal is
+  counted as `service_token_verify_total{result="signer_not_accepted"}`, which
+  `ServiceTokenVerifyFailing` alerts on.
+- **A seam opts in explicitly.** A route: `requireAuth({ acceptServices: ['deploy-bootstrap'] })`;
+  a resolver: `verifyBearerToken(token, { acceptServices: ['deploy-bootstrap'] })`.
+  The list of opt-in signers is `OPT_IN_SERVICE_SIGNERS` in
+  `packages/api-core/src/services/service-keys.ts`. An opted-in token is still an
+  ordinary service principal: no superadmin, no admin — gate it on its name and
+  its `permissions`.
+- **Today only image-registry's `/token` resolver opts in** (`auth-resolver.ts`,
+  Basic-auth password path). It grants `deploy-bootstrap` **pull+push on
+  `library/*` and nothing else**, and only when the token carries
+  `plugins:write` (`mayPushBaseImages`); every other namespace gets the ordinary
+  rules (no push into `system/*`, any `org-*`, `public/*` or `quarantine/*`).
+
+The token the signer mints has the same shape as `signServiceToken`'s: `sub:
+service:deploy-bootstrap`, `role: member`, no `isAdmin`/`isSuperAdmin`, the
+`permissions` its caller names (`sign_service_jwt KEY BUNDLE plugins:write
+[TTL]` — required, validated as `resource:action`), a per-mint `jti`, and a 300 s
+default TTL (`push-base-images.sh` passes 900 s, `PUSH_JWT_TTL`, because its crane
+pod may take minutes to schedule).
 
 ### Internal routes
 

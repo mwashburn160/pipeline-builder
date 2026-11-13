@@ -161,7 +161,9 @@ esac
 # aborted the base push partway (e.g. after rust-base, before ruby-base).
 # Override with PUSH_JWT_TTL.
 # -----------------------------------------------------------------------
-_sign_platform_jwt() { sign_service_jwt "$BOOTSTRAP_KEY_FILE" "$BOOTSTRAP_BUNDLE_FILE" "${PUSH_JWT_TTL:-900}"; }
+# `plugins:write` is the one permission the push needs: image-registry grants the
+# deploy-bootstrap identity push on `library/*` with it, and nothing else.
+_sign_platform_jwt() { sign_service_jwt "$BOOTSTRAP_KEY_FILE" "$BOOTSTRAP_BUNDLE_FILE" plugins:write "${PUSH_JWT_TTL:-900}"; }
 if [ -z "$(_sign_platform_jwt)" ]; then
   echo "ERROR: failed to sign the deploy-bootstrap service token (run deploy/bin/service-signing-keys.sh?)" >&2
   exit 1

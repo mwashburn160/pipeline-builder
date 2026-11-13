@@ -316,6 +316,68 @@ export function signServiceJwt(
   return compactJws(signingInput, signature);
 }
 
+// ---------------------------------------------------------------------------
+// What a service token may assert
+// ---------------------------------------------------------------------------
+
+/**
+ * Signers whose key is published in the bundle but whose PRIVATE half lives
+ * OUTSIDE the cluster — today only `deploy-bootstrap`, which the deploy scripts
+ * hold on the operator / CI host (`certs/service-keys/deploy-bootstrap.key`)
+ * for the registry base-image push.
+ *
+ * Because the public bundle is mounted into EVERY service, a token from such a
+ * signer would otherwise verify everywhere. So {@link verifyServiceJwt} refuses
+ * these signers unless the call site names them in `acceptServices` — trust in
+ * an out-of-cluster key is opted into per verification seam, never inherited
+ * from the bundle. The seams that opt in today:
+ *
+ *  - api/image-registry `auth-resolver.ts` (the `/token` mint for the
+ *    `library/*` base-image push), via `verifyBearerToken(token, { acceptServices })`.
+ *
+ * A route opts in with `requireAuth({ acceptServices: ['deploy-bootstrap'] })`.
+ */
+export const OPT_IN_SERVICE_SIGNERS: readonly string[] = ['deploy-bootstrap'];
+
+/** Options every service-token verification takes. */
+export interface ServiceJwtVerifyOptions {
+  kid: string;
+  issuer?: string;
+  audience?: string;
+  /**
+   * {@link OPT_IN_SERVICE_SIGNERS} this call site trusts. Any opt-in signer
+   * NOT listed is refused as an invalid token (401 at `requireAuth`). Naming an
+   * ordinary in-cluster service here is a no-op — those are always accepted.
+   */
+  acceptServices?: readonly string[];
+}
+
+/**
+ * The claims of a verified service token with every AUTHORITY claim a service
+ * may not assert about itself removed. A service principal's authority is its
+ * NAME (bound to its key — `requireInternalService`, `isServicePrincipalNamed`)
+ * plus the explicit least-privilege `permissions` claim, and nothing else:
+ *
+ *  - `isSuperAdmin` is dropped — superadmin is a property of a PERSON, minted
+ *    only by platform's user signer; a service key cannot confer it;
+ *  - `isAdmin` is forced `false` and an `owner`/`admin` `role` is clamped to
+ *    `member` — org admin-ness is likewise a person's membership, and every
+ *    org-admin predicate (`isOrgAdmin`, `isAdmin === true`) reads one of these.
+ *
+ * Fail-safe by construction: a gate that wrongly relied on a service token's
+ * admin claim now refuses (403), it never grants more. Applied inside
+ * {@link verifyServiceJwt}, so EVERY chain that accepts a service token —
+ * api-core `requireAuth` / `verifyServicePrincipal`, platform's own verifier,
+ * image-registry's `/token` resolver — sees the same reduced claim set.
+ */
+export function withoutServiceAuthorityClaims<T>(claims: T): T {
+  const c = { ...(claims as Record<string, unknown>) };
+  delete c.isSuperAdmin;
+  if ('isAdmin' in c) c.isAdmin = false;
+  if (c.role === 'owner' || c.role === 'admin') c.role = 'member';
+  return c as T;
+}
+
 /**
  * Verify an internal service token, SYNCHRONOUSLY, and return its claims.
  *
@@ -324,14 +386,21 @@ export function signServiceJwt(
  * be impersonated by any other service — not even one that holds a valid key of
  * its own — a guarantee no shared secret can give.
  *
+ * Two further rules, both fail-closed:
+ *  - an {@link OPT_IN_SERVICE_SIGNERS opt-in signer} (`deploy-bootstrap`) is
+ *    refused unless `options.acceptServices` names it;
+ *  - the returned claims never carry superadmin or org-admin authority
+ *    ({@link withoutServiceAuthorityClaims}).
+ *
  * @throws {jwt.JsonWebTokenError} unknown `kid`, wrong algorithm, bad
- *         signature, expired, or a `sub` that disagrees with the signing key.
+ *         signature, expired, a `sub` that disagrees with the signing key, or an
+ *         opt-in signer this call site did not accept.
  * @throws {ServiceKeyError} no verification bundle could be read at all — the
  *         token's validity is UNKNOWN and the caller must not treat it as valid.
  */
 export function verifyServiceJwt<T = Record<string, unknown>>(
   token: string,
-  options: { kid: string; issuer?: string; audience?: string },
+  options: ServiceJwtVerifyOptions,
 ): T {
   const entry = verificationKeys().get(options.kid);
   // EVERY emission of this counter carries the same label KEYS. The Prometheus
@@ -362,8 +431,14 @@ export function verifyServiceJwt<T = Record<string, unknown>>(
     emitCounter('service_token_verify_total', { result: 'subject_mismatch', service: entry.serviceName });
     throw new jwt.JsonWebTokenError(`Service token subject ${String(claims.sub)} was signed by ${entry.serviceName}`);
   }
+  if (OPT_IN_SERVICE_SIGNERS.includes(entry.serviceName) && !options.acceptServices?.includes(entry.serviceName)) {
+    // A genuine token from an out-of-cluster signer, presented to a seam that
+    // never opted in to trusting it.
+    emitCounter('service_token_verify_total', { result: 'signer_not_accepted', service: entry.serviceName });
+    throw new jwt.JsonWebTokenError(`Service tokens signed by ${entry.serviceName} are not accepted here`);
+  }
   emitCounter('service_token_verify_total', { result: 'ok', service: entry.serviceName });
-  return claims;
+  return withoutServiceAuthorityClaims(claims);
 }
 
 /**

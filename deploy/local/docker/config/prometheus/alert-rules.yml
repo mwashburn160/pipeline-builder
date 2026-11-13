@@ -2519,7 +2519,7 @@ groups:
           tenancy: platform
         annotations:
           summary: "Internal service tokens are failing to verify ({{ $labels.result }})"
-          description: "{{ $value | humanize }}/s of internal token verifications on {{ $labels.service }} are failing with result={{ $labels.result }} over 5m sustained for 10m. `unknown_kid` → the key bundle is behind a rotation: roll it out everywhere before the private key (docs/runbooks/secret-rotation.md). `subject_mismatch` → a service signed a token naming a DIFFERENT service; treat as a compromise until proven otherwise."
+          description: "{{ $value | humanize }}/s of internal token verifications on {{ $labels.service }} are failing with result={{ $labels.result }} over 5m sustained for 10m. `unknown_kid` → the key bundle is behind a rotation: roll it out everywhere before the private key (docs/runbooks/secret-rotation.md). `subject_mismatch` → a service signed a token naming a DIFFERENT service; treat as a compromise until proven otherwise. `signer_not_accepted` → a valid token from the out-of-cluster `deploy-bootstrap` key reached a service that never opted in to it (only image-registry's /token does); find who is presenting the deploy credential (docs/authentication.md#the-deploy-bootstrap-signer-opt-in-only)."
 
       # ---- Token signing keys unreachable ----
       # `jwks_fetch_total{source,result}` counts every fetch of platform's
