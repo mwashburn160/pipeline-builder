@@ -6,7 +6,7 @@ keywords:
   - hcl
   - provision
 category: deploy
-version: 1.2.0
+version: 1.2.1
 pluginType: CodeBuildStep
 computeType: MEDIUM
 timeout: 45
@@ -98,7 +98,7 @@ commands:
     esac
   - "echo \"Terraform ${TF_ACTION} complete. Output available in tf-output/\""
 env:
-  TF_VERSION: "1.17.1"
+  TF_VERSION: "1.17.2"
   TF_WORKING_DIR: "."
   TF_ACTION: plan
   TF_VAR_FILE: ""
@@ -120,4 +120,5 @@ network:
     - "registry.terraform.io"
     - "releases.hashicorp.com"
 changelog: |
+  1.2.1: Pin refresh 2026-11-13 — Terraform 1.17.2, TFLint 0.66.0; rebuilt on the refreshed base images (AWS CLI 2.40.2).
   1.1.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified.

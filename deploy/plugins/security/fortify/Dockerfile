@@ -17,8 +17,8 @@ RUN apt-retry-install openjdk-17-jre-headless
 # fcli ${FCLI_VERSION} publishes a linux x64 build only (the
 # `fcli-linux_arm64.tgz` asset this used to reference does not exist) — fail
 # loudly on any other architecture.
-ARG FCLI_VERSION=3.29.1
-ARG FCLI_SHA256_AMD64=fe2a0516f6c803156968b34659404509e45e7c046a5693c3a9be5b65d2514e31
+ARG FCLI_VERSION=3.30.0
+ARG FCLI_SHA256_AMD64=d305a71d15ffd10015d7ddb92f0548ca4d15910a9b817f4565c054d7a8effcbd
 RUN set -eux; \
     case "$(dpkg --print-architecture)" in \
       amd64) FCLI_FILE=fcli-linux.tgz; sum="${FCLI_SHA256_AMD64}" ;; \

@@ -6,7 +6,7 @@ keywords:
   - ecr
   - registry
 category: artifact
-version: 1.1.0
+version: 1.1.1
 pluginType: CodeBuildStep
 computeType: MEDIUM
 timeout: 15
@@ -123,5 +123,6 @@ network:
     - "ghcr.io"
     - "pkg-containers.githubusercontent.com"
 changelog: |
+  1.1.1: Pin refresh 2026-11-13 — Rebuilt on the refreshed base images (AWS CLI 2.40.2).
   1.1.0: Scans the built image with trivy before pushing (report-only by default; IMAGE_SCAN_FAIL_ON sets a fail threshold), writes JSON + SARIF to registry-output/security/, and can upload the SARIF to the platform (PB_UPLOAD_SECURITY_REPORTS=true).
   1.0.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified.

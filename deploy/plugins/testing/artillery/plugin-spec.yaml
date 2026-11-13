@@ -6,7 +6,7 @@ keywords:
   - http
   - websocket
 category: testing
-version: 1.0.1
+version: 1.0.2
 pluginType: CodeBuildStep
 computeType: MEDIUM
 timeout: 60
@@ -49,5 +49,6 @@ sourceUrl: https://github.com/mwashburn160/pipeline-builder/tree/main/deploy/plu
 # icon: none — no mark in Simple Icons 16.32.0; no confirmed vendor press-kit permission (monogram; see _icons/SOURCES.md)
 # network.egress: none declared — the step contacts no fixed external host
 changelog: |
+  1.0.2: Pin refresh 2026-11-13 — Rebuilt on the refreshed base images (Node.js 26.13.1).
   1.0.1: No longer downloads Chromium (PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD) — HTTP/WebSocket load tests need no browser. Clears all 281 Critical findings, ~650 MB smaller.
   1.0.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified.

@@ -440,7 +440,12 @@ matches `latest` tells you nothing on its own.
 ### Tool-version freshness
 
 Every pin reachable from a public source was re-verified against current
-upstream on 2026-10-30 and bumped where it had fallen behind. Every
+upstream on 2026-11-13 (previously 2026-10-30) and bumped where it had fallen
+behind, minor and patch only — the majors are listed under "Current holds"
+below. The 2026-11-13 pass took 16 minor and 19 patch updates; every plugin
+whose image changed (directly or through one of the seven refreshed bases) got
+a patch version bump, because a listed version is frozen and an image tag hashes
+only its own plugin directory. Every
 `fetch-verified` digest was re-derived from the real artifact and cross-checked
 against the vendor's published checksum where one exists (rustup's `.sha256`,
 Microsoft's release metadata, Adoptium's `.sha256.txt` plus GitHub's asset
@@ -492,12 +497,26 @@ Holds that have since been LIFTED — the tree is on the newer line in every cas
 so do not re-apply them from this list:
 - **Serverless Framework** — held at 3.x over v4's account/licence requirement;
   now on 4.46.0.
-- **TypeScript** — held at 6.x because TS 7's native compiler drops the JS
-  compiler API `ts-node` needs (cdk-deploy*, cdk-synth); plugins now pin 7.0.2.
+- **TypeScript** — `TYPESCRIPT_VERSION` (quality/typescript-check) pins 7.0.2.
   This is the PLUGIN pin and is independent of the repo's own TypeScript, which
-  still uses the dual-package alias (see `.projenrc.ts`).
+  still uses the dual-package alias (see `.projenrc.ts`). The ts-node plugins
+  are NOT lifted — see the current holds below.
 - **KICS** — held at 2.1.x while 2.2.0 had a GitHub release but no Docker image;
-  the image exists and the pin is 2.2.0.
+  the image exists and the pin is 2.2.1.
+
+Current holds (re-checked 2026-11-13) — a newer major exists upstream and was
+deliberately NOT taken. Re-decide each one at the next pass rather than bumping
+on sight:
+- **.NET 10 (`_dotnet-base`)** — 11.0 is out, but 10 is the LTS line and 11 is
+  STS. The patch on the 10.0 line is taken (10.0.404).
+- **Java 25 (`_jvm-base`, `language/java`, `language/java-oracle`)** — 27 is
+  out, but 25 is the LTS line and 27 is not.
+- **TypeScript 6.0.3 in `cdk-synth`, `cdk-deploy`, `cdk-deploy-multi-region`** —
+  these run `ts-node` 10.9.2, which needs the JS compiler API TS 7's native
+  compiler drops. Moving them needs a ts-node replacement, not a pin bump.
+- **Maven 3.10.0** — 3.10.1 is tagged in apache/maven but not published to
+  archive.apache.org, dlcdn or Maven Central, so there is nothing to download.
+  A tag is not a release; check the dist host.
 
 
 ### Build infrastructure

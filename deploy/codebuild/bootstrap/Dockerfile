@@ -41,9 +41,9 @@
 # because it's a CodeBuild runtime, not a plugin base — it doesn't
 # consume `plugin-base:26.10`.
 
-# Base pinned BY DIGEST (matches projen minNodeVersion 26.13.0): a re-pushed
+# Base pinned BY DIGEST (matches projen minNodeVersion 26.13.1): a re-pushed
 # tag cannot change what CodeBuild runs. Override with --build-arg NODE_IMAGE=….
-ARG NODE_IMAGE=node:26.13.0-slim@sha256:e4db4c914bf8ad241bd24804fc25d272d89bad97e68cdc8a1414862790a02c39
+ARG NODE_IMAGE=node:26.13.1-slim@sha256:e6bedef217677b276c591795e169840edd9096dbf13f29df8ef8d1856b8820bc
 FROM ${NODE_IMAGE}
 
 # ── Debian security updates ──
@@ -68,7 +68,7 @@ RUN set -eux; \
 
 # Add: git (source ops), curl + unzip (AWS CLI install), AWS CLI v2,
 # pipeline-manager. node:26-slim already has Node + npm + ca-certs.
-# Matches the runtime baseline in projen (minNodeVersion: 26.13.0).
+# Matches the runtime baseline in projen (minNodeVersion: 26.13.1).
 # PINNED to the released pipeline-manager version (was "latest"). The release
 # keeps it current: verify_release runs deploy/bin/sync-image-tags.sh, which
 # rewrites this line to packages/pipeline-manager/package.json's version and
@@ -90,7 +90,7 @@ ARG PIPELINE_MANAGER_VERSION="4.5.1"
 # The CLI BUNDLES its dependencies (the published package declares none), so a
 # finding inside it — `tar` in this case — cannot be overridden with another
 # `npm install`. Bumping this pin is the only lever.
-ARG AWS_CDK_VERSION="2.1148.0"
+ARG AWS_CDK_VERSION="2.1148.1"
 # esbuild — synth bundles the PluginLookup Lambda via `aws-lambda-nodejs`
 # (NodejsFunction). When esbuild isn't detected it falls back to DOCKER
 # bundling, which a slim no-docker CodeBuild image can't do (`spawnSync docker

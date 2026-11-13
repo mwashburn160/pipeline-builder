@@ -6,7 +6,7 @@ keywords:
   - poetry
   - pipenv
 category: language
-version: 1.0.0
+version: 1.0.1
 pluginType: CodeBuildStep
 computeType: MEDIUM
 timeout: 15
@@ -85,4 +85,5 @@ network:
     - "pypi.org"
     - "files.pythonhosted.org"
 changelog: |
+  1.0.1: Pin refresh 2026-11-13 — pipenv 2026.11.0.
   1.0.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified.

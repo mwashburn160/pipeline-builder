@@ -40,7 +40,15 @@ FROM ruby:${RUBY_VERSION}
 # packages means this layer only ever fixes the CVEs someone already saw, and
 # the next one fails the gate again. The Ruby version stays pinned either way;
 # `upgrade` never crosses a Debian release.
+#
+# APT_UPGRADE_EPOCH is a cache key, not a pin: the instruction text below is
+# otherwise identical build to build, so a warm builder cache replays the OLD
+# upgrade layer and ships yesterday's packages. Set it to the date of the
+# security refresh you want; changing it re-runs the upgrade. 2026-11-13 takes
+# trixie-security's OpenEXR 3.2.12 (two Criticals in every Ruby plugin).
+ARG APT_UPGRADE_EPOCH=2026-11-13
 RUN set -eux; \
+    echo "apt upgrade epoch ${APT_UPGRADE_EPOCH}"; \
     apt-get update; \
     apt-get upgrade -y; \
     rm -rf /var/lib/apt/lists/*

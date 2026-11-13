@@ -4,7 +4,7 @@
 # Runs terraform init, plan, and apply for infrastructure deployment
 
 # ─── Tool versions (override with --build-arg) ───
-ARG TFLINT_VERSION=0.65.0
+ARG TFLINT_VERSION=0.66.0
 # tfsec USED to provide the security scan here. It is gone, not downgraded:
 # v1.28.14 (May 2025) is its final release, the project's own description now
 # reads "Tfsec is now part of Trivy", and that last build carries ten fixable
@@ -16,7 +16,7 @@ ARG TFLINT_VERSION=0.65.0
 # THAT "clean" HAS AN EXPIRY, and it has probably passed: go1.26.4 is below the
 # 1.26.9 line that fixes GO-2026-6604 and GO-2026-6612, so tflint's stdlib now
 # carries what were Critical findings when the service images were scanned on
-# 2026-10-10. v0.65.0 (pinned above) is the newest tflint release, so there is
+# 2026-10-10. v0.66.0 (pinned above, 2026-11) is the newest tflint release, so there is
 # nothing newer to pin forward to — the same dead end tfsec hit. If a rescan
 # starts failing PLUGIN_VULN_GATE here, that is the cause, and the options are
 # an upstream release, a waiver, or dropping tflint the way tfsec was dropped.
@@ -57,9 +57,9 @@ ENV PATH="${TFENV_ROOT}/bin:${PATH}"
 # tfenv stays because the spec drives it (`tfenv use ${TF_VERSION}`) and it is
 # how a pipeline asks for another version — but only this one is BAKED, so
 # anything else is a runtime download the plugin may not be permitted to make.
-ARG TF_VERSION=1.17.1
-ARG TF_SHA256_AMD64=4638628058e71a55212b1c563712eac03b902128f40740f3dc8174df12135061
-ARG TF_SHA256_ARM64=988e950a1c23058093b0e66ab2d5fb53fc18345ecfbd5871acf51dbac9325edd
+ARG TF_VERSION=1.17.2
+ARG TF_SHA256_AMD64=e6f16b2f0b137ee5729caa8c4e79a3bae4ee261acd198a1fcfa8584a6296605b
+ARG TF_SHA256_ARM64=858e08c181a76b6b223e8c767a8e983922eebe2d062db949a2de66ce040c368c
 RUN set -eux; \
     case "$(dpkg --print-architecture)" in \
       amd64) arch=amd64; sum="${TF_SHA256_AMD64}" ;; \

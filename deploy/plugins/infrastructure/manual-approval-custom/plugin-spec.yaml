@@ -6,7 +6,7 @@ keywords:
   - sns
   - ssm
 category: infrastructure
-version: 1.0.0
+version: 1.0.1
 pluginType: CodeBuildStep
 computeType: SMALL
 timeout: 60
@@ -112,4 +112,5 @@ network:
   egress:
     - "*.amazonaws.com"
 changelog: |
+  1.0.1: Pin refresh 2026-11-13 — Rebuilt on the refreshed base images (AWS CLI 2.40.2).
   1.0.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified.

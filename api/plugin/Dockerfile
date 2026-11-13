@@ -1,13 +1,13 @@
 # Base image pinned BY DIGEST (tag kept for readers): a re-pushed or
 # compromised tag cannot change what a release image is built from. Bump both
 # together (docker buildx imagetools inspect node:<ver>-slim).
-ARG NODE_IMAGE=node:26.13.0-slim@sha256:e4db4c914bf8ad241bd24804fc25d272d89bad97e68cdc8a1414862790a02c39
+ARG NODE_IMAGE=node:26.13.1-slim@sha256:e6bedef217677b276c591795e169840edd9096dbf13f29df8ef8d1856b8820bc
 # Go toolchain that BUILDS every tool below, pinned by digest like the runtime
 # base (docker buildx imagetools inspect golang:<ver>-alpine). Upstream release
 # binaries lag the Go security train badly — the prebuilt cosign v2.6.5 carried 3
 # Critical / 19 High and crane v0.20.2 (Go 1.21.12) 2 Critical — so every Go
 # binary this image ships is compiled here from verified source instead.
-ARG GO_IMAGE=golang:1.27.3-alpine@sha256:d200d2dd76b03a99b52651fd1325aff7dcd35422c35c01bac56571b0507f3deb
+ARG GO_IMAGE=golang:1.27.4-alpine@sha256:0a5f7fe796599ff487605987432e7619ae45beeb2fba4c2ce0b907879932aebf
 # Every tool is pinned by BOTH its upstream release tag and the commit that tag
 # must resolve to: the clone is checked against <TOOL>_COMMIT and the build fails
 # on a mismatch, so a retagged release cannot change what gets the plugin-signing
@@ -182,7 +182,7 @@ RUN set -e; \
 #   v1.2.8 is a safe raise — `go 1.22`, one dep (xyproto/randomstring v1.0.5).
 #
 #   The two `stdlib go1.27.1` criticals (GO-2026-6612, GO-2026-6604) are not in
-#   this list at all — those come from the toolchain, fixed by GO_IMAGE 1.27.3.
+#   this list at all — those come from the toolchain, fixed by GO_IMAGE 1.27.4.
 RUN for t in buildkit crane cosign syft grype; do cp "/src/$t/go.mod" "/tmp/$t.mod" && cp "/src/$t/go.sum" "/tmp/$t.sum"; done \
     && cd /src/buildkit && go get -modfile=/tmp/buildkit.mod \
          golang.org/x/net@v0.62.0 golang.org/x/crypto@v0.58.0 \

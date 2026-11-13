@@ -6,7 +6,7 @@ keywords:
   - oss
   - dependency-scan
 category: security
-version: 1.0.0
+version: 1.0.1
 pluginType: CodeBuildStep
 computeType: SMALL
 timeout: 30
@@ -88,4 +88,5 @@ network:
     - "rubygems.org"
     - "index.rubygems.org"
 changelog: |
+  1.0.1: Pin refresh 2026-11-13 — Rebuilt on the refreshed base images (Node.js 26.13.1); removed read-installed's test fixtures, whose names match two npm malware advisories (false positives).
   1.0.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified.

@@ -9,7 +9,7 @@ ARG DOCKLE_VERSION=0.4.15
 # The commit the v${DOCKLE_VERSION} tag must resolve to (checked after clone).
 ARG DOCKLE_COMMIT=54368575d2a0c34a82fb05c904b8207284a64891
 # Same pinned toolchain as api/plugin's tools stage.
-ARG GO_IMAGE=golang:1.27.3-alpine@sha256:d200d2dd76b03a99b52651fd1325aff7dcd35422c35c01bac56571b0507f3deb
+ARG GO_IMAGE=golang:1.27.4-alpine@sha256:0a5f7fe796599ff487605987432e7619ae45beeb2fba4c2ce0b907879932aebf
 
 FROM hadolint/hadolint:v${HADOLINT_VERSION} AS hadolint-src
 

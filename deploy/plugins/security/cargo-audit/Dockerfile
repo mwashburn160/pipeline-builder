@@ -7,7 +7,7 @@
 
 FROM plugin-rust-base:1.0
 
-ARG CARGO_AUDIT_VERSION=0.22.2
+ARG CARGO_AUDIT_VERSION=0.23.0
 RUN cargo install cargo-audit --version "${CARGO_AUDIT_VERSION}"
 
 WORKDIR /app

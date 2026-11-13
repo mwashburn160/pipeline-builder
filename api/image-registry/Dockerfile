@@ -1,13 +1,13 @@
 # Base image pinned BY DIGEST (tag kept for readers): a re-pushed or
 # compromised tag cannot change what a release image is built from. Bump both
 # together (docker buildx imagetools inspect node:<ver>-alpine).
-ARG NODE_IMAGE=node:26.13.0-alpine@sha256:c6ad9e9c1d80f6eb607c26b4b0a132ff7a2344fad1c78ea3baa2a7d4c8de6d94
+ARG NODE_IMAGE=node:26.13.1-alpine@sha256:6bd9ab43c0ec0190ca7b2d193906cb8b7edf6e7f4afa43ddeccd6452710bffb5
 # Go toolchain that BUILDS cosign, pinned by digest like every other base
 # (docker buildx imagetools inspect golang:<ver>-alpine). Upstream's own release
 # binaries lag the Go security train — cosign v2.6.5's published binary carried 3
 # Critical / 19 High from Go 1.26.4 alone — so we compile from source with a
 # current toolchain instead of downloading a prebuilt asset.
-ARG GO_IMAGE=golang:1.27.3-alpine@sha256:d200d2dd76b03a99b52651fd1325aff7dcd35422c35c01bac56571b0507f3deb
+ARG GO_IMAGE=golang:1.27.4-alpine@sha256:0a5f7fe796599ff487605987432e7619ae45beeb2fba4c2ce0b907879932aebf
 # cosign signs plugin images with the plugin-signing key (this service is its
 # only holder — see src/services/plugin-signing.ts). Built from the upstream tag,
 # with the resolved commit pinned: the clone must land on COSIGN_COMMIT or the

@@ -6,7 +6,7 @@ keywords:
   - threshold
   - reporting
 category: testing
-version: 1.0.0
+version: 1.0.1
 pluginType: CodeBuildStep
 computeType: SMALL
 timeout: 20
@@ -51,4 +51,5 @@ network:
     - "pypi.org"
     - "files.pythonhosted.org"
 changelog: |
+  1.0.1: Pin refresh 2026-11-13 — coverage 7.17.3.
   1.0.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified.

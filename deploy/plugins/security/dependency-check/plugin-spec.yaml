@@ -6,7 +6,7 @@ keywords:
   - dependency-scan
   - cve
 category: security
-version: 1.0.0
+version: 1.0.1
 pluginType: CodeBuildStep
 computeType: MEDIUM
 timeout: 30
@@ -80,4 +80,5 @@ network:
     - "pypi.org"
     - "files.pythonhosted.org"
 changelog: |
+  1.0.1: Pin refresh 2026-11-13 — Node.js 26.13.1, .NET SDK 9.0.321 (a 2026-11-10 security release); rebuilt on the refreshed base images (Go 1.27.4).
   1.0.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified.

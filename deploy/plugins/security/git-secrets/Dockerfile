@@ -7,7 +7,7 @@
 ARG GITLEAKS_VERSION=8.30.1
 # Gitleaks 8.30.1 also carries the fix for CVE-2026-63728 (Sprig template
 # injection, CVSS 8.1), whose advisory has no earlier `fixed` event.
-ARG TRUFFLEHOG_VERSION=3.99.8
+ARG TRUFFLEHOG_VERSION=3.99.9
 # Gitleaks' own go.mod pins `golang.org/x/crypto v0.35.0` (indirect), which
 # carries seven FIXABLE Criticals — so the published binary fails
 # PLUGIN_VULN_GATE and this plugin could not be installed at all. 8.30.1 is
@@ -20,12 +20,12 @@ ARG TRUFFLEHOG_VERSION=3.99.8
 # one available while upstream's newest release still requires the old module.
 # Revisit when a gitleaks release ships a current x/crypto: this whole stage
 # then collapses back to the one-line COPY it replaced.
-ARG XCRYPTO_VERSION=0.58.0
+ARG XCRYPTO_VERSION=0.59.0
 # Gitleaks' go.mod also pins github.com/andybalholm/brotli at a 2025
 # pseudo-version (v1.1.2-0.20250424…), which carries GO-2026-6888 — Critical
-# and CISA KEV-listed, fixed in 1.2.7. Raised to the same v1.2.8 testing/k6
-# and api/plugin use; without it the rebuilt binary still fails the gate.
-ARG BROTLI_VERSION=1.2.8
+# and CISA KEV-listed, fixed in 1.2.7. Raised to v1.3.0, the same pin testing/k6
+# uses; without it the rebuilt binary still fails the gate.
+ARG BROTLI_VERSION=1.3.0
 
 FROM trufflesecurity/trufflehog:${TRUFFLEHOG_VERSION} AS trufflehog-src
 

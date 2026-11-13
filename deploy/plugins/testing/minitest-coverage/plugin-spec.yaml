@@ -6,7 +6,7 @@ keywords:
   - coverage
   - simplecov
 category: testing
-version: 1.0.0
+version: 1.0.1
 pluginType: CodeBuildStep
 computeType: SMALL
 timeout: 20
@@ -44,4 +44,5 @@ network:
     - "rubygems.org"
     - "index.rubygems.org"
 changelog: |
+  1.0.1: Pin refresh 2026-11-13 — Rebuilt on plugin-ruby-base with Debian's 2026-11 security updates (OpenEXR 3.2.12 clears two Criticals).
   1.0.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified.

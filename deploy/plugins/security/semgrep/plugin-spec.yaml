@@ -6,7 +6,7 @@ keywords:
   - custom-rules
   - vulnerability
 category: security
-version: 1.0.1
+version: 1.0.2
 pluginType: CodeBuildStep
 computeType: MEDIUM
 timeout: 30
@@ -64,4 +64,5 @@ network:
     - "semgrep.dev"
     - "metrics.semgrep.dev"
 changelog: |
+  1.0.2: Pin refresh 2026-11-13 — Semgrep 1.185.0.
   1.0.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified.

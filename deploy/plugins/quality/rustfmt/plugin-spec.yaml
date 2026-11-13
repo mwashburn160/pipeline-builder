@@ -6,7 +6,7 @@ keywords:
   - code-style
   - consistency
 category: quality
-version: 1.0.0
+version: 1.0.1
 pluginType: CodeBuildStep
 computeType: SMALL
 timeout: 10
@@ -32,4 +32,5 @@ sourceUrl: https://github.com/mwashburn160/pipeline-builder/tree/main/deploy/plu
 icon: rust
 # network.egress: none declared — the step contacts no fixed external host
 changelog: |
+  1.0.1: Pin refresh 2026-11-13 — Rebuilt on the refreshed base images (Rust 1.100.0).
   1.0.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified.

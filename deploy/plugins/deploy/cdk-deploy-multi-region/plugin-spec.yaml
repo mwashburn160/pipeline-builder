@@ -6,7 +6,7 @@ keywords:
   - multi-region
   - deploy
 category: deploy
-version: 1.0.0
+version: 1.0.1
 pluginType: CodeBuildStep
 computeType: LARGE
 timeout: 60
@@ -287,4 +287,5 @@ network:
     - "registry.npmjs.org"
     - "registry.yarnpkg.com"
 changelog: |
+  1.0.1: Pin refresh 2026-11-13 — Node.js 26.13.1, aws-cdk 2.1148.1; rebuilt on the refreshed base images (AWS CLI 2.40.2).
   1.0.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified.

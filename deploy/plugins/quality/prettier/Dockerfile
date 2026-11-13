@@ -9,7 +9,7 @@
 
 FROM plugin-node-base:1.0
 
-ARG PRETTIER_VERSION=3.9.10
+ARG PRETTIER_VERSION=3.10.1
 RUN npm install -g "prettier@${PRETTIER_VERSION}"
 
 WORKDIR /app

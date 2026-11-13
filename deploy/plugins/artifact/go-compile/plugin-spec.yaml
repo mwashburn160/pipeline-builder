@@ -6,7 +6,7 @@ keywords:
   - cross-compilation
   - compile
 category: artifact
-version: 1.0.0
+version: 1.0.1
 pluginType: CodeBuildStep
 computeType: MEDIUM
 timeout: 20
@@ -44,4 +44,5 @@ network:
     - "proxy.golang.org"
     - "sum.golang.org"
 changelog: |
+  1.0.1: Pin refresh 2026-11-13 — Rebuilt on the refreshed base images (Go 1.27.4).
   1.0.0: Initial Official catalog release. Runs as the non-root `plugin` user (uid 1000); every download pinned and digest-verified.
