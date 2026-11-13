@@ -2573,7 +2573,7 @@ CREATE TABLE IF NOT EXISTS ecosystem_notification_queue (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     recipient_user_id TEXT,
     recipient_org_id VARCHAR(255),
-    event VARCHAR(8) NOT NULL CHECK (event ~ '^N([1-9]|1[0-9]|2[0-9])$'),
+    event VARCHAR(8) NOT NULL CHECK (event ~ '^N([1-9][0-9]?)$'),
     digest_key VARCHAR(255),
     payload JSONB NOT NULL DEFAULT '{}',
     deliver_after TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,

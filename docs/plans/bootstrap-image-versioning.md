@@ -855,6 +855,19 @@ org on its next run.
 
 Ordered so that nothing depends on a later phase.
 
+**Status** (branch `feat/toolchain-releases`, one commit per phase, not pushed):
+
+| Phase | State |
+|---|---|
+| 0 | No commit of its own: its checks are tests in the Phase 1–3 suites (synth shape, SelfMutate pin, engines contract, D14 identity) |
+| 1 | Done — `e61d98b6c` |
+| 2 | Done — `e08f52eb9` (+ `5111354be`, the post-rebase deploy-bootstrap signer fix) |
+| 3 | Done — `331c94b6b` |
+| 4 | Done — `b9f78643d` |
+| 5 | Done — toolchain console |
+| 6 | Pending |
+| 7 | Pending |
+
 **Merge units.** Phases 1, 2 and 3 are **one merge unit**: they are built and
 committed in order on the branch, but nothing merges until all three are
 green.

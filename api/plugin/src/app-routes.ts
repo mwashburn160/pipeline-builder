@@ -25,6 +25,7 @@ import { createRestorePluginRoutes } from './routes/restore-plugin.js';
 import { createReviewRoutes } from './routes/reviews.js';
 import { createPublicSecurityNotificationRoutes, createSecurityNotificationRoutes } from './routes/security-notifications.js';
 import { createStorageRoutes } from './routes/storage.js';
+import { createToolchainConsoleRoutes } from './routes/toolchain-console.js';
 import { TOOLCHAIN_MOUNT, createToolchainRoutes } from './routes/toolchain.js';
 import { createUpdatePluginRoutes } from './routes/update-plugin.js';
 import { createUploadPluginRoutes } from './routes/upload-plugin.js';
@@ -115,6 +116,10 @@ export function mountRoutes(app: Express, { quotaService, sseManager }: PluginRo
   // org, each route owns its gate (pipelines:read to look, toolchain:manage +
   // step-up to change); before the read routes so `/:id` can't catch "toolchain".
   app.use(TOOLCHAIN_MOUNT, createOrgToolchainDefaultRoutes());
+  // The Toolchain console (system org only: requireSystemOrgPermission(
+  // 'toolchain:operate') on every route, step-up on every write); same prefix,
+  // before the read routes for `/:id`.
+  app.use(TOOLCHAIN_MOUNT, createToolchainConsoleRoutes());
   app.use('/plugins', createPublisherRoutes());
   // Installs + the org consumption policy + the in-app catalog —
   // org-local, each route owns its gate; before the read routes for `/:id`.

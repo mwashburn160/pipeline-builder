@@ -69,6 +69,12 @@ export type Permission =
   // It never confers anything on the platform default, canary or catalog.
   // Every write also needs `requireStepUp`.
   | 'toolchain:manage'
+  // The Toolchain CONSOLE (plan D9; named after `billing:operate`): publish
+  // lifecycle, canary membership and THE platform default — every org without
+  // its own default moves with it. System-org-only (otherwise ADMIN_PERMISSIONS,
+  // derived from ORG_ASSIGNABLE_PERMISSIONS, would hand it to every tenant
+  // Admin); carried by Platform Operator. Every write also needs `requireStepUp`.
+  | 'toolchain:operate'
   // Platform operations (system-org only). The cross-tenant operator surfaces
   // that used to require the superadmin FLAG, so a deployment can staff them
   // with a Role instead of handing out implicit-all. Split because the two carry
@@ -289,7 +295,7 @@ export const ALL_PERMISSIONS: readonly Permission[] = [
   'plugins:read', 'plugins:write', 'plugins:publish',
   'plugins:install', 'plugin_installs:manage', 'publishers:manage',
   'plugins:moderate', 'publishers:verify',
-  'platform:read', 'orgs:read', 'billing:operate',
+  'platform:read', 'orgs:read', 'toolchain:operate', 'billing:operate',
   'observability_console:open', 'database_console:open', 'objectstore_console:open',
   'oncall:manage',
   'support_cases:write', 'support_content:write',
@@ -388,6 +394,7 @@ export const PERMISSION_CATALOG: readonly PermissionMeta[] = [
   { id: 'publishers:verify', label: 'Verify publishers', description: 'Approve Verified applications, publisher tier and profile changes, and ownership transfers (system org only)', category: 'Plugin Ecosystem' },
   { id: 'platform:read', label: 'View platform operations', description: 'Read the platform settings and the cross-tenant organization list (system org only)', category: 'Platform operations' },
   { id: 'orgs:read', label: 'View all organizations', description: 'List and open every organization on the deployment \u2014 the roster the operator surfaces work from (system org only)', category: 'Platform operations' },
+  { id: 'toolchain:operate', label: 'Operate the platform toolchain', description: 'Run the Toolchain console: canary membership, release notes, deprecate / yank / delete releases, and set the platform default every org without its own follows (system org only)', category: 'Platform operations' },
   { id: 'billing:operate', label: 'Operate discounts and promotions', description: 'Create, apply and revoke discount tokens and promotion campaigns across tenants (system org only)', category: 'Platform operations' },
   { id: 'observability_console:open', label: 'Open the observability consoles', description: 'Open Grafana and Kiali — dashboards, traffic and mesh health across every tenant (system org only)', category: 'Platform operations' },
   { id: 'database_console:open', label: 'Open the database consoles', description: 'Open pgAdmin and mongo-express — a direct read/write shell over every tenant\u2019s rows (system org only)', category: 'Platform operations' },
@@ -565,6 +572,9 @@ export const SYSTEM_ORG_ONLY_PERMISSIONS: readonly Permission[] = [
   'orgs:manage',
   'quotas:manage',
   'plugin_queue:manage',
+  // The Toolchain console (plan D9): THE platform default and canary move the
+  // build toolchain of every org that follows it, so no tenant may hold it.
+  'toolchain:operate',
 ];
 
 /** Whether `permission` may be held only inside the system org. */
@@ -730,6 +740,9 @@ export const PLATFORM_OPERATOR_PERMISSIONS: readonly Permission[] = [
   // queue and purge its dead-letter queue.
   'quotas:manage',
   'plugin_queue:manage',
+  // The Toolchain console (plan D9): canary, promotion, rollback and release
+  // lifecycle of the managed build toolchain — running the deployment.
+  'toolchain:operate',
   // Reads that make the operator views usable: the dashboards the posture panels
   // live on, the cross-tenant log view, and the customer's plan when a limit is
   // the thing being debugged.

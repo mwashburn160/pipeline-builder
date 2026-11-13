@@ -95,5 +95,37 @@ export const pipelineToolchainTopic: HelpTopic = {
         },
       ],
     },
+    {
+      id: 'operators',
+      title: 'For platform operators: the Toolchain console',
+      blocks: [
+        {
+          type: 'text',
+          content:
+            'Platform → Toolchain (`/dashboard/toolchain`) is the system organization\'s console for releases. It needs `toolchain:operate`, which only the system organization can hold (the Platform Operator Role carries it). Every change re-verifies your identity and is audited.',
+        },
+        {
+          type: 'table',
+          headers: ['Panel', 'What it is for'],
+          rows: [
+            ['Releases', 'Every release with both halves\' digests and scans, status and notes. Edit notes, add canary orgs, set as default, deprecate, yank, delete.'],
+            ['Canary', 'Try a release on a few orgs. An org with its own default is flagged: the canary has no effect there. "Promote" stays disabled until the gate passes: at least N synth runs across at least M orgs, with a failure rate within T points of the default\'s (defaults 20, 2, 5; each org counts for at most N/M runs). Promoting anyway needs a written reason.'],
+            ['Adoption', 'Pipelines on a release across all orgs, by how they resolve it (pin, org default, canary, platform default) and per org. Exports to CSV.'],
+            ['Affected', 'Pipelines deployed on a release whose latest synth failed. "Notify affected owners" sends each owner `pipeline-manager pipeline deploy --id <id>`, which re-synthesizes against the current default.'],
+            ['History', 'Every platform-default change. "Set previous as default" is the normal rollback; its canary gate is waived.'],
+            ['Cleanup', 'Releases nothing references, older than the last 5 defaults. Delete is refused for anything still in use.'],
+          ],
+        },
+        {
+          type: 'list',
+          items: [
+            'Set as default first shows every guard (both halves live, both scanned, within the fixable-Critical floor, toolchain metadata, canary gate) and the blast radius: how many pipelines in how many orgs follow the platform default and will move on their next run, and how many orgs (own default) and pinned pipelines will not.',
+            'If another operator changed the default while you were reviewing, the promotion is refused with `TOOLCHAIN_DEFAULT_CHANGED`; the preview refreshes and you confirm again.',
+            'Yanking the platform default restores the previous one; the console shows which.',
+            'The canary gate is advisory: run outcomes are reported from customer accounts, so it informs your decision and is not a security boundary.',
+          ],
+        },
+      ],
+    },
   ],
 };

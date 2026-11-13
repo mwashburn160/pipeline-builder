@@ -27,11 +27,12 @@ import { PLUGIN_CATALOG_FIELDS, type Plugin, type PluginCatalogField, type Visib
 import { VisibilitySelect, visibilityHint } from '@/components/ui/VisibilitySelect';
 import { CatalogOwnerFields, type CatalogOwner } from '@/components/ui/CatalogOwnerFields';
 import { useAuth } from '@/hooks/useAuth';
-import { isOrgAdmin, isSystemAdmin } from '@/lib/auth-helpers';
+import { hasPermission, isOrgAdmin, isSystemAdmin } from '@/lib/auth-helpers';
+import { isSystemOrgActive } from '@/lib/ecosystem-access';
 import { useUnmountedRef } from '@/hooks/useUnmountedRef';
 import { useAutoCloseTimer } from '@/hooks/useAutoCloseTimer';
 import { invalidate } from '@/lib/api-cache';
-import { TOOLCHAIN_MANAGED_NOTE, isManagedToolchainVersion } from './PluginLifecycleModal';
+import { ToolchainManagedNote, isManagedToolchainVersion } from './PluginLifecycleModal';
 
 /** Props for the EditPluginModal component. */
 interface EditPluginModalProps {
@@ -257,7 +258,7 @@ export default function EditPluginModal({ plugin, canPublish, onClose, onSaved }
         />
       )}
       <SuccessAlert message={success} />
-      {managed && <InfoAlert message={TOOLCHAIN_MANAGED_NOTE} />}
+      {managed && <ToolchainManagedNote canOperateToolchain={isSystemOrgActive(user) && hasPermission(user, 'toolchain:operate')} />}
 
       {!p && fetchError ? (
         <ErrorAlert message={formatError(fetchError, 'Failed to load plugin')} />

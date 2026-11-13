@@ -118,7 +118,7 @@ export const ECOSYSTEM_NOTIFICATION_EVENTS: Readonly<Record<EcosystemNotificatio
   // picked up a KEV or fixable Critical finding, or fell more than three
   // releases behind the platform default. Transactional: it says the org's
   // pipelines are building on something it should move off.
-  N34: { description: 'Managed toolchain release you use was yanked, deprecated, found vulnerable, or fell behind', channels: ['in_app', 'email'], preference: null },
+  N34: { description: 'Managed toolchain: a release you use was yanked, deprecated, found vulnerable or fell behind; the platform default moved; your org joined a canary; or a pipeline needs a re-deploy to recover', channels: ['in_app', 'email'], preference: null },
 };
 
 /** Whether `value` is a notification event number. */

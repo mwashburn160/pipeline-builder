@@ -60,7 +60,7 @@ export function hasPermission(user: User | null, permission: Permission): boolea
  * credential, and pgAdmin, mongo-express and the RustFS console are shells that
  * WRITE.
  *
- * The set below is the REMAINDER: five domain verbs with no synonym in the
+ * The set below is the REMAINDER: six domain verbs with no synonym in the
  * vocabulary, each of which would otherwise be misread as a read. (`:purge` and
  * `:approve` are NOT in it — both are self-classifying, so they ride the suffix
  * pattern above.)
@@ -74,11 +74,16 @@ export function hasPermission(user: User | null, permission: Permission): boolea
  *  - `billing:operate`  — creates, applies and revokes discount tokens and
  *    activates promotion campaigns. It MOVES MONEY for organisations the holder
  *    is not a member of.
+ *  - `toolchain:operate` — runs the Toolchain console: canary membership,
+ *    deprecate / yank / delete releases and the platform default every org
+ *    without its own follows. Its reads are GETs any read-only session may make;
+ *    the writes it carries move every tenant's pipelines.
  */
 const ORG_CONFIG_MUTATIONS = new Set([
   'logs:export',
   'plugins:install', 'plugins:moderate', 'publishers:verify',
   'billing:operate',
+  'toolchain:operate',
 ]);
 export function isMutationPermission(permission: string): boolean {
   return /:(write|manage|publish|open|purge|approve)$/.test(permission) || ORG_CONFIG_MUTATIONS.has(permission);

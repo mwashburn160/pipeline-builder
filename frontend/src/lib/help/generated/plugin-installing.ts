@@ -1,6 +1,6 @@
 // GENERATED FROM docs/plugin-installing.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: f25c908d04ab947eca058155a3298a8889b0cfc3c514a35df701d633b1d73756
+// SOURCE-SHA256: ee55a425fc09572b763fa92d8c9bc70e3ea9274d066e3493e93eea120e6fcc21
 // SPDX-License-Identifier: Apache-2.0
 import { PackagePlus } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -744,8 +744,8 @@ export const pluginInstallingTopic: HelpTopic = {
             ],
             [
               "N34",
-              "The managed toolchain release your org default names was yanked or deprecated, picked up a KEV-listed or fixable Critical finding, or fell more than three promoted releases behind the platform default; or a release your pipelines pin was yanked (the notice names them)",
-              "Your toolchain:manage holders (a team without any: its root's, then the owners); for pins, your pipeline writers",
+              "The managed toolchain release your org default names was yanked or deprecated, picked up a KEV-listed or fixable Critical finding, or fell more than three promoted releases behind the platform default; or a release your pipelines pin was yanked (the notice names them). Also the Toolchain console's announcements: the platform default moved (\"updating to X\" if your org follows it, \"a newer platform toolchain is available\" if it has its own default), your org was added to a canary, or pipelines whose synth failed on a release need pipeline-manager pipeline deploy --id <id> to recover (the notice names them)",
+              "Your toolchain:manage holders (a team without any: its root's, then the owners); for pins and the recovery notice, your pipeline writers",
               "In-app + email, immediate (Pipeline toolchain default)"
             ]
           ]

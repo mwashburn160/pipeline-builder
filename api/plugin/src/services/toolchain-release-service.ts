@@ -210,6 +210,131 @@ function describeGate(g: CanaryGateResult): string {
 
 // -- The guards + write ------------------------------------------------------
 
+/** One §8 guard's verdict, in the order the service applies them. */
+export interface DefaultGuardCheck {
+  code: ErrorCode;
+  ok: boolean;
+  /** Why it fails (or why it passes when that needs saying: waived, accepted). */
+  detail?: string;
+  /** The refusal {@link setPlatformDefault} throws when this guard fails. */
+  refusal?: AppError;
+  /** The canary gate's numbers (the canary guard only, when evaluated). */
+  gate?: CanaryGateResult;
+  /** The vulnerability floor's breaches (the floor guard only). */
+  breaches?: Array<{ name: string; gated: number; flagged: boolean }>;
+  /** The floor was breached but accepted (`initial` + `acceptVulnerabilities`). */
+  accepted?: boolean;
+}
+
+/**
+ * Evaluate every §8 guard for making `input.releaseVersion` the default over
+ * `current` — the ONE implementation behind both {@link setPlatformDefault}
+ * (which throws the first failing guard's refusal) and the console's
+ * default-preview (which shows them all). When the pair is incomplete the
+ * later guards can't be judged and are reported failed as "not checked".
+ */
+async function evaluateGuards(tx: TenantTx, input: Pick<SetPlatformDefaultInput, 'releaseVersion' | 'kind' | 'acceptVulnerabilities' | 'canaryGate'>, current: string | null): Promise<DefaultGuardCheck[]> {
+  const { releaseVersion, kind } = input;
+  const notChecked = (code: ErrorCode): DefaultGuardCheck => ({ code, ok: false, detail: 'Not checked: the release is not a complete, live pair.' });
+
+  // Pair: both halves, one version, active, unyanked, not deprecated, and the release registered.
+  const halves = await releaseHalves(tx, releaseVersion);
+  const missing = TOOLCHAIN_HALVES.filter((n) => !halves.has(n));
+  const notLive = [...halves.values()]
+    .filter((r) => !r.isActive || isYanked(r) || isDeprecated(r))
+    .map((r) => ({ name: r.name, state: isYanked(r) ? 'yanked' : isDeprecated(r) ? 'deprecated' : 'inactive' }));
+  if (missing.length > 0 || notLive.length > 0 || !(await releaseRowExists(tx, releaseVersion))) {
+    const message = `Release ${releaseVersion} is not a complete, live pair`
+      + `${missing.length ? ` (missing: ${missing.join(', ')})` : ''}${notLive.length ? ` (${notLive.map((n) => `${n.name} is ${n.state}`).join(', ')})` : ''}.`;
+    return [
+      { code: ErrorCode.TOOLCHAIN_GUARD_PAIR_INCOMPLETE, ok: false, detail: message, refusal: refusal(ErrorCode.TOOLCHAIN_GUARD_PAIR_INCOMPLETE, message, { releaseVersion, missing, notLive }) },
+      notChecked(ErrorCode.TOOLCHAIN_GUARD_UNSCANNED),
+      notChecked(ErrorCode.TOOLCHAIN_GUARD_VULN_FLOOR),
+      notChecked(ErrorCode.TOOLCHAIN_GUARD_METADATA),
+      notChecked(ErrorCode.TOOLCHAIN_GUARD_CANARY_GATE),
+    ];
+  }
+  const out: DefaultGuardCheck[] = [{ code: ErrorCode.TOOLCHAIN_GUARD_PAIR_INCOMPLETE, ok: true }];
+  const rows = TOOLCHAIN_HALVES.map((n) => halves.get(n)!);
+
+  // Scan: both halves scanned.
+  const unscanned = rows.filter((r) => lastScannedAt(r) === null).map((r) => r.name);
+  if (unscanned.length > 0) {
+    const message = `Release ${releaseVersion} is not scanned yet (${unscanned.join(', ')}); wait for the scan to finish.`;
+    out.push({ code: ErrorCode.TOOLCHAIN_GUARD_UNSCANNED, ok: false, detail: message, refusal: refusal(ErrorCode.TOOLCHAIN_GUARD_UNSCANNED, message, { releaseVersion, unscanned }) });
+  } else {
+    out.push({ code: ErrorCode.TOOLCHAIN_GUARD_UNSCANNED, ok: true });
+  }
+
+  // Floor: within PLUGIN_VULN_MAX_FINDINGS gated (fixable / KEV) findings. The
+  // only override is `acceptVulnerabilities`, on the initial default.
+  const max = pluginVulnMaxFindings();
+  const breaches = rows.flatMap((r) => {
+    const b = floorBreach(r);
+    return b ? [{ name: r.name, gated: b.gated, flagged: b.flagged }] : [];
+  });
+  const accepted = breaches.length > 0 && kind === 'initial' && nonEmpty(input.acceptVulnerabilities);
+  if (breaches.length > 0 && !accepted) {
+    const message = `Release ${releaseVersion} is over the vulnerability floor (${breaches.map((b) => `${b.name}: ${b.gated} gated`).join(', ')}; at most ${max} allowed). `
+      + (kind === 'initial'
+        ? 'Produce a patched release, or accept it explicitly with --accept-initial-vulnerabilities "<reason>".'
+        : 'Produce a patched release.');
+    out.push({
+      code: ErrorCode.TOOLCHAIN_GUARD_VULN_FLOOR,
+      ok: false,
+      detail: message,
+      breaches,
+      refusal: refusal(ErrorCode.TOOLCHAIN_GUARD_VULN_FLOOR, message, { releaseVersion, maxFindings: max, failOn: pluginVulnFailOn(), breaches }),
+    });
+  } else {
+    out.push({ code: ErrorCode.TOOLCHAIN_GUARD_VULN_FLOOR, ok: true, breaches, ...(accepted ? { accepted: true, detail: 'Over the floor, accepted for the initial default.' } : {}) });
+  }
+
+  // Metadata: the bootstrap carries a complete `toolchain`.
+  if (toolchainFromMetadata(halves.get(BOOTSTRAP)!.metadata) === null) {
+    const message = `${BOOTSTRAP}@${releaseVersion} carries no complete toolchain metadata; rebuild the release with deploy/bin/sync-image-tags.sh.`;
+    out.push({ code: ErrorCode.TOOLCHAIN_GUARD_METADATA, ok: false, detail: message, refusal: refusal(ErrorCode.TOOLCHAIN_GUARD_METADATA, message, { releaseVersion }) });
+  } else {
+    out.push({ code: ErrorCode.TOOLCHAIN_GUARD_METADATA, ok: true });
+  }
+
+  // Canary gate: waived for initial, restore and a former default; otherwise
+  // passed (an override with a written reason is the caller's decision). The
+  // refusal carries the gate's numbers, for the console to show.
+  if (kind !== 'set') {
+    out.push({ code: ErrorCode.TOOLCHAIN_GUARD_CANARY_GATE, ok: true, detail: `Waived for ${kind === 'initial' ? 'the initial default' : 'a restore'}.` });
+  } else if (await wasEverDefault(tx, releaseVersion)) {
+    out.push({ code: ErrorCode.TOOLCHAIN_GUARD_CANARY_GATE, ok: true, detail: 'Waived: the release has already been the platform default.' });
+  } else {
+    const gate = await canaryGate(tx, releaseVersion, current, input.canaryGate);
+    if (gate.passed) {
+      out.push({ code: ErrorCode.TOOLCHAIN_GUARD_CANARY_GATE, ok: true, gate });
+    } else {
+      const message = `Release ${releaseVersion} has not passed the canary gate (${describeGate(gate)}); promote it with a written override reason, or wait for the canary.`;
+      out.push({ code: ErrorCode.TOOLCHAIN_GUARD_CANARY_GATE, ok: false, detail: message, gate, refusal: refusal(ErrorCode.TOOLCHAIN_GUARD_CANARY_GATE, message, { releaseVersion, gate }) });
+    }
+  }
+  return out;
+}
+
+/**
+ * The §8 guards for making `releaseVersion` the platform default over the
+ * CURRENT default, as `setPlatformDefault({ kind: 'set' })` would judge them —
+ * no lock, no write (the console's default-preview). Elevated read.
+ */
+export async function previewPlatformDefaultGuards(
+  releaseVersion: string,
+  canaryGateParams?: Partial<CanaryGateParams>,
+): Promise<{ currentDefault: string | null; guards: DefaultGuardCheck[] }> {
+  return elevated(() => withTenantTx(async (tx) => {
+    const [row] = await tx.select({ releaseVersion: schema.toolchainPlatformDefault.releaseVersion }).from(schema.toolchainPlatformDefault)
+      .where(eq(schema.toolchainPlatformDefault.singleton, true));
+    const current = row?.releaseVersion ?? null;
+    const guards = await evaluateGuards(tx, { releaseVersion, kind: 'set', ...(canaryGateParams ? { canaryGate: canaryGateParams } : {}) }, current);
+    return { currentDefault: current, guards };
+  }));
+}
+
 /**
  * Apply a platform-default change inside `tx` (which the caller opened,
  * elevated): lock the singleton, run the §8 guards, write the default, its
@@ -248,77 +373,20 @@ async function applyPlatformDefault(tx: TenantTx, input: SetPlatformDefaultInput
     return { result: { releaseVersion, previousReleaseVersion: current, kind, changed: false }, audit: null };
   }
 
-  // Pair: both halves, one version, active, unyanked, not deprecated, and the release registered.
-  const halves = await releaseHalves(tx, releaseVersion);
-  const missing = TOOLCHAIN_HALVES.filter((n) => !halves.has(n));
-  const notLive = [...halves.values()]
-    .filter((r) => !r.isActive || isYanked(r) || isDeprecated(r))
-    .map((r) => ({ name: r.name, state: isYanked(r) ? 'yanked' : isDeprecated(r) ? 'deprecated' : 'inactive' }));
-  if (missing.length > 0 || notLive.length > 0 || !(await releaseRowExists(tx, releaseVersion))) {
-    throw refusal(
-      ErrorCode.TOOLCHAIN_GUARD_PAIR_INCOMPLETE,
-      `Release ${releaseVersion} is not a complete, live pair`
-        + `${missing.length ? ` (missing: ${missing.join(', ')})` : ''}${notLive.length ? ` (${notLive.map((n) => `${n.name} is ${n.state}`).join(', ')})` : ''}.`,
-      { releaseVersion, missing, notLive },
-    );
+  const checks = await evaluateGuards(tx, input, current);
+  for (const c of checks) {
+    if (c.ok || !c.refusal) continue;
+    // The canary gate, overridden with a written reason (set only).
+    if (c.code === ErrorCode.TOOLCHAIN_GUARD_CANARY_GATE && nonEmpty(input.overrideReason)) continue;
+    throw c.refusal;
   }
-  const rows = TOOLCHAIN_HALVES.map((n) => halves.get(n)!);
-
-  // Scan: both halves scanned.
-  const unscanned = rows.filter((r) => lastScannedAt(r) === null).map((r) => r.name);
-  if (unscanned.length > 0) {
-    throw refusal(
-      ErrorCode.TOOLCHAIN_GUARD_UNSCANNED,
-      `Release ${releaseVersion} is not scanned yet (${unscanned.join(', ')}); wait for the scan to finish.`,
-      { releaseVersion, unscanned },
-    );
-  }
-
-  // Floor: within PLUGIN_VULN_MAX_FINDINGS gated (fixable / KEV) findings. The
-  // only override is `acceptVulnerabilities`, on the initial default.
-  const max = pluginVulnMaxFindings();
-  const breaches = rows.flatMap((r) => {
-    const b = floorBreach(r);
-    return b ? [{ name: r.name, gated: b.gated, flagged: b.flagged }] : [];
-  });
-  const acceptedVulnerabilities = breaches.length > 0 && kind === 'initial' && nonEmpty(input.acceptVulnerabilities);
-  if (breaches.length > 0 && !acceptedVulnerabilities) {
-    throw refusal(
-      ErrorCode.TOOLCHAIN_GUARD_VULN_FLOOR,
-      `Release ${releaseVersion} is over the vulnerability floor (${breaches.map((b) => `${b.name}: ${b.gated} gated`).join(', ')}; at most ${max} allowed). `
-        + (kind === 'initial'
-          ? 'Produce a patched release, or accept it explicitly with --accept-initial-vulnerabilities "<reason>".'
-          : 'Produce a patched release.'),
-      { releaseVersion, maxFindings: max, failOn: pluginVulnFailOn(), breaches },
-    );
-  }
-
-  // Metadata: the bootstrap carries a complete `toolchain`.
-  if (toolchainFromMetadata(halves.get(BOOTSTRAP)!.metadata) === null) {
-    throw refusal(
-      ErrorCode.TOOLCHAIN_GUARD_METADATA,
-      `${BOOTSTRAP}@${releaseVersion} carries no complete toolchain metadata; rebuild the release with deploy/bin/sync-image-tags.sh.`,
-      { releaseVersion },
-    );
-  }
-
-  // Canary gate: waived for initial, restore and a former default; otherwise
-  // passed, or overridden with a written reason. The refusal (and an
-  // override's audit) carries the gate's numbers, for the console to show.
-  let gateOverride: { reason: string; gate: CanaryGateResult } | undefined;
-  if (kind === 'set' && !(await wasEverDefault(tx, releaseVersion))) {
-    const gate = await canaryGate(tx, releaseVersion, current, input.canaryGate);
-    if (!gate.passed) {
-      if (!nonEmpty(input.overrideReason)) {
-        throw refusal(
-          ErrorCode.TOOLCHAIN_GUARD_CANARY_GATE,
-          `Release ${releaseVersion} has not passed the canary gate (${describeGate(gate)}); promote it with a written override reason, or wait for the canary.`,
-          { releaseVersion, gate },
-        );
-      }
-      gateOverride = { reason: input.overrideReason.trim(), gate };
-    }
-  }
+  const gateCheck = checks.find((c) => c.code === ErrorCode.TOOLCHAIN_GUARD_CANARY_GATE);
+  const gateOverride: { reason: string; gate: CanaryGateResult } | undefined = gateCheck && !gateCheck.ok && gateCheck.gate && nonEmpty(input.overrideReason)
+    ? { reason: input.overrideReason.trim(), gate: gateCheck.gate }
+    : undefined;
+  const floorCheck = checks.find((c) => c.code === ErrorCode.TOOLCHAIN_GUARD_VULN_FLOOR);
+  const breaches = floorCheck?.breaches ?? [];
+  const acceptedVulnerabilities = floorCheck?.accepted === true;
 
   const now = new Date();
   await tx.insert(schema.toolchainPlatformDefault)

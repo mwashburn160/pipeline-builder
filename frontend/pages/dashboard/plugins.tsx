@@ -41,6 +41,7 @@ import { PolicyTab } from '@/components/plugin-installs/PolicyTab';
 import { AdvisorySearchPanel } from '@/components/plugin/AdvisorySearchPanel';
 import { PluginInUseModal, pluginInUseRefusal, type PluginInUseRefusal } from '@/components/plugin/PluginInUseModal';
 import { invalidate } from '@/lib/api-cache';
+import { isSystemOrgActive } from '@/lib/ecosystem-access';
 
 // Modals and the recently-deleted panel load on first use — none of them is
 // part of the list's first paint, and the create modal carries the AI builder.
@@ -615,6 +616,7 @@ export default function PluginsPage() {
           action={lifecycleTarget.action}
           onClose={() => setLifecycleTarget(null)}
           onDone={afterWrite}
+          canOperateToolchain={isSystemOrgActive(user) && can('toolchain:operate')}
         />
       )}
 

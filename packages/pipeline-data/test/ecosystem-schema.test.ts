@@ -279,3 +279,18 @@ describe('the seeded auto-approval rule ids match the DDL', () => {
     expect(seeded).toEqual(Object.values(eco.SEEDED_AUTO_APPROVAL_RULE_IDS).slice().sort());
   });
 });
+
+describe('ecosystem_notification_queue.event accepts every defined notification event', () => {
+  // The retry queue's CHECK once stopped at N29 while api-core defined N30-N34,
+  // so a failed send of a newer event could not be queued for retry. Pin the
+  // constraint to the event catalog so the next event added can't regress it.
+  it('every ECOSYSTEM_NOTIFICATION_EVENTS id satisfies the DDL CHECK', async () => {
+    const { ECOSYSTEM_NOTIFICATION_EVENTS } = await import('@pipeline-builder/api-core');
+    const m = DDL.match(/CREATE TABLE[^;]*ecosystem_notification_queue[\s\S]*?event VARCHAR\(\d+\) NOT NULL CHECK \(event ~ '([^']+)'\)/);
+    expect(m).not.toBeNull();
+    const re = new RegExp(m![1]);
+    const ids = Object.keys(ECOSYSTEM_NOTIFICATION_EVENTS);
+    expect(ids.length).toBeGreaterThan(30);
+    expect(ids.filter((id) => !re.test(id))).toEqual([]);
+  });
+});

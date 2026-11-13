@@ -672,7 +672,7 @@ export const ecosystemNotificationQueue = pgTable('ecosystem_notification_queue'
   // The dispatcher's scan: undelivered rows that are due.
   dueIdx: index('ecosystem_notification_due_idx').on(table.deliverAfter).where(sql`delivered_at IS NULL`),
   digestIdx: index('ecosystem_notification_digest_idx').on(table.digestKey).where(sql`delivered_at IS NULL`),
-  eventCheck: check('ecosystem_notification_queue_event_check', sql`${table.event} ~ '^N([1-9]|1[0-9]|2[0-9])$'`),
+  eventCheck: check('ecosystem_notification_queue_event_check', sql`${table.event} ~ '^N([1-9][0-9]?)$'`),
 }));
 
 // ---------------------------------------------------------------------------

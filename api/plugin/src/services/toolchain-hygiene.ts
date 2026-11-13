@@ -226,3 +226,127 @@ export async function notifyToolchainHygiene(event: ToolchainHygieneEvent): Prom
     return result;
   }
 }
+
+// -----------------------------------------------------------------------------
+// Console announcements (§9, §10, Phase 5): promotion, canary membership and
+// the recovery hint. The SAME path as the hygiene notices — N34, immediate, the
+// org's `toolchain:manage` holders (a team without any: its root's, then the
+// owners), or its pipeline writers for the per-pipeline recovery hint — and the
+// same counters (`toolchain_hygiene_notices_total{kind}` and the alerted
+// `toolchain_hygiene_notice_failures_total{kind}`). WHO is told is decided by
+// the caller (the Toolchain console service, which walks the org hierarchy);
+// each notice names only the receiving org's own pipelines.
+// -----------------------------------------------------------------------------
+
+/** One affected pipeline, as the recovery hint names it. */
+export interface RecoveryPipeline { id: string; name: string | null }
+
+/** What the console announces. */
+export type ToolchainAnnouncement =
+  /** A promotion: orgs that FOLLOW the platform default move; orgs with their own default stay. */
+  | { kind: 'promoted'; releaseVersion: string; followingOrgIds: readonly string[]; ownDefaults: ReadonlyArray<{ orgId: string; releaseVersion: string }> }
+  /** Orgs added to (or moved into) a release's canary. */
+  | { kind: 'canary'; releaseVersion: string; orgs: ReadonlyArray<{ orgId: string; hasOrgDefault: boolean }> }
+  /** Pipelines on `releaseVersion` whose latest synth failed: how to re-deploy each. */
+  | { kind: 'recovery'; releaseVersion: string; orgs: ReadonlyArray<{ orgId: string; pipelines: readonly RecoveryPipeline[] }> };
+
+/** How many orgs (and, for recovery, pipelines) a notice reached. */
+export interface ToolchainAnnouncementResult { orgs: number; pipelines: number }
+
+export function renderFollowingNotice(releaseVersion: string): { subject: string; text: string } {
+  return {
+    subject: `Pipeline toolchain is updating to ${releaseVersion}`,
+    text: [
+      `Pipeline toolchain is updating to ${releaseVersion}, effective on each pipeline's next run.`,
+      'Your organization follows the platform default, so its unpinned pipelines pick it up automatically; pipelines that pin toolchain.release stay on their pin.',
+      'To stay on a release, choose it as your organization default under Settings → Organization → Pipeline toolchain.',
+    ].join('\n\n'),
+  };
+}
+
+export function renderNewerAvailableNotice(releaseVersion: string, orgDefault: string): { subject: string; text: string } {
+  return {
+    subject: `A newer platform toolchain (${releaseVersion}) is available`,
+    text: [
+      `A newer platform toolchain (${releaseVersion}) is available. Your org stays on ${orgDefault} until you change it.`,
+      'Switch your organization default, or follow the platform default, under Settings → Organization → Pipeline toolchain.',
+    ].join('\n\n'),
+  };
+}
+
+export function renderCanaryNotice(releaseVersion: string, hasOrgDefault: boolean): { subject: string; text: string } {
+  return {
+    subject: `Your organization joined the canary for toolchain ${releaseVersion}`,
+    text: [
+      `Your organization was added to the canary for pipeline toolchain release ${releaseVersion}.`,
+      hasOrgDefault
+        ? 'It has no effect while your organization default is set: your pipelines stay on that default.'
+        : 'Your unpinned pipelines build on it from their next run; pipelines that pin toolchain.release stay on their pin. Its run results count toward the release\'s promotion.',
+    ].join('\n\n'),
+  };
+}
+
+export function renderRecoveryNotice(releaseVersion: string, pipelines: readonly RecoveryPipeline[]): { subject: string; text: string } {
+  const named = pipelines.slice(0, MAX_NAMED).map((p) => `  • ${p.name ?? p.id}:  pipeline-manager pipeline deploy --id ${p.id}`);
+  const more = pipelines.length > MAX_NAMED ? [`  … and ${pipelines.length - MAX_NAMED} more (the console lists them)`] : [];
+  return {
+    subject: `Action needed: re-deploy pipelines whose synth failed on toolchain ${releaseVersion}`,
+    text: [
+      `The synth step of these pipelines last failed on pipeline toolchain release ${releaseVersion}. A pipeline whose synth fails cannot update itself, so it stays on that release until it is re-deployed.`,
+      `Run this from a workstation for each one; it re-synthesizes against the current toolchain and deploys:\n${[...named, ...more].join('\n')}`,
+      "See \"My pipeline's synth step fails after a toolchain update\" in the pipeline-manager guide.",
+    ].join('\n\n'),
+  };
+}
+
+function count(kind: string, n: number): void {
+  if (n > 0) incCounter('toolchain_hygiene_notices_total', { kind }, n);
+}
+
+/**
+ * Send a console announcement. Never throws: a failure is logged and counted
+ * per org, and the result counts only the orgs (pipelines) actually reached.
+ */
+export async function announceToolchain(event: ToolchainAnnouncement): Promise<ToolchainAnnouncementResult> {
+  const result: ToolchainAnnouncementResult = { orgs: 0, pipelines: 0 };
+  const failed = (err: unknown, orgIds: readonly string[]) => {
+    incCounter('toolchain_hygiene_notice_failures_total', { kind: event.kind });
+    logger.warn('Toolchain announcement failed', { kind: event.kind, releaseVersion: event.releaseVersion, orgs: orgIds.length, error: errorMessage(err) });
+  };
+  const toManagers = async (orgIds: readonly string[], content: { subject: string; text: string }) => {
+    for (let i = 0; i < orgIds.length; i += RECIPIENT_CHUNK) {
+      const chunk = orgIds.slice(i, i + RECIPIENT_CHUNK);
+      try {
+        await enqueueEcosystemNotification('N34', chunk.map(managers), content, { immediate: true });
+        result.orgs += chunk.length;
+      } catch (err) { failed(err, chunk); }
+    }
+  };
+
+  if (event.kind === 'promoted') {
+    if (event.followingOrgIds.length > 0) await toManagers(event.followingOrgIds, renderFollowingNotice(event.releaseVersion));
+    // Every org on the same own default gets the same text, so they share notices.
+    const byRelease = new Map<string, string[]>();
+    for (const d of event.ownDefaults) {
+      if (d.releaseVersion === event.releaseVersion) continue;
+      byRelease.set(d.releaseVersion, [...(byRelease.get(d.releaseVersion) ?? []), d.orgId]);
+    }
+    for (const [orgDefault, orgIds] of byRelease) await toManagers(orgIds, renderNewerAvailableNotice(event.releaseVersion, orgDefault));
+  } else if (event.kind === 'canary') {
+    for (const hasOrgDefault of [false, true]) {
+      const orgIds = event.orgs.filter((o) => o.hasOrgDefault === hasOrgDefault).map((o) => o.orgId);
+      if (orgIds.length > 0) await toManagers(orgIds, renderCanaryNotice(event.releaseVersion, hasOrgDefault));
+    }
+  } else {
+    for (const org of event.orgs) {
+      if (org.pipelines.length === 0) continue;
+      try {
+        await enqueueEcosystemNotification('N34', [pipelineWriters(org.orgId)], renderRecoveryNotice(event.releaseVersion, org.pipelines), { immediate: true });
+        result.orgs += 1;
+        result.pipelines += org.pipelines.length;
+      } catch (err) { failed(err, [org.orgId]); }
+    }
+  }
+  count(event.kind, result.orgs);
+  return result;
+}

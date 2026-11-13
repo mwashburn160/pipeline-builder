@@ -46,6 +46,11 @@ installTestJwks([userKey]);
 
 const mockSetPlatformDefault = jest.fn<AnyFn>();
 jest.unstable_mockModule('../src/services/toolchain-release-service.js', () => ({ setPlatformDefault: mockSetPlatformDefault }));
+// The Toolchain console mounts on the same prefix and wraps this service; its gates are toolchain-console-routes.test.ts.
+jest.unstable_mockModule('../src/services/toolchain-console-service.js', () => Object.fromEntries([
+  'deleteConsoleRelease', 'deprecateConsoleRelease', 'getAffected', 'getCanary', 'getCleanupCandidates', 'getDefaultHistory', 'getReleaseAdoption',
+  'listConsoleReleases', 'notifyAffected', 'previewDefault', 'promoteRelease', 'replaceRollout', 'setReleaseNotes', 'yankConsoleRelease',
+].map((name) => [name, jest.fn<AnyFn>()])));
 
 const { buildRouteTable, AppError, ErrorCode, SYSTEM_ORG_ID } = await import('@pipeline-builder/api-core');
 const { createApp, attachRequestContext } = await import('@pipeline-builder/api-server');
@@ -175,10 +180,16 @@ describe('the deploy-bootstrap token everywhere else', () => {
 
   it('sweeps a real route table', () => {
     expect(others.length).toBeGreaterThan(100);
-    // The org-default routes share the prefix; the bootstrap token is refused there like everywhere else.
+    // The org-default and Toolchain console routes share the prefix; the bootstrap token is refused there like everywhere else.
     expect(others.filter((e) => e.path.startsWith('/plugins/toolchain')).map((e) => `${e.method} ${e.path}`).sort()).toEqual([
-      'DELETE /plugins/toolchain/org-default', 'GET /plugins/toolchain/eligible', 'GET /plugins/toolchain/org-default',
-      'GET /plugins/toolchain/org-default/history', 'PUT /plugins/toolchain/org-default',
+      'DELETE /plugins/toolchain/org-default', 'DELETE /plugins/toolchain/releases/:v',
+      'GET /plugins/toolchain/affected', 'GET /plugins/toolchain/cleanup', 'GET /plugins/toolchain/eligible', 'GET /plugins/toolchain/history',
+      'GET /plugins/toolchain/org-default', 'GET /plugins/toolchain/org-default/history',
+      'GET /plugins/toolchain/releases', 'GET /plugins/toolchain/releases/:v/adoption', 'GET /plugins/toolchain/releases/:v/canary',
+      'GET /plugins/toolchain/releases/:v/default-preview', 'PATCH /plugins/toolchain/releases/:v',
+      'POST /plugins/toolchain/affected/notify', 'POST /plugins/toolchain/releases/:v/default',
+      'POST /plugins/toolchain/releases/:v/deprecate', 'POST /plugins/toolchain/releases/:v/yank',
+      'PUT /plugins/toolchain/org-default', 'PUT /plugins/toolchain/releases/:v/rollout',
     ]);
   });
 
