@@ -1071,27 +1071,36 @@ login() {
 # sign_service_jwt — mint a short-lived INTERNAL SERVICE token (no Node deps)
 # for the deploy's own registry pushes. Used by push-base-images.sh and
 # build-plugin-images.sh to authenticate against the in-cluster image registry.
-# Same shape api-core's `signServiceToken` mints, and the same one the plugin
-# service uses for its runtime builds.
+# Same shape api-core's `signServiceToken` mints: a `service:<name>` subject, a
+# least-privilege `permissions` claim, a per-mint `jti`, a short TTL.
 #
 #   $1   path to the `deploy-bootstrap` EC P-256 private key (PKCS#8 PEM)
 #   $2   path to the service key bundle (bundle.json) — supplies the `kid`
-#   $3?  expiry seconds (default 300)
-#   echoes the compact JWT; exits 1 if openssl/jq is missing or the key is not
-#   in the bundle.
+#   $3   the permissions the token carries, comma-separated (e.g. `plugins:write`)
+#        — REQUIRED: say what the token is for, never borrow a broader identity
+#   $4?  expiry seconds (default 300)
+#   echoes the compact JWT; exits 1 if openssl/jq is missing, a permission is
+#   malformed, or the key is not in the bundle.
 #
 # ES256, not HMAC: every service signs with its OWN key, and a verifier resolves
-# the key by `kid` and then requires the token's `sub` to name that key's owner. So this signs as `service:deploy-bootstrap` with the deploy's own
-# key (deploy/bin/service-signing-keys.sh), which is published in the bundle like
+# the key by `kid` and then requires the token's `sub` to name that key's owner.
+# So this signs as `service:deploy-bootstrap` with the deploy's own key
+# (deploy/bin/service-signing-keys.sh), which is published in the bundle like
 # any other service's. There is no shared secret left to sign with.
+#
+# LEAST PRIVILEGE. The token asserts NO superadmin and NO admin: role `member`,
+# no `isAdmin`/`isSuperAdmin`. Every verifier strips those claims from a service
+# token anyway (api-core `withoutServiceAuthorityClaims`), and because this key
+# lives OUTSIDE the cluster every service also REFUSES `deploy-bootstrap` tokens
+# unless that seam opts in (`acceptServices`). The only one that does is
+# image-registry's `/token` resolver, which grants push on `library/*` — and
+# nothing else — to `deploy-bootstrap` holding `plugins:write`
+# (auth-resolver.ts `mayPushBaseImages`). It still needs `organizationId` (not
+# `orgId`) and a well-formed service identity (`principalType`, `token_use`, a
+# `service:<name>` subject).
 #
 # It is a SERVICE principal, not a user: every token that speaks for a PERSON is
 # ES256 signed only by PLATFORM, with a key this host does not have.
-#
-# Image-registry's auth resolver requires `organizationId` (not `orgId`) and a
-# well-formed service identity (`principalType`, `token_use`, a `service:<name>`
-# subject); `isAdmin`/`isSuperAdmin` gate access to `library/*` and `system/*`
-# via the admin-priority rule in `token-service.ts authorizeScope`.
 # ---------------------------------------------------------------------------
 _b64url_jwt() {
   openssl base64 -A | tr '+/' '-_' | tr -d '='
@@ -1107,13 +1116,24 @@ _hex_to_bin() {
 sign_service_jwt() {
   local _key="${1:?sign_service_jwt needs the deploy-bootstrap key file}"
   local _bundle="${2:?sign_service_jwt needs the service key bundle}"
-  local _ttl="${3:-300}"
+  local _perms="${3:?sign_service_jwt needs the permissions the token carries (e.g. plugins:write)}"
+  local _ttl="${4:-300}"
   command -v openssl >/dev/null 2>&1 || { echo "ERROR: openssl required for sign_service_jwt" >&2; return 1; }
   command -v jq >/dev/null 2>&1 || { echo "ERROR: jq required for sign_service_jwt" >&2; return 1; }
   [ -f "$_key" ] || { echo "ERROR: deploy-bootstrap signing key not found: $_key" >&2; return 1; }
   [ -f "$_bundle" ] || { echo "ERROR: service key bundle not found: $_bundle" >&2; return 1; }
+  # Permission ids are `<resource>:<action>` (api-core types/permissions.ts).
+  # Anything else is refused rather than signed: a typo would otherwise mint a
+  # token that is silently refused at the far end.
+  case "$_ttl" in ''|*[!0-9]*) echo "ERROR: sign_service_jwt TTL must be whole seconds, got: $_ttl" >&2; return 1 ;; esac
+  local _p
+  local -a _plist
+  IFS=',' read -r -a _plist <<< "$_perms"
+  for _p in "${_plist[@]}"; do
+    [[ "$_p" =~ ^[a-z_]+:[a-z_]+$ ]] || { echo "ERROR: sign_service_jwt: malformed permission '$_p' (want resource:action)" >&2; return 1; }
+  done
 
-  local _kid _now _exp _header _payload _signing _der _rs _sig
+  local _kid _now _exp _jti _header _payload _signing _der _rs _sig
   # The FIRST key published for deploy-bootstrap is the current one (the
   # generator writes current, then any retiring key).
   _kid="$(jq -r '.services["deploy-bootstrap"].keys[0].kid // empty' "$_bundle")"
@@ -1121,8 +1141,28 @@ sign_service_jwt() {
 
   _now=$(date +%s)
   _exp=$((_now + _ttl))
+  # Unique per mint, like api-core's `signServiceToken` (randomUUID): the
+  # correlation handle for which mint performed an action, and the basis for
+  # replay tracking.
+  _jti="$(openssl rand -hex 16)" || return 1
   _header="$(printf '{"alg":"ES256","typ":"JWT","kid":"%s"}' "$_kid")"
-  _payload=$(printf '{"sub":"service:deploy-bootstrap","username":"deploy-bootstrap-service","email":"deploy-bootstrap@internal","principalType":"service","token_use":"access","type":"access","role":"admin","organizationId":"system","organizationName":"system","isAdmin":true,"isSuperAdmin":true,"iat":%s,"exp":%s}' "$_now" "$_exp")
+  # Built with jq so no value is ever spliced into JSON by hand. No role above
+  # `member`, no isAdmin, no isSuperAdmin — see the header comment.
+  _payload="$(jq -cn --arg jti "$_jti" --arg perms "$_perms" --argjson iat "$_now" --argjson exp "$_exp" '{
+    sub: "service:deploy-bootstrap",
+    username: "deploy-bootstrap-service",
+    email: "deploy-bootstrap@internal",
+    principalType: "service",
+    token_use: "access",
+    type: "access",
+    role: "member",
+    organizationId: "system",
+    organizationName: "system",
+    permissions: ($perms | split(",") | map(select(length > 0))),
+    jti: $jti,
+    iat: $iat,
+    exp: $exp
+  }')" || return 1
   _signing="$(printf %s "$_header" | _b64url_jwt).$(printf %s "$_payload" | _b64url_jwt)"
 
   # openssl signs ECDSA into ASN.1 DER (SEQUENCE of two INTEGERs); JOSE wants the

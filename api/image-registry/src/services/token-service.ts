@@ -58,7 +58,9 @@ const ORG_NAMESPACE_PREFIX = 'org-';
  * unqualified base images (`FROM ubuntu` → `docker.io/library/ubuntu`) is
  * redirected by the buildkit mirror to `registry:5000/library/<name>`, so
  * plugin Dockerfiles using bare `FROM plugin-base:26.10` request a
- * `library/...` pull token. Any authenticated identity pulls; only admins push.
+ * `library/...` pull token. Any authenticated identity pulls; PUSH is the
+ * deploy's `deploy-bootstrap` service principal holding `plugins:write`
+ * (auth-resolver `mayPushBaseImages`) or a platform superadmin's person token.
  * - `public/*` (listed plugin versions, copied on approval and signed fresh
  * with their trust tier) is append-only: every authenticated identity may
  * pull; nobody but this service's own management identity writes, and only
@@ -96,8 +98,10 @@ export const QUARANTINE_SERVICE_PRINCIPAL = 'plugin';
  * principal only (nothing for anyone else); pull on `system/*`;
  * pull,push on `org-{orgId}/*`; pull on `org-{parentOrgId}/*` for a team;
  * pull,push on `system/*` ONLY for the system
- * org (which owns that namespace); only super-admins (platform sysadmin) push
- * on any other namespace (e.g. cross-org or `library/*`)
+ * org (which owns that namespace); pull,push on `library/*` for the
+ * `deploy-bootstrap` service with `plugins:write` (the base-image push); only
+ * super-admins (a platform sysadmin's person token) push on any other namespace
+ * (e.g. cross-org)
  */
 export interface ScopeContext {
   /**
@@ -155,11 +159,11 @@ export function authorizeScope(identity: Identity, requested: RequestedScope, ct
     return requested.actions.filter((a) => a === 'pull');
   }
 
-  // SUPER-admins (platform sysadmin, e.g. the bootstrap base-image push)
-  // get pull+push on any repo. Evaluated first because the namespace rules
-  // below would otherwise downgrade a cross-namespace push to system/* or
-  // library/* into pull-only — which breaks the bootstrap base-image push
-  // and any operator-driven system seeding. Gated on the USER-level
+  // SUPER-admins (a platform sysadmin's PERSON token — never a service token,
+  // whose superadmin claim is stripped at verification) get pull+push on any
+  // repo. Evaluated first because the namespace rules below would otherwise
+  // downgrade a cross-namespace push to system/* or library/* into pull-only,
+  // which breaks operator-driven system seeding. Gated on the USER-level
   // `isSuperAdmin` claim, NOT the org-level `isAdmin` (owner/admin role):
   // an org admin must not be able to push into another org's namespace or
   // overwrite system/library base images. Org admins still get pull+push on
@@ -172,9 +176,9 @@ export function authorizeScope(identity: Identity, requested: RequestedScope, ct
   // `org-{orgId}/*`. A token scoped to the system org may pull there always, and
   // PUSH only with plugins:write (or admin, who holds it implicitly) — mirroring
   // the org-namespace rule below so a plain system-org member can't overwrite a
-  // published system image. The legit sample-plugin build token is minted with
-  // role:'owner' (see api/plugin docker-build.ts) → canWritePlugins, so it keeps
-  // push. Evaluated before the generic `system/*` pull-only rule so an authorized
+  // published system image. The sample-plugin build token is the plugin
+  // service's, minted with `plugins:write` (api/plugin registry-auth.ts) →
+  // canWritePlugins, so it keeps push. Evaluated before the generic `system/*` pull-only rule so an authorized
   // push isn't downgraded. NOT a cross-org grant: a tenant token carries its real
   // orgId, so it never matches here and still only owns its own `org-{id}/*`.
   if (identity.orgId === SYSTEM_ORG_ID && inSystemNamespace(requested.name)) {
@@ -188,9 +192,13 @@ export function authorizeScope(identity: Identity, requested: RequestedScope, ct
   }
 
   // Same for library/* — base images that plugin Dockerfiles depend on
-  // via bare `FROM <name>` references.
+  // via bare `FROM <name>` references. The one non-superadmin PUSH grant here is
+  // the deploy's base-image push: the `deploy-bootstrap` service principal with
+  // an explicit `plugins:write` (auth-resolver `mayPushBaseImages`), and ONLY
+  // into `library/*` — it gets no other namespace beyond the pulls above.
   if (inLibraryNamespace(requested.name)) {
-    return requested.actions.filter((a) => a === 'pull');
+    const allowed = identity.mayPushBaseImages === true ? ['pull', 'push'] : ['pull'];
+    return requested.actions.filter((a) => allowed.includes(a));
   }
 
   // Org-prefixed repo: the matching org can always pull; PUSH additionally requires

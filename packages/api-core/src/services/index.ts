@@ -93,8 +93,11 @@ export {
 // by deep import from inside api-core and its testing helpers.
 export {
   isServiceKid,
+  OPT_IN_SERVICE_SIGNERS,
   serviceIdentity,
   verifyServiceJwt,
+  withoutServiceAuthorityClaims,
+  type ServiceJwtVerifyOptions,
 } from './service-keys.js';
 // The breaker is wired by the shared HTTP client; services consume its EFFECT,
 // not the class. Only the operational surface is public.

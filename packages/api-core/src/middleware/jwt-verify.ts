@@ -61,13 +61,25 @@ export async function verifyUserJwt<T = JwtPayload>(token: string): Promise<T> {
  *
  * Anything that is not ES256 with a `kid` fails in both chains, which is what
  * makes "no HS256 token is accepted anywhere" a property of the code.
+ *
+ * A service token comes back with its authority claims reduced (no
+ * `isSuperAdmin`, no org-admin `role`/`isAdmin` — see
+ * `withoutServiceAuthorityClaims`), and one from an out-of-cluster signer
+ * (`deploy-bootstrap`) is refused unless `options.acceptServices` names it.
  */
-export async function verifyBearerToken(token: string): Promise<JwtPayload> {
+export async function verifyBearerToken(
+  token: string,
+  options: { acceptServices?: readonly string[] } = {},
+): Promise<JwtPayload> {
   const header = decodeJwtHeader(token);
   if (!header?.alg) throw new jwt.JsonWebTokenError('Malformed token header');
 
   if (header.kid && isServiceKid(header.kid)) {
-    const claims = verifyServiceJwt<JwtPayload>(token, { kid: header.kid, ...issuerAudienceOptions() });
+    const claims = verifyServiceJwt<JwtPayload>(token, {
+      kid: header.kid,
+      ...issuerAudienceOptions(),
+      ...(options.acceptServices ? { acceptServices: options.acceptServices } : {}),
+    });
     if (claims.principalType !== 'service') {
       emitCounter('service_key_non_service_token_rejected_total', { alg: header.alg });
       throw new jwt.JsonWebTokenError('A service signing key may only mint a service principal');

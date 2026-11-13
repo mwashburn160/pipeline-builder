@@ -70,6 +70,20 @@ export interface RequireAuthOptions {
    * is being asked.
    */
   maxAge?: number;
+  /**
+   * Out-of-cluster service signers this route trusts (`OPT_IN_SERVICE_SIGNERS`
+   * in `services/service-keys.ts` — today only `'deploy-bootstrap'`, whose
+   * private key lives on the operator / CI host rather than in any pod).
+   *
+   * By default EVERY route refuses such a token with **401 `TOKEN_INVALID`**,
+   * exactly as if its key were not in the bundle — the deploy key's public half
+   * is mounted everywhere, so trusting it must be a per-route decision, not an
+   * inherited one. Opting in admits the token as a plain service principal: it
+   * still carries no superadmin or org-admin authority (no service token does),
+   * so the route must gate on its NAME (`isServicePrincipalNamed`) and/or its
+   * explicit `permissions` claim.
+   */
+  acceptServices?: readonly string[];
 }
 
 /** JWT auth middleware. Use directly or call with options. */
@@ -181,7 +195,10 @@ async function verifyAndAttach(
     // declare itself a service principal. Both pin the algorithm (no
     // alg-confusion, no `alg:none`) and both apply the optional issuer/audience
     // binding.
-    const decoded = await verifyBearerToken(rawToken);
+    const decoded = await verifyBearerToken(
+      rawToken,
+      options.acceptServices ? { acceptServices: options.acceptServices } : {},
+    );
 
     if (decoded.type !== 'access') {
       return sendError(res, HttpStatus.UNAUTHORIZED, 'Only access tokens can be used for API requests', ErrorCode.TOKEN_INVALID);
@@ -243,7 +260,10 @@ async function verifyAndAttach(
     // here so that even a route which mistakenly enables `allowOrgHeaderOverride`
     // can NEVER let an ordinary authenticated user spoof another tenant's org via
     // the header — defence-in-depth against the cross-tenant break this caused.
-    if (options.allowOrgHeaderOverride && decoded.isSuperAdmin === true) {
+    // A SERVICE principal never reaches it: its `isSuperAdmin` is stripped at
+    // verification, and the principal-type check keeps it that way if that ever
+    // regressed.
+    if (options.allowOrgHeaderOverride && decoded.isSuperAdmin === true && decoded.principalType !== 'service') {
       const headerOrgId = getHeaderString(req.headers['x-org-id']);
       const headerOrgName = getHeaderString(req.headers['x-org-name']);
       if (headerOrgId) req.user.organizationId = headerOrgId;

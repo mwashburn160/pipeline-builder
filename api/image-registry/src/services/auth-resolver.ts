@@ -60,6 +60,12 @@ export type Identity =
      * every user / service-account token. Gates the `quarantine/*` namespace.
      */
     serviceName?: string;
+    /**
+     * PUSH on `library/*` (the plugin base images bare `FROM` lines resolve to):
+     * only the `deploy-bootstrap` service carrying {@link BASE_IMAGE_PUSH_PERMISSION}
+     * ({@link mayPushBaseImages}). Absent = pull only.
+     */
+    mayPushBaseImages?: boolean;
   }
   /**
    * An anonymous submission's BUILD: the registry-only credential
@@ -106,15 +112,42 @@ const REGISTRY_PUSH_SCOPE = 'registry:push';
 
 /** The only internal service whose token may push plugin images (its own builds). */
 export const PLUGIN_PUSH_SERVICE = 'plugin';
-/** The deploy scripts' identity (the bootstrap base-image push) — the only service token honoured as a superadmin. */
+/**
+ * The deploy scripts' identity (the base-image push from
+ * `deploy/bin/build-plugin-images.sh` / `push-base-images.sh`). Its private key
+ * lives on the operator / CI host, so api-core refuses its tokens everywhere
+ * unless a seam opts in — this resolver's Path 1 is the only one that does.
+ */
 export const BOOTSTRAP_SERVICE = 'deploy-bootstrap';
+
+/**
+ * The explicit permission a `deploy-bootstrap` token must carry to push base
+ * images — the same capability every other image push is gated on. The deploy
+ * signer (`sign_service_jwt` in deploy/bin/common.sh) is handed it by its
+ * callers; it never asserts superadmin or admin.
+ */
+export const BASE_IMAGE_PUSH_PERMISSION = 'plugins:write';
+
+/**
+ * Whether a verified token may PUSH base images into `library/*`: the
+ * `deploy-bootstrap` SERVICE principal, and only with
+ * {@link BASE_IMAGE_PUSH_PERMISSION} on the token. Nobody else — not a
+ * superadmin's person token either: that identity reaches `library/*` through
+ * the superadmin rule in `authorizeScope`, not through this grant.
+ */
+export function mayPushBaseImages(decoded: Pick<PlatformJwtPayload, 'principalType' | 'permissions'>, serviceName: string | undefined): boolean {
+  return decoded.principalType === 'service'
+    && serviceName === BOOTSTRAP_SERVICE
+    && (decoded.permissions?.includes(BASE_IMAGE_PUSH_PERMISSION) ?? false);
+}
 
 /**
  * Whether a verified token may PUSH plugin images into its org's namespace:
  *
  *  - a SERVICE principal: only `plugin` (its own builds), and only with
- *    `plugins:write` (or an admin role) on the token — no other internal
- *    service writes images, whatever permissions its token claims;
+ *    `plugins:write` on the token (a service token's admin role is cleared at
+ *    verification) — no other internal service writes org images, whatever
+ *    permissions its token claims;
  *  - an ORG SERVICE ACCOUNT: `plugins:write`, or the `registry:push` scope —
  *    the CI push identity, which platform mints only while the account's
  *    creator still holds `plugins:write` (I10);
@@ -148,7 +181,11 @@ export function mayPushPlugins(decoded: Pick<PlatformJwtPayload, 'principalType'
  *        its own key and verified against the per-service public bundle,
  *        and must declare `principalType: 'service'`. This is the path
  *        `api/plugin` uses for its own image pushes and the one the deploy
- *        scripts use for the `deploy-bootstrap` base-image push.
+ *        scripts use for the `deploy-bootstrap` base-image push — the ONE seam
+ *        in the fleet that accepts the out-of-cluster `deploy-bootstrap` signer
+ *        (`acceptServices`). Its authority is the `library/*` push grant
+ *        ({@link mayPushBaseImages}); like every service token it carries no
+ *        superadmin or admin authority.
  *      On success, identity carries the token's `organizationId` + `sub` so
  *      scope authorization can grant `org-{orgId}` access.
  *
@@ -169,7 +206,7 @@ export async function resolveIdentity(username: string, password: string): Promi
   // result. A key is recognised by its shape, so this never intercepts a JWT.
   if (isOpaqueApiKey(password)) {
     try {
-      return await verifyPlatformJwt(await exchangeApiKey(password));
+      return await verifyPlatformJwt(await exchangeApiKey(password), false);
     } catch {
       // Refused or unverifiable: a key has no other path to try (it is not a
       // password), so stop here rather than posting it to /auth/login.
@@ -180,7 +217,7 @@ export async function resolveIdentity(username: string, password: string): Promi
 
   // Path 1: JWT — most common (CodeBuild / Lambda via Secrets Manager,
   // and api/plugin minting service tokens for its own pushes).
-  const fromJwt = await verifyPlatformJwt(password);
+  const fromJwt = await verifyPlatformJwt(password, true);
   if (fromJwt) return fromJwt;
 
   // Path 2: platform user — `docker login` flow.
@@ -198,13 +235,21 @@ export async function resolveIdentity(username: string, password: string): Promi
  * picked up without restarting. Fails CLOSED — an unreachable JWKS yields
  * `null` here, which the caller answers as 401, never as a pass.
  */
-async function verifyPlatformJwt(token: string): Promise<Identity | null> {
+async function verifyPlatformJwt(token: string, acceptBootstrap: boolean): Promise<Identity | null> {
   try {
     // One entry point for both chains. It also enforces the separation that
     // makes the cutover meaningful: an ES256 token may not claim to be a
     // service, and a shared-secret token may not claim to be a person — so no
     // HS256 token can mint registry credentials for a user any more.
-    const decoded = await verifyBearerToken(token) as unknown as PlatformJwtPayload;
+    //
+    // `acceptBootstrap` is set only for a token presented DIRECTLY as the
+    // password (Path 1): that is how the deploy scripts push. A token this
+    // resolver obtained itself (an exchanged key, a /auth/login session) is a
+    // platform-signed user token and never needs the opt-in.
+    const decoded = await verifyBearerToken(
+      token,
+      acceptBootstrap ? { acceptServices: [BOOTSTRAP_SERVICE] } : {},
+    ) as unknown as PlatformJwtPayload;
 
     // Defense-in-depth: only an ACCESS token may mint registry credentials.
     // A refresh/step-up/other-typed token — or one with no `type` at all — is
@@ -265,15 +310,18 @@ async function verifyPlatformJwt(token: string): Promise<Identity | null> {
       ...(parentOrgId ? { parentOrgId } : {}),
       ...(serviceName ? { serviceName } : {}),
       userId: decoded.sub,
-      isAdmin: !!decoded.isAdmin,
-      // A SERVICE token is a superadmin only as the deploy bootstrap (its
-      // base-image push); no other internal service's claim is honoured.
-      isSuperAdmin: !!decoded.isSuperAdmin && (decoded.principalType !== 'service' || serviceName === BOOTSTRAP_SERVICE),
+      // No SERVICE token is an admin or a superadmin: api-core strips those
+      // claims at verification, and the principal-type check here keeps that
+      // true if it ever regressed. A service's authority is its name plus the
+      // explicit grants below.
+      isAdmin: decoded.principalType !== 'service' && !!decoded.isAdmin,
+      isSuperAdmin: decoded.principalType !== 'service' && !!decoded.isSuperAdmin,
       // Push to the org's own namespace (mayPushPlugins): the plugin service's
       // builds, a service account's CI push identity, a plugin-writing person.
       // Pull stays open to all members. Bounded by the namespace rules in
       // `authorizeScope`, which key off `orgId`/`isSuperAdmin`.
       canWritePlugins: mayPushPlugins(decoded, serviceName),
+      ...(mayPushBaseImages(decoded, serviceName) ? { mayPushBaseImages: true } : {}),
     };
   } catch {
     // Error contents may include the raw decode string (which is the user's
@@ -332,7 +380,7 @@ async function resolvePlatformUser(identifier: string, password: string): Promis
       });
       return null;
     }
-    return await verifyPlatformJwt(parsed.data.data.accessToken);
+    return await verifyPlatformJwt(parsed.data.data.accessToken, false);
   } catch {
     // Never interpolate err.message — axios error messages can include the
     // outbound request body, which contains the user's password.

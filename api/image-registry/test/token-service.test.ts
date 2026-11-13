@@ -162,11 +162,26 @@ describe('authorizeScope', () => {
     const lib = authorizeScope( { type: 'jwt', orgId: '000000000000000000000001', userId: 'svc-plugin', isAdmin: false, isSuperAdmin: false, canWritePlugins: false },
       { type: 'repository', name: 'library/ubuntu', actions: ['pull', 'push'] },
     );
-    expect(lib).toEqual(['pull']); // library/* push stays super-admin-only
+    expect(lib).toEqual(['pull']); // library/* push: a superadmin person, or the deploy-bootstrap grant
     const other = authorizeScope( { type: 'jwt', orgId: '000000000000000000000001', userId: 'svc-plugin', isAdmin: false, isSuperAdmin: false, canWritePlugins: false },
       { type: 'repository', name: 'org-acme/foo', actions: ['pull', 'push'] },
     );
     expect(other).toEqual([]); // system org has no claim on a tenant namespace
+  });
+
+  // The deploy's base-image push (`deploy-bootstrap` + `plugins:write`,
+  // auth-resolver `mayPushBaseImages`): push on `library/*` and NOTHING more —
+  // it is not a superadmin, so every other namespace gets the ordinary rules.
+  it('grants the deploy-bootstrap base-image push on library/* only', () => {
+    const bootstrap = { type: 'jwt' as const, orgId: 'system', userId: 'service:deploy-bootstrap', serviceName: 'deploy-bootstrap', isAdmin: false, isSuperAdmin: false, canWritePlugins: false, mayPushBaseImages: true };
+    expect(authorizeScope(bootstrap, { type: 'repository', name: 'library/plugin-base', actions: ['pull', 'push'] })).toEqual(['pull', 'push']);
+    expect(authorizeScope(bootstrap, { type: 'repository', name: 'system/sample', actions: ['pull', 'push'] })).toEqual(['pull']);
+    expect(authorizeScope(bootstrap, { type: 'repository', name: 'org-acme/foo', actions: ['pull', 'push'] })).toEqual([]);
+    expect(authorizeScope(bootstrap, { type: 'repository', name: 'org-system/foo', actions: ['pull', 'push'] })).toEqual(['pull']);
+    expect(authorizeScope(bootstrap, { type: 'repository', name: 'public/foo', actions: ['pull', 'push'] })).toEqual(['pull']);
+    expect(authorizeScope(bootstrap, { type: 'repository', name: 'quarantine/s1', actions: ['pull', 'push'] })).toEqual([]);
+    // Without the grant (no plugins:write on the token) it is pull-only.
+    expect(authorizeScope({ ...bootstrap, mayPushBaseImages: false }, { type: 'repository', name: 'library/plugin-base', actions: ['pull', 'push'] })).toEqual(['pull']);
   });
 
   it('grants pull,push on own org-{orgId}/* to a plugins:write holder', () => {

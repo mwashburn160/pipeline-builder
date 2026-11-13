@@ -380,9 +380,11 @@ describe('signServiceToken', () => {
     expect(decoded.sub).toBe('service:billing');
     expect(decoded.username).toBe('billing-service');
     expect(decoded.organizationId).toBe('000000000000000000000001');
-    expect(decoded.role).toBe('owner');
+    // Minted as owner, but a service token confers no admin authority: every
+    // verifier clamps the role and clears isAdmin (withoutServiceAuthorityClaims).
+    expect(decoded.role).toBe('member');
     expect(decoded.type).toBe('access');
-    expect(decoded.isAdmin).toBe(true);
+    expect(decoded.isAdmin).toBe(false);
     // Gates branch on the claim, not on the `service:` subject shape.
     expect(decoded.principalType).toBe('service');
     expect(decoded.token_use).toBe('access');
@@ -423,7 +425,7 @@ describe('signServiceToken', () => {
     const res = createMockRes();
     requireAuth(req, res, () => {
       expect(req.user?.sub).toBe('service:billing');
-      expect(req.user?.role).toBe('owner');
+      expect(req.user?.role).toBe('member');
       done();
     });
   });

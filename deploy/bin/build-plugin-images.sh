@@ -262,12 +262,14 @@ _build_base_quiet() {
 # Write a one-time docker config with the in-cluster registry's `_token` credential so
 # buildctl can PUSH the built base. Mirrors how api/plugin drives buildkitd (DOCKER_CONFIG
 # carries the registry auth the buildkit exporter reads). The JWT is the deploy's own
-# ES256 `deploy-bootstrap` service token — there is no shared secret to sign with.
+# ES256 `deploy-bootstrap` service token — there is no shared secret to sign with —
+# carrying only `plugins:write`: image-registry grants that identity push on
+# `library/*` and nothing more (auth-resolver.ts `mayPushBaseImages`).
 _BK_AUTH_DIR=""
 _setup_buildkit_auth() {
   [ -n "$_BK_AUTH_DIR" ] && return 0
   local _jwt _auth
-  _jwt="$(sign_service_jwt "${BOOTSTRAP_KEY_FILE:?BOOTSTRAP_KEY_FILE must be set}" "${BOOTSTRAP_BUNDLE_FILE:?BOOTSTRAP_BUNDLE_FILE must be set}")"
+  _jwt="$(sign_service_jwt "${BOOTSTRAP_KEY_FILE:?BOOTSTRAP_KEY_FILE must be set}" "${BOOTSTRAP_BUNDLE_FILE:?BOOTSTRAP_BUNDLE_FILE must be set}" plugins:write)"
   [ -z "$_jwt" ] && { echo "ERROR: failed to sign the deploy-bootstrap service token for the buildkit push" >&2; return 1; }
   _auth="$(printf '%s' "_token:${_jwt}" | base64 | tr -d '\n')"
   _BK_AUTH_DIR="$(mktemp -d)"

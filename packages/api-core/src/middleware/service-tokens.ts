@@ -23,9 +23,16 @@ import { decodeJwtHeader } from '../utils/jwk.js';
 // the claim; the subject names — and since #14 the name is cryptographically
 // bound to the signing key, so it can also be trusted.
 // `requireAuth` accepts these tokens transparently — they pass `decoded.sub`
-// and `decoded.role` checks, and the downstream org/role gates
-// (`requireOrgMembership` in platform's controller helpers, `requireSystemAdmin`)
-// rely on the org/role embedded in the token.
+// and `decoded.role` checks, and downstream tenancy gates read the org embedded
+// in the token.
+//
+// A service token carries NO admin authority, whatever it claims: the verifier
+// (`verifyServiceJwt` → `withoutServiceAuthorityClaims`) drops `isSuperAdmin`,
+// forces `isAdmin: false` and clamps an `owner`/`admin` role to `member`. What a
+// service may do is decided by its NAME (bound to its key —
+// `requireInternalService`, `isServicePrincipalNamed`) and by the explicit
+// `permissions` claim. Tokens from the out-of-cluster `deploy-bootstrap` signer
+// are refused unless the seam opts in (`requireAuth({ acceptServices })`).
 //
 // Tokens default to 5-minute TTL — long enough to survive a backend hop,
 // short enough that a leaked token is low-value.
@@ -76,10 +83,11 @@ export interface ServiceTokenOptions {
   /** TTL in seconds (default 300). */
   ttlSeconds?: number;
   /**
-   * Role the token carries (required — no implicit default). **Pass the LOWEST
-   * role the call actually needs** (`'member'` for read / data-plane calls) so a
-   * leaked service token can't perform admin actions in the target org.
-   * `isAdmin` is derived from this (admin|owner → true).
+   * Role the token carries (required — no implicit default). Pass `'member'`:
+   * every verifier clamps a service token's `owner`/`admin` role to `member`
+   * and its `isAdmin` to `false` (`withoutServiceAuthorityClaims`), so a higher
+   * role confers nothing on the receiving side. Grant a capability through
+   * {@link permissions} instead.
    */
   role: 'owner' | 'admin' | 'member';
   /**

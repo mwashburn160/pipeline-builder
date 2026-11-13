@@ -236,11 +236,29 @@ describe('resolveIdentity', () => {
     await expect(resolveIdentity('_token', serviceKeys.sign('plugin', { organizationId: 'acme' }))).resolves.toMatchObject({ canWritePlugins: false });
   });
 
-  it('honours a service token\'s superadmin claim ONLY for the deploy bootstrap', async () => {
+  // ── The deploy bootstrap (deploy/bin/common.sh `sign_service_jwt`) ──
+
+  it('honours NO service token\'s superadmin or admin claim — the deploy bootstrap included', async () => {
+    // The claim set the deploy signer used to write.
     const bootstrap = serviceKeys.sign('deploy-bootstrap', { organizationId: 'system', isSuperAdmin: true, isAdmin: true, role: 'admin' });
-    await expect(resolveIdentity('_token', bootstrap)).resolves.toMatchObject({ serviceName: 'deploy-bootstrap', isSuperAdmin: true });
+    await expect(resolveIdentity('_token', bootstrap)).resolves.toMatchObject({
+      serviceName: 'deploy-bootstrap', isSuperAdmin: false, isAdmin: false, canWritePlugins: false,
+    });
+    // ...and without the explicit permission it has no push grant either.
+    await expect(resolveIdentity('_token', bootstrap)).resolves.not.toHaveProperty('mayPushBaseImages');
     const other = serviceKeys.sign('evil', { organizationId: 'system', isSuperAdmin: true });
     await expect(resolveIdentity('_token', other)).resolves.toMatchObject({ serviceName: 'evil', isSuperAdmin: false });
+  });
+
+  it('grants the base-image push to deploy-bootstrap ONLY with an explicit plugins:write', async () => {
+    // Exactly what the deploy signer mints now.
+    const bootstrap = serviceKeys.sign('deploy-bootstrap', { organizationId: 'system', role: 'member', permissions: ['plugins:write'], jti: 'j1' });
+    await expect(resolveIdentity('_token', bootstrap)).resolves.toMatchObject({
+      serviceName: 'deploy-bootstrap', mayPushBaseImages: true, isSuperAdmin: false, canWritePlugins: false,
+    });
+    // No other service gets it with the same permission.
+    const pluginToken = serviceKeys.sign('plugin', { organizationId: 'acme', permissions: ['plugins:write'] });
+    await expect(resolveIdentity('_token', pluginToken)).resolves.not.toHaveProperty('mayPushBaseImages');
   });
 
   it('honours the registry:push scope only on a SERVICE ACCOUNT, never on a person\'s key', async () => {
