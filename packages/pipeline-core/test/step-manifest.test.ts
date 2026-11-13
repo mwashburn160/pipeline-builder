@@ -12,10 +12,10 @@
 import { jest, describe, it, expect } from '@jest/globals';
 import { App, Stack } from 'aws-cdk-lib';
 import { Template } from 'aws-cdk-lib/assertions';
+import { TEST_REGISTRY, bootstrapFixture } from './helpers/bootstrap-fixture.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 import type { BuilderProps } from '../src/pipeline/pipeline-builder.js';
 
-process.env.CODEBUILD_DEFAULT_IMAGE = 'aws/codebuild/standard:8.0';
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 
@@ -61,6 +61,8 @@ function build(props: Partial<BuilderProps>) {
     project: 'shop',
     organization: 'acme',
     orgId: 'org-a',
+    registry: TEST_REGISTRY,
+    resolvedBootstrap: bootstrapFixture(),
     synth: {
       source: { type: 'github', options: { repo: 'acme/shop', branch: 'main' } },
       plugin: { name: 'cdk-synth' },

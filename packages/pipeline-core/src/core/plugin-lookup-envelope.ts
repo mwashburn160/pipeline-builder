@@ -17,19 +17,108 @@ export interface LookupWarning {
   readonly severity: LookupWarningSeverity;
 }
 
+/** How a managed toolchain release was chosen for the caller (never anything about other orgs). */
+export type ToolchainResolvedVia = 'pin' | 'org-default' | 'canary' | 'default';
+
+export const TOOLCHAIN_RESOLVED_VIA: readonly ToolchainResolvedVia[] = ['pin', 'org-default', 'canary', 'default'];
+
+/** The exact tool versions a toolchain release carries (the bootstrap spec's `toolchain`). */
+export interface ToolchainVersions {
+  readonly pipelineManager?: string;
+  readonly awsCdk?: string;
+  readonly cdkAssets?: string;
+  readonly esbuild?: string;
+  readonly pnpm?: string;
+  readonly node?: string;
+}
+
+const TOOLCHAIN_VERSION_KEYS: readonly (keyof ToolchainVersions)[] = ['pipelineManager', 'awsCdk', 'cdkAssets', 'esbuild', 'pnpm', 'node'];
+
+/**
+ * The release a managed-name lookup (`pipeline-bootstrap`, `cdk-synth`)
+ * resolved to: `data.toolchain` of the `/plugins/lookup` answer. `versions`
+ * holds the tool versions when the answer (or the plugin record) carries them.
+ */
+export interface LookupToolchain {
+  readonly releaseVersion: string;
+  readonly resolvedVia: ToolchainResolvedVia;
+  readonly versions: ToolchainVersions;
+}
+
+/**
+ * The resolved `pipeline-bootstrap` half of a toolchain release: the plugin
+ * record the default CodeBuild image is pinned to (by its signed digest) and
+ * the release it came from. Produced by `pipeline-manager`'s
+ * `resolveBootstrapImage` (or a `--toolchain-file`) and passed to
+ * `PipelineBuilder` as `resolvedBootstrap`.
+ */
+export interface ResolvedBootstrap {
+  readonly plugin: Plugin;
+  readonly toolchain: LookupToolchain;
+}
+
+/** Pick the string tool versions off an object (unknown keys and non-strings ignored). */
+function pickVersions(raw: unknown): ToolchainVersions {
+  if (!raw || typeof raw !== 'object') return {};
+  const out: Record<string, string> = {};
+  for (const key of TOOLCHAIN_VERSION_KEYS) {
+    const v = (raw as Record<string, unknown>)[key];
+    if (typeof v === 'string' && v.length > 0) out[key] = v;
+  }
+  return out;
+}
+
+/**
+ * The flat `metadata` key prefix the platform persists a build image's
+ * `toolchain` under (`toolchain.awsCdk`, …; api-core `TOOLCHAIN_METADATA_PREFIX`,
+ * repeated here so this module stays dependency-free).
+ */
+const TOOLCHAIN_METADATA_PREFIX = 'toolchain.';
+
+/** The tool versions a plugin row's `metadata` carries as flat `toolchain.<field>` keys. */
+function versionsFromMetadata(metadata: unknown): ToolchainVersions {
+  if (!metadata || typeof metadata !== 'object') return {};
+  const fields: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(metadata as Record<string, unknown>)) {
+    if (k.startsWith(TOOLCHAIN_METADATA_PREFIX)) fields[k.slice(TOOLCHAIN_METADATA_PREFIX.length)] = v;
+  }
+  return pickVersions(fields);
+}
+
+/**
+ * Parse a lookup's `toolchain` block. Null unless it carries a release version
+ * and a known `resolvedVia`. Tool versions come from, lowest precedence first:
+ * the plugin row's `metadata` (`toolchain.<field>` keys, where the platform
+ * persists the bootstrap spec's `toolchain`), the record's own `toolchain`,
+ * the block's flat fields, then `toolchain.versions`.
+ */
+export function parseLookupToolchain(raw: unknown, plugin?: unknown): LookupToolchain | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const { releaseVersion, resolvedVia, versions } = raw as { releaseVersion?: unknown; resolvedVia?: unknown; versions?: unknown };
+  if (typeof releaseVersion !== 'string' || releaseVersion.length === 0) return null;
+  if (!(TOOLCHAIN_RESOLVED_VIA as readonly unknown[]).includes(resolvedVia)) return null;
+  const rec = plugin && typeof plugin === 'object' ? plugin as { toolchain?: unknown; metadata?: unknown } : undefined;
+  return {
+    releaseVersion,
+    resolvedVia: resolvedVia as ToolchainResolvedVia,
+    versions: { ...versionsFromMetadata(rec?.metadata), ...pickVersions(rec?.toolchain), ...pickVersions(raw), ...pickVersions(versions) },
+  };
+}
+
 /**
  * Unwrap a `/plugins/lookup` answer. The platform's success envelope is
  * `{ success, statusCode, data: { plugin, warnings } }` (note the double
  * nesting: `data.plugin`); `{ data: Plugin }`, `{ plugin }` and a bare Plugin
  * are tolerated too. Returns the plugin (null when absent or nameless) and the
- * graded warnings (lifecycle, vulnerability, compliance) that ride beside it.
+ * graded warnings (lifecycle, vulnerability, compliance) that ride beside it,
+ * and — for a managed toolchain name — the release it resolved to (`toolchain`).
  *
  * Dependency-free (type-only imports) so the plugin-lookup Lambda can bundle it.
  */
-export function unwrapLookup(body: unknown): { plugin: Plugin | null; warnings: LookupWarning[] } {
+export function unwrapLookup(body: unknown): { plugin: Plugin | null; warnings: LookupWarning[]; toolchain?: LookupToolchain } {
   if (!body || typeof body !== 'object') return { plugin: null, warnings: [] };
   const inner = (body as { data?: unknown }).data;
-  const container = (inner && typeof inner === 'object' ? inner : body) as { plugin?: unknown; warnings?: unknown };
+  const container = (inner && typeof inner === 'object' ? inner : body) as { plugin?: unknown; warnings?: unknown; toolchain?: unknown };
   const candidate = container.plugin ?? container;
   const plugin = candidate && typeof candidate === 'object' && typeof (candidate as { name?: unknown }).name === 'string'
     && (candidate as { name: string }).name.length > 0
@@ -48,7 +137,8 @@ export function unwrapLookup(body: unknown): { plugin: Plugin | null; warnings: 
       });
     }
   }
-  return { plugin, warnings };
+  const toolchain = parseLookupToolchain(container.toolchain, plugin);
+  return { plugin, warnings, ...(toolchain && { toolchain }) };
 }
 
 /**

@@ -48,6 +48,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@p
   triageExposure: (...a: unknown[]) => mockTriage(...a),
   exposureById: (...a: unknown[]) => mockExposureById(...a),
   declaredPipelinesForPlugin: (...a: unknown[]) => mockDeclaredPipelines(...a),
+  resolveManagedToolchainHalf: (...a: unknown[]) => mockManagedHalf(...a),
   declaredResolution: async (input: { steps: Array<{ label: string; lookupFilter: Record<string, unknown> }>; resolve: AnyFn; pipelineId: string; orgId: string }) => {
     const rows = [];
     for (const s of input.steps) {
@@ -70,6 +71,7 @@ jest.unstable_mockModule('../src/services/ecosystem/installs-store.js', () => ({
 const mockNotify = jest.fn<AnyFn>(async () => undefined);
 jest.unstable_mockModule('../src/services/plugin-security-notifications.js', () => ({ notifyPipelineVulnerable: (...a: unknown[]) => mockNotify(...a) }));
 const mockFindFirst = jest.fn<AnyFn>(async () => null);
+const mockManagedHalf = jest.fn<AnyFn>();
 jest.unstable_mockModule('../src/services/plugin-service.js', () => ({ pluginService: { findFirst: (...a: unknown[]) => mockFindFirst(...a) } }));
 jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@pipeline-builder/pipeline-core', {
   collectPluginSteps: (props: { steps?: Array<{ label: string; name: string; publisher?: string; filter?: Record<string, unknown> }> }) => props.steps ?? [],
@@ -362,6 +364,29 @@ describe('refreshDeclaredResolutions', () => {
     expect(mockReplace).toHaveBeenCalledWith('p-changed', [expect.objectContaining({ resolvedVersion: '1.1.0' })]);
     expect(mockReconcile).toHaveBeenCalledWith(expect.objectContaining({ pipelineId: 'p-changed', source: 'declared' }));
     expect(resolutionRefreshMax()).toBe(500);
+  });
+
+  it('re-resolves a managed toolchain step through the toolchain resolver with the pipeline\'s release pin, never a row or listing', async () => {
+    mockFindFirst.mockClear();
+    mockResolveListing.mockClear();
+    mockReplace.mockClear();
+    mockDeclaredPipelines.mockResolvedValueOnce({
+      truncated: false,
+      pipelines: [
+        { pipelineId: 'p-tc', orgId: 'org-1', rootOrgId: null, props: { toolchain: { release: '1.2.0' }, steps: [{ label: 'synth', name: 'BuildSynth', filter: { name: 'cdk-synth' } }] }, current: new Map() },
+        { pipelineId: 'p-pinned', orgId: 'org-1', rootOrgId: null, props: { steps: [{ label: 'synth', name: 'cdk-synth', filter: { version: '1.0.0' } }] }, current: new Map() },
+      ],
+    });
+    mockManagedHalf.mockResolvedValueOnce({ plugin: { id: 'sys-1', name: 'cdk-synth', version: '1.2.0', imageDigest: DIGEST, scanSummary: null, scanFlag: null, scanFlaggedAt: null } });
+    const out = await refreshDeclaredResolutions({ pluginName: 'cdk-synth', orgId: 'org-1' });
+    expect(out.refreshed).toBe(2);
+    expect(mockManagedHalf).toHaveBeenCalledTimes(1);
+    expect(mockManagedHalf).toHaveBeenCalledWith({ orgId: 'org-1' }, 'cdk-synth', { releasePin: '1.2.0' });
+    expect(mockFindFirst).not.toHaveBeenCalled();
+    expect(mockResolveListing).not.toHaveBeenCalled();
+    expect(mockReplace).toHaveBeenCalledWith('p-tc', [expect.objectContaining({ resolvedVersion: '1.2.0' })]);
+    // A step pinning a managed half's own version resolves to nothing (refused).
+    expect(mockReplace).toHaveBeenCalledWith('p-pinned', [expect.objectContaining({ resolvedVersion: null })]);
   });
 
   it('never throws', async () => {

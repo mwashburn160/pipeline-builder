@@ -200,6 +200,22 @@ describe('POST / (author)', () => {
   });
 });
 
+// D12: a template never carries the pipeline's toolchain release pin.
+describe('templates never round-trip toolchain', () => {
+  it('strips toolchain on create and on update', async () => {
+    const created = res();
+    await handler('post', '/')(req({ body: { name: 'svc', props: { project: 'p', toolchain: { release: '1.2.0' } }, inputs: [] } }), created);
+    expect(created.status).toHaveBeenCalledWith(201);
+    expect(svc.create.mock.calls[0]![0]).toMatchObject({ props: { project: 'p' } });
+    expect((svc.create.mock.calls[0]![0] as { props: object }).props).not.toHaveProperty('toolchain');
+
+    const updated = res();
+    await handler('put', '/:id')(req({ body: { props: { project: 'p', toolchain: { release: '1.2.0' } } } }), updated);
+    expect(updated.status).toHaveBeenCalledWith(200);
+    expect((svc.update.mock.calls[0]![1] as { props: object }).props).not.toHaveProperty('toolchain');
+  });
+});
+
 describe('PUT /:id', () => {
   const update = handler('put', '/:id');
 

@@ -54,6 +54,9 @@ export {
   MANAGED_TOOLCHAIN_PLUGINS,
   type ManagedToolchainPlugin,
   isManagedToolchainPlugin,
+  managedToolchainRefName,
+  managedRefPinsVersion,
+  toolchainReleasePin,
 } from './plugin-catalog.js';
 export {
   type HttpRequest,

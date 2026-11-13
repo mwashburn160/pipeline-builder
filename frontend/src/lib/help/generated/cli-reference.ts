@@ -1,6 +1,6 @@
 // GENERATED FROM docs/pipeline-manager.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: e89043f5b5c20eba99677d3d1b12daa7389c3960cac9ae021dca429224118af6
+// SOURCE-SHA256: fe6e5ed7762682b1d991c7ad72a1959ddacca1969ab6ce0c76d3983d41618b63
 // SPDX-License-Identifier: Apache-2.0
 import { Terminal } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -86,6 +86,67 @@ export const cliReferenceTopic: HelpTopic = {
             "Deploy commands shell out to cdk, then register the resulting stack with the platform by name and region.",
             "The process exits with a specific code so a CI job fails on the right thing."
           ]
+        },
+        {
+          "type": "text",
+          "content": "The toolchain release (synth and deploy)"
+        },
+        {
+          "type": "text",
+          "content": "Every pipeline runs on a toolchain release: the pipeline-bootstrap build image (the default CodeBuild image — the synth bootstrap, asset publishing and plugin-less steps) and the cdk-synth synth plugin, published together under one version. pipeline synth / pipeline deploy resolve it from the platform on every run:"
+        },
+        {
+          "type": "list",
+          "items": [
+            "Which release. The pipeline's own pin (toolchain.release in its config),"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "else its organization's default, a canary the org is in, or the platform default. Both halves are looked up with the same pin, so they always come from one release."
+        },
+        {
+          "type": "list",
+          "items": [
+            "No fallback. If the bootstrap can't be resolved (platform unreachable, no"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "platform default — TOOLCHAIN_NO_DEFAULT, a deleted pin, a refused signature) the synth stops with BOOTSTRAP_IMAGE_UNRESOLVED. A managed cdk-synth reference is fatal the same way; it has no deploy-time fallback."
+        },
+        {
+          "type": "list",
+          "items": [
+            "What it pins. The default image is"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "<platform>/system/pipeline-bootstrap@<digest>, pulled with the org's registry-push secret exactly like a plugin image. cliVersion and cdkAssetsCliVersion are the release's aws-cdk / cdk-assets versions (never npm latest); explicit pipeline metadata (aws:cdk:pipelines:codepipeline:cliversion, …:cdkassetscliversion, …:selfmutationcodebuilddefaults, …:assetpublishingcodebuilddefaults) wins."
+        },
+        {
+          "type": "list",
+          "items": [
+            "Self-mutation runs on the AWS curated aws/codebuild/standard:8.0 with its"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "Node runtime pinned (runtime-versions.nodejs), so a defective release can always be rolled back."
+        },
+        {
+          "type": "text",
+          "content": "Local-spec deploys. pipeline deploy --local-spec never contacts the platform, so it takes the release from a file:"
+        },
+        {
+          "type": "code",
+          "content": "pipeline-manager toolchain export --output toolchain.json\n\npipeline-manager pipeline deploy --local-spec pipeline.json --toolchain-file toolchain.json",
+          "language": "bash"
+        },
+        {
+          "type": "text",
+          "content": "The file's platform host becomes the registry pull host (unless IMAGE_REGISTRY_PULL_HOST is set). A pipeline that pins toolchain.release must be given that release's export."
         }
       ]
     },
@@ -331,7 +392,11 @@ export const cliReferenceTopic: HelpTopic = {
             ],
             [
               "pipeline deploy",
-              "Deploy the synthesized pipeline stack to AWS (also registers the pipeline with the platform by its pipelineId)"
+              "Deploy the synthesized pipeline stack to AWS (also registers the pipeline with the platform by its pipelineId). --local-spec <pipeline.json> deploys a local spec without contacting the platform; it requires --toolchain-file <path> (see below) and refuses with BOOTSTRAP_IMAGE_UNRESOLVED without one"
+            ],
+            [
+              "toolchain export",
+              "Write the pipeline toolchain release as JSON: the release your organization resolves to now (its own default, a canary, or the platform default), or --release <V>. It holds both halves' (pipeline-bootstrap, cdk-synth) image repositories and signed digests, the release version and its tool versions, and the platform it came from. --output <file> (default stdout). Read-only. The input to pipeline deploy --local-spec --toolchain-file"
             ],
             [
               "pipeline register",

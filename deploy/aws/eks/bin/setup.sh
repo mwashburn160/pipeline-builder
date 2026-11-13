@@ -1175,11 +1175,11 @@ if [ "$AUTO_INIT" = true ]; then
   # goes straight through the API server, so init works regardless of DNS/ALB warm-up and
   # in both deploy modes (the internal ALB isn't reachable from here in private mode).
   env -u PLATFORM_BASE_URL \
-    BUILD_BOOTSTRAP=y LOAD_PLUGINS=y LOAD_COMPLIANCE=y LOAD_TEMPLATES=y NAMESPACE="$NAMESPACE" \
+    LOAD_PLUGINS=y LOAD_COMPLIANCE=y LOAD_TEMPLATES=y NAMESPACE="$NAMESPACE" \
     PLATFORM_PASSWORD="$_admin_pw" \
     bash "$INIT_PLATFORM" --continue-on-build-failure eks \
     && AUTO_INIT_OK=true \
-    || echo "  WARNING: auto-init exited non-zero — re-run by hand (the LOAD_* gates are REQUIRED; they default to OFF): env -u PLATFORM_BASE_URL BUILD_BOOTSTRAP=y LOAD_PLUGINS=y LOAD_COMPLIANCE=y LOAD_TEMPLATES=y ./deploy/bin/init-platform.sh eks" >&2
+    || echo "  WARNING: auto-init exited non-zero — re-run by hand (the LOAD_* gates are REQUIRED; they default to OFF): env -u PLATFORM_BASE_URL LOAD_PLUGINS=y LOAD_COMPLIANCE=y LOAD_TEMPLATES=y ./deploy/bin/init-platform.sh eks" >&2
 else
   echo "  skipped (AUTO_INIT=false / --no-auto-init)"
 fi
@@ -1247,10 +1247,10 @@ if ! pb_phase 9; then
   # the platform IS initialized — only that this run did not touch it. Claiming
   # "NOT INITIALIZED" here would be a false alarm after every bin/startup.sh.
   echo "    Platform init not run in this invocation (phases ${PHASE_FROM}-${PHASE_TO})."
-  echo "    If this is a fresh cluster:  env -u PLATFORM_BASE_URL BUILD_BOOTSTRAP=y LOAD_PLUGINS=y LOAD_COMPLIANCE=y LOAD_TEMPLATES=y ./deploy/bin/init-platform.sh eks"
+  echo "    If this is a fresh cluster:  env -u PLATFORM_BASE_URL LOAD_PLUGINS=y LOAD_COMPLIANCE=y LOAD_TEMPLATES=y ./deploy/bin/init-platform.sh eks"
 elif [ "$AUTO_INIT" = true ] && [ "$AUTO_INIT_OK" = true ]; then
   echo "    Platform initialized (admin + plugins/compliance/pipelines)."
-  echo "    Re-run the loads any time: env -u PLATFORM_BASE_URL BUILD_BOOTSTRAP=y LOAD_PLUGINS=y LOAD_COMPLIANCE=y LOAD_TEMPLATES=y ./deploy/bin/init-platform.sh eks"
+  echo "    Re-run the loads any time: env -u PLATFORM_BASE_URL LOAD_PLUGINS=y LOAD_COMPLIANCE=y LOAD_TEMPLATES=y ./deploy/bin/init-platform.sh eks"
 elif [ "$AUTO_INIT" = true ]; then
   # Says INCOMPLETE, not "nothing loaded". init runs in stages — admin user,
   # then plugins, then templates, then compliance — and the plugin stage now also
@@ -1260,7 +1260,7 @@ elif [ "$AUTO_INIT" = true ]; then
   # The init output above says which stage stopped.
   echo "    INITIALIZATION INCOMPLETE — auto-init exited non-zero above. Read its output for the stage that failed:"
   echo "      a blocked plugin BUILD (PLUGIN_VULN_GATE) leaves the admin user, templates and compliance rules in place."
-  echo "    Run it by hand:            env -u PLATFORM_BASE_URL BUILD_BOOTSTRAP=y LOAD_PLUGINS=y LOAD_COMPLIANCE=y LOAD_TEMPLATES=y ./deploy/bin/init-platform.sh eks"
+  echo "    Run it by hand:            env -u PLATFORM_BASE_URL LOAD_PLUGINS=y LOAD_COMPLIANCE=y LOAD_TEMPLATES=y ./deploy/bin/init-platform.sh eks"
 else
-  echo "    Initialize the platform:   env -u PLATFORM_BASE_URL BUILD_BOOTSTRAP=y LOAD_PLUGINS=y LOAD_COMPLIANCE=y LOAD_TEMPLATES=y ./deploy/bin/init-platform.sh eks   # port-forwards nginx; without the LOAD_* gates only the admin user is created"
+  echo "    Initialize the platform:   env -u PLATFORM_BASE_URL LOAD_PLUGINS=y LOAD_COMPLIANCE=y LOAD_TEMPLATES=y ./deploy/bin/init-platform.sh eks   # port-forwards nginx; without the LOAD_* gates only the admin user is created"
 fi

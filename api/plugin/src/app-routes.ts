@@ -24,6 +24,7 @@ import { createRestorePluginRoutes } from './routes/restore-plugin.js';
 import { createReviewRoutes } from './routes/reviews.js';
 import { createPublicSecurityNotificationRoutes, createSecurityNotificationRoutes } from './routes/security-notifications.js';
 import { createStorageRoutes } from './routes/storage.js';
+import { TOOLCHAIN_MOUNT, createToolchainRoutes, refuseDeployBootstrapElsewhere } from './routes/toolchain.js';
 import { createUpdatePluginRoutes } from './routes/update-plugin.js';
 import { createUploadPluginRoutes } from './routes/upload-plugin.js';
 import { createVersionLifecycleRoutes } from './routes/version-lifecycle.js';
@@ -44,6 +45,12 @@ export function mountRoutes(app: Express, { quotaService, sseManager }: PluginRo
   // The ecosystem services (publishers, publish requests) read the `listings`
   // quota through the same client the routes use.
   initEcosystem({ quotaService });
+
+  // -- The `deploy-bootstrap` identity is accepted on ONE route of this service
+  //    (the D14 initial toolchain default, below). Its key is in the bundle
+  //    every pod mounts, so `requireAuth` alone would admit it everywhere:
+  //    refuse it ahead of every other mount.
+  app.use(refuseDeployBootstrapElsewhere);
 
   // -- Anonymous public directory. Its own prefix, no
   //    auth by design, never behind the authenticated chain below. nginx maps
@@ -73,6 +80,12 @@ export function mountRoutes(app: Express, { quotaService, sseManager }: PluginRo
   //    an apiCall AND an aiCall). Deliberately NOT on /public (anonymous) or
   //    /internal (service principals) — both halves skip those callers anyway.
   app.use('/plugins', ...apiCallsQuota(quotaService));
+
+  // -- Managed toolchain: the D14 initial default. Identity-gated by its own
+  //    chain (requireAuth + requireInternalService(['deploy-bootstrap'])), so
+  //    BEFORE the shared org chain below — that service token carries no
+  //    tenant org. The Toolchain console routes (Phase 5) join this mount.
+  app.use(TOOLCHAIN_MOUNT, createToolchainRoutes());
 
   // -- Upload route FIRST — manages its own middleware (auth → orgId →
   //    plugins:write → rate limit → multer → tenant scope). Must be registered

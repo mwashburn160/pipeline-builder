@@ -20,6 +20,7 @@ import {
   type PipelineUpdateSchema,
   type ComplianceViolation,
   recordAudit,
+  toolchainReleasePin,
   withProposalProvenance,
 } from '@pipeline-builder/api-core';
 import { replaceNonAlphanumeric } from '@pipeline-builder/pipeline-core';
@@ -28,6 +29,7 @@ import type { z } from 'zod';
 import { validatePipelineTemplates } from './pipeline-template-validator.js';
 import { formatContractViolations, recordPipelineResolution } from './plugin-contract-check.js';
 import { checkPipelinePlugins, type PluginWarning } from './plugin-save-check.js';
+import { checkToolchainPin } from './toolchain-pin-check.js';
 import { pipelineService, type Pipeline, type PipelineInsert } from '../services/pipeline-service.js';
 
 export type PipelineCreateBody = z.infer<typeof PipelineCreateSchema>;
@@ -58,12 +60,19 @@ export type PipelineWriteCheck =
  * versions …) for its response; an empty list when `props` wasn't touched.
  * Pass `pipelineId` on an UPDATE of one pipeline so its active risk acceptances
  * downgrade the warnings they accepted (a create has no id yet).
+ *
+ * The toolchain release pin (`props.toolchain.release`) is checked first: a
+ * managed `cdk-synth` step pinning its own version is refused, and a pin must
+ * name an eligible release when it CHANGES against the stored pipeline (loaded
+ * by `pipelineId` unless the caller passes `stored`). A create, or a bulk update
+ * of a shared payload (no single stored row), compares against nothing.
  */
 export async function validatePipelineWrite(
   body: PipelineCreateBody | PipelineUpdateBody,
   orgId: string,
   parentOrgId: string | undefined,
   pipelineId?: string,
+  stored?: { props?: unknown } | null,
 ): Promise<PipelineWriteCheck> {
   try {
     validatePipelineTemplates(body);
@@ -72,6 +81,12 @@ export async function validatePipelineWrite(
   }
 
   if (body.props === undefined) return { rejection: null, pluginWarnings: [] };
+  // The stored row matters only when the new props pin a release (did it change?).
+  const storedProps = stored !== undefined || !toolchainReleasePin(body.props)
+    ? stored?.props
+    : pipelineId ? (await pipelineService.findById(pipelineId, orgId))?.props : undefined;
+  const pin = await checkToolchainPin(body.props, orgId, storedProps);
+  if (pin) return { rejection: pin };
   const { refusals, warnings } = await checkPipelinePlugins(body.props, orgId, parentOrgId, pipelineId);
   if (refusals.length > 0) {
     return {

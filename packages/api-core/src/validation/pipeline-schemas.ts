@@ -29,6 +29,24 @@ const PLUGIN_REF_NON_FIELDS: Record<string, string> = {
 };
 
 /**
+ * A managed toolchain RELEASE version (docs/plans/bootstrap-image-versioning.md
+ * §1): plain `MAJOR.MINOR.PATCH` — a managed name refuses prerelease uploads,
+ * so a release is never a range or a prerelease.
+ */
+export const TOOLCHAIN_RELEASE_VERSION_PATTERN = /^\d+\.\d+\.\d+$/;
+
+/**
+ * A pipeline's toolchain release pin (§5): `{ release: "1.4.2" }` pins BOTH
+ * halves of one release (`pipeline-bootstrap` + `cdk-synth`). Omitted = the
+ * org default, canary or platform default. Eligibility (D15) is checked by the
+ * pipeline service when the pin changes, not here. Never carried by a pipeline
+ * TEMPLATE (D12).
+ */
+export const PipelineToolchainPinSchema = z.object({
+  release: z.string().regex(TOOLCHAIN_RELEASE_VERSION_PATTERN, 'toolchain.release must be a release version (MAJOR.MINOR.PATCH, e.g. 1.4.2)'),
+}).strict();
+
+/**
  * Plugin options schema (name-based selection)
  */
 const PluginOptionsSchema = z.object({
@@ -114,6 +132,8 @@ const BuilderPropsSchema = z.object({
     plugin: PluginOptionsSchema,
   }).passthrough(),
   stages: z.array(StageSchema).optional(),
+  /** Toolchain release pin (see {@link PipelineToolchainPinSchema}). */
+  toolchain: PipelineToolchainPinSchema.optional(),
 }).passthrough().superRefine((props, ctx) => {
   for (const key of Object.keys((props as { tags?: Record<string, string> }).tags ?? {})) {
     if (!isReservedTagKey(key)) continue;

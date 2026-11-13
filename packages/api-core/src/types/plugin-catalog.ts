@@ -69,3 +69,34 @@ export function isManagedToolchainPlugin(name: string | null | undefined): name 
   if (typeof name !== 'string') return false;
   return (MANAGED_TOOLCHAIN_PLUGINS as readonly string[]).includes(name.trim().toLowerCase());
 }
+
+/**
+ * The managed toolchain name a plugin REFERENCE resolves, or null: the
+ * reference's `filter.name` wins over its `name` (as in pipeline-core's
+ * `pluginLookupFilter`), so `{ name: 'BuildSynth', filter: { name: 'cdk-synth' } }`
+ * is a managed `cdk-synth`.
+ */
+export function managedToolchainRefName(ref: { name?: unknown; filter?: unknown } | null | undefined): ManagedToolchainPlugin | null {
+  if (!ref) return null;
+  const filterName = ref.filter && typeof ref.filter === 'object' ? (ref.filter as { name?: unknown }).name : undefined;
+  const name = typeof filterName === 'string' && filterName !== '' ? filterName : ref.name;
+  return typeof name === 'string' && isManagedToolchainPlugin(name) ? name.trim().toLowerCase() as ManagedToolchainPlugin : null;
+}
+
+/**
+ * Whether a managed reference's filter pins its own version (exact or range) or
+ * row id. Refused: a managed half is pinned only as a whole release
+ * (`toolchain.release`, TOOLCHAIN_PIN_VIA_RELEASE).
+ */
+export function managedRefPinsVersion(filter: unknown): boolean {
+  if (!filter || typeof filter !== 'object') return false;
+  const { version, id } = filter as { version?: unknown; id?: unknown };
+  return (typeof version === 'string' && version.trim() !== '') || id !== undefined;
+}
+
+/** A pipeline's `toolchain.release` pin (its props), when it carries one. */
+export function toolchainReleasePin(props: unknown): string | undefined {
+  const toolchain = props && typeof props === 'object' ? (props as { toolchain?: unknown }).toolchain : undefined;
+  const release = toolchain && typeof toolchain === 'object' ? (toolchain as { release?: unknown }).release : undefined;
+  return typeof release === 'string' && release.trim() !== '' ? release.trim() : undefined;
+}

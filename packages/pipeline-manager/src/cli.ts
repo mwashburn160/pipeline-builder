@@ -32,6 +32,7 @@ import { status } from './commands/status.js';
 import { storeToken } from './commands/store-token.js';
 import { synth } from './commands/synth.js';
 import { testPlugin } from './commands/test-plugin.js';
+import { toolchain } from './commands/toolchain.js';
 import { registerUpgradeOption } from './commands/upgrade.js';
 import { uploadPlugin } from './commands/upload-plugin.js';
 import { validatePlugin } from './commands/validate-plugin.js';
@@ -266,6 +267,9 @@ function registerTaskNamespaces(): void {
   const audit = program.command('audit').description('Operator audits (cron-friendly: exit 1 on findings)');
   auditTokens(audit); // audit tokens — expiring platform tokens in Secrets Manager
   auditStacks(audit); // audit stacks — CFN stacks vs pipeline_registry drift
+
+  // toolchain — the pipeline toolchain release (pipeline-bootstrap + cdk-synth)
+  toolchain(program); // toolchain export — the resolved release as JSON, for deploy --local-spec
 
   // org — organization data operations
   const org = program.command('org').description('Organization data operations');

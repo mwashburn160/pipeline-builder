@@ -2,15 +2,18 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import {
-  attachmentDisposition, getParam, ErrorCode, isSystemOrgId, requirePermission, sendBadRequest, sendError, sendSuccess, sendPaginatedNested,
+  attachmentDisposition, getParam, ErrorCode, isManagedToolchainPlugin, isSystemOrgId, managedRefPinsVersion, requirePermission, sendBadRequest, sendError, sendSuccess, sendPaginatedNested,
   parsePaginationParams, validateQuery, PluginFilterSchema, sendEntityNotFound, maxSeverity, severityAtLeast,
-  parseVulnWaivers, SYSTEM_ORG_ID,
+  parseVulnWaivers, SYSTEM_ORG_ID, TOOLCHAIN_RELEASE_VERSION_PATTERN,
 } from '@pipeline-builder/api-core';
-import type { VulnSeverity, VulnWarning } from '@pipeline-builder/api-core';
+import type { ManagedToolchainPlugin, VulnSeverity, VulnWarning } from '@pipeline-builder/api-core';
 import { incCounter, withRoute } from '@pipeline-builder/api-server';
 import type { RequestContext } from '@pipeline-builder/api-server';
 import { Config, CoreConstants, pluginImageRepository } from '@pipeline-builder/pipeline-core';
-import { compareSemver, executeRows, isVersionRange, recordStepLookup, vulnUpgradeAvailableWarning, withTenantTx } from '@pipeline-builder/pipeline-data';
+import {
+  bootstrapToolchainOf, compareSemver, executeRows, isVersionRange, ManagedToolchainError, recordStepLookup,
+  resolveManagedToolchain, vulnUpgradeAvailableWarning, withTenantTx,
+} from '@pipeline-builder/pipeline-data';
 import type { PluginFilter, VulnUpgradeAvailableWarning } from '@pipeline-builder/pipeline-data';
 import { sql } from 'drizzle-orm';
 import type { Request, Response } from 'express';
@@ -39,6 +42,8 @@ function parentOrgIdOf(req: Request): string | undefined {
  */
 export type LookupWarning =
   | { code: 'PLUGIN_DEPRECATED' | 'PLUGIN_YANKED' | 'PLUGIN_SHADOWS_LISTING' | 'PLUGIN_SECRETS_WITHHELD' | 'LISTING_UNMAINTAINED' | 'PLUGIN_ADVISORY'; severity: VulnSeverity; message: string }
+  /** A managed toolchain release's standing (yanked / deprecated / inactive / never promoted). */
+  | { code: `TOOLCHAIN_${string}`; severity: VulnSeverity; message: string }
   | VulnUpgradeAvailableWarning
   | VulnWarning;
 
@@ -124,6 +129,19 @@ export function lookupWarnings(plugin: {
   // The scan side (flag, KEV, fixable findings, freshness, compliance) is the
   // shared vulnerability assessment's, added by the lookup.
   return warnings;
+}
+
+/**
+ * `releasePin` on a lookup of a managed toolchain name (pipeline-bootstrap,
+ * cdk-synth): the pipeline's `toolchain.release`. Undefined when absent; a
+ * string error when malformed.
+ */
+export function parseReleasePin(raw: unknown): string | undefined | { error: string } {
+  if (raw === undefined || raw === null || raw === '') return undefined;
+  if (typeof raw !== 'string' || !TOOLCHAIN_RELEASE_VERSION_PATTERN.test(raw.trim())) {
+    return { error: 'releasePin must be a toolchain release version (MAJOR.MINOR.PATCH, e.g. 1.4.2)' };
+  }
+  return raw.trim();
 }
 
 /** Whether a lookup filter pins ONE version exactly (by id or an exact version). */
@@ -295,7 +313,7 @@ export function createReadPluginRoutes(): Router {
     filter: PluginFilter,
     req: Request, res: Response, orgId: string,
     ctx: RequestContext,
-    opts: { setCacheHeader: boolean; context?: LookupContext | null },
+    opts: { setCacheHeader: boolean; context?: LookupContext | null; releasePin?: string },
   ) => {
     // Org → team hierarchy: a team org also sees its parent's public plugins
     // (mirrors the list path). No-op for root orgs (claim absent).
@@ -332,7 +350,7 @@ export function createReadPluginRoutes(): Router {
           .catch((err: unknown) => ctx.log('WARN', 'Step lookup not recorded', { pipelineId: context.pipelineId, stepKey, error: String(err) }));
       }
     };
-    const done = (plugin: Record<string, unknown> & { name: string; version: string }, warnings: LookupWarning[], suggestedVersion: string | null) => {
+    const done = (plugin: Record<string, unknown> & { name: string; version: string }, warnings: LookupWarning[], suggestedVersion: string | null, extra: Record<string, unknown> = {}) => {
       const severity = answerSeverity(warnings);
       ctx.log('COMPLETED', 'Plugin lookup', { id: plugin.id, name: plugin.name, ...(publisher ? { publisher } : {}), ...(warnings.length ? { warnings: warnings.map((w) => w.code), severity } : {}) });
       record({ plugin, warnings });
@@ -352,7 +370,7 @@ export function createReadPluginRoutes(): Router {
         });
       }
       if (opts.setCacheHeader) res.setHeader('Cache-Control', CoreConstants.CACHE_CONTROL_LIST);
-      return sendSuccess(res, 200, { plugin, warnings, severity });
+      return sendSuccess(res, 200, { plugin, warnings, severity, ...extra });
     };
     const refused = (status: number, message: string, code: ErrorCode, details: Record<string, unknown> | undefined, plugin?: Record<string, unknown>) => {
       const reason = typeof details?.reason === 'string' ? details.reason : String(code);
@@ -369,6 +387,47 @@ export function createReadPluginRoutes(): Router {
       ctx.log('WARN', 'Plugin image failed verification', { id: plugin.id, name: plugin.name, error: err.message });
       return refused(409, err.message, ErrorCode.IMAGE_VERIFICATION_FAILED, undefined, plugin);
     };
+
+    // A MANAGED toolchain name answers from the toolchain resolver and nothing
+    // else — with or without a publisher, for the system org too — so a
+    // same-named row or listing anywhere is never a candidate
+    // (docs/plans/bootstrap-image-versioning.md §2).
+    if (typeof rowFilter.name === 'string' && isManagedToolchainPlugin(rowFilter.name)) {
+      const name = rowFilter.name.trim().toLowerCase() as ManagedToolchainPlugin;
+      if (managedRefPinsVersion(rowFilter)) {
+        return refused(400, `${name} is part of the managed toolchain and can't be pinned on its own: remove filter.version / id and pin the whole release with toolchain.release.`,
+          ErrorCode.TOOLCHAIN_PIN_VIA_RELEASE, { reason: 'pin_via_release', name });
+      }
+      let resolution;
+      try {
+        resolution = await resolveManagedToolchain({ orgId }, opts.releasePin ? { releasePin: opts.releasePin } : {});
+      } catch (err) {
+        if (!(err instanceof ManagedToolchainError)) throw err;
+        const reason = typeof err.details?.reason === 'string' ? err.details.reason : String(err.code);
+        recordLookupRefusal(reason);
+        ctx.log('WARN', 'Toolchain lookup refused', { name, code: err.code });
+        return refused(err.statusCode, err.message, err.code, { ...(err.details ?? {}), reason });
+      }
+      const half = name === 'pipeline-bootstrap' ? resolution.bootstrap : resolution.synth;
+      const imageRepository = pluginImageRepository(half);
+      const shaped = {
+        ...shapePlugin(half),
+        source: 'org',
+        publisher: null,
+        imageRepository,
+        ...(name === 'pipeline-bootstrap' ? { toolchain: bootstrapToolchainOf(half) } : {}),
+      } as Record<string, unknown> & { name: string; version: string };
+      // Both halves run an image synth pins by digest: never hand out one whose
+      // signature doesn't verify.
+      try {
+        await verifyImageSignature({ ...half, imageRepository }, Config.get('registry'));
+      } catch (err) {
+        return verificationFailed(err, shaped);
+      }
+      const assessment = await assessmentFor({ orgId, record: half, policy, acceptances, suggestedVersion: null });
+      const warnings: LookupWarning[] = [...resolution.warnings.map(graded), ...assessment.warnings];
+      return done(shaped, warnings, null, { toolchain: { releaseVersion: resolution.releaseVersion, resolvedVia: resolution.resolvedVia } });
+    }
 
     if (!publisher) {
       const result = await pluginService.findFirst(resolutionFilter(rowFilter), orgId, parentOrgId);
@@ -458,20 +517,27 @@ export function createReadPluginRoutes(): Router {
   };
 
   router.post('/lookup', requirePermission('plugins:read'), withRoute(async ({ req, res, ctx, orgId }) => {
-    const { filter, context } = req.body ?? {};
+    const { filter, context, releasePin } = req.body ?? {};
     if (!filter || typeof filter !== 'object') return sendBadRequest(res, 'Filter is required in request body', ErrorCode.MISSING_REQUIRED_FIELD);
     const parsed = PluginFilterSchema.safeParse(filter);
     if (!parsed.success) return sendBadRequest(res, `Invalid filter: ${parsed.error.message}`, ErrorCode.VALIDATION_ERROR);
     const lookupContext = parseLookupContext(context);
     if (typeof lookupContext === 'string') return sendBadRequest(res, lookupContext, ErrorCode.VALIDATION_ERROR);
-    return respondWithSinglePlugin(parsed.data as PluginFilter, req, res, orgId, ctx, { setCacheHeader: false, context: lookupContext });
+    const pin = parseReleasePin(releasePin);
+    if (typeof pin === 'object') return sendBadRequest(res, pin.error, ErrorCode.VALIDATION_ERROR);
+    return respondWithSinglePlugin(parsed.data as PluginFilter, req, res, orgId, ctx, { setCacheHeader: false, context: lookupContext, ...(pin ? { releasePin: pin } : {}) });
   }));
 
   // GET /plugins/find — single plugin by filter
   router.get('/find', requirePermission('plugins:read'), withRoute(async ({ req, res, ctx, orgId }) => {
-    const validated = validateQuery(req, PluginFilterSchema);
+    const { releasePin, ...query } = req.query as Record<string, unknown>;
+    const validated = validateQuery({ query } as unknown as Request, PluginFilterSchema);
     if (!validated.ok) return sendBadRequest(res, validated.error);
-    return respondWithSinglePlugin(validated.value as PluginFilter, req, res, orgId, ctx, { setCacheHeader: true });
+    const pin = parseReleasePin(releasePin);
+    if (typeof pin === 'object') return sendBadRequest(res, pin.error, ErrorCode.VALIDATION_ERROR);
+    // A pinned answer is the pin's; the shared list cache-control would still be
+    // correct (a release is immutable), so it is kept.
+    return respondWithSinglePlugin(validated.value as PluginFilter, req, res, orgId, ctx, { setCacheHeader: true, ...(pin ? { releasePin: pin } : {}) });
   }));
 
   // GET /plugins/deleted — org's soft-deleted tombstones (most recent first),

@@ -84,6 +84,36 @@ export const PluginToolchainSchema = z.object({
 }).strict();
 export type PluginToolchain = z.infer<typeof PluginToolchainSchema>;
 
+/**
+ * Where a managed build image's `toolchain` is persisted: its plugin row's
+ * `metadata`, one flat `toolchain.<field>` key per tool (the column is a flat
+ * string map, and a `BuildImage` spec may carry no step `metadata` of its own,
+ * so the keys never collide). Written at upload by {@link toolchainMetadata},
+ * read by {@link toolchainFromMetadata} — the platform-default metadata guard
+ * and the resolver both go through it.
+ */
+export const TOOLCHAIN_METADATA_PREFIX = 'toolchain.';
+
+/** The flat `metadata` entries that persist `toolchain` on a build image's row. */
+export function toolchainMetadata(toolchain: PluginToolchain): Record<string, string> {
+  return Object.fromEntries(Object.entries(toolchain).map(([k, v]) => [`${TOOLCHAIN_METADATA_PREFIX}${k}`, v]));
+}
+
+/**
+ * The `toolchain` a build image's row carries, or `null` when its `metadata`
+ * holds no complete, valid one (every field required and exact — the same
+ * schema the upload validated).
+ */
+export function toolchainFromMetadata(metadata: unknown): PluginToolchain | null {
+  if (!metadata || typeof metadata !== 'object') return null;
+  const fields: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(metadata as Record<string, unknown>)) {
+    if (k.startsWith(TOOLCHAIN_METADATA_PREFIX)) fields[k.slice(TOOLCHAIN_METADATA_PREFIX.length)] = v;
+  }
+  const parsed = PluginToolchainSchema.safeParse(fields);
+  return parsed.success ? parsed.data : null;
+}
+
 /** A build-input hash: 64 lowercase hex characters (sha256), optionally `sha256:`-prefixed. */
 export const PLUGIN_SOURCE_DIGEST_PATTERN = /^(sha256:)?[a-f0-9]{64}$/;
 

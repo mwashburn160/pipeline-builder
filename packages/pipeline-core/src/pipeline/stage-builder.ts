@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import type { ComputeType as CdkComputeType } from 'aws-cdk-lib/aws-codebuild';
+import type { ComputeType as CdkComputeType, IBuildImage } from 'aws-cdk-lib/aws-codebuild';
 import { CodePipeline } from 'aws-cdk-lib/pipelines';
 import { Construct } from 'constructs';
 import { codePipelineStageName } from './deploy-attribution.js';
@@ -41,6 +41,9 @@ export interface StageBuilderProps {
 
   /** Tenant identifier for resolving per-org secrets from AWS Secrets Manager */
   readonly orgId?: string;
+
+  /** The image plugin-less steps run on (the resolved `pipeline-bootstrap`; see `resolveDefaultBuildImage`). */
+  readonly defaultBuildImage?: IBuildImage;
 
   /**
    * Pipeline-level scope used to resolve `{{ pipeline.* }}` template tokens
@@ -97,6 +100,7 @@ export class StageBuilder {
   private readonly defaultComputeType?: CdkComputeType;
   private readonly artifactManager?: ArtifactManager;
   private readonly orgId?: string;
+  private readonly defaultBuildImage?: IBuildImage;
   private readonly pipelineScope: Record<string, unknown>;
   private readonly stepManifest?: StepManifestRecorder;
   private readonly runtimeVulnCheck?: { readonly platformSecretName: string };
@@ -109,6 +113,7 @@ export class StageBuilder {
     this.defaultComputeType = props.defaultComputeType;
     this.artifactManager = props.artifactManager;
     this.orgId = props.orgId;
+    this.defaultBuildImage = props.defaultBuildImage;
     this.pipelineScope = props.pipelineScope;
     this.stepManifest = props.stepManifest;
     this.runtimeVulnCheck = props.runtimeVulnCheck;
@@ -229,6 +234,7 @@ export class StageBuilder {
       // A scan/security-category plugin can never be downgraded from 'fail' — see resolveFailureBehavior.
       failureBehavior: resolveFailureBehavior(plugin.category, stepConfig.failureBehavior ?? plugin.failureBehavior),
       orgId: this.orgId,
+      defaultBuildImage: this.defaultBuildImage,
       pipelineScope: this.pipelineScope,
     });
     this.stepManifest?.record(step, plugin, stepKey);

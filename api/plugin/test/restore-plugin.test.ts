@@ -190,6 +190,16 @@ describe('POST /plugins/:id/restore (restore)', () => {
     );
   });
 
+  it.each(['pipeline-bootstrap', 'cdk-synth'])('refuses to restore a managed toolchain half (%s) with TOOLCHAIN_USE_CONSOLE', async (name) => {
+    mockFindDeletedById.mockResolvedValue({ ...existingPlugin, name });
+
+    // This file's withRoute stub routes any thrown error to the internal-error
+    // sender; the real withRoute sends the AppError's own status (400).
+    await handler(mockReq(), mockRes());
+    expect(mockSendInternalErrorForRoute).toHaveBeenCalledWith(expect.anything(), expect.stringContaining('Toolchain console'));
+    expect(mockRestore).not.toHaveBeenCalled();
+  });
+
   it('emits an attributed plugin.restore audit event after a successful restore', async () => {
     mockFindDeletedById.mockResolvedValue(existingPlugin);
     mockRestore.mockResolvedValue(existingPlugin);

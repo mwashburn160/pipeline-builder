@@ -507,6 +507,33 @@ describe('plugin-lookup-handler', () => {
 });
 
 describe('unwrapLookup — the /plugins/lookup envelope', () => {
+  it('returns the managed toolchain release when the answer carries one', () => {
+    const res = unwrapLookup({
+      data: {
+        plugin: { ...MOCK_PLUGIN, toolchain: { awsCdk: '2.1.0', node: '26.0.0' } },
+        warnings: [],
+        toolchain: { releaseVersion: '1.2.0', resolvedVia: 'pin', versions: { cdkAssets: '4.0.0' } },
+      },
+    });
+    expect(res.toolchain).toEqual({ releaseVersion: '1.2.0', resolvedVia: 'pin', versions: { awsCdk: '2.1.0', node: '26.0.0', cdkAssets: '4.0.0' } });
+  });
+
+  it('reads the tool versions the platform persists on the bootstrap row\'s metadata', () => {
+    const res = unwrapLookup({
+      data: {
+        plugin: { ...MOCK_PLUGIN, metadata: { 'toolchain.awsCdk': '2.1148.0', 'toolchain.cdkAssets': '4.8.0', 'other': 'x' } },
+        toolchain: { releaseVersion: '1.1.0', resolvedVia: 'default' },
+      },
+    });
+    expect(res.toolchain?.versions).toEqual({ awsCdk: '2.1148.0', cdkAssets: '4.8.0' });
+  });
+
+  it('omits toolchain for an ordinary plugin and for a malformed block', () => {
+    expect(unwrapLookup({ data: { plugin: MOCK_PLUGIN, warnings: [] } })).not.toHaveProperty('toolchain');
+    expect(unwrapLookup({ data: { plugin: MOCK_PLUGIN, toolchain: { releaseVersion: '1.2.0', resolvedVia: 'highest' } } })).not.toHaveProperty('toolchain');
+    expect(unwrapLookup({ data: { plugin: MOCK_PLUGIN, toolchain: { resolvedVia: 'default' } } })).not.toHaveProperty('toolchain');
+  });
+
   it('unwraps { data: { plugin, warnings } } and keeps the graded warnings', () => {
     expect(unwrapLookup({
       success: true,

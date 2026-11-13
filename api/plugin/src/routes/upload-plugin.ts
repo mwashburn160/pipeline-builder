@@ -3,7 +3,7 @@
 
 import * as fs from 'fs';
 
-import { SYSTEM_ACTOR_ID, ErrorCode, audited, createLogger, envInt, isSystemAdmin, requireAuth, userHasPermission, errorMessage, getServiceAuthHeader, requirePermission, resolveVisibility, sendBadRequest, sendError, sendQuotaReserveDenied, sendQuotaExceeded, sendSuccess, validateBody, PluginUploadBodySchema, actorId, detectCatalogMetadata, parseCatalogEditsPart, resolveCatalogMetadata, recordAudit } from '@pipeline-builder/api-core';
+import { SYSTEM_ACTOR_ID, ErrorCode, audited, createLogger, envInt, isSystemAdmin, requireAuth, userHasPermission, errorMessage, getServiceAuthHeader, requirePermission, resolveVisibility, sendBadRequest, sendError, sendQuotaReserveDenied, sendQuotaExceeded, sendSuccess, validateBody, PluginUploadBodySchema, actorId, detectCatalogMetadata, parseCatalogEditsPart, resolveCatalogMetadata, recordAudit, PluginToolchainSchema, toolchainMetadata } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
 import { requireOrgId, withRoute, withTenantContext, rateLimitByOrg, withQuotaReservation, type QuotaSlot, type SSEManager } from '@pipeline-builder/api-server';
 import type { PluginSpec } from '@pipeline-builder/pipeline-core';
@@ -28,6 +28,13 @@ import { deletePluginArtifact, pluginArtifactKey, putPluginArtifact } from '../s
 import { pluginService } from '../services/plugin-service.js';
 
 const logger = createLogger('upload-plugin');
+
+/** A `BuildImage` spec's `toolchain`, as the row's `metadata` entries; `null` for any other spec. */
+function buildImageToolchainMetadata(spec: PluginSpec): Record<string, string> | null {
+  if ((spec.pluginType as string | undefined) !== 'BuildImage') return null;
+  const parsed = PluginToolchainSchema.safeParse((spec as { toolchain?: unknown }).toolchain);
+  return parsed.success ? toolchainMetadata(parsed.data) : null;
+}
 
 const MAX_UPLOAD_SIZE = CoreConstants.PLUGIN_MAX_UPLOAD_MB * 1024 * 1024;
 
@@ -340,7 +347,11 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
               orgId,
               name: s.name,
               version,
-              metadata: (s.metadata || {}) as Record<string, string | number | boolean>,
+              // A managed build image carries no step metadata; its `toolchain`
+              // (validated by the spec schema) is persisted there instead, as
+              // flat `toolchain.<field>` keys — what the platform-default
+              // metadata guard and the toolchain resolver read.
+              metadata: buildImageToolchainMetadata(s) ?? (s.metadata || {}) as Record<string, string | number | boolean>,
               pluginType: s.pluginType || 'CodeBuildStep',
               computeType: s.computeType || 'SMALL',
               primaryOutputDirectory: s.primaryOutputDirectory || null,

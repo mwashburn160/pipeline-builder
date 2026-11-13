@@ -859,6 +859,38 @@ export class PluginService extends CrudService<
       .catch((err: unknown) => logger.warn('Declared resolution refresh not started', { orgId, name, error: errorMessage(err) }));
   }
 
+  /**
+   * Soft-delete managed release halves inside the CALLER's transaction (the
+   * Toolchain release delete, which removes the release row in the same one).
+   * The same tombstone columns as {@link CrudService.delete}, purge deadline
+   * included; the caller runs {@link afterManagedWrite} after COMMIT.
+   */
+  async tombstoneManagedRows(tx: TenantTx, ids: readonly string[], userId: string): Promise<Plugin[]> {
+    if (ids.length === 0) return [];
+    const now = new Date();
+    const rows = await tx
+      .update(schema.plugin)
+      .set({ isActive: false, updatedAt: now, updatedBy: userId, deletedAt: now, deletedBy: userId, ...this.purgeAfterStamp(now) })
+      .where(and(inArray(schema.plugin.id, [...ids]), isNull(schema.plugin.deletedAt)))
+      .returning();
+    return rows as Plugin[];
+  }
+
+  /**
+   * The post-COMMIT lifecycle (cache invalidation + entity event) for managed
+   * release halves the Toolchain service wrote directly. Best-effort, like
+   * every other hook here.
+   */
+  async afterManagedWrite(rows: readonly Plugin[], userId: string, event: 'updated' | 'deleted' = 'updated'): Promise<void> {
+    for (const row of rows) {
+      try {
+        await this.invalidateAndEmit(event, row.id, row, userId);
+      } catch (err) {
+        logger.warn('Lifecycle hook failed', { error: errorMessage(err) });
+      }
+    }
+  }
+
   /** Post-write lifecycle for the service's own direct writes (cache + event). */
   private async afterWrite(row: Plugin, userId: string): Promise<void> {
     try {
@@ -1076,6 +1108,18 @@ export class PluginService extends CrudService<
           },
         })
         .returning();
+
+      // A managed half registers its release: `toolchain_release` holds one row
+      // per release version, shared by both halves, and the release is complete
+      // once both halves of that version exist. In the same transaction, so a
+      // half never lands without its release row. RLS admits it: only the
+      // system org reaches this branch (asserted above), and the release tables
+      // are writable by the system org's own scope. Never a default (D1).
+      if (managed) {
+        await tx.insert(schema.toolchainRelease)
+          .values({ releaseVersion: version, createdBy: userId })
+          .onConflictDoNothing({ target: schema.toolchainRelease.releaseVersion });
+      }
 
       return {
         row: upserted as Plugin,

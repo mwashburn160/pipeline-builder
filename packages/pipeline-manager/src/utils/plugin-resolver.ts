@@ -1,9 +1,9 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { ErrorCode, errorMessage } from '@pipeline-builder/api-core';
+import { ErrorCode, errorMessage, isManagedToolchainPlugin } from '@pipeline-builder/api-core';
 import {
-  collectPluginSteps, exactPinNotFoundMessage, lookupNotFoundState, type LookupWarning, type LookupWarningSeverity,
+  collectPluginSteps, exactPinNotFoundMessage, lookupNotFoundState, type LookupToolchain, type LookupWarning, type LookupWarningSeverity,
   pluginArtifactAlias, pluginLookupFilter, summarizeLookupWarnings, unwrapLookup,
 } from '@pipeline-builder/pipeline-core';
 import pico from 'picocolors';
@@ -124,6 +124,31 @@ function exactVersionPin(ref: PluginRef): string | null {
   return typeof version === 'string' && /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/.test(version) ? version : null;
 }
 
+/**
+ * Whether a reference names a managed toolchain half (`cdk-synth`): the
+ * system org's, never a listing — so no publisher. It resolves through the
+ * toolchain release (the pipeline's `toolchain.release` pin, else the org /
+ * canary / platform default), never by its own version.
+ */
+export function isManagedToolchainRef(ref: { name?: string; publisher?: string; filter?: Record<string, unknown> }): boolean {
+  if (ref.publisher) return false;
+  const name = typeof ref.filter?.name === 'string' ? ref.filter.name : ref.name;
+  return isManagedToolchainPlugin(name);
+}
+
+/** The pipeline's toolchain release pin (`props.toolchain.release`), when set. */
+export function toolchainReleasePin(props: Record<string, unknown>): string | undefined {
+  const toolchain = props.toolchain as { release?: unknown } | undefined;
+  return typeof toolchain?.release === 'string' && toolchain.release.length > 0 ? toolchain.release : undefined;
+}
+
+/** The plugin service's error code on a refused answer, when it carries one. */
+export function serviceErrorCode(err: unknown): string | null {
+  const data = (err as { response?: { data?: unknown } } | undefined)?.response?.data;
+  const code = data && typeof data === 'object' ? (data as { code?: unknown }).code : undefined;
+  return typeof code === 'string' && code.length > 0 ? code : null;
+}
+
 /** One plugin the synth could not use, as {@link PluginResolutionError} reports it. */
 export interface PluginRefusal {
   /** `[<publisher>/]<name>` of the reference. */
@@ -198,8 +223,11 @@ function serviceMessage(err: unknown): string | null {
  * Failures are non-fatal: a missing plugin or unreachable API logs a warning
  * and falls through to the deploy-time custom resource path so partial
  * platform outages don't block synth/deploy. The exceptions abort the synth:
- * the {@link FATAL_LOOKUP_CODES} refusals, and an exact version pin that does
- * not exist.
+ * the {@link FATAL_LOOKUP_CODES} refusals, an exact version pin that does
+ * not exist, and ANY failure on a managed toolchain reference (`cdk-synth`),
+ * which has no deploy-time fallback (D2). A managed reference sends the
+ * pipeline's `toolchain.release` as `releasePin` — the same pin the bootstrap
+ * lookup sends — and its resolved release lands in `toolchainSink` by key.
  *
  * Every reference is looked up before anything is thrown, and ALL fatal
  * refusals are reported together. Stopping at the first meant a pipeline with
@@ -222,11 +250,13 @@ export async function resolvePluginsForProps(
   client: ApiClient,
   props: Record<string, unknown>,
   warningSink?: LookupWarning[],
+  toolchainSink?: Record<string, LookupToolchain>,
 ): Promise<Record<string, unknown>> {
   const refs = collectPluginRefs(props);
   if (refs.length === 0) return {};
 
   const pipelineId = typeof props.pipelineId === 'string' && props.pipelineId.length > 0 ? props.pipelineId : undefined;
+  const releasePin = toolchainReleasePin(props);
   // One lookup per alias may serve several steps: the labels of each, by alias.
   const stepKeys = new Map<string, string[]>();
   for (const step of collectPluginSteps(props)) {
@@ -250,24 +280,38 @@ export async function resolvePluginsForProps(
     const filter = pluginLookupFilter(ref);
     const pin = exactVersionPin(ref);
     const refuse = (code: string, message: string): void => { fatal.push({ plugin: label, code, message }); };
+    // A managed toolchain half (cdk-synth) resolves through the RELEASE — the
+    // same `releasePin` the bootstrap lookup sends, so both halves come from
+    // one release — and it has no deploy-time fallback: any failure is fatal.
+    const managed = isManagedToolchainRef(ref);
+    const refuseManaged = (code: string, why: string): void => refuse(code,
+      `Toolchain plugin "${label}"${releasePin ? ` (release ${releasePin})` : ''} could not be resolved: ${why}`);
     try {
       const res = await client.post<unknown>('/api/plugins/lookup', {
         filter,
+        ...(managed && releasePin ? { releasePin } : {}),
         ...(pipelineId && stepKeys.has(key) ? { context: { pipelineId, stepKeys: stepKeys.get(key) } } : {}),
       });
-      const { plugin, warnings } = unwrapLookup(res);
+      const { plugin, warnings, toolchain } = unwrapLookup(res);
       for (const warning of warnings) {
         printLookupWarning(label, warning);
         warningSink?.push(warning);
       }
-      if (plugin) {
+      if (managed && (!plugin || !toolchain)) {
+        refuseManaged(ErrorCode.BOOTSTRAP_IMAGE_UNRESOLVED, plugin ? 'the answer carried no toolchain release' : 'the lookup returned no record');
+      } else if (plugin) {
         resolved[key] = plugin;
+        if (managed && toolchain && toolchainSink) toolchainSink[key] = toolchain;
       } else if (pin) {
         refuse('PLUGIN_VERSION_NOT_FOUND', pinNotFoundMessage(label, pin));
       } else {
         printWarning(`Plugin "${label}" lookup returned no record — falling back to deploy-time resolution`);
       }
     } catch (err) {
+      if (managed) {
+        refuseManaged(serviceErrorCode(err) ?? ErrorCode.BOOTSTRAP_IMAGE_UNRESOLVED, serviceMessage(err) ?? errorMessage(err));
+        return;
+      }
       // A plugin whose image signature doesn't verify, or a listing the org
       // can't use, is NOT an outage to ride out: falling back would quietly
       // turn it into an unresolved step. Stop.

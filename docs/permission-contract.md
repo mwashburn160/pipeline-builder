@@ -651,6 +651,7 @@ Contacting support is self-service — every member who can open the Messages pa
 | plugin | POST | `/plugins/queue/failed/:jobId/retry` | `any(plugins:write)` |
 | plugin | GET | `/plugins/queue/status` | `system-org + any(plugin_queue:manage) + aal2` |
 | plugin | GET | `/plugins/queue/triage` | `any(plugins:write)` |
+| plugin | POST | `/plugins/toolchain/initial-default` | `service-principal + internal(deploy-bootstrap)` |
 | plugin | GET | `/plugins/vuln-waivers` | `any(plugins:read)` |
 | plugin | GET | `/plugins/vulnerabilities/:advisoryId` | `any(plugins:read)` |
 | plugin | GET | `/plugins/vulnerabilities/fleet` | `system-org + any(platform:read|plugins:moderate) + aal2` |

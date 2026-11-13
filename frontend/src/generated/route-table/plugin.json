@@ -4014,6 +4014,34 @@
     }
   },
   {
+    "method": "POST",
+    "path": "/plugins/toolchain/initial-default",
+    "auth": true,
+    "permissions": [],
+    "systemAdmin": false,
+    "servicePrincipal": true,
+    "dynamicAuthz": [],
+    "internalCallers": [
+      "deploy-bootstrap"
+    ],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": [
+      "toolchain.default.initial"
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
+  },
+  {
     "method": "GET",
     "path": "/plugins/vuln-waivers",
     "auth": true,

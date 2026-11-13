@@ -6,18 +6,19 @@
  * commands fetch, plugin-resolve, registry-bake, and template-preview identically.
  */
 
-import type { LookupWarning } from '@pipeline-builder/pipeline-core';
+import type { LookupToolchain, LookupWarning } from '@pipeline-builder/pipeline-core';
 import type { ApiClient } from './api-client.js';
 import { printInfo } from './output-utils.js';
 import { resolvePluginsForProps } from './plugin-resolver.js';
 import { bakePlatformRegistry } from './registry.js';
 import { extractSingleResponse } from './response-utils.js';
+import { assertOneRelease, resolveBootstrapImage } from './toolchain.js';
 import type { Pipeline } from '../types/pipeline.js';
 
 export interface FetchedPipeline {
   /** The raw pipeline record (id/org/project/flags) as returned by the platform. */
   readonly pipeline: Pipeline;
-  /** props + pipelineId (+ orgId) + resolvedPlugins, with the registry pull-host baked in. */
+  /** props + pipelineId (+ orgId) + resolvedPlugins + resolvedBootstrap, with the registry pull-host baked in. */
   readonly propsWithIds: Record<string, unknown>;
   /** The resolved platform base URL the config was fetched against. */
   readonly baseUrl: string;
@@ -31,6 +32,9 @@ export interface FetchedPipeline {
  *  - assemble `propsWithIds` (props + pipelineId + orgId),
  *  - pre-resolve plugins so the template ships real CodeBuild image URIs
  *    (otherwise CDK falls back to standard:7.0 at deploy time),
+ *  - resolve the toolchain release's pipeline-bootstrap (FATAL on any
+ *    failure, D2) with the same `toolchain.release` pin a managed cdk-synth
+ *    reference sent, and check both halves are one release,
  *  - bake the registry pull-host from the platform URL (no-op when
  *    IMAGE_REGISTRY_PULL_HOST is set).
  */
@@ -49,11 +53,16 @@ export async function fetchPipelineProps(client: ApiClient, pipelineId: string):
   };
 
   const pluginWarnings: LookupWarning[] = [];
-  const resolvedPlugins = await resolvePluginsForProps(client, propsWithIds, pluginWarnings);
+  const managedToolchains: Record<string, LookupToolchain> = {};
+  const resolvedPlugins = await resolvePluginsForProps(client, propsWithIds, pluginWarnings, managedToolchains);
   if (Object.keys(resolvedPlugins).length > 0) {
     propsWithIds.resolvedPlugins = resolvedPlugins;
     printInfo('Pre-resolved plugins', { count: Object.keys(resolvedPlugins).length });
   }
+  const resolvedBootstrap = await resolveBootstrapImage(client, propsWithIds, pluginWarnings);
+  assertOneRelease(resolvedBootstrap, managedToolchains);
+  propsWithIds.resolvedBootstrap = resolvedBootstrap;
+  printInfo('Toolchain release', { release: resolvedBootstrap.toolchain.releaseVersion, via: resolvedBootstrap.toolchain.resolvedVia });
 
   bakePlatformRegistry(propsWithIds, config.api.baseUrl);
   return { pipeline, propsWithIds, baseUrl: config.api.baseUrl, pluginWarnings };

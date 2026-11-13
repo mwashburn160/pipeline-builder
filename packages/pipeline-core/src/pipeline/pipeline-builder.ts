@@ -5,6 +5,7 @@ import { createLogger } from '@pipeline-builder/api-core';
 import type { Plugin } from '@pipeline-builder/pipeline-data';
 import { Duration, RemovalPolicy, Tags } from 'aws-cdk-lib';
 import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
+import { BuildSpec, type IBuildImage } from 'aws-cdk-lib/aws-codebuild';
 import { PipelineNotificationEvents, PipelineType, Variable } from 'aws-cdk-lib/aws-codepipeline';
 import * as events from 'aws-cdk-lib/aws-events';
 import * as targets from 'aws-cdk-lib/aws-events-targets';
@@ -37,16 +38,18 @@ import {
 } from '../core/metadata-builder.js';
 import type { CodeBuildDefaults } from '../core/network-types.js';
 import { resolveNetwork, networkConfigFromEnv } from '../core/network.js';
-import { createCodeBuildStep, getComputeType, resolveDefaultBuildImage } from '../core/pipeline-helpers.js';
+import { createCodeBuildStep, curatedSelfMutationImage, getComputeType, resolveDefaultBuildImage } from '../core/pipeline-helpers.js';
 import { PIPELINE_REGISTRATION_SECRET_ENV, PIPELINE_REGISTRATION_SECRET_LEAF } from '../core/pipeline-registration.js';
 import { MetadataKeys, TriggerType } from '../core/pipeline-types.js';
 import type { MetaDataType } from '../core/pipeline-types.js';
 import { PLATFORM_CA_BUNDLE_ENV, PLATFORM_TLS_VERIFY_ENV, platformCaBundle, platformTlsVerify } from '../core/platform-tls.js';
 import { assertPluginContract, contractScopeFromTemplateScope, pluginArtifactAlias, pluginStepLabel } from '../core/plugin-contract.js';
+import type { ResolvedBootstrap } from '../core/plugin-lookup-envelope.js';
 import type { RoleConfig } from '../core/role-types.js';
 import { resolveRole } from '../core/role.js';
 import { isRuntimeVulnCheckEnabled, RUNTIME_VULN_CHECK_KEY } from '../core/runtime-check.js';
 import { resolveSecurityGroup } from '../core/security-group.js';
+import { selfMutationPartialBuildSpec } from '../core/self-mutation.js';
 import type { StepManifestEntry } from '../core/step-manifest.js';
 
 const PIPELINE_EVENT_MAP: Record<string, PipelineNotificationEvents> = {
@@ -78,6 +81,41 @@ function buildDeploysTag(props: BuilderProps): string | undefined {
   return deploysTag;
 }
 
+
+/**
+ * The CodePipeline props a toolchain release pins (§3, D10):
+ *  - `cliVersion` / `cdkAssetsCliVersion` — the release's `awsCdk` /
+ *    `cdkAssets`, so SelfMutate and asset publishing never install npm `latest`;
+ *  - `selfMutationCodeBuildDefaults` — the curated image with its Node runtime
+ *    pinned (`runtime-versions.nodejs`).
+ * A value set explicitly in pipeline metadata replaces the pin (the caller
+ * spreads the metadata after these). A release that doesn't carry a CLI
+ * version, with no explicit metadata either, fails the synth.
+ */
+function toolchainPins(bootstrap: ResolvedBootstrap, explicit: Record<string, unknown>): {
+  cliVersion: string;
+  cdkAssetsCliVersion: string;
+  selfMutationCodeBuildDefaults: CodeBuildOptions;
+} {
+  const { releaseVersion, versions } = bootstrap.toolchain;
+  const pick = (key: 'cliVersion' | 'cdkAssetsCliVersion', released: string | undefined, label: string): string => {
+    const own = explicit[key];
+    if (typeof own === 'string' && own.length > 0) return own;
+    if (released) return released;
+    throw new Error(
+      `BOOTSTRAP_IMAGE_UNRESOLVED: toolchain release ${releaseVersion} carries no ${label} version, so \`${key}\` can't be pinned. `
+      + `Set it explicitly in pipeline metadata (aws:cdk:pipelines:codepipeline:${key.toLowerCase()}) or re-resolve the release.`,
+    );
+  };
+  return {
+    cliVersion: pick('cliVersion', versions.awsCdk, 'aws-cdk'),
+    cdkAssetsCliVersion: pick('cdkAssetsCliVersion', versions.cdkAssets, 'cdk-assets'),
+    selfMutationCodeBuildDefaults: {
+      buildEnvironment: { buildImage: curatedSelfMutationImage() },
+      partialBuildSpec: BuildSpec.fromObject(selfMutationPartialBuildSpec()),
+    },
+  };
+}
 
 /**
  * Configuration properties for the PipelineBuilder construct
@@ -158,6 +196,24 @@ export interface BuilderProps {
   readonly resolvedPlugins?: Record<string, Plugin>;
 
   /**
+   * The toolchain release this pipeline runs on, pinned by the pipeline's own
+   * config (`toolchain.release`). Absent ⇒ the org default, its canary, or the
+   * platform default — whichever the platform resolves (D7, D8).
+   */
+  readonly toolchain?: { readonly release: string };
+
+  /**
+   * The resolved `pipeline-bootstrap` half of the pipeline's toolchain release
+   * (REQUIRED). Pins the default CodeBuild image (`codeBuildDefaults`,
+   * plugin-less steps, asset publishing) by its signed digest and supplies the
+   * CDK CLI (`cliVersion`) and `cdk-assets` (`cdkAssetsCliVersion`) versions.
+   * `pipeline-manager pipeline synth/deploy` resolves it from the platform
+   * (`/plugins/lookup`, name `pipeline-bootstrap`); CDK consumers building
+   * PipelineBuilder directly pass the same record. There is no fallback (D2).
+   */
+  readonly resolvedBootstrap: ResolvedBootstrap;
+
+  /**
    * Platform-sourced registry overrides, applied over the env-loaded `registry`
    * config at synth start. pipeline-manager populates this from the platform URL
    * it deploys against so the CodeBuild image URIs use a pull host AWS CodeBuild
@@ -220,6 +276,13 @@ export class PipelineBuilder extends Construct {
       ? Config.overrideScoped('registry', props.registry)
       : undefined;
     try {
+      if (!props.resolvedBootstrap?.plugin || !props.resolvedBootstrap.toolchain) {
+        throw new Error(
+          'BOOTSTRAP_IMAGE_UNRESOLVED: PipelineBuilder requires `resolvedBootstrap` — the resolved pipeline-bootstrap '
+          + 'half of the toolchain release. `pipeline-manager pipeline synth/deploy` resolves it from the platform; '
+          + 'a CDK app constructing PipelineBuilder directly must pass it (see `pipeline-manager toolchain export`).',
+        );
+      }
       // Use PipelineConfiguration for all business logic (validation, sanitization, metadata merging)
       this.config = new PipelineConfiguration(props);
 
@@ -259,9 +322,9 @@ export class PipelineBuilder extends Construct {
       //      API → use it. Synth step runs on the real `cdk-synth` image with
       //      real commands baked into the template.
       //   2. Otherwise → `bootstrap()`: cold-start `pipeline-manager pipeline synth`
-      //      on the configured CODEBUILD_DEFAULT_IMAGE (default
-      //      pipeline-bootstrap:1.0). Used when the platform isn't reachable
-      //      at synth time (CLI logs a warning per missed plugin).
+      //      on the resolved toolchain release's pipeline-bootstrap image
+      //      (`resolvedBootstrap`). Used when the synth plugin wasn't
+      //      pre-resolved (a non-managed synth plugin whose lookup missed).
       //
       // pluginLookup.plugin() reads `resolvedPlugins` internally and returns
       // the cached entry when present — so calling it always wins over
@@ -279,6 +342,11 @@ export class PipelineBuilder extends Construct {
       const pipelineScope = this.config.getPipelineScope();
       // Contract — see StageBuilder.resolveStep.
       assertPluginContract(plugin, contractScopeFromTemplateScope(pipelineScope), 'synth');
+
+      // The pipeline's default build image: the release's pipeline-bootstrap,
+      // resolved once (one registry-credential import) and shared by the
+      // pipeline-wide codeBuildDefaults and every plugin-less step.
+      const defaultBuildImage = resolveDefaultBuildImage(this, props.orgId, props.resolvedBootstrap.plugin);
 
       const stepManifest = new StepManifestRecorder();
       const synth = createCodeBuildStep({
@@ -299,6 +367,7 @@ export class PipelineBuilder extends Construct {
         // picked the synth output in the UI asked for a key never registered.
         pluginAlias: pluginArtifactAlias(this.config.plugin),
         orgId: props.orgId,
+        defaultBuildImage,
         pipelineScope,
       });
       stepManifest.record(synth, plugin, pluginStepLabel(null, this.config.plugin));
@@ -314,7 +383,7 @@ export class PipelineBuilder extends Construct {
         ? CoreConstants.secretPath(props.orgId, PIPELINE_REGISTRATION_SECRET_LEAF)
         : undefined;
 
-      const codeBuildDefaults = this.resolveDefaults(this.config.defaults, uniqueId, props.pipelineId, platformSecretName, serverConfig.platformUrl, props.orgId);
+      const codeBuildDefaults = this.resolveDefaults(this.config.defaults, uniqueId, props.pipelineId, platformSecretName, serverConfig.platformUrl, props.orgId, defaultBuildImage);
 
       // Resolve IAM role: explicit prop wins, else `iam:role` metadata, else let
       // CDK auto-create the pipeline role (codepipeline.amazonaws.com principal).
@@ -338,7 +407,11 @@ export class PipelineBuilder extends Construct {
       // the bucket and behavior is unchanged.
       const artifactBucket = this.buildArtifactBucket();
 
-      // Create CodePipeline construct
+      // Create CodePipeline construct. The toolchain pins (CLI versions,
+      // self-mutation runtime) go BEFORE the metadata spread: explicit pipeline
+      // metadata (`cliVersion`, `cdkAssetsCliVersion`,
+      // `selfMutationCodeBuildDefaults`, `assetPublishingCodeBuildDefaults`) wins.
+      const codePipelineMetadata = metadataForCodePipeline(this.config.metadata.merged);
       this.pipeline = new CodePipeline(this, uniqueId.generate('pipelines:codepipeline'), {
         ...(codeBuildDefaults && { codeBuildDefaults }),
         ...(role && { role }),
@@ -346,7 +419,8 @@ export class PipelineBuilder extends Construct {
         pipelineType: PipelineType.V2,
         pipelineName: this.config.pipelineName,
         synth,
-        ...metadataForCodePipeline(this.config.metadata.merged),
+        ...toolchainPins(props.resolvedBootstrap, codePipelineMetadata),
+        ...codePipelineMetadata,
       });
 
       // Run-time vulnerability check (opt-in metadata flag, report-only). It
@@ -371,6 +445,7 @@ export class PipelineBuilder extends Construct {
           defaultComputeType,
           artifactManager,
           orgId: props.orgId,
+          defaultBuildImage,
           pipelineScope,
           stepManifest,
           ...(runtimeVulnCheck && platformSecretName && { runtimeVulnCheck: { platformSecretName } }),
@@ -582,6 +657,7 @@ export class PipelineBuilder extends Construct {
     platformSecretName: string | undefined,
     platformUrl: string,
     orgId: string | undefined,
+    defaultBuildImage: IBuildImage,
   ): CodeBuildOptions | undefined {
     // Per-pipeline network config wins; otherwise fall back to an env-driven
     // global VPC (internal / inside-AWS-only mode) so every pipeline's
@@ -600,7 +676,6 @@ export class PipelineBuilder extends Construct {
       : undefined;
 
     const caBundle = platformCaBundle();
-    const { CODEBUILD_DEFAULT_IMAGE: defaultImage, CODEBUILD_DEFAULT_IMAGE_DIGEST: defaultImageDigest } = process.env;
 
     // Pipeline-level env vars available to all CodeBuild actions
     // Note: #{codepipeline.*} resolved variables must go through CodeBuildStep.env
@@ -621,11 +696,10 @@ export class PipelineBuilder extends Construct {
       // self-mutating synth (and any step calling the platform) VERIFIES the
       // certificate instead of needing `--no-verify-ssl`. See core/platform-tls.ts.
       ...(caBundle && { [PLATFORM_CA_BUNDLE_ENV]: { value: caBundle } }),
-      // The self-mutating synth re-resolves the default build image inside
-      // CodeBuild, where the operator's env is absent; carry the image and its
-      // digest so the re-synthesized template keeps the same pin.
-      ...(defaultImage && { CODEBUILD_DEFAULT_IMAGE: { value: defaultImage } }),
-      ...(defaultImageDigest && { CODEBUILD_DEFAULT_IMAGE_DIGEST: { value: defaultImageDigest } }),
+      // No image carry: the self-mutating synth re-resolves the toolchain from
+      // the platform (resolveBootstrapImage), so a re-synth follows the
+      // release the platform resolves on that run. The release is recorded
+      // platform-side in the step manifest, never in the customer's account.
     };
 
     const securityGroups = [
@@ -637,13 +711,12 @@ export class PipelineBuilder extends Construct {
       ...(networkProps && { vpc: networkProps.vpc, subnetSelection: networkProps.subnetSelection }),
       ...(securityGroups.length > 0 && { securityGroups }),
       // buildImage at this level reaches CDK Pipelines' internally-wrapped
-      // ShellStep CodeBuild action, which otherwise hardcodes
-      // CDK's default curated standard image. Setting it here closes the gap
-      // exposed in the same env var (`CODEBUILD_DEFAULT_IMAGE`) that the
-      // CodeBuildStep path already honors via resolvePluginImage()'s
-      // fallback. Per-step `buildImage` on a CodeBuildStep still wins.
+      // ShellStep CodeBuild action and asset publishing, which otherwise run
+      // on CDK's default curated image. It is the release's pipeline-bootstrap,
+      // pulled exactly like a plugin image. Per-step `buildImage` on a
+      // CodeBuildStep still wins; self-mutation overrides it (curated, D10).
       buildEnvironment: {
-        buildImage: resolveDefaultBuildImage(this, orgId),
+        buildImage: defaultBuildImage,
         environmentVariables: pipelineEnvVars,
       },
     };

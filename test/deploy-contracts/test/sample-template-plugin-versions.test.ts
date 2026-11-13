@@ -17,6 +17,13 @@
  * trivy 1.0.0 after 1.1.0 — so instantiating ANY sample template produced a
  * pipeline the platform refused. The catalogue loader publishes exactly the
  * version in each `plugin-spec.yaml`, so that file is the source of truth.
+ *
+ * The MANAGED toolchain (`cdk-synth`, `pipeline-bootstrap`) is the exception:
+ * it is never pinned per step — the pipeline service refuses a managed
+ * `cdk-synth` carrying its own version (TOOLCHAIN_PIN_VIA_RELEASE), and a
+ * template never carries the pipeline's `toolchain.release` either (D12) — so a
+ * template references it unpinned and follows the org / platform default
+ * (docs/plans/bootstrap-image-versioning.md §5).
  */
 
 import { readdirSync } from 'node:fs';
@@ -26,11 +33,10 @@ import { REPO_ROOT, read } from '../src/index.js';
 
 const TEMPLATES_DIR = 'deploy/samples/templates';
 
-/**
- * name -> version, from every deploy/plugins/<category>/<name>/plugin-spec.yaml
- * and the managed toolchain release's deploy/toolchain/<name>/plugin-spec.yaml
- * (templates pin cdk-synth, which lives there).
- */
+/** The managed toolchain names: never pinned per step. */
+const MANAGED = new Set(['cdk-synth', 'pipeline-bootstrap']);
+
+/** name -> version, from every deploy/plugins/<category>/<name>/plugin-spec.yaml. */
 function catalogueVersions(): Map<string, string> {
   const out = new Map<string, string>();
   const record = (spec: string) => {
@@ -38,14 +44,6 @@ function catalogueVersions(): Map<string, string> {
     const version = /^version:\s*(\S+)/m.exec(spec)?.[1];
     if (name && version) out.set(name, version);
   };
-  for (const half of readdirSync(join(REPO_ROOT, 'deploy/toolchain'), { withFileTypes: true })) {
-    if (!half.isDirectory()) continue;
-    try {
-      record(read(`deploy/toolchain/${half.name}/plugin-spec.yaml`));
-    } catch {
-      continue;
-    }
-  }
   const root = join(REPO_ROOT, 'deploy/plugins');
   for (const category of readdirSync(root, { withFileTypes: true })) {
     if (!category.isDirectory() || category.name.startsWith('_')) continue;
@@ -61,6 +59,23 @@ function catalogueVersions(): Map<string, string> {
     }
   }
   return out;
+}
+
+/**
+ * Every reference to a managed toolchain name (`plugin.name` or `filter.name`),
+ * with the version it pins (if any) and whether the template carries a
+ * top-level `toolchain` pin.
+ */
+function managedReferences(node: unknown, path = ''): Array<{ path: string; name: string; version?: unknown; id?: unknown }> {
+  if (Array.isArray(node)) return node.flatMap((v, i) => managedReferences(v, `${path}[${i}]`));
+  if (!node || typeof node !== 'object') return [];
+  const obj = node as Record<string, unknown>;
+  const found: Array<{ path: string; name: string; version?: unknown; id?: unknown }> = [];
+  const filter = (obj.filter && typeof obj.filter === 'object' ? obj.filter : {}) as Record<string, unknown>;
+  const name = typeof filter.name === 'string' ? filter.name : typeof obj.name === 'string' && 'filter' in obj ? obj.name : undefined;
+  if (name && MANAGED.has(name)) found.push({ path, name, version: filter.version, id: filter.id });
+  for (const [k, v] of Object.entries(obj)) found.push(...managedReferences(v, `${path}.${k}`));
+  return found;
 }
 
 /** Every `{ filter: { name, version } }` in a template, with where it sits. */
@@ -88,12 +103,21 @@ describe('sample templates pin the plugin versions the catalogue publishes', () 
   it('finds the templates and the catalogue it checks them against', () => {
     expect(templates.length).toBeGreaterThan(0);
     expect(catalogue.size).toBeGreaterThan(100);
-    // The toolchain root is read too: templates pin cdk-synth.
-    expect(catalogue.get('cdk-synth')).toBe(catalogue.get('pipeline-bootstrap'));
-    expect(catalogue.get('cdk-synth')).toMatch(/^\d+\.\d+\.\d+$/);
+    // The managed toolchain lives in deploy/toolchain/, outside the catalogue.
+    for (const name of MANAGED) expect(catalogue.has(name)).toBe(false);
   });
 
-  it.each(templates)('%s', (template) => {
+  it.each(templates)('%s references the managed toolchain unpinned', (template) => {
+    const parsed = JSON.parse(read(`${TEMPLATES_DIR}/${template}/template.json`)) as Record<string, unknown>;
+    const refs = managedReferences(parsed);
+    expect(refs.map((r) => r.name)).toContain('cdk-synth');
+    expect(refs.filter((r) => r.version !== undefined || r.id !== undefined)).toEqual([]);
+    // No `toolchain` pin anywhere in the template's props (D12).
+    const props = (parsed.props ?? parsed) as Record<string, unknown>;
+    expect(props).not.toHaveProperty('toolchain');
+  });
+
+  it.each(templates)('%s pins the catalogue versions', (template) => {
     const pins = pinnedPlugins(JSON.parse(read(`${TEMPLATES_DIR}/${template}/template.json`)));
     expect(pins.length).toBeGreaterThan(0);
     const wrong = pins

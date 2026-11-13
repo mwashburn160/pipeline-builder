@@ -75,6 +75,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => {
         orgId: 'orgId',
         visibility: 'visibility',
       },
+      toolchainRelease: { table: 'toolchain_release', releaseVersion: 'toolchainRelease.releaseVersion' },
       pipelineStepManifest: {
         orgId: 'manifest.orgId',
         pluginName: 'manifest.pluginName',
@@ -823,9 +824,13 @@ describe('PluginService', () => {
   describe('managed toolchain names (pipeline-bootstrap, cdk-synth)', () => {
     let versionRows: Array<Record<string, unknown>>;
     let defaultRows: Array<Record<string, unknown>>;
+    const mockReleaseConflict = jest.fn(async (..._args: unknown[]) => []);
     const mockValues = jest.fn((..._args: unknown[]) => ({
       onConflictDoUpdate: jest.fn(() => ({ returning: jest.fn(async () => [{ id: 'm-1', orgId: SYSTEM_ORG_ID, name: 'cdk-synth', version: '1.0.0' }]) })),
+      // The release row (toolchain_release): inserted once per version, never overwritten.
+      onConflictDoNothing: mockReleaseConflict,
     }));
+    const mockInsert = jest.fn((..._args: unknown[]) => ({ values: mockValues }));
     const mockUpdateSet = jest.fn((..._args: unknown[]) => ({ where: jest.fn<AnyFn>() }));
     const managed = { orgId: SYSTEM_ORG_ID, name: 'cdk-synth', version: '1.0.0', visibility: 'public' } as any;
     const admin = { isSystemAdmin: true, canPublish: true };
@@ -843,7 +848,7 @@ describe('PluginService', () => {
             return { from: () => ({ where: () => Object.assign(Promise.resolve(rows), { for: async () => rows }) }) };
           }),
           update: jest.fn(() => ({ set: mockUpdateSet })),
-          insert: jest.fn(() => ({ values: mockValues })),
+          insert: mockInsert,
         });
       });
     });
@@ -878,9 +883,18 @@ describe('PluginService', () => {
       expect(mockValues).not.toHaveBeenCalled();
     });
 
+    it('a managed upload registers its release row in the same transaction (insert-or-keep)', async () => {
+      await service.deployVersion({ ...managed, version: '1.4.2' }, 'loader', admin);
+      expect(mockInsert).toHaveBeenCalledWith(expect.objectContaining({ table: 'toolchain_release' }));
+      expect(mockValues).toHaveBeenCalledWith({ releaseVersion: '1.4.2', createdBy: 'loader' });
+      expect(mockReleaseConflict).toHaveBeenCalledWith({ target: 'toolchainRelease.releaseVersion' });
+    });
+
     it('a non-managed name still follows the default rule', async () => {
       await service.deployVersion({ ...managed, name: 'my-synth', orgId: 'org-1' }, 'u-1', admin);
       expect(mockValues).toHaveBeenCalledWith(expect.objectContaining({ name: 'my-synth', isDefault: true }));
+      // ...and registers no toolchain release.
+      expect(mockInsert).not.toHaveBeenCalledWith(expect.objectContaining({ table: 'toolchain_release' }));
     });
 
     const row = { id: 'm-1', orgId: SYSTEM_ORG_ID, name: 'pipeline-bootstrap', version: '1.0.0', isDefault: true, lifecycle: 'production', yankedAt: null, deprecatedAt: null } as any;

@@ -1,9 +1,10 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { audited, loadAndRestore, sendSuccess, actorId, recordAudit } from '@pipeline-builder/api-core';
+import { audited, isManagedToolchainPlugin, loadAndRestore, sendSuccess, actorId, recordAudit } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
+import { toolchainUseConsoleError } from '../helpers/managed-toolchain.js';
 import { shapePlugin } from '../helpers/plugin-helpers.js';
 import { pluginService } from '../services/plugin-service.js';
 
@@ -21,6 +22,15 @@ export function createRestorePluginRoutes(): Router {
   const router: Router = Router();
 
   router.post('/:id/restore', audited('plugin.restore'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
+    // A managed toolchain half is never restored on its own: deleting a release
+    // removes its `toolchain_release` row and tombstones BOTH halves together, so
+    // restoring one would resurrect a half with no release (or half a release).
+    // Release lifecycle lives in the Toolchain console — for the system org too.
+    const tombstone = typeof req.params.id === 'string' && req.params.id.length > 0
+      ? await pluginService.findDeletedById(req.params.id, orgId)
+      : null;
+    if (tombstone && isManagedToolchainPlugin(tombstone.name)) throw toolchainUseConsoleError(tombstone.name);
+
     const result = await loadAndRestore(req, res, pluginService, { orgId, userId, label: 'Plugin', publishPermission: 'plugins:publish' });
     if (!result) return;
     const { existing, restored } = result;

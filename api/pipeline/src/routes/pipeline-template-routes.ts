@@ -38,6 +38,7 @@ import { Router } from 'express';
 import { instantiateTemplateProps } from '../helpers/instantiate-template.js';
 import { validatePipelineTemplates } from '../helpers/pipeline-template-validator.js';
 import { checkPipelinePlugins, type PluginWarning } from '../helpers/plugin-save-check.js';
+import { withoutToolchainPin } from '../helpers/template-props.js';
 import { pipelineTemplateService } from '../services/pipeline-template-service.js';
 
 /**
@@ -234,7 +235,7 @@ export function createPipelineTemplateRoutes(): Router {
       description: body.description ?? null,
       keywords: body.keywords ?? [],
       category: body.category ?? 'general',
-      props: body.props,
+      props: withoutToolchainPin(body.props),
       inputs: body.inputs ?? [],
       visibility,
       // Owner is always the creator on create (client-supplied ownerId ignored).
@@ -300,7 +301,7 @@ export function createPipelineTemplateRoutes(): Router {
         description: body.description,
         keywords: body.keywords,
         category: body.category,
-        props: body.props,
+        props: withoutToolchainPin(body.props),
         inputs: body.inputs,
         isActive: body.isActive,
         lifecycle: body.lifecycle,

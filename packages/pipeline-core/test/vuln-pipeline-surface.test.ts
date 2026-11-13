@@ -4,13 +4,14 @@
 /**
  * The pipeline-side vulnerability surface that lives in pipeline-core: the
  * structured synth-failure line, the run-time check's step list, the private-CA
- * bundle, the digest-pinned default build image, and the scoped key injected
+ * bundle, the default build image (the resolved, digest-pinned pipeline-bootstrap), and the scoped key injected
  * into a step that uploads security reports.
  */
 
 import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 import { App, Stack } from 'aws-cdk-lib';
-import { BuildEnvironmentVariableType } from 'aws-cdk-lib/aws-codebuild';
+import { BuildEnvironmentVariableType, LinuxBuildImage, type IBuildImage } from 'aws-cdk-lib/aws-codebuild';
+import { bootstrapFixture } from './helpers/bootstrap-fixture.js';
 
 const { Config } = await import('../src/config/app-config.js');
 const { resolveDefaultBuildImage, createCodeBuildStep } = await import('../src/core/pipeline-helpers.js');
@@ -115,14 +116,14 @@ describe('PLATFORM_TLS_VERIFY', () => {
   });
 });
 
-describe('default build image digest pinning', () => {
-  const KEYS = ['IMAGE_REGISTRY_PULL_HOST', 'IMAGE_REGISTRY_PULL_PORT', 'CODEBUILD_DEFAULT_IMAGE', 'CODEBUILD_DEFAULT_IMAGE_DIGEST'];
+describe('default build image = the resolved pipeline-bootstrap, pinned like a plugin image', () => {
+  const KEYS = ['IMAGE_REGISTRY_HOST', 'IMAGE_REGISTRY_PULL_HOST', 'IMAGE_REGISTRY_PULL_PORT'];
   const saved: Record<string, string | undefined> = {};
   beforeEach(() => {
     for (const k of KEYS) { saved[k] = process.env[k]; delete process.env[k]; }
+    process.env.IMAGE_REGISTRY_HOST = 'registry.example.com';
     process.env.IMAGE_REGISTRY_PULL_HOST = 'registry.example.com';
     process.env.IMAGE_REGISTRY_PULL_PORT = '443';
-    process.env.CODEBUILD_DEFAULT_IMAGE = 'pipeline-bootstrap:1.0';
     Config._resetForTesting();
   });
   afterEach(() => {
@@ -130,40 +131,118 @@ describe('default build image digest pinning', () => {
     Config._resetForTesting();
   });
 
-  it('pulls the bare tag by digest when the digest is configured', () => {
-    process.env.CODEBUILD_DEFAULT_IMAGE_DIGEST = DIGEST;
-    Config._resetForTesting();
-    const image = resolveDefaultBuildImage(new Stack(new App(), 'S'), 'org1') as { imageId: string };
-    expect(image.imageId).toBe(`registry.example.com/library/pipeline-bootstrap@${DIGEST}`);
+  it('pulls system/pipeline-bootstrap by its signed digest', () => {
+    const image = resolveDefaultBuildImage(new Stack(new App(), 'S'), 'org1', bootstrapFixture({ digest: DIGEST }).plugin) as { imageId: string };
+    expect(image.imageId).toBe(`registry.example.com/system/pipeline-bootstrap@${DIGEST}`);
   });
 
-  it('falls back to the tag (with a warning) when no digest is configured', () => {
-    const image = resolveDefaultBuildImage(new Stack(new App(), 'S'), 'org1') as { imageId: string };
-    expect(image.imageId).toBe('registry.example.com/library/pipeline-bootstrap:1.0');
+  it('fails the synth without a digest, on a malformed one, or outside system/', () => {
+    const stack = new Stack(new App(), 'S');
+    expect(() => resolveDefaultBuildImage(stack, 'org1', bootstrapFixture({ digest: '' }).plugin)).toThrow(/no signed image digest/);
+    expect(() => resolveDefaultBuildImage(stack, 'org1', bootstrapFixture({ digest: 'sha256:nope' }).plugin)).toThrow(/no signed image digest/);
+    expect(() => resolveDefaultBuildImage(stack, 'org1', bootstrapFixture({ repository: 'public/acme/pipeline-bootstrap' }).plugin))
+      .toThrow(/BOOTSTRAP_IMAGE_UNRESOLVED/);
+    expect(() => resolveDefaultBuildImage(stack, 'org1', { ...bootstrapFixture().plugin, name: 'cdk-synth' } as never))
+      .toThrow(/BOOTSTRAP_IMAGE_UNRESOLVED/);
   });
 
-  it('fails the synth on a malformed digest', () => {
-    process.env.CODEBUILD_DEFAULT_IMAGE_DIGEST = 'sha256:nope';
-    Config._resetForTesting();
-    expect(() => resolveDefaultBuildImage(new Stack(new App(), 'S'), 'org1')).toThrow(/not a sha256 manifest digest/);
+  it('never reads CODEBUILD_DEFAULT_IMAGE[_DIGEST]', () => {
+    process.env.CODEBUILD_DEFAULT_IMAGE = 'aws/codebuild/standard:8.0';
+    process.env.CODEBUILD_DEFAULT_IMAGE_DIGEST = `sha256:${'d'.repeat(64)}`;
+    try {
+      Config._resetForTesting();
+      const image = resolveDefaultBuildImage(new Stack(new App(), 'S'), 'org1', bootstrapFixture({ digest: DIGEST }).plugin) as { imageId: string };
+      expect(image.imageId).toBe(`registry.example.com/system/pipeline-bootstrap@${DIGEST}`);
+    } finally {
+      delete process.env.CODEBUILD_DEFAULT_IMAGE;
+      delete process.env.CODEBUILD_DEFAULT_IMAGE_DIGEST;
+    }
   });
 
-  it('pins a fully-qualified tag-only URI too', () => {
-    process.env.CODEBUILD_DEFAULT_IMAGE = 'ghcr.io/acme/bootstrap:2';
-    process.env.CODEBUILD_DEFAULT_IMAGE_DIGEST = DIGEST;
-    Config._resetForTesting();
-    const image = resolveDefaultBuildImage(new Stack(new App(), 'S'), 'org1') as { imageId: string };
-    expect(image.imageId).toBe(`ghcr.io/acme/bootstrap@${DIGEST}`);
+  it('the default-image project has exactly a plugin step\'s Image / RegistryCredential shape', () => {
+    // Phase 0: CodeBuild pulls system/pipeline-bootstrap exactly as it already
+    // pulls every system plugin (cdk-synth et al.).
+    const stack = new Stack(new App(), 'S');
+    const uniqueId = new UniqueId({ organization: 'acme', project: 'x' });
+    const bootstrap = bootstrapFixture({ digest: DIGEST }).plugin;
+    const defaultBuildImage = resolveDefaultBuildImage(stack, 'org1', bootstrap);
+    const base = { uniqueId, scope: stack, orgId: 'org1', pipelineScope: {}, defaultBuildImage };
+    const pluginStep = createCodeBuildStep({
+      ...base,
+      id: 'plugin-step',
+      plugin: {
+        id: 'p',
+        name: 'trivy',
+        version: '1.0.0',
+        orgId: 'system',
+        buildType: 'prebuilt',
+        pluginType: 'CodeBuildStep',
+        imageDigest: DIGEST,
+        imageRepository: 'system/trivy',
+        commands: ['trivy fs .'],
+        installCommands: [],
+        env: {},
+        metadata: {},
+        secrets: [],
+      },
+    } as never);
+    const defaultStep = createCodeBuildStep({
+      ...base,
+      id: 'default-step',
+      plugin: {
+        id: 'q',
+        name: 'noop',
+        version: '1.0.0',
+        orgId: 'system',
+        buildType: 'metadata_only',
+        pluginType: 'CodeBuildStep',
+        commands: ['true'],
+        installCommands: [],
+        env: {},
+        metadata: {},
+        secrets: [],
+      },
+    } as never);
+    const envOf = (step: unknown) => (step as { buildEnvironment: { buildImage: IBuildImage } }).buildEnvironment.buildImage;
+    const plugin = envOf(pluginStep);
+    const dflt = envOf(defaultStep);
+    expect(dflt).toBe(defaultBuildImage);
+    // Same constructor, same pull-credential type, same secret, same URI shape.
+    expect(dflt.constructor).toBe(plugin.constructor);
+    expect(dflt.imagePullPrincipalType).toBe(plugin.imagePullPrincipalType);
+    expect(dflt.imagePullPrincipalType).toBe('SERVICE_ROLE');
+    expect(dflt.secretsManagerCredentials).toBe(plugin.secretsManagerCredentials);
+    expect(dflt.imageId.replace('pipeline-bootstrap', '<name>')).toBe(plugin.imageId.replace('trivy', '<name>'));
+  });
+
+  it('a plugin-less step without a default build image fails the synth', () => {
+    const stack = new Stack(new App(), 'S');
+    expect(() => createCodeBuildStep({
+      id: 'x',
+      uniqueId: new UniqueId({ organization: 'acme', project: 'x' }),
+      scope: stack,
+      orgId: 'org1',
+      pipelineScope: {},
+      plugin: {
+        id: 'q',
+        name: 'noop',
+        version: '1.0.0',
+        orgId: 'system',
+        buildType: 'metadata_only',
+        pluginType: 'CodeBuildStep',
+        commands: ['true'],
+        installCommands: [],
+        env: {},
+        metadata: {},
+        secrets: [],
+      },
+    } as never)).toThrow(/BOOTSTRAP_IMAGE_UNRESOLVED.*no default build image/);
   });
 });
 
 describe('security-report upload key injection', () => {
-  const savedImage = process.env.CODEBUILD_DEFAULT_IMAGE;
-  beforeEach(() => { process.env.CODEBUILD_DEFAULT_IMAGE = 'aws/codebuild/standard:8.0'; Config._resetForTesting(); });
-  afterEach(() => {
-    if (savedImage === undefined) delete process.env.CODEBUILD_DEFAULT_IMAGE; else process.env.CODEBUILD_DEFAULT_IMAGE = savedImage;
-    Config._resetForTesting();
-  });
+  beforeEach(() => { Config._resetForTesting(); });
+  afterEach(() => { Config._resetForTesting(); });
   const plugin = (env: Record<string, string>) => ({
     id: 'p1',
     name: 'trivy',
@@ -188,6 +267,7 @@ describe('security-report upload key injection', () => {
       scope: stack,
       orgId: 'org-1',
       pipelineScope: {},
+      defaultBuildImage: LinuxBuildImage.fromCodeBuildImageId('aws/codebuild/standard:8.0'),
     } as never) as unknown as { buildEnvironment: { environmentVariables: Record<string, { value: string; type?: string }> } };
     return step.buildEnvironment.environmentVariables;
   }

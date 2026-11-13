@@ -44,6 +44,48 @@ This page covers installation, the [`infra provision`](#installing-the-platform-
 3. Deploy commands shell out to `cdk`, then register the resulting stack with the platform by name and region.
 4. The process exits with a specific code so a CI job fails on the right thing.
 
+### The toolchain release (synth and deploy)
+
+Every pipeline runs on a **toolchain release**: the `pipeline-bootstrap` build
+image (the default CodeBuild image — the synth bootstrap, asset publishing and
+plugin-less steps) and the `cdk-synth` synth plugin, published together under
+one version. `pipeline synth` / `pipeline deploy` resolve it from the platform
+on every run:
+
+- **Which release.** The pipeline's own pin (`toolchain.release` in its config),
+  else its organization's default, a canary the org is in, or the platform
+  default. Both halves are looked up with the same pin, so they always come from
+  one release.
+- **No fallback.** If the bootstrap can't be resolved (platform unreachable, no
+  platform default — `TOOLCHAIN_NO_DEFAULT`, a deleted pin, a refused signature)
+  the synth stops with `BOOTSTRAP_IMAGE_UNRESOLVED`. A managed `cdk-synth`
+  reference is fatal the same way; it has no deploy-time fallback.
+- **What it pins.** The default image is
+  `<platform>/system/pipeline-bootstrap@<digest>`, pulled with the org's
+  `registry-push` secret exactly like a plugin image. `cliVersion` and
+  `cdkAssetsCliVersion` are the release's `aws-cdk` / `cdk-assets` versions
+  (never npm `latest`); explicit pipeline metadata
+  (`aws:cdk:pipelines:codepipeline:cliversion`, `…:cdkassetscliversion`,
+  `…:selfmutationcodebuilddefaults`, `…:assetpublishingcodebuilddefaults`) wins.
+- **Self-mutation** runs on the AWS curated `aws/codebuild/standard:8.0` with its
+  Node runtime pinned (`runtime-versions.nodejs`), so a defective release can
+  always be rolled back.
+
+**Local-spec deploys.** `pipeline deploy --local-spec` never contacts the
+platform, so it takes the release from a file:
+
+```bash
+# Against the platform, once (add --release <V> to export a specific release):
+pipeline-manager toolchain export --output toolchain.json
+
+# Anywhere, without the platform:
+pipeline-manager pipeline deploy --local-spec pipeline.json --toolchain-file toolchain.json
+```
+
+The file's platform host becomes the registry pull host (unless
+`IMAGE_REGISTRY_PULL_HOST` is set). A pipeline that pins `toolchain.release` must
+be given that release's export.
+
 ## Configuration
 
 1. **Install the CLI** — see [Install](#install).
@@ -220,7 +262,8 @@ Run `pipeline-manager <command> --help` for the full flag reference on any comma
 | --- | --- |
 | `infra bootstrap` | Scaffold a new pipeline project with `cdk.json` and starter config |
 | `pipeline synth` | Run CDK synth to emit the CloudFormation template for the pipeline |
-| `pipeline deploy` | Deploy the synthesized pipeline stack to AWS (also registers the pipeline with the platform by its `pipelineId`) |
+| `pipeline deploy` | Deploy the synthesized pipeline stack to AWS (also registers the pipeline with the platform by its `pipelineId`). `--local-spec <pipeline.json>` deploys a local spec without contacting the platform; it **requires `--toolchain-file <path>`** (see below) and refuses with `BOOTSTRAP_IMAGE_UNRESOLVED` without one |
+| `toolchain export` | Write the pipeline toolchain release as JSON: the release your organization resolves to now (its own default, a canary, or the platform default), or `--release <V>`. It holds both halves' (`pipeline-bootstrap`, `cdk-synth`) image repositories and signed digests, the release version and its tool versions, and the platform it came from. `--output <file>` (default stdout). Read-only. The input to `pipeline deploy --local-spec --toolchain-file` |
 | `pipeline register` | Re-register a deployed pipeline and drain pending intents queued by prior failed deploys (recovery path; exits non-zero if any registration still fails) |
 | `status` | Report the current deployment and execution status |
 

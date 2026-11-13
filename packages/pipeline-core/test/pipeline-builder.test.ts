@@ -16,14 +16,10 @@
 import { jest, describe, it, expect } from '@jest/globals';
 import { App, Stack } from 'aws-cdk-lib';
 import { Match, Template } from 'aws-cdk-lib/assertions';
+import { BOOTSTRAP_DIGEST, TEST_AWS_CDK, TEST_CDK_ASSETS, TEST_REGISTRY, bootstrapFixture } from './helpers/bootstrap-fixture.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 import type { BuilderProps } from '../src/pipeline/pipeline-builder.js';
 
-// Use an AWS-curated default build image so synth resolves the CodeBuild image
-// via the curated-image path instead of the platform registry. Without this,
-// the default bare-tag image ('pipeline-bootstrap:1.0') plus an orgId trips the
-// (intentional) in-cluster-pull-host guardrail. Set before any Config.get('aws').
-process.env.CODEBUILD_DEFAULT_IMAGE = 'aws/codebuild/standard:8.0';
 
 // Persistent logger so synth-time warnings (last-stage attribution, pb.deploys
 // overflow) can be asserted. The default mock hands each createLogger() call a
@@ -83,6 +79,9 @@ function baseProps(overrides: Partial<BuilderProps> = {}): BuilderProps {
   return {
     project: 'my-project',
     organization: 'my-org',
+    orgId: 'org-1',
+    registry: TEST_REGISTRY,
+    resolvedBootstrap: bootstrapFixture(),
     synth: {
       source: { type: 'github', options: { repo: 'acme/checkout', branch: 'main' } },
       plugin: { name: 'cdk-synth' },
@@ -227,21 +226,17 @@ describe('PipelineBuilder', () => {
       });
     });
 
-    it('grants no platform-secret read when there is no org to scope it to', () => {
-      // Without an orgId there is no per-org secret path, so a grant would have
-      // to be wildcarded across every org's secret — refuse rather than widen.
-      const { template } = build(baseProps());
-      const policies = Object.values(template.findResources('AWS::IAM::Policy')) as any[];
-      const statements = policies.flatMap((p) => p.Properties.PolicyDocument.Statement as any[]);
-      expect(statements.some((st) => String(st.Action).includes('secretsmanager:GetSecretValue')
-        && String(JSON.stringify(st.Resource)).includes('/platform-'))).toBe(false);
+    it('refuses to synth without an orgId (the bootstrap pull credential is per org)', () => {
+      // Without an orgId there is no per-org registry secret to pull the
+      // toolchain image with — and no platform-secret grant could be scoped
+      // either. The synth stops rather than fall back to any other image.
+      expect(() => build(baseProps({ orgId: undefined }))).toThrow(/BOOTSTRAP_IMAGE_UNRESOLVED.*orgId/);
     });
 
-    it('does not emit an OrgId tag when orgId is omitted', () => {
+    it('does not emit a pb.pipeline-id tag when pipelineId is omitted', () => {
       const { template } = build(baseProps());
       const pipelines = template.findResources('AWS::CodePipeline::Pipeline');
       const tags = (Object.values(pipelines)[0] as any).Properties.Tags as Array<{ Key: string }>;
-      expect(tags.some(t => t.Key === 'OrgId')).toBe(false);
       expect(tags.some(t => t.Key === 'pb.pipeline-id')).toBe(false);
     });
 
@@ -481,6 +476,93 @@ describe('PipelineBuilder', () => {
       );
 
       template.resourceCountIs('AWS::CodeStarNotifications::NotificationRule', 1);
+    });
+  });
+
+  describe('toolchain release (resolvedBootstrap)', () => {
+    const projects = (template: Template) => Object.values(template.findResources('AWS::CodeBuild::Project')) as any[];
+    const selfMutation = (template: Template) => projects(template).find((p) =>
+      String(JSON.stringify(p.Properties.Source?.BuildSpec ?? '')).includes('cdk -a'));
+    const buildSpecOf = (project: any) => JSON.parse(project.Properties.Source.BuildSpec);
+
+    it('throws a clear error naming resolvedBootstrap when it is absent', () => {
+      expect(() => build(baseProps({ resolvedBootstrap: undefined as never }))).toThrow(/BOOTSTRAP_IMAGE_UNRESOLVED.*resolvedBootstrap/);
+    });
+
+    it('carries no CODEBUILD_DEFAULT_IMAGE* anywhere in the template, even when the env sets them', () => {
+      process.env.CODEBUILD_DEFAULT_IMAGE = 'pipeline-bootstrap:1.0';
+      process.env.CODEBUILD_DEFAULT_IMAGE_DIGEST = `sha256:${'c'.repeat(64)}`;
+      try {
+        const { template } = build(baseProps({ pipelineId: 'pl-1' }));
+        expect(JSON.stringify(template.toJSON())).not.toMatch(/CODEBUILD_DEFAULT_IMAGE/);
+      } finally {
+        delete process.env.CODEBUILD_DEFAULT_IMAGE;
+        delete process.env.CODEBUILD_DEFAULT_IMAGE_DIGEST;
+      }
+    });
+
+    it('pins the default image to system/pipeline-bootstrap@<digest> with the registry-push credential', () => {
+      const { template } = build(baseProps());
+      const ref = `registry.example.com/system/pipeline-bootstrap@${BOOTSTRAP_DIGEST}`;
+      const onBootstrap = projects(template).filter((p) => p.Properties.Environment.Image === ref);
+      // At least the synth (bootstrap synth plugin is metadata_only here) and asset publishing / shell actions.
+      expect(onBootstrap.length).toBeGreaterThan(0);
+      for (const p of onBootstrap) {
+        expect(p.Properties.Environment.ImagePullCredentialsType).toBe('SERVICE_ROLE');
+        expect(p.Properties.Environment.RegistryCredential).toEqual({
+          Credential: expect.anything(),
+          CredentialProvider: 'SECRETS_MANAGER',
+        });
+      }
+      expect(JSON.stringify(template.toJSON())).toContain('pipeline-builder/org-1/registry-push');
+    });
+
+    it('runs self-mutation on the curated image with a pinned Node runtime and the release CLI', () => {
+      const { template } = build(baseProps());
+      const sm = selfMutation(template);
+      expect(sm).toBeDefined();
+      expect(sm.Properties.Environment.Image).toBe('aws/codebuild/standard:8.0');
+      expect(sm.Properties.Environment.ImagePullCredentialsType).toBe('CODEBUILD');
+      const spec = buildSpecOf(sm);
+      expect(spec.phases.install['runtime-versions']).toEqual({ nodejs: '24' });
+      expect(JSON.stringify(spec)).toContain(`npm install -g aws-cdk@${TEST_AWS_CDK}`);
+      expect(JSON.stringify(spec)).not.toMatch(/aws-cdk@(latest|2)"/);
+    });
+
+    it('pins cdk-assets to the release (asset publishing never installs latest)', () => {
+      const { builder } = build(baseProps());
+      expect((builder.pipeline as any).cdkAssetsCliVersion).toBe(TEST_CDK_ASSETS);
+      expect((builder.pipeline as any).cliVersion).toBe(TEST_AWS_CDK);
+    });
+
+    it('explicit pipeline metadata wins over the release pins', () => {
+      const { template, builder } = build(baseProps({
+        global: {
+          'aws:cdk:pipelines:codepipeline:cliversion': '2.1000.0',
+          'aws:cdk:pipelines:codepipeline:cdkassetscliversion': '3.0.0',
+        },
+      }));
+      expect((builder.pipeline as any).cliVersion).toBe('2.1000.0');
+      expect((builder.pipeline as any).cdkAssetsCliVersion).toBe('3.0.0');
+      expect(JSON.stringify(buildSpecOf(selfMutation(template)))).toContain('npm install -g aws-cdk@2.1000.0');
+    });
+
+    it('refuses a release without CLI versions unless metadata pins them (never npm latest)', () => {
+      const bare = bootstrapFixture({ versions: {} });
+      expect(() => build(baseProps({ resolvedBootstrap: bare }))).toThrow(/carries no aws-cdk version/);
+      expect(() => build(baseProps({
+        resolvedBootstrap: bare,
+        global: {
+          'aws:cdk:pipelines:codepipeline:cliversion': '2.1000.0',
+          'aws:cdk:pipelines:codepipeline:cdkassetscliversion': '3.0.0',
+        },
+      }))).not.toThrow();
+    });
+
+    it('refuses a bootstrap without a signed digest or outside system/pipeline-bootstrap', () => {
+      expect(() => build(baseProps({ resolvedBootstrap: bootstrapFixture({ digest: '' }) }))).toThrow(/no signed image digest/);
+      expect(() => build(baseProps({ resolvedBootstrap: bootstrapFixture({ repository: 'org-x/pipeline-bootstrap' }) })))
+        .toThrow(/BOOTSTRAP_IMAGE_UNRESOLVED.*system\/pipeline-bootstrap/);
     });
   });
 });

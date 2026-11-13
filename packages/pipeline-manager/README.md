@@ -80,7 +80,8 @@ The underlying `bin/setup.sh` / `bin/shutdown.sh` scripts (and `aws cloudformati
 | --- | --- |
 | `bootstrap` | Scaffold a new pipeline project with `cdk.json` and starter config |
 | `synth` | Run CDK synth to emit the CloudFormation template for the pipeline |
-| `deploy` | Deploy the synthesized pipeline stack to AWS (also registers the pipeline with the platform by its `pipelineId`) |
+| `deploy` | Deploy the synthesized pipeline stack to AWS (also registers the pipeline with the platform by its `pipelineId`). `--local-spec <pipeline.json>` deploys without the platform and requires `--toolchain-file` (from `toolchain export`) |
+| `toolchain export` | Write the pipeline toolchain release your org resolves to (or `--release <V>`) as JSON: both images' repositories and signed digests, the release and its tool versions. The input to `deploy --local-spec --toolchain-file` |
 | `register` | Re-register a deployed pipeline with the platform and drain pending intents queued by prior failed deploys (recovery path; exits non-zero if any registration still fails) |
 | `status` | Report the current deployment and execution status |
 

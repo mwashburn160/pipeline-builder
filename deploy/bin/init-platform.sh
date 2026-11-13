@@ -11,6 +11,15 @@ set -euo pipefail
 #   ./init-platform.sh eks                                     # EKS (port-forwards to nginx via kubectl; or set PLATFORM_BASE_URL)
 #   ./init-platform.sh --cleanup ec2                           # Clean up plugin.zip + image.tar after upload
 #   ./init-platform.sh --force ec2                             # Force rebuild of base + non-managed plugin images (ignore caches)
+#   ./init-platform.sh --accept-initial-vulnerabilities "<reason>" docker
+#                                                              # Set the initial toolchain default despite the fixable-Critical floor (audited)
+#
+# Every run installs the managed toolchain release (pipeline-bootstrap +
+# cdk-synth): it builds both halves, uploads them, BLOCKS until both are built and
+# scanned (TOOLCHAIN_WAIT_TIMEOUT, default 1800s — a timeout FAILS the run), then
+# sets the release as the platform default through the one-time initial-default
+# route (a no-op once a default exists). Without a platform default every
+# pipeline synth fails (BOOTSTRAP_IMAGE_UNRESOLVED), so none of this is optional.
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
@@ -53,6 +62,11 @@ CONTINUE_ON_BUILD_FAILURE=false
 # (pipeline-bootstrap, cdk-synth) are immutable per version and never rebuilt in
 # place — a change to them ships as a new release.
 FORCE_REBUILD_ALL=false
+# --accept-initial-vulnerabilities "<reason>": the ONLY override of the
+# fixable-Critical floor anywhere, and only for the initial platform default
+# (plan §8). Sent as `acceptVulnerabilities` and recorded in the
+# toolchain.default.initial audit event.
+ACCEPT_INITIAL_VULNERABILITIES=""
 
 # Parse the target and flags in ANY order — flags may come before OR after the
 # target (e.g. both `init-platform.sh --force ec2` and `init-platform.sh ec2
@@ -64,6 +78,9 @@ while [ $# -gt 0 ]; do
     --cleanup) CLEANUP_AFTER_UPLOAD=true; shift ;;
     --continue-on-build-failure) CONTINUE_ON_BUILD_FAILURE=true; shift ;;
     --force) FORCE_REBUILD_ALL=true; shift ;;
+    --accept-initial-vulnerabilities)
+      [ $# -ge 2 ] && [ -n "$2" ] && [ "${2#-}" = "$2" ] || { echo "ERROR: $1 requires a reason (e.g. $1 \"CVE-2026-1234: no fix upstream yet, tracked in OPS-42\")" >&2; exit 1; }
+      ACCEPT_INITIAL_VULNERABILITIES="$2"; shift 2 ;;
     -*) echo "Unknown flag: $1" >&2; exit 1 ;;
     *)
       if [ -n "$TARGET" ]; then
@@ -321,19 +338,6 @@ echo "=== Creating the Official catalog loader service account ==="
 official_loader_service_account_key
 
 
-# Build + publish the managed toolchain release: pipeline-bootstrap (the build
-# image of every pipeline step without a plugin image) and cdk-synth, which is
-# FROM it by digest. One version for both halves, read from their specs. Always
-# runs — the toolchain is needed even when no other plugin is loaded — and is
-# idempotent: a version already published with the same bits is not re-pushed,
-# and one published with DIFFERENT bits is refused (a managed version is
-# immutable). For the same reason --force never applies here: FORCE_REBUILD
-# rebuilds non-managed images only. Both halves are uploaded by the plugin load
-# below (load-plugins.sh puts them first).
-echo ""
-echo "=== Building the managed toolchain release (pipeline-bootstrap + cdk-synth) ==="
-DEPLOY_TARGET="$TARGET" "$SCRIPT_DIR/build-plugin-images.sh" --only pipeline-bootstrap,cdk-synth
-
 # Gate a sample load on the backend services it actually talks to — beyond the
 # platform readiness already waited for above. The plugin upload and pipeline
 # bulk both validate via the compliance service, which can still be crash-
@@ -351,6 +355,168 @@ gate_services_ready() {
   fi
   return 0
 }
+
+# Build + publish the managed toolchain release: pipeline-bootstrap (the build
+# image of every pipeline step without a plugin image) and cdk-synth, which is
+# FROM it by digest. One version for both halves, read from their specs. Always
+# runs — the toolchain is needed even when no other plugin is loaded — and is
+# idempotent: a version already published with the same bits is not re-pushed,
+# and one published with DIFFERENT bits is refused (a managed version is
+# immutable). For the same reason --force never applies here: FORCE_REBUILD
+# rebuilds non-managed images only.
+echo ""
+echo "=== Building the managed toolchain release (pipeline-bootstrap + cdk-synth) ==="
+DEPLOY_TARGET="$TARGET" "$SCRIPT_DIR/build-plugin-images.sh" --only pipeline-bootstrap,cdk-synth
+
+# ---- Managed toolchain: upload, wait for build + scan, initial default ------
+#
+# Strict, unlike the catalog load below: a half that did not build, upload,
+# sign or scan is a FAILED install — there is no "continue with what built"
+# for the toolchain, because every pipeline synth needs both halves.
+#   - --continue-on-build-failure / SKIP_MISSING_IMAGE_TAR never apply here
+#     (SKIP_MISSING_IMAGE_TAR is forced false for this load);
+#   - the loader's soft verify (and --no-verify / VERIFY_BUILDS=false) are not
+#     enough: an upload answers 202 and builds, signs and scans asynchronously,
+#     so this BLOCKS until both rows carry a signed digest and a scan, and a
+#     timeout FAILS the run.
+
+TOOLCHAIN_RELEASE="$(get_spec_field version "$TOOLCHAIN_DIR/pipeline-bootstrap/plugin-spec.yaml")"
+_synth_release="$(get_spec_field version "$TOOLCHAIN_DIR/cdk-synth/plugin-spec.yaml")"
+if [ -z "$TOOLCHAIN_RELEASE" ] || [ "$TOOLCHAIN_RELEASE" != "$_synth_release" ]; then
+  echo "ERROR: the toolchain halves disagree on the release version (pipeline-bootstrap='${TOOLCHAIN_RELEASE}', cdk-synth='${_synth_release}')." >&2
+  echo "       Run deploy/bin/sync-image-tags.sh, which writes one version into both specs." >&2
+  exit 1
+fi
+TOOLCHAIN_WAIT_TIMEOUT="${TOOLCHAIN_WAIT_TIMEOUT:-1800}"
+TOOLCHAIN_WAIT_POLL="${TOOLCHAIN_WAIT_POLL:-15}"
+[[ "$TOOLCHAIN_WAIT_TIMEOUT" =~ ^[1-9][0-9]*$ ]] || { echo "ERROR: TOOLCHAIN_WAIT_TIMEOUT must be a positive integer (got: '$TOOLCHAIN_WAIT_TIMEOUT')" >&2; exit 1; }
+[[ "$TOOLCHAIN_WAIT_POLL" =~ ^[1-9][0-9]*$ ]] || { echo "ERROR: TOOLCHAIN_WAIT_POLL must be a positive integer (got: '$TOOLCHAIN_WAIT_POLL')" >&2; exit 1; }
+
+# The deploy-bootstrap ES256 service identity (the key build-plugin-images.sh
+# signs its registry pushes with) — the ONLY identity the initial-default route
+# (D14) accepts. Same per-target certs layout as build-plugin-images.sh.
+case "$TARGET" in
+  minikube) _pb_target_dir="$DEPLOY_DIR/local/minikube" ;;
+  ec2)      _pb_target_dir="$DEPLOY_DIR/aws/ec2" ;;
+  eks)      _pb_target_dir="$DEPLOY_DIR/aws/eks" ;;
+  *)        _pb_target_dir="$DEPLOY_DIR/local/docker" ;;
+esac
+BOOTSTRAP_KEY_FILE="${BOOTSTRAP_KEY_FILE:-$_pb_target_dir/certs/service-keys/deploy-bootstrap.key}"
+BOOTSTRAP_BUNDLE_FILE="${BOOTSTRAP_BUNDLE_FILE:-$_pb_target_dir/certs/service-keys/bundle.json}"
+
+# toolchain_half_state NAME VERSION — one word for a managed row's progress:
+#   ready     the version row carries a signed image digest AND a scan
+#   scanning  built (digest recorded), scan not recorded yet
+#   building  accepted, no row / no digest yet
+#   failed:<category>  the build queue's triage lists it as failed
+toolchain_half_state() {
+  local _name="$1" _ver="$2" _rows _state _triage _failed
+  _rows=$(JWT_TOKEN="$LOADER_SA_KEY" _curl_authed -s -k --max-time 60 \
+    "${PLATFORM_BASE_URL}/api/plugins?name=${_name}&version=${_ver}&limit=100" 2>/dev/null || true)
+  _state=$(printf '%s' "$_rows" | jq -r --arg n "$_name" --arg v "$_ver" '
+    [ ((.data.plugins // []) | .[]) | select(.name == $n and .version == $v) ] | first
+    | if . == null then "building"
+      elif ((.imageDigest // "") | test("^sha256:[0-9a-f]{64}$")) | not then "building"
+      elif (.scannedAt // null) == null then "scanning"
+      else "ready" end' 2>/dev/null || echo building)
+  if [ "$_state" = building ]; then
+    _triage=$(JWT_TOKEN="$LOADER_SA_KEY" _curl_authed -s -k --max-time 60 \
+      "${PLATFORM_BASE_URL}/api/plugins/queue/triage" 2>/dev/null || true)
+    _failed=$(printf '%s' "$_triage" | jq -r --arg n "$_name" '
+      [ ((.data.groups // []) | .[]) | select((.pluginNames // []) | index($n)) | .category ] | first // empty' 2>/dev/null || true)
+    [ -n "$_failed" ] && _state="failed:${_failed}"
+  fi
+  printf '%s' "$_state"
+}
+
+# wait_for_toolchain_release VERSION — block until both halves are ready; any
+# failure or the deadline FAILS (returns 1) with what was seen.
+wait_for_toolchain_release() {
+  local _ver="$1" _deadline _b _s
+  _deadline=$(( $(date +%s) + TOOLCHAIN_WAIT_TIMEOUT ))
+  echo "  waiting for both halves of release ${_ver} to be built, signed and scanned (up to ${TOOLCHAIN_WAIT_TIMEOUT}s)..."
+  while :; do
+    _b=$(toolchain_half_state pipeline-bootstrap "$_ver")
+    _s=$(toolchain_half_state cdk-synth "$_ver")
+    if [ "$_b" = ready ] && [ "$_s" = ready ]; then
+      echo "  pipeline-bootstrap@${_ver}: ready   cdk-synth@${_ver}: ready"
+      return 0
+    fi
+    case "$_b $_s" in
+      *failed:*)
+        echo "  ERROR: the toolchain release ${_ver} failed to build (pipeline-bootstrap: ${_b}; cdk-synth: ${_s})." >&2
+        echo "         The Builds page (Queue / Failed-Triage) has the reason. A PLUGIN_VULN_GATE refusal keeps the" >&2
+        echo "         image for promotion (Kept setup images) — or ship a patched release (bump sourceDigest, rebuild)." >&2
+        return 1 ;;
+    esac
+    if [ "$(date +%s)" -ge "$_deadline" ]; then
+      echo "  ERROR: the toolchain release ${_ver} was not built AND scanned within ${TOOLCHAIN_WAIT_TIMEOUT}s" >&2
+      echo "         (pipeline-bootstrap: ${_b}; cdk-synth: ${_s}). Without both there is no platform default and" >&2
+      echo "         every pipeline synth fails. Check the plugin service's build queue and its scanner (grype)," >&2
+      echo "         then re-run this script (idempotent), or raise TOOLCHAIN_WAIT_TIMEOUT." >&2
+      return 1
+    fi
+    printf '\r  pipeline-bootstrap: %-10s cdk-synth: %-10s' "$_b" "$_s"
+    sleep "$TOOLCHAIN_WAIT_POLL"
+  done
+}
+
+# set_initial_toolchain_default VERSION — POST the D14 route as deploy-bootstrap.
+# 200 sets it; TOOLCHAIN_INITIAL_ALREADY_SET means a default exists (a re-run):
+# fine, this script never MOVES a default. A guard refusal stops the install.
+set_initial_toolchain_default() {
+  local _ver="$1" _jwt _body _resp _status _code
+  _jwt="$(sign_service_jwt "$BOOTSTRAP_KEY_FILE" "$BOOTSTRAP_BUNDLE_FILE")" || _jwt=""
+  [ -n "$_jwt" ] || { echo "  ERROR: could not sign the deploy-bootstrap service token for the initial-default call." >&2; return 1; }
+  _body=$(jq -n --arg v "$_ver" --arg r "$ACCEPT_INITIAL_VULNERABILITIES" \
+    '{releaseVersion: $v} + (if $r == "" then {} else {acceptVulnerabilities: $r} end)')
+  _resp=$(curl -k -s --max-time 60 -w '\n%{http_code}' -X POST "${PLATFORM_BASE_URL}/api/plugins/toolchain/initial-default" \
+    --config <(printf 'header = "Authorization: Bearer %s"\n' "$_jwt") \
+    -H 'Content-Type: application/json' -d "$_body" 2>/dev/null) || _resp=$'\n000'
+  _status="${_resp##*$'\n'}"
+  _resp="${_resp%$'\n'*}"
+  _code=$(printf '%s' "$_resp" | jq -r '.code // empty' 2>/dev/null || true)
+  case "$_status:$_code" in
+    200:*|201:*)
+      echo "  Platform default toolchain release: ${_ver} (initial)."
+      [ -n "$ACCEPT_INITIAL_VULNERABILITIES" ] && echo "  Fixable-Critical floor overridden: \"${ACCEPT_INITIAL_VULNERABILITIES}\" (audited as toolchain.default.initial)."
+      return 0 ;;
+    409:TOOLCHAIN_INITIAL_ALREADY_SET)
+      echo "  A platform default toolchain release already exists — left unchanged (move it from the Toolchain console)."
+      return 0 ;;
+    409:TOOLCHAIN_GUARD_VULN_FLOOR)
+      echo "  ERROR: release ${_ver} fails the fixable-Critical floor (TOOLCHAIN_GUARD_VULN_FLOOR) — a CVE published" >&2
+      echo "         since the release was cut. It was NOT set as the platform default. Either:" >&2
+      echo "           (a) produce a patched release: bump its sourceDigest (deploy/bin/sync-image-tags.sh after" >&2
+      echo "               updating the pinned base/tools), rebuild, and re-run this script; or" >&2
+      echo "           (b) re-run with --accept-initial-vulnerabilities \"<reason>\" to set it anyway. That is the" >&2
+      echo "               only override of the floor anywhere, it applies to the initial default only, and the" >&2
+      echo "               reason is recorded in the toolchain.default.initial audit event.$(_api_error "$_resp")" >&2
+      return 1 ;;
+    409:TOOLCHAIN_GUARD_*)
+      echo "  ERROR: release ${_ver} was refused as the platform default by guard ${_code}$(_api_error "$_resp")." >&2
+      echo "         Fix what it names (both halves present, active, signed, scanned, toolchain metadata matching) and re-run." >&2
+      return 1 ;;
+    *)
+      echo "  ERROR: setting the initial toolchain default failed (HTTP ${_status})$(_api_error "$_resp")." >&2
+      return 1 ;;
+  esac
+}
+
+echo ""
+echo "=== Installing the managed toolchain release ${TOOLCHAIN_RELEASE} ==="
+[ "$CONTINUE_ON_BUILD_FAILURE" = true ] && echo "  (--continue-on-build-failure applies to the plugin catalog only — never to the toolchain)"
+gate_services_ready compliance plugin || exit 1
+_tc_cleanup=""
+[ "$CLEANUP_AFTER_UPLOAD" = true ] && _tc_cleanup="--cleanup"
+# shellcheck disable=SC2086
+env PLATFORM_BASE_URL="$PLATFORM_BASE_URL" PLATFORM_TOKEN="$LOADER_SA_KEY" \
+  SKIP_MISSING_IMAGE_TAR=false VERIFY_BUILDS=true \
+  "$SCRIPT_DIR/load-plugins.sh" --rebuild --category "$TOOLCHAIN_CATEGORY" $_tc_cleanup \
+  || { echo "  ERROR: uploading the toolchain release failed — see above. Every pipeline synth needs it; re-run this script." >&2; exit 1; }
+printf '\n'
+wait_for_toolchain_release "$TOOLCHAIN_RELEASE" || exit 1
+set_initial_toolchain_default "$TOOLCHAIN_RELEASE" || exit 1
 
 # Load plugins
 echo ""
@@ -402,11 +568,10 @@ if _truthy "$LOAD_PLUGINS"; then
 
   CATEGORY_ARG=""
   [ -n "$SELECTED_CATEGORIES" ] && CATEGORY_ARG="--category $SELECTED_CATEGORIES"
-  # The load also uploads the managed toolchain release built above
-  # (deploy/toolchain — not a catalog category, so it is named explicitly and
-  # goes first). The catalog build below takes CATEGORY_ARG alone: the toolchain
-  # stage already ran.
-  LOAD_CATEGORY_ARG="--category ${TOOLCHAIN_CATEGORY},${SELECTED_CATEGORIES:-$(list_categories "$DEPLOY_DIR/plugins" | paste -sd, -)}"
+  # Catalog categories only, always named: the managed toolchain release was
+  # uploaded (and its default set) above, and an unfiltered load would upload it
+  # again.
+  LOAD_CATEGORY_ARG="--category ${SELECTED_CATEGORIES:-$(list_categories "$DEPLOY_DIR/plugins" | paste -sd, -)}"
 
   # Base images must be present in the in-cluster registry for *both*
   # strategies — even build_image plugin Dockerfiles use bare

@@ -481,6 +481,18 @@ export const REMOTE_AUDIT_ACTIONS = [
   'plugin.version.pause',
   'plugin.version.yank',
   'plugin.version.unyank',
+  // Pipeline toolchain releases (docs/plans/bootstrap-image-versioning.md §13).
+  'toolchain.default.set',
+  'toolchain.default.initial',
+  'toolchain.default.restore',
+  'toolchain.rollout.update',
+  'toolchain.release.notes',
+  'toolchain.release.deprecate',
+  'toolchain.release.yank',
+  'toolchain.release.delete',
+  'toolchain.recovery.notify',
+  'toolchain.org_default.set',
+  'toolchain.org_default.clear',
   'plugin.version.deprecate',
   // Retiring a version's registry image to reclaim `storageBytes`. Distinct
   // from the four above, which change whether a version RESOLVES and delete
