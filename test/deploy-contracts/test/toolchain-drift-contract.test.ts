@@ -215,7 +215,11 @@ describe('syft / grype — the release and the plugin service scan with the same
 });
 
 describe('managed toolchain release (pipeline-bootstrap + cdk-synth)', () => {
-  const SYNC = 'deploy/bin/sync-image-tags.sh --toolchain-only';
+  // The failure message IS the runbook (deploy/toolchain/pipeline-bootstrap/README.md,
+  // "Renovate base-digest PRs"): a Renovate `node:` digest PR stays red here until
+  // someone runs the sync on its branch — a base bump is a new release.
+  const SYNC = 'deploy/bin/sync-image-tags.sh --toolchain-only on this branch, then commit both deploy/toolchain/*/plugin-spec.yaml '
+    + '(a Renovate base-digest PR needs this too; see deploy/toolchain/pipeline-bootstrap/README.md)';
   const bsSpec = () => parse(read(`${BOOTSTRAP_DIR}/plugin-spec.yaml`)) as Record<string, any>;
   const synthSpec = () => parse(read(`${SYNTH_DIR}/plugin-spec.yaml`)) as Record<string, any>;
 

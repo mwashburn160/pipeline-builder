@@ -149,6 +149,24 @@ Registry browser: open `https://localhost:8443/dashboard/registry` (system-admin
 
 Observability: open `https://localhost:8443/dashboard/observability` (system-admin only) — native dashboards (Plugin Builds, Audit Activity) over Prometheus + Loki. These are the tenant-facing, org-scoped surface. The standalone Grafana above is a separate, admin-only console, not linked from any tenant page.
 
+## Upgrading the pipeline toolchain
+
+The managed toolchain (`pipeline-bootstrap` + `cdk-synth`, one release) is
+installed by `init-platform.sh`, which also sets the initial platform default.
+A newer release (a `deploy/toolchain/*/plugin-spec.yaml` bumped by
+`deploy/bin/sync-image-tags.sh`) goes in with:
+
+```bash
+DEPLOY_TARGET=docker ../../bin/upgrade-toolchain.sh
+```
+
+It builds and uploads the release and **never promotes it**: the release shows
+as `available` in the Toolchain console (`/dashboard/toolchain`, system org,
+`toolchain:operate`) and reaches no pipeline until you put orgs in its canary
+and set it as the platform default there. Rollback is "Set previous as default"
+on the same page. `../../bin/post-provision-smoke.sh docker` checks that a
+platform default is set and both halves resolve.
+
 ## Troubleshooting
 
 The service images on `ghcr.io/mwashburn160/...` are **public**, so `docker compose up` pulls them with no registry login.

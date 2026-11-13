@@ -864,8 +864,8 @@ Ordered so that nothing depends on a later phase.
 | 2 | Done — `e08f52eb9` (+ `5111354be`, the post-rebase deploy-bootstrap signer fix) |
 | 3 | Done — `331c94b6b` |
 | 4 | Done — `b9f78643d` |
-| 5 | Done — toolchain console |
-| 6 | Pending |
+| 5 | Done — `a8b7c604b` |
+| 6 | Done — Renovate runbook (`deploy/toolchain/pipeline-bootstrap/README.md`) and the drift-contract message that names it; notices, smoke check and release notes in the org panel were already built in Phases 2–5; "Upgrading the pipeline toolchain" in the docker and eks READMEs (minikube and ec2 have no README; `deploy/README.md` covers all four). End to end: `api/plugin/test/toolchain-lifecycle-e2e.test.ts` runs steps 1–3 in order on PGlite with the shipped schema and asserts the resolver after each step. **Not run:** a live `local/docker` or `local/minikube` bring-up, and step 4 (`pipeline synth` against a live platform) — the template side is covered by pipeline-core's pipeline-builder suite and pipeline-manager's toolchain suite, not by one run joined to the platform |
 | 7 | Pending |
 
 **Merge units.** Phases 1, 2 and 3 are **one merge unit**: they are built and

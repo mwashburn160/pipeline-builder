@@ -26,6 +26,26 @@ pipeline-manager version, which is recorded in `toolchain.pipelineManager`.
 - The image's `org.pipeline-builder.toolchain.*` labels come from the same
   `ARG`s, and upload refuses a spec whose `toolchain` disagrees with them.
 
+## Renovate base-digest PRs (runbook)
+
+`sync-image-tags.sh` runs only in `release.yml`, and `renovate.json` has no
+`postUpgradeTasks`. A Renovate PR that bumps a `node:` (or any base) digest in
+`deploy/toolchain/` therefore stays **red on `toolchain-drift-contract`**
+until someone runs the sync on its branch. That is deliberate: a base bump is
+a new toolchain release and gets a human look.
+
+1. Check out the PR branch.
+2. Run `deploy/bin/sync-image-tags.sh --toolchain-only`. It bumps the patch of
+   both specs and rewrites `toolchain` and `sourceDigest`.
+3. Commit both `plugin-spec.yaml` files and push to the PR branch.
+
+Two such PRs open at once both bump to the same patch. After the first merges,
+rebase the second and run the sync again so it takes the next patch.
+
+Once merged, each deployment takes the release with
+`deploy/bin/upgrade-toolchain.sh` (it never promotes; promotion is the Toolchain
+console's job).
+
 ## How it is built and loaded
 
 ```
