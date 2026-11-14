@@ -84,7 +84,7 @@ export function mountRoutes(app: Express, { quotaService }: PipelineRouteDeps): 
   // -- Shared chain: auth + orgId + idempotency + tenant scope, ONCE ------------
   app.use('/pipelines', ...createAuthenticatedWithOrgRoute());
 
-  // -- Registry — apiCalls via the prefix mount; writes gate on pipelines:write per route. Before the
+  // -- Registry — apiCalls via the prefix mount; writes gate on pipeline_registry:write per route. Before the
   //    read router so `/registry` isn't swallowed by `/:id`.
   app.use('/pipelines', createRegistryRoutes());
 
@@ -115,6 +115,6 @@ export function mountRoutes(app: Express, { quotaService }: PipelineRouteDeps): 
 
   // -- Golden-path pipeline templates (list/get/instantiate + author) ----------
   // Middleware is applied per-route inside the router (reads: auth+org; writes:
-  // +pipelines:write), so it mounts bare like the create route.
+  // +templates:write), so it mounts bare like the create route.
   app.use('/pipeline-templates', createPipelineTemplateRoutes());
 }

@@ -18,6 +18,7 @@
  *    when it is really the second draws exactly the wrong conclusion.
  */
 
+import type { WeekStart } from '@pipeline-builder/api-core';
 import type { ResolvedPeriod } from './period.js';
 import { getSection, type SectionContext, type SectionDataSource, type SectionSpec } from './sections.js';
 
@@ -60,7 +61,7 @@ export interface ReportSnapshot {
   period: { start: string; end: string; label: string };
   previousPeriod: { start: string; end: string };
   timezone: string;
-  weekStart: 'monday' | 'sunday';
+  weekStart: WeekStart;
   sections: ComposedSection[];
   notes: DataQualityNote[];
   /**
@@ -78,7 +79,7 @@ export interface ComposeOptions {
   source: SectionDataSource;
   period: ResolvedPeriod;
   timezone: string;
-  weekStart: 'monday' | 'sunday';
+  weekStart: WeekStart;
   orgId: string;
   orgIds?: string[];
   /** Features the org holds. A section needing one that is absent renders locked. */

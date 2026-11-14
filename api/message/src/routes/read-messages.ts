@@ -24,18 +24,7 @@ import { attachmentService } from '../services/attachment-service.js';
 import { messageService, type InboxFilters } from '../services/message-service.js';
 
 /** The tab-view filters from a validated query — absent keys stay absent. */
-interface TabQuery {
-  search?: string;
-  isRead?: boolean;
-  priority?: InboxFilters['priority'];
-  channel?: string;
-  sentBy?: InboxFilters['sentBy'];
-  senderUserId?: string;
-  counterpartyOrgId?: string;
-  hidden?: boolean;
-}
-
-function inboxFiltersOf(v: TabQuery): InboxFilters {
+function inboxFiltersOf(v: InboxFilters): InboxFilters {
   return {
     ...(v.search && { search: v.search }),
     ...(v.isRead !== undefined && { isRead: v.isRead }),
@@ -48,18 +37,6 @@ function inboxFiltersOf(v: TabQuery): InboxFilters {
   };
 }
 
-/**
- * Create read routes for the message service.
- *
- * Routes:
- *   GET /messages              — List inbox (root messages), paginated
- *   GET /messages/announcements — List announcements only
- *   GET /messages/conversations — List conversations only
- *   GET /messages/unread/count  — Get unread message count
- *   GET /messages/recipients/orgs — Orgs the caller may start a conversation with
- *   GET /messages/:id           — Get single message by ID
- *   GET /messages/:id/thread    — Get all messages in a thread
- */
 /** Most cases one export may carry. Bounded so a file request cannot become a
  *  whole-history scan; an org past it is one that should be asking for a report. */
 const EXPORT_MAX = 5000;
@@ -78,6 +55,24 @@ function csvCell(value: unknown): string {
   return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 
+/**
+ * Create read routes for the message service.
+ *
+ * Routes:
+ *   GET /messages                      — List inbox (root messages), paginated
+ *   GET /messages/announcements        — List announcements only
+ *   GET /messages/conversations        — List conversations only
+ *   GET /messages/unread/count         — Get unread message count
+ *   GET /messages/deleted              — The org's soft-deleted tombstones
+ *   GET /messages/recipients/orgs      — Orgs the caller may start a conversation with
+ *   GET /messages/support/cases        — The org's own support cases
+ *   GET /messages/support/cases/export — The same ledger as CSV
+ *   GET /messages/support/contacts     — The org's designated support contacts
+ *   GET /messages/support/queue        — The staff queue, every tenant (staff only)
+ *   GET /messages/:id                  — Get single message by ID
+ *   GET /messages/:id/thread           — Get all messages in a thread
+ *   GET /messages/:id/attachments      — A message's attachment metadata
+ */
 export function createReadMessageRoutes(): Router {
   const router = Router();
   // apiCalls quota (meter + check) is mounted once on the `/messages` prefix in
@@ -230,7 +225,6 @@ export function createReadMessageRoutes(): Router {
     return sendSuccess(res, 200, { orgs });
   }));
 
-  // GET /messages/:id — Get single message
   /**
    * The org's own support cases — the workflow half of its support threads.
    *
@@ -347,9 +341,10 @@ export function createReadMessageRoutes(): Router {
    * THE STAFF QUEUE: every open case across ALL tenants, oldest first.
    *
    * The one support read with no org predicate, which is exactly why it is
-   * gated on `requireSystemAdmin` rather than a permission: `messages:read` is
-   * held by ordinary members in every tenant, and this answer spans all of them.
-   * A permission gate here would be a cross-tenant leak wearing a gate.
+   * gated on `requireSystemOrgPermission('support_cases:write')` rather than a
+   * tenant permission: `messages:read` is held by ordinary members in every
+   * tenant, and this answer spans all of them. A gate any tenant can hold here
+   * would be a cross-tenant leak wearing a gate.
    *
    * The gate is MIDDLEWARE, not a check inside the handler, so it appears in the
    * generated route table — an in-handler check is invisible to the coverage
@@ -391,6 +386,7 @@ export function createReadMessageRoutes(): Router {
     return sendSuccess(res, 200, { cases: rows });
   }));
 
+  // GET /messages/:id — Get single message
   router.get('/:id', ...protect, requirePermission('messages:read'), withRoute(async ({ req, res, orgId }) => {
     const id = getParam(req.params, 'id');
 

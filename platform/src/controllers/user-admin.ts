@@ -4,6 +4,7 @@
 import { createLogger, paginationMeta, sendError, sendSuccess, resolveUserFeatures, isValidFeatureFlag, validateBulkArray, TIER_FEATURES, errorMessage } from '@pipeline-builder/api-core';
 import type { QuotaTier } from '@pipeline-builder/api-core';
 import { Types } from 'mongoose';
+import { isOrgRole } from '@pipeline-builder/api-core/wire-vocabulary';
 import { audit } from '../helpers/audit.js';
 import { canManageOrgScope, forbid, isOrgAdmin, requireMemberManagementScope, withController } from '../helpers/controller-helper.js';
 import { toOrgId } from '../helpers/org-id.js';
@@ -89,8 +90,8 @@ export const listAllUsers = withController('List users', async (req, res) => {
     scopedUserIds = await userAdminService.getUserIdsInOrg(effectiveScopeOrgId);
   }
 
-  if (role && ['owner', 'admin', 'member'].includes(role as string) && effectiveScopeOrgId) {
-    const roleMembers = await userAdminService.getUserIdsByRoleInOrg(effectiveScopeOrgId, role as string);
+  if (isOrgRole(role) && effectiveScopeOrgId) {
+    const roleMembers = await userAdminService.getUserIdsByRoleInOrg(effectiveScopeOrgId, role);
     if (scopedUserIds !== null) {
       const roleSet = new Set(roleMembers.map(id => id.toString()));
       scopedUserIds = scopedUserIds.filter(id => roleSet.has(id.toString()));

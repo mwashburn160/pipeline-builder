@@ -59,7 +59,7 @@ export function nextRunFor(definition: ReportDefinition, from: Date): Date {
   const boundary = nextPeriodBoundary(
     definition.cadence,
     definition.timezone,
-    definition.weekStart as 'monday' | 'sunday',
+    definition.weekStart,
     from,
   );
   return new Date(boundary.getTime() + reportSettleHours() * 3_600_000 + jitterFor(definition.id));

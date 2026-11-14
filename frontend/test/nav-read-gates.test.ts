@@ -185,6 +185,12 @@ describe('Teams entry point', () => {
     }
     expect(resolvePageGate('/dashboard/members')).toEqual({ permission: 'members:manage' });
   });
+
+  it('keys a page gate by its own entry, never by a link to one of its tabs', () => {
+    // "SSO roster" opens `/dashboard/organizations?tab=sso` and needs
+    // `org_idp:write` for that tab; the page itself is `orgs:read`.
+    expect(resolvePageGate('/dashboard/organizations')).toEqual({ permission: 'orgs:read' });
+  });
 });
 
 describe('Access Requests nav entry', () => {

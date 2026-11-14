@@ -28,6 +28,7 @@ import { RecentlyDeletedPanel } from '@/components/RecentlyDeletedPanel';
 import { api } from '@/lib/api';
 import type { AlertRule, AlertRuleWrite } from '@/types/observability';
 import { formatError } from '@/lib/constants';
+import { ALERT_SEVERITY_IDS, ALERT_SEVERITY_META, alertSeverityMeta } from '@/lib/alerting';
 
 /**
  * Per-org alert *rules* authoring page.
@@ -167,7 +168,7 @@ export default function AlertRulesPage() {
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="text-sm font-medium text-fg">{r.name}</span>
-                  <Badge color={r.severity === 'critical' ? 'red' : 'yellow'}>{r.severity}</Badge>
+                  <Badge color={alertSeverityMeta(r.severity).color}>{r.severity}</Badge>
                   <Badge color="gray">for {r.forDuration}</Badge>
                   {!r.enabled && <Badge color="gray">disabled</Badge>}
                 </div>
@@ -368,8 +369,7 @@ function RuleModal(props: {
               value={severity}
               onChange={(e) => setSeverity(e.target.value as typeof severity)}
             >
-              <option value="warning">Warning</option>
-              <option value="critical">Critical</option>
+              {ALERT_SEVERITY_IDS.map((sv) => <option key={sv} value={sv}>{ALERT_SEVERITY_META[sv].label}</option>)}
             </Select>
           </div>
         </div>

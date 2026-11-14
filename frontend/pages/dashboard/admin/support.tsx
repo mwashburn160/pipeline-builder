@@ -1,6 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { MESSAGE_PRIORITY_IDS, MESSAGE_PRIORITY_META, isMessagePriority } from '@/lib/message-priority';
 import { useState } from 'react';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { LoadingPage } from '@/components/ui/Loading';
@@ -19,8 +20,8 @@ import { SupportCaseNotes } from '@/components/message/SupportCaseNotes';
 import { CannedResponseManager } from '@/components/message/CannedResponseManager';
 import type { SupportQueueRow } from '@/types';
 
-/** Severities staff may re-rank a case to. */
-const SEVERITIES = ['normal', 'high', 'urgent'] as const;
+/** Severities staff may re-rank a case to: every priority. */
+const SEVERITIES = MESSAGE_PRIORITY_IDS;
 
 /**
  * Wait, in the units a human triages by.
@@ -182,12 +183,12 @@ export default function SupportQueuePage() {
                 <span className="text-xs text-fg-muted">Severity</span>
                 <Select
                   aria-label={`Severity for case ${c.displayNumber}`}
-                  value={SEVERITIES.includes(c.severity as typeof SEVERITIES[number]) ? c.severity : 'normal'}
+                  value={isMessagePriority(c.severity) ? c.severity : 'normal'}
                   disabled={busy === c.threadId}
                   onChange={(e) => act(c.threadId, () => api.setSupportCaseSeverity(c.threadId, e.target.value))}
                   className="text-xs"
                 >
-                  {SEVERITIES.map((sv) => <option key={sv} value={sv}>{sv}</option>)}
+                  {SEVERITIES.map((sv) => <option key={sv} value={sv}>{MESSAGE_PRIORITY_META[sv].label}</option>)}
                 </Select>
               </label>
 

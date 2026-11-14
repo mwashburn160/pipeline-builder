@@ -1,6 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import type { BillingInterval } from '@pipeline-builder/api-core';
 import mongoose, { Schema, Document } from 'mongoose';
 
 // Types
@@ -82,7 +83,7 @@ export interface PromotionConditions {
   /** Restrict to these plan tiers. */
   tiers?: string[];
   /** Restrict to these billing intervals. */
-  intervals?: Array<'monthly' | 'annual'>;
+  intervals?: Array<BillingInterval>;
   /** Only the org's FIRST-ever subscription (no prior subscription doc). */
   firstSubscriptionOnly?: boolean;
   /** Usage-derived eligibility (Phase 1). Absent ⇒ no usage predicate applies. */

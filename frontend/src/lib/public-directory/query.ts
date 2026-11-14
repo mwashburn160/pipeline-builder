@@ -7,12 +7,13 @@
  * unknown keys are dropped, every value is bounded, and the same shape is used
  * to build page links, so a link can never carry something the API refuses.
  */
-import { SEARCH_SORTS, TRUST_TIERS, type SearchSort, type TrustTier } from './types';
+import { PUBLISHER_TIERS, type PublisherTier } from '@pipeline-builder/api-core/wire-vocabulary';
+import { SEARCH_SORTS, type SearchSort } from './types';
 
 export interface DirectoryQuery {
   q?: string;
   category?: string;
-  tier?: TrustTier;
+  tier?: PublisherTier;
   license?: string;
   computeType?: string;
   needsSecrets?: 'true' | 'false';
@@ -51,7 +52,7 @@ export function parseDirectoryQuery(raw: Record<string, unknown>): DirectoryQuer
   const category = token(raw.category);
   if (category && /^[a-z]+$/.test(category)) out.category = category;
   const tier = first(raw.tier);
-  if (tier && (TRUST_TIERS as readonly string[]).includes(tier)) out.tier = tier as TrustTier;
+  if (tier && (PUBLISHER_TIERS as readonly string[]).includes(tier)) out.tier = tier as PublisherTier;
   const license = token(raw.license);
   if (license) out.license = license;
   const computeType = token(raw.computeType);

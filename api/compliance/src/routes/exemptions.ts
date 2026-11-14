@@ -18,6 +18,9 @@ import {
   recordAudit,
   proposable,
   withProposalProvenance,
+  RULE_TARGETS,
+  type RuleTarget,
+  COMPLIANCE_EXEMPTION_DECISIONS, type ComplianceExemptionStatus,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
@@ -33,7 +36,7 @@ import {
 
 const ExemptionCreateSchema = z.object({
   ruleId: z.string().uuid(),
-  entityType: z.enum(['plugin', 'pipeline']),
+  entityType: z.enum(RULE_TARGETS),
   entityId: z.string().uuid(),
   entityName: z.string().max(255).optional(),
   reason: z.string().min(1).max(2000),
@@ -41,7 +44,7 @@ const ExemptionCreateSchema = z.object({
 });
 
 const ExemptionReviewSchema = z.object({
-  status: z.enum(['approved', 'rejected']),
+  status: z.enum(COMPLIANCE_EXEMPTION_DECISIONS),
   rejectionReason: z.string().max(2000).optional(),
 });
 
@@ -66,9 +69,9 @@ export function createExemptionRoutes(): Router {
     const { limit, offset } = parsePaginationParams(req.query);
     const filter = {
       ruleId: req.query.ruleId as string | undefined,
-      entityType: req.query.entityType as 'plugin' | 'pipeline' | undefined,
+      entityType: req.query.entityType as RuleTarget | undefined,
       entityId: req.query.entityId as string | undefined,
-      status: req.query.status as 'pending' | 'approved' | 'rejected' | 'expired' | undefined,
+      status: req.query.status as ComplianceExemptionStatus | undefined,
     };
 
     const { exemptions, total } = await complianceExemptionService.list(filter, orgId, limit, offset);

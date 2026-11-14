@@ -114,6 +114,18 @@ describe('invalidateQueries — on mutation', () => {
     expect(again).toBe(2);
   });
 
+  it('never caches a read that was on the wire when the mutation invalidated it', async () => {
+    let resolveOld!: (v: string) => void;
+    const old = queryFetch('pipelines?', () => new Promise<string>((res) => { resolveOld = res; }), { staleMs: 10_000 });
+    invalidateQueries('pipelines?');
+    // The woken reader starts its own request instead of joining the old one.
+    const fresh = queryFetch('pipelines?', () => Promise.resolve('after-delete'), { staleMs: 10_000 });
+    resolveOld('before-delete');
+    await expect(old).resolves.toBe('before-delete');
+    await expect(fresh).resolves.toBe('after-delete');
+    expect(peekQuery('pipelines?')).toBe('after-delete');
+  });
+
   it('stops notifying an unsubscribed listener', () => {
     let woke = 0;
     subscribeQueries(() => { woke += 1; })();

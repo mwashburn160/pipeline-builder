@@ -4,6 +4,7 @@
 import { DEFAULT_TIER, QUOTA_TIERS, type QuotaTier, type QuotaTierLimits, VALID_TIERS, nextQuotaResetDate, quotaPeriodDays } from '@pipeline-builder/api-core';
 import { Schema, model, Types, Model, type HydratedDocument } from 'mongoose';
 import slugify from 'slugify';
+import { IMPERSONATION_POLICIES } from '../constants/vocabulary.js';
 
 /**
  * Quota usage tracking interface
@@ -351,7 +352,7 @@ const organizationSchema = new Schema<OrganizationData>(
     // field only through that resolver.
     impersonationPolicy: {
       type: String,
-      enum: ['open', 'consent', 'denied'],
+      enum: [...IMPERSONATION_POLICIES],
     },
     // Whether a challenge may be sent to the impersonated user themselves. When
     // false, every challenge goes to the org's admins. Same no-default rule as

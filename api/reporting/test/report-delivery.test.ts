@@ -347,3 +347,45 @@ describe('notifyPaused', () => {
     expect(String(n.content)).toContain('existing share links are unaffected');
   });
 });
+
+/**
+ * The confirmation token's ONLY way out of the service: to the address being
+ * confirmed. Before this existed the token went back to the lead who typed the
+ * address, and nothing mailed it — so an external recipient could only become
+ * deliverable by the lead confirming it themselves.
+ */
+describe('sendRecipientConfirmation', () => {
+  it('mails the confirm link to that one address through the report leg', async () => {
+    mockPost.mockResolvedValue(relay(['vp@partner.test']));
+    await expect(delivery.sendRecipientConfirmation('acme', 'vp@partner.test', 'tok-123')).resolves.toBe(true);
+    const [path, body] = mockPost.mock.calls[0] as [string, { orgId: string; text: string; reportRecipients: Array<{ email: string }> }];
+    expect(path).toBe('/internal/notify-email');
+    expect(body.orgId).toBe('acme');
+    expect(body.reportRecipients).toEqual([{ email: 'vp@partner.test' }]);
+    expect(body.text).toContain('/reports/confirm?token=tok-123');
+  });
+
+  it('does not try on an instance with no mail, and says it did not send', async () => {
+    mockGet.mockResolvedValue({ statusCode: 200, body: { data: { enabled: false } } });
+    await expect(delivery.sendRecipientConfirmation('acme', 'vp@partner.test', 'tok')).resolves.toBe(false);
+    expect(mockPost).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['a refused relay', () => mockPost.mockResolvedValue({ statusCode: 403, body: {} })],
+    ['a transport refusal of the address', () => mockPost.mockResolvedValue(relay([], ['vp@partner.test']))],
+    ['an unreachable relay', () => mockPost.mockRejectedValue(new Error('ECONNREFUSED'))],
+  ])('reports false, never throws, on %s', async (_case, arrange) => {
+    arrange();
+    await expect(delivery.sendRecipientConfirmation('acme', 'vp@partner.test', 'tok')).resolves.toBe(false);
+  });
+});
+
+describe('notifyPaused', () => {
+  it.each(['entitlement', 'owner_inactive', 'permission_lost'] as const)('names the %s reason in words', async (reason) => {
+    await delivery.notifyPaused(definition(), reason);
+    const content = (mockSystemNotification.mock.calls[0]?.[0] as { content: string }).content;
+    expect(content).toMatch(/has stopped running because the /);
+    expect(content).not.toContain('undefined');
+  });
+});

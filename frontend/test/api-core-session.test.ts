@@ -23,8 +23,8 @@ import { ApiError } from '../src/lib/api/errors';
 import { REFRESH_RETRY_DELAYS_MS, REFRESH_FAILURE_COOLDOWN_MS, REFRESH_REQUEST_TIMEOUT_MS, REFRESH_LOCK_WAIT_MS } from '../src/lib/constants';
 
 /** A decodable access token whose `exp` is `secondsFromNow` out. */
-function accessToken(sub: string, secondsFromNow = 3600): string {
-  const body = { sub, organizationId: 'org-1', exp: Math.floor(Date.now() / 1000) + secondsFromNow };
+function accessToken(sub: string, secondsFromNow = 3600, organizationId = 'org-1'): string {
+  const body = { sub, organizationId, exp: Math.floor(Date.now() / 1000) + secondsFromNow };
   const payload = Buffer.from(JSON.stringify(body)).toString('base64')
     .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
   return `h.${payload}.s`;
@@ -401,6 +401,22 @@ describe('ApiCore cross-tab coordination', () => {
     fetchMock.mockClear();
     await tabB.ensureFreshToken();
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('tells the other tabs when the shared session moved to another org', () => {
+    const tabA = new ApiCore();
+    const tabB = new ApiCore();
+    tabA.setTokens(FIRST);
+    const orgChangedInB = jest.fn<AnyFn>();
+    tabB.onOrganizationChange(orgChangedInB);
+
+    // A same-org rotation is not an org change.
+    tabA.setTokens(ROTATED);
+    expect(orgChangedInB).not.toHaveBeenCalled();
+
+    tabA.setTokens({ accessToken: accessToken('u1', 3600, 'org-2') });
+    expect(tabB.getOrganizationId()).toBe('org-2');
+    expect(orgChangedInB).toHaveBeenCalledTimes(1);
   });
 
   it('signs the other tabs out when one of them ends the session', () => {

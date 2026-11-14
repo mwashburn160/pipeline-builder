@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import type { ComplianceExemptionRequest } from '@pipeline-builder/api-core';
+import type { ComplianceExemptionDecision, ComplianceExemptionRequest, ComplianceExemptionStatus, RuleTarget } from '@pipeline-builder/api-core';
 import { buildComplianceExemptionConditions, schema, withTenantTx } from '@pipeline-builder/pipeline-data';
 import { and, desc, eq, gt, inArray, isNull, or } from 'drizzle-orm';
 import { paginatedList } from './paginated-list.js';
@@ -13,9 +13,9 @@ export const CE_ALREADY_EXISTS = 'CE_ALREADY_EXISTS';
 
 export interface ComplianceExemptionFilter {
   ruleId?: string;
-  entityType?: 'plugin' | 'pipeline';
+  entityType?: RuleTarget;
   entityId?: string;
-  status?: 'pending' | 'approved' | 'rejected' | 'expired';
+  status?: ComplianceExemptionStatus;
 }
 
 /** The insert shape IS the `POST /compliance/exemptions` wire contract; it is
@@ -178,7 +178,7 @@ class ComplianceExemptionService {
     id: string,
     orgId: string,
     reviewerId: string,
-    decision: 'approved' | 'rejected',
+    decision: ComplianceExemptionDecision,
     rejectionReason?: string,
   ) {
     return withTenantTx(async (tx) => {

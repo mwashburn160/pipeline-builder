@@ -16,7 +16,7 @@ import { Select } from '@/components/ui/Select';
 import { Textarea } from '@/components/ui/Textarea';
 import { useServerPagination } from '@/hooks/useServerPagination';
 import type { ComplianceScan, ComplianceAuditEntry, RuleTarget } from '@/types/compliance';
-import { SCAN_STATUS_CONFIG as STATUS_CONFIG, RESULT_STYLES } from '@/lib/compliance-styles';
+import { SCAN_STATUS_CONFIG as STATUS_CONFIG, resultStyle } from '@/lib/compliance-styles';
 import { formatDateTime, formatTime } from '@/lib/format';
 import { formatError } from '@/lib/constants';
 import { LoadingSpinner } from '@/components/ui/Loading';
@@ -198,7 +198,7 @@ export default function ScanDetail({ scanId, onBack, readOnly = false }: ScanDet
       id: 'result',
       header: 'Result',
       render: (entry) => {
-        const r = RESULT_STYLES[entry.result] || RESULT_STYLES.pass;
+        const r = resultStyle(entry.result);
         return <Badge color={r.color}>{r.label}</Badge>;
       },
     },

@@ -8,6 +8,7 @@ import { authService } from './auth-service.js';
 import { deleteUserCascade } from './user-cascade.js';
 import { anonymizeUserEcosystemContent } from './user-ecosystem-privacy.js';
 import { PROFILE_USER_NOT_FOUND, PROFILE_EMAIL_TAKEN, PROFILE_INVALID_CREDENTIALS } from './user-errors.js';
+import { isAdminOrgRole } from '@pipeline-builder/api-core/wire-vocabulary';
 import { loadActiveOrgInfo } from '../helpers/active-org-info.js';
 import { toOrgId } from '../helpers/org-id.js';
 import { assertNewPasswordAcceptable } from '../helpers/password-policy.js';
@@ -277,7 +278,7 @@ class UserProfileService {
     const memberOrgIds = new Set(orgIds.map(String));
     const administered = new Set(
       memberships
-        .filter(m => m.isActive && (m.role === 'admin' || m.role === 'owner'))
+        .filter(m => m.isActive && isAdminOrgRole(m.role))
         .map(m => m.organizationId.toString())
         .filter(id => !orgMap.get(id)?.deletedAt),
     );

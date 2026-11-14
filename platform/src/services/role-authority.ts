@@ -19,6 +19,7 @@ import {
   isSystemOrgOnlyPermission,
   isValidPermission,
   ROLE_PERMISSIONS,
+  type RoleGrant,
   SEED_BUNDLES,
   type SeedBundleId,
 } from '@pipeline-builder/api-core';
@@ -31,7 +32,6 @@ import {
   RL_SYSTEM_ORG_ROLE_OUTSIDE_SYSTEM_ORG,
   RL_SYSTEM_ORG_ROLE_REQUIRES_SUPERADMIN,
 } from './roles-errors.js';
-import type { RoleGrant, RoleSeedBundle } from '../models/index.js';
 
 const logger = createLogger('role-authority');
 
@@ -76,7 +76,7 @@ export function permissionsForGrantsRole(role: RoleGrant): string[] {
  * loudly, where the old shape said nothing. Mongoose enum-validates the field,
  * so reaching this means the document was written around the model.
  */
-export function builtinRolePermissions(role: { grantsRole: RoleGrant; seedBundle?: RoleSeedBundle | null }): string[] {
+export function builtinRolePermissions(role: { grantsRole: RoleGrant; seedBundle?: SeedBundleId | null }): string[] {
   if (!role.seedBundle) return permissionsForGrantsRole(role.grantsRole);
   const bundle = SEED_BUNDLES[role.seedBundle as SeedBundleId] as { permissions: readonly string[] } | undefined;
   if (!bundle) {

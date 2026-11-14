@@ -28,8 +28,6 @@ export const REPORT_CATEGORY_LABELS: Record<ReviewReportCategory, string> = {
   security: 'Security issue',
 };
 
-export const REPORT_CATEGORIES = Object.keys(REPORT_CATEGORY_LABELS) as ReviewReportCategory[];
-
 export const HOLD_REASON_LABELS: Record<ReviewHoldReason, string> = {
   reports: 'Reported by users',
   burst: 'Burst of new-account reviews',

@@ -1,5 +1,6 @@
 'use client';
 
+import { localDaysBack } from '@/lib/local-day';
 import { Badge } from '@/components/ui/Badge';
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
@@ -15,7 +16,7 @@ import { FilterSelect } from '@/components/ui/FilterSelect';
 import { PostureHeadline } from '@/components/ui/PostureHeadline';
 import { formatRelativeTime } from '@/lib/relative-time';
 import type { ComplianceAuditEntry } from '@/types/compliance';
-import { RESULT_STYLES } from '@/lib/compliance-styles';
+import { RULE_TARGET_IDS, RULE_TARGET_LABELS, COMPLIANCE_RESULT_IDS, RESULT_STYLES, resultStyle } from '@/lib/compliance-styles';
 import { formatDateTime } from '@/lib/format';
 import { useUrlTab } from '@/hooks/useUrlTab';
 import { useComplianceAudit } from './useComplianceAudit';
@@ -94,7 +95,7 @@ function ChangesFeed({ changes, error, onRetry }: { changes: ComplianceAuditEntr
   return (
     <ul className="divide-y divide-default">
       {changes.map(e => {
-        const r = RESULT_STYLES[e.result] || RESULT_STYLES.pass;
+        const r = resultStyle(e.result);
         const violations = Array.isArray(e.violations) ? e.violations : [];
         return (
           <li key={e.id} className="py-2 flex items-baseline justify-between gap-2 text-sm">
@@ -193,11 +194,11 @@ export function ComplianceOverview({ stats, onGoToRules }: OverviewProps) {
   ];
   const applyPreset = (days: number | null) => {
     if (days === null) { onDateFromChange(''); onDateToChange(''); return; }
-    const to = new Date();
-    const from = new Date();
-    from.setDate(from.getDate() - days);
-    onDateFromChange(from.toISOString().slice(0, 10));
-    onDateToChange(to.toISOString().slice(0, 10));
+    // Local days, matching the date inputs (the UTC day is tomorrow in the
+    // evening west of UTC).
+    const range = localDaysBack(days);
+    onDateFromChange(range.from);
+    onDateToChange(range.to);
   };
   const allDatesActive = !auditDateFrom && !auditDateTo;
 
@@ -269,8 +270,7 @@ export function ComplianceOverview({ stats, onGoToRules }: OverviewProps) {
               aria-label="Filter audit log by target"
             >
               <option value="">All targets</option>
-              <option value="plugin">Plugin</option>
-              <option value="pipeline">Pipeline</option>
+              {RULE_TARGET_IDS.map((t) => <option key={t} value={t}>{RULE_TARGET_LABELS[t]}</option>)}
             </FilterSelect>
             <FilterSelect
               value={auditResult}
@@ -278,9 +278,7 @@ export function ComplianceOverview({ stats, onGoToRules }: OverviewProps) {
               aria-label="Filter audit log by result"
             >
               <option value="">All results</option>
-              <option value="pass">Pass</option>
-              <option value="warn">Warn</option>
-              <option value="block">Block</option>
+              {COMPLIANCE_RESULT_IDS.map((r) => <option key={r} value={r}>{RESULT_STYLES[r].label}</option>)}
             </FilterSelect>
             <FilterSelect
               value={auditAction}
@@ -339,7 +337,7 @@ export function ComplianceOverview({ stats, onGoToRules }: OverviewProps) {
           <>
             <div className="space-y-0.5">
               {audit.map(entry => {
-                const r = RESULT_STYLES[entry.result] || RESULT_STYLES.pass;
+                const r = resultStyle(entry.result);
                 const expanded = expandedId === entry.id;
                 const violations = Array.isArray(entry.violations) ? entry.violations : [];
                 return (

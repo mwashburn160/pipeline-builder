@@ -4,6 +4,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { AlertTriangle, Download, ListTree } from 'lucide-react';
+import { severityLabel } from '@/lib/advisories';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { RetryError } from '@/components/ui/RetryError';
@@ -86,7 +87,7 @@ function FindingsBody({ data, onNavigate }: { data: PluginVersionFindings; onNav
               {data.findings.map((f) => (
                 <tr key={`${f.id}:${f.packageName}:${f.packageVersion}`} className={`border-t border-default ${f.waived ? 'opacity-60' : ''}`}>
                   <td className="px-2 py-1">
-                    <Badge color={f.severity === 'critical' ? 'red' : 'yellow'}>{f.severity === 'critical' ? 'Critical' : 'High'}</Badge>
+                    <Badge color={f.severity === 'critical' ? 'red' : 'yellow'}>{severityLabel(f.severity)}</Badge>
                   </td>
                   <td className="px-2 py-1 font-mono">
                     <Link

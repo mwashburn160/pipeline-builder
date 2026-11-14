@@ -34,9 +34,14 @@ export const OAUTH_LINK_REQUIRES_SIGN_IN = 'OAUTH_LINK_REQUIRES_SIGN_IN';
  *  there is no code to ask for on this leg, so the person signs in with the
  *  passkey instead. → 403 */
 export const OAUTH_PASSKEY_REQUIRED = 'OAUTH_PASSKEY_REQUIRED';
-/** A platform administrator's sign-in must never depend on a tenant-run IdP.
- *  Mapped to 403 in OIDC_ERROR_MAP. */
+/** A platform administrator's sign-in must never depend on a tenant-run IdP. → 403 */
 export const SSO_SUPERADMIN_REFUSED = 'SSO_SUPERADMIN_REFUSED';
+/** The {@link SSO_SUPERADMIN_REFUSED} mapping both federation protocols answer
+ *  with (`OIDC_ERROR_MAP` and the SAML completion route) — one wording. */
+export const SSO_SUPERADMIN_REFUSED_ERROR = {
+  status: 403,
+  message: 'Platform administrators cannot sign in through an organization\'s single sign-on',
+} as const;
 
 // -- Social OAuth sign-in (controllers/oauth.ts OAUTH_ERROR_MAP) ---------------
 

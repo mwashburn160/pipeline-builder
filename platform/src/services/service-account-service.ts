@@ -58,6 +58,7 @@ import type { ServiceAccountRole } from './service-account-roles.js';
 // Re-exported here so callers (and tests) still find the whole surface in one place.
 export { deleteServiceAccountsForOrg, revokeServiceAccountKeysForOrg } from './service-account-cascade.js';
 import { config } from '../config/index.js';
+import type { OrgRole } from '@pipeline-builder/api-core/wire-vocabulary';
 import type { ClientInfo } from '../helpers/client-info.js';
 import { resolveOrgLineage } from '../helpers/org-hierarchy.js';
 import { toOrgId } from '../helpers/org-id.js';
@@ -68,7 +69,6 @@ import { toOrgId } from '../helpers/org-id.js';
 import Organization from '../models/organization.js';
 import ServiceAccount from '../models/service-account.js';
 import type { ServiceAccountData } from '../models/service-account.js';
-import type { OrgMemberRole } from '../models/user-organization.js';
 import type { ServiceAccountTokenContext } from './session/access-tokens.js';
 
 const logger = createLogger('service-account-service');
@@ -568,7 +568,7 @@ export async function resolveServiceAccountExchange(
   const roles = await serviceAccountRoles(toOrgId(orgId), serviceAccountId);
   const grants = new Set(roles.map((r) => r.grantsRole));
   const isSuperAdmin = grants.has('superadmin');
-  const role: OrgMemberRole = (isSuperAdmin || grants.has('admin')) ? 'admin' : 'member';
+  const role: OrgRole = (isSuperAdmin || grants.has('admin')) ? 'admin' : 'member';
   const rolePermissions = [...new Set(roles.flatMap((r) => r.permissions))];
 
   // Hierarchy + account-level entitlements, resolved exactly as a member's token

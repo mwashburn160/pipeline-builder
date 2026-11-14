@@ -16,19 +16,21 @@ export function notFoundHandler(_req: Request, res: Response): void {
   sendError(res, 404, 'The requested resource could not be found', ErrorCode.NOT_FOUND);
 }
 
-/** Pick a reasonable `ErrorCode` for a 4xx status so clients see a
- *  consistent machine-readable code alongside the human message. */
+/** The `ErrorCode` a 4xx status answers with, so clients see a consistent
+ *  machine-readable code alongside the human message. Any other 4xx reads as a
+ *  validation error. */
+const CLIENT_ERROR_CODES: Readonly<Record<number, ErrorCode>> = {
+  400: ErrorCode.VALIDATION_ERROR,
+  401: ErrorCode.UNAUTHORIZED,
+  403: ErrorCode.INSUFFICIENT_PERMISSIONS,
+  404: ErrorCode.NOT_FOUND,
+  409: ErrorCode.CONFLICT,
+  413: ErrorCode.PAYLOAD_TOO_LARGE,
+  429: ErrorCode.RATE_LIMIT_EXCEEDED,
+};
+
 function pickClientErrorCode(status: number): ErrorCode {
-  switch (status) {
-    case 400: return ErrorCode.VALIDATION_ERROR;
-    case 401: return ErrorCode.UNAUTHORIZED;
-    case 403: return ErrorCode.INSUFFICIENT_PERMISSIONS;
-    case 404: return ErrorCode.NOT_FOUND;
-    case 409: return ErrorCode.CONFLICT;
-    case 413: return ErrorCode.PAYLOAD_TOO_LARGE;
-    case 429: return ErrorCode.RATE_LIMIT_EXCEEDED;
-    default: return ErrorCode.VALIDATION_ERROR;
-  }
+  return CLIENT_ERROR_CODES[status] ?? ErrorCode.VALIDATION_ERROR;
 }
 
 /**

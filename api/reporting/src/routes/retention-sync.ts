@@ -60,7 +60,8 @@ export function createRetentionSyncRoutes(): Router {
     // push decides how long an org's raw reporting data is kept, so a retention
     // reduction (a data-destroying change, applied by the next sweep) must be
     // traceable to the service call that made it. `orgId` is the target
-    // ROOT org; the actor is the billing service principal (or a sysadmin).
+    // ROOT org; the actor is the billing service principal (the internal
+    // guard admits nothing else).
     recordAudit({
       action: 'reporting.retention.sync',
       actorId: actorId({ userId }),

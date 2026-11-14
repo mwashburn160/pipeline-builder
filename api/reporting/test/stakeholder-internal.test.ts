@@ -53,6 +53,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
   stakeholderReportStore: { pauseDefinitionsForOwner: (...a: unknown[]) => mockPause(...a) },
   runWithTenantContext: (ctx: any, fn: any) => { scopes.push(ctx); return fn(); },
+  REPORT_PAUSE_REASONS: ['entitlement', 'owner_inactive', 'permission_lost'],
 }));
 
 const { createStakeholderInternalRoutes } = await import('../src/routes/stakeholder-internal.js');
@@ -153,6 +154,8 @@ describe('stakeholder internal routes', () => {
 
   it.each([
     ['an unknown reason', { reason: 'because' }],
+    // Billing's to declare, through the entitlement sync — never platform's.
+    ['the entitlement reason', { reason: 'entitlement' }],
     ['no reason at all', {}],
     ['an extra field', { reason: 'owner_inactive', isActive: true }],
   ])('rejects %s without pausing anything', async (_case, body) => {

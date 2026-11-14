@@ -1,11 +1,10 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { PRINCIPAL_TYPES, VALID_QUOTA_TYPES, type AiKeySource, type PrincipalType, type QuotaType } from '@pipeline-builder/api-core';
+import { AI_KEY_SOURCES, PRINCIPAL_TYPES, VALID_QUOTA_TYPES, type AiKeySource, type PrincipalType, type QuotaType } from '@pipeline-builder/api-core';
 import mongoose, { Schema } from 'mongoose';
 import { USAGE_OUTCOMES, type UsageOutcome } from './usage-event.js';
 import { config } from '../config.js';
-import { AI_KEY_SOURCES } from '../validation/schemas.js';
 
 /**
  * One HOURLY bucket of the usage ledger: how many units of one quota, with one

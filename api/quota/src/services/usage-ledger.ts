@@ -164,13 +164,85 @@ export interface UsageGroup {
   tokensOut: number;
 }
 
-const GROUP_KEY: Record<UsageGroupBy, unknown> = {
-  principal: { id: '$principalId', type: '$principalType' },
-  route: '$route',
-  pipeline: '$pipelineId',
-  day: { $dateToString: { format: '%Y-%m-%d', date: '$hour', timezone: 'UTC' } },
-  feature: '$feature',
-  model: { id: '$model', keySource: '$keySource' },
+/** One aggregated bucket group, as `$group` returns it. */
+interface GroupRow {
+  _id: unknown;
+  counted: number;
+  denied: number;
+  overshoot: number;
+  refunded: number;
+  tokensIn?: number;
+  tokensOut?: number;
+  keys?: unknown[];
+}
+
+/** The `UsageGroup` fields a grouping owns: its key and its dimension-specific labels. */
+type GroupLabels = Pick<UsageGroup, 'key' | 'principalType' | 'keyCount' | 'feature' | 'model' | 'keySource'>;
+
+/** What one `groupBy` value means, everywhere it is read. */
+interface UsageGrouping {
+  /** The `$group` `_id` expression over the bucket fields. */
+  groupKey: unknown;
+  /** Turn the aggregated `_id` (and `keys`) into the group's labels. */
+  labels: (row: GroupRow) => GroupLabels;
+  /** The CSV's leading columns (before the shared numeric ones), and their cells. */
+  csvColumns: readonly string[];
+  csvCells: (group: UsageGroup, key: string) => unknown[];
+}
+
+const stringKey = (row: GroupRow): string | null => (typeof row._id === 'string' ? row._id : null);
+
+/**
+ * Every `groupBy` value, keyed — the `$group` key, the response labels and the
+ * CSV columns for each live in its one entry. They were a lookup table plus two
+ * `principal ? … : model ? … : …` ladders (the mapper and the CSV writer), and
+ * a new grouping had to be added to all three by hand; `Record<UsageGroupBy, …>`
+ * now makes the compiler demand the whole entry.
+ */
+const USAGE_GROUPINGS: Record<UsageGroupBy, UsageGrouping> = {
+  principal: {
+    groupKey: { id: '$principalId', type: '$principalType' },
+    labels: (r) => {
+      const id = r._id as { id?: string | null; type?: string | null } | null;
+      return {
+        key: id?.id ?? null,
+        ...(id?.type ? { principalType: id.type } : {}),
+        keyCount: (r.keys ?? []).filter((k) => k !== null && k !== undefined).length,
+      };
+    },
+    csvColumns: ['principal', 'principalType', 'keys'],
+    csvCells: (g, key) => [key, g.principalType ?? '', g.keyCount ?? 0],
+  },
+  route: { groupKey: '$route', labels: (r) => ({ key: stringKey(r) }), csvColumns: ['route'], csvCells: (_g, key) => [key] },
+  pipeline: { groupKey: '$pipelineId', labels: (r) => ({ key: stringKey(r) }), csvColumns: ['pipeline'], csvCells: (_g, key) => [key] },
+  day: {
+    groupKey: { $dateToString: { format: '%Y-%m-%d', date: '$hour', timezone: 'UTC' } },
+    labels: (r) => ({ key: stringKey(r) }),
+    csvColumns: ['day'],
+    csvCells: (_g, key) => [key],
+  },
+  feature: {
+    groupKey: '$feature',
+    labels: (r) => {
+      const key = stringKey(r);
+      return { key, ...(key ? { feature: key } : {}) };
+    },
+    csvColumns: ['feature'],
+    csvCells: (_g, key) => [key],
+  },
+  model: {
+    groupKey: { id: '$model', keySource: '$keySource' },
+    labels: (r) => {
+      const id = r._id as { id?: string | null; keySource?: string | null } | null;
+      return {
+        key: id?.id ?? null,
+        ...(id?.id ? { model: id.id } : {}),
+        ...(id?.keySource ? { keySource: id.keySource } : {}),
+      };
+    },
+    csvColumns: ['model', 'keySource'],
+    csvCells: (g, key) => [key, g.keySource ?? ''],
+  },
 };
 
 const sumWhen = (outcome: UsageOutcome) => ({ $sum: { $cond: [{ $eq: ['$outcome', outcome] }, '$amount', 0] } });
@@ -194,20 +266,12 @@ export async function queryUsage(q: UsageQuery): Promise<UsageGroup[]> {
   };
   if (q.quotaType) match.quotaType = q.quotaType;
 
-  const rows = await UsageBucket.aggregate<{
-    _id: unknown;
-    counted: number;
-    denied: number;
-    overshoot: number;
-    refunded: number;
-    tokensIn?: number;
-    tokensOut?: number;
-    keys?: unknown[];
-  }>([
+  const grouping = USAGE_GROUPINGS[q.groupBy];
+  const rows = await UsageBucket.aggregate<GroupRow>([
     { $match: match },
     {
       $group: {
-        _id: GROUP_KEY[q.groupBy],
+        _id: grouping.groupKey,
         counted: sumWhen('counted'),
         denied: sumWhen('denied'),
         overshoot: sumWhen('overshoot'),
@@ -222,38 +286,16 @@ export async function queryUsage(q: UsageQuery): Promise<UsageGroup[]> {
     { $limit: USAGE_MAX_GROUPS },
   ]);
 
-  return rows.map((r) => {
-    const base = {
-      counted: r.counted,
-      denied: r.denied,
-      overshoot: r.overshoot ?? 0,
-      refunded: r.refunded,
-      net: Math.max(0, r.counted - r.refunded),
-      tokensIn: r.tokensIn ?? 0,
-      tokensOut: r.tokensOut ?? 0,
-    };
-    if (q.groupBy === 'principal') {
-      const id = r._id as { id?: string | null; type?: string | null } | null;
-      return {
-        key: id?.id ?? null,
-        ...(id?.type ? { principalType: id.type } : {}),
-        keyCount: (r.keys ?? []).filter((k) => k !== null && k !== undefined).length,
-        ...base,
-      };
-    }
-    if (q.groupBy === 'model') {
-      const id = r._id as { id?: string | null; keySource?: string | null } | null;
-      return {
-        key: id?.id ?? null,
-        ...(id?.id ? { model: id.id } : {}),
-        ...(id?.keySource ? { keySource: id.keySource } : {}),
-        ...base,
-      };
-    }
-    const key = typeof r._id === 'string' ? r._id : null;
-    if (q.groupBy === 'feature') return { key, ...(key ? { feature: key } : {}), ...base };
-    return { key, ...base };
-  });
+  return rows.map((r) => ({
+    ...grouping.labels(r),
+    counted: r.counted,
+    denied: r.denied,
+    overshoot: r.overshoot ?? 0,
+    refunded: r.refunded,
+    net: Math.max(0, r.counted - r.refunded),
+    tokensIn: r.tokensIn ?? 0,
+    tokensOut: r.tokensOut ?? 0,
+  }));
 }
 
 /**
@@ -311,15 +353,10 @@ function csvCell(value: unknown): string {
 
 /** The CSV export of one usage read (header row + one row per group). */
 export function usageToCsv(groupBy: UsageGroupBy, groups: UsageGroup[]): string {
-  const lead = groupBy === 'principal'
-    ? ['principal', 'principalType', 'keys']
-    : groupBy === 'model' ? ['model', 'keySource'] : [groupBy];
-  const header = [...lead, 'counted', 'denied', 'overshoot', 'refunded', 'net', 'tokensIn', 'tokensOut'];
+  const { csvColumns, csvCells } = USAGE_GROUPINGS[groupBy];
+  const header = [...csvColumns, 'counted', 'denied', 'overshoot', 'refunded', 'net', 'tokensIn', 'tokensOut'];
   const rows = groups.map((g) => {
-    const key = g.key ?? '(unattributed)';
-    const leadCells = groupBy === 'principal'
-      ? [key, g.principalType ?? '', g.keyCount ?? 0]
-      : groupBy === 'model' ? [key, g.keySource ?? ''] : [key];
+    const leadCells = csvCells(g, g.key ?? '(unattributed)');
     return [...leadCells, g.counted, g.denied, g.overshoot, g.refunded, g.net, g.tokensIn, g.tokensOut].map(csvCell).join(',');
   });
   return [header.join(','), ...rows].join('\n');

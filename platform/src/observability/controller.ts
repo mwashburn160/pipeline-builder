@@ -167,7 +167,7 @@ function degradedOutcome(err: unknown, emptyBody: Record<string, unknown>): Cata
  */
 async function runCatalogQuery(q: CatalogQueryRequest, caller: CatalogQueryCaller): Promise<CatalogQueryOutcome> {
   const key = parseQueryString(q.key);
-  if (!key || !(key in QUERIES)) return fail(400, 'Unknown observability query key');
+  if (!key || !Object.hasOwn(QUERIES, key)) return fail(400, 'Unknown observability query key');
   const entry = QUERIES[key];
   if (q.auditOnly && entry.source !== 'audit-store') return fail(400, 'Query key is not an audit-trail query');
   const denied = catalogScopeFailure(key, caller);

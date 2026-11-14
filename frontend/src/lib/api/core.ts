@@ -179,6 +179,7 @@ export class ApiCore {
   private sessionGeneration = 0;
   private sessionExpiredCallbacks: Set<() => void> = new Set();
   private accessTokenListeners: Set<(token: string | null) => void> = new Set();
+  private organizationChangeListeners: Set<() => void> = new Set();
   private authChannel: BroadcastChannel | null = null;
 
   private static REFRESH_BUFFER_MS = REFRESH_BUFFER_MS;
@@ -203,6 +204,18 @@ export class ApiCore {
   onAccessTokenChange(callback: (token: string | null) => void): () => void {
     this.accessTokenListeners.add(callback);
     return () => { this.accessTokenListeners.delete(callback); };
+  }
+
+  /**
+   * Subscribe to a sibling tab moving the shared session onto another org.
+   * The adopted token already sends the new org's id, so everything this tab
+   * derived from the old org (profile, role, cached lists) must be reloaded —
+   * otherwise it renders org A while its writes land in org B. Returns an
+   * unsubscribe.
+   */
+  onOrganizationChange(callback: () => void): () => void {
+    this.organizationChangeListeners.add(callback);
+    return () => { this.organizationChangeListeners.delete(callback); };
   }
 
   private notifyAccessToken(token: string | null): void {
@@ -254,10 +267,16 @@ export class ApiCore {
       }
       // An impersonating tab must not be pulled back onto the operator's token.
       if (message.type === 'access-token' && message.accessToken && !this.isImpersonating()) {
+        const previousOrg = this.organizationId;
         this.sessionGeneration++;
         this.refreshCooldownUntil = 0;
         this.applyAccessToken(message.accessToken);
         if (message.organizationId) this.organizationId = message.organizationId;
+        if (this.organizationId !== previousOrg) {
+          this.organizationChangeListeners.forEach((cb) => {
+            try { cb(); } catch { /* ignore listener errors */ }
+          });
+        }
       }
     };
   }

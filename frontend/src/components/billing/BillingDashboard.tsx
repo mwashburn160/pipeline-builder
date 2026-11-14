@@ -10,6 +10,7 @@ import { useFetch } from '@/hooks/useFetch';
 import { usePagination } from '@/hooks/usePagination';
 import { useOrgHierarchy } from '@/hooks/useOrgHierarchy';
 import { StatCard } from '@/components/ui/StatCard';
+import { RetryError } from '@/components/ui/RetryError';
 import { formatCents as money, formatMonthYear } from '@/lib/format';
 import type { BillingSummary, BillingInvoiceRow, BillingAllocation } from '@/lib/api/domains/billing';
 
@@ -55,9 +56,11 @@ export function BillingDashboard() {
   // Summary + cost-by-team for the range. useFetch drops a superseded range's
   // late answer, so a rapid range change can't paint stale totals.
   const { hasChildOrgs, teamName } = useOrgHierarchy();
-  const { data: overview, loading } = useFetch(async (signal) => {
+  // The summary is NOT fail-soft: a failure surfaces as an error (once there is
+  // history to show), instead of the whole section silently disappearing.
+  const { data: overview, loading, error: overviewError, refetch: refetchOverview } = useFetch(async (signal) => {
     const [s, alloc] = await Promise.all([
-      api.getBillingSummary(range, { signal }).catch(() => null),
+      api.getBillingSummary(range, { signal }),
       // Cost-by-team showback — only asked for when the org parents teams; a
       // viewer without rollup rights 400s, which silently yields nothing.
       hasChildOrgs
@@ -70,8 +73,9 @@ export function BillingDashboard() {
   const allocation: BillingAllocation | null = overview?.allocation ?? null;
 
   // Invoices page through the server (the range can hold years of periods).
-  const { data: invoicePageData } = useFetch(async (signal) => {
-    const res = await api.listBillingInvoices({ ...range, offset: invoicePage.offset, limit: invoicePage.limit }, { signal }).catch(() => null);
+  // A failed page is an error, not "no invoices for this range".
+  const { data: invoicePageData, error: invoicesError, refetch: refetchInvoices } = useFetch(async (signal) => {
+    const res = await api.listBillingInvoices({ ...range, offset: invoicePage.offset, limit: invoicePage.limit }, { signal });
     return { invoices: res?.data?.invoices ?? [], total: res?.data?.pagination?.total ?? 0 };
   }, [from, to, invoicePage.offset, invoicePage.limit]);
   const invoices: BillingInvoiceRow[] = invoicePageData?.invoices ?? [];
@@ -87,6 +91,8 @@ export function BillingDashboard() {
   }, [resetInvoicePage, from, to]);
 
   // Hide entirely until this account has had billing history at least once.
+  // (A brand-new account whose first summary read fails stays hidden too: with
+  // no history known there is nothing the section could have shown.)
   if (!hasHistory && (loading || !summary || summary.invoiceCount === 0)) return null;
 
   const isFiltered = !!(from || to);
@@ -126,6 +132,14 @@ export function BillingDashboard() {
 
   // Direct `summary` checks (not a derived boolean) so TS narrows it to non-null
   // for the data render below.
+  if (overviewError && !loading) {
+    return (
+      <div className="space-y-4">
+        {rangeToolbar}
+        <RetryError message="Failed to load billing history" onRetry={refetchOverview} />
+      </div>
+    );
+  }
   if (!summary || summary.invoiceCount === 0) {
     return (
       <div className="space-y-4">
@@ -191,6 +205,9 @@ export function BillingDashboard() {
 
       <Card className="overflow-x-auto">
         <h3 className="h3 mb-3">Invoices</h3>
+        {invoicesError ? (
+          <RetryError message="Failed to load invoices" onRetry={refetchInvoices} />
+        ) : (
         <DataTable
           data={invoices}
           columns={INVOICE_COLUMNS}
@@ -199,6 +216,7 @@ export function BillingDashboard() {
           getRowKey={(r) => `${r.periodStart}|${r.periodEnd}|${r.status}`}
           emptyState={{ icon: Receipt, title: 'No invoices', description: 'No invoices in the selected range.' }}
         />
+        )}
         {invoiceTotal > invoicePage.limit && (
           <Pagination
             pagination={invoicePage.withTotal(invoiceTotal)}

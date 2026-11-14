@@ -210,6 +210,17 @@ describe('updateInstall / removeInstall', () => {
     await rejects(installs.approveInstallChange(ADMIN(), row.id), 'CONFLICT');
   });
 
+  it('REGRESSION: a concurrent approve and reject decide the change ONCE (the loser is a 409)', async () => {
+    const { row } = await installed({}, 'community');
+    await installs.requestInstallChange(MEMBER(), row.id, { version: '2.0.0' });
+    const outcomes = await Promise.allSettled([
+      installs.approveInstallChange(ADMIN(), row.id),
+      installs.rejectInstallChange(ADMIN(), row.id, 'no'),
+    ]);
+    expect(outcomes.filter((o) => o.status === 'fulfilled')).toHaveLength(1);
+    expect(outcomes.find((o) => o.status === 'rejected')).toMatchObject({ reason: expect.objectContaining({ code: 'CONFLICT' }) });
+  });
+
   it('rejects a change request with a reason, and refuses a request that needs no approval', async () => {
     const { row } = await installed({}, 'community');
     // A patch move is not gated: PATCH it.

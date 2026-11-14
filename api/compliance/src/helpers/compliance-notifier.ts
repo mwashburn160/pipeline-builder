@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createLogger, envInt, errorMessage, type NotificationMessage } from '@pipeline-builder/api-core';
+import { isBatchedDigestMode } from './compliance-vocabulary.js';
 import {
   getNotificationChannel,
   type ChannelTarget,
@@ -142,7 +143,7 @@ async function deliverToEnabledChannels(
   preference: ComplianceNotificationPreference | null,
   notification: NotificationMessage,
 ): Promise<void> {
-  if (preference && preference.digestMode && preference.digestMode !== 'immediate') {
+  if (isBatchedDigestMode(preference?.digestMode)) {
     await recordPendingDigest(orgId, notification);
     return;
   }

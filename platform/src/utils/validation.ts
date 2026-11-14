@@ -6,9 +6,13 @@ import type { Response } from 'express';
 import { z } from 'zod';
 import { EMAIL_PATTERN } from './email-address.js';
 import { config } from '../config/index.js';
+import { ORG_ROLES } from '@pipeline-builder/api-core/wire-vocabulary';
+import { GRANTABLE_ORG_ROLES } from '../constants/member-roles.js';
 import { PASSWORD_MAX_LENGTH, PASSWORD_RULES } from '../constants/password.js';
+import { DOMAIN_JOIN_MODES, IMPERSONATION_POLICIES, INVITATION_TYPES } from '../constants/vocabulary.js';
 import { MAX_ALLOWED_AAGUIDS } from '../helpers/authenticator-policy.js';
 import { MAX_MFA_GRACE_DAYS, MFA_RESET_GRACE_MAX_HOURS } from '../helpers/mfa-policy.js';
+import { OAUTH_PROVIDER_NAMES } from '../types/oauth-provider.js';
 
 /**
  * Validate data against a Zod schema.
@@ -91,7 +95,7 @@ export const addDomainSchema = z.object({
 
 /** Set a domain's discovery mode. */
 export const setDomainModeSchema = z.object({
-  autoJoin: z.enum(['off', 'request', 'auto']),
+  autoJoin: z.enum(DOMAIN_JOIN_MODES),
 });
 
 /** Onboarding: join a domain-discovered org. */
@@ -142,7 +146,7 @@ export const changePasswordSchema = z.object({
 export const adminUpdateUserSchema = z.object({
   username: z.string().min(2).max(30).regex(/^[a-z0-9_-]+$/i).optional(),
   email: emailSchema.optional(),
-  role: z.enum(['owner', 'admin', 'member']).optional(),
+  role: z.enum(ORG_ROLES).optional(),
   organizationId: z.union([z.string().min(1), z.null()]).optional(),
   password: passwordSchema.optional(),
 }).strict();
@@ -158,7 +162,7 @@ export const adminCreateUserSchema = z.object({
   password: passwordSchema,
   isSuperAdmin: z.boolean().optional(),
   organizationId: z.string().min(1).optional(),
-  role: z.enum(['owner', 'admin', 'member']).optional(),
+  role: z.enum(ORG_ROLES).optional(),
   // Roles are org-scoped, so any role assignment requires an organizationId
   // (enforced by the refine below + again in the service).
   roleIds: z.array(z.string()).max(50).optional(),
@@ -186,7 +190,7 @@ export const sendInvitationSchema = z.object({
    * no second endpoint and no second shape to keep in step.
    */
   emails: z.array(emailSchema).min(1).max(MAX_BULK_INVITES),
-  role: z.enum(['admin', 'member']).optional().default('member'),
+  role: z.enum(GRANTABLE_ORG_ROLES).optional().default('member'),
   /**
    * Roles to assign when the invitation is accepted — the same shape
    * `updateUserSchema` above has always had, which is the asymmetry this
@@ -198,8 +202,8 @@ export const sendInvitationSchema = z.object({
    * system-org-only permission unless the actor is a platform superadmin.
    */
   roleIds: z.array(z.string()).max(50).optional(),
-  invitationType: z.enum(['email', 'oauth', 'any']).optional().default('any'),
-  allowedOAuthProviders: z.array(z.enum(['google', 'github'])).optional(),
+  invitationType: z.enum(INVITATION_TYPES).optional().default('any'),
+  allowedOAuthProviders: z.array(z.enum(OAUTH_PROVIDER_NAMES)).optional(),
   // Invite straight into a TEAM beneath the actor's org. Without it, onboarding
   // one person to one team meant switching org first, then inviting, then
   // granting team membership from a third page. The controller verifies the
@@ -254,7 +258,7 @@ export const updateOrganizationSchema = z
  */
 export const updateImpersonationPolicySchema = z
   .object({
-    impersonationPolicy: z.enum(['open', 'consent', 'denied']).optional(),
+    impersonationPolicy: z.enum(IMPERSONATION_POLICIES).optional(),
     allowSelfApproval: z.boolean().optional(),
   })
   .strict()
@@ -330,7 +334,7 @@ export const updateOrgIdentitySchema = z
 export const addMemberSchema = z.object({
   userId: z.string().optional(),
   email: emailSchema.optional(),
-  role: z.enum(['admin', 'member']).optional().default('member'),
+  role: z.enum(GRANTABLE_ORG_ROLES).optional().default('member'),
 }).refine(data => data.userId || data.email, {
   message: 'Either userId or email is required',
 });
@@ -343,7 +347,7 @@ export const bulkAddMemberSchema = z.object({
   userId: z.string().optional(),
   email: emailSchema.optional(),
   orgIds: z.array(z.string().min(1)).min(1, 'At least one team is required').max(50),
-  role: z.enum(['admin', 'member']).optional().default('member'),
+  role: z.enum(GRANTABLE_ORG_ROLES).optional().default('member'),
 }).refine(data => data.userId || data.email, {
   message: 'Either userId or email is required',
 });

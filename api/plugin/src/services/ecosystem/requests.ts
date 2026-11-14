@@ -148,6 +148,9 @@ async function quotaGate(publisher: Publisher, kind: string, securityLane: boole
   // a limit whose default is "no limit" is the wrong default whichever way it
   // is currently reached.
   const quota = await listingsQuota(publisher.ownerOrgId ?? '', publisher.id);
+  // An unreadable quota (an outage, or an owner-less publisher) reports a -1
+  // that is NOT "unlimited": the gate fails closed rather than over-list.
+  if (quota.failOpen) return { id: 'quota', ok: false, message: 'The listings quota could not be checked; try again shortly.', used: quota.used, limit: quota.limit };
   if (quota.limit === -1) return { id: 'quota', ok: true, message: 'Unlimited listings', ...quota };
   if (kind === 'new_listing') {
     const pendingNew = await requests.count({ publisherId: publisher.id, statuses: OPEN_STATUSES, kinds: ['new_listing'] });

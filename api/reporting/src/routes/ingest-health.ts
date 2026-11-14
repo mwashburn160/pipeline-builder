@@ -15,11 +15,11 @@ import { requireIngestScope } from '../middleware/require-ingest-scope.js';
  * can surface flowing / stale / dropping. Machine endpoint — authorized by the
  * `reporting:ingest` token scope (same credential the ingest Lambda holds).
  *
- * A single Lambda forwards MANY orgs' pipelines, so it attributes health per
- * resolved org via a body `orgId` — the same cross-org trust boundary the event
- * ingest already relies on (that path resolves org from the pipeline registry
- * under the identical scope). When `orgId` is absent, the token's own org is
- * used, so an org-scoped credential still writes only its own row.
+ * A single deployment-wide Lambda forwards MANY orgs' pipelines, so it
+ * attributes health per org via a body `orgId`. Only a credential bound to no
+ * tenant (no org, or the system org) may name another org that way; a
+ * tenant-scoped key writes only its own row, and naming a different org is a
+ * 403 (see the POST below for why this is NOT the event-ingest trust boundary).
  *
  * `GET /` is the user-facing counterpart the Reports UI reads (org-scoped,
  * `reports:read`). Without it the heartbeat was write-only: data nothing could

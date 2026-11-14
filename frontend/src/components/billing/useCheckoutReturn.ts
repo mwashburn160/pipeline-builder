@@ -24,28 +24,36 @@ export function useCheckoutReturn(onActivated: () => Promise<void> | void): void
   const toast = useToast();
   const onActivatedRef = useRef(onActivated);
   onActivatedRef.current = onActivated;
+  // The poll stops on UNMOUNT only. It must outlive the effect run that started
+  // it: that run strips `?checkout=` itself, which re-runs the effect — so a
+  // per-run cancel flag stopped the poll a tick after it began and the page
+  // never learned the subscription had activated.
+  const unmountedRef = useRef(false);
+  useEffect(() => {
+    unmountedRef.current = false;
+    return () => { unmountedRef.current = true; };
+  }, []);
 
   useEffect(() => {
     const outcome = Array.isArray(router.query.checkout) ? router.query.checkout[0] : router.query.checkout;
     if (!outcome) return;
-    let cancelled = false;
+    const cancelled = () => unmountedRef.current;
     if (outcome === 'success') {
       toast.success('Checkout complete — activating your subscription…');
       void (async () => {
-        for (let i = 0; i < ACTIVATION_POLLS && !cancelled; i++) {
+        for (let i = 0; i < ACTIVATION_POLLS && !cancelled(); i++) {
           // Forced: this loop is waiting for the webhook to provision the
           // subscription, so a cached "not yet" would spin out the whole poll.
           const res = await runQuery(queries.subscription(), { force: true }).catch(() => null);
           if (res?.success && res.data?.subscription) break;
           await new Promise((r) => setTimeout(r, ACTIVATION_POLL_STEP_MS * (i + 1)));
         }
-        if (!cancelled) await onActivatedRef.current();
+        if (!cancelled()) await onActivatedRef.current();
       })();
     } else if (outcome === 'cancelled') {
       toast.info('Checkout cancelled — no changes were made.');
     }
     const { checkout: _omit, ...rest } = router.query;
     void router.replace({ query: rest }, undefined, { shallow: true });
-    return () => { cancelled = true; };
   }, [router.query.checkout]); // eslint-disable-line react-hooks/exhaustive-deps -- runs on the `?checkout=` outcome only; router/toast identities change every render
 }

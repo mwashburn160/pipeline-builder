@@ -71,8 +71,18 @@ function gateOf(item: NavItem): PageGate {
  */
 const pagePathOf = (href: string): string => href.split(/[?#]/)[0];
 
+/**
+ * A TAB link names one view of a page, so it says what that tab needs — not what
+ * the page needs. The page's own (bare-href) entry therefore wins; a tab link
+ * supplies the gate only for a page that has no bare entry. Letting the last
+ * entry win instead made the palette-only "SSO roster" (`?tab=sso`,
+ * `org_idp:write`) the gate of the whole Organizations page: it locked out the
+ * `orgs:read` Roles the page exists for and let a tenant SSO admin in.
+ */
+const isTabLink = (item: NavItem): boolean => pagePathOf(item.href) !== item.href;
 const NAV_GATES: Record<string, PageGate> = Object.fromEntries(
-  NAV_ITEMS.map((item) => [pagePathOf(item.href), gateOf(item)]),
+  [...NAV_ITEMS.filter(isTabLink), ...NAV_ITEMS.filter((item) => !isTabLink(item))]
+    .map((item) => [pagePathOf(item.href), gateOf(item)]),
 );
 
 /**

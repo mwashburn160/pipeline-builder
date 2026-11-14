@@ -25,7 +25,7 @@
  * keep their own password / passkey / social sign-in as the break-glass path.
  */
 
-import { resolveUserFeatures, sendError, type QuotaTier } from '@pipeline-builder/api-core';
+import { resolveUserFeatures, sendError, type IdpProtocol, type QuotaTier } from '@pipeline-builder/api-core';
 import type { Request } from 'express';
 import type { Types } from 'mongoose';
 import { requireOrgScope } from './controller-helper.js';
@@ -33,7 +33,6 @@ import { resolveOrgLineage } from './org-hierarchy.js';
 import { toOrgId } from './org-id.js';
 import { GOOGLE_ISSUER } from './reserved-issuers.js';
 import { OrgDomain, Organization, User, UserOrganization } from '../models/index.js';
-import type { IdpProtocol } from '../models/org-idp-config.js';
 import { incCounter } from '../observability/metrics.js';
 import type { OidcLoginConfig } from '../services/oidc-service.js';
 import { orgIdpService } from '../services/org-idp-service.js';

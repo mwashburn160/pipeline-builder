@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { Schema, model, type HydratedDocument, Types } from 'mongoose';
+import { DOMAIN_JOIN_MODES, type DomainJoinMode } from '../constants/vocabulary.js';
 
 /**
  * A verified email domain owned by an organization, used for domain-based org
@@ -14,15 +15,8 @@ import { Schema, model, type HydratedDocument, Types } from 'mongoose';
  * claims it; verification proves ownership). This prevents a second org from
  * claiming a domain another org already registered.
  *
- * `autoJoin`:
- *   - `off`     — registered but not offered for discovery (default until an
- *                 admin opts in).
- *   - `request` — matching signups may REQUEST to join; an admin approves.
- *   - `auto`    — matching signups join immediately as a member (use only for
- *                 domains you fully control).
+ * `autoJoin` is a `DomainJoinMode` (constants/vocabulary.ts).
  */
-export type DomainJoinMode = 'off' | 'request' | 'auto';
-export const DOMAIN_JOIN_MODES: readonly DomainJoinMode[] = ['off', 'request', 'auto'];
 
 export interface OrgDomainData {
   organizationId: Types.ObjectId;

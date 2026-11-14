@@ -1,14 +1,15 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import type { ComplianceCheckVerdict, RuleTarget } from '@pipeline-builder/api-core';
 import { buildComplianceAuditConditions, schema } from '@pipeline-builder/pipeline-data';
 import { and, desc } from 'drizzle-orm';
 import { paginatedList } from './paginated-list.js';
 
 export interface ComplianceAuditFilter {
-  target?: 'plugin' | 'pipeline';
+  target?: RuleTarget;
   action?: string;
-  result?: 'pass' | 'warn' | 'block';
+  result?: ComplianceCheckVerdict;
   scanId?: string;
   dateFrom?: string;
   dateTo?: string;

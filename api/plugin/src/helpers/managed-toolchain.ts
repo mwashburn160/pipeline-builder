@@ -20,6 +20,19 @@
 import { AppError, ErrorCode, getStatusForErrorCode, isManagedToolchainPlugin, isSystemOrgId } from '@pipeline-builder/api-core';
 import { parseSemver } from '@pipeline-builder/pipeline-data';
 
+/** A version row's lifecycle facts (a cached row carries the timestamps as ISO strings). */
+type LifecycleFacts = { yankedAt?: Date | string | null; deprecatedAt?: Date | string | null; lifecycle?: string | null };
+
+/** Whether a version is yanked — by its timestamp or its lifecycle, either one. */
+export function isYankedVersion(row: Pick<LifecycleFacts, 'yankedAt' | 'lifecycle'>): boolean {
+  return Boolean(row.yankedAt) || row.lifecycle === 'yanked';
+}
+
+/** Whether a version is deprecated — by its timestamp or its lifecycle, either one. */
+export function isDeprecatedVersion(row: Pick<LifecycleFacts, 'deprecatedAt' | 'lifecycle'>): boolean {
+  return Boolean(row.deprecatedAt) || row.lifecycle === 'deprecated';
+}
+
 function refusal(code: ErrorCode, message: string, details?: Record<string, unknown>): AppError {
   return new AppError(getStatusForErrorCode(code), code, message, details);
 }

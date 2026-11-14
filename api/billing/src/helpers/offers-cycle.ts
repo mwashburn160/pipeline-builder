@@ -21,7 +21,7 @@
  * campaign budget and the aggregate floor in one place.
  */
 
-import { createLogger, errorMessage, OFFERS_AGENT_ACTOR_ID } from '@pipeline-builder/api-core';
+import { createLogger, errorMessage, OFFERS_AGENT_ACTOR_ID, type BillingInterval } from '@pipeline-builder/api-core';
 import { config } from '../config.js';
 import {
   DEFAULT_HOLDOUT_PERCENT,
@@ -371,7 +371,7 @@ export function packForDimension(
   dimension: string,
   bundles: readonly PackLike[],
   tier: string,
-  interval: 'monthly' | 'annual' = 'annual',
+  interval: BillingInterval = 'annual',
 ): PackLike | null {
   const priceOf = (b: PackLike) => (interval === 'annual' ? b.prices.annual : b.prices.monthly);
   const candidates = bundles.filter((b) =>

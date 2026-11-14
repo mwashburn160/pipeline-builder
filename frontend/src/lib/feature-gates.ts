@@ -26,6 +26,7 @@
  *                route's `features`, so the day a backend gate lands, this file
  *                and the UI have to be updated rather than silently 403-ing.
  */
+import { SUPPORT_RESPONSE_TARGETS } from '@pipeline-builder/api-core/feature-flags';
 import type { FeatureFlag } from './feature-flags';
 
 export type FeatureEnforcement = 'route' | 'handler' | 'entitlement-only';
@@ -146,14 +147,14 @@ export const FEATURE_GATES: Record<FeatureFlag, FeatureGateSpec> = {
     enforcement: 'entitlement-only',
     acquiredVia: 'bundle',
     controls: [],
-    unlocks: 'support cases with a first response within 2 business days, business hours',
+    unlocks: `support cases with a first response within ${SUPPORT_RESPONSE_TARGETS.support_standard}, business hours`,
     note: 'REPLACES the retired `priority_support` tier perk, which marketed "faster response times" while no support product existed to be faster. Support is an add-on at EVERY tier and included in none — not even enterprise, whose TIER_FEATURES filters the support flags out of the ALL_FEATURE_FLAGS spread rather than inheriting them. Priced PER CONTACT, and the contact allowance is the `supportContacts` quota (tier base 0 everywhere), so the paywall is a quota check rather than this flag. The three levels are mutually exclusive — `effectiveEntitlements` keeps the highest held.',
   },
   support_priority: {
     enforcement: 'entitlement-only',
     acquiredVia: 'bundle',
     controls: [],
-    unlocks: 'support cases with a first response by the next business day, business hours',
+    unlocks: `support cases with a first response by the ${SUPPORT_RESPONSE_TARGETS.support_priority}, business hours`,
     note: 'See `support_standard`. The middle rung exists because a two-rung ladder forces an org that just wants a faster answer to buy 24×7. Stated as "next business day" rather than "24 business hours": the hours unit read as one day and meant three, overstating the commitment about threefold.',
   },
   support_premium: {
@@ -166,7 +167,7 @@ export const FEATURE_GATES: Record<FeatureFlag, FeatureGateSpec> = {
     enforcement: 'handler',
     acquiredVia: 'bundle',
     controls: ['src/components/message/ComposeModal.tsx'],
-    unlocks: '24×7 support cases — a first response within 8 hours any day, and the only level that may declare urgent severity',
+    unlocks: `24×7 support cases — a first response within ${SUPPORT_RESPONSE_TARGETS.support_premium}, and the only level that may declare urgent severity`,
     note: 'See `support_standard`. The 24×7 hours are CONFIRMED product, so a 24×7 staffing rota is a PREREQUISITE rather than an alternative to weigh. Note the promise is stricter than the platform\u2019s own posture for its 175 critical alert rules, which route to a Slack receiver on a 4h repeat with no pager integration anywhere in the repo \u2014 so premium must not be SOLD before that rota exists. `SUPPORT_PREMIUM_ENABLED=false` withholds the SKU while the catalog stays complete.',
   },
   verified_publisher: {

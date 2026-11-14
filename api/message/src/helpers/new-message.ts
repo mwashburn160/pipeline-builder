@@ -1,8 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { ErrorCode } from '@pipeline-builder/api-core';
-import type { SSEManager } from '@pipeline-builder/api-server';
+import { ErrorCode, errorMessage } from '@pipeline-builder/api-core';
+import type { RouteContext, SSEManager } from '@pipeline-builder/api-server';
 
 /** The broadcast recipient — reserved for sysadmin announcements. */
 const BROADCAST = '*';
@@ -112,5 +112,30 @@ export function notifyNewMessage(
     }
   } catch (err) {
     onError(err);
+  }
+}
+
+/**
+ * Tell an org's clients their unread badge is stale — after a read-state change,
+ * a hide, or a delete that took unread rows out of the count.
+ *
+ * Signal only — the COUNT is deliberately NOT in the payload. The SSE fan-out
+ * is ORG-scoped (there is no per-user channel), while `getUnreadCount` is
+ * viewer-scoped: it honours the per-user rung, so a message targeted at one
+ * member is unread for them alone. Putting the actor's number on the org
+ * channel would overwrite every other member's badge with a count that was
+ * never theirs, so each client refetches its own.
+ *
+ * Best-effort: a failed push must not fail the write that already committed.
+ */
+export function signalUnreadCountChanged(
+  sseManager: Pick<SSEManager, 'send'>,
+  orgId: string,
+  log: RouteContext['ctx']['log'],
+): void {
+  try {
+    sseManager.send(orgId, 'MESSAGE', 'Unread count changed', { action: 'UNREAD_COUNT' as const });
+  } catch (err) {
+    log('WARN', 'Failed to send SSE notification', { error: errorMessage(err) });
   }
 }

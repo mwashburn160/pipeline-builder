@@ -7,7 +7,7 @@ import { fileURLToPath } from 'url';
 import { createLogger } from '@pipeline-builder/api-core';
 import type { InvitationEmailData } from './email.js';
 import { config } from '../config/index.js';
-import type { InvitationOAuthProvider } from '../models/invitation.js';
+import type { OAuthProviderName } from '../types/oauth-provider.js';
 
 const logger = createLogger('email-templates');
 
@@ -110,7 +110,7 @@ function renderTextTemplate(name: string, vars: Record<string, string>): string 
 // -----------------------------------------------------------------------------
 
 /** Human-readable, title-case labels for OAuth providers. */
-const providerLabels: Record<InvitationOAuthProvider, string> = {
+const providerLabels: Record<OAuthProviderName, string> = {
   google: 'Google',
   github: 'GitHub',
   facebook: 'Facebook',
@@ -119,11 +119,11 @@ const providerLabels: Record<InvitationOAuthProvider, string> = {
   linkedin: 'LinkedIn',
 };
 
-function labelFor(p: InvitationOAuthProvider): string {
+function labelFor(p: OAuthProviderName): string {
   return providerLabels[p] ?? p;
 }
 
-function joinProviderLabels(providers: InvitationOAuthProvider[]): string {
+function joinProviderLabels(providers: OAuthProviderName[]): string {
   return providers.map(labelFor).join(', ');
 }
 
@@ -159,7 +159,7 @@ function buildOAuthHtml(data: InvitationEmailData): string {
       `;
     case 'oauth':
     case 'any': {
-      const providers: InvitationOAuthProvider[] = data.allowedOAuthProviders?.length
+      const providers: OAuthProviderName[] = data.allowedOAuthProviders?.length
         ? data.allowedOAuthProviders
         : ['google'];
       const providerBadges = providers

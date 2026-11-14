@@ -5,7 +5,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useToast } from '@/components/ui/Toast';
 import api from '@/lib/api';
 import type { OrganizationMember, OrganizationRole } from '@/types';
-import { formatError } from '@/lib/constants';
+import { formatError, settledFailureMessage } from '@/lib/constants';
 
 interface UseMemberRolesOptions {
   orgId: string | undefined;
@@ -118,9 +118,7 @@ export function useMemberRoles({ orgId, canManageRoles, isAuthenticated, onRoles
         if (kind === 'add') nextRoleIds.add(roleId); else nextRoleIds.delete(roleId);
         return;
       }
-      const msg = r.status === 'rejected'
-        ? (r.reason instanceof Error ? r.reason.message : String(r.reason))
-        : (r.value.message || 'failed');
+      const msg = settledFailureMessage(r);
       failures.push(`${kind} ${roleDisplayById(roleId)}: ${msg}`);
     });
 

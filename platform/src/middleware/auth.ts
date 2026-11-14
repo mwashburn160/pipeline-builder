@@ -3,6 +3,7 @@
 
 import { clientVersionOf, createLogger, ErrorCode, hasValidIdentityClaims, isOpaqueApiKey, isServiceTokenDenied, isSystemAdmin, recordAuthzDenial, resolveUserPermissions, runDeferredQuotaCheck, sendError, tagRouteGate } from '@pipeline-builder/api-core';
 import type { Request, Response, NextFunction } from 'express';
+import { isAdminOrgRole, type OrgRole } from '@pipeline-builder/api-core/wire-vocabulary';
 import { accessTokenVersion } from '../helpers/access-version.js';
 import { bootstrapSessionMayReach } from '../helpers/bootstrap-admin.js';
 import { resolveOrgAuthority } from '../helpers/org-authority.js';
@@ -10,7 +11,6 @@ import { toOrgId } from '../helpers/org-id.js';
 import { CLIENT_TYPE_HEADER, clientType, readRefreshCookie } from '../helpers/session-cookie.js';
 import type { RefreshSession } from '../models/index.js';
 import { User, Organization, UserOrganization, ImpersonationRequest, PersonalAccessToken } from '../models/index.js';
-import type { OrgMemberRole } from '../models/user-organization.js';
 import { incCounter } from '../observability/metrics.js';
 import type { AccessTokenPayload } from '../types/index.js';
 import { verifyAccessToken, verifyRefreshToken } from '../utils/token.js';
@@ -47,7 +47,7 @@ async function populateRequestUser(req: Request, user: UserLike, slot: RefreshSe
   const userId = user._id.toString();
   const orgId = activeOrgId || user.lastActiveOrgId;
 
-  let role: OrgMemberRole = 'member';
+  let role: OrgRole = 'member';
   let organizationId: string | undefined;
   let organizationName: string | undefined;
 
@@ -78,7 +78,7 @@ async function populateRequestUser(req: Request, user: UserLike, slot: RefreshSe
           userId, claimedOrgId: orgId, substitutedOrgId: first.organizationId.toString(),
         });
       }
-      role = first.role as OrgMemberRole;
+      role = first.role as OrgRole;
       organizationId = first.organizationId.toString();
       const org = await Organization.findById(toOrgId(organizationId)).select('name').lean();
       organizationName = org?.name;
@@ -105,7 +105,7 @@ async function populateRequestUser(req: Request, user: UserLike, slot: RefreshSe
     username: user.username,
     email: user.email,
     role,
-    isAdmin: role === 'admin' || role === 'owner',
+    isAdmin: isAdminOrgRole(role),
     permissions,
     // Propagate the sysadmin claim. Missing this here silently turned every
     // sysadmin into a regular user as soon as this middleware ran — every

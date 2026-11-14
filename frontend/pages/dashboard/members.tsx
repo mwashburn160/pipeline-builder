@@ -42,7 +42,8 @@ import { POOLING_TITLE, poolingExplanation } from '@/components/quotas/constants
 import { RequestMfaResetModal } from '@/components/members/RequestMfaResetModal';
 import api from '@/lib/api';
 import { invalidate } from '@/lib/api-cache';
-import { tierAllowsTeams, seatRemedy, seatRemedyLabel, seatsAtCapacity } from '@/lib/tiers';
+import { tierAllowsTeams, seatRemedy } from '@pipeline-builder/api-core/tier-limits';
+import { seatRemedyLabel, seatsAtCapacity } from '@/lib/tiers';
 import type { OrganizationMember } from '@/types';
 import { formatError } from '@/lib/constants';
 

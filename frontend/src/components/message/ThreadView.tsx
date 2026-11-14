@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
-import { ArrowLeft, Send, Megaphone, MessageCircle, AlertTriangle, AlertOctagon, Trash2, Paperclip, X, RefreshCw, Pencil, Check, User, CheckCheck } from 'lucide-react';
+import { ArrowLeft, Send, Megaphone, MessageCircle, Trash2, Paperclip, X, RefreshCw, Pencil, Check, User, CheckCheck } from 'lucide-react';
 import { Textarea } from '@/components/ui/Textarea';
 import { IconButton } from '@/components/ui/IconButton';
 import { formatBytes, formatDateTime } from '@/lib/format';
+import { MESSAGE_PRIORITY_META, isMessagePriority } from '@/lib/message-priority';
 import { MessageAttachments } from '@/components/message/MessageAttachments';
 import { SupportCasePanel } from '@/components/message/SupportCasePanel';
 import { CannedResponsePicker } from '@/components/message/CannedResponsePicker';
@@ -80,16 +81,13 @@ interface ThreadViewProps {
   canWrite?: boolean;
 }
 
-/** Colored badge indicating message priority; renders nothing for "normal" priority. */
+/** Colored badge indicating message priority; renders nothing for "normal" (or an unknown) priority. */
 function PriorityBadge({ priority }: { priority: string }) {
-  if (priority === 'normal') return null;
-  const colors = priority === 'urgent'
-    ? 'bg-danger-bg text-danger'
-    : 'bg-warning-bg text-warning';
-  const Icon = priority === 'urgent' ? AlertOctagon : AlertTriangle;
-
+  const badge = isMessagePriority(priority) ? MESSAGE_PRIORITY_META[priority].badge : null;
+  if (!badge) return null;
+  const Icon = badge.icon;
   return (
-    <span className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full ${colors}`}>
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full ${badge.className}`}>
       <Icon className="w-3 h-3" />
       {priority}
     </span>

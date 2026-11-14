@@ -1,9 +1,10 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { VALID_QUOTA_TYPES, VALID_TIERS, type QuotaTier, type QuotaType, nextQuotaResetDate, quotaPeriodDays } from '@pipeline-builder/api-core';
+import { VALID_QUOTA_TYPES, VALID_TIERS, type QuotaTier, type QuotaType, nextQuotaResetDate } from '@pipeline-builder/api-core';
 import mongoose, { Schema, Document } from 'mongoose';
 import { config } from '../config.js';
+import { periodDaysFor } from '../helpers/quota-helpers.js';
 
 // Types
 
@@ -117,15 +118,15 @@ const quotaUsageSchema = new Schema<QuotaUsage>( {
 /**
  * A fresh counter for ONE quota type, on that type's own period.
  *
- * Per-type rather than one shared default: `config.quota.resetDays` is the
- * global three-day window, and `cpuCredits` is monthly. Seeding every counter
+ * Per-type rather than one shared default (`periodDaysFor`): the global
+ * window is three days, and `cpuCredits` is monthly. Seeding every counter
  * from the global one gave credits ten resets a month against a cap sized for
  * one — a factor-of-ten error in the customer's favour, and invisible, because
  * a counter that resets too often simply never refuses anything.
  */
 const defaultUsageFor = (type: QuotaType) => () => ({
   used: 0,
-  resetAt: nextQuotaResetDate(type === 'cpuCredits' ? quotaPeriodDays(type) : config.quota.resetDays),
+  resetAt: nextQuotaResetDate(periodDaysFor(type)),
 });
 
 const organizationSchema = new Schema<OrganizationDocument>( {

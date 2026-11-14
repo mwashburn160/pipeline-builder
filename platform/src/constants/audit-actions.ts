@@ -34,8 +34,9 @@ export const PLATFORM_AUDIT_ACTIONS = [
   // carries the slot id + kind.
   'user.session.revoke',
   // A successful step-up re-verification (controllers/step-up*.ts,
-  // controllers/webauthn.ts). `details.method` is 'password', 'webauthn' or
-  // 'reauth' (+ `provider`/`kind`/`recencyVerified` for re-auth).
+  // controllers/webauthn.ts). `details.method` is a `StepUpMethod` (api-core):
+  // 'password', 'webauthn', 'totp' or 'reauth' (+ `provider`/`kind`/
+  // `recencyVerified` for re-auth).
   // Failures are recorded as `user.login.failed` with `targetType: 'step-up'`.
   'user.step-up',
   // Passkeys (WebAuthn, controllers/webauthn.ts). A passkey is a persistent

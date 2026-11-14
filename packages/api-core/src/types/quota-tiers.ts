@@ -9,12 +9,15 @@ import { DEFAULT_TIER_LIMITS, tierLabel, type QuotaTierLimits } from './tier-lim
  * The limits shape, the code-default table and the sizing arithmetic live in
  * `./tier-limits.js` — dependency-free, so the BROWSER imports them
  * (`@pipeline-builder/api-core/tier-limits`) instead of keeping a hand-synced
- * copy. Re-exported here because this is the module every server consumer and
- * the package barrel already name; what stays here is everything the env
- * touches.
+ * copy — and so do the tier-ladder facts the browser also decides with (which
+ * tiers may parent a team or buy a seat pack). Re-exported here because this is
+ * the module every server consumer and the package barrel already name; what
+ * stays here is everything the env touches.
  */
-export { AUTOMATION_CALLS_SIZING, automationCallsFor, DEFAULT_TIER_LIMITS, tierLabel } from './tier-limits.js';
-export type { QuotaTierLimits } from './tier-limits.js';
+export {
+  AUTOMATION_CALLS_SIZING, automationCallsFor, DEFAULT_TIER_LIMITS, SEAT_PACK_TIERS, seatRemedy, TEAM_CAPABLE_TIERS, tierAllowsTeams, tierLabel,
+} from './tier-limits.js';
+export type { QuotaTierLimits, SeatRemedy } from './tier-limits.js';
 
 /** Available quota tier identifiers.
  *
@@ -159,34 +162,6 @@ export const QUOTA_TIERS: Record<QuotaTier, QuotaTierPreset> = Object.fromEntrie
  *  which is the billing-DISABLED default and is never displayed/selectable when
  *  billing is enabled. Kept DRY off `VALID_TIERS` so adding a tier flows through. */
 export const STANDARD_TIERS: readonly QuotaTier[] = VALID_TIERS.filter((t) => t !== 'unlimited');
-
-/** Tiers that permit the org → team hierarchy (nesting teams under a root). The
- *  billing-off `unlimited` tier is team-capable (it's the most permissive); the
- *  entry-level `developer`/`pro` tiers are not. Single source for the parent-
- *  eligibility + downgrade-overcap checks so they can't drift. */
-export const TEAM_CAPABLE_TIERS: readonly QuotaTier[] = ['team', 'business', 'enterprise', 'unlimited'];
-export function tierAllowsTeams(tier: string | undefined | null): boolean {
-  return !!tier && (TEAM_CAPABLE_TIERS as readonly string[]).includes(tier);
-}
-
-/** Tiers that may buy extra seats — billing's per-seat `seat` add-on. Seats are
- *  the Team differentiator, so the single-seat `developer`/`pro` tiers cannot
- *  stack them and must upgrade instead; `unlimited` has no seat cap at all.
- *  Single source for the billing catalog and every "out of seats" message. */
-export const SEAT_PACK_TIERS: readonly QuotaTier[] = ['team', 'business', 'enterprise'];
-
-/** How an account that has used every seat can get another. */
-export type SeatRemedy = 'upgrade' | 'seat_pack';
-
-/**
- * The remedy to offer an account at its seat cap, from the ACCOUNT's (root) tier:
- * `seat_pack` where seats can be bought, `upgrade` on the single-seat tiers.
- * `null` when the tier is unknown or has no cap — say nothing rather than guess.
- */
-export function seatRemedy(tier: string | undefined | null): SeatRemedy | null {
-  if (!tier || !isValidTier(tier) || tier === 'unlimited') return null;
-  return (SEAT_PACK_TIERS as readonly string[]).includes(tier) ? 'seat_pack' : 'upgrade';
-}
 
 /** Whether the billing service is enabled in this deployment (`BILLING_ENABLED`,
  *  opt-out default-on — mirrors the billing/platform configs). With billing OFF

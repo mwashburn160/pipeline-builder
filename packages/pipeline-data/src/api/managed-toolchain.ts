@@ -28,8 +28,8 @@
 
 import {
   AppError, compareSemver, createLogger, envInt, ErrorCode, fetchParentOrgId, getStatusForErrorCode, isSystemOrgId,
-  MANAGED_TOOLCHAIN_PLUGINS, MAX_ORG_DEPTH, SYSTEM_ORG_ID, TOOLCHAIN_RELEASE_VERSION_PATTERN, toolchainFromMetadata, toOrgIdString,
-  type GetParentOrgId, type ManagedToolchainPlugin, type PluginToolchain,
+  MANAGED_TOOLCHAIN, MANAGED_TOOLCHAIN_PLUGINS, MAX_ORG_DEPTH, SYSTEM_ORG_ID, TOOLCHAIN_RELEASE_VERSION_PATTERN, toolchainFromMetadata, toOrgIdString,
+  type GetParentOrgId, type ManagedToolchainPlugin, type PluginToolchain, type ToolchainResolvedVia,
 } from '@pipeline-builder/api-core';
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import type { CrudTx } from './crud-service.js';
@@ -42,9 +42,6 @@ const logger = createLogger('managed-toolchain');
 // -----------------------------------------------------------------------------
 // Public shapes
 // -----------------------------------------------------------------------------
-
-/** How a resolution chose its release. Never names the org it came from. */
-export type ToolchainResolvedVia = 'pin' | 'org-default' | 'canary' | 'default';
 
 /** A non-fatal note on a resolved release (synth prints it). */
 export interface ManagedToolchainWarning {
@@ -103,15 +100,14 @@ export interface ReleaseHalves {
   synth: Plugin | null;
 }
 
-const BOOTSTRAP: ManagedToolchainPlugin = 'pipeline-bootstrap';
-const SYNTH: ManagedToolchainPlugin = 'cdk-synth';
+const { bootstrap: BOOTSTRAP, synth: SYNTH } = MANAGED_TOOLCHAIN;
 
 /** The release row and both SYSTEM-ORG halves of `releaseVersion` (deleted rows excluded). */
 export async function loadReleaseHalves(db: ToolchainDb, releaseVersion: string): Promise<ReleaseHalves> {
   const [releases, rows] = await Promise.all([
     db.select().from(schema.toolchainRelease).where(eq(schema.toolchainRelease.releaseVersion, releaseVersion)),
     db.select().from(schema.plugin).where(and(
-      sql`lower(${schema.plugin.orgId}) = ${SYSTEM_ORG_ID}`,
+      eq(schema.plugin.orgId, SYSTEM_ORG_ID),
       inArray(schema.plugin.name, [...MANAGED_TOOLCHAIN_PLUGINS]),
       eq(schema.plugin.version, releaseVersion),
       isNull(schema.plugin.deletedAt),
@@ -213,11 +209,6 @@ async function platformParent(orgId: string): Promise<string | undefined> {
   if (parentCache.size >= PARENT_CACHE_MAX) parentCache.clear();
   parentCache.set(orgId, { parent, at: Date.now() });
   return parent;
-}
-
-/** Test hook: drop cached parent lookups. */
-export function clearToolchainParentCacheForTests(): void {
-  parentCache.clear();
 }
 
 const productionDeps: ManagedToolchainDeps = {
@@ -509,7 +500,7 @@ export async function listEligibleReleasesWith(deps: ManagedToolchainDeps, orgId
     const [releases, rows, history, platformDefault, canary] = await Promise.all([
       db.select().from(schema.toolchainRelease) as Promise<ToolchainRelease[]>,
       db.select().from(schema.plugin).where(and(
-        sql`lower(${schema.plugin.orgId}) = ${SYSTEM_ORG_ID}`,
+        eq(schema.plugin.orgId, SYSTEM_ORG_ID),
         inArray(schema.plugin.name, [...MANAGED_TOOLCHAIN_PLUGINS]),
         isNull(schema.plugin.deletedAt),
       )) as Promise<Plugin[]>,
@@ -551,18 +542,22 @@ export function listEligibleReleases(orgId: string): Promise<{ platformDefault: 
 // Caller helpers
 // -----------------------------------------------------------------------------
 
+/**
+ * Each resolver refusal code's step-resolution refusal (anything else is
+ * `toolchain_unresolved`). `details` rides along except for NO_DEFAULT, which
+ * carries none worth showing.
+ */
+const REFUSAL_BY_CODE: Partial<Record<ErrorCode, { code: ResolutionRefusal['code']; reason: string; details: boolean }>> = {
+  [ErrorCode.NOT_FOUND]: { code: 'NOT_FOUND', reason: 'toolchain_release_not_found', details: true },
+  [ErrorCode.VALIDATION_ERROR]: { code: 'NOT_FOUND', reason: 'toolchain_release_invalid', details: true },
+  [ErrorCode.TOOLCHAIN_NO_DEFAULT]: { code: 'PLUGIN_UNAVAILABLE', reason: 'toolchain_no_default', details: false },
+};
+const UNRESOLVED_REFUSAL = { code: 'PLUGIN_UNAVAILABLE', reason: 'toolchain_unresolved', details: true } as const;
+
 /** The resolver's error as the refusal shape step resolution reports (contract check, declared side, facts). */
 export function managedToolchainRefusal(err: ManagedToolchainError): ResolutionRefusal {
-  switch (err.code) {
-    case ErrorCode.NOT_FOUND:
-      return { code: 'NOT_FOUND', reason: 'toolchain_release_not_found', message: err.message, ...(err.details ? { details: err.details } : {}) };
-    case ErrorCode.VALIDATION_ERROR:
-      return { code: 'NOT_FOUND', reason: 'toolchain_release_invalid', message: err.message, ...(err.details ? { details: err.details } : {}) };
-    case ErrorCode.TOOLCHAIN_NO_DEFAULT:
-      return { code: 'PLUGIN_UNAVAILABLE', reason: 'toolchain_no_default', message: err.message };
-    default:
-      return { code: 'PLUGIN_UNAVAILABLE', reason: 'toolchain_unresolved', message: err.message, ...(err.details ? { details: err.details } : {}) };
-  }
+  const r = REFUSAL_BY_CODE[err.code as ErrorCode] ?? UNRESOLVED_REFUSAL;
+  return { code: r.code, reason: r.reason, message: err.message, ...(r.details && err.details ? { details: err.details } : {}) };
 }
 
 /**

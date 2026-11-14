@@ -4,6 +4,7 @@ import { FormPluginOptions, FormPluginFilter, createEmptyPluginFilter } from '@/
 import type { PluginPick } from '@/lib/plugin-installs';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
+import { VISIBILITY_RUNGS_WIDEST_FIRST } from '@/components/ui/visibility-rungs';
 import CollapsibleSection from './CollapsibleSection';
 import MetadataEditor from './MetadataEditor';
 import PluginNameCombobox from './PluginNameCombobox';
@@ -163,16 +164,17 @@ export default function PluginOptionsEditor({
           </div>
           <div className="grid grid-cols-3 gap-3">
             <div>
-              <label className="label" htmlFor={`${uid}-access-modifier`}>Access modifier</label>
+              <label className="label" htmlFor={`${uid}-visibility`}>Visibility</label>
               <Select
-                id={`${uid}-access-modifier`}
+                id={`${uid}-visibility`}
                 value={value.filter.visibility}
                 onChange={(e) => updateFilter({ visibility: e.target.value })}
                 disabled={disabled}
               >
                 <option value="">Any</option>
-                <option value="public">Public</option>
-                <option value="private">Private</option>
+                {/* All three rungs: offering only public/private left no way to
+                    select an org-shared plugin. */}
+                {VISIBILITY_RUNGS_WIDEST_FIRST.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
               </Select>
             </div>
             <div>

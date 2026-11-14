@@ -80,7 +80,7 @@
 import { randomUUID } from 'crypto';
 
 import {
-  envInt, createLogger, createScheduler, errorMessage, isManagedToolchainPlugin, isSystemOrgId, newScanFindings, parseVulnWaivers, recordAudit, runWithAuditContext, scanFindingKey, SYSTEM_ACTOR_ID, SYSTEM_ORG_ID,
+  ADVISORY_SEVERITIES, envInt, createLogger, createScheduler, errorMessage, isManagedToolchainPlugin, isSystemOrgId, newScanFindings, parseVulnWaivers, recordAudit, runWithAuditContext, scanFindingKey, SYSTEM_ACTOR_ID, SYSTEM_ORG_ID,
   vulnWaiverLabels, leaderLockKey, DEFAULT_LEADER_LOCK_TTL_MS,
   type PluginScanFinding, type RemoteAuditEvent, type PluginScanFlag, type PluginScanSummary, type Scheduler, type VulnWaiver,
 } from '@pipeline-builder/api-core';
@@ -235,7 +235,7 @@ async function scanOnce(ctx: PassContext, ref: PluginImageRef & { imageDigest: s
   if (!scan) return null;
   const entry = { scan, uncataloguedBinaries };
   ctx.scans.set(ref.imageDigest, entry);
-  for (const severity of ['critical', 'high', 'medium', 'low'] as const) ctx.result.catalog[severity] += scan[severity];
+  for (const severity of ADVISORY_SEVERITIES) ctx.result.catalog[severity] += scan[severity];
   return entry;
 }
 
@@ -692,7 +692,7 @@ export async function rescanAllPlugins(): Promise<RescanPassResult> {
       await sweepLapsedAcceptances(ctx.now);
     }));
 
-  for (const severity of ['critical', 'high', 'medium', 'low'] as const) {
+  for (const severity of ADVISORY_SEVERITIES) {
     setGauge('plugin_vuln_catalog_findings', { severity }, ctx.result.catalog[severity]);
   }
   setGauge('plugin_vuln_flagged_versions', {}, ctx.result.flagged);

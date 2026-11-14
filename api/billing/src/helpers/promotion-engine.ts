@@ -27,7 +27,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { createLogger, emitCounter, errorMessage } from '@pipeline-builder/api-core';
+import { createLogger, emitCounter, errorMessage, type BillingInterval } from '@pipeline-builder/api-core';
 import { config } from '../config.js';
 import { createBillingEvent, getBundleCatalog } from './billing-helpers.js';
 import { releaseCampaignBudget, reserveCampaignBudget } from './campaign.js';
@@ -54,7 +54,7 @@ export function promotionsEnabled(): boolean {
 /** The context a trigger passes: what the eligible subscription looks like right now. */
 export interface PromotionContext {
   tier: string;
-  interval: 'monthly' | 'annual';
+  interval: BillingInterval;
   /** Current plan price for the interval — the base for a `percent` promo. */
   planPriceCents: number;
   /** True when this is the org's first-ever subscription (for `firstSubscriptionOnly`). */
@@ -365,7 +365,7 @@ export async function previewPromotion(
   for await (const sub of activeSubscriptionCursor()) {
     const plan = await loadPlan(sub.planId);
     if (!plan) continue;
-    const interval: 'monthly' | 'annual' = sub.interval === 'annual' ? 'annual' : 'monthly';
+    const interval: BillingInterval = sub.interval === 'annual' ? 'annual' : 'monthly';
     const ctx: PromotionContext = { tier: plan.tier, interval, planPriceCents: plan.prices[interval] };
     if (!matchesConditions(promo.trigger?.conditions, ctx)) continue;
     eligibleOrgs += 1;
@@ -401,7 +401,7 @@ export async function batchEvaluatePromotion(promo: PromotionDocument): Promise<
     res.total += 1;
     const plan = await loadPlan(sub.planId);
     if (!plan) continue;
-    const interval: 'monthly' | 'annual' = sub.interval === 'annual' ? 'annual' : 'monthly';
+    const interval: BillingInterval = sub.interval === 'annual' ? 'annual' : 'monthly';
     const isFirstSubscription = needsFirstSub ? (await Subscription.countDocuments({ orgId: sub.orgId })) <= 1 : undefined;
     const ctx: PromotionContext = { tier: plan.tier, interval, planPriceCents: plan.prices[interval], isFirstSubscription };
     if (!matchesConditions(promo.trigger?.conditions, ctx)) continue;
@@ -603,7 +603,7 @@ export async function grantRecurringPromotions(subscription: SubscriptionDocumen
 async function contextForSubscription(subscription: SubscriptionDocument): Promise<PromotionContext | null> {
   const plan = await Plan.findById(subscription.planId).lean();
   if (!plan) return null;
-  const interval: 'monthly' | 'annual' = subscription.interval === 'annual' ? 'annual' : 'monthly';
+  const interval: BillingInterval = subscription.interval === 'annual' ? 'annual' : 'monthly';
   return { tier: plan.tier, interval, planPriceCents: plan.prices[interval] };
 }
 

@@ -11,6 +11,7 @@
  * "not entitled or not permitted", never "no data".
  */
 
+import type { WeekStart } from '@pipeline-builder/api-core';
 import type { ApiCore } from '../core';
 import type { ApiResponse } from '@/types';
 
@@ -38,7 +39,7 @@ export interface ReportDefinition {
   cadence: ReportCadence;
   /** IANA name. Periods are cut in THIS zone, not the viewer's. */
   timezone: string;
-  weekStart: 'monday' | 'sunday';
+  weekStart: WeekStart;
   scope: ReportScope;
   /** Recipient ids, not raw addresses. */
   recipients: string[];
@@ -100,7 +101,7 @@ export interface ReportSnapshot {
   period: { start: string; end: string; label: string };
   previousPeriod: { start: string; end: string };
   timezone: string;
-  weekStart: 'monday' | 'sunday';
+  weekStart: WeekStart;
   sections: ComposedSection[];
   notes: DataQualityNote[];
   /** How every number was produced. Shown in the footer, not hidden. */
@@ -160,7 +161,7 @@ export interface ReportDefinitionInput {
   scope: ReportScope;
   sections?: string[];
   timezone?: string;
-  weekStart?: 'monday' | 'sunday';
+  weekStart?: WeekStart;
   recipients?: string[];
   autoSend?: boolean;
 }
@@ -320,11 +321,13 @@ export function stakeholderReportsApi(core: ApiCore) {
       core.request<ApiResponse<{
         recipient: ReportRecipient;
         pendingApproval: boolean;
-        verificationToken?: string;
+        /** Whether the confirmation email went out. The token itself never
+         *  reaches the author — it is mailed to the address only. */
+        confirmationSent: boolean;
       }>>(`${BASE}/recipients`, { method: 'POST', body: JSON.stringify(body) }),
 
     resendReportRecipientVerification: async (id: string) =>
-      core.request<ApiResponse<{ recipient: ReportRecipient; verificationToken: string }>>(
+      core.request<ApiResponse<{ recipient: ReportRecipient; confirmationSent: boolean }>>(
         `${BASE}/recipients/${encodeURIComponent(id)}/resend`, { method: 'POST' }),
 
     removeReportRecipient: async (id: string) =>

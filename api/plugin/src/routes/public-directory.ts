@@ -20,14 +20,14 @@
  * that traffic.
  */
 
-import { attachmentDisposition, envInt, envBool, ErrorCode, sendBadRequest, sendError, sendSuccess } from '@pipeline-builder/api-core';
+import { attachmentDisposition, envInt, envBool, ErrorCode, PUBLISHER_TIERS, sendBadRequest, sendError, sendSuccess } from '@pipeline-builder/api-core';
 import { rateLimitByOrg, withRoute } from '@pipeline-builder/api-server';
 import { Config } from '@pipeline-builder/pipeline-core';
 import {
   db, getPublicListedVersion, getPublicListing, isPublicReaderConfigured, listPublicCategories,
   listPublicListingsForSitemap, listPublicReviews, normalizeQuery, schema, searchPublicListings,
-  DIRECTORY_SORTS, DIRECTORY_TIERS, REVIEW_SORTS,
-  type DirectorySearchParams, type DirectorySort, type DirectoryTrustTier, type ReviewSort,
+  DIRECTORY_SORTS, REVIEW_SORTS,
+  type DirectorySearchParams, type DirectorySort, type ReviewSort,
 } from '@pipeline-builder/pipeline-data';
 import { Router, type NextFunction, type Request, type Response } from 'express';
 import { z } from 'zod';
@@ -66,7 +66,7 @@ const token = z.string().trim().min(1).max(MAX_SEGMENT).regex(TOKEN_RE);
 const SearchQuerySchema = z.object({
   q: z.string().max(1000).optional(),
   category: z.string().regex(/^[a-z]+$/).max(50).optional(),
-  tier: z.enum(DIRECTORY_TIERS as unknown as [DirectoryTrustTier, ...DirectoryTrustTier[]]).optional(),
+  tier: z.enum(PUBLISHER_TIERS).optional(),
   license: token.optional(),
   computeType: token.optional(),
   needsSecrets: z.enum(['true', 'false']).optional(),

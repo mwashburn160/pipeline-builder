@@ -31,7 +31,9 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
     mockPerOrgCtor(opts);
     return { deriveKeyAsync: (orgId: string) => mockDeriveKeyAsync(orgId) };
   }),
-  EnvKeyProvider: jest.fn(function () { /* opaque fallback */ }),
+  // A KMS-only deployment has no SECRET_ENCRYPTION_KEY, so the real
+  // EnvKeyProvider THROWS at construction. The dry-run must never build one.
+  EnvKeyProvider: jest.fn(function () { throw new Error('SECRET_ENCRYPTION_KEY env is required for secret encryption'); }),
   getDefaultKeyProvider: jest.fn(() => ({})),
 }));
 
@@ -200,6 +202,24 @@ describe('testOrgKmsConfig', () => {
       resolver: expect.any(Function),
       fallback: expect.anything(),
     }));
+  });
+
+  it('succeeds on a KMS-only deployment (no SECRET_ENCRYPTION_KEY) — the fallback is not env-built', async () => {
+    mockOrgFindById.mockReturnValue({ select: () => ({ lean: () => Promise.resolve({ _id: 'o1' }) }) });
+    mockDeriveKeyAsync.mockResolvedValue(Buffer.alloc(32, 0x22));
+
+    const res = mockRes();
+    await (testOrgKmsConfig as unknown as (req: any, res: any) => Promise<void>)(
+      asReq({ keyId: 'alias/pb', ciphertextBase64: 'AQICAH==' }),
+      res,
+    );
+
+    expect(res.status).toHaveBeenCalledWith(200);
+    const opts = mockPerOrgCtor.mock.calls[0][0] as { resolver: () => Promise<unknown>; fallback: { deriveKey: (o: string) => Buffer } };
+    // The resolver always answers with the PROPOSED config …
+    await expect(opts.resolver()).resolves.toEqual({ keyId: 'alias/pb', ciphertextBase64: 'AQICAH==' });
+    // … so the fallback is unreachable, and refuses rather than derive a key.
+    expect(() => opts.fallback.deriveKey('o1')).toThrow(/no per-org config/);
   });
 
   it('returns 400 with the underlying KMS error message when deriveKey fails', async () => {

@@ -40,27 +40,21 @@ const RECIPIENT_CHUNK = 50;
 /** Own-org pipelines a warning or notice names (the rest are counted). */
 const MAX_NAMED = 50;
 
+/**
+ * Every way a version is withdrawn, keyed by kind: what happened to it, and
+ * what a pipeline on it meets at its next synth.
+ */
+const WITHDRAWALS = {
+  deactivated: { what: 'was deactivated', next: 'A range or the default no longer resolves to it; an exact pin still does.' },
+  yanked: { what: 'was yanked', next: 'A range, `latest` and the default skip it; an exact pin still resolves, with a warning.' },
+  deleted: { what: 'was deleted', next: 'It no longer resolves at all.' },
+  uninstalled: { what: 'was uninstalled', next: 'The organization can no longer resolve the listing until it is installed again.' },
+  listing_suspended: { what: 'was suspended by the system org', next: 'The listing no longer resolves for new synths until the suspension is lifted.' },
+  publisher_suspended: { what: 'belongs to a publisher the system org suspended', next: 'Its listings are hidden and re-signed with the lowest trust.' },
+} as const satisfies Record<string, { what: string; next: string }>;
+
 /** What happened to the version(s). */
-export type WithdrawalKind = 'deactivated' | 'yanked' | 'deleted' | 'uninstalled' | 'listing_suspended' | 'publisher_suspended';
-
-const WHAT: Record<WithdrawalKind, string> = {
-  deactivated: 'was deactivated',
-  yanked: 'was yanked',
-  deleted: 'was deleted',
-  uninstalled: 'was uninstalled',
-  listing_suspended: 'was suspended by the system org',
-  publisher_suspended: 'belongs to a publisher the system org suspended',
-};
-
-/** What a pipeline on it meets at its next synth. */
-const NEXT: Record<WithdrawalKind, string> = {
-  deactivated: 'A range or the default no longer resolves to it; an exact pin still does.',
-  yanked: 'A range, `latest` and the default skip it; an exact pin still resolves, with a warning.',
-  deleted: 'It no longer resolves at all.',
-  uninstalled: 'The organization can no longer resolve the listing until it is installed again.',
-  listing_suspended: 'The listing no longer resolves for new synths until the suspension is lifted.',
-  publisher_suspended: 'Its listings are hidden and re-signed with the lowest trust.',
-};
+export type WithdrawalKind = keyof typeof WITHDRAWALS;
 
 /** One affected pipeline. */
 export interface AffectedPipeline {
@@ -110,8 +104,8 @@ export async function withdrawalImpact(
     warning: {
       code: 'PLUGIN_VERSION_IN_USE',
       severity: 'warning',
-      message: `${opts.label} ${WHAT[opts.kind]} while ${n} pipeline${n === 1 ? '' : 's'}${orgCount > 1 ? ` in ${orgCount} organizations` : ''} reference${n === 1 ? 's' : ''} it. `
-        + `${NEXT[opts.kind]} Nothing was deleted: deployed pipelines keep pulling their pinned image, and their owners have been notified.`,
+      message: `${opts.label} ${WITHDRAWALS[opts.kind].what} while ${n} pipeline${n === 1 ? '' : 's'}${orgCount > 1 ? ` in ${orgCount} organizations` : ''} reference${n === 1 ? 's' : ''} it. `
+        + `${WITHDRAWALS[opts.kind].next} Nothing was deleted: deployed pipelines keep pulling their pinned image, and their owners have been notified.`,
       pipelineCount: n,
       orgCount,
       pipelines: own.slice(0, MAX_NAMED).map((p) => ({ id: p.pipelineId, name: p.pipelineName, steps: p.steps })),
@@ -129,11 +123,11 @@ export function renderWithdrawalNotice(
   const named = pipelines.slice(0, MAX_NAMED).map((p) => `  • pipeline ${p.pipelineName ?? p.pipelineId}${p.steps.length ? ` (${p.steps.join(', ')})` : ''}`);
   const more = pipelines.length > MAX_NAMED ? [`  … and ${pipelines.length - MAX_NAMED} more`] : [];
   return {
-    subject: `Plugin ${label} ${WHAT[kind]}`,
+    subject: `Plugin ${label} ${WITHDRAWALS[kind].what}`,
     text: [
-      `Plugin ${label}, used by pipelines in your organization, ${WHAT[kind]}.`,
+      `Plugin ${label}, used by pipelines in your organization, ${WITHDRAWALS[kind].what}.`,
       ...(reason?.trim() ? [`Reason: ${reason.trim()}`] : []),
-      NEXT[kind],
+      WITHDRAWALS[kind].next,
       ...(named.length ? [`Your pipelines on it:\n${[...named, ...more].join('\n')}`] : []),
       'Move them to a supported version, then re-synth.',
     ].join('\n\n'),

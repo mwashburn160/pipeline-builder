@@ -9,6 +9,8 @@
  * `@pipeline-builder/pipeline-data` public surface is unchanged.
  */
 
+import type { WeekStart } from '@pipeline-builder/api-core';
+
 export interface ExecutionCount {
   id: string;
   project: string;
@@ -188,7 +190,7 @@ export interface BucketOptions {
   tz?: string;
   /** Where the week starts. Postgres DATE_TRUNC is Monday-only, so `sunday`
    *  shifts the boundary explicitly. */
-  weekStart?: 'monday' | 'sunday';
+  weekStart?: WeekStart;
 }
 
 export interface ReportingRetentionOptions {
@@ -255,7 +257,7 @@ export interface DoraOptions {
   /** IANA timezone for the trend's buckets (see {@link BucketOptions}). */
   tz?: string;
   /** Week start for the trend's buckets. */
-  weekStart?: 'monday' | 'sunday';
+  weekStart?: WeekStart;
 }
 
 /**

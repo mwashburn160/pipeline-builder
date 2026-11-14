@@ -10,10 +10,8 @@
  * it's specific to the IdP-config flow (any OIDC-compliant issuer); the
  * named providers below have wired-up OAuth handlers in `controllers/oauth.ts`.
  */
-export type OAuthProviderName = 'google' | 'github' | 'facebook' | 'microsoft' | 'gitlab' | 'linkedin';
-
-/** Runtime tuple matching `OAuthProviderName` for Mongoose enums / Zod schemas. */
-export const OAUTH_PROVIDER_NAMES: readonly OAuthProviderName[] = ['google', 'github', 'facebook', 'microsoft', 'gitlab', 'linkedin'];
+export const OAUTH_PROVIDER_NAMES = ['google', 'github', 'facebook', 'microsoft', 'gitlab', 'linkedin'] as const;
+export type OAuthProviderName = (typeof OAUTH_PROVIDER_NAMES)[number];
 
 /**
  * Whether `value` names one of the wired providers, narrowing it as it goes.

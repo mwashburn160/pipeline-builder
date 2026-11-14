@@ -128,6 +128,24 @@ describe('pooled-cap fallback cache', () => {
     expect(outcomes()).toEqual(['cached']);
   });
 
+  it('a read served from cache reports the ROOT\'s storage cap too, not the team\'s -1', async () => {
+    // The fallback skipped storageBytes while the live overlay includes it, so
+    // during a resolution blip a team's registry storage read as UNLIMITED (its
+    // own row is -1 on every dimension) on the very dashboard that had shown
+    // the root's cap a moment earlier.
+    const rows = [
+      { ...poolRows[0], quotas: { ...poolRows[0]!.quotas, storageBytes: 5000 } },
+      { ...poolRows[1], quotas: { ...poolRows[1]!.quotas, storageBytes: -1 } },
+    ];
+    findOrgWithHierarchy.mockResolvedValue({ self: rows[1], parentOrgId: 'root', hasChildren: false });
+    find.mockReturnValue({ select: () => ({ lean: async () => rows }) });
+    expect((await quotaService.findByOrgId('teamA')).quotas.storageBytes.limit).toBe(5000);
+
+    expandOrgScope.mockRejectedValue(new Error('mongo blip'));
+    const quota = await quotaService.findByOrgId('teamA');
+    expect(quota.quotas.storageBytes).toMatchObject({ limit: 5000, unlimited: false });
+  });
+
   it('DENIES once the entry has expired (no cap may be served forever)', async () => {
     await quotaService.getQuotaStatus('teamA', 'plugins');
     expandOrgScope.mockRejectedValue(new Error('mongo blip'));

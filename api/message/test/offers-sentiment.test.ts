@@ -17,6 +17,7 @@
 
 import { describe, it, expect, jest } from '@jest/globals';
 import { stubModule } from '@pipeline-builder/api-core/testing';
+import { LIVE_SUPPORT_CASE_STATUSES } from '@pipeline-builder/api-core/wire-vocabulary';
 
 // Typed, not bare `jest.fn()`: an untyped mock's return is `unknown`, so
 // `mockResolvedValue` / `mockRejectedValue` infer `never` and reject their
@@ -66,6 +67,8 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => stubModule('@pipeli
   emitCounter,
   createLogger: () => ({ info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() }),
   errorMessage: (e: unknown) => String(e),
+  // A real vocabulary, not a stub: the case query spreads it.
+  LIVE_SUPPORT_CASE_STATUSES,
 }));
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
   runWithTenantContext: (_ctx: unknown, fn: () => unknown) => fn(),

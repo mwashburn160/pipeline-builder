@@ -15,6 +15,7 @@ import {
   validateQuery,
   actorId,
   recordAudit,
+  COMPLIANCE_SCAN_STATUSES, COMPLIANCE_SCAN_TARGETS, COMPLIANCE_SCAN_TRIGGERS,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
@@ -27,7 +28,7 @@ import { complianceScanService } from '../services/compliance-scan-service.js';
  */
 
 const ScanCreateSchema = z.object({
-  target: z.enum(['plugin', 'pipeline', 'all']),
+  target: z.enum(COMPLIANCE_SCAN_TARGETS),
   filter: z.record(z.string(), z.unknown()).optional(),
   dryRun: z.boolean().optional(),
 });
@@ -35,9 +36,9 @@ const ScanCreateSchema = z.object({
 // Validate the GET / filter query enums so an invalid value 400s instead of
 // being cast to a union and silently returning an empty page.
 const ScanListQuerySchema = z.object({
-  target: z.enum(['plugin', 'pipeline', 'all']).optional(),
-  status: z.enum(['pending', 'running', 'completed', 'failed', 'cancelled']).optional(),
-  triggeredBy: z.enum(['manual', 'scheduled', 'rule-change', 'rule-dry-run']).optional(),
+  target: z.enum(COMPLIANCE_SCAN_TARGETS).optional(),
+  status: z.enum(COMPLIANCE_SCAN_STATUSES).optional(),
+  triggeredBy: z.enum(COMPLIANCE_SCAN_TRIGGERS).optional(),
 });
 
 export function createScanRoutes(): Router {

@@ -3,6 +3,7 @@
 
 /** The plugin page's tab panels. */
 import { CheckCircle2, Download, XCircle } from 'lucide-react';
+import { severityColor, severityLabel } from '@/lib/advisories';
 import { Badge } from '@/components/ui/Badge';
 import { safeExternalUrl, versionSbomPath } from '@/lib/public-directory/links';
 import type { ListingDetail, RatingBucket, ReviewPage } from '@/lib/public-directory/types';
@@ -170,7 +171,7 @@ export function AdvisoryList({ listing }: { listing: ListingDetail }) {
       {listing.advisories.map((a) => (
         <li key={a.id} className="text-sm">
           <span className="font-mono text-xs">{a.id}</span>{' '}
-          <Badge color={/critical|high/i.test(a.severity) ? 'red' : 'yellow'}>{a.severity}</Badge>{' '}
+          <Badge color={severityColor(a.severity)}>{severityLabel(a.severity)}</Badge>{' '}
           {a.summary} <span className="text-fg-muted">— affects {a.affectedRange}{a.fixedVersion ? `, fixed in ${a.fixedVersion}` : ', no fix yet'}</span>
         </li>
       ))}

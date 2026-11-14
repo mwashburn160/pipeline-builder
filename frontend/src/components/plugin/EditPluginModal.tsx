@@ -40,7 +40,7 @@ interface EditPluginModalProps {
    *  metadata, owner) is fetched by id on mount and seeds the form. */
   plugin: PluginSummary;
   /** Whether the current user may PUBLISH (make a plugin public) — gates the
-   *  access-modifier control. Sourced from `can('plugins:publish')` (superadmins
+   *  visibility control. Sourced from `can('plugins:publish')` (superadmins
    *  bypass), matching the backend gate, not the org-admin role. */
   canPublish: boolean;
   /** Callback to close the modal. */

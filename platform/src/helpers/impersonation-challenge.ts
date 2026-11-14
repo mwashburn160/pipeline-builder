@@ -11,6 +11,7 @@
 import { createLogger } from '@pipeline-builder/api-core';
 import { sendInAppNotificationConfirmed } from './in-app-notify.js';
 import { describeDuration, IMPERSONATION_REQUEST_TTL_MS, IMPERSONATION_SESSION_TTL_MS } from '../constants/impersonation.js';
+import { ADMIN_ORG_ROLES } from '@pipeline-builder/api-core/wire-vocabulary';
 import type { ImpersonationApproverMode } from '../models/index.js';
 import { User, UserOrganization } from '../models/index.js';
 import { CHALLENGE_SELF_APPROVAL_FORBIDDEN } from '../services/impersonation-errors.js';
@@ -69,7 +70,7 @@ export async function sendImpersonationChallenge(input: {
     : (await UserOrganization.find({
       organizationId: input.orgId,
       isActive: true,
-      role: { $in: ['owner', 'admin'] },
+      role: { $in: [...ADMIN_ORG_ROLES] },
     }).select('userId').lean()).map((a) => String((a as { userId: unknown }).userId));
 
   if (recipients.length === 0) return { attempted: 0, delivered: 0 };

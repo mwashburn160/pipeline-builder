@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, createScheduler, envInt, type Scheduler, leaderLockKey, DEFAULT_LEADER_LOCK_TTL_MS } from '@pipeline-builder/api-core';
+import { createLogger, createScheduler, envInt, type Scheduler, leaderLockKey, DEFAULT_LEADER_LOCK_TTL_MS, type ComplianceCheckVerdict } from '@pipeline-builder/api-core';
 import { schema, withTenantTx, runWithTenantContext, type RuleTarget } from '@pipeline-builder/pipeline-data';
 import { lt } from 'drizzle-orm';
 import type { RuleValidationResult } from '../engine/rule-engine.js';
@@ -21,7 +21,7 @@ export async function logComplianceCheck(
   result: RuleValidationResult,
   scanId?: string,
 ): Promise<void> {
-  const auditResult = result.blocked ? 'block' : result.warnings.length > 0 ? 'warn' : 'pass';
+  const auditResult: ComplianceCheckVerdict = result.blocked ? 'block' : result.warnings.length > 0 ? 'warn' : 'pass';
 
   await withTenantTx(async (tx) => tx.insert(schema.complianceAuditLog).values({
     orgId,

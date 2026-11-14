@@ -30,8 +30,7 @@ interface Draft {
 }
 
 /**
- * Whether this organization requires its members to sign in with two factors
- *.
+ * Whether this organization requires its members to sign in with two factors.
  *
  * The requirement is enforced when a token is ISSUED, not per route: once the
  * grace period ends, a member whose session was opened with a password alone

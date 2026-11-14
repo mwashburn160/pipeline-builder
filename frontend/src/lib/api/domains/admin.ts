@@ -6,6 +6,7 @@ import { buildQuery } from '../util';
 import type { ApiResponse, OrgQuotaResponse, OrgIdpConfigDto, OrgIdpConfigCreate, User, QuotaTier, QuotaType, QuotaUsageParams, QuotaUsageBreakdown, QuotaNoticeSettings } from '@/types';
 import type { AuditLogEvent, AuditChainVerification } from '@/types/audit';
 import type { ConsoleClass } from '@/lib/admin-console';
+import type { OrgRole } from '@pipeline-builder/api-core/wire-vocabulary';
 
 /**
  * One quota dimension an org is at/over the threshold on.
@@ -231,7 +232,7 @@ export function adminApi(core: ApiCore) {
       return core.request<ApiResponse<{ users: User[]; pagination: { total: number; offset: number; limit: number; hasMore: boolean } }>>(`/api/users${buildQuery(params)}`);
     },
 
-    createUser: async (data: { username: string; email: string; password: string; isSuperAdmin?: boolean; organizationId?: string; role?: 'owner' | 'admin' | 'member'; roleIds?: string[] }) => {
+    createUser: async (data: { username: string; email: string; password: string; isSuperAdmin?: boolean; organizationId?: string; role?: OrgRole; roleIds?: string[] }) => {
       return core.request<ApiResponse<{ user: { id: string; username: string; email: string } }>>(`/api/users`, {
         method: 'POST',
         body: JSON.stringify(data),

@@ -14,10 +14,8 @@
  * the caller (approval / the re-sign job / maintenance) owns the retry.
  */
 
-import { getServiceAuthHeader, InternalHttpClient, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import { getServiceAuthHeader, InternalHttpClient, SYSTEM_ORG_ID, type PublisherTier } from '@pipeline-builder/api-core';
 import { Config } from '@pipeline-builder/pipeline-core';
-
-export type TrustTier = 'official' | 'verified' | 'community' | 'unverified';
 
 /** A registry call was refused or failed; `status` is the HTTP status (0 = transport). */
 export class RegistryPublicationError extends Error {
@@ -82,7 +80,7 @@ export interface PublishImageParams {
   publisherHandle: string;
   name: string;
   version: string;
-  tier: TrustTier;
+  tier: PublisherTier;
   /** The publisher's org (storage attribution); null for the platform `community` publisher. */
   publisherOrgId: string | null;
   /** The user whose decision this executes (the approver) — the registry's audit actor. */
@@ -98,7 +96,7 @@ export interface ResignParams {
   imageRepository: string;
   digest: string;
   publisherHandle: string;
-  tier: TrustTier;
+  tier: PublisherTier;
   publisherOrgId?: string | null;
   progress?: { completed: number; total: number };
   /** The user who triggered the re-sign (tier change, suspension, transfer) — the registry's audit actor. */
@@ -127,7 +125,7 @@ export function retagImage(p: { imageRepository: string; version: string; digest
 /** What image-registry verified about a published image: the signature and its trust annotations. */
 export interface PublicationVerification {
   signed: boolean;
-  tier: TrustTier | null;
+  tier: PublisherTier | null;
   publisher: string | null;
 }
 

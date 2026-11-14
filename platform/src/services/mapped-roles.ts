@@ -12,6 +12,7 @@
  * own (stricter) rules about what may be granted.
  */
 
+import type { RoleGrant } from '@pipeline-builder/api-core';
 import mongoose from 'mongoose';
 import { IGM_FORBIDDEN_GRANT } from './idp-mapping-errors.js';
 import { assertActorMayAssignRole, carriesSystemOrgOnlyPermission } from './role-authority.js';
@@ -19,7 +20,6 @@ import type { OrgId, RoleAssignmentActor, UserId } from './role-authority.js';
 import { RL_ROLE_NOT_FOUND } from './roles-errors.js';
 import { toOrgId } from '../helpers/org-id.js';
 import { Role, RoleAssignment } from '../models/index.js';
-import type { RoleGrant } from '../models/index.js';
 
 /** A Role as the mapping surfaces report it. */
 export interface MappableRole {

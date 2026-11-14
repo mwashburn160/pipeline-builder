@@ -30,7 +30,7 @@
  * Bayesian rating and install count when present. Paused listings are hidden.
  */
 
-import { PUBLISHER_TIERS, type PublisherTier } from '@pipeline-builder/api-core';
+import type { PublisherTier } from '@pipeline-builder/api-core';
 import { sql, type SQL } from 'drizzle-orm';
 
 import { advisoryRangeCovers } from './plugin-advisories.js';
@@ -43,23 +43,10 @@ import { getPublicReaderDb } from '../database/public-reader.js';
 // Public contract (mirrors frontend/src/lib/public-directory/types.ts)
 // -----------------------------------------------------------------------------
 
-/**
- * DERIVED from api-core's canonical `PUBLISHER_TIERS`, not restated.
- *
- * This was a hand-written copy of the same four values, and the copy is what
- * the public route's zod enum validated — while the view types in the same
- * package already used `PublisherTier`. A fifth tier would have been stored and
- * displayed and then silently unfilterable, because the filter would still only
- * accept the four this list remembered.
- */
-export type DirectoryTrustTier = PublisherTier;
-
 export type DirectoryIconKind = 'vendor' | 'uploaded' | 'monogram' | 'category';
 export type DirectorySort = 'relevance' | 'rating' | 'installs' | 'updated' | 'name' | 'health';
 
 export const DIRECTORY_SORTS: readonly DirectorySort[] = ['relevance', 'rating', 'installs', 'updated', 'name', 'health'];
-
-export const DIRECTORY_TIERS: readonly DirectoryTrustTier[] = PUBLISHER_TIERS;
 
 /** Minimum `word_similarity(query, name)` for a fuzzy name match (typo tolerance). */
 export const FUZZY_NAME_THRESHOLD = 0.3;
@@ -72,7 +59,7 @@ export const DIRECTORY_MAX_LIMIT = 60;
 export interface DirectorySearchParams {
   q?: string;
   category?: string;
-  tier?: DirectoryTrustTier;
+  tier?: PublisherTier;
   license?: string;
   computeType?: string;
   needsSecrets?: boolean;
@@ -83,7 +70,7 @@ export interface DirectorySearchParams {
 }
 
 export interface DirectoryListingCard {
-  publisher: { handle: string; displayName: string; tier: DirectoryTrustTier };
+  publisher: { handle: string; displayName: string; tier: PublisherTier };
   name: string;
   summary: string;
   category: string;
@@ -265,7 +252,7 @@ export interface PublicListingRow {
   id: string;
   publisher_handle: string;
   publisher_display_name: string;
-  publisher_tier: DirectoryTrustTier;
+  publisher_tier: PublisherTier;
   name: string;
   category: string;
   summary: string | null;

@@ -7,7 +7,7 @@
  * The bundles endpoint filters the catalog to the account's tier once
  * subscribed, but returns EVERYTHING when there's no subscription to read a tier
  * from. So the unsubscribed preview lists packs that a given plan may not sell
- * (Member Seat is Team+, Audit Log and SSO are Pro-only) — these helpers surface
+ * (Member Seat is Team+, for one) — these helpers surface
  * that on the card and in the plan-picker prompt, instead of letting the pack
  * quietly vanish after the buyer picks a plan.
  */

@@ -187,6 +187,6 @@ export function mountRoutes(app: Express, { quotaService, sseManager }: PluginRo
     createBulkPluginRoutes(quotaService),
     requireStepUp,
     createPurgePluginRoutes(quotaService),
-    createRestorePluginRoutes(),
+    createRestorePluginRoutes(quotaService),
   );
 }

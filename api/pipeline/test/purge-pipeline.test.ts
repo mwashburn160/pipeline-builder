@@ -183,16 +183,29 @@ describe('POST /pipelines/:id/purge (purge)', () => {
   describe('a pipeline still registered as deployed', () => {
     const deployment = { registryId: 'reg-1', stackName: 'acme-stack', region: 'us-east-1' };
 
-    it('is refused with 409 (nothing loaded, nothing purged, nothing audited)', async () => {
+    it('is refused with 409 (nothing purged, nothing audited)', async () => {
+      mockFindDeletedById.mockResolvedValueOnce(existingPipeline);
       mockDeploymentOf.mockResolvedValueOnce(deployment);
       const res = mockRes();
       await handler(mockReq(), res);
+      expect(mockFindDeletedById).toHaveBeenCalledWith('pipeline-uuid-1', 'org-1');
       expect(mockDeploymentOf).toHaveBeenCalledWith('pipeline-uuid-1');
       expect(res.status).toHaveBeenCalledWith(409);
       expect(res.json.mock.calls[0][0].message).toMatch(/acme-stack.*force=true/);
-      expect(mockFindDeletedById).not.toHaveBeenCalled();
       expect(mockPurgeById).not.toHaveBeenCalled();
       expect(mockEmitPipelineAudit).not.toHaveBeenCalled();
+    });
+
+    it('never reads (or reveals) the registration of an id outside the caller\'s scope: 404', async () => {
+      mockFindDeletedById.mockResolvedValue(null);
+      mockDeploymentOf.mockResolvedValue(deployment);
+      const res = mockRes();
+      await handler(mockReq(), res);
+      expect(mockDeploymentOf).not.toHaveBeenCalled();
+      expect(res.status).toHaveBeenCalledWith(404);
+      expect(JSON.stringify(res.json.mock.calls)).not.toMatch(/acme-stack/);
+      mockDeploymentOf.mockReset();
+      mockDeploymentOf.mockResolvedValue(null);
     });
 
     it('purges with ?force=true, and the audit records the forced deregistration', async () => {

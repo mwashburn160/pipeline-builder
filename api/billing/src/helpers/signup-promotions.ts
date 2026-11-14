@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, errorMessage } from '@pipeline-builder/api-core';
+import { createLogger, errorMessage, type BillingInterval } from '@pipeline-builder/api-core';
 import { evaluatePromotions, processReferralSignup } from './promotion-engine.js';
 import { Subscription, type SubscriptionDocument } from '../models/subscription.js';
 
@@ -26,7 +26,7 @@ export async function runSignupPromotions(
   opts: { source: string; referralCode?: string; actorId?: string },
 ): Promise<void> {
   const orgId = subscription.orgId;
-  const interval: 'monthly' | 'annual' = subscription.interval === 'annual' ? 'annual' : 'monthly';
+  const interval: BillingInterval = subscription.interval === 'annual' ? 'annual' : 'monthly';
   const ctx = { tier: plan.tier, interval, planPriceCents: plan.prices?.[interval] ?? 0 };
 
   try {

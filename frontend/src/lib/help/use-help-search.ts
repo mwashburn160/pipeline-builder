@@ -30,7 +30,7 @@ export interface HelpSearch {
  * `setState` after unmount, or forgets to gate miss reporting on the corpus
  * having arrived — which would count a slow chunk as a gap in the docs.
  *
- * The corpus is ~1 MB of generated source behind a dynamic import, so it is
+ * The corpus is megabytes of generated source behind a dynamic import, so it is
  * fetched on mount rather than imported at module scope: the caller paints its
  * search box immediately and the topics arrive into skeletons.
  *

@@ -1,6 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { orgRoleColor } from '@/lib/org-roles';
 import { Badge } from '@/components/ui/Badge';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { type Column } from '@/components/ui/DataTable';
@@ -77,7 +78,7 @@ export function buildUserColumns({
       sortValue: (u) => u.role,
       render: (u) => (
         <span className="inline-flex items-center gap-1">
-          <Badge color={u.role === 'admin' ? 'purple' : 'gray'}>{u.role}</Badge>
+          <Badge color={orgRoleColor(u.role)}>{u.role}</Badge>
           {u.isSuperAdmin && <Badge color="red">platform-admin</Badge>}
         </span>
       ),

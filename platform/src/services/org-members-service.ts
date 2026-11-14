@@ -6,12 +6,12 @@ import mongoose from 'mongoose';
 import { OM_ORG_NOT_FOUND, OM_USER_NOT_FOUND, OM_ALREADY_MEMBER, OM_NOT_A_MEMBER, OM_CANNOT_REMOVE_OWNER, OM_OWNER_MEMBERSHIP_NOT_FOUND, OM_NEW_OWNER_MUST_BE_MEMBER, OM_MEMBERSHIP_NOT_FOUND, OM_ALREADY_INACTIVE, OM_ALREADY_ACTIVE, OM_TARGETS_OUT_OF_SCOPE, OM_SEAT_LIMIT } from './org-members-errors.js';
 import type { RoleAssignmentActor } from './role-authority.js';
 import { assertActorMayAssignBuiltinAdmin, assignBuiltinAdminRole, ensureBaselineRole, recomputeUserOrgRole } from './roles-service.js';
+import { isAdminOrgRole, type OrgRole } from '@pipeline-builder/api-core/wire-vocabulary';
 import { expandOrgScope } from '../helpers/org-hierarchy.js';
 import { toOrgId } from '../helpers/org-id.js';
 import { withSeatGuard } from '../helpers/seats.js';
 import { publishUserRevocation, publishUsersRevocation } from '../helpers/session-revocation.js';
 import { Organization, RoleAssignment, User, UserOrganization } from '../models/index.js';
-import type { OrgMemberRole } from '../models/user-organization.js';
 import { withMongoTransaction } from '../utils/mongo-tx.js';
 import { escapeRegex } from '../utils/regex.js';
 
@@ -123,7 +123,7 @@ class OrgMembersService {
       limit?: number;
       offset?: number;
       search?: string;
-      role?: OrgMemberRole;
+      role?: OrgRole;
       isActive?: boolean;
       sortBy?: string;
       sortOrder?: 'asc' | 'desc';
@@ -296,7 +296,7 @@ class OrgMembersService {
 
   async addMember(
     orgId: string,
-    body: { userId?: string; email?: string; role?: OrgMemberRole },
+    body: { userId?: string; email?: string; role?: OrgRole },
     actor: RoleAssignmentActor,
   ): Promise<void> {
     const notice = await withMongoTransaction(async (session) => {
@@ -335,7 +335,7 @@ class OrgMembersService {
         // assign Roles and let recomputeUserOrgRole DERIVE the cached role (mirrors
         // user-admin-service.createUser).
         await ensureBaselineRole(user._id, toOrgId(orgId), session);
-        if (addedRole === 'admin' || addedRole === 'owner') {
+        if (isAdminOrgRole(addedRole)) {
           await assignBuiltinAdminRole(user._id, toOrgId(orgId), session);
           await recomputeUserOrgRole(user._id, toOrgId(orgId), session);
         }
@@ -431,7 +431,7 @@ class OrgMembersService {
    */
   async bulkAddMemberToTeams(
     contextOrgId: string,
-    body: { userId?: string; email?: string; orgIds: string[]; role?: OrgMemberRole },
+    body: { userId?: string; email?: string; orgIds: string[]; role?: OrgRole },
     actor: RoleAssignmentActor,
   ): Promise<{ results: BulkAddResult[] }> {
     const subtree = await expandOrgScope(contextOrgId);
@@ -474,7 +474,7 @@ class OrgMembersService {
           // `role: 'admin'` alone would be coarse-admin with zero permissions and
           // reverted by the next recompute.
           await ensureBaselineRole(user._id, toOrgId(orgId), session);
-          if (addedRole === 'admin' || addedRole === 'owner') {
+          if (isAdminOrgRole(addedRole)) {
             await assignBuiltinAdminRole(user._id, toOrgId(orgId), session);
             await recomputeUserOrgRole(user._id, toOrgId(orgId), session);
           }

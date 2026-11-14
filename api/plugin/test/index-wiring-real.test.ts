@@ -204,6 +204,7 @@ const pluginService = {
   deleteBlockers: jest.fn(async () => ({ frozen: false, listed: false, inUse: 0 })),
   versionImmutability: jest.fn(async () => null),
   clearQuotaSnapshot: jest.fn(async () => undefined),
+  setQuotaSnapshot: jest.fn(async () => undefined),
   promoteNextDefault: jest.fn(async () => null),
 };
 jest.unstable_mockModule('../src/services/plugin-service.js', () => ({ pluginService }));

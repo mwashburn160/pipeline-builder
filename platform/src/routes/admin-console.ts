@@ -205,8 +205,11 @@ function consoleClassOf(req: Request): ConsoleClass {
   // alone would have admitted the console's UI and then refused every call it
   // makes. Checked FIRST, so a gateway that names its class is believed over any
   // path coincidence.
-  const stated = STATED_CONSOLE[req.header('X-PB-Console') ?? ''];
-  if (stated) return stated;
+  // Own keys only: a stated `constructor` would otherwise resolve to
+  // Object.prototype's and reach the gate table as a non-class (a 500, not the
+  // fail-safe `unrecognised`).
+  const statedName = req.header('X-PB-Console') ?? '';
+  if (Object.hasOwn(STATED_CONSOLE, statedName)) return STATED_CONSOLE[statedName];
   // The four path-mounted consoles share one server, where the prefix is exact
   // and needs no header.
   const uri = req.header('X-Original-URI') ?? '';

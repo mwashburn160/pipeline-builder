@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { base64UrlDecode } from './api';
+import { base64UrlDecode } from './api/util';
 import { EPOCH_MS_THRESHOLD } from './constants';
 
 interface JwtPayload {

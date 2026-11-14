@@ -24,7 +24,7 @@ export async function analyzeGitLabRepo(parsed: ParsedGitUrl, token?: string): P
   const projectId = encodeURIComponent(`${parsed.owner}/${parsed.repo}`);
   // PINNED, never `parsed.host`: the host arrives in a request body. It was
   // interpolated from the parsed URL, which was safe only by the accident that
-  // `HOST_PROVIDER_MAP` reaches this analyzer for `gitlab.com` alone — one new
+  // `GIT_PROVIDERS` (providerForHost) reaches this analyzer for `gitlab.com` alone — one new
   // self-hosted-GitLab branch in `parseGitUrl` and it became a request to an
   // attacker-chosen host from inside the cluster.
   const baseUrl = GITLAB_API_BASE_URL;

@@ -11,10 +11,11 @@
 
 import { listModels, type MdsModel } from './fido-mds.js';
 import { PASSWORD_MAX_LENGTH } from '../constants/password.js';
+import type { ImpersonationPolicy } from '../constants/vocabulary.js';
 import { ACTIVE_TOTP, hasActiveTotp } from '../helpers/auth-factors.js';
 import { aaguidPermitted, combineAllowlists, resolveEffectiveAuthenticatorPolicy } from '../helpers/authenticator-policy.js';
 import { bootstrapSuperAdminEmails, isBootstrapExceptionOpen } from '../helpers/bootstrap-admin.js';
-import { IMPERSONATION_POLICIES, resolveImpersonationPolicy } from '../helpers/impersonation-policy.js';
+import { impersonationStrictness, resolveImpersonationPolicy, type ResolvedImpersonationPolicy } from '../helpers/impersonation-policy.js';
 import { DEFAULT_MFA_GRACE_DAYS, resolveEffectiveMfaPolicy, type EffectiveMfaPolicy } from '../helpers/mfa-policy.js';
 import { getOrgName } from '../helpers/org-hierarchy.js';
 import { toOrgId } from '../helpers/org-id.js';
@@ -196,20 +197,19 @@ export async function mfaPolicyView(policy: EffectiveMfaPolicy) {
 
 /** A resolved policy in the stored-document shape, so a partial update can be
  *  laid over it and resolved again. */
-export function previousResolvedAsDoc(p: ReturnType<typeof resolveImpersonationPolicy>) {
+export function previousResolvedAsDoc(p: ResolvedImpersonationPolicy) {
   return { impersonationPolicy: p.policy, allowSelfApproval: p.allowSelfApproval };
 }
 
 /**
  * Whether moving from `from` to `to` WEAKENS the policy: a less strict mode
- * (`IMPERSONATION_POLICIES` is ordered open → consent → denied), or turning
- * self-approval on.
+ * (lower strictness rank), or turning self-approval on.
  */
 export function isLooseningImpersonation(
-  from: ReturnType<typeof resolveImpersonationPolicy>,
-  to: ReturnType<typeof resolveImpersonationPolicy>,
+  from: ResolvedImpersonationPolicy,
+  to: ResolvedImpersonationPolicy,
 ): boolean {
-  return IMPERSONATION_POLICIES.indexOf(to.policy) < IMPERSONATION_POLICIES.indexOf(from.policy)
+  return impersonationStrictness(to.policy) < impersonationStrictness(from.policy)
     || (to.allowSelfApproval && !from.allowSelfApproval);
 }
 
@@ -221,7 +221,7 @@ export async function withInheritedFromName<T extends { inheritedFrom?: string }
 }
 
 /** The org's OWN impersonation policy, resolved, or null when the org is gone. */
-export async function readImpersonationPolicy(orgId: string): Promise<ReturnType<typeof resolveImpersonationPolicy> | null> {
+export async function readImpersonationPolicy(orgId: string): Promise<ResolvedImpersonationPolicy | null> {
   const doc = await Organization.findById(toOrgId(orgId)).select('impersonationPolicy allowSelfApproval').lean();
   return doc ? resolveImpersonationPolicy(doc) : null;
 }
@@ -229,8 +229,8 @@ export async function readImpersonationPolicy(orgId: string): Promise<ReturnType
 /** Write the org's own impersonation settings; the resolved result, or null when the org is gone. */
 export async function writeImpersonationPolicy(
   orgId: string,
-  body: { impersonationPolicy?: string; allowSelfApproval?: boolean },
-): Promise<ReturnType<typeof resolveImpersonationPolicy> | null> {
+  body: { impersonationPolicy?: ImpersonationPolicy; allowSelfApproval?: boolean },
+): Promise<ResolvedImpersonationPolicy | null> {
   const updated = await Organization.findByIdAndUpdate(
     toOrgId(orgId),
     { $set: body },

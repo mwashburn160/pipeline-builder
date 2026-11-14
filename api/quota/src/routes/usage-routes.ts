@@ -21,14 +21,40 @@ import { Router } from 'express';
 import type { RequestHandler } from 'express';
 import { config } from '../config.js';
 import { resolveRootOrgId } from '../helpers/org-hierarchy.js';
+import { periodDaysFor } from '../helpers/quota-helpers.js';
 import { authorizeOrg } from '../middleware/authorize-org.js';
-import { QuotaNoticeSettings } from '../models/quota-notice.js';
+import { QUOTA_NOTICE_THRESHOLDS, QuotaNoticeSettings, type QuotaNoticeSettingsDocument } from '../models/quota-notice.js';
 import { invalidateAiControls } from '../services/ai-controls.js';
 import { type QuotaService, quotaService as defaultQuotaService } from '../services/quota-service.js';
 import { queryUsage, usageToCsv } from '../services/usage-ledger.js';
 import { NoticeSettingsSchema, USAGE_MAX_RANGE_DAYS, UsageQuerySchema } from '../validation/schemas.js';
 
 const DAY_MS = 86_400_000;
+
+/**
+ * The account's quota settings as both notice-settings routes answer them. One
+ * builder so the read and the write report the same shape: the PUT used to
+ * spell the object out a second time and had already lost
+ * `noticesEnabledOnInstance`, and both hard-coded the thresholds the notifier
+ * reads from `QUOTA_NOTICE_THRESHOLDS`.
+ */
+function noticeSettingsView(orgId: string, row: Partial<QuotaNoticeSettingsDocument> | null | undefined) {
+  return {
+    orgId,
+    enabled: row?.enabled ?? true,
+    // Stored `null` means the account never said, which reads as ON — the
+    // switch is an opt-OUT (D6). `!== false` rather than `?? true` so a
+    // stored `false` survives.
+    offersEnabled: row?.offersEnabled !== false,
+    webhookUrl: row?.webhookUrl ?? null,
+    thresholds: [...QUOTA_NOTICE_THRESHOLDS],
+    // Deploy-wide switch: when off, no account gets notices regardless.
+    noticesEnabledOnInstance: config.quota.thresholdNoticesEnabled,
+    // Optional AI controls (services/ai-controls.ts): null = off.
+    aiCallsPerMemberPct: row?.aiCallsPerMemberPct ?? null,
+    aiTokenBudget: row?.aiTokenBudget ?? null,
+  };
+}
 
 /**
  * Usage attribution + notice routes, all `/:orgId/<literal>`.
@@ -44,7 +70,8 @@ export function createUsageRoutes(svc: QuotaService = defaultQuotaService): Rout
   //
   // Groups the usage ledger by principal | route | pipeline | day | feature |
   // model (AI calls: product surface; model × key source) over a time
-  // range (default: the current period length back from now), optionally for
+  // range (default: the requested type's period length back from now — a
+  // month for `cpuCredits`, the global window otherwise), optionally for
   // one quota type; `format=csv` downloads the same rows. Scope follows
   // pooling: a pool root (or a flat org) sees its whole account, a team sees
   // only its own events (see `queryUsage`). Tenancy via `authorizeOrg()`.
@@ -60,7 +87,10 @@ export function createUsageRoutes(svc: QuotaService = defaultQuotaService): Rout
       const q = parsed.value;
 
       const to = q.to ? new Date(q.to) : new Date();
-      const from = q.from ? new Date(q.from) : new Date(to.getTime() - config.quota.resetDays * DAY_MS);
+      // The TYPE's period: `cpuCredits` is monthly, so the global three-day
+      // default showed a tenth of its period and read as "barely used".
+      const periodDays = q.type ? periodDaysFor(q.type) : config.quota.resetDays;
+      const from = q.from ? new Date(q.from) : new Date(to.getTime() - periodDays * DAY_MS);
       if (from >= to) return sendBadRequest(res, '`from` must be before `to`.', ErrorCode.VALIDATION_ERROR);
       if (to.getTime() - from.getTime() > USAGE_MAX_RANGE_DAYS * DAY_MS) {
         return sendBadRequest(res, `The range may span at most ${USAGE_MAX_RANGE_DAYS} days.`, ErrorCode.VALIDATION_ERROR);
@@ -120,23 +150,7 @@ export function createUsageRoutes(svc: QuotaService = defaultQuotaService): Rout
       const orgId = getParam(req.params, 'orgId')!;
       const rootOrgId = await resolveRootOrgId(orgId);
       const row = await QuotaNoticeSettings.findOne({ orgId: rootOrgId }).lean();
-      return sendSuccess(res, 200, {
-        settings: {
-          orgId: rootOrgId,
-          enabled: row?.enabled ?? true,
-          // Stored `null` means the account never said, which reads as ON — the
-          // switch is an opt-OUT (D6). `!== false` rather than `?? true` so a
-          // stored `false` survives.
-          offersEnabled: row?.offersEnabled !== false,
-          webhookUrl: row?.webhookUrl ?? null,
-          thresholds: [80, 100],
-          // Deploy-wide switch: when off, no account gets notices regardless.
-          noticesEnabledOnInstance: config.quota.thresholdNoticesEnabled,
-          // Optional AI controls (services/ai-controls.ts): null = off.
-          aiCallsPerMemberPct: row?.aiCallsPerMemberPct ?? null,
-          aiTokenBudget: row?.aiTokenBudget ?? null,
-        },
-      });
+      return sendSuccess(res, 200, { settings: noticeSettingsView(rootOrgId, row) });
     }),
   );
 
@@ -208,17 +222,7 @@ export function createUsageRoutes(svc: QuotaService = defaultQuotaService): Rout
         },
       });
 
-      return sendSuccess(res, 200, {
-        settings: {
-          orgId,
-          enabled: row?.enabled ?? true,
-          offersEnabled: row?.offersEnabled !== false,
-          webhookUrl: row?.webhookUrl ?? null,
-          thresholds: [80, 100],
-          aiCallsPerMemberPct: row?.aiCallsPerMemberPct ?? null,
-          aiTokenBudget: row?.aiTokenBudget ?? null,
-        },
-      }, 'Notice settings updated');
+      return sendSuccess(res, 200, { settings: noticeSettingsView(orgId, row) }, 'Notice settings updated');
     }),
   );
 

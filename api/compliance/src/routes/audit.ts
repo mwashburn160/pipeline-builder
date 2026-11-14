@@ -8,6 +8,8 @@ import {
   parsePaginationParams,
   requirePermission,
   validateQuery,
+  RULE_TARGETS,
+  COMPLIANCE_CHECK_RESULTS,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
@@ -18,9 +20,9 @@ import { complianceAuditService } from '../services/compliance-check-log-query.j
 // the query builder, which does `new Date(dateFrom)` (→ Invalid Date) and
 // `eq(scanId)` against a uuid column (→ Postgres cast error) → unhandled 500.
 const AuditListQuerySchema = z.object({
-  target: z.enum(['plugin', 'pipeline']).optional(),
+  target: z.enum(RULE_TARGETS).optional(),
   action: z.string().max(255).optional(),
-  result: z.enum(['pass', 'warn', 'block']).optional(),
+  result: z.enum(COMPLIANCE_CHECK_RESULTS).optional(),
   scanId: z.string().uuid().optional(),
   dateFrom: z.string().datetime().optional(),
   dateTo: z.string().datetime().optional(),

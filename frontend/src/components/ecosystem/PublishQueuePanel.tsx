@@ -3,6 +3,7 @@
 
 import { useEffect, useState } from 'react';
 import type { Permission } from '@pipeline-builder/api-core/permissions';
+import { PUBLISH_REQUEST_KINDS } from '@pipeline-builder/api-core/wire-vocabulary';
 import { ArrowLeft, BookOpen, Check, CheckCheck, Inbox, ShieldAlert, X } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
@@ -47,8 +48,6 @@ const STATUS_OPTIONS: ReadonlyArray<{ value: QueueStatusFilter; label: string }>
   { value: 'auto', label: 'Auto-approved' },
   { value: 'decided', label: 'Decided' },
 ];
-
-const KINDS = Object.keys(REQUEST_KIND_LABELS) as PublishRequestKind[];
 
 /** What a queue row / detail header calls a request. */
 function subjectOf(item: QueueItem): string {
@@ -360,7 +359,7 @@ export function PublishQueuePanel({ can, holds }: Props) {
               <FormField label="Kind" className="min-w-[12rem]">
                 <Select value={kind} onChange={(e) => setKind(e.target.value as PublishRequestKind | '')}>
                   <option value="">All kinds</option>
-                  {KINDS.map((k) => <option key={k} value={k}>{REQUEST_KIND_LABELS[k]}</option>)}
+                  {PUBLISH_REQUEST_KINDS.map((k) => <option key={k} value={k}>{REQUEST_KIND_LABELS[k]}</option>)}
                 </Select>
               </FormField>
               <FormField label="Lane" className="min-w-[10rem]">

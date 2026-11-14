@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { ErrorCode, errorMessage, isManagedToolchainPlugin } from '@pipeline-builder/api-core';
+import { ErrorCode, errorMessage, managedToolchainRefName, toolchainReleasePin } from '@pipeline-builder/api-core';
 import {
   collectPluginSteps, exactPinNotFoundMessage, lookupNotFoundState, type LookupToolchain, type LookupWarning, type LookupWarningSeverity,
   pluginArtifactAlias, pluginLookupFilter, summarizeLookupWarnings, unwrapLookup,
@@ -131,15 +131,7 @@ function exactVersionPin(ref: PluginRef): string | null {
  * canary / platform default), never by its own version.
  */
 export function isManagedToolchainRef(ref: { name?: string; publisher?: string; filter?: Record<string, unknown> }): boolean {
-  if (ref.publisher) return false;
-  const name = typeof ref.filter?.name === 'string' ? ref.filter.name : ref.name;
-  return isManagedToolchainPlugin(name);
-}
-
-/** The pipeline's toolchain release pin (`props.toolchain.release`), when set. */
-export function toolchainReleasePin(props: Record<string, unknown>): string | undefined {
-  const toolchain = props.toolchain as { release?: unknown } | undefined;
-  return typeof toolchain?.release === 'string' && toolchain.release.length > 0 ? toolchain.release : undefined;
+  return !ref.publisher && managedToolchainRefName(ref) !== null;
 }
 
 /** The plugin service's error code on a refused answer, when it carries one. */

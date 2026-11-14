@@ -15,6 +15,8 @@ import { FeatureOverridesEditor } from '@/components/admin/FeatureOverridesEdito
 import { SysadminGrantHistory } from './SysadminGrantHistory';
 import type { FormState } from '@/hooks/useFormState';
 import type { UserListItem } from './types';
+import type { OrgRole } from '@pipeline-builder/api-core/wire-vocabulary';
+import { ORG_ROLE_IDS, ORG_ROLE_META } from '@/lib/org-roles';
 
 interface EditUserModalProps {
   editingUser: UserListItem | null;
@@ -26,8 +28,8 @@ interface EditUserModalProps {
   onEditEmailChange: (value: string) => void;
   editOrgId: string;
   onEditOrgIdChange: (value: string) => void;
-  editRole: 'owner' | 'admin' | 'member';
-  onEditRoleChange: (value: 'owner' | 'admin' | 'member') => void;
+  editRole: OrgRole;
+  onEditRoleChange: (value: OrgRole) => void;
   newPassword: string;
   onNewPasswordChange: (value: string) => void;
   onImpersonate: () => void;
@@ -182,10 +184,8 @@ export function EditUserModal({
         </div>
         <div>
           <label className="label" htmlFor={`${uid}-role`}>Role</label>
-          <Select id={`${uid}-role`} value={editRole} onChange={(e) => onEditRoleChange(e.target.value as 'owner' | 'admin' | 'member')} disabled={locked || editingUser.id === currentUserId}>
-            <option value="member">Member</option>
-            <option value="admin">Admin</option>
-            <option value="owner">Owner</option>
+          <Select id={`${uid}-role`} value={editRole} onChange={(e) => onEditRoleChange(e.target.value as OrgRole)} disabled={locked || editingUser.id === currentUserId}>
+            {ORG_ROLE_IDS.map((r) => <option key={r} value={r}>{ORG_ROLE_META[r].label}</option>)}
           </Select>
           {editingUser.id === currentUserId && (
             <p className="mt-1 text-xs text-fg-muted">Cannot change your own role</p>

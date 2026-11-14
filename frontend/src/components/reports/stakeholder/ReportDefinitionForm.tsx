@@ -1,6 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import type { WeekStart } from '@pipeline-builder/api-core';
 import { useMemo, useState } from 'react';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
@@ -103,7 +104,7 @@ export function ReportDefinitionForm({
   const [template, setTemplate] = useState<ReportTemplate>(definition?.template ?? 'weekly_delivery');
   const [cadence, setCadence] = useState<ReportCadence>(definition?.cadence ?? 'weekly');
   const [timezone, setTimezone] = useState(definition?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone ?? 'UTC');
-  const [weekStart, setWeekStart] = useState<'monday' | 'sunday'>(definition?.weekStart ?? 'monday');
+  const [weekStart, setWeekStart] = useState<WeekStart>(definition?.weekStart ?? 'monday');
   const [scopeKind, setScopeKind] = useState<'org' | 'projects' | 'rollup'>(definition?.scope.kind ?? 'org');
   const [projects, setProjects] = useState((definition?.scope.projects ?? []).join(', '));
   const [autoSend, setAutoSend] = useState(definition?.autoSend ?? false);
@@ -187,7 +188,7 @@ export function ReportDefinitionForm({
 
         {cadence === 'weekly' && (
           <FormField label="Week starts on">
-            <Select value={weekStart} onChange={(e) => setWeekStart(e.target.value as 'monday' | 'sunday')}>
+            <Select value={weekStart} onChange={(e) => setWeekStart(e.target.value as WeekStart)}>
               <option value="monday">Monday</option>
               <option value="sunday">Sunday</option>
             </Select>

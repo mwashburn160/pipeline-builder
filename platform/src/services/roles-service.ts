@@ -16,14 +16,13 @@
  * They import from here, never the other way round, so there is no cycle.
  */
 
-import { createLogger, errorMessage, ORG_AUTOMATION_BUNDLES, SEED_BUNDLES, SYSTEM_ORG_JOB_BUNDLES } from '@pipeline-builder/api-core';
+import { createLogger, errorMessage, ORG_AUTOMATION_BUNDLES, type RoleGrant, SEED_BUNDLES, type SeedBundleId, SYSTEM_ORG_JOB_BUNDLES } from '@pipeline-builder/api-core';
 import mongoose from 'mongoose';
 import type { Types } from 'mongoose';
 import { assertActorMayAssignRole, builtinRolePermissions } from './role-authority.js';
 import type { OrgId, RoleAssignmentActor, UserId } from './role-authority.js';
 import { RL_ROLE_NOT_FOUND, RL_SUPERADMIN_ROLE_NOT_INVITABLE } from './roles-errors.js';
 import { Role, RoleAssignment, User, UserOrganization } from '../models/index.js';
-import type { RoleGrant, RoleSeedBundle } from '../models/index.js';
 
 const logger = createLogger('roles-service');
 
@@ -41,7 +40,7 @@ export interface RoleWithMembers {
 
 /** A built-in Role to seed. `seedBundle` names a bundle that replaces the
  *  `grantsRole` one (see `builtinRolePermissions`). */
-export interface BuiltinRoleSpec { name: string; grantsRole: RoleGrant; seedBundle?: RoleSeedBundle }
+export interface BuiltinRoleSpec { name: string; grantsRole: RoleGrant; seedBundle?: SeedBundleId }
 
 /** Default Roles seeded into every new org. */
 /**

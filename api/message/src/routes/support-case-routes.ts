@@ -30,6 +30,7 @@
 
 import {
   ErrorCode,
+  MESSAGE_PRIORITIES,
   SYSTEM_ORG_ID,
   actorId,
   audited,
@@ -41,10 +42,13 @@ import {
   sendError,
   sendSuccess,
   userHasPermission,
+  SUPPORT_CASE_STATUSES,
+  TENANT_SUPPORT_CASE_STATUSES,
+  TENANT_TERMINAL_SUPPORT_CASE_STATUSES,
+  type SupportCaseStatus,
 } from '@pipeline-builder/api-core';
 import { createAuthenticatedWithOrgRoute, observe, withRoute } from '@pipeline-builder/api-server';
 import {
-  SUPPORT_CASE_STATUSES,
   addCaseNote,
   assignCase,
   assignCases,
@@ -61,7 +65,6 @@ import {
   setCaseSeverity,
   setCaseStatus,
   transferCaseToContact,
-  type SupportCaseStatus,
 } from '@pipeline-builder/pipeline-data';
 import { Router } from 'express';
 
@@ -79,8 +82,12 @@ const CSAT_COMMENT_MAX = 2000;
 const CANNED_TITLE_MAX = 200;
 const CANNED_BODY_MAX = 5000;
 
-/** Severities a tenant may choose at open, and staff may re-rank to. */
-const SEVERITIES = ['normal', 'high', 'urgent'] as const;
+/**
+ * Severities a tenant may choose at open, and staff may re-rank to: the message
+ * priority vocabulary, because a case's severity IS its root message's priority
+ * (the send route files them as one number).
+ */
+const SEVERITIES = MESSAGE_PRIORITIES;
 
 /**
  * Statuses a TENANT may set.
@@ -90,7 +97,7 @@ const SEVERITIES = ['normal', 'high', 'urgent'] as const;
  * is sorted" is `closed`, which is exactly what they mean and cannot be read as
  * us having fixed anything.
  */
-const TENANT_STATUSES: readonly string[] = ['open', 'awaiting_customer', 'closed'];
+const TENANT_STATUSES: readonly string[] = TENANT_SUPPORT_CASE_STATUSES;
 
 /**
  * REOPENING A CLOSED CASE IS STAFF ONLY. Both sides may close.
@@ -114,7 +121,7 @@ const TENANT_STATUSES: readonly string[] = ['open', 'awaiting_customer', 'closed
  * loophole: every bounce is us having claimed a fix and the customer rejecting
  * it, which is a signal worth having.
  */
-const TENANT_TERMINAL_STATUSES: readonly string[] = ['closed'];
+const TENANT_TERMINAL_STATUSES: readonly string[] = TENANT_TERMINAL_SUPPORT_CASE_STATUSES;
 
 export function createSupportCaseRoutes(): Router {
   const router = Router();
@@ -339,8 +346,10 @@ export function createSupportCaseRoutes(): Router {
 
   // --- Canned responses: STAFF ONLY, read and write --------------------------
   //
-  // Not under `/support/:id` at all — a template belongs to no case. Mounted
-  // first so `/support/canned` is never a candidate for a case id.
+  // Not under `/support/:id` at all — a template belongs to no case. Every
+  // `/support/:id/<verb>` route above ends in a literal segment, so
+  // `/support/canned/:id` can only collide with one when a template id equals
+  // that verb — and template ids are uuids.
   //
   // System-wide rather than per-tenant: these are the vendor's own wording for
   // recurring questions, authored once and reused across every customer, so the
@@ -599,8 +608,9 @@ export function createSupportCaseRoutes(): Router {
   // flag there would leak a note from any read path that forgot the extra
   // condition. A separate table has to be joined deliberately.
   //
-  // `requireSystemAdmin` at the ROUTE layer, not inside the handler, so the
-  // route table carries the gate where route-coverage can see it.
+  // `requireSystemOrgPermission('support_cases:write')` at the ROUTE layer, not
+  // inside the handler, so the route table carries the gate where route-coverage
+  // can see it.
   router.get(
     '/support/:id/notes',
     ...createAuthenticatedWithOrgRoute(),
@@ -668,8 +678,10 @@ export function createSupportCaseRoutes(): Router {
       if (!supportCase) return undefined;
 
       // SOFT delete: a note records what the desk believed at the time, and a
-      // dispute may turn on it.
-      const removed = await deleteCaseNote(noteId, userId);
+      // dispute may turn on it. Keyed by the case AND the note, so a note on
+      // case B cannot be removed through case A's URL (the audit row below
+      // would then name case A, pointing reviewers at the wrong case).
+      const removed = await deleteCaseNote(supportCase.id, noteId, userId);
       if (!removed) return sendError(res, 404, 'No such note on that case', ErrorCode.NOT_FOUND);
 
       recordAudit({

@@ -35,13 +35,11 @@ import {
   applyVulnWaivers, asScanFlag, describeFindings, failOnLabel, isGatedFinding, pluginVulnGateKev, scanFindingKey, summaryContradicts,
   type PluginScanFinding, type PluginScanFlag,
 } from '../types/plugin-scan.js';
+import { VULN_SEVERITIES, type VulnSeverity } from '../types/wire-vocabulary.js';
 import { envInt } from '../utils/env.js';
 import { derivePluginImageCompliance, pluginRunsOwnImage, type PluginComplianceAttributes, type PluginImageRow } from '../utils/plugin-compliance.js';
 import { errorMessage } from '../utils/response.js';
 
-/** How loud a warning is, quietest first. */
-export const VULN_SEVERITIES = ['info', 'warning', 'error', 'critical'] as const;
-export type VulnSeverity = typeof VULN_SEVERITIES[number];
 
 /** The louder of two severities. */
 export function maxSeverity(a: VulnSeverity, b: VulnSeverity): VulnSeverity {

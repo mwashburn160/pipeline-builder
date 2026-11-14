@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * `GET /internal/compliance/posture` — the compliance half of a stakeholder report's
+ * `GET /compliance/posture` — the compliance half of a stakeholder report's
  * posture panel.
  *
  * Two things are worth pinning, and neither is the arithmetic:
@@ -73,6 +73,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@p
   schema: {
     complianceRule: {
       orgId: 'org_id',
+      isActive: 'is_active',
       deletedAt: 'deleted_at',
       tags: 'tags',
       effectiveFrom: 'effective_from',
@@ -126,7 +127,7 @@ beforeEach(() => {
   failNext = false;
 });
 
-describe('GET /internal/compliance/posture', () => {
+describe('GET /compliance/posture', () => {
   it('returns the counts, the frameworks and the last scan', async () => {
     results.push(RULES, EXEMPTIONS, SCANS, RULES);
     await call();
@@ -173,6 +174,14 @@ describe('GET /internal/compliance/posture', () => {
     // enforces something it does not.
     expect(rendered).toContain('effective_from');
     expect(rendered).toContain('effective_until');
+  });
+
+  it('does not count a rule that is switched OFF', async () => {
+    results.push(RULES, EXEMPTIONS, SCANS, RULES);
+    await call();
+    // Enforcement skips an `isActive = false` rule; counting it told a manager the
+    // org enforced a rule an admin had turned off.
+    expect(JSON.stringify(wheres[0] ?? {})).toContain('is_active');
   });
 
   it('counts only APPROVED, unexpired exemptions', async () => {

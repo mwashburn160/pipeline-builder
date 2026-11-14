@@ -6,6 +6,7 @@ import {
   AppError,
   audited,
   ErrorCode,
+  PUBLISHER_TIERS,
   requireInternalService,
   sendBadRequest,
   sendError,
@@ -33,7 +34,6 @@ import {
   reportResignProgress,
   resignPublicImageOp,
   retagPublicVersion,
-  TRUST_TIERS,
   verifyPublication,
   yankPublicVersion,
 } from '../services/public-publishing.js';
@@ -47,7 +47,7 @@ const pluginName = z.string().max(128).regex(/^[a-z0-9][a-z0-9._-]*$/, 'name mus
 /** A Distribution tag — and never a cosign companion (`sha256-….sig`). */
 const version = z.string().regex(/^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$/, 'version must be a registry tag')
   .refine((v) => !/^sha256-/.test(v), 'version must not look like a cosign signature tag');
-const tier = z.enum(TRUST_TIERS);
+const tier = z.enum(PUBLISHER_TIERS);
 const orgId = z.string().regex(/^[a-z0-9][a-z0-9-]*$/i, 'publisherOrgId must be an org id');
 const publicRepository = z.string().refine(isPublicRepository, 'imageRepository must be public/<publisherHandle>/<name>');
 /**
@@ -96,9 +96,23 @@ const InvalidateSchema = z.object({
   digest: digest.optional(),
 }).refine((b) => !b.digest || b.imageRepository, 'digest requires imageRepository');
 
-/** The org the audit records the action under: the calling service token's, else the system org. */
+/** The calling service token's org (lowercased), or '' when the token names none. */
 function callerOrg(user: { organizationId?: string } | undefined): string {
-  return user?.organizationId?.toLowerCase() || SYSTEM_ORG_ID;
+  return user?.organizationId?.toLowerCase() ?? '';
+}
+
+/**
+ * Every `public/*` mutation is a system-org decision (an approval, a tier
+ * change, a yank, a collection): the plugin service mints its token for the
+ * system org for these calls, so a token minted for any other org — or naming
+ * none — is refused here, before the body is read.
+ */
+function systemOrgOnly(action: string): RequestHandler {
+  return (req, res, next) => {
+    if (callerOrg(req.user) === SYSTEM_ORG_ID) return next();
+    recordAuthzDenial(req, `system org (${action})`);
+    return sendError(res, 403, `Forbidden: only the system org may ${action.replace('registry.image.', '')} a public plugin image.`, ErrorCode.ORG_MISMATCH);
+  };
 }
 
 /**
@@ -120,7 +134,6 @@ async function counted<T>(metric: string, fn: () => Promise<T>, onError?: (err: 
 /** Audit one successful publication change against a `public/*` repository. */
 function auditPublication(
   action: 'registry.image.publish' | 'registry.image.resign' | 'registry.image.yank' | 'registry.image.gc',
-  callerOrgId: string,
   affectedOrgId: string | null | undefined,
   repo: string,
   details: Record<string, unknown>,
@@ -129,7 +142,7 @@ function auditPublication(
   recordAudit({
     action,
     actorId: actorId({ userId: onBehalfOfUserId }),
-    orgId: callerOrgId,
+    orgId: SYSTEM_ORG_ID,
     ...(affectedOrgId && { affectedOrgId }),
     outcome: 'success',
     targetType: 'registry-image',
@@ -156,25 +169,17 @@ function auditPublication(
 export function registerPublicationRoutes(router: Router): void {
   const pluginOnly = requireInternalService({ callers: ['plugin'] }) as RequestHandler;
 
-  router.post(PLUGIN_PUBLICATIONS_PATH, pluginOnly, audited('registry.image.publish') as RequestHandler, withRoute(async ({ req, res, ctx }) => {
+  router.post(PLUGIN_PUBLICATIONS_PATH, pluginOnly, systemOrgOnly('registry.image.publish'), audited('registry.image.publish') as RequestHandler, withRoute(async ({ req, res, ctx }) => {
     const v = validateBody(req, PublishSchema);
     if (!v.ok) return sendBadRequest(res, v.error, ErrorCode.VALIDATION_ERROR);
     const body = v.value;
-
-    // Publishing is a system-org decision (an approval): the plugin service
-    // mints its token for the system org, so no other org's token may publish.
-    const org = callerOrg(req.user);
-    if (org !== SYSTEM_ORG_ID) {
-      recordAuthzDenial(req, `system org (registry.image.publish from ${body.sourceRepository})`);
-      return sendError(res, 403, `Forbidden: the requesting org may not publish from "${body.sourceRepository}".`, ErrorCode.ORG_MISMATCH);
-    }
 
     const result = await counted(PublicationMetrics.PUBLISH, () => publishPublicImage(body), (err) =>
       ctx.log('ERROR', 'Plugin publication failed', { source: body.sourceRepository, digest: body.digest, error: err.message }));
 
     incCounter(PublicationMetrics.PUBLISH, { outcome: result.alreadyPublished ? 'republished' : 'success' });
     ctx.log('COMPLETED', 'Published plugin image', { target: result.imageRepository, digest: result.digest, version: body.version });
-    auditPublication('registry.image.publish', org, body.publisherOrgId, result.imageRepository, {
+    auditPublication('registry.image.publish', body.publisherOrgId, result.imageRepository, {
       repo: result.imageRepository,
       source: body.sourceRepository,
       digest: result.digest,
@@ -186,7 +191,7 @@ export function registerPublicationRoutes(router: Router): void {
     return sendSuccess(res, 200, { imageRepository: result.imageRepository, digest: result.digest });
   }));
 
-  router.post(`${PLUGIN_PUBLICATIONS_PATH}/resign`, pluginOnly, audited('registry.image.resign') as RequestHandler, withRoute(async ({ req, res, ctx }) => {
+  router.post(`${PLUGIN_PUBLICATIONS_PATH}/resign`, pluginOnly, systemOrgOnly('registry.image.resign'), audited('registry.image.resign') as RequestHandler, withRoute(async ({ req, res, ctx }) => {
     const v = validateBody(req, ResignSchema);
     if (!v.ok) return sendBadRequest(res, v.error, ErrorCode.VALIDATION_ERROR);
     const body = v.value;
@@ -202,12 +207,12 @@ export function registerPublicationRoutes(router: Router): void {
     incCounter(PublicationMetrics.RESIGN, { outcome: 'success' });
     ctx.log('COMPLETED', 'Re-signed public plugin image', { repo: body.imageRepository, digest: body.digest, tier: body.tier });
     const affected = body.publisherOrgId ?? await publicationOwner(body.imageRepository).catch(() => null);
-    auditPublication('registry.image.resign', callerOrg(req.user), affected, body.imageRepository,
+    auditPublication('registry.image.resign', affected, body.imageRepository,
       { repo: body.imageRepository, digest: body.digest, tier: body.tier, publisher: body.publisherHandle }, body.actorId);
     return sendSuccess(res, 200, { imageRepository: body.imageRepository, digest: body.digest, tier: body.tier, publisher: body.publisherHandle });
   }));
 
-  router.post(`${PLUGIN_PUBLICATIONS_PATH}/yank`, pluginOnly, audited('registry.image.yank') as RequestHandler, withRoute(async ({ req, res, ctx }) => {
+  router.post(`${PLUGIN_PUBLICATIONS_PATH}/yank`, pluginOnly, systemOrgOnly('registry.image.yank'), audited('registry.image.yank') as RequestHandler, withRoute(async ({ req, res, ctx }) => {
     const v = validateBody(req, YankSchema);
     if (!v.ok) return sendBadRequest(res, v.error, ErrorCode.VALIDATION_ERROR);
     const body = v.value;
@@ -218,13 +223,13 @@ export function registerPublicationRoutes(router: Router): void {
     ctx.log('COMPLETED', 'Yanked public plugin version', { ...body, alreadyYanked: result.alreadyYanked });
     if (!result.alreadyYanked) {
       const affected = await publicationOwner(body.imageRepository).catch(() => null);
-      auditPublication('registry.image.yank', callerOrg(req.user), affected, body.imageRepository,
+      auditPublication('registry.image.yank', affected, body.imageRepository,
         { repo: body.imageRepository, version: body.version, digest: body.digest }, body.actorId);
     }
     return sendSuccess(res, 200, { imageRepository: body.imageRepository, version: body.version, digest: body.digest, yanked: true });
   }));
 
-  router.post(`${PLUGIN_PUBLICATIONS_PATH}/retag`, pluginOnly, audited('registry.image.publish') as RequestHandler, withRoute(async ({ req, res, ctx }) => {
+  router.post(`${PLUGIN_PUBLICATIONS_PATH}/retag`, pluginOnly, systemOrgOnly('registry.image.publish'), audited('registry.image.publish') as RequestHandler, withRoute(async ({ req, res, ctx }) => {
     const v = validateBody(req, YankSchema);
     if (!v.ok) return sendBadRequest(res, v.error, ErrorCode.VALIDATION_ERROR);
     const body = v.value;
@@ -235,13 +240,13 @@ export function registerPublicationRoutes(router: Router): void {
     ctx.log('COMPLETED', 'Re-tagged public plugin version', { ...body, alreadyTagged: result.alreadyTagged });
     if (!result.alreadyTagged) {
       const affected = await publicationOwner(body.imageRepository).catch(() => null);
-      auditPublication('registry.image.publish', callerOrg(req.user), affected, body.imageRepository,
+      auditPublication('registry.image.publish', affected, body.imageRepository,
         { repo: body.imageRepository, version: body.version, digest: body.digest, retag: true }, body.actorId);
     }
     return sendSuccess(res, 200, { imageRepository: body.imageRepository, version: body.version, digest: body.digest, tagged: true });
   }));
 
-  router.post(`${PLUGIN_PUBLICATIONS_PATH}/gc`, pluginOnly, audited('registry.image.gc') as RequestHandler, withRoute(async ({ req, res, ctx }) => {
+  router.post(`${PLUGIN_PUBLICATIONS_PATH}/gc`, pluginOnly, systemOrgOnly('registry.image.gc'), audited('registry.image.gc') as RequestHandler, withRoute(async ({ req, res, ctx }) => {
     const v = validateBody(req, GcSchema);
     if (!v.ok) return sendBadRequest(res, v.error, ErrorCode.VALIDATION_ERROR);
     const body = v.value;
@@ -253,7 +258,7 @@ export function registerPublicationRoutes(router: Router): void {
     incCounter(PublicationMetrics.GC, { outcome: result.deleted ? 'success' : 'already_deleted' });
     ctx.log('COMPLETED', 'Collected public plugin image', { ...body, deleted: result.deleted });
     if (result.deleted) {
-      auditPublication('registry.image.gc', callerOrg(req.user), affected, body.imageRepository, { repo: body.imageRepository, digest: body.digest }, body.actorId);
+      auditPublication('registry.image.gc', affected, body.imageRepository, { repo: body.imageRepository, digest: body.digest }, body.actorId);
     }
     return sendSuccess(res, 200, { imageRepository: body.imageRepository, digest: body.digest, deleted: result.deleted });
   }));

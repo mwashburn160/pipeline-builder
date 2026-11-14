@@ -550,7 +550,9 @@ publishToNpm(apiCore);
 // `./tier-limits` (the limits SHAPE and the code-default number for every tier x
 // quota type, in place of a hand-synced frontend copy whose own comment said
 // "keep in sync" and whose drift would have prefilled the quota-admin editor
-// with numbers that are no longer the product's) are
+// with numbers that are no longer the product's) and `./wire-vocabulary` (the
+// closed string vocabularies that cross the wire — each tuple the frontend's
+// keyed label catalogs derive their order and list from) are
 // dependency-free and imported by the BROWSER — the frontend
 // consumes them directly instead of keeping hand-maintained mirrors. `./testing` is the test-helper entry (src/testing):
 // never part of the root barrel, and dropped from the packed package below so
@@ -573,6 +575,7 @@ apiCore.package.addField('exports', {
   './build-catalog': { types: './lib/types/build-catalog.d.ts', default: './lib/types/build-catalog.js' },
   './usage-projection': { types: './lib/types/usage-projection.d.ts', default: './lib/types/usage-projection.js' },
   './tier-limits': { types: './lib/types/tier-limits.d.ts', default: './lib/types/tier-limits.js' },
+  './wire-vocabulary': { types: './lib/types/wire-vocabulary.d.ts', default: './lib/types/wire-vocabulary.js' },
   './testing': { types: './lib/testing/index.d.ts', default: './lib/testing/index.js' },
   './s3': { types: './lib/services/s3-client.d.ts', default: './lib/services/s3-client.js' },
   './lib/*': './lib/*',
@@ -593,6 +596,7 @@ apiCore.package.addField('typesVersions', {
     'build-catalog': ['lib/types/build-catalog.d.ts'],
     'usage-projection': ['lib/types/usage-projection.d.ts'],
     'tier-limits': ['lib/types/tier-limits.d.ts'],
+    'wire-vocabulary': ['lib/types/wire-vocabulary.d.ts'],
   },
 });
 // Test helpers are workspace-only: `pnpm deploy --prod` (every service image)
@@ -1140,6 +1144,7 @@ if (frontend.jest) {
     '^@pipeline-builder/api-core/build-catalog$': '<rootDir>/../packages/api-core/src/types/build-catalog.ts',
     '^@pipeline-builder/api-core/usage-projection$': '<rootDir>/../packages/api-core/src/types/usage-projection.ts',
     '^@pipeline-builder/api-core/tier-limits$': '<rootDir>/../packages/api-core/src/types/tier-limits.ts',
+    '^@pipeline-builder/api-core/wire-vocabulary$': '<rootDir>/../packages/api-core/src/types/wire-vocabulary.ts',
     // plugin-scan.ts is the one mapped subpath with RELATIVE imports — its two
     // dependency-free leaves, written with the `.js` extension the compiled lib
     // needs. Mapped to source, those specifiers name files that do not exist

@@ -36,7 +36,7 @@ import { OrgMemberRoster } from '@/components/admin/org-detail/OrgMemberRoster';
 import { OrgSeatsCard } from '@/components/admin/org-detail/OrgSeatsCard';
 import { OrgOperationsCard } from '@/components/admin/org-detail/OrgOperationsCard';
 import { redactString } from '@/lib/redact';
-import api from '@/lib/api';
+import api, { ApiError } from '@/lib/api';
 import type { OrganizationDetail } from '@/lib/api/domains/organizations';
 
 const ORG_TABS = [
@@ -48,12 +48,18 @@ const ORG_TABS = [
 type OrgTab = (typeof ORG_TABS)[number]['id'];
 const ORG_TAB_IDS: readonly OrgTab[] = ORG_TABS.map((t) => t.id);
 
-/** A fail-soft read: a 403/404 (e.g. a non-root org has no seat pool) is "none". */
-async function orNull<T>(read: Promise<{ data?: T }>): Promise<T | null> {
+/**
+ * A read whose "not found" means "none" (e.g. a team has no seat pool of its
+ * own). Only an ABSENCE is folded to null — anything else (a 403, a 5xx, the
+ * service down) is rethrown, so the card says it could not load instead of
+ * claiming the org has no SSO, no entitlements or no quotas.
+ */
+async function orNull<T>(read: Promise<{ data?: T }>, absentStatuses: readonly number[] = [404]): Promise<T | null> {
   try {
     return (await read).data ?? null;
-  } catch {
-    return null;
+  } catch (err) {
+    if (err instanceof ApiError && absentStatuses.includes(err.statusCode)) return null;
+    throw err;
   }
 }
 
@@ -74,9 +80,21 @@ function PooledAtParent({ org, what }: { org: OrganizationDetail; what: string }
   );
 }
 
+/**
+ * Keyed by the org id: the Hierarchy card links parent ↔ team on this same
+ * route, which keeps the page mounted, and `useFetch` keeps a value across a
+ * deps change — so without the remount org A's name, KMS binding and IdP stayed
+ * on screen (and the identity card's edits targeted A) under B's URL until B's
+ * reads landed, or for good if one failed.
+ */
 export default function OrgDetailPage() {
   const router = useRouter();
   const orgId = String(router.query.orgId || '');
+  return <OrgDetail key={orgId} orgId={orgId} />;
+}
+
+function OrgDetail({ orgId }: { orgId: string }) {
+  const router = useRouter();
   const { accessDenied, isReady, user, can } = useAuthGuard();
   const enabled = isReady && !!orgId;
 
@@ -94,14 +112,14 @@ export default function OrgDetailPage() {
     async (signal) => (enabled ? (await api.getOrgKmsConfig(orgId, { signal })).data ?? null : null),
     [enabled, orgId],
   );
-  // Everything below is fail-soft: a failure renders the card's empty state
+  // Everything below fails per card: a failure renders that card's retry
   // rather than blocking the core org detail.
   const idpQ = useFetch(
     async (signal) => (enabled ? (await orNull(api.getOrgIdpConfig(orgId, { signal })))?.config ?? null : null),
     [enabled, orgId],
   );
   const seatsQ = useFetch(
-    (signal) => (enabled ? orNull(api.getOrganizationSeatUsage(orgId, { signal })) : Promise.resolve(null)),
+    (signal) => (enabled ? orNull(api.getOrganizationSeatUsage(orgId, { signal }), [403, 404]) : Promise.resolve(null)),
     [enabled, orgId],
   );
   const featuresQ = useFetch(
@@ -205,7 +223,9 @@ export default function OrgDetailPage() {
                     </button>
                   )}
                 </div>
-                {idp ? (
+                {idpQ.error ? (
+                  <RetryError message="Failed to load the SSO configuration" onRetry={idpQ.refetch} />
+                ) : idp ? (
                   <dl className="text-sm space-y-1.5">
                     <div>
                       <dt className="text-fg-muted">Provider</dt>
@@ -250,7 +270,11 @@ export default function OrgDetailPage() {
 
           {activeTab === 'entitlements' && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              <OrgSeatsCard org={org} seatUsage={seatsQ.data} onChanged={seatsQ.refetch} />
+              {seatsQ.error ? (
+                <Card><RetryError message="Failed to load seat usage" onRetry={seatsQ.refetch} /></Card>
+              ) : (
+                <OrgSeatsCard org={org} seatUsage={seatsQ.data} onChanged={seatsQ.refetch} />
+              )}
 
               {/* Read-only: the account's (root) pooled feature flags purchased
                   via tier + add-on bundles. */}
@@ -259,7 +283,9 @@ export default function OrgDetailPage() {
                   <Sparkles className="w-5 h-5 text-fg-muted" />
                   <h3 className="text-base font-semibold text-fg">Feature entitlements</h3>
                 </div>
-                {features.length > 0 ? (
+                {featuresQ.error ? (
+                  <RetryError message="Failed to load feature entitlements" onRetry={featuresQ.refetch} />
+                ) : features.length > 0 ? (
                   <div className="flex flex-wrap gap-1.5">
                     {features.map((f) => <Badge key={f} color="blue">{f}</Badge>)}
                   </div>
@@ -284,7 +310,9 @@ export default function OrgDetailPage() {
                   </div>
                   <Link href="/dashboard/quotas" className="action-link text-sm">Manage</Link>
                 </div>
-                {quotasQ.data ? (
+                {quotasQ.error ? (
+                  <RetryError message="Quota usage unavailable — the quota service didn't respond" onRetry={quotasQ.refetch} />
+                ) : quotasQ.data ? (
                   <dl className="text-sm space-y-1.5">
                     {Object.entries(quotasQ.data.quotas).map(([type, summary]) => (
                       <div key={type} className="flex justify-between">

@@ -217,5 +217,8 @@ export async function createPlaceholderPlugins(
     }
   });
 
-  return { created: plan.proposed, existing: plan.existing, builds: [...plan.refused, ...builds] };
+  // Only the names the plugin service accepted were created; a refused or
+  // failed deploy is reported in `builds` with its error, never as created.
+  const created = builds.filter((b) => !b.error).map((b) => b.name);
+  return { created, existing: plan.existing, builds: [...plan.refused, ...builds] };
 }

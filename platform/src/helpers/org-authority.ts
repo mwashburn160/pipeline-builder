@@ -29,11 +29,11 @@
 
 import { getParentOrgId } from './org-hierarchy.js';
 import { toOrgId } from './org-id.js';
+import { ADMIN_ORG_ROLES, isAdminOrgRole, type AdminOrgRole, type OrgRole } from '@pipeline-builder/api-core/wire-vocabulary';
 import { Organization, UserOrganization } from '../models/index.js';
-import type { OrgMemberRole } from '../models/user-organization.js';
 
 export interface OrgAuthority {
-  role: OrgMemberRole;
+  role: OrgRole;
   via: 'membership' | 'ancestor';
   /** For `via: 'ancestor'` — the ancestor org whose membership confers it. */
   inheritedFromOrgId?: string;
@@ -53,7 +53,7 @@ const MAX_ANCESTOR_DEPTH = 8;
 export async function findAncestorAdminMembership(
   userId: string,
   orgId: string,
-): Promise<{ ancestorOrgId: string; role: 'admin' | 'owner' } | undefined> {
+): Promise<{ ancestorOrgId: string; role: AdminOrgRole } | undefined> {
   const seen = new Set<string>([String(orgId)]);
   let current = await getParentOrgId(orgId);
   for (let depth = 0; current && !seen.has(current) && depth < MAX_ANCESTOR_DEPTH; depth++) {
@@ -62,13 +62,13 @@ export async function findAncestorAdminMembership(
       userId,
       organizationId: toOrgId(current),
       isActive: true,
-      role: { $in: ['admin', 'owner'] },
+      role: { $in: [...ADMIN_ORG_ROLES] },
     }).lean();
     if (membership) {
       const ancestor = await Organization.findById(toOrgId(current)).select('deletedAt').lean();
       // A soft-deleted ancestor confers nothing — its own sessions are already cut.
       if (ancestor && !(ancestor as { deletedAt?: Date | null }).deletedAt) {
-        return { ancestorOrgId: current, role: membership.role as 'admin' | 'owner' };
+        return { ancestorOrgId: current, role: membership.role as AdminOrgRole };
       }
     }
     current = await getParentOrgId(current);
@@ -81,8 +81,8 @@ export async function findAncestorAdminMembership(
  *  soft-deleted target org on their own (the token chokepoint does). */
 export async function resolveOrgAuthority(userId: string, orgId: string): Promise<OrgAuthority | undefined> {
   const direct = await UserOrganization.findOne({ userId, organizationId: toOrgId(orgId), isActive: true }).lean();
-  const directRole = direct?.role as OrgMemberRole | undefined;
-  if (directRole === 'admin' || directRole === 'owner') {
+  const directRole = direct?.role;
+  if (isAdminOrgRole(directRole)) {
     return { role: directRole, via: 'membership', permissionOrgIds: [orgId] };
   }
   const inherited = await findAncestorAdminMembership(userId, orgId);

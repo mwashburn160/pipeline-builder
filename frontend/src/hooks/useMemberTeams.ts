@@ -1,6 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { settledFailureMessage } from '@/lib/constants';
 import { useCallback, useState } from 'react';
 import { useToast } from '@/components/ui/Toast';
 import api from '@/lib/api';
@@ -92,9 +93,7 @@ export function useMemberTeams({ orgId }: UseMemberTeamsOptions) {
     results.forEach((r, i) => {
       const op = ops[i];
       const ok = r.status === 'fulfilled' && r.value.success;
-      const msg = r.status === 'rejected'
-        ? (r.reason instanceof Error ? r.reason.message : String(r.reason))
-        : (r.status === 'fulfilled' ? (r.value.message || 'failed') : 'failed');
+      const msg = settledFailureMessage(r);
       if (op.kind === 'add') {
         if (ok) op.orgIds.forEach(id => appliedAdds.add(id));
         else failures.push(`add to ${op.orgIds.map(teamName).join(', ')}: ${msg}`);

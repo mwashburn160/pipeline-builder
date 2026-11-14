@@ -10,6 +10,7 @@
  *  - POST /bulk activate      (whole batch rejected if ANY rule is gated)
  *  - POST /clone              (gated on the SOURCE published rule's set tag)
  *  - POST /preview/impact     (gated when the source rule is set-tagged)
+ *  - POST /preview            (its sampleAttributes dry run, likewise)
  *
  * In each case: no feature → 403 + `authz.denied`, with-feature → proceeds,
  * sysadmin bypasses, baseline/un-tagged rules stay open.
@@ -262,5 +263,34 @@ describe('POST /preview/impact — entitlement gate', () => {
     const { status } = await preview({ sub: 'u-1', features: [] });
     expect(status).toHaveBeenCalledWith(200);
     expect(findOrgEntitiesMock).toHaveBeenCalled();
+  });
+});
+
+describe('POST /preview sampleAttributes dry run — entitlement gate', () => {
+  function dryRun(user: any, body: Record<string, unknown> = { ruleId: RULE_ID, sampleAttributes: { name: 'x' } }) {
+    const handler = handlerFor('post', '/preview');
+    const { res, status, json } = makeRes();
+    return handler({ __orgId: 'org-a', method: 'POST', originalUrl: '/compliance/subscriptions/preview', body, user } as any, res)
+      .then(() => ({ status, json }));
+  }
+
+  it('403s dry-running a set:standard rule WITHOUT the feature', async () => {
+    // It was ungated, so `/preview/impact`'s paywall could be stepped around by
+    // posting each entity's attributes here instead.
+    findPublishedByIdMock.mockResolvedValue({ id: RULE_ID, target: 'plugin', tags: ['set:standard'] });
+    const { status } = await dryRun({ sub: 'u-1', features: [] });
+    expect(status).toHaveBeenCalledWith(403);
+  });
+
+  it('allows the dry run WITH the feature', async () => {
+    findPublishedByIdMock.mockResolvedValue({ id: RULE_ID, target: 'plugin', tags: ['set:standard'] });
+    const { status } = await dryRun({ sub: 'u-1', features: ['compliance_standard'] });
+    expect(status).toHaveBeenCalledWith(200);
+  });
+
+  it('leaves the plain rule read (no sampleAttributes) open — the catalog already lists it', async () => {
+    findPublishedByIdMock.mockResolvedValue({ id: RULE_ID, target: 'plugin', tags: ['set:standard'] });
+    const { status } = await dryRun({ sub: 'u-1', features: [] }, { ruleId: RULE_ID });
+    expect(status).toHaveBeenCalledWith(200);
   });
 });

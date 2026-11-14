@@ -5,11 +5,12 @@
  * Compliance service frontend types.
  */
 
-import type { RuleConditionMode, RuleOperator, RuleScope, RuleSeverity, RuleTarget } from '@pipeline-builder/api-core';
+import type {
+  ComplianceCheckVerdict, ComplianceExemptionStatus, ComplianceScanStatus, ComplianceScanTarget, ComplianceScanTrigger,
+  RuleConditionMode, RuleOperator, RuleScope, RuleSeverity, RuleTarget,
+} from '@pipeline-builder/api-core/wire-vocabulary';
 
 export type { RuleConditionMode, RuleOperator, RuleScope, RuleSeverity, RuleTarget };
-export type ExemptionStatus = 'pending' | 'approved' | 'rejected' | 'expired';
-export type ScanStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
 
 export interface RuleCondition {
   field: string;
@@ -102,7 +103,7 @@ export interface ComplianceAuditEntry {
   action: string;
   entityId?: string;
   entityName?: string;
-  result: 'pass' | 'warn' | 'block';
+  result: ComplianceCheckVerdict;
   violations: Record<string, unknown>[];
   ruleCount: number;
   scanId?: string;
@@ -119,7 +120,7 @@ export interface ComplianceExemption {
   reason: string;
   approvedBy?: string;
   rejectionReason?: string;
-  status: ExemptionStatus;
+  status: ComplianceExemptionStatus;
   expiresAt?: string;
   createdBy: string;
   createdAt: string;
@@ -128,10 +129,10 @@ export interface ComplianceExemption {
 export interface ComplianceScan {
   id: string;
   orgId: string;
-  target: string;
+  target: ComplianceScanTarget;
   filter?: Record<string, unknown>;
-  status: ScanStatus;
-  triggeredBy: string;
+  status: ComplianceScanStatus;
+  triggeredBy: ComplianceScanTrigger;
   userId: string;
   totalEntities: number;
   processedEntities: number;

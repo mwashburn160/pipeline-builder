@@ -1,5 +1,6 @@
 'use client';
 
+import { RULE_TARGET_IDS, RULE_TARGET_LABELS, RULE_SCOPE_IDS, RULE_SCOPE_META, RULE_SEVERITY_IDS, SEVERITY_CONFIG } from '@/lib/compliance-styles';
 import { useEffect, useState, useMemo } from 'react';
 import { Shield, Plus, Pencil, Trash2, ToggleLeft, ToggleRight, History, Search, Tag } from 'lucide-react';
 import api from '@/lib/api';
@@ -268,19 +269,15 @@ export default function RuleList({ onEdit, onCreateNew, onViewHistory }: RuleLis
         </div>
         <FilterSelect value={targetFilter} onChange={e => setTargetFilter(e.target.value as RuleTarget | '')} aria-label="Filter rules by target">
           <option value="">All targets</option>
-          <option value="plugin">Plugin</option>
-          <option value="pipeline">Pipeline</option>
+          {RULE_TARGET_IDS.map((t) => <option key={t} value={t}>{RULE_TARGET_LABELS[t]}</option>)}
         </FilterSelect>
         <FilterSelect value={severityFilter} onChange={e => setSeverityFilter(e.target.value as RuleSeverity | '')} aria-label="Filter rules by severity">
           <option value="">All severities</option>
-          <option value="critical">Critical</option>
-          <option value="error">Error</option>
-          <option value="warning">Warning</option>
+          {RULE_SEVERITY_IDS.map((sv) => <option key={sv} value={sv}>{SEVERITY_CONFIG[sv].label}</option>)}
         </FilterSelect>
         <FilterSelect value={scopeFilter} onChange={e => setScopeFilter(e.target.value as RuleScope | '')} aria-label="Filter rules by scope">
           <option value="">All scopes</option>
-          <option value="org">Org</option>
-          <option value="published">Published</option>
+          {RULE_SCOPE_IDS.map((sc) => <option key={sc} value={sc}>{RULE_SCOPE_META[sc].label}</option>)}
         </FilterSelect>
         <FilterSelect value={`${sortBy}-${sortOrder}`} onChange={e => { const [s, o] = e.target.value.split('-'); setSortBy(s as typeof sortBy); setSortOrder(o as typeof sortOrder); }} aria-label="Sort rules">
           <option value="priority-asc">Priority (low first)</option>

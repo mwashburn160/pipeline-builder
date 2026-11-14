@@ -399,10 +399,22 @@ async function planInstallChange(caller: Caller, row: PluginInstall, body: Recor
   return { publisher, listing, ref, policy, versionPolicy, target, gated };
 }
 
-/** Apply a planned change and audit it as an upgrade. */
-async function applyInstallChange(caller: Caller, row: PluginInstall, change: { versionPolicy: InstallVersionPolicy; version: string }, ref: string, extra: Record<string, unknown> = {}) {
-  const updated = await installRows.update(row.id, { versionPolicy: change.versionPolicy, pinnedVersion: change.version, resolvedVersion: null, pendingChange: null });
-  if (!updated) throw new EcosystemError(ErrorCode.NOT_FOUND, 'Install not found');
+/**
+ * Apply a planned change and audit it as an upgrade. Approving a PENDING change
+ * writes only while that change is still pending (and the install active): a
+ * concurrent reject or approve decided it first, and this one is a 409 rather
+ * than a second, contradictory decision.
+ */
+async function applyInstallChange(
+  caller: Caller, row: PluginInstall, change: { versionPolicy: InstallVersionPolicy; version: string }, ref: string,
+  extra: Record<string, unknown> = {}, opts: { decidingPending?: boolean } = {},
+) {
+  const patch = { versionPolicy: change.versionPolicy, pinnedVersion: change.version, resolvedVersion: null, pendingChange: null };
+  if (opts.decidingPending) {
+    if (!await installRows.updatePending(row.id, patch)) throw new ConflictError('The change was decided by someone else.');
+  } else if (!await installRows.update(row.id, patch)) {
+    throw new EcosystemError(ErrorCode.NOT_FOUND, 'Install not found');
+  }
   ecosystemAudit({
     action: 'plugin.install.upgrade',
     actor: actorId({ userId: caller.userId }),
@@ -543,7 +555,7 @@ function decideChange(caller: Caller, id: string, approve: boolean, reason: stri
     if (approve) {
     // Re-validated at decision time: the version may be yanked, paused or blocked by now.
       const plan = await planInstallChange(caller, row, { version: change.version, versionPolicy: change.versionPolicy });
-      await applyInstallChange(caller, row, { versionPolicy: plan.versionPolicy, version: plan.target.version }, ref, { requestedBy: change.requestedBy });
+      await applyInstallChange(caller, row, { versionPolicy: plan.versionPolicy, version: plan.target.version }, ref, { requestedBy: change.requestedBy }, { decidingPending: true });
       ecosystemAudit({ action: 'plugin.install.change-approve', actor: actorId({ userId: caller.userId }), orgId: caller.orgId, affectedOrgId: caller.orgId, targetType: 'plugin-install', targetId: row.id, details: { listing: ref, requestedBy: change.requestedBy, to: { versionPolicy: change.versionPolicy, version: change.version } } });
     } else {
       if (!await installRows.clearPendingChange(row.id)) throw new ConflictError('The change was decided by someone else.');

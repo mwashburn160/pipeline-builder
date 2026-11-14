@@ -8,20 +8,22 @@
  * The server's validator (api-core `validation/plugin-catalog-metadata.ts`) is
  * authoritative — these checks only catch the obvious mistakes (length caps,
  * non-https links) before a round trip, and the server's 400 message is what the
- * user ultimately sees. The limits mirror that file; keep them in step.
+ * user ultimately sees. The limits are the validator's own, imported from the
+ * browser-safe `@pipeline-builder/api-core/plugin-catalog` subpath.
  */
 
+import {
+  PLUGIN_CHANGELOG_MAX_BYTES,
+  PLUGIN_DESCRIPTION_MAX,
+  PLUGIN_DISPLAY_NAME_MAX,
+  PLUGIN_KEYWORDS_MAX,
+  PLUGIN_KEYWORD_MAX_LENGTH,
+  PLUGIN_README_MAX_BYTES,
+  PLUGIN_SUMMARY_MAX,
+  PLUGIN_URL_MAX,
+} from '@pipeline-builder/api-core/plugin-catalog';
 import type { PluginCatalogEdits, PluginCatalogField, PluginIcon, MetadataSource } from '@/types';
 import { PLUGIN_CATEGORIES } from '@/lib/plugin-categories';
-
-export const PLUGIN_SUMMARY_MAX = 160;
-export const PLUGIN_DESCRIPTION_MAX = 2000;
-export const PLUGIN_DISPLAY_NAME_MAX = 100;
-export const PLUGIN_KEYWORDS_MAX = 10;
-export const PLUGIN_KEYWORD_MAX_LENGTH = 32;
-export const PLUGIN_README_MAX_BYTES = 64 * 1024;
-export const PLUGIN_CHANGELOG_MAX_BYTES = 32 * 1024;
-export const PLUGIN_URL_MAX = 2048;
 const ICON_KEY_PATTERN = /^[a-z0-9-]+$/;
 
 /** Human label per catalog field. */

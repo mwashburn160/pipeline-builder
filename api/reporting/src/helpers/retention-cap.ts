@@ -73,8 +73,8 @@ export function maxRangeDaysFor(effDays: number): number {
 /**
  * Compute the retention window (width cap + `from` floor) for the requested
  * `kind` from an ALREADY-FETCHED settings row. The effective retention is the
- * per-org override (billing-synced tier baseline + retention bundles, or a
- * manual admin override) falling back to the env default. `-1` = unlimited →
+ * per-org override (billing-synced tier baseline + retention bundles — billing
+ * is its only writer) falling back to the env default. `-1` = unlimited →
  * width clamps to the absolute ceiling (never infinity) and the floor is dropped
  * (`minFromMs = 0`).
  *

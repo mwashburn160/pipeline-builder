@@ -6,12 +6,12 @@ import api from '@/lib/api';
 import { useFetch } from '@/hooks/useFetch';
 import { usePagination } from '@/hooks/usePagination';
 import { Card } from '@/components/ui/Card';
+import { orgRoleColor } from '@/lib/org-roles';
 import { Badge } from '@/components/ui/Badge';
 import { Pagination } from '@/components/ui/Pagination';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 
-const ROLE_COLOR = { owner: 'purple', admin: 'blue', member: 'gray' } as const;
 
 /**
  * The org's member roster, paged server-side.
@@ -48,7 +48,7 @@ export function OrgMemberRoster({ orgId }: { orgId: string }) {
         </>
       ),
     },
-    { id: 'role', header: 'Role', render: (m) => <Badge color={ROLE_COLOR[m.role] ?? 'gray'}>{m.role}</Badge> },
+    { id: 'role', header: 'Role', render: (m) => <Badge color={orgRoleColor(m.role)}>{m.role}</Badge> },
     {
       id: 'joined',
       header: 'Joined',

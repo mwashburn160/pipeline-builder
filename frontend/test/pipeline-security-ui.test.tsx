@@ -41,8 +41,9 @@ import { PluginInUseModal, pluginInUseRefusal } from '../src/components/plugin/P
 import { KeptSetupImagesPanel } from '../src/components/ecosystem/KeptSetupImagesPanel';
 import { ApiError } from '../src/lib/api/errors';
 import {
-  acceptedUntilIso, acceptanceWindow, pluginWarningsToast, shortDigest, toolchainChangeRunId, triageBody, triageProblem,
+  acceptedUntilIso, acceptanceWindow, pluginWarningsToast, toolchainChangeRunId, triageBody, triageProblem,
 } from '../src/lib/pipeline-security';
+import { shortDigest } from '../src/lib/format';
 
 const ok = <T,>(data: T) => Promise.resolve({ success: true, data });
 

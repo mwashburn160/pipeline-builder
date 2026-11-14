@@ -6,7 +6,8 @@ import { createLogger } from '@pipeline-builder/api-core';
 import nodemailer, { type Transporter } from 'nodemailer';
 import { invitationTemplate, invitationAcceptedTemplate, addedToOrganizationTemplate, htmlEscape } from './email-templates.js';
 import { config } from '../config/index.js';
-import type { InvitationType, InvitationOAuthProvider } from '../models/invitation.js';
+import type { InvitationType } from '../constants/vocabulary.js';
+import type { OAuthProviderName } from '../types/oauth-provider.js';
 
 const logger = createLogger('email-service');
 
@@ -35,7 +36,7 @@ export interface InvitationEmailData {
   expiresAt: Date;
   role: string;
   invitationType?: InvitationType;
-  allowedOAuthProviders?: InvitationOAuthProvider[];
+  allowedOAuthProviders?: OAuthProviderName[];
   /**
    * BCP-47 locale for date formatting in the invitation email
    * (e.g., the `expiresAt` "expires on …" string).

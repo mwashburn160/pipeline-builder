@@ -16,8 +16,9 @@
  *   REPORTING_RETENTION_ENABLED            (default true; false ⇒ no sweep)
  *   REPORTING_RETENTION_INTERVAL_HOURS     (default 12)
  *   REPORTING_RETENTION_STARTUP_DELAY_MS   (default 120000 — 2 min settle)
- *   REPORTING_RETENTION_LOCK_TTL_MS        (default 1800000 — 30 min; outlasts a
- *                                           sweep, stays under the interval)
+ *   REPORTING_RETENTION_LOCK_TTL_MS        (default: the shared crash-recovery
+ *                                           window — the lock heartbeats while a
+ *                                           sweep runs)
  *   REPORTING_RETENTION_BATCH_SIZE         (default 1000, rows per DELETE)
  *   REPORTING_RETENTION_MAX_BATCHES        (default 50, per table/org/tick)
  *

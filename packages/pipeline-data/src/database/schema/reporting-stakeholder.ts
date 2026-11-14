@@ -27,6 +27,7 @@
  * lock-step, name for name).
  */
 
+import type { WeekStart } from '@pipeline-builder/api-core';
 import { sql } from 'drizzle-orm';
 import { boolean, index, integer, jsonb, pgTable, text, timestamp, uniqueIndex, varchar } from 'drizzle-orm/pg-core';
 
@@ -88,7 +89,7 @@ export const reportDefinition = pgTable('report_definitions', {
   cadence: varchar('cadence', { length: 20 }).$type<ReportCadence>().notNull(),
   /** IANA name. Periods are cut in THIS zone, not the database session's. */
   timezone: varchar('timezone', { length: 64 }).default('UTC').notNull(),
-  weekStart: varchar('week_start', { length: 10 }).default('monday').notNull(),
+  weekStart: varchar('week_start', { length: 10 }).$type<WeekStart>().default('monday').notNull(),
   scope: jsonb('scope').$type<ReportScope>().notNull(),
   /** Recipient ids from `report_recipients`, not raw addresses. */
   recipients: jsonb('recipients').$type<string[]>().default([]).notNull(),

@@ -179,10 +179,3 @@ export interface PluginYankResponse {
   plugin: Plugin;
   promotedDefault?: { id: string; version: string };
 }
-
-/**
- * Response returned by single-plugin API endpoints (get, upload).
- */
-export interface PluginResponse {
-  plugin: Plugin;
-}

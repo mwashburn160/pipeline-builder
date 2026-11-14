@@ -184,12 +184,6 @@ describe('the level weight', () => {
     // And a genuinely small org is still left alone.
     expect(floorOf({ ...cheap, seats: 20 }).binds).toBe(false);
   });
-
-  it('falls back to 100% for an unrecognised level rather than skipping the floor', () => {
-    const v = supportFloor(pos({ level: 'support_bespoke' }), CFG);
-    expect(v.weightPercent).toBe(100);
-    expect(v.floorCents).toBe(42500);
-  });
 });
 
 describe('it binds only when it exceeds what was bought', () => {
@@ -284,6 +278,25 @@ describe('the floor as an invoice LINE', () => {
     // rule landed — enough to flip `binds` at the margin and to stop the top-up
     // reconciling against the lines above it.
     expect(l!.cents).toBe(9000 - 5399);
+  });
+
+  it('still bills the floor when a premium UPGRADE is held on top of the baseline', () => {
+    // Regression: `effectiveEntitlements` used to rank premium as a competing
+    // third level, evicting the baseline's `supportContacts` — so this account
+    // had zero contacts and the floor silently returned null. Premium is an
+    // upgrade; the baseline survives and the floor is premium-weighted.
+    const standardOnly = line('enterprise', [
+      { bundleId: 'seat', quantity: 20 },
+      { bundleId: 'support_standard', quantity: 3 },
+    ]);
+    const withPremium = line('enterprise', [
+      { bundleId: 'seat', quantity: 20 },
+      { bundleId: 'support_standard', quantity: 3 },
+      { bundleId: 'support_premium', quantity: 1 },
+    ]);
+    expect(withPremium).not.toBeNull();
+    expect(withPremium!.billableSeats).toBe(20);
+    expect(withPremium!.cents).toBeGreaterThan(standardOnly!.cents);
   });
 
   it('does NOT bind just below the bite point, which is 27 seats', () => {

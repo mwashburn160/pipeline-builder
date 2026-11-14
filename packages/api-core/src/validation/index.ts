@@ -57,7 +57,6 @@ export {
   STEP_PLUGIN_TYPES,
   PluginToolchainSchema,
   type PluginToolchain,
-  TOOLCHAIN_METADATA_PREFIX,
   toolchainMetadata,
   toolchainFromMetadata,
   PLUGIN_SOURCE_DIGEST_PATTERN,

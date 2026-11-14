@@ -1,5 +1,6 @@
 'use client';
 
+import { RULE_TARGET_IDS, RULE_TARGET_LABELS, RULE_SEVERITY_IDS, SEVERITY_CONFIG } from '@/lib/compliance-styles';
 import Link from 'next/link';
 import { Select } from '@/components/ui/Select';
 import { useState, useEffect, useCallback, useRef } from 'react';
@@ -16,7 +17,7 @@ import { TabBar } from '@/components/ui/TabBar';
 import { useToast } from '@/components/ui/Toast';
 import { useFeatureGate, type FeatureGateState } from '@/hooks/useFeatureGate';
 import { useUrlTab } from '@/hooks/useUrlTab';
-import type { ComplianceSetFlag } from '@/lib/feature-flags';
+import { complianceSetFlagForTags, type ComplianceSetFlag } from '@/lib/feature-flags';
 import { formatError } from '@/lib/constants';
 import type { PublishedRuleCatalogEntry, ComplianceRule, ComplianceRuleSubscription, ComplianceCheckResult, RuleTarget, RuleSeverity } from '@/types/compliance';
 import { SeverityBadge } from './SeverityBadge';
@@ -34,27 +35,23 @@ interface SubscriptionWithRule extends ComplianceRuleSubscription {
  * upsell (deep-linking to billing) instead of a Subscribe button when the org
  * doesn't hold the entitlement — otherwise the user hits a 403 round-trip.
  */
-interface SetTagMeta {
-  feature: ComplianceSetFlag;
-  label: string;
+/**
+ * A rule's set tag → the feature it is sold under, by the server's own rule
+ * (`complianceSetFlagForTags`: highest entitlement wins). This kept a private
+ * map that took the FIRST `set:` tag instead, so a rule tagged both `standard`
+ * and `advanced` showed as Standard — a Subscribe button the server then
+ * refused for an org without Advanced.
+ */
+function ruleSetMeta(tags: string[] | undefined): { feature: ComplianceSetFlag; label: string } | null {
+  const feature = complianceSetFlagForTags(tags);
+  return feature ? { feature, label: COMPLIANCE_SET_LABELS[feature] } : null;
 }
 
-const SET_TAG_META: Record<string, SetTagMeta> = {
-  standard: { feature: 'compliance_standard', label: 'Standard' },
-  advanced: { feature: 'compliance_advanced', label: 'Advanced' },
+/** The short set name a row's badge carries ("Standard" / "Advanced"). */
+const COMPLIANCE_SET_LABELS: Record<ComplianceSetFlag, string> = {
+  compliance_standard: 'Standard',
+  compliance_advanced: 'Advanced',
 };
-
-/** Resolve a rule's `set:<name>` tag (if any) to its gating feature + label. */
-function ruleSetMeta(tags: string[] | undefined): SetTagMeta | null {
-  if (!tags) return null;
-  for (const t of tags) {
-    if (t.startsWith('set:')) {
-      const meta = SET_TAG_META[t.slice(4)];
-      if (meta) return meta;
-    }
-  }
-  return null;
-}
 
 interface SubscriptionManagerProps {
   readOnly?: boolean;
@@ -370,8 +367,7 @@ export default function SubscriptionManager({ readOnly = false }: SubscriptionMa
               className="rounded-lg border border-default bg-surface px-3 py-1.5 text-sm"
             >
               <option value="">All targets</option>
-              <option value="plugin">Plugin</option>
-              <option value="pipeline">Pipeline</option>
+              {RULE_TARGET_IDS.map((t) => <option key={t} value={t}>{RULE_TARGET_LABELS[t]}</option>)}
             </Select>
             <Select
               value={catalogSeverity}
@@ -380,9 +376,7 @@ export default function SubscriptionManager({ readOnly = false }: SubscriptionMa
               className="rounded-lg border border-default bg-surface px-3 py-1.5 text-sm"
             >
               <option value="">All severities</option>
-              <option value="critical">Critical</option>
-              <option value="error">Error</option>
-              <option value="warning">Warning</option>
+              {RULE_SEVERITY_IDS.map((sv) => <option key={sv} value={sv}>{SEVERITY_CONFIG[sv].label}</option>)}
             </Select>
           </div>
 

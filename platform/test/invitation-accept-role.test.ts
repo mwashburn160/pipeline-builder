@@ -165,6 +165,30 @@ describe('InvitationService.accept — a soft-deleted org', () => {
   });
 });
 
+describe('InvitationService.accept — a CLAIMED OAuth provider', () => {
+  /** The client names the provider in a header, so the claim alone proves nothing. */
+  const oauthOnly = () => ({ ...makeInvitation('member'), invitationType: 'oauth', canAcceptViaEmail: () => false });
+
+  it('REFUSES a provider the account holds no linked identity at (the header is client-asserted)', async () => {
+    mockInvitationFindOne.mockReturnValue(sessionResolving(oauthOnly()));
+
+    await expect(invitationService.accept('tok', 'u1', 'google')).rejects.toThrow(errors.INV_OAUTH_NOT_ALLOWED);
+    expect(mockUoCreate).not.toHaveBeenCalled();
+  });
+
+  it('accepts when the account IS linked to the claimed provider', async () => {
+    mockInvitationFindOne.mockReturnValue(sessionResolving(oauthOnly()));
+    mockUserFindById.mockReset();
+    mockUserFindById
+      .mockReturnValueOnce(sessionResolving({ _id: 'u1', email: INVITEE_EMAIL, oauth: { google: { id: 'g-1' } }, save: jest.fn() }))
+      .mockReturnValueOnce(sessionResolving({ _id: 'inviter-1', email: 'boss@example.com', username: 'boss' }));
+
+    await invitationService.accept('tok', 'u1', 'google');
+
+    expect(mockUoCreate).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('InvitationService.acceptForRegistration — signing up FROM an invitation', () => {
   /** A brand-new user, as authService.register has just saved it: no active org yet. */
   const newUser = () => ({ _id: 'new-u', email: INVITEE_EMAIL, username: 'newbie', lastActiveOrgId: undefined as string | undefined, save: jest.fn<(...a: unknown[]) => Promise<unknown>>().mockResolvedValue(undefined) });

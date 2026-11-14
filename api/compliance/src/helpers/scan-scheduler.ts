@@ -24,8 +24,9 @@ const complianceConfig = (Config.getAny('compliance') ?? {}) as Partial<{
 const SCHEDULER_INTERVAL_MS = Number(complianceConfig.scanSchedulerIntervalMs ?? 60_000);
 const SYSTEM_ORG_SCANS_ENABLED = Boolean(complianceConfig.systemOrgScansEnabled ?? false);
 // Cross-pod single-runner lock so only one replica sweeps per tick (otherwise N
-// pods double-execute the same pending scans). TTL must outlast one cycle — a
-// cycle runs up to 10 scans, so default generously (5 min) and allow override.
+// pods double-execute the same pending scans). The TTL is a CRASH-RECOVERY
+// window, not a run-duration cover: the holder heartbeats for as long as a cycle
+// runs, so a long sweep keeps its lock (api-core `DEFAULT_LEADER_LOCK_TTL_MS`).
 const LOCK_KEY = leaderLockKey('compliance', 'scan-scheduler');
 const LOCK_TTL_MS = Number(complianceConfig.scanLockTtlMs ?? DEFAULT_LEADER_LOCK_TTL_MS);
 
@@ -118,10 +119,10 @@ async function checkDueSchedules(): Promise<void> {
       // Optimistically CLAIM then insert, in ONE transaction:
       //   1. Advance nextRunAt only if it STILL equals the value we selected.
       //   2. Insert the scan only when that claim won (1 row updated).
-      // The conditional update is the concurrency guard. The leader lock isn't
-      // renewed mid-sweep, so a long sweep that outlives the lock TTL lets a
-      // second pod acquire the lock and re-select the same still-due schedule.
-      // Without the `nextRunAt = <selected>` predicate both pods would advance
+      // The conditional update is the concurrency guard. The leader lock is
+      // heartbeated, but a lost lock (a Redis blip past the TTL, or no Redis at
+      // all, where every pod sweeps) lets a second pod re-select the same
+      // still-due schedule. Without the `nextRunAt = <selected>` predicate both pods would advance
       // the schedule and each insert a scan → DUPLICATE scheduled scans (double
       // CPU + double notification fan-out). With it, exactly one pod claims the
       // row; the loser updates 0 rows and skips the insert. Atomic with the scan

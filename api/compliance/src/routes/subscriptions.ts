@@ -17,11 +17,14 @@ import {
   complianceFeatureForTags,
   type FeatureFlag,
   recordAudit,
+  type RuleSeverity,
+  type RuleTarget,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router, type NextFunction, type Request, type Response } from 'express';
 import { z } from 'zod';
 import { evaluateRules } from '../engine/rule-engine.js';
+import { setForFeature } from '../helpers/content-set-tags.js';
 import { withInheritedSource } from '../helpers/inherited-source.js';
 import { complianceRuleService } from '../services/compliance-rule-service.js';
 import { subscriptionService } from '../services/subscription-service.js';
@@ -61,7 +64,8 @@ function passesGate(
 
 /**
  * The curated-set entitlement paywall applied identically by every enforcement-
- * path route (subscribe / activate / bulk-activate / clone / impact-preview):
+ * path route (subscribe / activate / bulk-activate / clone / both previews' dry
+ * runs):
  * when `requiredFeature` is set, run api-core's `requireFeature` gate (sysadmin
  * bypass; 403 + `authz.denied` audit on denial) and return `true` when it denied
  * (caller must stop). Returns `false` for a baseline/un-tagged rule
@@ -107,8 +111,8 @@ export function createPublishedRulesCatalogRoutes(): Router {
     const { limit, offset } = parsePaginationParams(req.query);
     const filter = {
       name: req.query.name as string | undefined,
-      target: req.query.target as 'plugin' | 'pipeline' | undefined,
-      severity: req.query.severity as 'warning' | 'error' | 'critical' | undefined,
+      target: req.query.target as RuleTarget | undefined,
+      severity: req.query.severity as RuleSeverity | undefined,
       tag: req.query.tag as string | undefined,
     };
 
@@ -194,8 +198,8 @@ export function createSubscriptionRoutes(): Router {
     // Activating (opt-in) stays member-level, but DEACTIVATING an active rule
     // weakens the org's enforced compliance posture at upload/validate time —
     // that's governance, not opt-in — so it requires `compliance:write` (same
-    // gate as rule authoring / exemption approval / clone). See the mount in
-    // index.ts: subscriptions run at member level, so this is enforced inline.
+    // gate as rule authoring / exemption approval / clone). The route's own gate
+    // is member-level `compliance:read`, so this is enforced inline.
     if (!validation.value.isActive && !passesGate(requireComplianceWrite, req, res)) return;
 
     // Entitlement gate: ACTIVATING a curated-library rule (tagged `set:*`) is a
@@ -242,8 +246,8 @@ export function createSubscriptionRoutes(): Router {
     const requiredFeature = complianceFeatureForTags(publishedRule?.tags);
     if (denyIfUnentitled(req, res, requiredFeature)) return;
 
+    // Starts INACTIVE; the service still invalidates the org's rules cache.
     const subscription = await subscriptionService.subscribe(orgId, ruleId, userId);
-    // No cache invalidation needed — subscriptions start inactive
     ctx.log('COMPLETED', 'Subscribed to published rule (inactive)', { ruleId });
 
     // Audit curated-set subscribes (the entitlement-relevant ones). Reuse
@@ -256,7 +260,7 @@ export function createSubscriptionRoutes(): Router {
         orgId,
         targetType: 'rule',
         targetId: ruleId,
-        details: { subscribed: true, set: requiredFeature === 'compliance_advanced' ? 'advanced' : 'standard' },
+        details: { subscribed: true, set: setForFeature(requiredFeature) },
       });
     }
     return sendSuccess(res, 201, { subscription });
@@ -352,7 +356,7 @@ export function createSubscriptionRoutes(): Router {
 
   // GET /enforced — merged view of all enforced rules (org + active subscriptions)
   router.get('/enforced', requireComplianceRead, withRoute(async ({ req, res, ctx, orgId }) => {
-    const target = req.query.target as 'plugin' | 'pipeline' | undefined;
+    const target = req.query.target as RuleTarget | undefined;
     // Include the parent's `propagateToChildren` rules for a team, matching what
     // actually blocks at upload/validate time (validate.ts reads the same claim).
     const parentOrgId = (req.user as { parentOrganizationId?: string } | undefined)?.parentOrganizationId;
@@ -389,7 +393,7 @@ export function createSubscriptionRoutes(): Router {
     // un-tagged published rules stay open.
     if (denyIfUnentitled(req, res, complianceFeatureForTags(rule.tags))) return;
 
-    const target = rule.target as 'plugin' | 'pipeline';
+    const target = rule.target;
     const SAMPLE_CAP = 10;
     const ENTITY_FETCH_CAP = 1000;
 
@@ -424,7 +428,8 @@ export function createSubscriptionRoutes(): Router {
     });
   }));
 
-  // POST /preview — dry-run preview of how a rule would affect existing entities
+  // POST /preview — the rule itself, or (with `sampleAttributes`) a dry run of it
+  // against caller-supplied attributes.
   router.post('/preview', requireComplianceRead, withRoute(async ({ req, res, ctx }) => {
     const validation = validateBody(req, PreviewSchema);
     if (!validation.ok) {
@@ -437,6 +442,13 @@ export function createSubscriptionRoutes(): Router {
     if (!rule) return sendBadRequest(res, 'Rule not found', ErrorCode.VALIDATION_ERROR);
 
     if (sampleAttributes) {
+      // The dry run carries the same paywall as `/preview/impact`: evaluating a
+      // curated-library rule is using the paid content, whether against the
+      // org's live entities or against attributes the caller typed in. This leg
+      // was ungated, so `/preview/impact`'s gate could be stepped around by
+      // posting each entity's attributes here. The plain rule read below stays
+      // open — the published catalog already lists every rule's body.
+      if (denyIfUnentitled(req, res, complianceFeatureForTags(rule.tags))) return;
       const result = evaluateRules([rule as unknown as Parameters<typeof evaluateRules>[0][0]], sampleAttributes, []);
       ctx.log('COMPLETED', 'Subscription activation preview', { ruleId, blocked: result.blocked });
       return sendSuccess(res, 200, { preview: result });

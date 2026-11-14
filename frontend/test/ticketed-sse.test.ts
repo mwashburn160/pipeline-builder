@@ -134,6 +134,30 @@ describe('useTicketedSSE', () => {
     expect(latest().url).toBe('/stream/k2?ticket=t2');
   });
 
+  it('drops the previous key\'s stream as soon as the key changes', async () => {
+    let releaseK2!: (t: string) => void;
+    const getTicket = jest.fn<AnyFn>()
+      .mockResolvedValueOnce('t1')
+      .mockImplementationOnce(() => new Promise<string>((res) => { releaseK2 = res; }));
+    const onMessage = jest.fn<AnyFn>((d) => (d as { done?: boolean }).done === true);
+    const { rerender, opts } = renderTicketed({ getTicket, onMessage });
+    await flush();
+    const first = latest();
+    act(() => first.onopen?.({}));
+
+    rerender({ ...opts, getTicket, onMessage, subscriptionKey: 'k2' });
+    await flush();
+    // Closed before k2's ticket arrives, and a queued k1 event is not delivered.
+    expect(first.closed).toBe(true);
+    act(() => first.onmessage?.({ data: JSON.stringify({ done: true }) }));
+    expect(onMessage).not.toHaveBeenCalled();
+
+    // k1's terminal event did not stop k2 from connecting.
+    releaseK2('t2');
+    await flush();
+    expect(latest().url).toBe('/stream/k2?ticket=t2');
+  });
+
   it('closes the stream for good when onMessage returns true', async () => {
     const getTicket = jest.fn<AnyFn>().mockResolvedValue('t');
     renderTicketed({ getTicket, onMessage: (d) => (d as { done?: boolean }).done === true });

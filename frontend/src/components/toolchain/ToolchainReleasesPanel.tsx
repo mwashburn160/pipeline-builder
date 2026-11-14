@@ -16,7 +16,8 @@ import { useToast } from '@/components/ui/Toast';
 import api from '@/lib/api';
 import { formatError } from '@/lib/constants';
 import { RELEASE_STATUS_COLOR, RELEASE_STATUS_LABEL, scanSummaryText, toolchainVersionsText } from '@/lib/toolchain';
-import { releaseActionAvailability, shortDigest } from '@/lib/toolchain-console';
+import { releaseActionAvailability } from '@/lib/toolchain-console';
+import { shortDigest } from '@/lib/format';
 import type { ToolchainConsoleRelease, ToolchainReleaseHalf, ToolchainReleasesView } from '@/types/toolchain';
 import { SetPlatformDefaultFlow } from './SetPlatformDefaultFlow';
 

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { paginationMeta, type PaginationMeta } from '@pipeline-builder/api-core';
+import type { AuditOutcome } from '../constants/vocabulary.js';
 import { appendAuditEvent } from '../helpers/audit-chain.js';
 import AuditEvent, { type AuditEventData, type StoredAuditEvent } from '../models/audit-event.js';
 import { escapeRegex } from '../utils/regex.js';
@@ -39,7 +40,7 @@ export interface AuditFilter {
    *  impersonation by X". */
   impersonatorId?: string;
   /** Filter by outcome (success/failure) — e.g. surface only failed logins. */
-  outcome?: 'success' | 'failure';
+  outcome?: AuditOutcome;
   /** Correlation id — pull every audited action from one HTTP request. */
   requestId?: string;
   /** Inclusive lower bound on the event's ingest `createdAt` timestamp

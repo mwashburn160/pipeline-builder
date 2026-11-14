@@ -14,10 +14,9 @@
  * one resolution per save, so a warning names the version the step will run.
  */
 
-import { checkPluginContracts, type StepContractViolation } from './plugin-contract-check.js';
+import type { VulnSeverity } from '@pipeline-builder/api-core';
 
-/** How serious a plugin warning is — graded, never a refusal. */
-export type PluginWarningSeverity = 'info' | 'warning' | 'error' | 'critical';
+import { checkPluginContracts, type StepContractViolation } from './plugin-contract-check.js';
 
 /**
  * One note on a step. Vulnerability state NEVER refuses a save (or a synth, a
@@ -30,7 +29,8 @@ export interface PluginWarning {
   plugin: string;
   /** `UNSCANNED`, `SCAN_STALE`, `VULN_FLAGGED`, `VULN_KEV`, `VULN_CRITICAL_FIXABLE`, `VULN_HIGH_FIXABLE`, `VULN_ACCEPTED`, `COMPLIANCE_VULN_RULE`, … */
   code: string;
-  severity: PluginWarningSeverity;
+  /** How serious it is (api-core's vulnerability grade) — graded, never a refusal. */
+  severity: VulnSeverity;
   message: string;
   /** The newest version the step's pin allows that clears the finding, when known. */
   suggestedVersion?: string;

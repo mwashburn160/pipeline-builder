@@ -96,7 +96,7 @@ export const UNLABELLED_BY_DESIGN: readonly string[] = Object.freeze([
  * none.
  */
 export function ssoRefusalReason(code: string | undefined): string {
-  return (code && REASON_BY_CODE[code]) || UNLABELLED_REFUSAL_REASON;
+  return code !== undefined && Object.hasOwn(REASON_BY_CODE, code) ? REASON_BY_CODE[code] : UNLABELLED_REFUSAL_REASON;
 }
 
 /** Every code the catalog labels — for the drift test, and for operators. */

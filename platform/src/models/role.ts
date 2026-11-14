@@ -1,20 +1,19 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { SEED_BUNDLE_IDS, type SeedBundleId } from '@pipeline-builder/api-core';
+import { ROLE_GRANTS, SEED_BUNDLE_IDS, type RoleGrant, type SeedBundleId } from '@pipeline-builder/api-core';
 import { Schema, model, Types, type HydratedDocument } from 'mongoose';
 
-/**
- * Coarse org roles a Role can grant its members, highest authority first. A
- * user's effective org role is the highest `grantsRole` across the Roles they
- * are assigned in that org (the `owner` role is separate and ranks above all of
- * these — see {@link ../services/roles-service}). `superadmin` additionally sets
- * the platform-wide `User.isSuperAdmin` flag.
+/*
+ * The coarse org roles a Role can grant its members (`ROLE_GRANTS`, highest
+ * authority first) are api-core's wire vocabulary. A user's effective org role
+ * is the highest `grantsRole` across the Roles they are assigned in that org
+ * (the `owner` role is separate and ranks above all of these — see
+ * {@link ../services/roles-service}). `superadmin` additionally sets the
+ * platform-wide `User.isSuperAdmin` flag.
  */
-export const ROLE_GRANTS = ['superadmin', 'admin', 'member'] as const;
-export type RoleGrant = typeof ROLE_GRANTS[number];
 
-/**
+/*
  * Named seed bundles for built-in Roles whose permissions are NOT derived from
  * their `grantsRole`. `ecosystem_manager` is the system org's "Ecosystem
  * Manager" (docs/permissions.md): it grants the coarse
@@ -27,15 +26,13 @@ export type RoleGrant = typeof ROLE_GRANTS[number];
  * + `reports:publish`). It exists so a reporting lead does not have to be an org
  * admin — carrying members:manage, roles:manage and billing — just to send their
  * manager a weekly summary.
+ *
+ * Seed-bundle ids are api-core's `SEED_BUNDLE_IDS`, keyed off the `SEED_BUNDLES`
+ * table that also carries each bundle's permissions and its seeded Role NAME.
+ * One list, so the mongoose enum, the bundle resolver and the staffing roster
+ * cannot drift apart — they did, and a bundle present in one and absent from
+ * another failed silently.
  */
-/**
- * The ids come from api-core's `SEED_BUNDLES` table, which also carries each
- * bundle's permissions and its seeded Role NAME. One list, so the mongoose enum,
- * the bundle resolver and the staffing roster cannot drift apart — they did,
- * and a bundle present in one and absent from another failed silently.
- */
-export const ROLE_SEED_BUNDLES = SEED_BUNDLE_IDS;
-export type RoleSeedBundle = SeedBundleId;
 
 /**
  * A named permission Role inside an organization or team.
@@ -64,7 +61,7 @@ export interface RoleData {
   /** Built-in Roles only: the named seed bundle this Role carries instead of
    *  its `grantsRole` bundle (unset for Admin/Member/Super Admin and every
    *  custom Role). */
-  seedBundle?: RoleSeedBundle;
+  seedBundle?: SeedBundleId;
 }
 
 export type RoleDocument = HydratedDocument<RoleData>;
@@ -77,7 +74,7 @@ const roleSchema = new Schema<RoleData>(
     grantsRole: { type: String, enum: [...ROLE_GRANTS], default: 'member' },
     permissions: { type: [String], default: [] },
     system: { type: Boolean, default: false },
-    seedBundle: { type: String, enum: [...ROLE_SEED_BUNDLES] },
+    seedBundle: { type: String, enum: [...SEED_BUNDLE_IDS] },
   },
   { timestamps: true, collection: 'roles' },
 );

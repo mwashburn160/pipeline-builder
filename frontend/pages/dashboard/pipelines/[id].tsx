@@ -33,6 +33,7 @@ import { Button } from '@/components/ui/Button';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { WarningAlert } from '@/components/ui/WarningAlert';
 import { RetryError } from '@/components/ui/RetryError';
+import { visibilityColor } from '@/components/ui/visibility-rungs';
 import { Badge } from '@/components/ui/Badge';
 import { CopyableId } from '@/components/ui/CopyableId';
 import { DataTable, type Column } from '@/components/ui/DataTable';
@@ -489,7 +490,7 @@ export default function PipelineDetailPage() {
                 <h3 className="text-base font-semibold text-fg">Identity</h3>
               </div>
               <div className="flex flex-wrap items-center gap-1">
-                <Badge color={pipeline.visibility === 'public' ? 'green' : 'gray'}>{pipeline.visibility}</Badge>
+                <Badge color={visibilityColor(pipeline.visibility)}>{pipeline.visibility}</Badge>
                 <Badge color={pipeline.isActive ? 'green' : 'red'}>{pipeline.isActive ? 'Active' : 'Inactive'}</Badge>
                 {pipeline.isDefault && <Badge color="blue">Default</Badge>}
               </div>

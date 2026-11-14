@@ -126,7 +126,9 @@ export function recordBuildEvent(orgId: string, status: 'completed' | 'failed', 
  * directly. Fire-and-forget, mirroring recordBuildEvent.
  */
 export function recordTerminalFailedBuildEvent(orgId: string, job: Job, detail: Record<string, unknown>): void {
-  void runWithTenantContext({ orgId, isSuperAdmin: false }, async () => {
+  runWithTenantContext({ orgId, isSuperAdmin: false }, async () => {
     recordBuildEvent(orgId, 'failed', job, detail);
+  }).catch((err: unknown) => {
+    logger.warn('Failed to record build event', { error: errorMessage(err) });
   });
 }

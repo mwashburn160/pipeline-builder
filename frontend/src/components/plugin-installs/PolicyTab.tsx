@@ -19,8 +19,9 @@ import { useToast } from '@/components/ui/Toast';
 import { useFetch } from '@/hooks/useFetch';
 import api from '@/lib/api';
 import { formatError } from '@/lib/constants';
+import { PUBLISHER_TIERS } from '@pipeline-builder/api-core/wire-vocabulary';
 import {
-  addBlockedListing, diffPolicy, parseListingRef, parseWarnFixableHigh, policyWarnings, PUBLISHER_TIER_LABELS, PUBLISHER_TIERS,
+  addBlockedListing, diffPolicy, parseListingRef, parseWarnFixableHigh, policyWarnings, PUBLISHER_TIER_LABELS,
   removeBlockedListing, toggleTier, type TierListKey,
 } from '@/lib/plugin-installs';
 import type { ConsumptionPolicy, InstallPolicyResponse } from '@/types/plugin-installs';

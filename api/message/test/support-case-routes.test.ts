@@ -115,7 +115,6 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
 }));
 
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
-  SUPPORT_CASE_STATUSES: ['open', 'awaiting_support', 'awaiting_customer', 'resolved', 'closed'],
   findCaseByThread: mockFindCaseByThread,
   setCaseStatus: mockSetCaseStatus,
   setCaseSeverity: mockSetCaseSeverity,
@@ -684,9 +683,10 @@ describe('staff notes — the one surface the tenant must never see', () => {
   });
 
   it('deletes a note and records it', async () => {
+    mockDeleteNote.mockResolvedValue(true);
     const out = await delNote();
     expect(out.status).toBe(200);
-    expect(mockDeleteNote).toHaveBeenCalledWith('note-1', 'user-1');
+    expect(mockDeleteNote).toHaveBeenCalledWith(CASE.id, 'note-1', 'user-1');
     expect(mockRecordAudit.mock.calls[0]![0]).toMatchObject({ details: { noteId: 'note-1', deleted: true } });
   });
 
@@ -697,6 +697,19 @@ describe('staff notes — the one surface the tenant must never see', () => {
     mockDeleteNote.mockResolvedValue(false);
     const out = await delNote();
     expect(out.status).toBe(404);
+    expect(mockRecordAudit).not.toHaveBeenCalled();
+  });
+
+  /**
+   * `deleteCaseNote` is keyed by the case AND the note. A note on another case
+   * matches no row through this case's URL, so nothing is removed and the audit
+   * row (which would name the wrong case) is never written.
+   */
+  it('404s a note that belongs to a DIFFERENT case, and audits nothing', async () => {
+    mockDeleteNote.mockResolvedValue(false);
+    const out = await delNote('note-on-another-case');
+    expect(out.status).toBe(404);
+    expect(mockDeleteNote).toHaveBeenCalledWith(CASE.id, 'note-on-another-case', 'user-1');
     expect(mockRecordAudit).not.toHaveBeenCalled();
   });
 

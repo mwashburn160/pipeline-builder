@@ -160,8 +160,9 @@ export function authorizeScope(identity: Identity, requested: RequestedScope, ct
   }
 
   // SUPER-admins (a platform sysadmin's PERSON token — never a service token,
-  // whose superadmin claim is stripped at verification) get pull+push on any
-  // repo. Evaluated first because the namespace rules below would otherwise
+  // whose superadmin claim is stripped at verification) get pull+push on every
+  // repo outside the public / registry-meta / quarantine namespaces above.
+  // Evaluated before the tenant rules because the namespace rules below would otherwise
   // downgrade a cross-namespace push to system/* or library/* into pull-only,
   // which breaks operator-driven system seeding. Gated on the USER-level
   // `isSuperAdmin` claim, NOT the org-level `isAdmin` (owner/admin role):
@@ -414,30 +415,33 @@ export interface StorageGateDecision {
   enforcedBytes: number | null;
 }
 
+/** Each gate reason's sentence (keyed, so a new reason can't go unexplained). */
+const STORAGE_GATE_REASON_TEXT: Readonly<Record<StorageGateDecision['reason'], (d: StorageGateDecision) => string>> = {
+  over_budget: (d) => `push stripped: storage ${usedOf(d)} of ${capOf(d)}`
+    + (d.enforcedBytes !== null && d.limitBytes !== null && d.enforcedBytes > d.limitBytes
+      ? ` (including a grace band to ${formatQuotaAmount('storageBytes', d.enforcedBytes)})` : ''),
+  quota_unreachable: () => 'push stripped: the storage quota could not be read (fail-closed)',
+  usage_incomplete: (d) => `push stripped: the storage usage scan was incomplete, so ${usedOf(d)} of ${capOf(d)} under-counts (fail-closed)`,
+  gate_error: () => 'push stripped: the storage gate failed (fail-closed)',
+  unlimited: () => 'storage is unlimited for this organization',
+  under_budget: (d) => `storage ${usedOf(d)} of ${capOf(d)}`,
+};
+
+function usedOf(d: StorageGateDecision): string {
+  return d.usageBytes === null ? 'unknown' : formatQuotaAmount('storageBytes', d.usageBytes);
+}
+
+function capOf(d: StorageGateDecision): string {
+  return d.limitBytes === null || d.limitBytes < 0 ? 'unlimited' : formatQuotaAmount('storageBytes', d.limitBytes);
+}
+
 /**
  * The gate decision as one human sentence, for the audit detail and the log.
  * Byte figures go through api-core's quota formatter so a refusal reads in the
  * same units the dashboard and the quota notice use.
  */
 export function storageGateReason(d: StorageGateDecision): string {
-  const used = d.usageBytes === null ? 'unknown' : formatQuotaAmount('storageBytes', d.usageBytes);
-  const cap = d.limitBytes === null || d.limitBytes < 0 ? 'unlimited' : formatQuotaAmount('storageBytes', d.limitBytes);
-  switch (d.reason) {
-    case 'over_budget':
-      return `push stripped: storage ${used} of ${cap}`
-        + (d.enforcedBytes !== null && d.limitBytes !== null && d.enforcedBytes > d.limitBytes
-          ? ` (including a grace band to ${formatQuotaAmount('storageBytes', d.enforcedBytes)})` : '');
-    case 'quota_unreachable':
-      return 'push stripped: the storage quota could not be read (fail-closed)';
-    case 'usage_incomplete':
-      return `push stripped: the storage usage scan was incomplete, so ${used} of ${cap} under-counts (fail-closed)`;
-    case 'gate_error':
-      return 'push stripped: the storage gate failed (fail-closed)';
-    case 'unlimited':
-      return 'storage is unlimited for this organization';
-    case 'under_budget':
-      return `storage ${used} of ${cap}`;
-  }
+  return STORAGE_GATE_REASON_TEXT[d.reason](d);
 }
 
 /**
@@ -489,8 +493,14 @@ async function isStorageOverBudget(orgId: string): Promise<StorageGateDecision> 
     }
 
     const limit = status.limit;
+    // A malformed answer is an unverifiable cap, not an unlimited one.
+    if (typeof limit !== 'number' || !Number.isFinite(limit)) {
+      logger.warn('PUSH_GATE_QUOTA_MALFORMED', { orgId, limit });
+      emitCounter('registry_storage_gate_total', { outcome: 'gate_error' });
+      return unknown('gate_error');
+    }
     // Genuine unlimited storage (-1) → no enforcement, allow.
-    if (typeof limit !== 'number' || limit < 0) {
+    if (limit < 0) {
       emitCounter('registry_storage_gate_total', { outcome: 'unlimited' });
       return { overBudget: false, reason: 'unlimited', usageBytes: null, limitBytes: -1, enforcedBytes: -1 };
     }

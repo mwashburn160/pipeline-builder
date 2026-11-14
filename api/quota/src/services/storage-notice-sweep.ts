@@ -83,6 +83,28 @@ const COMMITTED_GAUGE = 'quota_storage_committed_bytes';
  */
 const UNLIMITED_GAUGE = 'quota_storage_unlimited_orgs';
 
+/**
+ * The live ACCOUNT ROOTS: no parent, and not soft-deleted. A soft-deleted org
+ * sits in the shared collection until platform's purge sweep removes it, and
+ * counting it made the committed gauge include storage nobody can use any more
+ * and mailed a deleted account's admins that its registry was full.
+ */
+const LIVE_ROOTS = { parentOrgId: null, deletedAt: null } as const;
+
+/**
+ * Where the next bounded pass starts, as an offset into the `_id`-ordered live
+ * roots. The pass is capped at `QUOTA_STORAGE_SWEEP_MAX_ORGS`, and with no
+ * cursor (and no sort) every pass read the SAME first slice of the collection —
+ * a fleet larger than the cap had every account past it never swept, so the
+ * missing-storage-notice bug this module fixes stayed in place for them. The
+ * cursor advances by what a pass examined and wraps once a pass reaches the
+ * end. Per pod: a leadership change restarts the rotation at 0, which only
+ * repeats a slice, never skips one. An offset rather than an `_id` bound
+ * because the collection mixes ObjectId and string ids (`'system'`), and a
+ * range query on `_id` only matches its own BSON type.
+ */
+let sweepOffset = 0;
+
 /** The highest band `used/limit` has reached, or `null` when under them all. */
 export function storageBand(used: number, limit: number): QuotaNoticeThreshold | null {
   if (limit <= 0) return null;
@@ -117,7 +139,7 @@ export function stockNoticeWindow(reminderMs: number, now: number = Date.now()):
  */
 export async function reportStorageCommitment(): Promise<{ committedBytes: number; unlimitedOrgs: number }> {
   const buckets = await Organization.aggregate<{ _id: { tier?: string; cap?: number }; n: number }>([
-    { $match: { parentOrgId: null } },
+    { $match: LIVE_ROOTS },
     { $group: { _id: { tier: '$tier', cap: '$quotas.storageBytes' }, n: { $sum: 1 } } },
   ]);
   let committedBytes = 0;
@@ -162,7 +184,7 @@ export async function sweepStorageNotices(opts: SweepOptions): Promise<StorageSw
   const result: StorageSweepResult = { considered: 0, unknown: 0, notified: 0, cleared: 0 };
   const windowKey = stockNoticeWindow(opts.reminderMs);
 
-  // ACCOUNT ROOTS only (`parentOrgId: null`). A team's own limits are -1 by
+  // Live ACCOUNT ROOTS only ({@link LIVE_ROOTS}). A team's own limits are -1 by
   // design — the caps are pooled at its root — so a team has no percentage of
   // its own to cross, and the notice goes to the root in any case.
   //
@@ -172,12 +194,14 @@ export async function sweepStorageNotices(opts: SweepOptions): Promise<StorageSw
   // required the field and would therefore have swept almost nobody — the exact
   // silent-no-op this whole plan exists to remove.
   const orgs = await Organization.find(
-    { parentOrgId: null },
+    LIVE_ROOTS,
     { '_id': 1, 'tier': 1, 'quotas.storageBytes': 1 },
-  ).limit(opts.maxOrgs).lean();
+  ).sort({ _id: 1 }).skip(sweepOffset).limit(opts.maxOrgs).lean();
 
+  let examined = 0;
   for (const org of orgs) {
     if (opts.shouldStop?.()) break;
+    examined += 1;
     const orgId = String(org._id);
     const row = org as { tier?: string; quotas?: { storageBytes?: number } };
     // Same resolution the read path uses: an explicit per-org cap, else the
@@ -242,6 +266,9 @@ export async function sweepStorageNotices(opts: SweepOptions): Promise<StorageSw
       logger.warn('Storage notice check failed for an org', { orgId, error: errorMessage(err) });
     }
   }
+  // A short page is the end of the collection: the next pass starts over. An
+  // aborted pass resumes after the last org it examined.
+  sweepOffset = orgs.length < opts.maxOrgs && examined === orgs.length ? 0 : sweepOffset + examined;
   return result;
 }
 

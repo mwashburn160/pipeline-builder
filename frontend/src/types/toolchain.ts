@@ -8,11 +8,13 @@
  * `/api/plugins/toolchain/*`.
  */
 
-/** Why a pipeline (or the org) lands on its effective release, most specific first. */
-export type ToolchainResolvedVia = 'pin' | 'org-default' | 'canary' | 'default';
+/** Why a pipeline (or the org) lands on its effective release, most specific
+ *  first, and where a release sits in its lifecycle (yanked and deprecated
+ *  releases can't be newly chosen) — api-core's vocabularies, the ones the
+ *  plugin service resolves and reports with. */
+import type { ToolchainReleaseStatus, ToolchainResolvedVia } from '@pipeline-builder/api-core/plugin-catalog';
 
-/** A release's lifecycle state. Yanked and deprecated releases can't be newly chosen. */
-export type ToolchainReleaseStatus = 'default' | 'canary' | 'available' | 'deprecated' | 'yanked';
+export type { ToolchainReleaseStatus, ToolchainResolvedVia };
 
 /** Where a release sits relative to the caller's effective default. */
 export type ToolchainReleaseRelation = 'newer' | 'older' | 'current';

@@ -4,7 +4,7 @@
 import {
   attachmentDisposition, getParam, ErrorCode, isManagedToolchainPlugin, isSystemOrgId, managedRefPinsVersion, requirePermission, sendBadRequest, sendError, sendSuccess, sendPaginatedNested,
   parsePaginationParams, validateQuery, PluginFilterSchema, sendEntityNotFound, maxSeverity, severityAtLeast,
-  parseVulnWaivers, SYSTEM_ORG_ID, TOOLCHAIN_RELEASE_VERSION_PATTERN,
+  parseVulnWaivers, SYSTEM_ORG_ID, TOOLCHAIN_RELEASE_VERSION_PATTERN, MANAGED_TOOLCHAIN,
 } from '@pipeline-builder/api-core';
 import type { ManagedToolchainPlugin, VulnSeverity, VulnWarning } from '@pipeline-builder/api-core';
 import { incCounter, withRoute } from '@pipeline-builder/api-server';
@@ -20,6 +20,7 @@ import type { Request, Response } from 'express';
 import { Router } from 'express';
 import { registerVulnerabilityRoutes } from './plugin-vulnerabilities.js';
 import { acceptancesFor, assessmentFor, consumptionPolicyFor, NO_ACCEPTANCES, ownedPipeline } from '../helpers/lookup-vuln-policy.js';
+import { isYankedVersion } from '../helpers/managed-toolchain.js';
 import { pipelinePluginRefs } from '../helpers/pipeline-plugin-refs.js';
 import { pluginRequiresImage, shapePlugin } from '../helpers/plugin-helpers.js';
 import { fetchImageSbom, ImageVerificationError, verifyImageSignature } from '../helpers/supply-chain.js';
@@ -112,7 +113,7 @@ export function lookupWarnings(plugin: {
 }): LookupWarning[] {
   const ref = `${plugin.name}@${plugin.version}`;
   const warnings: LookupWarning[] = [];
-  if (plugin.yankedAt || plugin.lifecycle === 'yanked') {
+  if (isYankedVersion(plugin)) {
     warnings.push({
       code: 'PLUGIN_YANKED',
       severity: 'warning',
@@ -408,14 +409,14 @@ export function createReadPluginRoutes(): Router {
         ctx.log('WARN', 'Toolchain lookup refused', { name, code: err.code });
         return refused(err.statusCode, err.message, err.code, { ...(err.details ?? {}), reason });
       }
-      const half = name === 'pipeline-bootstrap' ? resolution.bootstrap : resolution.synth;
+      const half = name === MANAGED_TOOLCHAIN.bootstrap ? resolution.bootstrap : resolution.synth;
       const imageRepository = pluginImageRepository(half);
       const shaped = {
         ...shapePlugin(half),
         source: 'org',
         publisher: null,
         imageRepository,
-        ...(name === 'pipeline-bootstrap' ? { toolchain: bootstrapToolchainOf(half) } : {}),
+        ...(name === MANAGED_TOOLCHAIN.bootstrap ? { toolchain: bootstrapToolchainOf(half) } : {}),
       } as Record<string, unknown> & { name: string; version: string };
       // Both halves run an image synth pins by digest: never hand out one whose
       // signature doesn't verify.

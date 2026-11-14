@@ -86,7 +86,7 @@ export function reportDataSource(orgId: string): SectionDataSource {
  */
 export async function resolveRunPeriod(opts: ComposeRunOptions): Promise<{ period: ResolvedPeriod } | { refusal: RunRefusal }> {
   const { definition, periodLabel } = opts;
-  const weekStart = definition.weekStart as 'monday' | 'sunday';
+  const weekStart = definition.weekStart;
   const period = periodLabel
     ? resolvePeriodByLabel(periodLabel, definition.cadence, definition.timezone, weekStart)
     : resolvePeriod(definition.cadence, definition.timezone, weekStart, opts.now);
@@ -148,7 +148,7 @@ export async function composeRun(opts: ComposeRunOptions): Promise<RunResult> {
       source: reportDataSource(definition.orgId),
       period,
       timezone: definition.timezone,
-      weekStart: definition.weekStart as 'monday' | 'sunday',
+      weekStart: definition.weekStart,
       orgId: definition.orgId,
       ...(opts.orgIds ? { orgIds: opts.orgIds } : {}),
       features: opts.features,

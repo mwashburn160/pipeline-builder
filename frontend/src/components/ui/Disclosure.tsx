@@ -4,11 +4,9 @@ import { ChevronDown } from 'lucide-react';
 /**
  * Shared disclosure (expand/collapse) primitive.
  *
- * The one disclosure widget, used by:
- *  - `pipeline/editors/CollapsibleSection` (custom button + local isOpen)
- *  - `pipeline/DeployedPipelinesPanel`     (`<details>` with controlled open)
- *  - `registry/RecentActionsPanel`         (custom button + local open)
- *  - `registry/ManifestDetail`'s `TagsForDigest` (`<details>` + manualOpen override)
+ * The one disclosure widget — the pipeline editor's `CollapsibleSection`, the
+ * deployed-pipelines panel, the registry's recent actions and manifest tags,
+ * and the Ask panel all render through it.
  *
  * Built on the native `<details>` element so we inherit keyboard handling,
  * focus management, and screen-reader semantics for free. Open/close state
@@ -101,5 +99,3 @@ export function Disclosure({
     </details>
   );
 }
-
-export default Disclosure;

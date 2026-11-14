@@ -382,3 +382,35 @@ export const DEFAULT_TIER_LIMITS: Record<QuotaTier, QuotaTierLimits> = {
     doraRetentionDays: -1,
   },
 };
+
+// -----------------------------------------------------------------------------
+// Tier-ladder facts the browser decides with too
+// -----------------------------------------------------------------------------
+
+/** Tiers that permit the org → team hierarchy (nesting teams under a root). The
+ *  billing-off `unlimited` tier is team-capable (it's the most permissive); the
+ *  entry-level `developer`/`pro` tiers are not. Single source for the parent-
+ *  eligibility + downgrade-overcap checks so they can't drift. */
+export const TEAM_CAPABLE_TIERS: readonly QuotaTier[] = ['team', 'business', 'enterprise', 'unlimited'];
+export function tierAllowsTeams(tier: string | undefined | null): boolean {
+  return !!tier && (TEAM_CAPABLE_TIERS as readonly string[]).includes(tier);
+}
+
+/** Tiers that may buy extra seats — billing's per-seat `seat` add-on. Seats are
+ *  the Team differentiator, so the single-seat `developer`/`pro` tiers cannot
+ *  stack them and must upgrade instead; `unlimited` has no seat cap at all.
+ *  Single source for the billing catalog and every "out of seats" message. */
+export const SEAT_PACK_TIERS: readonly QuotaTier[] = ['team', 'business', 'enterprise'];
+
+/** How an account that has used every seat can get another. */
+export type SeatRemedy = 'upgrade' | 'seat_pack';
+
+/**
+ * The remedy to offer an account at its seat cap, from the ACCOUNT's (root) tier:
+ * `seat_pack` where seats can be bought, `upgrade` on the single-seat tiers.
+ * `null` when the tier is unknown or has no cap — say nothing rather than guess.
+ */
+export function seatRemedy(tier: string | undefined | null): SeatRemedy | null {
+  if (!tier || !Object.hasOwn(DEFAULT_TIER_LIMITS, tier) || tier === 'unlimited') return null;
+  return (SEAT_PACK_TIERS as readonly string[]).includes(tier) ? 'seat_pack' : 'upgrade';
+}

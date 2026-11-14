@@ -1,12 +1,11 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import type { ComplianceScanTarget } from '@pipeline-builder/api-core';
 import { schema, withTenantTx } from '@pipeline-builder/pipeline-data';
 import { and, desc, eq } from 'drizzle-orm';
 import { paginatedList } from './paginated-list.js';
 import { calculateNextRun } from '../helpers/scan-scheduler.js';
-
-export type ScanTarget = 'plugin' | 'pipeline' | 'all';
 
 class ComplianceScanScheduleService {
   /** Paginated list of schedules for an org. */
@@ -24,7 +23,7 @@ class ComplianceScanScheduleService {
   }
 
   /** Create a new schedule. Caller validates the cron expression first. */
-  async create(orgId: string, userId: string, target: ScanTarget, cronExpression: string) {
+  async create(orgId: string, userId: string, target: ComplianceScanTarget, cronExpression: string) {
     const nextRunAt = calculateNextRun(cronExpression);
     const [schedule] = await withTenantTx(async (tx) => tx
       .insert(schema.complianceScanSchedule)
@@ -62,7 +61,7 @@ class ComplianceScanScheduleService {
     id: string,
     orgId: string,
     userId: string,
-    patch: { target?: ScanTarget; cronExpression?: string },
+    patch: { target?: ComplianceScanTarget; cronExpression?: string },
   ) {
     const updates: Record<string, unknown> = {
       ...patch,

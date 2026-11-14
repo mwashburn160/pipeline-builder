@@ -55,7 +55,6 @@ jest.unstable_mockModule('../src/services/public-publishing.js', () => ({
   PublicationNotFoundError,
   SourceVerificationError,
   PublicationMetrics,
-  TRUST_TIERS: ['official', 'verified', 'community', 'unverified'],
   publishPublicImage,
   resignPublicImageOp,
   reportResignProgress,
@@ -219,6 +218,14 @@ describe('caller gate (requireInternalService, plugin only)', () => {
     for (const [, method, path, body] of routes) await call(method, path, body, { 'x-test-as': 'service:platform' });
     for (const fn of services) expect(fn).not.toHaveBeenCalled();
     expect(recordAuditMock).not.toHaveBeenCalled();
+  });
+
+  // Every public/* mutation is a system-org decision, not only publish.
+  it.each(routes.slice(0, 5))('%s refuses a plugin token minted for a tenant org (403 ORG_MISMATCH)', async (_l, method, path, body) => {
+    const { status, body: res } = await call(method, path, body, { 'x-test-org': ORG });
+    expect(status).toBe(403);
+    expect(res.code).toBe('ORG_MISMATCH');
+    for (const fn of services) expect(fn).not.toHaveBeenCalled();
   });
 
   it('declares the audit action of every mutating route', () => {

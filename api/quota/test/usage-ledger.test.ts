@@ -195,6 +195,20 @@ describe('queryUsage', () => {
   });
 });
 
+describe('every groupBy value', () => {
+  // The groupings are one keyed catalog (`USAGE_GROUPINGS`); each entry owns its
+  // `$group` key, its response labels and its CSV columns. A grouping missing
+  // any of those would surface here as a throw or a header/row width mismatch.
+  it.each(['principal', 'route', 'pipeline', 'day', 'feature', 'model'] as const)('%s: labels a row and writes a CSV whose rows match the header', async (groupBy) => {
+    aggregate.mockResolvedValue([{ _id: groupBy === 'principal' ? { id: 'k', type: 'user' } : groupBy === 'model' ? { id: 'k', keySource: 'org' } : 'k', counted: 2, denied: 1, refunded: 0, keys: ['a'] }]);
+    const groups = await queryUsage({ orgId: 'o', from: new Date('2026-10-01T00:00:00Z'), to: new Date('2026-10-02T00:00:00Z'), groupBy });
+    expect(groups[0]).toMatchObject({ key: 'k', counted: 2, denied: 1, net: 2 });
+    const [header, row] = usageToCsv(groupBy, groups).split('\n');
+    expect(row!.split(',')).toHaveLength(header!.split(',').length);
+    expect(row!.startsWith('k,')).toBe(true);
+  });
+});
+
 describe('usageToCsv', () => {
   it('writes a principal header and guards formula-looking cells', () => {
     const csv = usageToCsv('principal', [

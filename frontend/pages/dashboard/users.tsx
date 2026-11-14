@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect } from 'react';
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { formatError } from '@/lib/constants';
 import { Users, UserPlus } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
@@ -32,6 +32,7 @@ import api from '@/lib/api';
 import { continueAfterStepUp } from '@/lib/api/errors';
 import { interpretImpersonationStart } from '@/lib/impersonation-start';
 import type { User } from '@/types';
+import type { OrgRole } from '@pipeline-builder/api-core/wire-vocabulary';
 
 /** The fresh `GET /users/:id` record, in the row shape the editor works on. */
 function toListItem(u: User): UserListItem {
@@ -138,7 +139,7 @@ export default function UsersPage() {
   const [editUsername, setEditUsername] = useState('');
   const [editEmail, setEditEmail] = useState('');
   const [editOrgId, setEditOrgId] = useState('');
-  const [editRole, setEditRole] = useState<'owner' | 'admin' | 'member'>('member');
+  const [editRole, setEditRole] = useState<OrgRole>('member');
   const [newPassword, setNewPassword] = useState('');
   const editForm = useFormState();
   // Gate for grant/revoke platform-admin. When set, StepUpModal renders and
@@ -166,12 +167,25 @@ export default function UsersPage() {
   const [selectedRoleIds, setSelectedRoleIds] = useState<Set<string>>(new Set());
 
   // Load an org's roles for the assignment picker; clears when no org.
+  // Only the LATEST picked org's answer may land: picking A then B, a late
+  // answer for A would fill the picker with A's roles and submit their ids
+  // with `organizationId: B`.
+  const rolesForOrgRef = useRef('');
+  const { setError: setCreateError } = createForm;
   const loadOrgRoles = useCallback((orgId: string) => {
-    if (!orgId) { setOrgRoles([]); return; }
+    rolesForOrgRef.current = orgId;
+    setOrgRoles([]);
+    if (!orgId) return;
     api.getOrganizationRoles(orgId)
-      .then((res) => { if (res.success && res.data) setOrgRoles(res.data.roles.map((g) => ({ id: g.id, name: g.name, grantsRole: g.grantsRole }))); })
-      .catch(() => setOrgRoles([]));
-  }, []);
+      .then((res) => {
+        if (rolesForOrgRef.current !== orgId) return;
+        if (res.success && res.data) setOrgRoles(res.data.roles.map((g) => ({ id: g.id, name: g.name, grantsRole: g.grantsRole })));
+      })
+      .catch((err: unknown) => {
+        if (rolesForOrgRef.current !== orgId) return;
+        setCreateError(formatError(err, 'Could not load that organization\'s roles'));
+      });
+  }, [setCreateError]);
 
   // Org change: update the field, reset any role selection (roles are
   // org-scoped), and refetch the new org's roles.

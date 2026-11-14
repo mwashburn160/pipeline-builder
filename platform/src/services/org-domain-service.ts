@@ -7,11 +7,13 @@ import { createLogger, SYSTEM_ACTOR_ID, SYSTEM_ORG_ID, TIER_FEATURES, type Quota
 import { Types, isValidObjectId, type QueryFilter } from 'mongoose';
 import { DOMAIN_TAKEN, DOMAIN_NOT_FOUND, DOMAIN_NOT_VERIFIED, DOMAIN_VERIFY_FAILED, DOMAIN_NOT_ENTITLED, DOMAIN_LIMIT, DOMAIN_PUBLIC, JOIN_NOT_ELIGIBLE, JOIN_SEAT_LIMIT, JOIN_REQUEST_NOT_FOUND, JOIN_REQUESTER_GONE } from './org-domain-errors.js';
 import { ensureBaselineRole } from './roles-service.js';
+import { ADMIN_ORG_ROLES } from '@pipeline-builder/api-core/wire-vocabulary';
+import type { DomainJoinMode } from '../constants/vocabulary.js';
 import { resolveOrgLineage } from '../helpers/org-hierarchy.js';
 import { toOrgId } from '../helpers/org-id.js';
 import { withSeatGuard } from '../helpers/seats.js';
 import { emailDomain } from '../helpers/sso-enforcement.js';
-import { OrgDomain, JoinRequest, Organization, UserOrganization, User, type JoinRequestData, type OrgDomainDocument, type DomainJoinMode } from '../models/index.js';
+import { OrgDomain, JoinRequest, Organization, UserOrganization, User, type JoinRequestData, type OrgDomainDocument } from '../models/index.js';
 import { withMongoTransaction } from '../utils/mongo-tx.js';
 
 const logger = createLogger('org-domain-service');
@@ -269,7 +271,7 @@ class OrgDomainService {
     try {
       const [org, admins] = await Promise.all([
         Organization.findById(toOrgId(orgId)).select('name').lean(),
-        UserOrganization.find({ organizationId: orgId, isActive: true, role: { $in: ['owner', 'admin'] } }).select('userId').lean(),
+        UserOrganization.find({ organizationId: orgId, isActive: true, role: { $in: [...ADMIN_ORG_ROLES] } }).select('userId').lean(),
       ]);
       if (!org || admins.length === 0) return;
       const users = await User.find({ _id: { $in: admins.map((a) => a.userId) } }).select('email').lean();

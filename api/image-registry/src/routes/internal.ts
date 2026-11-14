@@ -87,6 +87,17 @@ export const STORAGE_BREAKDOWN_PATH = '/storage-breakdown';
 export const STORAGE_PRUNE_PATH = '/storage-prune';
 
 /**
+ * Full paths (the router is mounted at `/internal`) of the routes that run
+ * their own `express.json` with their own limit; the global parser skips them
+ * (index.ts `jsonBodyExclude`).
+ */
+export const OWN_BODY_PARSER_PATHS = [
+  PLUGIN_SIGNATURES_PATH,
+  `/internal${PLUGIN_IMAGE_DISCARD_PATH}`,
+  `/internal${STORAGE_PRUNE_PATH}/`,
+] as const;
+
+/**
  * An organization's PRIVATE namespace teardown, called by the platform's
  * org-delete cascade. Published (`public/*`) copies are deliberately kept —
  * see {@link deleteOrgNamespace} for why each excluded namespace is excluded.
@@ -585,13 +596,27 @@ export function createInternalRoutes(): Router {
       // an oversight: a published copy's bytes stay billed to the publisher,
       // and removing them is an unlist/withdraw decision in the ecosystem flow,
       // not a storage cleanup. `system/*`, `library/*` and `quarantine/*`
-      // belong to the platform — `repoOwnerOrgId` maps those to the system org,
-      // so they can never match a tenant's id.
-      if (repoOwnerOrgId(repo)?.toLowerCase() !== orgId) {
+      // belong to the platform — `repoOwnerOrgId` maps `system/*` and
+      // `quarantine/*` to the system org (and `library/*` to none), so they
+      // never match a tenant's id. The system org may prune its own `system/*`
+      // versions, but never `quarantine/*`: a pending submission has its own
+      // lifecycle (DELETE /internal/quarantine/:id and the 30-day sweep).
+      if (inQuarantineNamespace(repo) || repoOwnerOrgId(repo)?.toLowerCase() !== orgId) {
         recordAuthzDenial(req, `storage prune of ${repo} by org ${orgId}`);
         return sendError(res, 403, `Forbidden: ${repo} is not in this organization's namespace.`, ErrorCode.ORG_MISMATCH);
       }
-      await deleteTag(repo, tag);
+      // Idempotent: a retry after a timeout finds the tag already gone.
+      let pruned = true;
+      try {
+        await deleteTag(repo, tag);
+      } catch (err) {
+        if (!isNotFound(err)) throw err;
+        pruned = false;
+      }
+      if (!pruned) {
+        ctx.log('COMPLETED', 'Storage prune: tag already gone', { orgId, repo, tag });
+        return sendSuccess(res, 200, { repo, tag, pruned });
+      }
       // The org's figure is measured, not metered, so evicting the cached
       // reading is what makes the freed space visible promptly.
       invalidateOrgStorageCache(orgId);
@@ -609,7 +634,7 @@ export function createInternalRoutes(): Router {
         targetId: `${repo}:${tag}`,
         details: { repo, tag, reason: 'storage_prune' },
       });
-      return sendSuccess(res, 200, { repo, tag, pruned: true });
+      return sendSuccess(res, 200, { repo, tag, pruned });
     }),
   );
 

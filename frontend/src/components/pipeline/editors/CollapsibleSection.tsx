@@ -14,10 +14,10 @@ interface CollapsibleSectionProps {
 }
 
 /**
- * Thin wrapper around the shared `Disclosure` primitive that preserves the
- * pipeline-editor-specific "configured" badge UX. New code should use
- * `@/components/ui/Disclosure` directly; this file remains so the many
- * existing editor imports keep working without a sweeping rename.
+ * A pipeline-editor section: the shared `Disclosure` with a string title and
+ * the editor's "configured" badge, which tells someone scanning a long form
+ * which collapsed sections already hold values. A disclosure that needs no
+ * badge uses `@/components/ui/Disclosure` directly.
  */
 export default function CollapsibleSection({
   title,

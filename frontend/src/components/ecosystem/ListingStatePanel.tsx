@@ -3,6 +3,7 @@
 
 import { useState } from 'react';
 import type { Permission } from '@pipeline-builder/api-core/permissions';
+import { LISTING_STATES } from '@pipeline-builder/api-core/wire-vocabulary';
 import { Archive, Ban, Globe, LayoutList, RotateCcw, ShieldAlert, Stamp } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { pluginPagePath } from '@/lib/public-directory/links';
@@ -194,7 +195,7 @@ export function ListingStatePanel({ can }: Props) {
           <FormField label="State" className="min-w-[10rem]">
             <Select value={state} onChange={(e) => setState(e.target.value as ListingState | '')}>
               <option value="">All states</option>
-              {(Object.keys(LISTING_STATE_LABELS) as ListingState[]).map((s) => (
+              {LISTING_STATES.map((s) => (
                 <option key={s} value={s}>{LISTING_STATE_LABELS[s]}</option>
               ))}
             </Select>

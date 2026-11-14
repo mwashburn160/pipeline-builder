@@ -21,14 +21,14 @@
  *     ever touches the SSO org's membership.
  */
 
-import { createLogger } from '@pipeline-builder/api-core';
+import { createLogger, type RoleGrant } from '@pipeline-builder/api-core';
 import { IGM_GROUP_TAKEN, IGM_LIMIT, IGM_NOT_CONFIGURED, IGM_NOT_FOUND, IGM_PROVIDER_UNSUPPORTED, MAX_MAPPINGS_PER_ORG } from './idp-mapping-errors.js';
 import { assertMappableRoleSet, type MappableRole } from './mapped-roles.js';
 import type { RoleAssignmentActor } from './role-authority.js';
 import { groupKey, providerSupportsGroups } from '../helpers/idp-claims.js';
 import { toOrgId } from '../helpers/org-id.js';
 import IdpGroupMapping, { type IdpGroupMappingDocument } from '../models/idp-group-mapping.js';
-import { OrgIdpConfig, Role, type RoleGrant } from '../models/index.js';
+import { OrgIdpConfig, Role } from '../models/index.js';
 
 const logger = createLogger('idp-group-mapping-service');
 

@@ -5,6 +5,7 @@ import { sendSuccess, sendBadRequest, audited, validateBody, requirePermission, 
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { z } from 'zod';
+import { DIGEST_MODES } from '../helpers/compliance-vocabulary.js';
 import {
   getNotificationPreference,
   upsertNotificationPreference,
@@ -53,11 +54,11 @@ const PreferenceUpdateSchema = z.object({
   notifyOnBlock: z.boolean().optional(),
   notifyOnWarning: z.boolean().optional(),
   emailEnabled: z.boolean().optional(),
-  digestMode: z.enum(['immediate', 'daily', 'weekly']).optional(),
+  digestMode: z.enum(DIGEST_MODES).optional(),
   // null clears the list (→ all org admins). Empty array also means "no explicit
   // recipients"; we normalise it to null below.
   targetUsers: z.array(z.string().min(1)).nullable().optional(),
-  // null/'' clears the webhook; a non-empty string sets it. Require https up
+  // null clears the webhook; a URL sets it ('' is not a URL and 400s). Require https up
   // front — delivery (resolveSafeWebhookTarget) rejects non-https, so accepting
   // http here would silently fail on every future send instead of 400-ing now.
   webhookUrl: z.string().url().refine((u) => u.startsWith('https://'), 'webhook url must use https').nullable().optional(),
@@ -84,8 +85,8 @@ export function createNotificationPreferenceRoutes(): Router {
     const patch = { ...validation.value };
     // Normalise an empty targetUsers array to null (= all org admins).
     if (Array.isArray(patch.targetUsers) && patch.targetUsers.length === 0) patch.targetUsers = null;
-    // Treat an empty webhook URL/secret as "clear".
-    if (patch.webhookUrl === '') patch.webhookUrl = null;
+    // Treat an empty webhook secret as "clear". (An empty URL never gets here:
+    // the schema's `.url()` refuses it, so the URL clears with `null` only.)
     if (patch.webhookSecret === '') patch.webhookSecret = null;
 
     const saved = await upsertNotificationPreference(orgId, patch);

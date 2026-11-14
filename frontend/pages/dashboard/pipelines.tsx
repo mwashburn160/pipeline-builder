@@ -1,4 +1,5 @@
 import { useState, useMemo, useCallback } from 'react';
+import { VISIBILITY_RUNGS_WIDEST_FIRST } from '@/components/ui/visibility-rungs';
 import dynamic from 'next/dynamic';
 import { useOpenOnCreateQuery } from '@/hooks/useOpenOnCreateQuery';
 import { useUrlTab } from '@/hooks/useUrlTab';
@@ -388,11 +389,7 @@ export default function PipelinesPage() {
               {canViewPublic && (
                 <FilterSelect aria-label="Filter by visibility" value={list.filters.visibility} onChange={(e) => list.updateFilter('visibility', e.target.value)}>
                   <option value="all">All visibility</option>
-                  <option value="public">Public</option>
-                  {/* The ladder has THREE rungs — omitting `org` made every
-                      org-shared row invisible under both other filter values. */}
-                  <option value="org">Org</option>
-                  <option value="private">Private</option>
+                  {VISIBILITY_RUNGS_WIDEST_FIRST.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
                 </FilterSelect>
               )}
             </>

@@ -39,7 +39,7 @@ import {
   SYSTEM_ACTOR_ID,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
-import { runWithTenantContext, stakeholderReportStore, type ReportPauseReason } from '@pipeline-builder/pipeline-data';
+import { REPORT_PAUSE_REASONS, runWithTenantContext, stakeholderReportStore } from '@pipeline-builder/pipeline-data';
 import { Router } from 'express';
 import { z } from 'zod';
 
@@ -47,9 +47,10 @@ const bodySchema = z.object({
   /**
    * Why the owner can no longer run reports. Recorded on the definition rather
    * than inferred, because the three causes need different fixes and the lead
-   * reads this string.
+   * reads this string. The store's pause vocabulary minus `entitlement`, which
+   * is billing's to declare (the stakeholder-sync leg), never platform's.
    */
-  reason: z.enum(['owner_inactive', 'permission_lost']),
+  reason: z.enum(REPORT_PAUSE_REASONS).exclude(['entitlement']),
 }).strict();
 
 export function createStakeholderInternalRoutes(): Router {
@@ -71,7 +72,7 @@ export function createStakeholderInternalRoutes(): Router {
       if (!orgId || !userId) return sendBadRequest(res, 'orgId and userId are required', ErrorCode.VALIDATION_ERROR);
       const validation = validateBody(req, bodySchema);
       if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
-      const reason = validation.value.reason as ReportPauseReason;
+      const { reason } = validation.value;
 
       // There is no user JWT on this call, so there is no ambient tenant scope for
       // RLS to read — it is established here from the path parameter, which the

@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
+import { localDay, localDaysBack } from '@/lib/local-day';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
@@ -63,20 +64,10 @@ const DATE_PRESETS: { label: string; days: number }[] = [
   { label: 'Last 365d', days: 365 },
 ];
 
-/** Format a Date as a local `YYYY-MM-DD` string (matches the native date input value). */
-function isoDay(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
-
 /** Rolling window ending today, `days` back. */
-function presetRange(days: number): { from: string; to: string } {
-  const to = new Date();
-  const from = new Date();
-  from.setDate(from.getDate() - days);
-  return { from: isoDay(from), to: isoDay(to) };
-}
+const presetRange = (days: number) => localDaysBack(days);
 
-/** Parse a `YYYY-MM-DD` string as LOCAL midnight (matches {@link isoDay}), so
+/** Parse a `YYYY-MM-DD` string as LOCAL midnight (matches `localDay`), so
  *  clamp arithmetic doesn't drift by a day against the native date inputs. */
 function parseDay(s: string): Date {
   return new Date(`${s}T00:00:00`);
@@ -100,7 +91,7 @@ function clampFrom(from: string, to: string, maxDays: number): { from: string; c
   if (spanDays(from, anchor) > maxDays) {
     const c = new Date(anchor);
     c.setDate(c.getDate() - maxDays);
-    return { from: isoDay(c), clamped: true };
+    return { from: localDay(c), clamped: true };
   }
   return { from, clamped: false };
 }

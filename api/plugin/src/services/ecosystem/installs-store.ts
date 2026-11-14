@@ -92,6 +92,10 @@ export const installRows = {
   setPendingChange: (id: string, change: InstallChangeRequest): Promise<PluginInstall | null> =>
     elevated(async (tx) => first(await tx.update(I()).set({ pendingChange: change, updatedAt: new Date() })
       .where(and(eq(I().id, id), eq(I().status, 'active'), isNull(I().pendingChange))).returning() as PluginInstall[])),
+  /** Apply a patch only while the install is ACTIVE and still has a pending change (the approve race guard). */
+  updatePending: (id: string, patch: Partial<PluginInstallInsert>): Promise<PluginInstall | null> =>
+    elevated(async (tx) => first(await tx.update(I()).set({ ...patch, updatedAt: new Date() })
+      .where(and(eq(I().id, id), eq(I().status, 'active'), isNotNull(I().pendingChange))).returning() as PluginInstall[])),
   /** Drop a pending change (rejected). False when there was none any more. */
   clearPendingChange: (id: string): Promise<boolean> =>
     elevated(async (tx) => (await tx.update(I()).set({ pendingChange: null, updatedAt: new Date() })

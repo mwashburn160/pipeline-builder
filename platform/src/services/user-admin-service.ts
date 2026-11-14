@@ -9,12 +9,13 @@ import { assertActorMayAssignBuiltinAdmin, assignBuiltinAdminRole, ensureBaselin
 import { deleteUserCascade } from './user-cascade.js';
 import { anonymizeUserEcosystemContent } from './user-ecosystem-privacy.js';
 import { UA_USER_NOT_FOUND, UA_USERNAME_TAKEN, UA_EMAIL_TAKEN, UA_ORG_NOT_FOUND, UA_CANNOT_CHANGE_OWNER, UA_SEAT_LIMIT, UA_ROLES_NEED_ORG } from './user-errors.js';
+import { isAdminOrgRole, type OrgRole } from '@pipeline-builder/api-core/wire-vocabulary';
 import { loadActiveOrgInfo } from '../helpers/active-org-info.js';
 import { toOrgId } from '../helpers/org-id.js';
 import { assertNewPasswordAcceptable } from '../helpers/password-policy.js';
 import { withSeatGuard } from '../helpers/seats.js';
 import { publishUserRevocation, publishUserDeletionRevocation } from '../helpers/session-revocation.js';
-import { User, Organization, UserOrganization, Role, RoleAssignment, type OrgMemberRole, type UserData } from '../models/index.js';
+import { User, Organization, UserOrganization, Role, RoleAssignment, type UserData } from '../models/index.js';
 import { withMongoTransaction } from '../utils/mongo-tx.js';
 import { escapeRegex } from '../utils/regex.js';
 
@@ -50,10 +51,8 @@ class UserAdminService {
   }
 
   /** User IDs that hold a specific role within an org — for the role filter. */
-  async getUserIdsByRoleInOrg(orgId: string, role: string): Promise<Types.ObjectId[]> {
-    // role is validated against MEMBER_ROLES by the caller; cast to satisfy
-    // mongoose's strict filter typing for the enum-backed role field.
-    const ids = await UserOrganization.find({ organizationId: toOrgId(orgId), role: role as OrgMemberRole, isActive: true }).distinct('userId');
+  async getUserIdsByRoleInOrg(orgId: string, role: OrgRole): Promise<Types.ObjectId[]> {
+    const ids = await UserOrganization.find({ organizationId: toOrgId(orgId), role, isActive: true }).distinct('userId');
     return ids as Types.ObjectId[];
   }
 
@@ -180,9 +179,9 @@ class UserAdminService {
     password: string;
     isSuperAdmin?: boolean;
     organizationId?: string;
-    role?: OrgMemberRole;
+    role?: OrgRole;
     roleIds?: string[];
-  }): Promise<{ id: string; username: string; email: string; isSuperAdmin: boolean; isEmailVerified: boolean; organizationId?: string; role?: OrgMemberRole }> {
+  }): Promise<{ id: string; username: string; email: string; isSuperAdmin: boolean; isEmailVerified: boolean; organizationId?: string; role?: OrgRole }> {
     const username = input.username.trim().toLowerCase();
     const email = input.email.trim().toLowerCase();
 
@@ -256,7 +255,7 @@ class UserAdminService {
         // reverted by the next recomputeUserOrgRole. We assign Roles and let
         // recompute DERIVE the cached role (it preserves the 'owner' label).
         await ensureBaselineRole(user._id, orgObjectId, session);
-        if (input.role === 'admin' || input.role === 'owner') {
+        if (isAdminOrgRole(input.role)) {
           await assignBuiltinAdminRole(user._id, orgObjectId, session);
           await recomputeUserOrgRole(user._id, orgObjectId, session);
         }

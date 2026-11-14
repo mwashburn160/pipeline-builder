@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useEffect, useId } from 'react';
 import { useRouter } from 'next/router';
-import { formatError } from '@/lib/constants';
+import { formatError, settledFailureMessage } from '@/lib/constants';
 import { Mail } from 'lucide-react';
 import Link from 'next/link';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
@@ -31,7 +31,8 @@ import { InviteFollowUpNotice } from '@/components/invitations/InviteFollowUpNot
 import { InviteRolePicker } from '@/components/invitations/InviteRolePicker';
 import { Callout } from '@/components/ui/Callout';
 import { useFetch } from '@/hooks/useFetch';
-import { seatRemedy, seatRemedyLabel, seatsAtCapacity, type AccountSeatUsage } from '@/lib/tiers';
+import { seatRemedy } from '@pipeline-builder/api-core/tier-limits';
+import { seatRemedyLabel, seatsAtCapacity, type AccountSeatUsage } from '@/lib/tiers';
 import { useOrgHierarchy } from '@/hooks/useOrgHierarchy';
 import api from '@/lib/api';
 
@@ -147,9 +148,7 @@ export default function InvitationsPage() {
       if (r.status === 'fulfilled' && r.value.success) {
         revoked++;
       } else {
-        const msg = r.status === 'rejected'
-          ? (r.reason instanceof Error ? r.reason.message : String(r.reason))
-          : (r.value.message || 'revoke failed');
+        const msg = settledFailureMessage(r, 'revoke failed');
         errors.push(`${ids[i]}: ${msg}`);
       }
     });

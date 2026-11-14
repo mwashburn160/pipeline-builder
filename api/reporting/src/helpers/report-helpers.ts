@@ -1,20 +1,22 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { attachmentDisposition, createLogger, envInt, envStr, fetchOrgDescendants, RETENTION_MAX_DAYS, userHasPermission } from '@pipeline-builder/api-core';
+import { attachmentDisposition, createLogger, envInt, envStr, ErrorCode, fetchOrgDescendants, RETENTION_MAX_DAYS, sendError, userHasPermission } from '@pipeline-builder/api-core';
 import type { Request, Response } from 'express';
+import type { PdfFailure, PdfRefusal } from '../services/report-pdf.js';
 
 const _descLogger = createLogger('reporting-rollup');
 
 /**
- * Timeout (ms) for reporting's outbound platform org-hierarchy lookups
- * (env: `REPORTING_HTTP_TIMEOUT`).
+ * Timeout (ms) for reporting's outbound service calls — the platform
+ * org-hierarchy lookups, the email-status read, and the posture legs to
+ * compliance and platform (env: `REPORTING_HTTP_TIMEOUT`).
  *
- * Deliberately TIGHTER than the global `HTTP_CLIENT_TIMEOUT` (5s): both callers
- * sit in front of a user-facing report or a batched retention sweep where a
- * hierarchy lookup is a best-effort enhancement — failing fast and degrading to
- * a single-org report (or skipping the org this tick) beats holding the request
- * for the full global budget.
+ * Deliberately TIGHTER than the global `HTTP_CLIENT_TIMEOUT` (5s): every caller
+ * sits in front of a user-facing report, a scheduled run or a batched retention
+ * sweep, where failing fast (and degrading, refusing, or skipping the org this
+ * tick — each caller's own policy) beats holding the work for the full global
+ * budget.
  */
 export const REPORTING_HTTP_TIMEOUT_MS = envInt('REPORTING_HTTP_TIMEOUT', 3000, { min: 1 });
 
@@ -71,24 +73,38 @@ export function scrubField<T>(rows: readonly T[], key: string): Array<Record<str
 }
 
 /**
- * Org → team rollup: resolve `[self, ...descendantOrgIds]` for `orgId` by
- * calling the platform's authoritative descendants endpoint (it owns the org
- * tree). Returns `undefined` when there's no parent/child hierarchy, or on ANY
- * error — callers then fall back to the normal single-org report. This makes
- * the rollup a best-effort enhancement that can never break a report.
+ * Org → team rollup, STRICT: `[self, ...descendantOrgIds]` for `orgId` from the
+ * platform's authoritative descendants endpoint (it owns the org tree), or
+ * `undefined` when the org has no teams. THROWS when platform cannot be reached
+ * OR answers non-2xx (`throwOnHttpError`), so a caller for whom a narrowed org
+ * set is a wrong answer — an account-wide entitlement sync, a report whose
+ * definition says it covers the teams — can refuse instead of silently acting
+ * on the root alone. A platform 5xx is not "no teams".
  *
  * The HTTP mechanics (platform host/port resolution, the signed service-token
  * auth header, timeout+retry, and element-level validation of the returned id
  * list) live in the shared api-core `fetchOrgDescendants` helper — the same
  * sanctioned service-to-service org resolver compliance uses via
- * `fetchParentOrgId`. This function only keeps reporting's fail-soft policy.
+ * `fetchParentOrgId`.
+ */
+export function resolveOrgSubtree(orgId: string): Promise<string[] | undefined> {
+  return fetchOrgDescendants(orgId, {
+    headers: { 'x-org-id': orgId },
+    timeout: REPORTING_HTTP_TIMEOUT_MS,
+    throwOnHttpError: true,
+  });
+}
+
+/**
+ * Org → team rollup, FAIL-SOFT: {@link resolveOrgSubtree}, but `undefined` on
+ * ANY error as well — callers then fall back to the normal single-org report.
+ * This makes the rollup a best-effort enhancement that can never break an
+ * on-demand dashboard read. Use the strict form wherever narrowing to one org
+ * would be a wrong answer rather than a degraded one.
  */
 export async function resolveOrgRollup(orgId: string): Promise<string[] | undefined> {
   try {
-    return await fetchOrgDescendants(orgId, {
-      headers: { 'x-org-id': orgId },
-      timeout: REPORTING_HTTP_TIMEOUT_MS,
-    });
+    return await resolveOrgSubtree(orgId);
   } catch (err) {
     _descLogger.warn('Org rollup resolution failed; falling back to single-org report', { orgId, err: String(err) });
     return undefined;
@@ -134,4 +150,24 @@ export function sendPdf(res: Response, pdf: Buffer, fileName: string): void {
   res.setHeader('Cache-Control', 'private, no-store, max-age=0');
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.status(200).end(pdf);
+}
+
+/**
+ * How each renderer refusal is answered, keyed by the refusal so a new reason
+ * cannot ship without an answer. `busy` is a 429 (the cap is per instance and
+ * clears in seconds), `unavailable` a 503 (no Chromium here — not the reader's
+ * fault, and not a dead link), and a render that failed or overran its budget
+ * is ours: a 500.
+ */
+const PDF_REFUSAL_HTTP: Record<PdfFailure, { status: number; code: ErrorCode }> = {
+  busy: { status: 429, code: ErrorCode.SERVICE_UNAVAILABLE },
+  unavailable: { status: 503, code: ErrorCode.SERVICE_UNAVAILABLE },
+  timeout: { status: 500, code: ErrorCode.INTERNAL_ERROR },
+  render_failed: { status: 500, code: ErrorCode.INTERNAL_ERROR },
+};
+
+/** Answer a renderer refusal — the one mapping both PDF routes use. */
+export function sendPdfRefusal(res: Response, refusal: PdfRefusal): void {
+  const { status, code } = PDF_REFUSAL_HTTP[refusal.reason];
+  sendError(res, status, refusal.message, code);
 }

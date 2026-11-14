@@ -16,7 +16,8 @@
  * These functions deliberately do NOT swallow transport errors: a connection
  * failure/timeout propagates so each caller keeps its own fallback policy (log
  * level, degrade-to-self vs. return-undefined). A non-2xx response is treated
- * as "no data" (returns undefined).
+ * as "no data" (returns undefined), unless a parent/descendants caller sets
+ * `throwOnHttpError`.
  */
 
 import { getServiceAuthHeader } from '../middleware/service-tokens.js';
@@ -103,8 +104,9 @@ export async function fetchParentOrgId(orgId: string, opts: OrgHierarchyHttpOpti
 /**
  * Resolve `[self, ...descendantOrgIds]` for an org via platform's
  * `GET /organization/:id/descendants`. Returns the id list only when it is
- * larger than the org itself (a real subtree), else `undefined`; also
- * `undefined` on a non-2xx response. Throws on a transport failure so the
+ * larger than the org itself (a real subtree), else `undefined`. A non-2xx
+ * response resolves to `undefined` by default, or THROWS when
+ * `throwOnHttpError` is set. Always throws on a transport failure so the
  * caller can apply its own fallback.
  *
  * This is a trust boundary: the response is validated element-by-element rather
@@ -115,7 +117,12 @@ export async function fetchParentOrgId(orgId: string, opts: OrgHierarchyHttpOpti
 export async function fetchOrgDescendants(orgId: string, opts: OrgHierarchyHttpOptions = {}): Promise<string[] | undefined> {
   const { client, path, headers } = buildRequest(orgId, 'descendants', opts);
   const res = await client.get<{ data?: { orgIds?: unknown } }>(path, { headers, timeout: opts.timeout });
-  if (res.statusCode >= 400) return undefined;
+  if (res.statusCode >= 400) {
+    if (opts.throwOnHttpError) {
+      throw new Error(`descendant-org lookup failed for ${orgId}: HTTP ${res.statusCode}`);
+    }
+    return undefined;
+  }
   const ids = res.body?.data?.orgIds;
   if (!Array.isArray(ids)) return undefined;
   const orgIds = ids.filter((id): id is string => typeof id === 'string');

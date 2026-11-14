@@ -16,7 +16,7 @@ import { orgRetentionWindowFromSettings, retentionOrgIdFor } from '../helpers/re
  * The write is org-scoped (RLS via the caller's org context) and idempotent —
  * re-posting the same (execution, outcome) refreshes `at` instead of
  * double-counting. Mounted `advanced_reporting`-gated alongside the other DORA
- * routes (see index.ts).
+ * routes (see app-routes.ts).
  *
  * ANTI-FORGERY: the DORA compute makes a `failed` outcome's `environment`
  * appear as its own env card even with zero real deploys, so an unvalidated write

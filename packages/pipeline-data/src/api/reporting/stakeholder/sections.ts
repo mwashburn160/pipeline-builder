@@ -20,7 +20,7 @@
  *    does not stop someone adding `topCommitters` later — a throwing registry does.
  */
 
-import type { FeatureFlag } from '@pipeline-builder/api-core';
+import type { FeatureFlag, WeekStart } from '@pipeline-builder/api-core';
 import type { AnalyticsScope } from '../analytics-queries.js';
 
 /** What a section needs to run one period's query. */
@@ -33,7 +33,7 @@ export interface SectionContext {
   to: string;
   /** The report's bucketing settings, for the time-series sections. */
   tz: string;
-  weekStart: 'monday' | 'sunday';
+  weekStart: WeekStart;
   /**
    * The PREVIOUS period's bounds, for the sections that compute their own trend
    * internally rather than being run twice.
@@ -51,7 +51,7 @@ export interface SectionContext {
  *  registry never imports the service, so it stays testable with a stub. */
 export interface SectionDataSource {
   getExecutionCount(orgId: string, orgIds?: string[], range?: { from?: string; to?: string }): Promise<unknown>;
-  getSuccessRate(orgId: string, interval: string, from: string, to: string, orgIds?: string[], bucket?: { tz?: string; weekStart?: 'monday' | 'sunday' }): Promise<unknown>;
+  getSuccessRate(orgId: string, interval: string, from: string, to: string, orgIds?: string[], bucket?: { tz?: string; weekStart?: WeekStart }): Promise<unknown>;
   getAverageDuration(orgId: string, from: string, to: string, orgIds?: string[]): Promise<unknown>;
   getStageFailures(orgId: string, from: string, to: string, orgIds?: string[]): Promise<unknown>;
   getStageBottlenecks(orgId: string, from: string, to: string, orgIds?: string[]): Promise<unknown>;
@@ -60,7 +60,7 @@ export interface SectionDataSource {
   getPluginSummary(orgId: string): Promise<unknown>;
   getPluginDistribution(orgId: string): Promise<unknown>;
   getPluginVersions(orgId: string): Promise<unknown>;
-  getBuildSuccessRate(orgId: string, interval: string, from: string, to: string, orgIds?: string[], bucket?: { tz?: string; weekStart?: 'monday' | 'sunday' }): Promise<unknown>;
+  getBuildSuccessRate(orgId: string, interval: string, from: string, to: string, orgIds?: string[], bucket?: { tz?: string; weekStart?: WeekStart }): Promise<unknown>;
   getBuildDuration(orgId: string, from: string, to: string, orgIds?: string[]): Promise<unknown>;
   getBuildFailures(orgId: string, from: string, to: string, limit?: number, orgIds?: string[]): Promise<unknown>;
   getDoraMetrics(orgId: string, from: string, to: string, orgIds?: string[], opts?: Record<string, unknown>): Promise<unknown>;

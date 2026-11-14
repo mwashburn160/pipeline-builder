@@ -21,6 +21,7 @@
 
 import { tool } from '@pipeline-builder/ai-core';
 import type { ToolSet } from '@pipeline-builder/ai-core';
+import { RULE_TARGETS, type RuleTarget } from '@pipeline-builder/api-core';
 import { z } from 'zod';
 
 import type { ComplianceFinding, ComplianceNote } from '../proposals.js';
@@ -65,7 +66,7 @@ function shapeFindings(raw: unknown[]): ComplianceFinding[] {
  */
 export async function checkDraft(
   deps: Pick<AgentToolDeps, 'compliance'>,
-  target: 'pipeline' | 'plugin',
+  target: RuleTarget,
   attributes: Record<string, unknown>,
 ): Promise<ComplianceNote> {
   try {
@@ -127,7 +128,7 @@ export function complianceTools(deps: AgentToolDeps): ToolSet {
         + '"would this be allowed?", and to explain a blocked create. Image facts (signed/scanned/vulnerability '
         + 'counts) are unknown until a plugin has been built, so rules reading them are counted in rulesSkipped.',
       inputSchema: z.object({
-        target: z.enum(['pipeline', 'plugin']).describe('Which rule set to evaluate against'),
+        target: z.enum(RULE_TARGETS).describe('Which rule set to evaluate against'),
         attributes: z
           .record(z.string(), z.any())
           .describe('The configuration to judge: a pipeline props document, or a plugin spec'),

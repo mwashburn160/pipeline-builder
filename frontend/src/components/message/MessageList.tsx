@@ -1,6 +1,11 @@
 import { Megaphone, MessageCircle, Trash2, User } from 'lucide-react';
 import { formatRelativeTime } from '@/lib/relative-time';
 import { SYSTEM_ORG_ID } from '@/lib/constants';
+import { SUPPORT_RESPONSE_TARGETS } from '@pipeline-builder/api-core/feature-flags';
+import {
+  SUPPORT_CASE_STATUSES, TENANT_SUPPORT_CASE_STATUSES, TENANT_TERMINAL_SUPPORT_CASE_STATUSES,
+  type SupportCaseStatus, type TenantSupportCaseStatus,
+} from '@pipeline-builder/api-core/wire-vocabulary';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Checkbox } from '@/components/ui/Checkbox';
 import type { Message, SupportCaseSummary } from '@/types';
@@ -34,29 +39,47 @@ import type { Message, SupportCaseSummary } from '@/types';
  * caller omits the phrase entirely.
  */
 export function responseTargetLabel(level: string): string | null {
-  switch (level) {
-    // Business days, not business hours. "48 business hours" reads to a customer
-    // as two days and means six, so the old wording flattered the commitment by
-    // about three times — and a promise a customer feels misled by is worse than
-    // a slower one stated straight.
-    case 'support_standard': return '2 business days';
-    case 'support_priority': return 'next business day';
-    // Premium is the only level with a clock that does not stop for nights or
-    // weekends, so its number is stated on that clock: better than priority
-    // every day of the week, not just at weekends.
-    case 'support_premium': return '8 hours, any day';
-    default: return null;
-  }
+  // api-core's own phrases — the same ones the add-on descriptions are built from.
+  return Object.hasOwn(SUPPORT_RESPONSE_TARGETS, level) ? SUPPORT_RESPONSE_TARGETS[level] : null;
 }
 
+/**
+ * Every support-case status (api-core `SUPPORT_CASE_STATUSES`), keyed by its
+ * wire id: the reader-side label, and — for the statuses a TENANT may set
+ * (`TENANT_SUPPORT_CASE_STATUSES`) — the label its option carries.
+ * `awaiting_support` and `resolved` are ours to declare (the server refuses them
+ * from a tenant); closing is the tenant's own "this is sorted", which only staff
+ * may reopen (`TENANT_TERMINAL_SUPPORT_CASE_STATUSES`).
+ */
+const CASE_STATUS_LABELS = {
+  open: 'open',
+  awaiting_support: 'waiting on us',
+  awaiting_customer: 'waiting on you',
+  resolved: 'resolved',
+  closed: 'closed',
+} as const satisfies Record<SupportCaseStatus, string>;
+
+const TENANT_CASE_STATUS_OPTIONS = {
+  open: 'Open — waiting on us',
+  awaiting_customer: 'Waiting on me',
+  closed: 'Closed',
+} as const satisfies Record<TenantSupportCaseStatus, string>;
+
+function isSupportCaseStatus(status: string): status is SupportCaseStatus {
+  return (SUPPORT_CASE_STATUSES as readonly string[]).includes(status);
+}
+
+/** The status as a reader sees it; an unrecognised one reads as `open`. */
 export function caseStatusLabel(status: string): string {
-  switch (status) {
-    case 'awaiting_support': return 'waiting on us';
-    case 'awaiting_customer': return 'waiting on you';
-    case 'resolved': return 'resolved';
-    case 'closed': return 'closed';
-    default: return 'open';
-  }
+  return isSupportCaseStatus(status) ? CASE_STATUS_LABELS[status] : CASE_STATUS_LABELS.open;
+}
+
+/** The statuses a tenant can set, in api-core's order. */
+export const TENANT_CASE_STATUSES = TENANT_SUPPORT_CASE_STATUSES.map((value) => ({ value, label: TENANT_CASE_STATUS_OPTIONS[value] }));
+
+/** Statuses a tenant cannot move OUT of (api-core `TENANT_TERMINAL_SUPPORT_CASE_STATUSES`). */
+export function isTenantTerminalCaseStatus(status: string): boolean {
+  return (TENANT_TERMINAL_SUPPORT_CASE_STATUSES as readonly string[]).includes(status);
 }
 
 /**

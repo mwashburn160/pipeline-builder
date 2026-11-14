@@ -26,12 +26,24 @@
  * the OIDC token exchange. CRUD reads never return the plaintext.
  */
 
+import {
+  IDP_PROTOCOLS,
+  IDP_PROVIDERS,
+  type IdpProtocol,
+  type IdpProvider,
+  type SamlAttributeMapping,
+} from '@pipeline-builder/api-core';
 import { Schema, model, type HydratedDocument, Types } from 'mongoose';
 
-/** Supported IdP (SSO) providers — the OIDC-capable set. This is DELIBERATELY
- * NOT derived from `OAuthProviderName`: that union carries OAuth2 social logins
- * (e.g. `facebook`) that are NOT standards-OIDC and therefore can't drive the
- * per-org SSO id_token flow.
+/*
+ * The provider / protocol vocabularies and the SAML attribute mapping are
+ * api-core's wire vocabulary (`IDP_PROVIDERS`, `IDP_PROTOCOLS`,
+ * `SamlAttributeMapping`), shared with the frontend's IdP forms.
+ *
+ * Providers are the OIDC-capable set, DELIBERATELY NOT derived from
+ * `OAuthProviderName`: that union carries OAuth2 social logins (e.g.
+ * `facebook`) that are NOT standards-OIDC and therefore can't drive the per-org
+ * SSO id_token flow.
  *
  * - `generic-oidc` — the broad case: any OIDC issuer with a discovery URL
  *   (Okta, Auth0, Keycloak, Azure AD).
@@ -41,42 +53,19 @@ import { Schema, model, type HydratedDocument, Types } from 'mongoose';
  *   so no hand-entered URL. A user-pool id is NOT an AWS account id — safe to store.
  * - `google`       — OIDC-compliant; discovery is well-known.
  * - `github`       — present for parity with the OAuth handlers, but GitHub is
- *   NOT an OpenID provider (no id_token); the OIDC engine rejects it. */
-export type IdpProvider = 'generic-oidc' | 'cognito' | 'google' | 'github';
-
-/** Runtime list of `IdpProvider` values for Mongoose enum / Zod schemas. */
-const IDP_PROVIDERS: readonly IdpProvider[] = ['generic-oidc', 'cognito', 'google', 'github'];
-
-/**
- * Which federation protocol this org's IdP speaks.
+ *   NOT an OpenID provider (no id_token); the OIDC engine rejects it.
  *
- * One config per org still holds: an org federates over OIDC **or** SAML, never
- * both at once, and this selector is what the login path dispatches on. The
- * fields for the other protocol are simply left alone when the selector moves,
- * so switching back does not mean re-entering a connection from scratch.
- */
-export type IdpProtocol = 'oidc' | 'saml';
-
-/** Runtime list of `IdpProtocol` values for Mongoose enum / Zod schemas. */
-export const IDP_PROTOCOLS: readonly IdpProtocol[] = ['oidc', 'saml'];
-
-/**
- * Which assertion attribute carries which identity field.
+ * Protocol: one config per org — an org federates over OIDC **or** SAML, never
+ * both at once, and `protocol` is what the login path dispatches on. The fields
+ * for the other protocol are left alone when the selector moves, so switching
+ * back does not mean re-entering a connection from scratch.
  *
- * SAML IdPs disagree far more than OIDC ones do: Entra sends the long
- * `http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress` URIs,
- * Okta and Keycloak send short names (`email`, `groups`), Shibboleth sends OID
- * URNs. Rather than hard-code a guess list, the org names the attributes; the
- * lookup falls back to the common spellings when a name is left empty.
+ * SAML attribute mapping: SAML IdPs disagree far more than OIDC ones do — Entra
+ * sends the long `http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress`
+ * URIs, Okta and Keycloak send short names (`email`, `groups`), Shibboleth sends
+ * OID URNs. Rather than hard-code a guess list, the org names the attributes;
+ * the lookup falls back to the common spellings when a name is left empty.
  */
-export interface SamlAttributeMapping {
-  /** Attribute holding the user's email address. */
-  email?: string;
-  /** Attribute holding the display name. */
-  name?: string;
-  /** Attribute holding group memberships (drives JIT Role mapping). */
-  groups?: string;
-}
 
 /** The outcome of the last test connection, as persisted on the config. */
 export interface IdpTestRecord {

@@ -51,6 +51,10 @@ const mockQuotaService = { getTier: jest.fn<AnyFn>().mockResolvedValue('develope
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   isSystemAdmin: jest.fn<AnyFn>(),
+  // The cross-org widening (`seesEveryOrg`): system org + plugin_queue:manage.
+  isSystemOrgRequest: jest.fn<AnyFn>(),
+  // Every caller here holds plugin_queue:manage; the system-org mock decides.
+  userHasPermission: (_req: unknown, perm: string) => perm === 'plugin_queue:manage',
   // Functional gate (default apiCoreMock stub is pass-through): grants a
   // superadmin implicitly, else requires one of the named permissions.
   requirePermission: (...perms: string[]) => (req: any, res: any, next: () => void) => {
@@ -78,7 +82,7 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
   },
 }));
 
-const { isSystemAdmin } = await import('@pipeline-builder/api-core');
+const { isSystemAdmin, isSystemOrgRequest } = await import('@pipeline-builder/api-core');
 const { createQueueStatusRoutes } = await import('../src/routes/queue-status.js');
 
 function getTriageHandler() {
@@ -134,6 +138,7 @@ describe('GET /triage auth and tenant isolation', () => {
 
   it('denies a caller without plugins:write at the gate', async () => {
     (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(false);
+    (isSystemOrgRequest as jest.Mock<AnyFn>).mockReturnValue(false);
     const { res, json } = makeRes();
     await runTriage({
       __orgId: 'org-a',
@@ -147,6 +152,7 @@ describe('GET /triage auth and tenant isolation', () => {
 
   it('admits a member holding plugins:write through the gate', async () => {
     (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(false);
+    (isSystemOrgRequest as jest.Mock<AnyFn>).mockReturnValue(false);
     queueGetJobs.mockResolvedValue([job('1', 'org-a')]);
     const { res, json } = makeRes();
     await runTriage({
@@ -164,6 +170,7 @@ describe('GET /triage auth and tenant isolation', () => {
 
   it('system admin sees failures from ALL orgs', async () => {
     (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(true);
+    (isSystemOrgRequest as jest.Mock<AnyFn>).mockReturnValue(true);
     queueGetJobs.mockResolvedValue([
       job('1', 'org-a'),
       job('2', 'org-b'),
@@ -184,6 +191,7 @@ describe('GET /triage auth and tenant isolation', () => {
 
   it('org admin sees ONLY their own org failures (regression: cross-org leak)', async () => {
     (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(false);
+    (isSystemOrgRequest as jest.Mock<AnyFn>).mockReturnValue(false);
     queueGetJobs.mockResolvedValue([
       job('1', 'org-a'),
       job('2', 'org-b'),
@@ -210,6 +218,7 @@ describe('GET /triage auth and tenant isolation', () => {
 
   it('owner role is treated like admin', async () => {
     (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(false);
+    (isSystemOrgRequest as jest.Mock<AnyFn>).mockReturnValue(false);
     queueGetJobs.mockResolvedValue([job('1', 'org-a')]);
     const handler = getTriageHandler();
     const { res, json } = makeRes();
@@ -227,6 +236,7 @@ describe('GET /triage auth and tenant isolation', () => {
 
   it('case-insensitive orgId comparison', async () => {
     (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(false);
+    (isSystemOrgRequest as jest.Mock<AnyFn>).mockReturnValue(false);
     queueGetJobs.mockResolvedValue([
       { id: '1', data: { orgId: 'ORG-A', pluginRecord: { name: 'p1', orgId: 'ORG-A' }, lastError: 'fail' }, failedReason: 'fail' },
     ]);
@@ -245,6 +255,7 @@ describe('GET /triage auth and tenant isolation', () => {
 
   it('jobs with missing orgId are excluded for non-system admins', async () => {
     (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(false);
+    (isSystemOrgRequest as jest.Mock<AnyFn>).mockReturnValue(false);
     queueGetJobs.mockResolvedValue([
       job('1', 'org-a'),
       { id: '2', data: { pluginRecord: { name: 'orphan' } }, failedReason: 'fail' },

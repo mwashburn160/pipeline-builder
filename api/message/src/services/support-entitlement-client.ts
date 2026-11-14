@@ -66,7 +66,10 @@ const entitlementCache = createCacheService(
 
 /** Platform's answer. Mirrors `SupportEntitlement` in platform's helper. */
 export interface SupportEntitlementView {
-  /** `support_standard` | `support_priority` | `support_premium`, or null. */
+  /**
+   * The BASELINE level held (`support_standard` | `support_priority`), or null.
+   * Never `support_premium`: premium is the upgrade reported separately below.
+   */
   level: string | null;
   /**
    * Whether the account holds the premium UPGRADE, and for how many contacts.

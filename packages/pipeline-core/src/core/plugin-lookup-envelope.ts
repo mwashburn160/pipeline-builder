@@ -1,6 +1,10 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+// The dependency-free plugin-catalog subpath only: the plugin-lookup Lambda
+// bundles this module, so it must not pull in the api-core root.
+import { TOOLCHAIN_METADATA_PREFIX, TOOLCHAIN_RESOLVED_VIA, type ToolchainResolvedVia } from '@pipeline-builder/api-core/plugin-catalog';
+import type { PluginToolchain } from '@pipeline-builder/api-core';
 import type { Plugin } from '@pipeline-builder/pipeline-data';
 
 /** How serious a lookup warning is (vulnerability state is graded, never refused). */
@@ -17,22 +21,14 @@ export interface LookupWarning {
   readonly severity: LookupWarningSeverity;
 }
 
-/** How a managed toolchain release was chosen for the caller (never anything about other orgs). */
-export type ToolchainResolvedVia = 'pin' | 'org-default' | 'canary' | 'default';
+/** The exact tool versions a toolchain release carries (the bootstrap spec's `toolchain`), as far as an answer carries them. */
+export type ToolchainVersions = Partial<Readonly<PluginToolchain>>;
 
-export const TOOLCHAIN_RESOLVED_VIA: readonly ToolchainResolvedVia[] = ['pin', 'org-default', 'canary', 'default'];
-
-/** The exact tool versions a toolchain release carries (the bootstrap spec's `toolchain`). */
-export interface ToolchainVersions {
-  readonly pipelineManager?: string;
-  readonly awsCdk?: string;
-  readonly cdkAssets?: string;
-  readonly esbuild?: string;
-  readonly pnpm?: string;
-  readonly node?: string;
-}
-
-const TOOLCHAIN_VERSION_KEYS: readonly (keyof ToolchainVersions)[] = ['pipelineManager', 'awsCdk', 'cdkAssets', 'esbuild', 'pnpm', 'node'];
+/** Every tool field, keyed so a field added to api-core's `PluginToolchainSchema` fails to compile here until listed. */
+const TOOLCHAIN_VERSION_FIELDS: Record<keyof PluginToolchain, true> = {
+  pipelineManager: true, awsCdk: true, cdkAssets: true, esbuild: true, pnpm: true, node: true,
+};
+const TOOLCHAIN_VERSION_KEYS = Object.keys(TOOLCHAIN_VERSION_FIELDS) as (keyof PluginToolchain)[];
 
 /**
  * The release a managed-name lookup (`pipeline-bootstrap`, `cdk-synth`)
@@ -67,13 +63,6 @@ function pickVersions(raw: unknown): ToolchainVersions {
   }
   return out;
 }
-
-/**
- * The flat `metadata` key prefix the platform persists a build image's
- * `toolchain` under (`toolchain.awsCdk`, …; api-core `TOOLCHAIN_METADATA_PREFIX`,
- * repeated here so this module stays dependency-free).
- */
-const TOOLCHAIN_METADATA_PREFIX = 'toolchain.';
 
 /** The tool versions a plugin row's `metadata` carries as flat `toolchain.<field>` keys. */
 function versionsFromMetadata(metadata: unknown): ToolchainVersions {

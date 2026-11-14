@@ -6,6 +6,8 @@ import api, { ApiError } from '@/lib/api';
 import { clearAttachmentImageCache } from '@/lib/attachment-image-cache';
 import { syncAdminConsoleCookie } from '@/lib/admin-console';
 import { clearQueryCache } from '@/lib/query-cache';
+import { setUnreadCount } from '@/lib/unread-count-store';
+import { clearImageTagsCache } from './useImageTags';
 import { useLoginActions, type LoginResult } from './internal/useLoginActions';
 
 /**
@@ -143,6 +145,9 @@ function keepIfUnchanged<T>(prev: T, next: T): T {
 function clearSessionCaches(): void {
   clearAttachmentImageCache();
   clearQueryCache();
+  clearImageTagsCache();
+  // The badge is the previous identity's count until the next poll otherwise.
+  setUnreadCount(0);
 }
 
 /**
@@ -339,6 +344,16 @@ export function AuthProvider({ children, deferInit = false }: { children: ReactN
   useEffect(() => api.onAccessTokenChange(syncAdminConsoleCookie), []);
 
   /**
+   * A sibling tab switched org: its token (now this tab's) names the new org,
+   * so drop the previous org's caches and reload the profile under it — the
+   * same two steps `switchOrganization` takes for this tab's own switch.
+   */
+  useEffect(() => api.onOrganizationChange(() => {
+    clearSessionCaches();
+    void refreshUser({ force: true });
+  }), [refreshUser]);
+
+  /**
    * Handle session expiry — API client fires this when refresh fails.
    * Redirects to login page and clears local state.
    */
@@ -405,8 +420,8 @@ export function AuthProvider({ children, deferInit = false }: { children: ReactN
   // Reading it during render was also a server/client hydration hazard — the
   // server never has a token, the browser may restore one from sessionStorage
   // before the first paint. Syncing in an effect keyed on the profile covers
-  // every path that can change it: init, sign-in, org switch, stop-impersonation
-  // and the cross-tab token handoff all refresh the profile.
+  // every path that can change it: init, sign-in, org switch (this tab's or a
+  // sibling's), and stop-impersonation all refresh the profile.
   const [isReadOnly, setIsReadOnly] = useState(false);
   useEffect(() => {
     setIsReadOnly(api.isImpersonating());

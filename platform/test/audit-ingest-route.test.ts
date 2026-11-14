@@ -286,6 +286,19 @@ describe('POST /audit/events — Idempotency-Key threading', () => {
   });
 });
 
+describe('POST /audit/events — outcome', () => {
+  it('honours an explicit, recognised outcome', async () => {
+    await post({ action: 'pipeline.create', actorId: 'svc-user', outcome: 'failure' });
+    expect(mockCreateEvent).toHaveBeenCalledWith(expect.objectContaining({ outcome: 'failure' }));
+  });
+
+  it('infers over an UNRECOGNISED outcome instead of storing it (the enum would 500 → retried forever)', async () => {
+    const res = await post({ action: 'pipeline.create', actorId: 'svc-user', outcome: 'partial' });
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(mockCreateEvent).toHaveBeenCalledWith(expect.objectContaining({ outcome: 'success' }));
+  });
+});
+
 describe('POST /audit/events — occurredAt (display-only emission time)', () => {
   it('threads a valid ISO occurredAt into the append input as a Date', async () => {
     const iso = '2026-07-20T12:34:56.000Z';

@@ -90,22 +90,38 @@ export function useTicketedSSE(opts: TicketedSSEOptions): { connected: boolean; 
   // A new subscription starts with a clean slate: full retry budget, not
   // stopped, and no reconnect pending for the previous key. (Declared before
   // the mint effect so it runs first in the same commit.)
+  //
+  // The previous key's stream is dropped HERE, not when the new ticket lands:
+  // until then its EventSource was still open, so the old build's events were
+  // appended to the new build's freshly reset log — and the old build's
+  // terminal event marked the hook stopped, so the new ticket never connected.
+  // `streamKeyRef` names the key the open stream belongs to, so an event
+  // already queued for the old one is dropped too.
+  const subscriptionKeyRef = useRef(subscriptionKey);
+  const streamKeyRef = useRef<string | null>(null);
   useEffect(() => {
+    subscriptionKeyRef.current = subscriptionKey;
     reconnectAttemptRef.current = 0;
     stoppedRef.current = false;
     clearTimeout(reconnectTimerRef.current);
+    setUrl(null);
   }, [subscriptionKey]);
 
   useEffect(() => {
     if (!subscriptionKey) { setUrl(null); return; }
     let cancelled = false;
     getTicketRef.current(subscriptionKey)
-      .then((ticket) => { if (!cancelled && !stoppedRef.current) setUrl(buildUrlRef.current(ticket, subscriptionKey)); })
+      .then((ticket) => {
+        if (cancelled || stoppedRef.current) return;
+        streamKeyRef.current = subscriptionKey;
+        setUrl(buildUrlRef.current(ticket, subscriptionKey));
+      })
       .catch(() => { if (!cancelled) { setUrl(null); scheduleReconnect(); } });
     return () => { cancelled = true; };
   }, [subscriptionKey, ticketKey, scheduleReconnect]);
 
   const onMessage = useCallback((data: unknown): boolean => {
+    if (streamKeyRef.current !== subscriptionKeyRef.current) return false;
     const close = onMessageRef.current(data) === true;
     if (close) {
       stoppedRef.current = true;

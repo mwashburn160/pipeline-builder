@@ -11,7 +11,7 @@
  * Sysadmin-gated. Maintains the per-org KMS posture: when
  * `SECRET_ENCRYPTION_PER_ORG_KMS=true`, the `PerOrgKmsKeyProvider` reads
  * `Organization.kmsConfig` to wrap each org's secrets under its own CMK.
- * Orgs without a config fall through to `EnvKeyProvider`.
+ * Orgs without a config fall through to the shared base master.
  *
  * After PUT, the in-process provider's cache for the affected org is
  * evicted so the next write/read picks up the new key without a restart.
@@ -24,8 +24,8 @@
 
 import { createHash } from 'crypto';
 import {
-  EnvKeyProvider,
   PerOrgKmsKeyProvider,
+  type KeyProvider,
   createLogger,
   getDefaultKeyProvider,
   sendError,
@@ -41,8 +41,16 @@ import { orgKmsConfigSchema, validateBody } from '../utils/validation.js';
 
 const logger = createLogger('org-kms-config-controller');
 
+/** The dry-run's per-org fallback. Never reached (the resolver always returns
+ *  the proposed config); it throws rather than derive anything if it ever is. */
+const UNREACHABLE_FALLBACK: KeyProvider = {
+  deriveKey: () => {
+    throw new Error('KMS config test resolved no per-org config');
+  },
+};
+
 /** Evict the cached master for `orgId` from the active provider if it's a
- *  PerOrgKmsKeyProvider. No-op for EnvKeyProvider or any other provider. */
+ *  PerOrgKmsKeyProvider. No-op for any other provider. */
 function evictPerOrgCache(orgId: string): void {
   const provider = getDefaultKeyProvider();
   if (provider instanceof PerOrgKmsKeyProvider) {
@@ -193,13 +201,16 @@ export const testOrgKmsConfig = withController('Test org KMS config', async (req
   const org = await Organization.findById(toOrgId(orgId)).select('_id').lean();
   if (!org) return sendError(res, 404, 'Organization not found');
 
-  // Construct an ephemeral PerOrgKmsKeyProvider with the proposed config.
-  // The fallback is `EnvKeyProvider` (the same shared master the live
-  // provider uses) so the test never accidentally leaves Mongo touched.
+  // Construct an ephemeral PerOrgKmsKeyProvider with the proposed config. Its
+  // resolver ALWAYS answers with that config, so the fallback is never
+  // consulted — and it must not be built from the environment: an
+  // `EnvKeyProvider` throws at construction when `SECRET_ENCRYPTION_KEY` is
+  // unset, which is exactly a KMS-only deployment (base master KMS-wrapped),
+  // so the dry-run would fail on every call before touching KMS at all.
   try {
     const provider = new PerOrgKmsKeyProvider({
       resolver: async () => ({ keyId: parsed.keyId, ciphertextBase64: parsed.ciphertextBase64 }),
-      fallback: new EnvKeyProvider(),
+      fallback: UNREACHABLE_FALLBACK,
     });
     const derived = await provider.deriveKeyAsync(orgId);
     const fingerprint = createHash('sha256').update(derived).digest('hex').slice(0, 12);

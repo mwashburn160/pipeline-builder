@@ -21,17 +21,13 @@
 
 import { jest, describe, it, expect } from '@jest/globals';
 import {
-  ROLE_PERMISSIONS, SEED_BUNDLES, SEED_BUNDLE_IDS, SYSTEM_ORG_JOB_BUNDLES,
+  ROLE_GRANTS, ROLE_PERMISSIONS, SEED_BUNDLES, SEED_BUNDLE_IDS, SYSTEM_ORG_JOB_BUNDLES,
 } from '@pipeline-builder/api-core';
 import { apiCoreMock } from './helpers/mock-api-core.js';
-import { ROLE_GRANTS } from '../src/models/role.js';
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 jest.unstable_mockModule('../src/helpers/audit.js', () => ({ recordAuditEvent: jest.fn() }));
 jest.unstable_mockModule('../src/models/index.js', () => ({
-  // `ROLE_GRANTS` is the real list — the suite iterates it, so stubbing it out
-  // would make the coverage it claims vacuous.
-  ROLE_GRANTS,
   Role: {},
   RoleAssignment: {},
   User: {},

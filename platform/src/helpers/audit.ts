@@ -6,6 +6,7 @@ import { ANONYMOUS_ACTOR_ID, auditAuthBlock, auditContextFromRequest, auditSpool
 import { currentTraceId } from '@pipeline-builder/api-server';
 import type { Request } from 'express';
 import { appendAuditEvent } from './audit-chain.js';
+import type { AuditOutcome } from '../constants/vocabulary.js';
 import { type AuditAction } from '../models/audit-event.js';
 import type { AuditCreateInput } from '../services/audit-service.js';
 
@@ -48,7 +49,7 @@ export function audit(
     roleId?: string;
     /** Did the action succeed? Defaults to 'success'; pass 'failure' on
      *  failure paths (e.g. login.failed) so reviewers can filter outcomes. */
-    outcome?: 'success' | 'failure';
+    outcome?: AuditOutcome;
   } = {},
 ): void {
   const actorOrgId = req.user?.organizationId;

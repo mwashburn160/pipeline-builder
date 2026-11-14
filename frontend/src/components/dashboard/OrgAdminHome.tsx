@@ -40,6 +40,7 @@ import api from '@/lib/api';
 import { queries } from '@/lib/api-cache';
 import { runQuery } from '@/lib/query-cache';
 import { fmtNum } from '@/lib/format';
+import { pct as quotaPct, statusInfo } from '@/lib/quota-helpers';
 import { complianceActionLabel } from '@/lib/compliance-styles';
 import { POOLING_TITLE } from '@/components/quotas/constants';
 import type { OrgQuotaResponse, DisplayedQuotaType, Subscription } from '@/types';
@@ -51,14 +52,6 @@ const EMPTY_COMPLIANCE: ComplianceAuditEntry[] = [];
 // The home quota-health row shows the curated subset (one tile per type).
 /** The quota rows this card shows, labelled from api-core's quota catalog. */
 const QUOTA_ROWS: readonly DisplayedQuotaType[] = DISPLAYED_QUOTA_TYPES;
-
-function quotaTone(used: number, limit: number, unlimited: boolean): 'green' | 'yellow' | 'red' {
-  if (unlimited || limit <= 0) return 'green';
-  const pct = (used / limit) * 100;
-  if (pct >= 90) return 'red';
-  if (pct >= 75) return 'yellow';
-  return 'green';
-}
 
 interface Props {
   /** Current user's active org id — needed for the team-members lookup. */
@@ -105,10 +98,12 @@ export function OrgAdminHome({ organizationId }: Props) {
       // masks envelope-vs-bare shape drift.
       quotas: quotaRes.status === 'fulfilled' && quotaRes.value.success && quotaRes.value.data
         ? quotaRes.value.data.quota : null,
+      // null = the read failed: shown as unknown, never as "0 pending" or
+      // "no violations" — an outage must not read as all-clear.
       pendingInvites: inviteRes.status === 'fulfilled' && inviteRes.value.success && inviteRes.value.data
-        ? inviteRes.value.data.pagination?.total ?? inviteRes.value.data.invitations.length : 0,
+        ? inviteRes.value.data.pagination?.total ?? inviteRes.value.data.invitations.length : null,
       compliance: complianceRes.status === 'fulfilled' && complianceRes.value.success && complianceRes.value.data
-        ? complianceRes.value.data.entries : ([] as ComplianceAuditEntry[]),
+        ? complianceRes.value.data.entries : null,
       subscription: subRes.status === 'fulfilled' && subRes.value && subRes.value.success && subRes.value.data
         ? subRes.value.data.subscription : null,
       memberCount: memberRes.status === 'fulfilled' && memberRes.value && memberRes.value.success && memberRes.value.data
@@ -117,8 +112,9 @@ export function OrgAdminHome({ organizationId }: Props) {
   }, [organizationId, billingEnabled]);
 
   const quotas = home.data?.quotas ?? null;
-  const pendingInvites = home.data?.pendingInvites ?? 0;
+  const pendingInvites = home.data?.pendingInvites ?? null;
   const memberCount = home.data?.memberCount ?? null;
+  const complianceFailed = !!home.data && home.data.compliance === null;
   const compliance = home.data?.compliance ?? EMPTY_COMPLIANCE;
   const subscription = home.data?.subscription ?? null;
   const loading = home.loading;
@@ -157,8 +153,10 @@ export function OrgAdminHome({ organizationId }: Props) {
             {QUOTA_ROWS.map((type) => {
               const q = quotas.quotas[type];
               if (!q) return null;
-              const tone = quotaTone(q.used, q.limit, q.unlimited);
-              const pct = q.unlimited || q.limit <= 0 ? null : Math.round((q.used / q.limit) * 100);
+              // The shared thresholds (`statusInfo`), so this tile and the
+              // Quotas page can't call the same usage different colours.
+              const pct = q.unlimited || q.limit <= 0 ? null : quotaPct(q.used, q.limit);
+              const tone = statusInfo(q.used, q.limit).color;
               return (
                 <div key={type} className="rounded-lg border border-default px-3 py-2">
                   <div className="flex items-baseline justify-between gap-1">
@@ -208,10 +206,10 @@ export function OrgAdminHome({ organizationId }: Props) {
           <div className={`grid ${hasChildOrgs ? 'grid-cols-3' : 'grid-cols-2'} gap-3 text-sm`}>
             <div className="rounded-md bg-surface-muted px-3 py-2">
               <div className="text-xs text-fg-muted">Pending invitations</div>
-              <div className={`mt-1 text-2xl font-semibold ${pendingInvites > 0 ? 'text-warning' : 'text-fg'}`}>
-                {pendingInvites}
+              <div className={`mt-1 text-2xl font-semibold ${pendingInvites ? 'text-warning' : 'text-fg'}`}>
+                {pendingInvites ?? '—'}
               </div>
-              {pendingInvites > 0 && (
+              {!!pendingInvites && (
                 <Link href="/dashboard/invitations" className="action-link text-xs inline-flex items-center gap-1 mt-1">
                   Review <ArrowRight className="w-3 h-3" />
                 </Link>
@@ -246,7 +244,9 @@ export function OrgAdminHome({ organizationId }: Props) {
             </h3>
             <Link href="/dashboard/compliance" className="action-link text-xs">All rules →</Link>
           </div>
-          {blockedEntries.length === 0 ? (
+          {complianceFailed ? (
+            <p className="text-sm text-fg-muted">Couldn&apos;t load recent compliance activity.</p>
+          ) : blockedEntries.length === 0 ? (
             <div className="rounded-md bg-success-bg px-3 py-3 text-sm text-success flex items-center gap-2">
               <Shield className="w-4 h-4" /> No recent compliance violations.
             </div>

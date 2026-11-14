@@ -98,12 +98,28 @@ describe('AttachmentService', () => {
   it('purges only unlinked rows older than the TTL, then their blobs', async () => {
     process.env.MESSAGE_ATTACHMENT_PENDING_TTL_HOURS = '2';
     const now = new Date('2026-09-21T12:00:00Z');
-    results.push([{ id: 'a1', storageKey: 'k1' }, { id: 'a2', storageKey: 'k2' }], []);
+    results.push([{ id: 'a1' }, { id: 'a2' }], [{ storageKey: 'k1' }, { storageKey: 'k2' }]);
     await expect(svc.purgePending(now, 10)).resolves.toBe(2);
     expect(where()).toEqual({ and: [{ isNull: 'message_id' }, { lt: ['created_at', new Date('2026-09-21T10:00:00Z')] }] });
     expect(calls.find(([m]) => m === 'limit')![1][0]).toBe(10);
     expect(calls.filter(([m]) => m === 'delete')).toHaveLength(1);
     expect(deleteAttachments).toHaveBeenCalledWith(['k1', 'k2']);
+  });
+
+  /**
+   * A send can link a selected upload between the SELECT and the DELETE (a compose
+   * left open past the TTL). The DELETE re-asserts `message_id IS NULL`, and only
+   * the blobs of rows it actually removed are reclaimed — never a file that is now
+   * attached to a sent message.
+   */
+  it('spares an upload that was linked between the select and the delete', async () => {
+    const now = new Date('2026-09-21T12:00:00Z');
+    // Selected two; by the time the DELETE ran, a2 had been linked, so only a1 went.
+    results.push([{ id: 'a1' }, { id: 'a2' }], [{ storageKey: 'k1' }]);
+    await expect(svc.purgePending(now)).resolves.toBe(1);
+    const deleteWhere = calls.filter(([m]) => m === 'where')[1]?.[1][0];
+    expect(deleteWhere).toEqual({ and: [{ inArray: ['id', ['a1', 'a2']] }, { isNull: 'message_id' }] });
+    expect(deleteAttachments).toHaveBeenCalledWith(['k1']);
   });
 
   it('a nothing-expired purge deletes nothing; a bad TTL falls back to 24 h', async () => {

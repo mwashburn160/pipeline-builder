@@ -13,14 +13,13 @@ import { readFileSync } from 'fs';
 import path from 'path';
 import { describe, it, expect } from '@jest/globals';
 import { buildTierPresets, TIER_KEYS, TIER_PRESETS } from '../src/components/quotas/constants';
-import {
-  ALL_TIER_KEYS, TIER_KEYS as SELECTABLE_TIER_KEYS, TEAM_CAPABLE_TIERS, TIER_META, getTierMeta, tierAllowsTeams,
-} from '../src/lib/tiers';
+import { tierAllowsTeams } from '@pipeline-builder/api-core/tier-limits';
+import { ALL_TIER_KEYS, TIER_KEYS as SELECTABLE_TIER_KEYS, TIER_META, getTierMeta } from '../src/lib/tiers';
 
 /**
- * api-core's tier catalog, read from SOURCE rather than imported: the package
- * barrel pulls in express, which does not load under jsdom. Same approach as
- * seat-remedy.test.ts, which already guards `SEAT_PACK_TIERS` this way.
+ * api-core's tier union, read from SOURCE rather than imported: the package
+ * barrel pulls in express, which does not load under jsdom, and the union is a
+ * type (no runtime list to import from a browser subpath).
  */
 const CORE = readFileSync(path.join(__dirname, '../../packages/api-core/src/types/quota-tiers.ts'), 'utf8');
 
@@ -29,13 +28,6 @@ const CORE = readFileSync(path.join(__dirname, '../../packages/api-core/src/type
 function coreTiers(): string[] {
   const m = /export type QuotaTier =([^;]*);/.exec(CORE);
   if (!m) throw new Error('QuotaTier union not found in api-core quota-tiers.ts');
-  return [...m[1].matchAll(/'([a-z]+)'/g)].map((x) => x[1]);
-}
-
-/** A named exported array literal from the same file. */
-function coreList(name: string): string[] {
-  const m = new RegExp(`export const ${name}[^=]*=\\s*\\[([^\\]]*)\\]`).exec(CORE);
-  if (!m) throw new Error(`${name} not found in api-core quota-tiers.ts`);
   return [...m[1].matchAll(/'([a-z]+)'/g)].map((x) => x[1]);
 }
 
@@ -143,15 +135,12 @@ describe('`unlimited` across the tier maps', () => {
 
 /**
  * The frontend keeps its OWN tier catalog in src/lib/tiers.ts — labels, colours
- * and sort order are presentation and do not belong in api-core. But three of
- * its lists are copies of api-core's, and until this block only ONE of them was
- * guarded (`SEAT_PACK_TIERS`, in seat-remedy.test.ts).
- *
- * Both unguarded ones had already drifted:
- *  - `TIER_KEYS` omitted a newly added tier, so it was absent from EVERY picker
- *    (change-tier, create-org, quota presets) while the backend sold it.
- *  - `TEAM_CAPABLE_TIERS` has a comment recording an earlier drift that hid
- *    "Create team" on every billing-disabled deployment.
+ * and sort order are presentation and do not belong in api-core. Its tier LISTS
+ * are copies of api-core's union, and one had already drifted: `TIER_KEYS`
+ * omitted a newly added tier, so it was absent from EVERY picker (change-tier,
+ * create-org, quota presets) while the backend sold it. (The team-capable and
+ * seat-pack tiers are no longer copies: the frontend imports api-core's own from
+ * the `tier-limits` subpath.)
  *
  * Presentation stays local; membership is asserted against api-core.
  */
@@ -160,7 +149,6 @@ describe('tier catalog — frontend mirror of api-core', () => {
     // Without this, a renamed export or reformatted union yields [] and every
     // comparison below passes by comparing nothing.
     expect(coreTiers().length).toBeGreaterThan(1);
-    expect(coreList('TEAM_CAPABLE_TIERS').length).toBeGreaterThan(0);
   });
 
   it('knows every tier api-core defines (ALL_TIER_KEYS)', () => {
@@ -173,15 +161,6 @@ describe('tier catalog — frontend mirror of api-core', () => {
     expect([...SELECTABLE_TIER_KEYS].sort()).toEqual(coreTiers().filter((t) => t !== 'unlimited').sort());
     // The quota page re-exports the same list; keep the two from diverging.
     expect([...TIER_KEYS].sort()).toEqual([...SELECTABLE_TIER_KEYS].sort());
-  });
-
-  it('allows teams on exactly the tiers api-core does', () => {
-    const core = coreList('TEAM_CAPABLE_TIERS');
-    expect([...TEAM_CAPABLE_TIERS].sort()).toEqual(core.sort());
-    // And the helper agrees with the list for every tier, not just the members.
-    for (const tier of coreTiers()) {
-      expect({ tier, allows: tierAllowsTeams(tier) }).toEqual({ tier, allows: core.includes(tier) });
-    }
   });
 
   it('gives every api-core tier display metadata and a unique sort position', () => {

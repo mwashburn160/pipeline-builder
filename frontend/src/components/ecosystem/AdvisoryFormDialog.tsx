@@ -9,7 +9,8 @@ import { Modal } from '@/components/ui/Modal';
 import { ModalFooter } from '@/components/ui/ModalFooter';
 import { Select } from '@/components/ui/Select';
 import { Textarea } from '@/components/ui/Textarea';
-import { ADVISORY_SEVERITIES, ADVISORY_SUMMARY_MAX, SEVERITY_LABELS, advisoryRangeProblem, isSemverVersion, parseCveIds, vulnIdsProblem } from '@/lib/advisories';
+import { ADVISORY_SEVERITIES } from '@pipeline-builder/api-core/wire-vocabulary';
+import { ADVISORY_SEVERITY_META, ADVISORY_SUMMARY_MAX, advisoryRangeProblem, isSemverVersion, parseCveIds, vulnIdsProblem } from '@/lib/advisories';
 import { formatError } from '@/lib/constants';
 import type { AdvisoryInput, AdvisorySeverity, AdvisoryView } from '@/types/ecosystem';
 
@@ -127,7 +128,7 @@ export function AdvisoryFormDialog({
           </FormField>
           <FormField label="Severity" required>
             <Select value={severity} onChange={(e) => setSeverity(e.target.value as AdvisorySeverity)} disabled={busy}>
-              {ADVISORY_SEVERITIES.map((s) => <option key={s} value={s}>{SEVERITY_LABELS[s]}</option>)}
+              {ADVISORY_SEVERITIES.map((s) => <option key={s} value={s}>{ADVISORY_SEVERITY_META[s].label}</option>)}
             </Select>
           </FormField>
         </div>

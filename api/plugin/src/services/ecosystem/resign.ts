@@ -28,11 +28,11 @@
 
 import { randomUUID } from 'crypto';
 
-import { createLogger, errorMessage } from '@pipeline-builder/api-core';
+import { createLogger, errorMessage, type PublisherTier } from '@pipeline-builder/api-core';
 import { incCounter } from '@pipeline-builder/api-server';
 import type { Publisher } from '@pipeline-builder/pipeline-data';
 
-import { invalidateVerifyCache, resignImage, type TrustTier } from './registry.js';
+import { invalidateVerifyCache, resignImage } from './registry.js';
 import { atomically, inTransaction, listings, publishers, settings, versions } from './store.js';
 
 const logger = createLogger('ecosystem-resign');
@@ -41,7 +41,7 @@ export const RESIGN_JOB_PREFIX = 'resign-job:';
 
 /** Signature annotations an image may carry: the trust tier and the publisher handle. */
 export interface SignedAs {
-  tier: TrustTier;
+  tier: PublisherTier;
   handle: string;
 }
 
@@ -69,7 +69,7 @@ const jobKey = (scope: ResignJob['scope'], id: string) => `${RESIGN_JOB_PREFIX}$
  * while it is suspended — the lowest trust, so every org policy that allows
  * only Official/Verified refuses it at lookup even before a cache expires.
  */
-export function trustFor(p: Pick<Publisher, 'tier' | 'suspendedAt'>): TrustTier {
+export function trustFor(p: Pick<Publisher, 'tier' | 'suspendedAt'>): PublisherTier {
   return p.suspendedAt ? 'unverified' : p.tier;
 }
 

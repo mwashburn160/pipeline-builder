@@ -3,7 +3,7 @@
 
 import {
   isoOrNull,
-  envInt, ErrorCode, audited, getParam, isSystemAdmin, paginationMeta, parsePage, parseQueryInt, requirePermission, requireSystemOrgPermission, sendError, sendSuccess, actorId, userHasPermission,
+  envInt, ErrorCode, audited, getParam, isSystemAdmin, isSystemOrgRequest, paginationMeta, parsePage, parseQueryInt, requirePermission, requireSystemOrgPermission, sendError, sendSuccess, actorId, userHasPermission,
   recordAudit, SYSTEM_ORG_ID, VALID_TIERS, buildConcurrencyEnvVar, buildWorkerConcurrencyFor,
 } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
@@ -32,6 +32,17 @@ function retrierFrom(req: Request, userId: string): Retrier {
     canPublish: userHasPermission(req, 'plugins:publish'),
     caller: callerFromRequest(req),
   };
+}
+
+/**
+ * Whether the caller sees — and may retry / replay — EVERY org's jobs: the
+ * system org's queue operators (`plugin_queue:manage`, the permission `/status`
+ * and `DELETE /dlq` require), acting from the system org. The superadmin flag
+ * alone, from inside a tenant org, is not that: there the caller sees its own
+ * org's jobs like any other `plugins:write` holder.
+ */
+function seesEveryOrg(req: Request): boolean {
+  return isSystemOrgRequest(req) && userHasPermission(req, 'plugin_queue:manage');
 }
 
 /** Shape returned by GET /triage — failed-build summary grouped by category. */
@@ -116,7 +127,7 @@ const newestFirst = (a: Job, b: Job): number =>
  * One page of a merged, tenant-filtered job listing. `window` holds the first
  * `offset + limit + 1` rows of every source already merged newest-first, so the
  * page is a slice of a stable global order and the extra row tells us whether
- * another page exists. `total` is exact for system admins (the queue counts
+ * another page exists. `total` is exact for system-org queue operators (the queue counts
  * cover every tenant); a tenant-scoped caller's total can't be known without
  * scanning every tenant's jobs, so it is omitted and `hasMore` drives paging.
  */
@@ -156,15 +167,14 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
   const router: Router = Router();
 
   // Per-router memo for GET /triage so each app/test gets its own cache. Keyed by
-  // visibility scope (`all` for system admins vs the caller's own org) + the
+  // visibility scope (`all` for system-org queue operators vs the caller's own org) + the
   // requested sample count, so a sysadmin's cross-org summary is never served to
   // an org-scoped caller and vice-versa.
   const triageCache = new Map<string, TriageCacheEntry>();
 
-  // Access: `requireSystemAdmin` (route middleware) — the counts aggregate
-  // across every tenant's builds, so this is an operator-only view. The gate
-  // replaces the equivalent in-handler `isSystemAdmin` check so the route table
-  // can see the requirement.
+  // Access: `requireSystemOrgPermission('plugin_queue:manage')` (route
+  // middleware) — the counts aggregate across every tenant's builds, so this is
+  // an operator-only view, declared on the route so the route table sees it.
   router.get('/status', ...requireSystemOrgPermission('plugin_queue:manage'), withRoute(async ({ res }) => {
     // counts aggregate across all per-tier queues so existing
     // dashboard widgets keep their meaning. Per-tier breakdown is on the
@@ -233,7 +243,7 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
 
   // Access: gated by `requirePermission('plugins:write')` (route middleware),
   // matching the sibling retry/replay writes so the queue surface uses ONE gate
-  // for org-scoped ops. System admins see all orgs; other holders of
+  // for org-scoped ops. System-org queue operators see all orgs; other holders of
   // plugins:write see only their own org's jobs (tenant-isolation filter below).
   //
   // Paged with `limit` (≤200) + `offset` (≤ QUEUE_MAX_PAGE_DEPTH): every tier's
@@ -243,17 +253,17 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
   router.get('/failed', requirePermission('plugins:write'), withRoute(async ({ req, res, orgId }) => {
     const paging = parseQueuePage(req.query as Record<string, unknown>);
     const tiers = getAllTierQueues();
-    const callerIsSysAdmin = isSystemAdmin(req);
+    const everyOrg = seesEveryOrg(req);
     const [failedByTier, counts] = await Promise.all([
       Promise.all(tiers.map(({ queue }) => queue.getJobs(['failed'], 0, paging.offset + paging.limit))),
-      callerIsSysAdmin ? Promise.all(tiers.map(({ queue }) => queue.getJobCounts('failed'))) : Promise.resolve(null),
+      everyOrg ? Promise.all(tiers.map(({ queue }) => queue.getJobCounts('failed'))) : Promise.resolve(null),
     ]);
 
-    // Tenant isolation: non-system admins only see their own org's failed jobs.
+    // Tenant isolation: callers other than system-org queue operators only see their own org's failed jobs.
     // Without this filter, an org admin could see another tenant's failure
     // metadata (plugin names, error messages).
     const merged = failedByTier.flat().sort(newestFirst);
-    const visible = callerIsSysAdmin ? merged : merged.filter((job) => jobBelongsToOrg(job.data, orgId));
+    const visible = everyOrg ? merged : merged.filter((job) => jobBelongsToOrg(job.data, orgId));
     const total = counts ? counts.reduce((acc, c) => acc + (c.failed ?? 0), 0) : undefined;
     const { page, pagination } = pageOf(visible, paging, total);
 
@@ -281,7 +291,7 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
    * sources from the per-tier failed set (distinct from the DLQ).
    *
    * Access: gated by `requirePermission('plugins:write')` (route middleware).
-   * - System admins: can retry any failed job.
+   * - System-org queue operators: can retry any failed job.
    * - Callers with plugins:write: can retry only jobs that belong to their own org.
    *
    * Returns 404 if no failed job with that id exists. The retry carries fresh
@@ -291,11 +301,11 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
     const jobId = getParam(req.params, 'jobId');
     if (!jobId) return sendError(res, 400, 'Job ID is required', ErrorCode.MISSING_REQUIRED_FIELD);
 
-    // Tenant-isolation: non-system admins can only retry jobs owned by their org.
+    // Tenant-isolation: callers other than system-org queue operators can only retry jobs owned by their org.
     const failedJob = await findFailedJob(jobId);
     if (!failedJob) return sendError(res, 404, `Failed job ${jobId} not found`, ErrorCode.NOT_FOUND);
 
-    if (!isSystemAdmin(req) && !jobBelongsToOrg(failedJob.data, orgId)) {
+    if (!seesEveryOrg(req) && !jobBelongsToOrg(failedJob.data, orgId)) {
       return sendError(res, 403, 'Cannot retry a job owned by a different org', ErrorCode.INSUFFICIENT_PERMISSIONS);
     }
 
@@ -328,7 +338,7 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
   // -- DLQ endpoints --------------------------------------------------------
 
   // Access: gated by `requirePermission('plugins:write')` (route middleware) —
-  // same org-scoped gate as GET /failed. System admins see all orgs; other
+  // same org-scoped gate as GET /failed. System-org queue operators see all orgs; other
   // plugins:write holders see only their own org (tenant-isolation filter below).
   // Paged exactly like /failed: BullMQ applies the range to EACH state set, so
   // every state contributes its newest `offset + limit + 1` rows before the
@@ -337,15 +347,15 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
     const paging = parseQueuePage(req.query as Record<string, unknown>);
     const dlq = getDeadLetterQueue();
     const states = ['waiting', 'delayed', 'active', 'completed', 'failed'] as const;
-    const callerIsSysAdmin = isSystemAdmin(req);
+    const everyOrg = seesEveryOrg(req);
     const [allJobs, counts] = await Promise.all([
       dlq.getJobs([...states], 0, paging.offset + paging.limit),
-      callerIsSysAdmin ? dlq.getJobCounts(...states) : Promise.resolve(null),
+      everyOrg ? dlq.getJobCounts(...states) : Promise.resolve(null),
     ]);
 
     // Tenant isolation — same model as /failed above.
     const merged = [...allJobs].sort(newestFirst);
-    const visible = callerIsSysAdmin ? merged : merged.filter((job) => jobBelongsToOrg(job.data, orgId));
+    const visible = everyOrg ? merged : merged.filter((job) => jobBelongsToOrg(job.data, orgId));
     const total = counts ? states.reduce((acc, st) => acc + (counts[st] ?? 0), 0) : undefined;
     const { page, pagination } = pageOf(visible, paging, total);
 
@@ -365,9 +375,9 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
     return sendSuccess(res, 200, { jobs, pagination });
   }));
 
-  // Access: `requireSystemAdmin` (route middleware) — the purge discards every
-  // org's dead-lettered builds, so it is operator-only. The gate replaces the
-  // equivalent in-handler check so the route table can see the requirement.
+  // Access: `requireSystemOrgPermission('plugin_queue:manage')` (route
+  // middleware) — the purge discards every org's dead-lettered builds, so it is
+  // operator-only, declared on the route so the route table sees it.
   router.delete('/dlq', ...requireSystemOrgPermission('plugin_queue:manage'), audited('plugin.dlq.purge'), withRoute(async ({ res, userId }) => {
     const purged = await purgeDlq(quotaService);
 
@@ -395,7 +405,7 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
    * POST /dlq/:jobId/replay re-enqueue a single DLQ job onto the main build queue.
    *
    * Access: gated by `requirePermission('plugins:write')` (route middleware).
-   * - System admins: can replay any job.
+   * - System-org queue operators: can replay any job.
    * - Callers with plugins:write: can replay jobs that belong to their own org.
    *
    * Returns 404 if the DLQ job no longer exists. The replay carries fresh retry
@@ -405,12 +415,12 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
     const jobId = getParam(req.params, 'jobId');
     if (!jobId) return sendError(res, 400, 'Job ID is required', ErrorCode.MISSING_REQUIRED_FIELD);
 
-    // Tenant-isolation: non-system admins can only replay jobs owned by their org.
+    // Tenant-isolation: callers other than system-org queue operators can only replay jobs owned by their org.
     const dlq = getDeadLetterQueue();
     const dlqJob = await dlq.getJob(jobId);
     if (!dlqJob) return sendError(res, 404, `DLQ job ${jobId} not found`, ErrorCode.NOT_FOUND);
 
-    if (!isSystemAdmin(req) && !jobBelongsToOrg(dlqJob.data, orgId)) {
+    if (!seesEveryOrg(req) && !jobBelongsToOrg(dlqJob.data, orgId)) {
       return sendError(res, 403, 'Cannot replay a job owned by a different org', ErrorCode.INSUFFICIENT_PERMISSIONS);
     }
 
@@ -446,19 +456,19 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
    * Access: gated by `requirePermission('plugins:write')` (route middleware) —
    * same org-scoped gate as GET /failed and GET /dlq.
    * Visibility:
-   * - System admins: see all failures across all orgs.
-   * - Other plugins:write holders: see only failures whose `pluginRecord.orgId`
+   * - System-org queue operators ({@link seesEveryOrg}): all failures across all orgs.
+   * - Other plugins:write holders: only failures whose job `data.orgId`
    *   matches their org (tenant-isolation filter below).
    */
   router.get('/triage', requirePermission('plugins:write'), withRoute(async ({ req, res, orgId }) => {
-    const isSuperAdmin = isSystemAdmin(req);
+    const everyOrg = seesEveryOrg(req);
 
     const sampleLimit = Math.min(parseQueryInt(req.query.samples, 5), 20);
 
     // Short-TTL memo (see TRIAGE_CACHE_TTL_MS): collapse a dashboard's repeated
     // polls into one ~1200-payload scan. Scope the key by visibility so a
     // sysadmin's cross-org view can't leak to an org-scoped caller.
-    const cacheKey = `${isSuperAdmin ? 'all' : `org:${orgId}`}:${sampleLimit}`;
+    const cacheKey = `${everyOrg ? 'all' : `org:${orgId}`}:${sampleLimit}`;
     const now = Date.now();
     const cached = triageCache.get(cacheKey);
     if (cached && cached.expires > now) {
@@ -474,9 +484,9 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
     ]);
     const failedAll = tierFailedLists.flat();
 
-    // Filter to caller's org for non-system admins (tenant isolation).
+    // Filter to caller's org for callers other than system-org queue operators (tenant isolation).
     const ownsJob = (job: Job<PluginBuildJobData>): boolean =>
-      isSuperAdmin || jobBelongsToOrg(job.data, orgId);
+      everyOrg || jobBelongsToOrg(job.data, orgId);
     const failed = failedAll.filter(ownsJob);
     const dlqJobs = dlqAll.filter(ownsJob);
 

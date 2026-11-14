@@ -7,7 +7,8 @@
  * A SCHEDULED RUN HAS NO CALLER, and everything unusual here follows from that:
  *
  *  - IT IS AUTHORIZED AS THE DEFINITION'S OWNER, re-checked on EVERY run against
- *    platform: still an active member, still holds `reports:write`, and the account
+ *    platform: still an active member, still holds `reports:write` (and
+ *    `reports:rollup` when the definition rolls up its teams), and the account
  *    still holds the add-on. Not cached. An entitlement that lapsed on Tuesday must stop
  *    Wednesday's report, and a cache refreshed by a sync leg is exactly one missed sync
  *    away from mailing a report the customer stopped paying for. A check that comes back
@@ -53,6 +54,7 @@ import {
   errorMessage,
   leaderLockKey,
   recordAudit,
+  type Permission,
   type Scheduler,
 } from '@pipeline-builder/api-core';
 import {
@@ -67,7 +69,7 @@ import { deliverPublishedRun, notifyPaused, notifyReadyForReview, notifyRunFaile
 import { reportIdentity } from './report-identity.js';
 import { composeRun } from './report-runner.js';
 import { nextRunFor, reportSettleHours } from './report-schedule.js';
-import { resolveOrgRollup } from '../helpers/report-helpers.js';
+import { resolveOrgSubtree } from '../helpers/report-helpers.js';
 
 const logger = createLogger('report-scheduler');
 
@@ -77,7 +79,15 @@ export function isReportSchedulerEnabled(): boolean {
 }
 
 /** The permission a definition's owner must still hold for a run to happen. */
-const REQUIRED_PERMISSION = 'reports:write';
+const REQUIRED_PERMISSION: Permission = 'reports:write';
+/**
+ * The extra grant a ROLLUP definition's owner must still hold: reading descendant
+ * teams' data is `reports:rollup`, a separate grant from reading your own org's.
+ * The on-demand run route re-checks it on every compose; a scheduled run has to as
+ * well, or a lead whose rollup grant was withdrawn keeps receiving — and auto-sending
+ * — the teams' numbers every period.
+ */
+const ROLLUP_PERMISSION: Permission = 'reports:rollup';
 /** The feature the account must still hold. */
 const REQUIRED_FEATURE = 'stakeholder_reports';
 
@@ -106,6 +116,9 @@ async function checkAuthority(definition: ReportDefinition): Promise<AuthorityVe
   if (!authority) return { action: 'skip' };
   if (!authority.active) return { action: 'pause', reason: 'owner_inactive' };
   if (!authority.permissions.includes(REQUIRED_PERMISSION)) return { action: 'pause', reason: 'permission_lost' };
+  if (definition.scope.kind === 'rollup' && !authority.permissions.includes(ROLLUP_PERMISSION)) {
+    return { action: 'pause', reason: 'permission_lost' };
+  }
   if (!authority.features.includes(REQUIRED_FEATURE)) return { action: 'pause', reason: 'entitlement' };
   return { action: 'run', features: authority.features };
 }
@@ -143,13 +156,17 @@ async function runDefinition(
   // authorized by; the AI draft below uses the account's real set, because it needs to know
   // about `ai_generation` specifically.
   const features = [REQUIRED_FEATURE];
+  // STRICT: an unreachable platform throws here (and `runOne` logs and counts it)
+  // rather than composing a rollup that silently covers the parent org alone —
+  // a report labelled as covering the teams that quietly does not is a wrong
+  // report, and with auto-send it is a wrong report already in a manager's inbox.
   const orgIds = definition.scope.kind === 'rollup'
-    ? await resolveOrgRollup(definition.orgId)
+    ? await resolveOrgSubtree(definition.orgId)
     : undefined;
   const periods = completePeriodsSince(
     definition.cadence,
     definition.timezone,
-    definition.weekStart as 'monday' | 'sunday',
+    definition.weekStart,
     definition.lastRunAt,
     now,
     envInt('REPORT_CATCHUP_MAX', 4, { min: 1 }),

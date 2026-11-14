@@ -78,6 +78,11 @@ describe('fetchOrgDescendants', () => {
     await expect(fetchOrgDescendants('self', OPTS)).resolves.toBeUndefined();
   });
 
+  it('throws on a non-2xx response when throwOnHttpError is set (fail-closed callers)', async () => {
+    mockGet.mockResolvedValue({ statusCode: 503, body: {}, headers: {} });
+    await expect(fetchOrgDescendants('self', { ...OPTS, throwOnHttpError: true })).rejects.toThrow(/HTTP 503/);
+  });
+
   it('propagates a transport failure so the caller can degrade to its safe default', async () => {
     // Matches fetchParentOrgId's contract: unreachable/timeout throws here; the
     // caller (reporting/compliance) catches and falls back to single-org.

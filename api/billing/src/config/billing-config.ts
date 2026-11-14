@@ -897,13 +897,13 @@ function loadBundles(): BundleConfig[] {
     // SSO below Team would mean giving away domain registration too, and that is
     // the Team differentiator.
 
-    // DORA / advanced delivery analytics. INCLUDED in Enterprise (TIER_FEATURES),
-    // so the add-on is offered to every other tier (developer/pro/team). Priced
+    // DORA / advanced delivery analytics. INCLUDED in Business and Enterprise
+    // (TIER_FEATURES), so the add-on is offered to the tiers below (developer/pro/team). Priced
     // as an analytics surface, not an enterprise identity gate.
     // Lead time is MEASURED commit → deploy (reporting's deploy events), not a proxy.
     b('advanced_reporting', 'Advanced Reporting (DORA)', 'DORA delivery metrics — deployment frequency, lead time (commit → deploy), change failure rate, MTTR, performance bands + trend', {}, 3000, ['developer', 'pro', 'team'], 8, { features: ['advanced_reporting'], stackable: false }),
     // Per-team usage breakdown across the org → team subtree. INCLUDED in
-    // Enterprise (TIER_FEATURES); the add-on is offered to Team only — Developer
+    // Enterprise (TIER_FEATURES); the add-on is offered to Team and Business — Developer
     // and Pro can't nest teams (TEAM_CAPABLE_TIERS), so there'd be nothing to
     // break down. Priced at $30/mo ($300/yr) — parity with DORA, its analytics
     // sibling. Overridable via BILLING_BUNDLE_TEAM_USAGE_ANALYTICS_MONTHLY/_ANNUAL.
@@ -917,19 +917,19 @@ function loadBundles(): BundleConfig[] {
     b('retention_pack', 'Standard Retention Pack (+90d)', '90 additional days of standard pipeline-event retention', { eventRetentionDays: 90 }, 1500, ALL, 10, { maxQuantity: 7 }),
     // DORA History Pack: +365d DORA retention AND per-org report-query window (the
     // window cap tracks doraRetentionDays). Only meaningful with Advanced Reporting
-    // — INCLUDED in Enterprise, an add-on on developer/pro/team — so it
+    // — INCLUDED in Business/Enterprise, an add-on on developer/pro/team — so it
     // `requiresFeatures` it (the tier OR a held bundle satisfies it). Capped at 1
     // (180 + 365 = 545 ≤ the 730-day retention ceiling).
     b('dora_history_pack', 'DORA History Pack (+365d)', '365 additional days of DORA history + report-query window (requires Advanced Reporting)', { doraRetentionDays: 365 }, 3000, ALL, 11, { maxQuantity: 1, requiresFeatures: ['advanced_reporting'] }),
     // Compliance content add-ons (docs/compliance.md). Feature bundles
     // gating access to curated system-org published rule sets. INCLUDED in
-    // Enterprise/Unlimited (via ALL_FEATURE_FLAGS); sold to Developer/Pro/Team.
+    // Enterprise/Unlimited (via ALL_FEATURE_FLAGS); sold to Developer/Pro/Team/Business.
     // Standard = ~20 CI/CD best-practice rules. Advanced = SOC2/PCI/CIS framework
     // libraries; REQUIRES Standard (or buy the Suite combo for both at 30% off).
     b('compliance_standard', 'Standard Compliance', 'Curated CI/CD best-practice compliance rules', {}, 2999, ['developer', 'pro', 'team', 'business'], 12, { features: ['compliance_standard'], stackable: false }),
     b('compliance_advanced', 'Advanced Compliance', 'Curated framework compliance libraries (SOC2 / PCI-DSS / CIS)', {}, 9999, ['developer', 'pro', 'team', 'business'], 13, { features: ['compliance_advanced'], stackable: false, requires: ['compliance_standard'] }),
     // Stakeholder Reports. INCLUDED in Enterprise/Unlimited (ALL_FEATURE_FLAGS);
-    // sold to Pro and Team, and deliberately NOT to Developer — a single developer
+    // sold to Pro, Team and Business, and deliberately NOT to Developer — a single developer
     // has nobody to report upward to, so the SKU would be an upsell for something
     // they cannot use. Priced at $30/mo, parity with its analytics siblings
     // (advanced_reporting, team_usage_analytics). Overridable via

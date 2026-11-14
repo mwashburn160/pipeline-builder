@@ -19,7 +19,7 @@
  * never outgrows the set of sessions that could still be live.
  */
 
-import { Schema, model, type HydratedDocument, Types } from 'mongoose';
+import { Schema, model, Types } from 'mongoose';
 
 export interface SamlSessionData {
   userId: string;
@@ -34,8 +34,6 @@ export interface SamlSessionData {
   expiresAt: Date;
   createdAt: Date;
 }
-
-export type SamlSessionDocument = HydratedDocument<SamlSessionData>;
 
 const samlSessionSchema = new Schema<SamlSessionData>(
   {

@@ -67,8 +67,8 @@ export function tabPanelProps(idPrefix: string, activeId: string) {
  *    tabs. These are a `nav` of links, not a tablist: each goes to a different
  *    page, so the current one is `aria-current="page"` and Tab walks them.
  *    One `href` makes the whole bar a nav; don't mix the two in one bar.
- * Replaces the two near-duplicate bars (`ReportTabs`, `BuildsTabs`), which now
- * delegate here so the markup lives in one place.
+ * The one tab bar: the Builds tabs (`BuildsTabs`) delegate here too, so the
+ * markup lives in one place.
  */
 export function TabBar({ items, activeId, onSelect, disabledIds, className = '', idPrefix, ariaLabel }: TabBarProps) {
   const isNav = items.some((item) => item.href);

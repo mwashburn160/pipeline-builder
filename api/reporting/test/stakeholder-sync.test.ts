@@ -57,7 +57,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@p
 }));
 
 jest.unstable_mockModule('../src/helpers/report-helpers.js', () => ({
-  resolveOrgRollup: (...a: unknown[]) => mockRollup(...a),
+  resolveOrgSubtree: (...a: unknown[]) => mockRollup(...a),
   REPORTING_HTTP_TIMEOUT_MS: 3000,
 }));
 

@@ -324,3 +324,17 @@ describe('validateRegexPattern', () => {
     expect(validateRegexPattern('a'.repeat(100))).toBeNull();
   });
 });
+
+describe('lookups ignore inherited object keys', () => {
+  it('an operator outside the catalog is a VIOLATION, even one named like an Object method', () => {
+    // `OPERATORS.toString` is Object.prototype.toString, whose truthy string
+    // return read as "satisfied" — a fail-open for a hand-edited or snapshot row.
+    expect(evaluateOperator('toString' as never, 'x', 'y')).toBe(false);
+    expect(evaluateOperator('constructor' as never, 'x', 'y')).toBe(false);
+  });
+
+  it('an unknown computed prefix resolves to undefined, not an inherited function', () => {
+    expect(getFieldValue({ a: [1, 2] }, '$constructor(a)')).toBeUndefined();
+    expect(getFieldValue({ a: [1, 2] }, '$count(a)')).toBe(2);
+  });
+});

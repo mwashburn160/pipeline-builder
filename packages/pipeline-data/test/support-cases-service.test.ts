@@ -500,12 +500,15 @@ describe('staff notes', () => {
     // dispute may turn on it. Guarded on is_active, so a repeat matches nothing
     // and "already gone" stays distinguishable from "removed".
     tx.queue([{ id: 'n1' }]);
-    await expect(svc.deleteCaseNote('n1', 'staff-1')).resolves.toBe(true);
+    await expect(svc.deleteCaseNote('c1', 'n1', 'staff-1')).resolves.toBe(true);
     expect(set()).toMatchObject({ isActive: false, deletedBy: 'staff-1' });
     expect(where()).toMatch(/is_active/i);
+    // Keyed by the CASE too, so a note on another case cannot be removed
+    // through this case's URL.
+    expect(where()).toMatch(/case_id/i);
     tx.reset();
     tx.queue([]);
-    await expect(svc.deleteCaseNote('n1', 'staff-1')).resolves.toBe(false);
+    await expect(svc.deleteCaseNote('c1', 'n1', 'staff-1')).resolves.toBe(false);
   });
 });
 

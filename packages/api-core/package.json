@@ -140,6 +140,9 @@
       ],
       "tier-limits": [
         "lib/types/tier-limits.d.ts"
+      ],
+      "wire-vocabulary": [
+        "lib/types/wire-vocabulary.d.ts"
       ]
     }
   },
@@ -294,6 +297,10 @@
     "./tier-limits": {
       "types": "./lib/types/tier-limits.d.ts",
       "default": "./lib/types/tier-limits.js"
+    },
+    "./wire-vocabulary": {
+      "types": "./lib/types/wire-vocabulary.d.ts",
+      "default": "./lib/types/wire-vocabulary.js"
     },
     "./testing": {
       "types": "./lib/testing/index.d.ts",

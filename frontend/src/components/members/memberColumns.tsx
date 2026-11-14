@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { ShieldCheck, UserMinus, UserCheck, UserX, Crown, Network, KeyRound } from 'lucide-react';
+import { orgRoleColor } from '@/lib/org-roles';
 import { Badge } from '@/components/ui/Badge';
 import { IconButton } from '@/components/ui/IconButton';
 import { RelativeTime } from '@/components/ui/RelativeTime';
@@ -69,7 +70,7 @@ export function buildMemberColumns({
       // member's assigned Roles. Access is edited via the Roles column, not here.
       render: (m) => (
         <div className="flex items-center gap-2">
-          <Badge color={m.role === 'admin' ? 'purple' : 'gray'}>{m.role}</Badge>
+          <Badge color={orgRoleColor(m.role)}>{m.role}</Badge>
           {m.isOwner && <span title="Owner"><Crown className="w-3.5 h-3.5 text-warning" /></span>}
         </div>
       ),

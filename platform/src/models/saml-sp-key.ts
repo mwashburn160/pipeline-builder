@@ -21,7 +21,7 @@
  * re-reads the winner's document.
  */
 
-import { Schema, model, type HydratedDocument } from 'mongoose';
+import { Schema, model } from 'mongoose';
 
 export type SamlSpKeyPurpose = 'signing' | 'encryption' | 'test-marker';
 
@@ -34,8 +34,6 @@ export interface SamlSpKeyData {
   createdAt: Date;
   updatedAt: Date;
 }
-
-export type SamlSpKeyDocument = HydratedDocument<SamlSpKeyData>;
 
 const samlSpKeySchema = new Schema<SamlSpKeyData>(
   {

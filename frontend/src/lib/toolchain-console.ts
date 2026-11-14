@@ -142,12 +142,6 @@ export function classifySetDefaultError(err: unknown): SetDefaultRefusal {
   return { kind: 'other', message: formatError(err, 'Could not set the platform default') };
 }
 
-/** Short digest for a table cell (`sha256:` dropped, first 12 hex). */
-export function shortDigest(d: string | null | undefined): string {
-  if (!d) return '—';
-  return d.replace(/^sha256:/, '').slice(0, 12);
-}
-
 /** Actions the release row offers, by status (the server enforces each). */
 export function releaseActionAvailability(r: Pick<ToolchainConsoleRelease, 'status' | 'complete'>) {
   const live = r.status !== 'yanked' && r.status !== 'deprecated';

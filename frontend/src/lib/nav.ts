@@ -48,6 +48,7 @@ import {
 import type { LucideIcon } from 'lucide-react';
 import type { Permission } from '@pipeline-builder/api-core/permissions';
 import { ECOSYSTEM_CONSOLE_PERMISSIONS } from './ecosystem-access';
+import { SUPPORT_FEATURE_FLAGS } from './feature-flags';
 
 // ---------------------------------------------------------------------------
 // Single source of truth for dashboard navigation.
@@ -213,7 +214,7 @@ export const NAV_SECTIONS: NavSection[] = [
         href: '/dashboard/support',
         icon: LifeBuoy,
         requiredPermission: 'messages:read',
-        requiredAnyFeature: ['support_standard', 'support_priority', 'support_premium'],
+        requiredAnyFeature: SUPPORT_FEATURE_FLAGS,
         keywords: 'support case ticket help response target sla incident contact desk',
       },
       // Requests to view an account, and live viewing sessions. NO permission gate

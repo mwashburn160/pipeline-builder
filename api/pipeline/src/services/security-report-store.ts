@@ -21,9 +21,10 @@
  */
 
 import { randomUUID } from 'node:crypto';
+import type { SecurityReportFormat } from '@pipeline-builder/pipeline-core';
 import { withTenantTx } from '@pipeline-builder/pipeline-data';
 import { sql } from 'drizzle-orm';
-import type { ArtifactFinding, SecurityReportFormat, SeverityCounts } from '../helpers/security-report.js';
+import type { ArtifactFinding, SeverityCounts } from '../helpers/security-report.js';
 
 /** One stored report (the latest for its slot). */
 export interface StoredSecurityReport {

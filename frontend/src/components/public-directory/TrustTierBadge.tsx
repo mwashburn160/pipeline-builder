@@ -2,9 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { BadgeCheck, ShieldAlert, ShieldCheck, Users } from 'lucide-react';
-import { TRUST_TIER_LABELS, type TrustTier } from '@/lib/public-directory/types';
+import type { PublisherTier } from '@pipeline-builder/api-core/wire-vocabulary';
+import { TRUST_TIER_LABELS } from '@/lib/public-directory/types';
 
-const STYLE: Record<TrustTier, { cls: string; Icon: typeof BadgeCheck; hint: string }> = {
+const STYLE: Record<PublisherTier, { cls: string; Icon: typeof BadgeCheck; hint: string }> = {
   official: {
     cls: 'bg-info-bg text-info-strong border-info-border',
     Icon: BadgeCheck,
@@ -28,7 +29,7 @@ const STYLE: Record<TrustTier, { cls: string; Icon: typeof BadgeCheck; hint: str
 };
 
 /** The trust tier of a listing's publisher. `compact` drops the label to an icon (kept for screen readers). */
-export function TrustTierBadge({ tier, compact = false }: { tier: TrustTier; compact?: boolean }) {
+export function TrustTierBadge({ tier, compact = false }: { tier: PublisherTier; compact?: boolean }) {
   const s = STYLE[tier] ?? STYLE.unverified;
   const label = TRUST_TIER_LABELS[tier] ?? TRUST_TIER_LABELS.unverified;
   return (

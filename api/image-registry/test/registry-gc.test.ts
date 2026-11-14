@@ -269,10 +269,11 @@ describe('runRegistryGc — Fix 2: retention safeguards (no live-tag data loss)'
 // Plugin ecosystem a public/* image is collected only when yanked >180 days
 // AND unreferenced by any step manifest — a decision only the plugin service can
 // make (via POST /internal/plugin-publications/gc). The AGE sweep never reaches it.
-describe('runRegistryGc — public/* and registry-meta/* are exempt from the age sweep', () => {
+describe('runRegistryGc — public/*, registry-meta/* and quarantine/* are exempt from the age sweep', () => {
   it.each([
     ['public/acme/app', true],
     ['registry-meta/publications/acme/app', true],
+    ['quarantine/0f3a2b1c-aaaa-4bbb-8ccc-123456789abc', true],
     ['org-acme/app', false],
     ['system/app', false],
     ['publicity/app', false],

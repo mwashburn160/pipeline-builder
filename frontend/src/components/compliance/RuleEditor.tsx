@@ -1,5 +1,6 @@
 'use client';
 
+import { RULE_TARGET_IDS, RULE_TARGET_LABELS, RULE_SCOPE_IDS, RULE_SCOPE_META, RULE_SEVERITY_IDS, SEVERITY_CONFIG } from '@/lib/compliance-styles';
 import { useState, useId } from 'react';
 import { ArrowLeft, Plus, Trash2, FlaskConical, CheckCircle, AlertTriangle, XCircle, BarChart3, Loader2 } from 'lucide-react';
 import api from '@/lib/api';
@@ -287,8 +288,7 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
           <div>
             <label htmlFor="rule-target" className="block text-xs font-medium text-fg-muted mb-1">Target *</label>
             <Select id="rule-target" value={form.target} onChange={e => set('target', e.target.value as RuleTarget)} disabled={isEdit}>
-              <option value="plugin">Plugin</option>
-              <option value="pipeline">Pipeline</option>
+              {RULE_TARGET_IDS.map((t) => <option key={t} value={t}>{RULE_TARGET_LABELS[t]}</option>)}
             </Select>
           </div>
         </div>
@@ -296,8 +296,7 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
           <div>
             <label htmlFor="rule-scope" className="block text-xs font-medium text-fg-muted mb-1">Scope</label>
             <Select id="rule-scope" value={form.scope} onChange={e => set('scope', e.target.value as RuleScope)} disabled={isEdit}>
-              <option value="org">Org — private to your organization</option>
-              <option value="published">Published — shared catalog, other orgs can subscribe</option>
+              {RULE_SCOPE_IDS.map((sc) => <option key={sc} value={sc}>{RULE_SCOPE_META[sc].label} — {RULE_SCOPE_META[sc].description}</option>)}
             </Select>
             {isEdit && <p className="mt-1 text-xs text-fg-muted">Scope is set at creation and cannot be changed.</p>}
           </div>
@@ -312,9 +311,7 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
           <div>
             <label htmlFor="rule-severity" className="block text-xs font-medium text-fg-muted mb-1">Severity</label>
             <Select id="rule-severity" value={form.severity} onChange={e => set('severity', e.target.value as RuleSeverity)}>
-              <option value="warning">Warning</option>
-              <option value="error">Error</option>
-              <option value="critical">Critical</option>
+              {[...RULE_SEVERITY_IDS].reverse().map((sv) => <option key={sv} value={sv}>{SEVERITY_CONFIG[sv].label}</option>)}
             </Select>
           </div>
           <div>

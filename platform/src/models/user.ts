@@ -6,6 +6,8 @@ import bcrypt from 'bcryptjs';
 import mongoose, { Schema, type HydratedDocument, type Model } from 'mongoose';
 import { config } from '../config/index.js';
 import { PASSWORD_RULES } from '../constants/password.js';
+import { REFRESH_SESSION_KINDS, type RefreshSessionKind } from '../constants/vocabulary.js';
+import { OAUTH_PROVIDER_NAMES } from '../types/oauth-provider.js';
 
 /**
  * OAuth provider data structure. Internal to the user model — the user-
@@ -24,35 +26,28 @@ interface OAuthProviderData {
 }
 
 /**
- * OAuth providers map. Internal to the user model (see above).
+ * Every key an account can hold a federated linkage under — ONE list, from which
+ * the `OAuthProviders` type, the schema's `oauth` subdocument and its login-lookup
+ * indexes are all built. They were three hand-kept copies, and the copies had
+ * already drifted: `saml` had a schema key but no index, so every SAML sign-in's
+ * `oauth.saml.id` lookup scanned the whole `users` collection.
+ *
+ * - The social providers (`OAUTH_PROVIDER_NAMES`). `google`/`github` double as
+ *   per-org SSO (OIDC) keys — findOrCreateOAuthUser is shared by the social-login
+ *   and SSO callbacks and keys on the IdP provider.
+ * - `generic-oidc`, `cognito` — SSO-only OIDC providers.
+ * - `saml` — SAML 2.0 SSO. One key for every SAML IdP: a SAML config has no named
+ *   provider, and the link is only ever matched together with its `issuer` (the
+ *   IdP's entity id), so two orgs on SAML never collide here.
+ *
+ * Without a schema key a linkage is silently dropped under Mongoose strict mode
+ * and every sign-in re-matches by email instead of the oauth-id fast path.
  */
-interface OAuthProviders {
-  'google'?: OAuthProviderData;
-  'github'?: OAuthProviderData;
-  'facebook'?: OAuthProviderData;
-  'microsoft'?: OAuthProviderData;
-  'gitlab'?: OAuthProviderData;
-  'linkedin'?: OAuthProviderData;
-  // Per-org SSO (OIDC) providers also persist linkage here — findOrCreateOAuthUser
-  // is shared by the social-login and SSO callbacks and keys on the IdP provider.
-  // `google`/`github` above double as SSO keys; these two are SSO-only.
-  'generic-oidc'?: OAuthProviderData;
-  'cognito'?: OAuthProviderData;
-  /** SAML 2.0 SSO. One key for every SAML IdP: a SAML config has no named
-   *  provider, and the link is only ever matched together with its `issuer`
-   *  (the IdP's entity id), so two orgs on SAML never collide here. */
-  'saml'?: OAuthProviderData;
-}
+const LINKED_IDENTITY_KEYS = [...OAUTH_PROVIDER_NAMES, 'generic-oidc', 'cognito', 'saml'] as const;
+type LinkedIdentityKey = (typeof LINKED_IDENTITY_KEYS)[number];
 
-/**
- * - `interactive` — a person signed in (password, OAuth, SSO). Renewed by
- *   POST /auth/refresh; capped at `MAX_REFRESH_SESSIONS`, oldest pushed out.
- * - `machine` — a stored credential opened by POST /user/generate-token. Has a
- *   fixed end (`expiresAt` = the requested lifetime); renewed by POST
- *   /auth/refresh with the slot's OWN refresh token (its access tokens have the
- *   normal short lifetime); capped separately, least recently used evicted.
- */
-export type RefreshSessionKind = 'interactive' | 'machine';
+/** OAuth providers map. Internal to the user model (see above). */
+type OAuthProviders = Partial<Record<LinkedIdentityKey, OAuthProviderData>>;
 
 /** A signed-in device's (or stored machine credential's) refresh-token slot. */
 export interface RefreshSession {
@@ -352,7 +347,7 @@ const userSchema = new Schema<UserData, UserModel, UserMethods>(
       type: [{
         _id: false,
         id: { type: String, required: true },
-        kind: { type: String, enum: ['interactive', 'machine'], required: true },
+        kind: { type: String, enum: [...REFRESH_SESSION_KINDS], required: true },
         hash: { type: String, required: true },
         createdAt: { type: Date, required: true },
         lastUsedAt: { type: Date, required: true },
@@ -417,22 +412,7 @@ const userSchema = new Schema<UserData, UserModel, UserMethods>(
       // which is what "never asked" looks like in the profile payload.
       default: undefined,
     },
-    oauth: {
-      'google': oauthProviderSchema,
-      'github': oauthProviderSchema,
-      'facebook': oauthProviderSchema,
-      'microsoft': oauthProviderSchema,
-      'gitlab': oauthProviderSchema,
-      'linkedin': oauthProviderSchema,
-      // SSO (OIDC) provider keys — see OAuthProviders. Without these, per-org SSO
-      // linkage was silently dropped under Mongoose strict mode and every SSO
-      // login re-matched by email instead of the oauth-id fast path.
-      'generic-oidc': oauthProviderSchema,
-      'cognito': oauthProviderSchema,
-      // SAML 2.0 SSO — subject is the assertion's NameID, issuer the IdP's
-      // entity id. Same strict-mode reason as the two above.
-      'saml': oauthProviderSchema,
-    },
+    oauth: Object.fromEntries(LINKED_IDENTITY_KEYS.map((key) => [key, oauthProviderSchema])),
   },
   { timestamps: true },
 );
@@ -478,18 +458,8 @@ userSchema.methods.comparePassword = async function (password: string): Promise<
 /**
  * Indexes
  */
-userSchema.index({ 'oauth.google.id': 1 }, { sparse: true });
-userSchema.index({ 'oauth.github.id': 1 }, { sparse: true });
-// Same login-lookup index for the other social providers — findOrCreateOAuthUser
-// queries `oauth.<provider>.id` for every provider, so without these the lookup
-// is a full `users` collection scan on each facebook/microsoft/gitlab/linkedin login.
-userSchema.index({ 'oauth.facebook.id': 1 }, { sparse: true });
-userSchema.index({ 'oauth.microsoft.id': 1 }, { sparse: true });
-userSchema.index({ 'oauth.gitlab.id': 1 }, { sparse: true });
-userSchema.index({ 'oauth.linkedin.id': 1 }, { sparse: true });
-// SSO (OIDC) provider keys — same login-lookup fast path (google/github indexes above cover the SSO providers that reuse those keys).
-userSchema.index({ 'oauth.generic-oidc.id': 1 }, { sparse: true });
-userSchema.index({ 'oauth.cognito.id': 1 }, { sparse: true });
+// The login lookup (`oauth.<key>.id`) for every linkage key.
+for (const key of LINKED_IDENTITY_KEYS) userSchema.index({ [`oauth.${key}.id`]: 1 }, { sparse: true });
 userSchema.index({ email: 1, username: 1 }); // login lookup: email OR username
 
 export default mongoose.model<UserData, UserModel>('User', userSchema);

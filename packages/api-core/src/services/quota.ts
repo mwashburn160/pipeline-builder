@@ -12,6 +12,7 @@ import { SYSTEM_ORG_ID } from '../middleware/system-org.js';
 import type { JwtPayload, PrincipalType, QuotaType, QuotaCheckResult, ServiceConfig } from '../types/common.js';
 import { ErrorCode } from '../types/error-codes.js';
 import { DEFAULT_TIER, isValidTier, type QuotaTier } from '../types/quota-tiers.js';
+import type { AiKeySource } from '../types/wire-vocabulary.js';
 import { envBool, envInt } from '../utils/env.js';
 import { createLogger } from '../utils/logger.js';
 import { emitCounter } from '../utils/metric-emitter.js';
@@ -108,8 +109,6 @@ export interface QuotaUsageAttribution {
   keySource?: AiKeySource;
 }
 
-/** Whose key serves an AI call (mirrors ai-core `KeySource`). Only `platform` spends `aiCalls`. */
-export type AiKeySource = 'platform' | 'org' | 'request';
 
 /** Token counts an AI call reports after it settles (see {@link QuotaService.reportUsage}). */
 export interface QuotaTokenUsage {

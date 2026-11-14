@@ -15,7 +15,7 @@
  * (seeding, the Member floor, the built-in Admin grant) that these build on.
  */
 
-import { createLogger } from '@pipeline-builder/api-core';
+import { createLogger, type RoleGrant } from '@pipeline-builder/api-core';
 import mongoose from 'mongoose';
 import {
   assertActorMayAssignRole,
@@ -40,7 +40,6 @@ import type { RoleWithMembers } from './roles-service.js';
 import { toOrgId } from '../helpers/org-id.js';
 import { publishUserRevocation, publishUsersRevocation } from '../helpers/session-revocation.js';
 import { Role, RoleAssignment, User, UserOrganization } from '../models/index.js';
-import type { RoleGrant } from '../models/index.js';
 import { withMongoTransaction } from '../utils/mongo-tx.js';
 
 const logger = createLogger('role-crud');

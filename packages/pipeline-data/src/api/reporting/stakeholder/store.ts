@@ -26,7 +26,7 @@
  */
 
 import { randomUUID, createHash, randomBytes } from 'node:crypto';
-import { NotFoundError, ConflictError, ErrorCode } from '@pipeline-builder/api-core';
+import { NotFoundError, ConflictError, ErrorCode, type WeekStart } from '@pipeline-builder/api-core';
 import { and, asc, desc, eq, inArray, isNull, lte, sql } from 'drizzle-orm';
 import { schema } from '../../../database/drizzle-schema.js';
 import type {
@@ -87,7 +87,7 @@ export interface CreateDefinitionInput {
   sections: string[];
   cadence: ReportCadence;
   timezone: string;
-  weekStart: 'monday' | 'sunday';
+  weekStart: WeekStart;
   scope: ReportScope;
   recipients: string[];
   autoSend: boolean;
@@ -103,7 +103,7 @@ export interface UpdateDefinitionInput {
   sections?: string[];
   cadence?: ReportCadence;
   timezone?: string;
-  weekStart?: 'monday' | 'sunday';
+  weekStart?: WeekStart;
   scope?: ReportScope;
   recipients?: string[];
   autoSend?: boolean;

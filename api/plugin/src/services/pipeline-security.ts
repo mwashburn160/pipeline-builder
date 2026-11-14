@@ -16,7 +16,7 @@
  */
 
 import {
-  assessVersionVulns, BUILD_IMAGE_MANIFEST_ACTION, BUILD_IMAGE_MANIFEST_STAGE, BUILD_IMAGE_STEP_KEY, ErrorCode, maxSeverity,
+  assessVersionVulns, BUILD_IMAGE_MANIFEST_ACTION, MANAGED_TOOLCHAIN, BUILD_IMAGE_MANIFEST_STAGE, BUILD_IMAGE_STEP_KEY, ErrorCode, maxSeverity,
   recordAudit, scanFreshness, severityAtLeast, SYSTEM_ACTOR_ID, SYSTEM_ORG_ID, versionScanFacts,
   type ScannedRecord, type VulnSeverity, type VulnWarning,
 } from '@pipeline-builder/api-core';
@@ -325,9 +325,6 @@ export async function pipelineSecurity(scope: ResolutionScope, pipeline: { id: s
   return { pipeline, severity: grade, steps, buildImage, exposures: exposures.map(shapeExposure) };
 }
 
-/** The managed synth half: a pipeline whose synth runs anything else has an unmanaged toolchain. */
-const MANAGED_SYNTH = 'cdk-synth';
-const BOOTSTRAP = 'pipeline-bootstrap';
 
 /** A version's scan facts as the security view returns them. */
 function scanView(record: DigestRecord) {
@@ -401,7 +398,7 @@ async function buildImageView(
     const rows = digest && SHA256.test(digest) ? await executeRows<Record<string, unknown>>(tx, sql`
       SELECT ${OWN_RECORD_COLUMNS}
         FROM plugins
-       WHERE org_id = ${SYSTEM_ORG_ID} AND name = ${BOOTSTRAP} AND image_digest = ${digest}
+       WHERE org_id = ${SYSTEM_ORG_ID} AND name = ${MANAGED_TOOLCHAIN.bootstrap} AND image_digest = ${digest}
        ORDER BY deleted_at NULLS FIRST, updated_at DESC
        LIMIT 1
     `) : [];
@@ -428,7 +425,7 @@ async function buildImageView(
   const iso = (v: Date | string | null | undefined) => (v ? new Date(v).toISOString() : null);
   return {
     stepKey: BUILD_IMAGE_STEP_KEY,
-    plugin: BOOTSTRAP,
+    plugin: MANAGED_TOOLCHAIN.bootstrap,
     releaseVersion,
     digest,
     imageRepository: deployed?.image_repository ?? null,
@@ -442,11 +439,11 @@ async function buildImageView(
     scan: record ? scanView(record) : null,
     severity: (assessment?.severity ?? 'ok') as Grade,
     currentWarnings: assessment?.warnings.map((w) => ({ code: w.code, severity: w.severity, message: w.message })) ?? [],
-    exposures: ctx.exposures.filter((e) => e.pluginName === BOOTSTRAP && e.pluginVersion === releaseVersion && !e.pluginPublisher).map(shapeExposure),
+    exposures: ctx.exposures.filter((e) => e.pluginName === MANAGED_TOOLCHAIN.bootstrap && e.pluginVersion === releaseVersion && !e.pluginPublisher).map(shapeExposure),
     effectiveDefault,
     behindDefault: !!(releaseVersion && effectiveDefault && compareSemver(releaseVersion, effectiveDefault.releaseVersion) < 0),
     synthPlugin: synth ? (synth.publisher ? `${synth.publisher}/${synth.name}` : synth.name) : null,
-    toolchainUnmanaged: !!synth && (synth.publisher !== null || synth.name !== MANAGED_SYNTH),
+    toolchainUnmanaged: !!synth && (synth.publisher !== null || synth.name !== MANAGED_TOOLCHAIN.synth),
     /** The last release change between consecutive deploys (the run-history "toolchain X → Y" marker). */
     change: deployed?.previous_release_version && deployed.release_changed_at
       ? { from: deployed.previous_release_version, to: deployed.plugin_version, changedAt: iso(deployed.release_changed_at)! }

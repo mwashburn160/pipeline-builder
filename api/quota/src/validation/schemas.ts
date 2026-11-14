@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { PRINCIPAL_TYPES, VALID_QUOTA_TYPES, VALID_TIERS, type PrincipalType } from '@pipeline-builder/api-core';
+import { AI_KEY_SOURCES, PRINCIPAL_TYPES, VALID_QUOTA_TYPES, VALID_TIERS, type PrincipalType } from '@pipeline-builder/api-core';
 import { z } from 'zod';
 
 const quotaLimit = z.number().int().min(-1);
@@ -23,9 +23,6 @@ export const UpdateQuotaSchema = z.object({
 }).refine( (data) => data.name !== undefined || data.slug !== undefined || data.tier !== undefined || data.quotas !== undefined,
   { message: 'At least one field (name, slug, tier, or quotas) is required.' },
 );
-
-/** Whose key served an AI call (api-core `AiKeySource`). */
-export const AI_KEY_SOURCES = ['platform', 'org', 'request'] as const;
 
 /** Bounded opaque attribution string (ids, route patterns). */
 const attributionText = z.string().trim().min(1).max(200);
@@ -89,10 +86,6 @@ const MeteredGroupSchema = z.object({
 export const IncrementQuotaSchema = z.object({
   quotaType: quotaTypeEnum,
   amount: z.number().int().min(1).max(MAX_METERED_AMOUNT).default(1),
-  // Optional snapshot of the `resetAt` observed at reserve time. When present,
-  // the service uses it to no-op the decrement if the period rolled over
-  // between reserve and rollback (prevents stealing from the next period).
-  resetAtSnapshot: z.string().datetime({ offset: true }).optional(),
   attribution: UsageAttributionSchema.optional(),
   meter: z.literal(true).optional(),
   groups: z.array(MeteredGroupSchema).min(1).max(MAX_METERED_GROUPS).optional(),
@@ -133,6 +126,9 @@ export const ReportUsageSchema = z.object({
 export const DecrementQuotaSchema = z.object({
   quotaType: quotaTypeEnum,
   amount: z.number().int().min(1).max(MAX_RESERVE_AMOUNT).default(1),
+  // Optional snapshot of the `resetAt` observed at reserve time. When present,
+  // the service no-ops the decrement if the period rolled over between reserve
+  // and rollback (prevents stealing from the next period).
   resetAtSnapshot: z.string().datetime({ offset: true }).optional(),
   attribution: UsageAttributionSchema.optional(),
 });

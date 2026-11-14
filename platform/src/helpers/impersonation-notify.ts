@@ -20,6 +20,7 @@ import { createLogger } from '@pipeline-builder/api-core';
 import { sendInAppNotification, sendInAppNotificationConfirmed } from './in-app-notify.js';
 import { toOrgId } from './org-id.js';
 import { describeDuration, IMPERSONATION_REQUEST_TTL_MS } from '../constants/impersonation.js';
+import { ADMIN_ORG_ROLES } from '@pipeline-builder/api-core/wire-vocabulary';
 import { Organization, User, UserOrganization } from '../models/index.js';
 
 const logger = createLogger('impersonation-notify');
@@ -41,7 +42,7 @@ export async function notifyTeamOfAncestorImpersonation(input: {
       UserOrganization.find({
         organizationId: input.orgId,
         isActive: true,
-        role: { $in: ['owner', 'admin'] },
+        role: { $in: [...ADMIN_ORG_ROLES] },
       }).select('userId').lean(),
     ]);
     if (!org || admins.length === 0) return;
@@ -99,7 +100,7 @@ export async function notifyOrgOfBreakglass(input: {
       User.findById(input.requesterId).select('username email').lean(),
       User.findById(input.targetUserId).select('username email').lean(),
       UserOrganization.find({
-        organizationId: input.orgId, isActive: true, role: { $in: ['owner', 'admin'] },
+        organizationId: input.orgId, isActive: true, role: { $in: [...ADMIN_ORG_ROLES] },
       }).select('userId').lean(),
     ]);
     if (!org || admins.length === 0) return { attempted: 0, delivered: 0 };

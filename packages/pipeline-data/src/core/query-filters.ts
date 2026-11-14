@@ -1,7 +1,9 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import type { Visibility } from '@pipeline-builder/api-core';
+import type {
+  ComplianceCheckVerdict, ComplianceScanStatus, ComplianceScanTarget, ComplianceScanTrigger, RuleTarget, Visibility,
+} from '@pipeline-builder/api-core';
 
 /**
  * Base filter interface containing common filter properties shared across all entity types.
@@ -354,9 +356,9 @@ export interface ComplianceExemptionFilter {
  */
 export interface ComplianceAuditFilter {
   readonly orgId?: string;
-  readonly target?: 'plugin' | 'pipeline';
+  readonly target?: RuleTarget;
   readonly action?: string;
-  readonly result?: 'pass' | 'warn' | 'block';
+  readonly result?: ComplianceCheckVerdict;
   readonly scanId?: string;
   readonly dateFrom?: string;
   readonly dateTo?: string;
@@ -369,9 +371,9 @@ export interface ComplianceAuditFilter {
  */
 export interface ComplianceScanFilter {
   readonly orgId?: string;
-  readonly target?: 'plugin' | 'pipeline' | 'all';
-  readonly status?: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
-  readonly triggeredBy?: 'manual' | 'scheduled' | 'rule-change' | 'rule-dry-run';
+  readonly target?: ComplianceScanTarget;
+  readonly status?: ComplianceScanStatus;
+  readonly triggeredBy?: ComplianceScanTrigger;
   readonly limit?: number;
   readonly offset?: number;
 }

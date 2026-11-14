@@ -59,6 +59,10 @@ const mockQuotaService = { getTier: jest.fn<AnyFn>().mockResolvedValue('develope
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   recordAudit: mockEmitPluginAudit,
   isSystemAdmin: jest.fn<AnyFn>(),
+  // The cross-org widening (`seesEveryOrg`): system org + plugin_queue:manage.
+  isSystemOrgRequest: jest.fn<AnyFn>(),
+  // Every caller here holds plugin_queue:manage; the system-org mock decides.
+  userHasPermission: (_req: unknown, perm: string) => perm === 'plugin_queue:manage',
   // Functional gate (the default apiCoreMock stub is a pass-through): grants a
   // superadmin implicitly, else requires one of the named permissions in
   // `req.user.permissions`. Lets us assert the standardized route gate.
@@ -92,7 +96,7 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
   },
 }));
 
-const { isSystemAdmin } = await import('@pipeline-builder/api-core');
+const { isSystemAdmin, isSystemOrgRequest } = await import('@pipeline-builder/api-core');
 const { createQueueStatusRoutes } = await import('../src/routes/queue-status.js');
 
 // Minimal Express-like mocks
@@ -228,6 +232,7 @@ describe('queue-status route', () => {
   describe('GET /failed tenant filter', () => {
     it('non-system admin sees only their own org\'s failed jobs', async () => {
       (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(false);
+      (isSystemOrgRequest as jest.Mock<AnyFn>).mockReturnValue(false);
       mockGetJobs.mockResolvedValue([
         { id: 'j-mine', name: 'p-mine', data: { orgId: 'org-1', pluginRecord: { name: 'mine' } }, opts: {}, attemptsMade: 1 },
         { id: 'j-other', name: 'p-other', data: { orgId: 'org-OTHER', pluginRecord: { name: 'other' } }, opts: {}, attemptsMade: 1 },
@@ -246,6 +251,7 @@ describe('queue-status route', () => {
 
     it('system admin sees ALL orgs\' failed jobs', async () => {
       (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(true);
+      (isSystemOrgRequest as jest.Mock<AnyFn>).mockReturnValue(true);
       mockGetJobCounts.mockResolvedValue({ failed: 2 });
       mockGetJobs.mockResolvedValue([
         { id: 'j-a', name: 'a', data: { orgId: 'org-1', pluginRecord: { name: 'a' } }, opts: {}, attemptsMade: 1 },
@@ -262,11 +268,30 @@ describe('queue-status route', () => {
       expect(payload.data.jobs.map((j: any) => j.id)).toEqual(['j-a', 'j-b']);
     });
 
+    it('REGRESSION: the superadmin flag from a TENANT org sees only that org\'s jobs', async () => {
+      (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(true);
+      (isSystemOrgRequest as jest.Mock<AnyFn>).mockReturnValue(false);
+      mockGetJobs.mockResolvedValue([
+        { id: 'j-a', name: 'a', data: { orgId: 'org-1', pluginRecord: { name: 'a' } }, opts: {}, attemptsMade: 1 },
+        { id: 'j-b', name: 'b', data: { orgId: 'org-2', pluginRecord: { name: 'b' } }, opts: {}, attemptsMade: 1 },
+      ]);
+
+      const handler = getRouteHandler('/failed');
+      const req = makeReq('owner', 'org-1');
+      const json = jest.fn<AnyFn>();
+      const res = { status: jest.fn<AnyFn>().mockReturnValue({ json }), json } as any;
+      await handler(req, res, jest.fn<AnyFn>());
+
+      const payload = (json.mock.calls[0])?.[0];
+      expect(payload.data.jobs.map((j: any) => j.id)).toEqual(['j-a']);
+    });
+
     // Standardized gate: the org-scoped GET ops now require plugins:write
     // (matching the sibling retry/replay writes), NOT the coarse admin/owner
     // role string. A member who holds plugins:write is admitted...
     it('admits a member holding plugins:write (own-org jobs)', async () => {
       (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(false);
+      (isSystemOrgRequest as jest.Mock<AnyFn>).mockReturnValue(false);
       mockGetJobs.mockResolvedValue([
         { id: 'j-mine', name: 'p', data: { orgId: 'org-1', pluginRecord: { name: 'mine' } }, opts: {}, attemptsMade: 1 },
       ]);
@@ -286,6 +311,7 @@ describe('queue-status route', () => {
     // never reaching the queue read.
     it('denies a caller without plugins:write with 403', async () => {
       (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(false);
+      (isSystemOrgRequest as jest.Mock<AnyFn>).mockReturnValue(false);
 
       const req = makeReq('member', 'org-1', {}, ['plugins:read']); // no plugins:write
       const json = jest.fn<AnyFn>();
@@ -313,6 +339,7 @@ describe('queue-status route', () => {
 
     it('reads offset+limit+1 rows per tier and returns the requested newest-first slice with an exact sysadmin total', async () => {
       (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(true);
+      (isSystemOrgRequest as jest.Mock<AnyFn>).mockReturnValue(true);
       mockGetJobCounts.mockResolvedValue({ failed: 5 });
       mockGetJobs.mockResolvedValue([job('a', 1), job('e', 5), job('c', 3), job('b', 2), job('d', 4)]);
 
@@ -326,6 +353,7 @@ describe('queue-status route', () => {
 
     it('omits the total for a tenant-scoped caller and derives hasMore from the filtered window', async () => {
       (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(false);
+      (isSystemOrgRequest as jest.Mock<AnyFn>).mockReturnValue(false);
       mockGetJobs.mockResolvedValue([job('m1', 3), job('x', 2, 'org-X'), job('m2', 1)]);
 
       const data = await call('/failed', makeReq('admin', 'org-1', { limit: '1', offset: '0' }));
@@ -337,6 +365,7 @@ describe('queue-status route', () => {
 
     it('clamps limit to 200 and bounds the paging depth', async () => {
       (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(true);
+      (isSystemOrgRequest as jest.Mock<AnyFn>).mockReturnValue(true);
       mockGetJobCounts.mockResolvedValue({ failed: 0 });
       mockGetJobs.mockResolvedValue([]);
 
@@ -349,6 +378,7 @@ describe('queue-status route', () => {
 
     it('pages the DLQ across its state sets with a summed sysadmin total', async () => {
       (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(true);
+      (isSystemOrgRequest as jest.Mock<AnyFn>).mockReturnValue(true);
       mockDlqGetJobCounts.mockResolvedValue({ waiting: 1, delayed: 0, active: 0, completed: 1, failed: 1 });
       mockDlqGetJobs.mockResolvedValue([job('d1', 1), job('d3', 3), job('d2', 2)]);
 
@@ -363,6 +393,7 @@ describe('queue-status route', () => {
   describe('GET /dlq tenant filter', () => {
     it('non-system admin sees only their own org\'s DLQ jobs', async () => {
       (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(false);
+      (isSystemOrgRequest as jest.Mock<AnyFn>).mockReturnValue(false);
       mockDlqGetJobs.mockResolvedValue([
         { id: 'd-mine', name: 'mine', data: { orgId: 'org-1', pluginRecord: { name: 'mine' } }, opts: {}, attemptsMade: 1, timestamp: 0, finishedOn: 0 },
         { id: 'd-other', name: 'other', data: { orgId: 'org-X', pluginRecord: { name: 'other' } }, opts: {}, attemptsMade: 1, timestamp: 0, finishedOn: 0 },

@@ -73,8 +73,6 @@ export {
   exactPinNotFoundMessage,
   type LookupNotFoundState,
   parseLookupToolchain,
-  TOOLCHAIN_RESOLVED_VIA,
-  type ToolchainResolvedVia,
   type ToolchainVersions,
   type LookupToolchain,
   type ResolvedBootstrap,

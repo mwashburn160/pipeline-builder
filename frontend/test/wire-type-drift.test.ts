@@ -63,7 +63,6 @@ const REGISTERED: ReadonlyArray<readonly [string, string, string]> = [
   ['DashboardWithPanels', 'frontend/src/types/observability.ts', 'platform/src/services/dashboard-service.ts'],
   ['DataQualityNote', 'frontend/src/lib/api/domains/stakeholder-reports.ts', 'packages/pipeline-data/src/api/reporting/stakeholder/compose.ts'],
   ['DoraLevel', 'frontend/src/lib/api/domains/reporting.ts', 'packages/pipeline-data/src/api/reporting/types.ts'],
-  ['ImpersonationPolicy', 'frontend/src/lib/api/domains/organizations.ts', 'platform/src/helpers/impersonation-policy.ts'],
   ['IncidentListItem', 'frontend/src/lib/api/domains/reporting.ts', 'packages/pipeline-data/src/api/reporting/types.ts'],
   ['IncidentTestResult', 'frontend/src/lib/api/domains/reporting.ts', 'packages/pipeline-data/src/api/reporting/types.ts'],
   ['InvitationDelivery', 'frontend/src/types/organization.ts', 'platform/src/services/invitation-service.ts'],
@@ -88,8 +87,6 @@ const REGISTERED: ReadonlyArray<readonly [string, string, string]> = [
   ['TeamUsageRow', 'frontend/src/lib/api/domains/billing.ts', 'api/billing/src/helpers/team-usage.ts'],
   // A platform-default history row's kind (the Toolchain console's History panel; pipeline-data, not importable).
   ['ToolchainDefaultKind', 'frontend/src/types/toolchain.ts', 'packages/pipeline-data/src/database/schema/toolchain.ts'],
-  // How a pipeline's toolchain release was chosen (the Build image row; pipeline-core, not importable).
-  ['ToolchainResolvedVia', 'frontend/src/lib/api/pipeline-security-types.ts', 'packages/pipeline-core/src/core/plugin-lookup-envelope.ts'],
   ['TotpEnrolment', 'frontend/src/types/identity.ts', 'platform/src/services/totp-service.ts'],
   ['TrendDirection', 'frontend/src/lib/api/domains/stakeholder-reports.ts', 'packages/pipeline-data/src/api/reporting/stakeholder/compose.ts'],
   ['UpgradeReason', 'frontend/src/lib/api/pipeline-security-types.ts', 'api/pipeline/src/helpers/plugin-upgrades.ts'],

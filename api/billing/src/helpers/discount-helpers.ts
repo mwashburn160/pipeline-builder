@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { randomUUID } from 'node:crypto';
-import { createLogger, errorMessage } from '@pipeline-builder/api-core';
+import { createLogger, errorMessage, type BillingInterval } from '@pipeline-builder/api-core';
 import { incCounter } from '@pipeline-builder/api-server';
 import { config } from '../config.js';
 import { createBillingEvent, getBundleCatalog } from './billing-helpers.js';
@@ -112,7 +112,7 @@ export async function resolveRedeemable(code: string): Promise<DiscountDocument 
  */
 
 export interface DiscountBreakdown {
-  interval: 'monthly' | 'annual';
+  interval: BillingInterval;
   items: { label: string; cents: number }[];
   subtotalCents: number;
   totalCents: number;
@@ -133,7 +133,7 @@ type BreakdownState = {
  * future cycles.
  */
 function computeDiscountBreakdown(planName: string, prices: { monthly: number; annual: number }, sub: BreakdownState): DiscountBreakdown {
-  const interval: 'monthly' | 'annual' = sub.interval === 'annual' ? 'annual' : 'monthly';
+  const interval: BillingInterval = sub.interval === 'annual' ? 'annual' : 'monthly';
   const base = prices[interval];
   const items = [{ label: planName, cents: base }];
   const balance = sub.creditBalanceCents ?? 0;
@@ -144,7 +144,7 @@ function computeDiscountBreakdown(planName: string, prices: { monthly: number; a
 
 /** Hypothetical breakdown if `discount` were redeemed now (adds its credit to the balance). */
 function projectDiscountBreakdown(planName: string, prices: { monthly: number; annual: number }, sub: BreakdownState, discount: Pick<DiscountDocument, 'kind' | 'unit' | 'value'>): DiscountBreakdown {
-  const interval: 'monthly' | 'annual' = sub.interval === 'annual' ? 'annual' : 'monthly';
+  const interval: BillingInterval = sub.interval === 'annual' ? 'annual' : 'monthly';
   const projected: BreakdownState = {
     interval,
     creditBalanceCents: (sub.creditBalanceCents ?? 0) + creditCents(discount, prices[interval]),

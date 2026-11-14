@@ -14,6 +14,7 @@ import {
   requirePermission,
   actorId,
   recordAudit,
+  COMPLIANCE_SCAN_TARGETS,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
@@ -28,12 +29,12 @@ import { complianceScanScheduleService } from '../services/compliance-scan-sched
  */
 
 const ScheduleCreateSchema = z.object({
-  target: z.enum(['plugin', 'pipeline', 'all']),
+  target: z.enum(COMPLIANCE_SCAN_TARGETS),
   cronExpression: z.string().min(9).max(100),
 });
 
 const ScheduleUpdateSchema = z.object({
-  target: z.enum(['plugin', 'pipeline', 'all']).optional(),
+  target: z.enum(COMPLIANCE_SCAN_TARGETS).optional(),
   cronExpression: z.string().min(9).max(100).optional(),
 });
 

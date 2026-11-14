@@ -9,15 +9,15 @@
  */
 
 import crypto from 'crypto';
-import { API_KEY_TOKEN_TTL_SECONDS, confinePermissionsToOrg, createLogger, intersectPermissions, isSystemOrgId, resolveUserFeatures, resolveUserPermissions } from '@pipeline-builder/api-core';
-import type { AssuranceLevel, AuthMethod, TokenScope, TokenUse, QuotaTier } from '@pipeline-builder/api-core';
+import { API_KEY_TOKEN_TTL_SECONDS, confinePermissionsToOrg, createLogger, intersectPermissions, isSystemOrgId, resolveUserFeatures, resolveUserPermissions, STRONG_STEP_UP_METHODS } from '@pipeline-builder/api-core';
+import type { AssuranceLevel, AuthMethod, StepUpMethod, TokenScope, TokenUse, QuotaTier } from '@pipeline-builder/api-core';
 import { resolveOrgMembership, type MembershipContext } from './membership-context.js';
 import { config } from '../../config/index.js';
 import { IMPERSONATION_SESSION_TTL_MS } from '../../constants/impersonation.js';
+import { isAdminOrgRole, type OrgRole } from '@pipeline-builder/api-core/wire-vocabulary';
 import { accessTokenVersion } from '../../helpers/access-version.js';
 import { applyAuthenticatorPolicy } from '../../helpers/authenticator-policy.js';
 import { isAncestorOrg } from '../../helpers/org-hierarchy.js';
-import type { OrgMemberRole } from '../../models/user-organization.js';
 import type { UserDocument } from '../../models/user.js';
 import type { AccessTokenPayload } from '../../types/index.js';
 import { MFA_REQUIRED_FOR_ORG, SESSION_AUTH_MISSING } from '../auth-errors.js';
@@ -167,7 +167,7 @@ export function createAccessTokenPayload(
     username: user.username,
     email: user.email,
     role,
-    isAdmin: role === 'admin' || role === 'owner',
+    isAdmin: isAdminOrgRole(role),
     // Carry the global super-admin flag through the JWT so downstream auth
     // gates (`isSystemAdmin`) can honor it without re-reading the user
     // record on every request. Only set when true to keep the payload
@@ -355,7 +355,7 @@ export interface ServiceAccountTokenContext {
   /** Union of the permissions carried by the Roles the account holds. */
   rolePermissions: readonly string[];
   /** Coarse label derived from those Roles (`admin` when one grants admin). */
-  role: OrgMemberRole;
+  role: OrgRole;
   /** True only when the account holds a `superadmin`-granting Role (system org,
    *  assignable by a platform superadmin alone). */
   isSuperAdmin: boolean;
@@ -404,7 +404,7 @@ export async function signServiceAccountToken(
     ...(account.parentOrganizationId ? { parentOrganizationId: account.parentOrganizationId } : {}),
     ...(account.rootOrganizationId ? { rootOrganizationId: account.rootOrganizationId } : {}),
     role: scope ? 'member' : account.role,
-    isAdmin: !scope && (account.role === 'admin' || account.role === 'owner'),
+    isAdmin: !scope && isAdminOrgRole(account.role),
     ...(!scope && account.isSuperAdmin ? { isSuperAdmin: true } : {}),
     tier,
     // A scoped key is least-privilege (no features, no permissions), exactly as
@@ -474,11 +474,6 @@ export async function issueImpersonationToken(
   return { accessToken, expiresIn: ttlSeconds };
 }
 
-/** How a step-up token was earned: the account password, a passkey assertion
- *  with user verification, an authenticator-app code (or recovery code), or a
- *  fresh sign-in with the user's own linked OAuth/SSO provider. */
-export type StepUpMethod = 'password' | 'webauthn' | 'totp' | 'reauth';
-
 /**
  * Sign a short-lived step-up token bound to `userId` (default 60s TTL). Issued
  * by POST /api/auth/step-up (password), POST /api/auth/step-up/webauthn/verify
@@ -488,8 +483,13 @@ export type StepUpMethod = 'password' | 'webauthn' | 'totp' | 'reauth';
  * `requireStepUp`, which verifies the `type: 'step-up'` + `jti` claims, binds
  * `sub` to the caller and consumes the `jti` once.
  *
- * A TOTP or PASSKEY step-up additionally carries `mfa` in `amr`: those are the
- * two methods that prove possession of a second factor, and that is
+ * `method` is api-core's `StepUpMethod`: the account password, a passkey
+ * assertion with user verification, an authenticator-app code (or recovery
+ * code), or a fresh sign-in with the user's own linked OAuth/SSO provider.
+ *
+ * A TOTP or PASSKEY step-up (api-core's `STRONG_STEP_UP_METHODS`) additionally
+ * carries `mfa` in `amr`: those are the two methods that prove possession of a
+ * second factor, and that is
  * readable — `requireStepUp({ methods: STRONG_STEP_UP_METHODS })` admits exactly
  * these two on the most dangerous routes, where re-typing the password the
  * session was already opened with proves nothing new.
@@ -503,7 +503,7 @@ export async function issueStepUpToken(
   const payload = {
     type: 'step-up' as const,
     sub: userId,
-    amr: (method === 'totp' || method === 'webauthn' ? ['stepup', 'mfa'] : ['stepup']) as AuthMethod[],
+    amr: (STRONG_STEP_UP_METHODS.includes(method) ? ['stepup', 'mfa'] : ['stepup']) as AuthMethod[],
     // How the step-up was earned — recorded for audit (and later assurance
     // decisions). requireStepUp ignores it: every method yields the same gate.
     method,

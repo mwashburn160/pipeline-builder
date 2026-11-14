@@ -34,10 +34,16 @@ import { submissionSbom, submissionScan } from '../services/ecosystem/submission
 import { setListedVersionDeprecation } from '../services/ecosystem/version-deprecation.js';
 import { listedVersionsNeedingAttention } from '../services/plugin-vuln-posture.js';
 
-/** Require a step-up only when the request being decided is of a sensitive kind. */
+/**
+ * Require a step-up when the request being decided is of a sensitive kind —
+ * and when its kind can't be read (a failed lookup fails closed: it steps up
+ * rather than let a sensitive decision through without one). An unknown id
+ * needs none; the decision itself 404s.
+ */
 async function stepUpForSensitiveRequest(req: Request, res: Response, next: NextFunction): Promise<void> {
-  const r = await requests.byId(String(req.params.id ?? '')).catch(() => null);
-  if (r && STEP_UP_REQUEST_KINDS.includes(r.kind)) {
+  let unreadable = false;
+  const r = await requests.byId(String(req.params.id ?? '')).catch(() => { unreadable = true; return null; });
+  if (unreadable || (r && STEP_UP_REQUEST_KINDS.includes(r.kind))) {
     await (requireStepUp as (q: Request, s: Response, n: NextFunction) => Promise<void>)(req, res, next);
     return;
   }

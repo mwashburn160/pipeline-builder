@@ -23,11 +23,11 @@
 
 import {
   AppError, ErrorCode, compareSemver, getStatusForErrorCode, isoOrNull, lastScannedAt, recordAudit,
-  toolchainFromMetadata, type PluginScanSummary, type PluginToolchain,
+  toolchainFromMetadata, type PluginScanSummary, type PluginToolchain, type ToolchainReleaseStatus, type ToolchainResolvedVia,
 } from '@pipeline-builder/api-core';
 import {
   isEligibleRelease, listEligibleReleases, readOrgToolchainOverview, runWithTenantContext, schema, withTenantTx,
-  type EligibleToolchainRelease, type ManagedToolchainWarning, type ToolchainResolvedVia,
+  type EligibleToolchainRelease, type ManagedToolchainWarning,
 } from '@pipeline-builder/pipeline-data';
 import { and, desc, eq, isNull, sql } from 'drizzle-orm';
 
@@ -66,15 +66,13 @@ export interface OrgDefaultHistoryEntry {
   reason: string | null;
 }
 
-/** Where a selectable release sits. */
-export type EligibleReleaseStatus = 'default' | 'canary' | 'available' | 'deprecated' | 'yanked';
 /** A selectable release relative to the platform default. */
 export type EligibleReleaseRelation = 'newer' | 'older' | 'current';
 
 /** One row of `GET /plugins/toolchain/eligible`. */
 export interface EligibleReleaseView {
   releaseVersion: string;
-  status: EligibleReleaseStatus;
+  status: ToolchainReleaseStatus;
   relation: EligibleReleaseRelation;
   toolchain: PluginToolchain;
   releaseNotes: string | null;
@@ -181,7 +179,7 @@ function relationOf(releaseVersion: string, platformDefault: string | null): Eli
   return c === 0 ? 'current' : c > 0 ? 'newer' : 'older';
 }
 
-function statusOf(r: EligibleToolchainRelease): EligibleReleaseStatus {
+function statusOf(r: EligibleToolchainRelease): ToolchainReleaseStatus {
   if (r.isPlatformDefault) return 'default';
   if (r.isCanary) return 'canary';
   return 'available';

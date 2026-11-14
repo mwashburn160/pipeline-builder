@@ -16,28 +16,16 @@ import { useFetch } from '@/hooks/useFetch';
 import api from '@/lib/api';
 import { formatError } from '@/lib/constants';
 import { responseTargetLabel } from '@/components/message/MessageList';
-import type { SupportFeatureFlag } from '@pipeline-builder/api-core/feature-flags';
+import { FEATURE_METADATA, SUPPORT_FEATURE_FLAGS, type SupportFeatureFlag } from '@pipeline-builder/api-core/feature-flags';
 import type { SupportContactDto, SupportContactsDto } from '@/lib/api/domains/organizations';
 import type { OrganizationMember } from '@/types';
 
-/**
- * The label a level gets in this card, keyed off api-core's support-level union
- * so a level added there is a compile error here. It was a
- * `Record<string, string>`, and the call site falls back to the raw value — so a
- * fourth level would have read "support_enterprise" at the person deciding who
- * may open a case.
- */
-const LEVEL_NAMES: Readonly<Record<SupportFeatureFlag, string>> = {
-  support_standard: 'Standard Support',
-  support_priority: 'Priority Support',
-  support_premium: 'Premium Support',
-};
-
-/** Whether a level off the wire is one this card names — asking the map rather
- *  than casting a `string` to `SupportFeatureFlag`, which would assert something
- *  the response does not guarantee. */
+/** Whether a level off the wire is a support level — asking api-core's list
+ *  rather than casting a `string` to `SupportFeatureFlag`, which would assert
+ *  something the response does not guarantee. Its label is the add-on's own
+ *  (`FEATURE_METADATA`), so this card and billing name a level the same way. */
 function isNamedLevel(level: string): level is SupportFeatureFlag {
-  return Object.hasOwn(LEVEL_NAMES, level);
+  return (SUPPORT_FEATURE_FLAGS as readonly string[]).includes(level);
 }
 
 /**
@@ -149,7 +137,7 @@ export function SupportContactSettings({ orgId, readOnly = false }: { orgId: str
           ) : (
             <>
               <p className="text-sm text-fg-muted">
-                {isNamedLevel(support.level) ? LEVEL_NAMES[support.level] : support.level}
+                {isNamedLevel(support.level) ? FEATURE_METADATA[support.level].label : support.level}
                 {responseTargetLabel(support.level) ? ` — first response within ${responseTargetLabel(support.level)}.` : '.'}
                 {' '}
                 Only a designated contact can open a case and be its owner.

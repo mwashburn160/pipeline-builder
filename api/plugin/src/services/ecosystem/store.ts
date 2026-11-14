@@ -27,7 +27,7 @@
 
 import { AsyncLocalStorage } from 'node:async_hooks';
 
-import { createLogger, errorMessage } from '@pipeline-builder/api-core';
+import { createLogger, errorMessage, OPEN_PUBLISH_REQUEST_STATUSES, PUBLISH_REQUEST_STATUSES } from '@pipeline-builder/api-core';
 import {
   refreshLatestForPlugin,
   runWithTenantContext,
@@ -236,17 +236,13 @@ export async function previousVersion(listingId: string | null, except: string |
 // Publish requests
 // -----------------------------------------------------------------------------
 
-export const OPEN_STATUSES: PublishRequestStatus[] = ['pending', 'pending_second_approval'];
+export const OPEN_STATUSES: PublishRequestStatus[] = [...OPEN_PUBLISH_REQUEST_STATUSES];
 
-/** The `?status=` filters of a request list. */
+/** The `?status=` filters of a request list: each status alone, plus `open` and `decided` (every other status). */
 export const REQUEST_STATUS_FILTERS: Readonly<Record<string, PublishRequestStatus[]>> = {
+  ...Object.fromEntries(PUBLISH_REQUEST_STATUSES.map((s) => [s, [s]])),
   open: OPEN_STATUSES,
-  pending: ['pending'],
-  pending_second_approval: ['pending_second_approval'],
-  approved: ['approved'],
-  rejected: ['rejected'],
-  withdrawn: ['withdrawn'],
-  decided: ['approved', 'rejected', 'withdrawn'],
+  decided: PUBLISH_REQUEST_STATUSES.filter((s) => !OPEN_STATUSES.includes(s)),
 };
 
 /**

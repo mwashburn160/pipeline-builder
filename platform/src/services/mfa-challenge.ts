@@ -26,6 +26,7 @@
  */
 
 import crypto from 'crypto';
+import type { AuthMethod } from '@pipeline-builder/api-core';
 import { config } from '../config/index.js';
 import { createPendingStateStore } from '../helpers/pending-state-store.js';
 
@@ -46,9 +47,20 @@ interface PendingMfaChallenge {
   passwordChangeMinLength?: number;
   /** The FIRST factor the sign-in proved: a password (default) or a social
    *  provider. Carried into the session's `amr` alongside `mfa`. */
-  firstFactor?: 'pwd' | 'oauth';
+  firstFactor?: FirstFactor;
   /** Unix seconds; carried so the client can show a countdown. */
   expiresAt: number;
+}
+
+/** The first factors a sign-in can owe a second factor after: a password or a
+ *  social provider. */
+export type FirstFactor = Extract<AuthMethod, 'pwd' | 'oauth'>;
+
+/** What the first-factor step hands the challenge. */
+export interface MfaChallengeOptions {
+  recoveryOnly?: boolean;
+  passwordChangeMinLength?: number;
+  firstFactor?: FirstFactor;
 }
 
 const challenges = createPendingStateStore<PendingMfaChallenge>({
@@ -69,7 +81,7 @@ export interface IssuedMfaChallenge {
 export async function createMfaChallenge(
   userId: string,
   orgId?: string,
-  opts: { recoveryOnly?: boolean; passwordChangeMinLength?: number; firstFactor?: 'pwd' | 'oauth' } = {},
+  opts: MfaChallengeOptions = {},
 ): Promise<IssuedMfaChallenge> {
   const challengeId = crypto.randomBytes(32).toString('base64url');
   const expiresAt = Math.floor((Date.now() + config.auth.totp.challengeTtlMs) / 1000);

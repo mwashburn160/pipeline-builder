@@ -1,7 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useCallback, useEffect, useState } from 'react';
+import { useState } from 'react';
+import { useFetch } from '@/hooks/useFetch';
 import { Eye } from 'lucide-react';
 import { SectionCard } from '@/components/ui/SectionCard';
 import { Select } from '@/components/ui/Select';
@@ -42,39 +43,35 @@ interface TeamMemberAccessProps {
 export function TeamMemberAccess({ teams, currentUserId, readOnly }: TeamMemberAccessProps) {
   const [teamId, setTeamId] = useState(teams[0]?.orgId ?? '');
   const [search, setSearch] = useState('');
-  const [members, setMembers] = useState<OrganizationMember[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [viewing, setViewing] = useState<OrganizationMember | null>(null);
+  const [viewing, setViewing] = useState<{ member: OrganizationMember; teamId: string } | null>(null);
 
-  const team = teams.find((t) => t.orgId === teamId);
+  // useFetch drops a superseded (team, search) read, so a slow answer for an
+  // earlier keystroke or the previously selected team can never overwrite the
+  // current one. The roster carries the team it was read for: "View as user"
+  // names THAT team, never whichever team the picker shows by then.
+  const roster = useFetch(async (signal) => {
+    if (!teamId) return { teamId, members: [] as OrganizationMember[] };
+    const res = await runQuery(queries.orgMembers(teamId, {
+      limit: 25,
+      status: 'active',
+      ...(search ? { search } : {}),
+    }), { signal });
+    return { teamId, members: res.data?.members ?? [] };
+  }, [teamId, search], { clearDataOnError: true });
+  const rosterMatches = roster.data?.teamId === teamId;
+  const members = rosterMatches ? roster.data?.members ?? [] : [];
+  const loading = roster.loading || (!rosterMatches && !roster.error);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const error = actionError ?? (roster.error ? formatError(roster.error, 'Could not load that team\'s members') : null);
 
-  const load = useCallback(async () => {
-    if (!teamId) return;
-    setLoading(true);
-    try {
-      const res = await runQuery(queries.orgMembers(teamId, {
-        limit: 25,
-        status: 'active',
-        ...(search ? { search } : {}),
-      }));
-      setMembers(res.data?.members ?? []);
-      setError(null);
-    } catch (e) {
-      setError(formatError(e, 'Could not load that team\'s members'));
-    } finally {
-      setLoading(false);
-    }
-  }, [teamId, search]);
+  const viewingTeam = teams.find((t) => t.orgId === viewing?.teamId);
 
-  useEffect(() => { void load(); }, [load]);
-
-  const view = async (member: OrganizationMember, stepUpToken: string) => {
+  const view = async ({ member, teamId: memberTeamId }: { member: OrganizationMember; teamId: string }, stepUpToken: string) => {
     try {
       const outcome = interpretImpersonationStart(
         // Name the team: the session is about THIS team, whichever org the member
         // last had active.
-        await api.impersonateUser(member.id, stepUpToken, { orgId: teamId }),
+        await api.impersonateUser(member.id, stepUpToken, { orgId: memberTeamId }),
         'Could not open that account',
       );
       if (outcome.kind === 'started') {
@@ -84,9 +81,9 @@ export function TeamMemberAccess({ teams, currentUserId, readOnly }: TeamMemberA
       }
       // A parent admin is never asked to wait, so `waiting` here means something
       // unexpected — report it rather than pretend it worked.
-      setError(outcome.kind === 'failed' ? outcome.message : 'That request is waiting for approval.');
+      setActionError(outcome.kind === 'failed' ? outcome.message : 'That request is waiting for approval.');
     } catch (e) {
-      setError(formatError(e, 'Could not open that account'));
+      setActionError(formatError(e, 'Could not open that account'));
     } finally {
       setViewing(null);
     }
@@ -133,7 +130,7 @@ export function TeamMemberAccess({ teams, currentUserId, readOnly }: TeamMemberA
                 <p className="truncate text-xs text-fg-muted">{m.email}</p>
               </div>
               {m.id !== currentUserId && (
-                <Button type="button" variant="secondary" readOnly={readOnly} onClick={() => setViewing(m)}>
+                <Button type="button" variant="secondary" readOnly={readOnly} onClick={() => { setActionError(null); setViewing({ member: m, teamId }); }}>
                   View as user
                 </Button>
               )}
@@ -144,7 +141,7 @@ export function TeamMemberAccess({ teams, currentUserId, readOnly }: TeamMemberA
 
       {viewing && (
         <StepUpModal
-          action={`View ${viewing.email}'s account in ${team?.orgName ?? 'this team'}, read-only. The team's admins will be notified.`}
+          action={`View ${viewing.member.email}'s account in ${viewingTeam?.orgName ?? 'this team'}, read-only. The team's admins will be notified.`}
           onConfirmed={(token) => view(viewing, token)}
           onClose={() => setViewing(null)}
         />

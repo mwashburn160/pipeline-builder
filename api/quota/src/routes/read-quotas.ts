@@ -21,6 +21,7 @@ import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import type { RequestHandler } from 'express';
 import { config } from '../config.js';
+import { atRiskPercent } from '../helpers/quota-helpers.js';
 import { authorizeOrg } from '../middleware/authorize-org.js';
 import { QuotaNoticeSettings } from '../models/quota-notice.js';
 import { type AtRiskEntry, type QuotaService, quotaService as defaultQuotaService } from '../services/quota-service.js';
@@ -31,9 +32,15 @@ interface AtRiskCacheEntry {
 }
 
 // Page size for the internal full-collection scan in GET /quotas/at-risk. Each
-// findAll() page is capped here (and by findAll's own FIND_ALL_MAX_LIMIT) while
-// the loop walks the whole org collection to exhaustion.
+// `findAtRisk` page is capped here (and by the service's FIND_ALL_MAX_LIMIT)
+// while its loop walks the whole org collection to exhaustion.
 const ORG_SCAN_PAGE_SIZE = 1000;
+
+/** `?threshold=` for both at-risk reads: an integer percent clamped to 1–100, default 80. */
+function parseThreshold(raw: unknown): number {
+  const n = parseInt(String(raw ?? '80'), 10);
+  return Number.isFinite(n) ? Math.min(100, Math.max(1, n)) : 80;
+}
 
 export function createReadQuotaRoutes(svc: QuotaService = defaultQuotaService): Router {
   const router: Router = Router();
@@ -203,8 +210,7 @@ export function createReadQuotaRoutes(svc: QuotaService = defaultQuotaService): 
     // tenant-facing one and gates on `quotas:read` instead.
     ...requireSystemOrgPermission('orgs:read'),
     withRoute(async ({ req, res, ctx }) => {
-      const rawThreshold = parseInt(String(req.query.threshold ?? '80'), 10);
-      const threshold = Number.isFinite(rawThreshold) ? Math.min(100, Math.max(1, rawThreshold)) : 80;
+      const threshold = parseThreshold(req.query.threshold);
 
       const now = Date.now();
       const cacheKey = `${threshold}`;
@@ -269,8 +275,7 @@ export function createReadQuotaRoutes(svc: QuotaService = defaultQuotaService): 
     withRoute(async ({ req, res, ctx }) => {
       const targetOrgId = getParam(req.params, 'orgId')!;
 
-      const rawThreshold = parseInt(String(req.query.threshold ?? '80'), 10);
-      const threshold = Number.isFinite(rawThreshold) ? Math.min(100, Math.max(1, rawThreshold)) : 80;
+      const threshold = parseThreshold(req.query.threshold);
 
       // ONE read for everything. `findByOrgId` already resolves the pool once
       // and overlays the ROOT's shared cap + subtree usage onto every pooled
@@ -284,10 +289,7 @@ export function createReadQuotaRoutes(svc: QuotaService = defaultQuotaService): 
       for (const type of VALID_QUOTA_TYPES) {
         const status = summary.quotas[type];
         if (!status || status.unlimited) continue;
-        // limit === 0 ⇒ permanently at-risk (any use is 100%+); report as 100%.
-        const percent = status.limit === 0
-          ? 100
-          : Math.min(100, Math.round((status.used / status.limit) * 100));
+        const percent = atRiskPercent(status);
         if (percent >= threshold) {
           entries.push({
             orgId: summary.orgId,

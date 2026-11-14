@@ -33,9 +33,10 @@ const logger = createLogger('step-up');
 const HEADER = 'x-step-up-token';
 
 /**
- * How a step-up token was earned. Mirrors platform's `StepUpMethod`; kept here
- * as its own union so a verifier can name the factors it accepts without
- * importing platform.
+ * How a step-up token was earned — THE definition: platform's issuer
+ * (`issueStepUpToken`, services/session/access-tokens.ts) imports this union and
+ * derives the token's `amr` from {@link STRONG_STEP_UP_METHODS}, and every
+ * verifier here names the factors it accepts from the same list.
  */
 export type StepUpMethod = 'password' | 'webauthn' | 'totp' | 'reauth';
 

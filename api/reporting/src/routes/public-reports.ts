@@ -46,7 +46,7 @@ import { rateLimitByOrg, withRoute } from '@pipeline-builder/api-server';
 import { renderReportHtml, reportFileName, stakeholderReportStore } from '@pipeline-builder/pipeline-data';
 import { Router, type NextFunction, type Request, type RequestHandler, type Response } from 'express';
 import { z } from 'zod';
-import { sendPdf } from '../helpers/report-helpers.js';
+import { sendPdf, sendPdfRefusal } from '../helpers/report-helpers.js';
 import { pdfAvailable, renderPdf } from '../services/report-pdf.js';
 
 const logger = createLogger('public-reports');
@@ -296,10 +296,7 @@ export function createPublicReportRoutes(): Router {
     });
 
     const result = await renderPdf(html);
-    if (!result.ok) {
-      const status = result.reason === 'busy' ? 429 : result.reason === 'unavailable' ? 503 : 500;
-      return sendError(res, status, result.message, status === 500 ? ErrorCode.INTERNAL_ERROR : ErrorCode.SERVICE_UNAVAILABLE);
-    }
+    if (!result.ok) return sendPdfRefusal(res, result);
     ctx.log('COMPLETED', 'Served shared report PDF', { runId: run.id, ms: result.ms, bytes: result.pdf.length });
     sendPdf(res, result.pdf, reportFileName('delivery-report', run.periodLabel, run.version));
   }, { requireOrgId: false }));

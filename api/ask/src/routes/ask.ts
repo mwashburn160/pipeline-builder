@@ -28,8 +28,9 @@ import {
   actorId,
   recordAudit,
   validateBody,
+  type AiQuotaSettlement,
+  type QuotaService,
 } from '@pipeline-builder/api-core';
-import type { QuotaService } from '@pipeline-builder/api-core';
 import { withAiCallReservation, withRoute, type AiCallSlot, type AiSlotWaiver } from '@pipeline-builder/api-server';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { Router } from 'express';
@@ -114,7 +115,7 @@ function usageBlock(served: ResolvedModelSelection | undefined, usage: LanguageM
 export interface AskQuotaDetail {
   type: 'aiCalls';
   /** `waived`: no unit was reserved (BYOK key, impersonation, weight-0 model) — see `waived`. */
-  slot: 'kept' | 'refunded' | 'waived';
+  slot: AiQuotaSettlement;
   /** Why no unit was reserved (api-server `AiSlotWaiver`). */
   waived?: AiSlotWaiver;
   /** Units the call reserved (its model weight). */

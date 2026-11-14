@@ -7,11 +7,12 @@
  * is reachable with Tab/Enter.
  */
 import Link from 'next/link';
+import { PUBLISHER_TIERS } from '@pipeline-builder/api-core/wire-vocabulary';
 import { Check } from 'lucide-react';
 import { CATEGORY_DISPLAY_NAMES, PLUGIN_CATEGORIES, isPluginCategory } from '@/lib/plugin-categories';
 import { directoryHref, withParam, type DirectoryQuery } from '@/lib/public-directory/query';
 import {
-  SEARCH_SORTS, SORT_LABELS, TRUST_TIERS, TRUST_TIER_LABELS,
+  SEARCH_SORTS, SORT_LABELS, TRUST_TIER_LABELS,
   type SearchFacets, type SearchSort,
 } from '@/lib/public-directory/types';
 import { categoryGlyph } from './PluginIcon';
@@ -80,7 +81,7 @@ export function FacetPanel({ facets, query, showRating, hrefFor = directoryHref,
   for (const [id, count] of Object.entries(facets?.category ?? {})) {
     if (!isPluginCategory(id) && count > 0) categoryOptions.push({ value: id, label: id, count, glyphFor: id });
   }
-  const tierOptions: Option[] = TRUST_TIERS
+  const tierOptions: Option[] = PUBLISHER_TIERS
     .map((t) => ({ value: t, label: TRUST_TIER_LABELS[t], count: facets?.tier?.[t] ?? 0 }))
     .filter((o) => o.count > 0 || query.tier === o.value);
   const secretOptions: Option[] = [

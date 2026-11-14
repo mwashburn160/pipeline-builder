@@ -2,22 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { Schema, model, Types, type HydratedDocument } from 'mongoose';
-
-/**
- * Membership role within an organization, in canonical order
- * (highest authority first).
- * - owner: created the org or received ownership transfer
- * - admin: can manage members and org settings
- * - member: standard access
- *
- * Exposed as a `const` tuple so the same source backs both the runtime
- * Mongoose enum and the compile-time `OrgMemberRole` union. Peer models
- * (e.g. invitations) import this to stay in lockstep.
- */
-export const MEMBER_ROLES = ['owner', 'admin', 'member'] as const;
-
-/** Per-org role string, derived from `MEMBER_ROLES`. */
-export type OrgMemberRole = typeof MEMBER_ROLES[number];
+import { ORG_ROLES, type OrgRole } from '@pipeline-builder/api-core/wire-vocabulary';
 
 /**
  * Directory-owned state for ONE membership, written only by the SCIM endpoints.
@@ -58,7 +43,7 @@ export interface ScimMembershipState {
 export interface UserOrganizationData {
   userId: Types.ObjectId;
   organizationId: Types.ObjectId;
-  role: OrgMemberRole;
+  role: OrgRole;
   isActive: boolean;
   joinedAt: Date;
   /**
@@ -99,7 +84,7 @@ const userOrganizationSchema = new Schema<UserOrganizationData>(
     },
     role: {
       type: String,
-      enum: [...MEMBER_ROLES],
+      enum: [...ORG_ROLES],
       default: 'member',
     },
     isActive: {

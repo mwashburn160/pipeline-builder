@@ -38,7 +38,7 @@
  */
 
 import { Output, aiCallSettings, generateText, resolveModelSelection } from '@pipeline-builder/ai-core';
-import { createLogger, emitCounter, errorMessage } from '@pipeline-builder/api-core';
+import { createLogger, emitCounter, errorMessage, LIVE_SUPPORT_CASE_STATUSES } from '@pipeline-builder/api-core';
 import { runWithTenantContext, schema, withTenantTxRead } from '@pipeline-builder/pipeline-data';
 import { and, desc, eq, gte, inArray } from 'drizzle-orm';
 import { z } from 'zod';
@@ -87,12 +87,6 @@ const SentimentSchema = z.object({
   frustrated: z.boolean(),
   confidence: z.number().min(0).max(1),
 });
-
-/**
- * Statuses worth reading. A `closed` case is history; an open or waiting one is
- * the account's CURRENT experience, which is what a suppression signal is about.
- */
-const LIVE_CASE_STATUSES = ['open', 'awaiting_support', 'awaiting_customer'] as const;
 
 /**
  * Strip the things that must not reach a model.
@@ -223,7 +217,10 @@ export async function recentCaseExcerpts(orgId: string): Promise<string[]> {
       .from(schema.supportCase)
       .where(and(
         eq(schema.supportCase.orgId, orgId),
-        inArray(schema.supportCase.status, [...LIVE_CASE_STATUSES]),
+        // Live cases only: a resolved/closed case is history; an open or waiting
+        // one is the account's CURRENT experience, which is what a suppression
+        // signal is about.
+        inArray(schema.supportCase.status, [...LIVE_SUPPORT_CASE_STATUSES]),
         gte(schema.supportCase.createdAt, since),
       ))
       .orderBy(desc(schema.supportCase.createdAt))

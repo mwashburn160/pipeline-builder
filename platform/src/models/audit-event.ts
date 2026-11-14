@@ -5,6 +5,7 @@ import { REMOTE_AUDIT_ACTIONS } from '@pipeline-builder/api-core';
 import { Schema, model, type HydratedDocument, type Types } from 'mongoose';
 import { config } from '../config/index.js';
 import { PLATFORM_AUDIT_ACTIONS } from '../constants/audit-actions.js';
+import { AUDIT_OUTCOMES, type AuditOutcome } from '../constants/vocabulary.js';
 
 /**
  * Every audit action, as a runtime list: platform's own plus the remote subset
@@ -57,7 +58,7 @@ export interface AuditEventData {
   impersonatorId?: string;
   /** Did the action succeed or fail? Defaults to 'success'; failure-path
    *  call sites (login.failed, plugin.build.failed/timeout) pass 'failure'. */
-  outcome?: 'success' | 'failure';
+  outcome?: AuditOutcome;
   details?: Record<string, unknown>;
   ip?: string;
   /** Client User-Agent (truncated + control-chars stripped). Forensic signal
@@ -122,7 +123,7 @@ const auditEventSchema = new Schema<AuditEventData>( {
   // index skips the (vast majority of) documents that leave them unset.
   roleId: { type: String, index: { sparse: true } },
   impersonatorId: { type: String, index: { sparse: true } },
-  outcome: { type: String, enum: ['success', 'failure'] },
+  outcome: { type: String, enum: [...AUDIT_OUTCOMES] },
   details: { type: Schema.Types.Mixed },
   ip: { type: String },
   userAgent: { type: String },

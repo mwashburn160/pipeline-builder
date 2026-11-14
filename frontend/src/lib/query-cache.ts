@@ -43,6 +43,10 @@ interface Inflight {
   controller: AbortController;
   waiters: number;
   settled: boolean;
+  /** Set when a mutation invalidated the key while this was on the wire: its
+   *  answer predates the write, so it is handed to its own waiters but never
+   *  cached. */
+  superseded: boolean;
 }
 
 const entries = new Map<string, CacheEntry>();
@@ -193,6 +197,7 @@ export function queryFetch<T>(
       controller,
       waiters: 0,
       settled: false,
+      superseded: false,
       promise: undefined as unknown as Promise<unknown>,
     };
     created.promise = (async () => {
@@ -203,7 +208,7 @@ export function queryFetch<T>(
         // promise for this value, and waking the whole tree on each fill would
         // re-run in-flight readers' effects (aborting their requests) for data
         // they never asked about. Listeners exist for INVALIDATION only.
-        if (generation === cacheGeneration) {
+        if (generation === cacheGeneration && !created.superseded) {
           entries.set(key, { value, at: Date.now() });
         }
         return value;
@@ -234,19 +239,23 @@ export function runQuery<T>(
  * Drop every cached entry whose key starts with `prefix` (all of them when
  * omitted) and wake mounted readers.
  *
- * In-flight requests are left alone: they were issued under the current
- * identity, so their answer is still this tenant's. They simply refill a key
- * that now has a fresh mounted reader waiting for it.
+ * A matching request still on the wire is SUPERSEDED, not joined: it was issued
+ * before the mutation, so its answer may not reflect it (a just-deleted row).
+ * Leaving it in place let the woken reader join it and cache that pre-mutation
+ * answer as fresh. It is detached instead — its own waiters still get their
+ * answer, the cache never stores it, and the next read starts a new request.
+ * Not aborted: those waiters are still listening.
  */
 export function invalidateQueries(prefix?: string): void {
   const matches = (key: string) => prefix === undefined || key.startsWith(prefix);
   for (const key of [...entries.keys()]) {
     if (matches(key)) { entries.delete(key); bumpKey(key); }
   }
-  // A key with no entry yet but a request on the wire still has a reader
-  // waiting on data the mutation just invalidated.
-  for (const key of inflight.keys()) {
-    if (matches(key) && !entries.has(key)) bumpKey(key);
+  for (const [key, flight] of [...inflight]) {
+    if (!matches(key)) continue;
+    flight.superseded = true;
+    inflight.delete(key);
+    bumpKey(key);
   }
   notify();
 }

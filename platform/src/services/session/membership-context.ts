@@ -9,12 +9,12 @@
  */
 
 import { createLogger, type QuotaTier } from '@pipeline-builder/api-core';
+import type { OrgRole } from '@pipeline-builder/api-core/wire-vocabulary';
 import { type EffectiveMfaPolicy, resolveEffectiveMfaPolicy } from '../../helpers/mfa-policy.js';
 import { resolveOrgAuthority } from '../../helpers/org-authority.js';
 import { resolveOrgLineage } from '../../helpers/org-hierarchy.js';
 import { toOrgId } from '../../helpers/org-id.js';
 import { Organization, UserOrganization } from '../../models/index.js';
-import type { OrgMemberRole } from '../../models/user-organization.js';
 import { rolePermissionsFor } from '../role-permissions.js';
 
 const logger = createLogger('token');
@@ -23,7 +23,7 @@ const logger = createLogger('token');
 export interface MembershipContext {
   organizationId: string;
   organizationName?: string;
-  role: OrgMemberRole;
+  role: OrgRole;
   tier?: QuotaTier;
   /** Org → team hierarchy: direct parent of the active org (omitted for root orgs). */
   parentOrganizationId?: string;

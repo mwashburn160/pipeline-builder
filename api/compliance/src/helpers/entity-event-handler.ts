@@ -1,8 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { SYSTEM_ACTOR_ID, createLogger, errorMessage } from '@pipeline-builder/api-core';
-import type { RuleTarget } from '@pipeline-builder/pipeline-data';
+import { SYSTEM_ACTOR_ID, createLogger, errorMessage, RULE_TARGETS, type RuleTarget } from '@pipeline-builder/api-core';
 import { logComplianceCheck } from './compliance-check-log.js';
 import { asNonBlockingVulnRules, rulesReadStepFacts, withPipelineStepFacts } from './pipeline-step-facts.js';
 import { withPluginImageFacts } from './plugin-image-attributes.js';
@@ -12,10 +11,14 @@ import { complianceRuleService } from '../services/compliance-rule-service.js';
 
 const logger = createLogger('entity-event-handler');
 
-const TARGET_MAP: Record<string, RuleTarget | undefined> = {
-  plugin: 'plugin',
-  pipeline: 'pipeline',
-};
+/**
+ * The event's target as a rule target, or undefined for anything else. Read off
+ * api-core's `RULE_TARGETS` rather than a hand-kept `{ plugin, pipeline }` map,
+ * whose plain-object lookup also answered for inherited keys (`constructor`).
+ */
+function ruleTargetOf(target: string): RuleTarget | undefined {
+  return (RULE_TARGETS as readonly string[]).includes(target) ? target as RuleTarget : undefined;
+}
 
 interface EntityEventInput {
   entityId: string;
@@ -45,7 +48,7 @@ interface EvaluationResult {
  * Used by both the HTTP entity-events route and the BullMQ worker.
  */
 export async function evaluateEntityEvent(event: EntityEventInput): Promise<EvaluationResult> {
-  const ruleTarget = TARGET_MAP[event.target];
+  const ruleTarget = ruleTargetOf(event.target);
   if (!ruleTarget) {
     return { evaluated: false, reason: 'non-compliance target' };
   }

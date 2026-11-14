@@ -5,6 +5,7 @@
  *  invitations that add to it. */
 
 import type { Criticality, EntityLink, Lifecycle, OwnerType, QuotaTier, QuotaType, RoleGrant, TemplateInput, Visibility } from '@pipeline-builder/api-core';
+import type { OrgRole } from '@pipeline-builder/api-core/wire-vocabulary';
 
 /** The current user's preferences for the active organization (`/user/preferences`). */
 export interface UserPreferences {
@@ -36,7 +37,7 @@ export interface UserOrgMembership {
   id: string;
   name: string;
   slug?: string;
-  role: 'owner' | 'admin' | 'member';
+  role: OrgRole;
   /** Parent org id when this org is a team (org → team hierarchy); absent for top-level orgs. */
   parentOrgId?: string;
   /** Parent org's display name (teams only) — names the parent when the user
@@ -75,7 +76,7 @@ export interface OrganizationMember {
   id: string;
   username: string;
   email: string;
-  role: 'owner' | 'admin' | 'member';
+  role: OrgRole;
   isOwner: boolean;
   isActive: boolean;
   isEmailVerified: boolean;
@@ -96,7 +97,7 @@ export interface MemberTeam {
   orgName: string;
   parentOrgId?: string;
   isMember: boolean;
-  role?: 'owner' | 'admin' | 'member';
+  role?: OrgRole;
   isActive?: boolean;
 }
 
@@ -349,7 +350,7 @@ export type InvitationDelivery = 'sent' | 'not-configured' | 'failed';
 export interface Invitation {
   id: string;
   email: string;
-  role: 'owner' | 'admin' | 'member';
+  role: OrgRole;
   /**
    * Names of the Roles this invitation assigns on acceptance, resolved by the
    * listing (the stored ids answer nothing in a review queue). Absent when it

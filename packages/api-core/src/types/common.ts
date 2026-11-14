@@ -4,6 +4,7 @@
 import type { Permission } from './permissions.js';
 import { QUOTA_CATALOG } from './quota-catalog.js';
 import type { QuotaTier } from './quota-tiers.js';
+import type { OrgRole } from './wire-vocabulary.js';
 
 /**
  * Capability scope catalog for machine/automation tokens. A scoped token carries
@@ -25,14 +26,13 @@ import type { QuotaTier } from './quota-tiers.js';
  *   no permissions — it cannot author the group → Role rules its syncs resolve
  *   through. Only a service-account key may carry it; a person's token never does.
  */
-export type TokenScope = 'reporting:ingest' | 'registry:push' | 'scim';
-
+export const TOKEN_SCOPES = ['reporting:ingest', 'registry:push', 'scim'] as const;
 /**
- * Runtime catalog of {@link TokenScope} (a union is erased at runtime). This is
- * the ONE allowlist every mint path validates against — platform's key/token
- * issue routes included — so a new scope is added in exactly one place.
+ * A token scope. {@link TOKEN_SCOPES} is the ONE allowlist every mint path
+ * validates against — platform's key/token issue routes included — so a new
+ * scope is added in exactly one place.
  */
-export const TOKEN_SCOPES: readonly TokenScope[] = ['reporting:ingest', 'registry:push', 'scim'];
+export type TokenScope = (typeof TOKEN_SCOPES)[number];
 
 /**
  * What kind of principal a token speaks for. Auth decisions branch on this claim
@@ -44,7 +44,8 @@ export const TOKEN_SCOPES: readonly TokenScope[] = ['reporting:ingest', 'registr
  *                       platform. Never satisfies an assurance/step-up gate.
  * - `service`         — an internal Pipeline Builder service ({@link signServiceToken}).
  */
-export type PrincipalType = 'user' | 'service_account' | 'service';
+export const PRINCIPAL_TYPES = ['user', 'service_account', 'service'] as const;
+export type PrincipalType = (typeof PRINCIPAL_TYPES)[number];
 
 /**
  * How a token is used. `access` is a session-style access token (interactive,
@@ -52,7 +53,8 @@ export type PrincipalType = 'user' | 'service_account' | 'service';
  * its own record — a Personal Access Token or a service-account key, named by
  * `jti`.
  */
-export type TokenUse = 'access' | 'api_key';
+export const TOKEN_USES = ['access', 'api_key'] as const;
+export type TokenUse = (typeof TOKEN_USES)[number];
 
 /**
  * Authentication methods (`amr`, RFC 8176 style) that established a user's
@@ -63,7 +65,8 @@ export type TokenUse = 'access' | 'api_key';
  * or one of its recovery codes, so it appears ALONGSIDE the method that
  * identified the user (`['pwd', 'mfa']`), never on its own.
  */
-export type AuthMethod = 'pwd' | 'oauth' | 'sso' | 'webauthn' | 'stepup' | 'mfa';
+export const AUTH_METHODS = ['pwd', 'oauth', 'sso', 'webauthn', 'stepup', 'mfa'] as const;
+export type AuthMethod = (typeof AUTH_METHODS)[number];
 
 /**
  * Authenticator assurance level of the session a token speaks for.
@@ -80,11 +83,6 @@ export type AuthMethod = 'pwd' | 'oauth' | 'sso' | 'webauthn' | 'stepup' | 'mfa'
  * earning aal 2 always means authenticating again with a second factor.
  */
 export type AssuranceLevel = 1 | 2;
-
-/** Runtime catalogs for the claim unions above (a union is erased at runtime). */
-export const PRINCIPAL_TYPES: readonly PrincipalType[] = ['user', 'service_account', 'service'];
-export const TOKEN_USES: readonly TokenUse[] = ['access', 'api_key'];
-export const AUTH_METHODS: readonly AuthMethod[] = ['pwd', 'oauth', 'sso', 'webauthn', 'stepup', 'mfa'];
 
 /**
  * Quota type identifiers.
@@ -247,20 +245,11 @@ export type ApiResponse<T = unknown> = ApiSuccessResponse<T> | ApiErrorResponse;
  * Users can belong to multiple organizations. The token is scoped to one
  * active organization at a time. The `role` field is the user's per-org
  * role in that organization (from the UserOrganization junction collection),
- * and `isAdmin` is derived as `role === 'admin' || role === 'owner'`.
+ * and `isAdmin` is derived from it (`isAdminOrgRole`, wire-vocabulary.ts).
  *
  * Use `POST /auth/switch-org` to change the active organization, which
  * re-issues tokens with the new org's role and context.
  */
-/**
- * Coarse per-org membership label, DERIVED from the Roles a user is assigned
- * (the highest `grantsRole` among them; `owner` is set only by ownership
- * transfer). It is a display/authority label — driving `isAdmin`, ownership,
- * and seat accounting — NOT a permission source. Effective permissions come
- * solely from the user's assigned Roles (see `resolveUserPermissions`). Not a
- * global role.
- */
-export type OrgRole = 'owner' | 'admin' | 'member';
 
 export interface JwtPayload {
   /** User ID (subject) */

@@ -8,6 +8,7 @@
 import type { QuotaTier } from '@pipeline-builder/api-core';
 
 import type { UserOrgMembership } from './organization';
+import type { OrgRole } from '@pipeline-builder/api-core/wire-vocabulary';
 
 /**
  * User model.
@@ -22,7 +23,7 @@ export interface User {
   username: string;
   email: string;
   /** Per-org role in the active organization. Derived from UserOrganization, not a global role. */
-  role: 'owner' | 'admin' | 'member';
+  role: OrgRole;
   /**
    * Global super-admin flag carried in the JWT. True for Pipeline Builder
    * operators; supersedes the legacy "is this user in the system org"

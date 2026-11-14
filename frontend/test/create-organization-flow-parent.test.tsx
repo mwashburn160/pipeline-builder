@@ -11,7 +11,7 @@ import { describe, it, expect, jest, beforeEach } from '@jest/globals';
 import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { CreateOrganizationFlow } from '../src/components/organizations/CreateOrganizationFlow';
-import { TEAM_CAPABLE_TIERS } from '../src/lib/tiers';
+import { TEAM_CAPABLE_TIERS } from '@pipeline-builder/api-core/tier-limits';
 
 const listOrganizations = jest.fn<AnyFn>();
 const createOrganization = jest.fn<AnyFn>();

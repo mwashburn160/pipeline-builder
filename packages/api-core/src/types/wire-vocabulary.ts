@@ -6,8 +6,10 @@
  * browser. Each is an `as const` array (the runtime list a Zod enum, a Mongoose
  * enum or a drizzle `$type` builds from) plus the union type derived from it.
  *
- * Dependency-free on purpose: the frontend imports these types, so a value added
- * here reaches the UI's exhaustive label maps as a compile error instead of a
+ * Dependency-free on purpose (no imports at all): the browser imports it
+ * directly through the `@pipeline-builder/api-core/wire-vocabulary` subpath, so
+ * a frontend catalog derives its order and list from these tuples and a value
+ * added here reaches every exhaustive label map as a compile error instead of a
  * silently unhandled string. The Postgres CHECK constraints in each deploy
  * target's `postgres-init.sql` mirror the ones stored in SQL.
  */
@@ -209,3 +211,127 @@ export type PluginSecurityDigestMode = (typeof PLUGIN_SECURITY_DIGEST_MODES)[num
 // the labels were in a frontend mirror of both. One keyed catalog is importable
 // by the browser, so the mirror and the test that parsed this package's source
 // to detect drift are both gone.
+
+// -----------------------------------------------------------------------------
+// Org membership
+// -----------------------------------------------------------------------------
+
+/**
+ * The coarse per-org membership label (`UserOrganization.role`,
+ * `Invitation.role`, the access token's `role`), highest authority first:
+ * `owner` created the org or received an ownership transfer, `admin` manages
+ * members and settings, `member` has standard access. DERIVED from the Roles a
+ * user is assigned (the highest `grantsRole` among them; `owner` only by
+ * transfer) — a display/authority label driving `isAdmin`, ownership and seat
+ * accounting, NOT a permission source (see `resolveUserPermissions`).
+ */
+export const ORG_ROLES = ['owner', 'admin', 'member'] as const;
+export type OrgRole = (typeof ORG_ROLES)[number];
+
+/**
+ * The membership roles that ADMINISTER an org: the token's `isAdmin`, the
+ * "notify this org's admins" lookups and the invite/approval authority checks
+ * all read this one list.
+ */
+export const ADMIN_ORG_ROLES = ['owner', 'admin'] as const satisfies readonly OrgRole[];
+export type AdminOrgRole = (typeof ADMIN_ORG_ROLES)[number];
+
+/** Whether `value` is a membership role, narrowing it. */
+export function isOrgRole(value: unknown): value is OrgRole {
+  return (ORG_ROLES as readonly unknown[]).includes(value);
+}
+
+/** Whether `role` administers its org (`owner` or `admin`). */
+export function isAdminOrgRole(role: unknown): role is AdminOrgRole {
+  return (ADMIN_ORG_ROLES as readonly unknown[]).includes(role);
+}
+
+// -----------------------------------------------------------------------------
+// Alerting
+// -----------------------------------------------------------------------------
+
+/** Where an org's alert destination delivers (`alert_destinations.channel`). */
+export const ALERT_CHANNELS = ['slack', 'webhook', 'in-app', 'email'] as const;
+export type AlertChannel = (typeof ALERT_CHANNELS)[number];
+
+/**
+ * The severity ladder an org sets on its alert rules and uses as a
+ * destination's `minSeverity` floor, least severe first (`warning` =
+ * warning+critical, `critical` = critical only). Mirrors Alertmanager severity
+ * ordering. An inbound alert may also carry `info`, which no rule can emit and
+ * no destination can subscribe to.
+ */
+export const ALERT_RULE_SEVERITIES = ['warning', 'critical'] as const;
+export type AlertRuleSeverity = (typeof ALERT_RULE_SEVERITIES)[number];
+
+// -----------------------------------------------------------------------------
+// Support cases
+// -----------------------------------------------------------------------------
+
+/** A support case's lifecycle state (`support_cases.status`). */
+export const SUPPORT_CASE_STATUSES = ['open', 'awaiting_support', 'awaiting_customer', 'resolved', 'closed'] as const;
+export type SupportCaseStatus = (typeof SUPPORT_CASE_STATUSES)[number];
+
+/**
+ * The statuses a TENANT may set on its own case. `awaiting_support` and
+ * `resolved` are the support desk's to set; `closed` is the tenant's way out
+ * (and, once there, a tenant cannot move the case back).
+ */
+export const TENANT_SUPPORT_CASE_STATUSES = ['open', 'awaiting_customer', 'closed'] as const satisfies readonly SupportCaseStatus[];
+export type TenantSupportCaseStatus = (typeof TENANT_SUPPORT_CASE_STATUSES)[number];
+
+/** Statuses a tenant cannot move OUT of. */
+export const TENANT_TERMINAL_SUPPORT_CASE_STATUSES = ['closed'] as const satisfies readonly TenantSupportCaseStatus[];
+
+/** Statuses a case is still LIVE in (not resolved or closed). */
+export const LIVE_SUPPORT_CASE_STATUSES = ['open', 'awaiting_support', 'awaiting_customer'] as const satisfies readonly SupportCaseStatus[];
+
+// -----------------------------------------------------------------------------
+// Compliance scans, exemptions and checks
+// -----------------------------------------------------------------------------
+
+/** What a compliance scan (or a scan schedule) covers: one rule target, or every one. */
+export const COMPLIANCE_SCAN_TARGETS = [...RULE_TARGETS, 'all'] as const;
+export type ComplianceScanTarget = (typeof COMPLIANCE_SCAN_TARGETS)[number];
+
+export const COMPLIANCE_SCAN_STATUSES = ['pending', 'running', 'completed', 'failed', 'cancelled'] as const;
+export type ComplianceScanStatus = (typeof COMPLIANCE_SCAN_STATUSES)[number];
+
+/** Why a scan row exists. `rule-dry-run` scans evaluate without writing the check log or notifying. */
+export const COMPLIANCE_SCAN_TRIGGERS = ['manual', 'scheduled', 'rule-change', 'rule-dry-run'] as const;
+export type ComplianceScanTrigger = (typeof COMPLIANCE_SCAN_TRIGGERS)[number];
+
+export const COMPLIANCE_EXEMPTION_STATUSES = ['pending', 'approved', 'rejected', 'expired'] as const;
+export type ComplianceExemptionStatus = (typeof COMPLIANCE_EXEMPTION_STATUSES)[number];
+
+/** The two decisions a reviewer can make on a pending exemption. */
+export const COMPLIANCE_EXEMPTION_DECISIONS = ['approved', 'rejected'] as const satisfies readonly ComplianceExemptionStatus[];
+export type ComplianceExemptionDecision = (typeof COMPLIANCE_EXEMPTION_DECISIONS)[number];
+
+/** A compliance check-log row's verdict (`compliance_check_log.result`). */
+export const COMPLIANCE_CHECK_RESULTS = ['pass', 'warn', 'block'] as const;
+export type ComplianceCheckVerdict = (typeof COMPLIANCE_CHECK_RESULTS)[number];
+
+// -----------------------------------------------------------------------------
+// AI calls
+// -----------------------------------------------------------------------------
+
+/** Whose key serves an AI call: the caller's own (`request`, BYOK), the org's, or the platform's. Only `platform` spends `aiCalls`. */
+export const AI_KEY_SOURCES = ['platform', 'org', 'request'] as const;
+export type AiKeySource = (typeof AI_KEY_SOURCES)[number];
+
+/**
+ * How an AI call's `aiCalls` quota slot settled: `kept` (the call reached a
+ * provider), `refunded` (it never did), or `waived` (no unit was reserved — a
+ * BYOK key, an impersonated call or a weight-0 model).
+ */
+export const AI_QUOTA_SETTLEMENTS = ['kept', 'refunded', 'waived'] as const;
+export type AiQuotaSettlement = (typeof AI_QUOTA_SETTLEMENTS)[number];
+
+// -----------------------------------------------------------------------------
+// Plugin-version vulnerability grades
+// -----------------------------------------------------------------------------
+
+/** How loud a plugin-version vulnerability warning is, quietest first (see `services/version-vuln-policy.ts`). */
+export const VULN_SEVERITIES = ['info', 'warning', 'error', 'critical'] as const;
+export type VulnSeverity = (typeof VULN_SEVERITIES)[number];

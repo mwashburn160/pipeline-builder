@@ -12,12 +12,22 @@
  */
 
 import { SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import type { ClientSession, Types } from 'mongoose';
 import type { UserId } from './role-authority.js';
 import { RL_SUPERADMIN_ROLE_MISSING } from './roles-errors.js';
 import { recomputeUserOrgRole } from './roles-service.js';
 import { publishUserRevocation } from '../helpers/session-revocation.js';
 import { Role, RoleAssignment, User } from '../models/index.js';
 import { withMongoTransaction } from '../utils/mongo-tx.js';
+
+/** The system org's built-in Super Admin Role — the single source of the
+ *  platform-admin grant. Its absence is a broken install, not a no-op. */
+async function systemSuperAdminRole(session: ClientSession): Promise<{ _id: Types.ObjectId }> {
+  const role = await Role.findOne({ organizationId: SYSTEM_ORG_ID, grantsRole: 'superadmin', system: true })
+    .session(session).select('_id').lean();
+  if (!role) throw new Error(RL_SUPERADMIN_ROLE_MISSING);
+  return role;
+}
 
 /**
  * Grant platform-admin by making the **system-org Super Admin Role** the source
@@ -35,9 +45,7 @@ import { withMongoTransaction } from '../utils/mongo-tx.js';
  */
 export async function grantPlatformAdmin(userId: UserId): Promise<{ changed: boolean; roleGranted: boolean }> {
   const result = await withMongoTransaction(async (session) => {
-    const role = await Role.findOne({ organizationId: SYSTEM_ORG_ID, grantsRole: 'superadmin', system: true })
-      .session(session).select('_id').lean();
-    if (!role) throw new Error(RL_SUPERADMIN_ROLE_MISSING);
+    const role = await systemSuperAdminRole(session);
     const before = await User.findById(userId).select('+isSuperAdmin').session(session).lean();
     const wasSuperadmin = before?.isSuperAdmin === true;
 
@@ -75,9 +83,7 @@ export async function grantPlatformAdmin(userId: UserId): Promise<{ changed: boo
  */
 export async function revokePlatformAdmin(userId: UserId): Promise<{ changed: boolean }> {
   const result = await withMongoTransaction(async (session) => {
-    const role = await Role.findOne({ organizationId: SYSTEM_ORG_ID, grantsRole: 'superadmin', system: true })
-      .session(session).select('_id').lean();
-    if (!role) throw new Error(RL_SUPERADMIN_ROLE_MISSING);
+    const role = await systemSuperAdminRole(session);
     const before = await User.findById(userId).select('+isSuperAdmin').session(session).lean();
     const wasSuperadmin = before?.isSuperAdmin === true;
 

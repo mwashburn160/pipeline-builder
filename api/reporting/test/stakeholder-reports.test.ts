@@ -16,6 +16,10 @@
  *  - a recipient outside the allowed domains is refused, and a member skips
  *    verification;
  *  - a republish is audited as a republish, and a double publish audits once;
+ *  - a real publish DELIVERS (detached), and a retried one delivers nothing;
+ *  - a recipient's confirmation token is mailed to the address, never returned
+ *    to the lead who typed it;
+ *  - a rollup run whose team list cannot be read is refused, not narrowed;
  *  - the publish response says a delivered copy cannot be recalled.
  */
 
@@ -62,12 +66,16 @@ const store = {
   deliverability: jest.fn<AnyFn>(),
   admitRecipient: jest.fn<AnyFn>(),
   setNextRun: jest.fn<AnyFn>(),
+  recordDelivery: jest.fn<AnyFn>(),
 };
 
 const mockComposeSnapshot = jest.fn<AnyFn>();
 const mockAuthority = jest.fn<AnyFn>();
 const mockRecipientCheck = jest.fn<AnyFn>();
 const mockRetentionWindow = jest.fn<AnyFn>();
+const mockDeliver = jest.fn<AnyFn>();
+const mockSendConfirmation = jest.fn<AnyFn>();
+const mockDescendants = jest.fn<AnyFn>();
 
 const NOW = new Date('2026-09-21T12:00:00.000Z');
 const PERIOD = {
@@ -92,6 +100,8 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendSuccess: mockSendSuccess,
   sendBadRequest: mockSendBadRequest,
   recordAudit: (event: any) => mockRecordAudit(event),
+  // The platform subtree read behind a rollup run (report-helpers' strict resolver).
+  fetchOrgDescendants: (...a: unknown[]) => mockDescendants(...a),
 }));
 
 const actualHtml = jest.requireActual('@pipeline-builder/pipeline-data') as {
@@ -125,6 +135,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@p
   // `next_run_at` from it, and a definition with none never becomes due.
   nextPeriodBoundary: () => new Date('2026-09-28T05:00:00.000Z'),
   REPORT_CADENCES: ['weekly', 'monthly', 'quarterly'],
+  REPORT_SCOPE_KINDS: ['org', 'projects', 'rollup'],
   REPORT_TEMPLATES: ['weekly_delivery', 'monthly_health', 'quarterly_review'],
   MAX_SHARE_LINK_TTL_DAYS: 180,
   DEFAULT_SHARE_LINK_TTL_DAYS: 30,
@@ -135,11 +146,12 @@ jest.unstable_mockModule('../src/helpers/retention-cap.js', () => ({
   retentionOrgIdFor: () => 'acme',
 }));
 
-// Delivery is NOT exercised here — nothing in this file sends anything, and the route
-// tests assert the API surface. `emailAvailable` is the one delivery export the routes
-// read, for the schedule form's warning.
+// Delivery itself is report-delivery's suite; here only WHETHER the routes hand a run
+// to it (publish) and where a confirmation token goes (recipients) are asserted.
 jest.unstable_mockModule('../src/services/report-delivery.js', () => ({
   emailAvailable: () => Promise.resolve(true),
+  deliverPublishedRun: (...a: unknown[]) => mockDeliver(...a),
+  sendRecipientConfirmation: (...a: unknown[]) => mockSendConfirmation(...a),
 }));
 
 jest.unstable_mockModule('../src/services/report-identity.js', () => ({
@@ -619,6 +631,32 @@ describe('stakeholder report routes', () => {
      * narrowed report is the WRONG answer here — it would still be labelled as
      * covering the descendant teams — so the run is refused with the reason.
      */
+    /**
+     * Platform unreachable while reading the team list: the run FAILS rather than
+     * composing a "rollup" of the parent org alone — the same wrong-report-labelled-
+     * right failure the grant re-check above exists to prevent.
+     */
+    it('refuses a rollup run whose team list cannot be read, rather than narrowing it', async () => {
+      store.requireDefinition.mockResolvedValue(definition({ scope: { kind: 'rollup' } }));
+      mockDescendants.mockRejectedValue(new Error('connect ECONNREFUSED platform'));
+      await expect(call('/definitions/:id/runs', 'post', {
+        params: { id: 'def-1' },
+        user: { permissions: ['reports:write', 'reports:rollup'] },
+      })).rejects.toThrow('ECONNREFUSED');
+      expect(mockComposeSnapshot).not.toHaveBeenCalled();
+      expect(store.createRun).not.toHaveBeenCalled();
+    });
+
+    it('composes a rollup over the subtree platform returned', async () => {
+      store.requireDefinition.mockResolvedValue(definition({ scope: { kind: 'rollup' } }));
+      mockDescendants.mockResolvedValue(['acme', 'acme-team']);
+      await call('/definitions/:id/runs', 'post', {
+        params: { id: 'def-1' },
+        user: { permissions: ['reports:write', 'reports:rollup'] },
+      });
+      expect(mockComposeSnapshot.mock.calls[0][1].orgIds).toEqual(['acme', 'acme-team']);
+    });
+
     it('refuses to compose a rollup definition when the caller lost reports:rollup', async () => {
       store.requireDefinition.mockResolvedValue(definition({ scope: { kind: 'rollup' } }));
       await call('/definitions/:id/runs', 'post', {
@@ -731,6 +769,37 @@ describe('stakeholder report routes', () => {
     });
 
     /**
+     * The review-then-publish path is the default (autoSend off), and the scheduler
+     * delivers only runs it auto-publishes itself — so a publish that did not hand the
+     * run to delivery told the lead "N recipients will receive it" and sent nothing.
+     */
+    it('a real publish delivers the run and records the outcome on it', async () => {
+      const published = run({ status: 'published', publishedAt: NOW });
+      const def = definition({ recipients: ['rec-1'] });
+      store.publishRun.mockResolvedValue({ run: published, alreadyPublished: false });
+      store.getDefinition.mockResolvedValue(def);
+      store.getRecipients.mockResolvedValue([recipient()]);
+      store.deliverability.mockReturnValue({ deliverable: true });
+      const outcome = { inApp: 1, email: { sent: 1, failed: 0, skipped: 0 }, destinations: { delivered: 0, failed: 0 }, emailAvailable: true, notes: [] };
+      mockDeliver.mockResolvedValue(outcome);
+      await call('/runs/:id/publish', 'post', { params: { id: 'run-1' } });
+      // Detached from the request: let the delivery promise settle.
+      await new Promise((r) => setImmediate(r));
+      expect(mockDeliver).toHaveBeenCalledWith(def, published);
+      expect(store.recordDelivery).toHaveBeenCalledWith('acme', 'run-1', outcome);
+    });
+
+    it('a failed delivery never fails the publish that already landed', async () => {
+      store.publishRun.mockResolvedValue({ run: run({ status: 'published' }), alreadyPublished: false });
+      store.getDefinition.mockResolvedValue(definition());
+      mockDeliver.mockRejectedValue(new Error('relay down'));
+      await call('/runs/:id/publish', 'post', { params: { id: 'run-1' } });
+      await new Promise((r) => setImmediate(r));
+      expect(payload().alreadyPublished).toBe(false);
+      expect(store.recordDelivery).not.toHaveBeenCalled();
+    });
+
+    /**
      * A second version of an already-published period is a CORRECTION, and reads
      * differently in an audit trail: someone reviewing the history needs to see
      * that the numbers a manager acted on were superseded.
@@ -749,6 +818,8 @@ describe('stakeholder report routes', () => {
       await call('/runs/:id/publish', 'post', { params: { id: 'run-1' } });
       expect(mockRecordAudit).not.toHaveBeenCalled();
       expect(payload().alreadyPublished).toBe(true);
+      await new Promise((r) => setImmediate(r));
+      expect(mockDeliver).not.toHaveBeenCalled();
     });
 
     /** A lead who learns this after publishing learns it too late. */
@@ -912,6 +983,28 @@ describe('stakeholder report routes', () => {
       expect(payload().pendingApproval).toBe(false);
     });
 
+    /**
+     * The token in the RESPONSE let the lead who typed an address confirm it
+     * themselves through the public verify route — double opt-in reduced to one
+     * person. It goes to the address, and only there.
+     */
+    it('mails the confirmation to the address and never returns the token', async () => {
+      mockSendConfirmation.mockResolvedValue(true);
+      await call('/recipients', 'post', { body: { email: 'manager@acme.test' } });
+      expect(mockSendConfirmation).toHaveBeenCalledWith('acme', 'manager@acme.test', 'verify-me');
+      expect(JSON.stringify(payload())).not.toContain('verify-me');
+      expect(payload().confirmationSent).toBe(true);
+    });
+
+    it('sends no confirmation for a pre-verified member', async () => {
+      mockRecipientCheck.mockResolvedValue({ member: true });
+      store.admitRecipient.mockReturnValue({ admitted: true, member: true, needsApproval: false });
+      store.upsertRecipient.mockResolvedValue({ recipient: recipient() });
+      await call('/recipients', 'post', { body: { email: 'member@acme.test' } });
+      expect(mockSendConfirmation).not.toHaveBeenCalled();
+      expect(payload().confirmationSent).toBe(false);
+    });
+
     it('records the address in the audit event but never the token', async () => {
       await call('/recipients', 'post', { body: { email: 'manager@acme.test' } });
       expect(audit()).toMatchObject({ action: 'reporting.report.recipient.added', details: { email: 'manager@acme.test' } });
@@ -924,10 +1017,13 @@ describe('stakeholder report routes', () => {
       expect(store.upsertRecipient).not.toHaveBeenCalled();
     });
 
-    it('resends a pending confirmation', async () => {
+    it('resends a pending confirmation TO THE ADDRESS, not to the caller', async () => {
+      mockSendConfirmation.mockResolvedValue(true);
       store.resendVerification.mockResolvedValue({ recipient: recipient({ verifiedAt: null }), token: 'fresh' });
       await call('/recipients/:id/resend', 'post', { params: { id: 'rec-1' } });
-      expect(payload().verificationToken).toBe('fresh');
+      expect(mockSendConfirmation).toHaveBeenCalledWith('acme', 'manager@acme.test', 'fresh');
+      expect(JSON.stringify(payload())).not.toContain('fresh');
+      expect(payload().confirmationSent).toBe(true);
     });
 
     it('rate-limits recipient additions and resends per org', () => {

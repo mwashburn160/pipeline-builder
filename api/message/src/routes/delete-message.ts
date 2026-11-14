@@ -21,6 +21,7 @@ import { withRoute, createAuthenticatedWithOrgRoute, incCounter } from '@pipelin
 import type { RouteContext, SSEManager } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { ownRootMessageRefusal } from '../helpers/message-authz.js';
+import { signalUnreadCountChanged } from '../helpers/new-message.js';
 import { messageService } from '../services/message-service.js';
 
 /** What happened to one id: deleted, not visible to the caller, or refused. */
@@ -119,19 +120,6 @@ async function deleteOne(
 }
 
 /**
- * Tell the deleting org's own clients their unread badge may be stale — a
- * deleted unread message (or its unread replies) leaves the count. Signal only,
- * no number: the count is per-viewer (see update-message's twin).
- */
-function signalOwnUnread(sseManager: SSEManager, orgId: string, log: RouteContext['ctx']['log']): void {
-  try {
-    sseManager.send(orgId, 'MESSAGE', 'Unread count changed', { action: 'UNREAD_COUNT' as const });
-  } catch (err) {
-    log('WARN', 'Failed to send SSE notification', { error: errorMessage(err) });
-  }
-}
-
-/**
  * Create delete routes for the message service.
  *
  * Routes:
@@ -153,7 +141,8 @@ export function createDeleteMessageRoutes(sseManager: SSEManager): Router {
     if (outcome.kind === 'not_found') return sendEntityNotFound(res, 'Message');
     if (outcome.kind === 'forbidden') return sendError(res, 403, outcome.reason, ErrorCode.INSUFFICIENT_PERMISSIONS);
 
-    signalOwnUnread(sseManager, orgId, ctx.log);
+    // A deleted unread message (or its unread replies) leaves the deleting org's count.
+    signalUnreadCountChanged(sseManager, orgId, ctx.log);
     return sendSuccess(res, 200, undefined, 'Message deleted successfully');
   }));
 
@@ -187,7 +176,7 @@ export function createDeleteMessageRoutes(sseManager: SSEManager): Router {
       else refused.push(id);
     }
 
-    if (deleted.length > 0) signalOwnUnread(sseManager, orgId, ctx.log);
+    if (deleted.length > 0) signalUnreadCountChanged(sseManager, orgId, ctx.log);
     return sendSuccess(
       res, 200, { deleted, notFound, refused },
       `Deleted ${deleted.length} message${deleted.length === 1 ? '' : 's'}`,

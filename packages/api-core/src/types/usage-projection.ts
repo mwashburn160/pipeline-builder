@@ -98,27 +98,3 @@ export const PROJECTION_NOTICE_RATIO = 0.7;
 export function projectionWorthShowing(p: UsageProjection | null): boolean {
   return p !== null && p.ratio >= PROJECTION_NOTICE_RATIO;
 }
-
-/**
- * Days until the counter reaches its limit at the current pace, or `null` when
- * it does not reach it inside the period.
- *
- * The TRAJECTORY signal's actual question (D4 Class 2) — "how long have they
- * got" is what decides whether an offer is timely, where the projected total
- * only says whether it is warranted. Fractional days are kept: rounding up to a
- * whole day loses exactly the urgency the signal is for.
- */
-export function daysToExhaustion(input: {
-  used: number;
-  limit: number;
-  resetAt: string | Date;
-  periodDays: number;
-  now?: number;
-}): number | null {
-  const p = projectUsage(input);
-  if (!p || !p.willBreach) return null;
-  const { used, limit, periodDays } = input;
-  const perDay = used / (p.elapsedFraction * periodDays);
-  if (!(perDay > 0)) return null;
-  return Math.max(0, (limit - used) / perDay);
-}

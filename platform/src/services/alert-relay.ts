@@ -4,8 +4,9 @@
 import { createLogger, errorMessage } from '@pipeline-builder/api-core';
 import { schema } from '@pipeline-builder/pipeline-data';
 import { alertDestinationService } from './alert-destination-service.js';
-import { getNotificationChannel, plainTextBody, severityToPriority, subjectLine, type AlertNotification, type Severity } from './notification-channels.js';
+import { getNotificationChannel, plainTextBody, severityToPriority, subjectLine, toAlertSeverity, type AlertNotification } from './notification-channels.js';
 import { config } from '../config/index.js';
+import type { AlertRuleSeverity } from '@pipeline-builder/api-core/wire-vocabulary';
 import { incCounter } from '../observability/metrics.js';
 
 type OrgAlertDestination = typeof schema.orgAlertDestination.$inferSelect;
@@ -67,10 +68,12 @@ export async function relayWebhook(payload: AlertmanagerWebhook): Promise<{
       continue;
     }
 
-    const severity = (alert.labels.severity === 'critical' ? 'critical': 'warning') as 'critical' | 'warning';
+    // Delivery tier on the destination ladder: anything below critical
+    // (`info` included) reaches the warning-floor destinations.
+    const tier: AlertRuleSeverity = toAlertSeverity(alert.labels.severity) === 'critical' ? 'critical' : 'warning';
     let destinations: OrgAlertDestination[] = [];
     try {
-      destinations = await alertDestinationService.findForDelivery(orgId, severity);
+      destinations = await alertDestinationService.findForDelivery(orgId, tier);
     } catch (err) {
       // DB lookup failed  surfacing this in the response so the operator
       // knows their org's alerts aren't being delivered. The alert is still
@@ -104,16 +107,9 @@ export async function relayWebhook(payload: AlertmanagerWebhook): Promise<{
   return { delivered, skipped, failed };
 }
 
-/** Normalize the alert's raw `severity` label to the three rendered tiers. */
-function alertSeverity(alert: Alert): Severity {
-  return alert.labels.severity === 'critical' ? 'critical'
-    : alert.labels.severity === 'warning' ? 'warning'
-      : 'info';
-}
-
 /** Map an Alertmanager alert + destination onto the transport-agnostic message. */
 function toNotificationMessage(d: OrgAlertDestination, alert: Alert): AlertNotification {
-  const severity = alertSeverity(alert);
+  const severity = toAlertSeverity(alert.labels.severity);
   const base = {
     severity,
     status: alert.status,

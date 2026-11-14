@@ -4,6 +4,7 @@ import { useFeatureGate } from '@/hooks/useFeatureGate';
 import { FeatureLock } from '@/components/ui/FeatureLock';
 import type { BuilderProps, Visibility } from '@/types';
 import type { ComplianceCheckResult } from '@/types/compliance';
+import { ruleSeverityLabel } from '@/lib/compliance-styles';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { VisibilitySelect, visibilityHint } from '@/components/ui/VisibilitySelect';
@@ -350,7 +351,7 @@ export default function CreatePipelineModal({
           )}
           {complianceResult.violations.map((v, i) => (
             <div key={`v-${i}`} className="flex items-start gap-2 mt-1">
-              <Badge color="red">{v.severity === 'critical' ? 'Critical' : v.severity === 'error' ? 'Error' : 'Violation'}</Badge>
+              <Badge color="red">{ruleSeverityLabel(v.severity) ?? 'Violation'}</Badge>
               <span className="text-sm text-fg-muted">{v.message}</span>
             </div>
           ))}

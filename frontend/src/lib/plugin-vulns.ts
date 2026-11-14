@@ -28,14 +28,14 @@
 
 // Runtime helpers come from the browser-safe `./plugin-scan` subpath (its only
 // imports are two dependency-free leaves), never the root barrel — that pulls
-// the server graph into the bundle. `VulnSeverity` stays a TYPE-only barrel
-// import, which is erased at compile time and costs the bundle nothing.
+// the server graph into the bundle. The severity ladder comes from the
+// dependency-free `./wire-vocabulary` subpath.
 import {
   failOnLabel,
   gatedFixableCount,
   type PluginVulnFailOn,
 } from '@pipeline-builder/api-core/plugin-scan';
-import type { VulnSeverity } from '@pipeline-builder/api-core';
+import { VULN_SEVERITIES, type VulnSeverity } from '@pipeline-builder/api-core/wire-vocabulary';
 
 export type { VulnSeverity };
 
@@ -275,12 +275,11 @@ export function buildFailureInfo(event: { message: string; data?: Record<string,
 // Lookup warnings
 // ---------------------------------------------------------------------------
 
-/**
- * How loud a vulnerability warning is, quietest first (api-core
- * `VULN_SEVERITIES`). Vulnerability state NEVER refuses a pipeline — not its
+/*
+ * How loud a vulnerability warning is, quietest first: api-core's
+ * `VULN_SEVERITIES`. Vulnerability state NEVER refuses a pipeline — not its
  * save, synth, deploy or run; it is graded, and the pipeline's owners are told.
  */
-export const VULN_SEVERITIES: readonly VulnSeverity[] = ['info', 'warning', 'error', 'critical'];
 /** A step's grade: a severity, or `ok` when nothing is worth saying. */
 export type VulnGrade = 'ok' | VulnSeverity;
 
@@ -292,11 +291,6 @@ export function asVulnSeverity(v: unknown): VulnSeverity {
 /** Rank of a grade, `ok` lowest. */
 export function gradeRank(g: VulnGrade): number {
   return g === 'ok' ? -1 : VULN_SEVERITIES.indexOf(g);
-}
-
-/** The louder of two grades. */
-export function louderGrade(a: VulnGrade, b: VulnGrade): VulnGrade {
-  return gradeRank(a) >= gradeRank(b) ? a : b;
 }
 
 /** A warning a plugin lookup answers with (`POST /plugins/lookup` → `warnings[]`). */

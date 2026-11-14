@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendSuccess, sendPaginatedNested, sendEntityNotFound, getParam, parsePaginationParams, requirePermission } from '@pipeline-builder/api-core';
+import { sendSuccess, sendPaginatedNested, sendEntityNotFound, getParam, parsePaginationParams, requirePermission, type RuleScope, type RuleSeverity, type RuleTarget } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { withInheritedSource } from '../helpers/inherited-source.js';
@@ -24,9 +24,9 @@ export function createReadRuleRoutes(): Router {
     const filter = {
       name: req.query.name as string | undefined,
       policyId: req.query.policyId as string | undefined,
-      target: req.query.target as 'plugin' | 'pipeline' | undefined,
-      severity: req.query.severity as 'warning' | 'error' | 'critical' | undefined,
-      scope: req.query.scope as 'org' | 'published' | undefined,
+      target: req.query.target as RuleTarget | undefined,
+      severity: req.query.severity as RuleSeverity | undefined,
+      scope: req.query.scope as RuleScope | undefined,
       tag: req.query.tag as string | undefined,
     };
 

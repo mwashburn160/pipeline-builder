@@ -65,8 +65,9 @@ export function createInternalOffersRoutes(): Router {
         sendSuccess(res, 200, { signal });
       } catch (err) {
         // `frustrationSignalFor` already swallows its own failures, so reaching
-        // here means something structural. Still answered as a degraded signal
-        // rather than a 500: the caller must not lose an account's turn to it.
+        // here means something structural, and it is answered as one. The caller
+        // still does not lose an account's turn: billing reads any non-2xx here
+        // as NO SIGNAL (`fetchFrustrationSignal` → null), the same as degraded.
         logger.warn('Frustration signal failed structurally', { orgId, error: errorMessage(err) });
         sendError(res, 500, 'Could not derive a signal', ErrorCode.INTERNAL_ERROR);
       }

@@ -14,6 +14,8 @@ import { SuccessAlert } from '@/components/ui/SuccessAlert';
 import { ModalFooter } from '@/components/ui/ModalFooter';
 import type { FormState } from '@/hooks/useFormState';
 import type { NewUserState, OrgRoleOption } from './types';
+import type { OrgRole } from '@pipeline-builder/api-core/wire-vocabulary';
+import { ORG_ROLE_IDS, ORG_ROLE_META, ROLE_GRANT_META } from '@/lib/org-roles';
 
 interface CreateUserModalProps {
   open: boolean;
@@ -117,12 +119,10 @@ export function CreateUserModal({
             <Select
               id={`${uid}-role`}
               value={newUser.role}
-              onChange={(e) => setNewUser((s) => ({ ...s, role: e.target.value as 'owner' | 'admin' | 'member' }))}
+              onChange={(e) => setNewUser((s) => ({ ...s, role: e.target.value as OrgRole }))}
               disabled={form.loading}
             >
-              <option value="member">Member</option>
-              <option value="admin">Admin</option>
-              <option value="owner">Owner</option>
+              {ORG_ROLE_IDS.map((r) => <option key={r} value={r}>{ORG_ROLE_META[r].label}</option>)}
             </Select>
           </div>
         )}
@@ -142,7 +142,7 @@ export function CreateUserModal({
                   />
                   <span className="font-medium text-fg">{g.name}</span>
                   {g.grantsRole !== 'member' && (
-                    <Badge color={g.grantsRole === 'superadmin' ? 'red' : 'purple'}>{g.grantsRole}</Badge>
+                    <Badge color={ROLE_GRANT_META[g.grantsRole]?.color ?? 'gray'}>{g.grantsRole}</Badge>
                   )}
                 </label>
               ))}

@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { isSystemOrgId, AUTOMATION_ACCOUNT_BUNDLES, createLogger, emitCounter, emitGauge, SYSTEM_ACTOR_ID, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import { AUTOMATION_ACCOUNT_BUNDLES, createLogger, emitCounter, emitGauge, isSystemOrgId, type RoleGrant, type SeedBundleId, SYSTEM_ACTOR_ID, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
 import type { Types } from 'mongoose';
 import { builtinRolePermissions } from './role-authority.js';
 import { DEFAULT_ORG_ROLES, SYSTEM_ORG_ROLES, type BuiltinRoleSpec } from './roles-service.js';
@@ -9,7 +9,6 @@ import { recordAuditEvent } from '../helpers/audit.js';
 import { publishUsersRevocation } from '../helpers/session-revocation.js';
 import type { AuditAction } from '../models/audit-event.js';
 import { Role, RoleAssignment, ServiceAccount, User, UserOrganization } from '../models/index.js';
-import type { RoleGrant, RoleSeedBundle } from '../models/index.js';
 
 const logger = createLogger('rbac-backfill');
 
@@ -228,7 +227,7 @@ export async function backfillRbacRoles(): Promise<RbacBackfillSummary> {
     .select('_id organizationId name grantsRole seedBundle permissions').lean().cursor()) {
     const desired = builtinRolePermissions({
       grantsRole: g.grantsRole as RoleGrant,
-      seedBundle: g.seedBundle as RoleSeedBundle | undefined,
+      seedBundle: g.seedBundle as SeedBundleId | undefined,
     });
     const current = (g.permissions as string[] | undefined) ?? [];
     if (permissionSetsEqual(current, desired)) continue; // already in sync — no-op
@@ -446,8 +445,8 @@ const ADMIN_GRANTS: readonly RoleGrant[] = ['admin', 'superadmin'];
  *    automation outright, which is not the intent.
  */
 async function narrowAutomationAccounts(): Promise<{ serviceAccountsNarrowed: number; serviceAccountsUnnarrowed: number }> {
-  const bundleByName = new Map<string, RoleSeedBundle | null>(
-    Object.entries(AUTOMATION_ACCOUNT_BUNDLES) as Array<[string, RoleSeedBundle | null]>,
+  const bundleByName = new Map<string, SeedBundleId | null>(
+    Object.entries(AUTOMATION_ACCOUNT_BUNDLES) as Array<[string, SeedBundleId | null]>,
   );
   // Bounded by (orgs x four names), never by the size of the collection.
   const accounts = await ServiceAccount.find({ name: { $in: [...bundleByName.keys()] } })
@@ -473,7 +472,7 @@ async function narrowAutomationAccounts(): Promise<{ serviceAccountsNarrowed: nu
 
   // The target Roles, per org — found by their stable `seedBundle`, never by name.
   const targets = new Map<string, Types.ObjectId>();
-  const wantedBundles = [...new Set([...bundleByName.values()].filter((b): b is RoleSeedBundle => !!b))];
+  const wantedBundles = [...new Set([...bundleByName.values()].filter((b): b is SeedBundleId => !!b))];
   for (const r of await Role.find({
     system: true,
     seedBundle: { $in: wantedBundles },

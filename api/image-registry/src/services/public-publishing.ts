@@ -27,7 +27,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import path from 'path';
 
-import { envInt, createLogger, AppError, ErrorCode } from '@pipeline-builder/api-core';
+import { envInt, createLogger, AppError, ErrorCode, PUBLISHER_TIERS, type PublisherTier } from '@pipeline-builder/api-core';
 import { incCounter, setGauge } from '@pipeline-builder/api-server';
 
 import { cosignCompanionTags, isCosignCompanionTag } from './cosign-tags.js';
@@ -57,8 +57,6 @@ import { config } from '../config/index.js';
 
 const logger = createLogger('public-publishing');
 
-export const TRUST_TIERS = ['official', 'verified', 'community', 'unverified'] as const;
-export type TrustTier = typeof TRUST_TIERS[number];
 
 /** Metric names. */
 export const PublicationMetrics = {
@@ -121,7 +119,7 @@ async function withRepositoryLock<T>(repository: string, fn: () => Promise<T>): 
 
 export interface PublicationVerification {
   signed: boolean;
-  tier: TrustTier | null;
+  tier: PublisherTier | null;
   publisher: string | null;
 }
 
@@ -146,8 +144,8 @@ export function invalidateVerifyCache(repository?: string, digest?: string): num
   return verifyCache.deleteWhere((key) => key.startsWith(`${repository}@`));
 }
 
-function isTrustTier(v: unknown): v is TrustTier {
-  return typeof v === 'string' && (TRUST_TIERS as readonly string[]).includes(v);
+function isPublisherTier(v: unknown): v is PublisherTier {
+  return typeof v === 'string' && (PUBLISHER_TIERS as readonly string[]).includes(v);
 }
 
 /**
@@ -178,7 +176,7 @@ export async function verifyPublication(repository: string, digest: string): Pro
     const publishers = new Set(signatures.map((s) => s.annotations[PUBLISHER_ANNOTATION]));
     const [tier] = [...tiers];
     const [publisher] = [...publishers];
-    result = tiers.size === 1 && publishers.size === 1 && isTrustTier(tier) && typeof publisher === 'string' && publisher
+    result = tiers.size === 1 && publishers.size === 1 && isPublisherTier(tier) && typeof publisher === 'string' && publisher
       ? { signed: true, tier, publisher }
       : { signed: true, tier: null, publisher: null };
   }
@@ -196,7 +194,7 @@ export async function verifyPublication(repository: string, digest: string): Pro
 // Operations
 // -----------------------------------------------------------------------------
 
-function annotationsFor(tier: TrustTier, publisherHandle: string): Record<string, string> {
+function annotationsFor(tier: PublisherTier, publisherHandle: string): Record<string, string> {
   return { [TRUST_ANNOTATION]: tier, [PUBLISHER_ANNOTATION]: publisherHandle };
 }
 
@@ -212,7 +210,7 @@ export interface PublishParams {
   publisherHandle: string;
   name: string;
   version: string;
-  tier: TrustTier;
+  tier: PublisherTier;
   publisherOrgId: string | null;
 }
 
@@ -288,7 +286,7 @@ export interface ResignParams {
   imageRepository: string;
   digest: string;
   publisherHandle: string;
-  tier: TrustTier;
+  tier: PublisherTier;
   /** When present (string or null), re-point the storage attribution (ownership transfer). */
   publisherOrgId?: string | null;
 }

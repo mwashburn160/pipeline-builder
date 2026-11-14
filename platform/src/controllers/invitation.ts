@@ -4,18 +4,19 @@
 import { createLogger, paginationMeta, sendError, sendSuccess, errorMessage, seatRemedy, isSystemAdmin, userHasPermission } from '@pipeline-builder/api-core';
 import type { Request, Response } from 'express';
 import { config } from '../config/index.js';
+import { isAdminOrgRole } from '@pipeline-builder/api-core/wire-vocabulary';
 import { audit } from '../helpers/audit.js';
 import { forbid, requireOrgMembership, withController, roleAssignmentActor } from '../helpers/controller-helper.js';
 import { isAncestorOrg } from '../helpers/org-hierarchy.js';
 import { listPage } from '../helpers/pagination.js';
 import { pooledSeatUsage } from '../helpers/seats.js';
-import type { InvitationOAuthProvider } from '../models/invitation.js';
 import { auditService, invitationService } from '../services/index.js';
 import { INVITATION_ACCEPT_ERRORS, INV_ADMIN_REQUIRES_ADMIN, INV_ALREADY_MEMBER, INV_ALREADY_SENT, INV_EMAIL_MISMATCH, INV_INVITER_NOT_FOUND, INV_MAX_REACHED, INV_NOT_FOUND, INV_NOT_PENDING, INV_ORG_NOT_FOUND, INV_SEAT_LIMIT, INV_UNAUTHORIZED } from '../services/invitation-errors.js';
-import { RL_ASSIGN_EXCEEDS_CEILING, RL_ROLE_NOT_FOUND, RL_SUPERADMIN_ROLE_NOT_INVITABLE, RL_SYSTEM_ORG_ROLE_REQUIRES_SUPERADMIN } from '../services/roles-errors.js';
-import { partitionAssignableRoles } from '../services/roles-service.js';
 import type { InvitationDelivery } from '../services/invitation-service.js';
 import { verifyOAuthCode, OAUTH_ERROR_MAP } from '../services/oauth-providers.js';
+import { RL_ASSIGN_EXCEEDS_CEILING, RL_ROLE_NOT_FOUND, RL_SUPERADMIN_ROLE_NOT_INVITABLE, RL_SYSTEM_ORG_ROLE_REQUIRES_SUPERADMIN } from '../services/roles-errors.js';
+import { partitionAssignableRoles } from '../services/roles-service.js';
+import { isOAuthProviderName, type OAuthProviderName } from '../types/oauth-provider.js';
 import { validateBody, sendInvitationSchema } from '../utils/validation.js';
 
 const logger = createLogger('invitation-controller');
@@ -64,11 +65,6 @@ const ROLE_REJECTIONS: Record<string, { status: number; message: string }> = {
   },
 };
 
-/** Privileged role check for invitation operations. Both `admin` and `owner`
- *  qualify — owners are a superset of admins for org-level management. */
-function isOrgManager(role: string | undefined): boolean {
-  return role === 'admin' || role === 'owner';
-}
 
 const acceptErrorMap = INVITATION_ACCEPT_ERRORS;
 
@@ -153,7 +149,7 @@ export const sendInvitation = withController('Send invitation', async (req, res)
         inviterId: req.user!.sub,
         // The permission the ROUTE proved, and separately the admin ceiling.
         inviterCanManage: userHasPermission(req, 'invitations:manage') || isSystemAdmin(req),
-        inviterIsAdmin: isOrgManager(req.user?.role) || isSystemAdmin(req),
+        inviterIsAdmin: isAdminOrgRole(req.user?.role) || isSystemAdmin(req),
         email,
         role: body.role,
         roleIds: roleIds.map(String),
@@ -249,7 +245,16 @@ export const acceptInvitation = withController('Accept invitation', async (req, 
   if (!token) return sendError(res, 400, 'Invitation token is required');
   if (!req.user) return sendError(res, 401, 'You must be logged in to accept an invitation');
 
-  const oauthProvider = req.headers['x-oauth-provider'] as InvitationOAuthProvider | undefined;
+  // Client-asserted: the service honours it only when the account holds a
+  // linked identity at that provider.
+  const providerHeader = req.headers['x-oauth-provider'];
+  let oauthProvider: OAuthProviderName | undefined;
+  if (providerHeader !== undefined) {
+    if (typeof providerHeader !== 'string' || !isOAuthProviderName(providerHeader)) {
+      return sendError(res, 400, 'Unknown OAuth provider');
+    }
+    oauthProvider = providerHeader;
+  }
   const accepted = await invitationService.accept(token, req.user.sub, oauthProvider);
 
   // Accepting an invite creates a membership — a self-serve privilege grant, so
@@ -298,7 +303,7 @@ export const acceptInvitationViaOAuth = withController('Accept invitation via OA
   // Exchange the code with the provider and use the VERIFIED identity — never
   // trust a client-supplied profile.
   const verified = await verifyOAuthCode(oauthProvider, code, state, req);
-  const accepted = await invitationService.acceptViaOAuth(token, oauthProvider as InvitationOAuthProvider, verified);
+  const accepted = await invitationService.acceptViaOAuth(token, oauthProvider as OAuthProviderName, verified);
 
   // Public route: there is no `req.user`, so `audit(req, ...)` would file the
   // membership grant under an anonymous actor. Attribute it to the user resolved

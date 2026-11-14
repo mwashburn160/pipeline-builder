@@ -32,14 +32,12 @@ import { formatCents } from '@/lib/format';
 import api from '@/lib/api';
 import { queries } from '@/lib/api-cache';
 import { ApiError } from '@/lib/api/errors';
+import { SUBSCRIPTION_STATUS_IDS, SUBSCRIPTION_STATUS_META, subscriptionStatusColor, subscriptionStatusLabel } from '@/lib/subscription-status';
 import type { AdminBillingSummary, AdminSubscriptionUpdate } from '@/lib/api/domains/billing';
 import type { Plan, Subscription, SubscriptionStatus, BillingInterval } from '@/types';
 
-/** Every subscription status, all admin-settable (AdminSubscriptionUpdateSchema).
- *  The Record keys make the list exhaustive over the wire vocabulary. */
-const STATUS_OPTIONS = Object.keys({
-  active: 1, canceled: 1, past_due: 1, trialing: 1, incomplete: 1,
-} satisfies Record<SubscriptionStatus, 1>) as SubscriptionStatus[];
+/** Every subscription status, all admin-settable (AdminSubscriptionUpdateSchema). */
+const STATUS_OPTIONS = SUBSCRIPTION_STATUS_IDS;
 const INTERVAL_OPTIONS: BillingInterval[] = ['monthly', 'annual'];
 
 type ByOrgRow = AdminBillingSummary['byOrg'][number];
@@ -52,17 +50,6 @@ const BY_ORG_COLUMNS: Column<ByOrgRow>[] = [
   { id: 'net', header: 'Net', headerClassName: 'text-right', cellClassName: 'text-right font-medium text-fg', render: (o) => formatCents(o.netBilledCents) },
   { id: 'invoices', header: 'Invoices', headerClassName: 'text-right', cellClassName: 'text-right text-fg-muted', render: (o) => o.invoiceCount },
 ];
-
-/** Badge color per subscription status. */
-function statusColor(status: string): 'green' | 'gray' | 'yellow' | 'red' | 'blue' {
-  switch (status) {
-    case 'active': return 'green';
-    case 'trialing': return 'blue';
-    case 'past_due': return 'yellow';
-    case 'canceled': return 'gray';
-    default: return 'red';
-  }
-}
 
 /**
  * Billing Admin (system admin only). A fleet-wide view over every org's
@@ -254,7 +241,7 @@ export default function BillingAdminPage() {
       id: 'status',
       header: 'Status',
       sortValue: (s) => s.status,
-      render: (s) => <Badge color={statusColor(s.status)}>{s.status}</Badge>,
+      render: (s) => <Badge color={subscriptionStatusColor(s.status)}>{subscriptionStatusLabel(s.status)}</Badge>,
     },
     {
       id: 'interval',
@@ -383,7 +370,7 @@ export default function BillingAdminPage() {
                       ? 'bg-blue-600 text-white border-blue-600'
                       : 'bg-surface text-fg-muted border-default hover:bg-surface-muted'}`}
                   >
-                    {value === 'all' ? 'All' : value}
+                    {value === 'all' ? 'All' : SUBSCRIPTION_STATUS_META[value].label}
                   </button>
                 ))}
               </div>
@@ -449,7 +436,7 @@ export default function BillingAdminPage() {
                   className="text-sm capitalize"
                   disabled={editForm.loading}
                 >
-                  {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
+                  {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{SUBSCRIPTION_STATUS_META[s].label}</option>)}
                 </Select>
               </div>
               <div className="space-y-1">

@@ -6,14 +6,16 @@
  * Public rows only — never tenant fields.
  */
 
-export type TrustTier = 'official' | 'verified' | 'community' | 'unverified';
+import type { HealthComponentScore, ListingState as WireListingState, PublisherTier } from '@pipeline-builder/api-core';
+
 export type IconKind = 'vendor' | 'uploaded' | 'monogram' | 'category';
-export type ListingState = 'listed' | 'unmaintained' | 'suspended';
+/** The listing states the PUBLIC directory serves (a transferred listing is not shown). */
+export type ListingState = Extract<WireListingState, 'listed' | 'unmaintained' | 'suspended'>;
 
 export interface ListingPublisher {
   handle: string;
   displayName: string;
-  tier: TrustTier;
+  tier: PublisherTier;
 }
 
 export interface ListingCard {
@@ -146,7 +148,6 @@ export interface ListingDetail extends ListingCard {
 
 // Re-exported from api-core so the server and the client cannot drift: this
 // was a second, identical declaration of a shape that crosses the wire.
-import type { HealthComponentScore } from '@pipeline-builder/api-core';
 export type { HealthComponentScore };
 export type HealthBreakdown = Partial<Record<string, HealthComponentScore>>;
 
@@ -208,9 +209,10 @@ export const SORT_LABELS: Record<SearchSort, string> = {
   name: 'A–Z',
 };
 
-export const TRUST_TIERS: readonly TrustTier[] = ['official', 'verified', 'community', 'unverified'];
-
-export const TRUST_TIER_LABELS: Record<TrustTier, string> = {
+/** The directory's own tier names (api-core `PublisherTier`; facets list `PUBLISHER_TIERS`, trust descending). Shorter than the console's
+ *  `PUBLISHER_TIER_LABELS` on purpose: a public card says "Unverified", not
+ *  "Community · unverified". */
+export const TRUST_TIER_LABELS: Record<PublisherTier, string> = {
   official: 'Official',
   verified: 'Verified',
   community: 'Community',

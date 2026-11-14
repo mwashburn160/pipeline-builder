@@ -1,5 +1,5 @@
 import { useMemo, useState, useCallback } from 'react';
-import { formatError } from '@/lib/constants';
+import { SYSTEM_ORG_ID, formatError } from '@/lib/constants';
 import { triggerBlobDownload } from '@/lib/download';
 import { Building2, ExternalLink, Plus, RotateCcw } from 'lucide-react';
 import Link from 'next/link';
@@ -66,7 +66,7 @@ const PAGE_TABS = [
 type PageTab = (typeof PAGE_TABS)[number]['id'];
 const PAGE_TAB_IDS: readonly PageTab[] = PAGE_TABS.map((t) => t.id);
 
-/** Organization management page (system admin only). Lists all organizations with delete capability. */
+/** The fleet's organization list (`orgs:read`); each write is gated on its own permission. */
 export default function OrganizationsPage() {
   // The page gate comes from the nav entry via page-access — `orgs:read`, NOT
   // `systemAdminOnly` as this said until 2026-11-10. That matters for anything
@@ -204,13 +204,13 @@ export default function OrganizationsPage() {
         <div>
           <div className="text-sm font-medium text-fg flex flex-wrap items-center gap-1.5">
             {org.name}
-            {org.id === 'system' && <Badge color="purple">System</Badge>}
+            {org.id === SYSTEM_ORG_ID && <Badge color="purple">System</Badge>}
             {org.parentOrgId && (
               <Badge color="indigo">
                 {org.parentOrgName ? `Team of ${org.parentOrgName}` : 'Team'}
               </Badge>
             )}
-            {org.tier && <Badge color={getTierMeta(org.tier).badgeColor}>{org.tier}</Badge>}
+            {org.tier && <Badge color={getTierMeta(org.tier).badgeColor}>{getTierMeta(org.tier).label}</Badge>}
             {org.kmsConfigured && <Badge color="blue">KMS</Badge>}
             {org.idpConfigured && <Badge color="green">SSO</Badge>}
             {org.pendingDeletion && <Badge color="red">Pending deletion</Badge>}
@@ -239,7 +239,7 @@ export default function OrganizationsPage() {
       headerClassName: 'text-right',
       cellClassName: 'text-right text-sm font-medium',
       render: (org) => (
-        org.id === 'system' ? (
+        org.id === SYSTEM_ORG_ID ? (
           <span className="text-fg-subtle text-xs">Protected</span>
         ) : org.pendingDeletion ? (
           // Soft-deleted: only Details + Restore make sense (the destructive
@@ -300,7 +300,13 @@ export default function OrganizationsPage() {
       subtitle="Manage organizations and access"
       titleExtra={<Badge color="red">System Admin</Badge>}
       actions={
-        <Button onClick={() => setCreateOpen(true)}>
+        // `POST /organization` is `org_settings:write`; reaching this page is
+        // only `orgs:read`, so the read-only job Roles see the action locked.
+        <Button
+          onClick={() => setCreateOpen(true)}
+          disabled={!can('org_settings:write')}
+          title={can('org_settings:write') ? undefined : 'Requires the org_settings:write permission'}
+        >
           <Plus className="w-4 h-4 mr-1.5" /> New Organization
         </Button>
       }

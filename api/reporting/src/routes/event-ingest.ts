@@ -4,7 +4,7 @@
 import { sendSuccess, sendBadRequest, ErrorCode, validateBody, errorMessage, verifyServicePrincipal, audited } from '@pipeline-builder/api-core';
 import { withRoute, incCounter, resetGauge, setGauge, type SSEManager } from '@pipeline-builder/api-server';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
-import { runWithTenantContext, reportingService, type IngestCaller, type IngestMetric } from '@pipeline-builder/pipeline-data';
+import { runWithTenantContext, reportingService, type EventSource, type IngestCaller, type IngestMetric } from '@pipeline-builder/pipeline-data';
 import { Router, type Request } from 'express';
 import { z } from 'zod';
 import { countIngestRejection, ingestKeyId, recordIngestBatch, recordIngestRejection } from '../helpers/ingest-audit.js';
@@ -83,12 +83,27 @@ const baseIngestFields = {
   }).optional(),
 };
 
+/**
+ * Which status vocabulary each producer speaks, keyed by the stored
+ * `event_source` vocabulary — `satisfies` makes a source added there without a
+ * status set here a compile error rather than a batch rejected at runtime.
+ */
+const STATUSES_BY_SOURCE = {
+  'codepipeline': AWS_STATUSES,
+  'codebuild': AWS_STATUSES,
+  'plugin-build': PLUGIN_BUILD_STATUSES,
+} as const satisfies Record<EventSource, readonly [string, ...string[]]>;
+
+/** One schema per source, so the `status` enum is enforced per-producer. */
+const sourceSchema = <S extends EventSource>(source: S) =>
+  z.object({ eventSource: z.literal(source), status: z.enum(STATUSES_BY_SOURCE[source]), ...baseIngestFields });
+
 /** Discriminated by `eventSource` so the `status` enum is enforced
  *  per-producer instead of accepting any free-form string. */
 const ingestEventSchema = z.discriminatedUnion('eventSource', [
-  z.object({ eventSource: z.literal('codepipeline'), status: z.enum(AWS_STATUSES), ...baseIngestFields }),
-  z.object({ eventSource: z.literal('codebuild'), status: z.enum(AWS_STATUSES), ...baseIngestFields }),
-  z.object({ eventSource: z.literal('plugin-build'), status: z.enum(PLUGIN_BUILD_STATUSES), ...baseIngestFields }),
+  sourceSchema('codepipeline'),
+  sourceSchema('codebuild'),
+  sourceSchema('plugin-build'),
 ]);
 
 const ingestBatchSchema = z.object({

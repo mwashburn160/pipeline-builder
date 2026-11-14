@@ -1,6 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import type { AlertChannel, AlertRuleSeverity } from '@pipeline-builder/api-core/wire-vocabulary';
+
 /** Quick-pick window for observability panels. The catalog/backend accepts these
  *  literal strings, and `RangePicker` keys its buttons off this union, so adding
  *  one here is a compile error there rather than a window with no button. */
@@ -140,6 +142,7 @@ export interface CatalogResponse {
   entries: CatalogEntry[];
 }
 
+
 /** Per-org alert destination as returned by the API. Note `target` is
  *  masked on reads — only the last 12 chars + a leading mask are exposed
  *  even to the owner org. */
@@ -150,12 +153,12 @@ export interface AlertDestination {
   createdAt: string;
   updatedBy: string;
   updatedAt: string;
-  channel: 'slack' | 'webhook' | 'in-app' | 'email';
+  channel: AlertChannel;
   /** Masked URL/address (e.g. `••••XXXXXXXXXXXX`). Use `hasTarget` to know whether it's set. */
   target: string;
   hasTarget: boolean;
   label: string;
-  minSeverity: 'warning' | 'critical';
+  minSeverity: AlertRuleSeverity;
   enabled: boolean;
   /** Set only on rows from the deleted listing (soft-delete tombstones). */
   deletedAt?: string | null;
@@ -173,10 +176,10 @@ export interface AlertDestinationResponse {
 /** Body for POST/PUT on alert destinations. `target` is the raw secret URL
  *  on writes; empty string on update means "leave existing value". */
 export interface AlertDestinationWrite {
-  channel?: 'slack' | 'webhook' | 'in-app' | 'email';
+  channel?: AlertChannel;
   target?: string;
   label?: string;
-  minSeverity?: 'warning' | 'critical';
+  minSeverity?: AlertRuleSeverity;
   enabled?: boolean;
 }
 
@@ -196,7 +199,7 @@ export interface AlertRule {
   expr: string;
   /** Prometheus `for:` duration (e.g. `5m`). */
   forDuration: string;
-  severity: 'warning' | 'critical';
+  severity: AlertRuleSeverity;
   /** Alertmanager `summary` annotation (required, <= 500 chars). */
   summary: string;
   /** Alertmanager `description` annotation. `''` when unset. */
@@ -229,7 +232,7 @@ export interface AlertRuleWrite {
   name?: string;
   expr?: string;
   forDuration?: string;
-  severity?: 'warning' | 'critical';
+  severity?: AlertRuleSeverity;
   summary?: string;
   description?: string;
   enabled?: boolean;

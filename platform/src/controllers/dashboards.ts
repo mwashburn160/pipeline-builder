@@ -55,7 +55,7 @@ function hasRenderablePanel(queryKeys: string[], caller: CatalogCaller): boolean
 function checkPanelKeys(panels: PanelInput[], caller: CatalogCaller, res: Response): PanelInput[] | null {
   for (let i = 0; i < panels.length; i++) {
     const key = panels[i].queryKey;
-    if (!(key in QUERIES)) {
+    if (!Object.hasOwn(QUERIES, key)) {
       sendError(res, 400, `panels[${i}].queryKey is not a known catalog entry`);
       return null;
     }

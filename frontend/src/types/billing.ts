@@ -436,7 +436,7 @@ export interface UsageRollup {
     planId: string;
     planName: string;
     tier: QuotaTier;
-    interval: 'monthly' | 'annual';
+    interval: BillingInterval;
     priceCents: number;
   } | null;
   usage: Record<string, UsageEntry>;

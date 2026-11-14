@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createLogger, ErrorCode, paginationMeta, sendError, sendSuccess, isServicePrincipal, getParam, isSystemAdmin } from '@pipeline-builder/api-core';
+import { isOrgRole } from '@pipeline-builder/api-core/wire-vocabulary';
 import { audit } from '../helpers/audit.js';
 import { canAccessOrg, ensureAuthenticated, forbid, getAdminContext, requireOrgScope, withController, roleAssignmentActor } from '../helpers/controller-helper.js';
 import { listPage } from '../helpers/pagination.js';
@@ -35,7 +36,7 @@ export const getOrganizationMembers = withController('Get members', async (req, 
   const { offset, limit } = listPage(req.query);
   const search = typeof req.query.search === 'string' ? req.query.search : undefined;
   const roleRaw = typeof req.query.role === 'string' ? req.query.role : undefined;
-  const role = roleRaw === 'owner' || roleRaw === 'admin' || roleRaw === 'member' ? roleRaw : undefined;
+  const role = isOrgRole(roleRaw) ? roleRaw : undefined;
   // Active/inactive status filter: map the `active|inactive` query value to the
   // membership `isActive` flag; anything else leaves the filter off.
   const statusRaw = typeof req.query.status === 'string' ? req.query.status : undefined;

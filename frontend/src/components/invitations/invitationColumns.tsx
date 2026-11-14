@@ -1,16 +1,18 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { orgRoleColor } from '@/lib/org-roles';
 import { Badge, type BadgeColor } from '@/components/ui/Badge';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 import { type Column } from '@/components/ui/DataTable';
+import type { OrgRole } from '@pipeline-builder/api-core/wire-vocabulary';
 
 /** One row of the invitations roster, as the list endpoint returns it. */
 export interface InvitationListItem {
   id: string;
   email: string;
-  role: 'owner' | 'admin' | 'member';
+  role: OrgRole;
   /** Roles assigned on acceptance, resolved to names by the listing. */
   roleNames?: string[];
   status: 'pending' | 'accepted' | 'expired' | 'revoked';
@@ -111,7 +113,7 @@ export function buildInvitationColumns({
        */
       render: (inv) => (
         <span className="inline-flex flex-wrap items-center gap-1">
-          <Badge color={inv.role === 'admin' ? 'purple' : 'gray'}>{inv.role}</Badge>
+          <Badge color={orgRoleColor(inv.role)}>{inv.role}</Badge>
           {(inv.roleNames ?? []).map((name) => (
             <Badge key={name} color="blue">{name}</Badge>
           ))}

@@ -3,8 +3,27 @@
 
 // Types
 
+/**
+ * The Git hosting providers, keyed by id: the one public host each is
+ * recognized by (`null` for `unknown`, which any other host resolves to).
+ * The provider — which decides whether a repository is inspected at all —
+ * comes from this host match alone.
+ */
+export const GIT_PROVIDERS = {
+  github: { host: 'github.com' },
+  gitlab: { host: 'gitlab.com' },
+  bitbucket: { host: 'bitbucket.org' },
+  unknown: { host: null },
+} as const satisfies Record<string, { host: string | null }>;
+
 /** Supported Git hosting providers. */
-export type GitProvider = 'github' | 'gitlab' | 'bitbucket' | 'unknown';
+export type GitProvider = keyof typeof GIT_PROVIDERS;
+
+/** The provider a hostname names (exact match), else `unknown`. */
+export function providerForHost(host: string): GitProvider {
+  const hit = (Object.keys(GIT_PROVIDERS) as GitProvider[]).find((id) => GIT_PROVIDERS[id].host === host);
+  return hit ?? 'unknown';
+}
 
 /** Result of parsing a Git URL. */
 export interface ParsedGitUrl {

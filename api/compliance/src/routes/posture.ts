@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * `GET /internal/compliance/posture` — the compliance half of a stakeholder report's
+ * `GET /compliance/posture` — the compliance half of a stakeholder report's
  * posture panel.
  *
  * READ-ONLY, and the only compliance endpoint the `reporting` service may reach. That
@@ -38,14 +38,18 @@ const logger = createLogger('compliance-posture');
 const requireReportingService = requireInternalService({ callers: ['reporting'] });
 
 /**
- * A rule is ACTIVE when it is not deleted and its effective window contains now.
+ * A rule is ACTIVE when it is switched on, not deleted, and its effective window
+ * contains now.
  *
  * The window matters: an org that scheduled a rule for next quarter has not got it
  * active, and counting it would tell a manager the org enforces something it does not.
+ * So does the switch, which this used to leave out: a rule an admin had turned OFF
+ * (`isActive = false`, which enforcement skips) was still counted as active.
  */
 function activeRuleWhere(orgId: string, now: Date) {
   return and(
     eq(schema.complianceRule.orgId, orgId),
+    eq(schema.complianceRule.isActive, true),
     isNull(schema.complianceRule.deletedAt),
     or(isNull(schema.complianceRule.effectiveFrom), sql`${schema.complianceRule.effectiveFrom} <= ${now}`),
     or(isNull(schema.complianceRule.effectiveUntil), sql`${schema.complianceRule.effectiveUntil} > ${now}`),

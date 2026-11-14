@@ -69,39 +69,56 @@ export const BUILTIN_RESERVED_HANDLES: readonly string[] = [
 ];
 
 /**
- * Request kinds a TENANT may submit (`moderation` is system-org-created). An
- * `advisory` request carries a security-advisory DRAFT; only the system org
- * publishes it (approving the request) or withdraws it.
- */
-/**
- * DERIVED from `PUBLISH_REQUEST_KINDS` by exclusion, not hand-copied.
+ * How each publish-request kind is gated, keyed by kind — exhaustive, so a kind
+ * added to `PUBLISH_REQUEST_KINDS` does not compile until it is placed here, and
+ * every kind list below is DERIVED from this one table rather than transcribed
+ * (a hand-copied list once left a new kind decidable in the console yet rejected
+ * at the tenant's door).
  *
- * This is the TENANT submit gate (`requests.ts` checks membership before
- * accepting a request), and it was a transcription of the canonical list minus
- * two entries. A kind added to the canonical list therefore needed a second,
- * entirely un-enforced edit here before a publisher could submit it — the kind
- * would exist, be decidable in the console, and be rejected at the door.
- *
- * Stating the EXCLUSIONS instead makes the relationship the code: `moderation`
- * and `submission` are opened by the system org on a tenant's behalf, never
- * submitted by the tenant, so they are the two that do not belong here.
+ * - `submit` — the tenant permission that submits it, or `null` when the system
+ *   org opens it on a tenant's behalf (`moderation`, `submission`). An
+ *   `advisory` request carries a security-advisory DRAFT; only the system org
+ *   publishes it (approving the request) or withdraws it.
+ * - `decide` — the system-org permission that decides it.
+ * - `stepUp` — whether the decision requires a step-up (suspend/yank/takedown,
+ *   and every `publishers:verify` decision).
  */
-const SYSTEM_OPENED_REQUEST_KINDS = ['moderation', 'submission'] as const;
+const PUBLISH_REQUEST_KIND_GATES = {
+  new_listing: { submit: 'plugins:publish', decide: 'plugins:moderate', stepUp: false },
+  new_version: { submit: 'plugins:publish', decide: 'plugins:moderate', stepUp: false },
+  listing_update: { submit: 'plugins:publish', decide: 'plugins:moderate', stepUp: false },
+  yank: { submit: 'plugins:publish', decide: 'plugins:moderate', stepUp: true },
+  unpause: { submit: 'plugins:publish', decide: 'plugins:moderate', stepUp: false },
+  transfer: { submit: 'publishers:manage', decide: 'publishers:verify', stepUp: true },
+  claim: { submit: 'publishers:manage', decide: 'publishers:verify', stepUp: true },
+  profile_change: { submit: 'publishers:manage', decide: 'publishers:verify', stepUp: true },
+  advisory: { submit: 'publishers:manage', decide: 'plugins:moderate', stepUp: false },
+  verify: { submit: 'publishers:manage', decide: 'publishers:verify', stepUp: true },
+  moderation: { submit: null, decide: 'plugins:moderate', stepUp: true },
+  submission: { submit: null, decide: 'plugins:moderate', stepUp: false },
+} as const satisfies Record<PublishRequestKind, {
+  submit: 'plugins:publish' | 'publishers:manage' | null;
+  decide: 'plugins:moderate' | 'publishers:verify';
+  stepUp: boolean;
+}>;
 
+type KindGates = typeof PUBLISH_REQUEST_KIND_GATES;
+const kindsWhere = (pred: (g: KindGates[PublishRequestKind]) => boolean): PublishRequestKind[] =>
+  PUBLISH_REQUEST_KINDS.filter((k) => pred(PUBLISH_REQUEST_KIND_GATES[k]));
+
+/** Request kinds a TENANT may submit (the rest are system-org-opened). */
 export const TENANT_REQUEST_KINDS = PUBLISH_REQUEST_KINDS
-  .filter((k): k is Exclude<PublishRequestKind, typeof SYSTEM_OPENED_REQUEST_KINDS[number]> =>
-    !(SYSTEM_OPENED_REQUEST_KINDS as readonly string[]).includes(k));
+  .filter((k): k is { [K in PublishRequestKind]: KindGates[K]['submit'] extends null ? never : K }[PublishRequestKind] =>
+    PUBLISH_REQUEST_KIND_GATES[k].submit !== null);
 
 /** Kinds submitted under `plugins:publish` (the rest need `publishers:manage`). */
-export const PUBLISH_PERMISSION_REQUEST_KINDS: readonly string[] = [
-  'new_listing', 'new_version', 'listing_update', 'yank', 'unpause',
-];
+export const PUBLISH_PERMISSION_REQUEST_KINDS: readonly string[] = kindsWhere((g) => g.submit === 'plugins:publish');
 
 /** Kinds DECIDED with `publishers:verify` (the rest need `plugins:moderate`). */
-export const VERIFY_REQUEST_KINDS: readonly string[] = ['transfer', 'claim', 'profile_change', 'verify'];
+export const VERIFY_REQUEST_KINDS: readonly string[] = kindsWhere((g) => g.decide === 'publishers:verify');
 
 /** Kinds whose decision requires a step-up (suspend/yank/takedown, and every `publishers:verify` decision). */
-export const STEP_UP_REQUEST_KINDS: readonly string[] = ['yank', 'transfer', 'claim', 'profile_change', 'verify', 'moderation'];
+export const STEP_UP_REQUEST_KINDS: readonly string[] = kindsWhere((g) => g.stepUp);
 
 /** Moderation-queue SLA per lane, in hours (2 business days ≈ 48 h; security lane 4 h). */
 export const REQUEST_SLA_HOURS = { standard: 48, security: 4 } as const;

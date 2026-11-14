@@ -5,8 +5,7 @@
  * CSV export utility — extracted so list pages outside the reports
  * namespace can export their tables without pulling reports-specific UI
  * helpers. ReportHelpers.ExportCSVButton stays as the report-styled
- * button; this module exposes the headless `downloadCsv` and a
- * tighter, more generic button (`<DownloadCsvButton />`) below.
+ * button; this module exposes the headless `downloadCsv`.
  *
  * Formula-injection defense: Excel/LibreOffice treat leading `=`, `+`,
  * `-`, `@`, tab, or CR as formula starters. If a user names a pipeline

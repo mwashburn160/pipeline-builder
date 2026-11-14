@@ -38,6 +38,11 @@ describe('pct', () => {
     expect(pct(1, 3)).toBe(33);
     expect(pct(2, 3)).toBe(67);
   });
+
+  it('reports 100 only once the limit is reached', () => {
+    expect(pct(995, 1000)).toBe(99);
+    expect(pct(1000, 1000)).toBe(100);
+  });
 });
 
 describe('fmtNum', () => {

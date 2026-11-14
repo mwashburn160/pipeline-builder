@@ -20,7 +20,7 @@
  */
 
 import {
-  AppError, ConflictError, ErrorCode, NotFoundError, SYSTEM_ORG_ID, ValidationError,
+  AppError, ConflictError, ErrorCode, MANAGED_TOOLCHAIN, MANAGED_TOOLCHAIN_PLUGINS, NotFoundError, SYSTEM_ORG_ID, ValidationError,
   exceedsVulnFloor, gatedFindingCount, gatedFixableCount, getStatusForErrorCode, lastScannedAt, pluginVulnFailOn,
   pluginVulnMaxFindings, recordAudit, toolchainFromMetadata,
   type PluginScanSummary, type RemoteAuditAction,
@@ -33,12 +33,9 @@ import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 
 import { pluginService, type Plugin } from './plugin-service.js';
 import { notifyToolchainHygiene } from './toolchain-hygiene.js';
+import { isDeprecatedVersion, isYankedVersion } from '../helpers/managed-toolchain.js';
 
 type TenantTx = Parameters<Parameters<typeof withTenantTx>[0]>[0];
-
-/** The two halves of a release, bootstrap first. */
-export const TOOLCHAIN_HALVES = ['pipeline-bootstrap', 'cdk-synth'] as const;
-const BOOTSTRAP = TOOLCHAIN_HALVES[0];
 
 /** Who acted: a user id, or a service principal's `service:<name>` subject. */
 export type ToolchainActor = string;
@@ -142,7 +139,7 @@ async function lockPlatformDefault(tx: TenantTx): Promise<string | null> {
 async function releaseHalves(tx: TenantTx, releaseVersion: string): Promise<Map<string, Plugin>> {
   const rows = await tx.select().from(schema.plugin).where(and(
     eq(schema.plugin.orgId, SYSTEM_ORG_ID),
-    inArray(schema.plugin.name, [...TOOLCHAIN_HALVES]),
+    inArray(schema.plugin.name, [...MANAGED_TOOLCHAIN_PLUGINS]),
     eq(schema.plugin.version, releaseVersion),
     isNull(schema.plugin.deletedAt),
   )) as Plugin[];
@@ -159,14 +156,6 @@ async function wasEverDefault(tx: TenantTx, releaseVersion: string): Promise<boo
   const [row] = await tx.select({ id: schema.toolchainDefaultHistory.id }).from(schema.toolchainDefaultHistory)
     .where(eq(schema.toolchainDefaultHistory.releaseVersion, releaseVersion)).limit(1);
   return row !== undefined;
-}
-
-function isYanked(row: Plugin): boolean {
-  return row.yankedAt !== null || row.lifecycle === 'yanked';
-}
-
-function isDeprecated(row: Plugin): boolean {
-  return row.deprecatedAt !== null || row.lifecycle === 'deprecated';
 }
 
 /** Gated findings over the floor for one half — waiver/KEV-aware, the raw scanner counts when the summary can't answer. */
@@ -239,10 +228,10 @@ async function evaluateGuards(tx: TenantTx, input: Pick<SetPlatformDefaultInput,
 
   // Pair: both halves, one version, active, unyanked, not deprecated, and the release registered.
   const halves = await releaseHalves(tx, releaseVersion);
-  const missing = TOOLCHAIN_HALVES.filter((n) => !halves.has(n));
+  const missing = MANAGED_TOOLCHAIN_PLUGINS.filter((n) => !halves.has(n));
   const notLive = [...halves.values()]
-    .filter((r) => !r.isActive || isYanked(r) || isDeprecated(r))
-    .map((r) => ({ name: r.name, state: isYanked(r) ? 'yanked' : isDeprecated(r) ? 'deprecated' : 'inactive' }));
+    .filter((r) => !r.isActive || isYankedVersion(r) || isDeprecatedVersion(r))
+    .map((r) => ({ name: r.name, state: isYankedVersion(r) ? 'yanked' : isDeprecatedVersion(r) ? 'deprecated' : 'inactive' }));
   if (missing.length > 0 || notLive.length > 0 || !(await releaseRowExists(tx, releaseVersion))) {
     const message = `Release ${releaseVersion} is not a complete, live pair`
       + `${missing.length ? ` (missing: ${missing.join(', ')})` : ''}${notLive.length ? ` (${notLive.map((n) => `${n.name} is ${n.state}`).join(', ')})` : ''}.`;
@@ -255,7 +244,7 @@ async function evaluateGuards(tx: TenantTx, input: Pick<SetPlatformDefaultInput,
     ];
   }
   const out: DefaultGuardCheck[] = [{ code: ErrorCode.TOOLCHAIN_GUARD_PAIR_INCOMPLETE, ok: true }];
-  const rows = TOOLCHAIN_HALVES.map((n) => halves.get(n)!);
+  const rows = MANAGED_TOOLCHAIN_PLUGINS.map((n) => halves.get(n)!);
 
   // Scan: both halves scanned.
   const unscanned = rows.filter((r) => lastScannedAt(r) === null).map((r) => r.name);
@@ -291,8 +280,8 @@ async function evaluateGuards(tx: TenantTx, input: Pick<SetPlatformDefaultInput,
   }
 
   // Metadata: the bootstrap carries a complete `toolchain`.
-  if (toolchainFromMetadata(halves.get(BOOTSTRAP)!.metadata) === null) {
-    const message = `${BOOTSTRAP}@${releaseVersion} carries no complete toolchain metadata; rebuild the release with deploy/bin/sync-image-tags.sh.`;
+  if (toolchainFromMetadata(halves.get(MANAGED_TOOLCHAIN.bootstrap)!.metadata) === null) {
+    const message = `${MANAGED_TOOLCHAIN.bootstrap}@${releaseVersion} carries no complete toolchain metadata; rebuild the release with deploy/bin/sync-image-tags.sh.`;
     out.push({ code: ErrorCode.TOOLCHAIN_GUARD_METADATA, ok: false, detail: message, refusal: refusal(ErrorCode.TOOLCHAIN_GUARD_METADATA, message, { releaseVersion }) });
   } else {
     out.push({ code: ErrorCode.TOOLCHAIN_GUARD_METADATA, ok: true });
@@ -466,7 +455,7 @@ export async function deprecateRelease(input: ReleaseLifecycleInput & { message?
         const [u] = await tx.update(schema.plugin).set({
           deprecatedAt: row.deprecatedAt ?? now,
           deprecationMessage: input.message ?? null,
-          ...(isYanked(row) ? {} : { lifecycle: 'deprecated' as const }),
+          ...(isYankedVersion(row) ? {} : { lifecycle: 'deprecated' as const }),
           updatedAt: now,
           updatedBy: input.actor,
         }).where(eq(schema.plugin.id, row.id)).returning();

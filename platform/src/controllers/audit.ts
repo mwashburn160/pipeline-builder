@@ -3,6 +3,7 @@
 
 import { isRemoteAuditAction, isServicePrincipal, isSystemAdmin, isSystemOrgId, recordAuthzDenial, sanitizeCorrelationId, sanitizeUserAgent, parseQueryString, sendError, sendSuccess, createLogger, errorMessage, parseOptionalDate } from '@pipeline-builder/api-core';
 import type { Request, Response } from 'express';
+import { isAuditOutcome, type AuditOutcome } from '../constants/vocabulary.js';
 import { getAdminContext, requirePlatformPermission, withController } from '../helpers/controller-helper.js';
 import { listPage } from '../helpers/pagination.js';
 import { resolveServiceTenant } from '../helpers/service-tenant.js';
@@ -227,7 +228,7 @@ export async function ingestAuditEvent(req: Request, res: Response): Promise<voi
     userAgent?: string;
     requestId?: string;
     traceId?: string;
-    outcome?: 'success' | 'failure';
+    outcome?: unknown;
     // DISPLAY-ONLY emission timestamp the remote-audit client stamps when the
     // action actually happened (ISO-8601). May arrive much later than it
     // occurred if the client spooled it through a platform outage. Stored for
@@ -262,9 +263,12 @@ export async function ingestAuditEvent(req: Request, res: Response): Promise<voi
 
   // Derive outcome: honour an explicit body value, else infer from the action
   // vocabulary so `plugin.build.{failed,timeout}` land as failures without the
-  // worker having to set it.
-  const outcome: 'success' | 'failure' = body.outcome
-    ?? (FAILURE_ACTION.test(body.action) ? 'failure' : 'success');
+  // worker having to set it. An unrecognised value is inferred over rather than
+  // stored: the schema enum would refuse it as a 5xx, which the remote-audit
+  // client retries — the same event, forever.
+  const outcome: AuditOutcome = isAuditOutcome(body.outcome)
+    ? body.outcome
+    : (FAILURE_ACTION.test(body.action) ? 'failure' : 'success');
 
   // A stable per-emission `Idempotency-Key` (set by the remote-audit client) lets
   // a retried 5xx/timeout delivery dedup at the DB instead of writing a duplicate

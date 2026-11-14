@@ -30,6 +30,7 @@ jest.unstable_mockModule('../src/services/quota-service.js', () => ({
 const settingsFindOne = jest.fn<AnyFn>();
 const settingsFindOneAndUpdate = jest.fn<AnyFn>();
 jest.unstable_mockModule('../src/models/quota-notice.js', () => ({
+  QUOTA_NOTICE_THRESHOLDS: [80, 100] as const,
   QuotaNoticeSettings: {
     findOne: (...a: unknown[]) => ({ lean: () => settingsFindOne(...a) }),
     findOneAndUpdate: (...a: unknown[]) => ({ lean: () => settingsFindOneAndUpdate(...a) }),
@@ -108,6 +109,16 @@ describe('GET /quotas/:orgId/usage', () => {
     expect(q.to.getTime() - q.from.getTime()).toBe(3 * 86_400_000);
     const body = res.json.mock.calls[0][0].data;
     expect(body).toMatchObject({ orgId: 'org-1', groupBy: 'principal', retentionDays: 90, groups: [{ key: 'u-1' }] });
+  });
+
+  it('defaults a cpuCredits read to ITS period (a month), not the global window', async () => {
+    // `cpuCredits` rolls monthly. The default window was the global three days,
+    // so the breakdown showed a tenth of the period the counter was in.
+    const res = makeRes();
+    await run('get', '/:orgId/usage', { user: member('org-1'), params: { orgId: 'org-1' }, query: { type: 'cpuCredits' } }, res);
+
+    const q = queryUsage.mock.calls[0][0] as { from: Date; to: Date };
+    expect(q.to.getTime() - q.from.getTime()).toBe(30 * 86_400_000);
   });
 
   it('passes type / range / groupBy through, and downloads CSV on format=csv', async () => {
@@ -215,7 +226,11 @@ describe('notice settings', () => {
     expect(update.$set).not.toHaveProperty('enabled');
     expect(assertSafeUrl).not.toHaveBeenCalled();
     expect(recordAudit).toHaveBeenCalledWith(expect.objectContaining({ details: { webhookConfigured: false } }));
-    expect(res.json.mock.calls[0][0].data.settings).toMatchObject({ enabled: true, webhookUrl: null });
+    // The write answers the SAME shape as the read — it had dropped the
+    // instance switch and re-spelled the thresholds.
+    expect(res.json.mock.calls[0][0].data.settings).toMatchObject({
+      enabled: true, webhookUrl: null, thresholds: [80, 100], noticesEnabledOnInstance: true,
+    });
   });
 
   it('PUT rejects an empty body and a non-https webhook', async () => {

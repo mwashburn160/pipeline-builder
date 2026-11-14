@@ -112,7 +112,7 @@ export class AttachmentService {
     const keys = await withTenantTx(async (tx) => {
       // pg DELETE has no LIMIT — select a bounded batch, then delete by id.
       const doomed = await tx
-        .select({ id: schema.messageAttachment.id, storageKey: schema.messageAttachment.storageKey })
+        .select({ id: schema.messageAttachment.id })
         .from(schema.messageAttachment)
         .where(and(
           isNull(schema.messageAttachment.messageId),
@@ -120,9 +120,18 @@ export class AttachmentService {
         ))
         .limit(limit);
       if (doomed.length === 0) return [] as string[];
-      await tx.delete(schema.messageAttachment)
-        .where(inArray(schema.messageAttachment.id, doomed.map((d) => d.id)));
-      return doomed.map((d) => d.storageKey);
+      // The DELETE re-asserts `message_id IS NULL` and reclaims only the blobs of
+      // the rows it actually removed. Under READ COMMITTED a send can link one of
+      // the selected uploads between the SELECT and this statement (a compose left
+      // open past the TTL); deleting by id alone removed that now-attached file —
+      // row and blob — out from under the message it had just been sent with.
+      const removed = await tx.delete(schema.messageAttachment)
+        .where(and(
+          inArray(schema.messageAttachment.id, doomed.map((d) => d.id)),
+          isNull(schema.messageAttachment.messageId),
+        ))
+        .returning({ storageKey: schema.messageAttachment.storageKey });
+      return (removed as Array<{ storageKey: string }>).map((r) => r.storageKey);
     });
     await deleteAttachments(keys);
     return keys.length;

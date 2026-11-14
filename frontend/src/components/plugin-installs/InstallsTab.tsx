@@ -15,17 +15,15 @@ import { useFetch } from '@/hooks/useFetch';
 import api from '@/lib/api';
 import { formatError } from '@/lib/constants';
 import { pluginPagePath } from '@/lib/public-directory/links';
-import { entryFromInstall, INSTALL_STATUS_LABELS, listingUsage } from '@/lib/plugin-installs';
+import { INSTALL_STATUSES } from '@pipeline-builder/api-core/wire-vocabulary';
+import { entryFromInstall, INSTALL_STATUS_META, listingUsage } from '@/lib/plugin-installs';
 import type { InstallStatusFilter, InstallView } from '@/types/plugin-installs';
 import { InstallControls } from './InstallControls';
 import { InstallWarnings } from './InstallWarnings';
 import { invalidate } from '@/lib/api-cache';
 
-const STATUS_COLOR = { active: 'green', pending_approval: 'yellow', denied: 'red' } as const;
-
 /**
- * The org's installs, optionally with the automatic Official installs
- *. Each row carries the same controls as the catalog: Upgrade (when a
+ * The org's installs, optionally with the automatic Official installs. Each row carries the same controls as the catalog: Upgrade (when a
  * version outside the policy's range exists), Change policy, Uninstall, or
  * Withdraw for a pending request. Rows inherited from the root org are read-only.
  */
@@ -45,9 +43,7 @@ export function InstallsTab({ canInstall, usage }: { canInstall: boolean; usage:
       <div className="flex flex-wrap items-center gap-4">
         <FilterSelect aria-label="Install status" value={status} onChange={(e) => setStatus(e.target.value as InstallStatusFilter)}>
           <option value="all">All statuses</option>
-          <option value="active">Installed</option>
-          <option value="pending_approval">Pending approval</option>
-          <option value="denied">Denied</option>
+          {INSTALL_STATUSES.map((st) => <option key={st} value={st}>{INSTALL_STATUS_META[st].label}</option>)}
         </FilterSelect>
         <label className="flex items-center gap-2 text-sm text-fg">
           <Checkbox checked={implicit} onChange={(e) => setImplicit(e.target.checked)} />
@@ -79,7 +75,7 @@ export function InstallsTab({ canInstall, usage }: { canInstall: boolean; usage:
                       {install.publisherHandle}/{install.name}
                     </Link>
                     <TrustTierBadge tier={install.publisherTier} compact />
-                    <Badge color={STATUS_COLOR[install.status]}>{INSTALL_STATUS_LABELS[install.status]}</Badge>
+                    <Badge color={INSTALL_STATUS_META[install.status]?.color ?? 'gray'}>{INSTALL_STATUS_META[install.status]?.label ?? install.status}</Badge>
                     {install.implicit && <Badge color="blue">Automatic</Badge>}
                     {install.inherited && <Badge color="gray">From root organization</Badge>}
                     {install.paused && <Badge color="yellow">Paused</Badge>}

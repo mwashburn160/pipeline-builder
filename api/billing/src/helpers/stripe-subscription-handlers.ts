@@ -37,7 +37,7 @@ const logger = createLogger('billing-stripe-webhook');
  * webhook. Returns null for an unknown price (e.g. a bundle price — bundles are
  * reconciled separately) or a malformed map key.
  */
-export function planFromStripePrice(priceId: string): { planId: string; interval: 'monthly' | 'annual' } | null {
+export function planFromStripePrice(priceId: string): { planId: string; interval: BillingInterval } | null {
   for (const [key, id] of Object.entries(config.stripe?.priceToPlanMap ?? {})) {
     if (id !== priceId) continue;
     const idx = key.lastIndexOf('_');

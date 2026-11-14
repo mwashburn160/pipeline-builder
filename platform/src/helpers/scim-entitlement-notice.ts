@@ -23,6 +23,7 @@
 
 import { createLogger, errorMessage } from '@pipeline-builder/api-core';
 import { toOrgId } from './org-id.js';
+import { ADMIN_ORG_ROLES } from '@pipeline-builder/api-core/wire-vocabulary';
 import { Organization, User, UserOrganization } from '../models/index.js';
 
 const logger = createLogger('scim-entitlement-notice');
@@ -62,7 +63,7 @@ export async function notifyScimEntitlementLapsed(orgId: string): Promise<boolea
 
     const [org, admins] = await Promise.all([
       Organization.findById(toOrgId(orgId)).select('name').lean(),
-      UserOrganization.find({ organizationId: toOrgId(orgId), isActive: true, role: { $in: ['owner', 'admin'] } })
+      UserOrganization.find({ organizationId: toOrgId(orgId), isActive: true, role: { $in: [...ADMIN_ORG_ROLES] } })
         .select('userId').lean(),
     ]);
     if (!org || admins.length === 0) return false;

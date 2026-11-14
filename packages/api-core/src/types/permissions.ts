@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import type { OrgRole } from './common.js';
+import type { OrgRole } from './wire-vocabulary.js';
 
 // =============================================================================
 // Permission identifiers
@@ -19,243 +19,12 @@ import type { OrgRole } from './common.js';
  * quota override, user admin, impersonation, platform settings) stay behind the
  * global `isSuperAdmin` flag, not a per-org permission; and `requireStepUp`
  * (MFA) / `requireFeature` (plan entitlements) remain orthogonal gates.
+ *
+ * The ids are the keys of {@link PERMISSION_DEFS} (below, beside their picker
+ * label, description and category), so the union, {@link ALL_PERMISSIONS} and
+ * {@link PERMISSION_CATALOG} cannot drift: adding a permission is one entry.
  */
-export type Permission =
-  // Pipelines
-  | 'pipelines:read'
-  | 'pipelines:write'
-  | 'pipelines:publish'
-  // The pipeline REGISTRY (`POST`/`DELETE /pipelines/registry`): which deployed
-  // stack backs a pipeline, and the step manifest of plugin digests it runs.
-  // Split out of `pipelines:write` so the CodeBuild synth can keep that record
-  // current with a credential that can do nothing else — a key holding
-  // `pipelines:write` could rewrite every pipeline the org owns. People get it
-  // beside `pipelines:write` (the Member bundle); the `pipeline-register`
-  // service account holds it alone.
-  | 'pipeline_registry:write'
-  // Golden-path pipeline templates. Split out of `pipelines:*` so a platform
-  // team can curate the starter catalog WITHOUT write access to every pipeline
-  // (and vice versa). `:publish` maps to the
-  // template ladder's `public` rung; `org` and `private` need only `:write`.
-  | 'templates:read'
-  | 'templates:write'
-  | 'templates:publish'
-  // Plugins
-  | 'plugins:read'
-  | 'plugins:write'
-  | 'plugins:publish'
-  // Plugin ecosystem (docs/plugin-publishing.md). Org-assignable:
-  //  - `plugins:install`        — install/upgrade/uninstall listings (or REQUEST
-  //                               an install when the org's policy needs approval).
-  //  - `plugin_installs:manage` — the org's consumption policy + deciding install
-  //                               requests WITHIN the org (org-local only).
-  //  - `publishers:manage`      — the org's publisher profile + submitting
-  //                               ecosystem requests (every decision is system-org).
-  // System-org-only (see SYSTEM_ORG_ONLY_PERMISSIONS):
-  //  - `plugins:moderate`       — decide publish requests, moderate, yank, advisories.
-  //  - `publishers:verify`      — publisher tiers, profile changes, transfers.
-  | 'plugins:install'
-  | 'plugin_installs:manage'
-  | 'publishers:manage'
-  | 'plugins:moderate'
-  | 'publishers:verify'
-  // The org's managed-toolchain DEFAULT (docs/plans/bootstrap-image-versioning.md
-  // D13): which toolchain release every unpinned pipeline in the org (and its
-  // teams that set none) synthesizes with on its next run. Org-assignable, so
-  // Admin and Owner hold it; NOT in Member or any pipeline-editor bundle. Split
-  // by blast radius: `pipelines:write` moves ONE pipeline (its own
-  // `toolchain.release` pin), this moves ALL of them, and
-  // `plugin_installs:manage` governs future installs, not running pipelines.
-  // It never confers anything on the platform default, canary or catalog.
-  // Every write also needs `requireStepUp`.
-  | 'toolchain:manage'
-  // The Toolchain CONSOLE (plan D9; named after `billing:operate`): publish
-  // lifecycle, canary membership and THE platform default — every org without
-  // its own default moves with it. System-org-only (otherwise ADMIN_PERMISSIONS,
-  // derived from ORG_ASSIGNABLE_PERMISSIONS, would hand it to every tenant
-  // Admin); carried by Platform Operator. Every write also needs `requireStepUp`.
-  | 'toolchain:operate'
-  // Platform operations (system-org only). The cross-tenant operator surfaces
-  // that used to require the superadmin FLAG, so a deployment can staff them
-  // with a Role instead of handing out implicit-all. Split because the two carry
-  // different risk: reading what a deploy configured is not the same as moving
-  // another organisation's money.
-  | 'platform:read'
-  // The cross-tenant ORG LIST, split out of `platform:read` because that one
-  // permission was doing two jobs with different blast radii: reading what a
-  // DEPLOY was configured to do (RLS mode, KMS posture, the rendered alert
-  // rules) and reading the roster of every CUSTOMER. Three of the four job
-  // bundles carried it, and only one of them wanted the deploy internals —
-  // Console Administrator and Support Agent got them purely because they needed
-  // to find an org by name.
-  //
-  // Same mistake, and same fix, as `consoles:datastore` before it was split by
-  // what a mistaken grant costs.
-  | 'orgs:read'
-  | 'billing:operate'
-  // The operator consoles, split by BLAST RADIUS rather than by product. Three
-  // permissions for five consoles, because what a mistaken grant costs differs
-  // by an order of magnitude at each step:
-  //
-  //  - `observability_console:open` — Grafana and Kiali. Read-only views; the worst
-  //    outcome of a mistaken grant is seeing telemetry.
-  //  - `database_console:open`     — pgAdmin and mongo-express. A database shell
-  //    over every tenant's rows: it can read and rewrite tenant data, but the
-  //    audit chain lives elsewhere, so the damage is recorded.
-  //  - `objectstore_console:open`   — the RustFS (S3) console. It can LIST and
-  //    DELETE objects in the registry, Loki, Thanos, plugin-build and
-  //    audit-chain buckets. Split from the pair above because the two are the
-  //    two HALVES of the audit tamper-evidence design: the chain's HMAC key
-  //    lives outside the DB, so a Mongo shell can tamper but cannot forge a
-  //    consistent chain — except by truncating the tail, which a chain cannot
-  //    see from the inside, and the defence against THAT is the signed
-  //    chain-head export to object storage. One shell can truncate; the other
-  //    can delete the heads that would expose the truncation.
-  //
-  // All three are system-org-only, so none can be held inside a tenant, and only
-  // the first is in the Platform Operator bundle: staffing an operator must never
-  // hand over a data shell as a side effect. Granting either of the other two is
-  // a separate, explicit act by a superadmin composing a Role for exactly that
-  // purpose.
-  //
-  // WHAT THE SPLIT DOES NOT DO, so nobody builds on it: it is not a containment
-  // boundary. Roles live in Mongo (`collection: 'roles'`), so a
-  // `database_console:open` holder can write that collection and grant themselves
-  // `objectstore_console:open` — datastore contains objectstore by escalation. The
-  // split expresses intent, keeps the default grant small and gives each class
-  // its own refusal signal. What actually protects the audit heads from whoever
-  // opens that console is S3 Object Lock with a retain-until-date
-  // (`platform/src/services/audit-head-export.ts`), which holds regardless of
-  // any permission here.
-  | 'observability_console:open'
-  | 'database_console:open'
-  | 'objectstore_console:open'
-  // On-call (system-org only). Reads the paging POSTURE and sends a test page.
-  // Not a schedule editor — the provider owns the rota — and deliberately not a
-  // settings surface either, because every knob is operator-side env. What it
-  // grants is the one thing a product surface can give that a shell cannot:
-  // "will we actually be paged", answerable without cluster access.
-  | 'oncall:manage'
-  // The vendor's other operational TASKS (system org only). Each exists so a
-  // superadmin can staff one job with a Role instead of the superadmin flag —
-  // before these, 34 routes were reachable only by someone who also held
-  // impersonation, a database shell and the ability to mint another superadmin.
-  //
-  // Support desk, split in two because the content is reused across every
-  // customer while a case belongs to one: `support_cases:write` is the desk's
-  // own work (triage, assignment, severity, internal notes, recording an
-  // incident against a support contract), `support_content:write` is authoring
-  // the canned replies. Each gates its task's READS as well as its writes,
-  // against the usual convention, because these tables carry no `org_id` — there
-  // is no tenancy boundary underneath to fall back on.
-  | 'support_cases:write'
-  | 'support_content:write'
-  // Cross-tenant subscriptions. Read is split from write because a read-only
-  // holder is a real job here: someone who reports on revenue and plan mix
-  // without being able to change a plan or cancel one.
-  | 'subscriptions:read'
-  | 'subscriptions:manage'
-  // The org lifecycle ACROSS tenants: rename, delete, change tier, move under a
-  // new parent. Distinct from `org_settings:write`, which is an org acting on
-  // itself.
-  | 'orgs:manage'
-  // Cross-tenant quota writes. The matching reads (`/quotas/all`, `/at-risk`)
-  // ride `platform:read` with the rest of the operator dashboard, so someone
-  // watching for exhaustion does not need the ability to raise a limit.
-  | 'quotas:manage'
-  // The plugin BUILD queue — depth, stalls, and purging the dead-letter queue.
-  // Distinct from `plugins:moderate`, which is ecosystem governance: this is
-  // infrastructure, and the people who run it are not the people who review
-  // submissions.
-  | 'plugin_queue:manage'
-  // Compliance
-  | 'compliance:read'
-  | 'compliance:write'
-  // Members & access
-  | 'members:manage'
-  | 'roles:manage'
-  | 'invitations:manage'
-  // Org-scoped service accounts (non-human principals) and their access keys.
-  // Split out of `members:manage` because a service account is a CREDENTIAL
-  // holder, not a person: granting someone the ability to mint long-lived
-  // machine keys is a different decision from letting them manage the roster.
-  | 'service_accounts:manage'
-  // Observability
-  | 'dashboards:read'
-  | 'dashboards:write'
-  | 'observability:read'
-  | 'observability:write'
-  // `logs:export` is split OUT of `observability:read` deliberately. Reading
-  // logs in the UI is paged and ephemeral; EXPORTING them is bulk egress that
-  // leaves the building and outlives a revoked session, so an org admin must be
-  // able to grant log viewing without granting downloads.
-  | 'logs:export'
-  // The org's own hash-chained audit trail. ORG-ASSIGNABLE, unlike the platform
-  // operations pair: the rows an org reads are its own (the query predicate is
-  // `orgId` OR `affectedOrgId`), so delegating it is an org's decision — a
-  // compliance reviewer can be given the trail without being made an admin of
-  // everything that produced it. Read-only by construction; there is no write.
-  | 'audit:read'
-  // Insights
-  | 'reports:read'
-  | 'reports:rollup'
-  // Stakeholder reports. `reports:read` stays the FREE on-demand dashboard read;
-  // these two are the add-on's write surface — `author` saves/schedules/drafts a
-  // report, `share` publishes it beyond the platform (PDF, email, share links).
-  // Split because publishing externally is a different risk from composing:
-  // a lead can be allowed to build reports without being allowed to email them out.
-  | 'reports:write'
-  | 'reports:publish'
-  // Messaging
-  | 'messages:read'
-  | 'messages:write'
-  // Billing & quotas
-  | 'billing:read'
-  | 'billing:manage'
-  | 'quotas:read'
-  // Impersonation — viewing the platform as somebody else. Three ids, because
-  // three different parties are involved and each decision belongs to a
-  // different one of them (docs/permissions.md#impersonation):
-  //  - `impersonation:open`   the VENDOR opening a cross-tenant session, which
-  //                           is system-org-only and still consent-gated;
-  //  - `team_access:open`     a PARENT org's admin viewing one of its own teams'
-  //                           members, which never leaves the tenant;
-  //  - `impersonation:approve` the TENANT answering a consent request.
-  // `org_impersonation:write` below is a fourth thing again: the POLICY that
-  // decides whether consent is needed at all.
-  | 'impersonation:open'
-  | 'impersonation:approve'
-  | 'team_access:open'
-  // Registry. Three rungs, because the write half has two very different
-  // blast radii: `write` COPIES a manifest (additive — it creates a tag,
-  // nothing stops resolving), `purge` DELETES one (a tenant's pipeline or a
-  // digest-pinned plugin image can stop resolving, with no undo).
-  | 'registry:read'
-  | 'registry:write'
-  | 'registry:purge'
-  // Organization settings. Four RESOURCES, each with the `:write` action, rather
-  // than one `org` resource with four noun-shaped actions — these are the org's
-  // own configuration state, which is what `:write` means here (`:manage` is
-  // reserved for administering a collection of other entities: members, roles,
-  // invitations, service accounts, billing).
-  //
-  //  - `org_settings:write`      — general org settings + AI config.
-  //  - `org_idp:write`           — SSO / IdP configuration (sensitive: controls login).
-  //  - `org_kms:write`           — customer-managed KMS key configuration
-  //                                (sensitive: controls encryption of org data).
-  //  - `org_impersonation:write` — the impersonation policy (sensitive: controls
-  //                                who may VIEW the org's data as a member).
-  //
-  // The last three were split OUT of `org_settings:write` so a custom role can
-  // grant general settings WITHOUT the sensitive surfaces — a "settings manager"
-  // role for org name or AI provider must not also be able to switch the org to
-  // `open`. All remain org-assignable and are seeded into the admin/owner
-  // bundles (via ORG_ASSIGNABLE_PERMISSIONS) so existing admins keep full
-  // access.
-  | 'org_settings:write'
-  | 'org_idp:write'
-  | 'org_kms:write'
-  | 'org_impersonation:write';
+export type Permission = keyof typeof PERMISSION_DEFS;
 
 /**
  * The CLOSED set of actions a permission id may end in — the second half of the
@@ -286,34 +55,6 @@ export const PERMISSION_ACTIONS: readonly string[] = [
 
 /** `resource:action`, where resource is `snake_case` and action is in {@link PERMISSION_ACTIONS}. */
 export const PERMISSION_ID_SHAPE = /^[a-z][a-z0-9_]*:[a-z]+$/;
-
-/** All valid permissions (order determines display order in the picker). */
-export const ALL_PERMISSIONS: readonly Permission[] = [
-  'pipelines:read', 'pipelines:write', 'pipelines:publish', 'pipeline_registry:write',
-  'toolchain:manage',
-  'templates:read', 'templates:write', 'templates:publish',
-  'plugins:read', 'plugins:write', 'plugins:publish',
-  'plugins:install', 'plugin_installs:manage', 'publishers:manage',
-  'plugins:moderate', 'publishers:verify',
-  'platform:read', 'orgs:read', 'toolchain:operate', 'billing:operate',
-  'observability_console:open', 'database_console:open', 'objectstore_console:open',
-  'oncall:manage',
-  'support_cases:write', 'support_content:write',
-  'subscriptions:read', 'subscriptions:manage',
-  'orgs:manage', 'quotas:manage', 'plugin_queue:manage',
-  'compliance:read', 'compliance:write',
-  'members:manage', 'roles:manage', 'invitations:manage', 'service_accounts:manage',
-  'dashboards:read', 'dashboards:write',
-  'observability:read', 'observability:write',
-  'logs:export', 'audit:read',
-  'reports:read', 'reports:rollup', 'reports:write', 'reports:publish',
-  'messages:read', 'messages:write',
-  'billing:read', 'billing:manage',
-  'quotas:read',
-  'registry:read', 'registry:write', 'registry:purge',
-  'impersonation:open', 'impersonation:approve', 'team_access:open',
-  'org_settings:write', 'org_idp:write', 'org_kms:write', 'org_impersonation:write',
-];
 
 /**
  * The CLOSED set of functions that take a {@link Permission} and decide access.
@@ -367,84 +108,254 @@ export interface PermissionMeta {
 }
 
 /**
- * The permission catalog with display metadata, in picker order.
+ * Every permission, keyed by id, with the display metadata the permission-picker
+ * UI shows (label, description, the category it groups under), in picker order.
+ * The comment above an entry is that permission's design note.
  *
  * This module is the SINGLE catalog for backend and browser alike: it has no
  * runtime dependencies (the only import is a type), so the frontend imports it
  * through the `@pipeline-builder/api-core/permissions` subpath instead of keeping
- * a hand-maintained mirror. Every id in {@link ALL_PERMISSIONS} must appear here
- * exactly once (asserted by `permissions.test.ts`).
+ * a hand-maintained mirror.
  */
-export const PERMISSION_CATALOG: readonly PermissionMeta[] = [
-  { id: 'pipelines:read', label: 'View pipelines', description: 'View pipelines and their executions', category: 'Pipelines' },
-  { id: 'pipelines:write', label: 'Manage pipelines', description: 'Create, edit, and delete pipelines', category: 'Pipelines' },
-  { id: 'pipelines:publish', label: 'Publish pipelines', description: 'Make pipelines public (org-wide/catalog visibility)', category: 'Pipelines' },
-  { id: 'pipeline_registry:write', label: 'Register deployments', description: 'Record and remove the deployed stack and step manifest behind a pipeline (the pipeline registry)', category: 'Pipelines' },
-  { id: 'toolchain:manage', label: 'Manage the org toolchain default', description: "Choose which managed toolchain release your org's unpinned pipelines (and teams without their own) build with, or follow the platform default", category: 'Pipelines' },
-  { id: 'templates:read', label: 'View templates', description: 'View the golden-path template catalog', category: 'Templates' },
-  { id: 'templates:write', label: 'Manage templates', description: 'Author, edit, and delete pipeline templates', category: 'Templates' },
-  { id: 'templates:publish', label: 'Publish templates', description: 'Share a template beyond your org (public visibility)', category: 'Templates' },
-  { id: 'plugins:read', label: 'View plugins', description: 'View plugins and builds', category: 'Plugins' },
-  { id: 'plugins:write', label: 'Manage plugins', description: 'Create, upload, edit, and delete plugins', category: 'Plugins' },
-  { id: 'plugins:publish', label: 'Publish plugins', description: 'Make plugins public (org-wide/catalog visibility)', category: 'Plugins' },
-  { id: 'plugins:install', label: 'Install plugins', description: 'Install, upgrade, and uninstall ecosystem plugins (or request an install when your org requires approval)', category: 'Plugin Ecosystem' },
-  { id: 'plugin_installs:manage', label: 'Manage plugin installs', description: "Set your org's plugin consumption policy and approve or deny install requests within the org", category: 'Plugin Ecosystem' },
-  { id: 'publishers:manage', label: 'Manage publisher profile', description: "Manage your org's publisher profile and submit publish, verification, transfer, and advisory requests", category: 'Plugin Ecosystem' },
-  { id: 'plugins:moderate', label: 'Moderate the plugin ecosystem', description: 'Decide publish requests, moderate submissions and reviews, yank versions, and publish advisories (system org only)', category: 'Plugin Ecosystem' },
-  { id: 'publishers:verify', label: 'Verify publishers', description: 'Approve Verified applications, publisher tier and profile changes, and ownership transfers (system org only)', category: 'Plugin Ecosystem' },
-  { id: 'platform:read', label: 'View platform operations', description: 'Read the platform settings and the cross-tenant organization list (system org only)', category: 'Platform operations' },
-  { id: 'orgs:read', label: 'View all organizations', description: 'List and open every organization on the deployment \u2014 the roster the operator surfaces work from (system org only)', category: 'Platform operations' },
-  { id: 'toolchain:operate', label: 'Operate the platform toolchain', description: 'Run the Toolchain console: canary membership, release notes, deprecate / yank / delete releases, and set the platform default every org without its own follows (system org only)', category: 'Platform operations' },
-  { id: 'billing:operate', label: 'Operate discounts and promotions', description: 'Create, apply and revoke discount tokens and promotion campaigns across tenants (system org only)', category: 'Platform operations' },
-  { id: 'observability_console:open', label: 'Open the observability consoles', description: 'Open Grafana and Kiali — dashboards, traffic and mesh health across every tenant (system org only)', category: 'Platform operations' },
-  { id: 'database_console:open', label: 'Open the database consoles', description: 'Open pgAdmin and mongo-express — a direct read/write shell over every tenant\u2019s rows (system org only)', category: 'Platform operations' },
-  { id: 'objectstore_console:open', label: 'Open the object-store console', description: 'Open the RustFS (S3) console — list and delete objects in every bucket, including the audit chain (system org only)', category: 'Platform operations' },
-  { id: 'oncall:manage', label: 'Manage on-call paging', description: 'Read the paging posture and send a test page (system org only; the rota lives with the provider)', category: 'On-call' },
-  { id: 'support_cases:write', label: 'Work the support desk', description: 'Triage the support queue, assign and re-prioritise cases, write internal notes, and record incidents against a support contract (system org only)', category: 'Support desk' },
-  { id: 'support_content:write', label: 'Author canned replies', description: 'Write and retire the reusable support replies offered to every customer (system org only)', category: 'Support desk' },
-  { id: 'subscriptions:read', label: 'View all subscriptions', description: 'View every organization\u2019s subscription, plan mix and billing events (system org only)', category: 'Platform operations' },
-  { id: 'subscriptions:manage', label: 'Change any subscription', description: 'Change a plan, set a support floor, and cancel an organization\u2019s subscription (system org only)', category: 'Platform operations' },
-  { id: 'orgs:manage', label: 'Administer any organization', description: 'Rename, re-tier, move and delete any organization (system org only)', category: 'Platform operations' },
-  { id: 'quotas:manage', label: 'Change any quota', description: 'Raise, reset and clear another organization\u2019s quotas (system org only; viewing them rides platform:read)', category: 'Platform operations' },
-  { id: 'plugin_queue:manage', label: 'Run the plugin build queue', description: 'Read build-queue depth and purge the dead-letter queue (system org only)', category: 'Platform operations' },
-  { id: 'compliance:read', label: 'View compliance', description: 'View compliance rules, policies, and scans', category: 'Compliance' },
-  { id: 'compliance:write', label: 'Manage compliance', description: 'Create and edit rules, policies, and exemptions', category: 'Compliance' },
-  { id: 'members:manage', label: 'Manage members', description: 'Add, remove, and change roles of org members', category: 'Members & Access' },
-  { id: 'roles:manage', label: 'Manage roles', description: 'Create, edit, and delete roles', category: 'Members & Access' },
-  { id: 'invitations:manage', label: 'Manage invitations', description: 'Send, resend, and revoke invitations', category: 'Members & Access' },
-  { id: 'service_accounts:manage', label: 'Manage service accounts', description: 'Create org service accounts, assign their roles, and issue or revoke their keys', category: 'Members & Access' },
-  { id: 'dashboards:read', label: 'View dashboards', description: 'View custom dashboards', category: 'Observability' },
-  { id: 'dashboards:write', label: 'Manage dashboards', description: 'Create and edit custom dashboards', category: 'Observability' },
-  { id: 'observability:read', label: 'View alerting', description: 'View alert rules and destinations', category: 'Observability' },
-  { id: 'observability:write', label: 'Manage alerting', description: 'Create and edit alert rules and destinations', category: 'Observability' },
-  { id: 'logs:export', label: 'Download logs', description: "Download your organization's log entries as a file (viewing logs only needs 'View alerting')", category: 'Observability' },
-  { id: 'audit:read', label: 'View the audit log', description: "Read the organization's own tamper-evident audit trail", category: 'Observability' },
-  { id: 'reports:read', label: 'View reports', description: 'View analytics and reports', category: 'Insights' },
-  { id: 'reports:rollup', label: 'Roll up team reports', description: 'Include descendant teams when viewing reports', category: 'Insights' },
-  { id: 'reports:write', label: 'Author stakeholder reports', description: 'Create, schedule and draft scheduled reports for managers', category: 'Insights' },
-  { id: 'reports:publish', label: 'Publish reports externally', description: 'Publish a report and mint expiring share links for people outside the platform', category: 'Insights' },
-  { id: 'messages:read', label: 'View messages', description: 'View messages and announcements', category: 'Messaging' },
-  { id: 'messages:write', label: 'Send messages', description: 'Send messages and announcements', category: 'Messaging' },
-  { id: 'billing:read', label: 'View billing', description: 'View subscriptions and usage', category: 'Billing & Quotas' },
-  { id: 'billing:manage', label: 'Manage billing', description: 'Manage subscriptions, add-ons, and the billing portal', category: 'Billing & Quotas' },
-  { id: 'quotas:read', label: 'View quotas', description: 'View organization quotas and usage', category: 'Billing & Quotas' },
-  { id: 'registry:read', label: 'View registry', description: 'View the container image registry', category: 'Registry' },
-  { id: 'registry:write', label: 'Copy container images', description: 'Copy and promote a container image into another repository', category: 'Registry' },
-  { id: 'registry:purge', label: 'Delete container images', description: 'Delete images and repositories, and run registry garbage collection', category: 'Registry' },
-  { id: 'impersonation:open', label: 'Open an impersonation session', description: "View a customer's account as one of its users, with that organization's consent", category: 'Impersonation' },
-  { id: 'impersonation:approve', label: 'Answer impersonation requests', description: 'Approve or deny a request to view a member of this organization as that member', category: 'Impersonation' },
-  { id: 'team_access:open', label: "View a team member's account", description: "View a member of one of this organization's teams as that member (read-only)", category: 'Impersonation' },
-  { id: 'org_settings:write', label: 'Organization settings', description: 'Manage general org settings and AI config', category: 'Organization' },
-  { id: 'org_idp:write', label: 'Manage SSO/IdP', description: 'Configure single sign-on and identity providers', category: 'Organization' },
-  { id: 'org_kms:write', label: 'Manage encryption keys', description: 'Configure customer-managed KMS encryption keys', category: 'Organization' },
-  { id: 'org_impersonation:write', label: 'Manage impersonation policy', description: 'Control whether platform operators may view the organization as one of its members', category: 'Organization' },
-];
+const PERMISSION_DEFS = {
+  'pipelines:read': { label: 'View pipelines', description: 'View pipelines and their executions', category: 'Pipelines' },
+  'pipelines:write': { label: 'Manage pipelines', description: 'Create, edit, and delete pipelines', category: 'Pipelines' },
+  'pipelines:publish': { label: 'Publish pipelines', description: 'Make pipelines public (org-wide/catalog visibility)', category: 'Pipelines' },
+  // The pipeline REGISTRY (`POST`/`DELETE /pipelines/registry`): which deployed
+  // stack backs a pipeline, and the step manifest of plugin digests it runs.
+  // Split out of `pipelines:write` so the CodeBuild synth can keep that record
+  // current with a credential that can do nothing else — a key holding
+  // `pipelines:write` could rewrite every pipeline the org owns. People get it
+  // beside `pipelines:write` (the Member bundle); the `pipeline-register`
+  // service account holds it alone.
+  'pipeline_registry:write': { label: 'Register deployments', description: 'Record and remove the deployed stack and step manifest behind a pipeline (the pipeline registry)', category: 'Pipelines' },
+  // The org's managed-toolchain DEFAULT (docs/plans/bootstrap-image-versioning.md
+  // D13): which toolchain release every unpinned pipeline in the org (and its
+  // teams that set none) synthesizes with on its next run. Org-assignable, so
+  // Admin and Owner hold it; NOT in Member or any pipeline-editor bundle. Split
+  // by blast radius: `pipelines:write` moves ONE pipeline (its own
+  // `toolchain.release` pin), this moves ALL of them, and
+  // `plugin_installs:manage` governs future installs, not running pipelines.
+  // It never confers anything on the platform default, canary or catalog.
+  // Every write also needs `requireStepUp`.
+  'toolchain:manage': { label: 'Manage the org toolchain default', description: "Choose which managed toolchain release your org's unpinned pipelines (and teams without their own) build with, or follow the platform default", category: 'Pipelines' },
+  // Golden-path pipeline templates. Split out of `pipelines:*` so a platform
+  // team can curate the starter catalog WITHOUT write access to every pipeline
+  // (and vice versa). `:publish` maps to the
+  // template ladder's `public` rung; `org` and `private` need only `:write`.
+  'templates:read': { label: 'View templates', description: 'View the golden-path template catalog', category: 'Templates' },
+  'templates:write': { label: 'Manage templates', description: 'Author, edit, and delete pipeline templates', category: 'Templates' },
+  'templates:publish': { label: 'Publish templates', description: 'Share a template beyond your org (public visibility)', category: 'Templates' },
+  'plugins:read': { label: 'View plugins', description: 'View plugins and builds', category: 'Plugins' },
+  'plugins:write': { label: 'Manage plugins', description: 'Create, upload, edit, and delete plugins', category: 'Plugins' },
+  'plugins:publish': { label: 'Publish plugins', description: 'Make plugins public (org-wide/catalog visibility)', category: 'Plugins' },
+  // Plugin ecosystem (docs/plugin-publishing.md). Org-assignable:
+  //  - `plugins:install`        — install/upgrade/uninstall listings (or REQUEST
+  //                               an install when the org's policy needs approval).
+  //  - `plugin_installs:manage` — the org's consumption policy + deciding install
+  //                               requests WITHIN the org (org-local only).
+  //  - `publishers:manage`      — the org's publisher profile + submitting
+  //                               ecosystem requests (every decision is system-org).
+  // System-org-only (see SYSTEM_ORG_ONLY_PERMISSIONS):
+  //  - `plugins:moderate`       — decide publish requests, moderate, yank, advisories.
+  //  - `publishers:verify`      — publisher tiers, profile changes, transfers.
+  'plugins:install': { label: 'Install plugins', description: 'Install, upgrade, and uninstall ecosystem plugins (or request an install when your org requires approval)', category: 'Plugin Ecosystem' },
+  'plugin_installs:manage': { label: 'Manage plugin installs', description: "Set your org's plugin consumption policy and approve or deny install requests within the org", category: 'Plugin Ecosystem' },
+  'publishers:manage': { label: 'Manage publisher profile', description: "Manage your org's publisher profile and submit publish, verification, transfer, and advisory requests", category: 'Plugin Ecosystem' },
+  'plugins:moderate': { label: 'Moderate the plugin ecosystem', description: 'Decide publish requests, moderate submissions and reviews, yank versions, and publish advisories (system org only)', category: 'Plugin Ecosystem' },
+  'publishers:verify': { label: 'Verify publishers', description: 'Approve Verified applications, publisher tier and profile changes, and ownership transfers (system org only)', category: 'Plugin Ecosystem' },
+  // Platform operations (system-org only). The cross-tenant operator surfaces
+  // that used to require the superadmin FLAG, so a deployment can staff them
+  // with a Role instead of handing out implicit-all. Split because the two carry
+  // different risk: reading what a deploy configured is not the same as moving
+  // another organisation's money.
+  'platform:read': { label: 'View platform operations', description: 'Read the platform settings and the cross-tenant organization list (system org only)', category: 'Platform operations' },
+  // The cross-tenant ORG LIST, split out of `platform:read` because that one
+  // permission was doing two jobs with different blast radii: reading what a
+  // DEPLOY was configured to do (RLS mode, KMS posture, the rendered alert
+  // rules) and reading the roster of every CUSTOMER. Three of the four job
+  // bundles carried it, and only one of them wanted the deploy internals —
+  // Console Administrator and Support Agent got them purely because they needed
+  // to find an org by name.
+  //
+  // Same mistake, and same fix, as `consoles:datastore` before it was split by
+  // what a mistaken grant costs.
+  'orgs:read': { label: 'View all organizations', description: 'List and open every organization on the deployment \u2014 the roster the operator surfaces work from (system org only)', category: 'Platform operations' },
+  // The Toolchain CONSOLE (plan D9; named after `billing:operate`): publish
+  // lifecycle, canary membership and THE platform default — every org without
+  // its own default moves with it. System-org-only (otherwise ADMIN_PERMISSIONS,
+  // derived from ORG_ASSIGNABLE_PERMISSIONS, would hand it to every tenant
+  // Admin); carried by Platform Operator. Every write also needs `requireStepUp`.
+  'toolchain:operate': { label: 'Operate the platform toolchain', description: 'Run the Toolchain console: canary membership, release notes, deprecate / yank / delete releases, and set the platform default every org without its own follows (system org only)', category: 'Platform operations' },
+  'billing:operate': { label: 'Operate discounts and promotions', description: 'Create, apply and revoke discount tokens and promotion campaigns across tenants (system org only)', category: 'Platform operations' },
+  // The operator consoles, split by BLAST RADIUS rather than by product. Three
+  // permissions for five consoles, because what a mistaken grant costs differs
+  // by an order of magnitude at each step:
+  //
+  //  - `observability_console:open` — Grafana and Kiali. Read-only views; the worst
+  //    outcome of a mistaken grant is seeing telemetry.
+  //  - `database_console:open`     — pgAdmin and mongo-express. A database shell
+  //    over every tenant's rows: it can read and rewrite tenant data, but the
+  //    audit chain lives elsewhere, so the damage is recorded.
+  //  - `objectstore_console:open`   — the RustFS (S3) console. It can LIST and
+  //    DELETE objects in the registry, Loki, Thanos, plugin-build and
+  //    audit-chain buckets. Split from the pair above because the two are the
+  //    two HALVES of the audit tamper-evidence design: the chain's HMAC key
+  //    lives outside the DB, so a Mongo shell can tamper but cannot forge a
+  //    consistent chain — except by truncating the tail, which a chain cannot
+  //    see from the inside, and the defence against THAT is the signed
+  //    chain-head export to object storage. One shell can truncate; the other
+  //    can delete the heads that would expose the truncation.
+  //
+  // All three are system-org-only, so none can be held inside a tenant, and only
+  // the first is in the Platform Operator bundle: staffing an operator must never
+  // hand over a data shell as a side effect. Granting either of the other two is
+  // a separate, explicit act by a superadmin composing a Role for exactly that
+  // purpose.
+  //
+  // WHAT THE SPLIT DOES NOT DO, so nobody builds on it: it is not a containment
+  // boundary. Roles live in Mongo (`collection: 'roles'`), so a
+  // `database_console:open` holder can write that collection and grant themselves
+  // `objectstore_console:open` — datastore contains objectstore by escalation. The
+  // split expresses intent, keeps the default grant small and gives each class
+  // its own refusal signal. What actually protects the audit heads from whoever
+  // opens that console is S3 Object Lock with a retain-until-date
+  // (`platform/src/services/audit-head-export.ts`), which holds regardless of
+  // any permission here.
+  'observability_console:open': { label: 'Open the observability consoles', description: 'Open Grafana and Kiali — dashboards, traffic and mesh health across every tenant (system org only)', category: 'Platform operations' },
+  'database_console:open': { label: 'Open the database consoles', description: 'Open pgAdmin and mongo-express — a direct read/write shell over every tenant\u2019s rows (system org only)', category: 'Platform operations' },
+  'objectstore_console:open': { label: 'Open the object-store console', description: 'Open the RustFS (S3) console — list and delete objects in every bucket, including the audit chain (system org only)', category: 'Platform operations' },
+  // On-call (system-org only). Reads the paging POSTURE and sends a test page.
+  // Not a schedule editor — the provider owns the rota — and deliberately not a
+  // settings surface either, because every knob is operator-side env. What it
+  // grants is the one thing a product surface can give that a shell cannot:
+  // "will we actually be paged", answerable without cluster access.
+  'oncall:manage': { label: 'Manage on-call paging', description: 'Read the paging posture and send a test page (system org only; the rota lives with the provider)', category: 'On-call' },
+  // The vendor's other operational TASKS (system org only). Each exists so a
+  // superadmin can staff one job with a Role instead of the superadmin flag —
+  // before these, 34 routes were reachable only by someone who also held
+  // impersonation, a database shell and the ability to mint another superadmin.
+  //
+  // Support desk, split in two because the content is reused across every
+  // customer while a case belongs to one: `support_cases:write` is the desk's
+  // own work (triage, assignment, severity, internal notes, recording an
+  // incident against a support contract), `support_content:write` is authoring
+  // the canned replies. Each gates its task's READS as well as its writes,
+  // against the usual convention, because these tables carry no `org_id` — there
+  // is no tenancy boundary underneath to fall back on.
+  'support_cases:write': { label: 'Work the support desk', description: 'Triage the support queue, assign and re-prioritise cases, write internal notes, and record incidents against a support contract (system org only)', category: 'Support desk' },
+  'support_content:write': { label: 'Author canned replies', description: 'Write and retire the reusable support replies offered to every customer (system org only)', category: 'Support desk' },
+  // Cross-tenant subscriptions. Read is split from write because a read-only
+  // holder is a real job here: someone who reports on revenue and plan mix
+  // without being able to change a plan or cancel one.
+  'subscriptions:read': { label: 'View all subscriptions', description: 'View every organization\u2019s subscription, plan mix and billing events (system org only)', category: 'Platform operations' },
+  'subscriptions:manage': { label: 'Change any subscription', description: 'Change a plan, set a support floor, and cancel an organization\u2019s subscription (system org only)', category: 'Platform operations' },
+  // The org lifecycle ACROSS tenants: rename, delete, change tier, move under a
+  // new parent. Distinct from `org_settings:write`, which is an org acting on
+  // itself.
+  'orgs:manage': { label: 'Administer any organization', description: 'Rename, re-tier, move and delete any organization (system org only)', category: 'Platform operations' },
+  // Cross-tenant quota writes. The matching reads (`/quotas/all`, `/at-risk`)
+  // ride `platform:read` with the rest of the operator dashboard, so someone
+  // watching for exhaustion does not need the ability to raise a limit.
+  'quotas:manage': { label: 'Change any quota', description: 'Raise, reset and clear another organization\u2019s quotas (system org only; viewing them rides platform:read)', category: 'Platform operations' },
+  // The plugin BUILD queue — depth, stalls, and purging the dead-letter queue.
+  // Distinct from `plugins:moderate`, which is ecosystem governance: this is
+  // infrastructure, and the people who run it are not the people who review
+  // submissions.
+  'plugin_queue:manage': { label: 'Run the plugin build queue', description: 'Read build-queue depth and purge the dead-letter queue (system org only)', category: 'Platform operations' },
+  'compliance:read': { label: 'View compliance', description: 'View compliance rules, policies, and scans', category: 'Compliance' },
+  'compliance:write': { label: 'Manage compliance', description: 'Create and edit rules, policies, and exemptions', category: 'Compliance' },
+  'members:manage': { label: 'Manage members', description: 'Add, remove, and change roles of org members', category: 'Members & Access' },
+  'roles:manage': { label: 'Manage roles', description: 'Create, edit, and delete roles', category: 'Members & Access' },
+  'invitations:manage': { label: 'Manage invitations', description: 'Send, resend, and revoke invitations', category: 'Members & Access' },
+  // Org-scoped service accounts (non-human principals) and their access keys.
+  // Split out of `members:manage` because a service account is a CREDENTIAL
+  // holder, not a person: granting someone the ability to mint long-lived
+  // machine keys is a different decision from letting them manage the roster.
+  'service_accounts:manage': { label: 'Manage service accounts', description: 'Create org service accounts, assign their roles, and issue or revoke their keys', category: 'Members & Access' },
+  'dashboards:read': { label: 'View dashboards', description: 'View custom dashboards', category: 'Observability' },
+  'dashboards:write': { label: 'Manage dashboards', description: 'Create and edit custom dashboards', category: 'Observability' },
+  'observability:read': { label: 'View alerting', description: 'View alert rules and destinations', category: 'Observability' },
+  'observability:write': { label: 'Manage alerting', description: 'Create and edit alert rules and destinations', category: 'Observability' },
+  // `logs:export` is split OUT of `observability:read` deliberately. Reading
+  // logs in the UI is paged and ephemeral; EXPORTING them is bulk egress that
+  // leaves the building and outlives a revoked session, so an org admin must be
+  // able to grant log viewing without granting downloads.
+  'logs:export': { label: 'Download logs', description: "Download your organization's log entries as a file (viewing logs only needs 'View alerting')", category: 'Observability' },
+  // The org's own hash-chained audit trail. ORG-ASSIGNABLE, unlike the platform
+  // operations pair: the rows an org reads are its own (the query predicate is
+  // `orgId` OR `affectedOrgId`), so delegating it is an org's decision — a
+  // compliance reviewer can be given the trail without being made an admin of
+  // everything that produced it. Read-only by construction; there is no write.
+  'audit:read': { label: 'View the audit log', description: "Read the organization's own tamper-evident audit trail", category: 'Observability' },
+  'reports:read': { label: 'View reports', description: 'View analytics and reports', category: 'Insights' },
+  'reports:rollup': { label: 'Roll up team reports', description: 'Include descendant teams when viewing reports', category: 'Insights' },
+  // Stakeholder reports. `reports:read` stays the FREE on-demand dashboard read;
+  // these two are the add-on's write surface — `author` saves/schedules/drafts a
+  // report, `share` publishes it beyond the platform (PDF, email, share links).
+  // Split because publishing externally is a different risk from composing:
+  // a lead can be allowed to build reports without being allowed to email them out.
+  'reports:write': { label: 'Author stakeholder reports', description: 'Create, schedule and draft scheduled reports for managers', category: 'Insights' },
+  'reports:publish': { label: 'Publish reports externally', description: 'Publish a report and mint expiring share links for people outside the platform', category: 'Insights' },
+  'messages:read': { label: 'View messages', description: 'View messages and announcements', category: 'Messaging' },
+  'messages:write': { label: 'Send messages', description: 'Send messages and announcements', category: 'Messaging' },
+  'billing:read': { label: 'View billing', description: 'View subscriptions and usage', category: 'Billing & Quotas' },
+  'billing:manage': { label: 'Manage billing', description: 'Manage subscriptions, add-ons, and the billing portal', category: 'Billing & Quotas' },
+  'quotas:read': { label: 'View quotas', description: 'View organization quotas and usage', category: 'Billing & Quotas' },
+  // Registry. Three rungs, because the write half has two very different
+  // blast radii: `write` COPIES a manifest (additive — it creates a tag,
+  // nothing stops resolving), `purge` DELETES one (a tenant's pipeline or a
+  // digest-pinned plugin image can stop resolving, with no undo).
+  'registry:read': { label: 'View registry', description: 'View the container image registry', category: 'Registry' },
+  'registry:write': { label: 'Copy container images', description: 'Copy and promote a container image into another repository', category: 'Registry' },
+  'registry:purge': { label: 'Delete container images', description: 'Delete images and repositories, and run registry garbage collection', category: 'Registry' },
+  // Impersonation — viewing the platform as somebody else. Three ids, because
+  // three different parties are involved and each decision belongs to a
+  // different one of them (docs/permissions.md#impersonation):
+  //  - `impersonation:open`   the VENDOR opening a cross-tenant session, which
+  //                           is system-org-only and still consent-gated;
+  //  - `team_access:open`     a PARENT org's admin viewing one of its own teams'
+  //                           members, which never leaves the tenant;
+  //  - `impersonation:approve` the TENANT answering a consent request.
+  // `org_impersonation:write` below is a fourth thing again: the POLICY that
+  // decides whether consent is needed at all.
+  'impersonation:open': { label: 'Open an impersonation session', description: "View a customer's account as one of its users, with that organization's consent", category: 'Impersonation' },
+  'impersonation:approve': { label: 'Answer impersonation requests', description: 'Approve or deny a request to view a member of this organization as that member', category: 'Impersonation' },
+  'team_access:open': { label: "View a team member's account", description: "View a member of one of this organization's teams as that member (read-only)", category: 'Impersonation' },
+  // Organization settings. Four RESOURCES, each with the `:write` action, rather
+  // than one `org` resource with four noun-shaped actions — these are the org's
+  // own configuration state, which is what `:write` means here (`:manage` is
+  // reserved for administering a collection of other entities: members, roles,
+  // invitations, service accounts, billing).
+  //
+  //  - `org_settings:write`      — general org settings + AI config.
+  //  - `org_idp:write`           — SSO / IdP configuration (sensitive: controls login).
+  //  - `org_kms:write`           — customer-managed KMS key configuration
+  //                                (sensitive: controls encryption of org data).
+  //  - `org_impersonation:write` — the impersonation policy (sensitive: controls
+  //                                who may VIEW the org's data as a member).
+  //
+  // The last three were split OUT of `org_settings:write` so a custom role can
+  // grant general settings WITHOUT the sensitive surfaces — a "settings manager"
+  // role for org name or AI provider must not also be able to switch the org to
+  // `open`. All remain org-assignable and are seeded into the admin/owner
+  // bundles (via ORG_ASSIGNABLE_PERMISSIONS) so existing admins keep full
+  // access.
+  'org_settings:write': { label: 'Organization settings', description: 'Manage general org settings and AI config', category: 'Organization' },
+  'org_idp:write': { label: 'Manage SSO/IdP', description: 'Configure single sign-on and identity providers', category: 'Organization' },
+  'org_kms:write': { label: 'Manage encryption keys', description: 'Configure customer-managed KMS encryption keys', category: 'Organization' },
+  'org_impersonation:write': { label: 'Manage impersonation policy', description: 'Control whether platform operators may view the organization as one of its members', category: 'Organization' },
+} satisfies Record<string, { label: string; description: string; category: string }>;
 
-const PERMISSION_LABELS = new Map<string, string>(PERMISSION_CATALOG.map((p) => [p.id, p.label]));
+/** All valid permissions (order determines display order in the picker). */
+export const ALL_PERMISSIONS = Object.keys(PERMISSION_DEFS) as readonly Permission[];
+
+/** The permission catalog with display metadata, in picker order. */
+export const PERMISSION_CATALOG: readonly PermissionMeta[] = ALL_PERMISSIONS.map((id) => ({ id, ...PERMISSION_DEFS[id] }));
 
 /** Human label for a permission id (falls back to the raw id for an unknown one). */
 export function permissionLabel(id: string): string {
-  return PERMISSION_LABELS.get(id) ?? id;
+  return isValidPermission(id) ? PERMISSION_DEFS[id].label : id;
 }
 
 /** One picker section: a category and the permissions it contains, in catalog order. */
@@ -466,7 +377,7 @@ function groupByCategory(perms: readonly PermissionMeta[]): PermissionCategory[]
 
 /** Check whether a string is a valid Permission. */
 export function isValidPermission(value: string): value is Permission {
-  return (ALL_PERMISSIONS as readonly string[]).includes(value);
+  return Object.prototype.hasOwnProperty.call(PERMISSION_DEFS, value);
 }
 
 /**
@@ -1295,27 +1206,32 @@ export function hasPermission(
  * that Role's permissions disappearing. Both sides read this now.
  */
 export const SEED_BUNDLES = {
-  ecosystem_manager: { name: 'Ecosystem Manager', permissions: ECOSYSTEM_MANAGER_PERMISSIONS },
-  publisher_verifier: { name: 'Publisher Verifier', permissions: PUBLISHER_VERIFIER_PERMISSIONS },
-  team_lead: { name: 'Team Lead', permissions: TEAM_LEAD_PERMISSIONS },
-  platform_observer: { name: 'Platform Observer', permissions: PLATFORM_OBSERVER_PERMISSIONS },
-  platform_operator: { name: 'Platform Operator', permissions: PLATFORM_OPERATOR_PERMISSIONS },
-  account_manager: { name: 'Account Manager', permissions: ACCOUNT_MANAGER_PERMISSIONS },
-  console_admin: { name: 'Console Administrator', permissions: CONSOLE_ADMIN_PERMISSIONS },
-  support_agent: { name: 'Support Agent', permissions: SUPPORT_AGENT_PERMISSIONS },
-  support_lead: { name: 'Support Lead', permissions: SUPPORT_LEAD_PERMISSIONS },
-  registry_operator: { name: 'Registry Operator', permissions: REGISTRY_OPERATOR_PERMISSIONS },
-  pipeline_automation: { name: 'Pipeline Automation', permissions: PIPELINE_AUTOMATION_PERMISSIONS },
-  pipeline_registration: { name: 'Pipeline Registration', permissions: PIPELINE_REGISTRATION_PERMISSIONS },
-} as const;
+  ecosystem_manager: { name: 'Ecosystem Manager', permissions: ECOSYSTEM_MANAGER_PERMISSIONS, seededIn: 'system' },
+  publisher_verifier: { name: 'Publisher Verifier', permissions: PUBLISHER_VERIFIER_PERMISSIONS, seededIn: 'system' },
+  team_lead: { name: 'Team Lead', permissions: TEAM_LEAD_PERMISSIONS, seededIn: null },
+  platform_observer: { name: 'Platform Observer', permissions: PLATFORM_OBSERVER_PERMISSIONS, seededIn: 'system' },
+  platform_operator: { name: 'Platform Operator', permissions: PLATFORM_OPERATOR_PERMISSIONS, seededIn: 'system' },
+  account_manager: { name: 'Account Manager', permissions: ACCOUNT_MANAGER_PERMISSIONS, seededIn: 'system' },
+  console_admin: { name: 'Console Administrator', permissions: CONSOLE_ADMIN_PERMISSIONS, seededIn: 'system' },
+  support_agent: { name: 'Support Agent', permissions: SUPPORT_AGENT_PERMISSIONS, seededIn: 'system' },
+  support_lead: { name: 'Support Lead', permissions: SUPPORT_LEAD_PERMISSIONS, seededIn: 'system' },
+  registry_operator: { name: 'Registry Operator', permissions: REGISTRY_OPERATOR_PERMISSIONS, seededIn: 'system' },
+  pipeline_automation: { name: 'Pipeline Automation', permissions: PIPELINE_AUTOMATION_PERMISSIONS, seededIn: 'org' },
+  pipeline_registration: { name: 'Pipeline Registration', permissions: PIPELINE_REGISTRATION_PERMISSIONS, seededIn: 'org' },
+} as const satisfies Record<string, {
+  name: string;
+  permissions: readonly Permission[];
+  /** Where it is seeded: every SYSTEM org's job Roles, every org's MACHINE Roles, or nowhere (a template). */
+  seededIn: 'system' | 'org' | null;
+}>;
 
 /** Every seed-bundle id. The platform's `Role.seedBundle` enum is this list. */
 export const SEED_BUNDLE_IDS = Object.keys(SEED_BUNDLES) as Array<keyof typeof SEED_BUNDLES>;
 export type SeedBundleId = keyof typeof SEED_BUNDLES;
 
 /**
- * The SYSTEM ORG's job Roles, in staffing order — the subset of
- * {@link SEED_BUNDLES} seeded there, which is every bundle except `team_lead`
+ * The SYSTEM ORG's job Roles, in staffing order (table order) — the subset of
+ * {@link SEED_BUNDLES} seeded there (`seededIn: 'system'`), which is every bundle except `team_lead`
  * (a tenant job, and a template rather than a seeded Role since it stopped
  * being structural).
  *
@@ -1324,20 +1240,10 @@ export type SeedBundleId = keyof typeof SEED_BUNDLES;
  * this list answers is "which Roles does the system org seed", not "which panel
  * renders them".
  */
-export const SYSTEM_ORG_JOB_BUNDLES: readonly SeedBundleId[] = [
-  'ecosystem_manager',
-  'publisher_verifier',
-  'platform_observer',
-  'platform_operator',
-  'account_manager',
-  'console_admin',
-  'support_agent',
-  'support_lead',
-  'registry_operator',
-];
+export const SYSTEM_ORG_JOB_BUNDLES: readonly SeedBundleId[] = SEED_BUNDLE_IDS.filter((id) => SEED_BUNDLES[id].seededIn === 'system');
 
 /**
- * The MACHINE Roles every org seeds — the subset of {@link SEED_BUNDLES} held by
+ * The MACHINE Roles every org seeds (`seededIn: 'org'`) — the subset of {@link SEED_BUNDLES} held by
  * the service accounts `pipeline-manager infra store-token` provisions.
  *
  * Seeded rather than offered as a {@link ROLE_TEMPLATES} entry, unlike the
@@ -1346,10 +1252,7 @@ export const SYSTEM_ORG_JOB_BUNDLES: readonly SeedBundleId[] = [
  * and both have to find it in EVERY org by a stable identity. A template leaves
  * nothing to find until somebody instantiates it.
  */
-export const ORG_AUTOMATION_BUNDLES: readonly SeedBundleId[] = [
-  'pipeline_automation',
-  'pipeline_registration',
-];
+export const ORG_AUTOMATION_BUNDLES: readonly SeedBundleId[] = SEED_BUNDLE_IDS.filter((id) => SEED_BUNDLES[id].seededIn === 'org');
 
 /**
  * The service accounts `pipeline-manager infra store-token` provisions, keyed by

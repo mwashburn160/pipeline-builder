@@ -123,8 +123,8 @@ export default function DashboardLayoutGrid(props: {
   /** Container width in px, supplied by the parent. We don't use
    * `WidthProvider` to avoid a ResizeObserver dependency in tests. */
   width: number;
-  /** Disable drag + resize. Read-only mode also drops the
-   * `draggableHandle` requirement so panels stay statically positioned. */
+  /** Disable drag + resize. Read-only mode also drops the drag handle
+   * (`dragConfig.handle`) so panels stay statically positioned. */
   readOnly?: boolean;
 }) {
   const { panels, layoutJson, onChange, renderPanel, width, readOnly = false } = props;

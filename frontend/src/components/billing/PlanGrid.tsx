@@ -9,16 +9,8 @@ import { getTierMeta } from '@/lib/tiers';
 import { formatPrice } from './helpers';
 import type { Plan, Subscription, BillingInterval } from '@/types';
 
-// Plan badge styling comes from the shared TIER_META catalog (`getTierMeta`).
-// Border/background tints stay local because they're page-specific accents
-// (the "current plan" highlight) rather than a tier identity.
-const PLAN_ACCENTS: Record<string, { border: string; bg: string }> = {
-  developer:  { border: 'border-green-500',   bg: 'bg-success-bg' },
-  pro:        { border: 'border-blue-500',    bg: 'bg-info-bg' },
-  team:       { border: 'border-purple-500',  bg: 'bg-purple-50 dark:bg-purple-950' },
-  enterprise: { border: 'border-amber-500',   bg: 'bg-warning-bg' },
-};
-
+// Plan badge AND card accent come from the shared TIER_META catalog
+// (`getTierMeta`), so a plan card is the same hue as that tier's pill.
 
 interface PlanGridProps {
   plans: Plan[];
@@ -44,8 +36,8 @@ export function PlanGrid({
 }: PlanGridProps) {
   return (    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
       {plans.map((plan) => {
-        const accents = PLAN_ACCENTS[plan.id] || PLAN_ACCENTS.developer;
         const tierMeta = getTierMeta(plan.id);
+        const accents = tierMeta.accent;
         const isCurrent = subscription?.planId === plan.id;
         const price = billingInterval === 'annual' ? plan.prices.annual: plan.prices.monthly;
 

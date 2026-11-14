@@ -4,9 +4,9 @@
 /**
  * Plugin category vocabulary and its display maps.
  *
- * Deliberately NOT part of `@/lib/help`: importing the help barrel pulls every
- * generated help topic (hundreds of KB of source) into whatever bundle reads a
- * ten-element array, including the signed-out public directory.
+ * Its own module rather than part of `@/lib/help`, so the signed-out public
+ * directory reads a ten-element vocabulary without touching the help corpus
+ * loader at all.
  *
  * The IDs come from api-core (shared with `plugin-spec.yaml` and
  * `report-schema.json`); the display maps below are frontend-only.

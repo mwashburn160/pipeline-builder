@@ -2,9 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import {
-  BUILD_IMAGE_MANIFEST_ACTION, BUILD_IMAGE_MANIFEST_STAGE, BUILD_IMAGE_STEP_KEY, createLogger, errorMessage, isSystemOrgId, scrubAwsIdentifiersFromString,
+  BUILD_IMAGE_MANIFEST_ACTION, BUILD_IMAGE_MANIFEST_STAGE, BUILD_IMAGE_STEP_KEY, createLogger, errorMessage, isSystemOrgId, MANAGED_TOOLCHAIN, scrubAwsIdentifiersFromString,
+  type ToolchainResolvedVia,
 } from '@pipeline-builder/api-core';
-import { pluginImageRepository, type StepManifestEntry, type ToolchainResolvedVia } from '@pipeline-builder/pipeline-core';
+import { pluginImageRepository, type StepManifestEntry } from '@pipeline-builder/pipeline-core';
 import {
   closePipelineExposures, drizzleListingSource, installModeFor, listingBlock, loadOrgInstallContext, reconcilePipelineExposures, runWithTenantContext, schema, withTenantTx,
   type ExposureStep, type ScanState,
@@ -35,9 +36,6 @@ export interface RegistryUpsertInput {
 }
 
 type Tx = Parameters<Parameters<typeof withTenantTx>[0]>[0];
-
-/** The managed toolchain's build-image half — the only plugin a build-image entry may name. */
-const BOOTSTRAP_PLUGIN = 'pipeline-bootstrap';
 
 /** What a manifest row records about a step's plugin. */
 interface ManifestPlugin {
@@ -173,7 +171,7 @@ async function replaceStepManifest(
     const plugin = byId.get(step.pluginId);
     if (!plugin) continue;
     const buildImage = step.stageName === BUILD_IMAGE_MANIFEST_STAGE && step.actionName === BUILD_IMAGE_MANIFEST_ACTION;
-    if (buildImage && !(plugin.publisher === null && plugin.name === BOOTSTRAP_PLUGIN && isSystemOrgId(plugin.ownerOrgId ?? ''))) continue;
+    if (buildImage && !(plugin.publisher === null && plugin.name === MANAGED_TOOLCHAIN.bootstrap && isSystemOrgId(plugin.ownerOrgId ?? ''))) continue;
     recorded.push(plugin);
     const stageName = scrubAwsIdentifiersFromString(step.stageName);
     const actionName = scrubAwsIdentifiersFromString(step.actionName);

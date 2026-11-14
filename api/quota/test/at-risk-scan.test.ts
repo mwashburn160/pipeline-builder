@@ -167,6 +167,43 @@ describe('QuotaService.findAtRisk', () => {
     expect(entries).toMatchObject([{ orgId: 'acct', percent: 95 }]);
   });
 
+  it('pages on the UNIQUE `_id` with one clamped stride, so pages are disjoint and complete', async () => {
+    // Paged on the non-unique `name`, two orgs sharing a name across a page
+    // boundary could each come back twice (a team's usage double-counted into
+    // the pool) or not at all. And a page size above the 1000 clamp ended the
+    // walk after page one, because the exhaustion test compared a clamped page
+    // against the unclamped size.
+    const sorts: unknown[] = [];
+    const skips: number[] = [];
+    const limits: number[] = [];
+    const pages = [
+      Array.from({ length: 1000 }, (_, i) => root(`r${i}`, { plugins: 100 }, { plugins: 1 })),
+      [root('late', { plugins: 100 }, { plugins: 99 })],
+    ];
+    let call = 0;
+    find.mockImplementation(() => ({
+      select: () => ({
+        sort: (spec: unknown) => {
+          sorts.push(spec);
+          return {
+            skip: (n: number) => {
+              skips.push(n);
+              return { limit: (l: number) => { limits.push(l); return { lean: async () => pages[call++] ?? [] }; } };
+            },
+          };
+        },
+      }),
+    }));
+
+    const entries = await quotaService.findAtRisk(80, 5000);
+
+    expect(sorts.every((s) => JSON.stringify(s) === JSON.stringify({ _id: 1 }))).toBe(true);
+    expect(skips).toEqual([0, 1000]);
+    expect(limits).toEqual([1000, 1000]);
+    // The account on the second page is reported.
+    expect(entries.map((e) => e.orgId)).toEqual(['late']);
+  });
+
   it('survives a corrupted parent chain instead of hanging', async () => {
     // A cycle must not spin the walk forever — an alerting scan that never
     // returns is worse than one that mis-groups a row.

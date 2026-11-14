@@ -7,6 +7,70 @@ import { config } from '../config.js';
 import type { QuotaLimits, QuotaUsageTracking, OrganizationDocument } from '../models/organization.js';
 
 /**
+ * The usage period for one quota type, in days — the ONE spelling of the rule
+ * every reset date, period summary and default window in this service reads.
+ *
+ * `config.quota.resetDays` is the GLOBAL window and is correct for every flow
+ * quota but `cpuCredits`, which is monthly (api-core `quotaPeriodDays`). Reading
+ * the global for credits gave them ten resets a month against a cap sized for
+ * one — a factor-of-ten error in the customer's favour, and silent, because a
+ * counter that rolls too often never refuses anything. The rule was spelled
+ * inline in five places before; one of them drifting is that bug again.
+ */
+export function periodDaysFor(quotaType: QuotaType): number {
+  return quotaType === 'cpuCredits' ? quotaPeriodDays(quotaType) : config.quota.resetDays;
+}
+
+/**
+ * CAPS ONLY RISE MID-PERIOD: the cap a LIVE period binds on is the larger of
+ * the limit it started with (`snapshot`, captured at the period boundary) and
+ * the limit the account holds now, with -1 (unlimited) on either side winning.
+ * `snapshot === undefined` (no live period, or a counter that predates the
+ * field) is the current limit.
+ *
+ * One definition for every reader — the per-org status, the pooled status, and
+ * (as {@link effectiveLimitExpr}) the atomic increment filters — so the read
+ * that says "allowed" and the write that reserves can never disagree.
+ */
+export function effectiveLimit(limit: number, snapshot: number | undefined): number {
+  if (snapshot === undefined || snapshot === null) return limit;
+  if (limit === -1 || snapshot === -1) return -1;
+  return Math.max(limit, snapshot);
+}
+
+/**
+ * {@link effectiveLimit} as a Mongo aggregation expression, for a LIVE period:
+ * `limitExpr` is the current limit, `snapshotPath` the counter's
+ * `limitAtPeriodStart` field path (`$usage.<type>.limitAtPeriodStart`). An
+ * absent or non-numeric snapshot is the current limit.
+ */
+export function effectiveLimitExpr(limitExpr: unknown, snapshotPath: string): unknown {
+  return {
+    $cond: {
+      if: { $not: [{ $isNumber: snapshotPath }] },
+      then: limitExpr,
+      else: {
+        $cond: {
+          if: { $or: [{ $eq: [limitExpr, -1] }, { $eq: [snapshotPath, -1] }] },
+          then: -1,
+          else: { $max: [limitExpr, snapshotPath] },
+        },
+      },
+    },
+  };
+}
+
+/**
+ * The at-risk percentage of one status: `used / limit`, rounded and capped at
+ * 100. A 0 limit is permanently at risk (any use is 100%+), so it reports 100.
+ * Callers skip unlimited statuses first. Shared by the cross-org scan and the
+ * per-org at-risk route so the two report the same figure.
+ */
+export function atRiskPercent(status: { used: number; limit: number }): number {
+  return status.limit === 0 ? 100 : Math.min(100, Math.round((status.used / status.limit) * 100));
+}
+
+/**
  * Apply partial quota limit updates to an organization document.
  * Only sets fields that are explicitly provided (not undefined).
  */
@@ -112,10 +176,7 @@ export function computeQuotaStatus(
   //
   // An EXPIRED period takes the current limit: the new window starts at whatever
   // the account holds, which is how a reduction eventually applies.
-  const snapshot = expired ? undefined : usage.limitAtPeriodStart;
-  const effective = snapshot === undefined ? limit
-    : (limit === -1 || snapshot === -1) ? -1
-      : Math.max(limit, snapshot);
+  const effective = effectiveLimit(limit, expired ? undefined : usage.limitAtPeriodStart);
 
   const remaining = effective === -1 ? -1 : Math.max(0, effective - used);
   const allowed = effective === -1 || used < (quotaType ? enforcedQuotaLimit(quotaType, effective) : effective);
@@ -158,7 +219,6 @@ export function buildReserveResult(
 
 // Org quota response — unified shape used by all endpoints
 
-/** Per-type summary (status minus the internal `allowed` flag). */
 /**
  * A read-only per-type summary: the status without the enforcement flag, plus
  * the type's OWN usage period.
@@ -169,7 +229,18 @@ export function buildReserveResult(
  * this; reading the org-level figure would be wrong by a factor of ten for
  * credits, which is the one dimension whose forecast matters most.
  */
-type QuotaSummary = Omit<QuotaStatus, 'allowed'> & { periodDays: number };
+export type QuotaSummary = Omit<QuotaStatus, 'allowed'> & { periodDays: number };
+
+/**
+ * A status as a read-only summary: drop the enforcement flag and attach the
+ * type's own period. The one conversion every summary goes through — the
+ * per-org builder and the pooled overlay (live and cached) alike — so the
+ * pooled path cannot forget `periodDays`, which it builds by hand otherwise.
+ */
+export function toQuotaSummary(quotaType: QuotaType, status: QuotaStatus): QuotaSummary {
+  const { allowed: _allowed, ...rest } = status;
+  return { ...rest, periodDays: periodDaysFor(quotaType) };
+}
 
 /** Unified org-level response returned to all callers. */
 export interface OrgQuotaResponse {
@@ -192,8 +263,9 @@ export interface OrgQuotaResponse {
   isDefault?: boolean;
   /**
    * Present when the org belongs to an org → team pool (a root with teams, or a
-   * team). `quotas` (except storageBytes) and `tier` are then the ROOT's pooled
-   * caps against the whole subtree's usage. Absent for a flat org.
+   * team). `quotas` and `tier` are then the ROOT's pooled caps against the
+   * whole subtree's usage — for `storageBytes`, the subtree's measured registry
+   * total (`fillStorageUsage`). Absent for a flat org.
    */
   pool?: {
     rootOrgId: string;
@@ -215,23 +287,10 @@ function buildSummaries(
   // flow is on the global window, so a single default would report a credits
   // reset date ten times too near — and the dashboard's burn-rate forecast reads
   // exactly that date.
-  const defaultUsage = (t: QuotaType) => ({
-    used: 0,
-    resetAt: nextQuotaResetDate(t === 'cpuCredits' ? quotaPeriodDays(t) : config.quota.resetDays),
-  });
-
-  // Drop the `allowed` flag from the per-type status — summaries are read-only
-  // views — and attach the type's own period.
-  const summarize = (t: QuotaType, limit: number, u: { used: number; resetAt: Date; limitAtPeriodStart?: number }): QuotaSummary => {
-    const { allowed: _allowed, ...rest } = computeQuotaStatus(limit, u);
-    return {
-      ...rest,
-      periodDays: t === 'cpuCredits' ? quotaPeriodDays(t) : config.quota.resetDays,
-    };
-  };
+  const defaultUsage = (t: QuotaType) => ({ used: 0, resetAt: nextQuotaResetDate(periodDaysFor(t)) });
 
   return Object.fromEntries(
-    VALID_QUOTA_TYPES.map((t) => [t, summarize(t, quotas?.[t] ?? defaultLimitFor(tier, t), usage?.[t] ?? defaultUsage(t))]),
+    VALID_QUOTA_TYPES.map((t) => [t, toQuotaSummary(t, computeQuotaStatus(quotas?.[t] ?? defaultLimitFor(tier, t), usage?.[t] ?? defaultUsage(t)))]),
   ) as Record<QuotaType, QuotaSummary>;
 }
 

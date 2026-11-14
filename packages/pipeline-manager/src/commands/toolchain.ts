@@ -3,6 +3,7 @@
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { MANAGED_TOOLCHAIN } from '@pipeline-builder/api-core';
 import { Command } from 'commander';
 import { createAuthenticatedClientAsync, printCommandHeader, printSslWarning, withSslOptions } from '../utils/command-utils.js';
 import { ERROR_CODES, handleError } from '../utils/error-handler.js';
@@ -54,8 +55,8 @@ export function toolchain(program: Command): void {
         printKeyValue({
           'Release': file.releaseVersion,
           'Resolved via': file.resolvedVia,
-          'pipeline-bootstrap': `${file.bootstrap.imageRepository}@${file.bootstrap.imageDigest}`,
-          'cdk-synth': `${file.synth.imageRepository}@${file.synth.imageDigest}`,
+          [MANAGED_TOOLCHAIN.bootstrap]: `${file.bootstrap.imageRepository}@${file.bootstrap.imageDigest}`,
+          [MANAGED_TOOLCHAIN.synth]: `${file.synth.imageRepository}@${file.synth.imageDigest}`,
           'File': out,
         });
         printInfo('Deploy with', { command: `pipeline-manager pipeline deploy --local-spec <pipeline.json> --toolchain-file ${options.output}` });

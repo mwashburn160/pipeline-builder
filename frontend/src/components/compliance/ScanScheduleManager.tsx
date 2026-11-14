@@ -1,5 +1,6 @@
 'use client';
 
+import { RULE_TARGET_IDS, RULE_TARGET_LABELS } from '@/lib/compliance-styles';
 import { useState } from 'react';
 import { CalendarClock, Plus, Pencil, Trash2, Loader2, X } from 'lucide-react';
 import api from '@/lib/api';
@@ -181,8 +182,7 @@ export default function ScanScheduleManager({ readOnly = false }: ScanScheduleMa
                 onChange={e => setFormData(prev => ({ ...prev, target: e.target.value }))}
               >
                 <option value="all">All</option>
-                <option value="plugin">Plugin</option>
-                <option value="pipeline">Pipeline</option>
+                {RULE_TARGET_IDS.map((t) => <option key={t} value={t}>{RULE_TARGET_LABELS[t]}</option>)}
               </FilterSelect>
             </div>
             <div className="flex-[2]">

@@ -1,6 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import type { AlertChannel, AlertRuleSeverity } from '@pipeline-builder/api-core';
 import { sql } from 'drizzle-orm';
 import { boolean, varchar, pgTable, text, timestamp, uuid, index, uniqueIndex } from 'drizzle-orm/pg-core';
 
@@ -38,10 +39,10 @@ export const orgAlertDestination = pgTable('org_alert_destinations', {
     .defaultNow()
     .notNull(),
 
-  /** 'slack' | 'webhook' | 'in-app' | 'email'  kept stringly so future channels
+  /** api-core `ALERT_CHANNELS` — a varchar, not an enum, so a future channel
    * (PagerDuty, …) can be added without a schema migration. */
   channel: varchar('channel', { length: 20 })
-    .$type<'slack' | 'webhook' | 'in-app' | 'email'>()
+    .$type<AlertChannel>()
     .notNull(),
   /** Channel-specific target. Slack/webhook: URL. Email: address. In-app: ignored. */
   target: text('target').default('').notNull(),
@@ -49,9 +50,9 @@ export const orgAlertDestination = pgTable('org_alert_destinations', {
   label: varchar('label', { length: 100 }).notNull(),
 
   /** Lowest severity that triggers this destination ('warning' = warning+critical,
-   * 'critical' = critical only). Mirrors Alertmanager severity ordering. */
+   * 'critical' = critical only) — api-core `ALERT_RULE_SEVERITIES`. */
   minSeverity: varchar('min_severity', { length: 10 })
-    .$type<'warning' | 'critical'>()
+    .$type<AlertRuleSeverity>()
     .default('warning')
     .notNull(),
   enabled: boolean('enabled').default(true).notNull(),
@@ -108,9 +109,9 @@ export const orgAlertRule = pgTable('org_alert_rules', {
   expr: text('expr').notNull(),
   /** `for: 5m` style duration. Validated against Prom's duration regex. */
   forDuration: varchar('for_duration', { length: 20 }).default('5m').notNull(),
-  /** 'warning' | 'critical'  matches the platform-wide severity ladder. */
+  /** api-core `ALERT_RULE_SEVERITIES` — the platform-wide severity ladder. */
   severity: varchar('severity', { length: 20 })
-    .$type<'warning' | 'critical'>()
+    .$type<AlertRuleSeverity>()
     .default('warning')
     .notNull(),
   /** Alertmanager `summary` annotation. Supports `{{ $value }}`. */

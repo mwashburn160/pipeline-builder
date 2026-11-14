@@ -2,13 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Single source of truth for the four quota tiers' display metadata
- * (label, color classes, sort order). Consolidates copies that lived in
- * dashboard/quotas.tsx, dashboard/billing.tsx, and admin/orgs/[orgId].tsx.
- * Adding a new tier here updates every UI surface in one place.
+ * Single source of truth for the quota tiers' display metadata (label,
+ * colour classes, sort order) — the pills, badges and the plan cards' accents
+ * all read it, so a tier is coloured the same everywhere. Adding a tier here
+ * updates every UI surface in one place.
  */
 import type { BadgeColor } from '@/components/ui/Badge';
-import type { QuotaTier, SeatRemedy } from '@pipeline-builder/api-core';
+import type { QuotaTier } from '@pipeline-builder/api-core';
+import type { SeatRemedy } from '@pipeline-builder/api-core/tier-limits';
 
 /** The quota tiers, straight from the backend's own enum — never a local copy,
  *  which is how `unlimited` kept getting dropped from tier unions around the
@@ -28,6 +29,10 @@ export interface TierMeta {
   /** `<Badge color>` for this tier, so a tier pill in a table can't fall back
    *  to developer's colour for a tier the call site forgot about. */
   readonly badgeColor: BadgeColor;
+  /** A plan card's accent: border + tinted background, the same hue as the pill.
+   *  (PlanGrid kept its own map, which coloured three tiers differently from
+   *  their pills and had no entry for `business`.) */
+  readonly accent: { readonly border: string; readonly bg: string };
   /** Stable display order: developer < pro < team < enterprise. */
   readonly sort: number;
 }
@@ -39,6 +44,7 @@ export const TIER_META: Record<TierKey, TierMeta> = {
     pillClass: 'bg-info-bg text-info-strong',
     dotClass: 'bg-blue-500',
     badgeColor: 'gray',
+    accent: { border: 'border-blue-500', bg: 'bg-info-bg' },
     sort: 0,
   },
   pro: {
@@ -47,6 +53,7 @@ export const TIER_META: Record<TierKey, TierMeta> = {
     pillClass: 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300',
     dotClass: 'bg-purple-500',
     badgeColor: 'purple',
+    accent: { border: 'border-purple-500', bg: 'bg-purple-50 dark:bg-purple-950' },
     sort: 1,
   },
   team: {
@@ -55,6 +62,7 @@ export const TIER_META: Record<TierKey, TierMeta> = {
     pillClass: 'bg-success-bg text-success-strong',
     dotClass: 'bg-emerald-500',
     badgeColor: 'green',
+    accent: { border: 'border-emerald-500', bg: 'bg-success-bg' },
     sort: 2,
   },
   business: {
@@ -68,6 +76,7 @@ export const TIER_META: Record<TierKey, TierMeta> = {
     pillClass: 'bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-300',
     dotClass: 'bg-cyan-500',
     badgeColor: 'blue',
+    accent: { border: 'border-cyan-500', bg: 'bg-cyan-50 dark:bg-cyan-950' },
     sort: 3,
   },
   enterprise: {
@@ -76,6 +85,7 @@ export const TIER_META: Record<TierKey, TierMeta> = {
     pillClass: 'bg-warning-bg text-warning-strong',
     dotClass: 'bg-amber-500',
     badgeColor: 'red',
+    accent: { border: 'border-amber-500', bg: 'bg-warning-bg' },
     sort: 4,
   },
   // Everything uncapped, and never sold. It is the default tier when billing is
@@ -89,6 +99,7 @@ export const TIER_META: Record<TierKey, TierMeta> = {
     pillClass: 'bg-slate-200 text-fg dark:bg-slate-700',
     dotClass: 'bg-slate-500',
     badgeColor: 'indigo',
+    accent: { border: 'border-slate-500', bg: 'bg-surface-muted' },
     sort: 5,
   },
 };
@@ -108,36 +119,10 @@ export function getTierMeta(tier: string | undefined | null): TierMeta {
  *  install, and the system org always). Purchase pickers use {@link TIER_KEYS}. */
 export const ALL_TIER_KEYS: readonly TierKey[] = Object.keys(TIER_META) as TierKey[];
 
-/**
- * Tiers that may parent a team. Mirrors api-core's `TEAM_CAPABLE_TIERS` — the
- * backend's `organizationService.checkParentEligible` is the authority, and
- * `unlimited` (billing off) is the most permissive tier, so leaving it out here
- * hid "Create team" on every billing-disabled deployment.
- */
-export const TEAM_CAPABLE_TIERS: readonly TierKey[] = ['team', 'business', 'enterprise', 'unlimited'];
-
-/** Whether `tier` may parent a team. */
-export function tierAllowsTeams(tier: string | undefined | null): boolean {
-  return !!tier && (TEAM_CAPABLE_TIERS as readonly string[]).includes(tier);
-}
-
-/**
- * Tiers that may buy extra seats (billing's per-seat add-on). Mirrors api-core's
- * `SEAT_PACK_TIERS`, which the billing catalog itself uses — test/seat-remedy
- * holds the two equal. Developer and Pro are single-seat tiers: their way to
- * more seats is an upgrade, so offering them a seat pack sent them to an add-on
- * billing would not sell them.
- */
-export const SEAT_PACK_TIERS: readonly TierKey[] = ['team', 'business', 'enterprise'];
-
-/** How an account that has used every seat can get another — api-core's type, imported not copied. */
-export type { SeatRemedy };
-
-/** The remedy for the ACCOUNT's tier; `null` for an uncapped or unknown tier. Mirrors api-core's `seatRemedy`. */
-export function seatRemedy(tier: string | undefined | null): SeatRemedy | null {
-  if (!tier || !(ALL_TIER_KEYS as readonly string[]).includes(tier) || tier === 'unlimited') return null;
-  return (SEAT_PACK_TIERS as readonly string[]).includes(tier) ? 'seat_pack' : 'upgrade';
-}
+// Which tiers may parent a team or buy a seat pack (`TEAM_CAPABLE_TIERS`,
+// `tierAllowsTeams`, `SEAT_PACK_TIERS`, `seatRemedy`) is api-core's own decision,
+// imported by callers from its browser-safe `tier-limits` subpath — the backend
+// (`checkParentEligible`, the billing catalog) decides with the same functions.
 
 /** Pooled seat usage as `GET /organization/:id/seat-usage` reports it (root account). Not
  *  billing's `SeatUsage` (types/billing.ts) — that is the billing rollup's shape. */

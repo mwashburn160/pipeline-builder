@@ -43,16 +43,13 @@
  * on the same recalculation, in both directions, with no separate trigger.
  */
 
-import { envBool, envInt, type QuotaTier } from '@pipeline-builder/api-core';
+import { envBool, envInt, type QuotaTier, type BillingInterval } from '@pipeline-builder/api-core';
 import { priceForInterval, volumeDiscountPct } from './combo-pricing.js';
 import { snapNetCharge, snapUpPrice } from './price-rounding.js';
 import type { BundleConfig } from '../config/billing-types.js';
 import { effectiveEntitlements } from '../config/entitlements.js';
+import { BASELINE_SUPPORT_LEVELS, PREMIUM_SUPPORT_LEVEL, SUPPORT_LEVELS, type SupportLevelId } from '../config/support-levels.js';
 
-/** The two BASELINE levels, best first — the floor's weight follows the one held. */
-const BASELINE_LEVELS: readonly string[] = ['support_priority', 'support_standard'];
-/** The upgrade, named once. */
-const PREMIUM_LEVEL = 'support_premium';
 /**
  * Months an annual interval is priced at — TEN, not twelve.
  *
@@ -62,8 +59,8 @@ const PREMIUM_LEVEL = 'support_premium';
  */
 const ANNUAL_MONTHS = 10;
 
-/** A level's multiplier on the floor, keyed by its bundle id. */
-export type FloorWeights = Readonly<Record<string, number>>;
+/** A level's multiplier on the floor, keyed by its bundle id — exhaustive over the ladder. */
+export type FloorWeights = Readonly<Record<SupportLevelId, number>>;
 
 /** Resolved floor configuration. */
 export interface SupportFloorConfig {
@@ -87,13 +84,6 @@ export interface SupportFloorConfig {
   weightPercent: FloorWeights;
 }
 
-/** The levels, with the weight each applies to the floor. */
-const DEFAULT_WEIGHT_PERCENT: FloorWeights = {
-  support_standard: 100,
-  support_priority: 150,
-  support_premium: 250,
-};
-
 /** Read the floor configuration from the environment. */
 export function supportFloorConfig(): SupportFloorConfig {
   return {
@@ -102,9 +92,11 @@ export function supportFloorConfig(): SupportFloorConfig {
     // Defaults to enterprise's own seat base — see the module comment.
     freeSeats: envInt('BILLING_SUPPORT_FLOOR_FREE_SEATS', 15, { min: 0 }),
     weightPercent: {
-      support_standard: envInt('BILLING_SUPPORT_FLOOR_WEIGHT_STANDARD', DEFAULT_WEIGHT_PERCENT.support_standard!, { min: 0 }),
-      support_priority: envInt('BILLING_SUPPORT_FLOOR_WEIGHT_PRIORITY', DEFAULT_WEIGHT_PERCENT.support_priority!, { min: 0 }),
-      support_premium: envInt('BILLING_SUPPORT_FLOOR_WEIGHT_PREMIUM', DEFAULT_WEIGHT_PERCENT.support_premium!, { min: 0 }),
+      // Env names stay literal (api-core's env-documented scanner matches literal reader calls);
+      // the record is exhaustive over `SupportLevelId`, so a new level is a compile error.
+      support_standard: envInt('BILLING_SUPPORT_FLOOR_WEIGHT_STANDARD', SUPPORT_LEVELS.support_standard.defaultFloorWeightPercent, { min: 0 }),
+      support_priority: envInt('BILLING_SUPPORT_FLOOR_WEIGHT_PRIORITY', SUPPORT_LEVELS.support_priority.defaultFloorWeightPercent, { min: 0 }),
+      support_premium: envInt('BILLING_SUPPORT_FLOOR_WEIGHT_PREMIUM', SUPPORT_LEVELS.support_premium.defaultFloorWeightPercent, { min: 0 }),
     },
   };
 }
@@ -131,7 +123,7 @@ export interface SupportPosition {
   /** Contacts upgraded to premium. */
   premiumContacts: number;
   /** The baseline level held, or null. */
-  level: string | null;
+  level: SupportLevelId | null;
   /** What the per-contact lines come to for the interval, AFTER volume credits. */
   contactsPriceCents: number;
   /** The volume discount already applied to `contactsPriceCents`, in percent. */
@@ -239,8 +231,8 @@ export function supportFloor(
   // The level that sets the weight is the HIGHEST held: an account with any
   // premium upgrade is a premium account for floor purposes, because the
   // out-of-hours rota it can call on is what the weight is paying for.
-  const level = pos.premiumContacts > 0 ? 'support_premium' : pos.level;
-  const weightPercent = cfg.weightPercent[level] ?? 100;
+  const level = pos.premiumContacts > 0 ? PREMIUM_SUPPORT_LEVEL : pos.level;
+  const weightPercent = cfg.weightPercent[level];
 
   // Monthly, rounded UP to a whole dollar before the interval multiplier, so the
   // published monthly figure is the one a customer can reproduce.
@@ -299,7 +291,7 @@ export function supportFloorLine(
   tier: QuotaTier,
   addons: ReadonlyArray<{ bundleId: string; quantity: number }>,
   bundles: readonly BundleConfig[],
-  interval: 'monthly' | 'annual',
+  interval: BillingInterval,
   cfg: SupportFloorConfig = supportFloorConfig(),
   override?: SupportFloorOverride | undefined,
 ): { label: string; cents: number; billableSeats: number; negotiated: boolean; stale: boolean } | null {
@@ -309,19 +301,19 @@ export function supportFloorLine(
   // and there is no quantity to price a floor against.
   if (contacts <= 0) return null;
 
-  const level = BASELINE_LEVELS.find((f) => features.includes(f)) ?? null;
+  const level = BASELINE_SUPPORT_LEVELS.find((f) => features.includes(f)) ?? null;
   if (level === null) return null;
 
   const baseline = bundles.find((b) => b.id === level);
   const held = addons.find((a) => a.bundleId === level)?.quantity ?? 0;
-  const premiumHeld = addons.find((a) => a.bundleId === PREMIUM_LEVEL && a.quantity > 0)?.quantity ?? 0;
+  const premiumHeld = addons.find((a) => a.bundleId === PREMIUM_SUPPORT_LEVEL && a.quantity > 0)?.quantity ?? 0;
 
   // What the support LINES come to, after their volume discount — the figure the
   // floor has to beat. Derived from the same inputs `priceBreakdown` uses rather
   // than passed in, so the two cannot disagree about what support costs.
   const volumePercent = baseline ? volumeDiscountPct(baseline, held) : 0;
   const unit = baseline ? priceForInterval(baseline.prices, interval) : 0;
-  const premiumBundle = bundles.find((b) => b.id === PREMIUM_LEVEL);
+  const premiumBundle = bundles.find((b) => b.id === PREMIUM_SUPPORT_LEVEL);
   const premiumUnit = premiumBundle ? priceForInterval(premiumBundle.prices, interval) : 0;
   const premiumPercent = premiumBundle ? volumeDiscountPct(premiumBundle, premiumHeld) : 0;
   // Each line's NET through `snapNetCharge`, exactly as `volumeCredits` grants it.

@@ -59,7 +59,9 @@ export function ReportRecipients({ recipients, policy, canAuthor, readOnly = fal
               ? 'Added, and waiting for an administrator to approve it. Nothing is delivered until they do.'
               : result.recipient.verified
                 ? 'Added. They are a member of this organization, so no confirmation is needed.'
-                : 'Added. They will get a confirmation email — nothing is delivered until they confirm.',
+                : result.confirmationSent
+                  ? 'Added. They will get a confirmation email — nothing is delivered until they confirm.'
+                  : 'Added, but the confirmation email could not be sent — use Resend. Nothing is delivered until they confirm.',
           );
           onChanged();
         },
@@ -70,7 +72,11 @@ export function ReportRecipients({ recipients, policy, canAuthor, readOnly = fal
   const resend = async (id: string) => {
     setNotice(null);
     await form.run(
-      async () => { await api.resendReportRecipientVerification(id); },
+      async () => {
+        const res = await api.resendReportRecipientVerification(id);
+        // A resend whose mail did not go out is a failure, not "sent again".
+        if (!res.data?.confirmationSent) throw new Error('The confirmation email could not be sent — try again later');
+      },
       { onSuccess: () => { setNotice('Confirmation sent again.'); onChanged(); } },
     );
   };

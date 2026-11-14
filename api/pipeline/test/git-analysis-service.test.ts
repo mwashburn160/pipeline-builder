@@ -14,14 +14,9 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@p
   },
 }));
 
-const {
-  parseGitUrl,
-  inferProjectType,
-  inferPackageManager,
-  inferFrameworks,
-  buildEnhancedPrompt,
-} = await import('../src/services/git-analysis-service.js');
-type RepoAnalysis = import('../src/services/git-analysis-service.js').RepoAnalysis;
+const { parseGitUrl, buildEnhancedPrompt } = await import('../src/services/git-analysis-service.js');
+const { inferProjectType, inferPackageManager, inferFrameworks } = await import('../src/services/git-analysis/analysis-core.js');
+type RepoAnalysis = import('../src/services/git-analysis/analysis-core.js').RepoAnalysis;
 
 // parseGitUrl
 
@@ -84,6 +79,11 @@ describe('parseGitUrl', () => {
   it('parses self-hosted URL as unknown provider', () => {
     const result = parseGitUrl('https://git.company.com/team/project');
     expect(result).toEqual({ host: 'git.company.com', owner: 'team', repo: 'project', provider: 'unknown' });
+  });
+
+  it('resolves a host named like an Object.prototype key to unknown, not to an inherited property', () => {
+    expect(parseGitUrl('https://constructor/team/project')?.provider).toBe('unknown');
+    expect(parseGitUrl('git@__proto__:team/project.git')?.provider).toBe('unknown');
   });
 
   it('returns null for invalid URL', () => {

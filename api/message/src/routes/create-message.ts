@@ -41,6 +41,7 @@ import { messageService } from '../services/message-service.js';
 import { resolveCasePage } from '../services/oncall-sweep.js';
 
 type MessageInsert = typeof schema.message.$inferInsert;
+type Message = typeof schema.message.$inferSelect;
 
 /** Reserved channel every support-contact message is filed under, so system-org
  *  readers can filter the support desk out of the rest of their inbox. */
@@ -70,23 +71,29 @@ interface PersistOptions {
   completed: { label: string; details?: Record<string, unknown> };
   /** SSE payload, minus `messageId` — only known after the insert. */
   notification: Omit<NewMessageNotification, 'messageId'>;
-  /** Runs once the row is durable and the ping is out, before the 201 is
-   *  written. POST / uses it to emit the announcement audit event. */
-  onPersisted?: (messageId: string) => void;
+  /**
+   * The route's own work on the durable row, after the attachments link and
+   * before the COMPLETED log, the metric and the ping: POST / audits an
+   * announcement, POST /support opens the case, a reply stamps first response.
+   * Awaited, and each route's hook owns its own failure handling — the message
+   * is already committed, so nothing here may fail the send.
+   */
+  afterInsert?: (message: Message) => Promise<void> | void;
   /** Human-readable text on the 201. */
   successMessage: string;
 }
 
 /**
  * The tail every send route shares: insert the row, link the caller's
- * pre-uploaded attachments, log COMPLETED, count the domain metric, push the
- * real-time NEW_MESSAGE ping, and answer 201 with the org-name-enriched row.
+ * pre-uploaded attachments, run the route's own `afterInsert`, log COMPLETED,
+ * count the domain metric, push the real-time NEW_MESSAGE ping, and answer 201
+ * with the org-name-enriched row.
  *
- * Extracted because it was written out three times (send / support / reply)
- * and every copy had to remember the SAME two easily-forgotten steps — the
- * `message_events_total` counter and the SSE notify. A fourth send route that
- * skipped either would leave the metric silently under-counting and the
- * recipient's inbox not refreshing, with nothing failing to say so.
+ * All three send routes (send / support / reply) go through it, because every
+ * copy of this tail had to remember the SAME two easily-forgotten steps — the
+ * `message_events_total` counter and the SSE notify. A send route that skipped
+ * either would leave the metric silently under-counting and the recipient's
+ * inbox not refreshing, with nothing failing to say so.
  *
  * Attachment linking is deliberately non-fatal: only the caller's own
  * still-pending uploads link (enforced in the service), so a mismatch means the
@@ -108,6 +115,8 @@ async function persistAndRespond(
     }
   }
 
+  await opts.afterInsert?.(message);
+
   ctx.log('COMPLETED', opts.completed.label, { id: message.id, ...opts.completed.details });
 
   // Domain metric — a message row was created. Tagged by action only to keep
@@ -119,8 +128,6 @@ async function persistAndRespond(
     { ...opts.notification, messageId: message.id },
     (err) => ctx.log('WARN', 'Failed to send SSE notification', { error: errorMessage(err) }),
   );
-
-  opts.onPersisted?.(message.id);
 
   return sendSuccess(res, 201, await enrichOneWithOrgNames(message), opts.successMessage);
 }
@@ -243,13 +250,13 @@ export function createCreateMessageRoutes(sseManager: SSEManager): Router {
       // and would pull private message content into the trail. `details` carries
       // SAFE METADATA ONLY (subject/type/recipient scope) — never the body.
       // Fire-and-forget: emission never throws and is not awaited.
-      onPersisted: (messageId) => {
+      afterInsert: (message) => {
         if (messageType !== 'announcement') return;
         recordAudit({
           action: 'message.announcement.create',
           actorId: actorId({ userId }),
           orgId,
-          targetId: messageId,
+          targetId: message.id,
           details: {
             subject,
             messageType,
@@ -487,136 +494,122 @@ export function createCreateMessageRoutes(sseManager: SSEManager): Router {
       updatedBy: userId,
     };
 
-    const message = await messageService.create(messageData, userId);
-
-    // Same attachment linking as POST /: only the caller's own still-pending
-    // uploads link (enforced in the service); a mismatch is logged, non-fatal.
-    if (attachmentIds?.length) {
-      const linked = await attachmentService.linkToMessage(attachmentIds, message.id, orgId, userId);
-      if (linked.length !== attachmentIds.length) {
-        ctx.log('WARN', 'Some attachments did not link', { requested: attachmentIds.length, linked: linked.length });
-      }
-    }
-
-    // --- Case record -------------------------------------------------------
-    //
-    // The message is already committed. A case is the WORKFLOW record on top of
-    // it — status, ownership, the response clock — and it is created only when
-    // platform confirmed, above, that the org is entitled to one.
-    if (opening) {
-      try {
-        const supportCase = await openSupportCase({
-          // The root message IS the case identity — the convention the thread
-          // reader already walks.
-          threadId: message.id,
-          orgId,
-          // Frozen at open: a mid-case downgrade must not change the promise
-          // underneath someone already waiting.
-          level: caseLevel!,
-          severity,
-          openedBy: userId,
-          // Computed HERE and frozen onto the row. The business calendar is
-          // deployment config, so the deadline is derived once at open against
-          // the calendar in force at that moment — a later change to the working
-          // week or the holiday list must not move a promise already made.
-          // Premium's own measure consults no calendar at all, which is the whole
-          // of its 24x7 claim.
-          responseDueAt: responseDueAt(new Date(), caseLevel!),
-          // Which DOOR this case came through. The store defaults it to false,
-          // so omitting it here meant an incident-opened case recorded itself as
-          // seat-opened — the audit row said one thing and the case row another.
-          openedWithIncident: byIncident,
-        });
-        ctx.log('COMPLETED', 'Support case opened', {
-          id: message.id, caseNumber: supportCase.displayNumber, level: caseLevel!,
-        });
-        // Audited because a case carries a response-time commitment: the facts a
-        // dispute turns on are who raised it, when, and under which level. Safe
-        // METADATA ONLY — never the body of what the customer wrote.
-        recordAudit({
-          action: 'support.case.open',
-          actorId: actorId({ userId }),
-          orgId,
-          affectedOrgId: orgId,
-          targetType: 'support_case',
-          // The thread root id IS the case identity, so the trail and the
-          // product agree on what "this case" means.
-          targetId: message.id,
-          details: {
-            caseNumber: supportCase.displayNumber,
-            // The CONTACT's level, plus the account baseline it was resolved
-            // against, so the trail shows both what was promised and why.
-            level: caseLevel!,
-            accountLevel: entitlement!.level!,
-            openerIsPremium,
-            // The ADMITTED severity, plus whether it was cut down. A dispute
-            // over "we said urgent" turns on exactly this pair.
-            severity,
-            severityRequested: priority ?? 'normal',
-            // Recorded so a later fair-use conversation has the case list behind
-            // it rather than a single aggregate number.
-            overAllowance,
-            // Whether this case came through the INCIDENT door rather than a
-            // contact seat, so incident usage is answerable from the cases
-            // themselves and not only from a balance delta.
-            openedWithIncident: byIncident,
-          },
-        });
-        incCounter('support_cases_total', { action: byIncident ? 'opened_with_incident' : 'opened' });
-      } catch (err) {
-        // The message stands. A failed case insert must not 500 a send that
-        // already succeeded — the tenant would retry and file a duplicate.
-        ctx.log('ERROR', 'Support case insert failed; message kept without a case', { id: message.id, error: errorMessage(err) });
-        incCounter('support_cases_total', { action: 'open_failed' });
-        // GIVE THE INCIDENT BACK. It was already spent to get here, and losing a
-        // concession to our own failed insert is the worst possible way to spend
-        // one — the customer paid nothing for it and received nothing. Awaited
-        // so the refund is attempted before the response, and itself
-        // never-throwing, because failing the send to report a failed refund
-        // turns one problem into two.
-        if (byIncident) await refundSupportIncident(orgId);
-      }
-    } else if (entitlement && !entitlement.canOpenCase && !byIncident) {
-      // Entitlement was READ and says no: the org has no designated contact in
-      // THIS org (the allowance pools subtree-wide, ownership does not). Not an
-      // error — the message is support correspondence, it just carries no
-      // response target.
-      ctx.log('INFO', 'No support entitlement for this org; message sent without a case', {
-        id: message.id, ownOrgContacts: entitlement.ownOrgContacts, limit: entitlement.limit,
-      });
-      incCounter('support_cases_total', { action: 'unentitled' });
-    }
-
-    // Not an error count — a DEMAND count. Every increment is an org that
-    // wanted the one thing only premium admits, which is the most direct read on
-    // premium's addressable demand the system can produce.
-    if (downgraded) incCounter('support_cases_total', { action: 'severity_downgraded' });
-
-    ctx.log('COMPLETED', 'Support message created', { id: message.id });
-
-    incCounter('message_events_total', { action: 'created' });
-
-    notifyNewMessage(sseManager, {
-      recipientOrgId,
-      messageId: message.id,
-      subject,
-      targeted: false,
-      senderOrgId: orgId,
-      messageType: 'conversation',
-    }, (err) => ctx.log('WARN', 'Failed to send SSE notification', { error: errorMessage(err) }));
-
-    // Say it plainly when the severity was cut down. The payload already carries
-    // the admitted `priority`, but a sender who typed "urgent" and hears nothing
-    // will reasonably believe it was honoured — and that belief is exactly what
-    // a response-time dispute is made of.
-    return sendSuccess(
-      res,
-      201,
-      await enrichOneWithOrgNames(message),
-      downgraded
+    return persistAndRespond(sseManager, ctx, res, {
+      data: messageData,
+      orgId,
+      userId,
+      attachmentIds,
+      partialAttachmentWarning: 'Some attachments did not link',
+      completed: { label: 'Support message created' },
+      notification: {
+        recipientOrgId,
+        subject,
+        targeted: false,
+        senderOrgId: orgId,
+        messageType: 'conversation',
+      },
+      afterInsert: async (message) => {
+        // --- Case record -------------------------------------------------------
+        //
+        // The message is already committed. A case is the WORKFLOW record on top of
+        // it — status, ownership, the response clock — and it is created only when
+        // platform confirmed, above, that the org is entitled to one.
+        if (opening) {
+          try {
+            const supportCase = await openSupportCase({
+              // The root message IS the case identity — the convention the thread
+              // reader already walks.
+              threadId: message.id,
+              orgId,
+              // Frozen at open: a mid-case downgrade must not change the promise
+              // underneath someone already waiting.
+              level: caseLevel!,
+              severity,
+              openedBy: userId,
+              // Computed HERE and frozen onto the row. The business calendar is
+              // deployment config, so the deadline is derived once at open against
+              // the calendar in force at that moment — a later change to the working
+              // week or the holiday list must not move a promise already made.
+              // Premium's own measure consults no calendar at all, which is the whole
+              // of its 24x7 claim.
+              responseDueAt: responseDueAt(new Date(), caseLevel!),
+              // Which DOOR this case came through. The store defaults it to false,
+              // so omitting it here meant an incident-opened case recorded itself as
+              // seat-opened — the audit row said one thing and the case row another.
+              openedWithIncident: byIncident,
+            });
+            ctx.log('COMPLETED', 'Support case opened', {
+              id: message.id, caseNumber: supportCase.displayNumber, level: caseLevel!,
+            });
+            // Audited because a case carries a response-time commitment: the facts a
+            // dispute turns on are who raised it, when, and under which level. Safe
+            // METADATA ONLY — never the body of what the customer wrote.
+            recordAudit({
+              action: 'support.case.open',
+              actorId: actorId({ userId }),
+              orgId,
+              affectedOrgId: orgId,
+              targetType: 'support_case',
+              // The thread root id IS the case identity, so the trail and the
+              // product agree on what "this case" means.
+              targetId: message.id,
+              details: {
+                caseNumber: supportCase.displayNumber,
+                // The CONTACT's level, plus the account baseline it was resolved
+                // against, so the trail shows both what was promised and why.
+                level: caseLevel!,
+                accountLevel: entitlement!.level!,
+                openerIsPremium,
+                // The ADMITTED severity, plus whether it was cut down. A dispute
+                // over "we said urgent" turns on exactly this pair.
+                severity,
+                severityRequested: priority ?? 'normal',
+                // Recorded so a later fair-use conversation has the case list behind
+                // it rather than a single aggregate number.
+                overAllowance,
+                // Whether this case came through the INCIDENT door rather than a
+                // contact seat, so incident usage is answerable from the cases
+                // themselves and not only from a balance delta.
+                openedWithIncident: byIncident,
+              },
+            });
+            incCounter('support_cases_total', { action: byIncident ? 'opened_with_incident' : 'opened' });
+          } catch (err) {
+            // The message stands. A failed case insert must not 500 a send that
+            // already succeeded — the tenant would retry and file a duplicate.
+            ctx.log('ERROR', 'Support case insert failed; message kept without a case', { id: message.id, error: errorMessage(err) });
+            incCounter('support_cases_total', { action: 'open_failed' });
+            // GIVE THE INCIDENT BACK. It was already spent to get here, and losing a
+            // concession to our own failed insert is the worst possible way to spend
+            // one — the customer paid nothing for it and received nothing. Awaited
+            // so the refund is attempted before the response, and itself
+            // never-throwing, because failing the send to report a failed refund
+            // turns one problem into two.
+            if (byIncident) await refundSupportIncident(orgId);
+          }
+        } else if (entitlement && !entitlement.canOpenCase && !byIncident) {
+          // Entitlement was READ and says no: the org has no designated contact in
+          // THIS org (the allowance pools subtree-wide, ownership does not). Not an
+          // error — the message is support correspondence, it just carries no
+          // response target.
+          ctx.log('INFO', 'No support entitlement for this org; message sent without a case', {
+            id: message.id, ownOrgContacts: entitlement.ownOrgContacts, limit: entitlement.limit,
+          });
+          incCounter('support_cases_total', { action: 'unentitled' });
+        }
+        // Not an error count — a DEMAND count. Every increment is an org that
+        // wanted the one thing only premium admits, which is the most direct read on
+        // premium's addressable demand the system can produce.
+        if (downgraded) incCounter('support_cases_total', { action: 'severity_downgraded' });
+      },
+      // Say it plainly when the severity was cut down. The payload already carries
+      // the admitted `priority`, but a sender who typed "urgent" and hears nothing
+      // will reasonably believe it was honoured — and that belief is exactly what
+      // a response-time dispute is made of.
+      successMessage: downgraded
         ? 'Message created. Urgent severity is available on Premium Support; this case was opened as high.'
         : 'Message created successfully',
-    );
+    });
   }));
 
   // POST /messages/:id/reply — Reply to a thread
@@ -760,89 +753,82 @@ export function createCreateMessageRoutes(sseManager: SSEManager): Router {
       updatedBy: userId,
     };
 
-    const reply = await messageService.create(replyData, userId);
-
-    // --- The measured number -----------------------------------------------
-    //
-    // First response is what the response target is SOLD on, so it is stamped
-    // here — the moment staff first answer — rather than derived later from
-    // message timestamps, which would have to re-infer "was that reply from
-    // staff" on every read.
-    //
-    // `isSystem` is the staff test: a tenant replying to its own case is not a
-    // response to it. `stampFirstResponse` carries `first_response_at IS NULL`
-    // in its WHERE clause, so a second staff reply cannot move the number — the
-    // guard is in the UPDATE, not in a caller's check.
-    if (isSystem && rootMessage.channel?.toLowerCase() === SUPPORT_CHANNEL) {
-      try {
-        const supportCase = await findCaseByThread(id);
-        const stamped = supportCase ? await stampFirstResponse(supportCase.id) : false;
-        if (supportCase && stamped) {
-          // Elapsed WALL time minus time spent waiting on the customer, which is
-          // the only version of this number a customer would accept: a case we
-          // answered in an hour, where the tenant took four days to reply, is
-          // not a four-day first response.
-          const waited = Math.max(0, (Date.now() - new Date(supportCase.createdAt).getTime()) / 1000);
-          const paused = supportCase.awaitingTotalSeconds ?? 0;
-          observe('support_first_response_seconds', { level: supportCase.level, severity: supportCase.severity }, Math.max(0, waited - paused));
-          incCounter('support_cases_total', { action: 'first_response' });
-          // Close the on-call page this case may be holding open. HERE and not
-          // in the sweep: `stamped` is true only for the reply that actually
-          // stopped the clock, so this is the one edge in the system, and
-          // finding it from the sweep would mean polling for the absence of a
-          // row this request just wrote. Awaited rather than fired and
-          // forgotten so a failure is logged against this request, and
-          // never thrown — the customer's answer is already saved, and a stale
-          // open page is a nuisance where a 500 on a successful reply is a bug.
-          // A `resolve` for a key that never triggered is a provider-side
-          // no-op, which is what lets the sweep keep no state at all.
-          await resolveCasePage(supportCase.id);
+    return persistAndRespond(sseManager, ctx, res, {
+      data: replyData,
+      orgId,
+      userId,
+      attachmentIds,
+      partialAttachmentWarning: 'Some reply attachments did not link',
+      completed: { label: 'Reply created', details: { threadId: id } },
+      notification: {
+        recipientOrgId: replyRecipientOrgId,
+        threadId: id,
+        subject: rootMessage.subject,
+        targeted: !!replyRecipientUserId,
+        senderOrgId: orgId,
+        messageType: replyMessageType,
+      },
+      afterInsert: async () => {
+        // --- The measured number -----------------------------------------------
+        //
+        // First response is what the response target is SOLD on, so it is stamped
+        // here — the moment staff first answer — rather than derived later from
+        // message timestamps, which would have to re-infer "was that reply from
+        // staff" on every read.
+        //
+        // `isSystem` is the staff test: a tenant replying to its own case is not a
+        // response to it. `stampFirstResponse` carries `first_response_at IS NULL`
+        // in its WHERE clause, so a second staff reply cannot move the number — the
+        // guard is in the UPDATE, not in a caller's check.
+        if (isSystem && rootMessage.channel?.toLowerCase() === SUPPORT_CHANNEL) {
+          try {
+            const supportCase = await findCaseByThread(id);
+            const stamped = supportCase ? await stampFirstResponse(supportCase.id) : false;
+            if (supportCase && stamped) {
+              // Elapsed WALL time minus time spent waiting on the customer, which is
+              // the only version of this number a customer would accept: a case we
+              // answered in an hour, where the tenant took four days to reply, is
+              // not a four-day first response.
+              const waited = Math.max(0, (Date.now() - new Date(supportCase.createdAt).getTime()) / 1000);
+              const paused = supportCase.awaitingTotalSeconds ?? 0;
+              observe('support_first_response_seconds', { level: supportCase.level, severity: supportCase.severity }, Math.max(0, waited - paused));
+              incCounter('support_cases_total', { action: 'first_response' });
+              // Close the on-call page this case may be holding open. HERE and not
+              // in the sweep: `stamped` is true only for the reply that actually
+              // stopped the clock, so this is the one edge in the system, and
+              // finding it from the sweep would mean polling for the absence of a
+              // row this request just wrote. Awaited rather than fired and
+              // forgotten so a failure is logged against this request, and
+              // never thrown — the customer's answer is already saved, and a stale
+              // open page is a nuisance where a 500 on a successful reply is a bug.
+              // A `resolve` for a key that never triggered is a provider-side
+              // no-op, which is what lets the sweep keep no state at all.
+              await resolveCasePage(supportCase.id);
+            }
+            // Audited on the STAFF side only. A tenant replying to its own case is
+            // ordinary correspondence; a vendor reply is the act the response target
+            // is measured against, and `firstResponse` records whether THIS reply
+            // was the one that stopped the clock.
+            recordAudit({
+              action: 'support.case.reply',
+              actorId: actorId({ userId }),
+              orgId,
+              affectedOrgId: rootMessage.orgId,
+              targetType: 'support_case',
+              targetId: id,
+              details: { firstResponse: stamped },
+            });
+            incCounter('support_cases_total', { action: 'staff_replied' });
+          } catch (err) {
+            // The reply is committed. Losing the measurement is bad; rejecting a
+            // staff reply because the measurement failed is worse.
+            ctx.log('WARN', 'Support first-response stamp failed', { threadId: id, error: errorMessage(err) });
+            incCounter('support_cases_total', { action: 'first_response_failed' });
+          }
         }
-        // Audited on the STAFF side only. A tenant replying to its own case is
-        // ordinary correspondence; a vendor reply is the act the response target
-        // is measured against, and `firstResponse` records whether THIS reply
-        // was the one that stopped the clock.
-        recordAudit({
-          action: 'support.case.reply',
-          actorId: actorId({ userId }),
-          orgId,
-          affectedOrgId: rootMessage.orgId,
-          targetType: 'support_case',
-          targetId: id,
-          details: { firstResponse: stamped },
-        });
-        incCounter('support_cases_total', { action: 'staff_replied' });
-      } catch (err) {
-        // The reply is committed. Losing the measurement is bad; rejecting a
-        // staff reply because the measurement failed is worse.
-        ctx.log('WARN', 'Support first-response stamp failed', { threadId: id, error: errorMessage(err) });
-        incCounter('support_cases_total', { action: 'first_response_failed' });
-      }
-    }
-
-    if (attachmentIds?.length) {
-      const linked = await attachmentService.linkToMessage(attachmentIds, reply.id, orgId, userId);
-      if (linked.length !== attachmentIds.length) {
-        ctx.log('WARN', 'Some reply attachments did not link', { requested: attachmentIds.length, linked: linked.length });
-      }
-    }
-
-    ctx.log('COMPLETED', 'Reply created', { id: reply.id, threadId: id });
-
-    // Domain metric — a reply is a created message row too.
-    incCounter('message_events_total', { action: 'created' });
-
-    notifyNewMessage(sseManager, {
-      recipientOrgId: replyRecipientOrgId,
-      messageId: reply.id,
-      threadId: id,
-      subject: rootMessage.subject,
-      targeted: !!replyRecipientUserId,
-      senderOrgId: orgId,
-      messageType: replyMessageType,
-    }, (err) => ctx.log('WARN', 'Failed to send SSE notification', { error: errorMessage(err) }));
-
-    return sendSuccess(res, 201, await enrichOneWithOrgNames(reply), 'Reply sent successfully');
+      },
+      successMessage: 'Reply sent successfully',
+    });
   });
 
   // The ordinary reply: any participant holding `messages:write`.

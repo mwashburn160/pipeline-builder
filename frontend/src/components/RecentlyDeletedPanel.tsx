@@ -1,7 +1,6 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import type { BadgeColor } from '@/components/ui/Badge';
 import { useCallback, useState } from 'react';
 import { History, RotateCcw, Trash2 } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
@@ -16,7 +15,7 @@ import { StepUpModal } from '@/components/admin/StepUpModal';
 import { useFetch } from '@/hooks/useFetch';
 import { formatError } from '@/lib/constants';
 import api from '@/lib/api';
-import { visibilityRung } from '@/components/ui/visibility-rungs';
+import { visibilityColor } from '@/components/ui/visibility-rungs';
 import type { Pipeline, Plugin, Message, PipelineTemplate, Visibility } from '@/types';
 import type { ComplianceRule, CompliancePolicy } from '@/types/compliance';
 import type { Dashboard, AlertRule, AlertDestination } from '@/types/observability';
@@ -32,25 +31,6 @@ interface DeletedRow {
   createdBy?: string;
   deletedAt?: string | null;
   deletedBy?: string | null;
-}
-
-/** Badge tint per sharing level — widest reach is the most prominent. */
-/** Keyed off `Visibility`, so a rung added to the ladder is a compile error here
- *  rather than a badge that silently reads grey. The lookup below keeps its
- *  fallback because the row's `visibility` arrives as a plain string. */
-const VISIBILITY_BADGE_COLOR: Record<Visibility, BadgeColor> = {
-  public: 'blue',
-  org: 'green',
-  private: 'gray',
-};
-
-/** A row's `visibility` arrives as a plain string, so it is narrowed through the
- *  ladder catalog's own `visibilityRung` — the same lookup `AccessCell` uses, and
- *  no cast. A value outside the ladder keeps its grey badge and still prints what
- *  it actually says. */
-function badgeColorFor(visibility: string): BadgeColor {
-  const rung = visibilityRung(visibility);
-  return rung ? VISIBILITY_BADGE_COLOR[rung.value] : 'gray';
 }
 
 /**
@@ -226,7 +206,7 @@ const RESOURCES: Record<Resource, ResourceConfig> = {
 export function RecentlyDeletedPanel({ resource, canRestoreRow, onRestored }: {
   resource: Resource;
   /** Optional per-row gate mirroring the list page's row-level write check.
-   *  Restoring a PUBLIC entity needs `:publish` (backend `requirePublicAccess`),
+   *  Restoring a PUBLIC entity needs `:publish` (the restore route's `publishPermission` gate),
    *  so a write-but-not-publish user should not see Restore on a public tombstone
    *  (else they get a 403 after the password prompt). Defaults to always-allowed. */
   canRestoreRow?: (row: DeletedRow) => boolean;
@@ -312,7 +292,7 @@ export function RecentlyDeletedPanel({ resource, canRestoreRow, onRestored }: {
     {
       id: 'visibility',
       header: 'Visibility',
-      render: (r) => (r.visibility ? <Badge color={badgeColorFor(r.visibility)}>{r.visibility}</Badge> : null),
+      render: (r) => (r.visibility ? <Badge color={visibilityColor(r.visibility)}>{r.visibility}</Badge> : null),
     },
     { id: 'deletedAt', header: 'Deleted', render: (r) => (r.deletedAt ? <RelativeTime value={r.deletedAt} /> : <span className="text-fg-subtle">—</span>) },
     { id: 'deletedBy', header: 'Deleted by', cellClassName: 'text-fg-muted text-sm', render: (r) => r.deletedBy || '—' },

@@ -176,7 +176,7 @@ export function pipelinesApi(core: ApiCore) {
      * compliance scans) is independently org-scoped. Sharing a pipeline with a
      * TEAM is done on the two fields below instead: `visibility: 'public'` —
      * which a team org reads through its parent — and `ownerId`/`ownerType`,
-     * the catalog owner. See `PipelineOwnerFields`.
+     * the catalog owner. See `CatalogOwnerFields`.
      *
      * `ownerId`/`ownerType` are admin-only server-side (a plain member's values
      * are dropped, not rejected), and the `public` rung needs `pipelines:publish`.

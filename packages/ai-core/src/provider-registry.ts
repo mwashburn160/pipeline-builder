@@ -19,6 +19,7 @@ import {
   ErrorCode,
   type AIProviderInfo,
   type AIModelInfo,
+  type AiKeySource,
 } from '@pipeline-builder/api-core';
 import type { LanguageModel } from 'ai';
 
@@ -238,19 +239,13 @@ export interface ModelSelection {
   fallbacks?: string[];
 }
 
-/**
- * Whose key pays for a call: the caller's own bring-your-own key (`request`), the
- * organization's configured provider key (`org`), or the platform's env-configured
- * key / IAM role (`platform`). Only `platform` may fail over between providers.
- */
-export type KeySource = 'request' | 'org' | 'platform';
-
 /** A resolved model plus who actually serves it. */
 export interface ResolvedModelSelection {
   model: LanguageModel;
   provider: string;
   modelId: string;
-  keySource: KeySource;
+  /** Whose key pays (api-core `AI_KEY_SOURCES`). Only `platform` may fail over between providers. */
+  keySource: AiKeySource;
   /** Set when a fallback provider serves the request: the provider originally asked for. */
   fallbackFrom?: string;
 }

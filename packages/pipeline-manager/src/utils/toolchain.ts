@@ -16,16 +16,15 @@
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { BUILD_IMAGE_STEP_KEY, ErrorCode, errorMessage } from '@pipeline-builder/api-core';
+import { BUILD_IMAGE_STEP_KEY, ErrorCode, errorMessage, MANAGED_TOOLCHAIN, toolchainReleasePin } from '@pipeline-builder/api-core';
 import {
   type LookupToolchain, type LookupWarning, type ResolvedBootstrap, parseLookupToolchain, pluginArtifactAlias, unwrapLookup,
 } from '@pipeline-builder/pipeline-core';
 import type { ApiClient } from './api-client.js';
-import { PluginResolutionError, isManagedToolchainRef, printLookupWarning, serviceErrorCode, toolchainReleasePin } from './plugin-resolver.js';
+import { PluginResolutionError, isManagedToolchainRef, printLookupWarning, serviceErrorCode } from './plugin-resolver.js';
 import { bakePlatformRegistry } from './registry.js';
 
-export const BOOTSTRAP_PLUGIN = 'pipeline-bootstrap';
-export const SYNTH_PLUGIN = 'cdk-synth';
+const { bootstrap: BOOTSTRAP_PLUGIN, synth: SYNTH_PLUGIN } = MANAGED_TOOLCHAIN;
 
 /** `toolchain export` file format version. */
 export const TOOLCHAIN_FILE_FORMAT = 1;

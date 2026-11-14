@@ -11,6 +11,7 @@ import {
   extractDbError,
   getParam,
   parsePaginationParams,
+  TOOLCHAIN_RESOLVED_VIA,
   requirePermission,
   validateBody,
   audited,
@@ -44,7 +45,7 @@ const StepManifestEntrySchema = z.object({
    * The build-image entry only (the sentinel (stage, action)): how synth chose
    * the toolchain release. Its release version is re-read from the plugin row.
    */
-  resolvedVia: z.enum(['pin', 'org-default', 'canary', 'default']).optional(),
+  resolvedVia: z.enum(TOOLCHAIN_RESOLVED_VIA).optional(),
 });
 
 /** Upper bound on manifest entries per registration (CodePipeline caps a pipeline far below this). */
@@ -145,11 +146,11 @@ export function createRegistryRoutes(): Router {
         ctx.log('WARN', 'Rejected registry claim for a pipeline owned by another org', { pipelineId: v.pipelineId });
         return sendError(res, 409, 'Pipeline is registered to a different organization', ErrorCode.CONFLICT);
       }
-      // Unexpected DB error: return a generic message with only sanitized DB
-      // metadata (code/constraint/table) — never the driver message, which carries
-      // the SQL + bound params.
+      // Unexpected DB error: a generic message. The sanitized DB metadata
+      // (code/constraint/table names) stays in the log, correlated by requestId,
+      // as on create — schema names are not the caller's to read.
       ctx.log('ERROR', 'Pipeline registration failed', { pipelineId: v.pipelineId, db: extractDbError(err) });
-      return sendError(res, 500, 'Failed to register pipeline', ErrorCode.DATABASE_ERROR, extractDbError(err));
+      return sendError(res, 500, 'Failed to register pipeline', ErrorCode.DATABASE_ERROR);
     }
   }));
 

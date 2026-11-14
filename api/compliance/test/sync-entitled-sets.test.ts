@@ -105,6 +105,36 @@ describe('syncEntitledSets', () => {
     expect(res.deactivated).toEqual(ADVANCED);
   });
 
+  it('never switches off a rule that an ENTITLED set also covers', async () => {
+    // `both` is tagged set:standard AND set:advanced. An account entitled to
+    // standard only had it activated by the standard pass and then deactivated
+    // by the advanced pass — ending inactive while reported as activated.
+    findBySetTag.mockImplementation(async (tag: string) => {
+      if (tag === 'set:standard') return [...STANDARD, 'both'];
+      if (tag === 'set:advanced') return [...ADVANCED, 'both'];
+      return [];
+    });
+    getActive.mockResolvedValue(['both', 'a1']);
+
+    const res = await svc.syncEntitledSets('org-1', ['standard'], 'u1');
+
+    expect(bulkSetActive).toHaveBeenCalledWith('org-1', ADVANCED, false, 'u1', TX);
+    expect(bulkSetActive.mock.calls.flatMap((c: unknown[]) => c[1] as string[])).not.toContain('both');
+    expect(res.deactivated).toEqual(['a1']);
+    expect(res.activated).toEqual(STANDARD);
+  });
+
+  it('activates a rule in two entitled sets once, not once per set', async () => {
+    findBySetTag.mockImplementation(async (tag: string) => {
+      if (tag === 'set:standard') return ['s1', 'both'];
+      if (tag === 'set:advanced') return ['a1', 'both'];
+      return [];
+    });
+    const res = await svc.syncEntitledSets('org-1', ['standard', 'advanced'], 'u1');
+    expect(res.activated).toEqual(['s1', 'both', 'a1']);
+    expect(bulkSubscribeActive).toHaveBeenLastCalledWith('org-1', ['a1'], 'u1', TX);
+  });
+
   it('is idempotent — a re-sync of already-active rules changes nothing', async () => {
     // Everything already active.
     getActive.mockResolvedValue([...STANDARD, ...ADVANCED]);

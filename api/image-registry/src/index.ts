@@ -6,7 +6,7 @@ import { createApp, runServer, attachRequestContext } from '@pipeline-builder/ap
 
 import { mountRoutes } from './app-routes.js';
 import { config } from './config/index.js';
-import { PLUGIN_SIGNATURES_PATH } from './routes/internal.js';
+import { OWN_BODY_PARSER_PATHS } from './routes/internal.js';
 import { startGcScheduler, startQuarantineGcScheduler } from './services/gc-scheduler.js';
 
 const logger = createLogger('pipeline-image-registry');
@@ -20,9 +20,11 @@ const logger = createLogger('pipeline-image-registry');
 // this simply never fires for those — registering it is still correct.)
 wireServiceSecurity('image-registry');
 
-// The plugin-signature route carries a multi-MB SBOM and parses its own body
-// with a larger limit, so the global 1mb JSON parser must skip it.
-const { app, sseManager } = createApp({ jsonBodyExclude: [PLUGIN_SIGNATURES_PATH] });
+// The routes that parse their own body with their own limit (the plugin-
+// signature route's multi-MB SBOM; the tight limits of the discard and
+// storage-prune bodies): the global 1mb JSON parser must skip them, or it
+// parses first and their limit never applies.
+const { app, sseManager } = createApp({ jsonBodyExclude: [...OWN_BODY_PARSER_PATHS] });
 
 app.use(attachRequestContext(sseManager));
 

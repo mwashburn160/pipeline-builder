@@ -14,41 +14,36 @@
  * individually — no shared To: line).
  */
 
-/** A notification event number. */
-export type EcosystemNotificationEventId =
-  | 'N1' | 'N2' | 'N3' | 'N4' | 'N5' | 'N6' | 'N7' | 'N8' | 'N9' | 'N10'
-  | 'N11' | 'N12' | 'N13' | 'N14' | 'N15' | 'N16' | 'N17' | 'N18' | 'N19' | 'N20'
-  | 'N21' | 'N22' | 'N23' | 'N24' | 'N25' | 'N26' | 'N27' | 'N28' | 'N29'
-  | 'N30' | 'N31' | 'N32' | 'N33' | 'N34';
+import type { Permission } from './permissions.js';
 
 /** A delivery channel. In-app is the source of truth; email is the courtesy copy. */
 export type EcosystemNotificationChannel = 'in_app' | 'email';
 
-/** A per-user EMAIL opt-out key. In-app is never optional. */
-export type EcosystemEmailPreference =
-  | 'ecosystem.reviews.email'
-  | 'ecosystem.upgrades.email'
-  | 'ecosystem.installs.email'
-  | 'ecosystem.moderationDigest.email';
-
-/** The field each preference key is stored under in the user's per-org
- *  `notifications.ecosystem` preferences (platform `UserPreferences`). */
-export const ECOSYSTEM_EMAIL_PREFERENCE_FIELDS: Readonly<Record<EcosystemEmailPreference, EcosystemEmailPreferenceField>> = {
+/**
+ * Per-user EMAIL opt-out keys (in-app is never optional), each mapped to the
+ * field it is stored under in the user's per-org `notifications.ecosystem`
+ * preferences (platform `UserPreferences`).
+ */
+export const ECOSYSTEM_EMAIL_PREFERENCE_FIELDS = {
   'ecosystem.reviews.email': 'reviewsEmail',
   'ecosystem.upgrades.email': 'upgradesEmail',
   'ecosystem.installs.email': 'installsEmail',
   'ecosystem.moderationDigest.email': 'moderationDigestEmail',
-};
+} as const;
+
+/** A per-user EMAIL opt-out key. */
+export type EcosystemEmailPreference = keyof typeof ECOSYSTEM_EMAIL_PREFERENCE_FIELDS;
 
 /** Stored field names of the ecosystem email preferences (all default `true`). */
-export type EcosystemEmailPreferenceField = 'reviewsEmail' | 'upgradesEmail' | 'installsEmail' | 'moderationDigestEmail';
+export type EcosystemEmailPreferenceField = (typeof ECOSYSTEM_EMAIL_PREFERENCE_FIELDS)[EcosystemEmailPreference];
 
 /** Every stored ecosystem email-preference field. */
 export const ECOSYSTEM_EMAIL_PREFERENCE_FIELD_NAMES: readonly EcosystemEmailPreferenceField[] =
   Object.values(ECOSYSTEM_EMAIL_PREFERENCE_FIELDS);
 
-/** How often a batched email is flushed. */
-export type EcosystemDigestCadence = 'hourly' | 'daily' | 'weekly';
+/** How often a batched email is flushed, with the digest subject's label. */
+const DIGEST_CADENCE_LABEL = { hourly: 'Hourly', daily: 'Daily', weekly: 'Weekly' } as const;
+export type EcosystemDigestCadence = keyof typeof DIGEST_CADENCE_LABEL;
 
 /** One event's delivery rules. */
 export interface EcosystemEventSpec {
@@ -69,8 +64,8 @@ export interface EcosystemEventSpec {
   allowsAddress?: boolean;
 }
 
-/** The notification event table, as data. */
-export const ECOSYSTEM_NOTIFICATION_EVENTS: Readonly<Record<EcosystemNotificationEventId, EcosystemEventSpec>> = {
+/** The notification event table, as data (keyed by event number). */
+const EVENTS = {
   N1: { description: 'Anonymous submission received (magic link)', channels: ['email'], preference: null, allowsAddress: true },
   N2: { description: 'Submission verified, entered the moderation queue', channels: ['in_app', 'email'], preference: 'ecosystem.moderationDigest.email', digest: 'daily' },
   N3: { description: 'Submission failed automated gates', channels: ['email'], preference: null, allowsAddress: true },
@@ -119,7 +114,13 @@ export const ECOSYSTEM_NOTIFICATION_EVENTS: Readonly<Record<EcosystemNotificatio
   // releases behind the platform default. Transactional: it says the org's
   // pipelines are building on something it should move off.
   N34: { description: 'Managed toolchain: a release you use was yanked, deprecated, found vulnerable or fell behind; the platform default moved; your org joined a canary; or a pipeline needs a re-deploy to recover', channels: ['in_app', 'email'], preference: null },
-};
+} satisfies Record<string, EcosystemEventSpec>;
+
+/** A notification event number. */
+export type EcosystemNotificationEventId = keyof typeof EVENTS;
+
+/** The notification event table, as data. */
+export const ECOSYSTEM_NOTIFICATION_EVENTS: Readonly<Record<EcosystemNotificationEventId, EcosystemEventSpec>> = EVENTS;
 
 /** Whether `value` is a notification event number. */
 export function isEcosystemNotificationEvent(value: unknown): value is EcosystemNotificationEventId {
@@ -127,9 +128,11 @@ export function isEcosystemNotificationEvent(value: unknown): value is Ecosystem
 }
 
 /** Org-local permissions an {@link EcosystemRecipientSpec} `org_permission` rule may name. */
-export type EcosystemOrgRecipientPermission = 'publishers:manage' | 'plugin_installs:manage' | 'plugins:write' | 'pipelines:write' | 'toolchain:manage';
+const ORG_RECIPIENT_PERMISSIONS = ['publishers:manage', 'plugin_installs:manage', 'plugins:write', 'pipelines:write', 'toolchain:manage'] as const satisfies readonly Permission[];
+export type EcosystemOrgRecipientPermission = (typeof ORG_RECIPIENT_PERMISSIONS)[number];
 /** System-org permissions a `moderators` rule may name. */
-export type EcosystemModeratorPermission = 'plugins:moderate' | 'publishers:verify';
+const MODERATOR_PERMISSIONS = ['plugins:moderate', 'publishers:verify'] as const satisfies readonly Permission[];
+export type EcosystemModeratorPermission = (typeof MODERATOR_PERMISSIONS)[number];
 
 /**
  * A recipient RULE, resolved by platform at send time:
@@ -182,10 +185,8 @@ export const ECOSYSTEM_NOTIFY_SUBJECT_MAX = 500;
 export const ECOSYSTEM_NOTIFY_TEXT_MAX = 10000;
 const MAX_RECIPIENT_RULES = 50;
 
-const ORG_PERMISSIONS: readonly string[] = ['publishers:manage', 'plugin_installs:manage', 'plugins:write', 'pipelines:write', 'toolchain:manage'];
 /** At most this many users in one `org_members` rule. */
 export const ECOSYSTEM_ORG_MEMBERS_MAX = 100;
-const MODERATOR_PERMISSIONS: readonly string[] = ['plugins:moderate', 'publishers:verify'];
 const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function nonEmptyString(v: unknown, max = 255): v is string {
@@ -202,7 +203,7 @@ function parseRecipient(raw: unknown, spec: EcosystemEventSpec): EcosystemRecipi
       return { kind: 'user', userId: r.userId, ...(r.orgId ? { orgId: r.orgId as string } : {}) };
     case 'org_permission':
       if (!nonEmptyString(r.orgId)) return 'org_permission recipient needs orgId';
-      if (typeof r.permission !== 'string' || !ORG_PERMISSIONS.includes(r.permission)) return 'org_permission recipient names an unsupported permission';
+      if (typeof r.permission !== 'string' || !(ORG_RECIPIENT_PERMISSIONS as readonly string[]).includes(r.permission)) return 'org_permission recipient names an unsupported permission';
       return {
         kind: 'org_permission',
         orgId: r.orgId,
@@ -217,7 +218,7 @@ function parseRecipient(raw: unknown, spec: EcosystemEventSpec): EcosystemRecipi
       return { kind: 'org_members', orgId: r.orgId, userIds: [...new Set(users as string[])] };
     }
     case 'moderators': {
-      if (typeof r.permission !== 'string' || !MODERATOR_PERMISSIONS.includes(r.permission)) return 'moderators recipient names an unsupported permission';
+      if (typeof r.permission !== 'string' || !(MODERATOR_PERMISSIONS as readonly string[]).includes(r.permission)) return 'moderators recipient names an unsupported permission';
       if (r.excludeMembersOfOrgId !== undefined && !nonEmptyString(r.excludeMembersOfOrgId)) return 'excludeMembersOfOrgId must be a string';
       const exclude = r.excludeUserIds;
       if (exclude !== undefined && (!Array.isArray(exclude) || !exclude.every((u) => nonEmptyString(u)))) return 'excludeUserIds must be an array of ids';
@@ -363,7 +364,7 @@ export function renderEcosystemDigest(
 ): EcosystemNotificationContent {
   if (items.length === 1) return items[0]!;
   const spec = ECOSYSTEM_NOTIFICATION_EVENTS[event];
-  const cadence = spec.digest === 'hourly' ? 'Hourly' : spec.digest === 'weekly' ? 'Weekly' : 'Daily';
+  const cadence = DIGEST_CADENCE_LABEL[spec.digest ?? 'daily'];
   return {
     subject: `${cadence} digest: ${items.length} × ${spec.description}`.slice(0, ECOSYSTEM_NOTIFY_SUBJECT_MAX),
     text: items.map((i) => `• ${i.subject}`).join('\n').slice(0, ECOSYSTEM_NOTIFY_TEXT_MAX),

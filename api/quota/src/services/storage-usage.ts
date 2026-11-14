@@ -8,9 +8,13 @@
  * measures an org's namespace live and enforces its push gate itself, so
  * `usage.storageBytes.used` is structurally 0 and the dashboard used to report
  * "0 B of 25 GB" for an org with a full registry. This fills `used` from the
- * registry's own measurement, for READS only (`findByOrgId` — the dashboard,
- * the per-org at-risk view). The enforcement read the registry itself makes
- * (`GET /quotas/:orgId/storageBytes`) never calls back into the registry.
+ * registry's own measurement: for the summary reads (`findByOrgId` — the
+ * dashboard, the per-org at-risk view), for the single-type read the registry's
+ * push gate makes (`GET /quotas/:orgId/storageBytes`, which reports the whole
+ * ACCOUNT's total so the cap is an account budget — see
+ * `QuotaService.withAccountStorage`), and for the storage notice sweep. The
+ * per-org cache below is what keeps that gate read from fanning out to the
+ * registry on every token issuance.
  *
  * Contract: `GET /internal/storage-usage/:orgId` on the image-registry → `200
  * { data: { bytes } }`, service-token authenticated with `quota` as the caller.

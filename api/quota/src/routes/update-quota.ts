@@ -278,12 +278,9 @@ export function createUpdateQuotaRoutes(svc: QuotaService = defaultQuotaService)
         }
 
         // No bypass: the only callers are services, and a service metering a
-        // tenant's usage must never be able to waive that tenant's cap. (The
-        // sysadmin bypass this replaced was unreachable for a service token —
-        // `isSuperAdmin` is a user claim — and the sysadmin path itself is gone.)
-        const result = await svc.incrementUsage(targetOrgId, typedType, amount, {
-          bypassLimit: false,
-        });
+        // tenant's usage must never be able to waive that tenant's cap — the
+        // service has no bypass path at all.
+        const result = await svc.incrementUsage(targetOrgId, typedType, amount);
 
         // Ledger + notices are fire-and-forget: attribution, never enforcement.
         // A DENIAL (a reservation refused at the limit) is recorded too — the

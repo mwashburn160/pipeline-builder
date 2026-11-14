@@ -49,7 +49,7 @@ jest.unstable_mockModule('../src/helpers/mfa-policy.js', () => ({
 }));
 jest.unstable_mockModule('../src/helpers/impersonation-policy.js', () => ({
   canSelectDeniedPolicy: async () => true,
-  IMPERSONATION_POLICIES: ['open', 'consent', 'denied'],
+  impersonationStrictness: (p: string) => ['open', 'consent', 'denied'].indexOf(p),
   MIN_SYSADMINS_FOR_DENIED: 2,
   resolveEffectiveImpersonationPolicy: (...a: unknown[]) => mockImpPolicy(...a),
   resolveImpersonationPolicy: jest.fn<AnyFn>(),

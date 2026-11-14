@@ -5,6 +5,7 @@ import type { AccessKeyMeta } from './auth';
 import type { ApiCore } from '../core';
 import { buildQuery } from '../util';
 import type { ApiResponse, Organization, OrganizationMember, MemberTeam, OrganizationRole, OrgAIConfig, Invitation, InvitationDelivery, OrgIdpConfigDto, OrgIdpConfigCreate, IdpGroupMappingDto, OrgMfaPolicy, OrgPasswordPolicy, OrgAuthenticatorPolicy, MfaResetRequest, ParsedIdpMetadata, QuotaTier, SsoSpInfo, SsoTestReport } from '@/types';
+import type { OrgRole } from '@pipeline-builder/api-core/wire-vocabulary';
 
 /**
  * An org SERVICE ACCOUNT: a non-human principal owned by the org. It holds the
@@ -47,7 +48,7 @@ export interface OrganizationRosterMember {
   _id: string;
   username?: string;
   email?: string;
-  role: 'owner' | 'admin' | 'member';
+  role: OrgRole;
   joinedAt?: string;
 }
 
@@ -211,7 +212,7 @@ export function organizationsApi(core: ApiCore) {
         limit?: number;
         offset?: number;
         search?: string;
-        role?: 'owner' | 'admin' | 'member';
+        role?: OrgRole;
         status?: 'active' | 'inactive';
         sortBy?: string;
         sortOrder?: 'asc' | 'desc';
@@ -288,7 +289,7 @@ export function organizationsApi(core: ApiCore) {
     },
 
     /** Add one user (by id or email) to several teams in `orgId`'s subtree at once. */
-    bulkAddMemberToTeams: async (orgId: string, data: { userId?: string; email?: string; orgIds: string[]; role?: 'owner' | 'admin' | 'member' }) => {
+    bulkAddMemberToTeams: async (orgId: string, data: { userId?: string; email?: string; orgIds: string[]; role?: OrgRole }) => {
       return core.request<ApiResponse<{ results: Array<{ orgId: string; status: 'added' | 'already_member' }> }>>(`/api/organization/${orgId}/members/bulk-add`, {
         method: 'POST',
         body: JSON.stringify(data),
@@ -501,7 +502,7 @@ export function organizationsApi(core: ApiCore) {
     getInvitationByToken: async (token: string) => {
       return core.request<ApiResponse<{ invitation: {
         email: string;
-        role: 'owner' | 'admin' | 'member';
+        role: OrgRole;
         status: 'pending' | 'accepted' | 'expired' | 'revoked';
         expiresAt: string;
         organization: string;
@@ -516,13 +517,12 @@ export function organizationsApi(core: ApiCore) {
 
     /** Accept an invitation as the currently logged-in user (POST /invitation/accept).
      *  Body is just `{ token }`; the backend matches the invite email against the
-     *  authenticated user. An OAuth provider (when the invite came in via OAuth)
-     *  is forwarded via the `X-OAuth-Provider` header, mirroring the controller. */
-    acceptInvitation: async (token: string, oauthProvider?: string) => {
+     *  authenticated user, and an OAuth-only invitation against the account's
+     *  LINKED identities — never a client-asserted provider. */
+    acceptInvitation: async (token: string) => {
       return core.request<ApiResponse<undefined>>('/api/invitation/accept', {
         method: 'POST',
         body: JSON.stringify({ token }),
-        headers: oauthProvider ? { 'X-OAuth-Provider': oauthProvider } : undefined,
       });
     },
 

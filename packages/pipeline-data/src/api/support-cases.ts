@@ -11,16 +11,17 @@
  * the workflow axis: identity, status, ownership and the response clock.
  */
 
+import { LIVE_SUPPORT_CASE_STATUSES, type SupportCaseStatus } from '@pipeline-builder/api-core';
 import { and, asc, eq, gte, inArray, isNull, lte, sql } from 'drizzle-orm';
 import { schema } from '../database/drizzle-schema.js';
 import type { SupportCase } from '../database/schema/support.js';
 import { runWithTenantContext, withTenantTx } from '../database/tenancy.js';
 
-/** Statuses a case can be in. `awaiting_customer` is what stops the clock. */
-export const SUPPORT_CASE_STATUSES = ['open', 'awaiting_support', 'awaiting_customer', 'resolved', 'closed'] as const;
-export type SupportCaseStatus = (typeof SUPPORT_CASE_STATUSES)[number];
-
-/** The statuses the staff queue asks about — the ones still on us. */
+/**
+ * The statuses the staff queue asks about — the ones still on us. (The full set
+ * is api-core's `SUPPORT_CASE_STATUSES`; `awaiting_customer` is what stops the
+ * clock.)
+ */
 export const QUEUE_STATUSES: readonly SupportCaseStatus[] = ['open', 'awaiting_support'];
 
 /** What opening a case needs. `level` is frozen onto the row at open. */
@@ -401,7 +402,7 @@ export async function openCasesForContact(orgId: string, userId: string): Promis
     .where(and(
       eq(schema.supportCase.orgId, orgId),
       eq(schema.supportCase.tenantContact, userId),
-      inArray(schema.supportCase.status, ['open', 'awaiting_support', 'awaiting_customer']),
+      inArray(schema.supportCase.status, [...LIVE_SUPPORT_CASE_STATUSES]),
       isNull(schema.supportCase.deletedAt),
     )));
 }
@@ -529,18 +530,22 @@ export async function listCaseNotes(caseId: string): Promise<SupportCaseNote[]> 
 }
 
 /**
- * Soft-delete a note.
+ * Soft-delete a note ON a case.
+ *
+ * Keyed by BOTH ids: a note id alone would let a note on case B be removed
+ * through case A's URL (and the caller's audit row would name case A).
  *
  * Soft because a note is a record of what the desk believed at the time, and a
- * dispute may turn on it. Returns whether a row moved, so a second delete is a
- * reported no-op rather than a silent success.
+ * dispute may turn on it. Returns whether a row moved, so a second delete (or a
+ * note that is not on this case) is a reported no-op rather than a silent success.
  */
-export async function deleteCaseNote(noteId: string, deletedBy: string): Promise<boolean> {
+export async function deleteCaseNote(caseId: string, noteId: string, deletedBy: string): Promise<boolean> {
   const rows = await withTenantTx((tx) => tx
     .update(schema.supportCaseNote)
     .set({ isActive: false, deletedAt: new Date(), deletedBy })
     .where(and(
       eq(schema.supportCaseNote.id, noteId),
+      eq(schema.supportCaseNote.caseId, caseId),
       eq(schema.supportCaseNote.isActive, true),
     ))
     .returning({ id: schema.supportCaseNote.id }));

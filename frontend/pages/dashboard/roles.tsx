@@ -32,19 +32,7 @@ import { ORG_ASSIGNABLE_CATEGORIES, PERMISSION_CATALOG, permissionLabel } from '
 import api from '@/lib/api';
 import type { OrganizationRole, RoleGrant } from '@/types';
 import { formatError } from '@/lib/constants';
-
-/** Badge colour per coarse role a Role grants — superadmin is the loudest. */
-const ROLE_BADGE: Record<RoleGrant, BadgeColor> = {
-  superadmin: 'red',
-  admin: 'purple',
-  member: 'gray',
-};
-
-const ROLE_LABEL: Record<RoleGrant, string> = {
-  superadmin: 'grants platform admin',
-  admin: 'grants org admin',
-  member: 'standard access',
-};
+import { ROLE_GRANT_META } from '@/lib/org-roles';
 
 // Permission id → category, and the catalog's category display order, used to
 // render a compact "Pipelines 3 · Compliance 2 · …" summary instead of the full
@@ -283,7 +271,7 @@ export default function RolesPage() {
                     {isSuperRole ? <ShieldAlert className="w-4 h-4 text-danger" /> : <ShieldCheck className="w-4 h-4 text-fg-muted" />}
                     {r.name}
                     {r.system
-                      ? <Badge color={ROLE_BADGE[r.grantsRole]}>{r.grantsRole}</Badge>
+                      ? <Badge color={ROLE_GRANT_META[r.grantsRole]?.color ?? 'gray'}>{r.grantsRole}</Badge>
                       : <Badge color="blue">custom</Badge>}
                   </span>
                 }
@@ -310,7 +298,7 @@ export default function RolesPage() {
               >
                 <p className="text-xs text-fg-muted inline-flex items-center gap-1.5">
                   <span className="font-medium text-fg">
-                    {r.system ? ROLE_LABEL[r.grantsRole] : `${r.permissions.length} permission${r.permissions.length === 1 ? '' : 's'}`}
+                    {r.system ? ROLE_GRANT_META[r.grantsRole]?.summary : `${r.permissions.length} permission${r.permissions.length === 1 ? '' : 's'}`}
                   </span>
                   <span className="text-[var(--pb-border)]">·</span>
                   <span className="inline-flex items-center gap-1">

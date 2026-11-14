@@ -13,36 +13,30 @@
 
 import { getTierLimits, type QuotaTier, type QuotaTierLimits } from '@pipeline-builder/api-core';
 import type { BundleConfig } from './billing-types.js';
+import { BASELINE_SUPPORT_LEVELS, SUPPORT_LEVELS, isSupportLevel } from './support-levels.js';
 
 /**
- * The support-level bundles, WORST to BEST. Response levels replace one another
- * rather than stacking — an account is on one support level — but `BundleConfig`
- * has `stackable` and `requires` and no notion of mutual exclusion, so without
- * this a drifted or mistakenly stored add-on set can hold two levels at once and
+ * The single BASELINE support level that applies, or undefined when none is held.
+ *
+ * Baselines replace one another rather than stacking — an account is on one
+ * baseline — but `BundleConfig` has no notion of mutual exclusion, so without
+ * this a drifted or mistakenly stored add-on set could hold two at once and
  * yield a muddled entitlement (both flags set, contacts summed across levels).
+ * The best-ranked baseline held wins.
  *
- * Order IS the precedence: the best level held wins. Index is the rank.
- */
-const SUPPORT_LEVEL_RANK: readonly string[] = ['support_standard', 'support_priority', 'support_premium'];
-
-/**
- * The single support bundle that applies, or undefined when none is held.
+ * The premium UPGRADE is not a baseline and never competes here: it stacks on
+ * top of whichever baseline is held (see `SUPPORT_LEVELS`). Ranking it as a
+ * third level was a defect — it evicted the baseline it was bought on, zeroing
+ * `supportContacts` for every premium customer.
  *
- * Note this is defence in depth, not the primary gate: the add-on purchase route
- * should reject acquiring a second level up front. This keeps the CANONICAL math
- * coherent for every other caller — the drift reconciler and the
- * subscription-lifecycle sync both compute entitlements from stored state they
- * did not validate.
+ * Defence in depth, not the primary gate: the add-on purchase route rejects
+ * acquiring a second baseline up front. This keeps the CANONICAL math coherent
+ * for every other caller — the drift reconciler and the subscription-lifecycle
+ * sync both compute entitlements from stored state they did not validate.
  */
-function winningSupportLevel(addons: ReadonlyArray<{ bundleId: string; quantity: number }>): string | undefined {
-  let best: string | undefined;
-  let bestRank = -1;
-  for (const { bundleId, quantity } of addons) {
-    if (quantity <= 0) continue;
-    const rank = SUPPORT_LEVEL_RANK.indexOf(bundleId);
-    if (rank > bestRank) { bestRank = rank; best = bundleId; }
-  }
-  return best;
+function winningBaseline(addons: ReadonlyArray<{ bundleId: string; quantity: number }>): string | undefined {
+  const held = new Set(addons.filter((a) => a.quantity > 0).map((a) => a.bundleId));
+  return BASELINE_SUPPORT_LEVELS.find((id) => held.has(id));
 }
 
 /**
@@ -58,16 +52,16 @@ export function effectiveEntitlements(
   const limits = { ...getTierLimits(tier) } as Record<keyof QuotaTierLimits, number>;
   const features = new Set<string>();
   const byId = new Map(bundles.map((b) => [b.id, b]));
-  // Response levels are mutually exclusive: resolve the one that applies BEFORE
-  // summing, so a lower level contributes neither its flag nor its contacts.
+  // Baseline levels are mutually exclusive: resolve the one that applies BEFORE
+  // summing, so a lower baseline contributes neither its flag nor its contacts.
   // Dropping the loser's grants is deliberate — a double purchase is a billing
   // error to resolve, not a reason to inflate the contact allowance into a count
   // that corresponds to nothing purchasable.
-  const supportLevel = winningSupportLevel(addons);
+  const baseline = winningBaseline(addons);
   for (const { bundleId, quantity } of addons) {
     const bundle = byId.get(bundleId);
     if (!bundle || quantity <= 0) continue;
-    if (SUPPORT_LEVEL_RANK.includes(bundleId) && bundleId !== supportLevel) continue;
+    if (isSupportLevel(bundleId) && SUPPORT_LEVELS[bundleId].kind === 'baseline' && bundleId !== baseline) continue;
     // Enforce the non-stackable invariant AND the maxQuantity ceiling in the
     // CANONICAL math, not just at the purchase route: a `stackable:false` bundle
     // counts once, and a stackable pack is clamped to its `maxQuantity` — so a

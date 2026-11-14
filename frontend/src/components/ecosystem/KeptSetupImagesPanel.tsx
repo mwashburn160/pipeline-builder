@@ -18,7 +18,7 @@ import { ApiError } from '@/lib/api/errors';
 import type { KeptSetupImageView, PromotionResult } from '@/lib/api/pipeline-security-types';
 import { formatError } from '@/lib/constants';
 import { describeFinding, normalizeVulnFindings } from '@/lib/plugin-vulns';
-import { shortDigest } from '@/lib/pipeline-security';
+import { shortDigest } from '@/lib/format';
 
 /** The outcome of the last promote attempt per image. */
 type Outcome =

@@ -13,6 +13,7 @@
  * Unknown or malformed values parse to the default rather than failing, so a
  * hand-edited or stale link degrades to the plain inbox.
  */
+import { MESSAGE_PRIORITY_IDS } from '@/lib/message-priority';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { NextRouter } from 'next/router';
 import type { MessagePriority } from '@/types';
@@ -54,7 +55,7 @@ const KEYS: Record<keyof InboxQuery, string> = {
 
 const TABS: readonly MessageView[] = ['all', 'conversations', 'announcements'];
 const READS: readonly ReadFilter[] = ['unread', 'read'];
-const PRIORITIES: readonly PriorityFilter[] = ['normal', 'high', 'urgent'];
+const PRIORITIES: readonly PriorityFilter[] = MESSAGE_PRIORITY_IDS;
 const CHANNELS: readonly ChannelFilter[] = ['support'];
 const RELATIVE_FROM = ['me', 'org', 'others'] as const;
 

@@ -36,7 +36,6 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@p
   REVIEW_SORTS: ['helpful', 'recent', 'highest', 'lowest'],
   normalizeQuery: (q: string | undefined) => (q ?? '').replace(/\s+/g, ' ').trim().slice(0, 100),
   DIRECTORY_SORTS: ['relevance', 'rating', 'installs', 'updated', 'name'],
-  DIRECTORY_TIERS: ['official', 'verified', 'community', 'unverified'],
 }));
 
 const rateLimitOptions: Array<Record<string, unknown>> = [];

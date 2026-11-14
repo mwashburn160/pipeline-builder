@@ -21,7 +21,7 @@ import type { PgTable } from 'drizzle-orm/pg-core';
 import { installingOrgs } from './ecosystem/install-notify.js';
 import { listingsWithPublishers, versions as ecosystemVersions } from './ecosystem/store.js';
 import { DEFAULT_PLUGIN_VERSION, shouldBecomeDefault } from '../helpers/default-version.js';
-import { assertManagedUploadAllowed, assertNotManaged } from '../helpers/managed-toolchain.js';
+import { assertManagedUploadAllowed, assertNotManaged, isYankedVersion } from '../helpers/managed-toolchain.js';
 import { pipelinePluginRefs } from '../helpers/pipeline-plugin-refs.js';
 
 const logger = createLogger('plugin-service');
@@ -714,9 +714,14 @@ export class PluginService extends CrudService<
 
   /** Forget a version's quota snapshot once its slot has been refunded. */
   async clearQuotaSnapshot(pluginId: string): Promise<void> {
+    await this.setQuotaSnapshot(pluginId, null);
+  }
+
+  /** Record the quota period a version's slot is charged to (a restore re-charges it), or forget it (`null`). */
+  async setQuotaSnapshot(pluginId: string, resetAt: string | Date | null): Promise<void> {
     await withTenantTx((tx) => tx
       .update(schema.plugin)
-      .set({ quotaResetAt: null })
+      .set({ quotaResetAt: resetAt === null ? null : new Date(resetAt) })
       .where(eq(schema.plugin.id, pluginId)));
   }
 
@@ -734,7 +739,7 @@ export class PluginService extends CrudService<
   ): Promise<Plugin | null> {
     assertNotManaged(existing.name);
     const now = new Date();
-    const yanked = existing.lifecycle === 'yanked' || existing.yankedAt !== null;
+    const yanked = isYankedVersion(existing);
     const updated = await withTenantTx(async (tx) => {
       const [row] = await tx
         .update(schema.plugin)

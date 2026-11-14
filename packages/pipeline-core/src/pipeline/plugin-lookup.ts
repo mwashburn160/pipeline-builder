@@ -3,7 +3,7 @@
 
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
-import { createLogger, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import { createLogger, MANAGED_TOOLCHAIN, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
 import type { PluginFilter, Plugin } from '@pipeline-builder/pipeline-data';
 import { CustomResource, Token, Duration } from 'aws-cdk-lib';
 import { PolicyStatement, Effect } from 'aws-cdk-lib/aws-iam';
@@ -448,7 +448,7 @@ export class PluginLookup extends Construct {
     const tlsFlag = platformTlsVerify() ? '' : ' --no-verify-ssl';
     return {
       ...PluginLookup.basePlugin(),
-      name: 'cdk-synth',
+      name: MANAGED_TOOLCHAIN.synth,
       primaryOutputDirectory: 'cdk.out',
       commands: [
         `pipeline-manager pipeline synth --id \${PIPELINE_ID} --store-tokens --quiet --no-notices${tlsFlag}`,

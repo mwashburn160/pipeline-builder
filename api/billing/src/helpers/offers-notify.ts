@@ -44,6 +44,7 @@ import {
   quotaLabelPlural,
   sendSystemNotification,
   serviceEndpoint,
+  type BillingInterval,
 } from '@pipeline-builder/api-core';
 import type { OfferType } from '../models/offer.js';
 
@@ -95,7 +96,7 @@ export interface OfferEmailFacts {
   candidateTier?: string | null;
   /** For an `upgrade`: what the move SAVES per interval, in cents. */
   savingCents?: number;
-  interval: 'monthly' | 'annual';
+  interval: BillingInterval;
   /** When the offer lapses, so the mail says it rather than implying forever. */
   expiresAt?: Date | null;
 }

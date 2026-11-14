@@ -17,7 +17,7 @@
  * step through the toolchain resolver with the same pin).
  */
 
-import { ErrorCode, managedRefPinsVersion, managedToolchainRefName, toolchainReleasePin } from '@pipeline-builder/api-core';
+import { ErrorCode, MANAGED_TOOLCHAIN, managedRefPinsVersion, managedToolchainRefName, toolchainReleasePin } from '@pipeline-builder/api-core';
 import { isEligibleRelease } from '@pipeline-builder/pipeline-data';
 
 /** A refused toolchain pin, in the write path's rejection shape. */
@@ -54,7 +54,7 @@ function pluginRefs(props: unknown): Array<{ label: string; ref: { name?: unknow
 /** The managed `cdk-synth` steps of `props` that pin their own version (labels). */
 export function stepsPinningManagedVersion(props: unknown): string[] {
   return pluginRefs(props)
-    .filter(({ ref }) => managedToolchainRefName(ref) === 'cdk-synth' && managedRefPinsVersion(ref.filter))
+    .filter(({ ref }) => managedToolchainRefName(ref) === MANAGED_TOOLCHAIN.synth && managedRefPinsVersion(ref.filter))
     .map(({ label }) => label);
 }
 

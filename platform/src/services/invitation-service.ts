@@ -4,13 +4,16 @@
 import { createLogger } from '@pipeline-builder/api-core';
 import mongoose from 'mongoose';
 import { INV_ORG_NOT_FOUND, INV_UNAUTHORIZED, INV_ADMIN_REQUIRES_ADMIN, INV_ALREADY_MEMBER, INV_ALREADY_SENT, INV_MAX_REACHED, INV_SEAT_LIMIT, INV_INVITER_NOT_FOUND, INV_NOT_FOUND, INV_ACCEPTED, INV_EXPIRED, INV_REVOKED, INV_USER_NOT_FOUND, INV_EMAIL_MISMATCH, INV_OAUTH_NOT_ALLOWED, INV_EMAIL_NOT_ALLOWED, INV_NOT_PENDING } from './invitation-errors.js';
-import { assignBuiltinAdminRole, assignRoles, ensureBaselineRole, partitionAssignableRoles, recomputeUserOrgRole } from './roles-service.js';
 import { rolePermissionsFor } from './role-permissions.js';
+import { assignBuiltinAdminRole, assignRoles, ensureBaselineRole, partitionAssignableRoles, recomputeUserOrgRole } from './roles-service.js';
 import { config } from '../config/index.js';
+import { isAdminOrgRole } from '@pipeline-builder/api-core/wire-vocabulary';
+import { GRANTABLE_ORG_ROLES } from '../constants/member-roles.js';
+import { INVITATION_STATUSES, INVITATION_TYPES, type InvitationStatus } from '../constants/vocabulary.js';
 import { toOrgId } from '../helpers/org-id.js';
 import { seatCapacityAvailable, seatCapacityStillWithinCap, withSeatGuard } from '../helpers/seats.js';
-import { Invitation, type InvitationDocument, type InvitationStatus, Organization, type OrganizationDocument, Role, User, type UserDocument, UserOrganization } from '../models/index.js';
-import type { InvitationOAuthProvider } from '../models/invitation.js';
+import { Invitation, type InvitationDocument, Organization, type OrganizationDocument, Role, User, type UserDocument, UserOrganization } from '../models/index.js';
+import type { OAuthProviderName } from '../types/oauth-provider.js';
 import { emailService } from '../utils/email.js';
 import { withMongoTransaction } from '../utils/mongo-tx.js';
 import { escapeRegex } from '../utils/regex.js';
@@ -54,7 +57,7 @@ interface SendInvitationInput {
   /** Roles to assign on acceptance, already bounded by the inviter's ceiling. */
   roleIds?: string[];
   invitationType: 'email' | 'oauth' | 'any';
-  allowedOAuthProviders?: InvitationOAuthProvider[];
+  allowedOAuthProviders?: OAuthProviderName[];
 }
 
 /**
@@ -212,7 +215,7 @@ class InvitationService {
     const membership = await UserOrganization.findOne({
       userId: inviterId, organizationId, isActive: true,
     }).session(session);
-    return membership?.role === 'admin' || membership?.role === 'owner';
+    return isAdminOrgRole(membership?.role);
   }
 
   /** Common acceptance bookkeeping: create membership, set lastActiveOrgId, mark accepted, notify inviter. */
@@ -220,7 +223,7 @@ class InvitationService {
     invitation: InvitationDocument,
     user: UserDocument,
     org: OrganizationDocument,
-    acceptedVia: 'email' | InvitationOAuthProvider,
+    acceptedVia: 'email' | OAuthProviderName,
     session: mongoose.ClientSession,
   ): Promise<{ notice: AcceptNotice | null; roles: AcceptedRoles }> {
     const memberRole = invitation.role === 'admin' ? 'admin' : 'member';
@@ -353,7 +356,7 @@ class InvitationService {
   private async tombstoneAccepted(
     invitation: InvitationDocument,
     user: UserDocument,
-    via: 'email' | InvitationOAuthProvider,
+    via: 'email' | OAuthProviderName,
     session: mongoose.ClientSession,
   ): Promise<void> {
     invitation.status = 'accepted';
@@ -480,7 +483,7 @@ class InvitationService {
    * Throws INV_USER_NOT_FOUND / INV_EMAIL_MISMATCH / INV_ALREADY_MEMBER /
    * etc. on the various failure cases.
    */
-  async accept(token: string, userId: string, oauthProvider?: InvitationOAuthProvider): Promise<InvitationAcceptResult> {
+  async accept(token: string, userId: string, oauthProvider?: OAuthProviderName): Promise<InvitationAcceptResult> {
     // `alreadyMember` is set inside the tx and acted on AFTER commit. If we
     // threw INV_ALREADY_MEMBER from inside the tx body, withTransaction
     // would roll back the `invitation.status = 'accepted'` write — losing
@@ -493,14 +496,21 @@ class InvitationService {
     const alreadyMember = await withMongoTransaction(async (session) => {
       const invitation = await this.validateToken(token, session);
 
+      const user = await User.findById(userId).session(session);
+      if (!user) throw new Error(INV_USER_NOT_FOUND);
+
+      // The provider is the CLIENT's claim (a request header), so it only counts
+      // when the account really holds a linked identity at that provider. Taken
+      // at its word, any signed-in invitee could name `google` and satisfy an
+      // invitation restricted to Google sign-in — and the trail would record an
+      // `acceptedVia` that never happened.
       if (oauthProvider) {
+        if (!user.oauth?.[oauthProvider]?.id) throw new Error(INV_OAUTH_NOT_ALLOWED);
         if (!invitation.canAcceptViaOAuth(oauthProvider)) throw new Error(INV_OAUTH_NOT_ALLOWED);
       } else {
         if (!invitation.canAcceptViaEmail()) throw new Error(INV_EMAIL_NOT_ALLOWED);
       }
 
-      const user = await User.findById(userId).session(session);
-      if (!user) throw new Error(INV_USER_NOT_FOUND);
       if (user.email !== invitation.email) throw new Error(INV_EMAIL_MISMATCH);
 
       const org = await Organization.findById(invitation.organizationId).session(session);
@@ -596,7 +606,7 @@ class InvitationService {
    */
   async acceptViaOAuth(
     token: string,
-    oauthProvider: InvitationOAuthProvider,
+    oauthProvider: OAuthProviderName,
     oauthData: { id: string; email: string; name?: string; picture?: string },
   ): Promise<InvitationAcceptResult> {
     // Same already-member-after-commit pattern as `accept` — see comment there.
@@ -718,13 +728,13 @@ class InvitationService {
     limit: number;
   }) {
     const query: Record<string, unknown> = { organizationId: toOrgId(orgId) };
-    if (opts.status && ['pending', 'accepted', 'expired', 'revoked'].includes(opts.status)) {
+    if ((INVITATION_STATUSES as readonly unknown[]).includes(opts.status)) {
       query.status = opts.status;
     }
-    if (opts.invitationType && ['email', 'oauth', 'any'].includes(opts.invitationType)) {
+    if ((INVITATION_TYPES as readonly unknown[]).includes(opts.invitationType)) {
       query.invitationType = opts.invitationType;
     }
-    if (opts.role && ['admin', 'member'].includes(opts.role)) {
+    if ((GRANTABLE_ORG_ROLES as readonly unknown[]).includes(opts.role)) {
       query.role = opts.role;
     }
     // Email search — a case-insensitive substring match on the invitee address,

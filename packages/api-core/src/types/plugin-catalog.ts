@@ -61,8 +61,32 @@ export type MetadataSources = Partial<Record<PluginCatalogField, MetadataSource>
  * deprecate, yank, delete) is driven only by the Toolchain console, never the
  * generic plugin routes. Here (dependency-free) so the browser shares the list.
  */
-export const MANAGED_TOOLCHAIN_PLUGINS = ['pipeline-bootstrap', 'cdk-synth'] as const;
+export const MANAGED_TOOLCHAIN = { bootstrap: 'pipeline-bootstrap', synth: 'cdk-synth' } as const;
+/** Both halves' names (every consumer that needs one half by role reads {@link MANAGED_TOOLCHAIN}). */
+export const MANAGED_TOOLCHAIN_PLUGINS = [MANAGED_TOOLCHAIN.bootstrap, MANAGED_TOOLCHAIN.synth] as const;
 export type ManagedToolchainPlugin = typeof MANAGED_TOOLCHAIN_PLUGINS[number];
+
+/** How a managed toolchain release was chosen for a caller (never anything about any other org). */
+export const TOOLCHAIN_RESOLVED_VIA = ['pin', 'org-default', 'canary', 'default'] as const;
+export type ToolchainResolvedVia = typeof TOOLCHAIN_RESOLVED_VIA[number];
+
+/**
+ * Where a managed toolchain release sits, as the Toolchain console and an org's
+ * eligible-release selector both report it (the selector never shows
+ * `deprecated` / `yanked`: those cannot be newly chosen).
+ */
+export const TOOLCHAIN_RELEASE_STATUSES = ['default', 'canary', 'available', 'deprecated', 'yanked'] as const;
+export type ToolchainReleaseStatus = typeof TOOLCHAIN_RELEASE_STATUSES[number];
+
+/**
+ * Where a managed build image's `toolchain` is persisted: its plugin row's
+ * `metadata`, one flat `toolchain.<field>` key per tool (the column is a flat
+ * string map, and a `BuildImage` spec may carry no step `metadata` of its own,
+ * so the keys never collide). Written at upload by `toolchainMetadata`, read by
+ * `toolchainFromMetadata` (validation/plugin-spec-schema.ts) and by
+ * pipeline-core's lookup envelope.
+ */
+export const TOOLCHAIN_METADATA_PREFIX = 'toolchain.';
 
 /** Whether `name` is one of the reserved {@link MANAGED_TOOLCHAIN_PLUGINS} (exact, case-insensitive). */
 export function isManagedToolchainPlugin(name: string | null | undefined): name is ManagedToolchainPlugin {

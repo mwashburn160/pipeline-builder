@@ -19,10 +19,11 @@ import { siteUrlServerSideProps, DEFAULT_SITE_URL, type WithSiteUrl } from '@/li
 import { storeOAuthIntent } from '@/lib/oauth-intent';
 import { formatError } from '@/lib/constants';
 import { rememberReturnPath } from '@/lib/return-to';
+import type { OrgRole } from '@pipeline-builder/api-core/wire-vocabulary';
 
 interface InvitePreview {
   email: string;
-  role: 'owner' | 'admin' | 'member';
+  role: OrgRole;
   status: 'pending' | 'accepted' | 'expired' | 'revoked';
   expiresAt: string;
   isValid: boolean;

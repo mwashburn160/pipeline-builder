@@ -33,7 +33,12 @@ export function createPurgePipelineRoutes(): Router {
     // recorded on the audit event. The forced purge drops the registration too.
     const id = getParam(req.params, 'id');
     const force = req.query.force === 'true';
-    const deployment = id ? await pipelineRegistryService.deploymentOf(id) : null;
+    // The registration lookup is elevated (by pipeline id alone), so it runs
+    // only once the id names a tombstone in the caller's own scope — otherwise
+    // the 409 below would hand another org's stack name and region to anyone
+    // who guessed an id. An unknown id falls through to loadAndPurge's 404.
+    const tombstone = id ? await pipelineService.findDeletedById(id, orgId) : null;
+    const deployment = id && tombstone ? await pipelineRegistryService.deploymentOf(id) : null;
     if (deployment && !force) {
       ctx.log('WARN', 'Purge refused: pipeline still registered as deployed', { id, stackName: deployment.stackName });
       return sendError(res, 409,

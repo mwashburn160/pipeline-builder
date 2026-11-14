@@ -151,3 +151,13 @@ export function formatDuration(ms: number | null | undefined, placeholder = '—
 export function formatDurationSeconds(seconds: number | null | undefined, placeholder = '—'): string {
   return seconds == null ? placeholder : formatDuration(seconds * 1000, placeholder);
 }
+
+/**
+ * `sha256:abcdef123456…` → `abcdef123456` (the first 12 hex) for a table cell;
+ * `—` when there is no digest. The one spelling — the toolchain console and the
+ * pipeline security views each kept their own.
+ */
+export function shortDigest(digest: string | null | undefined): string {
+  if (!digest) return '—';
+  return digest.replace(/^sha256:/, '').slice(0, 12);
+}

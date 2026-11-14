@@ -4,17 +4,9 @@
 import { AlertCircle, AlertTriangle, CreditCard } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
-import type { Subscription, SubscriptionStatus } from '@/types';
+import type { Subscription } from '@/types';
+import { subscriptionStatusLabel } from '@/lib/subscription-status';
 import { formatDateLong } from '@/lib/format';
-
-/** Friendly labels for subscription status (avoids raw "Past_due" from CSS capitalize). */
-const STATUS_LABELS: Record<SubscriptionStatus, string> = {
-  active: 'Active',
-  canceled: 'Canceled',
-  past_due: 'Past due',
-  trialing: 'Trialing',
-  incomplete: 'Incomplete',
-};
 
 interface SubscriptionStatusCardProps {
   subscription: Subscription;
@@ -81,7 +73,7 @@ export function SubscriptionStatusCard({
         <div>
           <p className="text-sm text-fg-muted">Status</p>
           <p className="text-lg font-medium text-fg">
-            {STATUS_LABELS[subscription.status] ?? subscription.status}
+            {subscriptionStatusLabel(subscription.status)}
             {subscription.cancelAtPeriodEnd && (                    <span className="ml-2 inline-flex items-center text-xs text-warning">
                 <AlertCircle className="w-3 h-3 mr-1" />
                 Cancels at period end

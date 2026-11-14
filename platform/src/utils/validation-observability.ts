@@ -8,8 +8,10 @@
  * three controllers that use them.
  */
 
+import { VISIBILITIES } from '@pipeline-builder/api-core';
 import { z } from 'zod';
 import { config } from '../config/index.js';
+import { ALERT_CHANNELS, ALERT_RULE_SEVERITIES } from '@pipeline-builder/api-core/wire-vocabulary';
 
 // Observability: alert destinations and dashboards
 
@@ -21,8 +23,8 @@ const {
   dashboardMaxPanels,
 } = config.observability;
 
-const alertChannelSchema = z.enum(['slack', 'webhook', 'in-app', 'email'], { message: 'must be slack, webhook, in-app, or email' });
-const alertSeveritySchema = z.enum(['warning', 'critical'], { message: 'must be warning or critical' });
+const alertChannelSchema = z.enum(ALERT_CHANNELS, { message: `must be one of: ${ALERT_CHANNELS.join(', ')}` });
+const alertSeveritySchema = z.enum(ALERT_RULE_SEVERITIES, { message: `must be one of: ${ALERT_RULE_SEVERITIES.join(', ')}` });
 /** `enabled` is honoured only when it is a real boolean; anything else leaves it unset. */
 const optionalBoolean = z.unknown().optional().transform((v) => (typeof v === 'boolean' ? v : undefined));
 
@@ -63,7 +65,7 @@ const dashboardPanelSchema = z.object({
 
 const dashboardFields = {
   description: z.string().min(1).max(dashboardMaxDescription).nullish(),
-  visibility: z.enum(['private', 'org', 'public'], { message: 'must be one of: private, org, public' }).optional(),
+  visibility: z.enum(VISIBILITIES, { message: `must be one of: ${VISIBILITIES.join(', ')}` }).optional(),
   /** Grid positions by panel; a non-object is ignored rather than refused. */
   layoutJson: z.unknown().optional().transform((v) => (v && typeof v === 'object' ? v as DashboardLayout : undefined)),
   panels: z.array(dashboardPanelSchema).max(dashboardMaxPanels, `exceeds the ${dashboardMaxPanels}-panel cap`).optional(),
@@ -85,7 +87,7 @@ export const updateDashboardSchema = z.object({
 
 const alertRuleFields = {
   forDuration: z.string().optional(),
-  severity: z.enum(['warning', 'critical'], { message: 'must be warning or critical' }).optional(),
+  severity: alertSeveritySchema.optional(),
   description: z.string().optional(),
   enabled: z.boolean().optional(),
 };

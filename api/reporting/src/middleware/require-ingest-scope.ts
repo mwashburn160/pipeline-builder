@@ -17,7 +17,7 @@ export const INGEST_SCOPE = 'reporting:ingest';
  * `reporting:ingest` scope. Without it any authenticated user JWT could forge
  * events/health/incidents (the event path even resolves the org from the pipeline
  * registry, not the caller). Use after `requireAuth` (the routers are mounted
- * behind it in src/index.ts).
+ * behind it in src/app-routes.ts).
  */
 export function requireIngestScope(req: Request, res: Response, next: NextFunction): void {
   if (!hasScope(req, INGEST_SCOPE)) {

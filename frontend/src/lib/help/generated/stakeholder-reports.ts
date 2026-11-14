@@ -1,6 +1,6 @@
 // GENERATED FROM docs/stakeholder-reports.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 061251f698e667ed457009a6f7efab210ec2b1aef6aa6a1940a39f83c46541bd
+// SOURCE-SHA256: 5ce684da48c2cce4d56b3d129cdd99b33b6e914ff84005de92a5929d5f5cbabe
 // SPDX-License-Identifier: Apache-2.0
 import { FileText } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -71,10 +71,10 @@ export const stakeholderReportsTopic: HelpTopic = {
           "items": [
             "A definition is saved with a template, a cadence, a timezone and a distribution list. The creator becomes the owner.",
             "The scheduler waits for the period to end, then waits REPORT_SETTLE_HOURS (6 by default) longer, so the event ingest has finished redriving its dead-letter queue.",
-            "The run re-checks its authorization. There is no caller, so it is authorized as the definition's owner — active member, still holds reports:write, account still holds the add-on. Nothing is cached.",
+            "The run re-checks its authorization. There is no caller, so it is authorized as the definition's owner — active member, still holds reports:write (and reports:rollup for a report that covers the teams), account still holds the add-on. Nothing is cached.",
             "Sections are computed and frozen. They come from the same queries the dashboards run, over the same window, and the computed result — not the query — is stored as a snapshot.",
             "The run reaches ready_for_review. The lead writes the executive summary beside the numbers, optionally having it drafted by a model first.",
-            "The lead publishes. This is the moment internal numbers leave the platform, so the whole outward path is audited.",
+            "The lead publishes. This is the moment internal numbers leave the platform, so the whole outward path is audited. Publishing starts delivery itself; autoSend publishes and delivers without the review.",
             "Delivery fans out. In-app always and first; then email (one message per address), Slack and Teams through the org's existing alert destinations.",
             "A correction is a new version. Regenerating produces version N+1 and repoints the row; the previous version stays exactly as its recipients read it."
           ]
@@ -317,15 +317,19 @@ export const stakeholderReportsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "A scheduled run has no caller, so it is authorized as the definition's owner, and that authorization is re-checked on every single run against the platform service: is the owner still an active member, do they still hold reports:write, and does the account still hold the add-on. Nothing is cached. An entitlement that lapsed on Tuesday has to stop Wednesday's report, and a cache refreshed by a sync leg is exactly one missed sync away from mailing a report the customer stopped paying for."
+          "content": "A scheduled run has no caller, so it is authorized as the definition's owner, and that authorization is re-checked on every single run against the platform service: is the owner still an active member, do they still hold reports:write — and, for a rollup definition (one that covers the descendant teams), reports:rollup too — and does the account still hold the add-on. Nothing is cached. An entitlement that lapsed on Tuesday has to stop Wednesday's report, and a cache refreshed by a sync leg is exactly one missed sync away from mailing a report the customer stopped paying for."
         },
         {
           "type": "text",
-          "content": "A check that comes back revoked pauses the definition with the reason, and the lead is told which of the three it was — an entitlement lapse is a billing conversation, a deactivated owner is a handover, and a lost permission is an admin question, and a single \"paused\" notice would send all three to the wrong person."
+          "content": "A check that comes back revoked pauses the definition with the reason, and the lead is told which of the three it was — an entitlement lapse is a billing conversation, a deactivated owner is a handover, and a lost permission (permission_lost, either reports:write or a rollup's reports:rollup) is an admin question, and a single \"paused\" notice would send all three to the wrong person."
         },
         {
           "type": "text",
           "content": "A check that comes back unreadable only skips that run. Failing closed is right for the run; pausing every report in the fleet because platform was unreachable for five minutes is not, because a human would then have to resume each one."
+        },
+        {
+          "type": "text",
+          "content": "The same goes for a rollup's team list: when platform cannot answer which teams sit under the org (unreachable, or an error response), the run is not composed rather than composed over the parent org alone. A report labelled as covering the teams that quietly does not is a wrong report — and with autoSend, one already in a manager's inbox."
         }
       ]
     },

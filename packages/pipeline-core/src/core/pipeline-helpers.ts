@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger } from '@pipeline-builder/api-core';
+import { createLogger, MANAGED_TOOLCHAIN } from '@pipeline-builder/api-core';
 import type { Plugin } from '@pipeline-builder/pipeline-data';
 import { Duration, SecretValue, Stack } from 'aws-cdk-lib';
 import { BuildEnvironmentVariableType, BuildSpec, ComputeType as CDKComputeType, LinuxBuildImage, type IBuildImage } from 'aws-cdk-lib/aws-codebuild';
@@ -315,8 +315,8 @@ export function resolvePluginImage(scope: Construct | undefined, plugin: Plugin,
 }
 
 /** The managed toolchain's build-image plugin name and its (system-org) image repository. */
-export const BOOTSTRAP_PLUGIN_NAME = 'pipeline-bootstrap';
-export const BOOTSTRAP_IMAGE_REPOSITORY = `system/${BOOTSTRAP_PLUGIN_NAME}`;
+const BOOTSTRAP_PLUGIN_NAME = MANAGED_TOOLCHAIN.bootstrap;
+const BOOTSTRAP_IMAGE_REPOSITORY = `system/${BOOTSTRAP_PLUGIN_NAME}`;
 
 /**
  * The default CodeBuild image — every action without a plugin-baked image (the

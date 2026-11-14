@@ -8,6 +8,8 @@ import { Callout } from '@/components/ui/Callout';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { FormField } from '@/components/ui/FormField';
+import { CREDENTIAL_STATUS_COLOR } from '@/components/settings/token-scopes';
+import type { CredentialStatus } from '@/lib/api/domains/auth';
 import { Badge } from '@/components/ui/Badge';
 import { CopyButton } from '@/components/ui/CopyButton';
 import { SecretReveal } from '@/components/ui/SecretReveal';
@@ -37,7 +39,7 @@ interface ScimKey {
   accountId: string;
   name: string;
   display: string;
-  status: 'active' | 'expired' | 'revoked';
+  status: CredentialStatus;
   expiresAt: string;
   lastUsedAt: string | null;
 }
@@ -262,7 +264,7 @@ export function ScimProvisioning({ orgId, readOnly }: { orgId: string; readOnly:
               <span className="flex flex-wrap items-center gap-2">
                 <span className="font-mono">{key.display}</span>
                 <span>{key.name}</span>
-                <Badge color={key.status === 'active' ? 'green' : key.status === 'expired' ? 'gray' : 'red'}>{key.status}</Badge>
+                <Badge color={CREDENTIAL_STATUS_COLOR[key.status]}>{key.status}</Badge>
                 <span className="text-fg-muted">expires <RelativeTime value={key.expiresAt} /></span>
                 <span className="text-fg-muted">
                   {key.lastUsedAt ? <>last used <RelativeTime value={key.lastUsedAt} /></> : 'never used'}

@@ -19,6 +19,12 @@ interface TagListState {
  */
 const cache = new Map<string, TagListState>();
 
+/** Drop every cached tag list — the cache is keyed by repo name only, so it
+ *  must not outlive the org (or identity) that listed it. */
+export function clearImageTagsCache(): void {
+  cache.clear();
+}
+
 /** Drop the cached tag list for a single repo. */
 export function invalidateImageTags(name: string): void {
   cache.delete(name);

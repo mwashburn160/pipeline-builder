@@ -8,6 +8,7 @@ import type {
   RegistrationResponseJSON,
 } from '@simplewebauthn/browser';
 import type { ApiCore } from '../core';
+import { withStepUpResume } from '../errors';
 import type { ApiResponse, AskUiMode, MfaChallenge, Passkey, PasswordChangeChallenge, QuotaTier, ReauthProvider, RecoveryCodeStatus, TotpEnrolment, TotpStatus, User, UserPreferences } from '@/types';
 
 /**
@@ -465,10 +466,14 @@ export function authApi(core: ApiCore) {
     /** POST /user/tokens/revoke-all — sign out everywhere (bumps tokenVersion). Re-issues a fresh token for the active session.
      *  Step-up gated — a stolen session can otherwise lock the legitimate user out. */
     revokeAllTokens: async (stepUpToken?: string) => {
-      const response = await core.request<ApiResponse<{ revoked: boolean; accessToken: string; expiresIn: number }>>(
+      // Through the step-up replay: when the token is refused again and the
+      // global dialog replays the call, the REPLAY carries the re-issued token —
+      // dropping it left this tab on a token the revoke had just invalidated,
+      // and the caller reported a failure for a revoke that succeeded.
+      const response = await withStepUpResume(() => core.request<ApiResponse<{ revoked: boolean; accessToken: string; expiresIn: number }>>(
         '/api/user/tokens/revoke-all',
         { method: 'POST', headers: core.stepUpHeader(stepUpToken) },
-      );
+      ));
       core.applyTokens(response);
       return response;
     },

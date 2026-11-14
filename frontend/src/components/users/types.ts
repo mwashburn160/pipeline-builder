@@ -1,11 +1,14 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import type { OrgRole } from '@pipeline-builder/api-core/wire-vocabulary';
+import type { RoleGrant } from '@/types';
+
 export interface UserListItem {
   id: string;
   username: string;
   email: string;
-  role: 'owner' | 'admin' | 'member';
+  role: OrgRole;
   /** Global super-admin flag (Pipeline Builder operator). Cross-org. */
   isSuperAdmin?: boolean;
   isEmailVerified: boolean;
@@ -23,7 +26,7 @@ export interface NewUserState {
   email: string;
   password: string;
   organizationId: string;
-  role: 'owner' | 'admin' | 'member';
+  role: OrgRole;
   isSuperAdmin: boolean;
 }
 
@@ -31,5 +34,5 @@ export interface NewUserState {
 export interface OrgRoleOption {
   id: string;
   name: string;
-  grantsRole: string;
+  grantsRole: RoleGrant;
 }

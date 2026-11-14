@@ -11,7 +11,7 @@ import { withRoute } from '@pipeline-builder/api-server';
 import { renderUntrustedMarkdown } from '@pipeline-builder/api-server/lib/markdown.js';
 import { Router } from 'express';
 import { onPluginDeprecated } from '../helpers/deprecation-notice.js';
-import { assertNotManaged } from '../helpers/managed-toolchain.js';
+import { assertNotManaged, isYankedVersion } from '../helpers/managed-toolchain.js';
 import { shapePlugin } from '../helpers/plugin-helpers.js';
 import { checkUpdateCompliance, needsComplianceRecheck } from '../helpers/update-compliance.js';
 import { pluginService, type Plugin } from '../services/plugin-service.js';
@@ -148,7 +148,7 @@ export function createUpdatePluginRoutes(): Router {
     }
 
     // A yanked version's lifecycle is the yank's; it is not editable here.
-    if (body.lifecycle !== undefined && (existing.lifecycle === 'yanked' || existing.yankedAt)) {
+    if (body.lifecycle !== undefined && isYankedVersion(existing)) {
       return sendError(res, 409, 'This plugin version is yanked; its lifecycle cannot be changed.', ErrorCode.CONFLICT);
     }
     const lifecycle = lifecycleColumns(existing, body.lifecycle);

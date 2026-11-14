@@ -2,13 +2,20 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { AppError, extractDbError, ErrorCode, createLogger, errorMessage, requirePermission, sendBadRequest, sendError, sendInternalError, sendSuccess, validateBody, PipelineCreateSchema, audited, proposable } from '@pipeline-builder/api-core';
-import type { QuotaService } from '@pipeline-builder/api-core';
+import type { QuotaService, Visibility } from '@pipeline-builder/api-core';
 import { createAuthenticatedWithOrgRoute, withQuotaReservation, withRoute } from '@pipeline-builder/api-server';
 import { describeDeployAttribution, previewStructure } from '@pipeline-builder/pipeline-core';
 import { Router } from 'express';
 import { createOnePipeline, pluginWarningsField, preparePipelineCreate, validatePipelineWrite } from '../helpers/pipeline-write.js';
 
 const logger = createLogger('create-pipeline');
+
+/** What a create tells back per visibility rung: who can see it, and the rung's name (`org`, the default, is unmarked). */
+const VISIBILITY_MESSAGE: Readonly<Record<Visibility, { audience: (orgId: string) => string; rung: string }>> = {
+  public: { audience: () => 'accessible to all organizations', rung: 'Public ' },
+  private: { audience: () => 'accessible to its author only', rung: 'Private ' },
+  org: { audience: (orgId) => `accessible to organization ${orgId}`, rung: '' },
+};
 
 /**
  * Register the CREATE route on a router.
@@ -92,12 +99,9 @@ export function createCreatePipelineRoutes( quotaService: QuotaService,
         // The visibility RUNG leads the message. Who can see a pipeline is the
         // thing a creator most needs told back, and `org` is the default — so it
         // is the unmarked case and the other two are named.
-        const audience = result.visibility === 'public'
-          ? 'accessible to all organizations'
-          : result.visibility === 'private'
-            ? 'accessible to its author only'
-            : `accessible to organization ${orgId}`;
-        const rung = result.visibility === 'public' ? 'Public ' : result.visibility === 'private' ? 'Private ' : '';
+        const told = VISIBILITY_MESSAGE[result.visibility];
+        const audience = told.audience(orgId);
+        const rung = told.rung;
         const message = inserted
           ? `${rung}${rung ? 'pipeline' : 'Pipeline'} created successfully (${audience})`
           : `Existing ${rung.toLowerCase()}pipeline updated in place (${audience})`;

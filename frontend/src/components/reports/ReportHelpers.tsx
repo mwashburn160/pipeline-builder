@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from 'react';
+import { localDay } from '@/lib/local-day';
 import Link from 'next/link';
 import { RefreshCw, Download, Timer, Lock } from 'lucide-react';
 import { usePolling } from '@/hooks/usePolling';
@@ -147,14 +148,9 @@ interface DateRangePickerProps {
   extendHref?: string;
 }
 
-/** Local `YYYY-MM-DD` for today, used as the `max` on both date inputs. */
-function todayIso(): string {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
-
 export function DateRangePicker({ from, to, onFromChange, onToChange, maxRangeDays = 730, extendHref }: DateRangePickerProps) {
-  const today = todayIso();
+  // Local today: the `max` on both date inputs.
+  const today = localDay(new Date());
   // Warn (don't block) when the chosen span exceeds the effective cap — the
   // backend floors the window at the retention horizon, so a wider pick silently
   // returns less than asked; the truncation banner on the report explains it.

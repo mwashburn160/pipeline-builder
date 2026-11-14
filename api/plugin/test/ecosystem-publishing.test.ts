@@ -197,6 +197,14 @@ describe('new listing requests', () => {
     await rejects(requestsSvc.draft(tenant() as any, undefined), 'MISSING_REQUIRED_FIELD');
   });
 
+  it('REGRESSION: an unreadable listings quota fails the quota gate (its -1 is not "unlimited")', async () => {
+    seedPublishers(db);
+    const plugin = db.seed('plugins', pluginRow());
+    h.quota.check.mockResolvedValueOnce({ allowed: true, limit: -1, used: 0, remaining: -1, resetAt: '', unlimited: true, failOpen: true } as never);
+    const d = await requestsSvc.draft(tenant() as any, plugin.id);
+    expect(d.gates.find((g) => g.id === 'quota')).toMatchObject({ ok: false });
+  });
+
   it('submits with edits (provenance user), pins the digest, freezes the version and notifies moderators', async () => {
     const { acme } = seedPublishers(db);
     const plugin = db.seed('plugins', pluginRow());

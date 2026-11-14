@@ -160,6 +160,7 @@ jest.unstable_mockModule('../src/services/pipeline-service.js', () => ({
     findPaginated: jest.fn(async () => ({ data: [], total: 0, limit: 25, offset: 0, hasMore: false })),
     findFirst: jest.fn(async () => null),
     findDeleted: jest.fn(async () => []),
+    findDeletedById: jest.fn(async () => null),
     findById: jest.fn(async () => null),
     findByIds: jest.fn(async () => []),
     update: jest.fn(),

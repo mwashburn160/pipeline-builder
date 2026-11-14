@@ -18,12 +18,11 @@
 
 import { createLogger } from '@pipeline-builder/api-core';
 import { toOrgId } from './org-id.js';
+import { IMPERSONATION_POLICIES, type ImpersonationPolicy } from '../constants/vocabulary.js';
 import { Organization, User } from '../models/index.js';
 
 const logger = createLogger('impersonation-policy');
 
-export type ImpersonationPolicy = 'open' | 'consent' | 'denied';
-export const IMPERSONATION_POLICIES: readonly ImpersonationPolicy[] = ['open', 'consent', 'denied'];
 
 /**
  * The policy an org gets when it has never set one.
@@ -82,12 +81,15 @@ export async function canSelectDeniedPolicy(): Promise<boolean> {
 // Effective policy across the org → team hierarchy: STRICTEST WINS.
 // ---------------------------------------------------------------------------
 
-/** Strictness order. A higher rank protects the org's data more. */
-const STRICTNESS: Record<ImpersonationPolicy, number> = { open: 0, consent: 1, denied: 2 };
+/** Strictness rank: a policy's index in `IMPERSONATION_POLICIES` (ordered
+ *  loosest → strictest). A higher rank protects the org's data more. */
+export function impersonationStrictness(policy: ImpersonationPolicy): number {
+  return IMPERSONATION_POLICIES.indexOf(policy);
+}
 
 /** The stricter of two policies. */
 function stricter(a: ImpersonationPolicy, b: ImpersonationPolicy): ImpersonationPolicy {
-  return STRICTNESS[a] >= STRICTNESS[b] ? a : b;
+  return impersonationStrictness(a) >= impersonationStrictness(b) ? a : b;
 }
 
 /**

@@ -28,6 +28,7 @@
 import { assertSafeUrl, createLogger, errorMessage, sendError, sendSuccess, isSystemAdmin } from '@pipeline-builder/api-core';
 import { runWithTenantContext } from '@pipeline-builder/pipeline-data';
 import { config } from '../config/index.js';
+import { ALERT_CHANNELS, type AlertChannel } from '@pipeline-builder/api-core/wire-vocabulary';
 import { authenticateAlertmanager } from '../helpers/alertmanager-auth.js';
 import { audit } from '../helpers/audit.js';
 import { forbid, requireAuthContext, requireOrgMembership, withController } from '../helpers/controller-helper.js';
@@ -44,24 +45,26 @@ const logger = createLogger('alert-destinations-controller');
 const { alertDestinationMaxTarget: MAX_TARGET } = config.observability;
 
 
-/** Validate channel/target combos. Slack URLs must start with the canonical
- *  hooks.slack.com host so a misconfigured destination doesn't silently POST
- *  to an arbitrary URL. Webhook channel takes any HTTPS URL. Email takes a
- *  single address. */
-function validateChannelTarget(channel: string, target: string): string | null {
-  if (channel === 'slack') {
-    if (!/^https:\/\/hooks\.slack\.com\//.test(target)) {
-      return 'Slack target must be a hooks.slack.com URL';
-    }
-    if (target.length > MAX_TARGET) return `Slack URL exceeds ${MAX_TARGET} chars`;
+/** URL-shaped target rule shared by the two webhook-style channels. */
+function urlTarget(pattern: RegExp, shapeError: string, name: string) {
+  return (target: string): string | null => {
+    if (!pattern.test(target)) return shapeError;
+    if (target.length > MAX_TARGET) return `${name} exceeds ${MAX_TARGET} chars`;
     return null;
-  }
-  if (channel === 'webhook') {
-    if (!/^https:\/\//.test(target)) return 'Webhook target must be an HTTPS URL';
-    if (target.length > MAX_TARGET) return `Webhook URL exceeds ${MAX_TARGET} chars`;
-    return null;
-  }
-  if (channel === 'email') {
+  };
+}
+
+/**
+ * Per-channel target rules, keyed by channel (exhaustive by type, so a new
+ * channel cannot ship without one). Slack URLs must start with the canonical
+ * hooks.slack.com host so a misconfigured destination doesn't silently POST to
+ * an arbitrary URL; the webhook channel takes any HTTPS URL; email takes a
+ * single address; in-app has no target. Each returns an error string or null.
+ */
+const CHANNEL_TARGET_RULES: Record<AlertChannel, (target: string) => string | null> = {
+  'slack': urlTarget(/^https:\/\/hooks\.slack\.com\//, 'Slack target must be a hooks.slack.com URL', 'Slack URL'),
+  'webhook': urlTarget(/^https:\/\//, 'Webhook target must be an HTTPS URL', 'Webhook URL'),
+  'email': (target) => {
     // Use the SAME rule as registration/invites. The local copy additionally
     // required a TLD, so an address the platform happily registers — including
     // its own shipped default, `admin@internal` — was rejected as an alert
@@ -69,11 +72,15 @@ function validateChannelTarget(channel: string, target: string): string | null {
     if (!isValidEmail(target)) return 'Email target must be a valid email address';
     if (target.length > MAX_TARGET) return `Email address exceeds ${MAX_TARGET} chars`;
     return null;
-  }
-  if (channel === 'in-app') {
-    return null;
-  }
-  return 'channel must be slack, webhook, in-app, or email';
+  },
+  'in-app': () => null,
+};
+
+/** Validate a channel/target combo. The channel is a stored row's on update,
+ *  so it is DB data and may be a value the catalog does not know. */
+function validateChannelTarget(channel: string, target: string): string | null {
+  const rule = Object.hasOwn(CHANNEL_TARGET_RULES, channel) ? CHANNEL_TARGET_RULES[channel as AlertChannel] : undefined;
+  return rule ? rule(target) : `channel must be one of: ${ALERT_CHANNELS.join(', ')}`;
 }
 
 /**

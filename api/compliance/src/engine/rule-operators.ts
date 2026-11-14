@@ -10,7 +10,7 @@
 
 import { createContext, Script, type Context } from 'vm';
 import { createLogger, envInt, errorMessage } from '@pipeline-builder/api-core';
-import type { RuleOperator } from '@pipeline-builder/pipeline-data';
+import type { RuleOperator } from '@pipeline-builder/api-core';
 
 const logger = createLogger('rule-operators');
 
@@ -108,6 +108,14 @@ export function safeRegexTest(pattern: string, value: string): boolean {
   }
 }
 
+/** The computed-field prefixes `getFieldValue` understands, keyed by name. */
+const COMPUTED_FIELDS: Readonly<Record<string, (val: unknown) => unknown>> = {
+  count: (val) => Array.isArray(val) ? val.length : (val && typeof val === 'object') ? Object.keys(val).length : 0,
+  length: (val) => typeof val === 'string' ? val.length : 0,
+  keys: (val) => (val && typeof val === 'object' && !Array.isArray(val)) ? Object.keys(val) : [],
+  lines: (val) => typeof val === 'string' ? val.split('\n').length : 0,
+};
+
 /**
  * Get a nested value from an object using dot-notation path.
  *
@@ -131,14 +139,10 @@ export function getFieldValue(entity: Record<string, unknown>, fieldPath: string
   const computedMatch = fieldPath.match(/^\$(\w+)\((.+)\)$/);
   if (computedMatch) {
     const [, fn, innerPath] = computedMatch;
-    const v = getFieldValue(entity, innerPath);
-    const computedFns: Record<string, (val: unknown) => unknown> = {
-      count: (val) => Array.isArray(val) ? val.length : (val && typeof val === 'object') ? Object.keys(val).length : 0,
-      length: (val) => typeof val === 'string' ? val.length : 0,
-      keys: (val) => (val && typeof val === 'object' && !Array.isArray(val)) ? Object.keys(val) : [],
-      lines: (val) => typeof val === 'string' ? val.split('\n').length : 0,
-    };
-    return computedFns[fn]?.(v);
+    // Own keys only: `fn` comes from a rule's field text, and a plain lookup
+    // answered `$constructor(x)` with Object's constructor.
+    if (!Object.hasOwn(COMPUTED_FIELDS, fn!)) return undefined;
+    return COMPUTED_FIELDS[fn!]!(getFieldValue(entity, innerPath!));
   }
 
   // Standard dot-notation traversal
@@ -154,20 +158,6 @@ export function getFieldValue(entity: Record<string, unknown>, fieldPath: string
   return current;
 }
 
-/**
- * Evaluate a single operator against field and rule values.
- *
- * @param operator - The comparison operator to apply
- * @param fieldValue - The actual value from the entity
- * @param ruleValue - The expected value from the rule definition
- * @returns `true` if the condition is SATISFIED (no violation), `false` if VIOLATED
- *
- * @example
- * evaluateOperator('eq', 'CodeBuildStep', 'CodeBuildStep')  // → true
- * evaluateOperator('gt', 100, 50)                           // → true
- * evaluateOperator('in', 'SMALL', ['SMALL', 'MEDIUM'])      // → true
- * evaluateOperator('regex', 'hello-world', '^hello')        // → true
- */
 /** Check if fieldValue contains ruleValue (string or array). */
 function evalContains(fieldValue: unknown, ruleValue: unknown): boolean {
   if (typeof fieldValue === 'string' && typeof ruleValue === 'string') {
@@ -179,8 +169,13 @@ function evalContains(fieldValue: unknown, ruleValue: unknown): boolean {
   return false;
 }
 
-/** Operator lookup table — each entry returns true if condition is SATISFIED. */
-const OPERATORS: Record<string, (fv: unknown, rv: unknown) => boolean> = {
+/**
+ * Operator lookup table — each entry returns true if condition is SATISFIED.
+ * Keyed by api-core's `RuleOperator`, so an operator added to `RULE_OPERATORS`
+ * (and so accepted by the rule schemas) without an implementation here is a
+ * compile error rather than a rule that silently always fails.
+ */
+const OPERATORS: Readonly<Record<RuleOperator, (fv: unknown, rv: unknown) => boolean>> = {
   // Equality
   eq: (fv, rv) => fv === rv || String(fv) === String(rv),
   neq: (fv, rv) => fv !== rv && String(fv) !== String(rv),
@@ -211,12 +206,31 @@ const OPERATORS: Record<string, (fv: unknown, rv: unknown) => boolean> = {
   lengthLt: (fv, rv) => Number(fv) < Number(rv),
 };
 
+/**
+ * Evaluate a single operator against field and rule values.
+ *
+ * @param operator - The comparison operator to apply
+ * @param fieldValue - The actual value from the entity
+ * @param ruleValue - The expected value from the rule definition
+ * @returns `true` if the condition is SATISFIED (no violation), `false` if VIOLATED
+ *
+ * @example
+ * evaluateOperator('eq', 'CodeBuildStep', 'CodeBuildStep')  // → true
+ * evaluateOperator('gt', 100, 50)                           // → true
+ * evaluateOperator('in', 'SMALL', ['SMALL', 'MEDIUM'])      // → true
+ * evaluateOperator('regex', 'hello-world', '^hello')        // → true
+ */
 export function evaluateOperator(
   operator: RuleOperator,
   fieldValue: unknown,
   ruleValue: unknown,
 ): boolean {
-  return OPERATORS[operator]?.(fieldValue, ruleValue) ?? false; // Unknown operator = violation (fail-closed)
+  // Unknown operator = violation (fail-closed). Own keys only: a stored
+  // operator outside the catalog (a pinned snapshot, a hand-edited row) named
+  // `toString` resolved to Object.prototype.toString, whose truthy string
+  // return read as SATISFIED — a fail-OPEN.
+  if (!Object.hasOwn(OPERATORS, operator)) return false;
+  return OPERATORS[operator](fieldValue, ruleValue);
 }
 
 /**

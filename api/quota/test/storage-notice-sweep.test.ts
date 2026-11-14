@@ -48,10 +48,12 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
 const aggregate = jest.fn<(pipeline: unknown[]) => Promise<Array<{ _id: { tier?: string; cap?: number }; n: number }>>>();
 const deleteMany = jest.fn<AnyFn>();
 const lean = jest.fn<AnyFn>();
-const limit = jest.fn(() => ({ lean }));
+const limit = jest.fn<(n: number) => { lean: typeof lean }>(() => ({ lean }));
+const skip = jest.fn<(n: number) => { limit: typeof limit }>(() => ({ limit }));
+const sort = jest.fn<(spec: unknown) => { skip: typeof skip }>(() => ({ skip }));
 // Typed with its arguments so the assertion on the QUERY typechecks: the query
-// must select account roots (`parentOrgId: null`), not every org.
-const find = jest.fn<(query: unknown, projection: unknown) => { limit: typeof limit }>(() => ({ limit }));
+// must select live account roots, not every org.
+const find = jest.fn<(query: unknown, projection: unknown) => { sort: typeof sort }>(() => ({ sort }));
 jest.unstable_mockModule('../src/models/quota-notice.js', () => ({
   QuotaNotice: { deleteMany },
   QUOTA_NOTICE_THRESHOLDS: [80, 100] as const,
@@ -113,7 +115,7 @@ describe('sweepStorageNotices', () => {
 
     const r = await sweep();
     expect(r).toEqual({ considered: 1, unknown: 0, notified: 1, cleared: 0 });
-    expect(find).toHaveBeenCalledWith({ parentOrgId: null }, expect.anything());
+    expect(find).toHaveBeenCalledWith({ parentOrgId: null, deletedAt: null }, expect.anything());
     expect(fetchStorageBytes).toHaveBeenCalledWith(['root-1', 'team-a', 'team-b']);
     expect(notifyThresholds).toHaveBeenCalledWith(expect.objectContaining({
       rootOrgId: 'root-1',
@@ -199,6 +201,33 @@ describe('sweepStorageNotices', () => {
     expect(emitCounter).toHaveBeenCalledWith('quota_storage_sweep_orgs_total', { outcome: 'failed' });
   });
 
+  it('never sweeps a SOFT-DELETED account', async () => {
+    // A soft-deleted root stays in the shared collection until platform's purge;
+    // the query used to be `{ parentOrgId: null }` alone, so a deleted
+    // account's admins could be mailed that its registry was full.
+    orgs([]);
+    await sweep();
+    expect(find.mock.calls[0]![0]).toMatchObject({ deletedAt: null });
+  });
+
+  it('ROTATES through the fleet instead of re-reading the same first slice', async () => {
+    // The pass is bounded by `maxOrgs`. With no cursor every pass read the same
+    // first N roots, so an account past them was never swept at all.
+    const pass = () => sweepStorageNotices({ maxOrgs: 2, reminderMs: 7 * DAY });
+    fetchStorageBytes.mockResolvedValue(0);
+
+    orgs([{ id: 'a', limit: 25 * GB }, { id: 'b', limit: 25 * GB }]);
+    await pass();
+    orgs([{ id: 'c', limit: 25 * GB }]); // a short page: the end of the fleet
+    await pass();
+    orgs([{ id: 'a', limit: 25 * GB }, { id: 'b', limit: 25 * GB }]);
+    await pass();
+
+    // Stable `_id` order, so the offsets name disjoint slices.
+    expect(sort).toHaveBeenCalledWith({ _id: 1 });
+    expect(skip.mock.calls.map((c) => c[0])).toEqual([0, 2, 0]);
+  });
+
   it('stops between orgs when the leader lock is lost', async () => {
     orgs([{ id: 'a', limit: 25 * GB }, { id: 'b', limit: 25 * GB }]);
     fetchStorageBytes.mockResolvedValue(25 * GB);
@@ -265,7 +294,8 @@ describe('reportStorageCommitment', () => {
     aggregate.mockResolvedValue([]);
     await reportStorageCommitment();
     expect(aggregate).toHaveBeenCalledWith([
-      { $match: { parentOrgId: null } },
+      // Live roots: a soft-deleted account awaiting purge has sold nobody anything.
+      { $match: { parentOrgId: null, deletedAt: null } },
       { $group: { _id: { tier: '$tier', cap: '$quotas.storageBytes' }, n: { $sum: 1 } } },
     ]);
   });

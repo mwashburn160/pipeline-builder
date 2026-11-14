@@ -22,10 +22,8 @@
  * is a scan whose result is unknown, never a clean one.
  */
 
-import type { PluginScanFinding } from '@pipeline-builder/api-core';
-
-export const SECURITY_REPORT_FORMATS = ['sarif', 'trivy-json', 'grype-json'] as const;
-export type SecurityReportFormat = (typeof SECURITY_REPORT_FORMATS)[number];
+import { ADVISORY_SEVERITIES, type AdvisorySeverity, type PluginScanFinding } from '@pipeline-builder/api-core';
+import type { SecurityReportFormat } from '@pipeline-builder/pipeline-core';
 
 /** At most this many Critical/High findings are stored per report (counts are never capped). */
 export const SECURITY_REPORT_MAX_FINDINGS = 200;
@@ -53,19 +51,17 @@ export interface NormalizedSecurityReport {
   truncated: boolean;
 }
 
-type Severity = 'critical' | 'high' | 'medium' | 'low';
-
 const asRecord = (v: unknown): Record<string, unknown> => (v && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, unknown> : {});
 const asArray = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
 const str = (v: unknown): string => (typeof v === 'string' ? v : '');
 
-function severityOf(raw: string): Severity | null {
+function severityOf(raw: string): AdvisorySeverity | null {
   const s = raw.toLowerCase();
-  return s === 'critical' || s === 'high' || s === 'medium' || s === 'low' ? s : null;
+  return (ADVISORY_SEVERITIES as readonly string[]).includes(s) ? s as AdvisorySeverity : null;
 }
 
 /** CVSS score → severity (the SARIF `security-severity` convention GitHub and the scanners use). */
-function severityFromScore(score: number): Severity {
+function severityFromScore(score: number): AdvisorySeverity {
   if (score >= 9) return 'critical';
   if (score >= 7) return 'high';
   if (score >= 4) return 'medium';
@@ -78,7 +74,7 @@ class Collector {
   readonly findings: ArtifactFinding[] = [];
   private readonly seen = new Set<string>();
 
-  add(severity: Severity, f: Omit<ArtifactFinding, 'severity'>): void {
+  add(severity: AdvisorySeverity, f: Omit<ArtifactFinding, 'severity'>): void {
     const key = `${f.id}|${f.packageName}|${f.packageVersion}|${f.target ?? ''}`;
     if (this.seen.has(key)) return;
     this.seen.add(key);

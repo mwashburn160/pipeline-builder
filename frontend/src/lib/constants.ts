@@ -102,12 +102,25 @@ export const providerLabel = (p: string) => PROVIDER_LABELS[p] ?? (p.charAt(0).t
  * NOT for an unsuccessful API envelope (`{ success: false, message }`): an
  * envelope is not an `Error`, so this would always return the fallback and hide
  * the server's reason. Read the envelope's own field — `res.message || '…'` —
- * which is what the ~100 envelope sites in this codebase do.
+ * which is what the envelope sites in this codebase do.
  */
 export function formatError(err: unknown, fallback = 'An error occurred'): string {
   if (err instanceof Error) return err.message;
   if (typeof err === 'string') return err;
   return fallback;
+}
+
+/**
+ * Why one result of a `Promise.allSettled` batch of envelope calls failed: the
+ * thrown error's message, or the envelope's own `message` for a call that
+ * answered `success: false`. (Three batch writers each spelled this out.)
+ */
+export function settledFailureMessage(
+  r: PromiseSettledResult<{ message?: string }>,
+  fallback = 'failed',
+): string {
+  if (r.status === 'rejected') return r.reason instanceof Error ? r.reason.message : String(r.reason);
+  return r.value.message || fallback;
 }
 
 /** Default toast notification display duration in ms (success / info). */

@@ -45,7 +45,24 @@ import { config } from '../config/index.js';
 import { emailService } from '../utils/email.js';
 
 export type { ChannelTarget, NotificationPriority };
-export type Severity = 'critical' | 'warning' | 'info';
+
+/**
+ * The severities an inbound alert is rendered at, keyed to everything each one
+ * decides: the inbox priority and the Slack attachment colour. One table, so a
+ * tier cannot gain a priority and lose its colour (they were two ternary
+ * ladders, plus a third in the relay that normalised the raw label).
+ */
+const ALERT_SEVERITY_CATALOG = {
+  critical: { priority: 'urgent', color: '#dc2626' },
+  warning: { priority: 'high', color: '#eab308' },
+  info: { priority: 'normal', color: '#3b82f6' },
+} as const satisfies Record<string, { priority: NotificationPriority; color: string }>;
+export type AlertSeverity = keyof typeof ALERT_SEVERITY_CATALOG;
+
+/** Normalize an alert's raw `severity` label; anything unrecognised renders as `info`. */
+export function toAlertSeverity(label: string | undefined): AlertSeverity {
+  return label !== undefined && Object.hasOwn(ALERT_SEVERITY_CATALOG, label) ? label as AlertSeverity : 'info';
+}
 
 /**
  * An alert rendered for delivery. Extends the shared transport-agnostic message
@@ -53,7 +70,7 @@ export type Severity = 'critical' | 'warning' | 'info';
  * the exact Alertmanager body the generic `webhook` channel forwards unchanged.
  */
 export interface AlertNotification extends NotificationMessage {
-  severity: Severity;
+  severity: AlertSeverity;
   status: 'firing' | 'resolved';
   /** When the underlying event started (ISO-8601). Shown as "Started: …". */
   timestamp: string;
@@ -70,11 +87,7 @@ export interface AlertNotification extends NotificationMessage {
 // -- Shared rendering ---------------------------------------------------------
 
 /** Alert severity → inbox priority. */
-export const severityToPriority = (s: Severity): NotificationPriority =>
-  s === 'critical' ? 'urgent' : s === 'warning' ? 'high' : 'normal';
-
-const severityToColor = (s: Severity): string =>
-  s === 'critical' ? '#dc2626' : s === 'warning' ? '#eab308' : '#3b82f6';
+export const severityToPriority = (s: AlertSeverity): NotificationPriority => ALERT_SEVERITY_CATALOG[s].priority;
 
 export const subjectLine = (a: Pick<AlertNotification, 'severity' | 'title'>): string =>
   `[${a.severity.toUpperCase()}] ${a.title}`;
@@ -103,7 +116,7 @@ function slackPayload(msg: AlertNotification): Record<string, unknown> {
   const emoji = msg.status === 'resolved' ? '✅' : msg.severity === 'critical' ? '🚨' : '⚠️';
   return {
     attachments: [{
-      color: severityToColor(msg.severity),
+      color: ALERT_SEVERITY_CATALOG[msg.severity].color,
       title: `${emoji} ${subjectLine(msg)}`,
       text: msg.summary,
       fields: [

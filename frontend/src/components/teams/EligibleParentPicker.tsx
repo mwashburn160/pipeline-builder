@@ -12,7 +12,7 @@ import { useFetch } from '@/hooks/useFetch';
 // that renders this picker at LOAD. `@/lib/tiers` holds the same list and
 // quota-tier-presets.test.ts now asserts it equals api-core's, so the drift this
 // import was meant to prevent is covered by a test instead.
-import { TEAM_CAPABLE_TIERS } from '@/lib/tiers';
+import { TEAM_CAPABLE_TIERS } from '@pipeline-builder/api-core/tier-limits';
 import type { TierKey } from '@/lib/tiers';
 import api from '@/lib/api';
 import { formatError } from '@/lib/constants';

@@ -79,7 +79,25 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   }),
 }));
 
+// The `plugins` slot a restore charges: a faithful withQuotaReservation —
+// denied at the cap (no body), kept on success, refunded when the body refunds
+// or throws.
+const quotaState = { denied: false, refunds: 0, reserved: 0 };
+const QUOTA_RESET_AT = '2026-11-16T00:00:00.000Z';
+const withQuotaReservation = jest.fn(async (_opts: unknown, body: (slot: any) => Promise<unknown>) => {
+  if (quotaState.denied) return { status: 'denied', reservation: {} };
+  quotaState.reserved += 1;
+  const slot = { reservation: { quota: { resetAt: QUOTA_RESET_AT } }, refund: () => { quotaState.refunds += 1; } };
+  try {
+    return { status: 'done', value: await body(slot) };
+  } catch (err) {
+    slot.refund();
+    throw err;
+  }
+});
+
 jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
+  withQuotaReservation,
   withRoute: (handler: Function, options?: any) => async (req: any, res: any) => {
     const ctx = req.context;
     const orgId = ctx.identity.orgId?.toLowerCase() || '';
@@ -99,11 +117,13 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
 
 const mockFindDeletedById = jest.fn<AnyFn>();
 const mockRestore = jest.fn<AnyFn>();
+const mockSetQuotaSnapshot = jest.fn<AnyFn>(async () => undefined);
 
 jest.unstable_mockModule('../src/services/plugin-service.js', () => ({
   pluginService: {
     findDeletedById: mockFindDeletedById,
     restore: mockRestore,
+    setQuotaSnapshot: mockSetQuotaSnapshot,
   },
 }));
 
@@ -120,7 +140,7 @@ const { createRestorePluginRoutes } = await import('../src/routes/restore-plugin
 
 // Helpers
 
-const router = createRestorePluginRoutes();
+const router = createRestorePluginRoutes({} as never);
 
 const getHandler = handlerGetter(router);
 
@@ -162,7 +182,33 @@ const existingPlugin = {
 describe('POST /plugins/:id/restore (restore)', () => {
   const handler = getHandler('post', '/:id/restore');
 
-  beforeEach(() => { jest.clearAllMocks(); });
+  beforeEach(() => {
+    jest.clearAllMocks();
+    Object.assign(quotaState, { denied: false, refunds: 0, reserved: 0 });
+  });
+
+  it('charges a plugins slot and records its period on the restored row (delete refunded it)', async () => {
+    mockFindDeletedById.mockResolvedValue(existingPlugin);
+    mockRestore.mockResolvedValue(existingPlugin);
+    await handler(mockReq(), mockRes());
+    expect(quotaState).toMatchObject({ reserved: 1, refunds: 0 });
+    expect(mockSetQuotaSnapshot).toHaveBeenCalledWith('plugin-uuid-1', QUOTA_RESET_AT);
+  });
+
+  it('REGRESSION: at the plugins cap the restore is refused and nothing is restored', async () => {
+    quotaState.denied = true;
+    mockFindDeletedById.mockResolvedValue(existingPlugin);
+    await handler(mockReq(), mockRes());
+    expect(mockRestore).not.toHaveBeenCalled();
+    expect(mockEmitPluginAudit).not.toHaveBeenCalled();
+  });
+
+  it('refunds the slot when nothing was restored (404)', async () => {
+    mockFindDeletedById.mockResolvedValue(null);
+    await handler(mockReq(), mockRes());
+    expect(quotaState).toMatchObject({ reserved: 1, refunds: 1 });
+    expect(mockSetQuotaSnapshot).not.toHaveBeenCalled();
+  });
 
   it('restores the tombstone and returns 200 with the shaped plugin', async () => {
     mockFindDeletedById.mockResolvedValue(existingPlugin);

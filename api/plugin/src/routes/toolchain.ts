@@ -23,7 +23,7 @@
  */
 
 import {
-  ErrorCode, audited, requireAuth, requireInternalService, sendBadRequest, sendSuccess, validateBody,
+  ErrorCode, audited, requireAuth, requireInternalService, sendBadRequest, sendSuccess, TOOLCHAIN_RELEASE_VERSION_PATTERN, validateBody,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
@@ -39,7 +39,7 @@ export const TOOLCHAIN_MOUNT = '/plugins/toolchain';
 export const INITIAL_DEFAULT_PATH = '/initial-default';
 
 const InitialDefaultBodySchema = z.object({
-  releaseVersion: z.string().trim().regex(/^\d+\.\d+\.\d+$/, 'releaseVersion must be a plain MAJOR.MINOR.PATCH release'),
+  releaseVersion: z.string().trim().regex(TOOLCHAIN_RELEASE_VERSION_PATTERN, 'releaseVersion must be a plain MAJOR.MINOR.PATCH release'),
   acceptVulnerabilities: z.string().trim().min(1, 'acceptVulnerabilities needs a reason').max(1000).optional(),
 }).strict();
 

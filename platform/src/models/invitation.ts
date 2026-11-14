@@ -3,26 +3,10 @@
 
 import crypto from 'crypto';
 import { Schema, model, Types, type HydratedDocument, type Model } from 'mongoose';
-import { MEMBER_ROLES, type OrgMemberRole } from './user-organization.js';
 import { config } from '../config/index.js';
+import { ORG_ROLES, type OrgRole } from '@pipeline-builder/api-core/wire-vocabulary';
+import { INVITATION_STATUSES, INVITATION_TYPES, type InvitationStatus, type InvitationType } from '../constants/vocabulary.js';
 import { type OAuthProviderName, OAUTH_PROVIDER_NAMES } from '../types/oauth-provider.js';
-
-/**
- * Invitation status
- */
-export type InvitationStatus = 'pending' | 'accepted' | 'expired' | 'revoked';
-
-/**
- * OAuth provider type for invitations. Alias of the platform-wide
- * `OAuthProviderName` so the invitation API and the IdP-config / OAuth
- * controller all speak the same vocabulary.
- */
-export type InvitationOAuthProvider = OAuthProviderName;
-
-/**
- * Invitation type - how the invitation can be accepted
- */
-export type InvitationType = 'email' | 'oauth' | 'any';
 
 /**
  * Invitation document interface
@@ -31,7 +15,7 @@ export interface InvitationData {
   email: string;
   organizationId: Types.ObjectId;
   invitedBy: Types.ObjectId;
-  role: OrgMemberRole;
+  role: OrgRole;
   /**
    * Roles assigned on acceptance, on top of the baseline the coarse `role`
    * gives. Empty or absent for an invitation that grants nothing beyond it.
@@ -56,8 +40,8 @@ export interface InvitationData {
 
   // OAuth-specific fields
   invitationType: InvitationType;
-  allowedOAuthProviders?: InvitationOAuthProvider[];
-  acceptedVia?: 'email' | InvitationOAuthProvider;
+  allowedOAuthProviders?: OAuthProviderName[];
+  acceptedVia?: 'email' | OAuthProviderName;
 
   createdAt: Date;
   updatedAt: Date;
@@ -68,7 +52,7 @@ export interface InvitationData {
 export interface InvitationMethods {
   isExpired(): boolean;
   isValid(): boolean;
-  canAcceptViaOAuth(provider: InvitationOAuthProvider): boolean;
+  canAcceptViaOAuth(provider: OAuthProviderName): boolean;
   canAcceptViaEmail(): boolean;
 }
 
@@ -97,7 +81,7 @@ const invitationSchema = new Schema<InvitationData, InvitationModel, InvitationM
     },
     role: {
       type: String,
-      enum: [...MEMBER_ROLES],
+      enum: [...ORG_ROLES],
       default: 'member',
     },
     roleIds: {
@@ -112,7 +96,7 @@ const invitationSchema = new Schema<InvitationData, InvitationModel, InvitationM
     },
     status: {
       type: String,
-      enum: ['pending', 'accepted', 'expired', 'revoked'],
+      enum: [...INVITATION_STATUSES],
       default: 'pending',
       index: true,
     },
@@ -132,7 +116,7 @@ const invitationSchema = new Schema<InvitationData, InvitationModel, InvitationM
     // OAuth-specific fields
     invitationType: {
       type: String,
-      enum: ['email', 'oauth', 'any'],
+      enum: [...INVITATION_TYPES],
       default: 'any',
     },
     allowedOAuthProviders: {
@@ -180,7 +164,7 @@ invitationSchema.methods.isValid = function (): boolean {
 /**
  * Check if invitation can be accepted via specific OAuth provider
  */
-invitationSchema.methods.canAcceptViaOAuth = function (provider: InvitationOAuthProvider): boolean {
+invitationSchema.methods.canAcceptViaOAuth = function (provider: OAuthProviderName): boolean {
   if (!this.isValid()) return false;
 
   // If invitation type is email-only, OAuth is not allowed

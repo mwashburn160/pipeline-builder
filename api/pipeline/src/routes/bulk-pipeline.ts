@@ -176,7 +176,8 @@ export function createBulkPipelineRoutes(quotaService: QuotaService): Router {
     const bulk = validateBulkArray<string>(req.body?.ids, 'ids', CoreConstants.MAX_BULK_ITEMS);
     if ('error' in bulk) return sendBadRequest(res, bulk.error, ErrorCode.VALIDATION_ERROR);
     if (nonUuidIds(bulk.value)) return sendBadRequest(res, '"ids" must be full pipeline UUIDs', ErrorCode.VALIDATION_ERROR);
-    const ids = bulk.value;
+    // A repeated id is one pipeline: write and audit it once.
+    const ids = [...new Set(bulk.value)];
 
     ctx.log('INFO', 'Bulk delete pipelines', { count: ids.length });
 
@@ -215,7 +216,8 @@ export function createBulkPipelineRoutes(quotaService: QuotaService): Router {
     const bulk = validateBulkArray<string>(req.body?.ids, 'ids', CoreConstants.MAX_BULK_ITEMS);
     if ('error' in bulk) return sendBadRequest(res, bulk.error, ErrorCode.VALIDATION_ERROR);
     if (nonUuidIds(bulk.value)) return sendBadRequest(res, '"ids" must be full pipeline UUIDs', ErrorCode.VALIDATION_ERROR);
-    const ids = bulk.value;
+    // A repeated id is one pipeline: write and audit it once.
+    const ids = [...new Set(bulk.value)];
 
     if (!req.body?.data || typeof req.body.data !== 'object') {
       return sendBadRequest(res, 'Request body must include a "data" object with fields to update', ErrorCode.VALIDATION_ERROR);

@@ -11,14 +11,13 @@
  * the human-facing file.
  */
 
-import { createLogger, isValidPermission } from '@pipeline-builder/api-core';
+import { createLogger, isValidPermission, type RoleGrant } from '@pipeline-builder/api-core';
 import mongoose from 'mongoose';
 import { assertActorMayAssignRole, assertSystemOrgOnlyRoleInSystemOrg } from './role-authority.js';
 import type { OrgId, RoleAssignmentActor, UserId } from './role-authority.js';
 import { RL_REQUIRES_SUPERADMIN, RL_ROLE_NOT_FOUND } from './roles-errors.js';
 import { toOrgId } from '../helpers/org-id.js';
 import { Role, RoleAssignment } from '../models/index.js';
-import type { RoleGrant } from '../models/index.js';
 
 const logger = createLogger('service-account-roles');
 

@@ -6,23 +6,32 @@
  * colours, state / source labels, and the CVE-id parser the advisory forms use.
  */
 
+import { ADVISORY_SEVERITIES } from '@pipeline-builder/api-core/wire-vocabulary';
 import type { BadgeColor } from '@/components/ui/Badge';
 import type { AdvisorySeverity, AdvisorySource, AdvisoryState } from '@/types/ecosystem';
 
 
-export const ADVISORY_SEVERITIES: AdvisorySeverity[] = ['critical', 'high', 'medium', 'low'];
+/**
+ * Every advisory severity: its label and badge colour. api-core's
+ * `ADVISORY_SEVERITIES` is most severe first, and that order IS the severity
+ * rank (`severityRank`).
+ */
+export const ADVISORY_SEVERITY_META = {
+  critical: { label: 'Critical', color: 'red' },
+  high: { label: 'High', color: 'red' },
+  medium: { label: 'Medium', color: 'yellow' },
+  low: { label: 'Low', color: 'gray' },
+} as const satisfies Record<AdvisorySeverity, { label: string; color: BadgeColor }>;
 
-export const SEVERITY_LABELS: Record<AdvisorySeverity, string> = {
-  critical: 'Critical',
-  high: 'High',
-  medium: 'Medium',
-  low: 'Low',
-};
+function asAdvisorySeverity(severity: string): AdvisorySeverity | null {
+  const s = severity.toLowerCase();
+  return Object.hasOwn(ADVISORY_SEVERITY_META, s) ? (s as AdvisorySeverity) : null;
+}
 
 /** Rank for sorting — lower is more severe; unknown severities sort last. */
 export function severityRank(severity: string): number {
-  const i = ADVISORY_SEVERITIES.indexOf(severity.toLowerCase() as AdvisorySeverity);
-  return i === -1 ? ADVISORY_SEVERITIES.length : i;
+  const known = asAdvisorySeverity(severity);
+  return known ? ADVISORY_SEVERITIES.indexOf(known) : ADVISORY_SEVERITIES.length;
 }
 
 /** Highest severity first (stable for equal severities). */
@@ -30,15 +39,16 @@ export function sortBySeverity<T extends { severity: string }>(items: T[]): T[] 
   return [...items].sort((a, b) => severityRank(a.severity) - severityRank(b.severity));
 }
 
+/** Badge colour for a severity off the wire; an unknown one is neutral. */
 export function severityColor(severity: string): BadgeColor {
-  const rank = severityRank(severity);
-  if (rank <= 1) return 'red';
-  if (rank === 2) return 'yellow';
-  return 'gray';
+  const known = asAdvisorySeverity(severity);
+  return known ? ADVISORY_SEVERITY_META[known].color : 'gray';
 }
 
+/** Label for a severity off the wire; an unknown one is shown raw. */
 export function severityLabel(severity: string): string {
-  return SEVERITY_LABELS[severity.toLowerCase() as AdvisorySeverity] ?? severity;
+  const known = asAdvisorySeverity(severity);
+  return known ? ADVISORY_SEVERITY_META[known].label : severity;
 }
 
 export const ADVISORY_STATE_LABELS: Record<AdvisoryState, string> = {

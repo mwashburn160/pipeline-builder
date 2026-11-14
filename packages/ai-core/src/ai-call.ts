@@ -14,10 +14,10 @@
  * and no audit row).
  */
 
-import { envInt } from '@pipeline-builder/api-core';
+import { envInt, type AiKeySource, type AiQuotaSettlement } from '@pipeline-builder/api-core';
 import type { LanguageModelUsage, SystemModelMessage } from 'ai';
 
-import { getAvailableProviders, resolveModel, type KeySource, type ResolvedModelSelection } from './provider-registry.js';
+import { getAvailableProviders, resolveModel, type ResolvedModelSelection } from './provider-registry.js';
 
 // -- Limits ------------------------------------------------------------------
 
@@ -292,11 +292,11 @@ export interface AIUsageAuditDetails {
   provider: string;
   model: string;
   /** Whose key paid: the caller's own (`request`), the org's (`org`), or the platform's. */
-  keySource: KeySource;
+  keySource: AiKeySource;
   /** Set when a failover served the call: the provider originally resolved. */
   fallbackFrom?: string;
-  /** How the call's `aiCalls` slot settled. */
-  quotaSlot?: 'kept' | 'refunded';
+  /** How the call's `aiCalls` slot settled (api-core `AI_QUOTA_SETTLEMENTS`). */
+  quotaSlot?: AiQuotaSettlement;
   tokens: AITokenUsage;
   /** The versioned prompt the call ran (e.g. `ask-howto@3`). */
   promptVersion?: string;
@@ -309,7 +309,7 @@ export interface AIUsageAuditDetails {
  */
 export function aiUsageAuditDetails(
   selection: Pick<ResolvedModelSelection, 'provider' | 'modelId' | 'keySource' | 'fallbackFrom'>,
-  extra: { usage?: Partial<LanguageModelUsage> | AITokenUsage | null; quotaSlot?: 'kept' | 'refunded'; promptVersion?: string } = {},
+  extra: { usage?: Partial<LanguageModelUsage> | AITokenUsage | null; quotaSlot?: AiQuotaSettlement; promptVersion?: string } = {},
 ): AIUsageAuditDetails {
   const usage = extra.usage as Partial<LanguageModelUsage> & Partial<AITokenUsage> | null | undefined;
   const tokens: AITokenUsage = usage && typeof usage.cachedInputTokens === 'number'

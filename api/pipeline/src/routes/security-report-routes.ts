@@ -21,9 +21,10 @@ import {
 } from '@pipeline-builder/api-core';
 import type { TokenScope } from '@pipeline-builder/api-core';
 import { createAuthenticatedWithOrgRoute, withRoute } from '@pipeline-builder/api-server';
+import { SECURITY_REPORT_FORMATS } from '@pipeline-builder/pipeline-core';
 import { Router, type NextFunction, type Request, type Response } from 'express';
 import { z } from 'zod';
-import { normalizeSecurityReport, SECURITY_REPORT_FORMATS } from '../helpers/security-report.js';
+import { normalizeSecurityReport } from '../helpers/security-report.js';
 import { pipelineService } from '../services/pipeline-service.js';
 import { securityReportStore, summarizeReports } from '../services/security-report-store.js';
 

@@ -1,12 +1,13 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { SYSTEM_ACTOR_ID, createLogger, envInt, errorMessage, recordAudit, runWithAuditContext, SYSTEM_ORG_ID, toComplianceAttributes } from '@pipeline-builder/api-core';
+import { SYSTEM_ACTOR_ID, createLogger, envInt, errorMessage, recordAudit, runWithAuditContext, SYSTEM_ORG_ID, toComplianceAttributes, type ComplianceScanTarget } from '@pipeline-builder/api-core';
 import { incCounter } from '@pipeline-builder/api-server';
 import { schema, withTenantTx, runWithTenantContext, type RuleTarget } from '@pipeline-builder/pipeline-data';
 import { eq, and, gt, lt, asc } from 'drizzle-orm';
 import { logComplianceCheck } from './compliance-check-log.js';
 import { notifyComplianceBlock, notifyComplianceWarnings } from './compliance-notifier.js';
+import { ruleTargetsOf } from './compliance-vocabulary.js';
 import { resolveParentOrgId } from './org-hierarchy-client.js';
 import { asNonBlockingVulnRules, rulesReadStepFacts, withPipelineStepFacts } from './pipeline-step-facts.js';
 import { withPluginImageFacts } from './plugin-image-attributes.js';
@@ -174,9 +175,7 @@ async function executeScanInternal(scanId: string): Promise<void> {
     const parentOrgId = await resolveParentOrgId(scan.orgId);
 
     // Fetch entities based on target
-    const targets: RuleTarget[] = scan.target === 'all'
-      ? ['plugin', 'pipeline']
-      : [scan.target as RuleTarget];
+    const targets = ruleTargetsOf(scan.target as ComplianceScanTarget);
 
     let passCount = 0;
     let warnCount = 0;

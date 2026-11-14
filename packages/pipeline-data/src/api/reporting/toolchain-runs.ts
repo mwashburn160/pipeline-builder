@@ -24,7 +24,7 @@
  * the gate only informs a human — an override records a reason.
  */
 
-import { BUILD_IMAGE_STEP_KEY } from '@pipeline-builder/api-core';
+import { BUILD_IMAGE_STEP_KEY, MANAGED_TOOLCHAIN, TOOLCHAIN_RELEASE_VERSION_PATTERN } from '@pipeline-builder/api-core';
 import { sql } from 'drizzle-orm';
 import { executeRows, type SqlExecutor } from '../../database/pg-result.js';
 
@@ -57,9 +57,7 @@ export const SYNTH_STEP_KEY = 'synth';
  * the manifest's non-step row under `step_key` {@link BUILD_IMAGE_STEP_KEY}
  * (api-core `BUILD_IMAGE_MANIFEST_*`), and its `plugin_version` IS the release.
  */
-export const BUILD_IMAGE_PLUGIN = 'pipeline-bootstrap';
-
-const RELEASE_VERSION_RE = /^\d+\.\d+\.\d+$/;
+const BUILD_IMAGE_PLUGIN = MANAGED_TOOLCHAIN.bootstrap;
 
 /** A manifest row, as {@link deployedToolchainOf} reads it. */
 export interface ToolchainManifestRow {
@@ -93,7 +91,7 @@ export function deployedToolchainOf(rows: readonly ToolchainManifestRow[]): Map<
   const synth = new Map<string, { stageName: string; actionName: string }>();
   for (const r of rows) {
     if (r.stepKey === BUILD_IMAGE_STEP_KEY && r.pluginName === BUILD_IMAGE_PLUGIN && r.pluginPublisher === null
-      && typeof r.pluginVersion === 'string' && RELEASE_VERSION_RE.test(r.pluginVersion)) {
+      && typeof r.pluginVersion === 'string' && TOOLCHAIN_RELEASE_VERSION_PATTERN.test(r.pluginVersion)) {
       release.set(r.pipelineId, { orgId: r.orgId, releaseVersion: r.pluginVersion });
     }
     if (r.stepKey === SYNTH_STEP_KEY) synth.set(r.pipelineId, { stageName: r.stageName, actionName: r.actionName });

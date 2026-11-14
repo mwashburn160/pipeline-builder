@@ -8,10 +8,11 @@
  * commit, and the entitlement/provider sync.
  */
 
-import { FEATURE_METADATA, TIER_FEATURES, isValidFeatureFlag, type QuotaTier } from '@pipeline-builder/api-core';
+import { FEATURE_METADATA, TIER_FEATURES, isValidFeatureFlag, type QuotaTier, type BillingInterval } from '@pipeline-builder/api-core';
 import { activeComboCredits, comboBasisCents, getComboDiscounts, volumeCredits } from './combo-pricing.js';
 import { supportFloorLine } from './support-floor.js';
 import type { BundleConfig, ComboDiscountConfig } from '../config/billing-types.js';
+import { BASELINE_SUPPORT_LEVELS } from '../config/support-levels.js';
 
 export type Addon = { bundleId: string; quantity: number };
 
@@ -159,9 +160,8 @@ export function bundleRequiresError(
  * baselines in `requiresAnyOf`), so premium alongside a baseline is the
  * supported shape rather than a conflict — it is how a large org gives business
  * hours to its named contacts and 24×7 to the one carrying the pager. The set
- * is therefore derived from WHICH GRANT a bundle makes, not from its feature
- * name: a bundle granting `supportContacts` is a baseline, and anything else
- * that happens to be named `support_*` is not.
+ * comes from the support-level catalog's `kind: 'baseline'` entries — the same
+ * set `effectiveEntitlements` resolves a double hold over.
  *
  * Named in the message rather than generic, because the fix is not obvious: the
  * customer has to REMOVE the baseline they hold before adding the other, and the
@@ -172,9 +172,7 @@ export function supportLevelConflictError(
   next: readonly Addon[],
   bundles: readonly BundleConfig[],
 ): string | null {
-  const baselines = bundles
-    .filter((b) => (b.grants as Record<string, number> | undefined)?.supportContacts)
-    .map((b) => b.id);
+  const baselines: readonly string[] = BASELINE_SUPPORT_LEVELS;
   if (!baselines.includes(bundle.id)) return null;
   const others = next.filter((a) => a.quantity > 0 && a.bundleId !== bundle.id && baselines.includes(a.bundleId));
   if (others.length === 0) return null;
@@ -226,7 +224,7 @@ export function cascadeRemoveDependents(
 /** Catalog-time combo savings (`min-composition basket − combined price`, ≥ 0) for
  *  an interval — ownership-independent, for the "pair to save" nudge. Shares
  *  `comboBasisCents` with the credit math so the two can't drift. */
-export function comboSavings(combo: ComboDiscountConfig, bundles: readonly BundleConfig[], interval: 'monthly' | 'annual'): number {
+export function comboSavings(combo: ComboDiscountConfig, bundles: readonly BundleConfig[], interval: BillingInterval): number {
   return Math.max(0, comboBasisCents(combo, bundles, interval) - combo.prices[interval]);
 }
 
@@ -247,7 +245,7 @@ export function priceBreakdown(
   plan: { name: string; prices: { monthly: number; annual: number } },
   addons: Addon[],
   bundles: readonly BundleConfig[],
-  interval: 'monthly' | 'annual',
+  interval: BillingInterval,
   tier?: QuotaTier,
   floorOverride?: { seats: number; floorCents: number } | undefined,
 ): { interval: string; items: { label: string; quantity: number; cents: number }[]; totalCents: number } {
@@ -294,7 +292,7 @@ export function comboDelta(
   current: Addon[],
   next: Addon[],
   bundles: readonly BundleConfig[],
-  interval: 'monthly' | 'annual',
+  interval: BillingInterval,
 ): { lostCombos: ComboChange[]; gainedCombos: ComboChange[] } {
   const combos = getComboDiscounts();
   const before = activeComboCredits(current, bundles, combos, interval);

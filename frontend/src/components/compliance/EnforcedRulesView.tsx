@@ -1,5 +1,6 @@
 'use client';
 
+import { RULE_TARGET_IDS, RULE_TARGET_LABELS } from '@/lib/compliance-styles';
 import { Badge } from '@/components/ui/Badge';
 import { useState } from 'react';
 import { Shield } from 'lucide-react';
@@ -50,8 +51,7 @@ export default function EnforcedRulesView() {
           aria-label="Filter enforced rules by target"
         >
           <option value="">All targets</option>
-          <option value="plugin">Plugin</option>
-          <option value="pipeline">Pipeline</option>
+          {RULE_TARGET_IDS.map((t) => <option key={t} value={t}>{RULE_TARGET_LABELS[t]}</option>)}
         </FilterSelect>
       </div>
 

@@ -17,7 +17,7 @@ import { z } from 'zod';
 import {
   IconKeySchema, PLUGIN_CATALOG_FIELD_SCHEMAS, ProjectUrlSchema, isAllowedSpdxId,
 } from './plugin-catalog-metadata.js';
-import { PLUGIN_CHANGELOG_MAX_BYTES, isManagedToolchainPlugin } from '../types/plugin-catalog.js';
+import { PLUGIN_CHANGELOG_MAX_BYTES, TOOLCHAIN_METADATA_PREFIX, isManagedToolchainPlugin } from '../types/plugin-catalog.js';
 
 // -----------------------------------------------------------------------------
 // Vocabularies
@@ -83,16 +83,6 @@ export const PluginToolchainSchema = z.object({
   node: exactSemver,
 }).strict();
 export type PluginToolchain = z.infer<typeof PluginToolchainSchema>;
-
-/**
- * Where a managed build image's `toolchain` is persisted: its plugin row's
- * `metadata`, one flat `toolchain.<field>` key per tool (the column is a flat
- * string map, and a `BuildImage` spec may carry no step `metadata` of its own,
- * so the keys never collide). Written at upload by {@link toolchainMetadata},
- * read by {@link toolchainFromMetadata} — the platform-default metadata guard
- * and the resolver both go through it.
- */
-export const TOOLCHAIN_METADATA_PREFIX = 'toolchain.';
 
 /** The flat `metadata` entries that persist `toolchain` on a build image's row. */
 export function toolchainMetadata(toolchain: PluginToolchain): Record<string, string> {

@@ -35,10 +35,10 @@ Written for team leads who compose reports and for administrators who decide whe
 
 1. **A definition is saved** with a template, a cadence, a timezone and a distribution list. The creator becomes the owner.
 2. **The scheduler waits for the period to end**, then waits `REPORT_SETTLE_HOURS` (6 by default) longer, so the event ingest has finished redriving its dead-letter queue.
-3. **The run re-checks its authorization.** There is no caller, so it is authorized as the definition's owner — active member, still holds `reports:write`, account still holds the add-on. Nothing is cached.
+3. **The run re-checks its authorization.** There is no caller, so it is authorized as the definition's owner — active member, still holds `reports:write` (and `reports:rollup` for a report that covers the teams), account still holds the add-on. Nothing is cached.
 4. **Sections are computed and frozen.** They come from the same queries the dashboards run, over the same window, and the computed result — not the query — is stored as a snapshot.
 5. **The run reaches `ready_for_review`.** The lead writes the executive summary beside the numbers, optionally having it drafted by a model first.
-6. **The lead publishes.** This is the moment internal numbers leave the platform, so the whole outward path is audited.
+6. **The lead publishes.** This is the moment internal numbers leave the platform, so the whole outward path is audited. Publishing starts delivery itself; `autoSend` publishes and delivers without the review.
 7. **Delivery fans out.** In-app always and first; then email (one message per address), Slack and Teams through the org's existing alert destinations.
 8. **A correction is a new version.** Regenerating produces version N+1 and repoints the row; the previous version stays exactly as its recipients read it.
 
@@ -134,11 +134,13 @@ Changing a report's cadence, timezone or week start **re-derives** its schedule,
 
 ### What a scheduled run re-checks
 
-A scheduled run has **no caller**, so it is authorized as the definition's **owner**, and that authorization is re-checked on every single run against the platform service: is the owner still an active member, do they still hold `reports:write`, and does the account still hold the add-on. Nothing is cached. An entitlement that lapsed on Tuesday has to stop Wednesday's report, and a cache refreshed by a sync leg is exactly one missed sync away from mailing a report the customer stopped paying for.
+A scheduled run has **no caller**, so it is authorized as the definition's **owner**, and that authorization is re-checked on every single run against the platform service: is the owner still an active member, do they still hold `reports:write` — and, for a **rollup** definition (one that covers the descendant teams), `reports:rollup` too — and does the account still hold the add-on. Nothing is cached. An entitlement that lapsed on Tuesday has to stop Wednesday's report, and a cache refreshed by a sync leg is exactly one missed sync away from mailing a report the customer stopped paying for.
 
-A check that comes back **revoked** pauses the definition with the reason, and the lead is told which of the three it was — an entitlement lapse is a billing conversation, a deactivated owner is a handover, and a lost permission is an admin question, and a single "paused" notice would send all three to the wrong person.
+A check that comes back **revoked** pauses the definition with the reason, and the lead is told which of the three it was — an entitlement lapse is a billing conversation, a deactivated owner is a handover, and a lost permission (`permission_lost`, either `reports:write` or a rollup's `reports:rollup`) is an admin question, and a single "paused" notice would send all three to the wrong person.
 
 A check that comes back **unreadable** only skips that run. Failing closed is right for the run; pausing every report in the fleet because platform was unreachable for five minutes is not, because a human would then have to resume each one.
+
+The same goes for a rollup's **team list**: when platform cannot answer which teams sit under the org (unreachable, or an error response), the run is **not composed** rather than composed over the parent org alone. A report labelled as covering the teams that quietly does not is a wrong report — and with `autoSend`, one already in a manager's inbox.
 
 ## Delivery
 

@@ -7,6 +7,7 @@
  * components so the rules are unit-testable.
  */
 
+import { localDay } from './local-day';
 import type { ExposureTriageBody, PipelineBuildImage, PipelineExposureView, PipelineSecurity } from './api/pipeline-security-types';
 import { SEVERITY_LABELS, asVulnSeverity, sortBySeverity } from './plugin-vulns';
 
@@ -18,12 +19,6 @@ import { SEVERITY_LABELS, asVulnSeverity, sortBySeverity } from './plugin-vulns'
 export const RISK_ACCEPTANCE_MAX_DAYS = 90;
 
 const DAY_MS = 86_400_000;
-
-/** `YYYY-MM-DD` of a date in the viewer's local calendar. */
-export function localDay(d: Date): string {
-  const p = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
-}
 
 /** The `min` / `max` of the acceptance date picker: tomorrow … today + max days. */
 export function acceptanceWindow(now: Date = new Date(), maxDays = RISK_ACCEPTANCE_MAX_DAYS): { min: string; max: string; defaultValue: string } {
@@ -82,13 +77,6 @@ export function triageBody(draft: { action: ExposureTriageBody['action']; reason
     acceptedUntil: acceptedUntilIso(draft.day, now) ?? undefined,
     ...(needsKev ? { kev: draft.kevAck } : {}),
   };
-}
-
-/** `sha256:abcdef123456…` → `abcdef123456` (12 hex), or the input when it isn't a digest. */
-export function shortDigest(digest: string | null | undefined): string {
-  if (!digest) return '—';
-  const hex = digest.replace(/^sha256:/, '');
-  return hex.length > 12 ? hex.slice(0, 12) : hex;
 }
 
 /**

@@ -68,7 +68,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@p
 const mockPeriods = jest.fn<AnyFn>();
 
 jest.unstable_mockModule('../src/helpers/report-helpers.js', () => ({
-  resolveOrgRollup: (...a: unknown[]) => mockRollup(...a),
+  resolveOrgSubtree: (...a: unknown[]) => mockRollup(...a),
   REPORTING_HTTP_TIMEOUT_MS: 3000,
 }));
 
@@ -246,6 +246,41 @@ describe('the per-run authority recheck', () => {
     expect(mockComposeRun).not.toHaveBeenCalled();
   });
 
+  /**
+   * Reading the descendant teams is `reports:rollup`, a separate grant. The run route
+   * re-checks it on every compose; without the same check here a lead whose grant was
+   * withdrawn kept receiving — and auto-sending — the teams' numbers every period.
+   */
+  it('pauses a ROLLUP definition whose owner lost reports:rollup', async () => {
+    store.dueDefinitions.mockResolvedValue([definition({ scope: { kind: 'rollup' } })]);
+    mockAuthority.mockResolvedValue({ active: true, permissions: ['reports:write'], features: ['stakeholder_reports'] });
+    await cycle();
+    expect(store.pauseDefinition).toHaveBeenCalledWith('def-1', 'permission_lost');
+    expect(mockRollup).not.toHaveBeenCalled();
+    expect(mockComposeRun).not.toHaveBeenCalled();
+  });
+
+  it('does not ask an ORG-scoped definition\'s owner for reports:rollup', async () => {
+    store.dueDefinitions.mockResolvedValue([definition({ scope: { kind: 'org' } })]);
+    await cycle();
+    expect(store.pauseDefinition).not.toHaveBeenCalled();
+    expect(mockComposeRun).toHaveBeenCalledTimes(1);
+  });
+
+  /**
+   * An unreachable platform while reading the team list must not compose a "rollup"
+   * of the parent alone — with auto-send, a wrong report already in a manager's inbox.
+   */
+  it('composes nothing when a rollup\'s team list cannot be read', async () => {
+    store.dueDefinitions.mockResolvedValue([definition({ scope: { kind: 'rollup' }, autoSend: true })]);
+    mockAuthority.mockResolvedValue({ active: true, permissions: ['reports:write', 'reports:rollup'], features: ['stakeholder_reports'] });
+    mockRollup.mockRejectedValue(new Error('platform unreachable'));
+    await cycle();
+    expect(mockComposeRun).not.toHaveBeenCalled();
+    expect(mockDeliver).not.toHaveBeenCalled();
+    expect(store.pauseDefinition).not.toHaveBeenCalled();
+  });
+
   it('SKIPS without pausing when platform cannot answer', async () => {
     store.dueDefinitions.mockResolvedValue([definition()]);
     mockAuthority.mockResolvedValue(null);
@@ -287,7 +322,7 @@ describe('running a definition', () => {
 
     jest.clearAllMocks();
     store.claimDefinition.mockResolvedValue(true);
-    mockAuthority.mockResolvedValue({ active: true, permissions: ['reports:write'], features: ['stakeholder_reports'] });
+    mockAuthority.mockResolvedValue({ active: true, permissions: ['reports:write', 'reports:rollup'], features: ['stakeholder_reports'] });
     mockPeriods.mockReturnValue([period('2026-W38')]);
     mockComposeRun.mockResolvedValue({ ok: true, run: run(), period: period('2026-W38'), reused: false });
     store.dueDefinitions.mockResolvedValue([definition({ scope: { kind: 'rollup' } })]);

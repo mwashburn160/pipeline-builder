@@ -29,8 +29,8 @@
 import { createLogger, emitCounter, ErrorCode, errorMessage, type QuotaUsageAttribution } from '@pipeline-builder/api-core';
 import type { QuotaService } from './quota-service.js';
 import { aiCallsByPrincipalSince, aiTokensSince } from './usage-ledger.js';
-import { config } from '../config.js';
 import { resolveRootOrgId } from '../helpers/org-hierarchy.js';
+import { periodDaysFor } from '../helpers/quota-helpers.js';
 import { QuotaNoticeSettings } from '../models/quota-notice.js';
 
 const logger = createLogger('ai-controls');
@@ -98,7 +98,7 @@ export async function checkAiControls(
     // The period the account's counter is in: [resetAt − period length, resetAt).
     const status = await svc.getQuotaStatus(orgId, 'aiCalls');
     const resetAt = new Date(status.resetAt);
-    const periodStart = new Date(resetAt.getTime() - config.quota.resetDays * DAY_MS);
+    const periodStart = new Date(resetAt.getTime() - periodDaysFor('aiCalls') * DAY_MS);
 
     if (controls.aiTokenBudget !== null) {
       const spent = await aiTokensSince(rootOrgId, periodStart);

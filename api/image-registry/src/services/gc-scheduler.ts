@@ -15,8 +15,9 @@ const ORG_PREFIX = 'org-';
 // walk the catalog and issue deletes at once. The lock makes exactly one pod
 // sweep per window; absent Redis it degrades to no-op (runs on every pod — the
 // per-manifest deletes are 404-tolerant, so that stays safe, just wasteful).
-// The TTL must comfortably outlast one sweep (a sweep GCs every org namespace
-// sequentially) yet stay well under the interval so the next cycle re-acquires.
+// The TTL is the crash-recovery window only: the scheduler heartbeats the lock
+// while a (long) sweep runs, so it need not outlast one; it must stay well under
+// the interval so the next cycle re-acquires.
 const LOCK_KEY = leaderLockKey('image-registry', 'gc-scheduler');
 
 let scheduler: Scheduler | null = null;
@@ -36,7 +37,7 @@ interface SchedulerOptions {
   maxAgeDays: number;
   /** Run on startup at `startupDelayMs`, then every `intervalMs`. */
   startupDelayMs: number;
-  /** Leader-lock TTL (ms). Must outlast one sweep; under `intervalMs`. */
+  /** Leader-lock TTL (ms): the crash-recovery window (the lock is heartbeated); under `intervalMs`. */
   lockTtlMs: number;
 }
 
@@ -49,8 +50,9 @@ interface SchedulerOptions {
  *   REGISTRY_GC_MAX_AGE_DAYS (default 30)
  *   REGISTRY_GC_STARTUP_DELAY_MS (default 300000 — 5 min, gives the registry
  *                                  time to settle before we hammer it)
- *   REGISTRY_GC_LOCK_TTL_MS (default 900000 — 15 min; leader-lock TTL,
- *                                  generous so a long sweep doesn't lapse it)
+ *   REGISTRY_GC_LOCK_TTL_MS (default api-core DEFAULT_LEADER_LOCK_TTL_MS;
+ *                                  the crash-recovery window — the lock is
+ *                                  heartbeated while a sweep runs)
  */
 function readConfig(): SchedulerOptions {
   return {

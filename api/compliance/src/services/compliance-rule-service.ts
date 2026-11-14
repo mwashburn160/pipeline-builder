@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { SYSTEM_ACTOR_ID, COMPLIANCE_CONTENT_SETS, ConflictError, createCacheService, createLogger, errorMessage, SYSTEM_ORG_ID, toComplianceAttributes, ValidationError } from '@pipeline-builder/api-core';
+import { SYSTEM_ACTOR_ID, ConflictError, createCacheService, createLogger, errorMessage, RULE_TARGETS, SYSTEM_ORG_ID, toComplianceAttributes, ValidationError, type RuleSeverity } from '@pipeline-builder/api-core';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { CrudService, buildComplianceRuleConditions, buildPublishedRuleCatalogConditions, runWithTenantContext, schema, withTenantTx, type ComplianceRuleFilter, type RuleTarget, type RuleScope } from '@pipeline-builder/pipeline-data';
 import { SQL, eq, and, or, desc, inArray, isNull } from 'drizzle-orm';
@@ -10,6 +10,7 @@ import type { PgTable } from 'drizzle-orm/pg-core';
 import { paginatedList } from './paginated-list.js';
 import { subscriptionService } from './subscription-service.js';
 import { validateRuleRegexPatterns } from '../engine/rule-operators.js';
+import { knownSetTags, unknownSetTag } from '../helpers/content-set-tags.js';
 import { notifyPublishedRuleChange } from '../helpers/rule-change-notifier.js';
 
 /**
@@ -39,8 +40,6 @@ export class InvalidSetTagError extends ValidationError {
   }
 }
 
-const KNOWN_CONTENT_SET_NAMES: ReadonlySet<string> = new Set(COMPLIANCE_CONTENT_SETS);
-
 /**
  * Reject a published rule whose tags include a `set:<x>` marker with an unknown
  * `<x>`. Returns an error message (for `InvalidSetTagError`) or null when valid.
@@ -48,15 +47,8 @@ const KNOWN_CONTENT_SET_NAMES: ReadonlySet<string> = new Set(COMPLIANCE_CONTENT_
  * entitlement-gated nor catalog-listed, so a stray `set:` tag on them is inert.
  */
 function invalidSetTagMessage(tags: unknown): string | null {
-  if (!Array.isArray(tags)) return null;
-  for (const tag of tags as string[]) {
-    if (typeof tag !== 'string' || !tag.startsWith('set:')) continue;
-    const name = tag.slice('set:'.length);
-    if (!KNOWN_CONTENT_SET_NAMES.has(name)) {
-      return `Unknown content set tag "${tag}" — must be one of: ${COMPLIANCE_CONTENT_SETS.map((s) => `set:${s}`).join(', ')}`;
-    }
-  }
-  return null;
+  const tag = unknownSetTag(tags);
+  return tag === null ? null : `Unknown content set tag "${tag}" — must be one of: ${knownSetTags().join(', ')}`;
 }
 
 const logger = createLogger('compliance-rule-service');
@@ -399,7 +391,7 @@ export class ComplianceRuleService extends CrudService<
    * Get all enforced rules for an org (org rules + active subscribed rules merged).
    */
   async findAllEnforced(orgId: string, target?: RuleTarget, parentOrgId?: string): Promise<EnforcedRule[]> {
-    const targets: RuleTarget[] = target ? [target] : ['plugin', 'pipeline'];
+    const targets: readonly RuleTarget[] = target ? [target] : RULE_TARGETS;
     const allRules: EnforcedRule[] = [];
 
     for (const t of targets) {
@@ -448,14 +440,14 @@ export class ComplianceRuleService extends CrudService<
    * pair already exists, skip the insert. Avoids backlog buildup when many
    * rules are mutated in quick succession (e.g. bulk imports).
    */
-  private async triggerRuleChangeScan(orgId: string, target: string, userId: string = SYSTEM_ACTOR_ID): Promise<void> {
+  private async triggerRuleChangeScan(orgId: string, target: RuleTarget, userId: string = SYSTEM_ACTOR_ID): Promise<void> {
     await withTenantTx(async (tx) => {
       const [existing] = await tx
         .select({ id: schema.complianceScan.id })
         .from(schema.complianceScan)
         .where(and(
           eq(schema.complianceScan.orgId, orgId),
-          eq(schema.complianceScan.target, target as 'plugin' | 'pipeline'),
+          eq(schema.complianceScan.target, target),
           inArray(schema.complianceScan.status, ['pending', 'running']),
         ))
         .limit(1);
@@ -463,7 +455,7 @@ export class ComplianceRuleService extends CrudService<
 
       await tx.insert(schema.complianceScan).values({
         orgId,
-        target: target as 'plugin' | 'pipeline',
+        target,
         status: 'pending',
         triggeredBy: 'rule-change',
         userId,
@@ -476,7 +468,7 @@ export class ComplianceRuleService extends CrudService<
    * severity/tag. Returns rules ordered by priority DESC plus the total count.
    */
   async listPublishedCatalog(
-    filter: { name?: string; target?: 'plugin' | 'pipeline'; severity?: 'warning' | 'error' | 'critical'; tag?: string },
+    filter: { name?: string; target?: RuleTarget; severity?: RuleSeverity; tag?: string },
     limit: number,
     offset: number,
   ) {
@@ -547,7 +539,7 @@ export class ComplianceRuleService extends CrudService<
    * evaluates and plaintext secrets never enter the evaluation/sample path.
    */
   async findOrgEntitiesForTarget(
-    target: 'plugin' | 'pipeline',
+    target: RuleTarget,
     orgId: string,
     limit: number,
   ): Promise<Array<{ id: string; name: string | null; raw: Record<string, unknown> }>> {

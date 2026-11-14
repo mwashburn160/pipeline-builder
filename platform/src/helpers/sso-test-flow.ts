@@ -29,17 +29,16 @@
  */
 
 import crypto from 'crypto';
-import { safeEqual } from '@pipeline-builder/api-core';
+import { safeEqual, type IdpProtocol } from '@pipeline-builder/api-core';
 import type { Response } from 'express';
 import type { z } from 'zod';
 import { createPendingStateStore } from './pending-state-store.js';
 import { assertSsoIdentityTrusted, type SsoIdentitySource, getTestableLoginConfig, getTestableSamlConfig } from './sso-enforcement.js';
+import { ssoRefusalReason } from './sso-refusal-reason.js';
 import { config } from '../config/index.js';
-import type { IdpProtocol } from '../models/org-idp-config.js';
 import { SSO_SUPERADMIN_REFUSED } from '../services/auth-errors.js';
 import { idpGroupMappingService } from '../services/idp-group-mapping-service.js';
 import { OIDC_ERROR_MAP, exchangeAndValidate } from '../services/oidc-service.js';
-import { ssoRefusalReason } from './sso-refusal-reason.js';
 import { SAML_ERROR_MAP, samlLandingUrl, validateSamlResponse } from '../services/saml-service.js';
 import { getSamlSpKeys } from '../services/saml-sp-keys.js';
 import { assertJitSeatAvailable } from '../services/sso-jit-service.js';

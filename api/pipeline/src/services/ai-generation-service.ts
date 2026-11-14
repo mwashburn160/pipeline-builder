@@ -11,7 +11,7 @@ import {
   tokenUsage,
 } from '@pipeline-builder/ai-core';
 import type { AITokenUsage, ResolvedModelSelection, SystemModelMessage } from '@pipeline-builder/ai-core';
-import { createLogger } from '@pipeline-builder/api-core';
+import { createLogger, MANAGED_TOOLCHAIN } from '@pipeline-builder/api-core';
 import { PipelineGenerationSchema } from './generation-schema.js';
 import type { PluginSummary } from './plugin-catalog.js';
 
@@ -220,11 +220,11 @@ function validateGeneratedPlugins(
   const synthPlugin = synth?.plugin?.name;
   if (synth) {
     if (!synth.plugin) {
-      (synth as Record<string, unknown>).plugin = { name: 'cdk-synth', filter: { isDefault: true } };
+      (synth as Record<string, unknown>).plugin = { name: MANAGED_TOOLCHAIN.synth, filter: { isDefault: true } };
     } else {
-      if (synthPlugin !== 'cdk-synth') {
-        warnings.push(`Synth plugin changed from "${synthPlugin}" to "cdk-synth" (required for all pipelines)`);
-        synth.plugin.name = 'cdk-synth';
+      if (synthPlugin !== MANAGED_TOOLCHAIN.synth) {
+        warnings.push(`Synth plugin changed from "${synthPlugin}" to "${MANAGED_TOOLCHAIN.synth}" (required for all pipelines)`);
+        synth.plugin.name = MANAGED_TOOLCHAIN.synth;
       }
       if (!synth.plugin.filter) {
         synth.plugin.filter = { isDefault: true };

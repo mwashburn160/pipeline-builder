@@ -4,8 +4,8 @@
 /**
  * The in-app help corpus, loaded ON DEMAND.
  *
- * The generated topics are ~1 MB of TypeScript source — `authentication`
- * is 4,050 lines, `env-variables` 2,991, `deployment` 2,240. A static barrel put
+ * The generated topics are megabytes of TypeScript source (the largest run to
+ * thousands of lines each, and they grow with the docs). A static barrel put
  * all of it in whatever chunk touched this module — through the provider tree,
  * onto the signed-out landing page.
  *
@@ -180,7 +180,7 @@ export function loadHelpGroups(): Promise<HelpTopicGroup[]> {
   return corpus;
 }
 
-/** Flat list of all help topics in display order (used for search). */
+/** Flat list of all help topics in display order (the corpus tests read it; `useHelpSearch` flattens the groups it already holds). */
 export async function loadHelpTopics(): Promise<HelpTopic[]> {
   return (await loadHelpGroups()).flatMap((g) => g.topics);
 }

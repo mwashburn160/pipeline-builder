@@ -59,6 +59,10 @@ const mockQuotaService = { getTier: jest.fn<AnyFn>().mockResolvedValue('develope
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   getParam: (p: any, k: string) => p[k],
   isSystemAdmin: jest.fn<AnyFn>(),
+  // The cross-org widening (`seesEveryOrg`): system org + plugin_queue:manage.
+  isSystemOrgRequest: jest.fn<AnyFn>(),
+  // Every caller here holds plugin_queue:manage; the system-org mock decides.
+  userHasPermission: (_req: unknown, perm: string) => perm === 'plugin_queue:manage',
   parseQueryInt: (val: unknown, def: number) => {
     const n = parseInt(String(val), 10);
     return isNaN(n) ? def: n;
@@ -81,7 +85,7 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
   },
 }));
 
-const { isSystemAdmin } = await import('@pipeline-builder/api-core');
+const { isSystemAdmin, isSystemOrgRequest } = await import('@pipeline-builder/api-core');
 const { createQueueStatusRoutes } = await import('../src/routes/queue-status.js');
 
 function replayLayer() {
@@ -127,6 +131,7 @@ describe('POST /dlq/:jobId/replay', () => {
   // holds plugins:write is allowed through.
   it('rejects a caller without plugins:write with 403', async () => {
     (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(false);
+    (isSystemOrgRequest as jest.Mock<AnyFn>).mockReturnValue(false);
     const { res, json } = makeRes();
     await runReplayStack({
       __orgId: 'org-a',
@@ -139,6 +144,7 @@ describe('POST /dlq/:jobId/replay', () => {
 
   it('allows a non-admin caller holding plugins:write to replay', async () => {
     (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(false);
+    (isSystemOrgRequest as jest.Mock<AnyFn>).mockReturnValue(false);
     dlqGetJob.mockResolvedValue({ id: 'j-1', data: { orgId: 'org-a', pluginRecord: { name: 'p' } } });
     const { res, json } = makeRes();
     await runReplayStack({
@@ -152,6 +158,7 @@ describe('POST /dlq/:jobId/replay', () => {
 
   it('returns 404 when DLQ job does not exist', async () => {
     (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(true);
+    (isSystemOrgRequest as jest.Mock<AnyFn>).mockReturnValue(true);
     dlqGetJob.mockResolvedValue(undefined);
     const handler = getReplayHandler();
     const { res, json } = makeRes();
@@ -165,6 +172,7 @@ describe('POST /dlq/:jobId/replay', () => {
 
   it('system admin can replay a job from a different org', async () => {
     (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(true);
+    (isSystemOrgRequest as jest.Mock<AnyFn>).mockReturnValue(true);
     dlqGetJob.mockResolvedValue({ id: 'j-1', data: { orgId: 'org-x', pluginRecord: { name: 'p' } } });
     const handler = getReplayHandler();
     const { res, json } = makeRes();
@@ -181,6 +189,7 @@ describe('POST /dlq/:jobId/replay', () => {
 
   it('org admin can replay their own org’s job', async () => {
     (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(false);
+    (isSystemOrgRequest as jest.Mock<AnyFn>).mockReturnValue(false);
     dlqGetJob.mockResolvedValue({ id: 'j-1', data: { orgId: 'org-a', pluginRecord: { name: 'p' } } });
     const handler = getReplayHandler();
     const { res, json } = makeRes();
@@ -195,6 +204,7 @@ describe('POST /dlq/:jobId/replay', () => {
 
   it('org admin CANNOT replay a job from a different org (tenant isolation)', async () => {
     (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(false);
+    (isSystemOrgRequest as jest.Mock<AnyFn>).mockReturnValue(false);
     dlqGetJob.mockResolvedValue({ id: 'j-1', data: { orgId: 'org-other', pluginRecord: { name: 'p' } } });
     const handler = getReplayHandler();
     const { res, json } = makeRes();
@@ -209,6 +219,7 @@ describe('POST /dlq/:jobId/replay', () => {
 
   it('rejects a job with no top-level orgId for a non-system admin (the plugin record is not an owner)', async () => {
     (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(false);
+    (isSystemOrgRequest as jest.Mock<AnyFn>).mockReturnValue(false);
     dlqGetJob.mockResolvedValue({ id: 'j-orphan', data: { pluginRecord: { orgId: 'org-a', name: 'p' } } });
     const handler = getReplayHandler();
     const { res, json } = makeRes();

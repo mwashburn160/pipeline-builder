@@ -43,7 +43,7 @@ import {
 import { withRoute } from '@pipeline-builder/api-server';
 import { runWithTenantContext, stakeholderReportStore, type ReportDefinition } from '@pipeline-builder/pipeline-data';
 import { Router } from 'express';
-import { resolveOrgRollup } from '../helpers/report-helpers.js';
+import { resolveOrgSubtree } from '../helpers/report-helpers.js';
 import { notifyPaused } from '../services/report-delivery.js';
 import { nextRunFor } from '../services/report-schedule.js';
 
@@ -73,9 +73,12 @@ export function createStakeholderSyncRoutes(): Router {
 
       // `[root, ...descendants]`, or undefined when the org has no hierarchy. A THROWN
       // failure here is a refusal, not a fallback to the single org: see the header.
+      // The STRICT read, deliberately — the fail-soft `resolveOrgRollup` swallows an
+      // unreachable platform into "no teams", which turned this refusal into exactly
+      // the root-only partial apply it exists to prevent.
       let orgIds: string[];
       try {
-        orgIds = (await resolveOrgRollup(rootOrgId)) ?? [rootOrgId];
+        orgIds = (await resolveOrgSubtree(rootOrgId)) ?? [rootOrgId];
       } catch (err) {
         logger.warn('Entitlement sync refused: could not resolve the account hierarchy', {
           orgId: rootOrgId, error: errorMessage(err),

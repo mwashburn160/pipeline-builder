@@ -7,7 +7,7 @@ export {
   resolveModel,
   resolveModelSelection,
 } from './provider-registry.js';
-export type { ModelSelection, ResolvedModelSelection, KeySource } from './provider-registry.js';
+export type { ModelSelection, ResolvedModelSelection } from './provider-registry.js';
 
 // Org-aware selection: request BYO key > the org's own provider key > platform key,
 // honouring the org's AI switch, never silently downgrading to the platform key.

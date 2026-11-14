@@ -1,6 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { TOOLCHAIN_RESOLVED_VIA } from '@pipeline-builder/api-core/plugin-catalog';
 import { Download, Users } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
@@ -15,12 +16,16 @@ import type { ToolchainAdoptionView, ToolchainResolvedVia } from '@/types/toolch
 
 type OrgRow = ToolchainAdoptionView['orgs'][number];
 
-const VIA: Array<{ id: ToolchainResolvedVia; label: string }> = [
-  { id: 'default', label: 'Platform default' },
-  { id: 'canary', label: 'Canary' },
-  { id: 'org-default', label: 'Org default' },
-  { id: 'pin', label: 'Pinned' },
-];
+/** The tile label per resolution (keyed by api-core's vocabulary, so a new
+ *  resolution is a compile error rather than a missing tile). Tiles run least
+ *  specific first: api-core's most-specific-first list, reversed. */
+const VIA_LABEL: Record<ToolchainResolvedVia, string> = {
+  default: 'Platform default',
+  canary: 'Canary',
+  'org-default': 'Org default',
+  pin: 'Pinned',
+};
+const VIA = [...TOOLCHAIN_RESOLVED_VIA].reverse().map((id) => ({ id, label: VIA_LABEL[id] }));
 
 const COLUMNS: Column<OrgRow>[] = [
   { id: 'org', header: 'Organization', render: (o) => <span>{o.orgName} <span className="font-mono text-xs text-fg-muted">{o.orgId}</span></span>, sortValue: (o) => o.orgName },

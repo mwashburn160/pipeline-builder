@@ -19,7 +19,7 @@ const PAGE_LIMIT = 100;
  * Cursor-paginated repository list for the registry page's left pane.
  *
  * Loads the first page on mount. `loadMore()` appends the next page using
- * the registry's `_catalog` cursor (last repo name from the previous batch).
+ * the cursor the server returned with the previous batch (`next`).
  * `refresh()` resets the cursor and reloads from the beginning.
  *
  * The `groups` derivation buckets repos under namespace headers — `system`
@@ -55,7 +55,12 @@ export function useRepositoryList() {
       const next = res.data?.next;
       setState((s) => ({
         repos: append ? [...s.repos, ...repositories] : repositories,
-        lastCursor: repositories.length ? repositories[repositories.length - 1].name : cursor,
+        // The server's `next`, verbatim — NOT the last name it returned. The
+        // page is filtered (repos this org can't read, empty shells), so a page
+        // can come back with no names at all while the catalog goes on: the old
+        // "last returned name" then re-requested the same page forever, and a
+        // partly-filtered page re-scanned what the server had already passed.
+        lastCursor: next ?? null,
         hasMore: !!next,
         loading: false,
         error: null,

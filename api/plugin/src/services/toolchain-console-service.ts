@@ -22,14 +22,14 @@
 
 import {
   AppError, ConflictError, compareSemver, createLogger, errorMessage, ErrorCode, fetchOrgNames, fetchParentOrgId, getStatusForErrorCode,
-  lastScannedAt, MANAGED_TOOLCHAIN_PLUGINS, NotFoundError, recordAudit, SYSTEM_ORG_ID, toolchainFromMetadata, ValidationError,
-  BUILD_IMAGE_STEP_KEY,
-  type GetParentOrgId, type PluginScanSummary, type PluginToolchain,
+  lastScannedAt, MANAGED_TOOLCHAIN, MANAGED_TOOLCHAIN_PLUGINS, NotFoundError, recordAudit, SYSTEM_ORG_ID, toolchainFromMetadata, ValidationError,
+  BUILD_IMAGE_STEP_KEY, TOOLCHAIN_RESOLVED_VIA,
+  type GetParentOrgId, type PluginScanSummary, type PluginToolchain, type ToolchainReleaseStatus, type ToolchainResolvedVia,
 } from '@pipeline-builder/api-core';
 import {
   executeRows, loadReleaseHalves, readAffectedPipelines, readCanaryGate, readPlatformDefaultRelease, runWithTenantContext, schema,
   toolchainCandidateProblems, toolchainOrgChain, withTenantTx,
-  type CanaryGateParams, type CanaryGateResult, type ToolchainResolvedVia,
+  type CanaryGateParams, type CanaryGateResult,
 } from '@pipeline-builder/pipeline-data';
 import { and, desc, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
 
@@ -38,6 +38,9 @@ import { announceToolchain, type RecoveryPipeline } from './toolchain-hygiene.js
 import {
   deleteRelease, deprecateRelease, previewPlatformDefaultGuards, setPlatformDefault, yankRelease, type ToolchainActor,
 } from './toolchain-release-service.js';
+import {
+  isDeprecatedVersion, isYankedVersion,
+} from '../helpers/managed-toolchain.js';
 
 const logger = createLogger('toolchain-console');
 
@@ -46,8 +49,6 @@ type TenantTx = Parameters<Parameters<typeof withTenantTx>[0]>[0];
 /** K: the Cleanup panel keeps every release no older than the last K platform defaults. */
 export const CLEANUP_KEEP_DEFAULTS = 5;
 
-const BOOTSTRAP = 'pipeline-bootstrap';
-const SYNTH = 'cdk-synth';
 const MANAGED_NAMES_SQL = sql.raw(MANAGED_TOOLCHAIN_PLUGINS.map((n) => `'${n}'`).join(', '));
 
 // -----------------------------------------------------------------------------
@@ -170,14 +171,12 @@ async function pipelinesByOrg(tx: TenantTx): Promise<Map<string, { unpinned: num
 // Releases panel
 // -----------------------------------------------------------------------------
 
-export type ConsoleReleaseStatus = 'default' | 'canary' | 'available' | 'deprecated' | 'yanked';
-
 export interface ConsoleHalfScan { scannedAt: string; criticalFixable: number; highFixable: number; kev: number }
 export interface ConsoleHalf { digest: string | null; scan: ConsoleHalfScan | null }
 
 export interface ConsoleRelease {
   releaseVersion: string;
-  status: ConsoleReleaseStatus;
+  status: ToolchainReleaseStatus;
   /** The release row and both halves exist, and both are active. */
   complete: boolean;
   createdAt: string | null;
@@ -186,9 +185,6 @@ export interface ConsoleRelease {
   halves: { bootstrap: ConsoleHalf | null; synth: ConsoleHalf | null };
   canaryOrgCount: number;
 }
-
-const isYanked = (p: Plugin) => p.yankedAt !== null || p.lifecycle === 'yanked';
-const isDeprecated = (p: Plugin) => p.deprecatedAt !== null || p.lifecycle === 'deprecated';
 
 function halfView(p: Plugin | null | undefined): ConsoleHalf | null {
   if (!p) return null;
@@ -205,10 +201,10 @@ function halfView(p: Plugin | null | undefined): ConsoleHalf | null {
   };
 }
 
-function statusOf(v: string, platformDefault: string | null, halves: Plugin[], canaryOrgs: number): ConsoleReleaseStatus {
+function statusOf(v: string, platformDefault: string | null, halves: Plugin[], canaryOrgs: number): ToolchainReleaseStatus {
   if (v === platformDefault) return 'default';
-  if (halves.some(isYanked)) return 'yanked';
-  if (halves.some(isDeprecated)) return 'deprecated';
+  if (halves.some(isYankedVersion)) return 'yanked';
+  if (halves.some(isDeprecatedVersion)) return 'deprecated';
   if (canaryOrgs > 0) return 'canary';
   return 'available';
 }
@@ -232,8 +228,8 @@ export async function listConsoleReleases(): Promise<{ platformDefault: string |
     const out: ConsoleRelease[] = [];
     for (const v of versions) {
       const row = rowOf.get(v) ?? null;
-      const bootstrap = plugins.find((p) => p.name === BOOTSTRAP && p.version === v) ?? null;
-      const synth = plugins.find((p) => p.name === SYNTH && p.version === v) ?? null;
+      const bootstrap = plugins.find((p) => p.name === MANAGED_TOOLCHAIN.bootstrap && p.version === v) ?? null;
+      const synth = plugins.find((p) => p.name === MANAGED_TOOLCHAIN.synth && p.version === v) ?? null;
       const halves = [bootstrap, synth].filter((p): p is Plugin => p !== null);
       const canaryOrgCount = canary.get(v) ?? 0;
       out.push({
@@ -281,7 +277,7 @@ export async function getReleaseAdoption(releaseVersion: string): Promise<Releas
       deployed: await executeRows<{ org_id: string; via: string | null; n: string | number }>(tx, sql`
         SELECT lower(org_id) AS org_id, resolved_via AS via, count(DISTINCT pipeline_id) AS n
           FROM pipeline_step_manifests
-         WHERE step_key = ${BUILD_IMAGE_STEP_KEY} AND plugin_name = ${BOOTSTRAP} AND plugin_publisher IS NULL AND plugin_version = ${releaseVersion}
+         WHERE step_key = ${BUILD_IMAGE_STEP_KEY} AND plugin_name = ${MANAGED_TOOLCHAIN.bootstrap} AND plugin_publisher IS NULL AND plugin_version = ${releaseVersion}
          GROUP BY 1, 2`),
       pinned: await executeRows<{ org_id: string; n: string | number }>(tx, sql`
         SELECT lower(org_id) AS org_id, count(*) AS n FROM pipelines
@@ -290,7 +286,7 @@ export async function getReleaseAdoption(releaseVersion: string): Promise<Releas
         .where(eq(schema.orgToolchainDefault.releaseVersion, releaseVersion)),
     };
   });
-  const byResolvedVia: Record<ToolchainResolvedVia, number> = { 'pin': 0, 'org-default': 0, 'canary': 0, 'default': 0 };
+  const byResolvedVia = Object.fromEntries(TOOLCHAIN_RESOLVED_VIA.map((v) => [v, 0])) as Record<ToolchainResolvedVia, number>;
   const orgs = new Map<string, { pipelines: number; pinned: number; orgDefault: boolean }>();
   const org = (id: string) => {
     const k = lower(id);
@@ -702,7 +698,7 @@ export async function getCleanupCandidates(): Promise<{ candidates: Array<{ rele
       tx.select({ releaseVersion: schema.toolchainRelease.releaseVersion, createdAt: schema.toolchainRelease.createdAt }).from(schema.toolchainRelease),
       executeRows<{ version: string; created_at: Date | string }>(tx, sql`
         SELECT version, min(created_at) AS created_at FROM plugins
-         WHERE lower(org_id) = ${lower(SYSTEM_ORG_ID)} AND name IN (${MANAGED_NAMES_SQL}) AND deleted_at IS NULL GROUP BY 1`),
+         WHERE org_id = ${SYSTEM_ORG_ID} AND name IN (${MANAGED_NAMES_SQL}) AND deleted_at IS NULL GROUP BY 1`),
       executeRows<{ v: string }>(tx, sql`
         SELECT plugin_version AS v FROM pipeline_step_manifests WHERE plugin_name IN (${MANAGED_NAMES_SQL}) AND plugin_publisher IS NULL
         UNION SELECT r.resolved_version FROM pipeline_plugin_resolution r JOIN pipelines lp ON lp.id::text = r.pipeline_id AND lp.deleted_at IS NULL

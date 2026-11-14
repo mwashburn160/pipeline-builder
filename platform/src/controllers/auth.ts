@@ -3,6 +3,7 @@
 
 import { createLogger, sendError, sendSuccess, createSafeClient, getServiceAuthHeader, isSystemOrgId, errorMessage, userHasPermission } from '@pipeline-builder/api-core';
 import { config } from '../config/index.js';
+import type { RefreshSessionKind } from '../constants/vocabulary.js';
 import { audit } from '../helpers/audit.js';
 import { isBootstrapExceptionOpen, isBootstrapSuperAdminEmail } from '../helpers/bootstrap-admin.js';
 import { clientInfoOf } from '../helpers/client-info.js';
@@ -13,7 +14,6 @@ import { clearRefreshCookie, deliverSessionTokens } from '../helpers/session-coo
 import { completeInteractiveSignIn, openMfaChallengeIfOwed, sendMfaChallenge } from '../helpers/sign-in.js';
 import { rejectIfSsoEnforced } from '../helpers/sso-enforcement.js';
 import { SESSION_SLOT_REQUIRED, callerHasSessionSlot } from '../helpers/token-permissions.js';
-import type { RefreshSessionKind } from '../models/user.js';
 import { incCounter } from '../observability/metrics.js';
 import { DUPLICATE_CREDENTIALS, MFA_REQUIRED_FOR_ORG, RESERVED_ORG_NAME, ONBOARDING_USER_NOT_FOUND, ONBOARDING_NO_ORG, SESSION_AUTH_MISSING } from '../services/auth-errors.js';
 import { provisionBillingSubscription } from '../services/billing-provision.js';

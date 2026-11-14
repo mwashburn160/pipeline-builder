@@ -5,7 +5,8 @@ import { useState, useMemo, useEffect, useId } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
 // lucide-react v1 removed brand icons (e.g. Slack); use a generic messaging glyph.
-import { Bell, Plus, Trash2, Edit2, MessageSquare, Webhook, Mail, Bell as BellIcon, Send } from 'lucide-react';
+import { Bell, Plus, Trash2, Edit2, Send } from 'lucide-react';
+import type { AlertChannel, AlertRuleSeverity } from '@pipeline-builder/api-core/wire-vocabulary';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { AccessDenied } from '@/components/ui/AccessDenied';
 import { useFetch } from '@/hooks/useFetch';
@@ -29,12 +30,8 @@ import { useDelete } from '@/hooks/useDelete';
 import { RecentlyDeletedPanel } from '@/components/RecentlyDeletedPanel';
 import { api } from '@/lib/api';
 import type { AlertDestination, AlertDestinationWrite } from '@/types/observability';
+import { ALERT_CHANNEL_IDS, ALERT_CHANNEL_META, ALERT_SEVERITY_IDS, ALERT_SEVERITY_META, alertChannelMeta, alertSeverityMeta } from '@/lib/alerting';
 import { formatError } from '@/lib/constants';
-
-/** Badge color per delivery channel. */
-function channelColor(channel: AlertDestination['channel']): 'purple' | 'blue' | 'green' | 'gray' {
-  return channel === 'slack' ? 'purple' : channel === 'webhook' ? 'blue' : channel === 'email' ? 'green' : 'gray';
-}
 
 /**
  * Per-org alert destinations settings page.
@@ -71,7 +68,7 @@ export default function AlertDestinationsPage() {
     if (router.isReady && router.query.all === '1' && isSuperAdmin) setAllOrgs(true);
   }, [router.isReady, router.query.all, isSuperAdmin]);
   const [search, setSearch] = useState('');
-  const [channelFilter, setChannelFilter] = useState<'all' | 'slack' | 'webhook' | 'in-app' | 'email'>('all');
+  const [channelFilter, setChannelFilter] = useState<'all' | AlertChannel>('all');
 
   const { data, loading, error, refetch } = useFetch(
     async (signal) => {
@@ -133,9 +130,9 @@ export default function AlertDestinationsPage() {
         </div>
       ),
     },
-    { id: 'channel', header: 'Channel', render: (d) => <Badge color={channelColor(d.channel)}>{d.channel}</Badge> },
+    { id: 'channel', header: 'Channel', render: (d) => <Badge color={alertChannelMeta(d.channel).color}>{d.channel}</Badge> },
     { id: 'label', header: 'Label', cellClassName: 'font-medium text-fg', render: (d) => d.label },
-    { id: 'severity', header: 'Min severity', render: (d) => <Badge color={d.minSeverity === 'critical' ? 'red' : 'yellow'}>{d.minSeverity}</Badge> },
+    { id: 'severity', header: 'Min severity', render: (d) => <Badge color={alertSeverityMeta(d.minSeverity).color}>{d.minSeverity}</Badge> },
     { id: 'enabled', header: 'Enabled', render: (d) => (d.enabled ? <Badge color="green">enabled</Badge> : <Badge color="gray">disabled</Badge>) },
     { id: 'target', header: 'Target', cellClassName: 'font-mono text-xs text-fg-muted', render: (d) => (d.hasTarget ? d.target : '—') },
   ];
@@ -146,12 +143,12 @@ export default function AlertDestinationsPage() {
       render: (d) => (
         <span className="inline-flex items-center gap-2">
           <ChannelIcon channel={d.channel} />
-          <Badge color={channelColor(d.channel)}>{d.channel}</Badge>
+          <Badge color={alertChannelMeta(d.channel).color}>{d.channel}</Badge>
         </span>
       ),
     },
     { id: 'label', header: 'Label', cellClassName: 'font-medium text-fg', render: (d) => d.label },
-    { id: 'severity', header: 'Min severity', render: (d) => <Badge color={d.minSeverity === 'critical' ? 'red' : 'yellow'}>≥ {d.minSeverity}</Badge> },
+    { id: 'severity', header: 'Min severity', render: (d) => <Badge color={alertSeverityMeta(d.minSeverity).color}>≥ {d.minSeverity}</Badge> },
     { id: 'enabled', header: 'Enabled', render: (d) => (d.enabled ? <Badge color="green">enabled</Badge> : <Badge color="gray">disabled</Badge>) },
     {
       id: 'target', header: 'Target', cellClassName: 'font-mono text-xs text-fg-muted',
@@ -230,10 +227,7 @@ export default function AlertDestinationsPage() {
               aria-label="Filter by channel"
             >
               <option value="all">All channels</option>
-              <option value="slack">Slack</option>
-              <option value="webhook">Webhook</option>
-              <option value="in-app">In-app</option>
-              <option value="email">Email</option>
+              {ALERT_CHANNEL_IDS.map((c) => <option key={c} value={c}>{ALERT_CHANNEL_META[c].label}</option>)}
             </FilterSelect>
           </div>
           <div className="overflow-x-auto">
@@ -297,10 +291,8 @@ export default function AlertDestinationsPage() {
 }
 
 function ChannelIcon({ channel }: { channel: AlertDestination['channel'] }) {
-  if (channel === 'slack') return <MessageSquare className="w-5 h-5 text-purple-600 dark:text-purple-400" />;
-  if (channel === 'webhook') return <Webhook className="w-5 h-5 text-brand" />;
-  if (channel === 'email') return <Mail className="w-5 h-5 text-success" />;
-  return <BellIcon className="w-5 h-5 text-fg-muted" />;
+  const { icon: Icon, iconClass } = alertChannelMeta(channel);
+  return <Icon className={`w-5 h-5 ${iconClass}`} />;
 }
 
 /** Create / edit modal. On edit, leaving `target` blank preserves the secret. */
@@ -315,13 +307,14 @@ function DestinationModal(props: {
   const [channel, setChannel] = useState<AlertDestination['channel']>(existing?.channel ?? 'slack');
   const [label, setLabel] = useState(existing?.label ?? '');
   const [target, setTarget] = useState('');
-  const [minSeverity, setMinSeverity] = useState<'warning' | 'critical'>(existing?.minSeverity ?? 'warning');
+  const [minSeverity, setMinSeverity] = useState<AlertRuleSeverity>(existing?.minSeverity ?? 'warning');
   const [enabled, setEnabled] = useState(existing?.enabled ?? true);
   const [saving, setSaving] = useState(false);
+  const channelMeta = alertChannelMeta(channel);
 
   const onSubmit = async () => {
     if (!label.trim()) { toast.error('Label is required'); return; }
-    if (channel !== 'in-app' && !existing && !target.trim()) {
+    if (channelMeta.target && !existing && !target.trim()) {
       toast.error(channel === 'email' ? 'Email address is required' : 'Target URL is required for new Slack / webhook destinations');
       return;
     }
@@ -362,14 +355,12 @@ function DestinationModal(props: {
             disabled={!!existing} // channel is immutable on edit (changes target validation)
             className="disabled:opacity-60"
           >
-            <option value="slack">Slack incoming webhook</option>
-            <option value="webhook">Generic HTTPS webhook</option>
-            <option value="email">Email recipient</option>
-            {/* In-app delivery has no real delivery path yet (the relay only logs
-                it), so don't offer a silently-nonfunctional channel. Kept in the
-                list — disabled — so an existing in-app destination still labels
-                correctly on edit (channel is immutable there anyway). */}
-            <option value="in-app" disabled>In-app message (coming soon — not yet delivered)</option>
+            {/* A channel with no delivery path yet stays listed — disabled — so an
+                existing destination on it still labels correctly on edit
+                (channel is immutable there anyway). */}
+            {ALERT_CHANNEL_IDS.map((c) => (
+              <option key={c} value={c} disabled={!ALERT_CHANNEL_META[c].deliverable}>{ALERT_CHANNEL_META[c].optionLabel}</option>
+            ))}
           </Select>
         </div>
         <div>
@@ -381,18 +372,18 @@ function DestinationModal(props: {
             placeholder="e.g. SRE Slack channel"
           />
         </div>
-        {channel !== 'in-app' && (
+        {channelMeta.target && (
           <div>
             <label className="block text-xs font-medium text-fg-muted mb-1" htmlFor={`${uid}-field`}>
-              {channel === 'slack' ? 'Slack incoming-webhook URL' : channel === 'email' ? 'Email address' : 'Webhook URL'}
+              {channelMeta.target.label}
             </label>
             <Input id={`${uid}-field`}
               // Email targets aren't secrets — show them; URLs are bearer-equivalent, so mask.
-              type={channel === 'email' ? 'text' : 'password'}
+              type={channelMeta.secretTarget ? 'password' : 'text'}
               autoComplete="off"
               value={target}
               onChange={(e) => setTarget(e.target.value)}
-              placeholder={existing ? '(leave blank to keep existing)' : (channel === 'slack' ? 'https://hooks.slack.com/services/...' : channel === 'email' ? 'ops@example.com' : 'https://...')}
+              placeholder={existing ? '(leave blank to keep existing)' : channelMeta.target.placeholder}
               className="font-mono"
             />
             {existing && (
@@ -408,8 +399,7 @@ function DestinationModal(props: {
             value={minSeverity}
             onChange={(e) => setMinSeverity(e.target.value as typeof minSeverity)}
           >
-            <option value="warning">Warning + Critical</option>
-            <option value="critical">Critical only</option>
+            {ALERT_SEVERITY_IDS.map((sv) => <option key={sv} value={sv}>{ALERT_SEVERITY_META[sv].minimumLabel}</option>)}
           </Select>
         </div>
         <label className="flex items-center gap-2 text-sm">

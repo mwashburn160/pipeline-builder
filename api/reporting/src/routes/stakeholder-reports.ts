@@ -20,17 +20,23 @@
  * a report may be sent to is the organization's call, not the report author's,
  * or a lead could widen their own audience.
  *
- * WHAT IS NOT HERE. Nothing in this file sends anything. Publishing marks the run
- * and records the audit event; delivery (email, in-app, Slack/Teams) is the
- * scheduler's, so a publish cannot be held open by a mail server.
+ * DELIVERY IS DETACHED FROM THE REQUEST. Publishing marks the run and records the
+ * audit event, then hands the run to `deliverPublishedRun` (email, in-app,
+ * Slack/Teams) WITHOUT awaiting it, so a publish cannot be held open by a mail
+ * server; what the delivery did is recorded on the run when it settles. The
+ * scheduler's auto-send path delivers the same way, awaited, because it has no
+ * caller to keep waiting.
  */
 
 import {
   ErrorCode,
+  WEEK_STARTS,
   actorId,
   audited,
   clientAbortSignal,
+  createLogger,
   emitCounter,
+  errorMessage,
   recordAudit,
   requirePermission,
   sendBadRequest,
@@ -40,7 +46,7 @@ import {
   validateBody,
   parseReportTimezone,
   parseWeekStart,
-  type Permission,
+  userHasPermission,
 } from '@pipeline-builder/api-core';
 import { rateLimitByOrg, withRoute } from '@pipeline-builder/api-server';
 import {
@@ -48,6 +54,7 @@ import {
   getTemplate,
   getSection,
   REPORT_CADENCES,
+  REPORT_SCOPE_KINDS,
   REPORT_TEMPLATES,
   MAX_SHARE_LINK_TTL_DAYS,
   DEFAULT_SHARE_LINK_TTL_DAYS,
@@ -62,14 +69,16 @@ import {
 } from '@pipeline-builder/pipeline-data';
 import { Router, type Request } from 'express';
 import { z } from 'zod';
-import { resolveOrgRollup, sendPdf, shareLinkUrl } from '../helpers/report-helpers.js';
+import { resolveOrgSubtree, sendPdf, sendPdfRefusal, shareLinkUrl } from '../helpers/report-helpers.js';
 import { retentionOrgIdFor } from '../helpers/retention-cap.js';
-import { emailAvailable } from '../services/report-delivery.js';
+import { deliverPublishedRun, emailAvailable, sendRecipientConfirmation } from '../services/report-delivery.js';
 import { reportIdentity } from '../services/report-identity.js';
 import { attachExecutiveSummary } from '../services/report-ai-summary.js';
 import { composeRun } from '../services/report-runner.js';
 import { nextRunFor } from '../services/report-schedule.js';
 import { pdfAvailable, renderPdf } from '../services/report-pdf.js';
+
+const logger = createLogger('stakeholder-reports');
 
 /** Section ids a definition may carry. Checked against the live registry. */
 const sectionIdSchema = z.string().min(1).max(64).refine((id) => getSection(id) !== undefined, {
@@ -77,7 +86,7 @@ const sectionIdSchema = z.string().min(1).max(64).refine((id) => getSection(id) 
 });
 
 const scopeSchema = z.object({
-  kind: z.enum(['org', 'projects', 'rollup']),
+  kind: z.enum(REPORT_SCOPE_KINDS),
   projects: z.array(z.string().min(1).max(200)).max(50).optional(),
 }).strict().superRefine((scope, ctx) => {
   if (scope.kind === 'projects' && (!scope.projects || scope.projects.length === 0)) {
@@ -92,7 +101,7 @@ const definitionBody = z.object({
   sections: z.array(sectionIdSchema).min(1).max(24).optional(),
   cadence: z.enum(REPORT_CADENCES),
   timezone: z.string().min(1).max(64).optional(),
-  weekStart: z.enum(['monday', 'sunday']).optional(),
+  weekStart: z.enum(WEEK_STARTS).optional(),
   scope: scopeSchema,
   recipients: z.array(z.string().min(1).max(255)).max(50).optional(),
   autoSend: z.boolean().optional(),
@@ -213,12 +222,6 @@ function recipientView(r: ReportRecipient) {
     ...(reason ? { blockedReason: reason } : {}),
     createdAt: r.createdAt.toISOString(),
   };
-}
-
-/** Does the caller hold `permission`? Used where a route needs a second check. */
-function holds(req: Request, permission: Permission): boolean {
-  const user = req.user as { permissions?: string[]; isSuperAdmin?: boolean } | undefined;
-  return user?.isSuperAdmin === true || user?.permissions?.includes(permission) === true;
 }
 
 export function createStakeholderReportRoutes(): Router {
@@ -485,10 +488,12 @@ export function createStakeholderReportRoutes(): Router {
         ...(label ? { periodLabel: label } : {}),
         ...(regenerate ? { regenerate } : {}),
         features: (req.user as { features?: string[] } | undefined)?.features ?? [],
-        // `resolveOrgRollup` is called directly rather than through the
-        // request-driven `rollupIds`: the scope lives on the DEFINITION, not in a
-        // query parameter. The caller's permission was re-checked above.
-        ...(definition.scope.kind === 'rollup' ? { orgIds: await resolveOrgRollup(orgId) } : {}),
+        // The STRICT subtree read rather than the request-driven `rollupIds`: the
+        // scope lives on the DEFINITION, not in a query parameter, and an
+        // unreachable platform must fail this run rather than compose a rollup
+        // that silently covers the parent org alone (see the refusal above). The
+        // caller's permission was re-checked above.
+        ...(definition.scope.kind === 'rollup' ? { orgIds: await resolveOrgSubtree(orgId) } : {}),
         retentionOrgId: retentionOrgIdFor(req, orgId),
       });
       if (!result.ok) {
@@ -564,11 +569,7 @@ export function createStakeholderReportRoutes(): Router {
       renderedAt: new Date().toISOString(),
     });
     const result = await renderPdf(html);
-    if (!result.ok) {
-      const status = result.reason === 'busy' ? 429 : result.reason === 'unavailable' ? 503 : 500;
-      return sendError(res, status, result.message,
-        status === 500 ? ErrorCode.INTERNAL_ERROR : ErrorCode.SERVICE_UNAVAILABLE);
-    }
+    if (!result.ok) return sendPdfRefusal(res, result);
     emitCounter('report_pdf_downloaded_total', { source: 'member' });
     ctx.log('COMPLETED', 'Served report PDF', { runId: run.id, ms: result.ms, bytes: result.pdf.length });
     sendPdf(res, result.pdf, reportFileName(definition?.name ?? 'delivery-report', run.periodLabel, run.version));
@@ -602,13 +603,6 @@ export function createStakeholderReportRoutes(): Router {
     return sendSuccess(res, 200, { run: runView(run) });
   }));
 
-  /**
-   * Publish a run.
-   *
-   * The response says plainly that a delivered copy cannot be recalled. Revoking a
-   * link later pulls back the URL, not the email that already arrived, and a lead
-   * who learns that after publishing learns it too late.
-   */
   /**
    * `POST /runs/:id/summary` — (re)draft the executive summary for an unpublished run.
    *
@@ -666,10 +660,24 @@ export function createStakeholderReportRoutes(): Router {
         : sendSuccess(res, 200, { drafted: false, reason: result.reason, message: result.message });
     }));
 
+  /**
+   * Publish a run.
+   *
+   * A REAL publish (not a retried click on a run already out) starts delivery to
+   * the definition's distribution list, detached from this request — see the file
+   * header. Without it a reviewed report reached nobody: the scheduler delivers
+   * only the runs it auto-publishes itself, so the review-then-publish path, which
+   * is the default, told the lead "N recipients will receive it" and sent nothing.
+   *
+   * The response says plainly that a delivered copy cannot be recalled. Revoking a
+   * link later pulls back the URL, not the email that already arrived, and a lead
+   * who learns that after publishing learns it too late.
+   */
   router.post('/runs/:id/publish', requirePermission('reports:publish'), audited('reporting.report.published', 'reporting.report.republished'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const id = getParam(req.params, 'id') ?? '';
     const { run, alreadyPublished } = await stakeholderReportStore.publishRun(orgId, id, userId);
-    const recipients = await stakeholderReportStore.getRecipients(orgId, await definitionRecipients(orgId, run.definitionId));
+    const definition = await stakeholderReportStore.getDefinition(orgId, run.definitionId);
+    const recipients = await stakeholderReportStore.getRecipients(orgId, definition?.recipients ?? []);
     const deliverable = recipients.filter((r) => stakeholderReportStore.deliverability(r).deliverable);
 
     if (!alreadyPublished) {
@@ -696,6 +704,9 @@ export function createStakeholderReportRoutes(): Router {
           pendingRecipients: recipients.length - deliverable.length,
         },
       });
+      // Detached on purpose (see the file header): the publish has landed, and a
+      // slow relay or webhook must not hold the lead's request open.
+      if (definition) void deliverAfterPublish(definition, run);
     }
     ctx.log('COMPLETED', 'Published report run', { runId: id, version: run.version, alreadyPublished });
     return sendSuccess(res, 200, {
@@ -831,7 +842,7 @@ export function createStakeholderReportRoutes(): Router {
 
       // An approver's own addition counts as the approval — requiring an admin to
       // approve the address they just typed is ceremony, not control.
-      const selfApproved = admission.needsApproval && holds(req, 'org_settings:write');
+      const selfApproved = admission.needsApproval && userHasPermission(req, 'org_settings:write');
       const { recipient, verificationToken } = await stakeholderReportStore.upsertRecipient({
         orgId,
         email,
@@ -864,17 +875,24 @@ export function createStakeholderReportRoutes(): Router {
           pendingVerification: verificationToken !== undefined,
         },
       });
+      // The confirmation token goes to the ADDRESS, never back to the caller. A
+      // token in this response let the lead who typed the address confirm it
+      // themselves — the double opt-in reduced to one person's say-so, which is
+      // exactly what "typing an address is never enough" rules out.
+      const confirmationSent = verificationToken
+        ? await sendRecipientConfirmation(orgId, recipient.email, verificationToken)
+        : false;
       return sendSuccess(res, 201, {
         recipient: recipientView(recipient),
         pendingApproval,
-        // The token goes to the CALLER, which is how the service that owns mail
-        // delivery sends the confirmation. Phase 5 hands it to the mailer; until
-        // then a lead can resend, and nothing is delivered unverified either way.
-        ...(verificationToken ? { verificationToken } : {}),
+        confirmationSent,
       });
     }));
 
-  /** Re-mint a pending recipient's confirmation token, so a lost email is recoverable. */
+  /**
+   * Re-mint a pending recipient's confirmation token and mail it, so a lost email
+   * is recoverable. The token goes to the address only — see the add route.
+   */
   router.post('/recipients/:id/resend',
     requirePermission('reports:write'),
     rateLimitByOrg({ name: 'report-recipient-resend', max: 10, windowMs: 60 * 60_000, message: 'Too many verification resends — try again later.' }),
@@ -882,7 +900,8 @@ export function createStakeholderReportRoutes(): Router {
     withRoute(async ({ req, res, ctx, orgId, userId }) => {
       const id = getParam(req.params, 'id') ?? '';
       const { recipient, token } = await stakeholderReportStore.resendVerification(orgId, id);
-      ctx.log('COMPLETED', 'Resent recipient verification', { recipientId: id });
+      const confirmationSent = await sendRecipientConfirmation(orgId, recipient.email, token);
+      ctx.log('COMPLETED', 'Resent recipient verification', { recipientId: id, confirmationSent });
       // A fresh confirmation credential was minted and handed out; the previous one
       // is dead. Recorded so "who re-sent the link that got confirmed" has an answer.
       recordAudit({
@@ -892,7 +911,7 @@ export function createStakeholderReportRoutes(): Router {
         targetType: 'report-recipient',
         targetId: id,
       });
-      return sendSuccess(res, 200, { recipient: recipientView(recipient), verificationToken: token });
+      return sendSuccess(res, 200, { recipient: recipientView(recipient), confirmationSent });
     }));
 
   router.delete('/recipients/:id', requirePermission('reports:write'), audited('reporting.report.recipient.removed'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
@@ -911,7 +930,7 @@ export function createStakeholderReportRoutes(): Router {
     return sendSuccess(res, 200, { deleted: true });
   }));
 
-  // ── Org policy (admin) ─────────────────────────────────────────────────────
+  // ── Delivery + org policy ──────────────────────────────────────────────────
 
   /**
    * `GET /delivery-status` — can this instance email at all?
@@ -987,7 +1006,7 @@ export function createStakeholderReportRoutes(): Router {
  */
 async function refuseUnauthorizedRollup(req: Request, kind: string): Promise<string | null> {
   if (kind !== 'rollup') return null;
-  if (holds(req, 'reports:rollup')) return null;
+  if (userHasPermission(req, 'reports:rollup')) return null;
   return 'A rollup report includes your descendant teams, which needs the "Roll up team reports" permission.';
 }
 
@@ -1021,8 +1040,18 @@ async function unknownRecipients(orgId: string, ids: string[]): Promise<string |
   return `Unknown recipient${missing.length === 1 ? '' : 's'}: ${missing.join(', ')}. Add the address first.`;
 }
 
-/** The recipient ids a definition names, for the publish summary. */
-async function definitionRecipients(orgId: string, definitionId: string): Promise<string[]> {
-  const definition = await stakeholderReportStore.getDefinition(orgId, definitionId);
-  return definition?.recipients ?? [];
+/**
+ * Deliver a run a person just published and record what happened on the run.
+ * NEVER THROWS — it runs detached from the request that published, so a failure
+ * here has nobody to answer to but the log, the counter and the run's own
+ * (absent) delivery record.
+ */
+async function deliverAfterPublish(definition: ReportDefinition, run: ReportRun): Promise<void> {
+  try {
+    const outcome = await deliverPublishedRun(definition, run);
+    await stakeholderReportStore.recordDelivery(definition.orgId, run.id, outcome as unknown as Record<string, unknown>);
+  } catch (err) {
+    logger.warn('Delivery after publish failed', { orgId: definition.orgId, runId: run.id, error: errorMessage(err) });
+    emitCounter('report_delivery_failed_total', { orgId: definition.orgId, channel: 'publish' });
+  }
 }

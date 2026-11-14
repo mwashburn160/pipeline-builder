@@ -59,6 +59,10 @@ const mockQuotaService = { getTier: jest.fn<AnyFn>().mockResolvedValue('develope
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   getParam: (p: any, k: string) => p[k],
   isSystemAdmin: jest.fn<AnyFn>(),
+  // The cross-org widening (`seesEveryOrg`): system org + plugin_queue:manage.
+  isSystemOrgRequest: jest.fn<AnyFn>(),
+  // Every caller here holds plugin_queue:manage; the system-org mock decides.
+  userHasPermission: (_req: unknown, perm: string) => perm === 'plugin_queue:manage',
   parseQueryInt: (val: unknown, def: number) => {
     const n = parseInt(String(val), 10);
     return isNaN(n) ? def : n;
@@ -81,7 +85,7 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
   },
 }));
 
-const { isSystemAdmin } = await import('@pipeline-builder/api-core');
+const { isSystemAdmin, isSystemOrgRequest } = await import('@pipeline-builder/api-core');
 const { createQueueStatusRoutes } = await import('../src/routes/queue-status.js');
 
 function retryLayer() {
@@ -128,6 +132,7 @@ describe('POST /failed/:jobId/retry', () => {
   // holds plugins:write is allowed through.
   it('rejects a caller without plugins:write with 403', async () => {
     (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(false);
+    (isSystemOrgRequest as jest.Mock<AnyFn>).mockReturnValue(false);
     const { res, json } = makeRes();
     await runRetryStack({
       __orgId: 'org-a',
@@ -141,6 +146,7 @@ describe('POST /failed/:jobId/retry', () => {
 
   it('allows a non-admin caller holding plugins:write to retry', async () => {
     (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(false);
+    (isSystemOrgRequest as jest.Mock<AnyFn>).mockReturnValue(false);
     findFailed.mockResolvedValue({ id: 'j-1', data: { orgId: 'org-a', pluginRecord: { name: 'p' } } });
     const { res, json } = makeRes();
     await runRetryStack({
@@ -154,6 +160,7 @@ describe('POST /failed/:jobId/retry', () => {
 
   it('returns 404 when no failed job with that id exists', async () => {
     (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(true);
+    (isSystemOrgRequest as jest.Mock<AnyFn>).mockReturnValue(true);
     findFailed.mockResolvedValue(null);
     const handler = getRetryHandler();
     const { res, json } = makeRes();
@@ -168,6 +175,7 @@ describe('POST /failed/:jobId/retry', () => {
 
   it('system admin can retry a job from a different org', async () => {
     (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(true);
+    (isSystemOrgRequest as jest.Mock<AnyFn>).mockReturnValue(true);
     findFailed.mockResolvedValue({ id: 'j-1', data: { orgId: 'org-x', pluginRecord: { name: 'p' } } });
     const handler = getRetryHandler();
     const { res, json } = makeRes();
@@ -184,6 +192,7 @@ describe('POST /failed/:jobId/retry', () => {
 
   it('re-runs as the RETRYING caller, re-checking plugins:publish', async () => {
     (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(false);
+    (isSystemOrgRequest as jest.Mock<AnyFn>).mockReturnValue(false);
     findFailed.mockResolvedValue({ id: 'j-9', data: { orgId: 'org-a', pluginRecord: { name: 'p' } } });
     retriers.length = 0;
     const { res } = makeRes();
@@ -193,6 +202,7 @@ describe('POST /failed/:jobId/retry', () => {
 
   it('org admin can retry their own org’s job', async () => {
     (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(false);
+    (isSystemOrgRequest as jest.Mock<AnyFn>).mockReturnValue(false);
     findFailed.mockResolvedValue({ id: 'j-1', data: { orgId: 'org-a', pluginRecord: { name: 'p' } } });
     const handler = getRetryHandler();
     const { res, json } = makeRes();
@@ -207,6 +217,7 @@ describe('POST /failed/:jobId/retry', () => {
 
   it('org admin CANNOT retry a job from a different org (tenant isolation)', async () => {
     (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(false);
+    (isSystemOrgRequest as jest.Mock<AnyFn>).mockReturnValue(false);
     findFailed.mockResolvedValue({ id: 'j-1', data: { orgId: 'org-other', pluginRecord: { name: 'p' } } });
     const handler = getRetryHandler();
     const { res, json } = makeRes();
@@ -221,6 +232,7 @@ describe('POST /failed/:jobId/retry', () => {
 
   it('rejects a job with no top-level orgId for a non-system admin (the plugin record is not an owner)', async () => {
     (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(false);
+    (isSystemOrgRequest as jest.Mock<AnyFn>).mockReturnValue(false);
     findFailed.mockResolvedValue({ id: 'j-orphan', data: { pluginRecord: { orgId: 'org-a', name: 'p' } } });
     const handler = getRetryHandler();
     const { res, json } = makeRes();

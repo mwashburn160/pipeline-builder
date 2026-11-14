@@ -33,7 +33,7 @@ import { Router } from 'express';
 
 import { requireAskAccess } from '../authz.js';
 import { AskBodySchema } from '../request-schema.js';
-import { askQuotaDetail, errorSaysProviderContacted, servedByOf } from './ask.js';
+import { askQuotaDetail, errorSaysProviderContacted, servedByOf, type AskQuotaDetail } from './ask.js';
 import { buildAgentTools } from '../services/agent-tools.js';
 import { recordAi, recordAiTokens } from '../services/ai-metrics.js';
 import { getDocsIndex } from '../services/docs-index.js';
@@ -175,7 +175,7 @@ export function createAgentRoutes(quotaService: QuotaService): Router {
     let aiSlot: AiCallSlot | undefined;
     // In-process tool generations (propose_template): each settles its own slot,
     // and its tokens belong on this turn's audit row too.
-    const toolGenerations: { tool: string; slot: 'kept' | 'refunded' | 'waived'; tokens: AITokenUsage }[] = [];
+    const toolGenerations: { tool: string; slot: AskQuotaDetail['slot']; tokens: AITokenUsage }[] = [];
     // `slotKept`: how the turn's aiCalls slot settled — see askQuotaDetail.
     const auditTurn = (outcome: 'success' | 'failure', slotKept: boolean) =>
       recordAudit({

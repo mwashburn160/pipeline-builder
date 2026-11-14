@@ -5,6 +5,17 @@ import { ErrorCode, isSystemAdmin, sendError } from '@pipeline-builder/api-core'
 import type { Request, Response } from 'express';
 
 /**
+ * The owner-gated verbs, keyed to the past tense the refusal reads in, so a new
+ * verb cannot ship without its wording.
+ */
+const OWN_ROOT_VERBS = {
+  delete: 'deleted',
+  restore: 'restored',
+  purge: 'purged',
+} as const;
+type OwnRootVerb = keyof typeof OWN_ROOT_VERBS;
+
+/**
  * Why a non-admin may NOT delete / restore / purge this message, or null when
  * they may: only the sender acting on their OWN ROOT message. The predicate
  * half of {@link authorizeOwnRootMessage}, for callers (the bulk delete) that
@@ -13,12 +24,10 @@ import type { Request, Response } from 'express';
 export function ownRootMessageRefusal(
   message: { createdBy?: string | null; threadId?: string | null },
   userId: string,
-  verb: 'delete' | 'restore' | 'purge',
+  verb: OwnRootVerb,
 ): string | null {
   if (message.createdBy !== userId) return `Only admins or the message sender can ${verb} messages`;
-  if (message.threadId) {
-    return `Only root messages can be ${verb === 'delete' ? 'deleted' : verb === 'restore' ? 'restored' : 'purged'} by non-admins`;
-  }
+  if (message.threadId) return `Only root messages can be ${OWN_ROOT_VERBS[verb]} by non-admins`;
   return null;
 }
 
@@ -32,7 +41,7 @@ export function authorizeOwnRootMessage(
   res: Response,
   message: { createdBy?: string | null; threadId?: string | null },
   userId: string,
-  verb: 'delete' | 'restore' | 'purge',
+  verb: OwnRootVerb,
 ): boolean {
   if (isSystemAdmin(req)) return true;
   const refusal = ownRootMessageRefusal(message, userId, verb);

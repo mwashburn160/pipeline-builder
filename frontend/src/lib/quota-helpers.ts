@@ -5,9 +5,15 @@ import { quotaRender } from '@pipeline-builder/api-core/quota-catalog';
 
 import { QUOTA_CRITICAL_THRESHOLD, QUOTA_WARNING_THRESHOLD } from './constants';
 
+/**
+ * Usage as a whole percentage, capped at 100. 100 means AT OR OVER the limit
+ * and nothing else: rounding alone turned 995/1000 into 100, and the banner
+ * keyed on 100 told the org new requests "will be rejected" with 5 left.
+ */
 export function pct(used: number, limit: number): number {
   if (limit <= 0) return 0;
-  return Math.min(100, Math.round((used / limit) * 100));
+  if (used >= limit) return 100;
+  return Math.min(99, Math.round((used / limit) * 100));
 }
 
 export function daysUntil(iso: string): string {

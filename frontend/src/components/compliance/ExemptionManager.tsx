@@ -19,7 +19,7 @@ import { SuccessAlert } from '@/components/ui/SuccessAlert';
 import { useServerPagination } from '@/hooks/useServerPagination';
 import { useDelete } from '@/hooks/useDelete';
 import type { ComplianceExemption } from '@/types/compliance';
-import { EXEMPTION_STATUS_COLOR } from '@/lib/compliance-styles';
+import { RULE_TARGET_IDS, RULE_TARGET_LABELS, EXEMPTION_STATUS_IDS, EXEMPTION_STATUS_META } from '@/lib/compliance-styles';
 import { parseCsv } from '@/lib/csv';
 import { formatDate } from '@/lib/format';
 import { formatError } from '@/lib/constants';
@@ -229,9 +229,7 @@ export default function ExemptionManager({ readOnly = false }: ExemptionManagerP
             aria-label="Filter exemptions by status"
           >
             <option value="">All statuses</option>
-            <option value="pending">Pending</option>
-            <option value="approved">Approved</option>
-            <option value="rejected">Rejected</option>
+            {EXEMPTION_STATUS_IDS.map((st) => <option key={st} value={st}>{EXEMPTION_STATUS_META[st].label}</option>)}
           </FilterSelect>
           {!readOnly && (
             <>
@@ -276,8 +274,7 @@ export default function ExemptionManager({ readOnly = false }: ExemptionManagerP
           <div className="grid grid-cols-2 gap-3">
             <Input aria-label="Rule ID" placeholder="Rule ID" value={form.ruleId} onChange={e => setForm(f => ({ ...f, ruleId: e.target.value }))} />
             <Select value={form.entityType} onChange={e => setForm(f => ({ ...f, entityType: e.target.value as 'plugin' | 'pipeline' }))}>
-              <option value="plugin">Plugin</option>
-              <option value="pipeline">Pipeline</option>
+              {RULE_TARGET_IDS.map((t) => <option key={t} value={t}>{RULE_TARGET_LABELS[t]}</option>)}
             </Select>
             <Input aria-label="Entity ID" placeholder="Entity ID" value={form.entityId} onChange={e => setForm(f => ({ ...f, entityId: e.target.value }))} />
             <Input aria-label="Entity name (optional)" placeholder="Entity name (optional)" value={form.entityName} onChange={e => setForm(f => ({ ...f, entityName: e.target.value }))} />
@@ -304,12 +301,12 @@ export default function ExemptionManager({ readOnly = false }: ExemptionManagerP
         <>
         <div className="space-y-2">
           {exemptions.map((ex: ComplianceExemption) => {
-            const statusColor = EXEMPTION_STATUS_COLOR[ex.status];
+            const statusColor = EXEMPTION_STATUS_META[ex.status]?.color ?? 'gray';
             return (
               <div key={ex.id} className="p-3 rounded-lg border border-default bg-surface">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
-                    <Badge color={statusColor}>{ex.status}</Badge>
+                    <Badge color={statusColor}>{EXEMPTION_STATUS_META[ex.status]?.label ?? ex.status}</Badge>
                     <div>
                       <div className="text-sm text-fg">{ex.entityName || ex.entityId}</div>
                       <div className="text-xs text-fg-muted">{ex.entityType} — {ex.reason.slice(0, 80)}{ex.reason.length > 80 ? '...' : ''}</div>

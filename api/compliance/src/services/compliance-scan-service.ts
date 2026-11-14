@@ -1,14 +1,15 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import type { ComplianceScanStatus, ComplianceScanTarget, ComplianceScanTrigger } from '@pipeline-builder/api-core';
 import { buildComplianceScanConditions, schema, withTenantTx } from '@pipeline-builder/pipeline-data';
 import { and, desc, eq } from 'drizzle-orm';
 import { paginatedList } from './paginated-list.js';
 
 export interface ComplianceScanFilter {
-  target?: 'plugin' | 'pipeline' | 'all';
-  status?: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
-  triggeredBy?: 'manual' | 'scheduled' | 'rule-change' | 'rule-dry-run';
+  target?: ComplianceScanTarget;
+  status?: ComplianceScanStatus;
+  triggeredBy?: ComplianceScanTrigger;
 }
 
 class ComplianceScanService {
@@ -40,19 +41,20 @@ class ComplianceScanService {
   }
 
   /**
-   * Create a pending scan record. Caller-supplied filter is force-scoped to
-   * the caller's orgId to prevent cross-tenant scan triggering via
-   * `filter: { orgId: 'other-org' }`.
+   * Create a pending scan record. A scan always evaluates the row's own
+   * `orgId` — the executor never reads `filter`, which is only RECORDED (and
+   * stamped with the caller's orgId so the stored row cannot name another
+   * tenant). It does not narrow what the scan evaluates.
    */
   async create(
     orgId: string,
     userId: string,
-    target: 'plugin' | 'pipeline' | 'all',
+    target: ComplianceScanTarget,
     rawFilter: Record<string, unknown> | undefined,
     isDryRun: boolean,
   ) {
     const filter = rawFilter ? { ...rawFilter, orgId } : null;
-    const triggeredBy = isDryRun ? 'rule-dry-run' : 'manual';
+    const triggeredBy: ComplianceScanTrigger = isDryRun ? 'rule-dry-run' : 'manual';
 
     const [scan] = await withTenantTx(async (tx) => tx
       .insert(schema.complianceScan)

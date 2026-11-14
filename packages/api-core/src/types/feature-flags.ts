@@ -13,17 +13,23 @@ import type { QuotaTier } from './quota-tiers.js';
  * response times" while no support product existed to be faster. Mutually
  * exclusive: an account holds at most one (enforced in `effectiveEntitlements`).
  *
- * Its own type, and spelled ONCE — `FeatureFlag` includes it rather than listing
- * the three names again. A surface that must name EVERY level keys a
+ * Its own type, and spelled ONCE — `FEATURE_FLAGS` spreads it rather than
+ * listing the three names again. A surface that must name EVERY level keys a
  * `Record<SupportFeatureFlag, …>` off it (the frontend's level labels were a
  * `Record<string, string>` that happened to carry three entries, so a fourth
  * level would have rendered as the raw flag id), while the ladder list below
  * stays `FeatureFlag[]` so it can be tested against the full catalog.
  */
-export type SupportFeatureFlag = 'support_standard' | 'support_priority' | 'support_premium';
+const SUPPORT_LEVELS = ['support_standard', 'support_priority', 'support_premium'] as const;
+export type SupportFeatureFlag = typeof SUPPORT_LEVELS[number];
 
-/** Canonical feature flag identifiers. */
-export type FeatureFlag =
+/**
+ * Every feature flag, in display order. The {@link FeatureFlag} union is derived
+ * from this list, so a flag is added in exactly one place.
+ */
+const FEATURE_FLAGS = [
+  'ai_generation',
+  'bulk_operations',
   // `custom_integrations` is an ENTERPRISE-EXCLUSIVE marketing/entitlement flag:
   // granted only by the enterprise tier (no add-on bundle sells it to a lower
   // tier — intentional, it anchors the Enterprise plan) and not currently
@@ -31,51 +37,39 @@ export type FeatureFlag =
   // not "fix" by wiring a bundle without a pricing decision. Contrast
   // `sso`/`advanced_reporting`, which ARE sold as add-on bundles and gated (see
   // billing-config `loadBundles` + `requireFeature`).
-  | 'custom_integrations'
-  | SupportFeatureFlag
-  | 'ai_generation'
-  | 'bulk_operations'
-  | 'sso'
+  'custom_integrations',
+  'sso',
   // DORA / advanced delivery analytics (paid tiers only).
-  | 'advanced_reporting'
+  'advanced_reporting',
   // Per-team usage breakdown across the org→team subtree. INCLUDED in Enterprise;
   // sold as an add-on bundle to Pro/Team (see billing-config `team_usage_analytics`).
-  | 'team_usage_analytics'
+  'team_usage_analytics',
   // Curated compliance rule libraries sold as add-on bundles. `compliance_standard`
   // = CI/CD best-practice set; `compliance_advanced` = SOC2/PCI/CIS framework
   // libraries (requires Standard). These gate SUBSCRIBING to the set's system-org
   // published rules; INCLUDED in Enterprise/Unlimited (via ALL_FEATURE_FLAGS),
   // sold to Developer/Pro/Team (see billing-config `compliance_standard/advanced`).
-  | 'compliance_standard'
-  | 'compliance_advanced'
+  'compliance_standard',
+  'compliance_advanced',
   // Scheduled, manager-facing reports: saved definitions, frozen snapshots,
   // review-and-publish, PDF/email delivery and share links. INCLUDED in
   // Enterprise/Unlimited; sold as an add-on bundle to Pro/Team (see
   // billing-config `stakeholder_reports`). On-demand dashboards stay FREE under
   // `reports:read` — this gates saving, scheduling and publishing, not looking.
-  | 'stakeholder_reports'
+  'stakeholder_reports',
   // Plugin ecosystem: the org's publisher is ELIGIBLE to apply for Verified
   // status (docs/plugin-publishing.md). Eligibility only — the badge
   // is awarded (and withdrawn) by system-org review, never bought. Team and up;
   // no add-on bundle sells it.
-  | 'verified_publisher';
+  'verified_publisher',
+  ...SUPPORT_LEVELS,
+] as const;
+
+/** Canonical feature flag identifiers. */
+export type FeatureFlag = typeof FEATURE_FLAGS[number];
 
 /** All valid feature flags (order determines display order). */
-export const ALL_FEATURE_FLAGS: readonly FeatureFlag[] = [
-  'ai_generation',
-  'bulk_operations',
-  'custom_integrations',
-  'sso',
-  'advanced_reporting',
-  'team_usage_analytics',
-  'compliance_standard',
-  'compliance_advanced',
-  'stakeholder_reports',
-  'verified_publisher',
-  'support_standard',
-  'support_priority',
-  'support_premium',
-];
+export const ALL_FEATURE_FLAGS: readonly FeatureFlag[] = FEATURE_FLAGS;
 
 /**
  * The support-level flags, which are add-on-ONLY at every tier.
@@ -85,11 +79,7 @@ export const ALL_FEATURE_FLAGS: readonly FeatureFlag[] = [
  * silently grant enterprise the support product it is supposed to buy, which is
  * exactly the "included in no tier" decision it would break.
  */
-export const SUPPORT_FEATURE_FLAGS: readonly FeatureFlag[] = [
-  'support_standard',
-  'support_priority',
-  'support_premium',
-];
+export const SUPPORT_FEATURE_FLAGS: readonly FeatureFlag[] = SUPPORT_LEVELS;
 
 /**
  * The FIRST-RESPONSE TARGET sold at each support level — the canonical wording.

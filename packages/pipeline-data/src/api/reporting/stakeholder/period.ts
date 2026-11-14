@@ -22,6 +22,7 @@
  * silently shift every boundary by an hour for half the year.
  */
 
+import type { WeekStart } from '@pipeline-builder/api-core';
 import type { ReportCadence } from '../../../database/schema/reporting-stakeholder.js';
 
 /** One resolved reporting period, plus the previous one for comparison. */
@@ -115,7 +116,7 @@ function addCivilMonths(c: { year: number; month: number; day: number }, months:
 function startOfPeriod(
   c: Civil,
   cadence: ReportCadence,
-  weekStart: 'monday' | 'sunday',
+  weekStart: WeekStart,
 ): { year: number; month: number; day: number } {
   const date = { year: c.year, month: c.month, day: c.day };
   if (cadence === 'weekly') {
@@ -178,7 +179,7 @@ function formatLabel(start: { year: number; month: number; day: number }, cadenc
 export function resolvePeriod(
   cadence: ReportCadence,
   tz: string,
-  weekStart: 'monday' | 'sunday' = 'monday',
+  weekStart: WeekStart = 'monday',
   now: Date = new Date(),
 ): ResolvedPeriod {
   const nowCivil = civilIn(now, tz);
@@ -204,7 +205,7 @@ export function resolvePeriodByLabel(
   label: string,
   cadence: ReportCadence,
   tz: string,
-  weekStart: 'monday' | 'sunday' = 'monday',
+  weekStart: WeekStart = 'monday',
 ): ResolvedPeriod | null {
   let start: { year: number; month: number; day: number } | null = null;
 
@@ -305,7 +306,7 @@ export function rejectUnreportablePeriod(
 export function nextPeriodBoundary(
   cadence: ReportCadence,
   tz: string,
-  weekStart: 'monday' | 'sunday' = 'monday',
+  weekStart: WeekStart = 'monday',
   from: Date = new Date(),
 ): Date {
   const containing = startOfPeriod(civilIn(from, tz), cadence, weekStart);
@@ -329,7 +330,7 @@ export function nextPeriodBoundary(
 export function completePeriodsSince(
   cadence: ReportCadence,
   tz: string,
-  weekStart: 'monday' | 'sunday',
+  weekStart: WeekStart,
   since: Date | null,
   now: Date = new Date(),
   max = 4,

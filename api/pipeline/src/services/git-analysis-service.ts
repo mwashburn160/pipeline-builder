@@ -3,27 +3,14 @@
 
 import { asPromptData } from '@pipeline-builder/ai-core';
 import { createLogger } from '@pipeline-builder/api-core';
-import type { GitProvider, ParsedGitUrl, RepoAnalysis } from './git-analysis/analysis-core.js';
+import { providerForHost, type GitProvider, type ParsedGitUrl, type RepoAnalysis } from './git-analysis/analysis-core.js';
 import { analyzeBitbucketRepo } from './git-analysis/bitbucket-analyzer.js';
 import { analyzeGitHubRepo } from './git-analysis/github-analyzer.js';
 import { analyzeGitLabRepo } from './git-analysis/gitlab-analyzer.js';
 
-// Re-export shared types and inference helpers so the public import path
-// (`git-analysis-service`) is preserved after the provider analyzers were
-// split into per-provider modules under `git-analysis/`.
-export type { GitProvider, ParsedGitUrl, RepoAnalysis } from './git-analysis/analysis-core.js';
-export { inferProjectType, inferPackageManager, inferFrameworks } from './git-analysis/analysis-core.js';
-
 const logger = createLogger('git-analysis');
 
 // URL Parsing
-
-/** Hostname-to-provider mapping. */
-const HOST_PROVIDER_MAP: Record<string, GitProvider> = {
-  'github.com': 'github',
-  'gitlab.com': 'gitlab',
-  'bitbucket.org': 'bitbucket',
-};
 
 /**
  * Parse a Git URL into its component parts.
@@ -35,7 +22,7 @@ const HOST_PROVIDER_MAP: Record<string, GitProvider> = {
  * - With tree paths: `https://github.com/owner/repo/tree/main/src`
  *
  * PROVIDER — which decides whether the repository is actually inspected — comes
- * from {@link HOST_PROVIDER_MAP}: `github.com`, `gitlab.com`, `bitbucket.org`
+ * from the `GIT_PROVIDERS` host match (`providerForHost`): `github.com`, `gitlab.com`, `bitbucket.org`
  * and nothing else. Any other host parses fine but resolves to `unknown`, and
  * {@link analyzeRepository} then answers from the URL alone (`analyzeUnknownRepo`,
  * no API call) — so a self-hosted `https://git.company.com/team/project` is
@@ -65,7 +52,7 @@ export function parseGitUrl(url: string): ParsedGitUrl | null {
       host,
       owner,
       repo,
-      provider: HOST_PROVIDER_MAP[host] ?? 'unknown',
+      provider: providerForHost(host),
     };
   }
 
@@ -81,7 +68,7 @@ export function parseGitUrl(url: string): ParsedGitUrl | null {
       host,
       owner,
       repo,
-      provider: HOST_PROVIDER_MAP[host] ?? 'unknown',
+      provider: providerForHost(host),
     };
   }
 
@@ -113,7 +100,7 @@ export function parseGitUrl(url: string): ParsedGitUrl | null {
       host,
       owner,
       repo,
-      provider: HOST_PROVIDER_MAP[host] ?? 'unknown',
+      provider: providerForHost(host),
     };
   } catch {
     return null;
@@ -157,16 +144,16 @@ function analyzeUnknownRepo(parsed: ParsedGitUrl): RepoAnalysis {
 export async function analyzeRepository(parsed: ParsedGitUrl, token?: string): Promise<RepoAnalysis> {
   logger.info('Analyzing repository', { host: parsed.host, owner: parsed.owner, repo: parsed.repo, provider: parsed.provider });
 
-  /** Provider-to-analyzer dispatch map. */
-  const analyzers: Record<GitProvider, (p: ParsedGitUrl, t?: string) => Promise<RepoAnalysis>> = {
-    github: analyzeGitHubRepo,
-    gitlab: analyzeGitLabRepo,
-    bitbucket: analyzeBitbucketRepo,
-    unknown: (p) => Promise.resolve(analyzeUnknownRepo(p)),
-  };
-
-  return (analyzers[parsed.provider] ?? analyzers.unknown)(parsed, token);
+  return ANALYZERS[parsed.provider](parsed, token);
 }
+
+/** Provider-to-analyzer dispatch (exhaustive over {@link GitProvider}). */
+const ANALYZERS: Readonly<Record<GitProvider, (p: ParsedGitUrl, t?: string) => Promise<RepoAnalysis>>> = {
+  github: analyzeGitHubRepo,
+  gitlab: analyzeGitLabRepo,
+  bitbucket: analyzeBitbucketRepo,
+  unknown: (p) => Promise.resolve(analyzeUnknownRepo(p)),
+};
 
 // Enhanced Prompt Builder
 

@@ -16,7 +16,7 @@ import { TextEmptyState } from '@/components/ui/EmptyState';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { useServerPagination } from '@/hooks/useServerPagination';
 import type { ComplianceScan } from '@/types/compliance';
-import { SCAN_STATUS_CONFIG as STATUS_CONFIG } from '@/lib/compliance-styles';
+import { SCAN_STATUS_CONFIG as STATUS_CONFIG, RULE_TARGET_IDS, RULE_TARGET_LABELS, SCAN_STATUS_IDS } from '@/lib/compliance-styles';
 import { formatDateTime } from '@/lib/format';
 import { LoadingSpinner } from '@/components/ui/Loading';
 
@@ -181,16 +181,11 @@ export default function ScanManager({ onViewScan, readOnly = false }: ScanManage
       <div className="flex gap-3">
         <FilterSelect value={targetFilter} onChange={e => setTargetFilter(e.target.value)} aria-label="Filter scans by target">
           <option value="">All targets</option>
-          <option value="plugin">Plugin</option>
-          <option value="pipeline">Pipeline</option>
+          {RULE_TARGET_IDS.map((t) => <option key={t} value={t}>{RULE_TARGET_LABELS[t]}</option>)}
         </FilterSelect>
         <FilterSelect value={statusFilter} onChange={e => setStatusFilter(e.target.value)} aria-label="Filter scans by status">
           <option value="">All statuses</option>
-          <option value="pending">Pending</option>
-          <option value="running">Running</option>
-          <option value="completed">Completed</option>
-          <option value="failed">Failed</option>
-          <option value="cancelled">Cancelled</option>
+          {SCAN_STATUS_IDS.map((st) => <option key={st} value={st}>{STATUS_CONFIG[st].label}</option>)}
         </FilterSelect>
         <FilterSelect value={triggeredByFilter} onChange={e => setTriggeredByFilter(e.target.value)} aria-label="Filter scans by trigger">
           <option value="">All triggers</option>

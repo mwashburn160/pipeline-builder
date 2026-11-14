@@ -2,34 +2,17 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The frontend's seat-remedy helpers (src/lib/tiers.ts) mirror api-core's, which
- * the billing catalog uses to decide who may buy a seat. If the two lists drift,
- * the UI offers a seat pack billing will not sell (or hides one it will).
+ * Seat remedies as the UI offers them. `seatRemedy` is api-core's own (the
+ * billing catalog decides who may buy a seat with the same function), imported
+ * from the browser-safe `tier-limits` subpath; the wording and the capacity
+ * check are the frontend's.
  */
 
-import { readFileSync } from 'fs';
-import path from 'path';
 import { describe, it, expect } from '@jest/globals';
-import { SEAT_PACK_TIERS, seatRemedy, seatRemedyLabel, seatsAtCapacity } from '../src/lib/tiers';
+import { seatRemedy } from '@pipeline-builder/api-core/tier-limits';
+import { seatRemedyLabel, seatsAtCapacity } from '../src/lib/tiers';
 
-/**
- * api-core's list, read from its SOURCE: importing the package at runtime pulls
- * in server-only modules (express) that do not load under jsdom.
- */
-function coreSeatPackTiers(): string[] {
-  const src = readFileSync(path.join(__dirname, '../../packages/api-core/src/types/quota-tiers.ts'), 'utf8');
-  const m = /export const SEAT_PACK_TIERS[^=]*=\s*\[([^\]]*)\]/.exec(src);
-  if (!m) throw new Error('SEAT_PACK_TIERS not found in api-core quota-tiers.ts');
-  return [...m[1].matchAll(/'([a-z]+)'/g)].map((x) => x[1]);
-}
-
-describe('seat remedy — frontend mirror of api-core', () => {
-  it('offers seat packs on exactly the tiers billing sells them to', () => {
-    const core = coreSeatPackTiers();
-    expect(core.length).toBeGreaterThan(0); // guards an empty parse
-    expect([...SEAT_PACK_TIERS].sort()).toEqual(core.sort());
-  });
-
+describe('seat remedy', () => {
   it('seat packs on Team+, an upgrade on the single-seat tiers, nothing when uncapped or unknown', () => {
     expect(seatRemedy('team')).toBe('seat_pack');
     expect(seatRemedy('enterprise')).toBe('seat_pack');

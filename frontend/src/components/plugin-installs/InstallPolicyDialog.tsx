@@ -10,7 +10,8 @@ import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { useFetch } from '@/hooks/useFetch';
 import api from '@/lib/api';
 import { formatError } from '@/lib/constants';
-import { VERSION_POLICIES, VERSION_POLICY_LABELS } from '@/lib/plugin-installs';
+import { INSTALL_VERSION_POLICIES } from '@pipeline-builder/api-core/wire-vocabulary';
+import { VERSION_POLICY_LABELS } from '@/lib/plugin-installs';
 import type { ListingVersionState, InstallVersionPolicy } from '@/types/plugin-installs';
 
 /**
@@ -78,7 +79,7 @@ export function InstallPolicyDialog({
             : 'Which new versions your pipelines pick up automatically. A major version never flows in without an upgrade.'}
         >
           <Select aria-label="Version policy" value={policy} onChange={(e) => setPolicy(e.target.value as InstallVersionPolicy)}>
-            {VERSION_POLICIES.map((p) => (
+            {INSTALL_VERSION_POLICIES.map((p) => (
               <option key={p} value={p}>
                 {VERSION_POLICY_LABELS[p]}{p === 'latest' && latestNeedsApproval && initialPolicy !== 'latest' ? ' (sends a request to an approver)' : ''}
               </option>

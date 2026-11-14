@@ -65,6 +65,14 @@ describe('evaluateEntityEvent', () => {
     expect(mockFindActiveByOrgAndTarget).not.toHaveBeenCalled();
   });
 
+  it('does not take an INHERITED object key for a rule target', async () => {
+    // The target map was a plain object, so `constructor` resolved to Object's
+    // constructor and went on to query rules for it.
+    const result = await evaluateEntityEvent({ entityId: 'e1', orgId: 'org-1', target: 'constructor', eventType: 'created' });
+    expect(result).toEqual({ evaluated: false, reason: 'non-compliance target' });
+    expect(mockFindActiveByOrgAndTarget).not.toHaveBeenCalled();
+  });
+
   it('returns evaluated:false when no active rules', async () => {
     mockFindActiveByOrgAndTarget.mockResolvedValue([]);
 

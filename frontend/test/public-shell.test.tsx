@@ -25,6 +25,7 @@ jest.mock('@/lib/api', () => ({
     isAuthenticated: () => false,
     isImpersonating: () => false,
     onAccessTokenChange: () => () => undefined,
+    onOrganizationChange: () => () => undefined,
     onSessionExpired: () => () => undefined,
     getBillingConfig: async () => ({ success: true, data: { enabled: false } }),
   },

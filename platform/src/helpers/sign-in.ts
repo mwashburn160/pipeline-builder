@@ -19,6 +19,7 @@ import { idpEnforcesMfa } from './mfa-policy.js';
 import { deliverSessionTokens } from './session-cookie.js';
 import type { UserDocument } from '../models/user.js';
 import { incCounter } from '../observability/metrics.js';
+import type { MfaChallengeOptions } from '../services/mfa-challenge.js';
 import { signInAuth, type SessionAuth } from '../services/session/access-tokens.js';
 import { issueTokens, type IssuedTokens } from '../services/session/refresh-sessions.js';
 
@@ -117,7 +118,7 @@ export async function sendMfaChallenge(
   res: Response,
   userId: string,
   orgId: string | undefined,
-  opts: { recoveryOnly?: boolean; passwordChangeMinLength?: number; firstFactor?: 'pwd' | 'oauth' } = {},
+  opts: MfaChallengeOptions = {},
 ): Promise<void> {
   // Lazily imported: the challenge store reads its own config at module load,
   // which most routes of the importing controllers never need.
@@ -143,7 +144,7 @@ export async function openMfaChallengeIfOwed(
   res: Response,
   userId: string,
   orgId: string | undefined,
-  opts: { passwordChangeMinLength?: number; firstFactor?: 'pwd' | 'oauth' } = {},
+  opts: Omit<MfaChallengeOptions, 'recoveryOnly'> = {},
 ): Promise<boolean> {
   const { hasActiveTotp } = await import('./auth-factors.js');
   if (!(await hasActiveTotp(userId))) return false;

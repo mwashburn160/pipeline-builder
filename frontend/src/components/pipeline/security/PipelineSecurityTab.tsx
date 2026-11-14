@@ -17,7 +17,8 @@ import { formatError } from '@/lib/constants';
 import type {
   ExposureTriageBody, PipelineBuildImage, PipelineExposureView, PipelineSecurity, PipelineSecurityStep, StepScanFacts,
 } from '@/lib/api/pipeline-security-types';
-import { RESOLVED_VIA_LABELS, exposureHasKev, shortDigest } from '@/lib/pipeline-security';
+import { RESOLVED_VIA_LABELS, exposureHasKev } from '@/lib/pipeline-security';
+import { shortDigest } from '@/lib/format';
 import { ExposureTriageModal } from './ExposureTriageModal';
 import { PluginUpgradePanel } from './PluginUpgradePanel';
 import { ArtifactSecurityReportsCard } from './ArtifactSecurityReportsCard';

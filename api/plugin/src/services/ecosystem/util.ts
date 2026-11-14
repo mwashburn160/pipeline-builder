@@ -3,7 +3,7 @@
 
 /** Small shared helpers of the ecosystem services (no I/O). */
 
-import { isSystemOrgId, ErrorCode } from '@pipeline-builder/api-core';
+import { isSystemOrgId, ErrorCode, type ListingState } from '@pipeline-builder/api-core';
 import type { PluginListing } from '@pipeline-builder/pipeline-data';
 
 import { EcosystemError } from './context.js';
@@ -14,7 +14,7 @@ export const DAY_MS = 24 * 3_600_000;
 export const first = <T>(rows: T[]): T | null => rows[0] ?? null;
 
 /** A listing counts toward the `listings` quota (and is live in the directory) while in one of these states. */
-export const ACTIVE_LISTING_STATES = ['listed', 'unmaintained'] as const;
+export const ACTIVE_LISTING_STATES = ['listed', 'unmaintained'] as const satisfies readonly ListingState[];
 
 /** Whether a listing is live in the directory. */
 export const isActiveListing = (l: Pick<PluginListing, 'state'>): boolean => (ACTIVE_LISTING_STATES as readonly string[]).includes(l.state);

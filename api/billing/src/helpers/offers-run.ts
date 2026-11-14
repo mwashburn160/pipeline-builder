@@ -43,6 +43,7 @@ import {
   recordAudit,
   type QuotaTier,
   type Scheduler,
+  type BillingInterval,
 } from '@pipeline-builder/api-core';
 import { runWithTenantContext } from '@pipeline-builder/pipeline-data';
 import { getBillingConfig } from '../config/billing-config.js';
@@ -184,7 +185,7 @@ export interface AccountOutcome {
 export interface AccountInput {
   orgId: string;
   planId?: string;
-  interval: 'monthly' | 'annual';
+  interval: BillingInterval;
   addons: Array<{ bundleId: string; quantity: number }>;
 }
 
@@ -375,7 +376,7 @@ export function emailFactsFor(input: {
   crossover: { candidateTier: string | null; savingCents: number };
   bundles: readonly PackLike[];
   tier: QuotaTier;
-  interval: 'monthly' | 'annual';
+  interval: BillingInterval;
 }): OfferEmailFacts | null {
   const chosen = input.decision.chosen;
   const latest = input.profiles[0];

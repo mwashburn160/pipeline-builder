@@ -1272,13 +1272,13 @@ describe('POST /generate/missing-plugins (confirmed placeholder creation)', () =
     expect(JSON.stringify(mockPluginClientPost.mock.calls)).not.toContain('rm -rf');
   });
 
-  it('records a deploy failure per plugin', async () => {
+  it('records a deploy failure per plugin — and never reports a failed build as created', async () => {
     confirm(['failing-plugin']);
     mockPluginClientPost.mockRejectedValue(new Error('Connection refused'));
 
     await handler(mockReq({ body: {} }), mockSseRes());
 
-    expect(mockSendSuccess.mock.calls[0][2]).toEqual({ created: ['failing-plugin'], existing: [], builds: [{ name: 'failing-plugin', error: 'Connection refused' }] });
+    expect(mockSendSuccess.mock.calls[0][2]).toEqual({ created: [], existing: [], builds: [{ name: 'failing-plugin', error: 'Connection refused' }] });
   });
 
   it('records an HTTP error when the plugin service answers non-success', async () => {
@@ -1288,6 +1288,7 @@ describe('POST /generate/missing-plugins (confirmed placeholder creation)', () =
     await handler(mockReq({ body: {} }), mockSseRes());
 
     expect((mockSendSuccess.mock.calls[0][2] as any).builds).toEqual([{ name: 'bad-plugin', error: 'HTTP 500' }]);
+    expect((mockSendSuccess.mock.calls[0][2] as any).created).toEqual([]);
   });
 
   it('400s an invalid body', async () => {

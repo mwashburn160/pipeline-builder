@@ -12,6 +12,8 @@
  * everything here is a severity grade, an exposure or a remediation.
  */
 
+import type { ToolchainResolvedVia } from '@pipeline-builder/api-core/plugin-catalog';
+
 import type { VulnGrade, VulnSeverity } from '@/lib/plugin-vulns';
 import type { PluginFinding } from './plugin-vulnerability-types';
 
@@ -86,8 +88,6 @@ export interface PipelineSecurityStep {
   exposures: PipelineExposureView[];
 }
 
-/** How a pipeline's toolchain release was chosen at synth. */
-export type ToolchainResolvedVia = 'pin' | 'org-default' | 'canary' | 'default';
 
 /**
  * The pipeline's "Build image" row: the toolchain release (its

@@ -78,7 +78,10 @@ export const postgresRungWebhook = withController('Postgres rung scaling', async
   let ignored = 0;
   for (const alert of body.alerts) {
     const labels = alert.labels ?? {};
-    const match = ACTIONABLE[labels.alertname ?? ''];
+    // Own keys only: `constructor` / `toString` resolve on a plain object's
+    // prototype and would read as a match with no workload.
+    const name = labels.alertname ?? '';
+    const match = Object.hasOwn(ACTIONABLE, name) ? ACTIONABLE[name] : undefined;
     if (alert.status !== 'firing' || !match) { ignored++; continue; }
     const existing = decisions.get(match.workload);
     if (existing === 'up') continue;

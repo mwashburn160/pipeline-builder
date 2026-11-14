@@ -30,6 +30,8 @@
 import crypto from 'crypto';
 import { createLogger, safeFetch, type SafeFetchResponse, errorMessage } from '@pipeline-builder/api-core';
 import jwt from 'jsonwebtoken';
+import { ACCOUNT_EMAIL_UNVERIFIED, SSO_SUPERADMIN_REFUSED, SSO_SUPERADMIN_REFUSED_ERROR } from './auth-errors.js';
+import { JIT_SEAT_LIMIT } from './idp-mapping-errors.js';
 import { config } from '../config/index.js';
 import { extractGroupClaim } from '../helpers/idp-claims.js';
 import { PKCE_METHOD_S256, createCodeVerifier, pkceAuthorizeParams } from '../helpers/pkce.js';
@@ -68,16 +70,12 @@ export const OIDC_ERROR_MAP = {
   OIDC_NO_EMAIL: { status: 400, message: 'The identity provider did not return a verified email address' },
   OIDC_EMAIL_DOMAIN_NOT_ALLOWED: { status: 403, message: 'Your email domain is not permitted to sign in to this organization' },
   OIDC_EMAIL_DOMAIN_NOT_VERIFIED: { status: 403, message: 'This organization has not verified ownership of your email domain, so it cannot sign you in with single sign-on' },
-  // Just-in-time provisioning. Key must match `JIT_SEAT_LIMIT` in
-  // services/sso-jit-errors.ts — the sign-in is REFUSED (rather than silently
+  // Just-in-time provisioning: the sign-in is REFUSED (rather than silently
   // signing the user in without a membership) so the seat cap means the same
   // thing here as it does on the invitation path.
-  JIT_SEAT_LIMIT: { status: 403, message: 'Your organization has no seats left, so single sign-on could not add you to it. Ask an administrator to free a seat or raise the seat limit.' },
-  // Key must match `SSO_SUPERADMIN_REFUSED` in auth-service.ts (literal for the same reason as below).
-  SSO_SUPERADMIN_REFUSED: { status: 403, message: 'Platform administrators cannot sign in through an organization\'s single sign-on' },
-  // Key must match `ACCOUNT_EMAIL_UNVERIFIED` in auth-service.ts (kept a literal
-  // here to avoid importing the large auth-service module into this core service).
-  ACCOUNT_EMAIL_UNVERIFIED: { status: 409, message: 'An account already exists for this email but is not verified. Verify (or reset the password on) that account first, then sign in.' },
+  [JIT_SEAT_LIMIT]: { status: 403, message: 'Your organization has no seats left, so single sign-on could not add you to it. Ask an administrator to free a seat or raise the seat limit.' },
+  [SSO_SUPERADMIN_REFUSED]: SSO_SUPERADMIN_REFUSED_ERROR,
+  [ACCOUNT_EMAIL_UNVERIFIED]: { status: 409, message: 'An account already exists for this email but is not verified. Verify (or reset the password on) that account first, then sign in.' },
 } as const;
 
 // Discovery + JWKS

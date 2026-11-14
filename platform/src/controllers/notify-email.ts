@@ -36,6 +36,7 @@
 import { createLogger, sendError, sendSuccess, errorMessage, parseEcosystemNotifyRequest, recordAuthzDenial, serviceNameOf } from '@pipeline-builder/api-core';
 import type { Request, Response } from 'express';
 import { config } from '../config/index.js';
+import { ADMIN_ORG_ROLES, isAdminOrgRole } from '@pipeline-builder/api-core/wire-vocabulary';
 import { toOrgId } from '../helpers/org-id.js';
 import { resolveServiceTenant } from '../helpers/service-tenant.js';
 import { User, UserOrganization } from '../models/index.js';
@@ -55,7 +56,7 @@ async function resolveRecipientEmails(orgId: string, targetUsers: string[] | nul
 
   const wanted = targetUsers && targetUsers.length > 0
     ? memberships.filter((m) => targetUsers.includes(String(m.userId)))
-    : memberships.filter((m) => m.role === 'owner' || m.role === 'admin');
+    : memberships.filter((m) => isAdminOrgRole(m.role));
   return emailsOf(wanted.map((m) => String(m.userId)));
 }
 
@@ -94,7 +95,7 @@ async function notifyQuota(req: Request, res: Response): Promise<void> {
 
   try {
     const [admins, billingContacts] = await Promise.all([
-      UserOrganization.find({ organizationId: toOrgId(body.orgId), isActive: true, role: { $in: ['owner', 'admin'] } })
+      UserOrganization.find({ organizationId: toOrgId(body.orgId), isActive: true, role: { $in: [...ADMIN_ORG_ROLES] } })
         .select('userId').lean(),
       holdersOfPermission(body.orgId, 'billing:manage'),
     ]);
@@ -147,7 +148,7 @@ async function notifyOffer(req: Request, res: Response): Promise<void> {
 
   try {
     const [admins, billingContacts] = await Promise.all([
-      UserOrganization.find({ organizationId: toOrgId(body.orgId), isActive: true, role: { $in: ['owner', 'admin'] } })
+      UserOrganization.find({ organizationId: toOrgId(body.orgId), isActive: true, role: { $in: [...ADMIN_ORG_ROLES] } })
         .select('userId').lean(),
       holdersOfPermission(body.orgId, 'billing:manage'),
     ]);

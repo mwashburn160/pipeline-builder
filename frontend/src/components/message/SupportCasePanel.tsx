@@ -6,35 +6,14 @@ import { LifeBuoy } from 'lucide-react';
 import { Select } from '@/components/ui/Select';
 import { Button } from '@/components/ui/Button';
 import api from '@/lib/api';
-import { caseStatusLabel, responseTargetLabel } from '@/components/message/MessageList';
+import { TENANT_CASE_STATUSES, caseStatusLabel, isTenantTerminalCaseStatus, responseTargetLabel } from '@/components/message/MessageList';
 import type { SupportCaseSummary } from '@/types';
 
-/**
- * Statuses a TENANT may set, with the wording written from their side.
- *
- * Deliberately not the full set — `awaiting_support` and `resolved` are ours to
- * declare, and the server refuses them for a tenant. Offering them here would
- * produce a control that always fails.
- *
- * "Closed" rather than "resolved" for the tenant's own action is the same
- * distinction: a customer saying "this is sorted" is not us claiming we fixed it.
- */
-const TENANT_STATUSES: readonly { value: string; label: string }[] = [
-  { value: 'open', label: 'Open — waiting on us' },
-  { value: 'awaiting_customer', label: 'Waiting on me' },
-  { value: 'closed', label: 'Closed' },
-];
-
-/**
- * Statuses a tenant cannot move OUT of.
- *
- * Reopening a closed case is staff only, so once closed the whole control is
- * read-only rather than offering transitions the server refuses. `resolved` is
- * not terminal here: moving `resolved` → `open` is the customer saying "that
- * did not fix it", which is the feedback loop that makes `resolved` a different
- * state from `closed` in the first place.
- */
-const TENANT_TERMINAL_STATUSES: readonly string[] = ['closed'];
+// Which statuses a tenant may set, and which are terminal for them, come
+// from api-core's case-status vocabulary (`TENANT_SUPPORT_CASE_STATUSES`). Deliberately
+// not the full set — `awaiting_support` and `resolved` are ours to declare, and
+// the server refuses them for a tenant. `resolved` is not terminal: moving
+// `resolved` → `open` is the customer saying "that did not fix it".
 
 interface SupportCasePanelProps {
   /** The case for this thread. */
@@ -61,7 +40,7 @@ export function SupportCasePanel({ supportCase, contacts, onChanged }: SupportCa
   // rather than hidden so the status is still legible — and with a line saying
   // who can undo it, since "my control stopped working" is otherwise the only
   // information the customer gets.
-  const closedToTenant = TENANT_TERMINAL_STATUSES.includes(supportCase.status);
+  const closedToTenant = isTenantTerminalCaseStatus(supportCase.status);
 
   /** Run one mutation, surfacing the server's own refusal rather than a generic one. */
   // `message`, not `error`: the API's failure shape has no `error` field, so
@@ -104,12 +83,12 @@ export function SupportCasePanel({ supportCase, contacts, onChanged }: SupportCa
           <span className="text-fg-muted">Status</span>
           <Select
             aria-label="Case status"
-            value={TENANT_STATUSES.some((s) => s.value === supportCase.status) ? supportCase.status : 'open'}
+            value={TENANT_CASE_STATUSES.some((s) => s.value === supportCase.status) ? supportCase.status : 'open'}
             disabled={busy || closedToTenant}
             onChange={(e) => run(() => api.setSupportCaseStatus(supportCase.threadId, e.target.value))}
             className="text-xs"
           >
-            {TENANT_STATUSES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+            {TENANT_CASE_STATUSES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
           </Select>
         </label>
 

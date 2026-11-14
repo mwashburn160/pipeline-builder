@@ -3,6 +3,7 @@
 
 import { SYSTEM_ACTOR_ID, createLogger, errorMessage, SYSTEM_ORG_ID, recordAudit } from '@pipeline-builder/api-core';
 import { incCounter, setGauge } from '@pipeline-builder/api-server';
+import { isCosignCompanionTag } from './cosign-tags.js';
 import { INDEX_MEDIA_TYPES, isIndex } from './manifest.js';
 import { inPublicNamespace, inQuarantineNamespace, inRegistryMetaNamespace, QUARANTINE_PREFIX, repoOwnerOrgId } from './namespaces.js';
 import { pluginImageReferences } from './plugin-image-references.js';
@@ -55,9 +56,13 @@ interface ManifestBody {
  *    manifests) can make. It hands such digests over one at a time through
  *    `POST /internal/plugin-publications/gc`.
  *  - `registry-meta/*` — the publication records (public-publications.ts).
+ *  - `quarantine/*` — anonymous submissions awaiting moderation. They have
+ *    their own fixed 30-day bound ({@link runQuarantineGc}); a manual sweep
+ *    with a shorter `maxAgeDays` would otherwise delete a submission before
+ *    it is decided.
  */
 export function isAgeGcExempt(repo: string): boolean {
-  return inPublicNamespace(repo) || inRegistryMetaNamespace(repo);
+  return inPublicNamespace(repo) || inRegistryMetaNamespace(repo) || inQuarantineNamespace(repo);
 }
 
 export interface GcOptions {
@@ -557,7 +562,7 @@ export async function runQuarantineGc(opts: { maxAgeDays?: number; dryRun?: bool
       const { tags } = await listTags(repo);
       for (const tag of tags ?? []) {
         // cosign companions (`sha256-….sig/.att`) describe an image; its age is the image's.
-        if (/^sha256-[0-9a-f]{64}\.(sig|att|sbom)$/.test(tag)) continue;
+        if (isCosignCompanionTag(tag)) continue;
         tagged++;
         try {
           const m = await getManifest(repo, tag);

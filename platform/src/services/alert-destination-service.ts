@@ -7,6 +7,7 @@ import { and, asc, desc, eq, isNull, sql } from 'drizzle-orm';
 
 import { getNotificationChannel, plainTextBody, severityToPriority, subjectLine, type AlertNotification } from './notification-channels.js';
 import { config } from '../config/index.js';
+import type { AlertChannel, AlertRuleSeverity } from '@pipeline-builder/api-core/wire-vocabulary';
 
 const logger = createLogger('alert-destination-service');
 
@@ -37,18 +38,18 @@ type OrgAlertDestination = typeof schema.orgAlertDestination.$inferSelect;
 type OrgAlertDestinationInsert = typeof schema.orgAlertDestination.$inferInsert;
 
 export interface DestinationCreate {
-  channel: 'slack' | 'webhook' | 'in-app' | 'email';
+  channel: AlertChannel;
   target: string;
   label: string;
-  minSeverity?: 'warning' | 'critical';
+  minSeverity?: AlertRuleSeverity;
   enabled?: boolean;
 }
 
 export interface DestinationUpdate {
-  channel?: 'slack' | 'webhook' | 'in-app' | 'email';
+  channel?: AlertChannel;
   target?: string;
   label?: string;
-  minSeverity?: 'warning' | 'critical';
+  minSeverity?: AlertRuleSeverity;
   enabled?: boolean;
 }
 
@@ -118,7 +119,7 @@ export class AlertDestinationService {
    * isSuperAdmin: true }, ...)` because Alertmanager is acting as a privileged
    * relay across all orgs. See controllers/alert-destinations.ts:alertWebhook.
    */
-  async findForDelivery(orgId: string, severity: 'warning' | 'critical'): Promise<OrgAlertDestination[]> {
+  async findForDelivery(orgId: string, severity: AlertRuleSeverity): Promise<OrgAlertDestination[]> {
     const rows = await withTenantTx(async (tx) => tx
       .select()
       .from(schema.orgAlertDestination)

@@ -17,6 +17,7 @@ import {
   actorId,
   recordAudit,
   SYSTEM_ORG_ID,
+  type BillingInterval,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
@@ -206,7 +207,7 @@ export function createPromotionRoutes(): Router {
     const plan = await Plan.findById(subscription.planId).lean();
     if (!plan) return sendError(res, 404, 'Subscription plan not found', ErrorCode.NOT_FOUND);
 
-    const interval: 'monthly' | 'annual' = subscription.interval === 'annual' ? 'annual' : 'monthly';
+    const interval: BillingInterval = subscription.interval === 'annual' ? 'annual' : 'monthly';
     const ctx: PromotionContext = { tier: plan.tier, interval, planPriceCents: plan.prices[interval], actorId: req.user?.sub };
     const result = await grantPromotionToOrg(promo, subscription, targetOrgId, ctx);
 

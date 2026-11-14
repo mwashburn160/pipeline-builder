@@ -15,9 +15,8 @@
  */
 
 import {
-  BUILD_IMAGE_MANIFEST_ACTION, BUILD_IMAGE_MANIFEST_STAGE, BUILD_IMAGE_STEP_KEY, SYSTEM_ORG_ID,
+  BUILD_IMAGE_MANIFEST_ACTION, BUILD_IMAGE_MANIFEST_STAGE, BUILD_IMAGE_STEP_KEY, SYSTEM_ORG_ID, type ToolchainResolvedVia,
 } from '@pipeline-builder/api-core';
-import type { ToolchainResolvedVia } from './plugin-lookup-envelope.js';
 
 export { BUILD_IMAGE_MANIFEST_ACTION, BUILD_IMAGE_MANIFEST_STAGE, BUILD_IMAGE_STEP_KEY };
 

@@ -7,6 +7,7 @@ import type { ClientSession } from 'mongoose';
 import { DUPLICATE_CREDENTIALS, RESERVED_ORG_NAME, ONBOARDING_USER_NOT_FOUND, ONBOARDING_NO_ORG, ACCOUNT_EMAIL_UNVERIFIED, OAUTH_LINK_REQUIRES_SIGN_IN, SSO_SUPERADMIN_REFUSED } from './auth-errors.js';
 import { seedDefaultRoles } from './roles-service.js';
 import { config } from '../config/index.js';
+import { isAdminOrgRole } from '@pipeline-builder/api-core/wire-vocabulary';
 import { accessTokenVersion } from '../helpers/access-version.js';
 import { isBootstrapSuperAdminEmail } from '../helpers/bootstrap-admin.js';
 import { type OrgAuthority, resolveOrgAuthority } from '../helpers/org-authority.js';
@@ -559,7 +560,7 @@ class AuthService {
       const membership = await UserOrganization
         .findOne({ userId: user._id, organizationId: orgId, isActive: true })
         .select('role').lean();
-      if (membership?.role === 'owner' || membership?.role === 'admin') {
+      if (isAdminOrgRole(membership?.role)) {
         // Direct save: the pre('validate') hook regenerates + de-duplicates the
         // slug, so duplicate names are accepted (parity with register()).
         org.name = desired;

@@ -18,10 +18,11 @@
  * DENIES for a team (see {@link QuotaPoolUnavailableError}) while letting a
  * root / flat org fall through to its own (real) limits.
  *
- * `storageBytes` is HALF carved out. Its usage is measured live by the
- * image-registry rather than tracked in `org.usage`, so the pooled `used` for it
- * is structurally 0 and the push gate measures the org's own namespace instead.
- * Its LIMIT is pooled like everything else, though: excluding it would drop a
+ * `storageBytes` is pooled like everything else, with one difference: its
+ * usage is MEASURED by the image-registry rather than tracked in `org.usage`, so
+ * the pooled `used` computed here is structurally 0 and `QuotaService` replaces
+ * it with the whole subtree's measured total (`fillStorageUsage` /
+ * `withAccountStorage`). Its LIMIT must be the root's: excluding it would drop a
  * team through to its own row, and a team's own limits are -1. The registry
  * gate reads that as genuinely unlimited and skips enforcement, so every team
  * could push without bound past the root's cap — the silent "unlimited" this
@@ -38,13 +39,13 @@
  * read/write surface.
  */
 
-import { AppError, createLogger, emitCounter, enforcedQuotaLimit, ErrorCode, VALID_QUOTA_TYPES, nextQuotaResetDate, quotaPeriodDays } from '@pipeline-builder/api-core';
+import { AppError, createLogger, emitCounter, enforcedQuotaLimit, ErrorCode, VALID_QUOTA_TYPES, nextQuotaResetDate } from '@pipeline-builder/api-core';
 import type { QuotaType, QuotaTier } from '@pipeline-builder/api-core';
 import { config } from '../config.js';
 import { expandOrgScope, findOrgWithHierarchy, getParentOrgId, resolveRootOrgId } from '../helpers/org-hierarchy.js';
 import type { OrgHierarchyLookup } from '../helpers/org-hierarchy.js';
 import { toOrgId } from '../helpers/org-id.js';
-import { defaultLimitFor } from '../helpers/quota-helpers.js';
+import { defaultLimitFor, effectiveLimit, periodDaysFor, toQuotaSummary } from '../helpers/quota-helpers.js';
 import type { OrgQuotaResponse, QuotaStatus } from '../helpers/quota-helpers.js';
 import { Organization } from '../models/organization.js';
 
@@ -63,7 +64,7 @@ export interface PoolRow {
   name?: string;
   tier?: QuotaTier;
   quotas?: Partial<Record<QuotaType, number>>;
-  usage?: Partial<Record<QuotaType, { used?: number; resetAt?: Date }>>;
+  usage?: Partial<Record<QuotaType, { used?: number; resetAt?: Date; limitAtPeriodStart?: number }>>;
   /** Root only: the atomic pooled counter enforcement moves. `limitAtPeriodStart`
    *  is the cap the period began with, so a mid-period reduction cannot strand a
    *  pooled account over a cap it already spent against (see `pooledStatusFromRows`). */
@@ -85,15 +86,6 @@ export interface PoolRow {
  * `computeQuotaStatus` (that would re-apply expiry against the ROOT's own
  * resetAt and zero the whole pool whenever the root's own period lapsed).
  */
-/**
- * The usage period for one quota type, in days — the pooled path's copy of the
- * same rule the summary builder uses. `cpuCredits` is monthly; everything else
- * shares the global window.
- */
-function periodDaysForType(quotaType: QuotaType): number {
-  return quotaType === 'cpuCredits' ? quotaPeriodDays(quotaType) : config.quota.resetDays;
-}
-
 export function pooledStatusFromRows(rows: PoolRow[], rootOrgId: string, quotaType: QuotaType): QuotaStatus | null {
   const root = rows.find((r) => r._id !== undefined && String(r._id) === rootOrgId);
   const limit = root?.quotas?.[quotaType] ?? defaultLimitFor(root?.tier, quotaType);
@@ -109,10 +101,7 @@ export function pooledStatusFromRows(rows: PoolRow[], rootOrgId: string, quotaTy
     ? live(pool)
     : rows.reduce((sum, r) => sum + live(r.usage?.[quotaType]), 0);
   const resetAt = pool?.resetAt ?? root?.usage?.[quotaType]?.resetAt
-    // Per TYPE: `config.quota.resetDays` is the global three-day window and
-    // `cpuCredits` is monthly, so the global would report a reset date ten times
-    // too near for the one quota whose forecast most depends on it.
-    ?? nextQuotaResetDate(quotaType === 'cpuCredits' ? quotaPeriodDays(quotaType) : config.quota.resetDays);
+    ?? nextQuotaResetDate(periodDaysFor(quotaType));
 
   // CAPS ONLY RISE MID-PERIOD, on the pooled counter as on the per-org one. The
   // snapshot is absent before the first pooled increment (no period is
@@ -120,17 +109,19 @@ export function pooledStatusFromRows(rows: PoolRow[], rootOrgId: string, quotaTy
   const snapshot = pool?.resetAt && new Date(pool.resetAt).getTime() > now
     ? pool.limitAtPeriodStart
     : undefined;
-  const effective = snapshot === undefined ? limit
-    : (limit === -1 || snapshot === -1) ? -1
-      : Math.max(limit, snapshot);
+  const effective = effectiveLimit(limit, snapshot);
 
+  // `allowed` and `unlimited` bind on the EFFECTIVE cap, like `limit` does. They
+  // read the current limit before, so after a mid-period downgrade this status
+  // reported `limit: 1000, remaining: 600` alongside `allowed: false` — the one
+  // field every gate reads contradicting the two beside it.
   return {
     limit: effective,
     used,
     remaining: effective === -1 ? -1 : Math.max(0, effective - used),
     // Binds on the ENFORCED cap (the automationCalls soft band); reports the nominal one.
-    allowed: limit === -1 || used < enforcedQuotaLimit(quotaType, limit),
-    unlimited: limit === -1,
+    allowed: effective === -1 || used < enforcedQuotaLimit(quotaType, effective),
+    unlimited: effective === -1,
     resetAt,
   };
 }
@@ -253,10 +244,9 @@ async function loadPoolRows(pool: OrgPool, fields: string): Promise<PoolRow[]> {
 }
 
 /**
- * Pooled (root) status for one quota type, or `null` when the org is flat or
- * the type is carved out of pooling. Shared by the gate read
- * ({@link pooledStatusOrFallback}) and the shared-cap pre-check
- * ({@link checkSharedRootCap}) so both enforce the same pooled numbers.
+ * Pooled (root) status for one quota type, or `null` when the org is flat.
+ * The gate read ({@link pooledStatusOrFallback}); a success is remembered as
+ * the fallback for a later resolution failure.
  */
 async function pooledStatus(
   orgId: string,
@@ -264,8 +254,8 @@ async function pooledStatus(
   quotaType: QuotaType,
 ): Promise<QuotaStatus | null> {
   // storageBytes is measured live by the image-registry, not tracked in
-  // org.usage, so the pooled `used` below is structurally 0 for it — the push
-  // gate measures the org's namespace itself and ignores `used`.
+  // org.usage, so the pooled `used` below is structurally 0 for it — the caller
+  // replaces it with the account's measured total.
   //
   // The LIMIT still has to be pooled, though. Returning null here would drop the
   // caller through to the org's OWN row — and a team's own limits are -1. The
@@ -356,13 +346,12 @@ async function pooledReadFallback(
 ): Promise<OrgQuotaResponse> {
   let served = 0;
   for (const type of VALID_QUOTA_TYPES) {
-    if (type === 'storageBytes') continue;
+    // storageBytes included, as on the live path: its cached status carries the
+    // ROOT's limit. Skipping it left a team's own -1 in place, so a fallback
+    // read told the dashboard a team's registry storage was unlimited.
     const cached = recallPoolStatus(orgId, type);
     if (!cached) continue;
-    const { allowed: _allowed, ...summary } = cached;
-    // The pooled path builds summaries by hand, so the per-type period has to be
-    // attached here too — it is not carried on QuotaStatus.
-    own.quotas[type] = { ...summary, periodDays: periodDaysForType(type) };
+    own.quotas[type] = toQuotaSummary(type, cached);
     served += 1;
   }
   if (served > 0) {
@@ -381,9 +370,9 @@ async function pooledReadFallback(
  *
  * Pooled org (a root with teams, or a team): every counted dimension reports
  * the ROOT's limit against the whole subtree's usage — the same numbers the
- * root and each of its teams see, and the same ones increment enforces.
- * storageBytes stays per-org (registry-measured, never pooled). Flat orgs get
- * `own` back unchanged after the single subtree probe.
+ * root and each of its teams see, and the same ones increment enforces
+ * (storageBytes' LIMIT included; its `used` is filled from the registry by the
+ * caller). Flat orgs get `own` back unchanged after the single subtree probe.
  */
 export async function applyPooledQuotas(
   orgId: string,
@@ -411,8 +400,7 @@ export async function applyPooledQuotas(
     const status = pooledStatusFromRows(rows, pool.rootOrgId, type);
     if (!status) continue;
     rememberPoolStatus(orgId, type, status);
-    const { allowed: _allowed, ...summary } = status;
-    own.quotas[type] = { ...summary, periodDays: periodDaysForType(type) };
+    own.quotas[type] = toQuotaSummary(type, status);
   }
   const root = rows.find((r) => String(r._id) === pool.rootOrgId);
   // A team's tier is inherited from its root — report the root's.

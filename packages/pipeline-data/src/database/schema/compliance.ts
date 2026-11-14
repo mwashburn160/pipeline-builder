@@ -1,7 +1,10 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { SYSTEM_ORG_ID, type RuleConditionMode, type RuleOperator, type RuleScope, type RuleSeverity, type RuleTarget } from '@pipeline-builder/api-core';
+import {
+  SYSTEM_ORG_ID, type ComplianceCheckVerdict, type ComplianceExemptionStatus, type ComplianceScanStatus, type ComplianceScanTarget,
+  type ComplianceScanTrigger, type RuleConditionMode, type RuleOperator, type RuleScope, type RuleSeverity, type RuleTarget,
+} from '@pipeline-builder/api-core';
 import { sql } from 'drizzle-orm';
 import { boolean, integer, varchar, pgTable, text, timestamp, uuid, jsonb, index, uniqueIndex } from 'drizzle-orm/pg-core';
 
@@ -170,7 +173,7 @@ export const complianceAuditLog = pgTable('compliance_audit_log', {
   action: varchar('action', { length: 20 }).notNull(), // upload | deploy | create | update | scan
   entityId: varchar('entity_id', { length: 255 }),
   entityName: varchar('entity_name', { length: 255 }),
-  result: varchar('result', { length: 10 }).notNull(), // pass | warn | block
+  result: varchar('result', { length: 10 }).$type<ComplianceCheckVerdict>().notNull(),
   violations: jsonb('violations').$type<Record<string, unknown>[]>().default([]),
   ruleCount: integer('rule_count').notNull(),
   scanId: uuid('scan_id'), // groups entries from the same bulk scan
@@ -204,7 +207,7 @@ export const complianceExemption = pgTable('compliance_exemptions', {
   reason: text('reason').notNull(),
   approvedBy: text('approved_by'),
   rejectionReason: text('rejection_reason'),
-  status: varchar('status', { length: 20 }).default('pending').notNull(), // pending | approved | rejected | expired
+  status: varchar('status', { length: 20 }).$type<ComplianceExemptionStatus>().default('pending').notNull(),
   expiresAt: timestamp('expires_at', { withTimezone: true }),
   createdBy: text('created_by').notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
@@ -247,10 +250,10 @@ export const complianceRuleSubscription = pgTable('compliance_rule_subscriptions
 export const complianceScan = pgTable('compliance_scans', {
   id: uuid('id').primaryKey().defaultRandom(),
   orgId: varchar('org_id', { length: 255 }).notNull(),
-  target: varchar('target', { length: 20 }).notNull(), // plugin | pipeline | all
+  target: varchar('target', { length: 20 }).$type<ComplianceScanTarget>().notNull(),
   filter: jsonb('filter'), // optional entity filter for partial scans
-  status: varchar('status', { length: 20 }).default('pending').notNull(), // pending | running | completed | failed | cancelled
-  triggeredBy: varchar('triggered_by', { length: 20 }).notNull(), // manual | scheduled | rule-change | rule-dry-run
+  status: varchar('status', { length: 20 }).$type<ComplianceScanStatus>().default('pending').notNull(),
+  triggeredBy: varchar('triggered_by', { length: 20 }).$type<ComplianceScanTrigger>().notNull(),
   userId: text('user_id').notNull(),
   totalEntities: integer('total_entities').default(0).notNull(),
   processedEntities: integer('processed_entities').default(0).notNull(),
@@ -280,7 +283,7 @@ export const complianceScan = pgTable('compliance_scans', {
 export const complianceScanSchedule = pgTable('compliance_scan_schedules', {
   id: uuid('id').primaryKey().defaultRandom(),
   orgId: varchar('org_id', { length: 255 }).notNull(),
-  target: varchar('target', { length: 20 }).notNull(), // plugin | pipeline | all
+  target: varchar('target', { length: 20 }).$type<ComplianceScanTarget>().notNull(),
   cronExpression: varchar('cron_expression', { length: 100 }).notNull(),
   isActive: boolean('is_active').default(true).notNull(),
   lastRunAt: timestamp('last_run_at', { withTimezone: true }),

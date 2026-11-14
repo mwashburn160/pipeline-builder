@@ -7,6 +7,7 @@ import type { RuleScope } from '@pipeline-builder/pipeline-data';
 import { eq, and, isNull, inArray, sql } from 'drizzle-orm';
 import { complianceRuleService } from './compliance-rule-service.js';
 import { entitlementWatermarkStore } from './entitlement-watermark-store.js';
+import { hasSetTag, setNamesFromTags, setTagFor } from '../helpers/content-set-tags.js';
 
 const logger = createLogger('subscription-service');
 
@@ -50,29 +51,6 @@ export class SystemOrgSubscriptionError extends ForbiddenError {
     super('System org cannot manage rule subscriptions');
     this.name = 'SystemOrgSubscriptionError';
   }
-}
-
-const KNOWN_CONTENT_SET_NAMES: ReadonlySet<string> = new Set(COMPLIANCE_CONTENT_SETS);
-
-/** Coerce a jsonb `tags` column (unknown at the type level) to a string[]. */
-function tagsOf(tags: unknown): string[] {
-  return Array.isArray(tags) ? (tags as string[]) : [];
-}
-
-/** Whether a rule's tags carry ANY `set:<x>` marker (curated/entitlement-gated). */
-function hasSetTag(tags: unknown): boolean {
-  return tagsOf(tags).some((t) => t.startsWith('set:'));
-}
-
-/** Distinct KNOWN content-set NAMES (`standard`/`advanced`) among a rule's tags. */
-function setNamesFromTags(tags: unknown): string[] {
-  const out: string[] = [];
-  for (const t of tagsOf(tags)) {
-    if (!t.startsWith('set:')) continue;
-    const name = t.slice('set:'.length);
-    if (KNOWN_CONTENT_SET_NAMES.has(name)) out.push(name);
-  }
-  return out;
 }
 
 /**
@@ -511,14 +489,18 @@ export class ComplianceRuleSubscriptionService {
    *
    * For every KNOWN content set:
    *  - ENTITLED (`x ∈ sets`): subscribe + activate every `set:<x>`-tagged
-   *    published rule the org isn't already enforcing. Reuses `subscribe` +
-   *    `setActive` (rather than a raw upsert) so a member's manual unsubscribe
-   *    is resurrected and the rules cache is invalidated exactly as a normal
-   *    subscribe would. Already-active rules are skipped — no flicker, no audit
-   *    noise on a repeat sync.
+   *    published rule the org isn't already enforcing, in one batched upsert
+   *    per set (`bulkSubscribeActive`), which resurrects a member's manual
+   *    unsubscribe exactly as `subscribe` would. Already-active rules are
+   *    skipped — no flicker, no audit noise on a repeat sync. The rules cache is
+   *    invalidated once, after commit.
    *  - NOT entitled (`x ∉ sets`): deactivate the org's existing subscriptions to
-   *    those rules via `bulkSetActive(false)`. Rows are RETAINED (not deleted),
-   *    so re-granting the set simply reactivates them.
+   *    those rules via `bulkSetActive(false)` — EXCEPT a rule that is also in an
+   *    entitled set. A rule tagged with two sets is entitled by either; without
+   *    that exclusion an account holding only `standard` had a rule tagged
+   *    `set:standard` + `set:advanced` activated by the first set and switched
+   *    off again by the second, while being reported as activated. Rows are
+   *    RETAINED (not deleted), so re-granting the set simply reactivates them.
    *
    * Enforcement (`/compliance/validate`) is entitlement-unaware and reads only
    * ACTIVE subscriptions, so keeping this reconcile correct is what makes a
@@ -559,22 +541,34 @@ export class ComplianceRuleSubscriptionService {
       const activated: string[] = [];
       const deactivated: string[] = [];
 
+      const ruleIdsBySet = new Map<string, string[]>();
       for (const set of COMPLIANCE_CONTENT_SETS) {
-        const ruleIds = await this.findPublishedRuleIdsBySetTag(`set:${set}`, tx);
+        ruleIdsBySet.set(set, await this.findPublishedRuleIdsBySetTag(setTagFor(set), tx));
+      }
+      // Every rule ANY entitled set covers: a rule in two sets is entitled by either.
+      const entitledRuleIds = new Set(
+        COMPLIANCE_CONTENT_SETS.filter((set) => entitled.has(set)).flatMap((set) => ruleIdsBySet.get(set) ?? []),
+      );
+
+      for (const set of COMPLIANCE_CONTENT_SETS) {
+        const ruleIds = ruleIdsBySet.get(set) ?? [];
         if (ruleIds.length === 0) continue;
 
         if (entitled.has(set)) {
-          // Only the rules not already enforced need touching (idempotent no-op on
-          // a repeat sync). Subscribe + activate them in a SINGLE batched upsert.
-          const toActivate = ruleIds.filter((id) => !currentlyActive.has(id));
+          // Only the rules not already enforced (or activated by an earlier set
+          // this pass) need touching — an idempotent no-op on a repeat sync.
+          // Subscribe + activate them in a SINGLE batched upsert.
+          const toActivate = ruleIds.filter((id) => !currentlyActive.has(id) && !activated.includes(id));
           if (toActivate.length > 0) {
             await this.bulkSubscribeActive(orgId, toActivate, userId, tx);
             activated.push(...toActivate);
           }
         } else {
+          const toRevoke = ruleIds.filter((id) => !entitledRuleIds.has(id));
+          if (toRevoke.length === 0) continue;
           // Only existing (non-unsubscribed) rows are matched/returned; filter to
           // the ones that were actually active so we report true deactivations.
-          const affected = await this.bulkSetActive(orgId, ruleIds, false, userId, tx);
+          const affected = await this.bulkSetActive(orgId, toRevoke, false, userId, tx);
           for (const ruleId of affected) {
             if (currentlyActive.has(ruleId)) deactivated.push(ruleId);
           }

@@ -47,6 +47,7 @@ import {
   MAX_BOUNCES,
   stakeholderReportStore,
   type ReportDefinition,
+  type ReportPauseReason,
   type ReportRecipient,
   type ReportRun,
 } from '@pipeline-builder/pipeline-data';
@@ -388,21 +389,25 @@ export async function notifyRunFailed(
 }
 
 /**
+ * Why a paused definition stopped, in the words the notice uses. Keyed by the
+ * store's own pause-reason vocabulary, so a new reason cannot reach a lead as
+ * `undefined`.
+ */
+const PAUSE_REASON_TEXT: Record<ReportPauseReason, string> = {
+  entitlement: 'the Stakeholder Reports add-on is no longer active on this account',
+  owner_inactive: 'the report\'s owner is no longer an active member of this organization',
+  permission_lost: 'the report\'s owner no longer holds the permissions this report needs',
+};
+
+/**
  * Tell the lead their definition was PAUSED, and which of the three reasons it was.
  *
  * The reason matters more than the pause: an entitlement lapse is a billing
  * conversation, a deactivated owner is a handover, and a lost permission is an admin
  * question. A single "paused" notice would send all three to the wrong person.
  */
-export async function notifyPaused(
-  definition: ReportDefinition,
-  reason: 'entitlement' | 'owner_inactive' | 'permission_lost',
-): Promise<void> {
-  const why = {
-    entitlement: 'the Stakeholder Reports add-on is no longer active on this account',
-    owner_inactive: 'the report\'s owner is no longer an active member of this organization',
-    permission_lost: 'the report\'s owner no longer holds the permission needed to author reports',
-  }[reason];
+export async function notifyPaused(definition: ReportDefinition, reason: ReportPauseReason): Promise<void> {
+  const why = PAUSE_REASON_TEXT[reason];
   const subject = `${definition.name} is paused`;
   const body = [
     `${definition.name} has stopped running because ${why}.`,
@@ -412,7 +417,7 @@ export async function notifyPaused(
     '',
     `${baseUrl()}/reports?tab=stakeholder`,
   ].join('\n');
-  // To the ORG inbox as well as the owner: two of the three reasons are things the owner
+  // To the ORG inbox, not the owner alone: two of the three reasons are things the owner
   // cannot fix, and one of them is that the owner is gone.
   await sendSystemNotification({
     recipientOrgId: definition.orgId,
@@ -421,6 +426,51 @@ export async function notifyPaused(
     priority: 'high',
   });
   emitCounter('report_definition_paused_total', { orgId: definition.orgId, reason });
+}
+
+/**
+ * Mail a recipient the link that confirms their address (`/reports/confirm`).
+ *
+ * The ONLY place the confirmation token leaves the service: it goes to the address
+ * being confirmed and nowhere else, so confirming is something only the holder of
+ * that mailbox can do. Through platform's per-address REPORT leg, which takes an
+ * address reporting vouches for — the address is not a platform user, so the tenant
+ * leg (which resolves members) cannot reach it.
+ *
+ * Returns whether the relay accepted it. NEVER THROWS, and an instance with no mail
+ * returns false without trying: the address stays unverified and nothing is ever
+ * delivered to it, which is the safe failure.
+ */
+export async function sendRecipientConfirmation(orgId: string, email: string, token: string): Promise<boolean> {
+  if (!(await emailAvailable())) return false;
+  try {
+    const res = await platform().post<{ data?: { sent?: unknown } }>(
+      '/internal/notify-email',
+      {
+        orgId,
+        subject: 'Confirm your address for delivery reports',
+        text: [
+          'Someone in an organization on Pipeline Builder added this address to the list for its engineering delivery reports.',
+          '',
+          `Confirm it here: ${baseUrl()}/reports/confirm?token=${encodeURIComponent(token)}`,
+          '',
+          'Nothing is sent to this address until it is confirmed. If you were not expecting this, ignore it.',
+        ].join('\n'),
+        reportRecipients: [{ email }],
+      },
+      {
+        headers: { Authorization: getServiceAuthHeader({ serviceName: 'reporting', orgId, role: 'member' }) },
+        timeout: REPORTING_HTTP_TIMEOUT_MS,
+      },
+    );
+    const sent = res.statusCode < 400 && Array.isArray(res.body?.data?.sent) && res.body.data.sent.length > 0;
+    if (!sent) emitCounter('report_delivery_failed_total', { orgId, channel: 'confirmation' });
+    return sent;
+  } catch (err) {
+    logger.warn('Recipient confirmation email failed', { orgId, error: errorMessage(err) });
+    emitCounter('report_delivery_failed_total', { orgId, channel: 'confirmation' });
+    return false;
+  }
 }
 
 /** Email one message to the definition's owner, if this instance can send mail. */

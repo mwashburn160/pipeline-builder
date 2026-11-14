@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
+import { MESSAGE_PRIORITY_IDS, MESSAGE_PRIORITY_META } from '@/lib/message-priority';
 import dynamic from 'next/dynamic';
 import { useRouter } from 'next/router';
 import { Plus, MessageCircle, Search, X } from 'lucide-react';
@@ -638,9 +639,7 @@ export default function MessagesPage() {
               </FilterSelect>
               <FilterSelect aria-label="Filter by priority" value={inboxQuery.priority} onChange={(e) => setQuery({ priority: e.target.value as PriorityFilter })} className="text-xs">
                 <option value="">Any priority</option>
-                <option value="normal">Normal</option>
-                <option value="high">High</option>
-                <option value="urgent">Urgent</option>
+                {MESSAGE_PRIORITY_IDS.map((p) => <option key={p} value={p}>{MESSAGE_PRIORITY_META[p].label}</option>)}
               </FilterSelect>
               <FilterSelect aria-label="Filter by channel" value={inboxQuery.channel} onChange={(e) => setQuery({ channel: e.target.value as ChannelFilter })} className="text-xs">
                 <option value="">All channels</option>

@@ -90,7 +90,6 @@ const {
   PublicationNotFoundError,
   SourceVerificationError,
   PublicationMetrics,
-  TRUST_TIERS,
   _resetPublicPublishingState,
 } = await import('../src/services/public-publishing.js');
 
@@ -667,11 +666,5 @@ describe('invalidateVerifyCache', () => {
     await prime();
     expect(invalidateVerifyCache()).toBe(3);
     expect(invalidateVerifyCache()).toBe(0);
-  });
-});
-
-describe('exports', () => {
-  it('names the four trust tiers in order', () => {
-    expect(TRUST_TIERS).toEqual(['official', 'verified', 'community', 'unverified']);
   });
 });

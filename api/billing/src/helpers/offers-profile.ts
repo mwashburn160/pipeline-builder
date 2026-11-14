@@ -32,6 +32,7 @@ import {
   leaderLockKey,
   type QuotaTier,
   type Scheduler,
+  type BillingInterval,
 } from '@pipeline-builder/api-core';
 import { runWithTenantContext } from '@pipeline-builder/pipeline-data';
 import { config } from '../config.js';
@@ -79,7 +80,7 @@ export function periodKeyFor(dimensions: Record<string, { resetAt: string | null
 export async function buildProfile(input: {
   orgId: string;
   tier: QuotaTier;
-  interval: 'monthly' | 'annual';
+  interval: BillingInterval;
   addons: Array<{ bundleId: string; quantity: number }>;
   subscriptionStartedAt: Date;
   auth: string;

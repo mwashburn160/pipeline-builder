@@ -21,6 +21,7 @@ import { runWithTenantContext, schema, withTenantTx, softDeleteRetentionMs } fro
 import { and, asc, desc, eq, isNull, sql } from 'drizzle-orm';
 import YAML from 'yaml';
 import { injectOrgId, PromQLRewriteError, validateOrgIdMatchers } from './promql-rewriter.js';
+import type { AlertRuleSeverity } from '@pipeline-builder/api-core/wire-vocabulary';
 
 const logger = createLogger('alert-rule-service');
 
@@ -30,7 +31,7 @@ export interface RuleCreate {
   name: string;
   expr: string;
   forDuration?: string;
-  severity?: 'warning' | 'critical';
+  severity?: AlertRuleSeverity;
   summary: string;
   description?: string;
   enabled?: boolean;
@@ -40,7 +41,7 @@ export interface RuleUpdate {
   name?: string;
   expr?: string;
   forDuration?: string;
-  severity?: 'warning' | 'critical';
+  severity?: AlertRuleSeverity;
   summary?: string;
   description?: string;
   enabled?: boolean;

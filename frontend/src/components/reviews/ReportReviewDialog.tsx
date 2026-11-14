@@ -8,7 +8,8 @@ import { Modal } from '@/components/ui/Modal';
 import { ModalFooter } from '@/components/ui/ModalFooter';
 import { Textarea } from '@/components/ui/Textarea';
 import api from '@/lib/api';
-import { REPORT_CATEGORIES, REPORT_CATEGORY_LABELS, REPORT_REASON_MAX, reviewErrorMessage } from '@/lib/plugin-reviews';
+import { REVIEW_REPORT_CATEGORIES } from '@pipeline-builder/api-core/wire-vocabulary';
+import { REPORT_CATEGORY_LABELS, REPORT_REASON_MAX, reviewErrorMessage } from '@/lib/plugin-reviews';
 import type { ReviewReportCategory } from '@/types/plugin-reviews';
 
 /**
@@ -60,7 +61,7 @@ export function ReportReviewDialog({ reviewId, onReported, onClose }: {
       <div className="space-y-4 text-sm">
         <fieldset className="space-y-2">
           <legend className="mb-1 font-medium text-fg">What is wrong with it?</legend>
-          {REPORT_CATEGORIES.map((c) => (
+          {REVIEW_REPORT_CATEGORIES.map((c) => (
             <label key={c} className="flex items-center gap-2 text-fg">
               <input
                 type="radio"

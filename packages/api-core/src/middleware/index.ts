@@ -50,7 +50,7 @@ export {
   isServicePrincipalNamed,
   verifyServicePrincipal,
 } from './service-tokens.js';
-export { requireSystemOrg, requireSystemOrgPermission } from './ecosystem-guard.js';
+export { isSystemOrgRequest, requireSystemOrg, requireSystemOrgPermission } from './ecosystem-guard.js';
 export {
   mongoSanitize,
   MAX_SANITIZE_DEPTH,

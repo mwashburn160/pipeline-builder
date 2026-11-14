@@ -35,7 +35,7 @@
   */
 
 import {
-  assessVersionVulns, createLogger, errorMessage, isManagedToolchainPlugin, managedRefPinsVersion, managedToolchainRefName, maxSeverity, PluginFilterSchema,
+  assessVersionVulns, createLogger, errorMessage, isManagedToolchainPlugin, MANAGED_TOOLCHAIN, managedRefPinsVersion, managedToolchainRefName, maxSeverity, PluginFilterSchema,
   pluginRunsOwnImage, toolchainReleasePin,
   type ManagedToolchainPlugin, type PluginType, type VulnConsumptionPolicy, type VulnSeverity,
 } from '@pipeline-builder/api-core';
@@ -155,7 +155,6 @@ export function pinViaReleaseViolation(step: { path: string; label: string; name
  * lookup (a tenant can't resolve the system row, and the name is reserved) and
  * by the resolved plugin's type.
  */
-const BUILD_IMAGE_NAME: ManagedToolchainPlugin = 'pipeline-bootstrap';
 /** `PluginType.BUILD_IMAGE`. */
 const BUILD_IMAGE: PluginType = 'BuildImage';
 
@@ -464,7 +463,7 @@ export async function checkPluginContracts(
   for (const step of steps) {
     const stepVersion = typeof step.filter?.version === 'string' ? step.filter.version : '';
     const managed = managedToolchainRefName(step);
-    if (managed === BUILD_IMAGE_NAME) {
+    if (managed === MANAGED_TOOLCHAIN.bootstrap) {
       violations.push(buildImageStepViolation(step, stepVersion));
       continue;
     }

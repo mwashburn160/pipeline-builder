@@ -1,6 +1,21 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+/** `YYYY-MM-DD` of a date in the viewer's LOCAL calendar — a native date
+ *  input's value. Not `toISOString().slice(0, 10)`, which is the UTC day and
+ *  so reads as tomorrow in the evening anywhere west of UTC. */
+export function localDay(d: Date): string {
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+/** The local day `days` before today, and today — a "last N days" preset. */
+export function localDaysBack(days: number, now: Date = new Date()): { from: string; to: string } {
+  const from = new Date(now);
+  from.setDate(from.getDate() - days);
+  return { from: localDay(from), to: localDay(now) };
+}
+
 /**
  * Bounds of a `<input type="date">` day (`YYYY-MM-DD`) in the VIEWER's time
  * zone, as ISO instants — what an inclusive "From … To …" filter means to the

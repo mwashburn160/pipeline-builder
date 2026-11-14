@@ -37,6 +37,7 @@ import {
   ErrorCode,
   errorMessage,
   ADVISORY_SEVERITIES,
+  ADVISORY_STATES,
   SYSTEM_ACTOR_ID,
   SYSTEM_ORG_ID,
 } from '@pipeline-builder/api-core';
@@ -693,8 +694,6 @@ export async function retryAdvisoryFanOut(now: Date = new Date()): Promise<numbe
 // Lists
 // -----------------------------------------------------------------------------
 
-const STATES: readonly AdvisoryState[] = ['draft', 'published', 'withdrawn'];
-
 /** GET /plugins/publisher/advisories — the caller's publisher's advisories, in every state (drafts are private to it and the system org). */
 export async function publisherAdvisories(caller: Caller) {
   if (!can(caller, 'plugins:read')) throw new EcosystemError(ErrorCode.INSUFFICIENT_PERMISSIONS, 'Advisories need plugins:read');
@@ -711,7 +710,7 @@ export async function publisherAdvisories(caller: Caller) {
 
 /** GET /plugins/ecosystem/advisories — every advisory (filter by `state`, `listingId`). */
 export async function consoleAdvisories(query: Record<string, unknown>) {
-  const state = typeof query.state === 'string' && (STATES as readonly string[]).includes(query.state) ? query.state as AdvisoryState : null;
+  const state = typeof query.state === 'string' && (ADVISORY_STATES as readonly string[]).includes(query.state) ? query.state as AdvisoryState : null;
   const listingId = typeof query.listingId === 'string' && query.listingId ? query.listingId : undefined;
   return advisoryViews(await advisoryStore.list({ ...(state ? { states: [state] } : {}), ...(listingId ? { listingId } : {}) }));
 }
