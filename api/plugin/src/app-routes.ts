@@ -22,6 +22,7 @@ import { createPurgePluginRoutes } from './routes/purge-plugin.js';
 import { createQueueStatusRoutes } from './routes/queue-status.js';
 import { createReadPluginRoutes } from './routes/read-plugins.js';
 import { createRestorePluginRoutes } from './routes/restore-plugin.js';
+import { createRetentionRoutes } from './routes/retention.js';
 import { createReviewRoutes } from './routes/reviews.js';
 import { createPublicSecurityNotificationRoutes, createSecurityNotificationRoutes } from './routes/security-notifications.js';
 import { createStorageRoutes } from './routes/storage.js';
@@ -134,6 +135,10 @@ export function mountRoutes(app: Express, { quotaService, sseManager }: PluginRo
   // and promoted by the system org (system org + plugins:moderate + aal2 on each
   // route); before the read routes for `/:id`.
   app.use('/plugins', createKeptSetupImageRoutes());
+  // Superseded system plugin version retention — the dry run and the on-demand
+  // run (system org + plugins:moderate + aal2 on each route, step-up on the
+  // run); before the read routes for `/:id`.
+  app.use('/plugins', createRetentionRoutes());
   // A pipeline's plugin security — per-step resolution / lookup / scan state,
   // exposures + their triage, and the runtime check (each route owns its gate:
   // pipelines:read / pipelines:write / plugins:read); before the read routes

@@ -445,7 +445,7 @@ Three things live there:
   | Toggle | Stored field | Covers |
   |---|---|---|
   | Review emails | `reviewsEmail` | N15, N16 |
-  | Upgrade and deprecation emails | `upgradesEmail` | N13, N14, N26, N27 |
+  | Upgrade and deprecation emails | `upgradesEmail` | N13, N14, N26, N27, N35 |
   | Install request emails | `installsEmail` | N11, N12 |
   | Daily moderation digest email | `moderationDigestEmail` | N2, N6, N17, N24 — shown only to members of the system org |
 
@@ -457,12 +457,24 @@ Three things live there:
 ### The ecosystem notice catalog
 
 `packages/api-core/src/types/ecosystem-notifications.ts` is the single table both
-the sender (plugin) and the relay (platform) read. Each of N1–N31 declares its
+the sender (plugin) and the relay (platform) read. Each of N1–N35 declares its
 channels (`in_app` | `email`), its opt-out key or `null` for transactional, an
 optional digest cadence, and whether a raw email address may be addressed.
 
 **Transactional and cannot be turned off:** N1, N3, N4, N5, N7, N8, N9, N10, N18,
-N19, N20, N21, N22, N23, N25, N28, N29, N30, N31.
+N19, N20, N21, N22, N23, N25, N28, N29, N30, N31, N32, N33, N34.
+
+**N35 — superseded plugin versions are being retired.** When the platform's
+version retention pass deprecates old versions of an Official plugin (the
+start of their notice period) or yanks them once the notice is over, each
+organization that can reach one of those versions hears **once per pass**: one
+in-app message and email to its approvers (`plugin_installs:manage`, falling
+back to the root org), listing every affected version, what happened to it,
+the date a deprecated one is yanked, and the version to move to. The pass
+sends this instead of the per-version deprecation (N14) and yank (N8) notices,
+so a pass that retires dozens of versions is still one message. The upgrade
+and deprecation email opt-out (`upgradesEmail`) covers its email; the in-app
+copy always arrives.
 
 **Digest cadences:** hourly flushes at the top of the hour; daily at **09:00
 UTC**; weekly on **Monday 09:00 UTC**. Several queued notices of the same event

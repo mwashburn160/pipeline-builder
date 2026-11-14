@@ -11,14 +11,17 @@
  * its OWN listed version at once, with no review — there is no tenant
  * un-deprecate, only the system org can clear one.
  *
- * Three ways in, one write ({@link markDeprecated}), so the audit row, the
+ * Four ways in, one write ({@link markDeprecated}), so the audit row, the
  * idempotency rule (re-deprecating with the same message is a no-op) and the
  * single N14 per version hold whichever door was used:
  *
  *  - the publisher, on its own listing ({@link deprecateOwnListedVersion});
  *  - the system org, which may also CLEAR ({@link setListedVersionDeprecation});
  *  - the source org plugin row being deprecated, which carries over to every
- *    listing version published from it ({@link deprecateListedFromSource}).
+ *    listing version published from it ({@link deprecateListedFromSource});
+ *  - the superseded-version retention pass ({@link systemSetListedDeprecation}
+ *    with `via: 'retention'`), which replaces the per-version N14 with ONE
+ *    grouped notice per org (N35).
  *
  * Distinct from a security ADVISORY (advisories.ts): an advisory says a version
  * is DANGEROUS and can make lookup refuse it; deprecation says it is
@@ -70,7 +73,8 @@ function notifyVersionDeprecated(publisher: Publisher, listing: PluginListing, v
 /** Mark one listed version deprecated (idempotent; a new message replaces the old one). Returns whether it was newly deprecated. */
 async function markDeprecated(
   v: PluginListingVersion, listing: PluginListing, publisher: Publisher, message: string | null,
-  audit: { actor: string; orgId: string; via: 'publisher' | 'system_org' | 'source_plugin' },
+  audit: { actor: string; orgId: string; via: 'publisher' | 'system_org' | 'source_plugin' | 'retention' },
+  opts: { notify?: boolean } = {},
 ): Promise<boolean> {
   const fresh = v.deprecatedAt === null;
   if (!fresh && (v.deprecationMessage ?? null) === message) return false;
@@ -84,7 +88,7 @@ async function markDeprecated(
     targetId: v.id,
     details: { listing: `${publisher.handle}/${listing.name}`, version: v.version, deprecated: true, via: audit.via },
   });
-  if (fresh) await notifyVersionDeprecated(publisher, listing, v.version, message);
+  if (fresh && opts.notify !== false) await notifyVersionDeprecated(publisher, listing, v.version, message);
   return fresh;
 }
 
@@ -112,25 +116,41 @@ export async function deprecateOwnListedVersion(caller: Caller, listingId: strin
 export async function setListedVersionDeprecation(caller: Caller, listingId: string, version: string, body: Record<string, unknown>) {
   if (!can(caller, 'plugins:moderate')) throw new EcosystemError(ErrorCode.INSUFFICIENT_PERMISSIONS, 'Deprecating needs plugins:moderate');
   const { listing, publisher } = await listingWithPublisher(listingId);
+  await systemSetListedDeprecation(listing, publisher, version, {
+    deprecated: body.deprecated !== false,
+    message: body.deprecated === false ? null : deprecationMessageOf(body.message, false),
+    actor: actorId({ userId: caller.userId }),
+    via: 'system_org',
+  });
+  return listingView((await listings.byId(listing.id))!, publisher, { versions: await versions.forListings([listing.id]) });
+}
+
+/**
+ * The system org's deprecate / clear of one listed version — the write behind
+ * the console route and the superseded-version retention pass (`via:
+ * 'retention'`, which sends its own grouped notice, so `notify: false`).
+ * Idempotent both ways; returns whether anything changed.
+ */
+export async function systemSetListedDeprecation(
+  listing: PluginListing, publisher: Publisher, version: string,
+  opts: { deprecated: boolean; message: string | null; actor: string; via: 'system_org' | 'retention'; notify?: boolean },
+): Promise<boolean> {
   const v = await versions.get(listing.id, version);
   if (!v) throw new EcosystemError(ErrorCode.NOT_FOUND, 'Version not found');
-  const actor = actorId({ userId: caller.userId });
-  if (body.deprecated === false) {
-    if (v.deprecatedAt !== null) {
-      await versions.update(v.id, { deprecatedAt: null, deprecationMessage: null });
-      ecosystemAudit({
-        action: 'plugin.version.deprecate',
-        actor: actor,
-        affectedOrgId: publisher.ownerOrgId,
-        targetType: 'plugin-listing-version',
-        targetId: v.id,
-        details: { listing: `${publisher.handle}/${listing.name}`, version, deprecated: false, via: 'system_org' },
-      });
-    }
-  } else {
-    await markDeprecated(v, listing, publisher, deprecationMessageOf(body.message, false), { actor, orgId: SYSTEM_ORG_ID, via: 'system_org' });
+  if (opts.deprecated) {
+    return markDeprecated(v, listing, publisher, opts.message, { actor: opts.actor, orgId: SYSTEM_ORG_ID, via: opts.via }, { notify: opts.notify });
   }
-  return listingView((await listings.byId(listing.id))!, publisher, { versions: await versions.forListings([listing.id]) });
+  if (v.deprecatedAt === null) return false;
+  await versions.update(v.id, { deprecatedAt: null, deprecationMessage: null });
+  ecosystemAudit({
+    action: 'plugin.version.deprecate',
+    actor: opts.actor,
+    affectedOrgId: publisher.ownerOrgId,
+    targetType: 'plugin-listing-version',
+    targetId: v.id,
+    details: { listing: `${publisher.handle}/${listing.name}`, version, deprecated: false, via: opts.via },
+  });
+  return true;
 }
 
 /**

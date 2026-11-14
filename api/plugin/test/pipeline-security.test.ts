@@ -477,7 +477,7 @@ describe('refreshDeclaredResolutions', () => {
     mockResolveListing.mockResolvedValueOnce({ ok: true, publisher: { handle: 'acme' }, listing: { name: 'acme-lint' }, version: { id: 'v2', version: '2.0.0', imageDigest: OTHER, scanSummary: null, scanFlag: null, scanFlaggedAt: null } });
     mockFindFirst.mockResolvedValueOnce(null);
     const out = await refreshDeclaredResolutions({ pluginName: 'lint', orgId: 'org-1' });
-    expect(out).toEqual({ refreshed: 2, unchanged: 1, truncated: true });
+    expect(out).toEqual({ refreshed: 2, unchanged: 1, failed: 0, truncated: true });
     expect(mockReplace).toHaveBeenCalledWith('p-changed', [expect.objectContaining({ resolvedVersion: '1.1.0' })]);
     expect(mockReconcile).toHaveBeenCalledWith(expect.objectContaining({ pipelineId: 'p-changed', source: 'declared' }));
     expect(resolutionRefreshMax()).toBe(500);
@@ -506,9 +506,21 @@ describe('refreshDeclaredResolutions', () => {
     expect(mockReplace).toHaveBeenCalledWith('p-pinned', [expect.objectContaining({ resolvedVersion: null })]);
   });
 
-  it('never throws', async () => {
+  it('never throws, and reports a refresh that failed outright as failed: -1', async () => {
     mockDeclaredPipelines.mockRejectedValueOnce(new Error('db down'));
-    await expect(refreshDeclaredResolutions({ pluginName: 'lint', publisher: 'acme' })).resolves.toEqual({ refreshed: 0, unchanged: 0, truncated: false });
+    await expect(refreshDeclaredResolutions({ pluginName: 'lint', publisher: 'acme' })).resolves.toEqual({ refreshed: 0, unchanged: 0, failed: -1, truncated: false });
+  });
+
+  it('takes a caller cap in place of PLUGIN_RESOLUTION_REFRESH_MAX, and counts a pipeline that could not be re-resolved', async () => {
+    mockDeclaredPipelines.mockClear();
+    mockDeclaredPipelines.mockResolvedValueOnce({
+      truncated: false,
+      pipelines: [{ pipelineId: 'p-bad', orgId: 'org-1', rootOrgId: null, props: { steps: [{ label: 'Build/scan', name: 'lint' }] }, current: new Map() }],
+    });
+    mockReplace.mockRejectedValueOnce(new Error('write failed'));
+    const out = await refreshDeclaredResolutions({ pluginName: 'lint', orgId: 'org-1' }, { max: 100_000 });
+    expect(out).toEqual({ refreshed: 0, unchanged: 0, failed: 1, truncated: false });
+    expect(mockDeclaredPipelines).toHaveBeenCalledWith({ pluginName: 'lint', orgId: 'org-1' }, 100_000);
   });
 });
 

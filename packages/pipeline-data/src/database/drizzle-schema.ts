@@ -55,6 +55,7 @@ import {
   pluginSubmission,
   ecosystemSearchMiss,
   ecosystemNotificationQueue,
+  pluginRetirement,
   pipelineStepManifest,
   pluginInstall,
   pluginInstallPolicy,
@@ -151,6 +152,8 @@ export const schema = {
   pluginSubmission,
   ecosystemSearchMiss,
   ecosystemNotificationQueue,
+  // The system org's superseded-version retirements (no org_id; plugin service only)
+  pluginRetirement,
   // Plugin ecosystem — org-scoped (org_id + RLS; in the org cascade)
   pipelineStepManifest,
   pluginInstall,

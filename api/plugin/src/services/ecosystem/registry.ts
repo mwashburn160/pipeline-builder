@@ -165,6 +165,35 @@ export async function gcImage(p: { imageRepository: string; digest: string; acto
   return { deleted: data.deleted === true };
 }
 
+/**
+ * Delete the `system/<name>` build copy of a system plugin version the
+ * retention pass RETIRED (row purged, references re-checked). Same endpoint as
+ * {@link gcImage}; image-registry's guard for this namespace refuses (409) a
+ * digest any tag but `version`'s own — or a protected floating tag — still
+ * resolves to.
+ */
+export async function gcSystemImage(p: { name: string; version: string; digest: string; actorId?: string }): Promise<{ deleted: boolean }> {
+  const data = await post<{ deleted?: boolean }>('/gc', { imageRepository: `system/${p.name}`, digest: p.digest, version: p.version, ...(p.actorId ? { actorId: p.actorId } : {}) });
+  return { deleted: data.deleted === true };
+}
+
+/** One system plugin version's storage, every copy counted as one unit (image-registry's retention breakdown). */
+export interface RetentionBreakdownEntry { name: string; version: string; totalBytes: number; marginalBytes: number }
+
+/**
+ * The system org's per-version retention breakdown, or null when image-registry
+ * cannot answer — a caller then reports bytes as unknown, never as zero.
+ */
+export async function retentionBreakdown(): Promise<{ entries: RetentionBreakdownEntry[]; incomplete: boolean } | null> {
+  try {
+    const data = await call<{ entries?: RetentionBreakdownEntry[]; incomplete?: boolean }>('get',
+      `/internal/storage-breakdown/${SYSTEM_ORG_ID}?scope=retention`, 'the retention breakdown');
+    return { entries: Array.isArray(data.entries) ? data.entries : [], incomplete: data.incomplete === true };
+  } catch {
+    return null;
+  }
+}
+
 /** A registry-only credential for ONE quarantine repository (`quarantine/<submissionId>`). */
 export interface QuarantineCredential {
   username: string;

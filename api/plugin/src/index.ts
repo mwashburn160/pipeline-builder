@@ -17,6 +17,8 @@ import { ensureOfficialPublisher } from './services/ecosystem/publishers.js';
 import { createEcosystemStatsScheduler } from './services/ecosystem/stats.js';
 import { createEcosystemNotificationScheduler } from './services/ecosystem-notifications.js';
 import { pluginService } from './services/plugin-service.js';
+import { retentionConfig } from './services/retention/config.js';
+import { createRetentionScheduler } from './services/retention/retire.js';
 
 const logger = createLogger('plugin');
 
@@ -102,6 +104,11 @@ const ecosystemMetricsScheduler = createEcosystemMetricsScheduler();
 // Leader-locked on the shared Redis; review writes also refresh their listing.
 const ecosystemStatsScheduler = createEcosystemStatsScheduler(getHealthRedisConnection);
 
+// Superseded system plugin version retention: daily, leader-locked on the
+// shared Redis, ONLY when PLUGIN_RETENTION_ENABLED (default off — turning it on
+// is an operator decision taken after reading GET /plugins/retention/plan).
+const retentionScheduler = retentionConfig().enabled ? createRetentionScheduler(getHealthRedisConnection) : null;
+
 void runServer(app, {
   name: 'Plugin Service',
   sseManager,
@@ -124,7 +131,7 @@ void runServer(app, {
     reportVulnWaivers();
   },
   onShutdown: async () => {
-    await shutdownQueue(); await shutdownSubmissionQueue(); purgeScheduler?.stop(); rescanScheduler?.stop(); ecosystemNotificationScheduler.stop(); ecosystemMaintenanceScheduler.stop(); ecosystemMetricsScheduler.stop(); ecosystemStatsScheduler.stop();
+    await shutdownQueue(); await shutdownSubmissionQueue(); purgeScheduler?.stop(); rescanScheduler?.stop(); ecosystemNotificationScheduler.stop(); ecosystemMaintenanceScheduler.stop(); ecosystemMetricsScheduler.stop(); ecosystemStatsScheduler.stop(); retentionScheduler?.stop();
   },
 });
 purgeScheduler?.start();
@@ -133,3 +140,4 @@ ecosystemNotificationScheduler.start();
 ecosystemMaintenanceScheduler.start();
 ecosystemMetricsScheduler.start();
 ecosystemStatsScheduler.start();
+retentionScheduler?.start();

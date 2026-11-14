@@ -1,6 +1,6 @@
 // GENERATED FROM docs/notifications.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 42f812a973ae538027c7350f20d6d8bded8c0b5ef5bfd4eec948db92d4059981
+// SOURCE-SHA256: 726e6a1bffbe52115c48897c92be5df0fa6136e1c22ec27fb3c1b8269e5f40cc
 // SPDX-License-Identifier: Apache-2.0
 import { Bell } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -807,7 +807,7 @@ export const notificationsTopic: HelpTopic = {
             [
               "Upgrade and deprecation emails",
               "upgradesEmail",
-              "N13, N14, N26, N27"
+              "N13, N14, N26, N27, N35"
             ],
             [
               "Install request emails",
@@ -841,11 +841,15 @@ export const notificationsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "packages/api-core/src/types/ecosystem-notifications.ts is the single table both the sender (plugin) and the relay (platform) read. Each of N1–N31 declares its channels (in_app | email), its opt-out key or null for transactional, an optional digest cadence, and whether a raw email address may be addressed."
+          "content": "packages/api-core/src/types/ecosystem-notifications.ts is the single table both the sender (plugin) and the relay (platform) read. Each of N1–N35 declares its channels (in_app | email), its opt-out key or null for transactional, an optional digest cadence, and whether a raw email address may be addressed."
         },
         {
           "type": "text",
-          "content": "Transactional and cannot be turned off: N1, N3, N4, N5, N7, N8, N9, N10, N18, N19, N20, N21, N22, N23, N25, N28, N29, N30, N31."
+          "content": "Transactional and cannot be turned off: N1, N3, N4, N5, N7, N8, N9, N10, N18, N19, N20, N21, N22, N23, N25, N28, N29, N30, N31, N32, N33, N34."
+        },
+        {
+          "type": "text",
+          "content": "N35 — superseded plugin versions are being retired. When the platform's version retention pass deprecates old versions of an Official plugin (the start of their notice period) or yanks them once the notice is over, each organization that can reach one of those versions hears once per pass: one in-app message and email to its approvers (plugin_installs:manage, falling back to the root org), listing every affected version, what happened to it, the date a deprecated one is yanked, and the version to move to. The pass sends this instead of the per-version deprecation (N14) and yank (N8) notices, so a pass that retires dozens of versions is still one message. The upgrade and deprecation email opt-out (upgradesEmail) covers its email; the in-app copy always arrives."
         },
         {
           "type": "text",

@@ -1,6 +1,9 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import * as fs from 'fs';
+import * as os from 'os';
+import path from 'path';
 import {
   actorId,
   audited,
@@ -16,9 +19,6 @@ import {
   recordAuthzDenial,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
-import * as fs from 'fs';
-import * as os from 'os';
-import path from 'path';
 import express, { Router, type Request, type RequestHandler, type Response } from 'express';
 import { z } from 'zod';
 
@@ -32,7 +32,7 @@ import {
 import { isQuarantineSubmissionId, mintQuarantineCredential } from '../services/quarantine-credential.js';
 import { deleteManifest, deleteTag, getManifest, headManifest, isNotFound } from '../services/registry-client.js';
 import { deleteOrgNamespace, deleteQuarantineRepository } from '../services/registry-gc.js';
-import { computeOrgStorageBreakdown, computeOrgStorageUsage, invalidateOrgStorageCache } from '../services/storage-usage.js';
+import { computeOrgStorageBreakdown, computeOrgStorageUsage, computeSystemRetentionBreakdown, invalidateOrgStorageCache } from '../services/storage-usage.js';
 
 /** Path of the signing route — also excluded from the app's global 1mb JSON parser. */
 export const PLUGIN_SIGNATURES_PATH = '/internal/plugin-signatures';
@@ -559,6 +559,17 @@ export function createInternalRoutes(): Router {
       if (req.user?.organizationId?.toLowerCase() !== orgId) {
         recordAuthzDenial(req, `storage breakdown of org ${orgId}`);
         return sendError(res, 403, 'Forbidden: a storage breakdown can only be read for the token\'s own org.', ErrorCode.ORG_MISMATCH);
+      }
+      // `?scope=retention` (system org only): the superseded-version retention
+      // pass's view — one entry per plugin version, its system/ and public/
+      // copies as one unit, the base images scanned as sharers.
+      if (req.query.scope === 'retention') {
+        if (orgId !== SYSTEM_ORG_ID) {
+          return sendBadRequest(res, 'scope=retention is the system org\'s breakdown only', ErrorCode.VALIDATION_ERROR);
+        }
+        const retention = await computeSystemRetentionBreakdown(orgId);
+        ctx.log('COMPLETED', 'Read the system retention breakdown', { versions: retention.entries.length, incomplete: retention.incomplete });
+        return sendSuccess(res, 200, retention);
       }
       const breakdown = await computeOrgStorageBreakdown(orgId);
       ctx.log('COMPLETED', 'Read org storage breakdown', {

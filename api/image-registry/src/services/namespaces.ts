@@ -88,6 +88,19 @@ export function isPublicRepository(repository: string): boolean {
   return PUBLIC_REPO_RE.test(repository);
 }
 
+const SYSTEM_PLUGIN_REPO_RE = new RegExp(`^system/(${PLUGIN_NAME_PATTERN})$`);
+
+/**
+ * True for a system plugin's build copy, `system/<name>` — the one shape the
+ * plugin service may hand over for collection once it has retired a version.
+ * A `-base` name is a shared base image (no plugin row; every plugin build
+ * starts FROM one), never a plugin, so it is excluded outright.
+ */
+export function isSystemPluginRepository(repository: string): boolean {
+  const m = SYSTEM_PLUGIN_REPO_RE.exec(repository);
+  return m !== null && !m[1]!.endsWith('-base');
+}
+
 /** `{ handle, name }` of a `public/<handle>/<name>` repository, or null. */
 export function parsePublicRepository(repository: string): { handle: string; name: string } | null {
   const m = PUBLIC_REPO_RE.exec(repository);

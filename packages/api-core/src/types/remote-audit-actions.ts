@@ -487,6 +487,9 @@ export const REMOTE_AUDIT_ACTIONS = [
   'plugin.version.pause',
   'plugin.version.yank',
   'plugin.version.unyank',
+  // The superseded-version retention pass retiring a system plugin version,
+  // one row per stage (`details.stage`: deprecate / yank / collect / reverse).
+  'plugin.version.retire',
   // Pipeline toolchain releases.
   'toolchain.default.set',
   'toolchain.default.initial',

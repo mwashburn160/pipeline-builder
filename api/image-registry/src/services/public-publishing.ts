@@ -27,7 +27,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import path from 'path';
 
-import { envInt, createLogger, AppError, ErrorCode, PUBLISHER_TIERS, type PublisherTier } from '@pipeline-builder/api-core';
+import { envInt, createLogger, AppError, ErrorCode, PUBLISHER_TIERS, SYSTEM_ORG_ID, type PublisherTier } from '@pipeline-builder/api-core';
 import { incCounter, setGauge } from '@pipeline-builder/api-server';
 
 import { cosignCompanionTags, isCosignCompanionTag } from './cosign-tags.js';
@@ -41,6 +41,7 @@ import {
   signPluginImage,
   verifyPluginSignature,
 } from './plugin-signing.js';
+import { protectedTagNames } from './protected-tags.js';
 import { publicationOwner, writePublicationRecord } from './public-publications.js';
 import {
   deleteManifest,
@@ -373,6 +374,41 @@ export async function retagPublicVersion(imageRepository: string, version: strin
  * Idempotent: an already-deleted digest succeeds with `deleted: false`.
  */
 export async function gcPublicImage(imageRepository: string, digest: string): Promise<{ deleted: boolean }> {
+  return collectDigest(imageRepository, digest, { ownTag: null }, () =>
+    afterMutationOwners(imageRepository, digest));
+}
+
+async function afterMutationOwners(imageRepository: string, digest: string): Promise<void> {
+  afterMutation(imageRepository, digest, [await publicationOwner(imageRepository).catch(() => null)]);
+}
+
+/**
+ * Delete one `system/<name>` build copy of a system plugin version the plugin
+ * service RETIRED (its row purged, references re-checked). The namespace-
+ * specific guard: no tag OTHER than the retired version's own tag (`version`)
+ * may still resolve to the digest, directly or as a child of a tagged index —
+ * and a protected floating tag (`REGISTRY_GC_PROTECTED_TAGS`) never counts as
+ * the version's own, even when it is spelled the same. The version tag itself
+ * is removed with the manifest. Idempotent like {@link gcPublicImage}.
+ */
+export async function gcSystemImage(imageRepository: string, digest: string, version: string): Promise<{ deleted: boolean }> {
+  return collectDigest(imageRepository, digest, { ownTag: version }, () => {
+    invalidateStorageCache('system/');
+    invalidateOrgStorageCache(SYSTEM_ORG_ID);
+  });
+}
+
+/**
+ * The collection both namespaces share: refuse (409) a digest a tag still
+ * resolves to — except `ownTag`, when given and not protected, which is
+ * deleted first — then delete the manifest and its cosign companions.
+ */
+async function collectDigest(
+  imageRepository: string,
+  digest: string,
+  opts: { ownTag: string | null },
+  onDeleted: () => void | Promise<void>,
+): Promise<{ deleted: boolean }> {
   return withRepositoryLock(imageRepository, async () => {
     if (!await headManifest(imageRepository, digest)) return { deleted: false };
 
@@ -382,6 +418,8 @@ export async function gcPublicImage(imageRepository: string, digest: string): Pr
     } catch (err) {
       if (!isNotFound(err)) throw err;
     }
+    const protectedTags = opts.ownTag === null ? null : protectedTagNames();
+    let ownTagResolves = false;
     for (const tag of tags) {
       let m;
       try {
@@ -391,11 +429,23 @@ export async function gcPublicImage(imageRepository: string, digest: string): Pr
         throw err;
       }
       const children = ((m.body as { manifests?: Array<{ digest?: string }> }).manifests ?? []).map((c) => c.digest);
-      if (m.digest === digest || children.includes(digest)) {
-        throw new PublicationConflictError(`${imageRepository}@${digest} is still referenced by tag ${tag}; yank it first`);
+      if (m.digest !== digest && !children.includes(digest)) continue;
+      if (opts.ownTag !== null && tag === opts.ownTag && !protectedTags!.has(tag.toLowerCase())) {
+        ownTagResolves = true;
+        continue;
       }
+      throw new PublicationConflictError(opts.ownTag === null
+        ? `${imageRepository}@${digest} is still referenced by tag ${tag}; yank it first`
+        : `${imageRepository}@${digest} is still referenced by tag ${tag}${protectedTags!.has(tag.toLowerCase()) ? ' (a protected floating tag)' : ''}; only its own version tag ${opts.ownTag} may point at a retired image`);
     }
 
+    if (ownTagResolves) {
+      try {
+        await deleteTag(imageRepository, opts.ownTag!);
+      } catch (err) {
+        if (!isNotFound(err)) throw err;
+      }
+    }
     await deleteManifest(imageRepository, digest);
     for (const companion of cosignCompanionTags(digest)) {
       const c = await headManifest(imageRepository, companion);
@@ -406,7 +456,7 @@ export async function gcPublicImage(imageRepository: string, digest: string): Pr
         if (!isNotFound(err)) throw err;
       }
     }
-    afterMutation(imageRepository, digest, [await publicationOwner(imageRepository).catch(() => null)]);
+    await onDeleted();
     return { deleted: true };
   });
 }

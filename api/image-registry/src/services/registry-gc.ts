@@ -7,6 +7,7 @@ import { cosignCompanionSubject, cosignCompanionTags, isCosignCompanionTag } fro
 import { INDEX_MEDIA_TYPES, isIndex } from './manifest.js';
 import { inPublicNamespace, inQuarantineNamespace, inRegistryMetaNamespace, QUARANTINE_PREFIX, repoOwnerOrgId } from './namespaces.js';
 import { pluginImageReferences } from './plugin-image-references.js';
+import { protectedTagNames } from './protected-tags.js';
 import {
   listRepositoriesUnderPrefix,
   listTags,
@@ -20,23 +21,6 @@ import { computeStorageUsage, invalidateOrgStorageCache, invalidateStorageCache 
 
 const logger = createLogger('registry-gc');
 
-/**
- * Tag names treated as mutable "floating" pointers that operators re-point at
- * a known-good build (which may be an OLD build). A digest carrying one of
- * these tags is NEVER age-deleted — see the retention note on `runRegistryGc`.
- * Override the set via `REGISTRY_GC_PROTECTED_TAGS` (comma-separated).
- */
-const DEFAULT_PROTECTED_TAGS = [
-  'latest', 'stable', 'main', 'master', 'release', 'prod', 'production', 'edge',
-];
-
-function protectedTagNames(): Set<string> {
-  const raw = process.env.REGISTRY_GC_PROTECTED_TAGS;
-  const names = raw
-    ? raw.split(',').map((s) => s.trim()).filter(Boolean)
-    : DEFAULT_PROTECTED_TAGS;
-  return new Set(names.map((n) => n.toLowerCase()));
-}
 
 interface ManifestBody {
   created?: string;

@@ -50,7 +50,7 @@ const ECO_TABLES: PgTable[] = [
   eco.publisher, eco.pluginListing, eco.pluginListingVersion, eco.pluginAdvisory, eco.ecosystemAutoApprovalRule,
   eco.pluginPublishRequest, eco.ecosystemReservedName, eco.ecosystemSetting,
   eco.pluginReview, eco.pluginReviewReply, eco.pluginReviewReport, eco.pluginReviewVote, eco.pluginReviewHistory,
-  eco.pluginStats, eco.pluginSubmission, eco.ecosystemSearchMiss, eco.ecosystemNotificationQueue,
+  eco.pluginStats, eco.pluginSubmission, eco.ecosystemSearchMiss, eco.ecosystemNotificationQueue, eco.pluginRetirement,
   eco.pipelineStepManifest, eco.pluginInstall, eco.pluginInstallPolicy, eco.pluginAdvisoryDelivery,
   eco.pluginSecurityNotificationPref,
 ];

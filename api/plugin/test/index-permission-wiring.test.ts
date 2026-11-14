@@ -159,6 +159,13 @@ jest.unstable_mockModule('../src/services/ecosystem/stats.js', () => ({
   createEcosystemStatsScheduler: () => ({ start: () => undefined, stop: () => undefined }),
 }));
 
+jest.unstable_mockModule('../src/routes/retention.js', () => ({ createRetentionRoutes: () => (_req: unknown, _res: unknown, next: () => void) => next() }));
+// The superseded-version retention pass — index.ts builds its scheduler when enabled; not under test here.
+jest.unstable_mockModule('../src/services/retention/retire.js', () => ({
+  runRetentionPass: jest.fn(),
+  createRetentionScheduler: () => ({ start: () => undefined, stop: () => undefined }),
+}));
+
 await import('../src/index.js');
 
 /** Find the app.use(...) call that mounts the given router marker. */

@@ -20,7 +20,7 @@
 
 import { readFileSync } from 'fs';
 
-import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 import { registryClientMock } from './helpers/registry-client-mock.js';
@@ -84,6 +84,7 @@ const {
   yankPublicVersion,
   retagPublicVersion,
   gcPublicImage,
+  gcSystemImage,
   verifyPublication,
   invalidateVerifyCache,
   PublicationConflictError,
@@ -539,6 +540,87 @@ describe('gcPublicImage', () => {
       if (d === SIG_DIGEST) throw Object.assign(new Error('delete 500'), { statusCode: 500 });
     });
     await expect(gcPublicImage(TARGET, DIGEST)).rejects.toThrow('delete 500');
+  });
+});
+
+describe('gcSystemImage (a retired system plugin version\'s build copy)', () => {
+  const SYS = 'system/scanner';
+  const sigTag = `sha256-${hex('a')}.sig`;
+  const tagged = (map: Record<string, string>) => {
+    listTags.mockResolvedValue({ name: SYS, tags: Object.keys(map) });
+    getManifest.mockImplementation(async (_n, ref) => ({ ...sourceManifest(), digest: map[ref]! }));
+  };
+  const original = process.env.REGISTRY_GC_PROTECTED_TAGS;
+  afterEach(() => {
+    if (original === undefined) delete process.env.REGISTRY_GC_PROTECTED_TAGS;
+    else process.env.REGISTRY_GC_PROTECTED_TAGS = original;
+  });
+
+  it('deletes the digest when only its own version tag resolves to it: the tag first, then the manifest and its signature', async () => {
+    headManifest.mockImplementation(async (_n, ref) => (ref === DIGEST ? { digest: DIGEST } : ref === sigTag ? { digest: SIG_DIGEST } : null));
+    tagged({ '1.2.0': DIGEST, '1.3.0': OTHER, [sigTag]: SIG_DIGEST });
+
+    expect(await gcSystemImage(SYS, DIGEST, '1.2.0')).toEqual({ deleted: true });
+    expect(deleteTag).toHaveBeenCalledWith(SYS, '1.2.0');
+    expect(deleteTag.mock.invocationCallOrder[0]).toBeLessThan(deleteManifest.mock.invocationCallOrder[0]);
+    expect(deleteManifest).toHaveBeenCalledWith(SYS, DIGEST);
+    expect(deleteManifest).toHaveBeenCalledWith(SYS, SIG_DIGEST);
+    // The system org's bytes, never a public publication record.
+    expect(publicationOwner).not.toHaveBeenCalled();
+    expect(invalidateStorageCache).toHaveBeenCalledWith('system/');
+    expect(invalidateOrgStorageCache).toHaveBeenCalledWith('000000000000000000000001');
+  });
+
+  it('deletes an untagged digest without touching any tag', async () => {
+    headManifest.mockImplementation(async (_n, ref) => (ref === DIGEST ? { digest: DIGEST } : null));
+    tagged({ '1.3.0': OTHER });
+    expect(await gcSystemImage(SYS, DIGEST, '1.2.0')).toEqual({ deleted: true });
+    expect(deleteTag).not.toHaveBeenCalled();
+  });
+
+  it('refuses (409) when ANOTHER tag resolves to the digest', async () => {
+    headManifest.mockResolvedValue({ digest: DIGEST });
+    tagged({ '1.2.0': DIGEST, '1.2.0-rebuild': DIGEST });
+    const err = await gcSystemImage(SYS, DIGEST, '1.2.0').catch((e) => e);
+    expect(err).toBeInstanceOf(PublicationConflictError);
+    expect(err.message).toMatch(/still referenced by tag 1\.2\.0-rebuild/);
+    expect(deleteTag).not.toHaveBeenCalled();
+    expect(deleteManifest).not.toHaveBeenCalled();
+  });
+
+  it('refuses (409) when a protected floating tag points at the digest', async () => {
+    headManifest.mockResolvedValue({ digest: DIGEST });
+    tagged({ '1.2.0': DIGEST, 'latest': DIGEST });
+    const err = await gcSystemImage(SYS, DIGEST, '1.2.0').catch((e) => e);
+    expect(err).toBeInstanceOf(PublicationConflictError);
+    expect(err.message).toMatch(/tag latest \(a protected floating tag\)/);
+    expect(deleteManifest).not.toHaveBeenCalled();
+  });
+
+  it('never treats a protected tag as the version\'s own, even when spelled the same (REGISTRY_GC_PROTECTED_TAGS)', async () => {
+    process.env.REGISTRY_GC_PROTECTED_TAGS = 'stable,1.2.0';
+    headManifest.mockResolvedValue({ digest: DIGEST });
+    tagged({ '1.2.0': DIGEST });
+    await expect(gcSystemImage(SYS, DIGEST, '1.2.0')).rejects.toBeInstanceOf(PublicationConflictError);
+    expect(deleteManifest).not.toHaveBeenCalled();
+  });
+
+  it('refuses (409) while a tagged index references the digest as a child', async () => {
+    headManifest.mockResolvedValue({ digest: DIGEST });
+    listTags.mockResolvedValue({ name: SYS, tags: ['2.0.0'] });
+    getManifest.mockResolvedValue({ body: { manifests: [{ digest: DIGEST }] }, raw: Buffer.from('{}'), digest: OTHER, mediaType: INDEX });
+    await expect(gcSystemImage(SYS, DIGEST, '1.2.0')).rejects.toBeInstanceOf(PublicationConflictError);
+  });
+
+  it('is idempotent (deleted:false) and tolerates the own tag vanishing before its delete', async () => {
+    headManifest.mockResolvedValue(null);
+    expect(await gcSystemImage(SYS, DIGEST, '1.2.0')).toEqual({ deleted: false });
+    headManifest.mockImplementation(async (_n, ref) => (ref === DIGEST ? { digest: DIGEST } : null));
+    tagged({ '1.2.0': DIGEST });
+    deleteTag.mockRejectedValueOnce(notFound());
+    expect(await gcSystemImage(SYS, DIGEST, '1.2.0')).toEqual({ deleted: true });
+    deleteTag.mockRejectedValueOnce(Object.assign(new Error('tag 500'), { statusCode: 500 }));
+    await expect(gcSystemImage(SYS, DIGEST, '1.2.0')).rejects.toThrow('tag 500');
   });
 });
 

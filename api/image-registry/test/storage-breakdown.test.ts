@@ -33,7 +33,7 @@ jest.unstable_mockModule('../src/services/registry-client.js', () => registryCli
 jest.unstable_mockModule('../src/services/public-publications.js', () => ({ publicRepositoriesOwnedBy }));
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 
-const { computeOrgStorageBreakdown, invalidateOrgStorageCache } = await import('../src/services/storage-usage.js');
+const { computeOrgStorageBreakdown, computeSystemRetentionBreakdown, invalidateOrgStorageCache } = await import('../src/services/storage-usage.js');
 
 const MANIFEST = 'application/vnd.oci.image.manifest.v1+json';
 const MB = 1024 * 1024;
@@ -158,5 +158,46 @@ describe('computeOrgStorageBreakdown — marginal bytes', () => {
     // Not cached: a stale under-count must not outlive the outage that caused it.
     await computeOrgStorageBreakdown('acme');
     expect(listRepositoriesUnderPrefix).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('computeSystemRetentionBreakdown — one unit per plugin version, base images as sharers', () => {
+  const SYSTEM = '000000000000000000000001';
+  /** Like `registry`, but every repo is listed under its own prefix. */
+  function systemRegistry(repos: Record<string, Record<string, string[]>>, sizes: Record<string, number>) {
+    registry(repos, sizes);
+    listRepositoriesUnderPrefix.mockImplementation(async (prefix) => Object.keys(repos).filter((r) => r.startsWith(prefix)));
+  }
+
+  it('counts a layer shared by a version\'s system/ and public/ copies as freeable, and a base layer as never', async () => {
+    publicRepositoriesOwnedBy.mockResolvedValue({ repositories: ['public/pipeline-builder/lint'], complete: true });
+    systemRegistry(
+      {
+        'system/lint': { '1.0.0': ['sha256:cfg1', 'sha256:base', 'sha256:own1'], '1.1.0': ['sha256:cfg2', 'sha256:base', 'sha256:own2'] },
+        'public/pipeline-builder/lint': { '1.0.0': ['sha256:cfg1', 'sha256:base', 'sha256:own1'] },
+        'system/pipeline-node-base': { '1.0': ['sha256:basecfg', 'sha256:base'] },
+        'library/plugin-base': { '26.10': ['sha256:libcfg', 'sha256:lib'] },
+      },
+      { 'sha256:cfg1': 1 * MB, 'sha256:cfg2': 1 * MB, 'sha256:base': 400 * MB, 'sha256:own1': 30 * MB, 'sha256:own2': 40 * MB, 'sha256:basecfg': 1, 'sha256:libcfg': 1, 'sha256:lib': 5 * MB },
+    );
+    const b = await computeSystemRetentionBreakdown(SYSTEM);
+    expect(publicRepositoriesOwnedBy).toHaveBeenCalledWith(SYSTEM);
+    expect(listRepositoriesUnderPrefix).toHaveBeenCalledWith('system/');
+    expect(listRepositoriesUnderPrefix).toHaveBeenCalledWith('library/');
+    expect(b.incomplete).toBe(false);
+    // Base images are sharers, never entries.
+    expect(b.entries.map((e) => `${e.name}@${e.version}`).sort()).toEqual(['lint@1.0.0', 'lint@1.1.0']);
+    const v1 = b.entries.find((e) => e.version === '1.0.0')!;
+    expect(v1.marginalBytes).toBe(31 * MB);
+    expect(v1.totalBytes).toBe(431 * MB);
+    expect(b.entries[0]).toEqual(expect.objectContaining({ version: '1.1.0', marginalBytes: 41 * MB }));
+  });
+
+  it('is incomplete when the publication records cannot be read', async () => {
+    publicRepositoriesOwnedBy.mockRejectedValue(new Error('records down'));
+    systemRegistry({ 'system/lint': { '1.0.0': ['sha256:c', 'sha256:l'] } }, { 'sha256:c': 1, 'sha256:l': 1 });
+    const b = await computeSystemRetentionBreakdown(SYSTEM);
+    expect(b.incomplete).toBe(true);
+    expect(b.entries).toHaveLength(1);
   });
 });

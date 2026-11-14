@@ -176,6 +176,84 @@ export async function computeOrgStorageBreakdown(
   return result;
 }
 
+/** What retiring one SYSTEM plugin version (every copy of it) would free. */
+export interface RetentionBreakdownEntry {
+  /** The plugin name (`system/<name>`, `public/<handle>/<name>`). */
+  name: string;
+  /** The version — its registry tag in every copy. */
+  version: string;
+  /** Every byte the version's layers occupy across its copies, shared ones included. */
+  totalBytes: number;
+  /**
+   * Bytes that come back once EVERY copy of the version is gone (its
+   * `system/<name>` build copy and its `public/*` copy): the blobs no other
+   * version, no other plugin and no base image references. A lower bound when
+   * several versions of one plugin retire together (a layer only they share
+   * counts for none of them).
+   */
+  marginalBytes: number;
+}
+
+/** The system org's per-version retention attribution. */
+export interface RetentionBreakdown {
+  entries: RetentionBreakdownEntry[];
+  computedAt: number;
+  /** True when the scan could not measure everything: every figure UNDER-states. */
+  incomplete: boolean;
+}
+
+/** `<name>@<version>` of a system or public plugin tag reference, or null for anything else (a base image, `library/*`). */
+function pluginVersionUnit(ref: string): string | null {
+  const at = ref.lastIndexOf(':');
+  const repo = ref.slice(0, at);
+  const tag = ref.slice(at + 1);
+  const m = /^(?:system|public\/[^/]+)\/([^/]+)$/.exec(repo);
+  if (!m || m[1]!.endsWith('-base')) return null;
+  return `${m[1]}@${tag}`;
+}
+
+/**
+ * Per-version attribution for the SYSTEM org's plugin catalogue, for the
+ * superseded-version retention pass: one entry per plugin version, its
+ * `system/<name>` and `public/*` copies counted as ONE unit, and every other
+ * repository under `system/` and `library/` (the base images) scanned as a
+ * sharer — so a base layer is never counted as freeable. Not cached: an
+ * operator's dry run, not a hot path.
+ */
+export async function computeSystemRetentionBreakdown(systemOrgId: string): Promise<RetentionBreakdown> {
+  let recordsComplete = true;
+  let published: string[] = [];
+  try {
+    const owned = await publicRepositoriesOwnedBy(systemOrgId);
+    published = owned.repositories;
+    recordsComplete = owned.complete;
+  } catch (err) {
+    recordsComplete = false;
+    logger.warn('Publication records unreadable during the retention breakdown', { error: errorMessage(err) });
+  }
+  const repos = [...await listRepositoriesUnderPrefix('system/'), ...await listRepositoriesUnderPrefix('library/'), ...published];
+  const scan = await scanRepositories(repos, { detail: true });
+
+  const byUnit = new Map<string, { total: number; marginal: number }>();
+  for (const facts of (scan.perBlob ?? new Map<string, BlobFacts>()).values()) {
+    const units = facts.refs.map(pluginVersionUnit);
+    const distinct = new Set(units);
+    const sole = !distinct.has(null) && distinct.size === 1;
+    for (const unit of distinct) {
+      if (unit === null) continue;
+      const e = byUnit.get(unit) ?? { total: 0, marginal: 0 };
+      e.total += facts.size;
+      if (sole) e.marginal += facts.size;
+      byUnit.set(unit, e);
+    }
+  }
+  const entries = [...byUnit.entries()].map(([unit, e]) => {
+    const at = unit.lastIndexOf('@');
+    return { name: unit.slice(0, at), version: unit.slice(at + 1), totalBytes: e.total, marginalBytes: e.marginal };
+  }).sort((a, b) => b.marginalBytes - a.marginalBytes || a.name.localeCompare(b.name));
+  return { entries, computedAt: Date.now(), incomplete: scan.incomplete || !recordsComplete };
+}
+
 /**
  * Sum unique blob bytes across every repo with the given prefix. Each
  * blob digest is counted once even if it appears in multiple tags or

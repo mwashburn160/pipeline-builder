@@ -111,13 +111,20 @@ async function resolveAsLookup(filter: Record<string, unknown>, orgId: string, r
 
 /**
  * Re-resolve the pipelines declaring `target` and rewrite the ones whose
- * resolved version or image changed. Never throws.
+ * resolved version or image changed. Never throws. `max` overrides the
+ * per-trigger cap (the retention pass refreshes every pipeline before it
+ * trusts the rows); `failed` counts pipelines that could not be re-resolved,
+ * and a failure of the whole refresh reports `failed: -1`.
  */
-export async function refreshDeclaredResolutions(target: RefreshTarget): Promise<{ refreshed: number; unchanged: number; truncated: boolean }> {
-  const outcome = { refreshed: 0, unchanged: 0, truncated: false };
+export async function refreshDeclaredResolutions(
+  target: RefreshTarget,
+  opts: { max?: number } = {},
+): Promise<{ refreshed: number; unchanged: number; failed: number; truncated: boolean }> {
+  const outcome = { refreshed: 0, unchanged: 0, failed: 0, truncated: false };
+  const max = opts.max ?? resolutionRefreshMax();
   try {
     await runWithTenantContext({ isSuperAdmin: true }, async () => {
-      const { pipelines, truncated } = await declaredPipelinesForPlugin(target, resolutionRefreshMax());
+      const { pipelines, truncated } = await declaredPipelinesForPlugin(target, max);
       outcome.truncated = truncated;
       for (const p of pipelines) {
         try {
@@ -144,13 +151,15 @@ export async function refreshDeclaredResolutions(target: RefreshTarget): Promise
           await reconcilePipelineExposures({ orgId: p.orgId, pipelineId: p.pipelineId, source: 'declared', steps: exposureSteps });
           outcome.refreshed++;
         } catch (err) {
+          outcome.failed++;
           logger.warn('Declared resolution of one pipeline not refreshed', { pipelineId: p.pipelineId, error: errorMessage(err) });
         }
       }
     });
-    if (outcome.truncated) logger.warn('Declared resolution refresh hit its cap; the rest refresh on their next trigger or save', { ...target, max: resolutionRefreshMax() });
+    if (outcome.truncated) logger.warn('Declared resolution refresh hit its cap; the rest refresh on their next trigger or save', { ...target, max });
     incCounter('plugin_declared_resolution_refreshed_total', {}, outcome.refreshed);
   } catch (err) {
+    outcome.failed = -1;
     logger.warn('Declared resolution refresh failed', { ...target, error: errorMessage(err) });
   }
   return outcome;

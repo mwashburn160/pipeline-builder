@@ -1,6 +1,6 @@
 // GENERATED FROM docs/environment-variables.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 8cb1e80a250bf6dd5d1265c1fae7b4d37278b8d1e08f1613999e980e8bcc8c4c
+// SOURCE-SHA256: 1b817a035e37305787b33a4d2e0325e19ae8436fcd542f55d5187123c201b44e
 // SPDX-License-Identifier: Apache-2.0
 import { FileCode } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -1816,6 +1816,31 @@ export const envVariablesTopic: HelpTopic = {
               "PLUGIN_KEPT_SETUP_IMAGE_TTL_DAYS",
               "30",
               "How long a gate-refused image from the setup catalog load (an upload with setupLoad=true from the system org) is kept, signed, for promotion (POST /plugins/kept-setup-images/:id/promote). The rescan scheduler's hourly tick discards expired ones from the registry (plugin_kept_setup_image_sweep_total{reason,outcome}) — so not while PLUGIN_RESCAN_ENABLED=false; see Plugin Publishing"
+            ],
+            [
+              "PLUGIN_RETENTION_ENABLED",
+              "false",
+              "Run the daily superseded-version retention pass over system-org plugins (leader-locked, one pod per pass). Off, the daily pass never runs; the dry run (GET /plugins/retention/plan) still answers, so the selection can be reviewed before it is switched on. See Deploy Operations. Plugin service"
+            ],
+            [
+              "PLUGIN_RETENTION_KEEP",
+              "3",
+              "Versions kept per live major of each system plugin. The newest version of every live major is always kept, whatever this is set to, and so is anything pinned, installed, referenced by a pipeline or template, the default, or paused. Only versions that are not yanked, deprecated or deleted count toward it; prereleases never do. Plugin service"
+            ],
+            [
+              "PLUGIN_RETENTION_NOTICE_DAYS",
+              "30",
+              "Days a retirable version stays deprecated (still resolving, with a warning) before the pass yanks and soft-deletes it. The rules are re-checked at the yank, so a version a pipeline picked up during the notice is kept and un-deprecated. Plugin service"
+            ],
+            [
+              "PLUGIN_RETENTION_BATCH",
+              "50",
+              "Most versions one pass acts on (deprecate and yank together); the rest wait for the next day. Plugin service"
+            ],
+            [
+              "PLUGIN_RETENTION_MAX_FRACTION",
+              "0.5",
+              "Safety limit: at most this fraction of one plugin's live versions (at least one) is newly deprecated per pass, oldest first; the rest are deferred to the next pass. A selection bug can therefore only deprecate part of a plugin, which is reversible, and nothing is yanked before the notice period. Plugin service"
             ]
           ]
         },

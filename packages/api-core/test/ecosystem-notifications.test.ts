@@ -33,10 +33,10 @@ const { createEcosystemNotifyClient, NOTIFY_EMAIL_PATH } = await import('../src/
 const base = { event: 'N23', subject: 'S', text: 'T', recipients: [{ kind: 'superadmins' }] };
 
 describe('ECOSYSTEM_NOTIFICATION_EVENTS', () => {
-  it('covers N1..N34 exactly', () => {
-    expect(Object.keys(ECOSYSTEM_NOTIFICATION_EVENTS)).toEqual(Array.from({ length: 34 }, (_, i) => `N${i + 1}`));
-    expect(isEcosystemNotificationEvent('N34')).toBe(true);
-    expect(isEcosystemNotificationEvent('N35')).toBe(false);
+  it('covers N1..N35 exactly', () => {
+    expect(Object.keys(ECOSYSTEM_NOTIFICATION_EVENTS)).toEqual(Array.from({ length: 35 }, (_, i) => `N${i + 1}`));
+    expect(isEcosystemNotificationEvent('N35')).toBe(true);
+    expect(isEcosystemNotificationEvent('N36')).toBe(false);
     expect(isEcosystemNotificationEvent('toString')).toBe(false);
   });
 

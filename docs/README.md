@@ -477,9 +477,7 @@ For end-to-end request → build → deploy flow diagrams, see [Architecture Flo
 Design notes for work that is proposed but not built. Each states what it would
 change, what it deliberately would not, and any decision it is waiting on.
 
-| Plan | Covers |
-|------|--------|
-| [Retire superseded system plugin versions](plans/superseded-image-retention.md) | A retention pass that keeps the newest N versions of each system plugin plus every version anything still needs, and retires the rest so the registry GC can free their bytes |
+No plans are in progress.
 
 ---
 

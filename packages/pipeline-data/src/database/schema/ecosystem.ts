@@ -680,6 +680,48 @@ export const ecosystemNotificationQueue = pgTable('ecosystem_notification_queue'
   eventCheck: check('ecosystem_notification_queue_event_check', sql`${table.event} ~ '^N([1-9][0-9]?)$'`),
 }));
 
+/**
+ * The superseded-version retention pass's own record of each SYSTEM-org plugin
+ * version it is retiring. One row per retired `plugins` row, written when the
+ * pass deprecates it and kept after the row is purged: the purge hard-deletes
+ * the `plugins` row, and this is what remembers that its `system/<name>` image
+ * still has to be handed to image-registry (`collectedAt` NULL = not yet).
+ *
+ * No `org_id` (it is the system org's catalogue housekeeping, never a tenant's
+ * data) and no foreign keys: the plugin row and the listing version it names are
+ * deleted on their own schedules, and this row has to outlive both.
+ *
+ * - `deprecatedAt` — the notice period started; `yankedAt` — the version was
+ *   yanked and its row soft-deleted; `collectedAt` — the image was deleted (or
+ *   there was none).
+ * - `rule` — why the version was retirable when it was selected.
+ * - A version that stops being retirable during its notice has its deprecation
+ *   reversed and its row here deleted.
+ *
+ * @table plugin_retirements
+ */
+export const pluginRetirement = pgTable('plugin_retirements', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  pluginId: uuid('plugin_id').notNull(),
+  pluginName: varchar('plugin_name', { length: 255 }).notNull(),
+  version: varchar('version', { length: 50 }).notNull(),
+  imageDigest: varchar('image_digest', { length: 71 }),
+  listingVersionId: uuid('listing_version_id'),
+  rule: varchar('rule', { length: 64 }).notNull(),
+  /** False when the version was already deprecated before the pass took it: a reversal then leaves that deprecation alone. */
+  deprecatedByRetention: boolean('deprecated_by_retention').default(true).notNull(),
+  deprecatedAt: timestamp('deprecated_at', { withTimezone: true }).defaultNow().notNull(),
+  yankedAt: timestamp('yanked_at', { withTimezone: true }),
+  collectedAt: timestamp('collected_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  pluginUnique: uniqueIndex('plugin_retirement_plugin_unique').on(table.pluginId),
+  // The collection pass's scan: yanked, not yet collected.
+  pendingCollectIdx: index('plugin_retirement_pending_collect_idx').on(table.yankedAt).where(sql`collected_at IS NULL`),
+  imageDigestCheck: check('plugin_retirements_image_digest_check',
+    sql`${table.imageDigest} IS NULL OR ${table.imageDigest} ~ '^sha256:[0-9a-f]{64}$'`),
+}));
+
 // ---------------------------------------------------------------------------
 // Org-scoped tables (org_id + rls_org_* policies + FORCE; in the org cascade)
 // ---------------------------------------------------------------------------
@@ -1005,6 +1047,9 @@ export const SEEDED_AUTO_APPROVAL_RULE_IDS = {
  */
 export type Publisher = typeof publisher.$inferSelect;
 export type PublisherInsert = typeof publisher.$inferInsert;
+
+export type PluginRetirement = typeof pluginRetirement.$inferSelect;
+export type PluginRetirementInsert = typeof pluginRetirement.$inferInsert;
 
 export type PluginListing = typeof pluginListing.$inferSelect;
 export type PluginListingInsert = typeof pluginListing.$inferInsert;

@@ -1310,6 +1310,14 @@ services:
       PLUGIN_RESOLUTION_REFRESH_MAX: ${PLUGIN_RESOLUTION_REFRESH_MAX:-500}
       PLUGIN_RISK_ACCEPTANCE_MAX_DAYS: ${PLUGIN_RISK_ACCEPTANCE_MAX_DAYS:-90}
       PLUGIN_KEPT_SETUP_IMAGE_TTL_DAYS: ${PLUGIN_KEPT_SETUP_IMAGE_TTL_DAYS:-30}
+      # Superseded system-plugin version retention (off by default): versions
+      # kept per live major, the deprecation notice before a yank, versions
+      # acted on per daily pass, and the per-plugin fraction a pass refuses above.
+      PLUGIN_RETENTION_ENABLED: ${PLUGIN_RETENTION_ENABLED:-false}
+      PLUGIN_RETENTION_KEEP: ${PLUGIN_RETENTION_KEEP:-3}
+      PLUGIN_RETENTION_NOTICE_DAYS: ${PLUGIN_RETENTION_NOTICE_DAYS:-30}
+      PLUGIN_RETENTION_BATCH: ${PLUGIN_RETENTION_BATCH:-50}
+      PLUGIN_RETENTION_MAX_FRACTION: ${PLUGIN_RETENTION_MAX_FRACTION:-0.5}
       # Anonymous submissions. Quarantine builds run ONLY on the
       # isolated buildkitd-quarantine below — never on BUILDKIT_HOST (no fallback:
       # the plugin service fails closed without it). The zip waits in its own

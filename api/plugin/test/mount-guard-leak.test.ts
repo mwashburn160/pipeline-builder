@@ -178,6 +178,13 @@ jest.unstable_mockModule('../src/services/ecosystem/metrics.js', () => ({
 
 // Import the REAL boot module — assembles the production route wiring, incl. the
 // REAL generate router at the actual '/plugins' generate mount.
+jest.unstable_mockModule('../src/routes/retention.js', () => ({ createRetentionRoutes: () => Router() }));
+// The superseded-version retention pass — index.ts builds its scheduler when enabled; not under test here.
+jest.unstable_mockModule('../src/services/retention/retire.js', () => ({
+  runRetentionPass: jest.fn(),
+  createRetentionScheduler: () => ({ start: () => undefined, stop: () => undefined }),
+}));
+
 await import('../src/index.js');
 
 let server: http.Server;

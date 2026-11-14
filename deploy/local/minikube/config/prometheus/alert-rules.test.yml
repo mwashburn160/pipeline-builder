@@ -3682,3 +3682,58 @@ tests:
       - eval_time: 70m
         alertname: PipelineToolchainFailureSpike
         exp_alerts: []
+
+  # Plugin version retention. a) a failed stage inside the 6h window fires,
+  #    labelled with the stage, once it has held for 15m.
+  - interval: 1m
+    input_series:
+      - series: 'plugin_retention_failed_total{stage="yank",service="plugin",pod="plugin-a"}'
+        values: '0x10 1x60'
+    alert_rule_test:
+      - eval_time: 40m
+        alertname: PluginRetentionFailing
+        exp_alerts:
+          - exp_labels: { severity: warning, component: plugin, tenancy: platform, stage: "yank" }
+            exp_annotations:
+              summary: "Plugin version retention failed at stage 'yank'"
+              description: "The superseded-version retention pass failed at stage yank 1 time(s) in the last 6h. Nothing was retired that should have stayed (each stage re-checks references first), but the affected versions keep their storage until a pass succeeds. Check the plugin service logs for the retention pass; a refusal by the safety limit names the plugin, and means the selection should be reviewed with GET /api/plugins/retention/plan before anything is changed."
+
+  # b) a pass that retires without failing (a flat counter) stays quiet.
+  - interval: 1m
+    input_series:
+      - series: 'plugin_retention_failed_total{stage="deprecate",service="plugin",pod="plugin-a"}'
+        values: '3x70'
+      - series: 'plugin_retention_retired_total{stage="deprecate",service="plugin",pod="plugin-a"}'
+        values: '0x10 12x60'
+    alert_rule_test:
+      - eval_time: 60m
+        alertname: PluginRetentionFailing
+        exp_alerts: []
+
+  # c) a stuck retired row warns only after a full day: the purge guard is
+  #    right to refuse it, so a row a pipeline adopts briefly must not page.
+  - interval: 5m
+    input_series:
+      - series: 'plugin_retention_stuck{service="plugin",pod="plugin-a"}'
+        values: '2x360'
+    alert_rule_test:
+      - eval_time: 20h
+        alertname: PluginRetentionStuck
+        exp_alerts: []
+      - eval_time: 26h
+        alertname: PluginRetentionStuck
+        exp_alerts:
+          - exp_labels: { severity: warning, component: plugin, tenancy: platform }
+            exp_annotations:
+              summary: "2 retired plugin version(s) are still referenced and cannot be purged"
+              description: "These versions were yanked and soft-deleted by retention, but a pipeline references one, so the purge keeps refusing it and its storage is never freed. Find the pipelines on the version and move them to a supported one, or restore the version (restore the row, then unyank it) if it is still needed. See 'Plugin version retention' in docs/deploy-operations.md."
+
+  # d) zero stuck rows, however long, stays quiet.
+  - interval: 5m
+    input_series:
+      - series: 'plugin_retention_stuck{service="plugin",pod="plugin-a"}'
+        values: '0x360'
+    alert_rule_test:
+      - eval_time: 26h
+        alertname: PluginRetentionStuck
+        exp_alerts: []

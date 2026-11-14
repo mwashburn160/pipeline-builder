@@ -925,6 +925,42 @@ groups:
           summary: "A kept setup image could not be removed after its window"
           description: "{{ $value | humanize }} kept setup image(s) in the last hour could not be discarded. The plugin log line \"Could not drop a kept setup image\" names the plugin and digest; the next rescan tick retries. Check image-registry's /internal/plugin-images/discard."
 
+      - alert: PluginRetentionFailing
+        # The daily superseded-version retention pass over system-org plugins
+        # failed at one stage: select, deprecate, yank, reverse, collect, notify
+        # or refused (a plugin skipped for an incomplete re-resolve). Every stage
+        # re-checks references before it acts and fails safe, so nothing that
+        # should have stayed was retired; the version simply waits for the next
+        # pass. A plugin whose pipelines could not all be re-resolved is
+        # skipped for the pass and counted here too. A pass that throws outright also
+        # stops stamping its scheduler success, so SchedulerJobStale covers
+        # the long outage; this catches the partial ones.
+        expr: sum by (stage) (increase(plugin_retention_failed_total[6h])) > 0
+        for: 15m
+        labels:
+          severity: warning
+          component: plugin
+          tenancy: platform
+        annotations:
+          summary: "Plugin version retention failed at stage '{{ $labels.stage }}'"
+          description: "The superseded-version retention pass failed at stage {{ $labels.stage }} {{ $value | humanize }} time(s) in the last 6h. Nothing was retired that should have stayed (each stage re-checks references first), but the affected versions keep their storage until a pass succeeds. Check the plugin service logs for the retention pass; a refusal by the safety limit names the plugin, and means the selection should be reviewed with GET /api/plugins/retention/plan before anything is changed."
+
+      - alert: PluginRetentionStuck
+        # Retired (yanked, soft-deleted) system-plugin versions that the purge
+        # guard keeps refusing to hard-delete, because a pipeline picked one up
+        # after the yank. The guard is right to refuse; the row stays a
+        # tombstone and its image is never collected. Not urgent, but it never
+        # clears by itself, so it is a long-window warning rather than a page.
+        expr: max(plugin_retention_stuck) > 0
+        for: 24h
+        labels:
+          severity: warning
+          component: plugin
+          tenancy: platform
+        annotations:
+          summary: "{{ $value }} retired plugin version(s) are still referenced and cannot be purged"
+          description: "These versions were yanked and soft-deleted by retention, but a pipeline references one, so the purge keeps refusing it and its storage is never freed. Find the pipelines on the version and move them to a supported one, or restore the version (restore the row, then unyank it) if it is still needed. See 'Plugin version retention' in docs/deploy-operations.md."
+
       - alert: PluginQueueProcessingSlow
         expr: |
           histogram_quantile(0.95,

@@ -114,6 +114,12 @@ const EVENTS = {
   // releases behind the platform default. Transactional: it says the org's
   // pipelines are building on something it should move off.
   N34: { description: 'Managed toolchain: a release you use was yanked, deprecated, found vulnerable or fell behind; the platform default moved; your org joined a canary; or a pipeline needs a re-deploy to recover', channels: ['in_app', 'email'], preference: null },
+  // Superseded system plugin versions: the retention pass deprecated (notice
+  // period started) or yanked old versions of Official plugins the org can
+  // reach. ONE notice per org per pass, listing every affected version and the
+  // version to move to — never one per version. The upgrade/deprecation opt-out
+  // covers it, like N14 which it replaces for retention-driven changes.
+  N35: { description: 'Superseded plugin versions are being retired (deprecated, then yanked)', channels: ['in_app', 'email'], preference: 'ecosystem.upgrades.email' },
 } satisfies Record<string, EcosystemEventSpec>;
 
 /** A notification event number. */
@@ -248,7 +254,7 @@ function parseRecipient(raw: unknown, spec: EcosystemEventSpec): EcosystemRecipi
 export function parseEcosystemNotifyRequest(body: unknown): EcosystemNotifyRequest | string {
   if (!body || typeof body !== 'object') return 'body must be an object';
   const b = body as Record<string, unknown>;
-  if (!isEcosystemNotificationEvent(b.event)) return 'event must be one of N1..N34';
+  if (!isEcosystemNotificationEvent(b.event)) return 'event must be one of N1..N35';
   const spec = ECOSYSTEM_NOTIFICATION_EVENTS[b.event];
   if (!nonEmptyString(b.subject, ECOSYSTEM_NOTIFY_SUBJECT_MAX)) return `subject is required (max ${ECOSYSTEM_NOTIFY_SUBJECT_MAX})`;
   if (!nonEmptyString(b.text, ECOSYSTEM_NOTIFY_TEXT_MAX)) return `text is required (max ${ECOSYSTEM_NOTIFY_TEXT_MAX})`;

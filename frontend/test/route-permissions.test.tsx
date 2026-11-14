@@ -2594,6 +2594,14 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
     category: 'sysadmin-console',
     why: '"Promote" per row in src/components/ecosystem/KeptSetupImagesPanel.tsx (Ecosystem console → Kept setup images; system org + aal2 enforced by the page), disabled with a reason without plugins:moderate. Re-runs the current gates; a 409 shows the remaining findings. Audited plugin.setup_image.promoted / .promote_refused.',
   },
+  'plugin GET /plugins/retention/plan': {
+    category: 'sysadmin-console',
+    why: 'getRetentionPlan in src/components/ecosystem/RetentionPanel.tsx — the Retention tab of the system-org Ecosystem console (pages/dashboard/admin/ecosystem.tsx), the dry run of superseded plugin versions; read by plugins:moderate holders on an aal2 session, locked without the permission.',
+  },
+  'plugin POST /plugins/retention/run': {
+    category: 'sysadmin-console',
+    why: '"Run a pass now" in src/components/ecosystem/RetentionPanel.tsx (Ecosystem console → Retention; system org + aal2 enforced by the page), disabled with a reason without plugins:moderate or on a read-only session, behind StepUpModal. Acts whether or not the scheduled pass is enabled; audited plugin.version.retire.',
+  },
   'quota GET /quotas/at-risk': {
     category: 'sysadmin-console',
     why: 'getAtRiskQuotas in pages/dashboard/quotas.tsx — the fleet at-risk banner, shown when the viewer holds orgs:read.',

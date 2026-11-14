@@ -41,6 +41,7 @@ const reportResignProgress = jest.fn<AnyFn>();
 const yankPublicVersion = jest.fn<(repo: string, version: string, digest: string) => Promise<{ alreadyYanked: boolean }>>();
 const retagPublicVersion = jest.fn<(repo: string, version: string, digest: string) => Promise<{ alreadyTagged: boolean }>>();
 const gcPublicImage = jest.fn<(repo: string, digest: string) => Promise<{ deleted: boolean }>>();
+const gcSystemImage = jest.fn<(repo: string, digest: string, version: string) => Promise<{ deleted: boolean }>>();
 const verifyPublication = jest.fn<(repo: string, digest: string) => Promise<unknown>>();
 const invalidateVerifyCache = jest.fn<(repo?: string, digest?: string) => number>();
 const PublicationMetrics = {
@@ -61,6 +62,7 @@ jest.unstable_mockModule('../src/services/public-publishing.js', () => ({
   yankPublicVersion,
   retagPublicVersion,
   gcPublicImage,
+  gcSystemImage,
   verifyPublication,
   invalidateVerifyCache,
 }));
@@ -582,11 +584,39 @@ describe('POST /internal/plugin-publications/gc', () => {
 
   it.each([
     ['a private repository (GC here never reaches org namespaces)', { imageRepository: `org-${ORG}/scanner` }],
-    ['a system repository', { imageRepository: 'system/scanner' }],
+    ['a system repository without the retired version', { imageRepository: 'system/scanner' }],
+    ['a shared base image, even with a version', { imageRepository: 'system/pipeline-node-base', version: '1.0' }],
+    ['a nested system path', { imageRepository: 'system/a/b', version: '1.0.0' }],
+    ['a cosign companion as the version', { imageRepository: 'system/scanner', version: `sha256-${'a'.repeat(64)}.sig` }],
     ['a tag instead of a digest', { digest: '1.2.0' }],
   ])('rejects %s (400)', async (_label, over) => {
     expect((await post('/gc', body(over))).status).toBe(400);
     expect(gcPublicImage).not.toHaveBeenCalled();
+    expect(gcSystemImage).not.toHaveBeenCalled();
+  });
+
+  it('collects a retired system version\'s system/<name> copy with its own version tag, audited against the system org', async () => {
+    gcSystemImage.mockResolvedValue({ deleted: true });
+    const res = await post('/gc', { imageRepository: 'system/scanner', digest: DIGEST, version: '1.2.0', actorId: 'system' });
+    expect(res.status).toBe(200);
+    expect(res.body.data).toEqual({ imageRepository: 'system/scanner', digest: DIGEST, deleted: true });
+    expect(gcSystemImage).toHaveBeenCalledWith('system/scanner', DIGEST, '1.2.0');
+    expect(gcPublicImage).not.toHaveBeenCalled();
+    expect(publicationOwner).not.toHaveBeenCalled();
+    expect(recordAuditMock).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'registry.image.gc',
+      affectedOrgId: '000000000000000000000001',
+      targetId: 'system/scanner',
+      details: { repo: 'system/scanner', digest: DIGEST, version: '1.2.0', reason: 'retired' },
+    }));
+  });
+
+  it('passes a system-namespace refusal through as 409 (another or a protected tag still resolves)', async () => {
+    gcSystemImage.mockRejectedValue(new PublicationConflictError('still referenced by tag latest (a protected floating tag)'));
+    const res = await post('/gc', { imageRepository: 'system/scanner', digest: DIGEST, version: '1.2.0' });
+    expect(res.status).toBe(409);
+    expect(incCounter).toHaveBeenCalledWith(PublicationMetrics.GC, { outcome: 'conflict' });
+    expect(recordAuditMock).not.toHaveBeenCalled();
   });
 });
 

@@ -35,6 +35,7 @@ import { AdvisoriesPanel } from '@/components/ecosystem/AdvisoriesPanel';
 import { ReviewModerationPanel } from '@/components/ecosystem/ReviewModerationPanel';
 import { FleetVulnerabilityPanel } from '@/components/ecosystem/FleetVulnerabilityPanel';
 import { KeptSetupImagesPanel } from '@/components/ecosystem/KeptSetupImagesPanel';
+import { RetentionPanel } from '@/components/ecosystem/RetentionPanel';
 import { canSeeEcosystemConsole } from '@/lib/ecosystem-access';
 import { hasPermission } from '@/lib/auth-helpers';
 
@@ -50,6 +51,10 @@ const TABS = [
   { id: 'advisories', label: 'Advisories', requires: ['plugins:moderate'] },
   { id: 'vulnerabilities', label: 'Vulnerabilities', requires: ['plugins:moderate'] },
   { id: 'kept-images', label: 'Kept setup images', requires: ['plugins:moderate'] },
+  // Its reads need plugins:moderate, but it is shown to every console viewer:
+  // the panel renders a locked state without the permission, so a
+  // publishers:verify-only manager sees that it exists and what it needs.
+  { id: 'retention', label: 'Retention', requires: ['plugins:moderate', 'publishers:verify'] },
   { id: 'reviews', label: 'Review moderation', requires: ['plugins:moderate'] },
   { id: 'rules', label: 'Auto-approval rules', requires: ['plugins:moderate'] },
   { id: 'reserved', label: 'Reserved names', requires: ['plugins:moderate'] },
@@ -115,6 +120,7 @@ export default function EcosystemConsolePage() {
             {activeTab === 'advisories' && <AdvisoriesPanel can={can} />}
             {activeTab === 'vulnerabilities' && <FleetVulnerabilityPanel />}
             {activeTab === 'kept-images' && <KeptSetupImagesPanel can={can} />}
+            {activeTab === 'retention' && <RetentionPanel holds={holds} can={can} readOnly={isReadOnly} />}
             {activeTab === 'reviews' && <ReviewModerationPanel can={can} />}
             {activeTab === 'rules' && <AutoApprovalRulesPanel can={can} currentUserId={user.id} />}
             {activeTab === 'reserved' && <ReservedNamesPanel can={can} />}

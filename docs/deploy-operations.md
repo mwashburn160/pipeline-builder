@@ -304,6 +304,82 @@ The sidecar only *uploads* Prometheus' 2h blocks to the `thanos` bucket. Queryin
 
 `PROMETHEUS_URL` points platform's Observability query endpoint at the **querier** (`http://thanos-query:9090`) so PromQL spans recent plus archived history; set it back to `http://prometheus:9090` for recent-only. KEDA autoscaling deliberately still targets Prometheus directly — recent-only, lower latency.
 
+## Plugin version retention
+
+Every system plugin version holds registry storage: its `system/<name>` build copy and, once listed, its `public/` copy. Without retention a superseded version is never removed, so the registry only grows. The retention pass retires the versions nobody can still be using, through the same deprecate, yank and delete paths an operator would use by hand. It is **off by default** (`PLUGIN_RETENTION_ENABLED=false`).
+
+### What it keeps
+
+It acts on **system-org plugins only**. A tenant's own plugins are never touched. Within each system plugin, versions are ordered by semver, and a version is kept when **any** of these holds:
+
+- it is among the newest `PLUGIN_RETENTION_KEEP` (default 3) of **its own major**. The newest version of **every** live major is always kept, so an org on the implicit Official install is never moved across a major it did not choose;
+- an explicit install pins it, last resolved to it, or would resolve to it next under its version policy;
+- it is the plugin's default, or a protected floating tag points at its digest;
+- any pipeline in any org references it: a live pipeline's declared resolution, a deployed step (a soft-deleted pipeline's included), or an open vulnerability exposure;
+- a template, or a soft-deleted pipeline, pins it exactly;
+- it is a managed toolchain plugin (`pipeline-bootstrap`, `cdk-synth`), which have their own release rules;
+- it is paused.
+
+Before it selects, the pass re-resolves every pipeline that declares the plugin, so a missing resolution row is never read as "unreferenced". A pipeline that still has no rows after that holds **every** version of the plugin for the pass. Prereleases never count toward the kept N.
+
+### The dry run
+
+`GET /api/plugins/retention/plan` answers what a pass would do now, and changes nothing. It is a system-org route that needs `plugins:moderate` and a second factor (aal2), so call it as a member holding the **Ecosystem Manager** role. It lists the retirable versions, the rule that keeps each kept version, the orgs a retirement would notify, the versions deferred by the per-pass limit, and the bytes it would free. The same report is the **Retention** tab of the Ecosystem console (`/dashboard/admin/ecosystem?tab=retention`). **Read it before enabling the pass**, and again after any large catalog change.
+
+### Enabling it
+
+1. Read the dry run, and check that nothing on it surprises you.
+2. Set `PLUGIN_RETENTION_ENABLED=true` in the target's `.env` and roll the plugin service. The tunables (`PLUGIN_RETENTION_KEEP`, `PLUGIN_RETENTION_NOTICE_DAYS`, `PLUGIN_RETENTION_BATCH`, `PLUGIN_RETENTION_MAX_FRACTION`) are in [Environment Variables](environment-variables.md).
+3. The pass runs daily on one replica (a leader lock, so more replicas never run it twice), acting on at most `PLUGIN_RETENTION_BATCH` versions (default 50). `POST /api/plugins/retention/run` runs one pass now, under the same role, second factor and a step-up, and returns what it retired. A manual run acts **whether or not** `PLUGIN_RETENTION_ENABLED` is set: the flag governs only the daily schedule. The **Retention** tab of the system org's Ecosystem console shows the dry run and offers the same run.
+
+### The two stages
+
+1. **Deprecate.** The version keeps resolving, but lookups and `pipeline synth` print a warning and AI plugin selection stops offering it. This is the notice period, `PLUGIN_RETENTION_NOTICE_DAYS` (default 30).
+2. **Yank and soft-delete**, once the notice has passed **and** the version is still retirable. Every rule is checked again at this point, because a deploy may have picked the version up during the notice. A version that is referenced now is skipped and its deprecation is reversed. A yanked version is skipped by ranges, `latest` and the default; the row is then soft-deleted through the normal delete path, which starts its purge window (`SOFT_DELETE_RETENTION_DAYS`).
+
+Each stage is audited as `plugin.version.retire` under the system actor, with the stage, the version, its digest and the rule that made it retirable. Orgs on a retired version get **one** grouped notice per pass naming the version to move to, never one per version. The guards above mean that should rarely happen at all.
+
+After that, the existing machinery takes over. The purge hard-deletes the row when its window ends, unless a pipeline references it, in which case the row stays a tombstone (see `PluginRetentionStuck` below). The ecosystem image GC collects the `public/` copy 180 days after the yank, checking references again first. The weekly [registry blob GC](#registry-blob-garbage-collection) frees the bytes once no manifest references them, which means both copies are gone.
+
+### Restoring a version
+
+**Before the purge** a retired version comes back completely. Restore the row (`POST /api/plugins/:id/restore`, step-up), then unyank it: `POST /api/plugins/:id/unyank` for an unlisted version, or, for a version on an Official listing, the ecosystem unyank request (`POST /api/plugins/ecosystem/listings/:id/versions/:version/unyank`), which needs two Ecosystem Managers. Unyank returns it to `deprecated`; clear that with `POST /api/plugins/:id/deprecate` and `{ "deprecated": false }`. For a listed version, also clear the listing copy's deprecation (`POST /api/plugins/ecosystem/listings/:id/versions/:version/deprecate` with `{ "deprecated": false }`): clearing the row does not clear the listing. It does **not** become the default again, which is the usual unyank contract.
+
+A restored version that is still outside the kept N is deprecated again on the next pass. To keep it for good, pin it from an install or a pipeline, or raise `PLUGIN_RETENTION_KEEP`.
+
+**After the purge the version is gone for good**, even though its `public/` copy may still be on disk until the 180-day collection. Rebuild it from source if it is needed.
+
+### How long until the bytes come back
+
+Retention is slow on purpose. From the start of a deprecation:
+
+| Step | Takes |
+|------|-------|
+| deprecation notice | `PLUGIN_RETENTION_NOTICE_DAYS` (30 days) |
+| purge window after the soft delete | `SOFT_DELETE_RETENTION_DAYS` (30 days) |
+| collection of the `public/` copy | 180 days after the yank |
+| registry blob GC | up to a week (it runs Sundays) |
+
+That is **roughly 7–8 months** before storage drops. Do not enable it to fix a disk that is full this week: grow the volume instead (see [Storage alerts](#storage-alerts)).
+
+### The safety limit
+
+A pass newly deprecates at most `PLUGIN_RETENTION_MAX_FRACTION` (default 0.5) of one plugin's live versions, oldest first; the rest are marked **deferred** in the dry run and wait for the next pass. A plugin with a long backlog therefore converges over a few daily passes instead of all at once. Combined with the notice period, a selection bug can at most deprecate part of a plugin, which is reversible, and nothing is yanked for `PLUGIN_RETENTION_NOTICE_DAYS`. Yanks of versions whose notice has passed are not throttled by this limit; they are still capped by `PLUGIN_RETENTION_BATCH` and re-checked before acting.
+
+### Alerts
+
+In `alert-rules.yml` on **all four targets**, from the plugin service's `/metrics`.
+
+| Alert | Fires when | Severity |
+|-------|-----------|----------|
+| `PluginRetentionFailing` | a retention stage (`deprecate`, `yank`, `reverse`, `collect` or `notify`) failed in the last 6 h, or a plugin was skipped because its pipelines could not all be re-resolved (15 min) | warning |
+| `PluginRetentionStuck` | retired versions the purge keeps refusing because a pipeline references them (24 h) | warning |
+
+- **`PluginRetentionFailing`** reads `plugin_retention_failed_total{stage}`. Every stage checks references again before it acts, so a failure leaves the version where it was for the next pass; nothing that should have stayed is removed. A pass that throws outright also stops stamping its scheduler success, which `SchedulerJobStale` catches.
+- **`PluginRetentionStuck`** reads the `plugin_retention_stuck` gauge. A pipeline picked the version up after it was yanked, so the purge guard keeps refusing to delete it. The guard is right, but the row never clears by itself and its storage is never freed. Move the pipelines to a supported version, or restore the version if it is still needed.
+
+`plugin_retention_retired_total{stage}` counts what was retired and `plugin_retention_retirable` how many versions are retirable now. Neither is alerted on.
+
 ## Service mesh (Istio ambient)
 
 All targets run an Istio ambient mesh with STRICT mTLS and identity authz.
@@ -625,7 +701,7 @@ accepts writes at all, because RustFS exposes no Prometheus endpoint of its own.
 
 #### Inhibition: suppressing consequences, and what cannot be suppressed
 
-At 212 rules one root cause is a pager flood, and a flood is functionally the same
+At 214 rules one root cause is a pager flood, and a flood is functionally the same
 as no alert. The inhibition tree in `alertmanager.yml` suppresses the consequences
 of DNS failure, a dead waypoint, Redis at its cap, node saturation, and a service
 being down.

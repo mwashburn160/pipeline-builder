@@ -20,13 +20,14 @@ import { incCounter, withRoute } from '@pipeline-builder/api-server';
 import { type RequestHandler, type Router } from 'express';
 import { z } from 'zod';
 
-import { inQuarantineNamespace, isPluginRepository, isPublicRepository, isQuarantineRepository, PUBLISHER_HANDLE_RE } from '../services/namespaces.js';
+import { inQuarantineNamespace, isPluginRepository, isPublicRepository, isQuarantineRepository, isSystemPluginRepository, PUBLISHER_HANDLE_RE } from '../services/namespaces.js';
 import {
   PluginSigningError,
 } from '../services/plugin-signing.js';
 import { publicationOwner } from '../services/public-publications.js';
 import {
   gcPublicImage,
+  gcSystemImage,
   invalidateVerifyCache,
   PublicationConflictError,
   PublicationMetrics,
@@ -90,7 +91,20 @@ const ResignSchema = z.object({
 });
 
 const YankSchema = z.object({ imageRepository: publicRepository, version, digest, actorId: onBehalfOf });
-const GcSchema = z.object({ imageRepository: publicRepository, digest, actorId: onBehalfOf });
+/**
+ * A collection: a long-yanked `public/*` digest, or — with the retired
+ * version's own tag — the `system/<name>` build copy of a system plugin version
+ * the retention pass retired and purged.
+ */
+const GcSchema = z.union([
+  z.object({ imageRepository: publicRepository, digest, actorId: onBehalfOf }),
+  z.object({
+    imageRepository: z.string().refine(isSystemPluginRepository, 'imageRepository must be public/<publisherHandle>/<name> or system/<name> (never a -base image)'),
+    digest,
+    version,
+    actorId: onBehalfOf,
+  }),
+]);
 const InvalidateSchema = z.object({
   imageRepository: publicRepository.optional(),
   digest: digest.optional(),
@@ -162,7 +176,8 @@ function auditPublication(
  *  - POST /internal/plugin-publications/resign — re-sign with new annotations
  *  - POST /internal/plugin-publications/yank — remove a version tag (content stays)
  *  - POST /internal/plugin-publications/retag — put a yanked version's tag back (unyank)
- *  - POST /internal/plugin-publications/gc — delete one cleared, untagged digest
+ *  - POST /internal/plugin-publications/gc — delete one cleared, untagged public digest, or a
+ *    retired system version's `system/<name>` build copy (with its own `version` tag)
  *  - GET /internal/plugin-publications/verify — signature + tier/publisher annotations
  *  - POST /internal/plugin-publications/verify-cache/invalidate
  */
@@ -250,15 +265,21 @@ export function registerPublicationRoutes(router: Router): void {
     const v = validateBody(req, GcSchema);
     if (!v.ok) return sendBadRequest(res, v.error, ErrorCode.VALIDATION_ERROR);
     const body = v.value;
+    const system = 'version' in body;
     // Look the owner up BEFORE the delete — the audit names the org it affected.
-    const affected = await publicationOwner(body.imageRepository).catch(() => null);
+    // A system/<name> copy is the system org's own.
+    const affected = system ? SYSTEM_ORG_ID : await publicationOwner(body.imageRepository).catch(() => null);
 
-    const result = await counted(PublicationMetrics.GC, () => gcPublicImage(body.imageRepository, body.digest));
+    const result = await counted(PublicationMetrics.GC, () => (system
+      ? gcSystemImage(body.imageRepository, body.digest, body.version)
+      : gcPublicImage(body.imageRepository, body.digest)));
 
     incCounter(PublicationMetrics.GC, { outcome: result.deleted ? 'success' : 'already_deleted' });
-    ctx.log('COMPLETED', 'Collected public plugin image', { ...body, deleted: result.deleted });
+    ctx.log('COMPLETED', system ? 'Collected retired system plugin image' : 'Collected public plugin image', { ...body, deleted: result.deleted });
     if (result.deleted) {
-      auditPublication('registry.image.gc', affected, body.imageRepository, { repo: body.imageRepository, digest: body.digest }, body.actorId);
+      auditPublication('registry.image.gc', affected, body.imageRepository, {
+        repo: body.imageRepository, digest: body.digest, ...(system ? { version: body.version, reason: 'retired' } : {}),
+      }, body.actorId);
     }
     return sendSuccess(res, 200, { imageRepository: body.imageRepository, digest: body.digest, deleted: result.deleted });
   }));

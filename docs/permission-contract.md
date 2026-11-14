@@ -85,6 +85,8 @@ The `/plugins/toolchain/org-default*` and `/plugins/toolchain/eligible` rows act
 
 The Toolchain console rows (`/plugins/toolchain/releases*`, `/history`, `/affected*`, `/cleanup`) are `system-org + any(toolchain:operate) + aal2`, and every write adds `step-up(any)` ([permissions](permissions.md)). They move or describe THE platform default and canary, which every org without its own default follows, so `toolchain:operate` is system-org-only and carried by Platform Operator. Dropping `system-org` would let a tenant token that somehow carried the permission reach them; replacing `toolchain:operate` with `toolchain:manage` (every tenant Admin) would hand every org the platform default; dropping `step-up` from a write, or adding one to a read, changes the step-up contract. Reads never step up.
 
+The superseded-version retention rows (`/plugins/retention/plan`, `/plugins/retention/run`) are `system-org + any(plugins:moderate) + aal2`, and the run adds `step-up(any)`. The run deprecates, yanks and soft-deletes Official catalogue versions for every org, so it belongs to the role that already moderates the catalogue (Ecosystem Manager carries `plugins:moderate`). Dropping `system-org` or the step-up on the run, or loosening `plugins:moderate` to `plugins:write`, is a weakening. The plan is a read and never steps up.
+
 ### Plugin security notification routes
 
 The `/plugins/pipelines/:pipelineId/*` rows act only on a pipeline of the caller's own org (any other answers 404). The triage `POST` records a pipeline's risk decision — a time-boxed acceptance (reason + expiry, KEV only with an explicit `kev: true`), a false positive, a reopen — which downgrades that pipeline's vulnerability warnings and notices for the accepted findings; loosening it below `pipelines:write` would let a read-only member silence a pipeline's security signal, which is a weakening. Vulnerability state never blocks a pipeline, so no row here gates one. `GET /internal/plugins/image-references` feeds the image registry's age GC the digests it must never delete; widening its caller list would leak which images an org's pipelines run.
@@ -648,6 +650,8 @@ Contacting support is self-service — every member who can open the Messages pa
 | plugin | POST | `/plugins/runtime-check` | `any(plugins:read)` |
 | plugin | GET | `/plugins/kept-setup-images` | `system-org + any(plugins:moderate) + aal2` |
 | plugin | POST | `/plugins/kept-setup-images/:id/promote` | `system-org + any(plugins:moderate) + aal2` |
+| plugin | GET | `/plugins/retention/plan` | `system-org + any(plugins:moderate) + aal2` |
+| plugin | POST | `/plugins/retention/run` | `system-org + any(plugins:moderate) + aal2 + step-up(any)` |
 | plugin | GET | `/plugins/plugin-usage` | `any(plugins:read)` |
 | plugin | GET | `/plugins/providers` | `any(plugins:read) + feature(ai_generation)` |
 | plugin | GET | `/plugins/security-notifications` | `any(plugins:read)` |

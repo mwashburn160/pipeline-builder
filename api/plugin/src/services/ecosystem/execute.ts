@@ -214,8 +214,16 @@ async function publishVersion(r: Req, publisher: Publisher, actor: string): Prom
   if (r.kind === 'new_version') await announceNewVersion(publisher, updated ?? target, version);
 }
 
-/** Yank a listed version (system org): stop it resolving, drop the public tag, tell the publisher (N8). */
-export async function yankListedVersion(listing: PluginListing, publisher: Publisher, version: string, reason: string, actor: string): Promise<PluginListingVersion> {
+/**
+ * Yank a listed version (system org): stop it resolving, drop the public tag,
+ * tell the publisher (N8). `notify: false` skips the per-version N8 for a
+ * caller that sends its own grouped notice (the superseded-version retention
+ * pass); everything else — the catalog write, the tag, the audit — is the same.
+ */
+export async function yankListedVersion(
+  listing: PluginListing, publisher: Publisher, version: string, reason: string, actor: string,
+  opts: { notify?: boolean } = {},
+): Promise<PluginListingVersion> {
   const v = await versions.get(listing.id, version);
   if (!v) throw new EcosystemError(ErrorCode.NOT_FOUND, 'Version not found');
   if (v.yankedAt) throw new ConflictError(`${version} is already yanked.`);
@@ -238,6 +246,7 @@ export async function yankListedVersion(listing: PluginListing, publisher: Publi
     });
   }
   ecosystemAudit({ action: 'plugin.version.yank', actor, affectedOrgId: publisher.ownerOrgId, targetType: 'plugin-listing-version', targetId: v.id, details: { listing: `${publisher.handle}/${listing.name}`, version, reason: reason.slice(0, 200) } });
+  if (opts.notify === false) return yanked;
   await notifyModerationAction({
     publisherOrgId: publisher.ownerOrgId,
     subject: `Version yanked: ${publisher.handle}/${listing.name} ${version}`,

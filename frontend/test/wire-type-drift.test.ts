@@ -81,6 +81,10 @@ const REGISTERED: ReadonlyArray<readonly [string, string, string]> = [
   ['RangeKey', 'frontend/src/types/observability.ts', 'platform/src/observability/catalog.ts'],
   ['ReportSnapshot', 'frontend/src/lib/api/domains/stakeholder-reports.ts', 'packages/pipeline-data/src/api/reporting/stakeholder/compose.ts'],
   ['Scope', 'frontend/src/lib/templates.ts', 'packages/pipeline-core/src/template/evaluator.ts'],
+  // Superseded system plugin version retention: the Retention panel's report (api/plugin, not importable).
+  ['RetentionAction', 'frontend/src/types/plugin-retention.ts', 'api/plugin/src/services/retention/plan.ts'],
+  ['RetentionState', 'frontend/src/types/plugin-retention.ts', 'api/plugin/src/services/retention/select.ts'],
+  ['RetentionVersionEntry', 'frontend/src/types/plugin-retention.ts', 'api/plugin/src/services/retention/plan.ts'],
   ['SeatUsage', 'frontend/src/types/billing.ts', 'api/billing/src/helpers/usage-helpers.ts'],
   // An artifact security report's counts (api/pipeline, not importable).
   ['SeverityCounts', 'frontend/src/lib/api/pipeline-security-types.ts', 'api/pipeline/src/helpers/security-report.ts'],

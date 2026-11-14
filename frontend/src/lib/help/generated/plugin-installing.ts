@@ -1,6 +1,6 @@
 // GENERATED FROM docs/plugin-installing.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 98adaad28283116eb94cb44ec8c7be70f556e7e167f256718f838f80e3766290
+// SOURCE-SHA256: e0dcb35e918e47196f8161b331c371f8e8568050a86f5f8b7ebeb74488e02200
 // SPDX-License-Identifier: Apache-2.0
 import { PackagePlus } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -733,6 +733,12 @@ export const pluginInstallingTopic: HelpTopic = {
               "A listing or version you use was paused by its publisher",
               "Installing orgs",
               "In-app"
+            ],
+            [
+              "N35",
+              "Old versions of an Official plugin your organization can reach were deprecated by the platform's version retention (yanked after the notice period), or yanked once it passed. One notice per pass lists every version, the yank date and the version to move to",
+              "Installing orgs, and orgs whose pipelines use the version",
+              "In-app + email (opt-out ecosystem.upgrades.email)"
             ],
             [
               "N8",

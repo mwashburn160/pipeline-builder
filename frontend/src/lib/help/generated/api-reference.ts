@@ -1,6 +1,6 @@
 // GENERATED FROM docs/api-reference.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 13bf59669c641c2bc0808a78f5dea8502b9a457efebbcd8d64bbefb7639d6600
+// SOURCE-SHA256: ac94500c8c8e36e7bb153b7f9139bb21c8c5448824184313fada0aa859c4f39b
 // SPDX-License-Identifier: Apache-2.0
 import { Code } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -649,6 +649,16 @@ export const apiReferenceTopic: HelpTopic = {
               "POST",
               "/plugins/kept-setup-images/:id/promote",
               "System org (plugins:moderate, aal2): re-verify the image (signature, signed SBOM), refuse a stale vulnerability DB (503), re-run the floor with the CURRENT waivers / VEX / KEV rules and the post-build compliance rules, and store the version as a passing build would → 201 { plugin: { id, name, version, imageDigest }, messages }. Still refused → 409 with the gate's code and details.findings (the image stays kept); version already exists → 409 CONFLICT; unknown id → 404. Audited plugin.setup_image.promoted / plugin.setup_image.promote_refused"
+            ],
+            [
+              "GET",
+              "/plugins/retention/plan",
+              "System org (plugins:moderate, aal2): the superseded-version retention DRY RUN — refreshes the declared resolutions of pipelines naming each candidate plugin, then answers { generatedAt, enabled, dryRun: true, keep, noticeDays, batch, maxFraction, plugins: [{ name, listed, marginalBytes, refusedReason?, versions: [{ version, digest, state, rule, deferred?, deprecatedAt?, yankAfter?, notifyOrgIds?, marginalBytes }] }], collected: [], totals: { retirable, deprecate, notice, yank, reverse, refused, refusedPlugins, deferred, marginalBytes, awaitingCollection, stuck }, storage: { measured, incomplete } }. state is keep / deprecate / notice / yank / reverse / refused; rule says why. Per plugin per pass at most floor(PLUGIN_RETENTION_MAX_FRACTION × live versions) (at least one) are newly deprecated, oldest first; the rest keep state: deprecate with deferred: true and wait for a later pass. refused (with refusedReason: resolution_refresh_incomplete) means the plugin's declared-resolution refresh did not finish, so nothing was decided for it. Bytes are null when image-registry could not measure. Changes no version"
+            ],
+            [
+              "POST",
+              "/plugins/retention/run",
+              "System org (plugins:moderate, aal2, step-up): run one retention pass now, whatever PLUGIN_RETENTION_ENABLED says — deprecate, yank + soft-delete after the notice period, reverse, and hand purged rows' system/<name> images to image-registry — and answer the same report with dryRun: false, each acted-on version's action (deprecated / yanked / reversed / deferred / skipped / failed, with error), and collected: [{ name, version, digest, outcome, rule?, error? }]. Audited plugin.version.retire per stage"
             ],
             [
               "GET",
@@ -2295,7 +2305,7 @@ export const apiReferenceTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "152 routes, from frontend/src/generated/route-table/plugin.json."
+          "content": "154 routes, from frontend/src/generated/route-table/plugin.json."
         },
         {
           "type": "table",
@@ -3034,6 +3044,20 @@ export const apiReferenceTopic: HelpTopic = {
               "plugins:write",
               "apiCalls",
               "—"
+            ],
+            [
+              "GET",
+              "/plugins/retention/plan",
+              "system org; plugins:moderate; MFA session (aal2)",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "POST",
+              "/plugins/retention/run",
+              "system org; plugins:moderate; MFA session (aal2); step-up",
+              "apiCalls",
+              "plugin.version.retire"
             ],
             [
               "DELETE",

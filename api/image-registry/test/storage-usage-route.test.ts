@@ -45,12 +45,14 @@ jest.unstable_mockModule('../src/services/quarantine-credential.js', () => ({
 
 const computeOrgStorageUsage = jest.fn<(orgId: string) => Promise<{ prefix: string; bytes: number; repos: number; blobs: number; computedAt: number; incomplete: boolean }>>();
 const computeOrgStorageBreakdown = jest.fn<AnyFn>();
+const computeSystemRetentionBreakdown = jest.fn<AnyFn>();
 const invalidateOrgStorageCache = jest.fn<AnyFn>();
 jest.unstable_mockModule('../src/services/storage-usage.js', () => ({
   computeOrgStorageUsage,
   // `routes/internal.ts` imports all three; a module mock missing any of them
   // fails every suite in this file at LOAD rather than at the assertion.
   computeOrgStorageBreakdown,
+  computeSystemRetentionBreakdown,
   invalidateOrgStorageCache,
 }));
 
@@ -223,6 +225,21 @@ describe('GET /internal/storage-breakdown/:orgId', () => {
     const { status } = await getJson(`/internal/storage-breakdown/${ORG}`, { ...asPlugin, 'x-test-org': OTHER_ORG });
     expect(status).toBe(403);
     expect(recordAuthzDenialMock).toHaveBeenCalled();
+  });
+  it('answers ?scope=retention with the system org\'s per-version retention view', async () => {
+    const SYSTEM = '000000000000000000000001';
+    computeSystemRetentionBreakdown.mockResolvedValue({ entries: [{ name: 'lint', version: '1.0.0', totalBytes: 10, marginalBytes: 5 }], computedAt: 0, incomplete: false });
+    const { status, body } = await getJson(`/internal/storage-breakdown/${SYSTEM}?scope=retention`, { ...asPlugin, 'x-test-org': SYSTEM });
+    expect(status).toBe(200);
+    expect(body.data).toEqual(expect.objectContaining({ entries: [expect.objectContaining({ name: 'lint', marginalBytes: 5 })] }));
+    expect(computeSystemRetentionBreakdown).toHaveBeenCalledWith(SYSTEM);
+    expect(computeOrgStorageBreakdown).not.toHaveBeenCalled();
+  });
+
+  it('refuses ?scope=retention for any org but the system org (400)', async () => {
+    const { status } = await getJson(`/internal/storage-breakdown/${ORG}?scope=retention`, asPlugin);
+    expect(status).toBe(400);
+    expect(computeSystemRetentionBreakdown).not.toHaveBeenCalled();
   });
 });
 

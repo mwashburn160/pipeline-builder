@@ -403,6 +403,18 @@ export const NAV_SECTIONS: NavSection[] = [
         requiredAnyPermission: ECOSYSTEM_CONSOLE_PERMISSIONS,
         keywords: 'ecosystem moderation moderate publish queue publisher verification ecosystem manager marketplace',
       },
+      // The Ecosystem console's Retention tab, by name in ⌘K: superseded system
+      // plugin versions, the dry run and "Run a pass now". Locked without
+      // plugins:moderate, like every gated entry.
+      {
+        title: 'Plugin retention',
+        href: '/dashboard/admin/ecosystem?tab=retention',
+        icon: Store,
+        requiredPermission: 'plugins:moderate',
+        systemOrgOnly: true,
+        paletteOnly: true,
+        keywords: 'retention superseded plugin versions deprecate yank reclaim storage cleanup prune',
+      },
       // The support queue: every open case across ALL tenants, longest-waiting
       // first. Gated on `support_cases:write`, which is what the routes behind it
       // now require — `messages:read` could not stand for this, because ordinary

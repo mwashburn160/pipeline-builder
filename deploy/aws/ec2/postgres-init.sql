@@ -2589,6 +2589,36 @@ CREATE INDEX IF NOT EXISTS ecosystem_notification_due_idx
 CREATE INDEX IF NOT EXISTS ecosystem_notification_digest_idx
     ON ecosystem_notification_queue(digest_key) WHERE delivered_at IS NULL;
 
+-- The superseded-version retention pass's record of each system-org plugin
+-- version it is retiring (plugin service only). No org_id: system-org catalogue
+-- housekeeping, never a tenant's data. No foreign keys: the plugins row it names
+-- is purged on its own schedule, and this row outlives it so the pass still
+-- knows the version's system/<name> image is waiting to be collected
+-- (collected_at NULL). deprecated_at starts the notice period; yanked_at marks
+-- the yank + soft-delete.
+CREATE TABLE IF NOT EXISTS plugin_retirements (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    plugin_id UUID NOT NULL,
+    plugin_name VARCHAR(255) NOT NULL,
+    version VARCHAR(50) NOT NULL,
+    image_digest VARCHAR(71) CONSTRAINT plugin_retirements_image_digest_check
+                             CHECK (image_digest IS NULL OR image_digest ~ '^sha256:[0-9a-f]{64}$'),
+    listing_version_id UUID,
+    rule VARCHAR(64) NOT NULL,
+    -- false: already deprecated before the pass took it (a reversal leaves it).
+    deprecated_by_retention BOOLEAN NOT NULL DEFAULT true,
+    deprecated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    yanked_at TIMESTAMPTZ,
+    collected_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS plugin_retirement_plugin_unique
+    ON plugin_retirements(plugin_id);
+-- The collection pass's scan: yanked, not yet collected.
+CREATE INDEX IF NOT EXISTS plugin_retirement_pending_collect_idx
+    ON plugin_retirements(yanked_at) WHERE collected_at IS NULL;
+
 -- ---------------------------------------------------------------------------
 -- Org-scoped ecosystem tables
 -- ---------------------------------------------------------------------------
@@ -3652,7 +3682,8 @@ BEGIN
         'ecosystem_auto_approval_rules', 'ecosystem_reserved_names', 'ecosystem_settings',
         'plugin_reviews', 'plugin_review_replies', 'plugin_review_reports',
         'plugin_review_votes', 'plugin_review_history', 'plugin_stats', 'plugin_advisories',
-        'plugin_submissions', 'ecosystem_search_misses', 'ecosystem_notification_queue'
+        'plugin_submissions', 'ecosystem_search_misses', 'ecosystem_notification_queue',
+        'plugin_retirements'
     ]
     LOOP
         EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
