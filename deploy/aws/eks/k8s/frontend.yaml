@@ -39,7 +39,7 @@ spec:
       labels:
         app: frontend
         app.kubernetes.io/component: frontend
-        version: "4.7.19"
+        version: "4.7.20"
         track: stable
     spec:
       serviceAccountName: frontend
@@ -62,7 +62,7 @@ spec:
                 topologyKey: kubernetes.io/hostname
       containers:
         - name: frontend
-          image: ghcr.io/mwashburn160/frontend:4.7.19@sha256:221a614459444b76b9dffafb01884e5765806bd93f8a53c15c47bcad7cd28a19
+          image: ghcr.io/mwashburn160/frontend:4.7.20@sha256:2ca7d682c75bbd579da1d596266218f6ad7bd721ae5482e4b33b62042f95018a
           securityContext:
             runAsNonRoot: true
             runAsUser: 1000
