@@ -10,7 +10,8 @@
  * (e.g. an unreadable publication record) strips `push`.
  */
 
-import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { jest, describe, it, expect, beforeEach, afterAll } from '@jest/globals';
+import { OUTSIDE_BLOB_GC_WINDOW_MS } from './helpers/blob-gc-clock.js';
 import jwt from 'jsonwebtoken';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 import { TOKEN_SIGNING_CERT_PEM, TOKEN_SIGNING_PRIVATE_KEY_PEM } from './helpers/token-signing-fixture.js';
@@ -40,6 +41,10 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 }));
 
 const { authorizeAndIssue, storageGateReason } = await import('../src/services/token-service.js');
+const { setBlobGcClockForTests } = await import('../src/services/blob-gc-window.js');
+// Never read the wall clock: inside the Sunday blob-GC freeze every push would be withheld.
+beforeEach(() => setBlobGcClockForTests(() => OUTSIDE_BLOB_GC_WINDOW_MS));
+afterAll(() => setBlobGcClockForTests());
 
 const writer = { type: 'jwt' as const, orgId: 'acme', userId: 'u1', isAdmin: false, isSuperAdmin: false, canWritePlugins: true };
 const usage = (bytes: number, incomplete = false): Usage => ({ prefix: 'org-acme/', bytes, repos: 2, blobs: 3, computedAt: 0, incomplete });

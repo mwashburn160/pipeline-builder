@@ -18,6 +18,9 @@ import { ReadOnlyNotice } from '@/components/ui/ReadOnlyNotice';
 import { Input } from '@/components/ui/Input';
 import { AIProviderConfig } from '@/components/settings/AIProviderConfig';
 import { OrgDataExport } from '@/components/settings/OrgDataExport';
+import { PersonalDataExport } from '@/components/settings/PersonalDataExport';
+import { AccountDeletionDetails, deletionBlockedReason } from '@/components/settings/AccountDeletionDetails';
+import type { AccountDeletionPlan } from '@/lib/api/domains/auth';
 import { DomainJoinSettings } from '@/components/settings/DomainJoinSettings';
 import { SupportContactSettings } from '@/components/settings/SupportContactSettings';
 import { DOMAIN_SETTINGS_ANCHOR } from '@/components/sso/VerifiedDomainPicker';
@@ -113,8 +116,20 @@ export default function SettingsPage() {
   };
 
   // Step-up gate state: when set, StepUpModal renders — it is BOTH the
-  // confirmation and the gate — and on success deletes the account.
-  const [pendingDelete, setPendingDelete] = useState(false);
+  // confirmation and the gate — and on success deletes the account. It holds
+  // the deletion PLAN (GET /user/account/deletion), read first so the one
+  // dialog says which case applies: owned orgs that go with the account (no
+  // other members), or the ones that block it (the confirm is then disabled).
+  const [pendingDelete, setPendingDelete] = useState<AccountDeletionPlan | null>(null);
+  const deletionPlan = useFormState();
+  const openDelete = async () => {
+    await deletionPlan.run(async () => {
+      const res = await api.getAccountDeletionPlan();
+      if (!res.data) throw new Error('Could not check what deleting your account would do');
+      setPendingDelete(res.data);
+      return res;
+    });
+  };
 
   // Seed the form once per signed-in user — NOT on every profile refresh, which
   // would overwrite whatever the user is typing.
@@ -153,7 +168,10 @@ export default function SettingsPage() {
       await api.deleteAccount(stepUpToken);
     } catch (err) {
       if (continueAfterStepUp(err, done)) return;
-      profile.setError(formatError(err, 'Failed to delete account'));
+      // Shown on the Delete card: a 400 USER_OWNER_HAS_ORGS (membership changed
+      // since the plan was read) or a 502 (an org's recovery snapshot failed —
+      // nothing was deleted) both say what happened in the message.
+      deletionPlan.setError(formatError(err, 'Failed to delete account'));
       return;
     }
     done();
@@ -215,17 +233,24 @@ export default function SettingsPage() {
           <SessionStartedRow />
         </FormSection>
 
+        {/* The viewer's own data (not the org's — that export is on the
+            Organization tab). A read, so it stays during read-only sessions. */}
+        <PersonalDataExport />
+
         {/* Danger Zone. It sits with the account it deletes, not with the
             sign-in factors — those are on the Security page now. */}
         <SectionCard
           icon={Trash2}
           title="Delete account"
-          description="Permanently delete your account and all associated data. This cannot be undone."
+          description="Permanently delete your account. An organization you are the only member of is deleted with it; one with other members must be handed on first."
           className="border-danger/40"
         >
-          <Button variant="danger" onClick={() => setPendingDelete(true)} readOnly={isReadOnly}>
-            Delete account
-          </Button>
+          <div className="space-y-3">
+            <ErrorAlert message={deletionPlan.error} />
+            <Button variant="danger" onClick={() => void openDelete()} loading={deletionPlan.loading} readOnly={isReadOnly}>
+              Delete account
+            </Button>
+          </div>
         </SectionCard>
         </div>
         )}
@@ -326,17 +351,10 @@ export default function SettingsPage() {
         <StepUpModal
           title="Delete your account?"
           action="Delete this account and everything in it"
-          details={(
-            <>
-              <p>
-                Your account, its organizations where you are the only owner, and everything they
-                contain are removed. Anything authenticating as you stops working.
-              </p>
-              <p className="text-danger">This cannot be undone.</p>
-            </>
-          )}
+          details={<AccountDeletionDetails plan={pendingDelete} />}
+          confirmDisabledReason={deletionBlockedReason(pendingDelete)}
           onConfirmed={executeDelete}
-          onClose={() => setPendingDelete(false)}
+          onClose={() => setPendingDelete(null)}
         />
       )}
     </DashboardLayout>

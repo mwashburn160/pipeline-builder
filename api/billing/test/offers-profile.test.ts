@@ -36,6 +36,7 @@ jest.unstable_mockModule('../src/helpers/downstream-client.js', () => ({
   fetchOwnQuotaSnapshot: jest.fn<AnyFn>(),
   fetchQuotaTypeUsage: jest.fn<AnyFn>(),
   fetchSeatUsage: jest.fn<AnyFn>(),
+  fetchSupportUsage: jest.fn<AnyFn>(),
   fetchUsageProfile: mockFetchUsageProfile,
   fetchSeatActivity: mockFetchSeatActivity,
 }));

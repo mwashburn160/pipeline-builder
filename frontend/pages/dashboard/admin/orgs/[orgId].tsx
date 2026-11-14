@@ -266,7 +266,7 @@ function OrgDetail({ orgId }: { orgId: string }) {
             </div>
           )}
 
-          {activeTab === 'members' && <OrgMemberRoster orgId={org.id} />}
+          {activeTab === 'members' && <OrgMemberRoster key={org.id} orgId={org.id} />}
 
           {activeTab === 'entitlements' && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">

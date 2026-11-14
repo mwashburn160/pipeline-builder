@@ -7,7 +7,8 @@ import pico from 'picocolors';
 import { TIMEOUTS } from '../config/cli.constants.js';
 import { assertCredentialTlsAllowed, credentialHttpsAgent, switchOrganization } from '../utils/auth-utils.js';
 import { printCommandHeader, withSslOptions } from '../utils/command-utils.js';
-import { credentialStorePath, saveSession } from '../utils/credential-store.js';
+import { getApiConfig } from '../utils/config-loader.js';
+import { credentialStorePath, saveSession, setActivePlatform } from '../utils/credential-store.js';
 import { beginDeviceApproval, DeviceAuthError, pollForDeviceToken } from '../utils/device-auth.js';
 import { ERROR_CODES, handleError } from '../utils/error-handler.js';
 import { printError, printInfo, printSuccess } from '../utils/output-utils.js';
@@ -25,8 +26,9 @@ const { green } = pico;
  *
  * The session is written to the credential store (`~/.pipeline-manager/
  * credentials.json`, owner-only), so subsequent commands authenticate with no
- * environment variable at all. `PLATFORM_TOKEN` still wins when it is set, which
- * is what CI uses — an access key from `auth pat`.
+ * environment variable at all, and the platform is remembered as the active one,
+ * so they also talk to the platform the session belongs to. `PLATFORM_TOKEN`
+ * still wins when it is set, which is what CI uses — an access key from `auth pat`.
  *
  * @param program - The root Commander program instance to attach the command to.
  *
@@ -44,7 +46,7 @@ export function login(program: Command): void {
     .description('Sign in through your browser and store the session (device authorization)')
     .option('--org <orgId>', 'Switch to a specific organization after signing in')
     .option('--no-browser', 'Never open a browser — print the verification URL instead')
-    .option('--url <url>', 'Platform base URL', process.env.PLATFORM_BASE_URL || 'https://localhost:8443'))
+    .option('--url <url>', 'Platform base URL (default: PLATFORM_BASE_URL, else the platform you last signed in to, else config.yml)'))
     .option('--quiet', 'Only print the export statement (useful for eval)')
     .option('--token', 'Print ONLY the access token, for `export PLATFORM_TOKEN=$(…)`')
     .action(async (options, command: Command) => {
@@ -67,9 +69,14 @@ export function login(program: Command): void {
       // fetch them over an unverified TLS connection in production.
       assertCredentialTlsAllowed(options.verifySsl);
 
+      // Resolved at run time (not as a Commander default, which is evaluated when
+      // the command is registered) so it honours the same layers every other
+      // command reads: PLATFORM_BASE_URL, the last sign-in, then config.yml.
+      const url: string = options.url ?? getApiConfig().api.baseUrl;
+
       try {
         const transport = {
-          url: options.url,
+          url,
           httpsAgent: credentialHttpsAgent(options.verifySsl),
           timeout: TIMEOUTS.HTTP_REQUEST,
         };
@@ -91,7 +98,7 @@ export function login(program: Command): void {
         if (options.org) {
           if (!quiet) printInfo('Switching to organization', { orgId: options.org });
           const switched = await switchOrganization({
-            url: options.url,
+            url,
             orgId: options.org,
             accessToken,
             httpsAgent: transport.httpsAgent,
@@ -103,12 +110,15 @@ export function login(program: Command): void {
           expiresIn = switched.expiresIn ?? expiresIn;
         }
 
-        saveSession(options.url, {
+        saveSession(url, {
           accessToken,
           ...(refreshToken ? { refreshToken } : {}),
           expiresAt: Date.now() + expiresIn * 1000,
           ...(options.org ? { organizationId: options.org } : {}),
         });
+        // Later commands resolve their base URL from this, so they find the
+        // session just stored (see config-loader's layer 4).
+        setActivePlatform(url);
 
         if (tokenOnly) {
           // The token and NOTHING else — the caller writes the export.
@@ -130,7 +140,7 @@ export function login(program: Command): void {
         printInfo('Tip: to export it into this shell instead:');
         console.log(green(`  export PLATFORM_TOKEN=$(pipeline-manager auth login${options.org ? ` --org ${options.org}` : ''} --token)`));
         console.log('');
-        printInfo('Sign this device out again from Settings → Sessions and devices.');
+        printInfo('Sign this device out with "pipeline-manager auth logout" (or from Settings → Sessions and devices).');
       } catch (error) {
         if (error instanceof DeviceAuthError) {
           printError(`Login failed: ${error.message}`, { reason: error.code });
@@ -146,7 +156,7 @@ export function login(program: Command): void {
         handleError(error, ERROR_CODES.AUTHENTICATION, {
           debug: program.opts().debug,
           exit: true,
-          context: { command: 'login', executionId, url: options.url },
+          context: { command: 'login', executionId, url },
         });
       }
     });

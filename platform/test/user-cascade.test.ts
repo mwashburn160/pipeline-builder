@@ -21,14 +21,20 @@ const deleteMany = (name: string) => jest.fn(async (_filter: unknown, opts: { se
   calls.push(`${name}:${opts?.session === session ? 'tx' : 'NO-SESSION'}`);
   return { deletedCount: 1 };
 });
-const mockOwnerCount = jest.fn<() => Promise<number>>();
+/** Owner memberships the user holds, and which of those orgs are already soft-deleted. */
+let ownedOrgIds: string[] = [];
+let deletedOrgIds: string[] = [];
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const chain = (rows: () => unknown[]) => { const c: any = { select: () => c, session: () => c, lean: async () => rows() }; return c; };
 const mockFindByIdAndDelete = jest.fn<() => { select: () => Promise<unknown> }>();
 const mockAssertNotLast = jest.fn<(...a: unknown[]) => Promise<void>>();
 const mockSamlDeleteFilter = jest.fn();
 
 jest.unstable_mockModule('../src/models/index.js', () => ({
   User: { findByIdAndDelete: (...a: unknown[]) => { calls.push('User'); return mockFindByIdAndDelete(...(a as [])); } },
-  UserOrganization: { countDocuments: () => ({ session: () => mockOwnerCount() }), deleteMany: deleteMany('UserOrganization') },
+  UserOrganization: { find: () => chain(() => ownedOrgIds.map((organizationId) => ({ organizationId }))), deleteMany: deleteMany('UserOrganization') },
+  Organization: { find: () => chain(() => deletedOrgIds.map((_id) => ({ _id }))) },
+  PasswordResetToken: { deleteMany: deleteMany('PasswordResetToken') },
   RoleAssignment: { deleteMany: deleteMany('RoleAssignment') },
   PersonalAccessToken: { deleteMany: deleteMany('PersonalAccessToken') },
   UserPreferences: { deleteMany: deleteMany('UserPreferences') },
@@ -54,7 +60,8 @@ const userId = new Types.ObjectId().toString();
 beforeEach(() => {
   calls.length = 0;
   jest.clearAllMocks();
-  mockOwnerCount.mockResolvedValue(0);
+  ownedOrgIds = [];
+  deletedOrgIds = [];
   mockAssertNotLast.mockResolvedValue();
   mockFindByIdAndDelete.mockReturnValue({ select: async () => ({ tokenVersion: 4 }) });
 });
@@ -64,15 +71,22 @@ describe('deleteUserCascade', () => {
     await expect(deleteUserCascade(session as never, userId)).resolves.toEqual({ accessVersion: 4 });
     expect(calls).toEqual(expect.arrayContaining([
       'UserOrganization:tx', 'RoleAssignment:tx', 'PersonalAccessToken:tx', 'WebAuthnCredential:tx',
-      'UserPreferences:tx', 'JoinRequest:tx', 'SamlSession:tx',
+      'UserPreferences:tx', 'JoinRequest:tx', 'SamlSession:tx', 'PasswordResetToken:tx',
     ]));
     // SAML SLO rows key the person by string id.
     expect(mockSamlDeleteFilter).toHaveBeenCalledWith({ userId: userId });
-    expect(mockAssertNotLast).toHaveBeenCalledWith(session, expect.any(Types.ObjectId));
+    expect(mockAssertNotLast).toHaveBeenCalledWith(session, expect.any(Types.ObjectId), undefined, []);
+  });
+
+  it('an owned org that is already soft-deleted does not block, and its Roles are exempt from the lockout guard', async () => {
+    ownedOrgIds = ['org-gone'];
+    deletedOrgIds = ['org-gone'];
+    await expect(deleteUserCascade(session as never, userId)).resolves.toEqual({ accessVersion: 4 });
+    expect(mockAssertNotLast).toHaveBeenCalledWith(session, expect.any(Types.ObjectId), undefined, ['org-gone']);
   });
 
   it('refuses an org owner before deleting anything', async () => {
-    mockOwnerCount.mockResolvedValue(1);
+    ownedOrgIds = ['org-live'];
     await expect(deleteUserCascade(session as never, userId)).rejects.toThrow(USER_OWNER_HAS_ORGS);
     expect(calls).toEqual([]);
   });

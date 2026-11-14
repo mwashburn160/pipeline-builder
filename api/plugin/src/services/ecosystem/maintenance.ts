@@ -22,7 +22,17 @@
  * decision;
  *  - the SEARCH-MISS retention sweep (search-misses.ts);
  * - PUBLIC IMAGE collection (image-gc.ts): long-yanked, unreferenced
- * `public/*` digests are deleted from the registry.
+ * `public/*` digests are deleted from the registry;
+ * - STALLED PUBLISHES (stalled.ts): a submission left in `publishing`, or a
+ * request left `approved` but never executed, by a pod that died mid-way is
+ * handed back for a moderator.
+ *
+ * FAILURES ARE VISIBLE: each failed step counts
+ * `ecosystem_maintenance_step_failed_total{step}` (alerted as
+ * EcosystemMaintenanceStepFailing — the email purge is a privacy retention
+ * promise, so a silent failure there is a broken promise), and a pass in which
+ * EVERY step failed throws, so the scheduler records no success and
+ * SchedulerJobStale fires.
  */
 
 import {
@@ -34,6 +44,7 @@ import {
   type LockRedis,
   type Scheduler, leaderLockKey, DEFAULT_LEADER_LOCK_TTL_MS,
 } from '@pipeline-builder/api-core';
+import { incCounter } from '@pipeline-builder/api-server';
 import type { Publisher } from '@pipeline-builder/pipeline-data';
 
 import { retryAdvisoryFanOut } from './advisories.js';
@@ -44,6 +55,7 @@ import { listingsQuota } from './publishers.js';
 import { enqueueResign, runResignJobs, signedAs } from './resign.js';
 import { sweepSearchMisses } from './search-misses.js';
 import { notifySlaBreaches } from './sla.js';
+import { recoverStalledPublishes } from './stalled.js';
 import { atomically, publishers, settings } from './store.js';
 import { expireSubmissions, purgeSubmitterEmails } from './submissions.js';
 import { DAY_MS } from './util.js';
@@ -55,6 +67,9 @@ const logger = createLogger('ecosystem-maintenance');
 export const VERIFIED_GRACE_DAYS = 30;
 /** Grace reminders, in days left. */
 export const GRACE_REMINDER_DAYS = [14, 3] as const;
+
+/** Counter: a maintenance step that failed, by `step` (alerted). */
+export const MAINTENANCE_STEP_FAILED_COUNTER = 'ecosystem_maintenance_step_failed_total';
 
 const reminderKey = (id: string) => `grace-reminders:${id}`;
 const overLimitKey = (id: string) => `over-listings-limit:${id}`;
@@ -157,6 +172,9 @@ export async function runEcosystemMaintenance(now: Date = new Date(), signal?: A
   searchMissesPruned: number;
   /** Long-yanked, unreferenced public images deleted from the registry. */
   publicImagesCollected: number;
+  /** Abandoned mid-publish submissions / mid-execution requests handed back. */
+  stalledSubmissionsRecovered: number;
+  stalledRequestsRecovered: number;
 }> {
   let failures = 0;
   const tenants = (await publishers.list()).filter((p) => p.ownerOrgId && p.ownerOrgId !== SYSTEM_ORG_ID && !p.suspendedAt);
@@ -168,6 +186,7 @@ export async function runEcosystemMaintenance(now: Date = new Date(), signal?: A
       await checkListingsLimit(p);
     } catch (err) {
       failures++;
+      incCounter(MAINTENANCE_STEP_FAILED_COUNTER, { step: 'publisher_upkeep' });
       logger.warn('Publisher upkeep failed', { publisher: p.handle, error: errorMessage(err) });
     }
   }
@@ -176,13 +195,18 @@ export async function runEcosystemMaintenance(now: Date = new Date(), signal?: A
    * Run one step unless the lease was lost. A step's failure (a database blip,
    * a registry outage) is counted and logged, never allowed to skip the others.
    */
-  const step = async (failed: string, fn: () => Promise<void>): Promise<void> => {
+  let steps = 0;
+  let failedSteps = 0;
+  const step = async (name: string, failed: string, fn: () => Promise<void>): Promise<void> => {
     if (signal?.aborted) return;
+    steps++;
     try {
       await fn();
     } catch (err) {
       failures++;
-      logger.warn(failed, { error: errorMessage(err) });
+      failedSteps++;
+      incCounter(MAINTENANCE_STEP_FAILED_COUNTER, { step: name });
+      logger.warn(failed, { step: name, error: errorMessage(err) });
     }
   };
 
@@ -194,20 +218,34 @@ export async function runEcosystemMaintenance(now: Date = new Date(), signal?: A
     submitterEmailsPurged: 0,
     searchMissesPruned: 0,
     publicImagesCollected: 0,
+    stalledSubmissionsRecovered: 0,
+    stalledRequestsRecovered: 0,
   };
-  await step('Re-sign pass failed', async () => { out.resigned = (await runResignJobs(undefined, signal)).resigned; });
-  await step('SLA-breach check failed', async () => { out.slaBreachesNotified = await notifySlaBreaches(now); });
-  await step('Advisory fan-out retry failed', async () => { out.advisoryOrgsNotified = await retryAdvisoryFanOut(now); });
-  await step('Submission upkeep failed', async () => {
-    out.submissionsExpired = await expireSubmissions(now);
-    out.submitterEmailsPurged = await purgeSubmitterEmails(now);
+  await step('resign', 'Re-sign pass failed', async () => { out.resigned = (await runResignJobs(undefined, signal)).resigned; });
+  await step('sla_breach', 'SLA-breach check failed', async () => { out.slaBreachesNotified = await notifySlaBreaches(now); });
+  await step('advisory_fanout', 'Advisory fan-out retry failed', async () => { out.advisoryOrgsNotified = await retryAdvisoryFanOut(now); });
+  // Two steps, not one: the email purge is a privacy retention promise and
+  // must neither be skipped by an expiry failure nor hide behind one.
+  await step('submission_expiry', 'Submission expiry failed', async () => { out.submissionsExpired = await expireSubmissions(now); });
+  await step('submitter_email_purge', 'Submitter email purge failed', async () => { out.submitterEmailsPurged = await purgeSubmitterEmails(now); });
+  await step('stalled_publishes', 'Stalled-publish recovery failed', async () => {
+    const r = await recoverStalledPublishes(now);
+    out.stalledSubmissionsRecovered = r.submissions;
+    out.stalledRequestsRecovered = r.requests;
   });
-  await step('Search-miss retention sweep failed', async () => {
+  await step('search_miss_sweep', 'Search-miss retention sweep failed', async () => {
     const swept = await sweepSearchMisses(now);
     out.searchMissesPruned = swept.pruned + swept.folded;
   });
-  await step('Public image collection failed', async () => { out.publicImagesCollected = await collectYankedPublicImages(now, signal); });
-  return { publishers: tenants.length, failures, ...out };
+  await step('public_image_gc', 'Public image collection failed', async () => { out.publicImagesCollected = await collectYankedPublicImages(now, signal); });
+  const result = { publishers: tenants.length, failures, ...out };
+  logger.info('Ecosystem maintenance pass complete', result);
+  // Every step failed: the database (or the whole dependency set) is down. A
+  // throw keeps the scheduler from stamping a success.
+  if (steps > 0 && failedSteps === steps) {
+    throw new Error(`Ecosystem maintenance: every step failed (${failedSteps})`);
+  }
+  return result;
 }
 
 /** Build (not start) the scheduler: every 15 minutes, leader-locked on the shared Redis. */

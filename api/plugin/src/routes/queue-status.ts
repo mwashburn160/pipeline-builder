@@ -4,7 +4,7 @@
 import {
   isoOrNull,
   envInt, ErrorCode, audited, getParam, isSystemAdmin, isSystemOrgRequest, paginationMeta, parsePage, parseQueryInt, requirePermission, requireSystemOrgPermission, sendError, sendSuccess, actorId, userHasPermission,
-  recordAudit, SYSTEM_ORG_ID, VALID_TIERS, buildConcurrencyEnvVar, buildWorkerConcurrencyFor,
+  recordAudit, recordAuthzDenial, SYSTEM_ORG_ID, VALID_TIERS, buildConcurrencyEnvVar, buildWorkerConcurrencyFor,
 } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
@@ -305,8 +305,12 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
     const failedJob = await findFailedJob(jobId);
     if (!failedJob) return sendError(res, 404, `Failed job ${jobId} not found`, ErrorCode.NOT_FOUND);
 
+    // Another org's job answers exactly like a missing one: BullMQ ids are
+    // sequential, so a distinct 403 would let a tenant enumerate which ids
+    // exist. The denial still reaches the `authz.denied` trail.
     if (!seesEveryOrg(req) && !jobBelongsToOrg(failedJob.data, orgId)) {
-      return sendError(res, 403, 'Cannot retry a job owned by a different org', ErrorCode.INSUFFICIENT_PERMISSIONS);
+      recordAuthzDenial(req, 'job-owned-by-caller-org');
+      return sendError(res, 404, `Failed job ${jobId} not found`, ErrorCode.NOT_FOUND);
     }
 
     const newJobId = await retryFailedJob(jobId, quotaService, retrierFrom(req, userId));
@@ -420,8 +424,10 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
     const dlqJob = await dlq.getJob(jobId);
     if (!dlqJob) return sendError(res, 404, `DLQ job ${jobId} not found`, ErrorCode.NOT_FOUND);
 
+    // As for a retry: indistinguishable from a missing job, and audited.
     if (!seesEveryOrg(req) && !jobBelongsToOrg(dlqJob.data, orgId)) {
-      return sendError(res, 403, 'Cannot replay a job owned by a different org', ErrorCode.INSUFFICIENT_PERMISSIONS);
+      recordAuthzDenial(req, 'job-owned-by-caller-org');
+      return sendError(res, 404, `DLQ job ${jobId} not found`, ErrorCode.NOT_FOUND);
     }
 
     const newJobId = await replayDlqJob(jobId, quotaService, retrierFrom(req, userId));

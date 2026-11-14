@@ -52,7 +52,7 @@ jest.unstable_mockModule('@pipeline-builder/ai-core', () => stubModule('@pipelin
     return { value, selection: sel, failedOver: [] };
   },
   aiUsageAuditDetails: (sel: { provider: string; modelId: string; keySource: string }, extra: { quotaSlot?: string; promptVersion?: string }) => ({ provider: sel.provider, model: sel.modelId, keySource: sel.keySource, quotaSlot: extra.quotaSlot, promptVersion: extra.promptVersion }),
-  tokenUsage: () => ({ inputTokens: 0, outputTokens: 0, cachedInputTokens: 0 }),
+  tokenUsage: (u?: { inputTokens?: number; outputTokens?: number }) => ({ inputTokens: u?.inputTokens ?? 0, outputTokens: u?.outputTokens ?? 0, cachedInputTokens: 0 }),
   cachedSystemPrompt: (prompt: string) => ({ role: 'system', content: prompt }),
   ASK_HOWTO_PROMPT_VERSION: 'ask-howto@test',
   streamText,
@@ -108,7 +108,7 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
 
 jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@pipeline-builder/pipeline-core', { CoreConstants: { SSE_STREAM_TIMEOUT_MS: 300000 } }));
 jest.unstable_mockModule('../src/services/docs-index.js', () => ({ getDocsIndex: jest.fn(async () => ({ search: () => [], size: 1 })) }));
-jest.unstable_mockModule('../src/services/model.js', () => ({ ASK_MAX_OUTPUT_TOKENS: 2048, ASK_TEMPERATURE: 0.2 }));
+jest.unstable_mockModule('../src/services/model.js', () => ({ ASK_MAX_OUTPUT_TOKENS: 2048, ASK_MAX_TURN_GENERATIONS: 2, ASK_TEMPERATURE: 0.2 }));
 const buildAgentTools = jest.fn(() => ({}));
 jest.unstable_mockModule('../src/services/agent-tools.js', () => ({ buildAgentTools }));
 const stubClient = () => ({ get: jest.fn<AnyFn>(), post: jest.fn<AnyFn>() });
@@ -167,11 +167,11 @@ describe('POST /ask/agent/stream', () => {
     streamParts = turn(...text('hi'));
     await handler(mockReq({ query: 'help me' }), mockRes());
 
-    expect(pipelineClient).toHaveBeenCalledWith('Bearer USER-tok', undefined);
+    expect(pipelineClient).toHaveBeenCalledWith('Bearer USER-tok', undefined, expect.any(AbortSignal));
     // EVERY service client the tools use is bound to the CALLER's bearer — the
     // agent never acts as a service principal against any of them.
     for (const client of [pluginClient, platformClient, complianceClient, reportingClient, quotaClient]) {
-      expect(client).toHaveBeenCalledWith('Bearer USER-tok', undefined);
+      expect(client).toHaveBeenCalledWith('Bearer USER-tok', undefined, expect.any(AbortSignal));
     }
     expect(buildAgentTools).toHaveBeenCalled();
     expect(mockGetServiceAuthHeader).toHaveBeenCalledWith({ serviceName: 'ask', orgId: 'org-1', role: 'member' });
@@ -183,7 +183,7 @@ describe('POST /ask/agent/stream', () => {
     const req = { ...mockReq({ query: 'help me' }), user: { sub: 'u9', organizationId: 'org-1', principalType: 'user' } };
     await handler(req, mockRes());
     for (const client of [pipelineClient, pluginClient, platformClient, complianceClient, reportingClient, quotaClient]) {
-      expect(client).toHaveBeenCalledWith('Bearer USER-tok', { sub: 'u9', organizationId: 'org-1' });
+      expect(client).toHaveBeenCalledWith('Bearer USER-tok', { sub: 'u9', organizationId: 'org-1' }, expect.any(AbortSignal));
     }
   });
 
@@ -419,5 +419,109 @@ describe('POST /ask/agent/stream — BYOK and in-process tool usage', () => {
       'ask',
     );
     expect(mockIncCounter).toHaveBeenCalledWith('ai_tokens_total', expect.objectContaining({ route: 'agent-tool:propose_template', kind: 'input' }), 300);
+  });
+});
+
+/** The `done` frame's data, parsed. */
+function doneData(res: { write: { mock: { calls: unknown[][] } } }): Record<string, unknown> | undefined {
+  const frame = res.write.mock.calls.map((c) => String(c[0])).find((f) => f.includes('"type":"done"'));
+  return frame ? (JSON.parse(frame.replace(/^data: /, '').trim()) as { data: Record<string, unknown> }).data : undefined;
+}
+
+describe('POST /ask/agent/stream — cost controls (client disconnect, generation budget, token accounting)', () => {
+  it('binds every forwarded client to the SAME turn signal the tools abort with', async () => {
+    streamParts = turn(...text('hi'));
+    await handler(mockReq({ query: 'help me' }), mockRes());
+    const deps = (buildAgentTools.mock.calls[0] as unknown as [{ abortSignal: AbortSignal }])[0];
+    for (const client of [pipelineClient, pluginClient, platformClient, complianceClient, reportingClient, quotaClient]) {
+      expect(client.mock.calls[0]?.[2]).toBe(deps.abortSignal);
+    }
+  });
+
+  it('grants ASK_MAX_TURN_GENERATIONS charged generations per turn, then refuses (counted)', async () => {
+    streamParts = turn(...text('hi'));
+    await handler(mockReq({ query: 'help me' }), mockRes());
+    const deps = (buildAgentTools.mock.calls[0] as unknown as [{ generations: { claim: (t: string) => boolean } }])[0];
+    expect(deps.generations.claim('propose_pipeline')).toBe(true);
+    expect(deps.generations.claim('propose_plugin')).toBe(true);
+    expect(deps.generations.claim('propose_template')).toBe(false);
+    expect(mockIncCounter).toHaveBeenCalledWith('ask_turn_generation_budget_refused_total', { tool: 'propose_template' });
+  });
+
+  it('the budget is per TURN: a new turn starts with a fresh one', async () => {
+    streamParts = turn(...text('hi'));
+    await handler(mockReq({ query: 'one' }), mockRes());
+    const first = (buildAgentTools.mock.calls[0] as unknown as [{ generations: { claim: (t: string) => boolean } }])[0];
+    first.generations.claim('a'); first.generations.claim('b');
+    streamParts = turn(...text('hi'));
+    await handler(mockReq({ query: 'two' }), mockRes());
+    const second = (buildAgentTools.mock.calls[1] as unknown as [{ generations: { claim: (t: string) => boolean } }])[0];
+    expect(second.generations.claim('a')).toBe(true);
+  });
+
+  it('`done` carries the tool tokens and the slots the turn drew (own + kept tool slots + delegated)', async () => {
+    buildAgentTools.mockImplementationOnce(((deps: {
+      generations: { delegated: (t: string) => void };
+      chargeAiCall: (t: string) => Promise<{ markConsumed: () => void; settle: (u?: unknown) => void } | null>;
+    }) => {
+      deps.generations.delegated('propose_pipeline');
+      void deps.chargeAiCall('propose_template').then((c) => { c!.markConsumed(); c!.settle({ inputTokens: 30, outputTokens: 9, cachedInputTokens: 0 }); });
+      return {};
+    }) as never);
+    streamParts = turn(...text('hi'));
+    const res = mockRes();
+    await handler(mockReq({ query: 'help me' }), res);
+    expect(doneData(res)).toMatchObject({
+      usage: { inputTokens: 1, outputTokens: 1, cachedInputTokens: 0 },
+      toolUsage: { inputTokens: 30, outputTokens: 9, cachedInputTokens: 0 },
+      slotsCharged: 3,
+    });
+  });
+
+  it('a plain turn reports one slot and no tool tokens', async () => {
+    streamParts = turn(...text('hi'));
+    const res = mockRes();
+    await handler(mockReq({ query: 'help me' }), res);
+    expect(doneData(res)).toMatchObject({ toolUsage: { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0 }, slotsCharged: 1 });
+  });
+
+  it('a FAILED multi-step turn still records the tokens of the steps that completed', async () => {
+    streamParts = [
+      { type: 'start' },
+      { type: 'start-step', request: {}, warnings: [] },
+      { type: 'finish-step', finishReason: 'tool-calls', usage: { inputTokens: 400, outputTokens: 50 } },
+      { type: 'start-step', request: {}, warnings: [] },
+      { type: 'finish-step', finishReason: 'tool-calls', usage: { inputTokens: 600, outputTokens: 70 } },
+      { type: 'error', error: new Error('provider blew up on step 3') },
+    ];
+    await handler(mockReq({ query: 'help me' }), mockRes());
+    expect(mockIncCounter).toHaveBeenCalledWith('ai_tokens_total', expect.objectContaining({ route: 'agent', kind: 'input' }), 1000);
+    expect(mockIncCounter).toHaveBeenCalledWith('ai_tokens_total', expect.objectContaining({ route: 'agent', kind: 'output' }), 120);
+  });
+
+  it('an ABORTED multi-step turn records the completed steps\' tokens, not zero', async () => {
+    const ctrl = new AbortController();
+    const apiCore = await import('@pipeline-builder/api-core');
+    (apiCore.initSSEStream as unknown as jest.Mock<AnyFn>).mockImplementationOnce(((_req: unknown, res: { write: (s: string) => unknown }) => ({
+      signal: ctrl.signal,
+      aborted: () => ctrl.signal.aborted,
+      send: (e: unknown) => { res.write(`data: ${JSON.stringify(e)}\n\n`); },
+      done: () => { res.write('data: [DONE]\n\n'); },
+    })) as never);
+    streamText.mockImplementationOnce(() => ({
+      fullStream: (async function* () {
+        yield { type: 'start' };
+        yield { type: 'start-step', request: {}, warnings: [] };
+        yield { type: 'finish-step', finishReason: 'tool-calls', usage: { inputTokens: 250, outputTokens: 25 } };
+        ctrl.abort(); // the client closes the panel mid-turn
+        yield { type: 'start-step', request: {}, warnings: [] };
+      })(),
+      usage: Promise.resolve({ inputTokens: 0, outputTokens: 0 }),
+    }));
+    const res = mockRes();
+    await handler(mockReq({ query: 'help me' }), res);
+    expect(doneData(res)).toBeUndefined();
+    expect(mockIncCounter).toHaveBeenCalledWith('ai_tokens_total', expect.objectContaining({ route: 'agent', kind: 'input' }), 250);
+    expect(auditRecord).toHaveBeenCalledWith(expect.objectContaining({ action: 'ask.agent.turn', outcome: 'failure' }), 'ask');
   });
 });

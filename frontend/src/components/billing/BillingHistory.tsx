@@ -36,7 +36,7 @@ export function BillingHistory({ isSuperAdmin }: BillingHistoryProps) {
       ? await api.listBillingEvents(query, { signal })
       : await api.listOwnBillingEvents(query, { signal });
     return { events: res.data?.events ?? [], total: res.data?.total ?? 0 };
-  }, [open, isSuperAdmin, page.offset, page.limit]);
+  }, [open, isSuperAdmin, page.offset, page.limit], { keepPreviousData: true });
 
 /**
  * Human label and colour for a billing event type.

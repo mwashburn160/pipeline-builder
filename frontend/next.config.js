@@ -94,8 +94,6 @@ const nextConfig = {
   },
 };
 
-const withBundleAnalyzer = process.env.ANALYZE === 'true'
-  ? require('@next/bundle-analyzer')({ enabled: true })
-  : (config) => config;
-
-module.exports = withBundleAnalyzer(nextConfig);
+// Bundle analysis: `npx next analyze` (Turbopack's own analyzer). The webpack
+// plugin `@next/bundle-analyzer` does not see a Turbopack build at all.
+module.exports = nextConfig;

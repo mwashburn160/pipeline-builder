@@ -27,11 +27,13 @@ import { complianceScanService } from '../services/compliance-scan-service.js';
  * Scans re-evaluate existing entities against current rules.
  */
 
+// Strict: a scan always evaluates the caller's whole org for `target`. There is
+// no partial-scan filter, so a body naming one is refused rather than silently
+// recorded as if it narrowed anything.
 const ScanCreateSchema = z.object({
   target: z.enum(COMPLIANCE_SCAN_TARGETS),
-  filter: z.record(z.string(), z.unknown()).optional(),
   dryRun: z.boolean().optional(),
-});
+}).strict();
 
 // Validate the GET / filter query enums so an invalid value 400s instead of
 // being cast to a union and silently returning an empty page.
@@ -82,7 +84,6 @@ export function createScanRoutes(): Router {
       orgId,
       userId,
       validation.value.target,
-      validation.value.filter as Record<string, unknown> | undefined,
       Boolean(validation.value.dryRun),
     );
     ctx.log('COMPLETED', 'Triggered compliance scan', { scanId: scan.id, target: validation.value.target });
@@ -90,7 +91,7 @@ export function createScanRoutes(): Router {
     // Best-effort attributed audit — the scan was persisted. A scan re-evaluates
     // every entity of its target against the current rules and can block ones
     // that passed before, so it carries the same trail as its cancel. Safe
-    // scalar metadata only (target + dry-run flag), never the filter body.
+    // scalar metadata only (target + dry-run flag).
     recordAudit({
       action: 'compliance.scan.create',
       actorId: actorId({ userId }),

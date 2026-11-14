@@ -176,7 +176,7 @@ export default function MembersPage() {
   const seatQ = useFetch(async (signal) => {
     if (!user?.organizationId || !canManageMembers) return null;
     return (await api.getOrganizationSeatUsage(user.organizationId, { signal })).data ?? null;
-  }, [user?.organizationId, canManageMembers, list.pagination.total]);
+  }, [user?.organizationId, canManageMembers, list.pagination.total], { keepPreviousData: true });
   const seatUsage = seatQ.data;
   const seatLoadWarning = !!seatQ.error;
 

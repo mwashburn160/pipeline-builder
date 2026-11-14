@@ -7,7 +7,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { errorMessage } from '@pipeline-builder/api-core';
 import * as yaml from 'yaml';
-import { isSessionUsable, loadSession } from './credential-store.js';
+import { activePlatform, isSessionUsable, loadSession } from './credential-store.js';
 import { printDebug, printError, printWarning } from './output-utils.js';
 import { assertSslDisableAllowed, isProductionEnv } from './tls.js';
 import { type Config } from '../types/index.js';
@@ -65,7 +65,8 @@ function loadConfigFile(filePath: string, config: Omit<Config, 'auth'>): Omit<Co
  * 1. Built-in defaults
  * 2. User config file: ~/.pipeline-manager/config.yml
  * 3. Project config file: CLI_CONFIG_PATH or ./config.yml
- * 4. Environment variables
+ * 4. The platform the last `auth login` signed in to (base URL only)
+ * 5. Environment variables
  *
  * Auth token comes from PLATFORM_TOKEN, else the stored `auth login` session —
  * never from a config file.
@@ -89,7 +90,17 @@ export function getApiConfig(): Omit<Config, 'auth'> {
   let config = loadConfigFile(USER_CONFIG_PATH, { api: { ...defaultConfig.api } });
   config = loadConfigFile(projectConfigPath, config);
 
-  // Layer 4: environment variable overrides
+  // Layer 4: the platform the last `auth login` signed in to. `auth login --url X`
+  // stores its session under X, so the commands after it must talk to X — had the
+  // config files won here, every command would look for the session under a
+  // different URL and report "Not signed in" right after a successful sign-in.
+  const signedInTo = activePlatform();
+  if (signedInTo) {
+    config.api.baseUrl = signedInTo;
+    printDebug('Using the platform from "auth login"', { baseUrl: signedInTo });
+  }
+
+  // Layer 5: environment variable overrides
   if (process.env.PLATFORM_BASE_URL) {
     config.api.baseUrl = process.env.PLATFORM_BASE_URL;
     printDebug('Using PLATFORM_BASE_URL from environment', { baseUrl: config.api.baseUrl });

@@ -3,7 +3,7 @@
 
 import { describe, it, expect, jest, afterEach } from '@jest/globals';
 
-import { ValidationError, NetworkError, handleError, ERROR_CODES } from '../src/utils/error-handler.js';
+import { ValidationError, NetworkError, handleError, reportError, ERROR_CODES } from '../src/utils/error-handler.js';
 
 describe('ValidationError', () => {
   it('should create error with message', () => {
@@ -120,3 +120,21 @@ describe('handleError — standard exit codes', () => {
   });
 });
 
+describe('reportError — print without exiting (the audits\' own exit-code contract)', () => {
+  afterEach(() => { jest.restoreAllMocks(); });
+
+  it('prints and RETURNS the standard code; never exits, never throws', () => {
+    const errors: string[] = [];
+    jest.spyOn(console, 'error').mockImplementation((...a: unknown[]) => { errors.push(a.map(String).join(' ')); });
+    const exit = jest.spyOn(process, 'exit').mockImplementation((() => { throw new Error('exited'); }) as never);
+    expect(reportError(new ValidationError('bad --org'), ERROR_CODES.API_REQUEST)).toBe(ERROR_CODES.VALIDATION);
+    expect(exit).not.toHaveBeenCalled();
+    expect(errors.join('\n')).toContain('bad --org');
+  });
+
+  it('handleError with exit:false still rethrows (which is why the audits use reportError)', () => {
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+    const err = new Error('boom');
+    expect(() => handleError(err, ERROR_CODES.GENERAL, { exit: false })).toThrow(err);
+  });
+});

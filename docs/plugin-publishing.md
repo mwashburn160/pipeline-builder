@@ -300,7 +300,7 @@ The instance must turn it on: `ANONYMOUS_SUBMISSIONS_ENABLED=true`, **and** outb
 1. **Choose the package.** The same `.zip` an in-app upload takes (`plugin-spec.yaml`, a Dockerfile, and optionally a `README.md`), up to 50 MB. Zips with symbolic links, hard links or device files are refused.
 2. **Check the details.** The package is read without being stored. Every catalog field is shown with the value detected from it and where that value came from, and you **accept** or **edit** each one, exactly as in [Catalog metadata: accept or edit](#catalog-metadata-accept-or-edit). You also see a preview of the directory card, the Dockerfile and spec lint results, and a scan for suspicious patterns. Execution settings (commands, env, secrets, egress, the smoke test) come only from the spec and can't be edited. A community listing can't use a curated vendor icon, so its card shows a monogram.
 3. **Confirm and submit.** Give an email address and accept the submission terms: you confirm you have the right to publish the code under its license, and that it may be listed publicly. Submitting stores the package in a quarantine bucket. Nothing is built yet.
-4. **Confirm your email.** The confirmation link expires in 30 minutes and works once. It opens a page with a **Confirm submission** button. The link never confirms on its own, so mail scanners that open links can't use it up. Unconfirmed submissions are deleted after 30 days.
+4. **Confirm your email.** The confirmation link expires in 30 minutes and works once. It opens a page with a **Confirm submission** button. The link never confirms on its own, so mail scanners that open links can't use it up. An unconfirmed submission expires after 30 days: its uploaded zip and quarantined image are deleted, and the submission record stays, with status `expired` (its email address is deleted 90 days later, as for any decided submission).
 5. **Automated checks.** The plugin is built in an isolated sandbox: a separate build service with no credentials, no cloud identity and network access only to package mirrors. Every check must pass:
    - the spec and execution contract are valid;
    - the license is an allowed SPDX identifier;
@@ -323,6 +323,7 @@ After confirming, you get a **status link** (`/plugins/submit/status?token=…`)
 - Submissions are listed under the platform's `community` publisher, as `community/<name>`, where `<name>` is the spec's `name`.
 - A name is refused when it's reserved, when an Official or Verified publisher already lists it, or when it's **confusable** with one of the 100 most-installed plugins: the same after lower-casing, dropping `-`, `_` and `.`, and reading look-alikes (`0`→`o`, `1`→`l`, `3`→`e`, `5`→`s`, `rn`→`m`, `vv`→`w`), or one edit away from one.
 - **A new version** of a community plugin goes through the same flow. It's accepted only from the email address that submitted the approved listing. From any other address, it's refused with `409 NAME_TAKEN`.
+- **Ownership lasts as long as the address is kept.** The address is deleted 90 days after each decision (see [Limits and privacy](#limits-and-privacy)), and ownership is read from your NEWEST approved submission, so every approved version keeps it for another 90 days. If nothing of yours has been approved for 90 days, the listing has no recorded owner: new versions are refused from every address, and a claim reaches the moderators as "email does not match submitter". Claim the listing from an account before then if you'll publish less often.
 
 ### Claiming your listing
 
@@ -331,7 +332,7 @@ To manage the plugin from an account, create one with the **same email address**
 ### Limits and privacy
 
 - **Proof of work instead of a captcha.** Before each upload, your browser solves a small puzzle (a few seconds of CPU; the page shows progress). No third-party captcha is used, so it also works on air-gapped instances.
-- **3 submissions a day** per email address and per network address (rolling 24 hours). More are refused with `429 SUBMISSION_LIMIT`.
+- **3 submissions a day** per email address and per network address. The 24-hour window starts at the first submission and resets when it ends — it is a fixed window, not a rolling one, so up to 6 can land within a few minutes across a window boundary. More are refused with `429 SUBMISSION_LIMIT`.
 - **Your email address is never shown**, in the UI, the API or the audit log. It's stored hashed (to apply the limits and match claims) and encrypted (to send you the decision), and both are deleted 90 days after the decision.
 
 ### Submission API

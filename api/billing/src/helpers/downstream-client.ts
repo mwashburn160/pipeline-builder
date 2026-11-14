@@ -268,3 +268,42 @@ export async function fetchSeatUsage(orgId: string, auth: string): Promise<SeatU
   if (!body) return null;
   return { limit: asNumber(body.data?.limit), used: asNumber(body.data?.used) };
 }
+
+/** One support-contact dimension's pooled cap and current designations. */
+export interface SupportContactFigures {
+  /** Enforced cap. -1 = unlimited. */
+  limit: number;
+  /** Active designations counted against it, pooled across the account subtree. */
+  used: number;
+}
+
+/** Enforced support-contact figures from GET /organization/:orgId/support-usage. */
+export interface SupportUsageSnapshot {
+  supportContacts: SupportContactFigures;
+  supportPremiumContacts: SupportContactFigures;
+}
+
+const asFigures = (v: unknown): SupportContactFigures | null => {
+  const o = v as { limit?: unknown; used?: unknown } | null | undefined;
+  const limit = asNumber(o?.limit);
+  const used = asNumber(o?.used);
+  return limit === null || used === null ? null : { limit, used };
+};
+
+/**
+ * The account's (root) support-contact caps and pooled designations, read from
+ * platform — which owns the designations (`support_contact` rows) and the synced
+ * caps. The seat-usage sibling for the two support dimensions: billing's over-cap
+ * gate needs `used`, the drift reconciler needs `limit`. `null` on an unreachable
+ * read OR an incomplete payload, so neither caller can mistake a partial answer
+ * for zero.
+ */
+export async function fetchSupportUsage(orgId: string, auth: string): Promise<SupportUsageSnapshot | null> {
+  const body = await getJson<{ data?: { supportContacts?: unknown; supportPremiumContacts?: unknown } }>(
+    config.platformService, `/organization/${encodeURIComponent(orgId)}/support-usage`, orgId, auth,
+  );
+  const supportContacts = asFigures(body?.data?.supportContacts);
+  const supportPremiumContacts = asFigures(body?.data?.supportPremiumContacts);
+  if (!supportContacts || !supportPremiumContacts) return null;
+  return { supportContacts, supportPremiumContacts };
+}

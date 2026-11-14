@@ -1,6 +1,6 @@
 // GENERATED FROM docs/support.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 946236c01287cf437cf926646366716d7a3c3d2e2b0ea69cef226daf69e35597
+// SOURCE-SHA256: 63e878db7cea74938f8c815be73c15558772300a4b1eadd5ae87a4762b362d14
 // SPDX-License-Identifier: Apache-2.0
 import { LifeBuoy } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -15,10 +15,6 @@ export const supportTopic: HelpTopic = {
       "id": "overview",
       "title": "Overview",
       "blocks": [
-        {
-          "type": "text",
-          "content": "<!-- Copyright 2026 Pipeline Builder Contributors SPDX-License-Identifier: Apache-2.0 -->"
-        },
         {
           "type": "text",
           "content": "Support cases with a response target you can hold us to, raised by named contacts from inside the dashboard. Three levels, bought per contact, available on every tier."
@@ -130,6 +126,10 @@ export const supportTopic: HelpTopic = {
         {
           "type": "text",
           "content": "Support is an add-on at every tier and included in none. That is deliberate and it is worth knowing before you plan: an organisation with no support bundle has no contacts and raises no cases. The one exception is the unlimited tier, which is uncapped."
+        },
+        {
+          "type": "text",
+          "content": "One-time incidents are the second door: a concession the support desk grants (never sold) that lets an organisation with no contact of its own open one case. The balance belongs to the account — a grant typed against a team lands on its root, and a case opened from any team in the account spends from it. A case opened this way is always filed at level support_incident, which carries no response target, even when the account holds a baseline it could not open against from that team. Members read the remaining balance with GET /billing/support-incidents (messages:read)."
         }
       ]
     },
@@ -143,7 +143,7 @@ export const supportTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "supportContacts is a live cap, checked when you designate someone rather than counted per period. Buying three Standard contacts lets three named people raise cases; designating a fourth is refused until you add capacity."
+          "content": "supportContacts is a live cap, checked when you designate someone rather than counted per period. Buying three Standard contacts lets three named people raise cases; designating a fourth is refused until you add capacity. Lowering the bundle quantity below the contacts already designated is refused the same way (409 ADDON_OVER_CAP) — revoke contacts first — so the account can never pay for fewer contacts than it uses. The premium upgrade cap is guarded identically."
         },
         {
           "type": "text",

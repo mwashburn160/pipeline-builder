@@ -433,6 +433,36 @@ describe('the name gate', () => {
     expect(intruder.body.details.reason).toBe('taken');
     expect((await submit({ zip: goodZip('my-linter', '1.0.0'), email: 'Owner@example.com' })).status).toBe(202);
   });
+
+  it('keeps the owner after the FIRST approval\'s email is purged, while a newer approval still carries it', async () => {
+    // The 90-day purge reaches the oldest approval first. Ownership used to be
+    // read from that row, so the submitter's own new versions were refused
+    // ("belongs to another submitter") 90 days after the first approval.
+    const community = db.tables.publishers!.find((p) => p.handle === 'community')!;
+    const listing = db.seed('plugin_listings', { publisherId: community.id, name: 'my-linter' });
+    db.seed('plugin_submissions', {
+      status: 'approved',
+      name: 'my-linter',
+      version: '0.9.0',
+      listingId: listing.id,
+      emailHash: null,
+      emailEnc: null,
+      createdAt: new Date(Date.now() - 200 * 86_400_000),
+      expiresAt: new Date(),
+    });
+    db.seed('plugin_submissions', {
+      status: 'approved',
+      name: 'my-linter',
+      version: '0.9.5',
+      listingId: listing.id,
+      emailHash: submissionGuards.hashEmail('owner@example.com'),
+      createdAt: new Date(Date.now() - 30 * 86_400_000),
+      expiresAt: new Date(),
+    });
+    const intruder = await submit({ zip: goodZip('my-linter', '1.0.0'), email: 'intruder@example.com' });
+    expect(intruder.status).toBe(409);
+    expect((await submit({ zip: goodZip('my-linter', '1.0.0'), email: 'Owner@example.com' })).status).toBe(202);
+  });
 });
 
 // -----------------------------------------------------------------------------

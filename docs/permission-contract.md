@@ -121,7 +121,7 @@ Contacting support is self-service — every member who can open the Messages pa
 
 **CSAT is the one case write STAFF may not make.** `message PATCH /messages/support/:id/satisfaction` runs on `messages:read` with the own-org check applied unconditionally — `staff: false` is passed with no admin variant — because a vendor-settable satisfaction score is not a satisfaction score. It is also the one write with no audit action, recorded as a waiver in `route-coverage.test.ts`: a 1-to-5 opinion on the customer's own case changes no entitlement, no ownership and no clock, so auditing it would only add noise to a trail read for authorization questions.
 
-**The two support-incident internal routes are NAMED-CALLER gated to `message` alone.** Consuming an incident is a write that costs the customer something, so it must not be reachable by every service token in the fleet — the same reasoning as platform's `/internal/support/entitlement/:orgId`. The GRANT is system-org only and step-up gated: it hands a customer something of value, and it is the half whose absence made the whole mechanism pointless, since a concession nobody can grant is not a concession.
+**The two support-incident internal routes are NAMED-CALLER gated to `message` alone.** Consuming an incident is a write that costs the customer something, so it must not be reachable by every service token in the fleet — the same reasoning as platform's `/internal/support/entitlement/:orgId`. The GRANT is system-org only and step-up gated: it hands a customer something of value, and it is the half whose absence made the whole mechanism pointless, since a concession nobody can grant is not a concession. The balance is ACCOUNT-scoped: all three routes, and the `GET /billing/support-incidents` read (`messages:read`, the support-page floor), resolve the request org to its root, fail-closed with a 503.
 
 **`PUT /billing/admin/subscriptions/:id/support-floor` is system-org only** for the reason the floor exists: a negotiated price is a vendor decision, and a control a customer's own admin could reach would make the floor advisory rather than a floor.
 
@@ -137,7 +137,7 @@ Contacting support is self-service — every member who can open the Messages pa
 | `all(a\|b)` | Caller holds **every** one of these permissions |
 | `+svc` | A service principal also passes, without holding the permission |
 | `sysadmin` | Platform administrator only (`isSuperAdmin`) |
-| `dynamic(who…)` / `dynamic(who…:perm\|perm)` | Authorization the route resolves **per request**, so no static permission id can stand for it (`dynamicAuthz`). The prose rule lives on the route — a paragraph in a table cell stops being reviewable — but the PRINCIPAL KINDS it admits and the permission ids it consults are rendered here, so a rule that quietly starts admitting the superadmin flag, or stops consulting a permission, fails this test. Principal kinds are a closed set (api-core `DYNAMIC_PRINCIPALS`): `superadmin` (the `User.isSuperAdmin` flag), `system-org` (a system-org member holding a named permission), `tenant-admin` (admin/owner of the target's org or an ancestor — several of these rules refuse the flag on purpose), `tenant-member`, `subject` (the user the request is about), `service`, `gateway` (the ingress supplies the fact). Today: `/admin/console-check` (class from the gateway) and `/admin/console-session` (class stated by the caller, which is why it is `system-org`+`superadmin` and NOT `gateway`), plus the six impersonation routes |
+| `dynamic(who…)` / `dynamic(who…:perm\|perm)` | Authorization the route resolves **per request**, so no static permission id can stand for it (`dynamicAuthz`). The prose rule lives on the route — a paragraph in a table cell stops being reviewable — but the PRINCIPAL KINDS it admits and the permission ids it consults are rendered here, so a rule that quietly starts admitting the superadmin flag, or stops consulting a permission, fails this test. Principal kinds are a closed set (api-core `DYNAMIC_PRINCIPALS`): `superadmin` (the `User.isSuperAdmin` flag), `system-org` (a system-org member holding a named permission), `tenant-admin` (admin/owner of the target's org or an ancestor — several of these rules refuse the flag on purpose), `tenant-member`, `subject` (the user the request is about), `service`, `gateway` (the ingress supplies the fact). Today: `/admin/console-check` (class from the gateway) and `/admin/console-session` (class stated by the caller, which is why it is `system-org`+`superadmin` and NOT `gateway`), plus the six impersonation routes, and `GET /pipelines/registry` (another org via `?orgId=` only for the superadmin flag — the `audit stacks` CLI's cross-org listing) |
 | `system-org` | The caller's **active org** must be the system org (`requireSystemOrg`, the plugin-ecosystem governance boundary). Dropping it from a route gated on `plugins:moderate` / `publishers:verify` is a weakening — and fails api-core's `findSystemOrgGuardViolations` too |
 | `service-principal` | Any signed service token |
 | `internal(a,b)` | Peer services only, and only these callers — refuses every user token |
@@ -196,6 +196,7 @@ Contacting support is self-service — every member who can open the Messages pa
 | billing | GET | `/billing/crossover` | `any(billing:read)` |
 | billing | GET | `/billing/plan-preview` | `any(billing:read)` |
 | billing | POST | `/billing/admin/orgs/:orgId/support-incidents` | `system-org + any(support_cases:write) + aal2 + step-up(any)` |
+| billing | GET | `/billing/support-incidents` | `any(messages:read)` |
 | billing | PUT | `/billing/admin/subscriptions/:id/support-floor` | `system-org + any(subscriptions:manage) + aal2 + step-up(any)` |
 | billing | POST | `/billing/internal/support-incidents/:orgId/consume` | `service-principal + internal(message)` |
 | billing | POST | `/billing/internal/support-incidents/:orgId/refund` | `service-principal + internal(message)` |
@@ -368,6 +369,7 @@ Contacting support is self-service — every member who can open the Messages pa
 | pipeline | PUT | `/pipelines/:id` | `any(pipelines:write)` |
 | pipeline | POST | `/pipelines/:id/plugin-upgrades/preview` | `any(pipelines:read)` |
 | pipeline | POST | `/pipelines/plugin-upgrades/apply` | `any(pipelines:write)` |
+| pipeline | DELETE | `/pipelines/:id/security-reports` | `any(pipelines:write)` |
 | pipeline | GET | `/pipelines/:id/security-reports` | `any(pipelines:read)` |
 | pipeline | POST | `/pipelines/:id/security-reports` | `any(pipelines:write) + scope(reporting:ingest)` |
 | pipeline | POST | `/pipelines/:id/purge` | `any(pipelines:write) + step-up(any)` |
@@ -387,7 +389,7 @@ Contacting support is self-service — every member who can open the Messages pa
 | pipeline | POST | `/pipelines/generate/missing-plugins` | `any(plugins:write) + feature(ai_generation)` |
 | pipeline | POST | `/pipelines/generate/stream` | `any(pipelines:write) + feature(ai_generation)` |
 | pipeline | GET | `/pipelines/providers` | `any(pipelines:read) + feature(ai_generation)` |
-| pipeline | GET | `/pipelines/registry` | `any(pipelines:read)` |
+| pipeline | GET | `/pipelines/registry` | `dynamic(superadmin,tenant-member) + any(pipelines:read)` |
 | pipeline | POST | `/pipelines/registry` | `any(pipeline_registry:write)` |
 | pipeline | DELETE | `/pipelines/registry/:id` | `any(pipeline_registry:write)` |
 | pipeline | GET | `/pipelines/scorecard` | `any(pipelines:read) + feature(advanced_reporting)` |
@@ -500,6 +502,7 @@ Contacting support is self-service — every member who can open the Messages pa
 | platform | PATCH | `/organization/:id/impersonation-policy` | `any(org_impersonation:write) + step-up(any)` |
 | platform | GET | `/organization/:id/join-requests` | `any(org_settings:write)` |
 | platform | POST | `/organization/:id/join-requests/:reqId/:decision` | `any(org_settings:write)` |
+| platform | DELETE | `/organization/:id/join-requests/:reqId` | `any(org_settings:write)` |
 | platform | POST | `/organization/:id/members` | `any(members:manage) + org-admin-assurance` |
 | platform | DELETE | `/organization/:id/members/:userId` | `any(members:manage) + org-admin-assurance` |
 | platform | PATCH | `/organization/:id/members/:userId/activate` | `any(members:manage) + org-admin-assurance` |
@@ -554,6 +557,7 @@ Contacting support is self-service — every member who can open the Messages pa
 | plugin | POST | `/plugins/:id/deprecate` | `any(plugins:write)` |
 | plugin | POST | `/plugins/:id/purge` | `any(plugins:write) + step-up(any)` |
 | plugin | POST | `/plugins/:id/restore` | `any(plugins:write) + step-up(any)` |
+| plugin | POST | `/plugins/:id/unyank` | `any(plugins:write)` |
 | plugin | POST | `/plugins/:id/yank` | `any(plugins:write)` |
 | plugin | POST | `/plugins/bulk/delete` | `any(plugins:write) + feature(bulk_operations)` |
 | plugin | PUT | `/plugins/bulk/update` | `any(plugins:write) + feature(bulk_operations)` |
@@ -755,3 +759,4 @@ Contacting support is self-service — every member who can open the Messages pa
 | reporting | PUT | `/reports/stakeholder/runs/:id/notes` | `any(reports:write) + feature(stakeholder_reports)` |
 | reporting | POST | `/reports/stakeholder/runs/:id/summary` | `any(reports:write) + feature(stakeholder_reports)` |
 | reporting | POST | `/reports/stakeholder/runs/:id/publish` | `any(reports:publish) + feature(stakeholder_reports)` |
+| reporting | POST | `/reports/stakeholder/runs/:id/redeliver` | `any(reports:publish) + feature(stakeholder_reports)` |

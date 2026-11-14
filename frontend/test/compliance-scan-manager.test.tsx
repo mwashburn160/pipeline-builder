@@ -11,16 +11,18 @@ import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import ScanManager from '../src/components/compliance/ScanManager';
 
-jest.mock('@/components/ui/Toast', () => require('./helpers/pageMocks').toastModule(() => ({ success: jest.fn<AnyFn>(), error: jest.fn<AnyFn>(), warning: jest.fn<AnyFn>(), info: jest.fn<AnyFn>() })));
+const toast = { success: jest.fn<AnyFn>(), error: jest.fn<AnyFn>(), warning: jest.fn<AnyFn>(), info: jest.fn<AnyFn>() };
+jest.mock('@/components/ui/Toast', () => require('./helpers/pageMocks').toastModule(() => toast));
 
 const getScans = jest.fn<AnyFn>();
 const cancelScan = jest.fn<AnyFn>();
+const triggerScan = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: {
     getScans: (...a: unknown[]) => getScans(...a),
     cancelScan: (...a: unknown[]) => cancelScan(...a),
-    triggerScan: jest.fn<AnyFn>(),
+    triggerScan: (...a: unknown[]) => triggerScan(...a),
   },
 }));
 
@@ -34,6 +36,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   getScans.mockResolvedValue({ success: true, data: { scans: [runningScan], pagination: { total: 1, limit: 10, offset: 0 } } });
   cancelScan.mockResolvedValue({ success: true });
+  triggerScan.mockResolvedValue({ success: true, data: { scan: runningScan } });
 });
 
 it('forwards the triggeredBy filter to the scan list', async () => {
@@ -56,4 +59,30 @@ it('confirms before cancelling a running scan', async () => {
   const dialog = screen.getByRole('dialog');
   fireEvent.click(Array.from(dialog.querySelectorAll('button')).find((b) => b.textContent === 'Cancel scan')!);
   await waitFor(() => expect(cancelScan).toHaveBeenCalledWith('scan-1'));
+});
+
+it('a real scan sends only the target; Preview (dry run) sends dryRun and says nothing is blocked', async () => {
+  render(<ScanManager />);
+  await screen.findByRole('button', { name: 'Cancel scan' });
+  fireEvent.click(screen.getByRole('button', { name: /scan plugins/i }));
+  await waitFor(() => expect(triggerScan).toHaveBeenCalledWith('plugin', undefined));
+  expect(toast.success).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Preview (dry run)' }));
+  await waitFor(() => expect(triggerScan).toHaveBeenLastCalledWith('all', { dryRun: true }));
+  await waitFor(() => expect(toast.success).toHaveBeenCalledWith(expect.stringMatching(/without blocking or notifying/)));
+});
+
+it('a refused trigger toasts the reason', async () => {
+  triggerScan.mockRejectedValue(new Error('nope'));
+  render(<ScanManager />);
+  await screen.findByRole('button', { name: 'Cancel scan' });
+  fireEvent.click(screen.getByRole('button', { name: 'Preview (dry run)' }));
+  await waitFor(() => expect(toast.error).toHaveBeenCalledWith('nope'));
+});
+
+it('marks a dry-run scan in the list, and hides the trigger buttons read-only', async () => {
+  getScans.mockResolvedValue({ success: true, data: { scans: [{ ...runningScan, triggeredBy: 'rule-dry-run' }], pagination: { total: 1, limit: 10, offset: 0 } } });
+  render(<ScanManager readOnly />);
+  expect(await screen.findByText('dry run')).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Preview (dry run)' })).toBeNull();
 });

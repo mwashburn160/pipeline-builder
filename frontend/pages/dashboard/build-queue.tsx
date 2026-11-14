@@ -25,22 +25,9 @@ import api from '@/lib/api';
 import { formatTime } from '@/lib/format';
 import { FailedJobsTable } from '@/components/build-queue/FailedJobsTable';
 import type { DlqJob, FailedJob } from '@/components/build-queue/types';
-import type { QueuePagination } from '@/lib/api/domains/plugins';
+import { toServerPage } from '@/components/build-queue/server-page';
 
 const POLL_INTERVAL = 10_000;
-
-
-/**
- * Normalize a queue page for `useServerPagination`. The server's `total` is
- * exact for system admins (this page's audience); if it is ever absent, fall
- * back to "what we've seen, plus one more page when the server says there is
- * one" so the pager still offers Next.
- */
-function toServerPage<T>(jobs: T[] | undefined, p: QueuePagination | undefined, offset: number, limit: number) {
-  const items = jobs ?? [];
-  const total = p?.total ?? offset + items.length + (p?.hasMore ? 1 : 0);
-  return { items, pagination: { offset: p?.offset ?? offset, limit: p?.limit ?? limit, total } };
-}
 
 interface TierRow { tier: string; waiting: number; active: number; completed: number; failed: number; delayed: number }
 

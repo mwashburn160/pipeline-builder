@@ -144,6 +144,8 @@ export async function autoDecide(r: Req, publisher: Publisher, submitter: Caller
     incCounter('ecosystem_auto_approval_failed_total', { kind: r.kind });
     return null;
   }
+  await requests.markExecuted(claimed.id).catch((err) =>
+    logger.error('Recording an auto-approved request as executed failed; the stalled-publish sweep may hand it back', { requestId: r.id, error: errorMessage(err) }));
   if (bootstrap) await countBootstrapApproval();
   incCounter('ecosystem_auto_approvals_total', { kind: r.kind, rule: bootstrap ? 'bootstrap' : rule!.name });
   ecosystemAudit({

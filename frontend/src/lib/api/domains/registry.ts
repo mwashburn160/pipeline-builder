@@ -39,7 +39,8 @@ export function registryApi(core: ApiCore) {
      * Pass `nonEmpty: true` to have the backend drop repos with no tags
      * (empty shells left behind after all tags are deleted).
      */
-    listImages: async (params?: { limit?: number; last?: string; nonEmpty?: boolean }) => {
+    /** `cursor` is the previous page's `next`, sent back unchanged (it is opaque). */
+    listImages: async (params?: { limit?: number; cursor?: string; nonEmpty?: boolean }) => {
       return core.request<ApiResponse<{ repositories: RegistryRepository[]; next?: string }>>(
         `/api/images${buildQuery(params as Record<string, unknown> | undefined)}`,
       );

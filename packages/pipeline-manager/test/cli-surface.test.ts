@@ -118,6 +118,21 @@ describe('command registration', () => {
     expect(helpOut).toContain('Command groups:');
     expect(helpOut).toContain('Exit codes');
   });
+
+  it('the root help\'s "Command groups" names every registered namespace', async () => {
+    await parse(['--help']);
+    const groups = helpOut.slice(helpOut.indexOf('Command groups:'), helpOut.indexOf('Authentication:'));
+    // Every namespace with subcommands (toolchain and report were once missing).
+    const namespaces = program.commands.filter((c) => c.commands.length > 0).map((c) => c.name());
+    expect(namespaces.length).toBeGreaterThan(5);
+    for (const name of namespaces) expect(groups).toMatch(new RegExp(`^  ${name}\\b`, 'm'));
+  });
+
+  it('auth has login, logout and pat; pipeline has the remediation verbs', () => {
+    const verbs = (group: string) => program.commands.find((c) => c.name() === group)?.commands.map((c) => c.name()).sort();
+    expect(verbs('auth')).toEqual(['login', 'logout', 'pat']);
+    expect(verbs('pipeline')).toEqual(expect.arrayContaining(['delete', 'deregister', 'register']));
+  });
 });
 
 describe('completions', () => {

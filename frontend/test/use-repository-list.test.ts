@@ -23,7 +23,7 @@ import { useRepositoryList } from '../src/hooks/useRepositoryList';
 describe('useRepositoryList', () => {
   it('pages past a page the server filtered to nothing', async () => {
     listImages
-      .mockResolvedValueOnce({ success: true, data: { repositories: [], next: 'org-a/zeta' } })
+      .mockResolvedValueOnce({ success: true, data: { repositories: [], next: 'c1.b3JnLWEvemV0YQ' } })
       .mockResolvedValueOnce({ success: true, data: { repositories: ['org-b/app'] } });
 
     const { result } = renderHook(() => useRepositoryList());
@@ -32,7 +32,8 @@ describe('useRepositoryList', () => {
 
     await act(async () => { await result.current.loadMore(); });
 
-    expect(listImages).toHaveBeenLastCalledWith(expect.objectContaining({ last: 'org-a/zeta' }));
+    // The opaque `next`, untouched, as `cursor`.
+    expect(listImages).toHaveBeenLastCalledWith(expect.objectContaining({ cursor: 'c1.b3JnLWEvemV0YQ' }));
     expect(result.current.repos.map((r) => r.name)).toEqual(['org-b/app']);
     expect(result.current.hasMore).toBe(false);
   });

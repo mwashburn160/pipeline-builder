@@ -19,7 +19,7 @@
  * alone, and lets the data self-heal without a re-invite touching each row.
  */
 
-import { createLogger, errorMessage, leaderLockKey, SYSTEM_ACTOR_ID, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import { createLogger, leaderLockKey, SYSTEM_ACTOR_ID, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
 import type { QueryFilter } from 'mongoose';
 import type { IntervalSweepDefinition } from './background-sweeps.js';
 import { config } from '../config/index.js';
@@ -40,46 +40,43 @@ const REAP_BATCH = 500;
 /**
  * Flip every `pending` invitation whose `expiresAt` is at/before now to
  * `expired`. Idempotent and cheap on a no-op (indexed on `status` +
- * `expiresAt`). Returns the number of rows updated. Never throws — errors are
- * logged so a transient Mongo blip can't crash the caller's interval.
+ * `expiresAt`). Returns the number of rows updated. THROWS on a database
+ * error: the scheduler logs the failed cycle and does not record it as a
+ * success, so a reaper that fails every pass trips `SchedulerJobStale`
+ * (a swallowed error here used to read as a healthy job).
  *
  * Each expiry is audited (`invitation.expire`, system actor) against the
  * inviting org with the invitation's id, so "what happened to the invite I
  * sent" is answerable from the org's own trail.
  */
 export async function sweepExpiredInvitations(): Promise<number> {
-  try {
-    const filter: QueryFilter<InvitationData> = { status: 'pending', expiresAt: { $lte: new Date() } };
-    const lapsed = await Invitation.find(filter)
-      .select('_id email organizationId invitedBy')
-      .limit(REAP_BATCH)
-      .lean();
-    if (lapsed.length === 0) return 0;
-    const res = await Invitation.updateMany(
-      { ...filter, _id: { $in: lapsed.map((i) => i._id) } },
-      { $set: { status: 'expired' } },
-    );
-    const modified = res.modifiedCount ?? 0;
-    if (modified > 0) {
-      logger.info('Reaped stale pending invitations', { modified });
-      for (const inv of lapsed) {
-        recordAuditEvent({
-          action: 'invitation.expire',
-          actorId: SYSTEM_ACTOR_ID,
-          orgId: SYSTEM_ORG_ID,
-          affectedOrgId: String(inv.organizationId),
-          targetType: 'invitation',
-          targetId: String(inv._id),
-          outcome: 'success',
-          details: { email: inv.email, invitedBy: String(inv.invitedBy), reason: 'invitation-reaper' },
-        });
-      }
+  const filter: QueryFilter<InvitationData> = { status: 'pending', expiresAt: { $lte: new Date() } };
+  const lapsed = await Invitation.find(filter)
+    .select('_id email organizationId invitedBy')
+    .limit(REAP_BATCH)
+    .lean();
+  if (lapsed.length === 0) return 0;
+  const res = await Invitation.updateMany(
+    { ...filter, _id: { $in: lapsed.map((i) => i._id) } },
+    { $set: { status: 'expired' } },
+  );
+  const modified = res.modifiedCount ?? 0;
+  if (modified > 0) {
+    logger.info('Reaped stale pending invitations', { modified });
+    for (const inv of lapsed) {
+      recordAuditEvent({
+        action: 'invitation.expire',
+        actorId: SYSTEM_ACTOR_ID,
+        orgId: SYSTEM_ORG_ID,
+        affectedOrgId: String(inv.organizationId),
+        targetType: 'invitation',
+        targetId: String(inv._id),
+        outcome: 'success',
+        details: { email: inv.email, invitedBy: String(inv.invitedBy), reason: 'invitation-reaper' },
+      });
     }
-    return modified;
-  } catch (err) {
-    logger.warn('Invitation reaper sweep failed', { error: errorMessage(err) });
-    return 0;
   }
+  return modified;
 }
 
 /** The reaper as a background sweep (see services/background-sweeps.ts). */
@@ -88,7 +85,13 @@ export function invitationReaperSweep(intervalMs: number = config.invitation.swe
     name: 'invitation-reaper',
     lockKey: LOCK_KEY,
     intervalMs,
-    run: async () => { await sweepExpiredInvitations(); },
+    // The same housekeeping for domain-join requests nobody answered — both are
+    // "an invitation to join that lapsed", one in each direction.
+    run: async () => {
+      await sweepExpiredInvitations();
+      const { orgDomainService } = await import('./org-domain-service.js');
+      await orgDomainService.expireStaleJoinRequests();
+    },
     // One idempotent `updateMany` — N replicas converge on the same result, so
     // this may run everywhere when no Redis is configured.
     concurrencySafe: true,

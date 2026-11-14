@@ -17,10 +17,6 @@ export const runbookPostgresFailoverTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "<!-- Copyright 2026 Pipeline Builder Contributors SPDX-License-Identifier: Apache-2.0 -->"
-        },
-        {
-          "type": "text",
           "content": "Promoting the streaming standby when the primary is gone. Read the first Highlight before doing anything — the failure this runbook exists to prevent is reaching for the nightly dump when a standby is seconds behind."
         }
       ]

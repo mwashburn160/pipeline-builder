@@ -21,7 +21,7 @@
  */
 
 import { isOfficialPublisher } from './util.js';
-import { actorId, ConflictError, ErrorCode } from '@pipeline-builder/api-core';
+import { actorId, ConflictError, createLogger, ErrorCode, errorMessage } from '@pipeline-builder/api-core';
 import { incCounter } from '@pipeline-builder/api-server';
 import { type PluginPublishRequest, type Publisher, type PublishRequestStatus } from '@pipeline-builder/pipeline-data';
 
@@ -38,6 +38,8 @@ import { OPEN_STATUSES, plugins, publishers, requests, versions } from './store.
 import { rejectSubmission } from './submission-moderation.js';
 import { assertVerifiedEligible, checkVerifiedEligibility } from './verified-eligibility.js';
 
+
+const logger = createLogger('ecosystem-decisions');
 
 type Req = PluginPublishRequest;
 const payloadOf = (r: Req) => (r.payload ?? {}) as Record<string, unknown>;
@@ -93,6 +95,16 @@ async function executeClaimed(claimed: Req, from: PublishRequestStatus, rollback
     if (current?.status === 'approved') await requests.transition(claimed.id, 'approved', { status: from, ...rollback });
     throw err;
   }
+  // Outside the try: a failed mark must not roll back an execution that ran.
+  // Without the mark the stalled-publish sweep (stalled.ts) would later hand
+  // this request back, so the failure is logged loudly.
+  await markExecuted(claimed.id);
+}
+
+/** Stamp `executedAt` (never throws: the execution already happened). */
+export async function markExecuted(id: string): Promise<void> {
+  await requests.markExecuted(id).catch((err) =>
+    logger.error('Recording a request as executed failed; the stalled-publish sweep may hand it back', { requestId: id, error: errorMessage(err) }));
 }
 
 /**

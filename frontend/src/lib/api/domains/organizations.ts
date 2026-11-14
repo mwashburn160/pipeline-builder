@@ -752,8 +752,27 @@ export function organizationsApi(core: ApiCore) {
         { method: 'DELETE' },
       );
     },
-    listOrgJoinRequests: async (orgId: string, opts?: { signal?: AbortSignal }) => {
-      return core.request<ApiResponse<{ requests: OrgJoinRequestDto[] }>>(`/api/organization/${orgId}/join-requests`, { signal: opts?.signal });
+    /** GET /organization/:id/join-requests — one page of PENDING (default) or
+     *  DENIED domain-join requests, newest first; `hasMore` says another page
+     *  exists at `offset + limit`. */
+    listOrgJoinRequests: async (
+      orgId: string,
+      opts?: { status?: 'pending' | 'denied'; limit?: number; offset?: number; signal?: AbortSignal },
+    ) => {
+      const qs = new URLSearchParams();
+      if (opts?.status) qs.set('status', opts.status);
+      if (opts?.limit !== undefined) qs.set('limit', String(opts.limit));
+      if (opts?.offset) qs.set('offset', String(opts.offset));
+      const query = qs.toString();
+      return core.request<ApiResponse<{ requests: OrgJoinRequestDto[]; hasMore: boolean }>>(
+        `/api/organization/${orgId}/join-requests${query ? `?${query}` : ''}`,
+        { signal: opts?.signal },
+      );
+    },
+    /** DELETE /organization/:id/join-requests/:reqId — clear a DENIED request so
+     *  the person may ask again (404 unless it is a denial). */
+    clearOrgJoinRequest: async (orgId: string, reqId: string) => {
+      return core.request<ApiResponse<{ userId: string }>>(`/api/organization/${orgId}/join-requests/${reqId}`, { method: 'DELETE' });
     },
     decideOrgJoinRequest: async (orgId: string, reqId: string, decision: 'approve' | 'deny') => {
       return core.request<ApiResponse<{ userId: string; status: 'approved' | 'denied' }>>(`/api/organization/${orgId}/join-requests/${reqId}/${decision}`, { method: 'POST' });
@@ -904,7 +923,10 @@ export interface OrgJoinRequestDto {
   id: string;
   userId: string;
   email: string;
+  status: 'pending' | 'denied';
   requestedAt: string;
+  /** When an admin denied it (denied rows only). */
+  decidedAt?: string;
 }
 
 /** One live support contact, as the admin UI lists it. */

@@ -3,7 +3,6 @@
 import { useState, useEffect, lazy, Suspense } from 'react';
 import Link from 'next/link';
 import { Shield, ShieldCheck, CheckCircle, AlertTriangle, XCircle, Activity, Clock, BookOpen, ShieldOff, Scan, Sparkles, FileText, Filter, Bell, ChevronDown, History, SlidersHorizontal } from 'lucide-react';
-import api from '@/lib/api';
 import { Pagination } from '@/components/ui/Pagination';
 import { StatusPill } from '@/components/ui/StatusPill';
 import { Button } from '@/components/ui/Button';
@@ -71,37 +70,11 @@ export default function ComplianceDashboard({ canManage = false }: ComplianceDas
   // Tab lives in the URL: compliance has 10 views across 2 levels, and none of
   // them could be linked, bookmarked or returned to with browser Back.
   const [tab, setTab] = useUrlTab<Tab>('view', COMPLIANCE_TABS, 'overview');
-  const [stats, setStats] = useState({ rules: 0, pass: 0, warn: 0, block: 0 });
-
   // Sub-views for drill-downs
   const [historyRule, setHistoryRule] = useState<{ id: string; name: string } | null>(null);
   const [detailScanId, setDetailScanId] = useState<string | null>(null);
   const [editorRule, setEditorRule] = useState<ComplianceRule | undefined>(undefined);
   const [showEditor, setShowEditor] = useState(false);
-
-  // Pass/warn/block counts come from dedicated `result=` queries that ask
-  // for `limit:1` and read `pagination.total`. We can't derive the totals
-  // from `entries.filter(...).length` because that's only the current page.
-  useEffect(() => {
-    let cancelled = false;
-    const fetchCount = (result: 'pass' | 'warn' | 'block') =>
-      api.getComplianceAuditLog({ result, limit: 1 })
-        .then((res) => (res.success && res.data?.pagination?.total) || 0)
-        .catch(() => 0);
-    void Promise.all([fetchCount('pass'), fetchCount('warn'), fetchCount('block')]).then(
-      ([pass, warn, block]) => {
-        if (cancelled) return;
-        setStats((s) => ({ ...s, pass, warn, block }));
-      },
-    );
-    api.getComplianceRules({ limit: 1 }).then(res => {
-      if (cancelled) return;
-      if (res.success && res.data?.pagination) {
-        setStats(s => ({ ...s, rules: res.data!.pagination!.total }));
-      }
-    }).catch(() => {});
-    return () => { cancelled = true; };
-  }, []);
 
   // Clear sub-views on tab change. NOTE (N37): the RuleHistory view is
   // intentionally only reachable through this gate (rules tab + a selected
@@ -187,7 +160,7 @@ export default function ComplianceDashboard({ canManage = false }: ComplianceDas
       {/* Content */}
       <Suspense fallback={<TabSpinner />}>
         {tab === 'overview' && (
-          <ComplianceOverview stats={stats} onGoToRules={() => setTab('rules')} />
+          <ComplianceOverview onGoToRules={() => setTab('rules')} />
         )}
         {tab === 'rules' && (
           showEditor

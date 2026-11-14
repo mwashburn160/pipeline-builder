@@ -138,6 +138,14 @@ describe('PipelineBuilder', () => {
       expect(tags.some((t: { Key: string }) => t.Key === 'PIPELINE_EVENT_ID')).toBe(false);
     });
 
+    it('puts the drift-audit tags on the CloudFormation STACK, which is what audit stacks reads', () => {
+      const { builder } = build(baseProps({ orgId: 'org-42', pipelineId: 'pl-99' }));
+      // Stack tags (DescribeStacks) come from the stack's own TagManager; a tag
+      // on a child construct never reaches it.
+      const stackTags = Stack.of(builder).tags.tagValues();
+      expect(stackTags).toMatchObject({ 'pipeline-builder': 'true', 'OrgId': 'org-42', 'pb.pipeline-id': 'pl-99' });
+    });
+
     it('platform tags win over a caller trying to redefine them', () => {
       // `Tags.of` lets a later add replace an earlier one, and props.tags used
       // to be applied AFTER the platform tags — so a caller could set

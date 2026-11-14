@@ -9,8 +9,8 @@
  * unscoped `findById` is wired to throw so a regression to it fails loudly.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 import {
@@ -63,12 +63,13 @@ jest.unstable_mockModule('../src/helpers/org-reachability.js', () => ({
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock(routeApiCoreOverrides()));
 jest.unstable_mockModule('@pipeline-builder/api-server', () => routeApiServerMock());
-const mockListOrgCases = jest.fn<AnyFn>(async () => []);
-const mockListQueue = jest.fn<AnyFn>(async () => []);
+const mockListOrgCases = jest.fn<AnyFn>(async () => ({ cases: [], hasMore: false }));
+const mockListQueue = jest.fn<AnyFn>(async () => ({ cases: [], hasMore: false }));
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
   schema: { message: { $inferInsert: {} } },
   listOrgCases: mockListOrgCases,
   listQueue: mockListQueue,
+  SUPPORT_CASE_PAGE_MAX: 1000,
 }));
 
 const { sendBadRequest, sendEntityNotFound, validateQuery, parsePaginationParams } = await import('@pipeline-builder/api-core');
@@ -457,7 +458,7 @@ describe('GET /messages/support/cases', () => {
   });
 
   it('returns the org cases keyed by threadId, the case identity', async () => {
-    mockListOrgCases.mockResolvedValue([CASE] as never);
+    mockListOrgCases.mockResolvedValue({ cases: [CASE], hasMore: false } as never);
     const res = mockRes();
     await handler(mockReq(), res);
     expect(res.status).toHaveBeenCalledWith(200);
@@ -470,7 +471,7 @@ describe('GET /messages/support/cases', () => {
     // assignedTo is internal: the tenant's counterparty is the desk, not a
     // named engineer. `id` is the internal pk — threadId is the identity a
     // tenant uses, so shipping both invites the wrong one being quoted.
-    mockListOrgCases.mockResolvedValue([CASE] as never);
+    mockListOrgCases.mockResolvedValue({ cases: [CASE], hasMore: false } as never);
     const res = mockRes();
     await handler(mockReq(), res);
     const body = (res.json as jest.Mock).mock.calls[0]![0] as { data: { cases: Record<string, unknown>[] } };
@@ -482,7 +483,7 @@ describe('GET /messages/support/cases', () => {
   it('answers with an empty list rather than 404 when the org has no cases', async () => {
     // An org with no cases is the normal state, not a missing resource — and a
     // 404 here would make the inbox treat "no cases yet" as an error.
-    mockListOrgCases.mockResolvedValue([] as never);
+    mockListOrgCases.mockResolvedValue({ cases: [], hasMore: false } as never);
     const res = mockRes();
     await handler(mockReq(), res);
     expect(res.status).toHaveBeenCalledWith(200);
@@ -491,9 +492,19 @@ describe('GET /messages/support/cases', () => {
   });
 
   it('scopes by the caller org, passing no org parameter a caller could forge', async () => {
-    mockListOrgCases.mockResolvedValue([] as never);
+    mockListOrgCases.mockResolvedValue({ cases: [], hasMore: false } as never);
     await handler(mockReq(), mockRes());
-    expect(mockListOrgCases).toHaveBeenCalledWith('org-1');
+    expect(mockListOrgCases).toHaveBeenCalledWith('org-1', {});
+  });
+
+  it('pages: ?limit= and ?cursor= reach the data layer, and hasMore + nextCursor come back', async () => {
+    // It used to stop at 100 with nothing telling the caller there were more.
+    mockListOrgCases.mockResolvedValue({ cases: [CASE], hasMore: true, nextCursor: 'cur-2' } as never);
+    const res = mockRes();
+    await handler({ ...mockReq(), query: { limit: '25', cursor: 'cur-1' } }, res);
+    expect(mockListOrgCases).toHaveBeenCalledWith('org-1', { limit: 25, cursor: 'cur-1' });
+    const body = (res.json as jest.Mock).mock.calls[0]![0] as { data: { hasMore: boolean; nextCursor?: string } };
+    expect(body.data).toMatchObject({ hasMore: true, nextCursor: 'cur-2' });
   });
 });
 
@@ -538,7 +549,7 @@ describe('GET /messages/support/queue', () => {
   it('subtracts time spent awaiting the customer from the wait', async () => {
     // One hour elapsed, 30 minutes of it waiting on the customer -> 30 minutes
     // of OUR time. Reporting 60 would make every case look twice as late.
-    mockListQueue.mockResolvedValue([mk({ awaitingTotalSeconds: 1800 })] as never);
+    mockListQueue.mockResolvedValue({ cases: [mk({ awaitingTotalSeconds: 1800 })], hasMore: false } as never);
     const [r] = await rows();
     expect(r!.waitingSeconds as number).toBeGreaterThanOrEqual(1750);
     expect(r!.waitingSeconds as number).toBeLessThanOrEqual(1850);
@@ -548,10 +559,13 @@ describe('GET /messages/support/queue', () => {
     // `old` arrived first but spent nearly all of it on the customer; `recent`
     // arrived later and has been on us the whole time. Sorting by createdAt
     // would put the wrong one first.
-    mockListQueue.mockResolvedValue([
-      mk({ threadId: 'old', createdAt: new Date(Date.now() - 10 * 3600_000).toISOString(), awaitingTotalSeconds: 9.5 * 3600 }),
-      mk({ threadId: 'recent', createdAt: new Date(Date.now() - 3 * 3600_000).toISOString(), awaitingTotalSeconds: 0 }),
-    ] as never);
+    mockListQueue.mockResolvedValue({
+      cases: [
+        mk({ threadId: 'old', createdAt: new Date(Date.now() - 10 * 3600_000).toISOString(), awaitingTotalSeconds: 9.5 * 3600 }),
+        mk({ threadId: 'recent', createdAt: new Date(Date.now() - 3 * 3600_000).toISOString(), awaitingTotalSeconds: 0 }),
+      ],
+      hasMore: false,
+    } as never);
     expect((await rows()).map((r) => r.threadId)).toEqual(['recent', 'old']);
   });
 
@@ -559,24 +573,24 @@ describe('GET /messages/support/queue', () => {
     // A clock skew or an over-accumulated pause must not produce a case that
     // has been waiting minus two hours, which would sort it to the bottom
     // forever.
-    mockListQueue.mockResolvedValue([mk({ awaitingTotalSeconds: 99999 })] as never);
+    mockListQueue.mockResolvedValue({ cases: [mk({ awaitingTotalSeconds: 99999 })], hasMore: false } as never);
     expect((await rows())[0]!.waitingSeconds).toBe(0);
   });
 
   it('carries the frozen level and the org, so triage sees who is paying', async () => {
-    mockListQueue.mockResolvedValue([mk({ level: 'support_premium', orgId: 'org-9' })] as never);
+    mockListQueue.mockResolvedValue({ cases: [mk({ level: 'support_premium', orgId: 'org-9' })], hasMore: false } as never);
     expect((await rows())[0]).toMatchObject({ level: 'support_premium', orgId: 'org-9' });
   });
 
   it('includes firstResponseAt so "never answered" is distinguishable from "waiting again"', async () => {
     // By age alone those look identical and mean opposite things about whether
     // we are late.
-    mockListQueue.mockResolvedValue([mk({ firstResponseAt: '2026-01-01T00:00:00.000Z' })] as never);
+    mockListQueue.mockResolvedValue({ cases: [mk({ firstResponseAt: '2026-01-01T00:00:00.000Z' })], hasMore: false } as never);
     expect((await rows())[0]!.firstResponseAt).toBe('2026-01-01T00:00:00.000Z');
   });
 
   it('answers an empty list when nothing is open', async () => {
-    mockListQueue.mockResolvedValue([] as never);
+    mockListQueue.mockResolvedValue({ cases: [], hasMore: false } as never);
     expect(await rows()).toEqual([]);
   });
 });
@@ -607,7 +621,7 @@ describe('GET /messages/support/cases/export', () => {
     return res;
   };
   const exportCsv = async (cases: unknown[]) => {
-    mockListOrgCases.mockResolvedValue(cases);
+    mockListOrgCases.mockResolvedValue({ cases, hasMore: false });
     const res = csvRes();
     // `mockReq` rather than `{}`: the route's orgId comes from
     // `context.identity`, which the withRoute stub reads unconditionally.
@@ -690,7 +704,27 @@ describe('GET /messages/support/cases/export', () => {
 
   it('BOUNDS the export, so a file request is not a whole-history scan', async () => {
     await exportCsv([]);
-    expect(mockListOrgCases).toHaveBeenCalledWith('org-1', 5000);
+    expect(mockListOrgCases).toHaveBeenCalledWith('org-1', { limit: 1000 });
+  });
+
+  it('walks every page (past the old silent 100-row cut), and flags a cut at the cap', async () => {
+    const page = Array.from({ length: 1000 }, (_, i) => row({ displayNumber: i }));
+    mockListOrgCases
+      .mockResolvedValueOnce({ cases: page.slice(0, 2), hasMore: true, nextCursor: 'c2' } as never)
+      .mockResolvedValueOnce({ cases: page.slice(2, 3), hasMore: false } as never);
+    const res = csvRes();
+    await handler(mockReq(), res);
+    expect(mockListOrgCases).toHaveBeenLastCalledWith('org-1', { limit: 1000, cursor: 'c2' });
+    expect((res.send.mock.calls[0][0] as string).split('\n')).toHaveLength(4);
+    expect(res.setHeader).not.toHaveBeenCalledWith('X-Export-Truncated', 'true');
+
+    jest.clearAllMocks();
+    mockListOrgCases.mockResolvedValue({ cases: page, hasMore: true, nextCursor: 'more' } as never);
+    const capped = csvRes();
+    await handler(mockReq(), capped);
+    expect(mockListOrgCases).toHaveBeenCalledTimes(5);
+    expect(capped.setHeader).toHaveBeenCalledWith('X-Export-Truncated', 'true');
+    expect((capped.send.mock.calls[0][0] as string).split('\n')).toHaveLength(5001);
   });
 });
 

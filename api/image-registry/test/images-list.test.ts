@@ -15,7 +15,7 @@ import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
-const listRepositories = jest.fn<() => Promise<{ repositories: string[] }>>();
+const listRepositories = jest.fn<(o?: { n?: number; last?: string }) => Promise<{ repositories: string[]; next?: string }>>();
 const listTags = jest.fn<(name: string) => Promise<{ name: string; tags: string[] }>>();
 const getManifest = jest.fn<AnyFn>();
 const isNotFound = (e: unknown): boolean => (e as { response?: { status?: number } })?.response?.status === 404;
@@ -63,6 +63,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 
 const express = (await import('express')).default;
 const { createImageRoutes } = await import('../src/routes/images.js');
+const { encodeCatalogCursor, decodeCatalogCursor } = await import('../src/routes/images/images-list.js');
 
 let server: Server;
 let baseUrl: string;
@@ -143,5 +144,41 @@ describe('GET /api/images/:name/tags', () => {
     const { status } = await getTags('org-acme/boom');
 
     expect(status).toBe(503);
+  });
+});
+
+// The catalog cursor is OPAQUE: Distribution pages by the last repository name,
+// which is frequently one the caller may not read (the page is filtered per org
+// after the registry answers), so `next` must not hand that name out.
+describe('GET /api/images — opaque cursor', () => {
+  const list = async (q = '') => {
+    const res = await fetch(`${baseUrl}/api/images${q}`);
+    return { status: res.status, body: await res.json() as { data?: { repositories: string[]; next?: string } } };
+  };
+
+  it('returns `next` as an opaque cursor, never the raw repository name', async () => {
+    listRepositories.mockResolvedValue({ repositories: ['org-acme/app'], next: 'org-zzz/secret' });
+    const { status, body } = await list('?limit=1');
+    expect(status).toBe(200);
+    expect(body.data!.next).toBe(encodeCatalogCursor('org-zzz/secret'));
+    expect(body.data!.next).not.toContain('org-zzz');
+  });
+
+  it('decodes the cursor sent back into the registry `last`', async () => {
+    listRepositories.mockResolvedValue({ repositories: [] });
+    await list(`?cursor=${encodeURIComponent(encodeCatalogCursor('org-zzz/secret'))}`);
+    expect(listRepositories).toHaveBeenCalledWith(expect.objectContaining({ last: 'org-zzz/secret' }));
+  });
+
+  it('refuses a cursor it did not issue (400), without calling the registry', async () => {
+    const { status } = await list('?cursor=org-zzz/secret');
+    expect(status).toBe(400);
+    expect(listRepositories).not.toHaveBeenCalled();
+  });
+
+  it('round-trips names and rejects a forged payload', () => {
+    expect(decodeCatalogCursor(encodeCatalogCursor('org-a/b.c_d-e/f'))).toBe('org-a/b.c_d-e/f');
+    expect(decodeCatalogCursor(`c1.${Buffer.from('../etc?x=1').toString('base64url')}`)).toBeNull();
+    expect(decodeCatalogCursor('nope')).toBeNull();
   });
 });

@@ -149,3 +149,23 @@ describe('sysadmin tenant selection', () => {
     expect(screen.queryByLabelText('Organizations to read')).not.toBeInTheDocument();
   });
 });
+
+describe('tenant cap note', () => {
+  it('says only the first 99 organizations were read when the search was truncated', async () => {
+    logSearch.mockResolvedValue({ data: { entries: [ENTRY], window: { from: 0, to: 1, clamped: false }, tenantsTruncated: true } });
+    render(<LogsPage />);
+    expect(await screen.findByText(/Showing the first 99 organizations only/)).toBeInTheDocument();
+  });
+
+  it('says so when only the volume read was truncated', async () => {
+    logVolume.mockResolvedValue({ data: { series: [], step: 60, tenantsTruncated: true } });
+    render(<LogsPage />);
+    expect(await screen.findByText(/Showing the first 99 organizations only/)).toBeInTheDocument();
+  });
+
+  it('shows no note when neither read was truncated', async () => {
+    render(<LogsPage />);
+    await screen.findByText('connection refused');
+    expect(screen.queryByText(/first 99 organizations/)).toBeNull();
+  });
+});

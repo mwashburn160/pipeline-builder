@@ -61,6 +61,7 @@ const TENANT_ECOSYSTEM_ROUTES = new Set([
  */
 const ORG_LOCAL_CARVE_OUTS: Record<string, string> = {
   'POST /plugins/:id/yank': 'Yank of the org\'s OWN unlisted version (plugins:write); a LISTED version is refused with PLUGIN_VERSION_FROZEN and can only be yanked by the system org.',
+  'POST /plugins/:id/unyank': 'Unyank of the org\'s OWN unlisted version (plugins:write) — the reversal of the carve-out above; a LISTED version is refused with PLUGIN_VERSION_FROZEN and only the system org unyanks it (two-person, through the ecosystem).',
 };
 
 let table: RouteTableEntry[];

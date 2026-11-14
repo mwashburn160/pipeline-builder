@@ -57,6 +57,20 @@ export type MessageListPaging = {
 
 type MessagePage = ApiResponse<{ messages: Message[]; pagination?: { total: number; limit: number; offset: number; hasMore: boolean } }>;
 
+/**
+ * A support-case list page request: `limit` (server default 100, max 1000) and
+ * `cursor` — the previous page's `nextCursor`, sent back verbatim (it is opaque).
+ */
+export interface SupportCasePageQuery { limit?: number; cursor?: string }
+
+function supportCasePageQs({ limit, cursor }: SupportCasePageQuery): string {
+  const qs = new URLSearchParams();
+  if (limit !== undefined) qs.set('limit', String(limit));
+  if (cursor) qs.set('cursor', cursor);
+  const q = qs.toString();
+  return q ? `?${q}` : '';
+}
+
 export function messagesApi(core: ApiCore) {
   return {
     // ============================================
@@ -376,11 +390,27 @@ export function messagesApi(core: ApiCore) {
       return core.request<ApiResponse<{ id: string }>>(`/api/messages/support/canned/${id}`, { method: 'DELETE' });
     },
 
-    /** The org's own case ledger as CSV — metadata only, never message bodies. */
-    supportCasesExportUrl: () => '/api/messages/support/cases/export',
+    /**
+     * The org's own case ledger as CSV — metadata only, never message bodies.
+     *
+     * Through the client rather than an `<a href>`: the session is a bearer token a
+     * browser navigation would not send (the link 401'd), and the response's
+     * `X-Export-Truncated: true` — the server stopped at its row cap — is only
+     * readable from a scripted request.
+     */
+    exportSupportCases: async () => {
+      const response = await core.requestRaw('/api/messages/support/cases/export', { errorMessage: 'Export failed' });
+      return {
+        blob: await response.blob(),
+        truncated: response.headers.get('X-Export-Truncated') === 'true',
+      };
+    },
 
-    getSupportQueue: async () => {
-      return core.request<ApiResponse<{ cases: SupportQueueRow[] }>>('/api/messages/support/queue');
+    /** The staff queue, longest-waiting first; paged like {@link getSupportCases}. */
+    getSupportQueue: async (page: SupportCasePageQuery = {}) => {
+      return core.request<ApiResponse<{ cases: SupportQueueRow[]; hasMore: boolean; nextCursor?: string }>>(
+        `/api/messages/support/queue${supportCasePageQs(page)}`,
+      );
     },
 
     /**
@@ -409,8 +439,10 @@ export function messagesApi(core: ApiCore) {
      * `assignedTo` is absent by design: which engineer holds a case is internal,
      * and the tenant's counterparty is the support desk, not a named individual.
      */
-    getSupportCases: async () => {
-      return core.request<ApiResponse<{ cases: SupportCaseSummary[] }>>('/api/messages/support/cases');
+    getSupportCases: async (page: SupportCasePageQuery = {}) => {
+      return core.request<ApiResponse<{ cases: SupportCaseSummary[]; hasMore: boolean; nextCursor?: string }>>(
+        `/api/messages/support/cases${supportCasePageQs(page)}`,
+      );
     },
 
     /** List a message's attachment metadata. */

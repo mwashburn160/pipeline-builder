@@ -138,10 +138,12 @@ export const CampaignCreateSchema = z.object({
 /** Schema for editing / ending a campaign (PUT /billing/admin/campaigns/:id). */
 export const CampaignUpdateSchema = z.object({
   name: z.string().min(1).max(200).optional(),
-  budgetCents: z.number().int().min(1).max(100_000_000).optional(),
+  // `null` CLEARS the field: no budget = unlimited, no start = open now, no end
+  // = open-ended. Omitted leaves it as stored.
+  budgetCents: z.number().int().min(1).max(100_000_000).nullable().optional(),
   exclusive: z.boolean().optional(),
-  startsAt: z.string().datetime().optional(),
-  endsAt: z.string().datetime().optional(),
+  startsAt: z.string().datetime().nullable().optional(),
+  endsAt: z.string().datetime().nullable().optional(),
   isActive: z.boolean().optional(),
 });
 

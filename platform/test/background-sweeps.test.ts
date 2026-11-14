@@ -49,6 +49,7 @@ const def = (name: string) => () => ({ name, lockKey: `platform:leader:${name}`,
 jest.unstable_mockModule('../src/services/invitation-reaper.js', () => ({ invitationReaperSweep: def('invitation-reaper') }));
 jest.unstable_mockModule('../src/services/impersonation-reaper.js', () => ({ impersonationReaperSweep: def('impersonation-reaper') }));
 jest.unstable_mockModule('../src/services/org-purge.js', () => ({ orgPurgeSweep: def('org-purge-sweep') }));
+jest.unstable_mockModule('../src/services/alert-delivery-status.js', () => ({ deliveryHealthSweep: def('alert-delivery-health') }));
 let softDeleteScheduler: unknown = fakeScheduler();
 jest.unstable_mockModule('../src/services/soft-delete-purge.js', () => ({
   softDeletePurgeSweep: { name: 'soft-delete-purge', create: () => softDeleteScheduler },
@@ -70,7 +71,7 @@ describe('sweepDefinitions', () => {
   it('lists every sweep when everything is configured', async () => {
     expect((await sweepDefinitions()).map((d) => d.name)).toEqual([
       'audit-local-spool-drain', 'audit-head-export', 'billing-reconcile', 'domain-reverify',
-      'invitation-reaper', 'impersonation-reaper', 'org-purge-sweep', 'soft-delete-purge',
+      'invitation-reaper', 'impersonation-reaper', 'org-purge-sweep', 'soft-delete-purge', 'alert-delivery-health',
     ]);
   });
 
@@ -105,7 +106,7 @@ describe('buildSweep', () => {
 describe('registerBackgroundSweeps', () => {
   it('starts every applicable sweep and returns them for shutdown', async () => {
     const started = await registerBackgroundSweeps();
-    expect(started).toHaveLength(8);
+    expect(started).toHaveLength(9);
     for (const s of started) expect((s as unknown as { start: jest.Mock }).start).toHaveBeenCalledTimes(1);
   });
 
@@ -113,7 +114,7 @@ describe('registerBackgroundSweeps', () => {
     softDeleteScheduler = null;
     failBuild = 'org-purge-sweep';
     const started = await registerBackgroundSweeps();
-    expect(started).toHaveLength(6);
+    expect(started).toHaveLength(7);
     expect(lockedCalls.map((c) => c.name)).toContain('impersonation-reaper');
   });
 });

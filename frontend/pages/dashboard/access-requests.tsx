@@ -82,6 +82,8 @@ function useRequestView(view: ImpersonationListView, enabled: boolean, identity:
       return res.data;
     },
     [enabled, identity, page.offset, page.limit],
+    // Paging. An identity change goes through `_app`'s per-org remount.
+    { keepPreviousData: true },
   );
   const pagination = page.withTotal(q.data?.pagination.total ?? 0);
   return {

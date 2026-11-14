@@ -176,6 +176,12 @@ jest.unstable_mockModule('../src/helpers/session-revocation.js', () => ({
 jest.unstable_mockModule('../src/models/index.js', () => ({
   MfaRecoveryCodes, MfaResetRequest, User, UserOrganization, UserTotp, WebAuthnCredential,
 }));
+// A factor reset is a hard revocation: access keys don't follow tokenVersion,
+// so the reset revokes them explicitly (G7).
+const mockRevokeAllKeys = jest.fn<(...a: unknown[]) => Promise<number>>(async () => 2);
+jest.unstable_mockModule('../src/services/api-key-service.js', () => ({
+  apiKeyService: { revokeAllForUser: (...a: unknown[]) => mockRevokeAllKeys(...a) },
+}));
 
 const svc = await import('../src/services/mfa-recovery.js');
 const { MFA_RESET_GRACE_MAX_HOURS } = await import('../src/helpers/mfa-policy.js');
@@ -256,6 +262,9 @@ describe('resetFactors — what a reset actually does', () => {
     expect(result!.graceUntil.getTime() - before).toBeGreaterThanOrEqual(svc.MFA_RESET_GRACE_DEFAULT_HOURS * 3600_000 - 1000);
     // The stateless services only learn about the bump through the publish.
     expect(mockPublishRevocation).toHaveBeenCalledWith(MEMBER);
+    // …and a key minted by whoever held the account dies with the sessions.
+    expect(mockRevokeAllKeys).toHaveBeenCalledWith(MEMBER);
+    expect(result!.accessKeysRevoked).toBe(2);
   });
 
   it('reports the factors that were NOT present rather than claiming them removed', async () => {

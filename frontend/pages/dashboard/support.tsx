@@ -1,6 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { useState } from 'react';
 import Link from 'next/link';
 import { LifeBuoy } from 'lucide-react';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
@@ -11,10 +12,14 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { RetryError } from '@/components/ui/RetryError';
 import { AccessDenied } from '@/components/ui/AccessDenied';
 import { FeatureLock } from '@/components/ui/FeatureLock';
+import { Button } from '@/components/ui/Button';
+import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useFeatureGate } from '@/hooks/useFeatureGate';
 import { useFetch } from '@/hooks/useFetch';
+import { useCursorPages } from '@/hooks/useCursorPages';
 import api from '@/lib/api';
+import { triggerBlobDownload } from '@/lib/download';
 import { caseStatusLabel, responseTargetLabel } from '@/components/message/MessageList';
 import { SupportCaseRating } from '@/components/message/SupportCaseRating';
 import type { SupportCaseSummary } from '@/types';
@@ -49,15 +54,42 @@ export default function SupportPage() {
   const loaded = standard.isLoaded && priority.isLoaded && premium.isLoaded;
   const entitled = standard.entitled || priority.entitled || premium.entitled;
 
-  const cases = useFetch(async () => {
-    const res = await api.getSupportCases();
-    return res.data?.cases ?? [];
+  // Paged (100 a page): "Load more" sends the server's opaque `nextCursor` back.
+  const cases = useCursorPages<SupportCaseSummary>(async (cursor) => {
+    const res = await api.getSupportCases(cursor ? { cursor } : {});
+    return { items: res.data?.cases ?? [], hasMore: !!res.data?.hasMore, nextCursor: res.data?.nextCursor };
   }, []);
+
+  // The ACCOUNT's one-time incident balance — read whether or not the org holds
+  // a support add-on, because an incident is exactly the door for an org that
+  // holds none. `messages:read` like this page; a team member sees the root's.
+  const incidents = useFetch(async (signal) => {
+    const res = await api.getSupportIncidentBalance({ signal });
+    return res.data?.balance ?? 0;
+  }, []);
+
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
+  const [exportTruncated, setExportTruncated] = useState(false);
+  const exportCases = async () => {
+    setExporting(true);
+    setExportError(null);
+    try {
+      const { blob, truncated } = await api.exportSupportCases();
+      setExportTruncated(truncated);
+      triggerBlobDownload(blob, 'support-cases.csv');
+    } catch (err) {
+      setExportError(err instanceof Error ? err.message : 'Export failed');
+    } finally {
+      setExporting(false);
+    }
+  };
 
   if (accessDenied) return <AccessDenied denial={accessDenied} />;
   if (!isReady) return <LoadingPage />;
 
-  const rows: SupportCaseSummary[] = cases.data ?? [];
+  const rows: SupportCaseSummary[] = cases.rows;
+  const balance = incidents.data ?? 0;
 
   return (
     <DashboardLayout title="Support">
@@ -70,6 +102,7 @@ export default function SupportPage() {
                 an upsell for all three at once would be a choice nobody can
                 make from here. */}
             <FeatureLock flag="support_standard" />
+            {balance > 0 && <IncidentBalance balance={balance} entitled={false} />}
             {/* The carve-out, said out loud. Somebody who lands on a locked
                 page needs to know that a security report or a lockout still
                 reaches us — otherwise the lock reads as "we will not talk to
@@ -86,20 +119,28 @@ export default function SupportPage() {
               <RetryError message="Your support cases could not be loaded" onRetry={cases.refetch} />
             )}
 
-            {/* The ledger as a file. A plain link, not a scripted download:
-                the artifact sandbox aside, a same-origin GET that the browser
-                saves is the simplest thing that works and needs no blob
-                handling. Shown only when there is something to export. */}
+            {balance > 0 && <IncidentBalance balance={balance} entitled />}
+            {incidents.error && (
+              <p className="text-xs text-fg-muted">Your one-time incident balance could not be read right now.</p>
+            )}
+
+            {/* The ledger as a file. A SCRIPTED download, not an `<a href>`: the
+                session is a bearer token a navigation would not carry (the
+                plain link 401'd), and only a scripted read can see the
+                server's X-Export-Truncated header. Shown only when there is
+                something to export. */}
             {rows.length > 0 && (
               <div className="flex justify-end">
-                <a
-                  href={api.supportCasesExportUrl()}
-                  className="text-sm text-info underline"
-                  download
-                >
+                <Button size="sm" variant="secondary" onClick={() => void exportCases()} loading={exporting}>
                   Export cases (CSV)
-                </a>
+                </Button>
               </div>
+            )}
+            <ErrorAlert message={exportError} onDismiss={() => setExportError(null)} />
+            {exportTruncated && (
+              <Callout variant="warning">
+                The export stopped at its row limit, so the file holds your most recent cases only, not every case.
+              </Callout>
             )}
 
             {!cases.error && rows.length === 0 && (
@@ -148,9 +189,41 @@ export default function SupportPage() {
                 )}
               </Card>
             ))}
+
+            {cases.moreError && <RetryError message={cases.moreError} onRetry={() => void cases.loadMore()} />}
+            {cases.hasMore && (
+              <div className="flex justify-center">
+                <Button variant="secondary" size="sm" onClick={() => void cases.loadMore()} loading={cases.loadingMore}>
+                  Load more
+                </Button>
+              </div>
+            )}
           </>
         )}
       </div>
     </DashboardLayout>
+  );
+}
+
+/**
+ * The account's one-time incidents, said where somebody deciding whether they
+ * can get help will see it. Hidden at 0 — a "0 incidents" line reads as a
+ * product nobody here has.
+ *
+ * An incident-opened case is always filed at level `support_incident`, which
+ * has no stated response target, so the line promises none.
+ */
+function IncidentBalance({ balance, entitled }: { balance: number; entitled: boolean }) {
+  const noun = balance === 1 ? 'one-time support incident' : 'one-time support incidents';
+  return (
+    <Callout variant="info">
+      <span data-testid="incident-balance">
+        Your account has {balance} {noun} available.
+      </span>{' '}
+      {entitled
+        ? 'It is spent only when a case cannot be opened through your support contacts.'
+        : <>A support message sent from <Link href="/dashboard/messages" className="underline">Messages</Link> opens a case with one, without a support add-on.</>}
+      {' '}A case opened with an incident has no stated response target.
+    </Callout>
   );
 }

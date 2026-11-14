@@ -141,7 +141,8 @@ describe('DomainJoinSettings', () => {
     render(<DomainJoinSettings orgId="org-1" readOnly />);
 
     expect(await screen.findByText('acme.com')).toBeInTheDocument();
-    expect(screen.getByText('jane@acme.com')).toBeInTheDocument();
+    // Join requests are their own read (JoinRequestsPanel) — it may land later.
+    expect(await screen.findByText('jane@acme.com')).toBeInTheDocument();
     expect(screen.getByLabelText('Delete acme.com')).toBeDisabled();
     expect(screen.getByRole('button', { name: /approve/i })).toBeDisabled();
     expect(screen.getByRole('button', { name: /deny/i })).toBeDisabled();

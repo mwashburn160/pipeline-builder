@@ -8,7 +8,8 @@
  * tokens are not quarantine credentials. Plus the team parent-pull set.
  */
 
-import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { jest, describe, it, expect, beforeEach, afterAll } from '@jest/globals';
+import { OUTSIDE_BLOB_GC_WINDOW_MS } from './helpers/blob-gc-clock.js';
 import jwt from 'jsonwebtoken';
 
 import { apiCoreMock } from './helpers/mock-api-core.js';
@@ -27,6 +28,10 @@ const { mintQuarantineCredential, verifyQuarantineCredential, QUARANTINE_CREDENT
 const { resolveIdentity } = await import('../src/services/auth-resolver.js');
 const { authorizeAndIssue } = await import('../src/services/token-service.js');
 const { setParentPublicPluginsFetcherForTests } = await import('../src/services/parent-public-plugins.js');
+const { setBlobGcClockForTests } = await import('../src/services/blob-gc-window.js');
+// Never read the wall clock: inside the Sunday blob-GC freeze every push would be withheld.
+beforeEach(() => setBlobGcClockForTests(() => OUTSIDE_BLOB_GC_WINDOW_MS));
+afterAll(() => setBlobGcClockForTests());
 
 const SUB = '0f3a2b1c-aaaa-4bbb-8ccc-123456789abc';
 

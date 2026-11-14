@@ -339,3 +339,89 @@ describe('platform reads (live HTTP implementation)', () => {
     expect(await platformReads.httpPlatformReads.approvers('plugins:moderate', { orgIds: ['a', 'a'], userIds: ['u'] })).toBeNull();
   });
 });
+
+// -----------------------------------------------------------------------------
+// P4: claims a pod died holding — `publishing` submissions, `approved` but
+// never-executed requests — are handed back; P5: step failures are visible.
+// -----------------------------------------------------------------------------
+
+describe('stalled-publish recovery', () => {
+  const stalled = () => import('../src/services/ecosystem/stalled.js');
+
+  function submissionRow(over: Record<string, unknown>) {
+    return db.seed('plugin_submissions', {
+      status: 'publishing', name: 'my-linter', version: '1.0.0', expiresAt: new Date(), updatedAt: new Date(), createdAt: new Date(), ...over,
+    });
+  }
+
+  it('records executedAt once an approval\'s execution returns', async () => {
+    seedPublishers(db);
+    const v = await requestsSvc.submit(APPLICANT, { kind: 'verify', application: {} });
+    await decisions.approve(MOD_A, v.request.id, null);
+    await decisions.secondApprove(MOD_B, v.request.id, null);
+    const row = db.tables.plugin_publish_requests!.find((r) => r.id === v.request.id)!;
+    expect(row.status).toBe('approved');
+    expect(row.executedAt).toBeInstanceOf(Date);
+  });
+
+  it('hands back a submission left in `publishing` past the grace period, and only that one', async () => {
+    const now = new Date();
+    const old = submissionRow({ updatedAt: new Date(now.getTime() - 2 * HOUR) });
+    const fresh = submissionRow({ name: 'other', updatedAt: new Date(now.getTime() - 10 * 60_000) });
+
+    const out = await maintenance.runEcosystemMaintenance(now);
+
+    expect(out.stalledSubmissionsRecovered).toBe(1);
+    expect(db.tables.plugin_submissions!.find((r) => r.id === old.id)!.status).toBe('pending_review');
+    expect(db.tables.plugin_submissions!.find((r) => r.id === fresh.id)!.status).toBe('publishing');
+    expect(incCounter).toHaveBeenCalledWith('ecosystem_stalled_publishes_recovered_total', { kind: 'submission' });
+  });
+
+  it('rolls an approved-but-never-executed request back the way its in-process failure would', async () => {
+    const { acme } = seedPublishers(db);
+    const now = new Date();
+    const decided = new Date(now.getTime() - 2 * HOUR);
+    const second = openRequest(acme.id, { status: 'approved', firstApprovedBy: 'mod-a', secondApprovedBy: 'mod-b', decidedBy: 'mod-b', decidedAt: decided, version: '1.0.1' });
+    const single = openRequest(acme.id, { status: 'approved', decidedBy: 'mod-a', decidedAt: decided, version: '1.0.2' });
+    const auto = openRequest(acme.id, { status: 'approved', decidedBy: 'system', decidedAt: decided, version: '1.0.3', payload: { name: 'lint', bootstrap: true } });
+    const done = openRequest(acme.id, { status: 'approved', decidedBy: 'mod-a', decidedAt: decided, executedAt: decided, version: '1.0.4' });
+    const recent = openRequest(acme.id, { status: 'approved', decidedBy: 'mod-a', decidedAt: new Date(now.getTime() - 60_000), version: '1.0.5' });
+
+    const out = await (await stalled()).recoverStalledPublishes(now);
+
+    expect(out.requests).toBe(3);
+    const row = (id: string) => db.tables.plugin_publish_requests!.find((r) => r.id === id)!;
+    expect(row(second.id)).toMatchObject({ status: 'pending_second_approval', firstApprovedBy: 'mod-a', secondApprovedBy: null, decidedBy: null, decidedAt: null });
+    expect(row(single.id)).toMatchObject({ status: 'pending', decidedBy: null, decidedAt: null });
+    expect(row(auto.id)).toMatchObject({ status: 'pending', autoRuleId: null });
+    expect((row(auto.id).payload as Record<string, unknown>).bootstrap).toBeUndefined();
+    expect(row(done.id).status).toBe('approved');
+    expect(row(recent.id).status).toBe('approved');
+  });
+
+  it('samples both kinds as a gauge', async () => {
+    const { acme } = seedPublishers(db);
+    const now = new Date();
+    submissionRow({ updatedAt: new Date(now.getTime() - 2 * HOUR) });
+    openRequest(acme.id, { status: 'approved', decidedBy: 'mod-a', decidedAt: new Date(now.getTime() - 2 * HOUR) });
+
+    await metrics.sampleEcosystemMetrics(now);
+
+    expect(gauge('ecosystem_stalled_publishes', { kind: 'submission' })).toBe(1);
+    expect(gauge('ecosystem_stalled_publishes', { kind: 'request' })).toBe(1);
+  });
+});
+
+describe('ecosystem maintenance failure visibility', () => {
+  it('counts a failed step by name, and the other steps still run', async () => {
+    const subs = await import('../src/services/ecosystem/submissions-store.js');
+    const spy = jest.spyOn(subs.submissions, 'purgeEmails').mockRejectedValueOnce(new Error('db blip') as never);
+    try {
+      const out = await maintenance.runEcosystemMaintenance(new Date());
+      expect(out.failures).toBe(1);
+      expect(incCounter).toHaveBeenCalledWith('ecosystem_maintenance_step_failed_total', { step: 'submitter_email_purge' });
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});

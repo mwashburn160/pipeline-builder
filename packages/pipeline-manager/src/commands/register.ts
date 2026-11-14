@@ -5,7 +5,7 @@ import { errorMessage } from '@pipeline-builder/api-core';
 import { Command } from 'commander';
 import { type Pipeline, type PipelineResponse } from '../types/index.js';
 import { createAuthenticatedClient, printCommandHeader, printSslWarning, withRegionOption, withSslOptions } from '../utils/command-utils.js';
-import { ERROR_CODES, handleError } from '../utils/error-handler.js';
+import { ERROR_CODES, reportError } from '../utils/error-handler.js';
 import { printError, printInfo, printKeyValue, printSection, printSuccess, printWarning } from '../utils/output-utils.js';
 import {
   buildRegistryPayload,
@@ -147,9 +147,8 @@ export function register(program: Command): void {
 
         process.exit(anyFailed ? 1 : 0);
       } catch (error) {
-        handleError(error, ERROR_CODES.API_REQUEST, {
+        reportError(error, ERROR_CODES.API_REQUEST, {
           debug: program.opts().debug,
-          exit: false,
           context: { command: 'register', executionId, pipelineId: options.id },
         });
         process.exit(1);

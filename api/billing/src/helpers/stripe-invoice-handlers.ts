@@ -7,7 +7,7 @@
  * request user, so billing events carry no actorId.
  */
 
-import { createLogger } from '@pipeline-builder/api-core';
+import { createLogger, errorMessage, sendSystemNotification } from '@pipeline-builder/api-core';
 import type Stripe from 'stripe';
 import { createBillingEvent, calculatePeriodEnd, recordReactivatePlanMissing } from './billing-helpers.js';
 import { ingestStripeInvoice } from './billing-ledger.js';
@@ -69,84 +69,97 @@ export async function handlePaymentSucceeded(invoice: Stripe.Invoice, event: Str
     logger.warn('No subscription found for successful payment', { stripeSubscriptionId });
     return;
   }
-  if (!(await acceptStripeEvent(subscription, event, 'invoice.payment_succeeded'))) return;
+  // The ordering watermark gates only the LIFECYCLE fields (status / period /
+  // grace / dunning marker): an older payment_succeeded must not re-open or roll
+  // back state a newer `customer.subscription.*` event already applied. The
+  // per-INVOICE effects below (discount reconcile, promo re-grant, ledger ingest,
+  // referral credit) always run — each is idempotent on its own key (invoice id,
+  // billing period, invoice `created` for the balance mirror, referral status) —
+  // because nothing else backfills them: skipping them on a stale delivery lost
+  // the dashboard actuals and the usage-credit draw-down for good.
+  const inOrder = await acceptStripeEvent(subscription, event, 'invoice.payment_succeeded');
 
   const previousStatus = subscription.status;
-  // A paid invoice settles the sub whether it was in dunning (`past_due`) or had
-  // never settled (`incomplete` — card decline / 3DS / in-app create with no
-  // card). Both must come back entitled here: Stripe's `.updated`→active can
-  // arrive later or (being unordered) be skipped as older, and an `incomplete`
-  // row that stayed so would leave a PAYING org on developer.
-  const wasRecovery = previousStatus === 'past_due';
-  const wasSettle = previousStatus === 'incomplete';
-
-  // Reset grace period state
-  subscription.failedPaymentAttempts = 0;
-  subscription.firstFailedAt = undefined;
-
-  // Advance billing period using the invoice line's period so our window
-  // tracks Stripe exactly (handles proration, mid-period plan changes,
-  // and timezone drift that wall-clock would lose).
-  const linePeriod = invoice.lines?.data?.[0]?.period;
-  if (linePeriod?.start && linePeriod?.end) {
-    subscription.currentPeriodStart = new Date(linePeriod.start * 1000);
-    subscription.currentPeriodEnd = new Date(linePeriod.end * 1000);
-  } else {
-    subscription.currentPeriodStart = new Date();
-    subscription.currentPeriodEnd = calculatePeriodEnd(subscription.currentPeriodStart, subscription.interval);
-  }
-
-  // Restore active status if recovering from past_due
-  if (wasRecovery) {
-    subscription.status = 'active';
-
-    // Clear the grace-period downgrade dedupe marker so a FUTURE lapse can
-    // re-downgrade (the lifecycle cron excludes rows that still carry it).
-    if (subscription.metadata?.gracePeriodDowngradedAt) {
-      const { gracePeriodDowngradedAt: _cleared, ...rest } = subscription.metadata;
-      subscription.metadata = rest;
-    }
-
-    // Re-upgrade to their plan's tier, preserving purchased add-on grants.
-    const plan = await Plan.findById(subscription.planId);
-    if (plan) {
-      await syncEntitlements(subscription.orgId, plan.tier, '', subscription._id.toString(), subscription.addons ?? []);
-    } else {
-      // planId points at a deleted/missing plan: the sub recovers to an entitled
-      // status but we can't resolve a tier to re-grant — without this branch the
-      // re-upgrade silently no-ops. Surface it (WARN + audit row + metric) so
-      // support can repair the dangling planId. The payment_succeeded row below
-      // still records the recovery; this adds the plan-missing signal.
-      logger.warn('Payment recovery could not re-upgrade — subscription plan not found', {
-        orgId: subscription.orgId, stripeSubscriptionId, planId: subscription.planId,
-      });
-      await recordReactivatePlanMissing(subscription.orgId, subscription._id.toString(), 'stripe_webhook', {
-        provider: 'stripe', planId: subscription.planId,
-      });
-    }
-  }
-
-  // First settle out of `incomplete`: go active, consume any stashed referral code,
-  // and (post-save, below) grant the tier + the signup promotions the create path
-  // withheld — the same grant the `.updated` crossing performs.
+  let wasRecovery = false;
+  let wasSettle = false;
   let settleReferralCode: string | undefined;
-  if (wasSettle) {
-    subscription.status = 'active';
-    settleReferralCode = subscription.metadata?.pendingReferralCode as string | undefined;
-    if (settleReferralCode) {
-      const { pendingReferralCode: _consumed, ...rest } = subscription.metadata ?? {};
-      subscription.metadata = rest;
+
+  if (inOrder) {
+    // A paid invoice settles the sub whether it was in dunning (`past_due`) or had
+    // never settled (`incomplete` — card decline / 3DS / in-app create with no
+    // card). Both must come back entitled here: Stripe's `.updated`→active can
+    // arrive later or (being unordered) be skipped as older, and an `incomplete`
+    // row that stayed so would leave a PAYING org on developer.
+    wasRecovery = previousStatus === 'past_due';
+    wasSettle = previousStatus === 'incomplete';
+
+    // Reset grace period state
+    subscription.failedPaymentAttempts = 0;
+    subscription.firstFailedAt = undefined;
+
+    // Advance billing period using the invoice line's period so our window
+    // tracks Stripe exactly (handles proration, mid-period plan changes,
+    // and timezone drift that wall-clock would lose).
+    const linePeriod = invoice.lines?.data?.[0]?.period;
+    if (linePeriod?.start && linePeriod?.end) {
+      subscription.currentPeriodStart = new Date(linePeriod.start * 1000);
+      subscription.currentPeriodEnd = new Date(linePeriod.end * 1000);
+    } else {
+      subscription.currentPeriodStart = new Date();
+      subscription.currentPeriodEnd = calculatePeriodEnd(subscription.currentPeriodStart, subscription.interval);
+    }
+
+    // Restore active status if recovering from past_due
+    if (wasRecovery) {
+      subscription.status = 'active';
+
+      // Clear the grace-period downgrade dedupe marker so a FUTURE lapse can
+      // re-downgrade (the lifecycle cron excludes rows that still carry it).
+      if (subscription.metadata?.gracePeriodDowngradedAt) {
+        const { gracePeriodDowngradedAt: _cleared, ...rest } = subscription.metadata;
+        subscription.metadata = rest;
+      }
+
+      // Re-upgrade to their plan's tier, preserving purchased add-on grants.
+      const plan = await Plan.findById(subscription.planId);
+      if (plan) {
+        await syncEntitlements(subscription.orgId, plan.tier, '', subscription._id.toString(), subscription.addons ?? []);
+      } else {
+        // planId points at a deleted/missing plan: the sub recovers to an entitled
+        // status but we can't resolve a tier to re-grant — without this branch the
+        // re-upgrade silently no-ops. Surface it (WARN + audit row + metric) so
+        // support can repair the dangling planId. The payment_succeeded row below
+        // still records the recovery; this adds the plan-missing signal.
+        logger.warn('Payment recovery could not re-upgrade — subscription plan not found', {
+          orgId: subscription.orgId, stripeSubscriptionId, planId: subscription.planId,
+        });
+        await recordReactivatePlanMissing(subscription.orgId, subscription._id.toString(), 'stripe_webhook', {
+          provider: 'stripe', planId: subscription.planId,
+        });
+      }
+    }
+
+    // First settle out of `incomplete`: go active, consume any stashed referral code,
+    // and (post-save, below) grant the tier + the signup promotions the create path
+    // withheld — the same grant the `.updated` crossing performs.
+    if (wasSettle) {
+      subscription.status = 'active';
+      settleReferralCode = subscription.metadata?.pendingReferralCode as string | undefined;
+      if (settleReferralCode) {
+        const { pendingReferralCode: _consumed, ...rest } = subscription.metadata ?? {};
+        subscription.metadata = rest;
+      }
     }
   }
 
   // Reconcile discounts against this settled invoice (Stripe = source of truth):
   // draw the usage-credit mirror down from the customer balance and re-grant a
-  // recurring discount. Price-only; mutates the sub in place before the save below.
+  // recurring discount. Atomic writes, ordered per invoice — never via the save below.
   await reconcileDiscountsOnInvoice(subscription, invoice);
 
   // Re-grant standing RECURRING promotions for the period this invoice opens
-  // (period-keyed on the invoice id; in-memory, persisted by the save below).
-  // Fail-soft — a promo error must never fail the payment webhook.
+  // (period-keyed, so a redelivery dedupes). Fail-soft — a promo error must never
+  // fail the payment webhook.
   try {
     // Atomic: persist promo credits with guarded $push/$inc, NOT via the full-doc
     // save below — so a concurrent redemption's credit write on the same ledger
@@ -159,8 +172,8 @@ export async function handlePaymentSucceeded(invoice: Stripe.Invoice, event: Str
   // The credit reconciliation + promo re-grant above wrote atomically and did NOT
   // touch the in-memory doc, so this save() persists only the lifecycle fields this
   // handler set (status / period / grace / metadata) — it can't clobber a
-  // concurrent credit-ledger write.
-  await subscription.save();
+  // concurrent credit-ledger write. A stale event set none, so it saves nothing.
+  if (inOrder) await subscription.save();
 
   if (wasSettle) {
     await grantOnBecomingEntitled(subscription, null, { previousStatus, referralCode: settleReferralCode });
@@ -179,6 +192,7 @@ export async function handlePaymentSucceeded(invoice: Stripe.Invoice, event: Str
     invoiceId: invoice.id,
     stripeSubscriptionId,
     recovered: wasRecovery || wasSettle,
+    ...(inOrder ? {} : { outOfOrder: true }),
   }, subscription._id.toString());
 
   // Referral (phase 2c): a paid invoice is the QUALIFYING event — if this org was
@@ -194,6 +208,7 @@ export async function handlePaymentSucceeded(invoice: Stripe.Invoice, event: Str
     orgId: subscription.orgId,
     stripeSubscriptionId,
     recovered: wasRecovery,
+    outOfOrder: !inOrder,
     periodEnd: subscription.currentPeriodEnd.toISOString(),
   });
 }
@@ -237,11 +252,19 @@ export async function handlePaymentFailed(invoice: Stripe.Invoice, event: Stripe
   subscription.failedPaymentAttempts = (subscription.failedPaymentAttempts || 0) + 1;
 
   // Record the first failure time (starts the grace period clock)
-  if (!subscription.firstFailedAt) {
-    subscription.firstFailedAt = new Date();
-  }
+  const firstOfLapse = !subscription.firstFailedAt;
+  const firstFailedAt = subscription.firstFailedAt ?? new Date();
+  subscription.firstFailedAt = firstFailedAt;
 
   await subscription.save();
+
+  // Tell the org in-app, ONCE per lapse (the first failure). Stripe's customer
+  // dunning mail is a Dashboard toggle that may be off, and it can't state OUR
+  // deadline — the grace-period downgrade is ours. The downgrade itself sends its
+  // own notice, so this is the early warning, not the only one.
+  if (firstOfLapse) {
+    await notifyPaymentFailed(subscription.orgId, firstFailedAt);
+  }
 
   // Note: Tier downgrade is NOT immediate — it happens when the grace period
   // expires, checked by startSubscriptionLifecycleChecker() in index.ts.
@@ -260,7 +283,34 @@ export async function handlePaymentFailed(invoice: Stripe.Invoice, event: Stripe
     orgId: subscription.orgId,
     stripeSubscriptionId,
     failedAttempts: subscription.failedPaymentAttempts,
-    firstFailedAt: subscription.firstFailedAt.toISOString(),
+    firstFailedAt: firstFailedAt.toISOString(),
     gracePeriodDays: config.paymentGracePeriodDays,
   });
+}
+
+/**
+ * The first-failure dunning notice. Best-effort: the payment state is already
+ * saved, a webhook retry would not re-send (the lapse is no longer "first"), and
+ * the grace-period downgrade notice is the alerted backstop — so a miss is
+ * logged, never thrown.
+ */
+async function notifyPaymentFailed(orgId: string, firstFailedAt: Date): Promise<void> {
+  const deadline = new Date(firstFailedAt.getTime() + config.paymentGracePeriodDays * 86_400_000);
+  const day = deadline.toISOString().slice(0, 10);
+  try {
+    const delivered = await sendSystemNotification({
+      recipientOrgId: orgId,
+      subject: 'Payment failed — update your payment method',
+      content: 'We could not collect your latest payment.\n\n'
+        + `Your plan stays active until ${day} (UTC). If the payment still has not gone through by then, `
+        + 'the organization moves to the Developer plan: paid seats and every add-on are removed and '
+        + 'the Developer limits apply.\n\n'
+        + 'Update your payment method from billing settings to keep your plan. Pipelines, plugins and '
+        + 'data are not affected either way.',
+      priority: 'high',
+    }, { service: config.messageService });
+    if (!delivered) logger.warn('Payment-failed notice not delivered', { orgId });
+  } catch (err) {
+    logger.warn('Payment-failed notice failed', { orgId, error: errorMessage(err) });
+  }
 }

@@ -19,7 +19,7 @@ import { DUPLICATE_CREDENTIALS, MFA_REQUIRED_FOR_ORG, RESERVED_ORG_NAME, ONBOARD
 import { provisionBillingSubscription } from '../services/billing-provision.js';
 import { auditService, authService } from '../services/index.js';
 import { INVITATION_ACCEPT_ERRORS } from '../services/invitation-errors.js';
-import { JOIN_NOT_ELIGIBLE, JOIN_SEAT_LIMIT } from '../services/org-domain-errors.js';
+import { JOIN_NOT_ELIGIBLE, JOIN_REQUEST_NOT_FOUND, JOIN_SEAT_LIMIT } from '../services/org-domain-errors.js';
 import { signInAuth } from '../services/session/access-tokens.js';
 import { hashRefreshToken, renewSessionTokens } from '../services/session/refresh-sessions.js';
 import type { AccessTokenPayload } from '../types/index.js';
@@ -219,6 +219,22 @@ export const joinDomainOrg = withController('Join domain org', async (req, res) 
 }, {
   [JOIN_NOT_ELIGIBLE]: { status: 403, message: 'You are not eligible to join that organization' },
   [JOIN_SEAT_LIMIT]: { status: 409, message: 'That organization has no seats available' },
+});
+
+/**
+ * DELETE /auth/onboarding/join/:orgId — the requester withdraws their own
+ * PENDING domain-join request. (Its status is already shown to them on
+ * GET /auth/onboarding/domain-orgs as `requestStatus`.)
+ */
+export const withdrawDomainJoinRequest = withController('Withdraw domain join request', async (req, res) => {
+  if (!ensureAuthenticated(req, res)) return;
+  const orgId = String(req.params.orgId ?? '');
+  const { orgDomainService } = await import('../services/org-domain-service.js');
+  await orgDomainService.withdrawJoinRequest(req.user.sub, orgId);
+  audit(req, 'org.join.withdraw', { targetType: 'user', targetId: req.user.sub, affectedOrgId: orgId });
+  sendSuccess(res, 200, undefined, 'Join request withdrawn');
+}, {
+  [JOIN_REQUEST_NOT_FOUND]: { status: 404, message: 'No pending join request for that organization' },
 });
 
 /**

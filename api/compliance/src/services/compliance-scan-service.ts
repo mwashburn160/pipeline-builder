@@ -41,19 +41,15 @@ class ComplianceScanService {
   }
 
   /**
-   * Create a pending scan record. A scan always evaluates the row's own
-   * `orgId` — the executor never reads `filter`, which is only RECORDED (and
-   * stamped with the caller's orgId so the stored row cannot name another
-   * tenant). It does not narrow what the scan evaluates.
+   * Create a pending scan record. A scan always evaluates every `target` entity
+   * of the row's own `orgId` — there is no partial scan.
    */
   async create(
     orgId: string,
     userId: string,
     target: ComplianceScanTarget,
-    rawFilter: Record<string, unknown> | undefined,
     isDryRun: boolean,
   ) {
-    const filter = rawFilter ? { ...rawFilter, orgId } : null;
     const triggeredBy: ComplianceScanTrigger = isDryRun ? 'rule-dry-run' : 'manual';
 
     const [scan] = await withTenantTx(async (tx) => tx
@@ -61,7 +57,6 @@ class ComplianceScanService {
       .values({
         orgId,
         target,
-        filter,
         status: 'pending',
         triggeredBy,
         userId,

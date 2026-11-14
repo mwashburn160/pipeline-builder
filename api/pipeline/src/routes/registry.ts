@@ -10,12 +10,14 @@ import {
   errorMessage,
   extractDbError,
   getParam,
+  isSystemAdmin,
   parsePaginationParams,
   TOOLCHAIN_RESOLVED_VIA,
   requirePermission,
   validateBody,
   audited,
   actorId,
+  dynamicAuthz,
   recordAudit,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
@@ -70,14 +72,32 @@ const PipelineRegistrySchema = z.object({
  *   Used by the dashboard's "deployed pipelines" panel and by drift-detection
  *   tools (the `pipeline-manager audit stacks` CLI joins this against live
  *   CloudFormation stacks tagged `pipeline-builder` to surface orphans).
+ *   Query: `limit` (default 10, max MAX_PAGE_LIMIT) + `offset` page the list —
+ *   a caller pages until `pagination.hasMore` is false; the order is
+ *   `lastDeployed DESC, id ASC`, total and stable. `orgId` names the org to list:
+ *   omitted or equal to the caller's org lists the caller's own rows; any OTHER
+ *   org is honoured only for a system admin (cross-org drift audits from the
+ *   system org) and answers 403 for everyone else, so a tenant cannot read
+ *   another org's deployments by guessing an id.
  */
 export function createRegistryRoutes(): Router {
   const router = Router();
 
-  router.get('/registry', requirePermission('pipelines:read'), withRoute(async ({ req, res, ctx, orgId }) => {
+  // The org the list reads is resolved per request (?orgId=), so the rule is declared.
+  const registryReadAuthz = dynamicAuthz(
+    'the caller\'s own org; another org named by ?orgId= only for the superadmin flag',
+    { reachableBy: ['tenant-member', 'superadmin'] },
+  );
+
+  router.get('/registry', requirePermission('pipelines:read'), registryReadAuthz, withRoute(async ({ req, res, ctx, orgId }) => {
     const { limit, offset } = parsePaginationParams(req.query as Record<string, unknown>);
-    const { rows, total } = await pipelineRegistryService.list(orgId, limit, offset);
-    ctx.log('COMPLETED', 'Listed pipeline registry', { count: rows.length });
+    const requested = typeof req.query.orgId === 'string' ? req.query.orgId.trim().toLowerCase() : '';
+    const targetOrgId = requested || orgId;
+    if (targetOrgId !== orgId && !isSystemAdmin(req)) {
+      return sendError(res, 403, 'Only a system admin may list another organization\'s registry.', ErrorCode.INSUFFICIENT_PERMISSIONS);
+    }
+    const { rows, total } = await pipelineRegistryService.list(targetOrgId, limit, offset);
+    ctx.log('COMPLETED', 'Listed pipeline registry', { count: rows.length, ...(targetOrgId !== orgId && { targetOrgId }) });
     return sendPaginatedNested(res, 'registry', rows, {
       total, limit, offset,
     });

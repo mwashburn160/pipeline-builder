@@ -5,7 +5,7 @@
  * Tests for POST /pipelines/registry endpoint.
  */
 
-import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 import { type AnyFn, drizzleMock, stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -24,6 +24,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendError: jest.fn<AnyFn>(),
   sendPaginatedNested: jest.fn<AnyFn>(),
   getParam: (p: any, k: string) => p[k],
+  isSystemAdmin: (req: any) => req.user?.isSuperAdmin === true,
   parsePaginationParams: (_q: unknown) => ({ limit: 50, offset: 0 }),
   validateBody: (req: any, schema: any) => {
     const result = schema.safeParse(req.body);
@@ -778,5 +779,51 @@ describe('findRegistrationStatus', () => {
     expect(await pipelineRegistryService.findRegistrationStatus('p-1', 'org-1')).toEqual({
       registered: true, lastDeployed: null, stackName: null, region: null,
     });
+  });
+});
+
+/**
+ * GET /pipelines/registry — the `pipeline-manager audit stacks` contract. The CLI
+ * pages with limit/offset until `pagination.hasMore` is false and may name an org
+ * with `orgId`; another org is honoured only for a system admin.
+ */
+describe('GET /pipelines/registry', () => {
+  let listSpy: jest.SpiedFunction<typeof pipelineRegistryService.list>;
+  const handler = (): ((req: unknown, res: unknown) => Promise<void>) => {
+    const stack: any[] = (createRegistryRoutes().stack.find(
+      (l: any) => l.route?.path === '/registry' && l.route?.methods?.get,
+    ) as any).route.stack;
+    return stack[stack.length - 1].handle;
+  };
+  const res = () => ({ status: jest.fn<AnyFn>().mockReturnThis(), json: jest.fn<AnyFn>() });
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    listSpy = jest.spyOn(pipelineRegistryService, 'list').mockResolvedValue({ rows: [{ id: 'r1' }] as never, total: 120 });
+  });
+  afterEach(() => listSpy.mockRestore());
+
+  it('lists the caller\'s own org, paged, under data.registry', async () => {
+    const r = res();
+    await handler()({ query: {}, user: {} }, r);
+    expect(listSpy).toHaveBeenCalledWith('acme', 50, 0);
+    expect(sendPaginatedNested).toHaveBeenCalledWith(r, 'registry', [{ id: 'r1' }], { total: 120, limit: 50, offset: 0 });
+  });
+
+  it('accepts the caller\'s own org named explicitly (case-insensitive)', async () => {
+    await handler()({ query: { orgId: ' ACME ' }, user: {} }, res());
+    expect(listSpy).toHaveBeenCalledWith('acme', 50, 0);
+  });
+
+  it('refuses another org for a non-admin with 403 and reads nothing', async () => {
+    const r = res();
+    await handler()({ query: { orgId: 'other' }, user: { isSuperAdmin: false } }, r);
+    expect(sendError).toHaveBeenCalledWith(r, 403, expect.any(String), 'INSUFFICIENT_PERMISSIONS');
+    expect(listSpy).not.toHaveBeenCalled();
+  });
+
+  it('honours another org for a system admin', async () => {
+    await handler()({ query: { orgId: 'other' }, user: { isSuperAdmin: true } }, res());
+    expect(listSpy).toHaveBeenCalledWith('other', 50, 0);
   });
 });

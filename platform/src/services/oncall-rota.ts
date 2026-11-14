@@ -23,7 +23,7 @@
  */
 
 import { createLogger, fetchRotaCoverage, onCallInboundConfig } from '@pipeline-builder/api-core';
-import { incCounter, setGauge } from '@pipeline-builder/api-server';
+import { incCounter, setGauge } from '../observability/metrics.js';
 
 const logger = createLogger('oncall-rota');
 

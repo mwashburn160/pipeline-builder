@@ -29,6 +29,7 @@ const api = {
   previewPluginUpgrades: jest.fn<AnyFn>(),
   applyPluginUpgrades: jest.fn<AnyFn>(),
   getPipelineSecurityReports: jest.fn<AnyFn>(),
+  deletePipelineSecurityReport: jest.fn<AnyFn>(),
   listKeptSetupImages: jest.fn<AnyFn>(),
   promoteKeptSetupImage: jest.fn<AnyFn>(),
 };
@@ -319,11 +320,67 @@ describe('ArtifactSecurityReportsCard', () => {
       counts,
       latestAt: '2026-11-01T00:00:00Z',
     }));
-    render(<ArtifactSecurityReportsCard pipelineId="p1" />);
+    render(<ArtifactSecurityReportsCard pipelineId="p1" canWrite />);
     const table = await screen.findByTestId('artifact-security-reports');
     expect(table).toHaveTextContent('grype');
     expect(table).toHaveTextContent('CVE-2026-9');
     expect(within(table).getAllByText('1 KEV').length).toBeGreaterThan(0);
+  });
+
+  const counts0 = { critical: 0, high: 1, medium: 0, low: 0, kev: 0, criticalFixable: 0, highFixable: 0 };
+  const report = (id: string, tool: string, stage: string) => ({
+    id, pipelineId: 'p1', tool, format: 'sarif', stage, executionId: null, counts: counts0, findings: [], truncated: false,
+    submittedBy: 'u1', createdAt: '2026-11-01T00:00:00Z',
+  });
+  const twoReports = () => ok({
+    pipelineId: 'p1', reports: [report('r1', 'grype', 'build'), report('r2', 'semgrep', '')], counts: counts0, latestAt: '2026-11-01T00:00:00Z',
+  });
+
+  it('removes one slot after a confirm — stage sent only when the slot has one — and re-reads', async () => {
+    api.getPipelineSecurityReports.mockReturnValue(twoReports());
+    api.deletePipelineSecurityReport.mockReturnValue(ok({ pipelineId: 'p1', tool: 'semgrep', stage: '', removed: 'r2' }));
+    render(<ArtifactSecurityReportsCard pipelineId="p1" canWrite />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Remove semgrep report' }));
+    expect(screen.getByText(/\(no stage\)/)).toBeInTheDocument();
+    expect(api.deletePipelineSecurityReport).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Remove report' }));
+    await waitFor(() => expect(api.deletePipelineSecurityReport).toHaveBeenCalledWith('p1', { tool: 'semgrep', stage: undefined }));
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Removed the semgrep report'));
+    expect(api.getPipelineSecurityReports).toHaveBeenCalledTimes(2);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove grype build report' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Remove report' }));
+    await waitFor(() => expect(api.deletePipelineSecurityReport).toHaveBeenLastCalledWith('p1', { tool: 'grype', stage: 'build' }));
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Removed the grype report for build'));
+  });
+
+  it('a refused remove keeps the dialog and toasts the reason; cancel closes it', async () => {
+    api.getPipelineSecurityReports.mockReturnValue(twoReports());
+    api.deletePipelineSecurityReport.mockReturnValue(Promise.reject(new ApiError('Security report not found', 404, 'NOT_FOUND')));
+    render(<ArtifactSecurityReportsCard pipelineId="p1" canWrite />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Remove grype build report' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Remove report' }));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Security report not found'));
+    expect(screen.getByRole('button', { name: 'Remove report' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Remove report' })).toBeNull());
+  });
+
+  it('an unsuccessful envelope is a failure too', async () => {
+    api.getPipelineSecurityReports.mockReturnValue(twoReports());
+    api.deletePipelineSecurityReport.mockReturnValue(Promise.resolve({ success: false, message: 'nope' }));
+    render(<ArtifactSecurityReportsCard pipelineId="p1" canWrite />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Remove grype build report' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Remove report' }));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('nope'));
+  });
+
+  it('a read-only viewer sees Remove disabled with the reason', async () => {
+    api.getPipelineSecurityReports.mockReturnValue(twoReports());
+    render(<ArtifactSecurityReportsCard pipelineId="p1" canWrite={false} />);
+    const btn = await screen.findByRole('button', { name: 'Remove grype build report' });
+    expect(btn).toBeDisabled();
+    expect(btn).toHaveAttribute('title', 'Requires pipelines:write');
   });
 });
 

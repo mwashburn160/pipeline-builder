@@ -150,7 +150,13 @@ jest.unstable_mockModule('../src/helpers/retention-cap.js', () => ({
 // to it (publish) and where a confirmation token goes (recipients) are asserted.
 jest.unstable_mockModule('../src/services/report-delivery.js', () => ({
   emailAvailable: () => Promise.resolve(true),
-  deliverPublishedRun: (...a: unknown[]) => mockDeliver(...a),
+  deliverAndRecord: (...a: unknown[]) => mockDeliver(...a),
+  DELIVERY_STALE_MS: 15 * 60 * 1000,
+  // The two record readers are pure; the suite drives them through stored records.
+  recordedDelivery: (r: { delivery?: { state?: unknown; delivered?: unknown } | null }) =>
+    (r.delivery && typeof r.delivery.state === 'string' && r.delivery.delivered ? r.delivery : null),
+  deliveryIncomplete: (o: { state: string; inApp: number; relayFailed: boolean; email: { failed: number }; destinations: { failed: number } }) =>
+    o.state === 'failed' || o.inApp === 0 || o.relayFailed || o.email.failed > 0 || o.destinations.failed > 0,
   sendRecipientConfirmation: (...a: unknown[]) => mockSendConfirmation(...a),
 }));
 
@@ -773,30 +779,109 @@ describe('stakeholder report routes', () => {
      * delivers only runs it auto-publishes itself — so a publish that did not hand the
      * run to delivery told the lead "N recipients will receive it" and sent nothing.
      */
-    it('a real publish delivers the run and records the outcome on it', async () => {
+    it('a real publish hands the run to deliver-and-record (which records + notifies)', async () => {
       const published = run({ status: 'published', publishedAt: NOW });
       const def = definition({ recipients: ['rec-1'] });
       store.publishRun.mockResolvedValue({ run: published, alreadyPublished: false });
       store.getDefinition.mockResolvedValue(def);
       store.getRecipients.mockResolvedValue([recipient()]);
       store.deliverability.mockReturnValue({ deliverable: true });
-      const outcome = { inApp: 1, email: { sent: 1, failed: 0, skipped: 0 }, destinations: { delivered: 0, failed: 0 }, emailAvailable: true, notes: [] };
-      mockDeliver.mockResolvedValue(outcome);
+      mockDeliver.mockResolvedValue({ state: 'delivered' });
       await call('/runs/:id/publish', 'post', { params: { id: 'run-1' } });
       // Detached from the request: let the delivery promise settle.
       await new Promise((r) => setImmediate(r));
       expect(mockDeliver).toHaveBeenCalledWith(def, published);
-      expect(store.recordDelivery).toHaveBeenCalledWith('acme', 'run-1', outcome);
     });
 
     it('a failed delivery never fails the publish that already landed', async () => {
       store.publishRun.mockResolvedValue({ run: run({ status: 'published' }), alreadyPublished: false });
       store.getDefinition.mockResolvedValue(definition());
-      mockDeliver.mockRejectedValue(new Error('relay down'));
+      mockDeliver.mockResolvedValue({ state: 'failed' });
       await call('/runs/:id/publish', 'post', { params: { id: 'run-1' } });
       await new Promise((r) => setImmediate(r));
       expect(payload().alreadyPublished).toBe(false);
-      expect(store.recordDelivery).not.toHaveBeenCalled();
+    });
+
+    it('the run view returns the recorded DELIVERY outcome', async () => {
+      const delivery = {
+        state: 'failed',
+        attempts: 1,
+        attemptedAt: NOW.toISOString(),
+        inApp: 1,
+        email: { sent: 2, failed: 1, skipped: 0 },
+        destinations: { delivered: 0, failed: 0 },
+        emailAvailable: true,
+        relayFailed: false,
+        delivered: { recipientIds: ['rec-1', 'rec-2'], destinationIds: [] },
+        notes: ['One recipient address has now bounced 3 times and will be skipped.'],
+      };
+      store.requireRun.mockResolvedValue(run({ status: 'published', publishedAt: NOW, delivery }));
+      store.getRun.mockResolvedValue(run({ status: 'published', publishedAt: NOW, delivery }));
+      await call('/runs/:id', 'get', { params: { id: 'run-1' } });
+      expect(payload().run.delivery).toEqual(delivery);
+    });
+
+    describe('redeliver', () => {
+      const failedDelivery = (over: Record<string, unknown> = {}) => ({
+        state: 'failed',
+        attempts: 1,
+        attemptedAt: '2026-09-01T00:00:00.000Z',
+        inApp: 1,
+        email: { sent: 1, failed: 2, skipped: 0 },
+        destinations: { delivered: 0, failed: 0 },
+        emailAvailable: true,
+        relayFailed: true,
+        delivered: { recipientIds: ['rec-1'], destinationIds: [] },
+        notes: [],
+        ...over,
+      });
+      const published = (delivery: unknown) => run({ status: 'published', publishedAt: NOW, delivery });
+
+      it('re-sends the SAME run to whoever the last attempt missed, audited as a redelivery (not a correction)', async () => {
+        const prev = failedDelivery();
+        const r = published(prev);
+        const def = definition();
+        store.requireRun.mockResolvedValue(r);
+        store.getDefinition.mockResolvedValue(def);
+        mockDeliver.mockResolvedValue({ state: 'delivered' });
+        await call('/runs/:id/redeliver', 'post', { params: { id: 'run-1' }, userId: 'user-lead' });
+        await new Promise((res2) => setImmediate(res2));
+        expect(mockDeliver).toHaveBeenCalledWith(def, r, prev);
+        expect(audit()).toMatchObject({
+          action: 'reporting.report.redelivered',
+          targetId: 'run-1',
+          details: { version: 1, attempt: 2, alreadyDelivered: 1 },
+        });
+        expect(mockSendSuccess.mock.calls[0]?.[1]).toBe(202);
+      });
+
+      it('redelivers a run whose delivery never recorded (pod died before the first write)', async () => {
+        store.requireRun.mockResolvedValue(published(null));
+        store.getDefinition.mockResolvedValue(definition());
+        await call('/runs/:id/redeliver', 'post', { params: { id: 'run-1' } });
+        expect(mockDeliver).toHaveBeenCalledWith(expect.anything(), expect.anything(), null);
+      });
+
+      it.each([
+        ['an unpublished run', run({ status: 'ready_for_review' })],
+        ['a superseded run', run({ status: 'published', publishedAt: NOW, supersededBy: 'run-2' })],
+        ['a delivery that reached everyone', published(failedDelivery({ state: 'delivered', email: { sent: 3, failed: 0, skipped: 0 }, relayFailed: false }))],
+        ['a delivery still in flight', published(failedDelivery({ state: 'delivering', attemptedAt: new Date().toISOString() }))],
+      ])('409s on %s', async (_label, r) => {
+        store.requireRun.mockResolvedValue(r);
+        store.getDefinition.mockResolvedValue(definition());
+        await call('/runs/:id/redeliver', 'post', { params: { id: 'run-1' } });
+        expect(lastRes.status).toHaveBeenCalledWith(409);
+        expect(mockDeliver).not.toHaveBeenCalled();
+        expect(mockRecordAudit).not.toHaveBeenCalled();
+      });
+
+      it('a STALE delivering record (the attempt is presumed dead) may be redelivered', async () => {
+        store.requireRun.mockResolvedValue(published(failedDelivery({ state: 'delivering', attemptedAt: '2026-01-01T00:00:00.000Z' })));
+        store.getDefinition.mockResolvedValue(definition());
+        await call('/runs/:id/redeliver', 'post', { params: { id: 'run-1' } });
+        expect(mockDeliver).toHaveBeenCalledTimes(1);
+      });
     });
 
     /**
@@ -1104,6 +1189,7 @@ describe('stakeholder report routes', () => {
       ['/runs/:id', 'get', 'reports:read'],
       ['/runs/:id/notes', 'put', 'reports:write'],
       ['/runs/:id/publish', 'post', 'reports:publish'],
+      ['/runs/:id/redeliver', 'post', 'reports:publish'],
       ['/runs/:id/links', 'get', 'reports:read'],
       ['/runs/:id/links', 'post', 'reports:publish'],
       ['/links/:id', 'delete', 'reports:publish'],
@@ -1119,9 +1205,10 @@ describe('stakeholder report routes', () => {
 
     /**
      * Publishing and link-minting are the only routes that put numbers OUTSIDE the
-     * platform, and they are the only ones on `reports:publish`. A lead can be
-     * allowed to build reports without being allowed to send them out, which is
-     * only true while this list stays exactly these three.
+     * platform (redeliver re-sends a published run), and they are the only ones on
+     * `reports:publish`. A lead can be allowed to build reports without being
+     * allowed to send them out, which is only true while this list stays exactly
+     * these four.
      */
     it('only the outward-facing routes carry reports:publish', () => {
       const shareRoutes = router.stack
@@ -1134,6 +1221,7 @@ describe('stakeholder report routes', () => {
         'DELETE /links/:id',
         'POST /runs/:id/links',
         'POST /runs/:id/publish',
+        'POST /runs/:id/redeliver',
       ]);
     });
 

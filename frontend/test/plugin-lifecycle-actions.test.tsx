@@ -4,7 +4,7 @@
 /**
  * Version-lifecycle controls : the Deprecated / Yanked
  * badges, which actions a row offers, and the confirm dialog that calls
- * `POST /plugins/:id/deprecate` and `POST /plugins/:id/yank`.
+ * `POST /plugins/:id/deprecate`, `POST /plugins/:id/yank` and `POST /plugins/:id/unyank`.
  */
 
 import { describe, it, expect, jest, beforeEach } from '@jest/globals';
@@ -15,16 +15,19 @@ import { PluginLifecycleBadges } from '../src/components/plugin/PluginLifecycleB
 import { PluginDetailModal } from '../src/components/plugin/PluginDetailModal';
 import type { PluginSummary } from '../src/lib/api/domains/plugins';
 import { pageToast } from './helpers/pageMocks';
+import { ApiError } from '../src/lib/api/errors';
 
 jest.mock('@/components/ui/Toast', () => require('./helpers/pageMocks').toastModule());
 
 const deprecatePlugin = jest.fn<AnyFn>();
 const yankPlugin = jest.fn<AnyFn>();
+const unyankPlugin = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: {
     deprecatePlugin: (...a: unknown[]) => deprecatePlugin(...a),
     yankPlugin: (...a: unknown[]) => yankPlugin(...a),
+    unyankPlugin: (...a: unknown[]) => unyankPlugin(...a),
     // The modal shows whether a vulnerability waiver covers this plugin, so it
     // reads the waiver list. Resolved empty: these tests are about the yank /
     // deprecate notices, and an unmocked call would fail them for the wrong
@@ -43,9 +46,10 @@ beforeEach(() => {
   jest.clearAllMocks();
   deprecatePlugin.mockResolvedValue({ success: true, data: { plugin: PLUGIN } });
   yankPlugin.mockResolvedValue({ success: true, data: { plugin: PLUGIN } });
+  unyankPlugin.mockResolvedValue({ success: true, data: { plugin: PLUGIN } });
 });
 
-function renderModal(action: 'deprecate' | 'undeprecate' | 'yank', plugin: PluginSummary = PLUGIN) {
+function renderModal(action: 'deprecate' | 'undeprecate' | 'yank' | 'unyank', plugin: PluginSummary = PLUGIN) {
   const onClose = jest.fn<AnyFn>();
   const onDone = jest.fn<AnyFn>();
   render(<PluginLifecycleModal plugin={plugin} action={action} onClose={onClose} onDone={onDone} />);
@@ -53,10 +57,11 @@ function renderModal(action: 'deprecate' | 'undeprecate' | 'yank', plugin: Plugi
 }
 
 describe('lifecycleActionsFor', () => {
-  it('offers deprecate + yank on a live version, clear + yank on a deprecated one, nothing on a yanked one', () => {
+  it('offers deprecate + yank on a live version, clear + yank on a deprecated one, only unyank on a yanked one', () => {
     expect(lifecycleActionsFor({ deprecatedAt: null, yankedAt: null })).toEqual(['deprecate', 'yank']);
     expect(lifecycleActionsFor({ deprecatedAt: '2026-09-01', yankedAt: null })).toEqual(['undeprecate', 'yank']);
-    expect(lifecycleActionsFor({ deprecatedAt: '2026-09-01', yankedAt: '2026-09-02' })).toEqual([]);
+    expect(lifecycleActionsFor({ deprecatedAt: '2026-09-01', yankedAt: '2026-09-02' })).toEqual(['unyank']);
+    expect(lifecycleActionsFor({ deprecatedAt: null, yankedAt: '2026-09-02' })).toEqual(['unyank']);
   });
 });
 
@@ -149,6 +154,44 @@ describe('PluginLifecycleModal', () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 
+  it('says a yank can be undone (no more "cannot be undone here")', () => {
+    renderModal('yank');
+    expect(screen.getByText(/You can unyank it later/)).toBeInTheDocument();
+    expect(screen.queryByText(/cannot be undone/)).not.toBeInTheDocument();
+  });
+
+  it('unyanks with no body reason when none is given and says it does not become the default', async () => {
+    const yanked = { ...PLUGIN, yankedAt: '2026-09-02', isDefault: false } as PluginSummary;
+    const { onClose, onDone } = renderModal('unyank', yanked);
+    expect(screen.getByText(/does not become the default again/)).not.toHaveTextContent('still marked deprecated');
+    fireEvent.click(screen.getByRole('button', { name: 'Unyank' }));
+    await waitFor(() => expect(onDone).toHaveBeenCalled());
+    expect(unyankPlugin).toHaveBeenCalledWith('p1', undefined);
+    expect(onClose).toHaveBeenCalled();
+    expect(pageToast.success).toHaveBeenCalledWith('Version unyanked');
+  });
+
+  it('unyanks with the trimmed reason and notes a kept deprecation', async () => {
+    const { onDone } = renderModal('unyank', { ...PLUGIN, yankedAt: '2026-09-02', deprecatedAt: '2026-09-01' } as PluginSummary);
+    expect(screen.getByText(/still marked deprecated/)).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText(/reason/i), { target: { value: '  by mistake ' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Unyank' }));
+    await waitFor(() => expect(onDone).toHaveBeenCalled());
+    expect(unyankPlugin).toHaveBeenCalledWith('p1', 'by mistake');
+  });
+
+  it.each([
+    ['PLUGIN_VERSION_FROZEN', /request the unyank from its ecosystem listing/],
+    ['CONFLICT', /no longer yanked — refresh/],
+    ['SOMETHING_ELSE', /server says no/],
+  ])('maps an unyank refusal %s to its explanation and stays open', async (code, text) => {
+    unyankPlugin.mockRejectedValue(new ApiError('server says no', 409, code));
+    const { onDone } = renderModal('unyank', { ...PLUGIN, yankedAt: '2026-09-02' } as PluginSummary);
+    fireEvent.click(screen.getByRole('button', { name: 'Unyank' }));
+    expect(await screen.findByText(text)).toBeInTheDocument();
+    expect(onDone).not.toHaveBeenCalled();
+  });
+
   it('surfaces a failed clear as an alert', async () => {
     deprecatePlugin.mockRejectedValue(new Error('nope'));
     renderModal('undeprecate', { ...PLUGIN, deprecatedAt: '2026-09-01' });
@@ -163,6 +206,7 @@ describe('managed toolchain versions', () => {
   it('offer no lifecycle actions', () => {
     expect(lifecycleActionsFor({ name: 'pipeline-bootstrap', deprecatedAt: null, yankedAt: null })).toEqual([]);
     expect(lifecycleActionsFor({ name: 'cdk-synth', deprecatedAt: '2026-09-01', yankedAt: null })).toEqual([]);
+    expect(lifecycleActionsFor({ name: 'cdk-synth', deprecatedAt: null, yankedAt: '2026-09-02' })).toEqual([]);
     expect(lifecycleActionsFor({ name: 'my-synth', deprecatedAt: null, yankedAt: null })).toEqual(['deprecate', 'yank']);
   });
 

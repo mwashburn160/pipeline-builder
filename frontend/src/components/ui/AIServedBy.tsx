@@ -26,22 +26,39 @@ const providerName = (id: string) => AI_PROVIDER_NAMES[id] ?? id;
 const modelName = (provider: string, model: string) =>
   AI_PROVIDER_MODELS[provider]?.find((m) => m.id === model)?.name ?? model;
 
+const tokensOf = (u?: AIUsageInfo | null) => (u ? (u.totalTokens ?? u.inputTokens + u.outputTokens) : 0);
+
 /**
  * The one-line "answered by" footer under an AI result: the model and provider
  * that ACTUALLY served it (which can differ from the one picked — the org's own
  * key, or a platform failover), the failover when there was one, and what it cost
  * in tokens. Renders nothing when the response carried no `servedBy` (the Ask
  * agent drafting path, an older service).
+ *
+ * The Ask agent turn also reports `toolUsage` (tokens its in-process tool
+ * generations spent, added to the shown total) and `aiCalls` (the `aiCalls`
+ * quota units the turn drew — 0 when waived: your own key, the org's key, or an
+ * impersonated session).
  */
-export function AIServedBy({ servedBy, usage, className = '' }: { servedBy?: AIServedByInfo | null; usage?: AIUsageInfo | null; className?: string }) {
+export function AIServedBy({ servedBy, usage, toolUsage, aiCalls, className = '' }: {
+  servedBy?: AIServedByInfo | null;
+  usage?: AIUsageInfo | null;
+  toolUsage?: AIUsageInfo | null;
+  aiCalls?: number;
+  className?: string;
+}) {
   if (!servedBy) return null;
-  const total = usage ? (usage.totalTokens ?? usage.inputTokens + usage.outputTokens) : 0;
+  const total = tokensOf(usage) + tokensOf(toolUsage);
+  const cached = (usage?.cachedInputTokens ?? 0) + (toolUsage?.cachedInputTokens ?? 0);
   return (
     <p className={`text-2xs text-fg-muted ${className}`} data-testid="ai-served-by">
       Answered by {modelName(servedBy.provider, servedBy.model)} ({providerName(servedBy.provider)})
       {servedBy.fallbackFrom && <> · {providerName(servedBy.fallbackFrom)} was unavailable, so it failed over</>}
-      {usage && total > 0 && (
-        <> · {total.toLocaleString()} tokens{usage.cachedInputTokens ? ` (${usage.cachedInputTokens.toLocaleString()} cached)` : ''}</>
+      {total > 0 && (
+        <> · {total.toLocaleString()} tokens{cached ? ` (${cached.toLocaleString()} cached)` : ''}</>
+      )}
+      {typeof aiCalls === 'number' && (
+        <> · {aiCalls === 0 ? 'no AI calls charged' : `${aiCalls.toLocaleString()} AI call${aiCalls === 1 ? '' : 's'}`}</>
       )}
     </p>
   );

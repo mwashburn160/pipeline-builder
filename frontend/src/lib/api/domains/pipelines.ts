@@ -7,7 +7,7 @@ import { ApiError } from '../errors';
 import type {
   PipelinePluginWarning, PipelineSecurityReports, PluginUpgradeApplyResult, PluginUpgradePreview,
 } from '../pipeline-security-types';
-import type { ApiResponse, CreatePipelineData, BuilderProps, OwnerType, Pipeline, PipelineScorecard, ScorecardRollup, Visibility } from '@/types';
+import type { ApiResponse, CreatePipelineData, BuilderProps, OwnerType, Pipeline, PipelineScorecard, ScorecardRollup, ScorecardRollupQuery, Visibility } from '@/types';
 
 /** A single pipeline spec accepted by the bulk-create endpoint. Mirrors the
  *  single-create body (PipelineCreateSchema on the server). */
@@ -143,9 +143,19 @@ export function pipelinesApi(core: ApiCore) {
       return core.request<ApiResponse<{ scorecard: PipelineScorecard }>>(`/api/pipelines/${id}/scorecard`, { signal: opts?.signal });
     },
 
-    /** Org-wide scorecard roll-up: a ranked software-health leaderboard + aggregate stats. Requires `advanced_reporting`. */
-    getOrgScorecardRollup: async () => {
-      return core.request<ApiResponse<{ rollup: ScorecardRollup }>>('/api/pipelines/scorecard');
+    /**
+     * Org-wide scorecard roll-up for ONE page of the org's own pipelines: a ranked
+     * software-health leaderboard + aggregate stats over that page. Page with
+     * `offset = rollup.pagination.nextOffset`. Requires `advanced_reporting`.
+     */
+    getOrgScorecardRollup: async (query: ScorecardRollupQuery = {}) => {
+      const params = new URLSearchParams();
+      if (query.offset) params.set('offset', String(query.offset));
+      if (query.limit !== undefined) params.set('limit', String(query.limit));
+      if (query.project) params.set('project', query.project);
+      if (query.pipelineName) params.set('pipelineName', query.pipelineName);
+      const qs = params.toString();
+      return core.request<ApiResponse<{ rollup: ScorecardRollup }>>(`/api/pipelines/scorecard${qs ? `?${qs}` : ''}`);
     },
 
     /**
@@ -359,6 +369,19 @@ export function pipelinesApi(core: ApiCore) {
     getPipelineSecurityReports: async (pipelineId: string, opts?: { signal?: AbortSignal }) => {
       return core.request<ApiResponse<PipelineSecurityReports>>(
         `/api/pipelines/${encodeURIComponent(pipelineId)}/security-reports`, { signal: opts?.signal });
+    },
+
+    /**
+     * Remove ONE (tool, stage) report slot the pipeline no longer writes (a dropped
+     * scanner, a renamed stage), so its last counts stop feeding the scorecard.
+     * `stage` omitted / empty = the stage-less slot. `pipelines:write`; 404 when the
+     * slot is empty. Audited `pipeline.security_report.delete`.
+     */
+    deletePipelineSecurityReport: async (pipelineId: string, slot: { tool: string; stage?: string }) => {
+      const params = new URLSearchParams({ tool: slot.tool });
+      if (slot.stage) params.set('stage', slot.stage);
+      return core.request<ApiResponse<{ pipelineId: string; tool: string; stage: string; removed: string }>>(
+        `/api/pipelines/${encodeURIComponent(pipelineId)}/security-reports?${params.toString()}`, { method: 'DELETE' });
     },
 
     getAIProviders: async () => {

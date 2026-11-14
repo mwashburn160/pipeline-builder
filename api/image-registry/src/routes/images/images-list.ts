@@ -25,6 +25,27 @@ import {
 } from '../../services/registry-client.js';
 
 /**
+ * The catalog page cursor handed to clients: OPAQUE. Distribution pages
+ * `_catalog` by the last repository NAME of the previous page, and that name
+ * is often one this caller may not read (the page is filtered per org after
+ * the registry answers) — so passing it through verbatim named another
+ * tenant's repository. The client sends `next` back as `?cursor=` untouched.
+ */
+const CURSOR_PREFIX = 'c1.';
+
+export function encodeCatalogCursor(last: string): string {
+  return CURSOR_PREFIX + Buffer.from(last, 'utf8').toString('base64url');
+}
+
+/** The registry `last` a cursor carries, or null when it is not one of ours. */
+export function decodeCatalogCursor(cursor: string): string | null {
+  if (!cursor.startsWith(CURSOR_PREFIX)) return null;
+  const last = Buffer.from(cursor.slice(CURSOR_PREFIX.length), 'base64url').toString('utf8');
+  // A repository name: what Distribution itself accepts (lowercase path components).
+  return /^[a-z0-9]+(?:[._-][a-z0-9]+)*(?:\/[a-z0-9]+(?:[._-][a-z0-9]+)*)*$/.test(last) && last.length <= 255 ? last : null;
+}
+
+/**
  * Register the read-only listing/fetch routes (each gated on `registry:read`):
  *  - GET / (list repositories)
  *  - GET /:name/tags (list tags)
@@ -37,7 +58,8 @@ export function registerListRoutes(router: Router): void {
   // MFA-grade session alongside any such permission. Spread because it is three
   // middlewares.
   const read = requireSystemOrgPermission('registry:read') as RequestHandler[];
-  // GET /api/images — list all repositories (cursor-paginated via _catalog).
+  // GET /api/images — list all repositories (cursor-paginated via _catalog;
+  // `?cursor=` is the previous page's opaque `next`).
   //
   // `?nonEmpty=true` filters out repos with zero tags. The registry keeps a
   // repo's directory in `/v2/_catalog` even after ALL its tags are deleted
@@ -47,7 +69,12 @@ export function registerListRoutes(router: Router): void {
   // requests it; the default listing stays a single `_catalog` call.
   router.get('/', ...read, withRoute(async ({ req, res, ctx }) => {
     const { limit } = parsePaginationParams(req.query as Record<string, unknown>);
-    const last = typeof req.query.last === 'string' ? req.query.last : undefined;
+    let last: string | undefined;
+    if (typeof req.query.cursor === 'string' && req.query.cursor !== '') {
+      const decoded = decodeCatalogCursor(req.query.cursor);
+      if (!decoded) return sendBadRequest(res, 'cursor must be the `next` value of a previous page, sent back unchanged', ErrorCode.VALIDATION_ERROR);
+      last = decoded;
+    }
     const nonEmpty = req.query.nonEmpty === 'true' || req.query.nonEmpty === '1';
 
     const result = await listRepositories({ n: limit, last });
@@ -75,7 +102,7 @@ export function registerListRoutes(router: Router): void {
 
     return sendSuccess(res, 200, {
       repositories,
-      ...(result.next && { next: result.next }),
+      ...(result.next && { next: encodeCatalogCursor(result.next) }),
     });
   }));
 

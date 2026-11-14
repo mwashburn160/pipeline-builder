@@ -31,6 +31,7 @@ import { createLogger, errorMessage, safeEqual, stableStringify } from '@pipelin
 import { config } from '../config/index.js';
 import { auditHmac, PublishedHeadInvalidError, verifyAuditChain, type AuditChainVerifyResult, type PublishedHead } from '../helpers/audit-chain.js';
 import AuditChainHead from '../models/audit-chain-head.js';
+import { incCounter } from '../observability/metrics.js';
 import { s3GetObject, s3PutObject, type S3Target } from '../utils/s3-sigv4.js';
 
 const logger = createLogger('audit-head-export');
@@ -89,8 +90,11 @@ export interface HeadExportResult {
 
 /**
  * Publish every chain head that advanced since its last export. Never throws;
- * a per-chain failure is logged and retried on the next pass (its
- * `exportedSeq` is only advanced after both objects are written).
+ * a per-chain failure is logged, counted in `failed` and retried on the next
+ * pass (its `exportedSeq` is only advanced after both objects are written).
+ * The SWEEP ({@link runAuditHeadExportSweep}) turns `failed > 0` into a thrown
+ * cycle, so a target that fails every pass trips `SchedulerJobStale` instead of
+ * quietly removing the chain's truncation evidence.
  */
 export async function exportAuditChainHeads(
   cfg: HeadExportConfig = config.audit.headExport,
@@ -107,6 +111,8 @@ export async function exportAuditChainHeads(
       .lean();
   } catch (err) {
     logger.warn('Audit head export scan failed', { error: errorMessage(err) });
+    result.failed += 1;
+    incCounter('audit_head_export_total', { result: 'scan_failed' });
     return result;
   }
 
@@ -130,8 +136,10 @@ export async function exportAuditChainHeads(
         { $set: { exportedSeq: head.seq } },
       );
       result.exported += 1;
+      incCounter('audit_head_export_total', { result: 'exported' });
     } catch (err) {
       result.failed += 1;
+      incCounter('audit_head_export_total', { result: 'failed' });
       logger.warn('Audit head export failed for one chain (retried next pass)', {
         chainKey: head._id, seq: head.seq, error: errorMessage(err),
       });
@@ -187,4 +195,15 @@ export async function verifyAuditChainAnchored(chainKey: string): Promise<AuditC
     exportIntervalMs: cfg.intervalMs,
     ...(headExportTarget(cfg) ? { fetchPublishedHead: (key: string) => fetchPublishedHead(key, cfg) } : {}),
   });
+}
+
+/**
+ * The scheduled body: one export pass that THROWS when any chain (or the scan)
+ * failed, so the scheduler never records a failing pass as a success.
+ */
+export async function runAuditHeadExportSweep(): Promise<void> {
+  const result = await exportAuditChainHeads();
+  if (result.failed > 0) {
+    throw new Error(`Audit head export: ${result.failed} chain(s) failed to publish (${result.exported} exported); retried next pass`);
+  }
 }

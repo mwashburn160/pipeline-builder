@@ -13,7 +13,8 @@
 import { describe, it, expect, jest } from '@jest/globals';
 import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent } from '@testing-library/react';
-import { SubscriptionStatusCard } from '../src/components/billing/SubscriptionStatusCard';
+import { SubscriptionStatusCard, dunningMessage } from '../src/components/billing/SubscriptionStatusCard';
+import { formatDateLong } from '../src/lib/format';
 import type { Subscription } from '../src/types';
 
 function makeSub(overrides: Partial<Subscription> = {}): Subscription {
@@ -27,6 +28,7 @@ function makeSub(overrides: Partial<Subscription> = {}): Subscription {
     currentPeriodStart: '2026-07-01T00:00:00Z',
     currentPeriodEnd: '2026-08-01T00:00:00Z',
     cancelAtPeriodEnd: false,
+    dunning: null,
     createdAt: '2026-07-01T00:00:00Z',
     updatedAt: '2026-07-01T00:00:00Z',
     ...overrides,
@@ -77,5 +79,40 @@ describe('SubscriptionStatusCard — dunning / past-due CTA', () => {
     render(<SubscriptionStatusCard {...baseProps} canChangePlan={false} subscription={makeSub({ status: 'past_due' })} />);
     expect(screen.getByText(/payment failed/i)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /update payment method/i })).not.toBeInTheDocument();
+  });
+});
+
+describe('SubscriptionStatusCard — dunning dates', () => {
+  it('names the date access ends while the grace period runs', () => {
+    render(<SubscriptionStatusCard {...baseProps} subscription={makeSub({
+      status: 'past_due',
+      dunning: { firstFailedAt: '2026-07-01T12:00:00Z', downgradeAt: '2026-07-15T12:00:00Z', downgraded: false },
+    })} />);
+    const msg = screen.getByTestId('dunning-message').textContent ?? '';
+    expect(msg).toMatch(/access ends on/i);
+    expect(msg).toContain(formatDateLong('2026-07-15T12:00:00Z'));
+    expect(msg).not.toMatch(/moved to developer/i);
+  });
+
+  it('says the plan already moved to Developer, and when, once downgraded', () => {
+    render(<SubscriptionStatusCard {...baseProps} subscription={makeSub({
+      status: 'past_due',
+      dunning: {
+        firstFailedAt: '2026-07-01T12:00:00Z', downgradeAt: '2026-07-15T12:00:00Z',
+        downgraded: true, downgradedAt: '2026-07-15T13:00:00Z',
+      },
+    })} />);
+    const msg = screen.getByTestId('dunning-message').textContent ?? '';
+    expect(msg).toMatch(/moved to developer on/i);
+    expect(msg).toContain(formatDateLong('2026-07-15T13:00:00Z'));
+    expect(msg).toMatch(/pay the open invoice/i);
+  });
+
+  it('omits the date when a downgrade carries none, and invents no deadline without a dunning record', () => {
+    expect(dunningMessage(makeSub({
+      status: 'past_due',
+      dunning: { firstFailedAt: '2026-07-01T12:00:00Z', downgradeAt: '2026-07-15T12:00:00Z', downgraded: true },
+    }))).toBe('Moved to Developer — pay the open invoice to restore your plan.');
+    expect(dunningMessage(makeSub({ status: 'past_due', dunning: null }))).toBe('Update your payment method to keep your plan.');
   });
 });

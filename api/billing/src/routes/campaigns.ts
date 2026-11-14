@@ -166,31 +166,51 @@ export function createCampaignRoutes(): Router {
     const body = validation.value;
     const id = normalizeCampaignId(getParam(req.params, 'id') ?? '');
 
+    // `null` on budget / start / end CLEARS the field ($unset): an unlimited
+    // budget, a window open from now, or an open end. Every reader already
+    // treats an absent field that way (reserveCampaignBudget, campaignWindowRefusal).
     const update: Record<string, unknown> = {};
+    const cleared: Record<string, ''> = {};
     if (body.name !== undefined) update.name = body.name;
-    if (body.budgetCents !== undefined) update.budgetCents = body.budgetCents;
+    if (body.budgetCents === null) cleared.budgetCents = '';
+    else if (body.budgetCents !== undefined) update.budgetCents = body.budgetCents;
     if (body.exclusive !== undefined) update.exclusive = body.exclusive;
-    if (body.startsAt !== undefined) update.startsAt = new Date(body.startsAt);
-    if (body.endsAt !== undefined) update.endsAt = new Date(body.endsAt);
+    if (body.startsAt === null) cleared.startsAt = '';
+    else if (body.startsAt !== undefined) update.startsAt = new Date(body.startsAt);
+    if (body.endsAt === null) cleared.endsAt = '';
+    else if (body.endsAt !== undefined) update.endsAt = new Date(body.endsAt);
     if (body.isActive !== undefined) update.isActive = body.isActive;
-    if (Object.keys(update).length === 0) return sendError(res, 400, 'No updatable fields provided', ErrorCode.VALIDATION_ERROR);
+    if (Object.keys(update).length === 0 && Object.keys(cleared).length === 0) {
+      return sendError(res, 400, 'No updatable fields provided', ErrorCode.VALIDATION_ERROR);
+    }
 
-    // Lowering a budget below what is already committed is refused rather than
-    // clamped: the spend has happened, and a budget under it would read as
-    // "remaining: 0" while actually describing a campaign that overran.
-    if (body.budgetCents !== undefined) {
+    if (typeof body.budgetCents === 'number' || typeof body.startsAt === 'string' || typeof body.endsAt === 'string') {
       const current = await Campaign.findById(id);
       if (!current) return sendError(res, 404, 'Campaign not found', ErrorCode.NOT_FOUND);
-      if (body.budgetCents < current.spentCents) {
+      // Lowering a budget below what is already committed is refused rather than
+      // clamped: the spend has happened, and a budget under it would read as
+      // "remaining: 0" while actually describing a campaign that overran.
+      if (typeof body.budgetCents === 'number' && body.budgetCents < current.spentCents) {
         return sendBadRequest(
           res,
           `Budget cannot be set below the ${current.spentCents}c already committed`,
           ErrorCode.VALIDATION_ERROR,
         );
       }
+      // The window the campaign ends up with — the edited end against the stored
+      // start, or vice versa — must not be inverted, the same rule create applies.
+      // A cleared side cannot invert anything.
+      const startsAt = body.startsAt === null ? undefined : body.startsAt !== undefined ? new Date(body.startsAt) : current.startsAt;
+      const endsAt = body.endsAt === null ? undefined : body.endsAt !== undefined ? new Date(body.endsAt) : current.endsAt;
+      if (startsAt && endsAt && startsAt.getTime() > endsAt.getTime()) {
+        return sendBadRequest(res, 'startsAt must be before endsAt', ErrorCode.VALIDATION_ERROR);
+      }
     }
 
-    const campaign = await Campaign.findByIdAndUpdate(id, { $set: update }, { new: true });
+    const ops: Record<string, unknown> = {};
+    if (Object.keys(update).length > 0) ops.$set = update;
+    if (Object.keys(cleared).length > 0) ops.$unset = cleared;
+    const campaign = await Campaign.findByIdAndUpdate(id, ops, { new: true });
     if (!campaign) return sendError(res, 404, 'Campaign not found', ErrorCode.NOT_FOUND);
 
     recordAudit({
@@ -198,7 +218,8 @@ export function createCampaignRoutes(): Router {
       actorId: actorId({ userId }),
       orgId,
       targetId: id,
-      details: { campaign: id, ...update },
+      // A cleared field is recorded as `null`, so the trail says it was removed.
+      details: { campaign: id, ...update, ...Object.fromEntries(Object.keys(cleared).map((k) => [k, null])) },
     });
     return sendSuccess(res, 200, { campaign: toCampaignResponse(campaign) });
   }));

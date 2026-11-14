@@ -2,13 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { isoOrNull, createLogger, ECOSYSTEM_EMAIL_PREFERENCE_FIELD_NAMES } from '@pipeline-builder/api-core';
+import { isAdminOrgRole } from '@pipeline-builder/api-core/wire-vocabulary';
 import { Types } from 'mongoose';
 import { apiKeyService } from './api-key-service.js';
 import { authService } from './auth-service.js';
 import { deleteUserCascade } from './user-cascade.js';
 import { anonymizeUserEcosystemContent } from './user-ecosystem-privacy.js';
-import { PROFILE_USER_NOT_FOUND, PROFILE_EMAIL_TAKEN, PROFILE_INVALID_CREDENTIALS } from './user-errors.js';
-import { isAdminOrgRole } from '@pipeline-builder/api-core/wire-vocabulary';
+import { PROFILE_USER_NOT_FOUND, PROFILE_EMAIL_TAKEN, PROFILE_INVALID_CREDENTIALS, USER_OWNER_HAS_ORGS } from './user-errors.js';
 import { loadActiveOrgInfo } from '../helpers/active-org-info.js';
 import { toOrgId } from '../helpers/org-id.js';
 import { assertNewPasswordAcceptable } from '../helpers/password-policy.js';
@@ -342,10 +342,38 @@ class UserProfileService {
 
   /**
    * Delete the caller's own account and everything keyed to it (see
-   * {@link deleteUserCascade}). Throws USER_OWNER_HAS_ORGS,
-   * RL_LAST_PRIVILEGED_MEMBER, or PROFILE_USER_NOT_FOUND if the user is already gone.
+   * {@link deleteUserCascade}). An org the caller owns and is the ONLY member
+   * of is soft-deleted with it (see `services/account-deletion.ts`); any other
+   * owned org blocks. Returns the orgs that were soft-deleted.
+   *
+   * Throws USER_OWNER_HAS_ORGS (an owned org has other members, has teams, or
+   * is the system org), RL_LAST_PRIVILEGED_MEMBER, ORG_SNAPSHOT_FAILED (an org's
+   * recovery snapshot could not be written — nothing is deleted), or
+   * PROFILE_USER_NOT_FOUND if the user is already gone.
    */
-  async deleteAccount(userId: string): Promise<void> {
+  async deleteAccount(userId: string): Promise<{ orgsDeleted: Array<{ orgId: string; name: string; purgeAfter: Date; snapshotId: string }> }> {
+    // Lazily imported: account deletion is the only caller of these here.
+    const [{ planAccountDeletion }, { assertNotLastPrivilegedMember }] = await Promise.all([
+      import('./account-deletion.js'),
+      import('./role-crud.js'),
+    ]);
+    const plan = await planAccountDeletion(userId);
+    if (!plan.canDelete) throw new Error(USER_OWNER_HAS_ORGS);
+    const orgIds = plan.orgsDeleted.map((o) => new Types.ObjectId(o.orgId));
+    // Pre-flight the Role lockout guard BEFORE any org is tombstoned, so a
+    // refusal leaves everything as it was. The sole owner's own org Roles are
+    // exempt — nobody is left in that org to be locked out.
+    await withMongoTransaction((session) => assertNotLastPrivilegedMember(session, new Types.ObjectId(userId), undefined, orgIds));
+
+    // Lazily imported: the cascade pulls in the Postgres + peer-service graph,
+    // which nothing else in this module needs.
+    const { softDeleteOrg } = await import('./org-cascade-service.js');
+    const orgsDeleted: Array<{ orgId: string; name: string; purgeAfter: Date; snapshotId: string }> = [];
+    for (const org of plan.orgsDeleted) {
+      const r = await softDeleteOrg(org.orgId, org.orgId, userId);
+      orgsDeleted.push({ ...org, purgeAfter: r.purgeAfter, snapshotId: r.snapshotId });
+    }
+
     const deleted = await withMongoTransaction((session) => deleteUserCascade(session, userId));
     if (!deleted) throw new Error(PROFILE_USER_NOT_FOUND);
     // Revoke the deleted user's outstanding tokens on the stateless services.
@@ -363,17 +391,20 @@ class UserProfileService {
     // attempt and a terminal commit failure would scrub reviews for a user who
     // was never deleted. The scrub is idempotent, so at-least-once out here is
     // safe. No `req`: the actor is the user themselves and the audit row is
-    // written by the route's own `audited(...)` wrapper.
+    // written by the controller (`audit(req, 'user.delete')`).
     await anonymizeUserEcosystemContent(userId);
-    logger.info('Account deleted', { userId });
+    logger.info('Account deleted', { userId, orgsDeleted: orgsDeleted.map((o) => o.orgId) });
+    return { orgsDeleted };
   }
 
   /**
    * Verify the current password and update to the new one. Bumps
-   * `tokenVersion` so all existing access tokens are immediately invalid.
+   * `tokenVersion` so all existing access tokens are immediately invalid, and
+   * revokes every access key (keys are decoupled from `tokenVersion`). Returns
+   * how many keys were revoked.
    * Throws PROFILE_USER_NOT_FOUND or PROFILE_INVALID_CREDENTIALS.
    */
-  async changePassword(userId: string, currentPassword: string, newPassword: string): Promise<void> {
+  async changePassword(userId: string, currentPassword: string, newPassword: string): Promise<{ accessKeysRevoked: number }> {
     const user = await User.findById(userId).select('+password +tokenVersion');
     if (!user || !user.password) throw new Error(PROFILE_USER_NOT_FOUND);
 
@@ -391,6 +422,9 @@ class UserProfileService {
     // Post-commit: publish the now-current tokenVersion so the stateless services
     // reject every outstanding token immediately (best-effort).
     await publishUserRevocation(String(userId));
+    // A key on the stolen laptop must die with the sessions.
+    const accessKeysRevoked = await apiKeyService.revokeAllForUser(String(userId));
+    return { accessKeysRevoked };
   }
 
   /** Fetch a user with `tokenVersion` AND `isSuperAdmin` selected, suitable

@@ -7,7 +7,7 @@ image: /assets/og-image-plugins.png
 
 # Plugin Catalog
 
-Pipeline Builder ships with **119 plugins** across **10 categories**, covering the full CI/CD lifecycle from source checkout through deployment and notification. All but one run as an isolated containerized `CodeBuildStep` inside AWS CodePipeline (the exception is `infrastructure/manual-approval`, a native `ManualApprovalStep` gate), so your build environment is reproducible and your secrets never leak into image layers.
+Pipeline Builder ships with **118 plugins** across **10 categories**, covering the full CI/CD lifecycle from source checkout through deployment and notification. All but one run as an isolated containerized `CodeBuildStep` inside AWS CodePipeline (the exception is `infrastructure/manual-approval`, a native `ManualApprovalStep` gate), so your build environment is reproducible and your secrets never leak into image layers.
 
 **Related docs:** [Samples](../samples.md) | [Metadata Keys](../metadata-keys.md) | [API Reference](../api-reference.md) | [Environment Variables](../environment-variables.md)
 

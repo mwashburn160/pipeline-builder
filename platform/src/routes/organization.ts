@@ -18,6 +18,7 @@ import {
   updateOrganizationSeatLimit,
   getOrganizationSeatUsage,
   getOrganizationFeatureEntitlements,
+  getOrganizationSupportUsage,
   getOrganizationMembers,
   checkOrganizationMembership,
   getOrganizationTeams,
@@ -54,6 +55,7 @@ import {
   deleteOrgDomain,
   listOrgJoinRequests,
   decideOrgJoinRequest,
+  resetOrgJoinRequest,
 } from '../controllers/index.js';
 import {
   approveMfaReset,
@@ -246,6 +248,7 @@ router.patch('/:id/domains/:domainId', requireAuth, requirePermission('org_setti
 router.delete('/:id/domains/:domainId', requireAuth, requirePermission('org_settings:write'), audited('org.domain.delete'), deleteOrgDomain);
 router.get('/:id/join-requests', requireAuth, requirePermission('org_settings:write'), listOrgJoinRequests);
 router.post('/:id/join-requests/:reqId/:decision', requireAuth, requirePermission('org_settings:write'), audited('org.join.approve', 'org.join.deny'), decideOrgJoinRequest);
+router.delete('/:id/join-requests/:reqId', requireAuth, requirePermission('org_settings:write'), audited('org.join.reset'), resetOrgJoinRequest);
 
 /** PATCH /organization/:id/tier - Change pricing tier (sysadmin only).
  *  Step-up gated because the change resizes quota limits and affects billing. */
@@ -287,6 +290,11 @@ router.get('/:id/seat-usage', requireAuth, getOrganizationSeatUsage);
  *  read for billing's entitlement-drift reconciler. Same gate as seat-usage:
  *  service-principal or organization-admin (checked in controller). */
 router.get('/:id/feature-entitlements', requireAuth, getOrganizationFeatureEntitlements);
+
+/** GET /organization/:id/support-usage — the account's support-contact caps and
+ *  pooled active designations, for billing's over-cap gate and drift reconciler.
+ *  Same gate as seat-usage (checked in controller). */
+router.get('/:id/support-usage', requireAuth, getOrganizationSupportUsage);
 
 /*
  * Per-org SSO / IdP self-service (customer org-admin manages THEIR OWN org's

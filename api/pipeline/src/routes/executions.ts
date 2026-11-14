@@ -207,6 +207,10 @@ export function createExecutionRoutes(): Router {
 
       return sendSuccess(res, 200, { stopped: true });
     } catch (err) {
+      // Counted like a failed start: a stop the user asked for that did not
+      // happen (not stoppable, not registered, AWS error) is otherwise invisible
+      // on the dashboard, which only saw the successful stops.
+      incCounter('pipeline_executions_total', { outcome: 'stop_failed', org_id: orgId });
       const code = errorMessage(err);
       recordAudit({
         action: 'pipeline.execution.cancel',

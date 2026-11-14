@@ -23,6 +23,13 @@ export const PLATFORM_AUDIT_ACTIONS = [
   'user.delete',
   'user.profile.update',
   'user.password.change',
+  // Forgot-password (controllers/password-reset.ts): a reset link was asked for
+  // (`outcome: 'failure'` + `details.reason` when none was sent to a real
+  // account), and a password was set with one (`details.accessKeysRevoked`).
+  'user.password.reset.request',
+  'user.password.reset',
+  // The person downloaded their own data (GET /user/export).
+  'user.export',
   // Admin/superadmin self-verified their email directly (bypassing the emailed
   // verification link). Recorded because it skips proof-of-ownership.
   'user.email.verified',
@@ -170,6 +177,12 @@ export const PLATFORM_AUDIT_ACTIONS = [
   'org.join.auto',
   'org.join.approve',
   'org.join.deny',
+  // An admin cleared a DENIED request so the person may ask again; the
+  // requester withdrew their own pending request; a pending request nobody
+  // answered for 30 days lapsed (system actor, invitation reaper).
+  'org.join.reset',
+  'org.join.withdraw',
+  'org.join.expire',
   // The re-verification sweep found a verified domain's DNS proof GONE and
   // un-verified it (services/org-domain-service.ts): discovery stops, the mode
   // is forced `off`, and pending join requests from it are cancelled

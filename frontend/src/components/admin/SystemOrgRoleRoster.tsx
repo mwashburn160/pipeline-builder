@@ -85,10 +85,10 @@ export function SystemOrgRoleRoster({
 
   // Candidates: active system-org members not already holding the Role. Only
   // fetched when the viewer could act on it — a read-only holder has no picker.
-  const membersQ = useQuery(canAssign ? queries.orgMembers(SYSTEM_ORG_ID, { limit: 200, status: 'active' }) : null);
+  const membersQ = useQuery(canAssign ? queries.allOrgMembers(SYSTEM_ORG_ID, { status: 'active' }) : null);
   const candidates = useMemo(() => {
     const holding = new Set(role?.members.map((m) => m.id) ?? []);
-    return (membersQ.data?.data?.members ?? []).filter((m) => !holding.has(m.id));
+    return (membersQ.data ?? []).filter((m) => !holding.has(m.id));
   }, [membersQ.data, role]);
 
   const [selectedUserId, setSelectedUserId] = useState('');

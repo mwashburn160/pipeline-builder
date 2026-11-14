@@ -65,7 +65,7 @@ import {
   type ReportPauseReason,
 } from '@pipeline-builder/pipeline-data';
 import { attachExecutiveSummary } from './report-ai-summary.js';
-import { deliverPublishedRun, notifyPaused, notifyReadyForReview, notifyRunFailed } from './report-delivery.js';
+import { deliverAndRecord, notifyPaused, notifyReadyForReview, notifyRunFailed } from './report-delivery.js';
 import { reportIdentity } from './report-identity.js';
 import { composeRun } from './report-runner.js';
 import { nextRunFor, reportSettleHours } from './report-schedule.js';
@@ -194,7 +194,10 @@ async function runDefinition(
       // Auto-send publishes as the OWNER: the run had no caller, and attributing the
       // publish to the person who chose auto-send is the only honest answer.
       const { run } = await stakeholderReportStore.publishRun(definition.orgId, result.run.id, definition.ownerId);
-      const outcome = await deliverPublishedRun(definition, run);
+      // Delivers, records the outcome on the run and tells the lead if it left anyone
+      // out — "did the board actually get last month's?" is asked days later, about
+      // one report, by someone reading that report's page, so it lives on the run.
+      const outcome = await deliverAndRecord(definition, run);
       // The same record a manual publish writes (routes/stakeholder-reports.ts),
       // because the effect is the same — internal delivery numbers left the
       // platform — and an automatic release is the one nobody clicked, so the
@@ -216,13 +219,6 @@ async function runDefinition(
           destinationsDelivered: outcome.destinations.delivered,
         },
       });
-      // Recorded on the run, not logged: "did the board actually get last month's?" is
-      // asked days later, about one report, by someone reading that report's page.
-      await stakeholderReportStore.recordDelivery(
-        definition.orgId,
-        run.id,
-        outcome as unknown as Record<string, unknown>,
-      );
     } else {
       // The draft is attached BEFORE the lead is told, so the review screen they open has
       // something to edit rather than an empty box they have to come back to. Best-effort:

@@ -393,6 +393,11 @@ export const pluginPublishRequest = pgTable('plugin_publish_requests', {
   autoRuleId: uuid('auto_rule_id').references(() => ecosystemAutoApprovalRule.id),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   decidedAt: timestamp('decided_at', { withTimezone: true }),
+  // Set once an `approved` request's execution has returned. `approved` is
+  // claimed BEFORE execution (the optimistic lock), so an approved row with no
+  // executedAt past a grace period is one whose pod died mid-execution; the
+  // ecosystem maintenance job hands it back (services/ecosystem/stalled.ts).
+  executedAt: timestamp('executed_at', { withTimezone: true }),
 }, (table) => ({
   statusCreatedIdx: index('plugin_publish_request_status_created_idx').on(table.status, table.createdAt),
   publisherIdx: index('plugin_publish_request_publisher_idx').on(table.publisherId, table.createdAt),

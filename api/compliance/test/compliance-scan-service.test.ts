@@ -101,25 +101,24 @@ describe('ComplianceScanService', () => {
   });
 
   describe('create', () => {
-    it('force-scopes the caller filter to the org and marks the scan pending/manual', async () => {
+    it('records the caller org and marks the scan pending/manual (no partial-scan filter)', async () => {
       returningResults = [[{ id: 's-new', status: 'pending', triggeredBy: 'manual' }]];
-      const scan = await complianceScanService.create('org-1', 'u1', 'plugin', { orgId: 'evil-org', extra: 1 }, false);
+      const scan = await complianceScanService.create('org-1', 'u1', 'plugin', false);
       const values = (tx.insert.mock.results[0].value as { values: jest.Mock }).values;
       const inserted = values.mock.calls[0][0] as Record<string, unknown>;
-      // Cross-tenant scan-triggering guard: the injected orgId is overwritten.
-      expect((inserted.filter as Record<string, unknown>).orgId).toBe('org-1');
+      expect(inserted.orgId).toBe('org-1');
+      expect(inserted).not.toHaveProperty('filter');
       expect(inserted.status).toBe('pending');
       expect(inserted.triggeredBy).toBe('manual');
       expect(scan).toMatchObject({ id: 's-new' });
     });
 
-    it('tags a dry run with triggeredBy rule-dry-run and a null filter when none supplied', async () => {
+    it('tags a dry run with triggeredBy rule-dry-run', async () => {
       returningResults = [[{ id: 's-dry' }]];
-      await complianceScanService.create('org-1', 'u1', 'all', undefined, true);
+      await complianceScanService.create('org-1', 'u1', 'all', true);
       const values = (tx.insert.mock.results[0].value as { values: jest.Mock }).values;
       const inserted = values.mock.calls[0][0] as Record<string, unknown>;
       expect(inserted.triggeredBy).toBe('rule-dry-run');
-      expect(inserted.filter).toBeNull();
     });
   });
 

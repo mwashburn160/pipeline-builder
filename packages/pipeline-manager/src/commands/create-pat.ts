@@ -7,6 +7,7 @@ import pico from 'picocolors';
 import { TIMEOUTS } from '../config/cli.constants.js';
 import { assertCredentialTlsAllowed, credentialHttpsAgent, switchOrganization } from '../utils/auth-utils.js';
 import { printCommandHeader, withSslOptions } from '../utils/command-utils.js';
+import { getApiConfig } from '../utils/config-loader.js';
 import { beginDeviceApproval, DeviceAuthError, pollForDeviceToken } from '../utils/device-auth.js';
 import { ERROR_CODES, handleError } from '../utils/error-handler.js';
 import { printDebug, printError, printInfo, printKeyValue, printSuccess } from '../utils/output-utils.js';
@@ -65,7 +66,7 @@ export function createPat(program: Command): void {
     .option('--scope <scope>', 'Optional capability scope (least-privilege key)')
     .option('--org <orgId>', 'Bind the key to a specific organization (switches active org)')
     .option('--no-browser', 'Never open a browser — print the verification URL instead')
-    .option('--url <url>', 'Platform base URL', process.env.PLATFORM_BASE_URL || 'https://localhost:8443'))
+    .option('--url <url>', 'Platform base URL (default: PLATFORM_BASE_URL, else the platform you last signed in to, else config.yml)'))
     .option('--quiet', 'Only print the export statement (useful for eval)')
     .action(async (options) => {
       // SECURITY: the poll returns a session AND a step-up token, and the response
@@ -74,6 +75,8 @@ export function createPat(program: Command): void {
       assertCredentialTlsAllowed(options.verifySsl);
 
       const quiet = options.quiet ?? false;
+      // Same base-URL layers as every other command (see `auth login`).
+      const url: string = options.url ?? getApiConfig().api.baseUrl;
       const executionId = printCommandHeader('Create Access Key', 'Create Access Key', { quiet });
 
       try {
@@ -98,7 +101,7 @@ export function createPat(program: Command): void {
 
         const httpsAgent = credentialHttpsAgent(options.verifySsl);
         const timeout = TIMEOUTS.HTTP_REQUEST;
-        const transport = { url: options.url, httpsAgent, timeout };
+        const transport = { url, httpsAgent, timeout };
 
         // 1) Device sign-in, asking for the step-up the create call needs.
         const code = await beginDeviceApproval(transport, {
@@ -122,7 +125,7 @@ export function createPat(program: Command): void {
         if (options.org) {
           if (!quiet) printInfo('Switching to organization', { orgId: options.org });
           accessToken = (await switchOrganization({
-            url: options.url,
+            url,
             orgId: options.org,
             accessToken,
             httpsAgent,
@@ -133,7 +136,7 @@ export function createPat(program: Command): void {
 
         // 3) Create the access key. The step-up token is short-lived (~60s) and
         //    single-use, so it is spent immediately.
-        const keyUrl = `${options.url}/api/user/keys`;
+        const keyUrl = `${url}/api/user/keys`;
         printDebug('POST', { url: keyUrl });
         const keyRes = await axios.post<CreateAccessKeyResponse>(
           keyUrl,
@@ -197,7 +200,7 @@ export function createPat(program: Command): void {
         handleError(error, ERROR_CODES.API_REQUEST, {
           debug: program.opts().debug,
           exit: true,
-          context: { command: 'create-pat', executionId, url: options.url },
+          context: { command: 'create-pat', executionId, url },
         });
       }
     });

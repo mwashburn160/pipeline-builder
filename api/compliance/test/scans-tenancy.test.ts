@@ -2,19 +2,18 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Tests for POST /compliance/scans tenancy guard.
+ * Tests for POST /compliance/scans tenancy + body shape.
  *
- * The route accepts a free-form `filter: Record<string, unknown>` from the
- * client. Without sanitization, a member could pass `filter: { orgId: 'other' }`
- * and the executor would scan another tenant's entities. The route MUST
- * overwrite `filter.orgId` with the caller's actual orgId before insert.
+ * A scan always evaluates the caller's whole org (the JWT orgId) — there is no
+ * partial-scan filter. The body is STRICT, so a client that sends `filter` (or
+ * any org-naming field) gets a 400 instead of a scan that silently ignored it.
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import { drizzleMock, stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
-const insertedRowRef: { value: { id: string; filter: Record<string, unknown> | null } | null } = { value: null };
+const insertedRowRef: { value: { id: string } | null } = { value: null };
 const insertCalls: Array<Record<string, unknown>> = [];
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
@@ -103,31 +102,22 @@ function makeRes() {
 describe('POST /compliance/scans — tenancy guard', () => {
   beforeEach(() => {
     insertCalls.length = 0;
-    insertedRowRef.value = { id: 'scan-1', filter: null };
+    insertedRowRef.value = { id: 'scan-1' };
   });
 
-  it('strips caller-supplied filter.orgId by overwriting with the JWT orgId', async () => {
+  it('REFUSES a body carrying a filter (there is no partial scan) — nothing is inserted', async () => {
     const handler = getPostHandler();
     const { res } = makeRes();
     await handler({
       __orgId: 'org-mine',
-      body: {
-        target: 'plugin',
-        filter: { orgId: 'org-OTHER', extra: 'preserved' },
-      },
+      body: { target: 'plugin', filter: { orgId: 'org-OTHER' } },
     } as any, res);
 
-    expect(insertCalls).toHaveLength(1);
-    const row = insertCalls[0];
-    // Tenancy: server overwrites the caller's filter.orgId with their own.
-    expect((row.filter as Record<string, unknown>).orgId).toBe('org-mine');
-    // Other filter fields pass through untouched.
-    expect((row.filter as Record<string, unknown>).extra).toBe('preserved');
-    // Top-level scan.orgId is also the caller's, never the spoofed one.
-    expect(row.orgId).toBe('org-mine');
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(insertCalls).toHaveLength(0);
   });
 
-  it('passes null filter through when not supplied', async () => {
+  it('scans the caller org from the JWT and stores no filter column', async () => {
     const handler = getPostHandler();
     const { res } = makeRes();
     await handler({
@@ -136,7 +126,7 @@ describe('POST /compliance/scans — tenancy guard', () => {
     } as any, res);
 
     const row = insertCalls[0];
-    expect(row.filter).toBeNull();
+    expect(row).not.toHaveProperty('filter');
     expect(row.orgId).toBe('org-a');
   });
 });

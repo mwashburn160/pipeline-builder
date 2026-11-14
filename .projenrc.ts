@@ -926,7 +926,7 @@ const platform = new FunctionProject({
     'xml-crypto@6.4.0',
   ],
 });
-platform.postCompileTask.exec('copyfiles -f ./src/utils/email-templates/*.html lib/utils/email-templates/ --verbose --error');
+platform.postCompileTask.exec('copyfiles -f ./src/utils/email-templates/*.html ./src/utils/email-templates/*.txt lib/utils/email-templates/ --verbose --error');
 platform.addScripts(dockerScripts('platform'));
 addImageDescription(platform, 'platform');
 platform.eslint?.addRules(rules);
@@ -1017,6 +1017,8 @@ const frontend = new FrontEndProject({
 });
 // Regenerate the in-app help topics from docs/*.md (single source of truth).
 frontend.addScripts({ 'generate:help': 'node scripts/generate-help.mjs' });
+// Regenerate the route index in docs/api-reference.md from the route-table snapshots.
+frontend.addScripts({ 'generate:api-reference': 'node scripts/generate-api-reference.mjs' });
 // Curated plugin icons: deploy/plugins/_icons/*.svg are
 // linted and copied into public/plugin-icons/ under content-hashed names, and the
 // manifest src/generated/plugin-icons.ts is rewritten. Runs BEFORE `next build`
@@ -1531,7 +1533,12 @@ const COVERAGE_THRESHOLDS: Record<string, {
     global: { statements: 80, branches: 84, functions: 83, lines: 80 },
   },
   'frontend': {
-    global: { statements: 85, branches: 78, functions: 64, lines: 85 },
+    // Re-pinned 2026-11-13 when the pool started measuring `pages/` and dropped
+    // the domain API clients (see collectCoverageFrom below): measured
+    // 86.5 / 78.1 / 67.2 / 86.5. Branches held at 78 by adding suites for the
+    // untested key flows (pipeline create/edit, ExemptionManager, EditUserModal,
+    // PlanGrid, campaigns, templates, users), not by lowering it.
+    global: { statements: 86, branches: 78, functions: 66, lines: 86 },
   },
 };
 
@@ -1579,8 +1586,18 @@ for (const project of root.subprojects) {
   // the floors below say nothing about it. Barrels (pure re-exports) and the
   // test-helper tree are not production logic; nor are type-only modules
   // (see noRuntimeCodeFiles).
+  //
+  // Frontend: `pages/` is source too (the Next.js routes — create/edit flows,
+  // the sysadmin consoles), and was never measured while 48 suites rendered it.
+  // Its domain API clients (`src/lib/api/domains/**`) are left out: each method
+  // is a one-line request wrapper that every suite stubs, so they contributed
+  // ~420 uncovered functions that said nothing about the UI and hid the real
+  // component gap under the function floor. That they are all CALLED is pinned
+  // structurally instead (test/domain-client-callers.test.ts).
   jest.config.collectCoverageFrom = [
-    project.name === 'frontend' ? 'src/**/*.{ts,tsx}' : 'src/**/*.ts',
+    ...(project.name === 'frontend'
+      ? ['src/**/*.{ts,tsx}', 'pages/**/*.{ts,tsx}', '!src/lib/api/domains/**']
+      : ['src/**/*.ts']),
     '!src/**/*.d.ts',
     '!src/testing/**',
     ...noRuntimeCodeFiles(project.outdir).map((f) => `!${f}`),

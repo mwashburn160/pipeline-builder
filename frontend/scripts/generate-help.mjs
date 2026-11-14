@@ -206,8 +206,10 @@ function parseBlocks(lines) {
 
 /** Convert a doc's markdown body into HelpSections (split on H2). */
 function toSections(md) {
-  // Strip Jekyll frontmatter + liquid tags ({% raw %}, {% endraw %}, …).
-  const body = md.replace(/^---\n[\s\S]*?\n---\n?/, '').replace(/\{%[^%]*%\}/g, '');
+  // Strip Jekyll frontmatter + liquid tags ({% raw %}, {% endraw %}, …) and HTML
+  // comments (the copyright header, and the BEGIN/END markers around generated
+  // sections such as api-reference.md's route index), which are never prose.
+  const body = md.replace(/^---\n[\s\S]*?\n---\n?/, '').replace(/\{%[^%]*%\}/g, '').replace(/<!--[\s\S]*?-->/g, '');
   const lines = body.split('\n');
 
   const sections = [];

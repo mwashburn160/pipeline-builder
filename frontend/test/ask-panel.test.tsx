@@ -109,6 +109,24 @@ describe('AskPanel', () => {
     expect(askAgentStream).toHaveBeenCalledWith('how do I wire alertmanager', expect.objectContaining({ history: [] }));
   });
 
+  it('the footer counts the turn\'s tool tokens and the AI calls it drew (done event)', async () => {
+    askAgentStream.mockReturnValue(gen([
+      { type: 'token', data: 'Drafted.' },
+      { type: 'done', data: {
+        servedBy: { provider: 'anthropic', model: 'claude-sonnet-5-5' },
+        usage: { inputTokens: 1000, outputTokens: 200 },
+        toolUsage: { inputTokens: 500, outputTokens: 300 },
+        slotsCharged: 2,
+      } },
+    ]));
+    render(<AskPanel onClose={jest.fn<AnyFn>()} />);
+    fireEvent.change(screen.getByPlaceholderText(/Ask a question/i), { target: { value: 'draft a pipeline' } });
+    fireEvent.click(screen.getByLabelText('Send'));
+    const footer = await screen.findByTestId('ai-served-by');
+    expect(footer.textContent).toContain('2,000 tokens');
+    expect(footer.textContent).toContain('2 AI calls');
+  });
+
   it('announces the finished answer to screen readers', async () => {
     // The transcript itself is not a live region — announcing every streamed
     // token would talk over the user — so a status line carries the outcome.

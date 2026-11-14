@@ -28,6 +28,7 @@ import { DataTable, type Column } from '@/components/ui/DataTable';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { useDelete } from '@/hooks/useDelete';
 import { RecentlyDeletedPanel } from '@/components/RecentlyDeletedPanel';
+import { AlertDeliveryStatus } from '@/components/observability/AlertDeliveryStatus';
 import { api } from '@/lib/api';
 import type { AlertDestination, AlertDestinationWrite } from '@/types/observability';
 import { ALERT_CHANNEL_IDS, ALERT_CHANNEL_META, ALERT_SEVERITY_IDS, ALERT_SEVERITY_META, alertChannelMeta, alertSeverityMeta } from '@/lib/alerting';
@@ -150,6 +151,7 @@ export default function AlertDestinationsPage() {
     { id: 'label', header: 'Label', cellClassName: 'font-medium text-fg', render: (d) => d.label },
     { id: 'severity', header: 'Min severity', render: (d) => <Badge color={alertSeverityMeta(d.minSeverity).color}>≥ {d.minSeverity}</Badge> },
     { id: 'enabled', header: 'Enabled', render: (d) => (d.enabled ? <Badge color="green">enabled</Badge> : <Badge color="gray">disabled</Badge>) },
+    { id: 'delivery', header: 'Delivery', render: (d) => <AlertDeliveryStatus delivery={d.delivery} /> },
     {
       id: 'target', header: 'Target', cellClassName: 'font-mono text-xs text-fg-muted',
       render: (d) => (d.channel === 'in-app' ? '(in-app messages)' : d.hasTarget ? d.target : '— no target set —'),

@@ -153,6 +153,8 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@p
     getReportingSettings: jest.fn(async () => ({ incidentWindowHours: null })),
   },
   createSoftDeletePurgeScheduler: () => null,
+  // The roll-up keys its cache by viewer.
+  viewerCacheSegment: () => 'user-1',
 }));
 
 jest.unstable_mockModule('../src/services/pipeline-service.js', () => ({

@@ -61,16 +61,42 @@ const EMAIL_STATUS_TTL_MS = 60_000;
 /** Per-destination delivery budget. A slow Slack must not hold up the next run. */
 const DESTINATION_TIMEOUT_MS = 5_000;
 
-/** What one delivery attempt produced, for the run log and the metrics. */
+/**
+ * What delivering a run produced — stored on the run (`report_runs.delivery`) and
+ * returned by the run view, so "did the board actually get last month's?" has an
+ * answer on the report's own page.
+ */
 export interface DeliveryOutcome {
-  /** In-app notifications persisted. */
+  /** `delivering` while a fan-out is in flight; `delivered` / `failed` once it ends. */
+  state: 'delivering' | 'delivered' | 'failed';
+  /** How many delivery attempts this run has had (1 on publish, +1 per redeliver). */
+  attempts: number;
+  /** When the latest attempt started (ISO). */
+  attemptedAt: string;
+  /** In-app notifications persisted (0 or 1 — one org notice per run). */
   inApp: number;
+  /** `sent` counts every address that has the email, across attempts; `failed`
+   *  and `skipped` describe the LATEST attempt. */
   email: { sent: number; failed: number; skipped: number };
   destinations: { delivered: number; failed: number };
   /** False ⇒ email was not attempted at all, and the report went in-app only. */
   emailAvailable: boolean;
+  /** The email relay refused the call or could not be reached: NO address was
+   *  tried, so those recipients are counted in `email.failed` (not as bounces). */
+  relayFailed: boolean;
+  /** Who already has it — what a redelivery skips so nobody gets it twice. */
+  delivered: { recipientIds: string[]; destinationIds: string[] };
   /** Anything the lead should know about this delivery, in plain words. */
   notes: string[];
+}
+
+/** Whether a recorded delivery left anyone (or any channel) without the report. */
+export function deliveryIncomplete(outcome: Pick<DeliveryOutcome, 'state' | 'inApp' | 'relayFailed' | 'email' | 'destinations'>): boolean {
+  return outcome.state === 'failed'
+    || outcome.inApp === 0
+    || outcome.relayFailed
+    || outcome.email.failed > 0
+    || outcome.destinations.failed > 0;
 }
 
 function platform(): InternalHttpClient {
@@ -156,37 +182,55 @@ function headlineOf(run: ReportRun): string | null {
  * The run must already be published — this function does not check, because the caller
  * that publishes is the only caller, and a delivery that re-derived the publish rule
  * would be a second place for it to be wrong.
+ *
+ * `previous` is the run's recorded outcome when this is a REDELIVERY: every channel and
+ * recipient it already reached is skipped, so a retry after a relay outage reaches the
+ * people who missed it and nobody twice.
  */
 export async function deliverPublishedRun(
   definition: ReportDefinition,
   run: ReportRun,
+  previous: DeliveryOutcome | null = null,
 ): Promise<DeliveryOutcome> {
+  const already = {
+    recipientIds: new Set(previous?.delivered.recipientIds ?? []),
+    destinationIds: new Set(previous?.delivered.destinationIds ?? []),
+  };
   const outcome: DeliveryOutcome = {
-    inApp: 0,
-    email: { sent: 0, failed: 0, skipped: 0 },
-    destinations: { delivered: 0, failed: 0 },
+    state: 'delivered',
+    attempts: (previous?.attempts ?? 0) + 1,
+    attemptedAt: new Date().toISOString(),
+    inApp: previous?.inApp ?? 0,
+    email: { sent: already.recipientIds.size, failed: 0, skipped: 0 },
+    destinations: { delivered: already.destinationIds.size, failed: 0 },
     emailAvailable: false,
+    relayFailed: false,
+    delivered: { recipientIds: [...already.recipientIds], destinationIds: [...already.destinationIds] },
     notes: [],
   };
   const headline = headlineOf(run);
   const subject = `${definition.name} — ${run.periodLabel}`;
 
   // 1. In-app, first and unconditionally. It is the channel that cannot be
-  // misconfigured, so a report is never delivered nowhere.
-  if (await sendSystemNotification({
-    recipientOrgId: definition.orgId,
-    subject,
-    content: emailBody(definition, run, headline),
-    priority: 'normal',
-  })) {
-    outcome.inApp += 1;
-  } else {
-    outcome.notes.push('The in-app notification could not be posted.');
+  // misconfigured, so a report is never delivered nowhere. Once per run.
+  if (outcome.inApp === 0) {
+    if (await sendSystemNotification({
+      recipientOrgId: definition.orgId,
+      subject,
+      content: emailBody(definition, run, headline),
+      priority: 'normal',
+    })) {
+      outcome.inApp = 1;
+    } else {
+      outcome.notes.push('The in-app notification could not be posted.');
+    }
   }
 
-  // 2. Email, to verified recipients only.
+  // 2. Email, to verified recipients only — and on a redelivery, only those who
+  // do not have it yet.
   outcome.emailAvailable = await emailAvailable();
-  const recipients = await stakeholderReportStore.getRecipients(definition.orgId, definition.recipients);
+  const recipients = (await stakeholderReportStore.getRecipients(definition.orgId, definition.recipients))
+    .filter((r) => !already.recipientIds.has(r.id));
   const deliverable: ReportRecipient[] = [];
   for (const r of recipients) {
     const check = stakeholderReportStore.deliverability(r);
@@ -203,26 +247,148 @@ export async function deliverPublishedRun(
     }
   } else if (deliverable.length > 0) {
     const result = await sendReportEmail(definition, run, deliverable, subject, headline);
-    outcome.email.sent = result.sent.length;
-    outcome.email.failed = result.failed.length;
-    // Each refused address is a bounce against that recipient, not a failed run.
-    for (const email of result.failed) {
-      const count = await stakeholderReportStore.recordBounce(definition.orgId, email);
-      if (count >= MAX_BOUNCES) {
-        outcome.notes.push(`One recipient address has now bounced ${count} times and will be skipped.`);
+    if (result.relayFailed) {
+      // Nobody was emailed, and none of it is a bounce: the addresses are fine and
+      // the relay is not. Said in words, and counted as failed, so the record can't
+      // read "0 failed" for a send that never happened.
+      outcome.relayFailed = true;
+      outcome.email.failed += deliverable.length;
+      outcome.notes.push(
+        `The email relay ${result.relayFailed === 'refused' ? 'refused the send' : 'could not be reached'}, `
+        + `so ${deliverable.length} recipient(s) were not emailed. Redeliver once mail is working.`,
+      );
+    } else {
+      const sentEmails = new Set(result.sent);
+      for (const r of deliverable) {
+        if (sentEmails.has(r.email)) outcome.delivered.recipientIds.push(r.id);
+      }
+      outcome.email.sent = outcome.delivered.recipientIds.length;
+      outcome.email.failed += result.failed.length;
+      // Each refused address is a bounce against that recipient, not a failed run.
+      for (const email of result.failed) {
+        const count = await stakeholderReportStore.recordBounce(definition.orgId, email);
+        if (count >= MAX_BOUNCES) {
+          outcome.notes.push(`One recipient address has now bounced ${count} times and will be skipped.`);
+        }
       }
     }
   }
 
   // 3. The org's own Slack / Teams / webhook destinations.
-  const fanOut = await deliverToDestinations(definition, run, subject, headline);
-  outcome.destinations = fanOut;
+  const fanOut = await deliverToDestinations(definition, run, subject, headline, already.destinationIds);
+  outcome.delivered.destinationIds.push(...fanOut.deliveredIds);
+  outcome.destinations = { delivered: outcome.delivered.destinationIds.length, failed: fanOut.failed };
+  if (fanOut.failed > 0) {
+    outcome.notes.push(`${fanOut.failed} Slack / Teams / webhook destination(s) did not accept the report.`);
+  }
 
+  if (deliveryIncomplete(outcome)) outcome.state = 'failed';
   emitCounter('report_delivered_total', {
     orgId: definition.orgId,
     cadence: definition.cadence,
   });
   return outcome;
+}
+
+/** How long a `delivering` record blocks a redelivery: past this, the attempt is
+ *  presumed dead (the pod running it went away) and a redelivery may proceed. */
+export const DELIVERY_STALE_MS = 15 * 60 * 1000;
+
+/** The run's recorded delivery, or null when it holds none (the column is untyped jsonb, so it is checked, not cast). */
+export function recordedDelivery(run: ReportRun): DeliveryOutcome | null {
+  const d = run.delivery as Partial<DeliveryOutcome> | null | undefined;
+  return d && typeof d.state === 'string' && d.delivered ? d as DeliveryOutcome : null;
+}
+
+/**
+ * Deliver a published run, RECORD the outcome on the run, and tell the lead when
+ * it left anybody out — the single path the publish route, the scheduler's
+ * auto-send and the redeliver route all take. NEVER THROWS: it runs detached
+ * from (or after) the request that caused it.
+ *
+ * The record is written twice: `delivering` before the fan-out, the outcome after.
+ * A pod that dies mid-fan-out therefore leaves a visible `delivering` record that
+ * goes stale, instead of no record at all.
+ */
+export async function deliverAndRecord(
+  definition: ReportDefinition,
+  run: ReportRun,
+  previous: DeliveryOutcome | null = null,
+): Promise<DeliveryOutcome> {
+  const startedAt = new Date().toISOString();
+  try {
+    await stakeholderReportStore.recordDelivery(definition.orgId, run.id, {
+      ...(previous ?? {
+        inApp: 0,
+        email: { sent: 0, failed: 0, skipped: 0 },
+        destinations: { delivered: 0, failed: 0 },
+        emailAvailable: false,
+        relayFailed: false,
+        delivered: { recipientIds: [], destinationIds: [] },
+        notes: [],
+      }),
+      state: 'delivering',
+      attempts: (previous?.attempts ?? 0) + 1,
+      attemptedAt: startedAt,
+    } satisfies DeliveryOutcome as unknown as Record<string, unknown>);
+    const outcome = await deliverPublishedRun(definition, run, previous);
+    await stakeholderReportStore.recordDelivery(definition.orgId, run.id, outcome as unknown as Record<string, unknown>);
+    if (outcome.state === 'failed') await notifyDeliveryFailed(definition, run, outcome);
+    return outcome;
+  } catch (err) {
+    logger.warn('Report delivery failed', { orgId: definition.orgId, runId: run.id, error: errorMessage(err) });
+    emitCounter('report_delivery_failed_total', { orgId: definition.orgId, channel: 'publish' });
+    const failed: DeliveryOutcome = {
+      ...(previous ?? {
+        inApp: 0,
+        email: { sent: 0, failed: 0, skipped: 0 },
+        destinations: { delivered: 0, failed: 0 },
+        emailAvailable: false,
+        relayFailed: false,
+        delivered: { recipientIds: [], destinationIds: [] },
+      }),
+      state: 'failed',
+      attempts: (previous?.attempts ?? 0) + 1,
+      attemptedAt: startedAt,
+      notes: [`Delivery stopped before it finished: ${errorMessage(err)}. Redeliver to reach whoever it missed.`],
+    };
+    // Best-effort: if the store is what failed, this fails too and the log + counter
+    // are all that is left — but the lead is still told.
+    await stakeholderReportStore.recordDelivery(definition.orgId, run.id, failed as unknown as Record<string, unknown>)
+      .catch((e) => logger.warn('Could not record the failed delivery', { runId: run.id, error: errorMessage(e) }));
+    await notifyDeliveryFailed(definition, run, failed);
+    return failed;
+  }
+}
+
+/**
+ * Tell the lead a published report did not reach everyone, and how to fix it.
+ * In-app to the OWNER plus email to them (when the instance has mail), like the
+ * other lead notices. Never throws.
+ */
+export async function notifyDeliveryFailed(definition: ReportDefinition, run: ReportRun, outcome: DeliveryOutcome): Promise<void> {
+  const subject = `${definition.name} — ${run.periodLabel} was not delivered to everyone`;
+  const body = [
+    `${definition.name} for ${run.periodLabel} is published, but its delivery was incomplete.`,
+    '',
+    ...(outcome.notes.length > 0 ? outcome.notes : ['One or more channels did not accept the report.']),
+    '',
+    'Open the report to see who has it, and redeliver to reach the rest — redelivery skips everyone who already received it.',
+    runUrl(run),
+  ].join('\n');
+  try {
+    await sendSystemNotification({
+      recipientOrgId: definition.orgId,
+      recipientUserId: definition.ownerId,
+      subject,
+      content: body,
+      priority: 'high',
+    });
+    await emailOwner(definition, subject, body);
+  } catch (err) {
+    logger.warn('Could not notify the lead of a failed delivery', { runId: run.id, error: errorMessage(err) });
+  }
+  emitCounter('report_delivery_incomplete_total', { orgId: definition.orgId });
 }
 
 /** POST the report to platform's relay, one message per address. */
@@ -232,7 +398,7 @@ async function sendReportEmail(
   recipients: readonly ReportRecipient[],
   subject: string,
   headline: string | null,
-): Promise<{ sent: string[]; failed: string[] }> {
+): Promise<{ sent: string[]; failed: string[]; relayFailed: false | 'refused' | 'unreachable' }> {
   try {
     const res = await platform().post<{ data?: { sent?: unknown; failed?: unknown } }>(
       '/internal/notify-email',
@@ -259,15 +425,15 @@ async function sendReportEmail(
       // Counting it as one would retire a manager's address after three bad deploys.
       logger.warn('Report email relay refused the send', { orgId: definition.orgId, status: res.statusCode });
       emitCounter('report_delivery_failed_total', { orgId: definition.orgId, channel: 'email' });
-      return { sent: [], failed: [] };
+      return { sent: [], failed: [], relayFailed: 'refused' };
     }
     const strings = (v: unknown): string[] =>
       (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
-    return { sent: strings(d.sent), failed: strings(d.failed) };
+    return { sent: strings(d.sent), failed: strings(d.failed), relayFailed: false };
   } catch (err) {
     logger.warn('Report email relay unreachable', { orgId: definition.orgId, error: errorMessage(err) });
     emitCounter('report_delivery_failed_total', { orgId: definition.orgId, channel: 'email' });
-    return { sent: [], failed: [] };
+    return { sent: [], failed: [], relayFailed: 'unreachable' };
   }
 }
 
@@ -287,12 +453,13 @@ async function deliverToDestinations(
   run: ReportRun,
   subject: string,
   headline: string | null,
-): Promise<{ delivered: number; failed: number }> {
-  let delivered = 0;
+  skip: ReadonlySet<string>,
+): Promise<{ deliveredIds: string[]; failed: number }> {
+  const deliveredIds: string[] = [];
   let failed = 0;
   const targets = (await listEnabledAlertDestinations(definition.orgId))
-    .filter((d) => d.channel === 'slack' || d.channel === 'webhook');
-  if (targets.length === 0) return { delivered, failed };
+    .filter((d) => (d.channel === 'slack' || d.channel === 'webhook') && !skip.has(d.id));
+  if (targets.length === 0) return { deliveredIds, failed };
 
   const msg: NotificationMessage = {
     recipientOrgId: definition.orgId,
@@ -313,7 +480,7 @@ async function deliverToDestinations(
       // No secret: an alert destination's URL is itself the credential, so these
       // deliveries are unsigned — see `listEnabledAlertDestinations`.
       const res = await webhook.deliver(msg, { value: dest.target, orgId: definition.orgId });
-      if (res.ok) {delivered += 1;} else {
+      if (res.ok) {deliveredIds.push(dest.id);} else {
         failed += 1;
         emitCounter('report_delivery_failed_total', { orgId: definition.orgId, channel: dest.channel });
       }
@@ -325,7 +492,7 @@ async function deliverToDestinations(
       emitCounter('report_delivery_failed_total', { orgId: definition.orgId, channel: dest.channel });
     }
   }
-  return { delivered, failed };
+  return { deliveredIds, failed };
 }
 
 /**

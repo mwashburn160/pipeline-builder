@@ -81,14 +81,16 @@ export function printSslWarning(verifySsl?: boolean): void {
 
 /**
  * Renew a stored session with its refresh token, persist the rotated pair, and
- * return the new access token. Returns undefined (and forgets the session) when
- * the platform refuses it — a rotated-away or revoked token is dead, and keeping
- * it would make every later command fail the same way.
+ * return the new access token. Returns undefined (and forgets the session) only
+ * when the platform REFUSES it (400/401) — a rotated-away or revoked token is
+ * dead, and keeping it would make every later command fail the same way. A
+ * network failure or a 5xx says nothing about the session, so it is kept and the
+ * error is rethrown: one blip must not force a fresh browser sign-in.
  *
  * `X-Pb-Client` is mandatory on /auth/refresh (the CSRF gate) and its value also
  * picks the transport: anything but `web` keeps the body flow the CLI uses.
  */
-async function refreshStoredSession(baseUrl: string, stale: StoredSession): Promise<string | undefined> {
+export async function refreshStoredSession(baseUrl: string, stale: StoredSession): Promise<string | undefined> {
   // One refresh at a time per machine (see `withRefreshLock`): a second process
   // re-reads the store under the lock and uses the pair the first one saved,
   // rather than spending the same single-use refresh token again.
@@ -99,28 +101,41 @@ async function refreshStoredSession(baseUrl: string, stale: StoredSession): Prom
   });
 }
 
+/** The statuses with which /auth/refresh rejects the refresh token itself. */
+const REFRESH_REJECTED_STATUSES = new Set([400, 401]);
+
 async function renewSession(baseUrl: string, session: StoredSession): Promise<string | undefined> {
   if (!session.refreshToken) return undefined;
+  let renewed: { accessToken?: string; refreshToken?: string; expiresIn?: number } | undefined;
   try {
     const response = await axios.post<{ data?: { accessToken?: string; refreshToken?: string; expiresIn?: number } }>(
       `${baseUrl}/api/auth/refresh`,
       { refreshToken: session.refreshToken },
       { headers: { 'Content-Type': 'application/json', 'X-Pb-Client': 'cli', ...requestCorrelationHeaders() }, timeout: 30_000 },
     );
-    const renewed = response.data?.data;
-    if (!renewed?.accessToken) return undefined;
-    saveSession(baseUrl, {
-      accessToken: renewed.accessToken,
-      ...(renewed.refreshToken ? { refreshToken: renewed.refreshToken } : {}),
-      expiresAt: Date.now() + (renewed.expiresIn ?? 900) * 1000,
-      ...(session.organizationId ? { organizationId: session.organizationId } : {}),
+    renewed = response.data?.data;
+  } catch (error) {
+    const status = axios.isAxiosError(error) ? error.response?.status : undefined;
+    if (status !== undefined && REFRESH_REJECTED_STATUSES.has(status)) {
+      clearSession(baseUrl);
+      printWarning('The stored session could not be renewed — run "pipeline-manager auth login" again');
+      return undefined;
+    }
+    // Unreachable, timed out or a server error: the session may be perfectly
+    // good. Keep it and surface the real failure.
+    printWarning('Could not reach the platform to renew the stored session — it is kept; try again', {
+      ...(status !== undefined ? { status } : {}),
     });
-    return renewed.accessToken;
-  } catch {
-    clearSession(baseUrl);
-    printWarning('The stored session could not be renewed — run "pipeline-manager auth login" again');
-    return undefined;
+    throw error;
   }
+  if (!renewed?.accessToken) return undefined;
+  saveSession(baseUrl, {
+    accessToken: renewed.accessToken,
+    ...(renewed.refreshToken ? { refreshToken: renewed.refreshToken } : {}),
+    expiresAt: Date.now() + (renewed.expiresIn ?? 900) * 1000,
+    ...(session.organizationId ? { organizationId: session.organizationId } : {}),
+  });
+  return renewed.accessToken;
 }
 
 /**

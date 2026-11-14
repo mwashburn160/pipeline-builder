@@ -18,16 +18,36 @@ export { ERROR_CODES };
 export type { ErrorCode };
 
 /**
- * Format and handle errors with colored output
+ * Format and handle errors with colored output: print the error (see
+ * {@link reportError}), then exit with its standard code — or, with
+ * `exit: false`, rethrow it.
  */
 export function handleError(
   err: unknown,
   code: ErrorCode = ERROR_CODES.GENERAL,
   options: ErrorHandlerOptions = {},
 ): never {
+  const resolvedCode = reportError(err, code, options);
+  if (options.exit ?? true) {
+    process.exitCode = resolvedCode;
+    process.exit(resolvedCode);
+  }
+  throw err;
+}
+
+/**
+ * Print an error the way {@link handleError} does and RETURN its standard exit
+ * code, without exiting or throwing — for commands with their own exit-code
+ * contract (the cron-friendly audits exit 2 on a scan failure). `handleError`
+ * with `exit: false` rethrows, so a `process.exit(2)` after it never ran.
+ */
+export function reportError(
+  err: unknown,
+  code: ErrorCode = ERROR_CODES.GENERAL,
+  options: Omit<ErrorHandlerOptions, 'exit'> = {},
+): ErrorCode {
   const {
     debug = false,
-    exit = true,
     logToConsole = true,
     context,
     correlationId = generateExecutionId(),
@@ -131,12 +151,7 @@ export function handleError(
     console.error('');
   }
 
-  if (exit) {
-    process.exitCode = resolvedCode;
-    process.exit(resolvedCode);
-  }
-
-  throw err;
+  return resolvedCode;
 }
 
 // --- Error classes (only those actually used) ---

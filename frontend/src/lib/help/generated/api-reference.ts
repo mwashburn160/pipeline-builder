@@ -1,6 +1,6 @@
 // GENERATED FROM docs/api-reference.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 917a9f90ca14b77a4dea0b9743526acc5e65e335381035ac1b4fc6e980f1ec9c
+// SOURCE-SHA256: 13bf59669c641c2bc0808a78f5dea8502b9a457efebbcd8d64bbefb7639d6600
 // SPDX-License-Identifier: Apache-2.0
 import { Code } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -17,11 +17,7 @@ export const apiReferenceTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "<!-- Copyright 2026 Pipeline Builder Contributors SPDX-License-Identifier: Apache-2.0 -->"
-        },
-        {
-          "type": "text",
-          "content": "REST endpoints for pipelines, plugins, compliance, quota, organizations and reporting."
+          "content": "REST endpoints for pipelines, plugins, the Ask assistant, compliance, quota, organizations and reporting."
         }
       ]
     },
@@ -298,12 +294,27 @@ export const apiReferenceTopic: HelpTopic = {
             [
               "GET",
               "/pipelines/registry",
-              "List deployed-stack registrations (pipelineId, stackName, region, lastDeployed) for the caller's org — no ARNs, no account id"
+              "List deployed-stack registrations (pipelineId, stackName, region, lastDeployed) for the caller's org — no ARNs, no account id. ?limit= (default 10, max 1000) + ?offset= page it; the answer is { registry: [...], pagination: { total, limit, offset, hasMore } }, ordered lastDeployed desc then id, so page until hasMore is false. ?orgId= names the org: your own always works, another org only for a system admin (403 INSUFFICIENT_PERMISSIONS otherwise). This is what pipeline-manager audit stacks reads"
             ],
             [
               "POST",
               "/pipelines/registry",
               "Upsert registry entry (deploy hook; tenant-guarded)"
+            ],
+            [
+              "GET",
+              "/pipelines/:id/security-reports",
+              "The latest scanner report per (tool, stage), their summed counts and latestAt; each report carries its own createdAt, so a slot the pipeline stopped refreshing is visible"
+            ],
+            [
+              "DELETE",
+              "/pipelines/:id/security-reports?tool=<tool>[&stage=<stage>]",
+              "Remove ONE report slot — a scanner the pipeline dropped or a stage it renamed, whose last counts would otherwise feed the scorecard forever (pipelines:write; audited pipeline.security_report.delete; 404 when the slot is empty; an omitted stage names the stage-less slot)"
+            ],
+            [
+              "GET",
+              "/pipelines/scorecard",
+              "Org maturity roll-up over a PAGE of the org's own pipelines (system samples and a parent's shared pipelines are not graded), most recently updated first. ?offset= (default 0), ?limit= (1..ORG_SCORECARD_MAX_PIPELINES, default that cap), ?project=, ?pipelineName=. rollup.pagination = { offset, limit, total, hasMore, nextOffset }; the aggregate stats cover the page. A computed page is reused for 5 minutes per viewer (computedAt says when)"
             ]
           ]
         },
@@ -374,6 +385,11 @@ export const apiReferenceTopic: HelpTopic = {
               "POST",
               "/plugins/:id/yank",
               "{ reason } — stop a version resolving for ranges, latest and the default (an exact pin still resolves, with a warning); yanking the default promotes the next. A listed version → 409 (yank it through the ecosystem). An in-use version answers 200 with warnings: [{ code: 'PLUGIN_VERSION_IN_USE', severity: 'warning', pipelineCount, orgCount, pipelines }] (never a refusal) and the affected orgs are notified (N14)."
+            ],
+            [
+              "POST",
+              "/plugins/:id/unyank",
+              "{ reason?: string } — reverse a yank: the version resolves for ranges and latest again (its lifecycle returns to deprecated if it is deprecated, else production). It does NOT become the default again. A listed version → 409 PLUGIN_VERSION_FROZEN (unyank it through the ecosystem); a version that isn't yanked → 409"
             ],
             [
               "PUT",
@@ -859,7 +875,7 @@ export const apiReferenceTopic: HelpTopic = {
             [
               "POST",
               "/plugins/ecosystem/rules/:id/approve-change",
-              "Apply a pending change (a manager other than the proposer) (step-up)"
+              "{ requestedAt } — apply the pending change you reviewed (its pendingChange.requestedAt from the rule view; a manager other than the proposer; step-up). 409 CONFLICT (details.reviewedRequestedAt / currentRequestedAt) when the proposer replaced it after you read it: reload and review the current proposal"
             ],
             [
               "DELETE",
@@ -904,6 +920,62 @@ export const apiReferenceTopic: HelpTopic = {
         },
         {
           "type": "text",
+          "content": "Ask Service"
+        },
+        {
+          "type": "text",
+          "content": "The docs-grounded assistant (how-to answers) and its agent (read tools plus reviewable drafts). Every route needs one of pipelines:read, plugins:read or templates:read; the answering routes also need the ai_generation feature and AI enabled for the org. Requests are rate limited per org (ASK_RATE_LIMIT_PER_MIN, default 30 a minute) and each costs one apiCalls. Each answer also reserves an aiCalls slot (the model's weight; nothing when the caller's or org's own key pays): kept once the provider responded, refunded when it was never reached."
+        },
+        {
+          "type": "text",
+          "content": "The three answering routes take one body: { query (1–6000 chars), provider?, model?, apiKey?, history?: [{ role: 'user' | 'assistant', content (≤ 8000) }] (≤ 20 entries, ≤ 32000 chars in all), repoToken? (agent only, ≤ 500; handed to the repository tools, never shown to the model) }."
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Method",
+            "Endpoint",
+            "Description"
+          ],
+          "rows": [
+            [
+              "GET",
+              "/ask/providers",
+              "{ providers } — the AI providers this deployment can answer with"
+            ],
+            [
+              "GET",
+              "/ask/availability",
+              "{ available: true }, or `{ available: false, reason: 'disabled' \\",
+              "'not-configured' \\",
+              "'scheduled-off', message, resumesAt?, window? }` — asked when the panel opens; reads no key"
+            ],
+            [
+              "POST",
+              "/ask",
+              "One JSON answer: { text, sources: [{ id, title?, url? }] } (the docs it cited). Audited ask.query"
+            ],
+            [
+              "POST",
+              "/ask/stream",
+              "The same answer as SSE: { type: 'sources' }, then { type: 'token', data } deltas, then { type: 'done', data: { servedBy: { provider, model, fallbackFrom? }, usage } } and [DONE]. A scheduled-off model mid-stream ends with { type: 'error', message }. Audited ask.query"
+            ],
+            [
+              "POST",
+              "/ask/agent/stream",
+              "One agent turn as SSE: token, tool-call ({ toolName }), sources, proposal (a draft pipeline, plugin or template for the user to review — the agent writes nothing; the client applies a draft through the owning service), then done and [DONE]. Tools run as the caller, with the caller's own token and permissions. Each generating tool reserves its own aiCalls slot on top of the turn's. Audited ask.agent.turn"
+            ],
+            [
+              "POST",
+              "/ask/feedback",
+              "`{ kind: 'answer' \\",
+              "'help-search-miss', rating?: 'up' \\",
+              "'down' (required for an answer), sources?: string[] (doc ids, ≤ 20) } → { recorded: true }. Carries no free text by construction. An answer rating is audited ask.feedback`"
+            ]
+          ]
+        },
+        {
+          "type": "text",
           "content": "Compliance Service"
         },
         {
@@ -917,7 +989,7 @@ export const apiReferenceTopic: HelpTopic = {
             [
               "POST",
               "/compliance/scans",
-              "Trigger a scan (caller-supplied filter.orgId is server-overwritten)"
+              "Trigger a scan of the caller's whole org: { target, dryRun? } (strict body — any other field, e.g. a filter, is a 400)"
             ],
             [
               "POST",
@@ -1602,6 +1674,18 @@ export const apiReferenceTopic: HelpTopic = {
             ],
             [
               "POST",
+              "/auth/password/reset-request",
+              "Forgot password, { email } → always 200 with the same message, whether or not an email went out (no account enumeration). Mints a single-use link (/auth/reset-password?token=<64 hex>, AUTH_PASSWORD_RESET_TOKEN_TTL_MS, 1 h) stored only as a SHA-256; a new request supersedes the previous link. No link for an unknown address, a password-less (social/SSO-only) account, or an identity under an org's \"SSO required\" policy. Limited to 3 per address and 20 per IP per 15 min (429 RATE_LIMIT_EXCEEDED). Audited user.password.reset.request",
+              "— (pre-auth)"
+            ],
+            [
+              "POST",
+              "/auth/password/reset",
+              "Set a new password with the emailed token, { token, newPassword } → 200 { accessKeysRevoked }. Ends every session (tokenVersion bump + every refresh slot) and revokes every access key; the next sign-in still asks for the second factor. 400 PASSWORD_RESET_TOKEN_INVALID (unknown, expired or used), 400 PASSWORD_UNCHANGED, 400 PASSWORD_TOO_SHORT_FOR_ORG / PASSWORD_BREACHED (the link stays usable), 403 SSO_REQUIRED. Audited user.password.reset",
+              "the token itself"
+            ],
+            [
+              "POST",
               "/auth/refresh",
               "Rotate a session's token pair — a device's, or a machine credential's (until its fixed end). The browser presents the pb_refresh cookie (empty body); a CLI/machine caller posts { refreshToken }. A concurrent refresh with the immediately-previous token within 30 s gets the current pair instead of revoking the session",
               "refresh cookie or body token, + X-Pb-Client"
@@ -1652,6 +1736,32 @@ export const apiReferenceTopic: HelpTopic = {
               "DELETE",
               "/user/sessions/:id",
               "Revoke one session — a device is signed out, a machine credential stops renewing. The current session is refused (use logout)",
+              "+ step-up"
+            ],
+            [
+              "GET",
+              "/user/export",
+              "The caller's own data as one JSON download: account (no secrets), memberships with org names, access-key and passkey metadata, sessions, per-org preferences, domain-join requests, and the audit events where they are actor or target (newest 10,000; truncated when capped). Audited user.export",
+              "+ step-up"
+            ],
+            [
+              "GET",
+              "/user/account/deletion",
+              "What deleting the account would do: `{ canDelete, orgsDeleted: [{ orgId, name }], blockedBy: [{ orgId, name, reason: 'other-members' \\",
+              "'has-teams' \\",
+              "'system-org', otherMembers }] }`",
+              "— (auth)"
+            ],
+            [
+              "DELETE",
+              "/user/account",
+              "Delete the account. An org the caller owns and is the only member of is soft-deleted with it (recovery snapshot, purge after the retention window) and named in { orgsDeleted: [{ orgId, name, purgeAfter }] }; an owned org with any other member, or with teams, refuses 400 USER_OWNER_HAS_ORGS (transfer first). 409 RL_LAST_PRIVILEGED_MEMBER, 502 when an org's snapshot fails (nothing deleted)",
+              "+ step-up"
+            ],
+            [
+              "POST",
+              "/user/change-password",
+              "{ currentPassword, newPassword } → { accessKeysRevoked }: ends every session and revokes every access key",
               "+ step-up"
             ],
             [
@@ -1859,6 +1969,1469 @@ export const apiReferenceTopic: HelpTopic = {
               "boolean",
               "—",
               "Filter by default status"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": "route-index",
+      "title": "Route index",
+      "blocks": [
+        {
+          "type": "text",
+          "content": "Every route of the Pipeline, Plugin and Ask services, generated from the route-table snapshots each service's route-coverage test writes — so no route can be missing here, even when the tables above don't describe it yet. Requires is everything the route demands of the caller (or = any one of; + = all of). Probes (/health, /ready, /metrics, /warmup) and the internal-only routes are left out. Regenerate with npm run generate:api-reference in frontend/; a test fails when it is stale."
+        },
+        {
+          "type": "text",
+          "content": "Pipeline Service — every route"
+        },
+        {
+          "type": "text",
+          "content": "41 routes, from frontend/src/generated/route-table/pipeline.json."
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Method",
+            "Endpoint",
+            "Requires",
+            "Meters",
+            "Audit action"
+          ],
+          "rows": [
+            [
+              "GET",
+              "/pipeline-templates",
+              "templates:read",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "POST",
+              "/pipeline-templates",
+              "templates:write",
+              "apiCalls",
+              "pipeline_template.create"
+            ],
+            [
+              "DELETE",
+              "/pipeline-templates/:id",
+              "templates:write",
+              "apiCalls",
+              "pipeline_template.delete"
+            ],
+            [
+              "GET",
+              "/pipeline-templates/:id",
+              "templates:read",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "PUT",
+              "/pipeline-templates/:id",
+              "templates:write",
+              "apiCalls",
+              "pipeline_template.update"
+            ],
+            [
+              "POST",
+              "/pipeline-templates/:id/instantiate",
+              "templates:read",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "POST",
+              "/pipeline-templates/:id/purge",
+              "templates:write; step-up",
+              "apiCalls",
+              "pipeline_template.purge"
+            ],
+            [
+              "POST",
+              "/pipeline-templates/:id/restore",
+              "templates:write; step-up",
+              "apiCalls",
+              "pipeline_template.restore"
+            ],
+            [
+              "GET",
+              "/pipeline-templates/deleted",
+              "templates:read",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "GET",
+              "/pipelines",
+              "pipelines:read",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "POST",
+              "/pipelines",
+              "pipelines:write",
+              "apiCalls",
+              "pipeline.create, pipeline.update"
+            ],
+            [
+              "DELETE",
+              "/pipelines/:id",
+              "pipelines:write",
+              "apiCalls",
+              "pipeline.delete"
+            ],
+            [
+              "GET",
+              "/pipelines/:id",
+              "pipelines:read",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "PUT",
+              "/pipelines/:id",
+              "pipelines:write",
+              "apiCalls",
+              "pipeline.update"
+            ],
+            [
+              "POST",
+              "/pipelines/:id/plugin-upgrades/preview",
+              "pipelines:read",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "POST",
+              "/pipelines/:id/purge",
+              "pipelines:write; step-up",
+              "apiCalls",
+              "pipeline.purge"
+            ],
+            [
+              "POST",
+              "/pipelines/:id/restore",
+              "pipelines:write; step-up",
+              "apiCalls",
+              "pipeline.restore"
+            ],
+            [
+              "GET",
+              "/pipelines/:id/scorecard",
+              "pipelines:read; feature advanced_reporting",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "DELETE",
+              "/pipelines/:id/security-reports",
+              "pipelines:write",
+              "apiCalls",
+              "pipeline.security_report.delete"
+            ],
+            [
+              "GET",
+              "/pipelines/:id/security-reports",
+              "pipelines:read",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "POST",
+              "/pipelines/:id/security-reports",
+              "pipelines:write; scope reporting:ingest",
+              "apiCalls",
+              "pipeline.security_report.upload"
+            ],
+            [
+              "POST",
+              "/pipelines/:pipelineId/executions",
+              "pipelines:write",
+              "apiCalls",
+              "pipeline.execution.start"
+            ],
+            [
+              "POST",
+              "/pipelines/:pipelineId/executions/:executionId/stop",
+              "pipelines:write",
+              "apiCalls",
+              "pipeline.execution.cancel"
+            ],
+            [
+              "POST",
+              "/pipelines/analyze/from-url",
+              "pipelines:write; feature ai_generation",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "POST",
+              "/pipelines/bulk/create",
+              "pipelines:write; feature bulk_operations",
+              "apiCalls",
+              "pipeline.create, pipeline.update"
+            ],
+            [
+              "POST",
+              "/pipelines/bulk/delete",
+              "pipelines:write; feature bulk_operations",
+              "apiCalls",
+              "pipeline.delete"
+            ],
+            [
+              "PUT",
+              "/pipelines/bulk/update",
+              "pipelines:write; feature bulk_operations",
+              "apiCalls",
+              "pipeline.update"
+            ],
+            [
+              "GET",
+              "/pipelines/deleted",
+              "pipelines:read",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "GET",
+              "/pipelines/find",
+              "pipelines:read",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "POST",
+              "/pipelines/generate",
+              "pipelines:write; feature ai_generation",
+              "apiCalls",
+              "pipeline.ai.generate"
+            ],
+            [
+              "POST",
+              "/pipelines/generate/from-url",
+              "pipelines:write; feature ai_generation",
+              "apiCalls",
+              "pipeline.ai.generate"
+            ],
+            [
+              "POST",
+              "/pipelines/generate/from-url/stream",
+              "pipelines:write; feature ai_generation",
+              "apiCalls",
+              "pipeline.ai.generate"
+            ],
+            [
+              "POST",
+              "/pipelines/generate/missing-plugins",
+              "plugins:write; feature ai_generation",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "POST",
+              "/pipelines/generate/stream",
+              "pipelines:write; feature ai_generation",
+              "apiCalls",
+              "pipeline.ai.generate"
+            ],
+            [
+              "POST",
+              "/pipelines/plugin-upgrades/apply",
+              "pipelines:write",
+              "apiCalls",
+              "pipeline.plugin.upgraded"
+            ],
+            [
+              "GET",
+              "/pipelines/providers",
+              "pipelines:read; feature ai_generation",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "GET",
+              "/pipelines/registry",
+              "pipelines:read; decided per request",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "POST",
+              "/pipelines/registry",
+              "pipeline_registry:write",
+              "apiCalls",
+              "pipeline.registry.register"
+            ],
+            [
+              "DELETE",
+              "/pipelines/registry/:id",
+              "pipeline_registry:write",
+              "apiCalls",
+              "pipeline.registry.deregister"
+            ],
+            [
+              "GET",
+              "/pipelines/scorecard",
+              "pipelines:read; feature advanced_reporting",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "POST",
+              "/pipelines/validate",
+              "pipelines:write",
+              "apiCalls",
+              "—"
+            ]
+          ]
+        },
+        {
+          "type": "text",
+          "content": "Plugin Service — every route"
+        },
+        {
+          "type": "text",
+          "content": "152 routes, from frontend/src/generated/route-table/plugin.json."
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Method",
+            "Endpoint",
+            "Requires",
+            "Meters",
+            "Audit action"
+          ],
+          "rows": [
+            [
+              "GET",
+              "/logs/:requestId",
+              "no bearer token; SSE build-log stream; authorized by a short-lived ?ticket= from POST /logs/ticket, not a bearer token",
+              "—",
+              "—"
+            ],
+            [
+              "POST",
+              "/logs/ticket",
+              "signed in",
+              "—",
+              "—"
+            ],
+            [
+              "GET",
+              "/plugins",
+              "plugins:read",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "POST",
+              "/plugins",
+              "plugins:write",
+              "apiCalls",
+              "plugin.upload"
+            ],
+            [
+              "DELETE",
+              "/plugins/:id",
+              "plugins:write",
+              "apiCalls",
+              "plugin.delete"
+            ],
+            [
+              "GET",
+              "/plugins/:id",
+              "plugins:read",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "PUT",
+              "/plugins/:id",
+              "plugins:write",
+              "apiCalls",
+              "plugin.update"
+            ],
+            [
+              "POST",
+              "/plugins/:id/deprecate",
+              "plugins:write",
+              "apiCalls",
+              "plugin.version.deprecate"
+            ],
+            [
+              "GET",
+              "/plugins/:id/findings",
+              "plugins:read",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "POST",
+              "/plugins/:id/purge",
+              "plugins:write; step-up",
+              "apiCalls",
+              "plugin.purge"
+            ],
+            [
+              "POST",
+              "/plugins/:id/restore",
+              "plugins:write; step-up",
+              "apiCalls",
+              "plugin.restore"
+            ],
+            [
+              "GET",
+              "/plugins/:id/sbom",
+              "plugins:read",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "POST",
+              "/plugins/:id/unyank",
+              "plugins:write",
+              "apiCalls",
+              "plugin.version.unyank"
+            ],
+            [
+              "POST",
+              "/plugins/:id/yank",
+              "plugins:write",
+              "apiCalls",
+              "plugin.version.yank"
+            ],
+            [
+              "POST",
+              "/plugins/bulk/delete",
+              "plugins:write; feature bulk_operations",
+              "apiCalls",
+              "plugin.bulk.delete"
+            ],
+            [
+              "PUT",
+              "/plugins/bulk/update",
+              "plugins:write; feature bulk_operations",
+              "apiCalls",
+              "plugin.bulk.update"
+            ],
+            [
+              "GET",
+              "/plugins/catalog",
+              "plugins:read",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "GET",
+              "/plugins/deleted",
+              "plugins:read",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "POST",
+              "/plugins/deploy-generated",
+              "plugins:write",
+              "apiCalls",
+              "plugin.deploy"
+            ],
+            [
+              "GET",
+              "/plugins/ecosystem/advisories",
+              "system org; plugins:moderate; MFA session (aal2)",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "POST",
+              "/plugins/ecosystem/advisories",
+              "system org; plugins:moderate; MFA session (aal2); step-up",
+              "apiCalls",
+              "plugin.advisory.create"
+            ],
+            [
+              "PATCH",
+              "/plugins/ecosystem/advisories/:id",
+              "system org; plugins:moderate; MFA session (aal2); step-up",
+              "apiCalls",
+              "plugin.advisory.update"
+            ],
+            [
+              "POST",
+              "/plugins/ecosystem/advisories/:id/withdraw",
+              "system org; plugins:moderate; MFA session (aal2); step-up",
+              "apiCalls",
+              "plugin.advisory.withdraw"
+            ],
+            [
+              "GET",
+              "/plugins/ecosystem/flagged-versions",
+              "system org; plugins:moderate; MFA session (aal2)",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "GET",
+              "/plugins/ecosystem/listings",
+              "system org; plugins:moderate; MFA session (aal2)",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "POST",
+              "/plugins/ecosystem/listings/:id/state",
+              "system org; plugins:moderate; MFA session (aal2); step-up",
+              "apiCalls",
+              "plugin.listing.state.change, plugin.request.submit, plugin.request.approve"
+            ],
+            [
+              "POST",
+              "/plugins/ecosystem/listings/:id/versions/:version/deprecate",
+              "system org; plugins:moderate; MFA session (aal2); step-up",
+              "apiCalls",
+              "plugin.version.deprecate"
+            ],
+            [
+              "POST",
+              "/plugins/ecosystem/listings/:id/versions/:version/unyank",
+              "system org; plugins:moderate; MFA session (aal2); step-up",
+              "apiCalls",
+              "plugin.request.submit, plugin.request.approve"
+            ],
+            [
+              "POST",
+              "/plugins/ecosystem/listings/:id/versions/:version/yank",
+              "system org; plugins:moderate; MFA session (aal2); step-up",
+              "apiCalls",
+              "plugin.version.yank"
+            ],
+            [
+              "GET",
+              "/plugins/ecosystem/overview",
+              "system org; plugins:moderate or publishers:verify; MFA session (aal2)",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "GET",
+              "/plugins/ecosystem/publishers",
+              "system org; plugins:moderate or publishers:verify; MFA session (aal2)",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "POST",
+              "/plugins/ecosystem/publishers/:id/suspend",
+              "system org; publishers:verify; MFA session (aal2); step-up",
+              "apiCalls",
+              "publisher.suspend"
+            ],
+            [
+              "POST",
+              "/plugins/ecosystem/publishers/:id/tier",
+              "system org; publishers:verify; MFA session (aal2); step-up",
+              "apiCalls",
+              "publisher.tier.change, plugin.request.submit, plugin.request.approve"
+            ],
+            [
+              "POST",
+              "/plugins/ecosystem/publishers/:id/unsuspend",
+              "system org; publishers:verify; MFA session (aal2); step-up",
+              "apiCalls",
+              "plugin.request.submit, plugin.request.approve"
+            ],
+            [
+              "GET",
+              "/plugins/ecosystem/requests",
+              "system org; plugins:moderate or publishers:verify; MFA session (aal2)",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "GET",
+              "/plugins/ecosystem/requests/:id",
+              "system org; plugins:moderate or publishers:verify; MFA session (aal2)",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "POST",
+              "/plugins/ecosystem/requests/:id/approve",
+              "system org; plugins:moderate or publishers:verify; MFA session (aal2)",
+              "apiCalls",
+              "plugin.request.approve, plugin.listing.publish, plugin.listing.update, plugin.listing.unpause, plugin.version.yank, publisher.verify.approve, publisher.tier.change, publisher.transfer.approve, publisher.profile-change.approve, plugin.advisory.publish, plugin.submission.claim"
+            ],
+            [
+              "POST",
+              "/plugins/ecosystem/requests/:id/reject",
+              "system org; plugins:moderate or publishers:verify; MFA session (aal2)",
+              "apiCalls",
+              "plugin.request.reject, publisher.verify.reject, publisher.transfer.reject, publisher.profile-change.reject, plugin.submission.reject"
+            ],
+            [
+              "POST",
+              "/plugins/ecosystem/requests/:id/second-approve",
+              "system org; plugins:moderate or publishers:verify; MFA session (aal2)",
+              "apiCalls",
+              "plugin.request.second-approve, plugin.listing.publish, plugin.version.unyank, publisher.unsuspend, publisher.tier.change, plugin.listing.state.change, plugin.submission.approve"
+            ],
+            [
+              "GET",
+              "/plugins/ecosystem/requests/:id/submission-sbom",
+              "system org; plugins:moderate; MFA session (aal2)",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "GET",
+              "/plugins/ecosystem/requests/:id/submission-scan",
+              "system org; plugins:moderate; MFA session (aal2)",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "GET",
+              "/plugins/ecosystem/reserved-names",
+              "system org; plugins:moderate; MFA session (aal2)",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "DELETE",
+              "/plugins/ecosystem/reserved-names/:name",
+              "system org; plugins:moderate; MFA session (aal2); step-up",
+              "apiCalls",
+              "ecosystem.reserved-name.update"
+            ],
+            [
+              "PUT",
+              "/plugins/ecosystem/reserved-names/:name",
+              "system org; plugins:moderate; MFA session (aal2); step-up",
+              "apiCalls",
+              "ecosystem.reserved-name.update"
+            ],
+            [
+              "POST",
+              "/plugins/ecosystem/resign",
+              "system org; plugins:moderate; MFA session (aal2); step-up",
+              "apiCalls",
+              "registry.image.resign"
+            ],
+            [
+              "GET",
+              "/plugins/ecosystem/reviews",
+              "system org; plugins:moderate; MFA session (aal2)",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "POST",
+              "/plugins/ecosystem/reviews/:id/hold",
+              "system org; plugins:moderate; MFA session (aal2)",
+              "apiCalls",
+              "plugin.review.hold"
+            ],
+            [
+              "POST",
+              "/plugins/ecosystem/reviews/:id/release",
+              "system org; plugins:moderate; MFA session (aal2)",
+              "apiCalls",
+              "plugin.review.release"
+            ],
+            [
+              "POST",
+              "/plugins/ecosystem/reviews/:id/remove",
+              "system org; plugins:moderate; MFA session (aal2); step-up",
+              "apiCalls",
+              "plugin.review.remove"
+            ],
+            [
+              "POST",
+              "/plugins/ecosystem/reviews/:id/remove-reply",
+              "system org; plugins:moderate; MFA session (aal2); step-up",
+              "apiCalls",
+              "plugin.review.reply.delete"
+            ],
+            [
+              "GET",
+              "/plugins/ecosystem/rules",
+              "system org; plugins:moderate; MFA session (aal2)",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "POST",
+              "/plugins/ecosystem/rules",
+              "system org; plugins:moderate; MFA session (aal2); step-up",
+              "apiCalls",
+              "ecosystem.auto-approval-rule.create"
+            ],
+            [
+              "DELETE",
+              "/plugins/ecosystem/rules/:id",
+              "system org; plugins:moderate; MFA session (aal2); step-up",
+              "apiCalls",
+              "ecosystem.auto-approval-rule.delete"
+            ],
+            [
+              "PATCH",
+              "/plugins/ecosystem/rules/:id",
+              "system org; plugins:moderate; MFA session (aal2); step-up",
+              "apiCalls",
+              "ecosystem.auto-approval-rule.update"
+            ],
+            [
+              "POST",
+              "/plugins/ecosystem/rules/:id/approve-change",
+              "system org; plugins:moderate; MFA session (aal2); step-up",
+              "apiCalls",
+              "ecosystem.auto-approval-rule.update"
+            ],
+            [
+              "GET",
+              "/plugins/find",
+              "plugins:read",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "POST",
+              "/plugins/generate",
+              "plugins:write; feature ai_generation",
+              "apiCalls",
+              "plugin.ai.generate"
+            ],
+            [
+              "POST",
+              "/plugins/generate/stream",
+              "plugins:write; feature ai_generation",
+              "apiCalls",
+              "plugin.ai.generate"
+            ],
+            [
+              "POST",
+              "/plugins/inspect",
+              "plugins:write",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "GET",
+              "/plugins/install-policy",
+              "plugins:read",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "PUT",
+              "/plugins/install-policy",
+              "plugin_installs:manage; step-up",
+              "apiCalls",
+              "org.plugin-install-policy.update"
+            ],
+            [
+              "GET",
+              "/plugins/installs",
+              "plugins:read",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "POST",
+              "/plugins/installs",
+              "plugins:install",
+              "apiCalls",
+              "plugin.install.create, plugin.install.request"
+            ],
+            [
+              "DELETE",
+              "/plugins/installs/:id",
+              "plugins:install",
+              "apiCalls",
+              "plugin.install.remove"
+            ],
+            [
+              "PATCH",
+              "/plugins/installs/:id",
+              "plugins:install",
+              "apiCalls",
+              "plugin.install.upgrade"
+            ],
+            [
+              "POST",
+              "/plugins/installs/:id/approve",
+              "plugin_installs:manage",
+              "apiCalls",
+              "plugin.install.approve"
+            ],
+            [
+              "POST",
+              "/plugins/installs/:id/change-requests",
+              "plugins:install",
+              "apiCalls",
+              "plugin.install.change-request"
+            ],
+            [
+              "POST",
+              "/plugins/installs/:id/change-requests/approve",
+              "plugin_installs:manage",
+              "apiCalls",
+              "plugin.install.change-approve, plugin.install.upgrade"
+            ],
+            [
+              "POST",
+              "/plugins/installs/:id/change-requests/reject",
+              "plugin_installs:manage",
+              "apiCalls",
+              "plugin.install.change-reject"
+            ],
+            [
+              "POST",
+              "/plugins/installs/:id/deny",
+              "plugin_installs:manage",
+              "apiCalls",
+              "plugin.install.deny"
+            ],
+            [
+              "GET",
+              "/plugins/installs/change-requests",
+              "plugin_installs:manage",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "GET",
+              "/plugins/kept-setup-images",
+              "system org; plugins:moderate; MFA session (aal2)",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "POST",
+              "/plugins/kept-setup-images/:id/promote",
+              "system org; plugins:moderate; MFA session (aal2)",
+              "apiCalls",
+              "plugin.setup_image.promoted, plugin.setup_image.promote_refused"
+            ],
+            [
+              "GET",
+              "/plugins/listings/:publisher/:name/install-state",
+              "plugins:read",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "GET",
+              "/plugins/listings/:publisher/:name/review-state",
+              "plugins:read",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "POST",
+              "/plugins/listings/:publisher/:name/reviews",
+              "plugins:read; a person (no service account or access key)",
+              "apiCalls",
+              "plugin.review.create"
+            ],
+            [
+              "POST",
+              "/plugins/lookup",
+              "plugins:read",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "GET",
+              "/plugins/pipelines/:pipelineId/exposures",
+              "pipelines:read",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "POST",
+              "/plugins/pipelines/:pipelineId/exposures/:exposureId/triage",
+              "pipelines:write",
+              "apiCalls",
+              "pipeline.vuln.accepted, pipeline.vuln.false_positive, pipeline.vuln.reopened"
+            ],
+            [
+              "GET",
+              "/plugins/pipelines/:pipelineId/security",
+              "pipelines:read",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "GET",
+              "/plugins/plugin-usage",
+              "plugins:read",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "GET",
+              "/plugins/providers",
+              "plugins:read; feature ai_generation",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "GET",
+              "/plugins/publish-requests",
+              "plugins:read",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "POST",
+              "/plugins/publish-requests",
+              "plugins:publish or publishers:manage",
+              "apiCalls",
+              "plugin.request.submit, publisher.verify.request, publisher.transfer.request, plugin.advisory.create"
+            ],
+            [
+              "POST",
+              "/plugins/publish-requests/:id/transfer-response",
+              "publishers:manage; step-up",
+              "apiCalls",
+              "publisher.transfer.accept, publisher.transfer.decline"
+            ],
+            [
+              "POST",
+              "/plugins/publish-requests/:id/withdraw",
+              "plugins:publish or publishers:manage",
+              "apiCalls",
+              "plugin.request.withdraw"
+            ],
+            [
+              "GET",
+              "/plugins/publish-requests/draft",
+              "plugins:publish",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "GET",
+              "/plugins/publisher",
+              "plugins:read",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "PATCH",
+              "/plugins/publisher",
+              "publishers:manage",
+              "apiCalls",
+              "publisher.update"
+            ],
+            [
+              "POST",
+              "/plugins/publisher",
+              "publishers:manage",
+              "apiCalls",
+              "publisher.create, publisher.terms.accept"
+            ],
+            [
+              "GET",
+              "/plugins/publisher/advisories",
+              "plugins:read",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "GET",
+              "/plugins/publisher/incoming-transfers",
+              "publishers:manage",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "GET",
+              "/plugins/publisher/insights",
+              "plugins:read",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "GET",
+              "/plugins/publisher/listings",
+              "plugins:read",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "POST",
+              "/plugins/publisher/listings/:listingId/deprecate",
+              "plugins:publish",
+              "apiCalls",
+              "plugin.version.deprecate"
+            ],
+            [
+              "POST",
+              "/plugins/publisher/listings/:listingId/pause",
+              "plugins:publish",
+              "apiCalls",
+              "plugin.listing.pause, plugin.version.pause"
+            ],
+            [
+              "POST",
+              "/plugins/publisher/terms",
+              "publishers:manage",
+              "apiCalls",
+              "publisher.terms.accept"
+            ],
+            [
+              "DELETE",
+              "/plugins/queue/dlq",
+              "system org; plugin_queue:manage; MFA session (aal2)",
+              "apiCalls",
+              "plugin.dlq.purge"
+            ],
+            [
+              "GET",
+              "/plugins/queue/dlq",
+              "plugins:write",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "POST",
+              "/plugins/queue/dlq/:jobId/replay",
+              "plugins:write",
+              "apiCalls",
+              "plugin.dlq.replay"
+            ],
+            [
+              "GET",
+              "/plugins/queue/failed",
+              "plugins:write",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "POST",
+              "/plugins/queue/failed/:jobId/retry",
+              "plugins:write",
+              "apiCalls",
+              "plugin.build.retry"
+            ],
+            [
+              "GET",
+              "/plugins/queue/status",
+              "system org; plugin_queue:manage; MFA session (aal2)",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "GET",
+              "/plugins/queue/triage",
+              "plugins:write",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "DELETE",
+              "/plugins/reviews/:id",
+              "plugins:read; a person (no service account or access key)",
+              "apiCalls",
+              "plugin.review.delete"
+            ],
+            [
+              "PATCH",
+              "/plugins/reviews/:id",
+              "plugins:read; a person (no service account or access key)",
+              "apiCalls",
+              "plugin.review.update"
+            ],
+            [
+              "DELETE",
+              "/plugins/reviews/:id/helpful",
+              "plugins:read; a person (no service account or access key)",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "PUT",
+              "/plugins/reviews/:id/helpful",
+              "plugins:read; a person (no service account or access key)",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "DELETE",
+              "/plugins/reviews/:id/reply",
+              "publishers:manage; a person (no service account or access key)",
+              "apiCalls",
+              "plugin.review.reply.delete"
+            ],
+            [
+              "PUT",
+              "/plugins/reviews/:id/reply",
+              "publishers:manage; a person (no service account or access key)",
+              "apiCalls",
+              "plugin.review.reply.create, plugin.review.reply.update"
+            ],
+            [
+              "POST",
+              "/plugins/reviews/:id/report",
+              "plugins:read; a person (no service account or access key)",
+              "apiCalls",
+              "plugin.review.report, plugin.review.hold"
+            ],
+            [
+              "POST",
+              "/plugins/runtime-check",
+              "plugins:read",
+              "apiCalls",
+              "pipeline.runtime_check.flagged"
+            ],
+            [
+              "GET",
+              "/plugins/security-notifications",
+              "plugins:read",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "PUT",
+              "/plugins/security-notifications",
+              "org_settings:write",
+              "apiCalls",
+              "plugin.security_notifications.update"
+            ],
+            [
+              "POST",
+              "/plugins/security-notifications/test",
+              "org_settings:write",
+              "apiCalls",
+              "plugin.security_notifications.test"
+            ],
+            [
+              "GET",
+              "/plugins/shadowing",
+              "plugins:read",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "GET",
+              "/plugins/storage",
+              "plugins:read",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "POST",
+              "/plugins/storage/prune",
+              "plugins:write",
+              "apiCalls",
+              "plugin.version.prune"
+            ],
+            [
+              "GET",
+              "/plugins/toolchain/affected",
+              "system org; toolchain:operate; MFA session (aal2)",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "POST",
+              "/plugins/toolchain/affected/notify",
+              "system org; toolchain:operate; MFA session (aal2); step-up",
+              "apiCalls",
+              "toolchain.recovery.notify"
+            ],
+            [
+              "GET",
+              "/plugins/toolchain/cleanup",
+              "system org; toolchain:operate; MFA session (aal2)",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "GET",
+              "/plugins/toolchain/eligible",
+              "pipelines:read",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "GET",
+              "/plugins/toolchain/history",
+              "system org; toolchain:operate; MFA session (aal2)",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "DELETE",
+              "/plugins/toolchain/org-default",
+              "toolchain:manage; step-up",
+              "apiCalls",
+              "toolchain.org_default.clear"
+            ],
+            [
+              "GET",
+              "/plugins/toolchain/org-default",
+              "pipelines:read",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "PUT",
+              "/plugins/toolchain/org-default",
+              "toolchain:manage; step-up",
+              "apiCalls",
+              "toolchain.org_default.set"
+            ],
+            [
+              "GET",
+              "/plugins/toolchain/org-default/history",
+              "pipelines:read",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "GET",
+              "/plugins/toolchain/releases",
+              "system org; toolchain:operate; MFA session (aal2)",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "DELETE",
+              "/plugins/toolchain/releases/:v",
+              "system org; toolchain:operate; MFA session (aal2); step-up",
+              "apiCalls",
+              "toolchain.release.delete"
+            ],
+            [
+              "PATCH",
+              "/plugins/toolchain/releases/:v",
+              "system org; toolchain:operate; MFA session (aal2); step-up",
+              "apiCalls",
+              "toolchain.release.notes"
+            ],
+            [
+              "GET",
+              "/plugins/toolchain/releases/:v/adoption",
+              "system org; toolchain:operate; MFA session (aal2)",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "GET",
+              "/plugins/toolchain/releases/:v/canary",
+              "system org; toolchain:operate; MFA session (aal2)",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "POST",
+              "/plugins/toolchain/releases/:v/default",
+              "system org; toolchain:operate; MFA session (aal2); step-up",
+              "apiCalls",
+              "toolchain.default.set"
+            ],
+            [
+              "GET",
+              "/plugins/toolchain/releases/:v/default-preview",
+              "system org; toolchain:operate; MFA session (aal2)",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "POST",
+              "/plugins/toolchain/releases/:v/deprecate",
+              "system org; toolchain:operate; MFA session (aal2); step-up",
+              "apiCalls",
+              "toolchain.release.deprecate"
+            ],
+            [
+              "PUT",
+              "/plugins/toolchain/releases/:v/rollout",
+              "system org; toolchain:operate; MFA session (aal2); step-up",
+              "apiCalls",
+              "toolchain.rollout.update"
+            ],
+            [
+              "POST",
+              "/plugins/toolchain/releases/:v/yank",
+              "system org; toolchain:operate; MFA session (aal2); step-up",
+              "apiCalls",
+              "toolchain.release.yank, toolchain.default.restore"
+            ],
+            [
+              "GET",
+              "/plugins/vuln-waivers",
+              "plugins:read",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "GET",
+              "/plugins/vulnerabilities/:advisoryId",
+              "plugins:read",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "GET",
+              "/plugins/vulnerabilities/fleet",
+              "system org; platform:read or plugins:moderate; MFA session (aal2)",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "POST",
+              "/public/plugin-security-notifications/confirm",
+              "no bearer token",
+              "—",
+              "plugin.security_notifications.external_email.verify"
+            ],
+            [
+              "POST",
+              "/public/plugin-submissions",
+              "no bearer token",
+              "—",
+              "plugin.submission.create"
+            ],
+            [
+              "GET",
+              "/public/plugin-submissions/challenge",
+              "no bearer token",
+              "—",
+              "—"
+            ],
+            [
+              "POST",
+              "/public/plugin-submissions/inspect",
+              "no bearer token",
+              "—",
+              "—"
+            ],
+            [
+              "GET",
+              "/public/plugin-submissions/status",
+              "no bearer token",
+              "—",
+              "—"
+            ],
+            [
+              "POST",
+              "/public/plugin-submissions/verify",
+              "no bearer token",
+              "—",
+              "plugin.submission.verify"
+            ],
+            [
+              "GET",
+              "/public/plugins",
+              "no bearer token",
+              "—",
+              "—"
+            ],
+            [
+              "GET",
+              "/public/plugins/:publisher/:name",
+              "no bearer token",
+              "—",
+              "—"
+            ],
+            [
+              "GET",
+              "/public/plugins/:publisher/:name/reviews",
+              "no bearer token",
+              "—",
+              "—"
+            ],
+            [
+              "GET",
+              "/public/plugins/:publisher/:name/versions/:version/sbom",
+              "no bearer token",
+              "—",
+              "—"
+            ],
+            [
+              "GET",
+              "/public/plugins/categories",
+              "no bearer token",
+              "—",
+              "—"
+            ],
+            [
+              "GET",
+              "/public/plugins/sitemap",
+              "no bearer token",
+              "—",
+              "—"
+            ]
+          ]
+        },
+        {
+          "type": "text",
+          "content": "Ask Service — every route"
+        },
+        {
+          "type": "text",
+          "content": "6 routes, from frontend/src/generated/route-table/ask.json."
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Method",
+            "Endpoint",
+            "Requires",
+            "Meters",
+            "Audit action"
+          ],
+          "rows": [
+            [
+              "POST",
+              "/ask",
+              "pipelines:read or plugins:read or templates:read; feature ai_generation",
+              "apiCalls",
+              "ask.query"
+            ],
+            [
+              "POST",
+              "/ask/agent/stream",
+              "pipelines:read or plugins:read or templates:read; feature ai_generation",
+              "apiCalls",
+              "ask.agent.turn"
+            ],
+            [
+              "GET",
+              "/ask/availability",
+              "pipelines:read or plugins:read or templates:read; feature ai_generation",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "POST",
+              "/ask/feedback",
+              "pipelines:read or plugins:read or templates:read",
+              "apiCalls",
+              "ask.feedback"
+            ],
+            [
+              "GET",
+              "/ask/providers",
+              "pipelines:read or plugins:read or templates:read; feature ai_generation",
+              "apiCalls",
+              "—"
+            ],
+            [
+              "POST",
+              "/ask/stream",
+              "pipelines:read or plugins:read or templates:read; feature ai_generation",
+              "apiCalls",
+              "ask.query"
             ]
           ]
         }

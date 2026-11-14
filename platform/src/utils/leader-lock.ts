@@ -30,8 +30,8 @@
  */
 
 import { createLogger, createScheduler, withLeaderLock, DEFAULT_LEADER_LOCK_TTL_MS, type LeaderLockRun, type LockRedis, type Scheduler, errorMessage } from '@pipeline-builder/api-core';
-import { incCounter } from '@pipeline-builder/api-server';
 import { getRedisClient } from './redis-client.js';
+import { incCounter } from '../observability/metrics.js';
 
 const logger = createLogger('leader-lock');
 

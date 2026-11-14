@@ -381,13 +381,13 @@ needs a focused session to do safely.
   the same per-spec reading as before. 112 specs use `set -e` today; the 7 that
   do not have no multi-line block to guard.
 
-- **`config.yaml` is 119 byte-identical files.** Every plugin ships the same
-  three lines (`pluginSpec` / `dockerfile` / `buildType: build_image`), 357
-  lines in total, and in their CHECKED-IN state nothing reads them:
+- **`config.yaml` is 117 byte-identical files.** Every image-building plugin
+  ships the same three lines (`pluginSpec` / `dockerfile` / `buildType:
+  build_image`; `infrastructure/manual-approval` alone is `metadata_only`), and in their CHECKED-IN state nothing reads them:
   `load-plugins.sh` short-circuits on `pluginType` or on the Dockerfile's
   existence before it looks at `buildType`, and `build-plugin-images.sh`
   synthesizes the file when it is missing. They only carry information after a
-  build rewrites them (`buildType: prebuilt` + `imageTag`). Deleting all 119 and
+  build rewrites them (`buildType: prebuilt` + `imageTag`). Deleting all 117 and
   letting the build synthesize is tempting; it is listed rather than done because
   the file is also what gets zipped into an upload, and that path wants checking
   first. `infrastructure/manual-approval` is the one that was actually WRONG and

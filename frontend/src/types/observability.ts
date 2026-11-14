@@ -163,6 +163,25 @@ export interface AlertDestination {
   /** Set only on rows from the deleted listing (soft-delete tombstones). */
   deletedAt?: string | null;
   deletedBy?: string | null;
+  /**
+   * The relay's last delivery outcome (org listing only; null = never attempted).
+   * Absent on the cross-tenant and deleted listings.
+   */
+  delivery?: AlertDestinationDelivery | null;
+}
+
+/** Error CLASS of a failed delivery — never the downstream status or host. */
+export type AlertDeliveryErrorKind = 'timeout' | 'rejected' | 'unreachable' | 'unknown-channel';
+
+/** `delivery` on a GET /observability/alert-destinations row. */
+export interface AlertDestinationDelivery {
+  lastAttemptAt: string;
+  lastOk: boolean;
+  lastErrorKind: AlertDeliveryErrorKind | null;
+  lastSuccessAt: string | null;
+  lastFailureAt: string | null;
+  /** Failed attempts since the last success. */
+  consecutiveFailures: number;
 }
 
 export interface AlertDestinationsResponse {

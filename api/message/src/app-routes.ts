@@ -13,8 +13,8 @@ import { createInternalOffersRoutes } from './routes/internal-offers.js';
 import { createInternalOrgPurgeRoutes } from './routes/internal-org-purge.js';
 import { createPurgeMessageRoutes } from './routes/purge-message.js';
 import { createReadMessageRoutes } from './routes/read-messages.js';
-import { createSupportCaseRoutes } from './routes/support-case-routes.js';
 import { createRestoreMessageRoutes } from './routes/restore-message.js';
+import { createSupportCaseRoutes } from './routes/support-case-routes.js';
 import { createUpdateMessageRoutes } from './routes/update-message.js';
 
 /** Dependencies the route factories need. */

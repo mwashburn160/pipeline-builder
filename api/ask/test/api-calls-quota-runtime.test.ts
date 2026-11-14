@@ -37,6 +37,8 @@ process.env.QUOTA_INCREMENT_FLUSH_MS = '0';
 const mockGetAvailableProviders = jest.fn<AnyFn>(() => [{ id: 'anthropic', name: 'Anthropic', models: [] }]);
 jest.unstable_mockModule('@pipeline-builder/ai-core', () => stubModule('@pipeline-builder/ai-core', {
   getAvailableProviders: mockGetAvailableProviders,
+  // Read at load by internal-http (the delegated-generation timeout).
+  AI_REQUEST_TIMEOUT_MS: 120_000,
 }));
 
 const ORG = 'org-quota-1';

@@ -209,6 +209,8 @@ export const complianceExemption = pgTable('compliance_exemptions', {
   rejectionReason: text('rejection_reason'),
   status: varchar('status', { length: 20 }).$type<ComplianceExemptionStatus>().default('pending').notNull(),
   expiresAt: timestamp('expires_at', { withTimezone: true }),
+  /** When the pre-expiry warning went out (the expiry sweep sends one per exemption). */
+  expiryWarnedAt: timestamp('expiry_warned_at', { withTimezone: true }),
   createdBy: text('created_by').notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedBy: text('updated_by').notNull(),
@@ -251,7 +253,6 @@ export const complianceScan = pgTable('compliance_scans', {
   id: uuid('id').primaryKey().defaultRandom(),
   orgId: varchar('org_id', { length: 255 }).notNull(),
   target: varchar('target', { length: 20 }).$type<ComplianceScanTarget>().notNull(),
-  filter: jsonb('filter'), // optional entity filter for partial scans
   status: varchar('status', { length: 20 }).$type<ComplianceScanStatus>().default('pending').notNull(),
   triggeredBy: varchar('triggered_by', { length: 20 }).$type<ComplianceScanTrigger>().notNull(),
   userId: text('user_id').notNull(),
@@ -260,11 +261,6 @@ export const complianceScan = pgTable('compliance_scans', {
   passCount: integer('pass_count').default(0).notNull(),
   warnCount: integer('warn_count').default(0).notNull(),
   blockCount: integer('block_count').default(0).notNull(),
-  // True when the scan stopped early at a configured per-scan cap (so the
-  // counts above represent a subset, not the full entity universe). Surfaced
-  // in the scan-status UI so users know whether to widen the filter.
-  // Created by postgres-init.sql.
-  truncated: boolean('truncated').default(false).notNull(),
   startedAt: timestamp('started_at', { withTimezone: true }),
   completedAt: timestamp('completed_at', { withTimezone: true }),
   cancelledAt: timestamp('cancelled_at', { withTimezone: true }),

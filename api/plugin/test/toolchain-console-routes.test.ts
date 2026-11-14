@@ -210,7 +210,10 @@ describe('writes: + requireStepUp, routed to the service with the caller as acto
 
     expect((await call('PATCH', `${T}/releases/1.1.0`, token(OPERATOR), { body: { releaseNotes: 'n' }, ...s() })).body.data).toEqual({ releaseVersion: '1.1.0', releaseNotes: 'n' });
     expect((await call('POST', `${T}/releases/1.1.0/deprecate`, token(OPERATOR), { body: { message: 'old' }, ...s() })).body.data).toEqual({});
-    expect(svc.deprecateConsoleRelease).toHaveBeenCalledWith('1.1.0', 'u-op', 'old');
+    expect(svc.deprecateConsoleRelease).toHaveBeenCalledWith('1.1.0', 'u-op', 'old', true);
+    // `{ deprecated: false }` reverses a deprecation.
+    expect((await call('POST', `${T}/releases/1.1.0/deprecate`, token(OPERATOR), { body: { deprecated: false }, ...s() })).body.data).toEqual({});
+    expect(svc.deprecateConsoleRelease).toHaveBeenLastCalledWith('1.1.0', 'u-op', null, false);
     expect((await call('POST', `${T}/releases/1.1.0/yank`, token(OPERATOR), { body: { reason: 'crash' }, ...s() })).body.data).toEqual({ restoredDefault: '1.0.0' });
     expect(svc.yankConsoleRelease).toHaveBeenCalledWith('1.1.0', 'crash', 'u-op');
     expect((await call('DELETE', `${T}/releases/1.1.0`, token(OPERATOR), s())).body.data).toEqual({});

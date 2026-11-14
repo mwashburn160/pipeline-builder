@@ -15,6 +15,7 @@ import { Select } from '@/components/ui/Select';
 import { Textarea } from '@/components/ui/Textarea';
 import { FilterSelect } from '@/components/ui/FilterSelect';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
+import { RetryError } from '@/components/ui/RetryError';
 import { SuccessAlert } from '@/components/ui/SuccessAlert';
 import { useServerPagination } from '@/hooks/useServerPagination';
 import { useDelete } from '@/hooks/useDelete';
@@ -62,9 +63,9 @@ export default function ExemptionManager({ readOnly = false }: ExemptionManagerP
       const params: Record<string, string | number> = { limit, offset };
       if (filters.status) params.status = filters.status;
       const res = await api.getExemptions(params);
-      if (!res.success || !res.data) {
-        return { items: [], pagination: { offset, limit, total: 0 } };
-      }
+      // A refused read is an error, not "no exemptions": an empty list here reads
+      // as "nothing is exempted" while exemptions may well be in force.
+      if (!res.success || !res.data) throw new Error(res.message || 'Failed to load exemptions');
       return {
         items: res.data.exemptions,
         pagination: res.data.pagination
@@ -96,6 +97,8 @@ export default function ExemptionManager({ readOnly = false }: ExemptionManagerP
         setForm({ ruleId: '', entityType: 'plugin', entityId: '', entityName: '', reason: '' });
         toastRef.current.success('Exemption requested');
         fetchExemptions();
+      } else {
+        toastRef.current.error(res.message || 'Failed to create exemption');
       }
     } catch (err) {
       toastRef.current.error(formatError(err, 'Failed to create exemption'));
@@ -198,6 +201,8 @@ export default function ExemptionManager({ readOnly = false }: ExemptionManagerP
       if (res.success && res.data) {
         setBulkResult({ created: res.data.created, skipped: res.data.skipped, total: parsed.rowCount });
         fetchExemptions();
+      } else {
+        setBulkError(res.message || 'The import was refused. Nothing was imported.');
       }
     } catch (err) {
       setBulkError(formatError(err, 'Failed to import CSV.'));
@@ -211,7 +216,9 @@ export default function ExemptionManager({ readOnly = false }: ExemptionManagerP
     setRejectionReason('');
   };
 
-  if (loading) {
+  // Only the FIRST load blanks the panel: a re-read after approve / reject /
+  // import keeps the list (and an open reject form) on screen.
+  if (loading && exemptions.length === 0 && !fetchError) {
     return <div className="flex items-center justify-center py-12"><LoadingSpinner label="Loading exemptions" /></div>;
   }
 
@@ -295,7 +302,9 @@ export default function ExemptionManager({ readOnly = false }: ExemptionManagerP
         </div>
       )}
 
-      {exemptions.length === 0 ? (
+      {fetchError ? (
+        <RetryError message={formatError(fetchError, 'Failed to load exemptions')} onRetry={fetchExemptions} />
+      ) : exemptions.length === 0 ? (
         <TextEmptyState>No exemptions found.</TextEmptyState>
       ) : (
         <>

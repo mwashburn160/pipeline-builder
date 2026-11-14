@@ -125,4 +125,16 @@ const personalAccessTokenSchema = new Schema<PersonalAccessTokenData>(
   { timestamps: { createdAt: true, updatedAt: false } },
 );
 
+/**
+ * Dead keys are removed 30 days after they died — revoked (`revokedAt`) or
+ * expired (`expiresAt`) — by two TTL indexes (a TTL monitor skips documents
+ * whose field is null, so a live key is never touched). Without them every
+ * key a user ever held stayed in `GET /user/keys` forever, unpaginated, along
+ * with its creation IP and user agent. 30 days matches the privacy policy's
+ * window for deleted items and keeps a recent revocation visible on the page.
+ */
+export const DEAD_KEY_RETENTION_SECONDS = 30 * 86_400;
+personalAccessTokenSchema.index({ revokedAt: 1 }, { expireAfterSeconds: DEAD_KEY_RETENTION_SECONDS });
+personalAccessTokenSchema.index({ expiresAt: 1 }, { expireAfterSeconds: DEAD_KEY_RETENTION_SECONDS });
+
 export default mongoose.model<PersonalAccessTokenData>('PersonalAccessToken', personalAccessTokenSchema);

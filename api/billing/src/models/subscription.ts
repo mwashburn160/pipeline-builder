@@ -107,6 +107,11 @@ export interface SubscriptionDocument extends Document {
    *  order, so an event older than this watermark is skipped — see
    *  `claimStripeEventOrder`. Null until the first event lands. */
   lastStripeEventAt?: Date | null;
+  /** `created` of the newest Stripe invoice whose ending balance was mirrored
+   *  into `creditBalanceCents`. Separate from `lastStripeEventAt`: per-invoice
+   *  effects run even when the invoice event is older than a lifecycle event,
+   *  so the balance mirror needs its own invoice-only ordering. */
+  lastBalanceInvoiceAt?: Date | null;
   metadata: Record<string, unknown>;
   createdAt: Date;
   updatedAt: Date;
@@ -193,6 +198,7 @@ const subscriptionSchema = new Schema<SubscriptionDocument>(
       default: [],
     },
     lastStripeEventAt: { type: Date, default: null },
+    lastBalanceInvoiceAt: { type: Date, default: null },
     metadata: { type: Schema.Types.Mixed, default: {} },
   },
   {

@@ -51,7 +51,9 @@ export function ToolchainCanaryPanel({ release, canWrite, onChanged }: Props) {
   const read = useFetch(
     async (signal) => (await api.getToolchainCanary(v, { signal, thresholds: applied ?? undefined })).data ?? null,
     [v, applied],
-    { onSuccess: (d) => { if (d) setDraft(d.gate.thresholds); } },
+    // Applying thresholds re-reads the same release (the parent keys this panel
+    // by version), so the current numbers stay up while the new ones load.
+    { keepPreviousData: true, onSuccess: (d) => { if (d) setDraft(d.gate.thresholds); } },
   );
   const data = read.data;
 

@@ -8,7 +8,9 @@ import {
   createAccessKey,
   declineMfaPrompt,
   deleteUser,
+  exportOwnData,
   generateToken,
+  getAccountDeletionPlan,
   getOwnPasswordPolicy,
   getPreferences,
   getUser,
@@ -34,9 +36,17 @@ router.get('/profile', requireAuth, getUser);
 /** PATCH /user/profile - Update current user's profile */
 router.patch('/profile', requireAuth, audited('user.profile.update'), updateUser);
 
-/** DELETE /user/account - Delete current user's account.
+/** GET /user/export - Download the caller's own data (step-up: bulk personal data). */
+router.get('/export', requireAuth, requireStepUp, audited('user.export'), exportOwnData);
+
+/** GET /user/account/deletion - What deleting the account would do (which owned
+ *  orgs go with it, which block it). */
+router.get('/account/deletion', requireAuth, getAccountDeletionPlan);
+
+/** DELETE /user/account - Delete current user's account (and any owned org it is
+ *  the ONLY member of, soft-deleted with it).
  *  Step-up gated — a stolen session shouldn't be able to tombstone the account. */
-router.delete('/account', requireAuth, requireStepUp, audited('user.delete'), deleteUser);
+router.delete('/account', requireAuth, requireStepUp, audited('user.delete', 'org.soft_delete'), deleteUser);
 
 /** POST /user/change-password - Change current user's password.
  *  Step-up gated — defense-in-depth. The handler still verifies

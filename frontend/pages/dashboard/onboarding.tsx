@@ -146,6 +146,26 @@ export default function OnboardingPage() {
     }
   };
 
+  /** Withdraw the caller's own pending request (DELETE /auth/onboarding/join/:orgId). */
+  const handleWithdraw = async (org: { orgId: string }) => {
+    setJoiningOrgId(org.orgId);
+    setError(null);
+    try {
+      await api.withdrawDomainJoinRequest(org.orgId);
+      setRequestedOrgIds((prev) => {
+        const next = new Set(prev);
+        next.delete(org.orgId);
+        return next;
+      });
+    } catch (e) {
+      setError(formatError(e, 'Could not withdraw the request'));
+    } finally {
+      // Re-read either way: a 404 means it was already decided or had lapsed.
+      void discovery.refetch();
+      setJoiningOrgId(null);
+    }
+  };
+
   const finish = async (withName: boolean) => {
     setSubmitting(true);
     setError(null);
@@ -176,7 +196,8 @@ export default function OnboardingPage() {
    * actionable when there is something left to do — an org already joined, or
    * one whose request is pending or was refused, shows its state instead of a
    * button that would just re-post the same request (the backend treats a
-   * denial as sticky and refuses to re-open it).
+   * denial as sticky until an org admin clears it). A pending request can be
+   * withdrawn.
    */
   const orgRow = (org: DomainOrg) => {
     const pending = org.requestStatus === 'pending' || requestedOrgIds.has(org.orgId);
@@ -186,12 +207,23 @@ export default function OnboardingPage() {
         {org.isMember ? (
           <span className="text-xs text-fg-muted shrink-0 text-right" data-testid={`org-state-${org.orgId}`}>You&apos;re a member</span>
         ) : pending ? (
-          <span className="text-xs text-success shrink-0 text-right" data-testid={`org-state-${org.orgId}`}>
-            Request sent ✓<br /><span className="text-fg-muted">An admin will review it.</span>
-          </span>
+          <div className="flex items-center gap-2 shrink-0">
+            <span className="text-xs text-success text-right" data-testid={`org-state-${org.orgId}`}>
+              Request sent ✓<br /><span className="text-fg-muted">An admin will review it.</span>
+            </span>
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              disabled={joiningOrgId !== null || submitting}
+              onClick={() => void handleWithdraw(org)}
+            >
+              {joiningOrgId === org.orgId ? '…' : 'Withdraw'}
+            </Button>
+          </div>
         ) : org.requestStatus === 'denied' ? (
           <span className="text-xs text-danger shrink-0 text-right" data-testid={`org-state-${org.orgId}`}>
-            Request declined<br /><span className="text-fg-muted">Ask an admin to invite you.</span>
+            Request declined<br /><span className="text-fg-muted">Ask an admin to clear it or invite you.</span>
           </span>
         ) : (
           <Button

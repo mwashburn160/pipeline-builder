@@ -311,13 +311,27 @@ export function pluginsApi(core: ApiCore) {
     /**
      * Yank a version: ranges, `latest` and the default stop resolving to it; an
      * exact pin still resolves, with a warning carrying `reason`. Yanking the
-     * default promotes the next version. There is no un-yank here; a version
-     * published to the ecosystem answers 409 (request the yank there).
+     * default promotes the next version ({@link unyankPlugin} reverses it); a
+     * version published to the ecosystem answers 409 (request the yank there).
      */
     yankPlugin: async (id: string, reason: string) => {
       return core.request<ApiResponse<{ plugin: Plugin; promotedDefault?: { id: string; version: string } }>>(`/api/plugins/${id}/yank`, {
         method: 'POST',
         body: JSON.stringify({ reason }),
+      });
+    },
+
+    /**
+     * Reverse a yank of the org's own version: it resolves for ranges and
+     * `latest` again, back to `deprecated` when it was deprecated, else
+     * `production` — but it does NOT become the default again. 409
+     * `PLUGIN_VERSION_FROZEN` for a version published to the ecosystem, 409
+     * `CONFLICT` when it is not yanked. Same gates as yank.
+     */
+    unyankPlugin: async (id: string, reason?: string) => {
+      return core.request<ApiResponse<{ plugin: Plugin }>>(`/api/plugins/${id}/unyank`, {
+        method: 'POST',
+        body: JSON.stringify(reason ? { reason } : {}),
       });
     },
 

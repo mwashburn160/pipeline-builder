@@ -17,10 +17,6 @@ export const developerPortalTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "<!-- Copyright 2026 Pipeline Builder Contributors SPDX-License-Identifier: Apache-2.0 -->"
-        },
-        {
-          "type": "text",
           "content": "Pipeline Builder is a self-service internal developer platform. Beyond creating pipelines, it gives developers a catalog of what they own, golden-path templates to start from, and a per-pipeline maturity scorecard."
         }
       ]

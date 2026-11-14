@@ -765,12 +765,20 @@ class ApiKeyService {
     return { ok: true, doc: record };
   }
 
-  /** Revoke every live key a user holds (sign out everywhere, account teardown). */
-  async revokeAllForUser(userId: string): Promise<void> {
+  /**
+   * Revoke every live key a user holds. Every HARD revocation calls this: sign
+   * out everywhere, password change, admin password reset, forgot-password
+   * reset and the MFA factor reset — keys are decoupled from `tokenVersion`, so
+   * a path that only bumped it would leave a stolen key exchanging. Returns how
+   * many keys were revoked (for the caller's audit row).
+   */
+  async revokeAllForUser(userId: string): Promise<number> {
     const filter = { userId: new Types.ObjectId(String(userId)), revoked: false };
     const live = await PersonalAccessToken.find(filter).select('_id').lean();
+    if (live.length === 0) return 0;
     await PersonalAccessToken.updateMany(filter, { $set: { revoked: true, revokedAt: new Date() } });
     await publishAccessKeyRevocation(live.map((k) => String(k._id)));
+    return live.length;
   }
 }
 

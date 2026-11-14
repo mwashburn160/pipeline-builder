@@ -262,7 +262,7 @@ export function PipelineSecurityTab({ pipelineId, canWrite }: { pipelineId: stri
       )}
 
       <PluginUpgradePanel pipelineId={pipelineId} canWrite={canWrite} onApplied={reload} />
-      <ArtifactSecurityReportsCard pipelineId={pipelineId} />
+      <ArtifactSecurityReportsCard pipelineId={pipelineId} canWrite={canWrite} />
 
       {triage && (
         <ExposureTriageModal

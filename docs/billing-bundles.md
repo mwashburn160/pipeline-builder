@@ -265,7 +265,7 @@ For an account with [teams](organization-benefits.md#teams), bundle grants raise
 - **Threshold notices.** Crossing 80% and 100% of a quota drops one notice per quota per period into the root org's inbox, emails the root's admins/owners and billing contacts, and posts a `quota.threshold` event to the account's webhook when one is set. Billing contacts (`billing:manage`) opt out or set the webhook on the root's Quotas page (`PUT /quotas/:orgId/notice-settings`).
 - **Refusals say what to do.** A 429 `QUOTA_EXCEEDED` names the quota, the usage, the reset date and the upgrade page — `details: { quotaType, limit, used, resetAt, upgradeUrl }` — and the dashboard shows it as a notice on every page.
 - **Which calls count.** Every service meters and checks `apiCalls` on its authenticated user surface; machine ingest is metered but never refused, and a short list of console-polling reads is free — see [API Quotas](quotas.md).
-- Removing a bundle can't drop a pooled cap below current usage: billing's over-cap guard blocks a removal that would strand seats, plugins or pipelines.
+- Removing a bundle can't drop a pooled cap below current usage: billing's over-cap guard blocks a removal that would strand seats, plugins, pipelines, listings, storage or designated support contacts (standard and premium) — remove the contacts first, as with members.
 
 ## Buying and managing bundles
 

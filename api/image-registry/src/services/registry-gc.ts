@@ -3,7 +3,7 @@
 
 import { SYSTEM_ACTOR_ID, createLogger, errorMessage, SYSTEM_ORG_ID, recordAudit } from '@pipeline-builder/api-core';
 import { incCounter, setGauge } from '@pipeline-builder/api-server';
-import { isCosignCompanionTag } from './cosign-tags.js';
+import { cosignCompanionSubject, cosignCompanionTags, isCosignCompanionTag } from './cosign-tags.js';
 import { INDEX_MEDIA_TYPES, isIndex } from './manifest.js';
 import { inPublicNamespace, inQuarantineNamespace, inRegistryMetaNamespace, QUARANTINE_PREFIX, repoOwnerOrgId } from './namespaces.js';
 import { pluginImageReferences } from './plugin-image-references.js';
@@ -13,6 +13,7 @@ import {
   getManifest,
   getBlobJson,
   deleteManifest,
+  headManifest,
   isNotFound,
 } from './registry-client.js';
 import { computeStorageUsage, invalidateOrgStorageCache, invalidateStorageCache } from './storage-usage.js';
@@ -93,6 +94,80 @@ export interface GcOptions {
   actorOrgId?: string;
 }
 
+/** Counter: manifests the age GC deleted, by `kind` (`image` | `companion` | `index_child`). */
+export const GC_DELETED_COUNTER = 'registry_gc_manifests_deleted_total';
+/**
+ * Counter: a step of a registry sweep that FAILED, by `stage`. Alerted
+ * (RegistryGcFailing) — a failed sweep step leaves bytes on disk and nobody
+ * reads the warn log.
+ */
+export const GC_FAILED_COUNTER = 'registry_gc_failed_total';
+
+/** Stages of {@link GC_FAILED_COUNTER}. */
+export type GcFailureStage =
+  | 'catalog' | 'tag_list' | 'manifest_fetch' | 'references' | 'reverify' | 'delete'
+  | 'namespace' | 'quarantine_scan' | 'quarantine_delete';
+
+function gcFailure(stage: GcFailureStage): void {
+  incCounter(GC_FAILED_COUNTER, { stage });
+}
+
+interface ManifestInfo {
+  digest: string;
+  mediaType: string;
+  body: ManifestBody;
+  tags: string[];
+}
+
+/** A repository's state re-read right before its deletes. */
+interface FreshRepoState {
+  /** tag → digest it resolves to now. */
+  tagDigest: Map<string, string>;
+  /** digest → every non-companion tag on it now. */
+  tagsByDigest: Map<string, string[]>;
+  /** child digest → the digests of the indexes tagged now that list it. */
+  indexParents: Map<string, string[]>;
+  /** The owner org's in-use digests now (null = unreadable: delete nothing). */
+  inUse: ReadonlySet<string> | null;
+}
+
+async function reverifyRepo(repo: string): Promise<FreshRepoState> {
+  const { tags } = await listTags(repo);
+  const tagDigest = new Map<string, string>();
+  const tagsByDigest = new Map<string, string[]>();
+  const indexParents = new Map<string, string[]>();
+  for (const tag of tags) {
+    const head = await headManifest(repo, tag);
+    if (!head) continue;
+    tagDigest.set(tag, head.digest);
+    if (isCosignCompanionTag(tag)) continue;
+    const list = tagsByDigest.get(head.digest) ?? [];
+    list.push(tag);
+    tagsByDigest.set(head.digest, list);
+  }
+  // Children of every index tagged now (one GET per distinct tagged digest that
+  // is an index; plain image manifests are small too).
+  for (const digest of tagsByDigest.keys()) {
+    const m = await getManifest(repo, digest);
+    if (isIndex(m.mediaType, m.body as ManifestBody)) {
+      for (const c of (m.body as ManifestBody).manifests ?? []) {
+        if (c.digest) indexParents.set(c.digest, [...(indexParents.get(c.digest) ?? []), digest]);
+      }
+    }
+  }
+  const owner = repoOwnerOrgId(repo);
+  let inUse: ReadonlySet<string> | null = null;
+  if (owner) {
+    try {
+      inUse = await pluginImageReferences(owner);
+    } catch (err) {
+      gcFailure('references');
+      logger.warn('GC: in-use references unavailable at re-verification; deleting nothing in this repo', { repo, error: errorMessage(err) });
+    }
+  }
+  return { tagDigest, tagsByDigest, indexParents, inUse };
+}
+
 /** Cap on the digests listed in one `registry.gc` event (the count is always exact). */
 const GC_AUDIT_DIGEST_CAP = 100;
 
@@ -102,12 +177,22 @@ export interface GcResult {
   /** Number of manifests considered for pruning across all repos. */
   candidates: number;
   /**
-   * Number of manifests actually deleted. Always 0 in dry-run mode.
-   * Distribution's GC reconciles the blob store on its own schedule, so
-   * the bytes-on-disk number only drops when the registry's `garbage-collect`
-   * command runs (operator-driven, separate from this app-level GC).
+   * Number of image manifests actually deleted (cosign companions and the
+   * children of a deleted index are counted separately). Always 0 in dry-run
+   * mode. This removes REFERENCES only: the bytes on disk drop when the
+   * registry's own `garbage-collect` runs — the scheduled `registry-blob-gc`
+   * job in every deploy tree (docs/deploy-operations.md). Distribution never
+   * reclaims blobs by itself.
    */
   deleted: number;
+  /**
+   * cosign `.sig`/`.att` companions deleted — with their subject, or as
+   * orphans whose subject is gone. In dry-run mode, the number a real run
+   * would delete.
+   */
+  companionsDeleted: number;
+  /** Repositories whose sweep failed (tag listing or the pre-delete re-check). */
+  failedRepos: number;
   /** Per-repo breakdown for the operator's run log. */
   perRepo: Array<{ repo: string; scanned: number; deleted: number }>;
 }
@@ -192,10 +277,19 @@ async function resolveCreated(
  * and however vulnerable. When that set cannot be read the sweep FAILS SAFE:
  * nothing in the repository is deleted this pass.
  *
- * NOTE: This deletes the *manifest reference*. The underlying registry's
- * blob garbage-collector (`registry garbage-collect`) is what frees the
- * bytes on disk. That's a separate operator action — usually scheduled
- * weekly off-peak; we don't drive it from this app.
+ * COSIGN COMPANIONS: `sha256-<d>.sig` / `.att` tags are never aged on their
+ * own (a signature's config carries the zero time, so every one would look
+ * ancient). They are deleted WITH their subject, or once their subject digest
+ * is no longer tagged, a live index's child or in use (an orphan).
+ *
+ * CHECK-THEN-ACT: right before a repository's deletes, its tags are re-listed
+ * and re-resolved and the in-use set is re-read for that repository; a
+ * candidate whose tags changed since the scan is kept for the next pass.
+ *
+ * NOTE: This deletes the *manifest reference*. The registry's blob
+ * garbage-collector (`registry garbage-collect`) is what frees the bytes on
+ * disk; Distribution never runs it by itself. Every deploy tree schedules it
+ * as the `registry-blob-gc` job (docs/deploy-operations.md).
  *
  * Used by both:
  *  - the in-process scheduler (`gc-scheduler.ts`, opt-in via
@@ -215,6 +309,9 @@ export async function runRegistryGc(opts: GcOptions): Promise<GcResult> {
   const perRepo: GcResult['perRepo'] = [];
   let candidates = 0;
   let deleted = 0;
+  let companionsDeleted = 0;
+  let companionCandidates = 0;
+  let failedRepos = 0;
   // What was deleted, for the audit row (capped at GC_AUDIT_DIGEST_CAP).
   const deletedRefs: Array<{ repo: string; digest: string; tags: string[] }> = [];
 
@@ -232,6 +329,7 @@ export async function runRegistryGc(opts: GcOptions): Promise<GcResult> {
       try {
         inUseByOrg.set(owner, await pluginImageReferences(owner));
       } catch (err) {
+        gcFailure('references');
         logger.warn('GC: in-use image references unavailable; deleting nothing for this org this pass', { org: owner, error: errorMessage(err) });
         inUseByOrg.set(owner, null);
       }
@@ -242,110 +340,218 @@ export async function runRegistryGc(opts: GcOptions): Promise<GcResult> {
   for (const repo of repos) {
     let scanned = 0;
     let repoDeleted = 0;
+    let tags: string[];
     try {
-      const { tags } = await listTags(repo);
-      const inUse = await inUseFor(repo);
-
-      // PASS 1 — resolve every tag to its manifest and build the reference
-      // maps we need BEFORE deleting anything (deletes are by-digest and
-      // destroy every tag on that digest, so the retention decision must see
-      // the whole repo first). Dedup by digest so a manifest reached via
-      // several tags is fetched/aged once.
-      interface ManifestInfo {
-        digest: string;
-        mediaType: string;
-        body: ManifestBody;
-        tags: string[];
-      }
-      const byDigest = new Map<string, ManifestInfo>();
-      const referencedByLiveIndex = new Set<string>();
-
-      for (const tag of tags) {
-        scanned++;
-        let mani;
-        try {
-          mani = await getManifest(repo, tag);
-        } catch (err) {
-          if (isNotFound(err)) continue;
-          logger.warn('GC: manifest fetch failed', {
-            repo, tag, error: errorMessage(err),
-          });
-          continue;
-        }
-        const body = mani.body as ManifestBody;
-        const existing = byDigest.get(mani.digest);
-        if (existing) {
-          existing.tags.push(tag);
-        } else {
-          byDigest.set(mani.digest, {
-            digest: mani.digest, mediaType: mani.mediaType, body, tags: [tag],
-          });
-        }
-        // A live (tagged) index protects its child manifests from deletion.
-        if (isIndex(mani.mediaType, body)) {
-          for (const child of body.manifests ?? []) {
-            if (child.digest) referencedByLiveIndex.add(child.digest);
-          }
-        }
-      }
-
-      // PASS 2 — decide + apply deletions, one pass per UNIQUE digest.
-      for (const info of byDigest.values()) {
-        // Determine creation time (descends into an index's child config).
-        // Emit a counter when no age is resolvable so operators can spot the
-        // manifests we silently skip.
-        const created = await resolveCreated(repo, info.body, info.mediaType);
-        if (!created) {
-          incCounter('gc_skipped_no_timestamp_total', { reason: 'no_created' });
-          continue;
-        }
-        const ts = Date.parse(created);
-        if (!Number.isFinite(ts) || ts > cutoffMs) continue;
-
-        // RETENTION SAFEGUARDS (see runRegistryGc doc): never age-delete a
-        // digest that is pinned by a floating tag, shared by multiple tags,
-        // or referenced by a live index. Build time being old is NOT enough.
-        const hasProtectedTag = info.tags.some((t) => protectedTags.has(t.toLowerCase()));
-        const isMultiTagged = info.tags.length > 1;
-        const isIndexChild = referencedByLiveIndex.has(info.digest);
-        // Referenced by a plugin row or a pipeline — or the references could
-        // not be read (fail safe).
-        const referenced = inUse === null || inUse.has(info.digest);
-        if (hasProtectedTag || isMultiTagged || isIndexChild || referenced) {
-          incCounter('gc_skipped_protected_total', {
-            reason: hasProtectedTag ? 'floating_tag' : isMultiTagged ? 'multi_tagged' : isIndexChild ? 'index_child'
-              : inUse === null ? 'references_unavailable' : 'in_use',
-          });
-          logger.debug('GC: retained protected digest', {
-            repo, digest: info.digest, tags: info.tags, isIndexChild,
-          });
-          continue;
-        }
-
-        candidates++;
-        if (dryRun) {
-          logger.info('GC dry-run candidate', { repo, tags: info.tags, digest: info.digest, created });
-          continue;
-        }
-
-        try {
-          await deleteManifest(repo, info.digest);
-          repoDeleted++;
-          deleted++;
-          if (deletedRefs.length < GC_AUDIT_DIGEST_CAP) deletedRefs.push({ repo, digest: info.digest, tags: info.tags });
-        } catch (err) {
-          logger.warn('GC: delete failed', {
-            repo, tags: info.tags, digest: info.digest, error: errorMessage(err),
-          });
-        }
-      }
+      tags = (await listTags(repo)).tags;
     } catch (err) {
+      failedRepos++;
+      gcFailure('tag_list');
       logger.warn('GC: tag list failed', { repo, error: errorMessage(err) });
+      perRepo.push({ repo, scanned, deleted: repoDeleted });
+      continue;
+    }
+    const inUse = await inUseFor(repo);
+
+    // PASS 1 — resolve every IMAGE tag to its manifest and build the reference
+    // maps we need BEFORE deleting anything (deletes are by-digest and destroy
+    // every tag on that digest, so the retention decision must see the whole
+    // repo first). Dedup by digest so a manifest reached via several tags is
+    // fetched/aged once.
+    //
+    // cosign COMPANION tags (`sha256-<d>.sig` / `.att`) are NOT images and are
+    // never aged on their own: a signature's config carries the zero time
+    // (`0001-01-01T00:00:00Z`), so aging it would delete every signature and
+    // SBOM attestation on the first sweep — and every org plugin would then
+    // fail signature verification. A companion goes only WITH its subject, or
+    // when its subject digest is no longer tagged, indexed or in use (an orphan).
+    const byDigest = new Map<string, ManifestInfo>();
+    const referencedByLiveIndex = new Set<string>();
+    const companionTags: string[] = [];
+
+    for (const tag of tags) {
+      scanned++;
+      if (isCosignCompanionTag(tag)) {
+        companionTags.push(tag);
+        continue;
+      }
+      let mani;
+      try {
+        mani = await getManifest(repo, tag);
+      } catch (err) {
+        if (isNotFound(err)) continue;
+        gcFailure('manifest_fetch');
+        logger.warn('GC: manifest fetch failed', {
+          repo, tag, error: errorMessage(err),
+        });
+        continue;
+      }
+      const body = mani.body as ManifestBody;
+      const existing = byDigest.get(mani.digest);
+      if (existing) {
+        existing.tags.push(tag);
+      } else {
+        byDigest.set(mani.digest, {
+          digest: mani.digest, mediaType: mani.mediaType, body, tags: [tag],
+        });
+      }
+      // A live (tagged) index protects its child manifests from deletion.
+      if (isIndex(mani.mediaType, body)) {
+        for (const child of body.manifests ?? []) {
+          if (child.digest) referencedByLiveIndex.add(child.digest);
+        }
+      }
+    }
+
+    // PASS 2 — decide, one decision per UNIQUE digest. Nothing is deleted
+    // here: the deletes run after a re-verification (below).
+    const doomed: ManifestInfo[] = [];
+    for (const info of byDigest.values()) {
+      // Determine creation time (descends into an index's child config).
+      // Emit a counter when no age is resolvable so operators can spot the
+      // manifests we silently skip.
+      const created = await resolveCreated(repo, info.body, info.mediaType);
+      if (!created) {
+        incCounter('gc_skipped_no_timestamp_total', { reason: 'no_created' });
+        continue;
+      }
+      const ts = Date.parse(created);
+      if (!Number.isFinite(ts) || ts > cutoffMs) continue;
+
+      // RETENTION SAFEGUARDS (see runRegistryGc doc): never age-delete a
+      // digest that is pinned by a floating tag, shared by multiple tags,
+      // or referenced by a live index. Build time being old is NOT enough.
+      const hasProtectedTag = info.tags.some((t) => protectedTags.has(t.toLowerCase()));
+      const isMultiTagged = info.tags.length > 1;
+      const isIndexChild = referencedByLiveIndex.has(info.digest);
+      // Referenced by a plugin row or a pipeline — or the references could
+      // not be read (fail safe).
+      const referenced = inUse === null || inUse.has(info.digest);
+      if (hasProtectedTag || isMultiTagged || isIndexChild || referenced) {
+        incCounter('gc_skipped_protected_total', {
+          reason: hasProtectedTag ? 'floating_tag' : isMultiTagged ? 'multi_tagged' : isIndexChild ? 'index_child'
+            : inUse === null ? 'references_unavailable' : 'in_use',
+        });
+        logger.debug('GC: retained protected digest', {
+          repo, digest: info.digest, tags: info.tags, isIndexChild,
+        });
+        continue;
+      }
+
+      candidates++;
+      if (dryRun) logger.info('GC dry-run candidate', { repo, tags: info.tags, digest: info.digest, created });
+      doomed.push(info);
+    }
+
+    // Orphaned companions: the subject digest is not tagged here, not a live
+    // index's child and not in use. Skipped entirely while the in-use set is
+    // unreadable (fail safe).
+    const orphanCompanions = inUse === null ? [] : companionTags.filter((tag) => {
+      const subject = cosignCompanionSubject(tag);
+      return subject !== null && !byDigest.has(subject) && !referencedByLiveIndex.has(subject) && !inUse.has(subject);
+    });
+    if (dryRun) {
+      // What a real run would remove with the candidates: their companions
+      // (present now) plus the orphans. Nothing is deleted.
+      const present = new Set(companionTags);
+      const withSubject = doomed.flatMap((d) => cosignCompanionTags(d.digest)).filter((t) => present.has(t));
+      companionCandidates += withSubject.length + orphanCompanions.length;
+      if (withSubject.length + orphanCompanions.length > 0) {
+        logger.info('GC dry-run cosign companions', { repo, withSubject, orphans: orphanCompanions });
+      }
+      perRepo.push({ repo, scanned, deleted: 0 });
+      continue;
+    }
+    if (doomed.length === 0 && orphanCompanions.length === 0) {
+      perRepo.push({ repo, scanned, deleted: 0 });
+      continue;
+    }
+
+    // CHECK-THEN-ACT. Distribution has no conditional delete, and a by-digest
+    // delete removes EVERY tag on the digest — so a tag that landed on an old
+    // digest between pass 1 and now (a `POST /copy` into this repo, a re-push
+    // of byte-identical content) would be destroyed with it. Re-list the
+    // repo's tags, re-resolve each one, and re-read the in-use set for THIS
+    // repo right before deleting; a candidate whose tag set changed in any way
+    // is kept for the next pass. This narrows the window to the deletes
+    // themselves; it cannot close it.
+    let fresh: FreshRepoState;
+    try {
+      fresh = await reverifyRepo(repo);
+    } catch (err) {
+      failedRepos++;
+      gcFailure('reverify');
+      logger.warn('GC: re-verification before delete failed; deleting nothing in this repo this pass', { repo, error: errorMessage(err) });
+      perRepo.push({ repo, scanned, deleted: 0 });
+      continue;
+    }
+
+    // Digests deleted in this repo so far: an index being deleted no longer
+    // protects its children.
+    const gone = new Set<string>();
+    const listedByLiveIndex = (d: string): boolean => (fresh.indexParents.get(d) ?? []).some((p) => !gone.has(p));
+    const deleteOne = async (digest: string, kind: 'image' | 'companion' | 'index_child'): Promise<boolean> => {
+      try {
+        await deleteManifest(repo, digest);
+        gone.add(digest);
+        incCounter(GC_DELETED_COUNTER, { kind });
+        return true;
+      } catch (err) {
+        if (isNotFound(err)) return false;
+        gcFailure('delete');
+        logger.warn('GC: delete failed', { repo, digest, kind, error: errorMessage(err) });
+        return false;
+      }
+    };
+    /** Delete a subject's `.sig`/`.att` (whichever exist NOW). */
+    const deleteCompanionsOf = async (subject: string): Promise<void> => {
+      for (const tag of cosignCompanionTags(subject)) {
+        const companionDigest = fresh.tagDigest.get(tag);
+        if (companionDigest && await deleteOne(companionDigest, 'companion')) companionsDeleted++;
+      }
+    };
+
+    for (const info of doomed) {
+      const tagsNow = fresh.tagsByDigest.get(info.digest) ?? [];
+      const unchanged = tagsNow.length === info.tags.length && tagsNow.every((t) => info.tags.includes(t));
+      const stillUnreferenced = fresh.inUse !== null && !fresh.inUse.has(info.digest) && !listedByLiveIndex(info.digest);
+      if (!unchanged || !stillUnreferenced) {
+        incCounter('gc_skipped_protected_total', { reason: 'changed_since_scan' });
+        logger.info('GC: candidate changed since the scan; kept for the next pass', {
+          repo, digest: info.digest, tagsThen: info.tags, tagsNow,
+        });
+        continue;
+      }
+      if (!await deleteOne(info.digest, 'image')) continue;
+      repoDeleted++;
+      deleted++;
+      if (deletedRefs.length < GC_AUDIT_DIGEST_CAP) deletedRefs.push({ repo, digest: info.digest, tags: info.tags });
+      await deleteCompanionsOf(info.digest);
+      // A deleted INDEX leaves its per-arch children behind as untagged
+      // manifests the blob GC will not reclaim (it runs without
+      // --delete-untagged — see docs/deploy-operations.md). Delete each child
+      // no surviving index, tag or reference still needs.
+      if (isIndex(info.mediaType, info.body)) {
+        for (const child of info.body.manifests ?? []) {
+          const c = child.digest;
+          if (!c || listedByLiveIndex(c) || fresh.tagsByDigest.has(c) || fresh.inUse!.has(c)) continue;
+          if (await deleteOne(c, 'index_child')) await deleteCompanionsOf(c);
+        }
+      }
+    }
+
+    for (const tag of orphanCompanions) {
+      const subject = cosignCompanionSubject(tag)!;
+      const companionDigest = fresh.tagDigest.get(tag);
+      if (!companionDigest) continue;
+      // Re-check against the fresh state: the subject may have been tagged,
+      // indexed or referenced since pass 1.
+      if (fresh.inUse === null || fresh.tagsByDigest.has(subject) || listedByLiveIndex(subject) || fresh.inUse.has(subject)) continue;
+      if (await deleteOne(companionDigest, 'companion')) companionsDeleted++;
     }
     perRepo.push({ repo, scanned, deleted: repoDeleted });
   }
 
-  if (deleted > 0) invalidateStorageCache(prefix);
+  if (deleted + companionsDeleted > 0) invalidateStorageCache(prefix);
 
   // Audit the destructive sweep AFTER the deletes land. Only a real run that
   // actually pruned something is a data-loss event worth a durable trail — a
@@ -353,7 +559,7 @@ export async function runRegistryGc(opts: GcOptions): Promise<GcResult> {
   // forget; never blocks or fails the sweep. `actorId` is 'system' for the
   // scheduler path (no request user). Details carry counts + the org namespace
   // (no secrets / AWS account ids).
-  if (!dryRun && deleted > 0) {
+  if (!dryRun && deleted + companionsDeleted > 0) {
     const affectedOrgId = repoOwnerOrgId(prefix);
     recordAudit({
       action: 'registry.gc',
@@ -370,6 +576,7 @@ export async function runRegistryGc(opts: GcOptions): Promise<GcResult> {
         reposScanned: repos.length,
         candidates,
         deleted,
+        companionsDeleted,
         maxAgeDays,
         deletedDigests: deletedRefs,
         ...(deleted > deletedRefs.length && { deletedDigestsTruncated: true }),
@@ -381,6 +588,8 @@ export async function runRegistryGc(opts: GcOptions): Promise<GcResult> {
     reposScanned: repos.length,
     candidates,
     deleted,
+    companionsDeleted: dryRun ? companionCandidates : companionsDeleted,
+    failedRepos,
     perRepo,
   };
 }
@@ -508,7 +717,7 @@ export interface OrgNamespaceDeleteResult {
  *   have their own unconditional 30-day sweep.
  *
  * The blob BYTES come back when the registry's own `garbage-collect` runs
- * (operator-driven), exactly as for the quarantine purge; what this frees
+ * (the scheduled `registry-blob-gc` job), exactly as for the quarantine purge; what this frees
  * immediately is every reference, so nothing is served and nothing is counted.
  */
 export async function deleteOrgNamespace(orgId: string): Promise<OrgNamespaceDeleteResult> {
@@ -550,7 +759,13 @@ export interface QuarantineGcResult {
 export async function runQuarantineGc(opts: { maxAgeDays?: number; dryRun?: boolean } = {}): Promise<QuarantineGcResult> {
   const { maxAgeDays = QUARANTINE_MAX_AGE_DAYS, dryRun = false } = opts;
   const cutoffMs = Date.now() - maxAgeDays * 24 * 60 * 60 * 1000;
-  const repos = await listRepositoriesUnderPrefix(QUARANTINE_PREFIX);
+  let repos: string[];
+  try {
+    repos = await listRepositoriesUnderPrefix(QUARANTINE_PREFIX);
+  } catch (err) {
+    gcFailure('catalog');
+    throw err;
+  }
   let deleted = 0;
   let skippedNoTimestamp = 0;
   let remaining = 0;
@@ -575,6 +790,7 @@ export async function runQuarantineGc(opts: { maxAgeDays?: number; dryRun?: bool
       }
     } catch (err) {
       if (isNotFound(err)) continue;
+      gcFailure('quarantine_scan');
       logger.warn('Quarantine GC: repo scan failed', { repo, error: errorMessage(err) });
       remaining++;
       continue;
@@ -612,6 +828,7 @@ export async function runQuarantineGc(opts: { maxAgeDays?: number; dryRun?: bool
         });
       }
     } catch (err) {
+      gcFailure('quarantine_delete');
       logger.warn('Quarantine GC: delete failed', { repo, error: errorMessage(err) });
       remaining++;
     }

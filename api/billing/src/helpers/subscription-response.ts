@@ -1,6 +1,26 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { isGraceDowngraded } from './subscription-status.js';
+import { config } from '../config.js';
+
+/**
+ * Where a subscription stands in dunning, so the billing page can say WHEN
+ * access ends (or that it already has) instead of a timeless "update your card".
+ * Status alone can't: it stays `past_due` after the grace-period downgrade, by
+ * design (it is the recovery signal the payment webhook keys on).
+ */
+export interface SubscriptionDunning {
+  /** First failed payment of this lapse (ISO) — the grace clock's start. */
+  firstFailedAt: string;
+  /** When the grace period ends and the org drops to Developer (ISO). */
+  downgradeAt: string;
+  /** The downgrade already happened; paying restores the plan. */
+  downgraded: boolean;
+  /** When it happened (ISO), present only once downgraded. */
+  downgradedAt?: string;
+}
+
 /** A subscription's applied recurring discount, as the billing UI reads it. */
 export interface SubscriptionResponseDiscount {
   discountId: string;
@@ -31,6 +51,8 @@ export interface SubscriptionResponse {
   addons: Array<{ bundleId: string; quantity: number }>;
   recurringDiscount: SubscriptionResponseDiscount | null;
   creditRemainingCents: number;
+  /** `null` unless the subscription is in dunning (a failed payment not yet settled). */
+  dunning: SubscriptionDunning | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -51,6 +73,8 @@ export function buildSubscriptionResponse(
     addons?: Array<{ bundleId: string; quantity: number }>;
     recurringDiscount?: { discountId: string; unit: string; value: number } | null;
     creditBalanceCents?: number;
+    firstFailedAt?: Date | null;
+    metadata?: Record<string, unknown> | null;
     createdAt: Date;
     updatedAt: Date;
   },
@@ -76,7 +100,28 @@ export function buildSubscriptionResponse(
       ? { discountId: subscription.recurringDiscount.discountId, unit: subscription.recurringDiscount.unit, value: subscription.recurringDiscount.value }
       : null,
     creditRemainingCents: subscription.creditBalanceCents ?? 0,
+    dunning: dunningState(subscription),
     createdAt: subscription.createdAt.toISOString(),
     updatedAt: subscription.updatedAt.toISOString(),
+  };
+}
+
+/** The dunning view of a subscription; `null` outside a lapse. */
+function dunningState(subscription: {
+  status: string;
+  firstFailedAt?: Date | null;
+  metadata?: Record<string, unknown> | null;
+}): SubscriptionDunning | null {
+  if (subscription.status !== 'past_due' || !subscription.firstFailedAt) return null;
+  const first = subscription.firstFailedAt;
+  const downgradeAt = new Date(first.getTime() + config.paymentGracePeriodDays * 86_400_000);
+  const downgraded = isGraceDowngraded(subscription);
+  const at = subscription.metadata?.gracePeriodDowngradedAt;
+  const downgradedAt = downgraded && (typeof at === 'string' || at instanceof Date) ? new Date(at).toISOString() : undefined;
+  return {
+    firstFailedAt: first.toISOString(),
+    downgradeAt: downgradeAt.toISOString(),
+    downgraded,
+    ...(downgradedAt ? { downgradedAt } : {}),
   };
 }

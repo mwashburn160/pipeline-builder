@@ -1,6 +1,6 @@
 // GENERATED FROM docs/pipeline-manager.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 10a3a93896461021d16f413b2d537f4b5531a808d7477316ff2f41495180bea3
+// SOURCE-SHA256: 8760a7fcfbb6f638e48d3435c112fcccf6a2e9601732a0db96fba009259ed0cb
 // SPDX-License-Identifier: Apache-2.0
 import { Terminal } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -15,10 +15,6 @@ export const cliReferenceTopic: HelpTopic = {
       "id": "overview",
       "title": "Overview",
       "blocks": [
-        {
-          "type": "text",
-          "content": "<!-- Copyright 2026 Pipeline Builder Contributors SPDX-License-Identifier: Apache-2.0 -->"
-        },
         {
           "type": "text",
           "content": "pipeline-manager is the command-line interface for Pipeline Builder."
@@ -412,7 +408,7 @@ export const cliReferenceTopic: HelpTopic = {
       "blocks": [
         {
           "type": "code",
-          "content": "pipeline-manager auth login --url https://platform.example.com\n\nexport PLATFORM_TOKEN=$(pipeline-manager auth login --token)\n\npipeline-manager infra bootstrap\n\npipeline-manager pipeline synth\n\npipeline-manager pipeline deploy",
+          "content": "pipeline-manager auth login --url https://platform.example.com\n\nexport PLATFORM_TOKEN=$(pipeline-manager auth login --token)\n\npipeline-manager infra bootstrap --account 123456789012 --region us-east-1\n\npipeline-manager pipeline create -f props.json\n\npipeline-manager pipeline synth --id <pipelineId>\n\npipeline-manager pipeline deploy --id <pipelineId>",
           "language": "bash"
         }
       ]
@@ -490,7 +486,7 @@ export const cliReferenceTopic: HelpTopic = {
           "rows": [
             [
               "infra bootstrap",
-              "Scaffold a new pipeline project with cdk.json and starter config"
+              "Deploy the AWS CDK toolkit stack in the target account/region (--account, --region, --qualifier, --trust for cross-account deploys, --cloudformation-execution-policies) — needed once per account/region before the first pipeline deploy there. It scaffolds nothing: a pipeline definition comes from template instantiate + pipeline create"
             ],
             [
               "pipeline synth",
@@ -509,8 +505,16 @@ export const cliReferenceTopic: HelpTopic = {
               "Re-register a deployed pipeline and drain pending intents queued by prior failed deploys (recovery path; exits non-zero if any registration still fails)"
             ],
             [
+              "pipeline deregister",
+              "Remove one pipeline_registry row by its registry id (--id, --yes required). The fix audit stacks prints for a missing-stack finding (a row whose stack was deleted out of band)"
+            ],
+            [
+              "pipeline delete",
+              "Delete a pipeline definition (--id, --yes required). It does not touch AWS — a deployed stack keeps running and shows up in audit stacks as orphaned until destroyed"
+            ],
+            [
               "status",
-              "Report the current deployment and execution status"
+              "Show the CLI's setup — not a deployment: the platform it talks to, the credential it would use and when it expires, whether the platform accepts it (GET /api/user/profile, with who and which org), CDK availability and /health reachability"
             ]
           ]
         },
@@ -593,6 +597,10 @@ export const cliReferenceTopic: HelpTopic = {
             [
               "auth login",
               "Sign in through your browser using the OAuth 2.0 device authorization grant (RFC 8628): the CLI prints a short code, you approve it in the browser (where SSO and step-up already apply), and the session is stored in ~/.pipeline-manager/credentials.json. --org <orgId> switches organization afterwards; --no-browser prints the URL instead of opening it. --token prints the access token and nothing else, for export PLATFORM_TOKEN=$(pipeline-manager auth login --token) — everything else, including the approval code, goes to stderr so the capture stays clean. There is no password flag and no way to pass a refresh token"
+            ],
+            [
+              "auth logout",
+              "Sign this device out: revoke the stored session on the platform (POST /api/auth/logout, renewing an expired access token first) and delete it from ~/.pipeline-manager/credentials.json. The local copy is always removed; when the platform can't be reached the command says so, and the device is then revoked from Settings → Sessions and devices. PLATFORM_TOKEN and access keys are untouched"
             ],
             [
               "auth pat",
@@ -684,8 +692,8 @@ export const cliReferenceTopic: HelpTopic = {
           "rows": [
             [
               "audit stacks",
-              "Diff CloudFormation stacks tagged pipeline-builder against the platform's pipeline_registry. Surfaces orphaned stacks (no DB row) and missing stacks (DB row, no live stack). See drift detection.",
-              "0 clean / 1 findings / 2 AWS error"
+              "Diff the CloudFormation stacks tagged pipeline-builder in ONE region (--region) against your org's pipeline_registry rows for that region — every page of them. Surfaces orphaned stacks (no row) and missing stacks (a row, no live stack), each with the command that fixes it (pipeline deregister, pipeline register or aws cloudformation delete-stack); stacks tagged with another OrgId are skipped. --org <id> audits another org — honoured only for a credential the platform lets list it (a system admin); otherwise the command fails rather than diff the wrong org. --max-pages raises the DescribeStacks safety cap. See drift detection.",
+              "0 clean / 1 findings or an incomplete scan / 2 AWS or platform error"
             ],
             [
               "audit tokens",
@@ -792,7 +800,7 @@ export const cliReferenceTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Codes are defined in src/types/error.ts; the derivation lives in src/utils/error-handler.ts (resolveExitCode). The operator-audit commands additionally use exit 1 to signal \"findings present\" (see Operator audits)."
+          "content": "Codes are defined in src/types/error.ts; the derivation lives in src/utils/error-handler.ts (resolveExitCode). The operator-audit commands keep their own contract instead: exit 1 means \"findings present\" and exit 2 any AWS or platform failure, whatever its type (see Operator audits)."
         }
       ]
     },
@@ -802,19 +810,20 @@ export const cliReferenceTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "The CLI resolves its settings from three layers, lowest to highest precedence:"
+          "content": "The CLI resolves its settings from these layers, lowest to highest precedence:"
         },
         {
           "type": "list",
           "items": [
             "Built-in defaults",
             "User config file — ~/.pipeline-manager/config.yml",
-            "Project config file — CLI_CONFIG_PATH, else ./config.yml"
+            "Project config file — CLI_CONFIG_PATH, else ./config.yml",
+            "The platform auth login signed in to (base URL only) — so auth login --url X is followed by commands that talk to X, where its session is stored. auth login, auth logout and auth pat default --url to the resolved base URL too."
           ]
         },
         {
           "type": "text",
-          "content": "Environment variables override the resolved config."
+          "content": "Environment variables (PLATFORM_BASE_URL, …) override the resolved config."
         },
         {
           "type": "text",
@@ -824,13 +833,13 @@ export const cliReferenceTopic: HelpTopic = {
           "type": "list",
           "items": [
             "PLATFORM_TOKEN — always wins. This is what CI sets, to an access key from auth pat.",
-            "The session auth login stored for this platform's base URL, in ~/.pipeline-manager/credentials.json (owner-only, 0600). It carries the access token and its refresh token, so the CLI renews the session itself and you sign in roughly as often as the refresh token's 30-day life requires.",
+            "The session auth login stored for this platform's base URL, in ~/.pipeline-manager/credentials.json (owner-only, 0600). It carries the access token and its refresh token, so the CLI renews the session itself and you sign in roughly as often as the refresh token's 30-day life requires. A renewal the platform rejects (400/401) forgets the session; an unreachable platform or a 5xx keeps it and reports the error, so a network blip never forces a new browser sign-in.",
             "--store-tokens with PLATFORM_SECRET_NAME — the service-account key in AWS Secrets Manager (infra store-token). A command given --store-tokens never falls back to your personal session."
           ]
         },
         {
           "type": "text",
-          "content": "Sign a stored session out from the dashboard (Settings → Sessions and devices) — it appears there as a signed-in device like any other."
+          "content": "Sign a stored session out with pipeline-manager auth logout, or from the dashboard (Settings → Sessions and devices) — it appears there as a signed-in device like any other."
         },
         {
           "type": "text",
@@ -851,8 +860,8 @@ export const cliReferenceTopic: HelpTopic = {
             ],
             [
               "PLATFORM_BASE_URL",
-              "Yes (for API ops)",
-              "Base URL of your platform deployment"
+              "No",
+              "Base URL of your platform. Overrides the platform auth login signed in to and the config files"
             ],
             [
               "AWS_REGION",
@@ -920,7 +929,7 @@ export const cliReferenceTopic: HelpTopic = {
         },
         {
           "type": "code",
-          "content": "pipeline-manager auth login --url https://platform.example.com\npipeline-manager infra bootstrap\npipeline-manager pipeline synth\npipeline-manager pipeline deploy\npipeline-manager status",
+          "content": "pipeline-manager auth login --url https://platform.example.com\npipeline-manager infra bootstrap --account 123456789012 --region us-east-1   # once per account/region\npipeline-manager pipeline create -f props.json\npipeline-manager pipeline synth --id <pipelineId>\npipeline-manager pipeline deploy --id <pipelineId>\npipeline-manager status",
           "language": "bash"
         },
         {
@@ -986,7 +995,7 @@ export const cliReferenceTopic: HelpTopic = {
         },
         {
           "type": "code",
-          "content": "pipeline-manager audit stacks   || alert \"stack drift detected\"\npipeline-manager audit tokens --warn-days 14 || alert \"tokens expiring soon\"",
+          "content": "pipeline-manager audit stacks --region us-east-1 || alert \"stack drift detected\"\npipeline-manager audit tokens --warn-days 14 || alert \"tokens expiring soon\"",
           "language": "bash"
         }
       ]

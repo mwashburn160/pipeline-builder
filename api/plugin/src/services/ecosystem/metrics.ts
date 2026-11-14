@@ -18,7 +18,10 @@
  *    decision permission (`kind="holders"`) and superadmins, sampled from
  *    platform at most every {@link APPROVER_SAMPLE_MS};
  *  - `plugin_submission_backlog` — anonymous submissions in `pending_review`
- *    (gates running or awaiting moderation).
+ *    (gates running or awaiting moderation);
+ *  - `ecosystem_stalled_publishes{kind}` — submissions left in `publishing`
+ *    and requests left `approved` but unexecuted past the grace period
+ *    (stalled.ts).
  *
  * COUNTERS and HISTOGRAMS are recorded where the event happens:
  * `ecosystem_decisions_total{kind,decision}` and
@@ -30,17 +33,17 @@
  * ({@link recordSubmission}, {@link recordSubmissionGateFailures}).
  */
 
-import { createLogger, createScheduler, errorMessage, REQUEST_SLA_HOURS, type Scheduler } from '@pipeline-builder/api-core';
+import { createScheduler, REQUEST_SLA_HOURS, type Scheduler } from '@pipeline-builder/api-core';
 import { incCounter, observe, setGauge } from '@pipeline-builder/api-server';
 import type { PluginPublishRequest } from '@pipeline-builder/pipeline-data';
 
 import { platformReads } from './platform-reads.js';
 import type { DecisionPermission } from './policy.js';
 import { pendingResignJobs } from './resign.js';
+import { STALLED_GAUGE, stalledRequests, stalledSubmissions } from './stalled.js';
 import { OPEN_STATUSES, requests } from './store.js';
 import { submissions } from './submissions-store.js';
 
-const logger = createLogger('ecosystem-metrics');
 
 /** Gauge sampling interval (every replica). */
 export const METRICS_INTERVAL_MS = 60_000;
@@ -92,6 +95,10 @@ export async function sampleEcosystemMetrics(now: Date = new Date()): Promise<vo
   }
 
   setGauge('plugin_submission_backlog', {}, (await submissions.list({ statuses: ['pending_review'] })).length);
+  // Claims a dead pod abandoned mid-publish (stalled.ts hands them back every
+  // maintenance pass; a value that stays up means that recovery is not running).
+  setGauge(STALLED_GAUGE, { kind: 'submission' }, (await stalledSubmissions(now)).length);
+  setGauge(STALLED_GAUGE, { kind: 'request' }, (await stalledRequests(now)).length);
 
   const jobs = await pendingResignJobs();
   setGauge('ecosystem_resign_jobs_pending', {}, jobs.length);
@@ -148,12 +155,10 @@ export function createEcosystemMetricsScheduler(): Scheduler {
     name: 'ecosystem-metrics',
     intervalMs: METRICS_INTERVAL_MS,
     startupDelayMs: 15_000,
-    run: async () => {
-      try {
-        await sampleEcosystemMetrics();
-      } catch (err) {
-        logger.warn('Ecosystem metrics sample failed', { error: errorMessage(err) });
-      }
-    },
+    // Not caught: a sample that keeps failing leaves every ecosystem gauge (and
+    // the SLA / approver / stalled-publish alerts on them) frozen at its last
+    // value, so the throw must reach the scheduler — which logs it and stamps
+    // no success, for SchedulerJobStale.
+    run: async () => { await sampleEcosystemMetrics(); },
   });
 }

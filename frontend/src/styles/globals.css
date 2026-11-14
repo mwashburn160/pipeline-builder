@@ -265,6 +265,12 @@
     animation: pb-fade-up 420ms ease-out both;
   }
 
+  /* The page shell's cross-fade on an org switch (pages/_app.tsx). Opacity only:
+     a transform on this wrapper would trap modal backdrops (see pb-fade-up). */
+  .org-switch-fade {
+    animation: pb-fade-in 200ms ease-in-out both;
+  }
+
   /* Toast entrance. CSS rather than framer-motion: the toast stack mounts on
      every route, and this is a fade plus an 8px rise. The reduced-motion block
      at the bottom of this file collapses it like every other animation here. */
@@ -801,6 +807,15 @@
   }
 }
 
+@keyframes pb-fade-in {
+  0% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
 @keyframes pb-shimmer {
   100% {
     transform: translateX(100%);
@@ -809,7 +824,8 @@
 
 /* ---- Reduced motion -------------------------------------------------------
    Honour the OS "reduce motion" preference for the hand-written CSS animation
-   layer (`pb-fade-up` page reveals, the `pb-shimmer` skeleton sweep, and every
+   layer (`pb-fade-up` page reveals, the `pb-fade-in` org-switch fade, the
+   `pb-shimmer` skeleton sweep, and every
    `transition-*` utility). framer-motion is covered separately by the
    <MotionConfig reducedMotion="user"> wrapper in pages/_app.tsx.
    Motion is reduced to a near-zero duration rather than removed, so

@@ -332,10 +332,53 @@ describe('reads', () => {
     expect(svc.QUEUE_STATUSES).toEqual(['open', 'awaiting_support']);
   });
 
-  it('listQueue bounds itself by default', async () => {
+  it('listQueue bounds itself by default (one extra row to detect a further page)', async () => {
+    tx.queue([]);
+    await expect(svc.listQueue()).resolves.toEqual({ cases: [], hasMore: false });
+    expect(tx.queries[0]?.arg('limit')).toBe(svc.SUPPORT_CASE_PAGE_DEFAULT + 1);
+  });
+
+  it('listQueue clamps the page size', async () => {
+    tx.queue([]);
+    await svc.listQueue({ limit: 10_000_000 });
+    expect(tx.queries[0]?.arg('limit')).toBe(svc.SUPPORT_CASE_PAGE_MAX + 1);
+  });
+
+  it('listQueue orders by WAITING time before the limit, not by a key the route re-sorts', async () => {
+    // The route shows waitingSeconds = now - created_at - awaiting_total_seconds,
+    // longest first. Ordering the LIMIT by response_due_at and re-sorting a page
+    // in the route dropped the longest-waiting case once the queue passed 100.
     tx.queue([]);
     await svc.listQueue();
-    expect(tx.queries[0]?.arg('limit')).toBe(100);
+    const order = renderSql(tx.queries[0]?.arg('orderBy'));
+    expect(order).toMatch(/created_at.*\+.*make_interval.*awaiting_total_seconds.*asc/i);
+    expect(order).not.toMatch(/response_due_at/i);
+  });
+
+  it('listQueue reports hasMore with a cursor, and the cursor resumes strictly after the last case', async () => {
+    const r = (id: string, at: string) => ({ id, threadId: `t-${id}`, __cursorSortKey: at });
+    tx.queue([
+      r('00000000-0000-4000-8000-000000000001', '2026-11-01 10:00:00+00'),
+      r('00000000-0000-4000-8000-000000000002', '2026-11-01 11:00:00+00'),
+      r('00000000-0000-4000-8000-000000000003', '2026-11-01 12:00:00+00'),
+    ]);
+    const page = await svc.listQueue({ limit: 2 });
+    expect(page.hasMore).toBe(true);
+    expect(page.cases.map((c) => c.id)).toEqual(['00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000002']);
+    // The internal sort key never leaks to callers.
+    expect(page.cases[0]).not.toHaveProperty('__cursorSortKey');
+
+    tx.queue([]);
+    await svc.listQueue({ limit: 2, cursor: page.nextCursor });
+    const w = where(1);
+    expect(w).toMatch(/make_interval/i);
+    expect(w).toMatch(/"id" >/i);
+  });
+
+  it('listQueue ignores a tampered cursor rather than binding it', async () => {
+    tx.queue([]);
+    await svc.listQueue({ cursor: Buffer.from(JSON.stringify(['not-a-date', 'not-a-uuid'])).toString('base64url') });
+    expect(where()).not.toMatch(/make_interval/i);
   });
 
   it('listOrgCases scopes to the org', async () => {
@@ -343,6 +386,24 @@ describe('reads', () => {
     await svc.listOrgCases('org-1');
     expect(where()).toMatch(/org_id/i);
     expect(where()).toMatch(/deleted_at.*is null/i);
+  });
+
+  it('listOrgCases pages newest first with hasMore + a keyset cursor (no silent cut at 100)', async () => {
+    const rows = Array.from({ length: 4 }, (_, i) => ({
+      id: `00000000-0000-4000-8000-00000000000${i}`,
+      __cursorSortKey: `2026-11-0${9 - i} 10:00:00.123456+00`,
+    }));
+    tx.queue(rows);
+    const page = await svc.listOrgCases('org-1', { limit: 3 });
+    expect(page).toMatchObject({ hasMore: true });
+    expect(page.cases).toHaveLength(3);
+    expect(renderSql(tx.queries[0]?.arg('orderBy'))).toMatch(/created_at.*desc/i);
+
+    tx.queue([]);
+    const next = await svc.listOrgCases('org-1', { limit: 3, cursor: page.nextCursor });
+    expect(next).toEqual({ cases: [], hasMore: false });
+    // keysetAfter for DESC: strictly before the last case's (created_at, id).
+    expect(where(1)).toMatch(/created_at.*<.*or.*created_at.*=.*and.*"id" </i);
   });
 
   it('openCasesForContact asks for the three NON-TERMINAL statuses', async () => {

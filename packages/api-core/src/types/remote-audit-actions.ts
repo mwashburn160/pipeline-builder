@@ -111,6 +111,9 @@ export const REMOTE_AUDIT_ACTIONS = [
   // two-person decision whose approval is recorded above.
   'compliance.exemption.request',
   'compliance.exemption.reject',
+  // The daily expiry sweep flipping approved exemptions past `expiresAt` to
+  // `expired` — once per org per tick (system actor, `details.ids`, `count`).
+  'compliance.exemption.expire',
   'compliance.rule.toggle',
   'compliance.rule.create',
   'compliance.rule.update',
@@ -370,6 +373,9 @@ export const REMOTE_AUDIT_ACTIONS = [
   'reporting.report.ownership.transfer',
   'reporting.report.published',
   'reporting.report.republished',
+  // A published run re-sent to the recipients/destinations its first delivery
+  // missed (relay outage, dead pod) — NOT a correction: the numbers are unchanged.
+  'reporting.report.redelivered',
   'reporting.report.link.created',
   'reporting.report.link.revoked',
   'reporting.report.recipient.added',
@@ -607,6 +613,9 @@ export const REMOTE_AUDIT_ACTIONS = [
   // tool, format, stage, the finding counts — never the findings themselves).
   'pipeline.plugin.upgraded',
   'pipeline.security_report.upload',
+  // A member removed one (tool, stage) report slot of a pipeline — a dropped
+  // scanner or renamed stage (`details`: tool, stage, the counts it carried).
+  'pipeline.security_report.delete',
 ] as const;
 
 export type RemoteAuditAction = typeof REMOTE_AUDIT_ACTIONS[number];

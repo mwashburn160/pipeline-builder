@@ -83,3 +83,26 @@ export function extractListResponse<T>(response: unknown, itemsKey: string): Lis
   printError('Invalid response format from API');
   throw new Error('Unexpected API response format');
 }
+
+/**
+ * Read one page of a `sendPaginatedNested` list (`{ data: { <key>: T[],
+ * pagination } }`) STRICTLY: a response without `<key>` as an array throws
+ * instead of reading as an empty list. For callers that diff the list against
+ * something else (`audit stacks`), an empty list read off the wrong key is not
+ * "nothing there" — it turns into a false finding for every row on the other
+ * side, which is exactly how reading the wrong key once went unnoticed.
+ */
+export function extractListPage<T>(response: unknown, itemsKey: string): ListResponseResult<T> & { nextCursor?: string } {
+  const obj = unwrapEnvelope(response);
+  const items = obj[itemsKey];
+  if (!Array.isArray(items)) {
+    throw new Error(`Unexpected API response format: no "${itemsKey}" list in the response`);
+  }
+  const pagination = (obj.pagination ?? {}) as Record<string, unknown>;
+  return {
+    items: items as T[],
+    total: typeof pagination.total === 'number' ? pagination.total : undefined,
+    hasMore: pagination.hasMore === true,
+    ...(typeof pagination.nextCursor === 'string' && pagination.nextCursor ? { nextCursor: pagination.nextCursor } : {}),
+  };
+}

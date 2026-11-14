@@ -14,7 +14,7 @@ interface BuildMemberColumnsOptions {
   currentUserRole: string | undefined;
   isSuperAdmin: boolean;
   /** Read-only-aware `can('members:manage')` — gates the destructive row actions
-   *  (reset password / (de)activate / remove) so a read-only "view-as"
+   *  (reset MFA / (de)activate / remove) so a read-only "view-as"
    *  impersonation session (which CAN now see the roster) doesn't show enabled
    *  buttons that only dead-end at a backend 403. */
   canManageMembers: boolean;

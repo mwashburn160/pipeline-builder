@@ -125,7 +125,7 @@ export function setPowReplayStoreForTests(store?: PowReplayStore): void {
 // Daily caps: one atomic counter per key, checked BEFORE any parsing
 // -----------------------------------------------------------------------------
 
-/** Rolling-window counters for the per-email / per-IP caps. */
+/** Fixed-window counters for the per-email / per-IP caps (the window starts at the first hit; not rolling). */
 export interface DailyCapStore {
   /** Increment `key` and return the new count; the window (`ttlMs`) starts at the first hit. Throws when the store is down. */
   incr(key: string, ttlMs: number): Promise<number>;

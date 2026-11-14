@@ -247,8 +247,12 @@ export function ecosystemApi(core: ApiCore) {
       headers: core.stepUpHeader(stepUpToken),
     }),
 
-    approveAutoRuleChange: async (id: string, stepUpToken?: string) =>
-      post<{ rule: AutoRule }>(`/api/plugins/ecosystem/rules/${enc(id)}/approve-change`, undefined, stepUpToken),
+    /**
+     * `requestedAt` is the pending change the approver REVIEWED (`rule.pendingChange.requestedAt`);
+     * 409 CONFLICT when the proposer replaced it since — reload and review again.
+     */
+    approveAutoRuleChange: async (id: string, requestedAt: string, stepUpToken?: string) =>
+      post<{ rule: AutoRule }>(`/api/plugins/ecosystem/rules/${enc(id)}/approve-change`, { requestedAt }, stepUpToken),
 
     deleteAutoRule: async (id: string, stepUpToken?: string) =>
       core.request<ApiResponse<{ deleted: true }>>(`/api/plugins/ecosystem/rules/${enc(id)}`, {

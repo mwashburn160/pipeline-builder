@@ -22,6 +22,15 @@ const getManifest = jest.fn<(name: string, ref: string) => Promise<{ body: unkno
 const getBlobJson = jest.fn<(name: string, digest: string) => Promise<unknown>>();
 const deleteManifest = jest.fn<(name: string, digest: string) => Promise<void>>();
 const isNotFound = (e: unknown): boolean => (e as { statusCode?: number })?.statusCode === 404;
+/** HEAD answers what GET would (the GC's pre-delete re-check uses it). */
+const headManifest = jest.fn(async (name: string, ref: string): Promise<{ digest: string } | null> => {
+  try {
+    return { digest: (await getManifest(name, ref)).digest };
+  } catch (err) {
+    if (isNotFound(err)) return null;
+    throw err;
+  }
+});
 
 jest.unstable_mockModule('../src/services/registry-client.js', () => ({
   listRepositoriesUnderPrefix,
@@ -33,7 +42,7 @@ jest.unstable_mockModule('../src/services/registry-client.js', () => ({
   // Present on the module but unused by registry-gc.
   listRepositories: jest.fn(),
   putManifest: jest.fn(),
-  headManifest: jest.fn(),
+  headManifest,
   headBlob: jest.fn(),
   getBlobStream: jest.fn(),
   mountBlob: jest.fn(),
@@ -73,9 +82,11 @@ function wireRepo(tagsToCreated: Record<string, string>) {
   listRepositoriesUnderPrefix.mockResolvedValue(['org-acme/app']);
   listTags.mockResolvedValue({ tags: Object.keys(tagsToCreated) });
   getManifest.mockImplementation(async (_name, ref) => {
-    const created = tagsToCreated[ref];
-    if (!created) throw { response: { status: 404 } };
-    return { body: { created }, digest: `sha256:digest-${ref}`, mediaType: 'application/vnd.oci.image.manifest.v1+json' };
+    // By tag, or by the digest a tag resolves to.
+    const tag = ref.startsWith('sha256:digest-') ? ref.slice('sha256:digest-'.length) : ref;
+    const created = tagsToCreated[tag];
+    if (!created) throw { statusCode: 404 };
+    return { body: { created }, digest: `sha256:digest-${tag}`, mediaType: 'application/vnd.oci.image.manifest.v1+json' };
   });
 }
 
@@ -153,7 +164,7 @@ describe('runRegistryGc — Fix 1: multi-arch INDEX age resolution', () => {
     // A single, non-floating version tag pointing at a multi-arch index.
     listTags.mockResolvedValue({ tags: ['v1'] });
     getManifest.mockImplementation(async (_name, ref) => {
-      if (ref === 'v1') {
+      if (ref === 'v1' || ref === 'sha256:index') {
         // Index carries NO created / annotation / config — only child refs.
         return {
           body: { manifests: [{ digest: 'sha256:child-amd64', mediaType: IMG }] },
@@ -171,9 +182,11 @@ describe('runRegistryGc — Fix 1: multi-arch INDEX age resolution', () => {
     const result = await runRegistryGc({ prefix: 'org-acme/', dryRun: false });
 
     // Previously the index had no timestamp → skipped forever. Now it's aged
-    // from the child config and pruned.
-    expect(deleteManifest).toHaveBeenCalledTimes(1);
+    // from the child config and pruned — with its now-unreferenced child, which
+    // the blob GC (run without --delete-untagged) would otherwise never free.
+    expect(deleteManifest).toHaveBeenCalledTimes(2);
     expect(deleteManifest).toHaveBeenCalledWith('org-acme/app', 'sha256:index');
+    expect(deleteManifest).toHaveBeenCalledWith('org-acme/app', 'sha256:child-amd64');
     expect(result.deleted).toBe(1);
     expect(incCounter).not.toHaveBeenCalledWith('gc_skipped_no_timestamp_total', expect.anything());
   });
@@ -208,7 +221,7 @@ describe('runRegistryGc — Fix 2: retention safeguards (no live-tag data loss)'
     listRepositoriesUnderPrefix.mockResolvedValue(['org-acme/app']);
     listTags.mockResolvedValue({ tags: ['v2', 'child-direct'] });
     getManifest.mockImplementation(async (_name, ref) => {
-      if (ref === 'v2') {
+      if (ref === 'v2' || ref === 'sha256:index2') {
         return { body: { manifests: [{ digest: 'sha256:child', mediaType: IMG }] }, digest: 'sha256:index2', mediaType: IDX };
       }
       // The child is ALSO directly tagged and its build is old — a naive GC
@@ -263,6 +276,205 @@ describe('runRegistryGc — Fix 2: retention safeguards (no live-tag data loss)'
     expect(deleteManifest).not.toHaveBeenCalled();
     expect(result.deleted).toBe(0);
     expect(incCounter).toHaveBeenCalledWith('gc_skipped_protected_total', { reason: 'references_unavailable' });
+  });
+});
+
+// -----------------------------------------------------------------------------
+// cosign companions (`sha256-<d>.sig` / `.att`) — G1
+// -----------------------------------------------------------------------------
+
+/**
+ * A repo modelled as tag → manifest. A cosign signature's config carries the
+ * ZERO time (`0001-01-01T00:00:00Z`, verified on a real cosign signature), so a
+ * GC that aged companions on their own would delete every one of them on its
+ * first sweep — and every org plugin would then fail signature verification.
+ */
+const ZERO_TIME = '0001-01-01T00:00:00Z';
+const hex = (c: string) => c.repeat(64);
+const D_LIVE = `sha256:${hex('a')}`;
+const D_OLD = `sha256:${hex('b')}`;
+const D_GONE = `sha256:${hex('c')}`;
+const sigOf = (d: string) => `sha256-${d.slice('sha256:'.length)}.sig`;
+const attOf = (d: string) => `sha256-${d.slice('sha256:'.length)}.att`;
+
+interface FakeManifest { digest: string; created: string; mediaType?: string; manifests?: Array<{ digest: string }> }
+
+/** Wire `org-acme/app` from a tag map; `mutate` swaps the map between scan and re-check. */
+function wireTagged(tags: Record<string, FakeManifest>) {
+  let current = tags;
+  listRepositoriesUnderPrefix.mockResolvedValue(['org-acme/app']);
+  listTags.mockImplementation(async () => ({ tags: Object.keys(current) }));
+  getManifest.mockImplementation(async (_n, ref) => {
+    const m = current[ref] ?? Object.values(current).find((x) => x.digest === ref);
+    if (!m) throw { statusCode: 404 };
+    return {
+      body: m.manifests ? { manifests: m.manifests } : { created: m.created },
+      digest: m.digest,
+      mediaType: m.mediaType ?? IMG,
+    };
+  });
+  return { swap: (next: Record<string, FakeManifest>) => { current = next; } };
+}
+
+const companions = (subject: string, tag: string) => ({
+  [sigOf(subject)]: { digest: `sha256:sig-${tag}`, created: ZERO_TIME },
+  [attOf(subject)]: { digest: `sha256:att-${tag}`, created: ZERO_TIME },
+});
+
+const deletedDigests = () => deleteManifest.mock.calls.map((c) => c[1]).sort();
+
+describe('runRegistryGc — cosign companions are never aged on their own', () => {
+  it('keeps a LIVE image\'s .sig and .att, however ancient their own config says they are', async () => {
+    wireTagged({ 'v2.0.0': { digest: D_LIVE, created: RECENT }, ...companions(D_LIVE, 'live') });
+
+    const result = await runRegistryGc({ prefix: 'org-acme/', dryRun: false });
+
+    expect(deleteManifest).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ candidates: 0, deleted: 0, companionsDeleted: 0 });
+  });
+
+  it('keeps an IN-USE image\'s companions even when the image itself is old', async () => {
+    wireTagged({ 'v0.1.0': { digest: D_OLD, created: STALE }, ...companions(D_OLD, 'old') });
+    inUseDigests = [D_OLD];
+
+    await runRegistryGc({ prefix: 'org-acme/', dryRun: false });
+
+    expect(deleteManifest).not.toHaveBeenCalled();
+  });
+
+  it('deletes a stale image\'s .sig and .att WITH the image', async () => {
+    wireTagged({
+      'v2.0.0': { digest: D_LIVE, created: RECENT },
+      ...companions(D_LIVE, 'live'),
+      'v0.1.0': { digest: D_OLD, created: STALE },
+      ...companions(D_OLD, 'old'),
+    });
+
+    const result = await runRegistryGc({ prefix: 'org-acme/', dryRun: false });
+
+    expect(deletedDigests()).toEqual([D_OLD, 'sha256:att-old', 'sha256:sig-old'].sort());
+    expect(result).toMatchObject({ candidates: 1, deleted: 1, companionsDeleted: 2 });
+    expect(incCounter).toHaveBeenCalledWith('registry_gc_manifests_deleted_total', { kind: 'image' });
+    expect(incCounter).toHaveBeenCalledWith('registry_gc_manifests_deleted_total', { kind: 'companion' });
+    expect(recordAuditMock).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'registry.gc', details: expect.objectContaining({ deleted: 1, companionsDeleted: 2 }),
+    }));
+  });
+
+  it('deletes ORPHANED companions — subject no longer tagged, indexed or in use', async () => {
+    wireTagged({ 'v2.0.0': { digest: D_LIVE, created: RECENT }, ...companions(D_GONE, 'gone') });
+
+    const result = await runRegistryGc({ prefix: 'org-acme/', dryRun: false });
+
+    expect(deletedDigests()).toEqual(['sha256:att-gone', 'sha256:sig-gone']);
+    expect(result).toMatchObject({ deleted: 0, companionsDeleted: 2 });
+  });
+
+  it('keeps an orphan whose subject is still in use (pinned by digest, untagged)', async () => {
+    wireTagged({ 'v2.0.0': { digest: D_LIVE, created: RECENT }, ...companions(D_GONE, 'gone') });
+    inUseDigests = [D_GONE];
+
+    await runRegistryGc({ prefix: 'org-acme/', dryRun: false });
+
+    expect(deleteManifest).not.toHaveBeenCalled();
+  });
+
+  it('keeps orphans while the in-use set is unreadable (fail safe)', async () => {
+    wireTagged({ ...companions(D_GONE, 'gone') });
+    referencesDown = true;
+
+    await runRegistryGc({ prefix: 'org-acme/', dryRun: false });
+
+    expect(deleteManifest).not.toHaveBeenCalled();
+  });
+
+  it('dry-run counts the companions a real run would remove and deletes nothing', async () => {
+    wireTagged({
+      'v0.1.0': { digest: D_OLD, created: STALE },
+      ...companions(D_OLD, 'old'),
+      ...companions(D_GONE, 'gone'),
+    });
+
+    const result = await runRegistryGc({ prefix: 'org-acme/', dryRun: true });
+
+    expect(deleteManifest).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ candidates: 1, deleted: 0, companionsDeleted: 4 });
+  });
+
+  it('deletes a stale INDEX\'s unreferenced children (and their companions) with it', async () => {
+    const CHILD = `sha256:${hex('d')}`;
+    wireTagged({
+      'v0.1.0': { digest: 'sha256:idx', created: STALE, mediaType: IDX, manifests: [{ digest: CHILD }] },
+      [CHILD]: { digest: CHILD, created: STALE },
+      ...companions(CHILD, 'child'),
+    });
+    // The child is reachable by digest only (not a tag) — drop it from the tag list.
+    listTags.mockImplementation(async () => ({ tags: ['v0.1.0', sigOf(CHILD), attOf(CHILD)] }));
+
+    const result = await runRegistryGc({ prefix: 'org-acme/', dryRun: false });
+
+    expect(deletedDigests()).toEqual(['sha256:att-child', 'sha256:idx', 'sha256:sig-child', CHILD].sort());
+    expect(result).toMatchObject({ deleted: 1, companionsDeleted: 2 });
+    expect(incCounter).toHaveBeenCalledWith('registry_gc_manifests_deleted_total', { kind: 'index_child' });
+  });
+});
+
+describe('runRegistryGc — check-then-act re-verification before deleting', () => {
+  it('keeps a candidate that gained a second tag between the scan and the delete', async () => {
+    const repo = wireTagged({ 'v0.1.0': { digest: D_OLD, created: STALE } });
+    // The scan sees one tag; by the re-check a `POST /copy` has put a second on it.
+    listTags.mockImplementationOnce(async () => ({ tags: ['v0.1.0'] }));
+    repo.swap({ 'v0.1.0': { digest: D_OLD, created: STALE }, 'copied': { digest: D_OLD, created: STALE } });
+
+    const result = await runRegistryGc({ prefix: 'org-acme/', dryRun: false });
+
+    expect(deleteManifest).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ candidates: 1, deleted: 0 });
+    expect(incCounter).toHaveBeenCalledWith('gc_skipped_protected_total', { reason: 'changed_since_scan' });
+  });
+
+  it('keeps a candidate that became in use by the re-check (the in-use set is re-read per repo)', async () => {
+    wireTagged({ 'v0.1.0': { digest: D_OLD, created: STALE } });
+    let reads = 0;
+    setPluginImageReferencesFetcherForTests(async () => (++reads === 1 ? [] : [D_OLD]));
+
+    const result = await runRegistryGc({ prefix: 'org-acme/', dryRun: false });
+
+    expect(reads).toBe(2);
+    expect(deleteManifest).not.toHaveBeenCalled();
+    expect(result.deleted).toBe(0);
+  });
+
+  it('deletes nothing in a repo whose re-check fails, and counts the failure', async () => {
+    wireTagged({ 'v0.1.0': { digest: D_OLD, created: STALE } });
+    listTags.mockImplementationOnce(async () => ({ tags: ['v0.1.0'] }))
+      .mockImplementationOnce(async () => { throw { statusCode: 503 }; });
+
+    const result = await runRegistryGc({ prefix: 'org-acme/', dryRun: false });
+
+    expect(deleteManifest).not.toHaveBeenCalled();
+    expect(result.failedRepos).toBe(1);
+    expect(incCounter).toHaveBeenCalledWith('registry_gc_failed_total', { stage: 'reverify' });
+  });
+
+  it('counts a failed delete instead of only logging it', async () => {
+    wireTagged({ 'v0.1.0': { digest: D_OLD, created: STALE } });
+    deleteManifest.mockRejectedValueOnce({ statusCode: 500 });
+
+    const result = await runRegistryGc({ prefix: 'org-acme/', dryRun: false });
+
+    expect(result.deleted).toBe(0);
+    expect(incCounter).toHaveBeenCalledWith('registry_gc_failed_total', { stage: 'delete' });
+  });
+
+  it('counts a tag-list failure against the repository', async () => {
+    listRepositoriesUnderPrefix.mockResolvedValue(['org-acme/app']);
+    listTags.mockRejectedValue({ statusCode: 500 });
+
+    const result = await runRegistryGc({ prefix: 'org-acme/', dryRun: false });
+
+    expect(result).toMatchObject({ reposScanned: 1, failedRepos: 1 });
+    expect(incCounter).toHaveBeenCalledWith('registry_gc_failed_total', { stage: 'tag_list' });
   });
 });
 

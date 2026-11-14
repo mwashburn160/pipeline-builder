@@ -10,6 +10,7 @@ import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { Checkbox } from '@/components/ui/Checkbox';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { CopyButton } from '@/components/ui/CopyButton';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { FormField } from '@/components/ui/FormField';
@@ -22,6 +23,7 @@ import api from '@/lib/api';
 import { formatAIError } from '@/lib/ai-errors';
 import { aiQuotaBlocked, type AIKeySource } from '@/lib/ai-quota';
 import { triggerBlobDownload } from '@/lib/download';
+import { DeliveryStatus } from './DeliveryStatus';
 import type {
   ComposedSection,
   ReportRun,
@@ -136,6 +138,8 @@ function ShareLinks({ runId, published, canShare, readOnly, externalSharing }: {
     );
   };
 
+  /** The link a Revoke click is asking about — a sent link can't be un-revoked. */
+  const [revoking, setRevoking] = useState<ReportShareLink | null>(null);
   const revoke = async (id: string) => {
     await form.run(
       async () => { await api.revokeReportShareLink(id); },
@@ -213,13 +217,30 @@ function ShareLinks({ runId, published, canShare, readOnly, externalSharing }: {
                 </span>
               </span>
               {!link.revokedAt && (
-                <Button size="xs" variant="danger" onClick={() => revoke(link.id)} readOnly={readOnly}>
+                <Button size="xs" variant="danger" onClick={() => setRevoking(link)} readOnly={readOnly}>
                   <Trash2 className="w-3 h-3" aria-hidden="true" /> Revoke
                 </Button>
               )}
             </li>
           ))}
         </ul>
+      )}
+
+      {revoking && (
+        <ConfirmDialog
+          title="Revoke this link?"
+          confirmLabel="Revoke link"
+          tone="danger"
+          loading={form.loading}
+          onConfirm={() => { void revoke(revoking.id).finally(() => setRevoking(null)); }}
+          onCancel={() => setRevoking(null)}
+        >
+          <p className="text-sm text-fg-muted">
+            Anyone you sent it to gets an error the next time they open it ({revoking.viewCount}{' '}
+            {revoking.viewCount === 1 ? 'view' : 'views'} so far). A revoked link cannot be turned back on —
+            you would have to create and send a new one.
+          </p>
+        </ConfirmDialog>
       )}
     </Card>
   );
@@ -456,7 +477,12 @@ export function ReportReview({ run, canAuthor, canShare, externalSharing, readOn
         )}
       </Card>
 
+      <DeliveryStatus run={run} canShare={canShare} readOnly={readOnly} onChanged={onChanged} />
+
+      {/* Keyed by run: the freshly minted raw token lives in this panel's state,
+          and must never sit under another run with a Copy button beside it. */}
       <ShareLinks
+        key={run.id}
         runId={run.id}
         published={published}
         canShare={canShare}

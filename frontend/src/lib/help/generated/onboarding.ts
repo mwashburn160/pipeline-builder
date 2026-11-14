@@ -17,10 +17,6 @@ export const onboardingTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "<!-- Copyright 2026 Pipeline Builder Contributors SPDX-License-Identifier: Apache-2.0 -->"
-        },
-        {
-          "type": "text",
           "content": "The end-to-end path from a freshly deployed platform to a working organization with your first pipeline. Each step links to the deep reference."
         }
       ]

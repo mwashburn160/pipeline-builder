@@ -145,6 +145,12 @@ jest.unstable_mockModule('../src/queue/connections.js', () => ({ enqueueBuild: m
 const mockAssertDeployable = jest.fn<(...args: any[]) => Promise<void>>().mockResolvedValue(undefined);
 jest.unstable_mockModule('../src/services/plugin-service.js', () => ({ pluginService: { assertDeployable: mockAssertDeployable } }));
 
+// The org's name-shadowing policy (helpers/name-shadowing-gate.ts); default:
+// nothing shadowed.
+const mockShadowingDecision = jest.fn<(...args: any[]) => Promise<any>>().mockResolvedValue({ mode: 'deny', shadows: [] });
+jest.unstable_mockModule('../src/services/ecosystem/installs.js', () => ({ shadowingDecision: mockShadowingDecision }));
+jest.unstable_mockModule('../src/services/ecosystem/context.js', () => ({ callerFromRequest: jest.fn(() => ({})) }));
+
 ({ withQuotaReservation: realWithQuotaReservation } = await import('@pipeline-builder/api-server/lib/api/quota-reservation.js'));
 const { createDeployGeneratedPluginRoutes } = await import('../src/routes/deploy-generated-plugin.js');
 
@@ -401,5 +407,56 @@ describe('POST /deploy-generated — Idempotency-Key guard', () => {
     expect(res.status).toHaveBeenCalledWith(503);
     expect(mockIdemDelete).toHaveBeenCalled();
     expect(mockEnqueueBuild).not.toHaveBeenCalled();
+  });
+});
+
+// P2: the AI-generated deploy used to skip the name-shadowing policy that the
+// ZIP upload enforces, so a `deny` org could deploy a `trivy` that silently
+// overrides the Official listing for every unqualified reference.
+describe('POST /deploy-generated — name-shadowing policy', () => {
+  const handler = getHandler();
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockIdemReserve.mockResolvedValue(true);
+    mockShadowingDecision.mockResolvedValue({ mode: 'deny', shadows: [] });
+  });
+
+  it('refuses a name the org policy denies with 409 — before the idempotency claim and the quota', async () => {
+    mockShadowingDecision.mockResolvedValueOnce({ mode: 'deny', shadows: ['official/my-plugin'] });
+    const res = mockRes();
+    await handler(mockReq('req-1:my-plugin'), res);
+
+    expect(res.status).toHaveBeenCalledWith(409);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining('would override official/my-plugin') }));
+    expect(mockIdemReserve).not.toHaveBeenCalled();
+    expect(mockReserveQuota).not.toHaveBeenCalled();
+    expect(mockEnqueueBuild).not.toHaveBeenCalled();
+    expect(mockEmitPluginAudit).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'plugin.shadowing.denied',
+      details: expect.objectContaining({ pluginName: 'my-plugin', shadows: ['official/my-plugin'] }),
+    }));
+  });
+
+  it('proceeds under `warn`, recording what it shadows on the plugin.deploy audit', async () => {
+    mockShadowingDecision.mockResolvedValueOnce({ mode: 'warn', shadows: ['official/my-plugin'] });
+    const res = mockRes();
+    await handler(mockReq(), res);
+
+    expect(res.status).toHaveBeenCalledWith(202);
+    expect(mockEmitPluginAudit).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'plugin.deploy',
+      details: expect.objectContaining({ shadows: ['official/my-plugin'] }),
+    }));
+  });
+
+  it('proceeds when the policy cannot be evaluated (best-effort), shadows "not established"', async () => {
+    mockShadowingDecision.mockRejectedValueOnce(new Error('listing read failed'));
+    const res = mockRes();
+    await handler(mockReq(), res);
+
+    expect(res.status).toHaveBeenCalledWith(202);
+    const deploy = mockEmitPluginAudit.mock.calls.map((c: any[]) => c[0]).find((e: any) => e.action === 'plugin.deploy');
+    expect(deploy.details.shadows).toBeUndefined();
   });
 });

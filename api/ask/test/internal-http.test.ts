@@ -27,8 +27,12 @@ process.env.QUOTA_SERVICE_PORT = '4600';
 process.env.PIPELINE_URL = 'http://wrong-pipeline:1';
 process.env.PLUGIN_URL = 'http://wrong-plugin:1';
 
-const { pipelineClient, pluginClient, platformClient, complianceClient, reportingClient, quotaClient, readInstanceEmailStatus } =
-  await import('../src/services/internal-http.js');
+const {
+  pipelineClient, pluginClient, platformClient, complianceClient, reportingClient, quotaClient, readInstanceEmailStatus,
+  GENERATION_TIMEOUT_MS, HTTP_TIMEOUT_MS,
+} = await import('../src/services/internal-http.js');
+const { DownstreamError } = await import('../src/services/downstream-error.js');
+const { AI_REQUEST_TIMEOUT_MS } = await import('@pipeline-builder/ai-core');
 
 const realFetch = globalThis.fetch;
 const fetchMock = jest.fn(async (_url: string, _init?: RequestInit) =>
@@ -121,6 +125,41 @@ describe('internal-http error surface', () => {
   it('reports status only — never the downstream error body (it reaches the model/user)', async () => {
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ message: 'SELECT * FROM secrets failed', stack: 'at internal.js:1' }), { status: 500 }));
     await expect(pipelineClient('Bearer USER').get('/pipelines/x')).rejects.toThrow(/^GET \/pipelines\/x -> 500$/);
+  });
+
+  it('a 429 carries the peer\'s ErrorCode (and nothing else from the body), so a tool can name the limit', async () => {
+    fetchMock.mockResolvedValueOnce(json({ success: false, message: 'over quota for org-1 (secret detail)', code: 'AI_MEMBER_SHARE_EXCEEDED' }, 429));
+    const err = await pipelineClient('Bearer USER').post('/pipelines/generate', {}, { generation: true }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(DownstreamError);
+    expect(err).toMatchObject({ status: 429, code: 'AI_MEMBER_SHARE_EXCEEDED', message: 'POST /pipelines/generate -> 429' });
+  });
+
+  it('ignores a 429 code that is not a plain ErrorCode identifier', async () => {
+    fetchMock.mockResolvedValueOnce(json({ code: 'drop table; <script>' }, 429));
+    const err = await pipelineClient('Bearer USER').get('/x').catch((e: unknown) => e);
+    expect(err).toMatchObject({ status: 429, code: undefined });
+  });
+});
+
+describe('internal-http — timeouts and the turn\'s abort signal', () => {
+  it('a delegated generation gets at least the AI request budget, an ordinary call the short timeout', () => {
+    expect(GENERATION_TIMEOUT_MS).toBeGreaterThanOrEqual(AI_REQUEST_TIMEOUT_MS + 30_000);
+    expect(GENERATION_TIMEOUT_MS).toBeGreaterThan(HTTP_TIMEOUT_MS);
+  });
+
+  it('cancels a forwarded call when the TURN aborts (client disconnect)', async () => {
+    const ctrl = new AbortController();
+    fetchMock.mockImplementationOnce((_url, init) => new Promise((_resolve, reject) => {
+      init!.signal!.addEventListener('abort', () => reject(init!.signal!.reason));
+    }));
+    const pending = pluginClient('Bearer USER', undefined, ctrl.signal).post('/plugins/generate', { prompt: 'x' }, { generation: true });
+    ctrl.abort(new Error('client went away'));
+    await expect(pending).rejects.toThrow('client went away');
+  });
+
+  it('an unbound client still carries a (timeout) signal', async () => {
+    await pipelineClient('Bearer USER').get('/pipelines');
+    expect(fetchMock.mock.calls[0]![1]!.signal).toBeInstanceOf(AbortSignal);
   });
 });
 

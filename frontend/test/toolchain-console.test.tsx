@@ -30,7 +30,7 @@ import { ApiError } from '../src/lib/api/errors';
 import { resolvePageGate } from '../src/lib/page-access';
 import { NAV_SECTIONS } from '../src/lib/nav';
 import {
-  classifySetDefaultError, gateFromDetails, platformBlastRadiusText, previousDefault,
+  classifySetDefaultError, gateFromDetails, platformBlastRadiusText, previousDefault, releaseActionAvailability,
 } from '../src/lib/toolchain-console';
 import type { PluginSummary } from '../src/lib/api/domains/plugins';
 import type { ToolchainConsoleRelease, ToolchainDefaultPreview } from '../src/types/toolchain';
@@ -88,6 +88,7 @@ const fns = {
   setToolchainPlatformDefault: jest.fn<AnyFn>(),
   updateToolchainReleaseNotes: jest.fn<AnyFn>(),
   deprecateToolchainRelease: jest.fn<AnyFn>(),
+  undeprecateToolchainRelease: jest.fn<AnyFn>(),
   yankToolchainRelease: jest.fn<AnyFn>(),
   deleteToolchainRelease: jest.fn<AnyFn>(),
   getToolchainDefaultHistory: jest.fn<AnyFn>(),
@@ -188,6 +189,7 @@ beforeEach(() => {
   fns.yankToolchainRelease.mockImplementation(() => ok({ restoredDefault: '1.4.1' }));
   fns.deleteToolchainRelease.mockImplementation(() => ok({}));
   fns.deprecateToolchainRelease.mockImplementation(() => ok({}));
+  fns.undeprecateToolchainRelease.mockImplementation(() => ok({}));
   fns.updateToolchainReleaseNotes.mockImplementation(() => ok({}));
 });
 
@@ -438,6 +440,48 @@ describe('Toolchain console: Canary', () => {
     await waitFor(() => expect(fns.setToolchainPlatformDefault).toHaveBeenCalledWith(
       '1.5.0', { expectedCurrentDefault: '1.4.2', overrideReason: 'urgent CDK fix' }, 'step-up-token',
     ));
+  });
+});
+
+describe('Toolchain console: Deprecate / Un-deprecate', () => {
+  const withDeprecated = () => fns.listToolchainReleases.mockImplementation(() => ok({
+    platformDefault: '1.4.2', releases: [...RELEASES, release('1.2.5', { status: 'deprecated' })],
+  }));
+
+  it('Deprecate steps up and deprecates the release', async () => {
+    await renderConsole();
+    fireEvent.click(screen.getByRole('button', { name: 'Deprecate 1.4.1' }));
+    expect(stepUp()).toHaveTextContent('can no longer be newly pinned');
+    confirmStepUp();
+    await waitFor(() => expect(fns.deprecateToolchainRelease).toHaveBeenCalledWith('1.4.1', 'step-up-token'));
+    expect(fns.undeprecateToolchainRelease).not.toHaveBeenCalled();
+  });
+
+  it('a deprecated release offers Un-deprecate (not Deprecate), says canary orgs are not restored, and reverses it', async () => {
+    withDeprecated();
+    await renderConsole();
+    expect(screen.queryByRole('button', { name: 'Deprecate 1.2.5' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Un-deprecate 1.4.1' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Un-deprecate 1.2.5' }));
+    expect(stepUp()).toHaveTextContent('canary orgs removed when it was deprecated are NOT restored');
+    confirmStepUp();
+    await waitFor(() => expect(fns.undeprecateToolchainRelease).toHaveBeenCalledWith('1.2.5', 'step-up-token'));
+    expect(fns.deprecateToolchainRelease).not.toHaveBeenCalled();
+  });
+
+  it('a failed un-deprecate is shown with its own wording', async () => {
+    withDeprecated();
+    fns.undeprecateToolchainRelease.mockImplementation(() => Promise.reject({ status: 500 }));
+    await renderConsole();
+    fireEvent.click(screen.getByRole('button', { name: 'Un-deprecate 1.2.5' }));
+    confirmStepUp();
+    expect(await screen.findByText(/Could not un-deprecate 1\.2\.5/)).toBeInTheDocument();
+  });
+
+  it('availability: only a deprecated release can be un-deprecated', () => {
+    expect(releaseActionAvailability({ status: 'deprecated', complete: true })).toMatchObject({ undeprecate: true, deprecate: false });
+    expect(releaseActionAvailability({ status: 'available', complete: true })).toMatchObject({ undeprecate: false, deprecate: true });
+    expect(releaseActionAvailability({ status: 'yanked', complete: true })).toMatchObject({ undeprecate: false, deprecate: false });
   });
 });
 

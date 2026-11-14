@@ -436,6 +436,12 @@ export const config = {
      */
     verificationTokenTtlMs: envInt('AUTH_VERIFICATION_TOKEN_TTL_MS', 86400000),
     /**
+     * Forgot-password link lifetime (ms). 1 h default — much shorter than the
+     * verification link, because this one sets a credential: a reset email left
+     * sitting in a mailbox is an account takeover waiting for whoever reads it.
+     */
+    passwordResetTokenTtlMs: envInt('AUTH_PASSWORD_RESET_TOKEN_TTL_MS', 3600000),
+    /**
      * TTL (seconds) for a published session-revocation entry (Redis key
      * `authrev:tv:<userId>`). This is a CEILING/floor: the effective TTL used at
      * publish time is `max(this, jwt.expiresIn, …jwt.tierExpiresIn)` — see

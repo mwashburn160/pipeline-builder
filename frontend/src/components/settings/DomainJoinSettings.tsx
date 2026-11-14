@@ -22,13 +22,14 @@ import { useDelete } from '@/hooks/useDelete';
 import { useFormState } from '@/hooks/useFormState';
 import api from '@/lib/api';
 import { formatError } from '@/lib/constants';
-import type { OrgDomainDto, OrgJoinRequestDto } from '@/lib/api/domains/organizations';
+import type { OrgDomainDto } from '@/lib/api/domains/organizations';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { JoinRequestsPanel } from './JoinRequestsPanel';
 
 /**
  * Admin panel for the org's EMAIL DOMAINS: register + DNS-verify them, choose
- * how matching signups may join (off / request / auto), and approve or deny
- * pending join requests. Rendered on the org settings page for owners/admins;
+ * how matching signups may join (off / request / auto), and decide join
+ * requests (approve / deny pending ones, clear a denial — {@link JoinRequestsPanel}). Rendered on the org settings page for owners/admins;
  * the backend enforces `org_settings:write` + tenancy independently.
  *
  * TWO consumers, not one: domain-based join, and SSO setup, which sends admins
@@ -61,22 +62,20 @@ export function DomainJoinSettings({ orgId, readOnly = false }: { orgId: string;
   const [newDomain, setNewDomain] = useState('');
   const form = useFormState();
 
-  // Domains and pending join requests, read together.
+  // The domains. Join requests are their own paged read (JoinRequestsPanel).
   const read = useFetch(
-    async (signal): Promise<{ domains: OrgDomainDto[]; entitled: boolean; requests: OrgJoinRequestDto[] }> => {
-      const [d, r] = await Promise.all([api.listOrgDomains(orgId, { signal }), api.listOrgJoinRequests(orgId, { signal })]);
+    async (signal): Promise<{ domains: OrgDomainDto[]; entitled: boolean }> => {
+      const d = await api.listOrgDomains(orgId, { signal });
       return {
         domains: d.data?.domains ?? [],
         // Default false: the add-domain form must not show for an org whose
         // entitlement is unknown (the real gate is server-side regardless).
         entitled: d.data?.entitled ?? false,
-        requests: r.data?.requests ?? [],
       };
     },
     [orgId],
   );
   const domains = read.data?.domains ?? [];
-  const requests = read.data?.requests ?? [];
   const entitled = read.data?.entitled ?? false;
   const loading = read.loading && !read.data;
 
@@ -205,23 +204,8 @@ export function DomainJoinSettings({ orgId, readOnly = false }: { orgId: string;
             ))}
           </div>
 
-          {/* Pending join requests */}
-          {requests.length > 0 && (
-            <div className="mt-5">
-              <h4 className="text-sm font-semibold mb-2">Pending join requests ({requests.length})</h4>
-              <div className="space-y-2">
-                {requests.map((r) => (
-                  <div key={r.id} className="flex items-center justify-between gap-3 rounded-md border border-default p-2.5">
-                    <span className="text-sm truncate">{r.email}</span>
-                    <div className="flex items-center gap-2 shrink-0">
-                      <Button type="button" disabled={locked} onClick={() => void run(() => api.decideOrgJoinRequest(orgId, r.id, 'approve'), 'Request approved')}>Approve</Button>
-                      <Button type="button" variant="secondary" disabled={locked} onClick={() => void run(() => api.decideOrgJoinRequest(orgId, r.id, 'deny'), 'Request denied')}>Deny</Button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+          {/* Join requests: pending (approve / deny) and denied (clear). */}
+          <JoinRequestsPanel orgId={orgId} readOnly={readOnly} />
         </>
       )}
 

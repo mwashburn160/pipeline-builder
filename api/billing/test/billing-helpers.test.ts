@@ -94,6 +94,7 @@ jest.unstable_mockModule('../src/config.js', () => ({
     platformService: { host: 'platform', port: 3000 },
     reportingService: { host: 'reporting', port: 3000 },
     complianceService: { host: 'compliance', port: 3000 },
+    paymentGracePeriodDays: 7,
   },
 }));
 
@@ -263,6 +264,31 @@ describe('buildSubscriptionResponse', () => {
   it('omits tier when not provided', () => {
     const result = buildSubscriptionResponse(baseSub, 'Pro');
     expect(result).not.toHaveProperty('tier');
+  });
+
+  it('reports no dunning outside a lapse', () => {
+    expect(buildSubscriptionResponse(baseSub).dunning).toBeNull();
+    // A stale firstFailedAt on an active row is not a lapse.
+    expect(buildSubscriptionResponse({ ...baseSub, firstFailedAt: new Date('2026-03-02') }).dunning).toBeNull();
+  });
+
+  it('gives a past_due row its grace DEADLINE (firstFailedAt + grace days)', () => {
+    const result = buildSubscriptionResponse({ ...baseSub, status: 'past_due', firstFailedAt: new Date('2026-03-10T00:00:00Z'), metadata: {} });
+    expect(result.dunning).toEqual({
+      firstFailedAt: '2026-03-10T00:00:00.000Z',
+      downgradeAt: '2026-03-17T00:00:00.000Z',
+      downgraded: false,
+    });
+  });
+
+  it('says the downgrade ALREADY happened once the grace cron ran (status stays past_due)', () => {
+    const result = buildSubscriptionResponse({
+      ...baseSub,
+      status: 'past_due',
+      firstFailedAt: new Date('2026-03-10T00:00:00Z'),
+      metadata: { gracePeriodDowngradedAt: '2026-03-17T01:00:00.000Z' },
+    });
+    expect(result.dunning).toEqual(expect.objectContaining({ downgraded: true, downgradedAt: '2026-03-17T01:00:00.000Z' }));
   });
 });
 

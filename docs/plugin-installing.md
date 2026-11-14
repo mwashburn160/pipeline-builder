@@ -222,6 +222,14 @@ If your organization has its own plugin with the same name as an Official listin
 
 To use the Official listing instead, add `publisher: pipeline-builder` to the step, or rename or delete your plugin.
 
+Your consumption policy's **`shadowing`** field decides what happens when a NEW plugin version would shadow something — a listing from any publisher, or (for a team) its parent organization's plugin. It is checked by both ways of creating a version, the ZIP upload (`POST /api/plugins`) and the AI-generated deploy (`POST /api/plugins/deploy-generated`), before compliance or any build:
+
+- `allow` — the version is created; the shadow is recorded on its `plugin.upload` / `plugin.deploy` audit entry.
+- `warn` (the default) — the same, plus an operator-visible log line.
+- `deny` — refused with `409 PLUGIN_NAME_SHADOWS` (`details.shadows` names what it would override), audited as `plugin.shadowing.denied`. Nothing is charged: the `plugins` quota slot is not kept.
+
+If the check itself can't be evaluated (a listing read fails), the version is created and the shadow is still reported by `GET /api/plugins/shadowing` afterwards.
+
 ### What pipeline create and update check
 
 Creating or updating a pipeline (in the UI, the API, the CLI or bulk) resolves every plugin reference the way synth does, and refuses the pipeline with `400 TEMPLATE_CONTRACT_VIOLATION` and the per-step reasons (`details.steps[].refusal`) when a qualified reference, or an unqualified one that falls back to an Official listing:
@@ -254,6 +262,7 @@ Your organization's consumption policy decides what *your* pipelines may use. It
 | `officialInstalls` | `implicit`, `explicit` | `implicit` | `explicit` turns off implicit Official installs, so every Official listing must be installed on purpose (through the approval flow, if it applies). Meant for regulated organizations. |
 | `blockedListings` | list of `publisher/name` | empty | These listings don't resolve and can't be installed, **including Official ones** (reason `blocked_listing`). |
 | `warnFixableHigh` | a number, or none | `0` | Fixable High findings above this many grade a version `warning` instead of `info`. A grade, never a refusal: vulnerability state doesn't stop a pipeline. None keeps them `info`. |
+| `shadowing` | `allow`, `warn`, `deny` | `warn` | What happens when a new own plugin version would override a listing or the parent org's plugin — see [Shadowing](#shadowing). |
 
 **No safety control is plan-gated.** Every plan gets the full policy.
 
@@ -274,6 +283,7 @@ A compliance rule can express the same limits, when you need an audited "never" 
 | `officialInstalls` | `explicit` wins |
 | `blockedListings` | Union |
 | `warnFixableHigh` | The lower threshold |
+| `shadowing` | The stricter mode (`deny` > `warn` > `allow`) |
 
 ## Approvals
 

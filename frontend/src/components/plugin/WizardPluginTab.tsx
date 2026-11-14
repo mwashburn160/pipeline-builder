@@ -18,6 +18,7 @@ import { InfoAlert } from '@/components/ui/InfoAlert';
 import { useBuildStatus } from '@/hooks/useBuildStatus';
 import { BuildFailureMessage } from './BuildFailureMessage';
 import api from '@/lib/api';
+import { listAllPlugins } from '@/lib/list-all';
 import { formatError } from '@/lib/constants';
 import type { Plugin, Visibility } from '@/types';
 import { useUnmountedRef } from '@/hooks/useUnmountedRef';
@@ -160,8 +161,8 @@ export default function WizardPluginTab({ canPublish, disabled, onCreated, onClo
   const loadPlugins = useCallback(async () => {
     setPluginsLoading(true);
     try {
-      const res = await api.listPlugins({ limit: '200' });
-      if (res.success && res.data) setPlugins(res.data.plugins);
+      // Every plugin: one capped page left the rest uneditable from here.
+      setPlugins(await listAllPlugins());
     } catch (err) {
       setError(formatError(err, 'Failed to load plugins'));
     } finally {

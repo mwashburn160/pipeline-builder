@@ -631,6 +631,40 @@
     }
   },
   {
+    "method": "DELETE",
+    "path": "/pipelines/:id/security-reports",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "pipelines:write"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "dynamicAuthz": [],
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": [
+      "pipeline.security_report.delete"
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
+  },
+  {
     "method": "GET",
     "path": "/pipelines/:id/security-reports",
     "auth": true,
@@ -1234,7 +1268,9 @@
     ],
     "systemAdmin": false,
     "servicePrincipal": false,
-    "dynamicAuthz": [],
+    "dynamicAuthz": [
+      "the caller's own org; another org named by ?orgId= only for the superadmin flag"
+    ],
     "internalCallers": [],
     "stepUp": false,
     "stepUpMethods": [],
@@ -1249,7 +1285,11 @@
       "checked": [
         "apiCalls"
       ]
-    }
+    },
+    "dynamicReachableBy": [
+      "superadmin",
+      "tenant-member"
+    ]
   },
   {
     "method": "POST",

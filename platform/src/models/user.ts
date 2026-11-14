@@ -461,5 +461,8 @@ userSchema.methods.comparePassword = async function (password: string): Promise<
 // The login lookup (`oauth.<key>.id`) for every linkage key.
 for (const key of LINKED_IDENTITY_KEYS) userSchema.index({ [`oauth.${key}.id`]: 1 }, { sparse: true });
 userSchema.index({ email: 1, username: 1 }); // login lookup: email OR username
+// `POST /auth/verify-email` is unauthenticated and looks the user up by the
+// hashed token — without this every guess is a full collection scan.
+userSchema.index({ emailVerificationToken: 1 }, { sparse: true });
 
 export default mongoose.model<UserData, UserModel>('User', userSchema);

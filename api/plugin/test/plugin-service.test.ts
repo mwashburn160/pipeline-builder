@@ -791,6 +791,30 @@ describe('PluginService', () => {
       expect(promote).toHaveBeenCalled();
     });
 
+    it('unyank: restores the lifecycle its timestamps say, clears the yank, never re-defaults', async () => {
+      const set = jest.fn((_v: any) => ({ where: jest.fn(() => ({ returning: jest.fn(async () => [{ id: 'p-1', orgId: 'org-1' }]) })) }));
+      pipelineDataMock.withTenantTx.mockImplementation(async (cb: any) => cb({ execute: jest.fn(async () => ({ rows: [] })), update: jest.fn(() => ({ set })) }));
+      const promote = jest.spyOn(service, 'promoteNextDefault');
+      await expect(service.unyankVersion({ id: 'p-1', name: 'trivy', version: '1.0.0', lifecycle: 'yanked', yankedAt: new Date(), deprecatedAt: null } as any, 'org-1', 'u-1'))
+        .resolves.toEqual({ id: 'p-1', orgId: 'org-1' });
+      expect(set.mock.calls[0]![0]).toMatchObject({ lifecycle: 'production', yankedAt: null, yankReason: null });
+      expect(set.mock.calls[0]![0]).not.toHaveProperty('isDefault');
+      expect(promote).not.toHaveBeenCalled();
+
+      set.mockClear();
+      await service.unyankVersion({ id: 'p-1', name: 'trivy', version: '1.0.0', lifecycle: 'yanked', yankedAt: new Date(), deprecatedAt: new Date() } as any, 'org-1', 'u-1');
+      expect(set.mock.calls[0]![0]).toMatchObject({ lifecycle: 'deprecated' });
+    });
+
+    it('unyank refuses a version that is not yanked (409) and a listed one (PLUGIN_VERSION_FROZEN)', async () => {
+      pipelineDataMock.withTenantTx.mockImplementation(async (cb: any) => cb({ execute: jest.fn(async () => ({ rows: [] })) }));
+      await expect(service.unyankVersion({ id: 'p-1', name: 'trivy', version: '1.0.0', lifecycle: 'production', yankedAt: null } as any, 'org-1', 'u-1'))
+        .rejects.toMatchObject({ statusCode: 409 });
+      pipelineDataMock.withTenantTx.mockImplementation(async (cb: any) => cb({ execute: jest.fn(async () => ({ rows: [{ x: 1 }] })) }));
+      await expect(service.unyankVersion({ id: 'p-1', name: 'trivy', version: '1.0.0', lifecycle: 'yanked', yankedAt: new Date() } as any, 'org-1', 'u-1'))
+        .rejects.toMatchObject({ statusCode: 409, code: 'PLUGIN_VERSION_FROZEN' });
+    });
+
     const promoteTx = (liveDefaults: unknown[], candidates: Array<{ id: string; version: string }>) => {
       const set = jest.fn((_v: any) => ({ where: jest.fn(() => ({ returning: jest.fn(async () => [{ id: 'picked', orgId: 'org-1' }]) })) }));
       pipelineDataMock.withTenantTx.mockImplementation(async (cb: any) => cb({

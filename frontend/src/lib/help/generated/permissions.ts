@@ -1,6 +1,6 @@
 // GENERATED FROM docs/permissions.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: a0f512d0c37b938ea1715fe5af18babbb31a5fca69793c25f62ed95bdb915d03
+// SOURCE-SHA256: b13a0c692e2c7ce2e8148b3b8355a11258a38fef953515695bd9184ee3e68241
 // SPDX-License-Identifier: Apache-2.0
 import { UserCog } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -15,10 +15,6 @@ export const permissionsTopic: HelpTopic = {
       "id": "overview",
       "title": "Overview",
       "blocks": [
-        {
-          "type": "text",
-          "content": "<!-- Copyright 2026 Pipeline Builder Contributors SPDX-License-Identifier: Apache-2.0 -->"
-        },
         {
           "type": "text",
           "content": "Access control is permission-based and single-source: a user's effective permissions are the union of the Roles assigned to them."
@@ -282,7 +278,7 @@ export const permissionsTopic: HelpTopic = {
             [
               "Pipeline toolchain console (system org only)",
               "toolchain:operate",
-              "System-org only (plan D9), carried by Platform Operator. Runs the Toolchain console (/dashboard/toolchain, /plugins/toolchain/releases, /history, /affected, /cleanup): canary membership, release notes, deprecate / yank / delete releases, notify the owners of pipelines stranded on a release, and set the platform default — which every org without its own default follows on its next run. Every write steps up and is audited (toolchain.*); reads never step up. It must be system-org-only because ADMIN_PERMISSIONS derives from the org-assignable list, so otherwise every tenant Admin would hold it. The org-level toolchain:manage confers none of it."
+              "System-org only (plan D9), carried by Platform Operator. Runs the Toolchain console (/dashboard/toolchain, /plugins/toolchain/releases, /history, /affected, /cleanup): canary membership, release notes, deprecate (reversible: { deprecated: false }) / yank (permanent) / delete releases, notify the owners of pipelines stranded on a release, and set the platform default — which every org without its own default follows on its next run. Every write steps up and is audited (toolchain.*); reads never step up. It must be system-org-only because ADMIN_PERMISSIONS derives from the org-assignable list, so otherwise every tenant Admin would hold it. The org-level toolchain:manage confers none of it."
             ],
             [
               "Cross-tenant administration (system org only)",

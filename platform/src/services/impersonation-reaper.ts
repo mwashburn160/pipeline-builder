@@ -17,7 +17,7 @@
  * what came of it.
  */
 
-import { createLogger, errorMessage, leaderLockKey, SYSTEM_ACTOR_ID, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import { createLogger, leaderLockKey, SYSTEM_ACTOR_ID, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
 import type { QueryFilter } from 'mongoose';
 import type { IntervalSweepDefinition } from './background-sweeps.js';
 import { recordAuditEvent } from '../helpers/audit.js';
@@ -40,51 +40,47 @@ const REAP_BATCH = 500;
  * Flip every `pending` or `approved` request whose window has passed to
  * `expired`. `consumed`, `denied`, `revoked` and `undeliverable` are final and
  * untouched — a consumed request's `expiresAt` is about the approval window, not
- * the session. Returns rows updated. Never throws.
+ * the session. Returns rows updated. THROWS on a database error, so the
+ * scheduler records the cycle as failed and `SchedulerJobStale` can see it.
  *
  * Each expiry is audited (`admin.impersonate.expire`, system actor) against the
  * org the request was for, so a request that lapsed unanswered shows on that
  * org's trail by id rather than as an anonymous count in a log line.
  */
 export async function sweepExpiredImpersonationRequests(now: Date = new Date()): Promise<number> {
-  try {
-    const filter: QueryFilter<ImpersonationRequestData> = { status: { $in: ['pending', 'approved'] }, expiresAt: { $lte: now } };
-    const lapsed = await ImpersonationRequest.find(filter)
-      .select('_id status requesterId targetUserId organizationId breakglass')
-      .limit(REAP_BATCH)
-      .lean();
-    if (lapsed.length === 0) return 0;
-    const res = await ImpersonationRequest.updateMany(
-      { ...filter, _id: { $in: lapsed.map((r) => r._id) } },
-      { $set: { status: 'expired' } },
-    );
-    const modified = res.modifiedCount ?? 0;
-    if (modified > 0) {
-      logger.info('Expired stale impersonation requests', { modified });
-      for (const r of lapsed) {
-        recordAuditEvent({
-          action: 'admin.impersonate.expire',
-          actorId: SYSTEM_ACTOR_ID,
-          orgId: SYSTEM_ORG_ID,
-          ...(r.organizationId ? { affectedOrgId: String(r.organizationId) } : {}),
-          targetType: 'user',
-          targetId: String(r.targetUserId),
-          outcome: 'success',
-          details: {
-            impersonationRequestId: String(r._id),
-            previousStatus: r.status,
-            requesterId: String(r.requesterId),
-            ...(r.breakglass ? { breakglass: true } : {}),
-            reason: 'impersonation-reaper',
-          },
-        });
-      }
+  const filter: QueryFilter<ImpersonationRequestData> = { status: { $in: ['pending', 'approved'] }, expiresAt: { $lte: now } };
+  const lapsed = await ImpersonationRequest.find(filter)
+    .select('_id status requesterId targetUserId organizationId breakglass')
+    .limit(REAP_BATCH)
+    .lean();
+  if (lapsed.length === 0) return 0;
+  const res = await ImpersonationRequest.updateMany(
+    { ...filter, _id: { $in: lapsed.map((r) => r._id) } },
+    { $set: { status: 'expired' } },
+  );
+  const modified = res.modifiedCount ?? 0;
+  if (modified > 0) {
+    logger.info('Expired stale impersonation requests', { modified });
+    for (const r of lapsed) {
+      recordAuditEvent({
+        action: 'admin.impersonate.expire',
+        actorId: SYSTEM_ACTOR_ID,
+        orgId: SYSTEM_ORG_ID,
+        ...(r.organizationId ? { affectedOrgId: String(r.organizationId) } : {}),
+        targetType: 'user',
+        targetId: String(r.targetUserId),
+        outcome: 'success',
+        details: {
+          impersonationRequestId: String(r._id),
+          previousStatus: r.status,
+          requesterId: String(r.requesterId),
+          ...(r.breakglass ? { breakglass: true } : {}),
+          reason: 'impersonation-reaper',
+        },
+      });
     }
-    return modified;
-  } catch (err) {
-    logger.warn('Impersonation reaper sweep failed', { error: errorMessage(err) });
-    return 0;
   }
+  return modified;
 }
 
 /** The reaper as a background sweep (see services/background-sweeps.ts). */

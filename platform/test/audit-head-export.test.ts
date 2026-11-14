@@ -39,8 +39,10 @@ jest.unstable_mockModule('../src/models/audit-chain-head.js', () => ({
   },
 }));
 jest.unstable_mockModule('../src/models/audit-event.js', () => ({ __esModule: true, default: {} }));
+const mockIncCounter = jest.fn();
+jest.unstable_mockModule('../src/observability/metrics.js', () => ({ incCounter: (...a: unknown[]) => mockIncCounter(...a), setGauge: jest.fn() }));
 
-const { exportAuditChainHeads, fetchPublishedHead, signHead } = await import('../src/services/audit-head-export.js');
+const { exportAuditChainHeads, fetchPublishedHead, runAuditHeadExportSweep, signHead } = await import('../src/services/audit-head-export.js');
 const { PublishedHeadInvalidError } = await import('../src/helpers/audit-chain.js');
 const { signV4 } = await import('../src/utils/s3-sigv4.js');
 
@@ -121,6 +123,29 @@ describe('exportAuditChainHeads', () => {
     globalThis.fetch = (async () => new Response('denied', { status: 403 })) as unknown as typeof fetch;
     expect(await exportAuditChainHeads(headCfg)).toEqual({ exported: 0, failed: 1 });
     expect(mockHeadUpdateOne).not.toHaveBeenCalled();
+    expect(mockIncCounter).toHaveBeenCalledWith('audit_head_export_total', { result: 'failed' });
+  });
+
+  // The scheduled body must fail the cycle, or a target that refuses every PUT
+  // silently removes the chain's truncation evidence while the job reads healthy.
+  it('the sweep body throws when any chain failed to publish, and resolves when all did', async () => {
+    heads = [{ _id: 'org-1', seq: 2, hash: 'c'.repeat(64), headCreatedAt: new Date() }];
+    const ok = globalThis.fetch;
+    globalThis.fetch = (async () => new Response('denied', { status: 403 })) as unknown as typeof fetch;
+    await expect(runAuditHeadExportSweep()).rejects.toThrow(/1 chain\(s\) failed/);
+    globalThis.fetch = ok;
+    await expect(runAuditHeadExportSweep()).resolves.toBeUndefined();
+  });
+
+  it('counts a failed scan as a failure', async () => {
+    const { default: AuditChainHead } = await import('../src/models/audit-chain-head.js');
+    const original = AuditChainHead.find;
+    (AuditChainHead as { find: unknown }).find = () => { throw new Error('mongo down'); };
+    try {
+      expect(await exportAuditChainHeads(headCfg)).toEqual({ exported: 0, failed: 1 });
+    } finally {
+      (AuditChainHead as { find: unknown }).find = original;
+    }
   });
 
   it('is a no-op when the export target is not configured', async () => {

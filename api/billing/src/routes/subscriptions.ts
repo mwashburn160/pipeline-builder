@@ -343,7 +343,7 @@ export function createSubscriptionRoutes(): Router {
       // current pooled usage. Structured overages drive the UI's "remove N".
       const overages = await checkEntitlementOvercap(orgId, plan.tier, subscription.addons ?? [], '');
       if (overages.length > 0) {
-        return sendError(res, 409, 'This plan change would put the account over its limit — remove members/resources first', ErrorCode.PLAN_OVER_CAP, { overages });
+        return sendError(res, 409, 'This plan change would put the account over its limit — remove members, support contacts or resources first', ErrorCode.PLAN_OVER_CAP, { overages });
       }
     }
 

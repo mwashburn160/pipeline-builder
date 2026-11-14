@@ -233,9 +233,10 @@ jest.unstable_mockModule('../src/config/index.js', () => mockConfig({
   billing: { serviceHost: 'billing', servicePort: 3000 },
   message: { serviceHost: 'message', servicePort: 3000 },
   organization: { cascadeHttpTimeoutMs: 5000 },
+  audit: { retentionDays: 90 },
 }));
 
-const { cascadeDeleteOrg, exportOrg } = await import('../src/services/org-cascade-service.js');
+const { cascadeDeleteOrg, exportOrg, archivedAuditExpiry } = await import('../src/services/org-cascade-service.js');
 const { CASCADE_TABLE_NAMES, CASCADE_MONGO_COLLECTION_NAMES, SOFT_DELETE_TABLES, HARD_DELETE_TABLES } = await import('../src/services/org-cascade-registry.js');
 const { SYSTEM_ORG_DELETE_FORBIDDEN } = await import('../src/services/org-errors.js');
 
@@ -428,7 +429,7 @@ describe('cascadeDeleteOrg', () => {
 
   it('ARCHIVES the audit trail to archived_audit_events BEFORE deleting the live rows', async () => {
     const events = [
-      { _id: 'evt-1', action: 'user.login', orgId: 'org-acme' },
+      { _id: 'evt-1', action: 'user.login', orgId: 'org-acme', createdAt: new Date('2026-11-01T00:00:00Z') },
       { _id: 'evt-2', action: 'admin.user.update', affectedOrgId: 'org-acme' },
     ];
     mockAuditFind.mockReturnValue(auditCursor(events));
@@ -444,10 +445,22 @@ describe('cascadeDeleteOrg', () => {
     expect(ops[0].replaceOne.upsert).toBe(true);
     expect(ops[0].replaceOne.replacement).toMatchObject({ _id: 'evt-1', action: 'user.login' });
     expect(ops[0].replaceOne.replacement.archivedAt).toBeInstanceOf(Date);
+    // Retention: an archived event expires when the live row would have —
+    // createdAt + AUDIT_RETENTION_DAYS — never kept past it.
+    expect(ops[0].replaceOne.replacement.expiresAt).toEqual(new Date('2027-01-30T00:00:00Z'));
+    // No createdAt → the full window from the archive time.
+    const archivedAt = ops[1].replaceOne.replacement.archivedAt as Date;
+    expect(ops[1].replaceOne.replacement.expiresAt.getTime()).toBe(archivedAt.getTime() + 90 * 86_400_000);
 
     // Archive succeeded → live rows deleted → report flags the archive ok.
     expect(report.auditArchive).toEqual({ ok: true, archived: 2 });
     expect(report.mongo.auditEvents).toBe(2);
+  });
+
+  it('archivedAuditExpiry reads a string createdAt (lean rows from older drivers) too', () => {
+    const at = new Date('2026-12-01T00:00:00Z');
+    expect(archivedAuditExpiry({ createdAt: '2026-11-01T00:00:00Z' }, at)).toEqual(new Date('2027-01-30T00:00:00Z'));
+    expect(archivedAuditExpiry({ createdAt: 'garbage' }, at)).toEqual(new Date(at.getTime() + 90 * 86_400_000));
   });
 
   it('FAIL-CLOSED: does NOT delete audit rows when the archive write fails', async () => {

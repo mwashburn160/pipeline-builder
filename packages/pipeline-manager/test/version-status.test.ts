@@ -8,16 +8,15 @@
  * token-expiry read (JWT, opaque access key, undecodable).
  */
 
-import { mkdtempSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import type { AnyFn } from '@pipeline-builder/api-core/testing';
+import { useTempHome } from './helpers/temp-home.js';
 
-process.env.HOME = mkdtempSync(join(tmpdir(), 'pm-version-'));
-process.env.CLI_CONFIG_PATH = join(process.env.HOME, 'none.yml');
+const HOME = useTempHome('pm-version-');
+process.env.CLI_CONFIG_PATH = join(HOME, 'none.yml');
 
 const getCdkInfo = jest.fn<AnyFn>(() => ({ available: true, version: '2.200.0' }));
 const checkCdkAvailable = jest.fn<AnyFn>(() => true);
@@ -29,9 +28,24 @@ const { status } = await import('../src/commands/status.js');
 
 let server: Server;
 let healthy = true;
+/** What GET /api/user/profile answers: 200 with a user, or a refusal status. */
+let profileStatus = 200;
+const profileAuth: Array<string | undefined> = [];
 let base = '';
 beforeAll(async () => {
-  server = createServer((_req, res) => { res.statusCode = healthy ? 200 : 503; res.end('{}'); });
+  server = createServer((req, res) => {
+    if (req.url === '/api/user/profile') {
+      profileAuth.push(req.headers.authorization);
+      res.statusCode = profileStatus;
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify(profileStatus === 200
+        ? { success: true, data: { user: { email: 'dev@example.com', activeOrgName: 'Acme' } } }
+        : { success: false, message: 'Token invalid' }));
+      return;
+    }
+    res.statusCode = healthy ? 200 : 503;
+    res.end('{}');
+  });
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 });
@@ -42,6 +56,8 @@ const text = () => logged.join('\n');
 beforeEach(() => {
   logged.length = 0;
   healthy = true;
+  profileStatus = 200;
+  profileAuth.length = 0;
   process.env.PLATFORM_TOKEN = 'tok';
   process.env.PLATFORM_BASE_URL = base;
   getCdkInfo.mockReturnValue({ available: true, version: '2.200.0' });
@@ -69,7 +85,7 @@ describe('version', () => {
   it('--verbose --check-config: system info, config valid, env vars', async () => {
     delete process.env.CLI_CONFIG_PATH;
     await run(version, ['version', '--verbose', '--check-config']);
-    process.env.CLI_CONFIG_PATH = join(process.env.HOME!, 'none.yml');
+    process.env.CLI_CONFIG_PATH = join(HOME, 'none.yml');
     expect(text()).toContain('System Environment');
     expect(text()).toContain('AWS CDK is installed');
     expect(text()).toContain('Configuration is valid');
@@ -110,7 +126,7 @@ describe('status', () => {
     await run(status, ['status']);
     expect(text()).toContain('unreachable');
     expect(text()).toMatch(/n\/a \(access key|unable to decode/);
-    expect(text()).toContain('Environment Status');
+    expect(text()).toContain('CLI Status');
   });
 
   it('an undecodable token and no token at all', async () => {
@@ -121,5 +137,36 @@ describe('status', () => {
     logged.length = 0;
     await run(status, ['status']);
     expect(text()).toContain('not set');
+  });
+});
+
+describe('status — sign-in check (G7)', () => {
+  it('verifies the credential with the platform and says as whom', async () => {
+    process.env.PLATFORM_TOKEN = 'pb_pat_0123456789abcdef0123456789abcdef';
+    await run(status, ['status', '--json']);
+    const doc = JSON.parse(logged.join('\n'));
+    expect(doc).toMatchObject({ 'Signed In': 'yes', 'Signed In As': 'dev@example.com', 'Organization': 'Acme', 'Credential': 'PLATFORM_TOKEN (environment)', 'Platform': base });
+    expect(profileAuth).toEqual(['Bearer pb_pat_0123456789abcdef0123456789abcdef']);
+  });
+
+  it('reports a credential the platform refuses as NOT signed in', async () => {
+    profileStatus = 401;
+    await run(status, ['status', '--json']);
+    expect(JSON.parse(logged.join('\n'))['Signed In']).toBe('no — the platform rejected the credential (401)');
+  });
+
+  it('a stored "auth login" session counts as the credential (not "PLATFORM_TOKEN: not set")', async () => {
+    delete process.env.PLATFORM_TOKEN;
+    const store = await import('../src/utils/credential-store.js');
+    const expiresAt = Date.now() + 600_000;
+    store.saveSession(base, { accessToken: 'stored.jwt', refreshToken: 'r', expiresAt });
+    try {
+      await run(status, ['status', '--json']);
+      const doc = JSON.parse(logged.join('\n'));
+      expect(doc).toMatchObject({ 'Credential': 'stored session ("auth login")', 'Signed In': 'yes', 'Token Expires': new Date(expiresAt).toISOString() });
+      expect(profileAuth).toEqual(['Bearer stored.jwt']);
+    } finally {
+      store.clearSession(base);
+    }
   });
 });

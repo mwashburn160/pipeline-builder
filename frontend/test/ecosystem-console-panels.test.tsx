@@ -25,6 +25,7 @@ import { PublisherVerificationPanel } from '../src/components/ecosystem/Publishe
 import { ListingStatePanel } from '../src/components/ecosystem/ListingStatePanel';
 import { ReservedNamesPanel } from '../src/components/ecosystem/ReservedNamesPanel';
 import { pageToast } from './helpers/pageMocks';
+import { ApiError } from '../src/lib/api/errors';
 
 jest.mock('@/components/ui/Toast', () => require('./helpers/pageMocks').toastModule());
 // The console's tab lives in the query string (`useUrlTab`), so it needs a router.
@@ -357,7 +358,31 @@ describe('Auto-approval rules', () => {
     render(<AutoApprovalRulesPanel can={canAll} currentUserId="u-me" />);
     fireEvent.click(await screen.findByRole('button', { name: /approve the change to verified updates/i }));
     fireEvent.click(screen.getByRole('button', { name: 'Verify step-up' }));
-    await waitFor(() => expect(api.approveAutoRuleChange).toHaveBeenCalledWith('rule-1', 'step-tok'));
+    // Carries the reviewed proposal's requestedAt (409 server-side if it was replaced since).
+    await waitFor(() => expect(api.approveAutoRuleChange).toHaveBeenCalledWith('rule-1', '2026-09-20T00:00:00Z', 'step-tok'));
+  });
+
+  it('a 409 CONFLICT on approve (the proposal was replaced) re-reads the rules and says so', async () => {
+    api.listAutoRules.mockResolvedValue({ success: true, data: { rules: [rule({ pendingChange: pendingChange('u-other') })] } });
+    api.approveAutoRuleChange.mockRejectedValue(new ApiError('changed', 409, 'CONFLICT', { reviewedRequestedAt: 'a', currentRequestedAt: 'b' }));
+    render(<AutoApprovalRulesPanel can={canAll} currentUserId="u-me" />);
+    fireEvent.click(await screen.findByRole('button', { name: /approve the change to verified updates/i }));
+    const reads = api.listAutoRules.mock.calls.length;
+    fireEvent.click(screen.getByRole('button', { name: 'Verify step-up' }));
+    await waitFor(() => expect(pageToast.warning).toHaveBeenCalledWith(expect.stringMatching(/changed after you opened it/)));
+    await waitFor(() => expect(api.listAutoRules.mock.calls.length).toBeGreaterThan(reads));
+    expect(pageToast.success).not.toHaveBeenCalledWith(expect.stringMatching(/^Approved/));
+    expect(screen.queryByRole('button', { name: 'Verify step-up' })).not.toBeInTheDocument();
+  });
+
+  it('any other approve refusal stays in the dialog (not the conflict path)', async () => {
+    api.listAutoRules.mockResolvedValue({ success: true, data: { rules: [rule({ pendingChange: pendingChange('u-other') })] } });
+    api.approveAutoRuleChange.mockRejectedValue(new ApiError('nope', 403, 'INSUFFICIENT_PERMISSIONS'));
+    render(<AutoApprovalRulesPanel can={canAll} currentUserId="u-me" />);
+    fireEvent.click(await screen.findByRole('button', { name: /approve the change to verified updates/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Verify step-up' }));
+    await waitFor(() => expect(api.approveAutoRuleChange).toHaveBeenCalled());
+    expect(pageToast.warning).not.toHaveBeenCalled();
   });
 
   it('disabling applies through step-up', async () => {

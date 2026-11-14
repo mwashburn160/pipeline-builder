@@ -51,8 +51,10 @@ jest.unstable_mockModule('../src/helpers/audit.js', () => ({
 }));
 
 jest.unstable_mockModule('../src/utils/leader-lock.js', () => leaderLockMock());
+const mockIncCounter = jest.fn();
+jest.unstable_mockModule('../src/observability/metrics.js', () => ({ incCounter: (...a: unknown[]) => mockIncCounter(...a), setGauge: jest.fn() }));
 
-const { purgeExpiredOrgs, orgPurgeSweep } = await import('../src/services/org-purge.js');
+const { purgeExpiredOrgs, orgPurgeSweep, runOrgPurgeSweep } = await import('../src/services/org-purge.js');
 const { buildSweep } = await import('../src/services/background-sweeps.js');
 
 let sweep: { start(): void; stop(): void } | null = null;
@@ -321,9 +323,31 @@ describe('purgeExpiredOrgs', () => {
     expect(mockCascade).not.toHaveBeenCalled();
   });
 
-  it('never throws on a scan failure (logs, returns zeros)', async () => {
+  it('never throws on a scan failure (logs, counts it as failed)', async () => {
     mockOrgFind.mockReturnValue({ select: () => ({ lean: () => Promise.reject(new Error('mongo down')) }) });
-    await expect(purgeExpiredOrgs()).resolves.toMatchObject({ scanned: 0, purged: 0 });
+    await expect(purgeExpiredOrgs()).resolves.toMatchObject({ scanned: 0, purged: 0, failed: 1 });
+  });
+});
+
+// The scheduled body. A pass that defers or fails an org must NOT be recorded as
+// a success, or an org whose teardown fails forever (a missed erasure deadline)
+// stays invisible to SchedulerJobStale.
+describe('runOrgPurgeSweep', () => {
+  it('resolves when every expired org was purged', async () => {
+    mockOrgFind.mockReturnValue(selectLean([{ _id: 'org-a' }]));
+    await expect(runOrgPurgeSweep()).resolves.toBeUndefined();
+  });
+
+  it('throws when an org was deferred', async () => {
+    mockOrgFind.mockReturnValue(selectLean([{ _id: 'org-a' }]));
+    mockCascade.mockResolvedValue({ ...okReport(), billing: { ok: false, error: 'billing down' } });
+    await expect(runOrgPurgeSweep()).rejects.toThrow(/1 deferred/);
+    expect(mockIncCounter).toHaveBeenCalledWith('org_purge_outcome_total', { result: 'deferred' });
+  });
+
+  it('throws when the scan itself failed', async () => {
+    mockOrgFind.mockReturnValue({ select: () => ({ lean: () => Promise.reject(new Error('mongo down')) }) });
+    await expect(runOrgPurgeSweep()).rejects.toThrow(/1 failed/);
   });
 });
 

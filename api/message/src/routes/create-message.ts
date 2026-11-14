@@ -28,7 +28,6 @@ import {
 import { withRoute, createAuthenticatedWithOrgRoute, incCounter, observe, rateLimitByOrg } from '@pipeline-builder/api-server';
 import type { RequestContext, SSEManager } from '@pipeline-builder/api-server';
 import { schema, countCasesInWindow, openSupportCase, findCaseByThread, isPremiumSupportContact, stampFirstResponse } from '@pipeline-builder/pipeline-data';
-import { consumeSupportIncident, refundSupportIncident } from '../services/support-incident-client.js';
 import { Router } from 'express';
 import type { Response } from 'express';
 import { notifyNewMessage, validateRecipient } from '../helpers/new-message.js';
@@ -36,9 +35,10 @@ import type { NewMessageNotification } from '../helpers/new-message.js';
 import { enrichOneWithOrgNames } from '../helpers/org-names.js';
 import { isRecipientReachable, isTargetUserReachable } from '../helpers/org-reachability.js';
 import { attachmentService } from '../services/attachment-service.js';
-import { fetchSupportEntitlement } from '../services/support-entitlement-client.js';
 import { messageService } from '../services/message-service.js';
 import { resolveCasePage } from '../services/oncall-sweep.js';
+import { fetchSupportEntitlement } from '../services/support-entitlement-client.js';
+import { consumeSupportIncident, refundSupportIncident } from '../services/support-incident-client.js';
 
 type MessageInsert = typeof schema.message.$inferInsert;
 type Message = typeof schema.message.$inferSelect;
@@ -409,9 +409,13 @@ export function createCreateMessageRoutes(sseManager: SSEManager): Router {
      * level by design, so the case correctly carries NO stated response target.
      * A concession is a promise to answer, not a promise to answer by a time.
      */
-    const caseLevel = openerIsPremium
-      ? 'support_premium'
-      : entitlement?.level ?? (byIncident ? 'support_incident' : null);
+    // ALWAYS `support_incident` when the incident door opened, even when the
+    // account holds a baseline it could not open against here (a team with no
+    // contact of its own): borrowing the account's sold level would attach that
+    // level's response target to a case nobody bought one for.
+    const caseLevel = byIncident
+      ? 'support_incident'
+      : openerIsPremium ? 'support_premium' : entitlement?.level ?? null;
 
     // `urgent` is admitted only at premium, and a lower level asking for it is
     // DOWNGRADED rather than refused — the message always sends. Passing a null

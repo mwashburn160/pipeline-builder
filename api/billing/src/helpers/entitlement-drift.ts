@@ -15,7 +15,9 @@
  * Billing's Subscription is the source of truth; this reads the ACTUAL enforced
  * state from every store the entitlement sync fans out to:
  *   - quota service  → the tracked quota LIMITS (`GET /quotas/:orgId`)
- *   - platform       → the `seats` LIMIT (`GET /organization/:orgId/seat-usage`)
+ *   - platform       → the `seats` LIMIT (`GET /organization/:orgId/seat-usage`),
+ *                       the two support-contact LIMITS
+ *                       (`GET /organization/:orgId/support-usage`)
  *                       and the account FEATURE entitlements
  *                       (`GET /organization/:orgId/feature-entitlements`)
  *   - compliance     → the active content sets (`GET /compliance/entitlements/:orgId`)
@@ -30,7 +32,7 @@
 import { clampRetentionDays, complianceSetsForFeatures, createLogger, errorMessage, VALID_QUOTA_TYPES } from '@pipeline-builder/api-core';
 import { incCounter } from '@pipeline-builder/api-server';
 import { billingServiceAuth, getBundleCatalog } from './billing-helpers.js';
-import { fetchQuotaSnapshot, fetchSeatUsage, getJson } from './downstream-client.js';
+import { fetchQuotaSnapshot, fetchSeatUsage, fetchSupportUsage, getJson } from './downstream-client.js';
 import {
   currentSubscriptionEntitlement,
   effectiveFeatureSet,
@@ -50,6 +52,9 @@ export interface ActualEntitlements {
   quotaLimits: Record<string, number>;
   /** The enforced seat limit (platform-owned). `-1` = unlimited. */
   seats: number;
+  /** The enforced support-contact caps (platform-owned, synced on the seat leg). `-1` = unlimited. */
+  supportContacts: number;
+  supportPremiumContacts: number;
   /** The enforced account feature entitlements (platform-owned), e.g.
    *  `advanced_reporting`. */
   features: string[];
@@ -68,7 +73,7 @@ export interface DriftResult {
   status: 'match' | 'drift';
   /** Human-readable per-field diffs, for the structured drift log. */
   drifted: string[];
-  /** Low-cardinality metric dimensions that drifted: a subset of `quota` | `seats` | `features`. */
+  /** Low-cardinality metric dimensions that drifted: a subset of `quota` | `seats` | `support` | `features`. */
   dimensions: string[];
 }
 
@@ -184,13 +189,20 @@ export function setsDiffer(expected: readonly string[], actual: readonly string[
  */
 export async function readActualEntitlements(orgId: string, authHeader: string): Promise<ActualEntitlements | null> {
   const auth = authHeader || billingServiceAuth(orgId);
-  const [quotaLimits, seats, features] = await Promise.all([
+  const [quotaLimits, seats, features, support] = await Promise.all([
     readEnforcedQuotaLimits(orgId, auth),
     readEnforcedSeatLimit(orgId, auth),
     readEnforcedFeatureEntitlements(orgId, auth),
+    fetchSupportUsage(orgId, auth),
   ]);
-  if (!quotaLimits || seats === null || features === null) return null;
-  return { quotaLimits, seats, features };
+  if (!quotaLimits || seats === null || features === null || !support) return null;
+  return {
+    quotaLimits,
+    seats,
+    features,
+    supportContacts: support.supportContacts.limit,
+    supportPremiumContacts: support.supportPremiumContacts.limit,
+  };
 }
 
 /**
@@ -220,6 +232,15 @@ export function computeEntitlementDrift(
   if (expectedLimits.seats !== actual.seats) {
     drifted.push(`seats=${actual.seats} (expected ${expectedLimits.seats})`);
     dimensions.add('seats');
+  }
+
+  // The support caps ride the same platform leg as seats, so a silent platform
+  // divergence there is re-driven by the same sync.
+  for (const field of ['supportContacts', 'supportPremiumContacts'] as const) {
+    if (expectedLimits[field] !== actual[field]) {
+      drifted.push(`${field}=${actual[field]} (expected ${expectedLimits[field]})`);
+      dimensions.add('support');
+    }
   }
 
   // Feature entitlements are an unordered SET — compare membership, not order.
@@ -264,11 +285,11 @@ export function computeEntitlementDrift(
  * FAIL-SOFT: a store read failure for one sub logs + skips that sub — an
  * unreachable store is NOT "drift". The pass never throws.
  *
- * COVERAGE: the tracked quota limits + seats + the account FEATURE entitlements
+ * COVERAGE: the tracked quota limits + seats + support-contact caps + the account FEATURE entitlements
  * (`featureEntitlements`, read from platform's feature-entitlements endpoint) +
  * the COMPLIANCE content sets (standard/advanced, read from the compliance
  * service) are all compared; a drift on any surfaces on its own metric dimension
- * (`quota` | `seats` | `features` | `compliance`). The compliance leg also drives
+ * (`quota` | `seats` | `support` | `features` | `compliance`). The compliance leg also drives
  * the Enterprise/Unlimited cutover, whose entitled sets have no billing event.
  */
 export async function reconcileEntitlementDrift(): Promise<void> {

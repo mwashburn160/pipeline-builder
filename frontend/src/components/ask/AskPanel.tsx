@@ -115,6 +115,10 @@ interface ChatMessage {
   /** Who answered (after org-key selection and any failover) and what it cost — from the `done` event. */
   servedBy?: AIServedByInfo;
   usage?: AIUsageInfo;
+  /** Tokens the turn's in-process tool generations spent (added to the footer's total). */
+  toolUsage?: AIUsageInfo;
+  /** `aiCalls` quota units the turn drew (0 when waived). */
+  slotsCharged?: number;
 }
 
 /**
@@ -284,8 +288,8 @@ export function AskPanel({ onClose }: { onClose: () => void }) {
           text += String(ev.data ?? '');
           patchLast({ content: text });
         } else if (ev.type === 'done') {
-          const done = (ev.data ?? {}) as { servedBy?: AIServedByInfo; usage?: AIUsageInfo };
-          patchLast({ servedBy: done.servedBy, usage: done.usage });
+          const done = (ev.data ?? {}) as { servedBy?: AIServedByInfo; usage?: AIUsageInfo; toolUsage?: AIUsageInfo; slotsCharged?: number };
+          patchLast({ servedBy: done.servedBy, usage: done.usage, toolUsage: done.toolUsage, slotsCharged: done.slotsCharged });
         } else if (ev.type === 'error') {
           // Carries the code/status/Retry-After, so it reads like an HTTP failure would.
           throw streamEventError(ev, 'The assistant failed to respond.');
@@ -476,7 +480,7 @@ export function AskPanel({ onClose }: { onClose: () => void }) {
                 {m.sources && m.sources.length > 0 && (
                   <AskSources sources={m.sources} onNavigate={onClose} />
                 )}
-                {m.role === 'assistant' && !m.pending && <AIServedBy servedBy={m.servedBy} usage={m.usage} className="mt-1" />}
+                {m.role === 'assistant' && !m.pending && <AIServedBy servedBy={m.servedBy} usage={m.usage} toolUsage={m.toolUsage} aiCalls={m.slotsCharged} className="mt-1" />}
                 {/* Whether the answer was any good — the one thing the turn
                     cannot tell us about itself, and the only signal for which
                     docs the assistant answers badly from. Shown once the answer

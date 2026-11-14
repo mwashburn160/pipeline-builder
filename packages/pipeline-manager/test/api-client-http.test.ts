@@ -9,16 +9,15 @@
  * and the shared list/get runners behind `pipeline list` / `plugin get`.
  */
 
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { readFileSync, rmSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import type { AnyFn } from '@pipeline-builder/api-core/testing';
+import { useTempHome } from './helpers/temp-home.js';
 
-const HOME = mkdtempSync(join(tmpdir(), 'pm-api-client-'));
-process.env.HOME = HOME;
+const HOME = useTempHome('pm-api-client-');
 process.env.CLI_CONFIG_PATH = join(HOME, 'missing-config.yml');
 
 const getSecretValue = jest.fn<AnyFn>();

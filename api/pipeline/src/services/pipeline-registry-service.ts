@@ -10,7 +10,7 @@ import {
   closePipelineExposures, drizzleListingSource, installModeFor, listingBlock, loadOrgInstallContext, reconcilePipelineExposures, runWithTenantContext, schema, withTenantTx,
   type ExposureStep, type ScanState,
 } from '@pipeline-builder/pipeline-data';
-import { and, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
 
 const logger = createLogger('pipeline-registry');
 
@@ -216,7 +216,9 @@ class PipelineRegistryService {
         .select()
         .from(schema.pipelineRegistry)
         .where(eq(schema.pipelineRegistry.orgId, orgId))
-        .orderBy(desc(schema.pipelineRegistry.lastDeployed))
+        // `id` breaks lastDeployed ties so offset paging is total: without it two
+        // rows deployed in the same instant could swap between pages.
+        .orderBy(desc(schema.pipelineRegistry.lastDeployed), asc(schema.pipelineRegistry.id))
         .limit(limit)
         .offset(offset);
 

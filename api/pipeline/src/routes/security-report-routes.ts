@@ -38,6 +38,12 @@ const UploadSchema = z.object({
   report: z.record(z.string(), z.unknown()),
 });
 
+/** The (tool, stage) slot a DELETE names — the same shape an upload writes. */
+const SlotSchema = z.object({
+  tool: UploadSchema.shape.tool,
+  stage: z.string().min(1).max(255).optional(),
+});
+
 /** The scope of the least-privilege key a scan step uploads with (pipeline-core `security-reports.ts`). */
 const UPLOAD_SCOPE: TokenScope = 'reporting:ingest';
 
@@ -72,7 +78,13 @@ tagRouteGate(requireReportUploader,
  *   is a 400 (an unreadable scan is unknown, never clean). Replaces the latest
  *   report for its (tool, stage), audited `pipeline.security_report.upload`.
  * - GET /:id/security-reports — `pipelines:read`. The latest report per
- *   (tool, stage) plus their summed counts.
+ *   (tool, stage) plus their summed counts and `latestAt`; every report carries
+ *   its own `createdAt`, so a slot that stopped being refreshed is visible.
+ * - DELETE /:id/security-reports?tool=<tool>[&stage=<stage>] — `pipelines:write`.
+ *   Removes ONE (tool, stage) slot: a scanner the pipeline dropped, or a stage
+ *   it renamed, whose last counts would otherwise feed the scorecard for as long
+ *   as the pipeline lives. Audited `pipeline.security_report.delete` (`details`:
+ *   the slot and the counts it carried). 404 when the slot holds no report.
  *
  * Self-guarded per route (mounted with the other self-guarded routers); apiCalls
  * is metered + checked by the '/pipelines' prefix mount in app-routes.ts.
@@ -144,6 +156,41 @@ export function createSecurityReportRoutes(): Router {
       const { counts, latestAt } = summarizeReports(reports);
       ctx.log('COMPLETED', 'Listed security reports', { id, reports: reports.length });
       return sendSuccess(res, 200, { pipelineId: id, reports, counts, latestAt: latestAt?.toISOString() ?? null });
+    }));
+
+  router.delete('/:id/security-reports',
+    ...createAuthenticatedWithOrgRoute(), requirePermission('pipelines:write'), audited('pipeline.security_report.delete'),
+    withRoute(async ({ req, res, ctx, orgId, userId }) => {
+      const id = getParam(req.params, 'id');
+      if (!id) return sendBadRequest(res, 'Pipeline id is required.', ErrorCode.MISSING_REQUIRED_FIELD);
+      const slot = SlotSchema.safeParse(req.query);
+      if (!slot.success) return sendBadRequest(res, slot.error.issues.map((i) => i.message).join('; '), ErrorCode.VALIDATION_ERROR);
+      const pipeline = await pipelineService.findById(id, orgId);
+      if (!pipeline) return sendEntityNotFound(res, 'Pipeline');
+
+      // Upload stores the tool lower-cased and an absent stage as ''.
+      const tool = slot.data.tool.toLowerCase();
+      const stage = slot.data.stage ?? '';
+      const removed = await securityReportStore().remove(orgId, id, tool, stage);
+      if (!removed) return sendEntityNotFound(res, 'Security report');
+      ctx.log('COMPLETED', 'Removed security report', { id, tool, stage });
+
+      recordAudit({
+        action: 'pipeline.security_report.delete',
+        actorId: actorId({ userId }),
+        orgId,
+        targetType: 'pipeline',
+        targetId: id,
+        details: {
+          reportId: removed.id,
+          tool,
+          stage,
+          counts: removed.counts,
+          reportCreatedAt: removed.createdAt.toISOString(),
+        },
+      });
+
+      return sendSuccess(res, 200, { pipelineId: id, tool, stage, removed: removed.id });
     }));
 
   return router;

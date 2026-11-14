@@ -3,7 +3,7 @@
 
 import { useMemo } from 'react';
 import Link from 'next/link';
-import { Archive, ArchiveRestore, Ban, Boxes, ShieldCheck, Star, Trash2 } from 'lucide-react';
+import { Archive, ArchiveRestore, Ban, Boxes, RotateCcw, ShieldCheck, Star, Trash2 } from 'lucide-react';
 import { AccessCell } from '@/components/ui/AccessCell';
 import { Badge } from '@/components/ui/Badge';
 import { Checkbox } from '@/components/ui/Checkbox';
@@ -61,7 +61,7 @@ interface PluginColumnOptions {
   onView: (plugin: PluginSummary) => void;
   onEdit: (plugin: PluginSummary) => void;
   onDelete: (plugin: PluginSummary) => void;
-  /** Deprecate / clear deprecation / yank a version (writable rows only). */
+  /** Deprecate / clear deprecation / yank / unyank a version (writable rows only). */
   onLifecycle: (plugin: PluginSummary, action: PluginLifecycleAction) => void;
 }
 
@@ -70,6 +70,7 @@ const LIFECYCLE_ACTION_UI: Record<PluginLifecycleAction, { label: string; Icon: 
   deprecate: { label: 'Deprecate version', Icon: Archive },
   undeprecate: { label: 'Clear deprecation', Icon: ArchiveRestore },
   yank: { label: 'Yank version', Icon: Ban },
+  unyank: { label: 'Unyank version', Icon: RotateCcw },
 };
 
 /** Columns of the plugins catalog table. */

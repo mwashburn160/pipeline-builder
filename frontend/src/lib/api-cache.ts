@@ -21,10 +21,11 @@
  */
 
 import api from './api';
+import { listAllOrgMembers, listAllPlugins } from './list-all';
 import { CACHE_TTL_MS } from './constants';
 import { invalidateQueries, type Query } from './query-cache';
 import type { SessionMeta } from './api/domains/auth';
-import type { Pipeline, Plugin, TotpStatus } from '@/types';
+import type { OrganizationMember, Pipeline, Plugin, TotpStatus } from '@/types';
 import type { CatalogEntry, ShadowingEntry } from '@/types/plugin-installs';
 import type { LookupWarning } from './plugin-vulns';
 
@@ -92,6 +93,15 @@ export const queries = {
     run: (signal) => api.getOrganizationMembers(orgId, params, { signal }),
   }),
 
+  /** The WHOLE roster matching `params`, drained (see
+   *  `listAllOrgMembers`) — for pickers, which must offer every
+   *  member, not the first page. Under the orgMembers prefix, so
+   *  `invalidate.orgMembers()` drops it along with the paged reads. */
+  allOrgMembers: (orgId: string, params?: { status?: 'active' | 'inactive' }): Query<OrganizationMember[]> => ({
+    key: `${PREFIX.orgMembers}${orgId}?all&${stable(params)}`,
+    run: (signal) => listAllOrgMembers(orgId, params, signal),
+  }),
+
   executionCount: (params?: ExecCountParams): Query<Awaited<ReturnType<typeof api.getExecutionCount>>> => ({
     key: `${PREFIX.executionCount}${stable(params as Record<string, unknown> | undefined)}`,
     run: (signal) => api.getExecutionCount(params, { signal }),
@@ -135,7 +145,8 @@ export const queries = {
    *  within a session, so it keeps the longer window. */
   activePlugins: (): Query<Plugin[]> => ({
     key: `${PREFIX.plugins}active`,
-    run: async (signal) => (await api.listPlugins({ limit: '500', isActive: 'true' }, { signal })).data?.plugins ?? [],
+    // Drained: the picker must offer every active plugin, not the first page.
+    run: (signal) => listAllPlugins({ isActive: 'true' }, signal),
     staleMs: CACHE_TTL_MS,
   }),
 

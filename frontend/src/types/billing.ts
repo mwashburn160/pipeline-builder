@@ -43,8 +43,26 @@ export interface Subscription {
    *  per-period usage credit). `null`/absent when none. One-time/credit discounts
    *  aren't stored here — they apply once and show up in Billing History. */
   recurringDiscount?: { discountId: string; value?: number; unit?: 'dollar' | 'percent'; kind?: string } | null;
+  /**
+   * Where the subscription stands in dunning — non-null only while `past_due`
+   * with a recorded first failure. Status alone cannot say WHEN access ends: it
+   * stays `past_due` after the grace-period downgrade too.
+   */
+  dunning: SubscriptionDunning | null;
   createdAt: string;
   updatedAt: string;
+}
+
+/** api/billing `SubscriptionDunning`. */
+export interface SubscriptionDunning {
+  /** First failed payment of this lapse (ISO). */
+  firstFailedAt: string;
+  /** When the grace period ends and the org drops to Developer (ISO). */
+  downgradeAt: string;
+  /** The downgrade already happened; paying the open invoice restores the plan. */
+  downgraded: boolean;
+  /** When it happened (ISO), present only once downgraded. */
+  downgradedAt?: string;
 }
 
 /** An operator-granted discount record (docs/billing-discounts.md). Price-only —

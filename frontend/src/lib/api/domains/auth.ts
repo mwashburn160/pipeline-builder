@@ -39,6 +39,15 @@ export interface SessionMeta {
 }
 
 /** Lifecycle of an issued credential — a machine token or an access key. */
+/** GET /user/account/deletion — which orgs go with the account and which block it. */
+export interface AccountDeletionPlan {
+  canDelete: boolean;
+  /** Owned orgs the caller is the ONLY member of — deleted with the account. */
+  orgsDeleted: Array<{ orgId: string; name: string }>;
+  /** Owned orgs that must be handed on (or emptied) first. */
+  blockedBy: Array<{ orgId: string; name: string; reason: 'other-members' | 'has-teams' | 'system-org'; otherMembers: number }>;
+}
+
 export type CredentialStatus = 'active' | 'expired' | 'revoked';
 
 /** One entry of `GET /user/tokens`: when a token was issued, when it lapses,
@@ -235,6 +244,39 @@ export function authApi(core: ApiCore) {
       });
     },
 
+    /** DELETE /auth/onboarding/join/:orgId — withdraw the caller's own PENDING
+     *  domain-join request (404 `NOT_FOUND` when there is none). */
+    withdrawDomainJoinRequest: async (orgId: string) => {
+      return core.request<ApiResponse<undefined>>(`/api/auth/onboarding/join/${encodeURIComponent(orgId)}`, { method: 'DELETE' });
+    },
+
+    /**
+     * POST /auth/password/reset-request (public) — email a single-use reset
+     * link. ALWAYS 200 with the same message whether or not an account exists,
+     * so it cannot enumerate accounts; 429 `RATE_LIMIT_EXCEEDED` past 3 per
+     * address / 20 per IP in 15 minutes.
+     */
+    requestPasswordReset: async (email: string) => {
+      return core.request<ApiResponse<undefined>>('/api/auth/password/reset-request', {
+        method: 'POST',
+        body: JSON.stringify({ email }),
+      });
+    },
+
+    /**
+     * POST /auth/password/reset (public) — set a new password with the emailed
+     * token. Ends every session and revokes the account's access keys
+     * (`accessKeysRevoked`). 400 `PASSWORD_RESET_TOKEN_INVALID` (bad / expired /
+     * used link), 400 `PASSWORD_UNCHANGED` / org-policy / breached-password
+     * codes (the link stays usable), 403 `SSO_REQUIRED`.
+     */
+    resetPassword: async (token: string, newPassword: string) => {
+      return core.request<ApiResponse<{ accessKeysRevoked: number }>>('/api/auth/password/reset', {
+        method: 'POST',
+        body: JSON.stringify({ token, newPassword }),
+      });
+    },
+
     /**
      * Sign out. When the session came from a SAML sign-in and the org's IdP has
      * a Single Logout URL, the platform returns a signed LogoutRequest redirect
@@ -345,8 +387,29 @@ export function authApi(core: ApiCore) {
       return core.request<ApiResponse<{ minLength: number; maxLength: number }>>('/api/user/password-policy', { signal: opts?.signal });
     },
 
+    /** GET /user/account/deletion — what deleting the account would do: the
+     *  orgs deleted with it (the caller is their only member) and the orgs that
+     *  block it. Read before the step-up so the dialog can say which applies. */
+    getAccountDeletionPlan: async (opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<AccountDeletionPlan>>('/api/user/account/deletion', { signal: opts?.signal });
+    },
+
+    /** GET /user/export — the caller's own data as one JSON document (step-up
+     *  gated: a bulk read of personal data). Resolves with the raw JSON text. */
+    exportOwnData: async (stepUpToken?: string): Promise<string> => {
+      return core.requestText('/api/user/export', {
+        headers: core.stepUpHeader(stepUpToken),
+        timeoutMs: null,
+        errorMessage: 'Failed to export your data',
+      });
+    },
+
+    /** DELETE /user/account. An org the caller is the ONLY member of is deleted
+     *  with it (`orgsDeleted`); 400 `USER_OWNER_HAS_ORGS` when an owned org still
+     *  has other members or teams; 502 when an org's recovery snapshot failed
+     *  (nothing was deleted). */
     deleteAccount: async (stepUpToken?: string) => {
-      const response = await core.request<ApiResponse<{ message: string }>>('/api/user/account', {
+      const response = await core.request<ApiResponse<{ orgsDeleted: Array<{ orgId: string; name: string; purgeAfter: string }> }>>('/api/user/account', {
         method: 'DELETE',
         headers: core.stepUpHeader(stepUpToken),
       });

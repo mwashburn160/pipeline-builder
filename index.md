@@ -42,7 +42,7 @@ It is multi-tenant from the ground up, which is what makes running many factorie
 
 ## At a Glance
 
-| 119 | 5 | 14 | 18 | 4 | 4 |
+| 118 | 5 | 14 | 18 | 4 | 4 |
 |:---:|:-:|:--:|:--:|:-:|:-:|
 | **Official plugins** in 10 categories | **interfaces** to build pipelines | **AI models** across 5 providers | **compliance operators** | **plugin trust tiers** | **deploy targets**, from laptop to EKS |
 
@@ -120,7 +120,7 @@ flowchart LR
 
 **Discover**
 - **Public directory**: `/plugins` has full-text search, facets, category pages, and a page per plugin with README, versions, SBOM, advisories, reviews, and health. Anyone can browse it without signing in, and sign-in is always one click away.
-- **119 Official plugins** in 10 categories (table below), maintained under the `pipeline-builder` publisher and available to every org by default.
+- **118 Official plugins** in 10 categories (table below), maintained under the `pipeline-builder` publisher and available to every org by default.
 
 **Trust tiers and governance**
 - **Four tiers**: **Official**, **Verified** (Team+ publishers with a verified domain and MFA), **Community** (any signed-in org), and **Unverified** (anonymous submissions).
@@ -361,7 +361,7 @@ The full docs hub is **[docs/]({{ '/docs/' | relative_url }})**, grouped by task
 | [CDK Usage]({{ '/docs/cdk-usage.html' | relative_url }}) | `PipelineBuilder` construct: sources, stages, VPC, IAM, secrets |
 | [Template Syntax]({{ '/docs/templates.html' | relative_url }}) | {% raw %}`{{ .. }}`{% endraw %} synth-time interpolation and golden-path templates |
 | [Metadata Keys]({{ '/docs/metadata-keys.html' | relative_url }}) | Typed CodePipeline, CodeBuild, networking, and IAM configuration keys |
-| [Plugin Catalog]({{ '/docs/plugins/' | relative_url }}) | 119 Official plugins across 10 categories |
+| [Plugin Catalog]({{ '/docs/plugins/' | relative_url }}) | 118 Official plugins across 10 categories |
 | [Installing Plugins]({{ '/docs/plugin-installing.html' | relative_url }}) | Trust tiers, installs, version policies, consumption policy, reviews |
 | [Publishing Plugins]({{ '/docs/plugin-publishing.html' | relative_url }}) | Publisher profiles, publish requests, catalog metadata, pausing |
 | [Developer Portal]({{ '/docs/developer-portal.html' | relative_url }}) | Catalog ownership, My Services, golden-path templates, maturity scorecards |

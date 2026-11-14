@@ -224,6 +224,24 @@ export const getOrganizationSeatUsage = withController('Get organization seat us
 });
 
 /**
+ * GET /organization/:id/support-usage — internal: the account's (root)
+ * support-contact caps and pooled ACTIVE designations, as
+ * `{ supportContacts: { limit, used }, supportPremiumContacts: { limit, used } }`
+ * (`-1` limit = unlimited). Billing's support over-cap gate reads `used`, its
+ * entitlement-drift reconciler `limit`. Same gate as seat-usage: a service
+ * principal, or an admin reading their OWN account.
+ */
+export const getOrganizationSupportUsage = withController('Get organization support usage', async (req, res) => {
+  if (!ensureAuthenticated(req, res)) return;
+  const id = getParam(req.params, 'id')!;
+  if (!isServicePrincipal(req) && !(await canAdministerOrg(req, id))) {
+    return forbid(req, res, 'internal-service or org-admin', 'Forbidden: service or organization-admin only');
+  }
+  const { pooledSupportUsage } = await import('../helpers/support-entitlement.js');
+  sendSuccess(res, 200, await pooledSupportUsage(id));
+});
+
+/**
  * GET /organization/:id/feature-entitlements — internal: the account's (root)
  * purchased feature entitlements (`sso`, `audit_log`, …). Used by billing's
  * entitlement-drift reconciler to compare enforced vs. expected features — the

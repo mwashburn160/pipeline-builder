@@ -9,8 +9,8 @@
  * unscoped `findById` is wired to throw so a regression to it fails loudly.
  */
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 import {
@@ -1433,6 +1433,23 @@ describe('POST /messages/support — the incident door', () => {
     await send();
     expect(mockOpenCase).toHaveBeenCalledWith(expect.objectContaining({
       level: 'support_incident',
+      responseDueAt: null,
+    }));
+  });
+
+  it('files at support_incident even when the ACCOUNT holds a baseline (a team with no contact of its own)', async () => {
+    // The account bought support_business, but this team designated nobody, so
+    // the case came through the incident door. Borrowing the account's level
+    // would attach Business's response target to a case nobody bought one for.
+    mockFetchEntitlement.mockResolvedValue({
+      level: 'support_business', premium: false, limit: 3, used: 3, ownOrgContacts: 0, canDesignate: false, canOpenCase: false,
+    } as never);
+    mockConsumeIncident.mockResolvedValue(true);
+    mockOpenCase.mockResolvedValue({ id: 'case-1', displayNumber: 1 } as never);
+    await send();
+    expect(mockOpenCase).toHaveBeenCalledWith(expect.objectContaining({
+      level: 'support_incident',
+      openedWithIncident: true,
       responseDueAt: null,
     }));
   });

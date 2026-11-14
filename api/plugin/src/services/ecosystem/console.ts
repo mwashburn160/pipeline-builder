@@ -589,17 +589,34 @@ export async function updateRule(moderator: Caller, id: string, body: Record<str
   return ruleViewOf(updated);
 }
 
-/** POST /ecosystem/rules/:id/approve-change — the second manager applies a pending enable/widening. */
-export async function approveRuleChange(moderator: Caller, id: string) {
+/**
+ * POST /ecosystem/rules/:id/approve-change — the second manager applies a
+ * pending enable/widening.
+ *
+ * `requestedAt` is the pending change the approver REVIEWED (from the rule
+ * view). The proposer can replace a pending change at any time, and applying
+ * whatever is stored now let them swap in a wider rule after the second
+ * manager had read the first one. A mismatch — at the read, or at the
+ * conditional write — is 409 CONFLICT: re-read the rule and review again.
+ */
+export async function approveRuleChange(moderator: Caller, id: string, requestedAt: unknown) {
+  if (typeof requestedAt !== 'string' || requestedAt === '') {
+    throw new EcosystemError(ErrorCode.VALIDATION_ERROR, 'requestedAt (the pending change you reviewed) is required.');
+  }
   const rule = await ruleOr404(id);
   const change = rule.pendingChange;
   if (!change) throw new EcosystemError(ErrorCode.CONFLICT, 'The rule has no pending change.');
   if (change.requestedBy === moderator.userId) {
     throw new EcosystemError(ErrorCode.SEPARATION_OF_DUTIES, 'A different manager must approve a change you proposed.');
   }
-  const updated = (await rules.update(rule.id, {
+  const stale = (): EcosystemError => new EcosystemError(ErrorCode.CONFLICT,
+    'The pending change was replaced after you reviewed it. Reload the rule and review the current proposal.',
+    { reviewedRequestedAt: requestedAt, currentRequestedAt: change.requestedAt });
+  if (change.requestedAt !== requestedAt) throw stale();
+  const updated = await rules.updateIfPendingFrom(rule.id, requestedAt, {
     name: change.name, enabled: change.enabled, conditions: change.conditions, approvedBy: moderator.userId, pendingChange: null,
-  }))!;
+  });
+  if (!updated) throw stale();
   ecosystemAudit({ action: 'ecosystem.auto-approval-rule.update', actor: actor(moderator), targetType: 'auto-approval-rule', targetId: rule.id, details: { secondApproval: true, proposedBy: change.requestedBy, enabled: change.enabled } });
   return ruleViewOf(updated);
 }

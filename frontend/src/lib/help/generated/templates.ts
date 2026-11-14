@@ -17,10 +17,6 @@ export const templatesTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "<!-- Copyright 2026 Pipeline Builder Contributors SPDX-License-Identifier: Apache-2.0 -->"
-        },
-        {
-          "type": "text",
           "content": "A minimal {{ path.to.value }} syntax in both pipeline configs (pipeline.json) and plugin specs (plugin-spec.yaml)."
         }
       ]

@@ -35,11 +35,11 @@ import { requireAskAccess } from '../authz.js';
 import { AskBodySchema } from '../request-schema.js';
 import { askQuotaDetail, errorSaysProviderContacted, servedByOf, type AskQuotaDetail } from './ask.js';
 import { buildAgentTools } from '../services/agent-tools.js';
-import { recordAi, recordAiTokens } from '../services/ai-metrics.js';
+import { addTokens, NO_TOKENS, recordAi, recordAiTokens, type TurnTokens } from '../services/ai-metrics.js';
 import { getDocsIndex } from '../services/docs-index.js';
 import { complianceClient, pipelineClient, platformClient, pluginClient, quotaClient, readInstanceEmailStatus, reportingClient } from '../services/internal-http.js';
 import { sendAskFailure } from '../services/model-window.js';
-import { ASK_MAX_OUTPUT_TOKENS, ASK_TEMPERATURE } from '../services/model.js';
+import { ASK_MAX_OUTPUT_TOKENS, ASK_MAX_TURN_GENERATIONS, ASK_TEMPERATURE } from '../services/model.js';
 
 const logger = createLogger('ask-agent');
 
@@ -123,13 +123,19 @@ const AGENT_SYSTEM = [
  * draws exactly one beyond the turn. `propose_template` generates in-process
  * and settles its own slot per invocation (see `chargeAiCall`): kept once its
  * provider responded, refunded otherwise, its tokens on this turn's audit row.
- * Every model call is capped at ASK_MAX_OUTPUT_TOKENS.
+ * Every model call is capped at ASK_MAX_OUTPUT_TOKENS, and one turn may START at
+ * most ASK_MAX_TURN_GENERATIONS charged generations (`generations`): the step
+ * bound alone does not cap them, because one step can call several tools.
  *
  * SSE events:
  *   { type: 'token', data: string }             — assistant text delta
  *   { type: 'tool-call', data: { toolName } }    — a tool started (UI can show a spinner)
  *   { type: 'proposal', data: {...} }            — a reviewable draft (propose_* tools)
- *   { type: 'done' } then [DONE]
+ *   { type: 'done', data: { servedBy?, usage, toolUsage, slotsCharged } } then [DONE]
+ *     `usage` is the agent's own tokens, `toolUsage` the in-process tool
+ *     generations', and `slotsCharged` the aiCalls units this turn drew as far
+ *     as ask can see (its own slot, kept tool slots, and one turn-weight per
+ *     delegated generation that answered).
  *
  * @param quotaService - Shared quota service
  * @returns Express Router with the agent endpoint
@@ -172,7 +178,16 @@ export function createAgentRoutes(quotaService: QuotaService): Router {
     const startedAt = Date.now();
     let served: ResolvedModelSelection | undefined;
     let usage: LanguageModelUsage | undefined;
+    // Summed from each step's `finish-step` as the turn runs. The stream's own
+    // `finish` total arrives only when the WHOLE turn completes, so an aborted or
+    // failed multi-step turn — the costliest case — would otherwise record zero.
+    let stepTokens: TurnTokens = NO_TOKENS;
+    const turnTokens = (): TurnTokens => (usage ? tokenUsage(usage) : stepTokens);
     let aiSlot: AiCallSlot | undefined;
+    // The turn's generation budget (Q3) and what it drew, for the `done` event.
+    let generationsClaimed = 0;
+    let delegatedGenerations = 0;
+    let toolSlotsKept = 0;
     // In-process tool generations (propose_template): each settles its own slot,
     // and its tokens belong on this turn's audit row too.
     const toolGenerations: { tool: string; slot: AskQuotaDetail['slot']; tokens: AITokenUsage }[] = [];
@@ -189,7 +204,7 @@ export function createAgentRoutes(quotaService: QuotaService): Router {
           quota: askQuotaDetail(aiSlot, slotKept),
           // The shared AI usage block: who answered, whose key paid, tokens, prompt
           // version. Absent when the turn failed before a provider was chosen.
-          ...(served ? { ai: aiUsageAuditDetails(served, { usage, quotaSlot: slotKept ? 'kept' : 'refunded', promptVersion: AGENT_PROMPT_VERSION }) } : {}),
+          ...(served ? { ai: aiUsageAuditDetails(served, { usage: turnTokens(), quotaSlot: slotKept ? 'kept' : 'refunded', promptVersion: AGENT_PROMPT_VERSION }) } : {}),
           toolsCalled: Array.from(new Set(toolsCalled)),
           proposals: proposalKinds,
           ...(toolGenerations.length ? { toolGenerations } : {}),
@@ -224,26 +239,29 @@ export function createAgentRoutes(quotaService: QuotaService): Router {
       const onBehalf = req.user?.sub && req.user.organizationId
         ? { sub: req.user.sub, organizationId: req.user.organizationId }
         : undefined;
+      // The client-disconnect signal: in-process generations AND every forwarded
+      // call stop with the turn, so closing the panel cancels a delegated
+      // generation instead of leaving it to run (and keep its slot) unseen.
+      const turnSignal = clientAbortSignal(res);
       const tools = buildAgentTools({
         // Advisory only — see `withAppliability`. Read from the VERIFIED token,
         // never from anything the model can reach, and `isSuperAdmin` counts
         // because a superadmin holds every permission implicitly.
         holdsPermission: (permission) => hasPermission(req.user?.permissions, permission, req.user?.isSuperAdmin),
         index,
-        pipeline: pipelineClient(userAuth, onBehalf),
-        plugin: pluginClient(userAuth, onBehalf),
-        platform: platformClient(userAuth, onBehalf),
-        compliance: complianceClient(userAuth, onBehalf),
-        reporting: reportingClient(userAuth, onBehalf),
-        quota: quotaClient(userAuth, onBehalf),
+        pipeline: pipelineClient(userAuth, onBehalf, turnSignal),
+        plugin: pluginClient(userAuth, onBehalf, turnSignal),
+        platform: platformClient(userAuth, onBehalf, turnSignal),
+        compliance: complianceClient(userAuth, onBehalf, turnSignal),
+        reporting: reportingClient(userAuth, onBehalf, turnSignal),
+        quota: quotaClient(userAuth, onBehalf, turnSignal),
         // The ONE read that does not ride the caller's token: platform's
         // internal email-status route answers with a single instance-wide
         // boolean, so ask's own service identity asks for it (see
         // readInstanceEmailStatus).
         emailStatus: readInstanceEmailStatus,
         selection,
-        // The client-disconnect signal — in-process generations stop with the turn.
-        abortSignal: clientAbortSignal(res),
+        abortSignal: turnSignal,
         // Delegated generators get the RESOLVED provider/model (they require both),
         // plus the caller's own key out-of-band — never in the model's context.
         defaults: { provider: selection.provider, model: selection.modelId, apiKey, repoToken },
@@ -262,7 +280,11 @@ export function createAgentRoutes(quotaService: QuotaService): Router {
           let contacted = false;
           let settled = false;
           return {
-            markConsumed: () => { contacted = true; toolSlot.markConsumed(); },
+            markConsumed: () => {
+              if (!contacted) toolSlotsKept += toolSlot.amount;
+              contacted = true;
+              toolSlot.markConsumed();
+            },
             settle: (toolUsage) => {
               if (settled) return;
               settled = true;
@@ -274,6 +296,18 @@ export function createAgentRoutes(quotaService: QuotaService): Router {
               recordAiTokens(`agent-tool:${toolName}`, { provider: selection.provider, keySource: selection.keySource, tier: req.user?.tier }, tokens);
             },
           };
+        },
+        generations: {
+          claim: (toolName) => {
+            if (generationsClaimed >= ASK_MAX_TURN_GENERATIONS) {
+              incCounter('ask_turn_generation_budget_refused_total', { tool: toolName });
+              ctx.log('WARN', 'Ask agent turn hit its generation budget', { tool: toolName, limit: ASK_MAX_TURN_GENERATIONS });
+              return false;
+            }
+            generationsClaimed++;
+            return true;
+          },
+          delegated: () => { delegatedGenerations++; },
         },
         maxOutputTokens: ASK_MAX_OUTPUT_TOKENS,
         // Design rule 10: a proposal naming a field outside the tool's
@@ -309,13 +343,15 @@ export function createAgentRoutes(quotaService: QuotaService): Router {
             messages: [...(history ?? []), { role: 'user', content: query }],
             tools,
             stopWhen: stepCountIs(6),
-            // Per-step output cap: with the 6-step bound this caps what one turn's
-            // single aiCalls slot can cost.
+            // Per-step output cap: with the 6-step bound this caps what the
+            // turn's OWN aiCalls slot can cost. The generating tools draw their
+            // own slots on top, capped separately by `generations` above.
             ...aiCallSettings({ selection: sel, signal: abortSignal, maxOutputTokens: ASK_MAX_OUTPUT_TOKENS, temperature: ASK_TEMPERATURE }),
           });
 
           for await (const part of stream.fullStream) {
             if (part.type === 'start-step') { providerContacted = true; slot.markConsumed(); }
+            if (part.type === 'finish-step') stepTokens = addTokens(stepTokens, tokenUsage(part.usage));
             if (part.type === 'finish') usage = part.totalUsage;
             if (abortSignal.aborted) break;
             switch (part.type) {
@@ -354,7 +390,17 @@ export function createAgentRoutes(quotaService: QuotaService): Router {
 
       if (!abortSignal.aborted) {
         // Who answered and what the turn cost, for the panel's footer — never key material.
-        sse.done({ type: 'done', data: { ...(served ? { servedBy: servedByOf(served) } : {}), usage: tokenUsage(usage) } });
+        const toolUsage = toolGenerations.reduce<TurnTokens>((sum, g) => addTokens(sum, g.tokens), NO_TOKENS);
+        const turnWeight = slot.waived ? 0 : slot.amount;
+        sse.done({
+          type: 'done',
+          data: {
+            ...(served ? { servedBy: servedByOf(served) } : {}),
+            usage: turnTokens(),
+            toolUsage,
+            slotsCharged: turnWeight + toolSlotsKept + delegatedGenerations * turnWeight,
+          },
+        });
         recordAi('agent', { provider: served?.provider, model: served?.modelId }, 'success', startedAt);
         auditTurn('success', true);
       } else {
@@ -364,13 +410,16 @@ export function createAgentRoutes(quotaService: QuotaService): Router {
         recordAi('agent', { provider: served?.provider, model: served?.modelId }, 'aborted', startedAt);
         auditTurn('failure', providerContacted); // client aborted mid-turn
       }
-      // Token accounting from the stream's own 'finish' part (total across steps).
-      recordAiTokens('agent', { provider: served?.provider, keySource: served?.keySource, tier: req.user?.tier }, tokenUsage(usage));
-      slot.reportUsage(tokenUsage(usage));
+      // Token accounting: the stream's own 'finish' total, or — on an abort —
+      // the sum of the steps that completed.
+      recordAiTokens('agent', { provider: served?.provider, keySource: served?.keySource, tier: req.user?.tier }, turnTokens());
+      slot.reportUsage(turnTokens());
       res.end();
     }, (error) => {
       logger.error('Ask agent turn failed', { requestId: ctx.requestId, error: errorMessage(error) });
-      aiSlot?.reportUsage(tokenUsage(usage));
+      // A failed turn still paid for the steps that completed before it failed.
+      recordAiTokens('agent', { provider: served?.provider, keySource: served?.keySource, tier: req.user?.tier }, turnTokens());
+      aiSlot?.reportUsage(turnTokens());
       recordAi('agent', { provider: served?.provider, model: served?.modelId }, 'error', startedAt);
       auditTurn('failure', providerContacted || errorSaysProviderContacted(error));
       sendAskFailure(res, error, 'The assistant failed to respond', served?.provider);

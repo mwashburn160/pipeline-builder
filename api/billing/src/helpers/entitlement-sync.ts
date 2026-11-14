@@ -15,7 +15,7 @@ import { incCounter } from '@pipeline-builder/api-server';
 import { effectiveEntitlements } from '../config/entitlements.js';
 import { config } from '../config.js';
 import { billingServiceAuth, createBillingEvent, getBundleCatalog } from './billing-helpers.js';
-import { fetchQuotaTypeUsage, fetchSeatUsage, putJson, type ServiceTarget } from './downstream-client.js';
+import { fetchQuotaTypeUsage, fetchSeatUsage, fetchSupportUsage, putJson, type ServiceTarget } from './downstream-client.js';
 import { MANAGEABLE_SUBSCRIPTION_STATUSES, isGraceDowngraded } from './subscription-status.js';
 import { Plan } from '../models/plan.js';
 import { Subscription } from '../models/subscription.js';
@@ -286,7 +286,7 @@ export interface Overage {
 
 /**
  * Whether applying `newAddons` would drop a cap below current pooled usage
- * (docs/billing-bundles.md). Guards seats (platform) and
+ * (docs/billing-bundles.md). Guards seats and support contacts (platform) and
  * plugins/pipelines/listings/storageBytes (quota) — none of these can
  * auto-shrink (`listings` is raised by the `listing_pack` add-on, so removing
  * packs below the org's active listing count is refused).
@@ -333,6 +333,24 @@ export async function checkEntitlementOvercap(
     const used = await fetchQuotaTypeUsage(orgId, field, auth);
     if (used !== null && used > limits[field]) {
       overages.push({ quotaType: field, currentUsage: used, targetCap: limits[field], overage: used - limits[field] });
+    }
+  }
+  // Support contacts are a STOCK like seats: a designated contact keeps opening
+  // cases until someone removes it, and platform checks the cap only when a
+  // contact is DESIGNATED. Without this guard, dropping `support_standard` from
+  // 5 to 2 left all 5 contacts working on a 2-contact bill (and the same for the
+  // premium upgrade). Platform owns the designations, so the pooled `used` is read
+  // from it; the remedy is "remove contacts first", like seats.
+  if (limits.supportContacts !== -1 || limits.supportPremiumContacts !== -1) {
+    const support = await fetchSupportUsage(orgId, auth);
+    if (support) {
+      for (const field of ['supportContacts', 'supportPremiumContacts'] as const) {
+        const cap = limits[field];
+        const used = support[field].used;
+        if (cap !== -1 && used > cap) {
+          overages.push({ quotaType: field, currentUsage: used, targetCap: cap, overage: used - cap });
+        }
+      }
     }
   }
   return overages;

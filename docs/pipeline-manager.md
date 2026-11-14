@@ -258,14 +258,17 @@ pipeline-manager auth login --url https://platform.example.com
 # PLATFORM_TOKEN takes precedence over the stored session everywhere in the CLI.
 export PLATFORM_TOKEN=$(pipeline-manager auth login --token)
 
-# Bootstrap a new pipeline project in the current directory
-pipeline-manager infra bootstrap
+# One-time per AWS account/region: deploy the CDK toolkit stack pipelines deploy into
+pipeline-manager infra bootstrap --account 123456789012 --region us-east-1
+
+# Register a pipeline definition (props.json from `template instantiate`, or your own)
+pipeline-manager pipeline create -f props.json
 
 # Synthesize the CDK app into a CloudFormation template
-pipeline-manager pipeline synth
+pipeline-manager pipeline synth --id <pipelineId>
 
 # Deploy the pipeline to AWS (also registers it with the platform)
-pipeline-manager pipeline deploy
+pipeline-manager pipeline deploy --id <pipelineId>
 ```
 
 ---
@@ -325,12 +328,14 @@ Run `pipeline-manager <command> --help` for the full flag reference on any comma
 
 | Command | Purpose |
 | --- | --- |
-| `infra bootstrap` | Scaffold a new pipeline project with `cdk.json` and starter config |
+| `infra bootstrap` | Deploy the AWS CDK toolkit stack in the target account/region (`--account`, `--region`, `--qualifier`, `--trust` for cross-account deploys, `--cloudformation-execution-policies`) — needed once per account/region before the first `pipeline deploy` there. It scaffolds nothing: a pipeline definition comes from `template instantiate` + `pipeline create` |
 | `pipeline synth` | Run CDK synth to emit the CloudFormation template for the pipeline |
 | `pipeline deploy` | Deploy the synthesized pipeline stack to AWS (also registers the pipeline with the platform by its `pipelineId`). `--local-spec <pipeline.json>` deploys a local spec without contacting the platform; it **requires `--toolchain-file <path>`** (see below) and refuses with `BOOTSTRAP_IMAGE_UNRESOLVED` without one |
 | `toolchain export` | Write the pipeline toolchain release as JSON: the release your organization resolves to now (its own default, a canary, or the platform default), or `--release <V>`. It holds both halves' (`pipeline-bootstrap`, `cdk-synth`) image repositories and signed digests, the release version and its tool versions, and the platform it came from. `--output <file>` (default stdout). Read-only. The input to `pipeline deploy --local-spec --toolchain-file` |
 | `pipeline register` | Re-register a deployed pipeline and drain pending intents queued by prior failed deploys (recovery path; exits non-zero if any registration still fails) |
-| `status` | Report the current deployment and execution status |
+| `pipeline deregister` | Remove one `pipeline_registry` row by its registry id (`--id`, `--yes` required). The fix `audit stacks` prints for a missing-stack finding (a row whose stack was deleted out of band) |
+| `pipeline delete` | Delete a pipeline definition (`--id`, `--yes` required). It does not touch AWS — a deployed stack keeps running and shows up in `audit stacks` as orphaned until destroyed |
+| `status` | Show the CLI's setup — not a deployment: the platform it talks to, the credential it would use and when it expires, whether the platform **accepts** it (`GET /api/user/profile`, with who and which org), CDK availability and `/health` reachability |
 
 ### Resource management
 
@@ -355,6 +360,7 @@ Run `pipeline-manager <command> --help` for the full flag reference on any comma
 | Command | Purpose |
 | --- | --- |
 | `auth login` | Sign in through your **browser** using the OAuth 2.0 device authorization grant (RFC 8628): the CLI prints a short code, you approve it in the browser (where SSO and step-up already apply), and the session is stored in `~/.pipeline-manager/credentials.json`. `--org <orgId>` switches organization afterwards; `--no-browser` prints the URL instead of opening it. `--token` prints the access token and nothing else, for `export PLATFORM_TOKEN=$(pipeline-manager auth login --token)` — everything else, including the approval code, goes to stderr so the capture stays clean. There is **no password flag and no way to pass a refresh token** |
+| `auth logout` | Sign this device out: revoke the stored session on the platform (`POST /api/auth/logout`, renewing an expired access token first) and delete it from `~/.pipeline-manager/credentials.json`. The local copy is always removed; when the platform can't be reached the command says so, and the device is then revoked from **Settings → Sessions and devices**. `PLATFORM_TOKEN` and access keys are untouched |
 | `auth pat` | Create a named access key (`pb_pat_…`) for CI. Uses the same browser sign-in, and the approval doubles as the step-up the platform requires to create a key — so no password is typed here either. The key is printed **once** |
 | `infra store-token` | Provision the org's machine identity — a **service account** plus one `pb_sa_…` key — and store the key in AWS Secrets Manager (read by CodeBuild's registry credentials, the plugin-lookup Lambda, the events Lambda and `--store-tokens`). Add `--schedule` to also deploy a daily **key-rotation** stack (rotate → store → revoke) so the key never lapses. Re-run per scope (`--scope reporting:ingest`, `--scope registry:push`) — each is its own least-privilege account. Needs `PLATFORM_PASSWORD`: both writes are step-up gated |
 | `infra setup-events` | Deploy the EventBridge → SQS → Lambda stack that streams CodePipeline events into the platform's reporting service. Add **`--with-dora`** to also resolve source commit timestamps in-account for **measured** commit→deploy lead time — off by default (**why:** it adds an SCM call + a `github-token`-secret read per deploy event, so only worthwhile for orgs on the `advanced_reporting` add-on; the other DORA metrics work without it and lead time simply reports `unknown`). Re-run to toggle. |
@@ -394,7 +400,7 @@ These commands report drift and **exit non-zero when findings exist** — design
 
 | Command | Purpose | Exit codes |
 | --- | --- | --- |
-| `audit stacks` | Diff CloudFormation stacks tagged `pipeline-builder` against the platform's `pipeline_registry`. Surfaces orphaned stacks (no DB row) and missing stacks (DB row, no live stack). See [drift detection](aws-deployment.md#drift-detection-audit-stacks). | `0` clean / `1` findings / `2` AWS error |
+| `audit stacks` | Diff the CloudFormation stacks tagged `pipeline-builder` in ONE region (`--region`) against your org's `pipeline_registry` rows for that region — every page of them. Surfaces orphaned stacks (no row) and missing stacks (a row, no live stack), each with the command that fixes it (`pipeline deregister`, `pipeline register` or `aws cloudformation delete-stack`); stacks tagged with another `OrgId` are skipped. `--org <id>` audits another org — honoured only for a credential the platform lets list it (a system admin); otherwise the command fails rather than diff the wrong org. `--max-pages` raises the DescribeStacks safety cap. See [drift detection](aws-deployment.md#drift-detection-audit-stacks). | `0` clean / `1` findings or an incomplete scan / `2` AWS or platform error |
 | `audit tokens` | Scan platform tokens in AWS Secrets Manager and flag any expiring within `--warn-days` (default 7). Run before tokens lapse to avoid silent reporting outages. | `0` clean / `1` at-risk / `2` AWS error |
 
 ### Misc
@@ -429,35 +435,37 @@ command-specific fallback for anything unclassifiable.
 | `10` | TIMEOUT | Timed out — HTTP `408`/`504`, or `ETIMEDOUT`. |
 
 Codes are defined in `src/types/error.ts`; the derivation lives in `src/utils/error-handler.ts`
-(`resolveExitCode`). The operator-audit commands additionally use exit `1` to signal
-"findings present" (see [Operator audits](#operator-audits-cron-friendly)).
+(`resolveExitCode`). The operator-audit commands keep their own contract instead: exit `1`
+means "findings present" and exit `2` any AWS or platform failure, whatever its type
+(see [Operator audits](#operator-audits-cron-friendly)).
 
 ---
 
 ## Configuration precedence
 
-The CLI resolves its settings from three layers, lowest to highest precedence:
+The CLI resolves its settings from these layers, lowest to highest precedence:
 
 1. **Built-in defaults**
 2. **User config file** — `~/.pipeline-manager/config.yml`
 3. **Project config file** — `CLI_CONFIG_PATH`, else `./config.yml`
+4. **The platform `auth login` signed in to** (base URL only) — so `auth login --url X` is followed by commands that talk to X, where its session is stored. `auth login`, `auth logout` and `auth pat` default `--url` to the resolved base URL too.
 
-Environment variables override the resolved config.
+Environment variables (`PLATFORM_BASE_URL`, …) override the resolved config.
 
 **How commands authenticate**, in priority order:
 
 1. `PLATFORM_TOKEN` — always wins. This is what CI sets, to an access key from `auth pat`.
-2. The session `auth login` stored for **this platform's base URL**, in `~/.pipeline-manager/credentials.json` (owner-only, `0600`). It carries the access token and its refresh token, so the CLI renews the session itself and you sign in roughly as often as the refresh token's 30-day life requires.
+2. The session `auth login` stored for **this platform's base URL**, in `~/.pipeline-manager/credentials.json` (owner-only, `0600`). It carries the access token and its refresh token, so the CLI renews the session itself and you sign in roughly as often as the refresh token's 30-day life requires. A renewal the platform **rejects** (400/401) forgets the session; an unreachable platform or a 5xx keeps it and reports the error, so a network blip never forces a new browser sign-in.
 3. `--store-tokens` with `PLATFORM_SECRET_NAME` — the service-account key in AWS Secrets Manager (`infra store-token`). A command given `--store-tokens` never falls back to your personal session.
 
-Sign a stored session out from the dashboard (**Settings → Sessions and devices**) — it appears there as a signed-in device like any other.
+Sign a stored session out with `pipeline-manager auth logout`, or from the dashboard (**Settings → Sessions and devices**) — it appears there as a signed-in device like any other.
 
 ### Environment variables
 
 | Variable | Required | Purpose |
 | --- | --- | --- |
 | `PLATFORM_TOKEN` | No | Access key or token for the platform. Overrides the stored `auth login` session — set it in CI, leave it unset on a workstation |
-| `PLATFORM_BASE_URL` | Yes (for API ops) | Base URL of your platform deployment |
+| `PLATFORM_BASE_URL` | No | Base URL of your platform. Overrides the platform `auth login` signed in to and the config files |
 | `AWS_REGION` | Yes (for deploy) | Target AWS region for `pipeline synth` / `pipeline deploy` / `infra provision` teardown |
 | `CLI_CONFIG_PATH` | No | Override the project config file path (default `./config.yml`) |
 | `UPLOAD_TIMEOUT` | No | Override the plugin-upload request timeout (ms) |
@@ -485,9 +493,10 @@ pipeline-manager infra provision --target eks --repo \
 
 ```bash
 pipeline-manager auth login --url https://platform.example.com
-pipeline-manager infra bootstrap
-pipeline-manager pipeline synth
-pipeline-manager pipeline deploy
+pipeline-manager infra bootstrap --account 123456789012 --region us-east-1   # once per account/region
+pipeline-manager pipeline create -f props.json
+pipeline-manager pipeline synth --id <pipelineId>
+pipeline-manager pipeline deploy --id <pipelineId>
 pipeline-manager status
 ```
 
@@ -545,7 +554,7 @@ See [Plugin Installing](plugin-installing.md) for installs, version policies and
 
 ```bash
 # Non-zero exit on findings makes these CI/cron friendly
-pipeline-manager audit stacks   || alert "stack drift detected"
+pipeline-manager audit stacks --region us-east-1 || alert "stack drift detected"
 pipeline-manager audit tokens --warn-days 14 || alert "tokens expiring soon"
 ```
 

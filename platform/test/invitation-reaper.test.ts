@@ -37,6 +37,11 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
 const STALE = ['i1', 'i2', 'i3', 'i4'].map((id) => ({ _id: id, email: `${id}@x.io`, organizationId: 'org-1', invitedBy: 'admin-1' }));
 
 jest.unstable_mockModule('../src/utils/leader-lock.js', () => leaderLockMock());
+// The sweep also lapses unanswered domain-join requests (G8).
+const mockExpireJoinRequests = jest.fn(async () => 0);
+jest.unstable_mockModule('../src/services/org-domain-service.js', () => ({
+  orgDomainService: { expireStaleJoinRequests: () => mockExpireJoinRequests() },
+}));
 
 const { sweepExpiredInvitations, invitationReaperSweep } = await import('../src/services/invitation-reaper.js');
 const { buildSweep } = await import('../src/services/background-sweeps.js');
@@ -88,10 +93,13 @@ describe('sweepExpiredInvitations', () => {
     expect(await sweepExpiredInvitations()).toBe(0);
   });
 
-  it('never throws on a Mongo error (logs and returns 0)', async () => {
+  // A swallowed error made a reaper that failed every pass look healthy to
+  // SchedulerJobStale (the alert keys on cycles that return without throwing).
+  it('surfaces a Mongo error to the scheduler (throws, audits nothing)', async () => {
     mockFind.mockResolvedValue(STALE);
     mockUpdateMany.mockRejectedValue(new Error('mongo down'));
-    await expect(sweepExpiredInvitations()).resolves.toBe(0);
+    await expect(sweepExpiredInvitations()).rejects.toThrow('mongo down');
+    expect(mockRecordAuditEvent).not.toHaveBeenCalled();
   });
 });
 
@@ -104,6 +112,8 @@ describe('invitationReaperSweep', () => {
 
     // Immediate first sweep.
     expect(mockFind).toHaveBeenCalledTimes(1);
+    await jest.advanceTimersByTimeAsync(0);
+    expect(mockExpireJoinRequests).toHaveBeenCalledTimes(1);
 
     // Advancing the clock triggers subsequent sweeps.
     await jest.advanceTimersByTimeAsync(1000);

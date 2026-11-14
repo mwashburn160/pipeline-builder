@@ -1,16 +1,18 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useEffect } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { Gauge, Trophy } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
+import { Button } from '@/components/ui/Button';
 import { useFetch } from '@/hooks/useFetch';
 import { doraLevelBadge, GRADE_STYLES } from '@/components/reports/DoraParts';
 import type { TabDataStatus } from '../useReportData';
 import api from '@/lib/api';
-import type { ScorecardRollup, ScorecardLeaderboardEntry } from '@/types';
+import type { ScorecardRollup, ScorecardLeaderboardEntry, ScorecardRollupQuery } from '@/types';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
+import { FilterInput } from '@/components/ui/FilterInput';
 
 interface ScorecardTabProps {
   /** Whether `advanced_reporting` is entitled — non-entitled renders an upsell. */
@@ -32,15 +34,32 @@ function Band({ level }: { level: ScorecardLeaderboardEntry['dora']['deploymentF
  * scorecard). Server-computed over a fixed trailing-30-day window; bounded.
  */
 export function ScorecardTab({ enabled, onStatus }: ScorecardTabProps) {
+  // The roll-up grades ONE page of the org's own pipelines (server cap 50), so
+  // the page offset and the project / name narrowing are part of the read.
+  const [offset, setOffset] = useState(0);
+  const [filter, setFilter] = useState<{ project: string; pipelineName: string }>({ project: '', pipelineName: '' });
+  const [draft, setDraft] = useState(filter);
+  const query: ScorecardRollupQuery = {
+    offset,
+    ...(filter.project && { project: filter.project }),
+    ...(filter.pipelineName && { pipelineName: filter.pipelineName }),
+  };
   const { data, loading, error, refetch } = useFetch<ScorecardRollup | null>(
     async () => {
-      const res = await api.getOrgScorecardRollup();
+      const res = await api.getOrgScorecardRollup(query);
       if (res.success && res.data) return res.data.rollup;
       throw new Error('Failed to load scorecard roll-up');
     },
-    [enabled],
-    { enabled },
+    [enabled, offset, filter.project, filter.pipelineName],
+    { enabled, keepPreviousData: true },
   );
+  const filtered = !!(filter.project || filter.pipelineName);
+  const applyFilter = (e: FormEvent) => {
+    e.preventDefault();
+    const next = { project: draft.project.trim(), pipelineName: draft.pipelineName.trim() };
+    setFilter(next);
+    setOffset(0);
+  };
 
   // TabDataStatus.error is a string; useFetch surfaces an Error — stringify it.
   const errorMessage = error ? (error.message || 'Failed to load') : null;
@@ -60,6 +79,25 @@ export function ScorecardTab({ enabled, onStatus }: ScorecardTabProps) {
     );
   }
 
+  const filterBar = (
+    <form onSubmit={applyFilter} className="flex flex-wrap items-end gap-2" aria-label="Filter the leaderboard">
+      <label className="text-xs text-fg-subtle flex flex-col gap-1">
+        Project
+        <FilterInput value={draft.project} onChange={(e) => setDraft({ ...draft, project: e.target.value })} placeholder="Any project" />
+      </label>
+      <label className="text-xs text-fg-subtle flex flex-col gap-1">
+        Pipeline name
+        <FilterInput value={draft.pipelineName} onChange={(e) => setDraft({ ...draft, pipelineName: e.target.value })} placeholder="Any name" />
+      </label>
+      <Button type="submit" size="sm" variant="secondary">Apply</Button>
+      {filtered && (
+        <Button size="sm" variant="ghost" onClick={() => { const cleared = { project: '', pipelineName: '' }; setDraft(cleared); setFilter(cleared); setOffset(0); }}>
+          Clear
+        </Button>
+      )}
+    </form>
+  );
+
   if (loading && !data) return <Card><p className="text-sm text-fg-subtle">Computing org-wide scorecard…</p></Card>;
   if (error) return <Card><ErrorAlert message="Could not load the scorecard roll-up." onRetry={refetch} /></Card>;
   if (!data || data.pipelineCount === 0) {
@@ -69,15 +107,23 @@ export function ScorecardTab({ enabled, onStatus }: ScorecardTabProps) {
           <Trophy className="w-5 h-5 text-fg-subtle" />
           <h3 className="h3">Software-health leaderboard</h3>
         </div>
-        <EmptyState compact title="No pipelines to score yet" description="Create a pipeline and record deploys to build a leaderboard." />
+        {filtered && <div className="mb-3">{filterBar}</div>}
+        {filtered
+          ? <EmptyState compact title="No pipelines match" description="No pipeline in this organization matches that project / name." />
+          : <EmptyState compact title="No pipelines to score yet" description="Create a pipeline and record deploys to build a leaderboard." />}
       </Card>
     );
   }
 
   const grades = ['A', 'B', 'C', 'D', 'F', 'N/A'].filter((g) => (data.gradeDistribution[g] ?? 0) > 0);
+  const page = data.pagination;
+  const paged = page.offset > 0 || page.hasMore;
+  const first = page.offset + 1;
+  const last = page.offset + data.pipelineCount;
 
   return (
     <div className="space-y-6">
+      {filterBar}
       {/* Aggregate summary */}
       <Card>
         <div className="flex flex-wrap items-center justify-between gap-4">
@@ -89,7 +135,7 @@ export function ScorecardTab({ enabled, onStatus }: ScorecardTabProps) {
               </div>
               <div className="text-xs text-fg-subtle">
                 {data.scored} of {data.pipelineCount} pipeline{data.pipelineCount === 1 ? '' : 's'} scored
-                {data.truncated && ' · showing the first page (more exist)'}
+                {paged && ` · stats cover this page (pipelines ${first}–${last}${typeof page.total === 'number' ? ` of ${page.total}` : ''})`}
                 {/* "not scored" otherwise reads as "no data"; an error is a
                     different thing and the average is computed without them. */}
                 {!!data.failed && (
@@ -152,6 +198,19 @@ export function ScorecardTab({ enabled, onStatus }: ScorecardTabProps) {
           </tbody>
         </table>
       </Card>
+      {paged && (
+        <nav className="flex items-center justify-between gap-2" aria-label="Leaderboard pages">
+          <Button size="sm" variant="secondary" disabled={page.offset === 0 || loading}
+            onClick={() => setOffset(Math.max(0, page.offset - page.limit))}>
+            Previous
+          </Button>
+          <span className="text-xs text-fg-subtle">Ranked within this page · newest-changed pipelines first</span>
+          <Button size="sm" variant="secondary" disabled={page.nextOffset === null || loading}
+            onClick={() => { if (page.nextOffset !== null) setOffset(page.nextOffset); }}>
+            Next
+          </Button>
+        </nav>
+      )}
       <p className="text-2xs text-fg-subtle">
         Scores blend compliance posture (rule dry-run), DORA delivery bands over the trailing 30 days and security (open plugin exposures + artifact scan findings; 40/40/20 when all three have data).
       </p>

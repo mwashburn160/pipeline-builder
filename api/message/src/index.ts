@@ -8,6 +8,7 @@ import { createSoftDeletePurgeScheduler } from '@pipeline-builder/pipeline-data'
 import { mountRoutes } from './app-routes.js';
 import { attachmentService } from './services/attachment-service.js';
 import { messageService } from './services/message-service.js';
+import { purgeAgedNotifications } from './services/notification-retention.js';
 import { createOnCallSweepScheduler } from './services/oncall-sweep.js';
 
 const logger = createLogger('message');
@@ -45,6 +46,9 @@ const purgeScheduler = createSoftDeletePurgeScheduler({
     // Reap abandoned PENDING attachments (uploaded but never linked to a sent
     // message) + their blobs. Same leader-locked, sysadmin-scoped sweep.
     { name: 'message_attachment_pending', purgeExpired: (now, limit) => attachmentService.purgePending(now, limit) },
+    // Age out SYSTEM notifications (not conversations, not support cases) past
+    // MESSAGE_NOTIFICATION_RETENTION_DAYS — see services/notification-retention.ts.
+    { name: 'message_notification', purgeExpired: (now, limit) => purgeAgedNotifications(now, limit), auditAction: 'message.purge' },
   ],
 });
 purgeScheduler?.start();

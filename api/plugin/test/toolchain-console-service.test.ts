@@ -410,6 +410,8 @@ describe('lifecycle, history', () => {
     await release('1.2.0');
     await consoleSvc.deprecateConsoleRelease('1.2.0', 'u-op', 'superseded');
     expect((await consoleSvc.listConsoleReleases()).releases.find((r) => r.releaseVersion === '1.2.0')?.status).toBe('deprecated');
+    await consoleSvc.deprecateConsoleRelease('1.2.0', 'u-op', null, false);
+    expect((await consoleSvc.listConsoleReleases()).releases.find((r) => r.releaseVersion === '1.2.0')?.status).not.toBe('deprecated');
     await consoleSvc.deleteConsoleRelease('1.2.0', 'u-op');
     expect((await consoleSvc.listConsoleReleases()).releases.map((r) => r.releaseVersion)).not.toContain('1.2.0');
   });

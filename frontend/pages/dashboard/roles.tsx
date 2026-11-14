@@ -76,6 +76,7 @@ export default function RolesPage() {
       return res.data;
     },
     [isReady, orgId, page.limit, page.offset],
+    { keepPreviousData: true },
   );
   const roles: OrganizationRole[] = rolesQ.data?.roles ?? [];
   const pagination = page.withTotal(rolesQ.data?.pagination.total ?? 0);

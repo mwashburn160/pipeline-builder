@@ -84,6 +84,7 @@ function auditIssuedToken(
   requestedScopes: number,
   password: string,
   storageGate: StorageGateDecision | null,
+  pushFrozen: boolean,
 ): void {
   const who = identityAttribution(identity);
   // A storage refusal reaches the client as a bare 403 that names nothing, so
@@ -118,6 +119,8 @@ function auditIssuedToken(
           explanation: storageGateReason(storageGate),
         },
       }),
+      // Push withheld by the weekly blob-GC freeze (services/blob-gc-window.ts).
+      ...(pushFrozen && { pushFrozenForBlobGc: true }),
       expiresInSeconds: config.tokenSigning.expiresInSeconds,
     },
   });
@@ -169,7 +172,7 @@ export function createTokenRoute(): Router {
     // spec — Docker login probes /token without a scope to verify creds.
     const account =
       typeof req.query.account === 'string' ? req.query.account : basic.username;
-    const { token, accessCount, access, storageGate } = await authorizeAndIssue(identity, scopes, account);
+    const { token, accessCount, access, storageGate, pushFrozen } = await authorizeAndIssue(identity, scopes, account);
 
     // Sanity check: a scope-less request is the docker-login probe and must
     // produce an empty access claim. Any other combination indicates a bug
@@ -184,7 +187,7 @@ export function createTokenRoute(): Router {
     // Every token that GRANTS something is a registry access decision: which
     // repositories, which actions, for whom. The scope-less `docker login`
     // probe grants nothing and stays off the trail (it would be most of it).
-    if (accessCount > 0) auditIssuedToken(identity, access ?? [], scopes.length, basic.password, storageGate ?? null);
+    if (accessCount > 0) auditIssuedToken(identity, access ?? [], scopes.length, basic.password, storageGate ?? null, pushFrozen === true);
     ctx.log('COMPLETED', 'Issued registry token', {
       identityType: identity.type,
       scopeCount: scopes.length,

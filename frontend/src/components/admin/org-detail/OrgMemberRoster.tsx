@@ -31,6 +31,9 @@ export function OrgMemberRoster({ orgId }: { orgId: string }) {
       return { members: res.data?.members ?? [], total: res.data?.memberCount ?? 0 };
     },
     [orgId, page.limit, page.offset],
+    // Paging keeps the current page on screen while the next loads; the parent
+    // keys this component by org, so an org change remounts it instead.
+    { keepPreviousData: true },
   );
 
   const members = data?.members ?? [];

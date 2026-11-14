@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import {
+  createCacheService,
   getParam,
   ErrorCode,
   sendBadRequest,
@@ -17,8 +18,9 @@ import {
   toComplianceAttributes,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
-import { reportingService } from '@pipeline-builder/pipeline-data';
+import { reportingService, viewerCacheSegment } from '@pipeline-builder/pipeline-data';
 import { Router } from 'express';
+import { z } from 'zod';
 import { buildScorecard, NO_SECURITY_SIGNAL, unavailableScorecard, type Scorecard, type ScorecardSecurityInput } from '../helpers/scorecard.js';
 import { securitySignals } from '../helpers/security-signal.js';
 import { pipelineService } from '../services/pipeline-service.js';
@@ -32,6 +34,27 @@ const SCORECARD_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
 const ORG_SCORECARD_MAX = envInt('ORG_SCORECARD_MAX_PIPELINES', 50, { min: 1 });
 /** Max concurrent per-pipeline computes in a roll-up (bounds load on the compliance service). */
 const ORG_SCORECARD_CONCURRENCY = envInt('ORG_SCORECARD_CONCURRENCY', 4, { min: 1 });
+
+/**
+ * How long one computed roll-up page is reused (seconds). Every page costs up to
+ * ORG_SCORECARD_MAX DORA scans + compliance dry-runs, and the scores move on a
+ * 30-day window, so five minutes of reuse is invisible to a reader (the page
+ * shows `computedAt`) and turns a refresh-happy tab into one compute.
+ */
+const ORG_SCORECARD_CACHE_SECONDS = 300;
+const rollupCache = createCacheService('pipeline:scorecard-rollup:', ORG_SCORECARD_CACHE_SECONDS);
+
+/**
+ * Roll-up query: a page of the org's OWN pipelines (system samples and a parent
+ * org's shared pipelines are never graded here — they are not this org's
+ * software), newest-changed first, optionally narrowed by project / name.
+ */
+const RollupQuerySchema = z.object({
+  offset: z.coerce.number().int().min(0).default(0),
+  limit: z.coerce.number().int().min(1).max(ORG_SCORECARD_MAX).default(ORG_SCORECARD_MAX),
+  project: z.string().trim().min(1).max(255).optional(),
+  pipelineName: z.string().trim().min(1).max(255).optional(),
+});
 
 /** Minimal shape the scorecard compute needs off a pipeline record. */
 interface ScorablePipeline { id: string; name?: string; [k: string]: unknown }
@@ -73,6 +96,93 @@ async function computeScorecard(
   }
 
   return buildScorecard(id, dora, compliance, to.toISOString(), security);
+}
+
+/** Log sink a roll-up compute writes through (the request's `ctx.log`). */
+type RollupLog = (level: 'WARN' | 'COMPLETED', msg: string, meta?: Record<string, unknown>) => void;
+
+/**
+ * Compute one roll-up page: grade a page of the org's OWN pipelines and
+ * aggregate them. Callers cache the result (see {@link rollupCache}).
+ */
+async function computeRollup(orgId: string, query: z.infer<typeof RollupQuerySchema>, log: RollupLog) {
+  const { offset, limit, project, pipelineName } = query;
+  const to = new Date();
+  const from = new Date(to.getTime() - SCORECARD_WINDOW_MS);
+  const { incidentWindowHours } = await reportingService.getReportingSettings(orgId);
+
+  // One page of the org's OWN pipelines (the `orgId` filter narrows inside the
+  // access clause, so system samples and a parent's public rows drop out),
+  // most recently changed first — a stable, total order, so `offset` pages.
+  const listed = await pipelineService.findPaginated(
+    { orgId, ...(project && { project }), ...(pipelineName && { pipelineName }) },
+    orgId,
+    { limit, offset, sortBy: 'updatedAt', sortOrder: 'desc', includeTotal: true },
+  );
+  const pipelines = listed.data.slice(0, limit) as ScorablePipeline[];
+  const hasMore = listed.hasMore === true;
+
+  // Compute each pipeline's scorecard with bounded concurrency (each does a
+  // compliance dry-run + DORA scan).
+  //
+  // PER-PIPELINE ISOLATION: only the COMPLIANCE half of computeScorecard was
+  // fail-soft — the DORA await was unguarded, so a single pipeline's failure
+  // rejected the whole roll-up and the Scorecard tab 500'd with nothing
+  // rendered. An org-wide leaderboard must degrade per row: one unmeasurable
+  // pipeline is a gap in the table, not an outage of the page.
+  let failed = 0;
+  const warn = (msg: string, meta?: Record<string, unknown>) => log('WARN', msg, meta);
+  // The security signal for every listed pipeline in one pass (two reads, not 2N).
+  const security = await securitySignals(orgId, pipelines.map((p) => p.id), warn);
+  const scored = await runConcurrent(pipelines, ORG_SCORECARD_CONCURRENCY, async (p) => {
+    try {
+      const card = await computeScorecard(p, orgId, from, to, incidentWindowHours, warn, security.get(p.id));
+      return { ...card, name: p.name };
+    } catch (err) {
+      // Logged per pipeline WITH its id: the roll-up stays up, and the id is
+      // what an operator needs to find the underlying failure.
+      failed += 1;
+      log('WARN', 'Scorecard compute failed for pipeline; excluding it from the roll-up', {
+        pipelineId: p.id, error: errorMessage(err),
+      });
+      return { ...unavailableScorecard(p.id, to.toISOString()), name: p.name };
+    }
+  });
+
+  // Leaderboard: highest score first; unscored (null) sink to the bottom.
+  const leaderboard = [...scored].sort((a, b) => (b.score ?? -1) - (a.score ?? -1));
+  const withScores = scored.filter((s) => s.score !== null) as Array<{ score: number; grade: string }>;
+  const averageScore = withScores.length
+    ? Math.round(withScores.reduce((sum, s) => sum + s.score, 0) / withScores.length)
+    : null;
+  const gradeDistribution: Record<string, number> = {};
+  for (const s of scored) gradeDistribution[s.grade] = (gradeDistribution[s.grade] ?? 0) + 1;
+
+  log('COMPLETED', 'Computed org-wide scorecard roll-up', {
+    pipelineCount: scored.length, averageScore, offset, hasMore, failed,
+  });
+  return {
+    orgId,
+    pipelineCount: scored.length,
+    scored: withScores.length,
+    averageScore,
+    gradeDistribution,
+    leaderboard,
+    computedAt: to.toISOString(),
+    // More of the org's pipelines exist beyond this page: request the next
+    // one with `offset = nextOffset`. The stats above cover THIS page only.
+    truncated: hasMore,
+    pagination: {
+      offset,
+      limit,
+      ...(typeof listed.total === 'number' && { total: listed.total }),
+      hasMore,
+      nextOffset: hasMore ? offset + pipelines.length : null,
+    },
+    // Surfaced so the page can say "3 pipelines couldn't be scored" rather
+    // than quietly averaging over a partial set.
+    failed,
+  };
 }
 
 /**
@@ -120,70 +230,18 @@ export function createScorecardRoutes(): Router {
   // above, but it DOES match the read router's single-segment `GET /:id` — so
   // app-routes.ts must mount this router BEFORE the read router (else the roll-up
   // is looked up as a pipeline with id "scorecard" and 404s).
-  router.get('/scorecard', requirePermission('pipelines:read'), requireFeature('advanced_reporting'), withRoute(async ({ res, ctx, orgId }) => {
-    const to = new Date();
-    const from = new Date(to.getTime() - SCORECARD_WINDOW_MS);
-    const { incidentWindowHours } = await reportingService.getReportingSettings(orgId);
+  router.get('/scorecard', requirePermission('pipelines:read'), requireFeature('advanced_reporting'), withRoute(async ({ req, res, ctx, orgId }) => {
+    const query = RollupQuerySchema.safeParse(req.query ?? {});
+    if (!query.success) {
+      return sendBadRequest(res, query.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; '), ErrorCode.VALIDATION_ERROR);
+    }
+    const { offset, limit, project, pipelineName } = query.data;
 
-    // List the org's pipelines (RLS + access clause scope it), capped.
-    const listed = await pipelineService.findPaginated({}, orgId, { limit: ORG_SCORECARD_MAX + 1, offset: 0 });
-    const pipelines = listed.data.slice(0, ORG_SCORECARD_MAX) as ScorablePipeline[];
-    const truncated = listed.data.length > ORG_SCORECARD_MAX || listed.hasMore === true;
-
-    // Compute each pipeline's scorecard with bounded concurrency (each does a
-    // compliance dry-run + DORA scan).
-    //
-    // PER-PIPELINE ISOLATION: only the COMPLIANCE half of computeScorecard was
-    // fail-soft — the DORA await was unguarded, so a single pipeline's failure
-    // rejected the whole roll-up and the Scorecard tab 500'd with nothing
-    // rendered. An org-wide leaderboard must degrade per row: one unmeasurable
-    // pipeline is a gap in the table, not an outage of the page.
-    let failed = 0;
-    const warn = (msg: string, meta?: Record<string, unknown>) => ctx.log('WARN', msg, meta);
-    // The security signal for every listed pipeline in one pass (two reads, not 2N).
-    const security = await securitySignals(orgId, pipelines.map((p) => p.id), warn);
-    const scored = await runConcurrent(pipelines, ORG_SCORECARD_CONCURRENCY, async (p) => {
-      try {
-        const card = await computeScorecard(p, orgId, from, to, incidentWindowHours, warn, security.get(p.id));
-        return { ...card, name: p.name };
-      } catch (err) {
-        // Logged per pipeline WITH its id: the roll-up stays up, and the id is
-        // what an operator needs to find the underlying failure.
-        failed += 1;
-        ctx.log('WARN', 'Scorecard compute failed for pipeline; excluding it from the roll-up', {
-          pipelineId: p.id, error: errorMessage(err),
-        });
-        return { ...unavailableScorecard(p.id, to.toISOString()), name: p.name };
-      }
-    });
-
-    // Leaderboard: highest score first; unscored (null) sink to the bottom.
-    const leaderboard = [...scored].sort((a, b) => (b.score ?? -1) - (a.score ?? -1));
-    const withScores = scored.filter((s) => s.score !== null) as Array<{ score: number; grade: string }>;
-    const averageScore = withScores.length
-      ? Math.round(withScores.reduce((sum, s) => sum + s.score, 0) / withScores.length)
-      : null;
-    const gradeDistribution: Record<string, number> = {};
-    for (const s of scored) gradeDistribution[s.grade] = (gradeDistribution[s.grade] ?? 0) + 1;
-
-    ctx.log('COMPLETED', 'Computed org-wide scorecard roll-up', {
-      pipelineCount: scored.length, averageScore, truncated, failed,
-    });
-    return sendSuccess(res, 200, {
-      rollup: {
-        orgId,
-        pipelineCount: scored.length,
-        scored: withScores.length,
-        averageScore,
-        gradeDistribution,
-        leaderboard,
-        computedAt: to.toISOString(),
-        truncated,
-        // Surfaced so the page can say "3 pipelines couldn't be scored" rather
-        // than quietly averaging over a partial set.
-        failed,
-      },
-    });
+    // The page a viewer sees depends on the rungs they can read (a private
+    // pipeline is its author's), so the viewer is part of the key.
+    const cacheKey = `${orgId}:v:${viewerCacheSegment()}:o:${offset}:l:${limit}:p:${project ?? ''}:n:${pipelineName ?? ''}`;
+    const rollup = await rollupCache.getOrSet(cacheKey, () => computeRollup(orgId, query.data, ctx.log.bind(ctx)));
+    return sendSuccess(res, 200, { rollup });
   }));
 
   return router;

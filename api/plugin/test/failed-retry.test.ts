@@ -215,6 +215,8 @@ describe('POST /failed/:jobId/retry', () => {
     expect(json).toHaveBeenCalledWith(expect.objectContaining({ statusCode: 200 }));
   });
 
+  // Another org's job answers 404 exactly like a missing one (sequential BullMQ
+  // ids must not be probeable), and the attempt is recorded as authz.denied.
   it('org admin CANNOT retry a job from a different org (tenant isolation)', async () => {
     (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(false);
     (isSystemOrgRequest as jest.Mock<AnyFn>).mockReturnValue(false);
@@ -226,7 +228,7 @@ describe('POST /failed/:jobId/retry', () => {
       user: { role: 'admin', organizationId: 'org-a' },
       params: { jobId: 'j-1' },
     } as any, res);
-    expect(json).toHaveBeenCalledWith(expect.objectContaining({ statusCode: 403 }));
+    expect(json).toHaveBeenCalledWith(expect.objectContaining({ statusCode: 404 }));
     expect(retryHelper).not.toHaveBeenCalled();
   });
 
@@ -241,7 +243,7 @@ describe('POST /failed/:jobId/retry', () => {
       user: { role: 'admin', organizationId: 'org-a' },
       params: { jobId: 'j-orphan' },
     } as any, res);
-    expect(json).toHaveBeenCalledWith(expect.objectContaining({ statusCode: 403 }));
+    expect(json).toHaveBeenCalledWith(expect.objectContaining({ statusCode: 404 }));
     expect(retryHelper).not.toHaveBeenCalled();
   });
 });

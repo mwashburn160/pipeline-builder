@@ -38,6 +38,7 @@ import { compliancePreflight, queuePluginBuild } from '../helpers/build-submissi
 import { resolveBuildShape } from '../helpers/build-shape.js';
 import { getOrgTier } from '../queue/connections.js';
 import { BUILD_TEMP_ROOT } from '../helpers/docker-build.js';
+import { enforceNameShadowingPolicy } from '../helpers/name-shadowing-gate.js';
 import { createBuildJobData } from '../helpers/plugin-helpers.js';
 import { validateBuildArgs } from '../helpers/plugin-spec.js';
 import { admitBuildOnCredits } from '../queue/build-credits.js';
@@ -102,6 +103,14 @@ export function createDeployGeneratedPluginRoutes( quotaService: QuotaService,
       // deployVersion re-checks under its lock with the same snapshot.
       const access = { isSystemAdmin: isSystemAdmin(req), canPublish: userHasPermission(req, 'plugins:publish') };
       await pluginService.assertDeployable(orgId, name, version, userId || SYSTEM_ACTOR_ID, access);
+
+      // The org's name-shadowing policy — the SAME gate the ZIP upload applies
+      // (helpers/name-shadowing-gate.ts). Without it a `deny` org could deploy
+      // an AI-generated `trivy` that silently overrides the Official listing for
+      // every unqualified reference. Before the idempotency claim and the quota
+      // reservation, so a refusal holds nothing.
+      const shadowing = await enforceNameShadowingPolicy(req, res, { orgId, userId, name, version });
+      if (shadowing.refused) return;
 
       // -- Idempotency guard (Redis IdempotencyStore) -----------------------
       // The auto-plugin-creation path sends `Idempotency-Key: <requestId>:<name>`
@@ -338,6 +347,8 @@ export function createDeployGeneratedPluginRoutes( quotaService: QuotaService,
                   version,
                   visibility,
                   buildType: 'build_image',
+                  // What this name overrides (undefined = could not be established).
+                  shadows: shadowing.shadows,
                 }),
               });
 

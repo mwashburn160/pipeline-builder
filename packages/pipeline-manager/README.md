@@ -16,17 +16,19 @@ Requires Node.js 26.13.1+.
 
 ```bash
 # Sign in — prints a short code, opens your browser to approve it, and stores
-# the session in ~/.pipeline-manager/credentials.json (no password on the CLI)
+# the session in ~/.pipeline-manager/credentials.json (no password on the CLI).
+# The platform you sign in to becomes the one every later command talks to.
 pipeline-manager auth login --url https://platform.example.com
 
-# Bootstrap a new project in the current directory
-pipeline-manager infra bootstrap
+# One-time per AWS account/region: deploy the CDK toolkit stack pipelines deploy into
+pipeline-manager infra bootstrap --account 123456789012 --region us-east-1
 
-# Synthesize the CDK app into a CloudFormation template
-pipeline-manager pipeline synth
+# Register a pipeline definition (props.json from `template instantiate`, or your own)
+pipeline-manager pipeline create -f props.json
 
-# Deploy the pipeline to AWS
-pipeline-manager pipeline deploy
+# Synthesize the CDK app into a CloudFormation template, then deploy it to AWS
+pipeline-manager pipeline synth --id <pipelineId>
+pipeline-manager pipeline deploy --id <pipelineId>
 ```
 
 ## Install the platform (`provision`)
@@ -68,57 +70,79 @@ The underlying `bin/setup.sh` / `bin/shutdown.sh` scripts (and `aws cloudformati
 
 ## Commands
 
-### Platform installation
+Commands are grouped by task: `pipeline-manager <group> <verb>`. `pipeline-manager --help` lists the groups and `pipeline-manager <group> --help` a group's verbs.
+
+### `auth` — credentials
 
 | Command | Purpose |
 | --- | --- |
-| `provision` | Install (or tear down) the **platform** on local/Minikube/EC2/EKS: prereq checks + assembles the exact `bin/setup.sh` command, then **deploys it** (gated by confirmation; `--yes` for CI, `--json` to print the plan and run nothing), verifying health + running post-install steps. `--repo` bootstraps a fresh machine via a **sparse** clone of only the needed deploy folders; `--with-plugins`/`--with-compliance`/`--with-samples`/`--with-all`/`--with-smoke-test`/`--with-events`/`--post-step` add post-install steps; `--teardown` removes it. On failure it diagnoses + auto-fixes/retries known issues. See [Install the platform](#install-the-platform-provision). |
+| `auth login` | Sign in through your browser (device authorization — no password on the command line) and store the session for that platform. The platform becomes the active one for later commands (`PLATFORM_BASE_URL` still overrides it). `--org <orgId>` switches organization; `--token` / `--quiet` print the token for `export PLATFORM_TOKEN=…` |
+| `auth logout` | Revoke the stored session on the platform (`POST /auth/logout`) and delete it from this device. The local copy is removed even when the platform can't be reached — the command then says to revoke the device from Settings → Sessions and devices |
+| `auth pat` | Create a named access key (`pb_pat_…`, long-lived, for CI as `PLATFORM_TOKEN`). The step-up is approved in the browser; the key is printed once |
 
-### Project lifecycle
-
-| Command | Purpose |
-| --- | --- |
-| `bootstrap` | Scaffold a new pipeline project with `cdk.json` and starter config |
-| `synth` | Run CDK synth to emit the CloudFormation template for the pipeline |
-| `deploy` | Deploy the synthesized pipeline stack to AWS (also registers the pipeline with the platform by its `pipelineId`). `--local-spec <pipeline.json>` deploys without the platform and requires `--toolchain-file` (from `toolchain export`) |
-| `toolchain export` | Write the pipeline toolchain release your org resolves to (or `--release <V>`) as JSON: both images' repositories and signed digests, the release and its tool versions. The input to `deploy --local-spec --toolchain-file` |
-| `register` | Re-register a deployed pipeline with the platform and drain pending intents queued by prior failed deploys (recovery path; exits non-zero if any registration still fails) |
-| `status` | Report the current deployment and execution status |
-
-### Resource management
+### `pipeline` — define, deploy and reconcile pipelines
 
 | Command | Purpose |
 | --- | --- |
-| `create-pipeline` | Register a new pipeline definition with the platform |
-| `list-pipelines` / `get-pipeline` | Inspect pipelines registered to your organization |
-| `list-plugins` / `get-plugin` | Browse the plugin catalog and fetch a single plugin spec |
-| `upload-plugin` | Publish a custom plugin spec + Dockerfile to the platform |
-| `validate-templates` | Parse and validate `{{ ... }}` templates in a pipeline or plugin spec (local file, registered pipeline by ID, or registered plugin by `name:version`) |
-| `org-export` | Export an organization's data as JSON for GDPR portability (sysadmins can export any org; org admins their own only) |
+| `pipeline create` | Register a pipeline definition from a props file (`--deploy` to also deploy it) |
+| `pipeline list` / `pipeline get` | Inspect the pipelines your organization can see |
+| `pipeline synth` | Run CDK synth to emit the CloudFormation template for a pipeline |
+| `pipeline deploy` | Deploy the synthesized stack to AWS (also registers the deployment by its `pipelineId`). `--local-spec <pipeline.json>` deploys without the platform and needs `--toolchain-file` (from `toolchain export`) |
+| `pipeline register` | Re-register a deployed pipeline and drain registrations queued by failed deploys (recovery path; non-zero exit if any still fails) |
+| `pipeline deregister` | Remove one `pipeline_registry` row by its registry id (`--yes` required) — the fix for an `audit stacks` missing-stack finding |
+| `pipeline delete` | Delete a pipeline definition (`--yes` required). A deployed stack is left in AWS |
 
-### Auth & infrastructure
+### `plugin` — author and publish plugins
 
 | Command | Purpose |
 | --- | --- |
-| `login` | Authenticate against the platform and persist the access token (supports `--refresh <token>` and `--org <orgId>` to switch organizations) |
-| `store-token` | Generate a long-lived JWT and store it in AWS Secrets Manager (used by the events Lambda and CodePipeline synth steps). Add `--schedule` to also deploy a daily auto-renewal stack so the token never lapses |
-| `setup-events` | Deploy the EventBridge → SQS → Lambda stack that streams CodePipeline events into the platform's reporting service |
+| `plugin new` | Scaffold a plugin from a `plugin-<eco>-base` image (Dockerfile, spec, README, LICENSE) |
+| `plugin validate` | Validate a local plugin with the server's schemas and report its catalog metadata |
+| `plugin test` | Run a plugin's install + build commands locally in its image against a sample workspace |
+| `plugin publish` | Pre-flight, scan-preview and upload a plugin, then request its listing in the plugin ecosystem |
+| `plugin upload` | Upload and deploy a plugin package |
+| `plugin list` / `plugin get` | Browse the plugin catalog and fetch one plugin |
+| `plugin deprecate` | Deprecate a version (it keeps resolving, with a warning); `--undo` clears it |
+| `plugin yank` | Yank a version (stops resolving for ranges, `latest` and the default) |
+| `plugin verify` | Report the current vulnerability state of a pipeline's pinned plugin images at run time (never fails on it) |
 
-### Operator audits (cron-friendly)
+### `template` — golden-path templates
 
-These commands report drift and exit non-zero when findings exist. Designed to run on a schedule.
+| Command | Purpose |
+| --- | --- |
+| `template instantiate` | Render a pipeline template into concrete pipeline props (creates nothing) |
+| `template validate` | Parse and validate `{{ ... }}` templates in a local file, a registered pipeline (by id) or a registered plugin (`name:version`) |
+
+### `infra` — AWS and platform infrastructure
+
+| Command | Purpose |
+| --- | --- |
+| `infra bootstrap` | Deploy the AWS CDK toolkit stack in the target account/region (`--account`, `--qualifier`, `--trust` for cross-account) — needed once before the first `pipeline deploy` there |
+| `infra setup-events` | Deploy the EventBridge → SQS → Lambda stack that streams CodePipeline events into reporting |
+| `infra redrive-events` | Move dead-lettered CodePipeline events back onto the ingestion queue (manual fallback for the Lambda's own redrive) |
+| `infra store-token` | Provision an org service-account key and store it in AWS Secrets Manager for CDK synth steps and the events Lambda (`--schedule` adds daily auto-renewal) |
+| `infra provision` | Install (or `--teardown`) the **platform** on local/Minikube/EC2/EKS. See [Install the platform](#install-the-platform-provision) |
+
+### `audit` — operator audits (cron-friendly)
+
+These report drift and exit non-zero when there are findings. Designed to run on a schedule.
 
 | Command | Purpose | Exit codes |
 | --- | --- | --- |
-| `audit-stacks` | Diff CloudFormation stacks tagged `pipeline-builder` against the platform's `pipeline_registry`. Surfaces orphaned stacks (no DB row) and missing stacks (DB row but no live stack). See [docs/aws-deployment.md](https://mwashburn160.github.io/pipeline-builder/docs/aws-deployment.html#drift-detection-audit-stacks). | `0` clean / `1` findings / `2` AWS error |
-| `audit-tokens` | Scan platform tokens stored in AWS Secrets Manager and flag any expiring within `--warn-days` (default 7). Run before tokens lapse to avoid silent reporting outages. | `0` clean / `1` at-risk / `2` AWS error |
+| `audit stacks` | Diff the CloudFormation stacks tagged `pipeline-builder` in ONE region (`--region`) against your org's `pipeline_registry` rows for that region (every page). Surfaces orphaned stacks (no registry row) and missing stacks (a row but no live stack), each with the command that reconciles it. `--org` audits another org when your credential may list it (a system admin). See [drift detection](https://mwashburn160.github.io/pipeline-builder/docs/aws-deployment.html#drift-detection-audit-stacks). | `0` clean / `1` findings or an incomplete scan / `2` AWS or platform error |
+| `audit tokens` | Scan platform tokens stored in AWS Secrets Manager and flag any expiring within `--warn-days` (default 7) | `0` clean / `1` at-risk / `2` AWS error |
 
-### Misc
+### Other groups
 
 | Command | Purpose |
 | --- | --- |
-| `completions` | Print a shell completion script for `bash`, `zsh`, or `fish`. Source it from your shell profile, e.g. `eval "$(pipeline-manager completions bash)"` in `~/.bashrc` (completions are derived from the live command list, so they never drift) |
-| `version` | Print CLI version info |
+| `toolchain export` | Write the pipeline toolchain release your org resolves to (or `--release <V>`) as JSON: both images' repositories and signed digests, the release and its tool versions — the input to `pipeline deploy --local-spec --toolchain-file` |
+| `org export` | Export an organization's data as JSON for GDPR portability (sysadmins any org; org admins their own) |
+| `report list` / `create` / `run` / `publish` / `link` / `pdf` / `transfer` | Stakeholder reports: save a scheduled report, compose a period (or backfill past ones), publish it, mint a read-only link, download the PDF, hand it to a new owner |
+| `security-report upload` | Upload a SARIF / trivy / grype report produced inside a pipeline |
+| `status` | Show the CLI's setup: the platform it talks to, the credential it would use and its expiry, whether the platform accepts it (and as whom), CDK availability and `/health` reachability |
+| `version` | Print CLI version info (`--check-config` validates the configuration) |
+| `completions` | Print a shell completion script for `bash`, `zsh` or `fish`, e.g. `eval "$(pipeline-manager completions bash)"` (derived from the live command tree, so it never drifts) |
 
 Run `pipeline-manager <command> --help` for the full flag reference on any command.
 
@@ -126,8 +150,8 @@ Run `pipeline-manager <command> --help` for the full flag reference on any comma
 
 | Variable | Required | Purpose |
 | --- | --- | --- |
-| `PLATFORM_TOKEN` | Yes (for API ops) | Auth token for the Pipeline Builder platform |
-| `PLATFORM_BASE_URL` | Yes (for API ops) | Base URL of your platform deployment |
+| `PLATFORM_TOKEN` | No | Access key or token; overrides the stored `auth login` session (what CI uses) |
+| `PLATFORM_BASE_URL` | No | Base URL of your platform; overrides the platform `auth login` signed in to and `config.yml` |
 | `AWS_REGION` | Yes (for deploy) | Target AWS region for `synth` / `deploy` / `provision` teardown |
 | `ANTHROPIC_API_KEY` (or other provider key) | No | Enables `provision`'s natural-language `--prompt` parsing + failure diagnosis (else it falls back to the deterministic issue matcher) |
 | `AI_PROVIDER` / `AI_MODEL` | No | Provider + model for `provision` (`anthropic` \| `openai` \| `google` \| `xai` \| `bedrock`) |
@@ -138,7 +162,7 @@ Full reference: [Environment Variables](https://mwashburn160.github.io/pipeline-
 
 - [Getting started](https://mwashburn160.github.io/pipeline-builder/)
 - [CDK usage](https://mwashburn160.github.io/pipeline-builder/docs/cdk-usage)
-- [Plugin catalog (119 plugins)](https://mwashburn160.github.io/pipeline-builder/docs/plugins/)
+- [Plugin catalog (118 plugins)](https://mwashburn160.github.io/pipeline-builder/docs/plugins/)
 - [API reference](https://mwashburn160.github.io/pipeline-builder/docs/api-reference)
 - [AWS deployment](https://mwashburn160.github.io/pipeline-builder/docs/aws-deployment)
 

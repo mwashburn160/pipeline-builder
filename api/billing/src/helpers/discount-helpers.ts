@@ -485,6 +485,10 @@ export interface InvoiceLike {
   id?: string;
   /** Customer balance AFTER this invoice, in cents — NEGATIVE = credit remaining. */
   ending_balance?: number | null;
+  /** Invoice creation time, Unix SECONDS. Orders the balance mirror: Stripe
+   *  delivers invoice events unordered, so an older invoice's ending balance must
+   *  not overwrite the one a newer invoice already mirrored. */
+  created?: number;
 }
 
 /**
@@ -508,15 +512,23 @@ export async function reconcileDiscountsOnInvoice(subscription: SubscriptionDocu
   // 1. Draw down the mirror from the Stripe customer balance (negative = credit
   //    left). Persisted ATOMICALLY (not in-memory + the caller's full save) so the
   //    payment webhook can't clobber a concurrent redemption's credit write (M2).
+  //    Ordered per INVOICE (not by the subscription's lifecycle watermark): an
+  //    invoice older than the last one mirrored is skipped, so a late-delivered or
+  //    retried invoice can't roll the balance back, while one that arrives after an
+  //    unrelated `customer.subscription.*` event still draws the mirror down.
   const endBal = invoice.ending_balance ?? null;
   const prev = subscription.creditBalanceCents ?? 0;
-  if (endBal != null && (prev > 0 || endBal < 0)) {
-    const mirrored = endBal < 0 ? -endBal : 0;
-    if (mirrored !== prev) {
-      await Subscription.updateOne({ _id: subscription._id }, { $set: { creditBalanceCents: mirrored } });
-      if (mirrored === 0 && prev > 0) {
-        await createBillingEvent(orgId, 'credit_exhausted', { previousCents: prev }, subscription._id.toString());
-      }
+  const invoiceAt = invoice.created ? new Date(invoice.created * 1000) : null;
+  const mirrored = endBal != null && endBal < 0 ? -endBal : 0;
+  if (endBal != null && (invoiceAt || mirrored !== prev)) {
+    const res = await Subscription.updateOne(
+      invoiceAt
+        ? { _id: subscription._id, $or: [{ lastBalanceInvoiceAt: null }, { lastBalanceInvoiceAt: { $lte: invoiceAt } }] }
+        : { _id: subscription._id },
+      { $set: invoiceAt ? { creditBalanceCents: mirrored, lastBalanceInvoiceAt: invoiceAt } : { creditBalanceCents: mirrored } },
+    );
+    if (res.matchedCount > 0 && mirrored === 0 && prev > 0) {
+      await createBillingEvent(orgId, 'credit_exhausted', { previousCents: prev }, subscription._id.toString());
     }
   }
 

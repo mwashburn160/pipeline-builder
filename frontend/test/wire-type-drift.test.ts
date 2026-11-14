@@ -56,6 +56,10 @@ const REGISTERED: ReadonlyArray<readonly [string, string, string]> = [
   // import — and the figures in it reach a customer, so the two shapes drifting
   // apart is a wrong price rather than a type error.
   ['CrossoverVerdict', 'frontend/src/types/billing.ts', 'api/billing/src/helpers/crossover.ts'],
+  // A published report run's delivery record (api/reporting, not importable).
+  ['DeliveryOutcome', 'frontend/src/lib/api/domains/stakeholder-reports.ts', 'api/reporting/src/services/report-delivery.ts'],
+  // The past-due lapse window on a subscription response (api/billing, not importable).
+  ['SubscriptionDunning', 'frontend/src/types/billing.ts', 'api/billing/src/helpers/subscription-response.ts'],
   ['ComposedSection', 'frontend/src/lib/api/domains/stakeholder-reports.ts', 'packages/pipeline-data/src/api/reporting/stakeholder/compose.ts'],
   // A staff reply template. The server shape lives in pipeline-data, which the
   // client cannot import, so the copy is registered rather than shared.

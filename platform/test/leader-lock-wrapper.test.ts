@@ -22,6 +22,9 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   createLogger: () => ({ info: jest.fn<AnyFn>(), warn: jest.fn<AnyFn>(), error: mockLoggerError, debug: jest.fn<AnyFn>() }),
   withLeaderLock: (...a: any[]) => mockWithLeaderLock(...a),
 }));
+// Platform's OWN metric helpers (the registry /metrics serves) — not api-server's.
+const mockIncCounter = jest.fn();
+jest.unstable_mockModule('../src/observability/metrics.js', () => ({ incCounter: (...a: unknown[]) => mockIncCounter(...a) }));
 jest.unstable_mockModule('../src/utils/redis-client.js', () => ({
   getRedisClient: () => mockGetRedisClient(),
 }));
@@ -43,6 +46,8 @@ describe('runWithLeaderLock', () => {
     await expect(runWithLeaderLock('platform:leader:x', 1000, async () => { throw new Error('mongo down'); }))
       .resolves.toBe(true);
     expect(mockLoggerError).toHaveBeenCalledWith('Background job failed', expect.objectContaining({ key: 'platform:leader:x', error: 'mongo down' }));
+    // Counted on the registry platform's /metrics serves (it used to be api-server's, served nowhere).
+    expect(mockIncCounter).toHaveBeenCalledWith('background_sweep_failed_total', { key: 'platform:leader:x' });
   });
 
   it('logs a failing job instead of rejecting when it DOES run without Redis', async () => {

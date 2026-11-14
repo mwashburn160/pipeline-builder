@@ -17,10 +17,6 @@ export const oncallPagingTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "<!-- Copyright 2026 Pipeline Builder Contributors SPDX-License-Identifier: Apache-2.0 -->"
-        },
-        {
-          "type": "text",
           "content": "Wakes a human when support criticals fire, through PagerDuty's Events API v2. Off by default (ONCALL_ENABLED)."
         }
       ]

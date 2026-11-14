@@ -17,10 +17,6 @@ export const doraMetricsTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "<!-- Copyright 2026 Pipeline Builder Contributors SPDX-License-Identifier: Apache-2.0 -->"
-        },
-        {
-          "type": "text",
           "content": "The four DevOps Research and Assessment delivery-performance indicators, computed from real deploy-stage executions."
         }
       ]

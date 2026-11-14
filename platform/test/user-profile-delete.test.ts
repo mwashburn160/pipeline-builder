@@ -50,7 +50,8 @@ jest.unstable_mockModule('mongoose', () => {
   };
 });
 
-jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: jest.fn<AnyFn>() }));
+const mockAudit = jest.fn<AnyFn>();
+jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: (...a: unknown[]) => mockAudit(...a) }));
 
 jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controllerHelperMock());
 
@@ -66,7 +67,7 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
 // Mock the services barrel so the controller's `import from '../services'`
 // doesn't pull in auth-service / audit-service / etc. (which would
 // transitively load real config + JWT_SECRET enforcement).
-const mockDeleteAccount = jest.fn<(userId: string) => Promise<void>>();
+const mockDeleteAccount = jest.fn<(userId: string) => Promise<{ orgsDeleted: Array<{ orgId: string; name: string; purgeAfter: Date; snapshotId: string }> }>>();
 jest.unstable_mockModule('../src/services/index.js', () => ({
   userProfileService: { deleteAccount: (userId: string) => mockDeleteAccount(userId) },
   // Linking stub: the access-key handlers live in the same controller.
@@ -123,6 +124,7 @@ function makeRes() {
 
 const { USER_OWNER_HAS_ORGS, PROFILE_USER_NOT_FOUND } = await import('../src/services/user-errors.js');
 const { RL_LAST_PRIVILEGED_MEMBER } = await import('../src/services/roles-errors.js');
+const { ORG_SNAPSHOT_FAILED } = await import('../src/services/org-errors.js');
 
 const run = async () => {
   const { res, status } = makeRes();
@@ -137,14 +139,29 @@ describe('deleteUser — cascade guard mapping', () => {
     [USER_OWNER_HAS_ORGS, 400],
     [RL_LAST_PRIVILEGED_MEMBER, 409],
     [PROFILE_USER_NOT_FOUND, 404],
+    // A sole owner's org snapshot failed: nothing was deleted.
+    [ORG_SNAPSHOT_FAILED, 502],
   ])('maps %s to %i', async (code, httpStatus) => {
     mockDeleteAccount.mockRejectedValue(new Error(code));
     expect(await run()).toHaveBeenCalledWith(httpStatus);
   });
 
   it('deletes the caller\'s own account', async () => {
-    mockDeleteAccount.mockResolvedValue(undefined);
+    mockDeleteAccount.mockResolvedValue({ orgsDeleted: [] });
     expect(await run()).toHaveBeenCalledWith(200);
     expect(mockDeleteAccount).toHaveBeenCalledWith('user-1');
+  });
+
+  it('a sole owner\'s org goes with the account: audited as org.soft_delete and named in the response', async () => {
+    const purgeAfter = new Date('2026-12-13T00:00:00Z');
+    mockDeleteAccount.mockResolvedValue({ orgsDeleted: [{ orgId: 'org-solo', name: 'Solo', purgeAfter, snapshotId: 'snap-1' }] });
+    const { res, status, json } = makeRes();
+    await (deleteUser as unknown as (r: unknown, s: unknown, n: unknown) => Promise<void>)(makeReq(), res, jest.fn<AnyFn>());
+    expect(status).toHaveBeenCalledWith(200);
+    expect(JSON.stringify(json.mock.calls[0][0])).toContain('"orgsDeleted":[{"orgId":"org-solo","name":"Solo","purgeAfter":"2026-12-13T00:00:00.000Z"}]');
+    expect(mockAudit).toHaveBeenCalledWith(expect.anything(), 'org.soft_delete', expect.objectContaining({
+      targetId: 'org-solo', affectedOrgId: 'org-solo', details: expect.objectContaining({ via: 'account-deletion', snapshotId: 'snap-1' }),
+    }));
+    expect(mockAudit).toHaveBeenCalledWith(expect.anything(), 'user.delete', expect.objectContaining({ details: { orgsDeleted: ['org-solo'] } }));
   });
 });

@@ -30,22 +30,30 @@ const pruneSchema = z.object({
   tag: z.string().min(1).max(128),
 });
 
-/** Why a refusal is the user's answer, not an error. */
-const REFUSAL: Record<string, { status: number; message: string }> = {
+/**
+ * Why a refusal is the user's answer, not an error. Each has its OWN code (it
+ * used to be VALIDATION_ERROR for all four), so a client can tell "a pipeline
+ * still uses it" from "try again later" without parsing the message.
+ */
+const REFUSAL: Record<string, { status: number; code: ErrorCode; message: string }> = {
   in_use: {
     status: 409,
+    code: ErrorCode.PLUGIN_VERSION_IN_USE,
     message: 'A pipeline still references this version. Update the pipeline to a newer version first — nothing is deleted while a deployed pipeline depends on it.',
   },
   published: {
     status: 409,
+    code: ErrorCode.PLUGIN_VERSION_FROZEN,
     message: 'This is a published copy. Its bytes stay billed to the publisher until the listing is unlisted or withdrawn, so deleting it here would free nothing.',
   },
   unknown_version: {
     status: 404,
+    code: ErrorCode.NOT_FOUND,
     message: 'No plugin version of yours matches that image.',
   },
   registry_unavailable: {
     status: 503,
+    code: ErrorCode.SERVICE_UNAVAILABLE,
     message: 'Your storage could not be read just now, so nothing was deleted. Try again shortly.',
   },
 };
@@ -63,7 +71,7 @@ export function createStorageRoutes(): Router {
   router.get('/storage', requirePermission('plugins:read') as RequestHandler, withRoute(async ({ res, ctx, orgId }) => {
     const plan = await reclaimPlan(orgId);
     if (!plan) {
-      return sendError(res, 503, REFUSAL.registry_unavailable!.message, ErrorCode.SERVICE_UNAVAILABLE);
+      return sendError(res, 503, REFUSAL.registry_unavailable!.message, REFUSAL.registry_unavailable!.code);
     }
     ctx.log('COMPLETED', 'Read storage reclaim plan', {
       orgId, bytes: plan.bytes, candidates: plan.candidates.length, incomplete: plan.incomplete,
@@ -112,7 +120,7 @@ export function createStorageRoutes(): Router {
           targetId: `${repo}:${tag}`,
           details: { repo, tag, refusal: outcome.reason },
         });
-        return sendError(res, refusal.status, refusal.message, ErrorCode.VALIDATION_ERROR);
+        return sendError(res, refusal.status, refusal.message, refusal.code);
       }
       ctx.log('COMPLETED', 'Pruned a version to reclaim storage', { orgId, repo, tag, freedBytes: outcome.freedBytes });
       recordAudit({

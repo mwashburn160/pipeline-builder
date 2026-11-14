@@ -19,6 +19,8 @@ const mockGetDoraMetrics = jest.fn<AnyFn>();
 const mockGetIncidentSettings = jest.fn<AnyFn>();
 const mockFindById = jest.fn<AnyFn>();
 const mockFindPaginated = jest.fn<AnyFn>();
+const rollupCacheStore = new Map<string, unknown>();
+let viewer = 'user-1';
 
 jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   withRoute: (handler: any) => async (req: any, res: any) => {
@@ -38,6 +40,13 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
     dryRunPipeline: async () => ({ rulesEvaluated: 0, violations: [], warnings: [] }),
   }),
   runConcurrent: async <T, R>(items: T[], _max: number, fn: (i: T) => Promise<R>) => Promise.all(items.map(fn)),
+  // An in-memory stand-in for the Redis-backed cache, so reuse is observable.
+  createCacheService: () => ({
+    getOrSet: async (key: string, factory: () => Promise<unknown>) => {
+      if (!rollupCacheStore.has(key)) rollupCacheStore.set(key, await factory());
+      return rollupCacheStore.get(key);
+    },
+  }),
 }));
 
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
@@ -45,6 +54,8 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@p
     getDoraMetrics: (...a: unknown[]) => mockGetDoraMetrics(...a),
     getReportingSettings: (...a: unknown[]) => mockGetIncidentSettings(...a),
   },
+  viewerCacheSegment: () => viewer,
+  openExposures: async () => [],
 }));
 
 jest.unstable_mockModule('../src/services/pipeline-service.js', () => ({
@@ -123,6 +134,8 @@ describe('GET /scorecard (org-wide roll-up)', () => {
     jest.clearAllMocks();
     mockGetDoraMetrics.mockResolvedValue(sampleDora);
     mockGetIncidentSettings.mockResolvedValue({ incidentWindowHours: null, defaultWindowHours: 24 });
+    rollupCacheStore.clear();
+    viewer = 'user-1';
     router = createScorecardRoutes();
   });
 
@@ -239,5 +252,60 @@ describe('GET /scorecard (org-wide roll-up)', () => {
     await handler()({ params: {} }, res());
     const [, , payload] = mockSendSuccess.mock.calls[0];
     expect(payload.rollup.truncated).toBe(true);
+  });
+
+  // Q7: the roll-up stopped at the first 50 pipelines in id order, mixed in the
+  // system samples, had no next page and recomputed every request.
+  describe('paging, filter and reuse', () => {
+    const page = (data: unknown[], hasMore: boolean, total?: number) => ({ data, hasMore, limit: 50, offset: 0, ...(total !== undefined && { total }) });
+
+    it('lists ONLY the org\'s own pipelines, newest-changed first, with the total', async () => {
+      mockFindPaginated.mockResolvedValue(page([{ id: 'p1' }], false, 1));
+      await handler()({ params: {}, query: {} }, res());
+      expect(mockFindPaginated).toHaveBeenCalledWith(
+        { orgId: 'acme' },
+        'acme',
+        { limit: 50, offset: 0, sortBy: 'updatedAt', sortOrder: 'desc', includeTotal: true },
+      );
+    });
+
+    it('pages with offset/limit and reports where the next page starts', async () => {
+      mockFindPaginated.mockResolvedValue(page([{ id: 'p11' }, { id: 'p12' }], true, 30));
+      await handler()({ params: {}, query: { offset: '10', limit: '2' } }, res());
+      expect(mockFindPaginated.mock.calls[0][2]).toEqual(expect.objectContaining({ offset: 10, limit: 2 }));
+      const [, , payload] = mockSendSuccess.mock.calls[0];
+      expect(payload.rollup.pagination).toEqual({ offset: 10, limit: 2, total: 30, hasMore: true, nextOffset: 12 });
+      expect(payload.rollup.truncated).toBe(true);
+    });
+
+    it('narrows by project and pipelineName', async () => {
+      mockFindPaginated.mockResolvedValue(page([], false, 0));
+      await handler()({ params: {}, query: { project: 'web', pipelineName: 'api' } }, res());
+      expect(mockFindPaginated.mock.calls[0][0]).toEqual({ orgId: 'acme', project: 'web', pipelineName: 'api' });
+      const [, , payload] = mockSendSuccess.mock.calls[0];
+      expect(payload.rollup.pagination.nextOffset).toBeNull();
+    });
+
+    it('400s a limit past the cap or a negative offset, computing nothing', async () => {
+      for (const query of [{ limit: '51' }, { offset: '-1' }, { limit: '0' }]) {
+        await handler()({ params: {}, query }, res());
+      }
+      expect(mockSendBadRequest).toHaveBeenCalledTimes(3);
+      expect(mockFindPaginated).not.toHaveBeenCalled();
+    });
+
+    it('reuses a computed page for the same viewer, and never across viewers', async () => {
+      mockFindPaginated.mockResolvedValue(page([{ id: 'p1' }], false, 1));
+      await handler()({ params: {}, query: {} }, res());
+      await handler()({ params: {}, query: {} }, res());
+      expect(mockGetDoraMetrics).toHaveBeenCalledTimes(1);
+      // A different viewer may see different (private) rows: its own compute.
+      viewer = 'user-2';
+      await handler()({ params: {}, query: {} }, res());
+      expect(mockGetDoraMetrics).toHaveBeenCalledTimes(2);
+      // A different page is a different key too.
+      await handler()({ params: {}, query: { offset: '50' } }, res());
+      expect(mockFindPaginated).toHaveBeenCalledTimes(3);
+    });
   });
 });

@@ -55,6 +55,11 @@ export interface LogSearchResponse {
   window: ServedWindow;
   /** True when the log backend was unreachable (e.g. a LEAN deploy omits Loki). */
   degraded?: boolean;
+  /**
+   * A sysadmin's `orgs=all` hit the per-query tenant cap (100, one taken by
+   * platform infrastructure): only the first 99 organizations (by id) were read.
+   */
+  tenantsTruncated?: boolean;
 }
 
 /** One histogram series — same shape as a Prometheus range result, so the
@@ -70,6 +75,11 @@ export interface LogVolumeResponse {
   step: string;
   window: ServedWindow;
   degraded?: boolean;
+  /**
+   * A sysadmin's `orgs=all` hit the per-query tenant cap (100, one taken by
+   * platform infrastructure): only the first 99 organizations (by id) were read.
+   */
+  tenantsTruncated?: boolean;
 }
 
 export interface LogContextResponse {

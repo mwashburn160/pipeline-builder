@@ -1170,7 +1170,7 @@ View    → Dashboard Reports page or GET /api/reports/...
 
 The `pipeline_registry` table is written only when `pipeline-manager pipeline deploy` succeeds. CloudFormation stacks can be created or destroyed outside of that path — manual `aws cloudformation delete-stack`, console operations, side-channel deploys — and over time the registry can drift from reality.
 
-The `audit stacks` command joins the registry against live CloudFormation stacks tagged `pipeline-builder` and surfaces two categories of drift:
+The `audit stacks` command joins your org's registry rows for ONE region (every page of them) against the live CloudFormation stacks in that region whose **stack** tags include `pipeline-builder` (the `PipelineBuilder` construct puts `pipeline-builder`, `OrgId` and `pb.pipeline-id` on the stack itself), skipping stacks tagged with another `OrgId`. It surfaces two categories of drift:
 
 | Finding | Meaning | Typical cause |
 |---------|---------|---------------|
@@ -1180,11 +1180,14 @@ The `audit stacks` command joins the registry against live CloudFormation stacks
 #### Usage
 
 ```bash
-# Scan all orgs in the default region
+# Audit your org in one region
 pipeline-manager audit stacks --region us-east-1
 
-# Scan one org, JSON output (suitable for piping into jq / cron alerting)
-pipeline-manager audit stacks --org acme --region us-east-1 --json
+# JSON output (suitable for piping into jq / cron alerting)
+pipeline-manager audit stacks --region us-east-1 --json
+
+# Another org's registry — only for a credential the platform lets list it (a system admin)
+pipeline-manager audit stacks --org <orgId> --region us-east-1 --json
 
 # With a specific AWS profile
 pipeline-manager audit stacks --profile production --region us-east-1
@@ -1195,8 +1198,9 @@ Flags:
 | Flag | Purpose |
 |------|---------|
 | `--region <region>` | AWS region to scan. Defaults to `AWS_REGION` env, then `CDK_DEFAULT_REGION`, then `us-east-1`. |
-| `--org <orgId>` | Restrict both the registry fetch and the stack scan to a single org. |
-| `--profile <profile>` | AWS CLI profile (default: `default`). |
+| `--org <orgId>` | Audit this org instead of your own: sent as `?orgId=` on `GET /api/pipelines/registry` (403 unless you are a system admin) and used to filter the stacks' `OrgId` tag. If the platform answers for a different org, the command fails (exit `2`) rather than report that org's stacks as orphaned. |
+| `--max-pages <n>` | Safety cap on CloudFormation DescribeStacks pages (~100 stacks each; default 200). Hitting it marks the scan `truncated` and exits `1`. |
+| `--profile <profile>` | AWS CLI profile (default: the standard AWS credential chain). |
 | `--json` | Emit a single JSON document instead of human output. |
 
 #### Exit codes
@@ -1206,8 +1210,8 @@ The command is designed to be cron-friendly:
 | Exit code | Meaning |
 |-----------|---------|
 | `0` | No drift |
-| `1` | One or more findings (orphaned and/or missing stacks) |
-| `2` | AWS error or scan failure |
+| `1` | One or more findings (orphaned and/or missing stacks), or an incomplete (`truncated`) scan |
+| `2` | AWS or platform error, or a scan failure |
 
 A typical alerting setup runs the audit nightly and pages on non-zero exit:
 
@@ -1218,14 +1222,14 @@ A typical alerting setup runs the audit nightly and pages on non-zero exit:
 
 #### Remediation
 
-Drift is **not auto-fixed** — the command only reports. Reconciliation is manual and depends on the cause:
+Drift is **not auto-fixed** — the command reports, and prints with each finding the command that reconciles it (`fix` in the JSON):
 
-- **Orphaned stack**: confirm the pipeline definition really was deleted, then `aws cloudformation delete-stack --stack-name <name>` to clean up the leftover. If the deletion was unintentional, recreate the pipeline definition and redeploy.
-- **Missing stack**: redeploy the pipeline (`pipeline-manager pipeline deploy --id <pipelineId>`) to recreate the stack and refresh the registry row. There is currently no API or dashboard surface to drop a stale registry row in isolation — if redeploy isn't desired, the row must be removed directly in Postgres (`DELETE FROM pipeline_registry WHERE pipeline_id = '<pipelineId>'`).
+- **Orphaned stack**: if the stack is still wanted, `pipeline-manager pipeline register --id <pb.pipeline-id tag> --region <region>` adds its registry row back. If it is a leftover (the pipeline definition really was deleted), `aws cloudformation delete-stack --stack-name <name> --region <region>`.
+- **Missing stack**: `pipeline-manager pipeline deregister --id <registryId> --yes` removes the stale row (`DELETE /api/pipelines/registry/:id`; the `registryId` is in the finding). To recreate the stack instead, redeploy it (`pipeline-manager pipeline deploy --id <pipelineId>`), which refreshes the row.
 
 #### What it doesn't catch
 
-- **Out-of-region drift** — only scans the region you pass with `--region`. Run once per region you deploy to.
+- **Out-of-region drift** — only scans the region you pass with `--region`, and compares only that region's registry rows (rows of other regions are counted in `registryEntriesOtherRegions`, rows with no region in `registryEntriesWithoutRegion`). Run once per region you deploy to.
 - **Stack content drift** — doesn't detect when a stack's resources have been edited in-console but the template still matches the last deploy. Use `aws cloudformation detect-stack-drift` for that.
 - **Mid-deploy states** — only `*_COMPLETE` statuses are considered active. A stack stuck in `CREATE_IN_PROGRESS` or `ROLLBACK_FAILED` will look like a missing stack.
 

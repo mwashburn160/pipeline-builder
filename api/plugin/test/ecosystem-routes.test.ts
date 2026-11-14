@@ -173,6 +173,11 @@ describe('Ecosystem console routes', () => {
     expect(fn).toHaveBeenCalledTimes(1);
   });
 
+  it('passes the reviewed pending change (`requestedAt`) through to approve-change', async () => {
+    await call(consoleRouter, 'post', '/rules/:id/approve-change', { params: { id: 'rule-1' }, body: { requestedAt: '2026-11-13T10:00:00.000Z' } });
+    expect(consoleSvc.approveRuleChange).toHaveBeenLastCalledWith(expect.anything(), 'rule-1', '2026-11-13T10:00:00.000Z');
+  });
+
   it('creates a rule with 201', async () => {
     expect((await call(consoleRouter, 'post', '/rules', { body: { name: 'r' } })).statusCode).toBe(201);
   });

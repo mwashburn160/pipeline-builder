@@ -14,7 +14,7 @@
  * organization-id-storage.integration.test.ts.
  */
 
-import { it, expect, beforeAll, afterAll, beforeEach } from '@jest/globals';
+import { jest, it, expect, beforeAll, afterAll, beforeEach } from '@jest/globals';
 import { integrationSuite } from './helpers/integration-gate.js';
 
 process.env.SECRET_ENCRYPTION_KEY ||= '0000000000000000000000000000000000000000000000000000000000000000';
@@ -22,6 +22,20 @@ process.env.JWT_SECRET ||= 'test-only-jwt-secret';
 
 const MONGOD_VERSION = process.env.MONGOMS_VERSION || '6.0.14';
 const suite = integrationSuite();
+
+// The org soft-delete's recovery snapshot reads Postgres, which this suite has
+// none of (it is covered by org-soft-delete-service.test.ts). Stand in for it
+// with the part the account deletion depends on: the org is tombstoned.
+const softDeleteCalls: string[] = [];
+jest.unstable_mockModule('../src/services/org-cascade-service.js', () => ({
+  softDeleteOrg: async (orgId: string) => {
+    softDeleteCalls.push(orgId);
+    const { Organization } = await import('../src/models/index.js');
+    const purgeAfter = new Date(Date.now() + 30 * 86_400_000);
+    await Organization.updateOne({ _id: orgId }, { $set: { deletedAt: new Date(), purgeAfter } });
+    return { orgId, deletedAt: new Date(), purgeAfter, snapshotId: 'snap-1', membersInvalidated: 1 };
+  },
+}));
 
 suite('user delete cascade (real Mongo replica set)', () => {
   let replSet: { getUri: () => string; stop: () => Promise<boolean> };
@@ -56,6 +70,7 @@ suite('user delete cascade (real Mongo replica set)', () => {
   let orgId: string;
   beforeEach(async () => {
     for (const model of [m.User, m.UserOrganization, m.Role, m.RoleAssignment, m.JoinRequest, m.Organization, m.WebAuthnCredential]) await model.deleteMany({});
+    softDeleteCalls.length = 0;
     const org = await m.Organization.create({ name: 'Acme', owner: new mongoose.Types.ObjectId() });
     orgId = String(org._id);
   });
@@ -100,11 +115,57 @@ suite('user delete cascade (real Mongo replica set)', () => {
   it.each([
     ['self-serve deleteAccount', (id: string) => userProfileService.deleteAccount(id)],
     ['admin deleteUserById', (id: string) => userAdminService.deleteUserById(id)],
-  ])('%s refuses an org owner and deletes nothing', async (_name, del) => {
+  ])('%s refuses the owner of an org with other members and deletes nothing', async (_name, del) => {
     const u = await newUser('owner');
+    const other = await newUser('colleague');
     await m.UserOrganization.create({ userId: u._id, organizationId: orgId, role: 'owner' });
+    await m.UserOrganization.create({ userId: other._id, organizationId: orgId, role: 'member', isActive: false });
     await expect(del(String(u._id))).rejects.toThrow('USER_OWNER_HAS_ORGS');
     expect(await m.User.exists({ _id: u._id })).not.toBeNull();
+    expect(softDeleteCalls).toEqual([]);
+    expect((await m.Organization.findById(orgId).lean()).deletedAt ?? null).toBeNull();
+  });
+
+  it('admin deleteUserById still refuses a SOLE owner — only the person themselves takes the org with them', async () => {
+    const u = await newUser('solo-owner');
+    await m.UserOrganization.create({ userId: u._id, organizationId: orgId, role: 'owner' });
+    await expect(userAdminService.deleteUserById(String(u._id))).rejects.toThrow('USER_OWNER_HAS_ORGS');
+  });
+
+  it('self-serve deleteAccount by the SOLE member and owner soft-deletes the org with the account', async () => {
+    const u = await newUser('solo');
+    await m.UserOrganization.create({ userId: u._id, organizationId: orgId, role: 'owner' });
+    // The owner holds the org's Admin Role alone — its lockout guard must not
+    // block, because nobody is left in the org to lock out.
+    const role = await privilegedRole();
+    await m.RoleAssignment.create({ userId: u._id, roleId: role._id, organizationId: orgId });
+
+    const { planAccountDeletion } = await import('../src/services/account-deletion.js');
+    expect(await planAccountDeletion(String(u._id))).toEqual({ canDelete: true, orgsDeleted: [{ orgId, name: 'Acme' }], blockedBy: [] });
+
+    const result = await userProfileService.deleteAccount(String(u._id));
+    expect(softDeleteCalls).toEqual([orgId]);
+    expect(result.orgsDeleted).toEqual([expect.objectContaining({ orgId, name: 'Acme', snapshotId: 'snap-1' })]);
+    expect(await m.User.exists({ _id: u._id })).toBeNull();
+    expect((await m.Organization.findById(orgId).lean()).deletedAt).toBeInstanceOf(Date);
+  });
+
+  it('the plan names each blocker and the reason', async () => {
+    const u = await newUser('mixed');
+    const other = await newUser('peer');
+    const solo = await m.Organization.create({ name: 'Solo', owner: u._id });
+    await m.UserOrganization.create({ userId: u._id, organizationId: orgId, role: 'owner' });
+    await m.UserOrganization.create({ userId: other._id, organizationId: orgId, role: 'admin' });
+    await m.UserOrganization.create({ userId: u._id, organizationId: solo._id, role: 'owner' });
+
+    const { planAccountDeletion } = await import('../src/services/account-deletion.js');
+    const plan = await planAccountDeletion(String(u._id));
+    expect(plan.canDelete).toBe(false);
+    expect(plan.blockedBy).toEqual([{ orgId, name: 'Acme', reason: 'other-members', otherMembers: 1 }]);
+    expect(plan.orgsDeleted).toEqual([{ orgId: String(solo._id), name: 'Solo' }]);
+    // Refused as a whole: nothing is tombstoned, not even the org that could go.
+    await expect(userProfileService.deleteAccount(String(u._id))).rejects.toThrow('USER_OWNER_HAS_ORGS');
+    expect(softDeleteCalls).toEqual([]);
   });
 
   it.each([

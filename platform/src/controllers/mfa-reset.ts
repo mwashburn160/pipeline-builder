@@ -67,6 +67,7 @@ function resultDetails(result: FactorResetResult) {
     totpRemoved: result.totpRemoved,
     recoveryCodesRemoved: result.recoveryCodesRemoved,
     graceUntil: result.graceUntil.toISOString(),
+    accessKeysRevoked: result.accessKeysRevoked,
   };
 }
 

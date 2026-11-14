@@ -17,10 +17,6 @@ export const cdkUsageTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "<!-- Copyright 2026 Pipeline Builder Contributors SPDX-License-Identifier: Apache-2.0 -->"
-        },
-        {
-          "type": "text",
           "content": "Define pipelines as infrastructure-as-code with the PipelineBuilder construct. They deploy as native AWS CodePipeline + CodeBuild in your own account."
         },
         {

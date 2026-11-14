@@ -71,6 +71,33 @@ export interface ReportRun {
   supersededBy: string | null;
   createdAt: string;
   snapshot?: ReportSnapshot | null;
+  /** What delivery did. Null until the run is published (or when delivery never started). */
+  delivery: DeliveryOutcome | null;
+}
+
+/**
+ * A published run's delivery record (api/reporting `DeliveryOutcome`).
+ *
+ * `email.sent` counts every address that has the email across attempts;
+ * `failed` / `skipped` describe the LATEST attempt only.
+ */
+export interface DeliveryOutcome {
+  state: 'delivering' | 'delivered' | 'failed';
+  /** 1 on publish, +1 per redeliver. */
+  attempts: number;
+  /** When the latest attempt started (ISO). */
+  attemptedAt: string;
+  /** In-app notices persisted (0 or 1). */
+  inApp: number;
+  email: { sent: number; failed: number; skipped: number };
+  destinations: { delivered: number; failed: number };
+  /** False: email was not attempted at all (in-app only). */
+  emailAvailable: boolean;
+  /** The relay refused or was unreachable, so no address was tried. */
+  relayFailed: boolean;
+  delivered: { recipientIds: string[]; destinationIds: string[] };
+  /** Plain sentences for the lead. */
+  notes: string[];
 }
 
 /** Which way a metric moved. `unknown` when there is nothing to compare. */
@@ -293,6 +320,14 @@ export function stakeholderReportsApi(core: ApiCore) {
         /** Says plainly that a delivered copy cannot be recalled. Shown to the lead. */
         notice: string;
       }>>(`${BASE}/runs/${encodeURIComponent(id)}/publish`, { method: 'POST' }),
+
+    /**
+     * Re-send a published run to whoever its delivery missed (202; the outcome
+     * lands on the run). 409 when unpublished / superseded, already fully
+     * delivered, or an attempt is still in flight.
+     */
+    redeliverReportRun: async (id: string) =>
+      core.request<ApiResponse<{ run: ReportRun }>>(`${BASE}/runs/${encodeURIComponent(id)}/redeliver`, { method: 'POST' }),
 
     // ── Share links ─────────────────────────────────────────────────────────
 

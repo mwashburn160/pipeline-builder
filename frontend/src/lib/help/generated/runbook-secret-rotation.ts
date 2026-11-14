@@ -17,10 +17,6 @@ export const runbookSecretRotationTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "<!-- Copyright 2026 Pipeline Builder Contributors SPDX-License-Identifier: Apache-2.0 -->"
-        },
-        {
-          "type": "text",
           "content": "Every rotatable secret rotates the same way: add the new value while the old one is still accepted, cut over, then remove the old one."
         }
       ]

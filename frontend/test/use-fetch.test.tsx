@@ -153,3 +153,88 @@ describe('useFetch options and awaitable refetch', () => {
     expect(result.current.data).toBe(2);
   });
 });
+
+describe('useFetch: data belongs to the deps it was read for', () => {
+  it('returns null (and loading) from the first render after a deps change, and after a failed read for the new deps', async () => {
+    let rejectB!: (e: Error) => void;
+    const fetcher = jest.fn<AnyFn>()
+      .mockResolvedValueOnce('A-data')
+      .mockReturnValueOnce(new Promise((_r, rej) => { rejectB = rej; }));
+    const { result, rerender } = renderHook(
+      ({ id }: { id: string }) => useFetch(() => fetcher(id), [id]),
+      { initialProps: { id: 'A' } },
+    );
+    await waitFor(() => expect(result.current.data).toBe('A-data'));
+
+    rerender({ id: 'B' });
+    expect(result.current.data).toBeNull();
+    expect(result.current.loading).toBe(true);
+
+    await act(async () => { rejectB(new Error('B failed')); });
+    expect(result.current.data).toBeNull();
+    expect(result.current.error?.message).toBe('B failed');
+  });
+
+  it('does not resurface A\'s answer when going back to A while its re-read is in flight', async () => {
+    const fetcher = jest.fn<AnyFn>()
+      .mockResolvedValueOnce('A-data')
+      .mockResolvedValueOnce('B-data')
+      .mockReturnValueOnce(new Promise(() => {}));
+    const { result, rerender } = renderHook(
+      ({ id }: { id: string }) => useFetch(() => fetcher(id), [id]),
+      { initialProps: { id: 'A' } },
+    );
+    await waitFor(() => expect(result.current.data).toBe('A-data'));
+    rerender({ id: 'B' });
+    await waitFor(() => expect(result.current.data).toBe('B-data'));
+    rerender({ id: 'A' });
+    expect(result.current.data).toBeNull();
+    expect(result.current.loading).toBe(true);
+  });
+
+  it('drops data and error when enabled turns false', async () => {
+    const fetcher = jest.fn<AnyFn>().mockResolvedValue('loaded');
+    const { result, rerender } = renderHook(
+      ({ enabled }: { enabled: boolean }) => useFetch(fetcher, [], { enabled }),
+      { initialProps: { enabled: true } },
+    );
+    await waitFor(() => expect(result.current.data).toBe('loaded'));
+    rerender({ enabled: false });
+    expect(result.current.data).toBeNull();
+    expect(result.current.loading).toBe(false);
+    // Re-enabling starts a fresh read rather than flashing the old value.
+    fetcher.mockReturnValueOnce(new Promise(() => {}));
+    rerender({ enabled: true });
+    expect(result.current.data).toBeNull();
+    expect(result.current.loading).toBe(true);
+  });
+
+  it('keepPreviousData keeps the last page on screen while the next loads, and after enabled turns false', async () => {
+    let resolvePage2!: (v: string) => void;
+    const fetcher = jest.fn<AnyFn>()
+      .mockResolvedValueOnce('page-1')
+      .mockReturnValueOnce(new Promise((r) => { resolvePage2 = r; }));
+    const { result, rerender } = renderHook(
+      ({ offset, enabled }: { offset: number; enabled: boolean }) =>
+        useFetch(() => fetcher(offset), [offset], { keepPreviousData: true, enabled }),
+      { initialProps: { offset: 0, enabled: true } },
+    );
+    await waitFor(() => expect(result.current.data).toBe('page-1'));
+    rerender({ offset: 25, enabled: true });
+    expect(result.current.data).toBe('page-1');
+    expect(result.current.loading).toBe(true);
+    await act(async () => { resolvePage2('page-2'); });
+    expect(result.current.data).toBe('page-2');
+    rerender({ offset: 25, enabled: false });
+    expect(result.current.data).toBe('page-2');
+  });
+
+  it('a refetch (same deps) keeps data while in flight', async () => {
+    const fetcher = jest.fn<AnyFn>().mockResolvedValueOnce('v1').mockReturnValueOnce(new Promise(() => {}));
+    const { result } = renderHook(() => useFetch(fetcher, []));
+    await waitFor(() => expect(result.current.data).toBe('v1'));
+    act(() => { void result.current.refetch(); });
+    expect(result.current.loading).toBe(true);
+    expect(result.current.data).toBe('v1');
+  });
+});

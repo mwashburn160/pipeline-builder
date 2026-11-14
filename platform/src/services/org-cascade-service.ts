@@ -28,6 +28,7 @@ import { runWithTenantContext, softDeleteRetentionMs, withTenantTx } from '@pipe
 import { eq, sql } from 'drizzle-orm';
 import type { Types } from 'mongoose';
 import { auditService } from './audit-service.js';
+import { storeDeletedOrgSnapshot } from './deleted-org-snapshot-store.js';
 import {
   CASCADE_MONGO_COLLECTION_NAMES,
   HARD_DELETE_TABLES,
@@ -48,7 +49,6 @@ import { toOrgId } from '../helpers/org-id.js';
 import { publishUsersRevocation } from '../helpers/session-revocation.js';
 import ArchivedAuditEvent from '../models/archived-audit-events.js';
 import AuditEvent from '../models/audit-event.js';
-import DeletedOrgSnapshot from '../models/deleted-org-snapshot.js';
 import Organization from '../models/organization.js';
 import PersonalAccessToken from '../models/personal-access-token.js';
 import UserOrganization from '../models/user-organization.js';
@@ -350,6 +350,19 @@ async function cascadeMongo(orgId: string, report: CascadeReport): Promise<void>
  * would OOM the pod — which, the archive being fail-closed, the next sweep
  * would repeat for the same org forever.
  */
+/**
+ * When an archived event expires: the moment the LIVE row would have — its
+ * `createdAt` plus the audit retention — so the purge preserves an event for
+ * the rest of its retention, never past it (the privacy policy's "audit logs
+ * are kept for 90 days"). An event with no readable `createdAt` gets the full
+ * window from the archive time.
+ */
+export function archivedAuditExpiry(event: { createdAt?: unknown }, archivedAt: Date): Date {
+  const created = event.createdAt instanceof Date ? event.createdAt : new Date(String(event.createdAt ?? ''));
+  const base = Number.isNaN(created.getTime()) ? archivedAt : created;
+  return new Date(base.getTime() + config.audit.retentionDays * 86_400_000);
+}
+
 async function archiveAndDeleteAuditEvents(
   orgId: string,
 ): Promise<{ archive: CascadeReport['auditArchive']; deleted: number }> {
@@ -361,11 +374,12 @@ async function archiveAndDeleteAuditEvents(
     // an `archivedAt` stamp.
     const flush = async (): Promise<void> => {
       if (batch.length === 0) return;
+      const archivedAt = new Date();
       await ArchivedAuditEvent.bulkWrite(
         batch.map((e) => ({
           replaceOne: {
             filter: { _id: e._id },
-            replacement: { ...e, archivedAt: new Date() },
+            replacement: { ...e, archivedAt, expiresAt: archivedAuditExpiry(e, archivedAt) },
             upsert: true,
           },
         })),
@@ -543,17 +557,22 @@ export async function softDeleteOrg(
   // + persist it. Losing an org without a snapshot is the one outcome we refuse.
   // STRICT export: any unreadable table or collection aborts, rather than
   // persisting a snapshot with silently empty stores.
+  //
+  // The snapshot is a copy of deleted data, so it expires when the org is due to
+  // be purged (the TTL index on its header and chunks) — see the model.
+  const now = new Date();
+  const purgeAfter = new Date(now.getTime() + orgPurgeRetentionMs());
   let snapshotId: string;
   try {
     const snapshot = await exportOrg(orgId, actorOrgId, { strict: true });
-    const doc = await DeletedOrgSnapshot.create({
-      organizationId: toOrgId(orgId),
+    snapshotId = await storeDeletedOrgSnapshot({
+      organizationId: String(orgId),
       name: org.name,
       snapshot,
-      deletedAt: new Date(),
+      deletedAt: now,
       deletedBy,
+      expiresAt: purgeAfter,
     });
-    snapshotId = String(doc._id);
   } catch (err) {
     logger.error('Org soft-delete ABORTED — recovery snapshot failed; org NOT tombstoned', {
       orgId, error: errorMessage(err),
@@ -562,8 +581,6 @@ export async function softDeleteOrg(
   }
 
   // 2. Tombstone + session cut-off, atomically.
-  const now = new Date();
-  const purgeAfter = new Date(now.getTime() + orgPurgeRetentionMs());
 
   let bumpedMemberIds: Types.ObjectId[] = [];
   const membersInvalidated = await withMongoTransaction(async (session) => {

@@ -84,7 +84,7 @@ suite('org password + authenticator policy (real Mongo)', () => {
     it('a password change answers to the strictest org the person belongs to (inherited from the team\'s parent)', async () => {
       await expect(userProfileService.changePassword(userId, 'Passw0rdShort', 'Fifteen1Chars!!'))
         .rejects.toMatchObject({ code: 'PASSWORD_TOO_SHORT_FOR_ORG', statusCode: 400 });
-      await expect(userProfileService.changePassword(userId, 'Passw0rdShort', 'Sixteen1Chars!!!')).resolves.toBeUndefined();
+      await expect(userProfileService.changePassword(userId, 'Passw0rdShort', 'Sixteen1Chars!!!')).resolves.toEqual({ accessKeysRevoked: 0 });
     });
 
     it('an admin reset is held to the same bar', async () => {

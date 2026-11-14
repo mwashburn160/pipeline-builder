@@ -15,6 +15,9 @@
  *   (409 here). A yank never refuses for being in use (no image is deleted):
  *   the response carries an in-use `warnings` entry and the orgs on the version
  *   are notified (services/version-withdrawal.ts).
+ * - `POST /plugins/:id/unyank` — reverse a yank: the version resolves for
+ *   ranges and `latest` again (it does not become the default again). Audited
+ *   `plugin.version.unyank`. A listed version is unyanked by the system org.
  *
  * Expects auth + orgId + tenant scope and `plugins:write` from the parent mount.
  */
@@ -40,6 +43,10 @@ const DeprecateBodySchema = z.object({
 
 const YankBodySchema = z.object({
   reason: z.string().trim().min(1, 'reason is required').max(500),
+}).strict();
+
+const UnyankBodySchema = z.object({
+  reason: z.string().trim().max(500).optional(),
 }).strict();
 
 export function createVersionLifecycleRoutes(): Router {
@@ -124,6 +131,42 @@ export function createVersionLifecycleRoutes(): Router {
       ...(promoted ? { promotedDefault: { id: promoted.id, version: promoted.version } } : {}),
       ...(inUse ? { warnings: [inUse] } : {}),
     });
+  }));
+
+  router.post('/:id/unyank', audited('plugin.version.unyank'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
+    const id = getParam(req.params, 'id');
+    if (!id) return sendBadRequest(res, 'Plugin ID is required.', ErrorCode.MISSING_REQUIRED_FIELD);
+    const body = validateBody(req, UnyankBodySchema);
+    if (!body.ok) return sendBadRequest(res, body.error, ErrorCode.VALIDATION_ERROR);
+
+    const existing = await pluginService.findById(id, orgId);
+    if (!existing) return sendEntityNotFound(res, 'Plugin');
+    // Managed toolchain releases: a yank there is permanent (Toolchain console).
+    assertNotManaged(existing.name);
+    if (!requireVisibilityWriteAccess(req, res, existing, userId, 'plugins:publish')) return;
+
+    // Throws 409 PLUGIN_VERSION_FROZEN (listed) or CONFLICT (not yanked).
+    const unyanked = await pluginService.unyankVersion(existing, orgId, userId || SYSTEM_ACTOR_ID);
+    if (!unyanked) return sendEntityNotFound(res, 'Plugin');
+
+    ctx.log('COMPLETED', 'Plugin version unyanked', { id, name: unyanked.name });
+    recordAudit({
+      action: 'plugin.version.unyank',
+      actorId: actorId({ userId }),
+      orgId,
+      targetType: 'plugin',
+      targetId: id,
+      details: {
+        pluginName: unyanked.name,
+        version: unyanked.version,
+        // The yank being reversed, so the trail reads as a pair.
+        yankedAt: existing.yankedAt ?? null,
+        yankReason: existing.yankReason ?? null,
+        ...(body.value.reason ? { reason: body.value.reason } : {}),
+      },
+    });
+
+    return sendSuccess(res, 200, { plugin: shapePlugin(unyanked) });
   }));
 
   return router;

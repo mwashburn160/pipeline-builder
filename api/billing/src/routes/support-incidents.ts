@@ -27,10 +27,12 @@ import {
   actorId,
   audited,
   createLogger,
+  errorMessage,
   getParam,
   recordAudit,
   requireAuth,
   requireInternalService,
+  requirePermission,
   requireSystemOrgPermission,
   requireStepUp,
   sendBadRequest,
@@ -39,7 +41,8 @@ import {
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
-import type { RequestHandler } from 'express';
+import type { RequestHandler, Response } from 'express';
+import { resolveAccountRootOrgId } from '../helpers/root-org-guard.js';
 import {
   MAX_INCIDENT_GRANT,
   consumeSupportIncident,
@@ -53,8 +56,49 @@ const logger = createLogger('support-incidents-routes');
 /** The one service allowed to spend an incident. */
 const CONSUME_CALLERS = ['message'] as const;
 
+/**
+ * The ROOT org whose subscription holds `orgId`'s incident balance. The balance
+ * is account-scoped like every other subscription field, but cases are opened —
+ * and grants are typed — against whichever org the person is in, so a team id
+ * must resolve to its root. Answers 503 (and returns null) when the hierarchy
+ * can't be proven: spending, refunding or granting against the WRONG org is
+ * worse than a refusal the caller can see and retry.
+ */
+async function accountOrgOr503(res: Response, orgId: string): Promise<string | null> {
+  try {
+    return await resolveAccountRootOrgId(orgId);
+  } catch (err) {
+    logger.error('Support-incident account lookup failed', { orgId, error: errorMessage(err) });
+    sendError(res, 503, 'Could not resolve the organization\'s account; try again', ErrorCode.SERVICE_UNAVAILABLE);
+    return null;
+  }
+}
+
 export function createSupportIncidentRoutes(): Router {
   const router: Router = Router();
+
+  /**
+   * GET /billing/support-incidents
+   *
+   * The caller's ACCOUNT incident balance: `{ balance, accountOrgId }`. A team
+   * member reads the root's balance, because that is what a case they open
+   * would spend.
+   *
+   * `messages:read`, not `billing:read`: the people who need this number are the
+   * ones who open support cases, and most of them hold no billing permission. It
+   * discloses one count of concessions, no money and no plan.
+   */
+  router.get(
+    '/support-incidents',
+    requireAuth,
+    requirePermission('messages:read') as RequestHandler,
+    withRoute(async ({ res, orgId }) => {
+      const accountOrgId = await accountOrgOr503(res, orgId);
+      if (!accountOrgId) return;
+      const balance = await supportIncidentsRemaining(accountOrgId);
+      return sendSuccess(res, 200, { balance, accountOrgId });
+    }),
+  );
 
   /**
    * POST /billing/internal/support-incidents/:orgId/consume
@@ -77,9 +121,11 @@ export function createSupportIncidentRoutes(): Router {
     withRoute(async ({ req, res }) => {
       const orgId = (getParam(req.params, 'orgId') ?? '').toLowerCase();
       if (!orgId) return sendBadRequest(res, 'orgId is required', ErrorCode.MISSING_REQUIRED_FIELD);
-      const consumed = await consumeSupportIncident(orgId, 'service:message');
-      const remaining = await supportIncidentsRemaining(orgId);
-      if (consumed) logger.info('Support incident consumed', { orgId, remaining });
+      const accountOrgId = await accountOrgOr503(res, orgId);
+      if (!accountOrgId) return;
+      const consumed = await consumeSupportIncident(accountOrgId, 'service:message');
+      const remaining = await supportIncidentsRemaining(accountOrgId);
+      if (consumed) logger.info('Support incident consumed', { orgId, accountOrgId, remaining });
       return sendSuccess(res, 200, { consumed, remaining });
     }),
   );
@@ -98,8 +144,10 @@ export function createSupportIncidentRoutes(): Router {
     withRoute(async ({ req, res }) => {
       const orgId = (getParam(req.params, 'orgId') ?? '').toLowerCase();
       if (!orgId) return sendBadRequest(res, 'orgId is required', ErrorCode.MISSING_REQUIRED_FIELD);
-      const balance = await refundSupportIncident(orgId, 'service:message');
-      logger.warn('Support incident refunded after a failed case open', { orgId, balance });
+      const accountOrgId = await accountOrgOr503(res, orgId);
+      if (!accountOrgId) return;
+      const balance = await refundSupportIncident(accountOrgId, 'service:message');
+      logger.warn('Support incident refunded after a failed case open', { orgId, accountOrgId, balance });
       return sendSuccess(res, 200, { balance });
     }),
   );
@@ -129,7 +177,11 @@ export function createSupportIncidentRoutes(): Router {
         return sendBadRequest(res, 'note must be a string', ErrorCode.VALIDATION_ERROR);
       }
 
-      const balance = await grantSupportIncidents(orgId, body.count, actorId({ userId }));
+      // A grant typed against a team lands on its account root, where a case
+      // opened from that team will look for it.
+      const accountOrgId = await accountOrgOr503(res, orgId);
+      if (!accountOrgId) return;
+      const balance = await grantSupportIncidents(accountOrgId, body.count, actorId({ userId }));
       // Null means no manageable subscription — a cancelled or missing account.
       // 404 rather than a silent success, because a concession the operator
       // believes they granted and the customer never received is worse than a
@@ -142,22 +194,23 @@ export function createSupportIncidentRoutes(): Router {
         action: 'billing.support-incident.grant',
         actorId: actorId({ userId }),
         orgId: SYSTEM_ORG_ID,
-        affectedOrgId: orgId,
+        affectedOrgId: accountOrgId,
         targetType: 'organization',
-        targetId: orgId,
+        targetId: accountOrgId,
         // The count and the resulting balance. A concession is a commercial
         // gift, so "who gave how many, and what did that make the total" is the
         // whole of what a later review needs.
         details: {
           count: body.count,
           balance,
+          ...(accountOrgId !== orgId ? { requestedOrgId: orgId } : {}),
           ...(typeof body.note === 'string' && body.note.trim()
             ? { note: body.note.trim().slice(0, 500) }
             : {}),
         },
       });
-      ctx.log('COMPLETED', 'Support incidents granted', { orgId, count: body.count, balance });
-      return sendSuccess(res, 201, { balance });
+      ctx.log('COMPLETED', 'Support incidents granted', { orgId, accountOrgId, count: body.count, balance });
+      return sendSuccess(res, 201, { balance, accountOrgId });
     }),
   );
 

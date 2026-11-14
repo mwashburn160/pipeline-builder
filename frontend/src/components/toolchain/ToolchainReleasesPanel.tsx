@@ -21,7 +21,7 @@ import { shortDigest } from '@/lib/format';
 import type { ToolchainConsoleRelease, ToolchainReleaseHalf, ToolchainReleasesView } from '@/types/toolchain';
 import { SetPlatformDefaultFlow } from './SetPlatformDefaultFlow';
 
-type Pending = { kind: 'notes' | 'deprecate' | 'yank' | 'delete'; release: ToolchainConsoleRelease };
+type Pending = { kind: 'notes' | 'deprecate' | 'undeprecate' | 'yank' | 'delete'; release: ToolchainConsoleRelease };
 
 /** Max release-notes length (server: same). */
 const NOTES_MAX = 20_000;
@@ -70,6 +70,9 @@ export function ToolchainReleasesPanel({ view, canWrite, onChanged, onOpenCanary
       } else if (p.kind === 'deprecate') {
         await api.deprecateToolchainRelease(v, token);
         toast.success(`Release ${v} deprecated`);
+      } else if (p.kind === 'undeprecate') {
+        await api.undeprecateToolchainRelease(v, token);
+        toast.success(`Release ${v} is no longer deprecated`);
       } else if (p.kind === 'yank') {
         const res = await api.yankToolchainRelease(v, text.trim(), token);
         const restoredDefault = res.data?.restoredDefault ?? null;
@@ -81,7 +84,7 @@ export function ToolchainReleasesPanel({ view, canWrite, onChanged, onOpenCanary
       }
       await onChanged();
     } catch (err) {
-      setError(formatError(err, `Could not ${p.kind === 'notes' ? 'save the notes for' : p.kind} ${v}`));
+      setError(formatError(err, `Could not ${p.kind === 'notes' ? 'save the notes for' : p.kind === 'undeprecate' ? 'un-deprecate' : p.kind} ${v}`));
     } finally {
       setPending(null);
     }
@@ -166,7 +169,9 @@ export function ToolchainReleasesPanel({ view, canWrite, onChanged, onOpenCanary
             {btn('Edit notes', true, () => open('notes', r))}
             {btn('Add canary orgs', a.canary, () => onOpenCanary(r.releaseVersion))}
             {btn('Set as default', a.setDefault, () => { setError(null); setPromote(r.releaseVersion); })}
-            {btn('Deprecate', a.deprecate, () => open('deprecate', r))}
+            {a.undeprecate
+              ? btn('Un-deprecate', true, () => open('undeprecate', r))
+              : btn('Deprecate', a.deprecate, () => open('deprecate', r))}
             {btn('Yank', a.yank, () => open('yank', r), 'danger-outline')}
             {btn('Delete', a.delete, () => open('delete', r), 'danger-outline')}
           </span>
@@ -253,6 +258,12 @@ function modalCopy(p: Pending, platformDefault: string | null): { title: string;
         title: `Deprecate ${v}?`,
         action: `Deprecate toolchain release ${v}`,
         body: 'It can no longer be newly pinned or chosen as an org default. Pipelines and orgs already on it keep resolving it, with a warning.',
+      };
+    case 'undeprecate':
+      return {
+        title: `Un-deprecate ${v}?`,
+        action: `Un-deprecate toolchain release ${v}`,
+        body: 'It can be pinned and chosen as an org default again, and the deprecation warning stops. The canary orgs removed when it was deprecated are NOT restored — add them again from the Canary panel.',
       };
     case 'yank':
       return {

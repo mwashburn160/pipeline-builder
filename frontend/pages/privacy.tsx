@@ -94,7 +94,7 @@ const SECTIONS: Section[] = [
   {
     title: 'Your choices and rights',
     body: [
-      `You can access and update your account information in the service. To request a copy of your data, its correction, or deletion of your account, email ${CONTACT}. Depending on where you live, you may have additional rights under local law, and we will honor them.`,
+      `You can access and update your account information in the service, download a copy of your data from Settings, and delete your account there (an organization you are the only member of is deleted with it). For a correction you cannot make yourself, or anything else, email ${CONTACT}. Depending on where you live, you may have additional rights under local law, and we will honor them.`,
     ],
   },
   {

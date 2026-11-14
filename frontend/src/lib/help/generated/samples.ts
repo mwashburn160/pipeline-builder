@@ -17,10 +17,6 @@ export const samplesTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "<!-- Copyright 2026 Pipeline Builder Contributors SPDX-License-Identifier: Apache-2.0 -->"
-        },
-        {
-          "type": "text",
           "content": "Ready-to-use pipeline templates, CDK stack examples and CI/CD configurations. Use them as starting points for your own pipelines, or as reference implementations for advanced patterns."
         },
         {

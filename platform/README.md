@@ -8,95 +8,46 @@ The identity, authentication, and organization service at the center of the plat
 - **User management** — self-service profile, password changes, API-token issuance/revocation, plus system-admin user administration.
 - **Organizations** — multi-tenant containers for pipelines, plugins, and quotas; org-to-team hierarchy (descendants/subtree), tier and quota management, GDPR export, and cascading deletion.
 - **RBAC / roles & write-access enforcement** — the coarse per-org label (`owner` | `admin` | `member`) is *derived* from a user's Roles and resolved from the `UserOrganization` junction (it governs ownership, seat accounting, and `isAdmin`, not permissions), plus platform `superadmin`, and a read-only impersonation gate that blocks state-changing requests.
-- **Roles & memberships** — first-class Roles (e.g. Admin, Member, the system org's Super Admin) that carry explicit `resource:action` permissions; a user's effective permissions are the union of their assigned Roles, and Role membership still drives the derived, cached `UserOrganization.role` label. (The API calls a Role a permission *group*.)
+- **Roles & memberships** — first-class Roles (e.g. Admin, Member, the system org's Super Admin) that carry explicit `resource:action` permissions; a user's effective permissions are the union of their assigned Roles, and Role membership still drives the derived, cached `UserOrganization.role` label.
 - **Audit events** — tamper-resistant, org-scoped audit log (TTL-retained in MongoDB) with an internal service-token ingest endpoint for non-platform emitters.
-- **Email delivery** — owns the SMTP/SES transport (invitations, verification) and exposes an internal service-token endpoint (`POST /internal/notify-email`) so other services (e.g. compliance) can email an org's users without their own mail stack; resolves recipients (`targetUsers`, or all org admins) from the user directory.
+- **Email delivery** — owns the SMTP/SES transport (invitations, verification, password resets, failing-alert-destination notices) and exposes an internal service-token endpoint (`POST /internal/notify-email`) so other services (e.g. compliance) can email an org's users without their own mail stack; resolves recipients (`targetUsers`, or all org admins) from the user directory.
 
 ## Endpoints
 
 The API gateway strips the `/api` prefix before proxying; paths below are as mounted in this service.
 
-### Auth (`/auth/*`)
+Platform mounts about 270 routes. They are not listed here by hand — a hand list
+drifted (it named a `groups` path that no longer exists, two of six OAuth
+providers, and none of SCIM, SSO, TOTP, passkeys, service accounts or the device
+flow). The exact, generated list of every route with its permission, step-up,
+assurance and audit declarations is
+[`frontend/src/generated/route-table/platform.json`](../frontend/src/generated/route-table/platform.json)
+(rewritten by `UPDATE_ROUTE_TABLES=1` on `test/route-coverage.test.ts`, which
+fails when it is stale), and the reviewed authorization of each gated route is
+in [`docs/permission-contract.md`](../docs/permission-contract.md).
 
-| Method | Path | Purpose |
-|--------|------|---------|
-| POST | `/auth/register` | Create a user + paired organization (owner role) |
-| POST | `/auth/login` | Authenticate with email/username + password, return token pair |
-| POST | `/auth/refresh` | Exchange a refresh token for a new access token |
-| POST | `/auth/logout` | Sign this device out (revokes its refresh session) |
-| POST | `/auth/switch-org` | Switch active organization and re-issue tokens |
-| POST | `/auth/send-verification` | Send an email-verification link |
-| POST | `/auth/verify-email` | Verify email with a token (public) |
-| POST | `/auth/step-up` | Re-verify the account password before destructive admin actions |
-| POST | `/auth/step-up/reauth` | Start a step-up by signing in again with a linked provider / org SSO |
-| POST | `/auth/step-up/reauth/callback` | Verify that re-auth and issue the step-up token |
-| `*` | `/auth/oauth/*` | OAuth (Google, GitHub) authorize/callback flow |
+The route families:
 
-### Users (`/user/*`, `/users/*`)
-
-| Method | Path | Purpose |
-|--------|------|---------|
-| GET | `/user/profile` | Get the current user's profile |
-| PATCH | `/user/profile` | Update the current user's profile |
-| DELETE | `/user/account` | Delete the current user's account (step-up) |
-| POST | `/user/change-password` | Change password (step-up) |
-| GET | `/user/organizations` | List organizations the user belongs to (each with `parentOrgId`, `tier`, and `childOrgCount`, the live teams it parents) |
-| POST | `/user/generate-token` | Mint a stored machine credential in its own machine session |
-| GET | `/user/tokens` | List recent token-issuance history |
-| GET | `/user/sessions` | List signed-in devices + stored machine credentials |
-| DELETE | `/user/sessions/:id` | Revoke one session — not the current one (step-up) |
-| POST | `/user/tokens/revoke-all` | Revoke all sessions (step-up) |
-| GET | `/users` | List all users (system admin) |
-| GET | `/users/:id` | Get a user by ID (system admin) |
-| PUT | `/users/:id` | Update a user by ID (system admin) |
-| PUT | `/users/:id/features` | Update a user's feature overrides (system admin) |
-| DELETE | `/users/:id` | Delete a user by ID (system admin) |
-| POST | `/users/bulk-delete` | Bulk-delete users (system admin, step-up) |
-
-### Organizations (`/organization/*`, `/organizations/*`)
-
-| Method | Path | Purpose |
-|--------|------|---------|
-| GET | `/organization` | Get the current user's organization |
-| POST | `/organization` | Create an organization (admin/owner) |
-| GET | `/organization/ai-config` | Get the org's AI-provider config |
-| PUT | `/organization/ai-config` | Update the org's AI-provider keys (admin/owner) |
-| GET | `/organization/:id` | Get an organization by ID |
-| GET | `/organization/:id/descendants` | Org→team subtree IDs (self + descendants) |
-| PUT | `/organization/:id` | Update an organization's name/slug/description (system admin, step-up) |
-| PATCH | `/organization/:id/tier` | Change pricing tier (system admin, step-up) |
-| DELETE | `/organization/:id` | Delete an organization (system admin, step-up) |
-| GET | `/organization/:id/export` | GDPR portability export (admin/owner) |
-| GET | `/organization/:id/members` | List members |
-| POST | `/organization/:id/members` | Add a member (admin/owner) |
-| POST | `/organization/:id/members/bulk-add` | Add a user to several subtree teams (admin/owner) |
-| GET | `/organization/:id/teams` | Descendant team roster |
-| GET | `/organization/:id/member/:memberId/teams` | Descendant teams annotated with the member's membership |
-| DELETE | `/organization/:id/members/:userId` | Remove a member (admin/owner) |
-| PATCH | `/organization/:id/members/:userId` | Update a member's role (admin/owner) |
-| PATCH | `/organization/:id/members/:userId/deactivate` | Deactivate a member (admin/owner) |
-| PATCH | `/organization/:id/members/:userId/activate` | Reactivate a member (admin/owner) |
-| PATCH | `/organization/:id/transfer-owner` | Transfer ownership (admin/owner, step-up) |
-| GET | `/organizations` | List all organizations (system admin) |
-
-### Roles (`/organization/:id/groups/*`)
-
-("Role" is the user-facing name for what the API calls a permission *group*; the endpoint paths keep the literal `groups` spelling.)
-
-| Method | Path | Purpose |
-|--------|------|---------|
-| GET | `/organization/:id/groups` | List Roles (permission sets) and their members |
-| POST | `/organization/:id/groups/:groupId/members` | Add a member to a Role (admin/owner) |
-| DELETE | `/organization/:id/groups/:groupId/members/:userId` | Remove a member from a Role (admin/owner) |
-
-### Audit (`/audit/*`)
-
-| Method | Path | Purpose |
-|--------|------|---------|
-| GET | `/audit` | List audit events (admin only; org-scoped for org admins) |
-| POST | `/audit/events` | Internal ingest for non-platform services (service-token auth) |
-
-> Additional operational routes are also mounted: `/invitation`, `/dashboards`, `/observability`, `/config`, `/internal/notify-email` (service-token email send), and `/admin/*` (org IdP, KMS config, k8s namespace, user grants, summary, impersonate), plus `/health` and `/metrics`.
+| Prefix | What it serves |
+|--------|----------------|
+| `/auth/register`, `/auth/login`, `/auth/mfa/verify`, `/auth/refresh`, `/auth/logout`, `/auth/switch-org` | Password sign-up and sign-in (with the TOTP second leg), token refresh, sign-out, active-org switch |
+| `/auth/password/*` | Forgot-password (`reset-request` → emailed single-use link → `reset`) and the sign-in "password no longer meets policy" change |
+| `/auth/send-verification`, `/auth/verify-email`, `/auth/mark-email-verified` | Email verification |
+| `/auth/oauth/*`, `/auth/sso/*` | Social sign-in (Google, GitHub, GitLab, Microsoft, LinkedIn, Facebook) and per-org SSO (OIDC, Cognito, SAML incl. SLO) |
+| `/auth/webauthn/*`, `/auth/totp/*`, `/auth/recovery-codes` | Passkeys, authenticator app, MFA recovery codes |
+| `/auth/step-up/*` | Step-up re-verification (password, passkey, TOTP, provider re-auth) |
+| `/auth/token/exchange`, `/auth/key/*`, `/auth/device/*` | Access-key exchange and service-account key rotation; the RFC 8628 device flow (`pipeline-manager auth login`) |
+| `/auth/onboarding/*` | First-run onboarding and domain-based org discovery / join / withdraw |
+| `/user/*` | The caller's own account: profile, password, sessions, tokens, access keys, preferences, MFA prompt, data export (`/user/export`), account deletion (`/user/account`, preview at `/user/account/deletion`) |
+| `/users/*` | Member administration, gated by `members:manage` and scoped to the caller's org (cross-org for platform admins) |
+| `/organization/*`, `/organizations` | Orgs and teams, members, Roles (`/:id/roles[/:roleId[/members]]`), service accounts, domains and join requests, IdP and security policies, MFA resets, export, soft-delete/restore |
+| `/invitation/*` | Invitations |
+| `/audit/*` | Audit list, chain verification (`/audit/verify`) and the service-token ingest |
+| `/dashboards/*`, `/observability/*` | Dashboards, metrics/logs queries, alert rules and destinations, silences, on-call, Alertmanager webhooks |
+| `/scim/*` | SCIM 2.0 provisioning |
+| `/admin/*` | Platform-operator surfaces (org IdP, KMS, namespaces, grants, impersonation, summary) |
+| `/internal/*` | Service-to-service routes (service-token auth) |
+| `/config`, `/health`, `/metrics` | Client config, health, Prometheus |
 
 ## Configuration
 
@@ -116,7 +67,8 @@ All config is read from environment variables (see `src/config/index.ts`). The E
 | `REFRESH_TOKEN_EXPIRES_IN` | Refresh-token TTL (seconds) | `2592000` |
 | `BCRYPT_SALT_ROUNDS` | bcrypt cost factor for password hashing | `12` |
 | `PASSWORD_MIN_LENGTH` | Minimum password length | `8` |
-| `AUTH_VERIFICATION_TOKEN_TTL_MS` | Email-verification token lifetime (ms) | `86400000` |
+| `AUTH_VERIFICATION_TOKEN_TTL_MS` | Email-verification link lifetime (ms) | `86400000` |
+| `AUTH_PASSWORD_RESET_TOKEN_TTL_MS` | Forgot-password link lifetime (ms) | `3600000` |
 | `SECRET_ENCRYPTION_KEY` | At-rest encryption key for provider/IdP secrets (required in prod) | dev fallback |
 | `AUDIT_RETENTION_DAYS` | Audit-event retention (TTL index) | `90` |
 | `BOOTSTRAP_SUPERADMIN_EMAILS` | Emails granted `isSuperAdmin` at startup | — |

@@ -50,13 +50,13 @@ import {
   verifyPagerDutySignature,
   type PagerDutyEvent,
 } from '@pipeline-builder/api-core';
-import { incCounter, observe } from '@pipeline-builder/api-server';
 import { authenticateAlertmanager } from '../helpers/alertmanager-auth.js';
 // Platform's OWN hash-chained append, not api-core's `recordAudit` — that one
 // is the REMOTE client the other services post with, and platform writing
 // through it would make an HTTP call to itself.
 import { recordAuditEvent } from '../helpers/audit.js';
 import { withController } from '../helpers/controller-helper.js';
+import { incCounter, observe } from '../observability/metrics.js';
 import type { AlertmanagerWebhook } from '../services/alert-relay.js';
 
 const logger = createLogger('oncall-webhook');

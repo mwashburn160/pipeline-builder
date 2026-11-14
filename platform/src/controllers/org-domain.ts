@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, getParam, sendError, sendSuccess } from '@pipeline-builder/api-core';
+import { createLogger, getParam, parsePage, parseQueryString, sendError, sendSuccess } from '@pipeline-builder/api-core';
 import { audit } from '../helpers/audit.js';
 import { canManageOrgScope, ensureAuthenticated, forbid, withController } from '../helpers/controller-helper.js';
 import { incCounter } from '../observability/metrics.js';
@@ -100,11 +100,33 @@ export const listOrgJoinRequests = withController('List org join requests', asyn
   if (!ensureAuthenticated(req, res)) return;
   const id = getParam(req.params, 'id')!;
   if (!(await canManageOrgScope(req, id))) return forbid(req, res, 'org-admin', 'You can only manage an organization you administer');
-  const requests = await orgDomainService.listJoinRequests(id, 'pending');
+  // `?status=denied` lists the sticky denials an admin can clear (DELETE below).
+  const statusParam = parseQueryString(req.query.status) ?? 'pending';
+  if (statusParam !== 'pending' && statusParam !== 'denied') return sendError(res, 400, 'status must be pending or denied');
+  const { limit, offset } = parsePage(req.query as Record<string, unknown>, { def: 100, max: 500 });
+  const { requests, hasMore } = await orgDomainService.listJoinRequests(id, statusParam, { limit, offset });
   sendSuccess(res, 200, {
-    requests: requests.map((r) => ({ id: String(r._id), userId: String(r.userId), email: r.email, requestedAt: r.createdAt })),
+    requests: requests.map((r) => ({
+      id: String(r._id),
+      userId: String(r.userId),
+      email: r.email,
+      status: r.status,
+      requestedAt: r.createdAt,
+      ...(r.decidedAt ? { decidedAt: r.decidedAt } : {}),
+    })),
+    hasMore,
   });
 });
+
+/** DELETE /organization/:id/join-requests/:reqId — clear a DENIED request so the person may ask again. */
+export const resetOrgJoinRequest = withController('Reset org join request', async (req, res) => {
+  if (!ensureAuthenticated(req, res)) return;
+  const id = getParam(req.params, 'id')!;
+  if (!(await canManageOrgScope(req, id))) return forbid(req, res, 'org-admin', 'You can only manage an organization you administer');
+  const { userId } = await orgDomainService.resetDeniedJoinRequest(id, getParam(req.params, 'reqId')!);
+  audit(req, 'org.join.reset', { targetType: 'user', targetId: userId, affectedOrgId: id });
+  sendSuccess(res, 200, { userId }, 'Join request cleared — they may ask again');
+}, DOMAIN_ERROR_MAP);
 
 /** POST /organization/:id/join-requests/:reqId/:decision — approve|deny. */
 export const decideOrgJoinRequest = withController('Decide org join request', async (req, res) => {

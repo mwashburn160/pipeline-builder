@@ -20,6 +20,8 @@ let seatUsed: number | null = 0;
 let pluginsUsed: number | null = 0;
 let pipelinesUsed: number | null = 0;
 let listingsUsed: number | null = 0;
+/** Pooled support designations platform reports; `null` = incomplete payload. */
+let supportUsed: { contacts: number; premium: number } | null = { contacts: 0, premium: 0 };
 let transportFailure = false;
 
 const mockGet = jest.fn<AnyFn>(async (path: string) => {
@@ -31,6 +33,18 @@ const mockGet = jest.fn<AnyFn>(async (path: string) => {
     // wrong path and silently disabling the seat over-cap guard.)
     return { statusCode: 200, body: { success: true, data: seatUsed === null ? {} : { limit: 10, used: seatUsed } } };
   }
+  if (path.includes('/support-usage')) {
+    return {
+      statusCode: 200,
+      body: {
+        success: true,
+        data: supportUsed === null ? {} : {
+          supportContacts: { limit: 2, used: supportUsed.contacts },
+          supportPremiumContacts: { limit: 1, used: supportUsed.premium },
+        },
+      },
+    };
+  }
   // /quotas/:orgId/:type → the pooled used count for that type
   const type = path.split('/').pop();
   const used = type === 'plugins' ? pluginsUsed : type === 'listings' ? listingsUsed : pipelinesUsed;
@@ -38,6 +52,24 @@ const mockGet = jest.fn<AnyFn>(async (path: string) => {
 });
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
+  // The shared billing tier mock plus the two support-contact caps (2 / 1).
+  getTierLimits: () => ({
+    seats: 10,
+    plugins: 50,
+    pipelines: 5,
+    apiCalls: 25000,
+    aiCalls: 50,
+    storageBytes: 2147483648,
+    dashboards: 20,
+    alertRules: 50,
+    alertDestinations: 10,
+    idpConfigs: 1,
+    listings: 3,
+    eventRetentionDays: 30,
+    doraRetentionDays: 180,
+    supportContacts: 2,
+    supportPremiumContacts: 1,
+  }),
   createSafeClient: () => ({ get: mockGet, put: jest.fn<AnyFn>() }),
   getServiceAuthHeader: jest.fn(() => 'Bearer svc'),
   setCounterEmitter: jest.fn<AnyFn>(),
@@ -82,6 +114,7 @@ const { checkEntitlementOvercap } = await import('../src/helpers/entitlement-syn
 beforeEach(() => {
   jest.clearAllMocks();
   seatUsed = 0; pluginsUsed = 0; pipelinesUsed = 0; listingsUsed = 0; transportFailure = false;
+  supportUsed = { contacts: 0, premium: 0 };
 });
 
 describe('checkEntitlementOvercap', () => {
@@ -110,6 +143,23 @@ describe('checkEntitlementOvercap', () => {
     listingsUsed = 7; // base cap 3
     const overages = await checkEntitlementOvercap('org-1', 'pro', [], 'Bearer x');
     expect(overages).toContainEqual({ quotaType: 'listings', currentUsage: 7, targetCap: 3, overage: 4 });
+  });
+
+  it('flags support contacts and premium upgrades over a reduced cap (a STOCK, like seats)', async () => {
+    supportUsed = { contacts: 5, premium: 3 }; // caps 2 / 1
+    const overages = await checkEntitlementOvercap('org-1', 'pro', [], 'Bearer x');
+    expect(overages).toEqual(expect.arrayContaining([
+      { quotaType: 'supportContacts', currentUsage: 5, targetCap: 2, overage: 3 },
+      { quotaType: 'supportPremiumContacts', currentUsage: 3, targetCap: 1, overage: 2 },
+    ]));
+    expect(mockGet).toHaveBeenCalledWith(expect.stringContaining('/organization/org-1/support-usage'), expect.anything());
+  });
+
+  it('does not flag support contacts at the cap, and fails OPEN on an incomplete support read', async () => {
+    supportUsed = { contacts: 2, premium: 1 };
+    expect(await checkEntitlementOvercap('org-1', 'pro', [], 'Bearer x')).toEqual([]);
+    supportUsed = null;
+    expect(await checkEntitlementOvercap('org-1', 'pro', [], 'Bearer x')).toEqual([]);
   });
 
   it('does not flag usage exactly at the cap (boundary)', async () => {

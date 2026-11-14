@@ -62,6 +62,7 @@ Two people configure this, and they configure different halves:
 **As an organization admin:**
 
 1. **Add alert destinations** for your org — Slack, HTTPS webhook, in-app or email — and use **Send test** on each. An `email` destination reporting `email-disabled` means the operator has email off.
+   Each destination in the list then shows its **last delivery** (`delivery`: when, whether it worked, the failure class — `timeout`, `rejected`, `unreachable` or `unknown-channel` — and how many attempts in a row have failed). After 3 failures in a row the org's owners and admins are emailed once; nothing more is sent about that destination until it delivers again. The platform's own `AlertRelayDeliveryFailing` alert fires only when a channel fails for at least two orgs and half of those using it, so one org's revoked webhook reaches that org, not the operator's pager.
 2. **Set who hears what**: per-org alert rules, [plugin security notifications](#organization-plugin-security-notifications), and [compliance notifications](#organization-compliance-notifications).
 3. **Choose a digest mode** where offered — immediate, daily or weekly.
 4. **Check [Order of operations](#order-of-operations)** before assuming a missing notification is a bug; [Symptoms](#symptoms) lists what each misconfiguration looks like.

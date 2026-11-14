@@ -15,8 +15,7 @@ import {
   sendEntityNotFound,
 } from '@pipeline-builder/api-core';
 import { withRoute, createAuthenticatedWithOrgRoute } from '@pipeline-builder/api-server';
-import { listActiveSupportContacts, listOrgCases, listQueue } from '@pipeline-builder/pipeline-data';
-import type { MessageFilter } from '@pipeline-builder/pipeline-data';
+import { listActiveSupportContacts, listOrgCases, listQueue, SUPPORT_CASE_PAGE_MAX, type MessageFilter, type SupportCasePageOptions } from '@pipeline-builder/pipeline-data';
 import { Router } from 'express';
 import { enrichOneWithOrgNames, enrichWithOrgNames } from '../helpers/org-names.js';
 import { listReachableOrgs } from '../helpers/org-reachability.js';
@@ -40,6 +39,13 @@ function inboxFiltersOf(v: InboxFilters): InboxFilters {
 /** Most cases one export may carry. Bounded so a file request cannot become a
  *  whole-history scan; an org past it is one that should be asking for a report. */
 const EXPORT_MAX = 5000;
+
+/** `?limit=` / `?cursor=` for the case lists (pipeline-data clamps the limit and ignores a bad cursor). */
+function casePageQuery(query: Record<string, unknown>): SupportCasePageOptions {
+  const limit = typeof query.limit === 'string' ? Number.parseInt(query.limit, 10) : NaN;
+  const cursor = typeof query.cursor === 'string' && query.cursor ? query.cursor : undefined;
+  return { ...(Number.isFinite(limit) ? { limit } : {}), ...(cursor ? { cursor } : {}) };
+}
 
 /**
  * One CSV cell.
@@ -241,10 +247,14 @@ export function createReadMessageRoutes(): Router {
    * ABSENT: which engineer holds a case is internal, and the tenant's
    * counterparty is the support desk, not a named individual.
    */
-  router.get('/support/cases', ...protect, requirePermission('messages:read'), withRoute(async ({ res, ctx, orgId }) => {
-    const cases = await listOrgCases(orgId);
-    ctx.log('COMPLETED', 'Support cases listed', { count: cases.length });
+  router.get('/support/cases', ...protect, requirePermission('messages:read'), withRoute(async ({ req, res, ctx, orgId }) => {
+    // Paged: `?limit=` (default 100, max 1000) and `?cursor=` (the previous
+    // page's `nextCursor`, verbatim). `hasMore` says another page exists.
+    const { cases, hasMore, nextCursor } = await listOrgCases(orgId, casePageQuery(req.query));
+    ctx.log('COMPLETED', 'Support cases listed', { count: cases.length, hasMore });
     return sendSuccess(res, 200, {
+      hasMore,
+      ...(nextCursor ? { nextCursor } : {}),
       cases: cases.map((c) => ({
         threadId: c.threadId,
         displayNumber: c.displayNumber,
@@ -286,7 +296,20 @@ export function createReadMessageRoutes(): Router {
    * invoice actually needs.
    */
   router.get('/support/cases/export', ...protect, requirePermission('messages:read'), withRoute(async ({ res, ctx, orgId }) => {
-    const cases = await listOrgCases(orgId, EXPORT_MAX);
+    // Walk the pages up to EXPORT_MAX; past it the file says so in a header
+    // rather than ending silently.
+    const cases: Awaited<ReturnType<typeof listOrgCases>>['cases'] = [];
+    let cursor: string | undefined;
+    let truncated = false;
+    for (;;) {
+      const page = await listOrgCases(orgId, { limit: SUPPORT_CASE_PAGE_MAX, ...(cursor ? { cursor } : {}) });
+      cases.push(...page.cases);
+      if (!page.hasMore) break;
+      if (cases.length >= EXPORT_MAX) { truncated = true; break; }
+      cursor = page.nextCursor;
+    }
+    if (cases.length > EXPORT_MAX) { cases.length = EXPORT_MAX; truncated = true; }
+    if (truncated) res.setHeader('X-Export-Truncated', 'true');
     const header = [
       'case_number', 'status', 'severity', 'level', 'response_due_at',
       'first_response_at', 'created_at', 'closed_at', 'opened_with_incident',
@@ -308,7 +331,7 @@ export function createReadMessageRoutes(): Router {
     ].map(csvCell).join(','));
     const body = [header.join(','), ...rows].join('\n');
 
-    ctx.log('COMPLETED', 'Support cases exported', { count: cases.length });
+    ctx.log('COMPLETED', 'Support cases exported', { count: cases.length, truncated });
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', 'attachment; filename="support-cases.csv"');
     // Sent raw, not through sendSuccess: the caller asked for a file, and
@@ -360,8 +383,11 @@ export function createReadMessageRoutes(): Router {
    * from "answered and waiting again", which look identical by age alone and
    * mean opposite things about whether we are late.
    */
-  router.get('/support/queue', ...protect, ...requireSystemOrgPermission('support_cases:write'), withRoute(async ({ res, ctx }) => {
-    const cases = await listQueue();
+  router.get('/support/queue', ...protect, ...requireSystemOrgPermission('support_cases:write'), withRoute(async ({ req, res, ctx }) => {
+    // listQueue orders longest-waiting first BEFORE its limit, so this page is
+    // the top of the real queue and the sort below keeps that order. Paged like
+    // the tenant list (`?limit=`, `?cursor=` → `hasMore`, `nextCursor`).
+    const { cases, hasMore, nextCursor } = await listQueue(casePageQuery(req.query));
     const now = Date.now();
     const rows = cases.map((c) => {
       const elapsed = Math.max(0, (now - new Date(c.createdAt).getTime()) / 1000);
@@ -382,8 +408,8 @@ export function createReadMessageRoutes(): Router {
         waitingSeconds: Math.round(Math.max(0, elapsed - (c.awaitingTotalSeconds ?? 0))),
       };
     }).sort((a, b) => b.waitingSeconds - a.waitingSeconds);
-    ctx.log('COMPLETED', 'Support queue listed', { count: rows.length });
-    return sendSuccess(res, 200, { cases: rows });
+    ctx.log('COMPLETED', 'Support queue listed', { count: rows.length, hasMore });
+    return sendSuccess(res, 200, { cases: rows, hasMore, ...(nextCursor ? { nextCursor } : {}) });
   }));
 
   // GET /messages/:id — Get single message

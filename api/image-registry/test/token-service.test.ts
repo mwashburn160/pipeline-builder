@@ -70,7 +70,8 @@ process.env.REGISTRY_TOKEN_ISSUER = 'test-platform';
 process.env.REGISTRY_TOKEN_SERVICE = 'test-registry';
 process.env.JWT_SECRET = 'test-jwt-secret';
 
-import { jest, describe, it, expect } from '@jest/globals';
+import { jest, describe, it, expect, beforeEach, afterAll } from '@jest/globals';
+import { OUTSIDE_BLOB_GC_WINDOW_MS } from './helpers/blob-gc-clock.js';
 import jwt from 'jsonwebtoken';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -91,6 +92,12 @@ const {
   authorizeScope,
   authorizeAndIssue,
 } = await import('../src/services/token-service.js');
+const { setBlobGcClockForTests } = await import('../src/services/blob-gc-window.js');
+// Never read the wall clock: inside the Sunday blob-GC freeze every push would be
+// withheld. The freeze tests below move it and put it back here.
+const pinOutsideFreeze = () => setBlobGcClockForTests(() => OUTSIDE_BLOB_GC_WINDOW_MS);
+beforeEach(pinOutsideFreeze);
+afterAll(() => setBlobGcClockForTests());
 
 describe('parseScope', () => {
   it('parses simple repo:name:actions', () => {
@@ -469,5 +476,48 @@ describe('authorizeScope — quarantine/*', () => {
     const result = await authorizeAndIssue(others.superAdmin, [{ type: 'repository', name: REPO, actions: ['pull'] }], 'root');
     const decoded = jwt.verify(result.token, publicKeyPem, { algorithms: ['RS256'] }) as unknown as { access: unknown[] };
     expect(decoded.access).toEqual([]);
+  });
+});
+
+// The weekly blob-GC push freeze (services/blob-gc-window.ts): while
+// `registry garbage-collect` marks and sweeps, no token may carry `push` — a
+// push landing mid-sweep corrupts the image rather than failing.
+describe('authorizeAndIssue — blob-GC push freeze', () => {
+  const tenant = { type: 'jwt' as const, orgId: 'acme', userId: 'u1', isAdmin: false, isSuperAdmin: false, canWritePlugins: true };
+  const decodeAccess = (token: string) => (jwt.verify(token, publicKeyPem, { algorithms: ['RS256'] }) as unknown as {
+    access: Array<{ name: string; actions: string[] }>;
+  }).access;
+
+  it('withholds push (keeping pull) inside the window, for tenants AND management', async () => {
+    setBlobGcClockForTests(() => Date.parse('2026-11-15T03:12:00Z')); // Sunday, mid-GC
+    try {
+      const t = await authorizeAndIssue(tenant, [{ type: 'repository', name: 'org-acme/foo', actions: ['pull', 'push'] }], 'u1');
+      expect(t.pushFrozen).toBe(true);
+      expect(decodeAccess(t.token)).toEqual([{ type: 'repository', name: 'org-acme/foo', actions: ['pull'] }]);
+
+      const m = await authorizeAndIssue({ type: 'management' }, [{ type: 'repository', name: 'org-acme/foo', actions: ['pull', 'push'] }], 'mgmt');
+      expect(m.pushFrozen).toBe(true);
+      expect(decodeAccess(m.token)[0].actions).toEqual(['pull']);
+    } finally {
+      pinOutsideFreeze();
+    }
+  });
+
+  it('grants push outside the window, and a pull-only request is never "frozen"', async () => {
+    setBlobGcClockForTests(() => OUTSIDE_BLOB_GC_WINDOW_MS); // Wednesday
+    try {
+      const t = await authorizeAndIssue(tenant, [{ type: 'repository', name: 'org-acme/foo', actions: ['pull', 'push'] }], 'u1');
+      expect(t.pushFrozen).toBe(false);
+      expect(decodeAccess(t.token)[0].actions).toEqual(['pull', 'push']);
+    } finally {
+      pinOutsideFreeze();
+    }
+    setBlobGcClockForTests(() => Date.parse('2026-11-15T03:12:00Z'));
+    try {
+      const p = await authorizeAndIssue(tenant, [{ type: 'repository', name: 'org-acme/foo', actions: ['pull'] }], 'u1');
+      expect(p.pushFrozen).toBe(false);
+    } finally {
+      pinOutsideFreeze();
+    }
   });
 });

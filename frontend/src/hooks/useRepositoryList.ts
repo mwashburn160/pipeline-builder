@@ -40,11 +40,11 @@ export function useRepositoryList() {
     try {
       // nonEmpty: hide repos with no tags (empty shells the registry keeps
       // after all tags are deleted) so the prune action makes them disappear.
-      const params: { limit: number; last?: string; nonEmpty: boolean } = {
+      const params: { limit: number; cursor?: string; nonEmpty: boolean } = {
         limit: PAGE_LIMIT,
         nonEmpty: true,
       };
-      if (cursor) params.last = cursor;
+      if (cursor) params.cursor = cursor;
       const res = await api.listImages(params);
       const repositoriesRaw = res.data?.repositories ?? [];
       // Backend returns repository names as plain strings under the

@@ -1,8 +1,8 @@
 import type { AppProps } from 'next/app';
 import type { NextPage } from 'next';
-import { useEffect, type ReactElement, type ReactNode } from 'react';
+import { useEffect, useState, type ReactElement, type ReactNode } from 'react';
 import { useRouter } from 'next/router';
-import { AnimatePresence, MotionConfig, motion } from 'framer-motion';
+import { MotionConfig } from 'framer-motion';
 import { AuthProvider, useAuth } from '@/hooks/useAuth';
 import { FeaturesProvider } from '@/hooks/useFeatures';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
@@ -46,28 +46,24 @@ type AppPropsWithLayout = AppProps & {
 function AnimatedPageShell({ children }: { children: ReactNode }) {
   const { user } = useAuth();
   const orgKey = user?.organizationId ?? 'anon';
+  // The FIRST page renders at full opacity, so server-rendered HTML is visible
+  // before (or without) hydration — the public plugin directory must read with
+  // JavaScript off. Once the org has changed, each newly keyed shell fades in.
+  const [firstKey] = useState(orgKey);
+  const [switched, setSwitched] = useState(false);
+  if (!switched && orgKey !== firstKey) setSwitched(true);
 
+  // A CSS fade rather than framer-motion: this one opacity transition was the
+  // only `motion` component in the `_app` bundle, and `motion` pulls in its whole
+  // feature set (~49 KB gzip) on every route. `.org-switch-fade` is opacity-only
+  // — no transform, which would make this page-wrapping div a containing block
+  // for position:fixed descendants and trap every modal backdrop inside it — and
+  // the reduced-motion block in globals.css collapses it like every other
+  // animation.
   return (
-    // Opacity-only — do NOT add x/y/scale here. framer-motion writes those as an
-    // inline `transform`, and any non-none transform makes this page-wrapping div
-    // a containing block for position:fixed descendants, which traps every
-    // modal's `fixed inset-0` backdrop inside the page box instead of the
-    // viewport (clipped/offset modals).
-    // `initial={false}`: the FIRST page renders at full opacity, so server-rendered
-    // HTML is visible before (or without) hydration — the public plugin directory
-    // must read with JavaScript off. Org switches still cross-fade: a newly keyed
-    // child after the first render animates in as before.
-    <AnimatePresence mode="wait" initial={false}>
-      <motion.div
-        key={orgKey}
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        transition={{ duration: 0.2, ease: 'easeInOut' }}
-      >
-        {children}
-      </motion.div>
-    </AnimatePresence>
+    <div key={orgKey} className={switched ? 'org-switch-fade' : undefined}>
+      {children}
+    </div>
   );
 }
 

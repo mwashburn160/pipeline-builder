@@ -5,6 +5,7 @@ import { createPublicKey, randomUUID } from 'crypto';
 import { createLogger, createQuotaService, emitCounter, enforcedQuotaLimit, formatQuotaAmount, getServiceAuthHeader, registerPreviousSecretProbe, SYSTEM_ORG_ID, errorMessage } from '@pipeline-builder/api-core';
 import jwt from 'jsonwebtoken';
 import type { Identity } from './auth-resolver.js';
+import { pushFreezeActive } from './blob-gc-window.js';
 import { inLibraryNamespace, inPublicNamespace, inQuarantineNamespace, inRegistryMetaNamespace, inSystemNamespace, QUARANTINE_PREFIX } from './namespaces.js';
 import { parentPublicPlugins } from './parent-public-plugins.js';
 import type { RegistryScope } from './scope.js';
@@ -341,9 +342,14 @@ const quotaService = createQuotaService();
 export async function authorizeAndIssue( identity: Identity,
   requestedScopes: RequestedScope[],
   account: string,
-): Promise<{ token: string; accessCount: number; access: RegistryScope[]; storageGate: StorageGateDecision | null }> {
+): Promise<{ token: string; accessCount: number; access: RegistryScope[]; storageGate: StorageGateDecision | null; pushFrozen: boolean }> {
   const access: RegistryScope[] = [];
   let storageGate: StorageGateDecision | null = null;
+  // The weekly blob-GC push freeze (blob-gc-window.ts) applies to EVERY
+  // identity, management included: a manifest this service PUTs during the
+  // mark-and-sweep is as exposed as a tenant's.
+  const frozen = pushFreezeActive(config.tokenSigning.expiresInSeconds);
+  let pushFrozen = false;
   // A team pulling from its parent's namespace: which of the parent's plugins
   // are public (one plugin-service read per issuance, cached briefly).
   const parentPrefix = identity.type === 'jwt' && identity.parentOrgId ? `${ORG_NAMESPACE_PREFIX}${identity.parentOrgId}/` : null;
@@ -373,6 +379,11 @@ export async function authorizeAndIssue( identity: Identity,
       }
     }
 
+    if (frozen && granted.includes('push')) {
+      granted = granted.filter((a) => a !== 'push');
+      pushFrozen = true;
+    }
+
     if (granted.length > 0) {
       access.push({ type: scope.type, name: scope.name, actions: granted });
     }
@@ -388,6 +399,8 @@ export async function authorizeAndIssue( identity: Identity,
     // The route carries it into the audit detail: granted access alone cannot
     // distinguish "did not ask to push" from "was refused at the storage cap".
     storageGate,
+    // True when `push` was asked for and withheld by the blob-GC freeze.
+    pushFrozen,
   };
 }
 

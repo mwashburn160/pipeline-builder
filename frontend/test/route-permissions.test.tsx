@@ -722,6 +722,34 @@ const CONTROLS: Control[] = [
     },
   },
   {
+    control: 'Unyank a plugin version',
+    file: 'src/components/plugin/usePluginColumns.tsx',
+    permissions: ['plugins:write'],
+    // The same per-row gate (`canWriteRow`) as yank; a yanked row offers only
+    // this action. Confirmed in src/components/plugin/PluginLifecycleModal.tsx.
+    routes: ['plugin POST /plugins/:id/unyank'],
+    behaviour: {
+      mount: page('../pages/dashboard/plugins'),
+      api: { listPlugins: { plugins: [{ id: 'pl1', name: 'one', version: '1.0.0', organizationId: 'org-1', visibility: 'private', createdBy: 'u1', yankedAt: '2026-09-02T00:00:00Z', yankReason: 'oops' }], pagination: { ...EMPTY_PAGE, total: 1 } } },
+      find: button(/^unyank version$/i),
+    },
+  },
+  {
+    control: 'Retry / replay the org\'s own failed plugin builds',
+    file: 'pages/dashboard/plugins.tsx',
+    gateFiles: ['src/components/plugin/OrgFailedBuildsPanel.tsx'],
+    // The "Failed builds" tab exists only for plugins:write — the gate of all
+    // four queue routes it drives. The server scopes a caller that is not a
+    // system-org queue operator to its own org's jobs (another org's job is a
+    // 404), so a tenant sees and retries only its own.
+    permissions: ['plugins:write'],
+    routes: ['plugin POST /plugins/queue/failed/:jobId/retry', 'plugin POST /plugins/queue/dlq/:jobId/replay'],
+    behaviour: {
+      mount: page('../pages/dashboard/plugins'),
+      find: byRole('tab', /^failed builds$/i),
+    },
+  },
+  {
     control: 'Retire a plugin version to reclaim registry storage',
     file: 'src/components/quotas/StorageReclaimCard.tsx',
     // `storageBytes` is the only quota a tenant could not free: scheduled GC is
@@ -1904,6 +1932,9 @@ const CONTROLS: Control[] = [
       'reporting GET /reports/stakeholder/runs/:id',
       'reporting PUT /reports/stakeholder/runs/:id/notes',
       'reporting POST /reports/stakeholder/runs/:id/publish',
+      // Redeliver, on the review screen's delivery line (DeliveryStatus.tsx): the
+      // same `reports:publish` as publish, offered only on the current published run.
+      'reporting POST /reports/stakeholder/runs/:id/redeliver',
       'reporting GET /reports/stakeholder/runs/:id/links',
       'reporting POST /reports/stakeholder/runs/:id/links',
       'reporting DELETE /reports/stakeholder/links/:id',
@@ -2468,7 +2499,7 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
   }),
   ...group('billing', ['GET /billing/admin/campaigns', 'GET /billing/admin/campaigns/:id'], {
     category: 'sysadmin-console',
-    why: 'Campaigns console: listCampaigns in pages/dashboard/campaigns.tsx and src/components/discounts/CampaignSelect.tsx, getCampaign (with its code counts and ledger-sourced spend) on the detail read.',
+    why: 'Campaigns console: listCampaigns in pages/dashboard/campaigns.tsx and src/components/discounts/CampaignSelect.tsx, getCampaign (with its code counts and ledger-sourced spend) in src/components/discounts/EditCampaignModal.tsx, opened from the row\'s Details action.',
   }),
   ...group('billing', ['GET /billing/admin/promotions', 'GET /billing/admin/promotions/:id', 'GET /billing/admin/promotions/:id/spend'], {
     category: 'sysadmin-console',
@@ -2545,6 +2576,11 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
     category: 'same-control',
     coveredBy: 'Run / cancel a pipeline execution',
     why: '"Apply N upgrades" in the Plugin security tab (src/components/pipeline/security/PluginUpgradePanel.tsx, api.applyPluginUpgrades): disabled with a reason unless canWritePipeline (pipelines:write + ownership), the same gate and page as Run pipeline. Audited pipeline.plugin.upgraded; with redeploy it also starts an execution, which is that row\'s route.',
+  },
+  'pipeline DELETE /pipelines/:id/security-reports': {
+    category: 'same-control',
+    coveredBy: 'Run / cancel a pipeline execution',
+    why: 'Per-report "Remove" in the Plugin security tab\'s Artifact security reports card (src/components/pipeline/security/ArtifactSecurityReportsCard.tsx, api.deletePipelineSecurityReport), behind a ConfirmDialog: disabled with a reason unless canWritePipeline (pipelines:write + ownership), the same gate and page as Run pipeline. Clears one (tool, stage) slot a pipeline no longer writes; audited pipeline.security_report.delete.',
   },
   'pipeline POST /pipelines/:id/security-reports': {
     category: 'no-ui',
@@ -2828,6 +2864,8 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
   'platform POST /auth/mfa/verify': { category: 'pre-session', why: 'Second leg of the sign-in form (TOTP / recovery code) — holds only the challengeId.' },
   'platform POST /auth/password/change-required': { category: 'pre-session', why: 'Sign-in form\'s "your password no longer meets policy" step (LandingPage.tsx).' },
   'platform POST /auth/verify-email': { category: 'pre-session', why: 'pages/auth/verify-email.tsx fires it on mount from the emailed ?token=; single-use.' },
+  'platform POST /auth/password/reset-request': { category: 'pre-session', why: '"Forgot password?" on the sign-in form (src/components/auth/SignInCard/PasswordStep.tsx) → pages/auth/forgot-password.tsx (api.requestPasswordReset). Always 200 with one non-enumerating sentence; rate-limited per address and per IP.' },
+  'platform POST /auth/password/reset': { category: 'pre-session', why: 'pages/auth/reset-password.tsx posts the emailed single-use ?token= with the new password (api.resetPassword); the token is the only credential, and success ends every session and revokes the account\'s access keys.' },
   'platform POST /auth/oauth/:provider/callback': { category: 'pre-session', why: 'pages/auth/callback/[provider].tsx POSTs the code/state the provider redirected the browser back with.' },
   'platform POST /auth/sso/start': { category: 'pre-session', why: '"Continue with single sign-on" on the sign-in form, once the typed email resolves to an SSO org.' },
   'platform POST /auth/sso/discover': { category: 'pre-session', why: 'Debounced email-domain probe on the sign-in form that decides whether to offer SSO.' },
@@ -2841,9 +2879,9 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
     category: 'no-ui',
     why: 'Nothing in the dashboard calls it. The AWS Marketplace fulfillment page exchanges the x-amzn-marketplace-token inside getServerSideProps (frontend/src/lib/marketplace/resolve.ts), frontend -> billing over BILLING_INTERNAL_URL, so the token never reaches the browser — there is no client function, and the browser API client no longer carries one. nginx answers 404 for /api/billing/marketplace/resolve on every deploy target and a NetworkPolicy (allow-billing-from-frontend) admits only app=frontend, so the SERVER is the only caller that can reach it. Not `machine-only`: that demands a service principal, and this route is unauthenticated by necessity — AWS redirects a buyer here before any account exists. The authenticated leg is POST /billing/marketplace/claim.',
   },
-  ...group('platform', ['POST /auth/onboarding/complete', 'POST /auth/onboarding/join'], {
+  ...group('platform', ['POST /auth/onboarding/complete', 'POST /auth/onboarding/join', 'DELETE /auth/onboarding/join/:orgId'], {
     category: 'pre-session',
-    why: 'pages/dashboard/onboarding.tsx — the first-run wizard, and (for /join) the durable "join an organization" surface the same page serves once onboarded. Neither is gatable: the target org is one the caller is NOT yet in, so there is no permission there to hold. Eligibility is re-derived server-side from the caller\'s verified email domain, never from the request.',
+    why: 'pages/dashboard/onboarding.tsx — the first-run wizard, and (for /join) the durable "join an organization" surface the same page serves once onboarded (DELETE: "Withdraw" on a pending request, api.withdrawDomainJoinRequest — the caller\'s own request). None is gatable: the target org is one the caller is NOT yet in, so there is no permission there to hold. Eligibility is re-derived server-side from the caller\'s verified email domain, never from the request.',
   }),
   'platform POST /auth/device/deny': { category: 'pre-session', why: '"Deny" on the CLI device-approval page (pages/auth/device.tsx); deliberately NOT step-up gated — approve is.' },
 
@@ -2876,7 +2914,8 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
   }),
   'platform PATCH /user/profile': { category: 'own-account', why: '"Save changes" on Settings → Profile; own account, so only the read-only-impersonation notice applies.' },
   'platform POST /user/change-password': { category: 'own-account', why: 'Profile → password section; step-up only (the user is acting on their own account).' },
-  'platform DELETE /user/account': { category: 'own-account', why: '"Delete account" on Settings → Profile; own account, so step-up is the only gate.' },
+  'platform DELETE /user/account': { category: 'own-account', why: '"Delete account" on Settings → Profile; own account, so step-up is the only gate. GET /user/account/deletion is read first so the step-up dialog says which owned orgs go with the account and which block it (src/components/settings/AccountDeletionDetails.tsx).' },
+  'platform GET /user/export': { category: 'own-account', why: '"Download my data" on Settings → Profile (src/components/settings/PersonalDataExport.tsx, api.exportOwnData): the caller\'s own data as JSON; step-up is the only gate (a bulk read of personal data).' },
   'platform POST /user/keys': { category: 'own-account', why: 'Profile → access keys; step-up, plus the org\'s admin-actions MFA policy (only a person may mint a key while it is on).' },
   'platform POST /auth/recovery-codes': { category: 'own-account', why: 'Profile → recovery codes (Passkeys / Authenticator panels); step-up only.' },
   'platform DELETE /user/sessions/:id': { category: 'own-account', why: 'Revoke one of your own sessions (Security → Sessions); step-up is the only gate.' },
@@ -2926,7 +2965,7 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
   ], { category: 'sysadmin-console', why: 'Discounts console (pages/dashboard/discounts.tsx + src/components/discounts/*): New Discount, Edit, Revoke, Apply to org, Preview, Issue code.' }),
   ...group('billing', [
     'POST /billing/admin/campaigns', 'PUT /billing/admin/campaigns/:id', 'POST /billing/admin/campaigns/:id/end',
-  ], { category: 'sysadmin-console', why: 'Campaigns console (pages/dashboard/campaigns.tsx + src/components/discounts/CreateCampaignModal.tsx): Create campaign, edit budget/window/exclusivity, and End (which also deactivates every code in the campaign).' }),
+  ], { category: 'sysadmin-console', why: 'Campaigns console (pages/dashboard/campaigns.tsx + src/components/discounts/CreateCampaignModal.tsx + EditCampaignModal.tsx): Create campaign, Details → edit name/budget/window/exclusivity (updateCampaign), and End (which also deactivates every code in the campaign).' }),
   ...group('billing', [
     'POST /billing/admin/promotions', 'PUT /billing/admin/promotions/:id', 'DELETE /billing/admin/promotions/:id',
     'POST /billing/admin/promotions/:id/activate', 'POST /billing/admin/promotions/:id/grant',
@@ -2949,7 +2988,7 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
   }),
   'billing POST /billing/admin/orgs/:orgId/support-incidents': {
     category: 'no-ui',
-    why: 'GRANTING a one-time support incident — a commercial CONCESSION, never a sale (monthly support cancels freely, so an incident priced above a month is dominated and one below it loses money). Deliberately has no UI: a concession is agreed in a conversation and then applied, so the operator path is the CLI / an authenticated call rather than a button somebody might click speculatively. It is nonetheless the half whose absence made the whole mechanism pointless — a concession nobody can grant is not a concession. System-org + step-up because it hands a customer something of value.',
+    why: 'GRANTING a one-time support incident — a commercial CONCESSION, never a sale (monthly support cancels freely, so an incident priced above a month is dominated and one below it loses money). Deliberately has no UI: a concession is agreed in a conversation and then applied, so the operator path is an authenticated API call (there is no CLI command) rather than a button somebody might click speculatively. A grant typed against a team id lands on its account root, where every case in the account spends from. It is nonetheless the half whose absence made the whole mechanism pointless — a concession nobody can grant is not a concession. System-org + step-up because it hands a customer something of value.',
   },
   'billing PUT /billing/admin/subscriptions/:id/support-floor': {
     category: 'no-ui',
@@ -2981,16 +3020,12 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
     why: 'Support queue console (pages/dashboard/admin/support.tsx, systemAdminOnly in nav.ts): "Take case" / "Release case" and the per-row Severity select. Staff-only rather than permission-gated for the same reason the routes are — `messages:read` is held by ordinary members in every tenant, and this surface spans all of them. Severity re-ranking is deliberately NOT offered to the tenant: they choose it at open, so a tenant-settable re-rank would let them pick the response target they are owed.',
   }),
   'plugin DELETE /plugins/queue/dlq': { category: 'sysadmin-console', why: '"Purge DLQ" on pages/dashboard/build-queue.tsx, wrapped in a `plugin_queue:manage` check matching the route.' },
-  ...group('plugin', ['POST /plugins/queue/dlq/:jobId/replay', 'POST /plugins/queue/failed/:jobId/retry'], {
-    category: 'sysadmin-console',
-    why: '"Replay" / "Retry" on pages/dashboard/build-queue.tsx (and triage.tsx). The routes ask for plugins:write; the UI requires system admin, who holds it — see KNOWN_UI_GATE_MISMATCHES for the org-admin direction.',
-  }),
   'quota PUT /quotas/:orgId': { category: 'sysadmin-console', why: '"Save" in src/components/quotas/QuotasAdmin.tsx, rendered only when the viewer holds `quotas:manage` (the `canEditQuotas` prop). Note the PAGE gate is quotas:read — the control-level check is what matches the route.' },
   'quota POST /quotas/:orgId/reset': {
     category: 'sysadmin-console',
     why: '"Reset usage counters" on pages/dashboard/quotas.tsx → QuotasAdmin.tsx (step-up dialog as the confirm + api.resetOrgQuota with its token); systemAdmin + step-up.',
   },
-  'platform POST /users': { category: 'sysadmin-console', why: '"Add user" on pages/dashboard/users.tsx. The route asks for members:manage; the page is systemAdminOnly — see KNOWN_UI_GATE_MISMATCHES.' },
+  'platform POST /users': { category: 'sysadmin-console', why: '"Add user" on pages/dashboard/users.tsx (systemAdminOnly). The route table lists members:manage, but createUserByAdmin (platform/src/controllers/user-admin.ts) refuses anyone who is not a system admin — the same gate as the page.' },
   'platform POST /admin/orgs/:orgId/kms-config/test': { category: 'sysadmin-console', why: '"Test" in src/components/admin/OrgKmsConfigModal.tsx, opened from the sysadmin org pages behind `can(\'org_kms:write\')` — the same gate the route carries.' },
   'platform PUT /organization/:id/seat-limit': { category: 'sysadmin-console', why: '"Set limit" in src/components/admin/org-detail/OrgSeatsCard.tsx on the systemAdminOnly org drill-down; the handler admits only a service principal or a system admin.' },
   ...group('platform', [
@@ -3093,10 +3128,11 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
   ...group('platform', [
     'PATCH /organization/:id/domains/:domainId', 'DELETE /organization/:id/domains/:domainId',
     'POST /organization/:id/domains/:domainId/verify', 'POST /organization/:id/join-requests/:reqId/:decision',
+    'DELETE /organization/:id/join-requests/:reqId',
   ], {
     category: 'same-control',
     coveredBy: 'Edit organization identity / AI settings',
-    why: 'src/components/settings/DomainJoinSettings.tsx (verify, who-can-join select, delete domain, approve/deny a join request). It has no internal check: its mount site is `{can(\'org_settings:write\') && …}` in pages/dashboard/settings.tsx — the gate the mapped row renders with and without.',
+    why: 'src/components/settings/DomainJoinSettings.tsx (verify, who-can-join select, delete domain) and the JoinRequestsPanel it renders (approve/deny a pending join request, "Clear denial" on the Denied tab). It has no internal check: its mount site is `{can(\'org_settings:write\') && …}` in pages/dashboard/settings.tsx — the gate the mapped row renders with and without.',
   }),
   'platform PUT /organization/ai-config': { category: 'same-control', coveredBy: 'Edit organization identity / AI settings', why: 'src/components/settings/AIProviderConfig.tsx, mounted with `canEdit={can(\'org_settings:write\')}`: the provider-key add/update/remove AND the org\'s "AI features" switch (aiEnabled), which is disabled without that permission. Every write is additionally step-up gated (StepUpModal before the PUT).' },
   'platform PATCH /organization/:id/transfer-owner': { category: 'same-control', coveredBy: "Change a member's role / remove a member", why: 'Transfer ownership on the Members page; owner-gated + step-up on an MFA-grade session.' },
@@ -3124,6 +3160,7 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
 
   // ── No UI reaches these at all (see docs/testing.md → "Write routes with
   //    no UI caller"). Each is a CLI / CDK / unattended-machine surface.
+  'platform GET /organization/:id/support-usage': { category: 'no-ui', why: 'Pooled support-contact usage at the account root (`{ supportContacts, supportPremiumContacts }` each `{ limit, used }`) for BILLING: api/billing/src/helpers/downstream-client.ts `fetchSupportUsage` feeds the add-on over-cap guard and the entitlement-drift reconciler. Gate (in the controller, like seat-usage) is a service principal or canAdministerOrg; the dashboard shows contacts on the support settings, not this count.' },
   'platform POST /auth/device/code': { category: 'no-ui', why: 'Device-authorization grant START — issued to the CLI (packages/pipeline-manager/src/utils/device-auth.ts), not a browser. The dashboard only drives the human half (GET /auth/device/authorize, approve, deny).' },
   'platform POST /auth/device/token': { category: 'no-ui', why: 'Device-grant token POLL — the CLI polls it (packages/pipeline-manager/src/utils/device-auth.ts, `pollDeviceToken`); no frontend reference exists.' },
   'platform POST /auth/token/exchange': { category: 'no-ui', why: 'Service-account token exchange; a machine surface with no frontend reference (api.generateNewToken is a different route).' },
@@ -3217,11 +3254,10 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
  * it costs".
  */
 const KNOWN_UI_GATE_MISMATCHES: Record<string, string> = {
+  // Accepted (2026-11-13 triage): instantiate only RENDERS props; the flow it
+  // starts ends in createPipeline (pipelines:write), so gating the button on the
+  // write is what keeps a templates:read-only viewer out of a dead end.
   'pipeline POST /pipeline-templates/:id/instantiate': 'DIFFERENT: "Use template" is disabled unless `can(\'pipelines:write\')`, but the route requires templates:read. Defensible (it creates a pipeline) yet the two gates are unrelated ids.',
-  'platform POST /users': 'STRICTER: the route requires members:manage, the only UI is the systemAdminOnly users page — so an org admin holding members:manage has no UI path to create a user.',
-  'plugin POST /plugins/queue/dlq/:jobId/replay': 'STRICTER: route requires plugins:write; the only UI is the systemAdminOnly build-queue / triage pages.',
-  'plugin POST /plugins/queue/failed/:jobId/retry': 'STRICTER: route requires plugins:write; the only UI is the systemAdminOnly build-queue page.',
-  'quota PUT /quotas/:orgId': 'MIXED: the route is systemAdmin, the control checks isSuperAdmin — but the PAGE gate is quotas:read, so the page loads for anyone holding it and only the in-component check hides the editor.',
 };
 
 // ── Shared lookups ─────────────────────────────────────────────────────────
@@ -3689,7 +3725,14 @@ describe('known UI ↔ route gate mismatches', () => {
     // 9 -> 5: the four image-registry rows went away when the registry page
     // stopped gating on the superadmin flag and each control took the rung its
     // route actually asks for.
-    expect(Object.keys(KNOWN_UI_GATE_MISMATCHES)).toHaveLength(5);
+    // 5 -> 3 (2026-11-13): `POST /users` was never reachable by an org admin —
+    // its handler refuses anyone but a system admin, which is exactly the page's
+    // gate — and `PUT /quotas/:orgId`'s Save now checks `quotas:manage`, the
+    // route's own permission.
+    // 3 -> 1 (2026-11-13): the queue retry / replay routes gained the org-facing
+    // "Failed builds" tab on the plugins page, gated on plugins:write like the
+    // routes themselves, so they are no longer reachable only by an operator.
+    expect(Object.keys(KNOWN_UI_GATE_MISMATCHES)).toHaveLength(1);
   });
 });
 

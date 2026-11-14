@@ -149,6 +149,7 @@ export function releaseActionAvailability(r: Pick<ToolchainConsoleRelease, 'stat
     setDefault: live && r.status !== 'default' && r.complete,
     canary: live && r.status !== 'default',
     deprecate: live && r.status !== 'default',
+    undeprecate: r.status === 'deprecated',
     yank: r.status !== 'yanked',
     delete: r.status !== 'default',
   };

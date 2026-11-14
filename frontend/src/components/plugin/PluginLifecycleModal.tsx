@@ -16,7 +16,7 @@ import { InfoAlert } from '@/components/ui/InfoAlert';
 import { TOOLCHAIN_CONSOLE_HREF } from '@/lib/toolchain-console';
 
 /** Which version-lifecycle action the dialog confirms. */
-export type PluginLifecycleAction = 'deprecate' | 'undeprecate' | 'yank';
+export type PluginLifecycleAction = 'deprecate' | 'undeprecate' | 'yank' | 'unyank';
 
 /** Max length of a deprecation message / yank reason (server: 500). */
 export const LIFECYCLE_TEXT_MAX = 500;
@@ -63,13 +63,14 @@ export function isManagedToolchainVersion(p: { name?: string | null }): boolean 
 }
 
 /**
- * The actions a writer may take on a version's lifecycle: a yanked
- * version is final here, so it offers none; a managed toolchain version is
- * the Toolchain console's, so it offers none either; otherwise deprecate or
- * clear it, and yank.
+ * The actions a writer may take on a version's lifecycle: a managed toolchain
+ * version is the Toolchain console's, so it offers none; a yanked version
+ * offers only unyank (its deprecation is kept through the yank and comes back
+ * with it); otherwise deprecate or clear it, and yank.
  */
 export function lifecycleActionsFor(p: Pick<PluginSummary, 'yankedAt' | 'deprecatedAt'> & { name?: string | null }): PluginLifecycleAction[] {
-  if (isYanked(p) || isManagedToolchainVersion(p)) return [];
+  if (isManagedToolchainVersion(p)) return [];
+  if (isYanked(p)) return ['unyank'];
   return [isDeprecated(p) ? 'undeprecate' : 'deprecate', 'yank'];
 }
 
@@ -77,14 +78,30 @@ const COPY: Record<PluginLifecycleAction, { title: string; confirm: string; done
   deprecate: { title: 'Deprecate version', confirm: 'Deprecate', done: 'Version deprecated', failed: 'Failed to deprecate version' },
   undeprecate: { title: 'Clear deprecation', confirm: 'Clear deprecation', done: 'Deprecation cleared', failed: 'Failed to clear deprecation' },
   yank: { title: 'Yank version', confirm: 'Yank', done: 'Version yanked', failed: 'Failed to yank version' },
+  unyank: { title: 'Unyank version', confirm: 'Unyank', done: 'Version unyanked', failed: 'Failed to unyank version' },
 };
 
 /**
+ * The unyank refusals worth more than the server's sentence: a version
+ * published to the ecosystem is unyanked through the ecosystem, and a version
+ * someone else already unyanked just needs a refresh.
+ */
+function unyankError(err: unknown): string | null {
+  const code = (err as { code?: string } | null)?.code;
+  if (code === 'PLUGIN_VERSION_FROZEN') {
+    return 'This version is published to the ecosystem — request the unyank from its ecosystem listing instead.';
+  }
+  if (code === 'CONFLICT') return 'This version is no longer yanked — refresh the list.';
+  return null;
+}
+
+/**
  * Confirm a version-lifecycle action and run it: deprecate (with an optional
- * message for users), clear a deprecation, or yank (with a required reason).
+ * message for users), clear a deprecation, yank (with a required reason), or
+ * unyank (optional reason).
  * The server enforces the same gates as edit (`plugins:write`, `plugins:publish`
  * for a public version); a version published to the ecosystem refuses a yank
- * with 409, surfaced here as the error.
+ * or an unyank with 409, surfaced here as the error.
  */
 export function PluginLifecycleModal({ plugin, action, onClose, onDone, canOperateToolchain = false }: {
   plugin: PluginSummary;
@@ -115,6 +132,9 @@ export function PluginLifecycleModal({ plugin, action, onClose, onDone, canOpera
         const res = await api.yankPlugin(plugin.id, trimmed);
         const promoted = res.data?.promotedDefault;
         toast.success(promoted ? `${copy.done}; ${plugin.name}@${promoted.version} is now the default` : copy.done);
+      } else if (action === 'unyank') {
+        await api.unyankPlugin(plugin.id, trimmed || undefined);
+        toast.success(copy.done);
       } else if (action === 'deprecate') {
         await api.deprecatePlugin(plugin.id, trimmed ? { deprecated: true, message: trimmed } : { deprecated: true });
         toast.success(copy.done);
@@ -125,7 +145,7 @@ export function PluginLifecycleModal({ plugin, action, onClose, onDone, canOpera
       onDone();
       onClose();
     } catch (err) {
-      setError(formatError(err, copy.failed));
+      setError((action === 'unyank' ? unyankError(err) : null) ?? formatError(err, copy.failed));
     } finally {
       setLoading(false);
     }
@@ -163,12 +183,19 @@ export function PluginLifecycleModal({ plugin, action, onClose, onDone, canOpera
         <p>
           <strong className="text-fg">{ref}</strong> stops resolving for version ranges, <code>latest</code> and the
           default. Pipelines pinned to exactly this version still resolve it, with a warning showing your reason.
-          {plugin.isDefault ? ' The next version becomes the default.' : ''} This cannot be undone here.
+          {plugin.isDefault ? ' The next version becomes the default.' : ''} You can unyank it later from this list.
+        </p>
+      )}
+      {action === 'unyank' && (
+        <p>
+          <strong className="text-fg">{ref}</strong> resolves for version ranges and <code>latest</code> again
+          {plugin.deprecatedAt ? ', still marked deprecated' : ''}. It does not become the default again — set that
+          separately if you want it back.
         </p>
       )}
       {action !== 'undeprecate' && (
         <FormField
-          label={action === 'yank' ? 'Reason' : 'Message for users (optional)'}
+          label={action === 'yank' ? 'Reason' : action === 'unyank' ? 'Reason (optional, kept in the audit trail)' : 'Message for users (optional)'}
           required={action === 'yank'}
           error={error ?? undefined}
         >
@@ -177,7 +204,7 @@ export function PluginLifecycleModal({ plugin, action, onClose, onDone, canOpera
             maxLength={LIFECYCLE_TEXT_MAX}
             value={text}
             onChange={(e) => setText(e.target.value)}
-            placeholder={action === 'yank' ? 'e.g. Leaks credentials in build logs; use 1.2.1' : 'e.g. Use 2.x — 1.x is no longer maintained'}
+            placeholder={action === 'yank' ? 'e.g. Leaks credentials in build logs; use 1.2.1' : action === 'unyank' ? 'e.g. Yanked by mistake' : 'e.g. Use 2.x — 1.x is no longer maintained'}
           />
         </FormField>
       )}

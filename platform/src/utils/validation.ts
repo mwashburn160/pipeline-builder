@@ -2,11 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { DEFAULT_TIER, STANDARD_TIERS, TOKEN_SCOPES, sendError, type QuotaTier } from '@pipeline-builder/api-core';
+import { ORG_ROLES } from '@pipeline-builder/api-core/wire-vocabulary';
 import type { Response } from 'express';
 import { z } from 'zod';
 import { EMAIL_PATTERN } from './email-address.js';
 import { config } from '../config/index.js';
-import { ORG_ROLES } from '@pipeline-builder/api-core/wire-vocabulary';
 import { GRANTABLE_ORG_ROLES } from '../constants/member-roles.js';
 import { PASSWORD_MAX_LENGTH, PASSWORD_RULES } from '../constants/password.js';
 import { DOMAIN_JOIN_MODES, IMPERSONATION_POLICIES, INVITATION_TYPES } from '../constants/vocabulary.js';
@@ -134,6 +134,18 @@ export const updateProfileSchema = z.object({
 });
 
 /** Password change request schema. */
+/** POST /auth/password/reset-request — the address to send a reset link to. */
+export const passwordResetRequestSchema = z.object({
+  email: z.string().min(3).max(320),
+}).strict();
+
+/** POST /auth/password/reset — the emailed token plus the new password (platform
+ *  rules here; the org minimum and the breach check run in the service). */
+export const passwordResetSchema = z.object({
+  token: z.string().regex(/^[0-9a-f]{64}$/, 'Invalid reset token'),
+  newPassword: passwordSchema,
+}).strict();
+
 export const changePasswordSchema = z.object({
   currentPassword: z.string().min(1),
   newPassword: passwordSchema,

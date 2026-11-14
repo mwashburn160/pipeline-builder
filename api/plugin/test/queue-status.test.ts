@@ -22,6 +22,11 @@ const mockDlqGetJobs = jest.fn<AnyFn>();
 // single-tier handle so the existing single-mock assertions still hold.
 const mockTierQueue = { name: 'plugin-build', getJobCounts: mockGetJobCounts, getJobs: mockGetJobs };
 const mockPurgeDlq = jest.fn<AnyFn>();
+const mockFindFailedJob = jest.fn<AnyFn>();
+const mockDlqGetJob = jest.fn<AnyFn>();
+const mockRetryFailedJob = jest.fn<AnyFn>();
+const mockReplayDlqJob = jest.fn<AnyFn>();
+const mockRecordAuthzDenial = jest.fn<AnyFn>();
 jest.unstable_mockModule('../src/queue/connections.js', () => ({
   // EVERY export `slot-manager` reaches for, which these route suites now pull
   // in transitively. A hand-rolled factory replaces the WHOLE namespace, so an
@@ -39,15 +44,15 @@ jest.unstable_mockModule('../src/queue/connections.js', () => ({
     hdel: async () => 0,
   }),
   getAllTierQueues: () => [{ tier: 'developer', queue: mockTierQueue }],
-  getDeadLetterQueue: () => ({ getJobCounts: mockDlqGetJobCounts, getJobs: mockDlqGetJobs }),
-  findFailedJob: jest.fn<AnyFn>(),
+  getDeadLetterQueue: () => ({ getJobCounts: mockDlqGetJobCounts, getJobs: mockDlqGetJobs, getJob: mockDlqGetJob }),
+  findFailedJob: mockFindFailedJob,
 }));
 jest.unstable_mockModule('../src/queue/plugin-build-dlq.js', () => ({
   purgeDlq: mockPurgeDlq,
 }));
 jest.unstable_mockModule('../src/queue/requeue.js', () => ({
-  replayDlqJob: jest.fn<AnyFn>(),
-  retryFailedJob: jest.fn<AnyFn>(),
+  replayDlqJob: mockReplayDlqJob,
+  retryFailedJob: mockRetryFailedJob,
 }));
 
 const mockEmitPluginAudit = jest.fn<AnyFn>();
@@ -58,6 +63,7 @@ const mockQuotaService = { getTier: jest.fn<AnyFn>().mockResolvedValue('develope
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   recordAudit: mockEmitPluginAudit,
+  recordAuthzDenial: mockRecordAuthzDenial,
   isSystemAdmin: jest.fn<AnyFn>(),
   // The cross-org widening (`seesEveryOrg`): system org + plugin_queue:manage.
   isSystemOrgRequest: jest.fn<AnyFn>(),
@@ -321,6 +327,42 @@ describe('queue-status route', () => {
       expect(mockGetJobs).not.toHaveBeenCalled();
       const payload = (json.mock.calls[0])?.[0];
       expect(payload.statusCode).toBe(403);
+    });
+  });
+
+  // I2: another org's job answered 403 while a missing one answered 404, and
+  // BullMQ ids are sequential — so a tenant could probe which ids exist. Now
+  // both read as 404, and the cross-org attempt reaches `authz.denied`.
+  describe('retry / replay of another org\'s job', () => {
+    async function post(path: string, jobId: string) {
+      const handler = getRouteHandler(path);
+      const json = jest.fn<AnyFn>();
+      const res = { status: jest.fn<AnyFn>().mockReturnValue({ json }), json } as any;
+      const req = { ...makeReq('admin', 'org-1'), method: 'POST', params: { jobId } };
+      await handler(req, res, jest.fn<AnyFn>());
+      return (json.mock.calls[0] as any[])[0];
+    }
+
+    beforeEach(() => {
+      (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(false);
+      (isSystemOrgRequest as jest.Mock<AnyFn>).mockReturnValue(false);
+    });
+
+    it.each([
+      ['/failed/:jobId/retry', () => mockFindFailedJob, () => mockRetryFailedJob],
+      ['/dlq/:jobId/replay', () => mockDlqGetJob, () => mockReplayDlqJob],
+    ])('%s answers 404 (like a missing job), records the denial and re-runs nothing', async (path, lookup, rerun) => {
+      lookup().mockResolvedValueOnce({ id: '42', data: { orgId: 'org-other', pluginRecord: { name: 'x' } } });
+      const foreign = await post(path, '42');
+      lookup().mockResolvedValueOnce(null);
+      const missing = await post(path, '43');
+
+      expect(foreign.statusCode).toBe(404);
+      expect(missing.statusCode).toBe(404);
+      expect(mockRecordAuthzDenial).toHaveBeenCalledTimes(1);
+      expect(mockRecordAuthzDenial).toHaveBeenCalledWith(expect.anything(), 'job-owned-by-caller-org');
+      expect(rerun()).not.toHaveBeenCalled();
+      expect(mockEmitPluginAudit).not.toHaveBeenCalled();
     });
   });
 

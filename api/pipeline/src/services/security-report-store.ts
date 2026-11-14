@@ -45,16 +45,31 @@ export interface StoredSecurityReport {
 
 export type SecurityReportInput = Omit<StoredSecurityReport, 'id' | 'createdAt'>;
 
+/** A stored report without its findings — what a roll-up that only sums counts reads. */
+export type SecurityReportSummary = Omit<StoredSecurityReport, 'findings'>;
+
 export interface SecurityReportStore {
   /** Replace the slot's report; returns the stored row. */
   put(input: SecurityReportInput): Promise<StoredSecurityReport>;
   /** The latest report per (tool, stage) of each pipeline, newest first. */
   latest(orgId: string, pipelineIds: readonly string[]): Promise<StoredSecurityReport[]>;
+  /**
+   * {@link latest} WITHOUT the `findings` jsonb — the scorecard roll-up reads up
+   * to a page of pipelines and only sums counts, so it must not pull every
+   * report's findings off disk to throw them away.
+   */
+  latestSummaries(orgId: string, pipelineIds: readonly string[]): Promise<SecurityReportSummary[]>;
+  /**
+   * Remove one (tool, stage) slot of a pipeline — a scanner the pipeline no
+   * longer runs, or a renamed stage, whose last counts would otherwise feed the
+   * scorecard forever. Returns the removed row, or null when there was none.
+   */
+  remove(orgId: string, pipelineId: string, tool: string, stage: string): Promise<SecurityReportSummary | null>;
 }
 
 const num = (v: unknown): number => (typeof v === 'number' ? v : Number(v ?? 0) || 0);
 
-function toStored(r: Record<string, unknown>): StoredSecurityReport {
+function toSummary(r: Record<string, unknown>): SecurityReportSummary {
   return {
     id: String(r.id),
     orgId: String(r.org_id),
@@ -72,12 +87,20 @@ function toStored(r: Record<string, unknown>): StoredSecurityReport {
       criticalFixable: num(r.critical_fixable),
       highFixable: num(r.high_fixable),
     },
-    findings: (Array.isArray(r.findings) ? r.findings : []) as ArtifactFinding[],
     truncated: r.truncated === true,
     submittedBy: String(r.submitted_by),
     createdAt: r.created_at instanceof Date ? r.created_at : new Date(String(r.created_at)),
   };
 }
+
+function toStored(r: Record<string, unknown>): StoredSecurityReport {
+  return { ...toSummary(r), findings: (Array.isArray(r.findings) ? r.findings : []) as ArtifactFinding[] };
+}
+
+/** Every column but `findings` (the summary read). */
+const SUMMARY_COLUMNS = sql.raw(`id, org_id, pipeline_id, tool, format, stage, execution_id,
+  critical_count, high_count, medium_count, low_count, kev_count, critical_fixable, high_fixable,
+  truncated, submitted_by, created_at`);
 
 const rowsOf = (result: unknown): Array<Record<string, unknown>> =>
   (Array.isArray(result) ? result : ((result as { rows?: unknown[] })?.rows ?? [])) as Array<Record<string, unknown>>;
@@ -115,6 +138,26 @@ export const drizzleSecurityReportStore: SecurityReportStore = {
     `));
     return rowsOf(result).map(toStored);
   },
+
+  async latestSummaries(orgId, pipelineIds) {
+    if (pipelineIds.length === 0) return [];
+    const result = await withTenantTx((tx) => tx.execute(sql`
+      SELECT ${SUMMARY_COLUMNS} FROM pipeline_security_reports
+      WHERE org_id = ${orgId} AND pipeline_id IN (${sql.join(pipelineIds.map((id) => sql`${id}`), sql`, `)})
+      ORDER BY created_at DESC
+    `));
+    return rowsOf(result).map(toSummary);
+  },
+
+  async remove(orgId, pipelineId, tool, stage) {
+    const result = await withTenantTx((tx) => tx.execute(sql`
+      DELETE FROM pipeline_security_reports
+      WHERE org_id = ${orgId} AND pipeline_id = ${pipelineId} AND tool = ${tool} AND stage = ${stage}
+      RETURNING ${SUMMARY_COLUMNS}
+    `));
+    const row = rowsOf(result)[0];
+    return row ? toSummary(row) : null;
+  },
 };
 
 let store: SecurityReportStore = drizzleSecurityReportStore;
@@ -144,11 +187,22 @@ export function memorySecurityReportStore(): SecurityReportStore & { rows: Store
     async latest(orgId, pipelineIds) {
       return rows.filter((r) => r.orgId === orgId && pipelineIds.includes(r.pipelineId));
     },
+    async latestSummaries(orgId, pipelineIds) {
+      return rows
+        .filter((r) => r.orgId === orgId && pipelineIds.includes(r.pipelineId))
+        .map(({ findings: _findings, ...summary }) => summary);
+    },
+    async remove(orgId, pipelineId, tool, stage) {
+      const i = rows.findIndex((r) => r.orgId === orgId && r.pipelineId === pipelineId && r.tool === tool && r.stage === stage);
+      if (i < 0) return null;
+      const [{ findings: _findings, ...summary }] = rows.splice(i, 1) as [StoredSecurityReport];
+      return summary;
+    },
   };
 }
 
 /** Roll-up of a pipeline's latest reports: summed counts, and the reports' freshest time. */
-export function summarizeReports(reports: readonly StoredSecurityReport[]): { counts: SeverityCounts; reports: number; latestAt: Date | null } {
+export function summarizeReports(reports: readonly SecurityReportSummary[]): { counts: SeverityCounts; reports: number; latestAt: Date | null } {
   const counts: SeverityCounts = { critical: 0, high: 0, medium: 0, low: 0, kev: 0, criticalFixable: 0, highFixable: 0 };
   let latestAt: Date | null = null;
   for (const r of reports) {

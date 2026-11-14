@@ -17,10 +17,6 @@ export const observabilityLogsTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "<!-- Copyright 2026 Pipeline Builder Contributors SPDX-License-Identifier: Apache-2.0 -->"
-        },
-        {
-          "type": "text",
           "content": "Application logs from every Pipeline Builder service, searchable in the dashboard at Deliver → Logs (/dashboard/logs)."
         }
       ]

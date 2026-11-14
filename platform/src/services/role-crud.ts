@@ -409,12 +409,18 @@ export async function assertNotLastPrivilegedMember(
   session: mongoose.ClientSession,
   userId: UserId,
   roleId?: string | mongoose.Types.ObjectId,
+  /** Orgs being deleted along with the user (account deletion by a sole owner):
+   *  their Roles can't be left "locked out" — nobody is left to lock out. */
+  ignoreOrgIds: readonly mongoose.Types.ObjectId[] = [],
 ): Promise<void> {
   const held = await RoleAssignment.find(roleId === undefined ? { userId } : { userId, roleId })
     .select('roleId').session(session).lean();
   if (held.length === 0) return;
-  const privileged = await Role.find({ _id: { $in: held.map((a) => a.roleId) }, grantsRole: { $ne: 'member' } })
-    .select('_id').session(session).lean();
+  const privileged = await Role.find({
+    _id: { $in: held.map((a) => a.roleId) },
+    grantsRole: { $ne: 'member' },
+    ...(ignoreOrgIds.length > 0 ? { organizationId: { $nin: ignoreOrgIds } } : {}),
+  }).select('_id').session(session).lean();
   if (privileged.length === 0) return;
   const counts = await RoleAssignment.aggregate<{ _id: unknown; members: number }>([
     { $match: { roleId: { $in: privileged.map((r) => r._id) } } },

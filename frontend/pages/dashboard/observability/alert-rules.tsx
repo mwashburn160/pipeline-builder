@@ -73,6 +73,7 @@ export default function AlertRulesPage() {
       return (await api.listAlertRules({ offset: page.offset, limit: page.limit }, { signal })).data ?? null;
     },
     [ready, page.offset, page.limit],
+    { keepPreviousData: true },
   );
   const rules: AlertRule[] = data?.rules ?? [];
   // A delete can empty the last page; `withTotal` applies THE clamp rule, so the

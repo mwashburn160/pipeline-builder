@@ -71,8 +71,11 @@ export const STORAGE_BREAKDOWN_PATH = '/storage-breakdown';
  * measured by walking `listTags` → manifest → blobs (see `storage-usage.ts`), so
  * usage is REFERENCE-based, not disk-based: the moment the tag is gone its
  * layers leave the org's total, and the cap stops refusing pushes. Reclaiming
- * the bytes ON DISK is a separate, operator-driven `garbage-collect` — as this
- * service's own GC notes record — and nothing a tenant action should trigger.
+ * the bytes ON DISK is the registry's own `garbage-collect` (the scheduled
+ * `registry-blob-gc` job) — and nothing a tenant action should trigger. That
+ * job runs WITHOUT `--delete-untagged`, precisely so the manifest this route
+ * untags stays pullable by digest; its bytes are reclaimed only once the
+ * manifest itself is deleted (the age GC, an org teardown).
  *
  * So this route deliberately does NOT run GC. Driving a namespace GC from a
  * tenant request would move a destructive registry-wide operation inside the

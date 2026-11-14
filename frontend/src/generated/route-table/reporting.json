@@ -2126,6 +2126,42 @@
   },
   {
     "method": "POST",
+    "path": "/reports/stakeholder/runs/:id/redeliver",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "reports:publish"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "dynamicAuthz": [],
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [
+      "stakeholder_reports"
+    ],
+    "scopes": [],
+    "audit": [
+      "reporting.report.redelivered"
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
+  },
+  {
+    "method": "POST",
     "path": "/reports/stakeholder/runs/:id/summary",
     "auth": true,
     "permissions": [

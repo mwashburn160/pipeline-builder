@@ -1,6 +1,6 @@
 // GENERATED FROM docs/billing-discounts.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: d3fd603ee04cdde48911f4a239dabb4c9761882034b0a0ece81a5fcddd33ecd7
+// SOURCE-SHA256: ed404747d5eaaf39075a6797cfb3356cb7017845d8e678dc2e4757abda7642da
 // SPDX-License-Identifier: Apache-2.0
 import { BadgePercent } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -15,10 +15,6 @@ export const billingDiscountsTopic: HelpTopic = {
       "id": "overview",
       "title": "Overview",
       "blocks": [
-        {
-          "type": "text",
-          "content": "<!-- Copyright 2026 Pipeline Builder Contributors SPDX-License-Identifier: Apache-2.0 -->"
-        },
         {
           "type": "text",
           "content": "Price-only adjustments an operator grants on top of an account's subscription: a temporary reduction (one-time or recurring) or a standing balance, both realized as a usage credit that offsets future costs."
@@ -645,7 +641,7 @@ export const billingDiscountsTopic: HelpTopic = {
               "PUT",
               "/admin/campaigns/:id",
               "system admin",
-              "Edit, or end with isActive: false (a budget below committed spend is refused)"
+              "Edit, or end with isActive: false (a budget below committed spend is refused); null for budgetCents / startsAt / endsAt clears it (unlimited budget, window open on that side)"
             ],
             [
               "POST",

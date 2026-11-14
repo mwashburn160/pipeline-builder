@@ -65,10 +65,11 @@ export default function ScanManager({ onViewScan, readOnly = false }: ScanManage
 
 
 
-  const handleTrigger = async (target: 'plugin' | 'pipeline' | 'all') => {
+  const handleTrigger = async (target: 'plugin' | 'pipeline' | 'all', dryRun = false) => {
     setTriggering(true);
     try {
-      await api.triggerScan(target);
+      await api.triggerScan(target, dryRun ? { dryRun: true } : undefined);
+      if (dryRun) toast.success('Dry run started — it evaluates everything against the current rules without blocking or notifying.');
       fetchScans();
     } catch (err) {
       toast.error(formatError(err, 'Failed to trigger scan'));
@@ -105,7 +106,17 @@ export default function ScanManager({ onViewScan, readOnly = false }: ScanManage
         );
       },
     },
-    { id: 'target', header: 'Target', cellClassName: 'text-sm text-fg-muted', render: (scan) => scan.target },
+    {
+      id: 'target', header: 'Target', cellClassName: 'text-sm text-fg-muted',
+      render: (scan) => (
+        <span className="inline-flex items-center gap-2">
+          {scan.target}
+          {scan.triggeredBy === 'rule-dry-run' && (
+            <span title="Evaluated without blocking or notifying"><Badge color="gray">dry run</Badge></span>
+          )}
+        </span>
+      ),
+    },
     {
       id: 'progress',
       header: 'Progress',
@@ -172,6 +183,10 @@ export default function ScanManager({ onViewScan, readOnly = false }: ScanManage
             </Button>
             <Button variant="indigo" size="sm" onClick={() => handleTrigger('all')} disabled={triggering} className="gap-1.5">
               <Play className="h-3 w-3" /> Scan All
+            </Button>
+            <Button variant="secondary" size="sm" onClick={() => handleTrigger('all', true)} disabled={triggering}
+              title="Evaluate every plugin and pipeline against the current rules without blocking or notifying">
+              Preview (dry run)
             </Button>
           </div>
         )}

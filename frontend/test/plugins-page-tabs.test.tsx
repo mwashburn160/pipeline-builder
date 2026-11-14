@@ -38,6 +38,8 @@ const api = {
   getPluginCatalog: jest.fn<AnyFn>(),
   getInstallPolicy: jest.fn<AnyFn>(),
   listPluginInstalls: jest.fn<AnyFn>(),
+  getQueueFailed: jest.fn<AnyFn>(),
+  getQueueDlq: jest.fn<AnyFn>(),
 };
 jest.mock('@/lib/api', () => ({ __esModule: true, default: new Proxy({}, { get: (_t, k: string) => (api as Record<string, unknown>)[k] }) }));
 
@@ -56,6 +58,8 @@ beforeEach(() => {
   api.listVulnWaivers.mockReturnValue(ok({ waivers: [] }));
   api.getInstallPolicy.mockReturnValue(ok({ policy: POLICY, effective: POLICY, inheritsFromRoot: false, updatedBy: null, updatedAt: null, canEdit: false }));
   api.listPluginInstalls.mockReturnValue(ok({ installs: [], policy: POLICY }));
+  api.getQueueFailed.mockReturnValue(ok({ jobs: [], pagination: { limit: 25, offset: 0, hasMore: false } }));
+  api.getQueueDlq.mockReturnValue(ok({ jobs: [], pagination: { limit: 25, offset: 0, hasMore: false } }));
 });
 
 it('flags an own plugin that shadows an Official listing', async () => {
@@ -84,4 +88,22 @@ it('shows Approvals only with plugin_installs:manage, and switches tabs through 
   // The own-plugin list isn't fetched while another tab is open.
   await waitFor(() => expect(api.getInstallPolicy).toHaveBeenCalled());
   expect(api.listPlugins).not.toHaveBeenCalled();
+});
+
+it('shows Failed builds only with plugins:write, and a hand-edited ?tab=failed without it lands on My plugins', async () => {
+  mockAuthGuard({ user: { id: 'u1', organizationId: 'org-1' }, can: (p: string) => p === 'plugins:read' });
+  mockRouter.query = { tab: 'failed' };
+  const { unmount } = render(<PluginsPage />);
+  expect(screen.queryByRole('tab', { name: 'Failed builds' })).toBeNull();
+  expect(screen.queryByTestId('org-failed-builds')).toBeNull();
+  await waitFor(() => expect(api.listPlugins).toHaveBeenCalled());
+  expect(api.getQueueFailed).not.toHaveBeenCalled();
+  unmount();
+
+  mockAuthGuard({ user: { id: 'u1', organizationId: 'org-1' }, can: (p: string) => ['plugins:read', 'plugins:write'].includes(p) });
+  render(<PluginsPage />);
+  expect(screen.getByRole('tab', { name: 'Failed builds' })).toBeInTheDocument();
+  expect(await screen.findByTestId('org-failed-builds')).toHaveTextContent("your organization's");
+  await waitFor(() => expect(api.getQueueFailed).toHaveBeenCalled());
+  expect(api.getQueueDlq).toHaveBeenCalled();
 });

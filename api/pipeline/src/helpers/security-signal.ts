@@ -10,7 +10,7 @@
 
 import { openExposures } from '@pipeline-builder/pipeline-data';
 import { NO_SECURITY_SIGNAL, type ScorecardSecurityInput } from './scorecard.js';
-import { securityReportStore, summarizeReports, type StoredSecurityReport } from '../services/security-report-store.js';
+import { securityReportStore, summarizeReports, type SecurityReportSummary } from '../services/security-report-store.js';
 
 /** KEV-listed findings among an exposure's stored top findings. */
 function kevIn(findings: ReadonlyArray<Record<string, unknown>>): number {
@@ -44,8 +44,9 @@ export async function securitySignals(
   }
 
   try {
-    const byPipeline = new Map<string, StoredSecurityReport[]>();
-    for (const r of await securityReportStore().latest(orgId, pipelineIds)) {
+    const byPipeline = new Map<string, SecurityReportSummary[]>();
+    // Counts only: the roll-up never reads a finding, so it never loads them.
+    for (const r of await securityReportStore().latestSummaries(orgId, pipelineIds)) {
       byPipeline.set(r.pipelineId, [...(byPipeline.get(r.pipelineId) ?? []), r]);
     }
     for (const [id, reports] of byPipeline) {

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createLogger } from '@pipeline-builder/api-core';
+import { isAdminOrgRole, type OrgRole } from '@pipeline-builder/api-core/wire-vocabulary';
 import { Types } from 'mongoose';
 import type { RoleAssignmentActor } from './role-authority.js';
 import { RL_ROLE_NOT_FOUND } from './roles-errors.js';
@@ -9,7 +10,6 @@ import { assertActorMayAssignBuiltinAdmin, assignBuiltinAdminRole, ensureBaselin
 import { deleteUserCascade } from './user-cascade.js';
 import { anonymizeUserEcosystemContent } from './user-ecosystem-privacy.js';
 import { UA_USER_NOT_FOUND, UA_USERNAME_TAKEN, UA_EMAIL_TAKEN, UA_ORG_NOT_FOUND, UA_CANNOT_CHANGE_OWNER, UA_SEAT_LIMIT, UA_ROLES_NEED_ORG } from './user-errors.js';
-import { isAdminOrgRole, type OrgRole } from '@pipeline-builder/api-core/wire-vocabulary';
 import { loadActiveOrgInfo } from '../helpers/active-org-info.js';
 import { toOrgId } from '../helpers/org-id.js';
 import { assertNewPasswordAcceptable } from '../helpers/password-policy.js';
@@ -441,9 +441,17 @@ class UserAdminService {
     // it immediately. Unconditional + idempotent (best-effort): a no-bump edit
     // just re-publishes the unchanged version.
     await publishUserRevocation(String(updatedUser._id));
+    // A password reset is a HARD revocation: access keys don't follow
+    // `tokenVersion`, so revoke them explicitly (post-commit — the transaction
+    // body may retry).
+    // (Lazily imported: the key service drags in the token-signing graph,
+    // which no other branch here needs.)
+    const accessKeysRevoked = changes.includes('password')
+      ? await (await import('./api-key-service.js')).apiKeyService.revokeAllForUser(String(updatedUser._id))
+      : 0;
 
     const { organizationName, activeOrgRole } = await loadActiveOrgInfo(updatedUser._id, updatedUser.lastActiveOrgId?.toString());
-    return { user: updatedUser, changes, organizationName, activeOrgRole };
+    return { user: updatedUser, changes, organizationName, activeOrgRole, accessKeysRevoked };
   }
 
   /**

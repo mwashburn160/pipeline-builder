@@ -81,7 +81,7 @@ jest.unstable_mockModule('../src/services/report-runner.js', () => ({
 }));
 
 jest.unstable_mockModule('../src/services/report-delivery.js', () => ({
-  deliverPublishedRun: (...a: unknown[]) => mockDeliver(...a),
+  deliverAndRecord: (...a: unknown[]) => mockDeliver(...a),
   notifyReadyForReview: (...a: unknown[]) => mockReadyForReview(...a),
   notifyRunFailed: (...a: unknown[]) => mockRunFailed(...a),
   notifyPaused: (...a: unknown[]) => mockPaused(...a),
@@ -310,8 +310,10 @@ describe('running a definition', () => {
     // Published AS THE OWNER: the run had no caller, and attributing it to the person
     // who chose auto-send is the only honest answer.
     expect(store.publishRun).toHaveBeenCalledWith('acme', 'run-1', 'user-lead');
+    // Delivered through deliver-and-record, which writes the outcome onto the run and
+    // notifies the lead on a failure — the same single path a manual publish takes.
     expect(mockDeliver).toHaveBeenCalledTimes(1);
-    expect(store.recordDelivery).toHaveBeenCalledTimes(1);
+    expect(mockDeliver.mock.calls[0]?.[1]).toMatchObject({ id: 'run-1' });
     expect(mockReadyForReview).not.toHaveBeenCalled();
   });
 

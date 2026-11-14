@@ -85,11 +85,23 @@ export const submissions = {
     elevated(async (tx) => { await tx.delete(S()).where(eq(S().id, id)); }),
 };
 
-/** Who owns a community listing: the email hash of its first approved submission (null once purged). */
+/**
+ * Who owns a community listing: the email hash on its NEWEST approved
+ * submission that still carries one, or null when every one has been purged.
+ *
+ * Only the owner's submissions are ever approved for a non-empty listing, so
+ * every approved row carries the same hash; the newest is the one the 90-day
+ * purge (`email_purge_after`) reaches LAST. Reading the earliest instead lost
+ * the owner 90 days after the FIRST approval, however recently they had
+ * published — so each new version keeps ownership for another 90 days, and a
+ * listing nobody has published to for 90 days has no recorded owner (it is
+ * then taken, and a claim goes to the moderators without an email match).
+ */
 export async function listingOwnerHash(listingId: string): Promise<string | null> {
-  const approved = (await submissions.list({ listingId, statuses: ['approved', 'claimed'] }))
-    .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
-  return approved[0]?.emailHash ?? null;
+  const newest = (await submissions.list({ listingId, statuses: ['approved', 'claimed'] }))
+    .filter((s) => s.emailHash)
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  return newest[0]?.emailHash ?? null;
 }
 
 /** How many of the most-installed listings the confusable-name check compares against. */

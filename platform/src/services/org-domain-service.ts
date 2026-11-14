@@ -4,10 +4,10 @@
 import crypto from 'crypto';
 import { promises as dns } from 'dns';
 import { createLogger, SYSTEM_ACTOR_ID, SYSTEM_ORG_ID, TIER_FEATURES, type QuotaTier } from '@pipeline-builder/api-core';
+import { ADMIN_ORG_ROLES } from '@pipeline-builder/api-core/wire-vocabulary';
 import { Types, isValidObjectId, type QueryFilter } from 'mongoose';
 import { DOMAIN_TAKEN, DOMAIN_NOT_FOUND, DOMAIN_NOT_VERIFIED, DOMAIN_VERIFY_FAILED, DOMAIN_NOT_ENTITLED, DOMAIN_LIMIT, DOMAIN_PUBLIC, JOIN_NOT_ELIGIBLE, JOIN_SEAT_LIMIT, JOIN_REQUEST_NOT_FOUND, JOIN_REQUESTER_GONE } from './org-domain-errors.js';
 import { ensureBaselineRole } from './roles-service.js';
-import { ADMIN_ORG_ROLES } from '@pipeline-builder/api-core/wire-vocabulary';
 import type { DomainJoinMode } from '../constants/vocabulary.js';
 import { resolveOrgLineage } from '../helpers/org-hierarchy.js';
 import { toOrgId } from '../helpers/org-id.js';
@@ -24,6 +24,9 @@ const JOIN_MEMBERSHIP_REVOKED = 'JOIN_MEMBERSHIP_REVOKED';
 
 /** Max domains an org may register (abuse / squatting bound). */
 const MAX_DOMAINS_PER_ORG = 20;
+
+/** A pending join request nobody acts on for this long is removed (the person may ask again). */
+export const JOIN_REQUEST_PENDING_TTL_MS = 30 * 86_400_000;
 /** Bound on the ownership DNS lookup so a slow/hostile resolver can't hang the request. */
 const DNS_TIMEOUT_MS = 4000;
 /** Well-known consumer/freemail domains that must never be usable for domain-join
@@ -457,8 +460,66 @@ class OrgDomainService {
     return { joined: false, status: 'requested' };
   }
 
-  listJoinRequests(orgId: string, status: 'pending' | 'approved' | 'denied' = 'pending') {
-    return JoinRequest.find({ organizationId: orgId, status }).sort({ createdAt: -1 }).lean();
+  /** One page of an org's join requests in `status`, newest first. `hasMore` says another page exists. */
+  async listJoinRequests(
+    orgId: string,
+    status: 'pending' | 'approved' | 'denied' = 'pending',
+    page: { limit: number; offset: number } = { limit: 100, offset: 0 },
+  ) {
+    const rows = await JoinRequest.find({ organizationId: orgId, status })
+      .sort({ createdAt: -1, _id: -1 })
+      .skip(page.offset)
+      .limit(page.limit + 1)
+      .lean();
+    return { requests: rows.slice(0, page.limit), hasMore: rows.length > page.limit };
+  }
+
+  /**
+   * Clear a DENIED request so the person may ask again. A denial is sticky for
+   * the requester (anti-harassment) — this is the admin's way to lift it.
+   * Returns the requester's user id. JOIN_REQUEST_NOT_FOUND unless the request
+   * exists in this org AND is denied.
+   */
+  async resetDeniedJoinRequest(orgId: string, requestId: string): Promise<{ userId: string }> {
+    if (!isValidObjectId(requestId)) throw new Error(JOIN_REQUEST_NOT_FOUND);
+    const removed = await JoinRequest.findOneAndDelete({ _id: requestId, organizationId: orgId, status: 'denied' }).lean();
+    if (!removed) throw new Error(JOIN_REQUEST_NOT_FOUND);
+    return { userId: String(removed.userId) };
+  }
+
+  /** The requester withdraws their own PENDING request to `orgId`. JOIN_REQUEST_NOT_FOUND when there is none. */
+  async withdrawJoinRequest(userId: Types.ObjectId | string, orgId: string): Promise<void> {
+    if (!isValidObjectId(orgId)) throw new Error(JOIN_REQUEST_NOT_FOUND);
+    const removed = await JoinRequest.findOneAndDelete({ organizationId: orgId, userId, status: 'pending' }).lean();
+    if (!removed) throw new Error(JOIN_REQUEST_NOT_FOUND);
+  }
+
+  /**
+   * Remove PENDING requests nobody has acted on for {@link JOIN_REQUEST_PENDING_TTL_MS}
+   * (the requester may simply ask again), auditing each as `org.join.expire`
+   * against its org. Returns how many were removed. Throws on a database
+   * error, so the sweep that runs it records the failure.
+   */
+  async expireStaleJoinRequests(now: Date = new Date()): Promise<number> {
+    const cutoff = new Date(now.getTime() - JOIN_REQUEST_PENDING_TTL_MS);
+    const stale = await JoinRequest.find({ status: 'pending', updatedAt: { $lte: cutoff } })
+      .select('_id organizationId userId email').limit(500).lean();
+    if (stale.length === 0) return 0;
+    const res = await JoinRequest.deleteMany({ _id: { $in: stale.map((r) => r._id) }, status: 'pending' });
+    const { recordAuditEvent } = await import('../helpers/audit.js');
+    for (const r of stale) {
+      recordAuditEvent({
+        action: 'org.join.expire',
+        actorId: SYSTEM_ACTOR_ID,
+        orgId: SYSTEM_ORG_ID,
+        affectedOrgId: String(r.organizationId),
+        targetType: 'user',
+        targetId: String(r.userId),
+        outcome: 'success',
+        details: { email: r.email, reason: 'join-request-expiry' },
+      });
+    }
+    return res.deletedCount ?? 0;
   }
 
   /** Approve (→ create membership) or deny a pending join request. */

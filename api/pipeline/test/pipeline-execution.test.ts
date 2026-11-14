@@ -83,8 +83,9 @@ const mockCtxLog = jest.fn<AnyFn>();
 // apiCalls metering lives on the '/pipelines' prefix mount (app-routes.ts), not
 // on this router — the real-table quota coverage test in route-coverage.test.ts
 // is the assertion that the trigger is metered once.
+const mockIncCounter = jest.fn<AnyFn>();
 jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
-  incCounter: () => undefined,
+  incCounter: (...a: unknown[]) => mockIncCounter(...a),
   // Auth + orgId chain the execution routes now spread in per-route (the write
   // permission guard moved off the shared '/pipelines' mount). No-op here — the
   // suite drives the withRoute handler directly.
@@ -340,6 +341,19 @@ describe('pipeline execution write routes', () => {
       targetId: 'exec-9',
       details: { pipelineId: 'p-1', reason: 'not_stoppable' },
     }));
+  });
+
+  it('stop: counts a stop that did not happen as outcome stop_failed (and a real stop as stopped)', async () => {
+    mockSend.mockRejectedValueOnce(awsError('PipelineExecutionNotStoppableException'));
+    const res = { status: jest.fn<AnyFn>().mockReturnThis(), json: jest.fn<AnyFn>() };
+    await stopHandler()({ params: { pipelineId: 'p-1', executionId: 'exec-9' }, body: {} }, res);
+    expect(mockIncCounter).toHaveBeenCalledWith('pipeline_executions_total', { outcome: 'stop_failed', org_id: 'acme' });
+
+    mockIncCounter.mockClear();
+    mockSend.mockResolvedValueOnce({});
+    await stopHandler()({ params: { pipelineId: 'p-1', executionId: 'exec-9' }, body: {} }, res);
+    expect(mockIncCounter).toHaveBeenCalledWith('pipeline_executions_total', { outcome: 'stopped', org_id: 'acme' });
+    expect(mockIncCounter).not.toHaveBeenCalledWith('pipeline_executions_total', expect.objectContaining({ outcome: 'stop_failed' }));
   });
 
   it('stop: PipelineExecutionNotStoppableException → 409', async () => {

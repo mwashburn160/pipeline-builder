@@ -1,6 +1,6 @@
 // GENERATED FROM docs/developer-guide.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 23c28bee327cf214d90e5c78e5df06212f0c1ab20b607af2497d8524734e44df
+// SOURCE-SHA256: 30e1422347e0a222a0d1d282e956e85b4d5299acf342c519a4e9367c9de73064
 // SPDX-License-Identifier: Apache-2.0
 import { Code2 } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -15,10 +15,6 @@ export const developerGuideTopic: HelpTopic = {
       "id": "overview",
       "title": "Overview",
       "blocks": [
-        {
-          "type": "text",
-          "content": "<!-- Copyright 2026 Pipeline Builder Contributors SPDX-License-Identifier: Apache-2.0 -->"
-        },
         {
           "type": "text",
           "content": "Practical workflows for developers building pipelines, with copy-paste blocks for common stacks."
@@ -332,7 +328,7 @@ export const developerGuideTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "Pipeline Builder ships with 119 plugins across 10 categories. Every plugin runs as an isolated container step inside AWS CodePipeline, so build environments are reproducible and secrets never leak into image layers. See the Plugin Catalog Overview for the full index."
+          "content": "Pipeline Builder ships with 118 plugins across 10 categories. Every plugin runs as an isolated container step inside AWS CodePipeline, so build environments are reproducible and secrets never leak into image layers. See the Plugin Catalog Overview for the full index."
         },
         {
           "type": "text",

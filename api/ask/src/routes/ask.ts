@@ -438,6 +438,10 @@ export function createAskRoutes(quotaService: QuotaService): Router {
       logger.error('Ask how-to stream failed', { requestId: ctx.requestId, error: errorMessage(error) });
       const kept = providerContacted || errorSaysProviderContacted(error);
       recordAi('howto-stream', { provider: served?.provider, model: served?.modelId }, 'error', startedAt);
+      // Whatever the provider reported before failing (a how-to answer is ONE
+      // step, so there is no per-step usage to sum — a call cut off mid-stream
+      // reports none, and nothing is invented in its place).
+      recordAiTokens('howto-stream', { provider: served?.provider, keySource: served?.keySource, tier: req.user?.tier }, tokenUsage(usage));
       aiSlot?.reportUsage(tokenUsage(usage));
       auditAskQuery(userId, orgId, {
         queryLength: query.length,

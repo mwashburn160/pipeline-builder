@@ -207,6 +207,12 @@ export default function LogsPage() {
           message="Log backend unavailable — Loki is not reachable (this deployment may be running in LEAN mode, which omits it)."
         />
       )}
+      {(data?.tenantsTruncated || volume?.tenantsTruncated) && (
+        <WarningAlert
+          className="mb-4"
+          message="Showing the first 99 organizations only — a log query reads at most 100 tenants (one is platform infrastructure). Pick specific organizations to see the rest."
+        />
+      )}
       {served?.clamped && (
         <WarningAlert
           className="mb-4"

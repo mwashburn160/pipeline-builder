@@ -119,7 +119,7 @@ export default function TemplatesPage() {
     const res = await api.listPipelineTemplates({ limit: String(page.limit), offset: String(page.offset), includeTotal: 'true' });
     if (!res.success || !res.data) throw new Error('Failed to load templates');
     return res.data;
-  }, [isReady, page.offset, page.limit]);
+  }, [isReady, page.offset, page.limit], { keepPreviousData: true });
   const templates: PipelineTemplate[] = data?.templates ?? [];
   const total = data?.pagination?.total ?? templates.length;
   const error = fetchError ? formatError(fetchError, 'Failed to load templates') : null;

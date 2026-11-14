@@ -6,6 +6,7 @@
  * webhook relay endpoint.
  *
  *   GET    /api/observability/alert-destinations          — list this org's destinations
+ *                                                           (each with `delivery`: last outcome, or null)
  *   GET    /api/observability/alert-destinations/deleted  — restorable tombstones
  *   POST   /api/observability/alert-destinations          — create
  *   PUT    /api/observability/alert-destinations/:id      — update
@@ -26,13 +27,14 @@
  */
 
 import { assertSafeUrl, createLogger, errorMessage, sendError, sendSuccess, isSystemAdmin } from '@pipeline-builder/api-core';
+import { ALERT_CHANNELS, type AlertChannel } from '@pipeline-builder/api-core/wire-vocabulary';
 import { runWithTenantContext } from '@pipeline-builder/pipeline-data';
 import { config } from '../config/index.js';
-import { ALERT_CHANNELS, type AlertChannel } from '@pipeline-builder/api-core/wire-vocabulary';
 import { authenticateAlertmanager } from '../helpers/alertmanager-auth.js';
 import { audit } from '../helpers/audit.js';
 import { forbid, requireAuthContext, requireOrgMembership, withController } from '../helpers/controller-helper.js';
 import { releaseFeatureQuota, withFeatureQuota } from '../middleware/quota.js';
+import { deliveryStatusesFor, type DeliveryStatusView } from '../services/alert-delivery-status.js';
 import { alertDestinationService, DestinationNotFoundError, toApiDestination } from '../services/alert-destination-service.js';
 import { relayWebhook, type AlertmanagerWebhook } from '../services/alert-relay.js';
 import { isValidEmail } from '../utils/email-address.js';
@@ -113,8 +115,16 @@ export const listAlertDestinations = withController('List alert destinations', a
   if (!orgId) return;
 
   const destinations = await alertDestinationService.listForOrg(orgId);
+  // Each destination's last delivery outcome, so a revoked webhook shows as
+  // failing instead of as silence. A status read failure must not hide the list.
+  const statuses = await deliveryStatusesFor(destinations.map((d) => d.id)).catch((err) => {
+    logger.warn('Alert destination status read failed', { orgId, error: errorMessage(err) });
+    return new Map<string, DeliveryStatusView>();
+  });
   // Mask the target field on read — Slack URLs are bearer-equivalent.
-  sendSuccess(res, 200, { destinations: destinations.map(toApiDestination) });
+  sendSuccess(res, 200, {
+    destinations: destinations.map((d) => ({ ...toApiDestination(d), delivery: statuses.get(d.id) ?? null })),
+  });
 });
 
 /**

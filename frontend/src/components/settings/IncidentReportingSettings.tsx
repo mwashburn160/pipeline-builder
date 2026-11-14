@@ -238,6 +238,7 @@ export function IncidentReportingSettings({ readOnly }: { readOnly: boolean }) {
       throw new Error('Failed to load incidents');
     },
     [incidentOffset],
+    { keepPreviousData: true },
   );
   const incidents: IncidentListItem[] = incidentPage?.incidents ?? [];
   const incidentsHasMore = incidentPage?.pagination.hasMore ?? false;

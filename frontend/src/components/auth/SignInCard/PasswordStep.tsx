@@ -1,6 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import Link from 'next/link';
 import { Building2, Eye, EyeOff, LogIn } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -60,6 +61,18 @@ export function PasswordStep({ flow }: { flow: SignInFlow }) {
             >
               {showPassword ? <EyeOff className="w-4 h-4" aria-hidden="true" /> : <Eye className="w-4 h-4" aria-hidden="true" />}
             </button>
+          </div>
+          <div className="flex justify-end -mt-1">
+            {/* What was typed travels along only when it is an email — the
+                reset request takes an address, not a username. */}
+            <Link
+              href={identifier.includes('@')
+                ? { pathname: '/auth/forgot-password', query: { email: identifier.trim() } }
+                : '/auth/forgot-password'}
+              className="text-xs text-fg-muted hover:text-fg underline-offset-2 hover:underline"
+            >
+              Forgot password?
+            </Link>
           </div>
           <Button type="submit" fullWidth disabled={isSubmitting} className="text-sm">
             {isSubmitting

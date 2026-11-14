@@ -5,6 +5,7 @@ import { useState } from 'react';
 import { StickyNote, Trash2 } from 'lucide-react';
 import { SectionCard } from '@/components/ui/SectionCard';
 import { Button } from '@/components/ui/Button';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Input } from '@/components/ui/Input';
 import { Textarea } from '@/components/ui/Textarea';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
@@ -46,6 +47,8 @@ export function CannedResponseManager() {
   const [editing, setEditing] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState('');
+  /** The reply a Retire click is asking about — retiring is one-way. */
+  const [retiring, setRetiring] = useState<CannedResponse | null>(null);
 
   const templates = useFetch(async () => {
     const res = await api.getCannedResponses();
@@ -126,7 +129,7 @@ export function CannedResponseManager() {
                   variant="secondary"
                   size="sm"
                   disabled={busy !== null}
-                  onClick={() => run(t.id, () => api.deleteCannedResponse(t.id))}
+                  onClick={() => setRetiring(t)}
                   aria-label={`Retire ${t.title}`}
                 >
                   <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
@@ -167,6 +170,24 @@ export function CannedResponseManager() {
           </div>
         </div>
       </div>
+      {retiring && (
+        <ConfirmDialog
+          title="Retire this canned reply?"
+          confirmLabel="Retire reply"
+          tone="danger"
+          loading={busy !== null}
+          onConfirm={() => {
+            const target = retiring;
+            void run(target.id, () => api.deleteCannedResponse(target.id)).finally(() => setRetiring(null));
+          }}
+          onCancel={() => setRetiring(null)}
+        >
+          <p className="text-sm text-fg-muted">
+            <strong className="text-fg">{retiring.title}</strong> disappears from every reply box&apos;s picker
+            for the whole desk. Replies already sent with it are not affected.
+          </p>
+        </ConfirmDialog>
+      )}
     </SectionCard>
   );
 }

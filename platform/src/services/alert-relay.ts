@@ -2,11 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createLogger, errorMessage } from '@pipeline-builder/api-core';
+import type { AlertRuleSeverity } from '@pipeline-builder/api-core/wire-vocabulary';
 import { schema } from '@pipeline-builder/pipeline-data';
+import { recordDeliveryOutcome } from './alert-delivery-status.js';
 import { alertDestinationService } from './alert-destination-service.js';
 import { getNotificationChannel, plainTextBody, severityToPriority, subjectLine, toAlertSeverity, type AlertNotification } from './notification-channels.js';
 import { config } from '../config/index.js';
-import type { AlertRuleSeverity } from '@pipeline-builder/api-core/wire-vocabulary';
 import { incCounter } from '../observability/metrics.js';
 
 type OrgAlertDestination = typeof schema.orgAlertDestination.$inferSelect;
@@ -142,6 +143,7 @@ async function deliverOne(d: OrgAlertDestination, alert: Alert): Promise<Deliver
   if (!channel) {
     logger.warn('Unknown alert destination channel', { destinationId: d.id, channel: d.channel });
     incCounter('alert_notification_delivery', { channel: d.channel, result: 'failed' });
+    await recordDeliveryOutcome(d, { ok: false, kind: 'unknown-channel' });
     return 'failed';
   }
 
@@ -164,14 +166,20 @@ async function deliverOne(d: OrgAlertDestination, alert: Alert): Promise<Deliver
       });
     }
     incCounter('alert_notification_delivery', { channel: d.channel, result });
+    // The org sees its own destination's health (a skip is not an attempt).
+    if (result !== 'skipped') {
+      await recordDeliveryOutcome(d, result === 'delivered' ? { ok: true } : { ok: false, kind: 'rejected' });
+    }
     return result;
   } catch (err) {
-    if ((err as { name?: string }).name === 'AbortError') {
+    const timedOut = (err as { name?: string }).name === 'AbortError';
+    if (timedOut) {
       logger.warn('Destination delivery timed out', { destinationId: d.id, timeoutMs: DELIVERY_TIMEOUT_MS });
     } else {
       logger.warn('Destination delivery failed', { destinationId: d.id, error: errorMessage(err) });
     }
     incCounter('alert_notification_delivery', { channel: d.channel, result: 'failed' });
+    await recordDeliveryOutcome(d, { ok: false, kind: timedOut ? 'timeout' : 'unreachable' });
     return 'failed';
   } finally {
     clearTimeout(timer);

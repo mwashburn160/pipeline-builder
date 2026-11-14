@@ -1796,6 +1796,116 @@
     }
    },
    "description": "The fraction of terminal CodeBuild actions whose consumption could actually be measured. READ THIS BEFORE the panel beside it: AWS does not always send a `start-time`, and the forwarder refuses to invent a duration from the event time (doing so once reported every stage as 0ms and dragged every average toward zero). So a real fraction of actions arrive unmeasurable, and a tier ladder priced off the credits series before this ratio is known would be priced off an unknown denominator."
+  },
+  {
+   "id": 46,
+   "type": "row",
+   "title": "Ask agent — what one turn may spend, and what it refused",
+   "collapsed": false,
+   "gridPos": {
+    "x": 0,
+    "y": 147,
+    "w": 24,
+    "h": 1
+   },
+   "panels": []
+  },
+  {
+   "id": 47,
+   "type": "timeseries",
+   "title": "Ask tool generations: charged vs refused by the turn budget",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${datasource}"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 148,
+    "w": 12,
+    "h": 8
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${datasource}"
+     },
+     "expr": "sum by (tool) (rate(ai_tool_generation_charged_total[15m]))",
+     "legendFormat": "charged {{tool}}"
+    },
+    {
+     "refId": "B",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${datasource}"
+     },
+     "expr": "sum by (tool) (rate(ask_turn_generation_budget_refused_total[15m]))",
+     "legendFormat": "budget refused {{tool}}"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short"
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "description": "Each in-process tool generation (propose_template) reserves its OWN aiCalls slot on top of the turn's — `charged` counts those. The delegated generators (propose_pipeline/propose_plugin and their from-repo forms) are charged by the pipeline and plugin services. `budget refused` is a generating tool declining because its turn already started ASK_MAX_TURN_GENERATIONS generations: occasional refusals are a user asking for many drafts at once; a steady stream is a prompt that loops on drafting."
+  },
+  {
+   "id": 48,
+   "type": "timeseries",
+   "title": "Ask proposals: fields refused as off-allowlist",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${datasource}"
+   },
+   "gridPos": {
+    "x": 12,
+    "y": 148,
+    "w": 12,
+    "h": 8
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${datasource}"
+     },
+     "expr": "sum by (tool) (increase(ask_proposal_refused_fields_total[15m]))",
+     "legendFormat": "{{tool}}"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short"
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "description": "Field names a propose_* tool refused because they are outside its allowlist. The prompt-injection signal: a legitimate user never produces one. Alerted as AskProposalRefusedFields; the turn's ask.agent.turn audit row names the fields."
   }
  ]
 }

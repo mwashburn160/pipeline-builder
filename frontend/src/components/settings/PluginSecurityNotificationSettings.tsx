@@ -118,13 +118,13 @@ export function PluginSecurityNotificationSettings({ orgId, canEdit, readOnly }:
   const read = useFetch(async (signal) => {
     const [prefRes, memberRes] = await Promise.all([
       api.getPluginSecurityNotifications({ signal }),
-      // The recipient picker needs the whole active roster (200 = the backend
-      // page cap). A roster failure leaves the picker empty but the card usable.
-      runQuery(queries.orgMembers(orgId, { limit: 200 }), { signal }).catch(() => null),
+      // The recipient picker needs the whole active roster, drained page by page.
+      // A roster failure leaves the picker empty but the card usable.
+      runQuery(queries.allOrgMembers(orgId, { status: 'active' }), { signal }).catch(() => null),
     ]);
     return {
       preferences: prefRes.data?.preferences ?? null,
-      members: memberRes?.data?.members?.filter((m) => m.isActive) ?? NO_MEMBERS,
+      members: memberRes?.filter((m) => m.isActive) ?? NO_MEMBERS,
     };
   }, [orgId], {
     onSuccess: (v) => { if (v.preferences) apply(v.preferences); },

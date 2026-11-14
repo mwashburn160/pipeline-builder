@@ -17,10 +17,6 @@ export const architectureFlowTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "<!-- Copyright 2026 Pipeline Builder Contributors SPDX-License-Identifier: Apache-2.0 -->"
-        },
-        {
-          "type": "text",
           "content": "How a pipeline gets from a definition in the UI to a running CodePipeline, traced end to end."
         }
       ]

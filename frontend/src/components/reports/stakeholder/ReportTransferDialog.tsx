@@ -51,12 +51,13 @@ export function ReportTransferDialog({
   const form = useFormState();
   const [ownerId, setOwnerId] = useState('');
 
-  // The active roster (200 = the backend's page cap). A roster failure leaves the
-  // picker empty and says so, rather than rendering a dialog that looks broken.
-  const roster = useFetch(async (signal) => {
-    const res = await runQuery(queries.orgMembers(orgId, { limit: 200, status: 'active' }), { signal });
-    return res?.data?.members ?? [];
-  }, [orgId]);
+  // The WHOLE active roster, drained page by page — one capped page left every
+  // member past it untransferable-to. A roster failure leaves the picker empty
+  // and says so, rather than rendering a dialog that looks broken.
+  const roster = useFetch(
+    (signal) => runQuery(queries.allOrgMembers(orgId, { status: 'active' }), { signal }),
+    [orgId],
+  );
 
   // The current owner is not a candidate — transferring to them is a no-op that
   // would still spend an audit event and still leave the report paused.

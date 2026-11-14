@@ -156,6 +156,29 @@ export interface ScorecardRollup {
    *  computed with no data. The roll-up degrades per row rather than failing
    *  the page, so this is how a partial result announces itself. */
   failed?: number;
+  /**
+   * The page this roll-up grades. Every stat above covers THIS page only;
+   * `nextOffset` (null on the last page) is the `offset` of the next one.
+   */
+  pagination: ScorecardRollupPagination;
+}
+
+/** Paging block of {@link ScorecardRollup}. `total` is absent when the count read was skipped. */
+export interface ScorecardRollupPagination {
+  offset: number;
+  limit: number;
+  total?: number;
+  hasMore: boolean;
+  nextOffset: number | null;
+}
+
+/** Query for GET /pipelines/scorecard — a page of the org's OWN pipelines, optionally narrowed. */
+export interface ScorecardRollupQuery {
+  offset?: number;
+  /** 1..50 (server cap); omitted = the server default (the cap). */
+  limit?: number;
+  project?: string;
+  pipelineName?: string;
 }
 
 /**

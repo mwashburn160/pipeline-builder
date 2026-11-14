@@ -38,7 +38,7 @@ It is multi-tenant from the ground up, which is what makes running many factorie
 
 ## At a Glance
 
-| 119 | 5 | 14 | 18 | 4 | 4 |
+| 118 | 5 | 14 | 18 | 4 | 4 |
 |:---:|:-:|:--:|:--:|:-:|:-:|
 | **Official plugins** in 10 categories | **interfaces** to build pipelines | **AI models** across 5 providers | **compliance operators** | **plugin trust tiers** | **deploy targets**, from laptop to EKS |
 
@@ -116,7 +116,7 @@ flowchart LR
 
 **Discover**
 - **Public directory**: `/plugins` has full-text search, facets, category pages, and a page per plugin with README, versions, SBOM, advisories, reviews, and health. Anyone can browse it without signing in, and sign-in is always one click away.
-- **119 Official plugins** in 10 categories (table below), maintained under the `pipeline-builder` publisher and available to every org by default.
+- **118 Official plugins** in 10 categories (table below), maintained under the `pipeline-builder` publisher and available to every org by default.
 
 **Trust tiers and governance**
 - **Four tiers**: **Official**, **Verified** (Team+ publishers with a verified domain and MFA), **Community** (any signed-in org), and **Unverified** (anonymous submissions).
@@ -357,7 +357,7 @@ The full docs hub is **[docs/](docs/README.md)**, grouped by task. For a term, s
 | [CDK Usage](docs/cdk-usage.md) | `PipelineBuilder` construct: sources, stages, VPC, IAM, secrets |
 | [Template Syntax](docs/templates.md) | `{{ .. }}` synth-time interpolation and golden-path templates |
 | [Metadata Keys](docs/metadata-keys.md) | Typed CodePipeline, CodeBuild, networking, and IAM configuration keys |
-| [Plugin Catalog](docs/plugins/README.md) | 119 Official plugins across 10 categories |
+| [Plugin Catalog](docs/plugins/README.md) | 118 Official plugins across 10 categories |
 | [Installing Plugins](docs/plugin-installing.md) | Trust tiers, installs, version policies, consumption policy, reviews |
 | [Publishing Plugins](docs/plugin-publishing.md) | Publisher profiles, publish requests, catalog metadata, pausing |
 | [Developer Portal](docs/developer-portal.md) | Catalog ownership, My Services, golden-path templates, maturity scorecards |

@@ -115,6 +115,16 @@ const DETAIL_TAB_IDS: readonly DetailTab[] = DETAIL_TABS.map((t) => t.id);
 export default function PipelineDetailPage() {
   const router = useRouter();
   const id = typeof router.query.id === 'string' ? router.query.id : '';
+  // Keyed by id: this page is reached by same-pathname navigation (⌘K jumps
+  // between pipelines), which does NOT remount it. Without the key every piece
+  // of state below — the loaded record, the runs list, an open delete/cancel
+  // dialog — would carry over from the previous pipeline, and its actions
+  // would split between the two (delete the old record, trigger the new id).
+  return <PipelineDetail key={id} id={id} />;
+}
+
+function PipelineDetail({ id }: { id: string }) {
+  const router = useRouter();
   const { accessDenied, isReady, user, isSuperAdmin, can } = useAuthGuard();
   const toast = useToast();
 
@@ -150,10 +160,10 @@ export default function PipelineDetailPage() {
 
   // Resolve owner/creator/updater user-ids → usernames (raw ids are unfriendly).
   // Non-blocking: falls back to the id if the roster can't be loaded.
-  const roster = useQuery(user?.organizationId ? queries.orgMembers(user.organizationId, { limit: 500 }) : null);
+  const roster = useQuery(user?.organizationId ? queries.allOrgMembers(user.organizationId) : null);
   const memberNames = useMemo(() => {
     const map: Record<string, string> = {};
-    for (const m of roster.data?.data?.members ?? []) map[m.id] = m.username;
+    for (const m of roster.data ?? []) map[m.id] = m.username;
     return map;
   }, [roster.data]);
 
@@ -162,28 +172,24 @@ export default function PipelineDetailPage() {
   // The registry endpoint is page-limited and has no per-pipeline filter, so
   // page through until this pipeline's row is found (early-exit) or the list is
   // drained — a single-page fetch would miss it in orgs with >200 deployments.
-  const deploymentQ = useFetch(async (signal): Promise<{ id: string; match: PipelineDeployment | null }> => {
-    if (!id) return { id, match: null };
+  const deploymentQ = useFetch(async (signal): Promise<{ match: PipelineDeployment | null }> => {
+    if (!id) return { match: null };
     try {
       for (let i = 0, offset = 0; i < REGISTRY_MAX_PAGES; i++) {
         const r = await api.listPipelineDeployments({ limit: REGISTRY_PAGE, offset }, { signal });
         if (!r.data) break;
         const rows = r.data.registry;
         const match = rows.find((d) => d.pipelineId === id);
-        if (match) return { id, match };
+        if (match) return { match };
         if (!r.data.pagination.hasMore || rows.length === 0) break;
         offset += rows.length;
       }
     } catch {
       /* non-blocking — card just won't render */
     }
-    return { id, match: null };
+    return { match: null };
   }, [id]);
-  // Keyed on the id it was read for: this page is reached by same-pathname
-  // navigation (⌘K jumps between pipelines), so the component is NOT remounted
-  // and the previous pipeline's card — and its "View stack in AWS" link — must
-  // not linger while the new id's lookup is in flight.
-  const deployment = deploymentQ.data?.id === id ? deploymentQ.data.match : null;
+  const deployment = deploymentQ.data?.match ?? null;
 
   // Per-pipeline execution history — list of recent runs from the reporting
   // service (the events the pipeline-events Lambda persists). The read is a
@@ -410,8 +416,16 @@ export default function PipelineDetailPage() {
         </Link>
       </div>
 
-      {fetchError && !pipeline && (
-        <RetryError message={formatError(fetchError, 'Failed to load pipeline')} onRetry={reloadPipeline} className="mb-4" />
+      {/* Never hidden behind a loaded copy: a failed reload says so, and the
+          copy below is labelled as the last one that loaded. */}
+      {fetchError && (
+        <RetryError
+          message={pipeline
+            ? `${formatError(fetchError, 'Failed to refresh pipeline')} — showing the last loaded copy.`
+            : formatError(fetchError, 'Failed to load pipeline')}
+          onRetry={reloadPipeline}
+          className="mb-4"
+        />
       )}
       <ErrorAlert message={actionError} onDismiss={() => setActionError(null)} />
 

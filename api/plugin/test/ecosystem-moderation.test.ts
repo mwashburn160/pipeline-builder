@@ -574,27 +574,47 @@ describe('auto-approval rule governance', () => {
   it('creates a rule DISABLED with its enable pending; only a different manager can apply it', async () => {
     const rule = await consoleSvc.createRule(MOD_A, { name: 'Verified patches', conditions });
     expect(rule).toMatchObject({ enabled: false, pendingChange: expect.objectContaining({ requestedBy: 'mod-a', enabled: true }) });
-    await rejects(consoleSvc.approveRuleChange(MOD_A, rule.id), 'SEPARATION_OF_DUTIES');
-    const applied = await consoleSvc.approveRuleChange(MOD_B, rule.id);
+    const reviewed = rule.pendingChange!.requestedAt;
+    await rejects(consoleSvc.approveRuleChange(MOD_A, rule.id, reviewed), 'SEPARATION_OF_DUTIES');
+    const applied = await consoleSvc.approveRuleChange(MOD_B, rule.id, reviewed);
     expect(applied).toMatchObject({ enabled: true, approvedBy: 'mod-b', pendingChange: null });
-    await rejects(consoleSvc.approveRuleChange(MOD_B, rule.id), 'CONFLICT');
+    await rejects(consoleSvc.approveRuleChange(MOD_B, rule.id, reviewed), 'CONFLICT');
     expect((await consoleSvc.listRules())).toHaveLength(1);
   });
 
   it('narrows at once (disable, tighter caps) but parks a widening for a second manager', async () => {
     const rule = await consoleSvc.createRule(MOD_A, { name: 'R', conditions });
-    await consoleSvc.approveRuleChange(MOD_B, rule.id);
+    await consoleSvc.approveRuleChange(MOD_B, rule.id, rule.pendingChange!.requestedAt);
     const off = await consoleSvc.updateRule(MOD_A, rule.id, { enabled: false });
     expect(off).toMatchObject({ enabled: false, pendingChange: null });
     const reEnable = await consoleSvc.updateRule(MOD_A, rule.id, { enabled: true });
     expect(reEnable.enabled).toBe(false);
     expect(reEnable.pendingChange).toMatchObject({ enabled: true });
-    await consoleSvc.approveRuleChange(MOD_B, rule.id);
+    await consoleSvc.approveRuleChange(MOD_B, rule.id, reEnable.pendingChange!.requestedAt);
     const widened = await consoleSvc.updateRule(MOD_A, rule.id, { conditions: { ...conditions, bumps: ['patch', 'minor'] }, name: 'R2' });
     expect(widened).toMatchObject({ name: 'R2', conditions: { bumps: ['patch'] }, pendingChange: expect.objectContaining({ conditions: expect.objectContaining({ bumps: ['patch', 'minor'] }) }) });
     await rejects(consoleSvc.updateRule(MOD_A, rule.id, { conditions: { requestKinds: [] } }), 'VALIDATION_ERROR');
     await rejects(consoleSvc.createRule(MOD_A, { name: '', conditions }), 'VALIDATION_ERROR');
     await rejects(consoleSvc.updateRule(MOD_A, 'nope', {}), 'NOT_FOUND');
+  });
+
+  // The second-approver race: the proposer replaced the pending change after
+  // the second manager had reviewed it, and approve applied the NEW one.
+  it('refuses (409) to apply a pending change other than the one the approver reviewed', async () => {
+    const rule = await consoleSvc.createRule(MOD_A, { name: 'R', conditions });
+    const reviewed = rule.pendingChange!.requestedAt;
+    await new Promise((r) => setTimeout(r, 5));
+    const swapped = await consoleSvc.updateRule(MOD_A, rule.id, { conditions: { ...conditions, bumps: ['patch', 'minor'] } });
+    expect(swapped.pendingChange!.requestedAt).not.toBe(reviewed);
+
+    const err = await rejects(consoleSvc.approveRuleChange(MOD_B, rule.id, reviewed), 'CONFLICT');
+    expect(err.details).toMatchObject({ reviewedRequestedAt: reviewed, currentRequestedAt: swapped.pendingChange!.requestedAt });
+    expect((await consoleSvc.listRules())[0]).toMatchObject({ enabled: false, conditions: { bumps: ['patch'] } });
+
+    await rejects(consoleSvc.approveRuleChange(MOD_B, rule.id, undefined), 'VALIDATION_ERROR');
+    const applied = await consoleSvc.approveRuleChange(MOD_B, rule.id, swapped.pendingChange!.requestedAt);
+    // The REVIEWED proposal is what lands (it widened the caps; the enable it replaced is gone).
+    expect(applied).toMatchObject({ enabled: false, approvedBy: 'mod-b', pendingChange: null, conditions: { bumps: ['patch', 'minor'] } });
   });
 
   it('deletes a rule, detaching the requests it approved', async () => {

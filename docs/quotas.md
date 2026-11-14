@@ -295,7 +295,7 @@ Crossing 80% and 100% of a budget sends one notice per quota per period to the a
 
 Both 429s carry `Retry-After` (time to the period reset) and `details.quota` (`limit` = the share or budget, `used`, `remaining`, `resetAt`). The two controls are soft pre-checks in front of the atomic counter reservation — two concurrent calls from one member at the edge of the share can both pass, but the account cap itself stays exact. A failed read of either fails open (`quota_ai_controls_fail_open_total`).
 
-**Size bounds.** Each unit's input is bounded, so a unit can't carry an unbounded bill: Ask's client-held `history` totals at most 32,000 characters (20 messages × 8,000 each), a refinement's `previousConfig` at most 64,000 serialized characters, and every model call is capped at `ASK_MAX_OUTPUT_TOKENS` / `AI_MAX_OUTPUT_TOKENS`.
+**Size bounds.** Each unit's input is bounded, so a unit can't carry an unbounded bill: Ask's client-held `history` totals at most 32,000 characters (20 messages × 8,000 each), a refinement's `previousConfig` at most 64,000 serialized characters, every model call is capped at `ASK_MAX_OUTPUT_TOKENS` / `AI_MAX_OUTPUT_TOKENS`, and one Ask agent turn may start at most `ASK_MAX_TURN_GENERATIONS` (default 2) generations that charge their own `aiCalls` slot.
 
 **Not metered, by design.** The CLI agent in `pipeline-manager` runs on the operator's own local provider keys and never calls the platform's AI routes. The Dockerfile-generating AI plugin runs inside the customer's CodeBuild on the customer's keys. Neither touches `aiCalls`.
 

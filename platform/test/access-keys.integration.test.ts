@@ -260,10 +260,20 @@ suite('access keys (real Mongo)', () => {
     const a = await createKey({ name: 'a' });
     const b = await createKey({ name: 'b' });
 
-    await apiKeyService.revokeAllForUser(userId);
+    // Returns the count, for the audit row of every hard revocation.
+    expect(await apiKeyService.revokeAllForUser(userId)).toBe(2);
+    expect(await apiKeyService.revokeAllForUser(userId)).toBe(0);
 
     expect((await apiKeyService.exchange(a.key)).ok).toBe(false);
     expect((await apiKeyService.exchange(b.key)).ok).toBe(false);
+  });
+
+  it('dead keys (revoked or expired) are TTL-removed 30 days later; live ones never', async () => {
+    await m.PersonalAccessToken.init();
+    const ttl = (await m.PersonalAccessToken.collection.indexes())
+      .filter((i: { expireAfterSeconds?: number }) => i.expireAfterSeconds !== undefined)
+      .map((i: { key: Record<string, number>; expireAfterSeconds: number }) => [Object.keys(i.key)[0], i.expireAfterSeconds]);
+    expect(ttl).toEqual(expect.arrayContaining([['revokedAt', 30 * 86_400], ['expiresAt', 30 * 86_400]]));
   });
 
   // -- Catalog-scoped keys ("Selected permissions") ---------------------------

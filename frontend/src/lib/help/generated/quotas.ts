@@ -1,6 +1,6 @@
 // GENERATED FROM docs/quotas.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 8efdfaf7669c44f70956d58cfc1e449d9eb467e350edf65eb0cfb3e5b5d11bc9
+// SOURCE-SHA256: d6e08ef52b8f719ef523c6ad9be41e867b6ab91b438eb06c3f9f99edf45ffb53
 // SPDX-License-Identifier: Apache-2.0
 import { Gauge } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -15,10 +15,6 @@ export const quotasTopic: HelpTopic = {
       "id": "overview",
       "title": "Overview",
       "blocks": [
-        {
-          "type": "text",
-          "content": "<!-- Copyright 2026 Pipeline Builder Contributors SPDX-License-Identifier: Apache-2.0 -->"
-        },
         {
           "type": "text",
           "content": "How every service meters and enforces the per-period call budgets — apiCalls for people, automationCalls for automation — which routes count, which deliberately don't, and what a client sees when a budget runs out."
@@ -632,7 +628,7 @@ export const quotasTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Size bounds. Each unit's input is bounded, so a unit can't carry an unbounded bill: Ask's client-held history totals at most 32,000 characters (20 messages × 8,000 each), a refinement's previousConfig at most 64,000 serialized characters, and every model call is capped at ASK_MAX_OUTPUT_TOKENS / AI_MAX_OUTPUT_TOKENS."
+          "content": "Size bounds. Each unit's input is bounded, so a unit can't carry an unbounded bill: Ask's client-held history totals at most 32,000 characters (20 messages × 8,000 each), a refinement's previousConfig at most 64,000 serialized characters, every model call is capped at ASK_MAX_OUTPUT_TOKENS / AI_MAX_OUTPUT_TOKENS, and one Ask agent turn may start at most ASK_MAX_TURN_GENERATIONS (default 2) generations that charge their own aiCalls slot."
         },
         {
           "type": "text",

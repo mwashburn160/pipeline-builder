@@ -40,6 +40,7 @@ import { InstallsTab } from '@/components/plugin-installs/InstallsTab';
 import { ApprovalsTab } from '@/components/plugin-installs/ApprovalsTab';
 import { PolicyTab } from '@/components/plugin-installs/PolicyTab';
 import { AdvisorySearchPanel } from '@/components/plugin/AdvisorySearchPanel';
+import { OrgFailedBuildsPanel } from '@/components/plugin/OrgFailedBuildsPanel';
 import { PluginInUseModal, pluginInUseRefusal, type PluginInUseRefusal } from '@/components/plugin/PluginInUseModal';
 import { invalidate } from '@/lib/api-cache';
 import { isSystemOrgActive } from '@/lib/ecosystem-access';
@@ -54,7 +55,7 @@ const RecentlyDeletedPanel = dynamic(() => import('@/components/RecentlyDeletedP
 const LIST_FIELDS = PLUGIN_LIST_FIELDS.join(',');
 
 /** Page tabs (`?tab=`): the org's own plugins, then the ecosystem side. */
-const PAGE_TABS = ['mine', 'catalog', 'installs', 'approvals', 'policy', 'vulnerabilities'] as const;
+const PAGE_TABS = ['mine', 'catalog', 'installs', 'approvals', 'policy', 'vulnerabilities', 'failed'] as const;
 type PageTab = typeof PAGE_TABS[number];
 
 // ─── Page ───────────────────────────────────────────────
@@ -83,14 +84,15 @@ export default function PluginsPage() {
   const router = useRouter();
   const [urlTab, setTab] = useUrlTab<PageTab>('tab', PAGE_TABS, 'mine');
   // Approvals is an approver's surface; a hand-edited URL can't open it.
-  const tab: PageTab = urlTab === 'approvals' && !canManageInstalls ? 'mine' : urlTab;
+  // Failed builds: the queue routes need plugins:write (and scope a tenant to its own org's jobs).
+  const tab: PageTab = (urlTab === 'approvals' && !canManageInstalls) || (urlTab === 'failed' && !canWrite) ? 'mine' : urlTab;
   // `useUrlTab` adopts `?tab=` in an effect, so the first render still says
   // "mine". The own-plugin list (and its URL write-back, which replaces the
   // whole query) must not start until the URL agrees, or it drops `?tab=`.
   const queryTab = typeof router.query.tab === 'string' ? router.query.tab : undefined;
   const mineActive = tab === 'mine'
     && (!queryTab || queryTab === 'mine' || !(PAGE_TABS as readonly string[]).includes(queryTab)
-      || (queryTab === 'approvals' && !canManageInstalls));
+      || (queryTab === 'approvals' && !canManageInstalls) || (queryTab === 'failed' && !canWrite));
   // Batch activate/deactivate/delete is a tier-gated feature: the backend
   // attaches `requireFeature('bulk_operations')` to the bulk routes, so without
   // the flag every bulk action 403s. The backend ALSO gates bulk delete/update
@@ -425,6 +427,7 @@ export default function PluginsPage() {
             ...(canManageInstalls ? [{ id: 'approvals', label: 'Approvals' }] : []),
             { id: 'policy', label: 'Policy' },
             { id: 'vulnerabilities', label: 'Vulnerability search' },
+            ...(canWrite ? [{ id: 'failed', label: 'Failed builds' }] : []),
           ]}
           activeId={tab}
           onSelect={(id) => setTab(id as PageTab)}
@@ -441,6 +444,9 @@ export default function PluginsPage() {
         {tab === 'approvals' && canManageInstalls && <ApprovalsTab />}
         {tab === 'policy' && <PolicyTab canManage={canManageInstalls} />}
         {tab === 'vulnerabilities' && <AdvisorySearchPanel />}
+        {tab === 'failed' && canWrite && (
+          <OrgFailedBuildsPanel seesEveryOrg={isSystemOrgActive(user) && can('plugin_queue:manage')} />
+        )}
 
         {tab === 'mine' && (
         <>

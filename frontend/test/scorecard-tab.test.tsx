@@ -8,7 +8,7 @@
 
 import { describe, it, expect, jest, beforeEach } from '@jest/globals';
 import type { AnyFn } from './helpers/mock-fn';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { ScorecardTab } from '../src/components/reports/tabs/ScorecardTab';
 import type { ScorecardRollup } from '../src/types';
 
@@ -45,6 +45,7 @@ const rollup: ScorecardRollup = {
   ],
   computedAt: '2026-08-20T00:00:00.000Z',
   truncated: false,
+  pagination: { offset: 0, limit: 50, total: 2, hasMore: false, nextOffset: null },
 };
 
 beforeEach(() => {
@@ -73,5 +74,67 @@ describe('ScorecardTab', () => {
     render(<ScorecardTab enabled={false} onStatus={jest.fn<AnyFn>()} />);
     expect(screen.getByText(/requires the/i)).toBeInTheDocument();
     expect(getOrgScorecardRollup).not.toHaveBeenCalled();
+  });
+
+  it('a single page shows no pager and no page note; the first read sends offset 0 and no filter', async () => {
+    render(<ScorecardTab enabled onStatus={jest.fn<AnyFn>()} />);
+    await waitFor(() => expect(screen.getByText('Alpha')).toBeInTheDocument());
+    expect(getOrgScorecardRollup).toHaveBeenCalledWith({ offset: 0 });
+    expect(screen.queryByRole('button', { name: 'Next' })).toBeNull();
+    expect(screen.queryByText(/stats cover this page/)).toBeNull();
+  });
+
+  it('pages with nextOffset and back, saying the stats cover this page', async () => {
+    getOrgScorecardRollup.mockImplementation(async (q: unknown) => {
+      const { offset } = q as { offset: number };
+      return {
+        success: true,
+        data: {
+          rollup: {
+            ...rollup,
+            truncated: offset === 0,
+            pagination: offset === 0
+              ? { offset: 0, limit: 2, total: 3, hasMore: true, nextOffset: 2 }
+              : { offset: 2, limit: 2, hasMore: false, nextOffset: null },
+          },
+        },
+      };
+    });
+    render(<ScorecardTab enabled onStatus={jest.fn<AnyFn>()} />);
+    await waitFor(() => expect(screen.getByText(/stats cover this page \(pipelines 1–2 of 3\)/)).toBeInTheDocument());
+    expect(screen.getByRole('button', { name: 'Previous' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    await waitFor(() => expect(getOrgScorecardRollup).toHaveBeenLastCalledWith({ offset: 2 }));
+    // No `total` on this page → the range is shown without "of N".
+    await waitFor(() => expect(screen.getByText(/stats cover this page \(pipelines 3–4\)/)).toBeInTheDocument());
+    expect(screen.getByRole('button', { name: 'Next' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Previous' }));
+    await waitFor(() => expect(getOrgScorecardRollup).toHaveBeenLastCalledWith({ offset: 0 }));
+  });
+
+  it('applies a trimmed project / name filter from offset 0, says when nothing matches, and clears it', async () => {
+    getOrgScorecardRollup.mockImplementation(async (q: unknown) => {
+      const { project } = q as { project?: string };
+      return project
+        ? { success: true, data: { rollup: { ...rollup, pipelineCount: 0, scored: 0, leaderboard: [], gradeDistribution: {}, averageScore: null, pagination: { offset: 0, limit: 50, total: 0, hasMore: false, nextOffset: null } } } }
+        : { success: true, data: { rollup } };
+    });
+    render(<ScorecardTab enabled onStatus={jest.fn<AnyFn>()} />);
+    await waitFor(() => expect(screen.getByText('Alpha')).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText('Project'), { target: { value: '  web  ' } });
+    fireEvent.change(screen.getByLabelText('Pipeline name'), { target: { value: 'api' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+    await waitFor(() => expect(getOrgScorecardRollup).toHaveBeenLastCalledWith({ offset: 0, project: 'web', pipelineName: 'api' }));
+    await waitFor(() => expect(screen.getByText('No pipelines match')).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: 'Clear' }));
+    await waitFor(() => expect(getOrgScorecardRollup).toHaveBeenLastCalledWith({ offset: 0 }));
+    await waitFor(() => expect(screen.getByText('Alpha')).toBeInTheDocument());
+    expect(screen.queryByRole('button', { name: 'Clear' })).toBeNull();
+  });
+
+  it('an empty org without a filter says there is nothing to score', async () => {
+    getOrgScorecardRollup.mockResolvedValue({ success: true, data: { rollup: { ...rollup, pipelineCount: 0, leaderboard: [] } } });
+    render(<ScorecardTab enabled onStatus={jest.fn<AnyFn>()} />);
+    await waitFor(() => expect(screen.getByText('No pipelines to score yet')).toBeInTheDocument());
   });
 });

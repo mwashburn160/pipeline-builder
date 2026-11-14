@@ -3,7 +3,7 @@
 
 import { createLogger } from '@pipeline-builder/api-core';
 import type { Plugin } from '@pipeline-builder/pipeline-data';
-import { Duration, RemovalPolicy, Tags } from 'aws-cdk-lib';
+import { Duration, RemovalPolicy, Stack, Tags } from 'aws-cdk-lib';
 import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
 import { BuildSpec, type IBuildImage } from 'aws-cdk-lib/aws-codebuild';
 import { PipelineNotificationEvents, PipelineType, Variable } from 'aws-cdk-lib/aws-codepipeline';
@@ -499,6 +499,16 @@ export class PipelineBuilder extends Construct {
       if (deploysTag) {
         Tags.of(this.pipeline).add('pb.deploys', deploysTag);
       }
+
+      // The same drift-audit keys on the CloudFormation STACK itself.
+      // `Tags.of(this.pipeline)` reaches the resources under the pipeline only —
+      // never the enclosing stack — and `pipeline-manager audit stacks` reads
+      // DescribeStacks' STACK tags, so without these it found no pipeline-builder
+      // stack at all and reported every registry row as missing.
+      const stackTags = Stack.of(this).tags;
+      stackTags.setTag('pipeline-builder', 'true');
+      if (props.orgId) stackTags.setTag('OrgId', props.orgId);
+      if (props.pipelineId) stackTags.setTag('pb.pipeline-id', props.pipelineId);
 
       // Build the internal pipeline before accessing its properties
       this.pipeline.buildPipeline();

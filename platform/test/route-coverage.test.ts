@@ -106,6 +106,11 @@ const EXCEPTIONS: RouteCoverageException[] = [
     reason: 'Authorized by the single-use, hash-stored, time-boxed verification token in the body — the recipient of the email is by definition not yet authenticated.',
   },
   {
+    path: /^POST \/auth\/password\/reset(-request)?$/,
+    waive: 'permission',
+    reason: 'Forgot-password, pre-auth by construction: the person cannot sign in. /reset-request always answers 200 (no enumeration) and is limited per address and per IP; /reset is authorized by the single-use, hash-stored, 1-hour token in the body, exactly like /auth/verify-email. Both audited (user.password.reset.request / user.password.reset).',
+  },
+  {
     method: 'POST',
     path: '/auth/send-verification',
     waive: 'all',
@@ -155,9 +160,9 @@ const EXCEPTIONS: RouteCoverageException[] = [
     reason: 'Last leg of a password sign-in whose password no longer meets the org password policy — pre-auth by construction, like /auth/login and /auth/mfa/verify: the single-use challenge handle (issued only after the old password, and any second factor, verified) IS the authorization. Under the /auth per-IP limiter.',
   },
   {
-    path: /^(GET|POST) \/auth\/(logout|switch-org|step-up|onboarding)/,
+    path: /^(GET|POST|DELETE) \/auth\/(logout|switch-org|step-up|onboarding)/,
     waive: 'permission',
-    reason: 'Acts on the CALLER\'S OWN session/identity (sign out, pivot active org, re-verify own password, finish own onboarding, discover + join an org matching their own verified email domain) — requireAuth is the whole authorization; there is no org permission to hold.',
+    reason: 'Acts on the CALLER\'S OWN session/identity (sign out, pivot active org, re-verify own password, finish own onboarding, discover + join an org matching their own verified email domain, or withdraw their own pending join request) — requireAuth is the whole authorization; there is no org permission to hold.',
   },
   {
     method: 'POST',
@@ -259,7 +264,7 @@ const EXCEPTIONS: RouteCoverageException[] = [
     reason: 'Internal batch id→name resolver — gated by requireServicePrincipal on the route (never reachable by a user token) and returns only id→name; nothing is written.',
   },
   {
-    path: /^GET \/organization\/:id\/(parent|seat-usage|feature-entitlements)$/,
+    path: /^GET \/organization\/:id\/(parent|seat-usage|support-usage|feature-entitlements)$/,
     waive: 'permission',
     reason: 'Least-privilege internal reads for peer services: the controller allows isServicePrincipal OR canAdministerOrg(targetOrg) — a two-way check on the path org that no static permission gate can express.',
   },

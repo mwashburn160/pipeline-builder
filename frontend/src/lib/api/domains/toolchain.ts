@@ -101,6 +101,17 @@ export function toolchainApi(core: ApiCore) {
         headers: core.stepUpHeader(stepUpToken),
       }),
 
+    /**
+     * Reverse a release's deprecation (both halves). The canary rows the
+     * deprecation removed are NOT restored. A yank stays permanent.
+     */
+    undeprecateToolchainRelease: async (releaseVersion: string, stepUpToken?: string) =>
+      core.request<ApiResponse<unknown>>(`/api/plugins/toolchain/releases/${encodeURIComponent(releaseVersion)}/deprecate`, {
+        method: 'POST',
+        body: JSON.stringify({ deprecated: false }),
+        headers: core.stepUpHeader(stepUpToken),
+      }),
+
     /** Yank a release. Yanking the default restores the previous one (`restoredDefault`). */
     yankToolchainRelease: async (releaseVersion: string, reason: string, stepUpToken?: string) =>
       core.request<ApiResponse<{ restoredDefault: string | null }>>(`/api/plugins/toolchain/releases/${encodeURIComponent(releaseVersion)}/yank`, {

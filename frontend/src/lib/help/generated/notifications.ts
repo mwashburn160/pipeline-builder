@@ -1,6 +1,6 @@
 // GENERATED FROM docs/notifications.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 1ce496e9ae05b6f841052bd8f4912ddecac4cc5ea14334aa5b8d498917921a2f
+// SOURCE-SHA256: 42f812a973ae538027c7350f20d6d8bded8c0b5ef5bfd4eec948db92d4059981
 // SPDX-License-Identifier: Apache-2.0
 import { Bell } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -15,10 +15,6 @@ export const notificationsTopic: HelpTopic = {
       "id": "overview",
       "title": "Overview",
       "blocks": [
-        {
-          "type": "text",
-          "content": "<!-- Copyright 2026 Pipeline Builder Contributors SPDX-License-Identifier: Apache-2.0 -->"
-        },
         {
           "type": "text",
           "content": "Every way Pipeline Builder tells a human something: email, Slack, outbound webhooks, and the in-app inbox."
@@ -127,7 +123,16 @@ export const notificationsTopic: HelpTopic = {
         {
           "type": "list",
           "items": [
-            "Add alert destinations for your org — Slack, HTTPS webhook, in-app or email — and use Send test on each. An email destination reporting email-disabled means the operator has email off.",
+            "Add alert destinations for your org — Slack, HTTPS webhook, in-app or email — and use Send test on each. An email destination reporting email-disabled means the operator has email off."
+          ]
+        },
+        {
+          "type": "text",
+          "content": "Each destination in the list then shows its last delivery (delivery: when, whether it worked, the failure class — timeout, rejected, unreachable or unknown-channel — and how many attempts in a row have failed). After 3 failures in a row the org's owners and admins are emailed once; nothing more is sent about that destination until it delivers again. The platform's own AlertRelayDeliveryFailing alert fires only when a channel fails for at least two orgs and half of those using it, so one org's revoked webhook reaches that org, not the operator's pager."
+        },
+        {
+          "type": "list",
+          "items": [
             "Set who hears what: per-org alert rules, plugin security notifications, and compliance notifications.",
             "Choose a digest mode where offered — immediate, daily or weekly.",
             "Check Order of operations before assuming a missing notification is a bug; Symptoms lists what each misconfiguration looks like."

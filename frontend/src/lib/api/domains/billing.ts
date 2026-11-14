@@ -112,6 +112,17 @@ export function billingApi(core: ApiCore) {
     },
 
     /**
+     * The ACCOUNT's one-time support-incident balance. A team member reads its
+     * root's balance — what a case they open would spend. `messages:read`; 503
+     * when the account root cannot be resolved.
+     */
+    getSupportIncidentBalance: async (opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<{ balance: number; accountOrgId: string }>>(
+        '/api/billing/support-incidents', { signal: opts?.signal },
+      );
+    },
+
+    /**
      * Does this account's pack spend already argue for a tier move?
      * (`GET /billing/crossover`, docs/plans/sales-agent.md D4.)
      *
@@ -474,7 +485,8 @@ export function billingApi(core: ApiCore) {
     },
 
     /** Edit a campaign, or end it with `isActive: false`. */
-    updateCampaign: async (id: string, body: { name?: string; budgetCents?: number; exclusive?: boolean; startsAt?: string; endsAt?: string; isActive?: boolean }) => {
+    /** `null` on budget / start / end CLEARS it (unlimited, open now, open-ended); omitted leaves it. */
+    updateCampaign: async (id: string, body: { name?: string; budgetCents?: number | null; exclusive?: boolean; startsAt?: string | null; endsAt?: string | null; isActive?: boolean }) => {
       return core.request<ApiResponse<{ campaign: Campaign }>>(`/api/billing/admin/campaigns/${encodeURIComponent(id)}`, {
         method: 'PUT',
         body: JSON.stringify(body),

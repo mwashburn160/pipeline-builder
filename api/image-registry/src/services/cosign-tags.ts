@@ -20,3 +20,9 @@ export function cosignCompanionTags(digest: string): string[] {
   if (!match) return [];
   return [`sha256-${match[1]}.sig`, `sha256-${match[1]}.att`];
 }
+
+/** The subject digest (`sha256:<hex>`) a companion tag describes, or null for any other tag. */
+export function cosignCompanionSubject(tag: string): string | null {
+  const match = /^sha256-([0-9a-f]{64})\.(?:sig|att)$/.exec(tag);
+  return match ? `sha256:${match[1]}` : null;
+}

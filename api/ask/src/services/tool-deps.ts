@@ -70,6 +70,12 @@ export interface AgentToolDeps {
    * the usage ledger's `agent-tool:<tool>` feature.
    */
   chargeAiCall: (tool: string) => Promise<AiToolCharge | null>;
+  /**
+   * The turn's budget of charged generations (`ASK_MAX_TURN_GENERATIONS`). Every
+   * generating tool claims one BEFORE it generates and declines when the claim is
+   * refused, so one turn can never draw more than the cap in extra slots.
+   */
+  generations: TurnGenerations;
   /** Output-token cap for in-process generations. */
   maxOutputTokens: number;
   /**
@@ -92,6 +98,17 @@ export interface AgentToolDeps {
    * metrics/logging runtime and the tests can assert on it.
    */
   onRefusedFields: (tool: string, fields: string[]) => void;
+}
+
+/** See {@link AgentToolDeps.generations}. */
+export interface TurnGenerations {
+  /** Claim one generation for `tool`; false once the turn's budget is spent. */
+  claim(tool: string): boolean;
+  /**
+   * A DELEGATED generation answered 2xx, so its peer kept an `aiCalls` slot on
+   * the caller's org. Counted for the turn's `done` event (`slotsCharged`).
+   */
+  delegated(tool: string): void;
 }
 
 /**

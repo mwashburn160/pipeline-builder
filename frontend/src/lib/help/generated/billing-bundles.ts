@@ -1,6 +1,6 @@
 // GENERATED FROM docs/billing-bundles.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: d7e95ea3a2ded66556bef3267119045e3f300ba4b81879fd9f9b368af93f29fb
+// SOURCE-SHA256: 24861110de673a7d994471a92b9b6a8c279131441a2879a95448ab862c1f5722
 // SPDX-License-Identifier: Apache-2.0
 import { Package } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -15,10 +15,6 @@ export const billingBundlesTopic: HelpTopic = {
       "id": "overview",
       "title": "Overview",
       "blocks": [
-        {
-          "type": "text",
-          "content": "<!-- Copyright 2026 Pipeline Builder Contributors SPDX-License-Identifier: Apache-2.0 -->"
-        },
         {
           "type": "text",
           "content": "Purchasable packs that stack on top of an account's subscription tier to raise its caps or unlock features — without moving the whole account to a higher tier."
@@ -677,7 +673,7 @@ export const billingBundlesTopic: HelpTopic = {
             "Threshold notices. Crossing 80% and 100% of a quota drops one notice per quota per period into the root org's inbox, emails the root's admins/owners and billing contacts, and posts a quota.threshold event to the account's webhook when one is set. Billing contacts (billing:manage) opt out or set the webhook on the root's Quotas page (PUT /quotas/:orgId/notice-settings).",
             "Refusals say what to do. A 429 QUOTA_EXCEEDED names the quota, the usage, the reset date and the upgrade page — details: { quotaType, limit, used, resetAt, upgradeUrl } — and the dashboard shows it as a notice on every page.",
             "Which calls count. Every service meters and checks apiCalls on its authenticated user surface; machine ingest is metered but never refused, and a short list of console-polling reads is free — see API Quotas.",
-            "Removing a bundle can't drop a pooled cap below current usage: billing's over-cap guard blocks a removal that would strand seats, plugins or pipelines."
+            "Removing a bundle can't drop a pooled cap below current usage: billing's over-cap guard blocks a removal that would strand seats, plugins, pipelines, listings, storage or designated support contacts (standard and premium) — remove the contacts first, as with members."
           ]
         }
       ]

@@ -3,8 +3,8 @@
 
 import { createLogger, paginationMeta, sendError, sendSuccess, resolveUserFeatures, isValidFeatureFlag, validateBulkArray, TIER_FEATURES, errorMessage } from '@pipeline-builder/api-core';
 import type { QuotaTier } from '@pipeline-builder/api-core';
-import { Types } from 'mongoose';
 import { isOrgRole } from '@pipeline-builder/api-core/wire-vocabulary';
+import { Types } from 'mongoose';
 import { audit } from '../helpers/audit.js';
 import { canManageOrgScope, forbid, isOrgAdmin, requireMemberManagementScope, withController } from '../helpers/controller-helper.js';
 import { toOrgId } from '../helpers/org-id.js';
@@ -258,7 +258,7 @@ export const updateUserById = withController('Update user', async (req, res) => 
     }
   }
 
-  const { user, changes, organizationName, activeOrgRole } = await userAdminService.updateUserById(
+  const { user, changes, organizationName, activeOrgRole, accessKeysRevoked } = await userAdminService.updateUserById(
     id,
     { ...body, role: body.role },
     {
@@ -277,12 +277,17 @@ export const updateUserById = withController('Update user', async (req, res) => 
   if (changes.length > 0) {
     const affectedOrgId = admin.orgId
       ?? body.organizationId ?? await userAdminService.lookupPrimaryOrgId(id).catch(() => undefined);
-    audit(req, 'admin.user.update', { targetType: 'user', targetId: id, affectedOrgId, details: { changes } });
+    audit(req, 'admin.user.update', {
+      targetType: 'user',
+      targetId: id,
+      affectedOrgId,
+      details: { changes, ...(changes.includes('password') ? { accessKeysRevoked } : {}) },
+    });
   }
 
   sendSuccess(
     res, 200,
-    { user: formatUserResponse(user, { activeOrgRole, activeOrgName: organizationName }), changes },
+    { user: formatUserResponse(user, { activeOrgRole, activeOrgName: organizationName }), changes, accessKeysRevoked },
     'User updated successfully',
   );
 }, adminErrorMap);

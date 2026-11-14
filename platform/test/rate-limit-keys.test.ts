@@ -356,7 +356,7 @@ describe('isSessionMaintenance — keeping a session alive is exempt from the au
   });
 
   it('does NOT exempt the credential-guessing surface it defends', () => {
-    for (const path of ['/auth/login', '/auth/register', '/auth/mfa/verify', '/auth/step-up', '/auth/token/exchange', '/auth/verify-email']) {
+    for (const path of ['/auth/login', '/auth/register', '/auth/mfa/verify', '/auth/step-up', '/auth/token/exchange', '/auth/verify-email', '/auth/password/reset-request', '/auth/password/reset']) {
       expect(isSessionMaintenance(call('POST', path))).toBe(false);
     }
   });

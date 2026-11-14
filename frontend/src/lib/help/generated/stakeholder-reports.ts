@@ -1,6 +1,6 @@
 // GENERATED FROM docs/stakeholder-reports.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 5ce684da48c2cce4d56b3d129cdd99b33b6e914ff84005de92a5929d5f5cbabe
+// SOURCE-SHA256: 78ff1683befcc072754ff5c6b6082f425a8edc260460b594cc6bd87c170c8b1a
 // SPDX-License-Identifier: Apache-2.0
 import { FileText } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -15,10 +15,6 @@ export const stakeholderReportsTopic: HelpTopic = {
       "id": "overview",
       "title": "Overview",
       "blocks": [
-        {
-          "type": "text",
-          "content": "<!-- Copyright 2026 Pipeline Builder Contributors SPDX-License-Identifier: Apache-2.0 -->"
-        },
         {
           "type": "text",
           "content": "Scheduled, manager-facing reports: a saved report runs every week, month or quarter, freezes that period's numbers, waits for the lead to add the context the data cannot, and then goes out — by email, in-app, Slack or Teams, or as an expiring link for someone with no account here."
@@ -376,11 +372,15 @@ export const stakeholderReportsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "No outbound email configured ⇒ in-app only. Local and self-hosted installs frequently have no SES or SMTP, and a disabled send is reported internally as a success, so without asking first every one of those installs would record reports as delivered to managers who never received them. The schedule form says so before a lead picks a distribution list, and the run itself records what actually happened, in words — \"this instance has no outbound email configured, so 12 recipients were not emailed\"."
+          "content": "No outbound email configured ⇒ in-app only. Local and self-hosted installs frequently have no SES or SMTP, and a disabled send is reported internally as a success, so without asking first every one of those installs would record reports as delivered to managers who never received them. The schedule form says so before a lead picks a distribution list, and the run itself records what actually happened, in words — \"this instance has no outbound email configured, so 12 recipients were not emailed\". That record is the run's delivery field, returned with the run: who has it, what failed, and why. A relay that refused the send or could not be reached is recorded as such — those recipients count as failed, not as bounces, so a relay outage never retires a manager's address."
         },
         {
           "type": "text",
-          "content": "A run that fails to compose, and a delivery that fails after it, both notify the lead and increment metrics. A failed run keeps its row, marked failed with the reason, so the lead sees why a report is missing instead of a gap in the history — which is otherwise discovered by a manager asking where last week's went."
+          "content": "A run that fails to compose, and a delivery that fails after it, both notify the lead and increment metrics. A failed run keeps its row, marked failed with the reason, so the lead sees why a report is missing instead of a gap in the history — which is otherwise discovered by a manager asking where last week's went. A delivery that left anyone out — a refused relay, a bounced address, a Slack or Teams destination that did not accept it, or a delivery that stopped part-way — sends the lead a high-priority notice saying what was missed."
+        },
+        {
+          "type": "text",
+          "content": "Redelivering. POST /reports/stakeholder/runs/:id/redeliver (reports:publish) re-sends the SAME published run to the recipients and destinations that do not have it yet, and nobody twice. It is not a correction: the numbers are unchanged, so it is audited as reporting.report.redelivered, not .republished. It refuses (409) a delivery that already reached everyone, or one still in flight."
         },
         {
           "type": "text",
@@ -548,7 +548,7 @@ export const stakeholderReportsTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "Publishing is the moment internal delivery numbers leave the platform, so the whole outward path is recorded: reporting.report.published / .republished (which period, which version, how many recipients), .link.created / .link.revoked, .recipient.added / .recipient.removed, .ownership.transfer, .policy.update, .definition.* and .paused."
+          "content": "Publishing is the moment internal delivery numbers leave the platform, so the whole outward path is recorded: reporting.report.published / .republished (which period, which version, how many recipients), .redelivered (a re-send of the same run to whoever its delivery missed), .link.created / .link.revoked, .recipient.added / .recipient.removed, .ownership.transfer, .policy.update, .definition.* and .paused."
         },
         {
           "type": "text",

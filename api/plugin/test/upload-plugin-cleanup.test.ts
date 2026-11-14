@@ -25,6 +25,8 @@ process.env.PLUGIN_UPLOAD_DIR = uploadDir;
 const mockValidateBody = jest.fn<(...a: any[]) => any>();
 const mockReserveQuota = jest.fn<(...a: any[]) => Promise<any>>();
 const mockParsePluginZip = jest.fn<(...a: any[]) => Promise<any>>();
+const mockDecrementQuota = jest.fn<(...a: any[]) => Promise<any>>(async () => undefined);
+const mockShadowingDecision = jest.fn<(...a: any[]) => Promise<any>>(async () => ({ mode: 'warn', shadows: [] }));
 
 // The CPU-credit admission gate fails CLOSED when the quota service cannot
 // answer (D6). This suite's quota double does not implement `check`, so without
@@ -43,7 +45,7 @@ jest.unstable_mockModule('../src/queue/build-credits.js', () => ({
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   validateBody: mockValidateBody,
   reserveQuota: mockReserveQuota,
-  decrementQuota: jest.fn(),
+  decrementQuota: mockDecrementQuota,
   resolveVisibility: () => 'org',
   PluginUploadBodySchema: {},
 }));
@@ -85,7 +87,7 @@ jest.unstable_mockModule('../src/services/plugin-service.js', () => ({
 jest.unstable_mockModule('../src/services/ecosystem/context.js', () => ({ callerFromRequest: jest.fn() }));
 jest.unstable_mockModule('../src/services/ecosystem/requests.js', () => ({ submitAfterBuild: jest.fn() }));
 jest.unstable_mockModule('../src/services/ecosystem/installs.js', () => ({
-  shadowingDecision: jest.fn(async () => ({ mode: 'warn', shadows: [] })),
+  shadowingDecision: mockShadowingDecision,
 }));
 
 ({ withQuotaReservation: realWithQuotaReservation } = await import('@pipeline-builder/api-server/lib/api/quota-reservation.js'));
@@ -150,6 +152,37 @@ describe('POST /plugins — temp upload cleanup', () => {
 
     await expect(handler(req, mockRes())).rejects.toThrow('corrupt zip');
 
+    expect(fs.existsSync(tempPath)).toBe(false);
+  });
+});
+
+// P1: a `deny` shadowing refusal was the ONLY early return in the reservation
+// body that kept its `plugins` slot, so an org retrying a refused name ran
+// itself out of quota.
+describe('POST /plugins — name-shadowing refusal', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockValidateBody.mockReturnValue({ ok: true, value: {} });
+    mockReserveQuota.mockResolvedValue({ exceeded: false, quota: { resetAt: 'P' } });
+    mockParsePluginZip.mockResolvedValue({
+      pluginSpec: { name: 'trivy', version: '1.0.0', buildArgs: {} },
+      buildType: 'build_image',
+      readmeMd: null,
+      dockerfileContent: 'FROM scratch',
+    });
+  });
+
+  it('answers 409 PLUGIN_NAME_SHADOWS and REFUNDS the plugins slot', async () => {
+    mockShadowingDecision.mockResolvedValue({ mode: 'deny', shadows: ['official/trivy'] });
+    const { req, tempPath } = uploadReq();
+    const res = mockRes();
+
+    await handler(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(409);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining('would override official/trivy') }));
+    expect(mockDecrementQuota).toHaveBeenCalledTimes(1);
+    expect(mockDecrementQuota.mock.calls[0]).toEqual(expect.arrayContaining(['plugins']));
     expect(fs.existsSync(tempPath)).toBe(false);
   });
 });

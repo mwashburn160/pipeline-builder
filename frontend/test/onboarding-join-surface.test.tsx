@@ -41,12 +41,14 @@ jest.mock('@/hooks/usePlans', () => ({
 const getDomainOrgs = jest.fn<AnyFn>();
 const joinDomainOrg = jest.fn<AnyFn>();
 const completeOnboarding = jest.fn<AnyFn>();
+const withdrawDomainJoinRequest = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: {
     getDomainOrgs: (...a: unknown[]) => getDomainOrgs(...a),
     joinDomainOrg: (...a: unknown[]) => joinDomainOrg(...a),
     completeOnboarding: (...a: unknown[]) => completeOnboarding(...a),
+    withdrawDomainJoinRequest: (...a: unknown[]) => withdrawDomainJoinRequest(...a),
   },
 }));
 
@@ -56,6 +58,7 @@ beforeEach(() => {
   getDomainOrgs.mockResolvedValue({ success: true, data: { orgs: [] } });
   joinDomainOrg.mockResolvedValue({ success: true, data: { status: 'requested' } });
   completeOnboarding.mockResolvedValue({ success: true, data: {} });
+  withdrawDomainJoinRequest.mockResolvedValue({ success: true });
 });
 
 describe('onboarding page — join mode', () => {
@@ -79,6 +82,37 @@ describe('onboarding page — join mode', () => {
     render(<OnboardingPage />);
     expect(await screen.findByTestId('org-state-o1')).toHaveTextContent(/Request sent/i);
     expect(screen.queryByRole('button', { name: /request access/i })).not.toBeInTheDocument();
+  });
+
+  it('withdraws a pending request and re-reads the list', async () => {
+    getDomainOrgs
+      .mockResolvedValueOnce({ success: true, data: { orgs: [{ orgId: 'o1', orgName: 'Acme', autoJoin: 'request', requestStatus: 'pending' }] } })
+      .mockResolvedValue({ success: true, data: { orgs: [{ orgId: 'o1', orgName: 'Acme', autoJoin: 'request' }] } });
+    render(<OnboardingPage />);
+    fireEvent.click(await screen.findByRole('button', { name: /withdraw/i }));
+
+    await waitFor(() => expect(withdrawDomainJoinRequest).toHaveBeenCalledWith('o1'));
+    // Back to askable once the server says the request is gone.
+    expect(await screen.findByRole('button', { name: /request access/i })).toBeInTheDocument();
+  });
+
+  it('a request filed in this visit can be withdrawn too', async () => {
+    getDomainOrgs.mockResolvedValue({ success: true, data: { orgs: [{ orgId: 'o1', orgName: 'Acme', autoJoin: 'request' }] } });
+    render(<OnboardingPage />);
+    fireEvent.click(await screen.findByRole('button', { name: /request access/i }));
+    fireEvent.click(await screen.findByRole('button', { name: /withdraw/i }));
+    await waitFor(() => expect(withdrawDomainJoinRequest).toHaveBeenCalledWith('o1'));
+    // The local "requested" memory is dropped, so the row offers the request again.
+    expect(await screen.findByRole('button', { name: /request access/i })).toBeInTheDocument();
+  });
+
+  it('shows why a withdraw failed (e.g. it was decided meanwhile) and re-reads', async () => {
+    getDomainOrgs.mockResolvedValue({ success: true, data: { orgs: [{ orgId: 'o1', orgName: 'Acme', autoJoin: 'request', requestStatus: 'pending' }] } });
+    withdrawDomainJoinRequest.mockRejectedValue(new Error('No pending join request for that organization'));
+    render(<OnboardingPage />);
+    fireEvent.click(await screen.findByRole('button', { name: /withdraw/i }));
+    expect(await screen.findByText(/No pending join request for that organization/i)).toBeInTheDocument();
+    await waitFor(() => expect(getDomainOrgs.mock.calls.length).toBeGreaterThan(1));
   });
 
   it('surfaces a refused request, which the backend will not re-open', async () => {

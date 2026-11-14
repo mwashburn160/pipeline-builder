@@ -33,6 +33,8 @@ const EXPECTED_LIMITS: Record<string, number> = {
   idpConfigs: 1,
   listings: 3,
   seats: 10,
+  supportContacts: 2,
+  supportPremiumContacts: 0,
   eventRetentionDays: 30,
   doraRetentionDays: 180,
 };
@@ -57,6 +59,12 @@ const okQuotaResponse = () => ({
 });
 const mockReadQuota = jest.fn<() => Promise<unknown>>().mockImplementation(() => Promise.resolve(okQuotaResponse()));
 const mockReadSeat = jest.fn<() => Promise<unknown>>().mockImplementation(() => Promise.resolve({ statusCode: 200, body: { data: { limit: EXPECTED_LIMITS.seats } } }));
+// Platform support-usage read (the two support caps). Default: matches expected.
+const okSupportResponse = (contacts = EXPECTED_LIMITS.supportContacts) => ({
+  statusCode: 200,
+  body: { data: { supportContacts: { limit: contacts, used: 0 }, supportPremiumContacts: { limit: EXPECTED_LIMITS.supportPremiumContacts, used: 0 } } },
+});
+const mockReadSupport = jest.fn<() => Promise<unknown>>().mockImplementation(() => Promise.resolve(okSupportResponse()));
 // Platform feature-entitlements read. Default: the empty set, matching the
 // default expected features ([] from mockEffectiveEntitlements).
 const mockReadFeatures = jest.fn<() => Promise<unknown>>().mockImplementation(() => Promise.resolve({ statusCode: 200, body: { data: { featureEntitlements: [] } } }));
@@ -94,6 +102,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
         if (path.includes('/reports/retention-sync/')) return mockReadRetention();
         if (path.includes('/feature-entitlements')) return mockReadFeatures();
         if (path.includes('/seat-usage')) return mockReadSeat();
+        if (path.includes('/support-usage')) return mockReadSupport();
         if (path.startsWith('/quotas/')) return mockReadQuota();
         return Promise.resolve(null);
       }),
@@ -228,6 +237,7 @@ describe('Subscription Lifecycle Checker', () => {
     mockEffectiveEntitlements.mockReturnValue({ limits: { ...EXPECTED_LIMITS }, features: [] });
     mockReadQuota.mockImplementation(() => Promise.resolve(okQuotaResponse()));
     mockReadSeat.mockImplementation(() => Promise.resolve({ statusCode: 200, body: { data: { limit: EXPECTED_LIMITS.seats } } }));
+    mockReadSupport.mockImplementation(() => Promise.resolve(okSupportResponse()));
     mockReadFeatures.mockImplementation(() => Promise.resolve({ statusCode: 200, body: { data: { featureEntitlements: [] } } }));
     // Compliance drift defaults: expected sets [] (no compliance features) ==
     // enforced active sets [] ⇒ no compliance drift.
@@ -924,6 +934,28 @@ describe('Subscription Lifecycle Checker', () => {
       expect(mockSyncEntitlements).toHaveBeenCalledWith('org-d', 'pro', 'Bearer test-service-token', 'sub-d', []);
       expect(mockIncCounter).toHaveBeenCalledWith('billing_entitlement_drift_total', { dimension: 'seats' });
       expect(mockUpdateOne).toHaveBeenCalledWith({ _id: 'sub-d' }, STAMPED);
+    });
+
+    it('SUPPORT drift: an enforced support-contact cap differs → re-sync + drift metric (dimension support)', async () => {
+      onlyDriftReturns(driftSub());
+      mockReadSupport.mockImplementation(() => Promise.resolve(okSupportResponse(5)));
+
+      startSubscriptionLifecycleChecker();
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      expect(mockSyncEntitlements).toHaveBeenCalledWith('org-d', 'pro', 'Bearer test-service-token', 'sub-d', []);
+      expect(mockIncCounter).toHaveBeenCalledWith('billing_entitlement_drift_total', { dimension: 'support' });
+    });
+
+    it('SUPPORT read failure → skip with BACKOFF (an outage is not drift)', async () => {
+      onlyDriftReturns(driftSub());
+      mockReadSupport.mockImplementation(() => Promise.resolve(null));
+
+      startSubscriptionLifecycleChecker();
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      expect(mockSyncEntitlements).not.toHaveBeenCalled();
+      expect(mockUpdateOne).toHaveBeenCalledWith({ _id: expect.anything() }, BACKED_OFF);
     });
 
     it('QUOTA-LIMIT drift: an enforced quota limit differs → re-sync + drift metric (dimension quota)', async () => {

@@ -62,7 +62,7 @@ const CONTROLLERS = [
 jest.unstable_mockModule('../src/controllers/webauthn.js', () => Object.fromEntries(CONTROLLERS.map((c) => [c, tagged(c)])));
 const AUTH_CONTROLLERS = [
   'login', 'logout', 'register', 'refresh', 'switchOrg', 'sendVerificationEmail', 'verifyEmail',
-  'markEmailVerified', 'completeOnboarding', 'getDomainOrgs', 'joinDomainOrg',
+  'markEmailVerified', 'completeOnboarding', 'getDomainOrgs', 'joinDomainOrg', 'withdrawDomainJoinRequest',
 ];
 jest.unstable_mockModule('../src/controllers/index.js', () => Object.fromEntries(AUTH_CONTROLLERS.map((c) => [c, tagged(c)])));
 jest.unstable_mockModule('../src/controllers/step-up-reauth.js', () => ({
@@ -83,6 +83,10 @@ jest.unstable_mockModule('../src/controllers/totp.js', () => Object.fromEntries(
 // mounted by `routes/auth.ts` too; stubbed for the same reason.
 jest.unstable_mockModule('../src/controllers/password-change-required.js', () => ({
   completeRequiredPasswordChange: tagged('completeRequiredPasswordChange'),
+}));
+jest.unstable_mockModule('../src/controllers/password-reset.js', () => ({
+  requestReset: tagged('requestReset'),
+  confirmReset: tagged('confirmReset'),
 }));
 jest.unstable_mockModule('../src/middleware/login-limiter.js', () => ({ loginAccountLimiter: tagged('limiter:login-account') }));
 jest.unstable_mockModule('../src/controllers/token-exchange.js', () => ({

@@ -123,7 +123,7 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
 }));
 jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@pipeline-builder/pipeline-core', { CoreConstants: { SSE_STREAM_TIMEOUT_MS: 300000 } }));
 jest.unstable_mockModule('../src/services/docs-index.js', () => ({ getDocsIndex: jest.fn(async () => ({ search: () => [], size: 1 })) }));
-jest.unstable_mockModule('../src/services/model.js', () => ({ ASK_MAX_OUTPUT_TOKENS: 2048, ASK_TEMPERATURE: 0.2 }));
+jest.unstable_mockModule('../src/services/model.js', () => ({ ASK_MAX_OUTPUT_TOKENS: 2048, ASK_MAX_TURN_GENERATIONS: 2, ASK_TEMPERATURE: 0.2 }));
 jest.unstable_mockModule('../src/services/agent-tools.js', () => ({ buildAgentTools: jest.fn(() => ({})) }));
 jest.unstable_mockModule('../src/services/internal-http.js', () => ({
   pipelineClient: jest.fn(),

@@ -130,7 +130,6 @@ export interface ComplianceScan {
   id: string;
   orgId: string;
   target: ComplianceScanTarget;
-  filter?: Record<string, unknown>;
   status: ComplianceScanStatus;
   triggeredBy: ComplianceScanTrigger;
   userId: string;

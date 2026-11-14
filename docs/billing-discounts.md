@@ -264,7 +264,7 @@ All routes are under `/billing` and gated by `BILLING_DISCOUNTS_ENABLED`.
 |--------|------|------|---------|
 | `POST` | `/admin/campaigns` | system admin | Create a campaign (budget, window, exclusivity) |
 | `GET` | `/admin/campaigns` · `/:id` | system admin | List / inspect one, with its code counts and **ledger-sourced** spend |
-| `PUT` | `/admin/campaigns/:id` | system admin | Edit, or end with `isActive: false` (a budget below committed spend is refused) |
+| `PUT` | `/admin/campaigns/:id` | system admin | Edit, or end with `isActive: false` (a budget below committed spend is refused); `null` for `budgetCents` / `startsAt` / `endsAt` clears it (unlimited budget, window open on that side) |
 | `POST` | `/admin/campaigns/:id/end` | system admin | End the campaign **and every code in it** |
 | `POST` | `/admin/discounts` | system admin | Mint a discount (ceiling-checked; a named `campaign` must exist) |
 | `POST` | `/admin/discounts/:id/token` | system admin | Mode B — issue / re-issue an opaque token |

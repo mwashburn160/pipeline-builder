@@ -202,6 +202,8 @@ describe('POST /dlq/:jobId/replay', () => {
     expect(json).toHaveBeenCalledWith(expect.objectContaining({ statusCode: 200 }));
   });
 
+  // Another org's job answers 404 exactly like a missing one (sequential BullMQ
+  // ids must not be probeable), and the attempt is recorded as authz.denied.
   it('org admin CANNOT replay a job from a different org (tenant isolation)', async () => {
     (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(false);
     (isSystemOrgRequest as jest.Mock<AnyFn>).mockReturnValue(false);
@@ -213,7 +215,7 @@ describe('POST /dlq/:jobId/replay', () => {
       user: { role: 'admin', organizationId: 'org-a' },
       params: { jobId: 'j-1' },
     } as any, res);
-    expect(json).toHaveBeenCalledWith(expect.objectContaining({ statusCode: 403 }));
+    expect(json).toHaveBeenCalledWith(expect.objectContaining({ statusCode: 404 }));
     expect(replayHelper).not.toHaveBeenCalled();
   });
 
@@ -228,6 +230,6 @@ describe('POST /dlq/:jobId/replay', () => {
       user: { role: 'admin', organizationId: 'org-a' },
       params: { jobId: 'j-orphan' },
     } as any, res);
-    expect(json).toHaveBeenCalledWith(expect.objectContaining({ statusCode: 403 }));
+    expect(json).toHaveBeenCalledWith(expect.objectContaining({ statusCode: 404 }));
   });
 });

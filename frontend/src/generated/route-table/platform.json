@@ -989,6 +989,24 @@
     ]
   },
   {
+    "method": "DELETE",
+    "path": "/auth/onboarding/join/:orgId",
+    "auth": true,
+    "permissions": [],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "dynamicAuthz": [],
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": [
+      "org.join.withdraw"
+    ]
+  },
+  {
     "method": "POST",
     "path": "/auth/password/change-required",
     "auth": false,
@@ -1005,6 +1023,42 @@
     "audit": [
       "user.password.change",
       "user.login"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/auth/password/reset",
+    "auth": false,
+    "permissions": [],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "dynamicAuthz": [],
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": [
+      "user.password.reset"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/auth/password/reset-request",
+    "auth": false,
+    "permissions": [],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "dynamicAuthz": [],
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": [
+      "user.password.reset.request"
     ]
   },
   {
@@ -4496,6 +4550,40 @@
     }
   },
   {
+    "method": "DELETE",
+    "path": "/organization/:id/join-requests/:reqId",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "org_settings:write"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "dynamicAuthz": [],
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": [
+      "org.join.reset"
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
+  },
+  {
     "method": "POST",
     "path": "/organization/:id/join-requests/:reqId/:decision",
     "auth": true,
@@ -5782,6 +5870,30 @@
   },
   {
     "method": "GET",
+    "path": "/organization/:id/support-usage",
+    "auth": true,
+    "permissions": [],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "dynamicAuthz": [],
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": [],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
+  },
+  {
+    "method": "GET",
     "path": "/organization/:id/teams",
     "auth": true,
     "permissions": [],
@@ -6360,8 +6472,33 @@
     "features": [],
     "scopes": [],
     "audit": [
-      "user.delete"
+      "user.delete",
+      "org.soft_delete"
     ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/user/account/deletion",
+    "auth": true,
+    "permissions": [],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "dynamicAuthz": [],
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": [],
     "quota": {
       "metered": [
         "apiCalls"
@@ -6387,6 +6524,32 @@
     "scopes": [],
     "audit": [
       "user.password.change"
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
+  },
+  {
+    "method": "GET",
+    "path": "/user/export",
+    "auth": true,
+    "permissions": [],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "dynamicAuthz": [],
+    "internalCallers": [],
+    "stepUp": true,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "features": [],
+    "scopes": [],
+    "audit": [
+      "user.export"
     ],
     "quota": {
       "metered": [

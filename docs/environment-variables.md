@@ -485,12 +485,14 @@ reachable through the pooler.
 
 Image-registry's scheduled GC prunes old manifests from every org namespace. **Off by default** — an operator opts in.
 
+That sweep (like every other manifest delete) removes REFERENCES only. The bytes on disk are freed by the registry's own `registry garbage-collect`, which every deploy tree runs weekly as the `registry-blob-gc` job (Sunday 03:10 UTC, no `--delete-untagged`). Image-registry withholds `push` from every registry token from the token TTL (`REGISTRY_TOKEN_EXPIRES_IN`) + 60s before that until 03:40 UTC, so no push can land mid-sweep — see [Deploy operations](deploy-operations.md#registry-blob-garbage-collection).
+
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `REGISTRY_GC_ENABLED` | `false` | Run the scheduled, destructive GC sweep. One replica sweeps per window (leader lock — see `REGISTRY_GC_LOCK_TTL_MS` under [Scaling & multi-replica](#scaling--multi-replica-optional)) |
 | `REGISTRY_GC_INTERVAL_HOURS` | `24` | Hours between full sweeps |
 | `REGISTRY_GC_MAX_AGE_DAYS` | `30` | Manifests older than this many days are pruned |
-| `REGISTRY_GC_PROTECTED_TAGS` | `latest`, plus the running platform version | Comma-separated tags the GC sweep must never prune, on top of the built-in protections. A tag listed here is kept even when it is older than `REGISTRY_GC_MAX_AGE_DAYS` |
+| `REGISTRY_GC_PROTECTED_TAGS` | `latest,stable,main,master,release,prod,production,edge` | Comma-separated "floating" tag names (case-insensitive) whose digest the GC sweep never prunes, however old its build. Setting it REPLACES the default list. The structural protections (a digest with more than one tag, a live index's child, any digest a plugin row or pipeline references, cosign `.sig`/`.att` companions of a kept image) always apply |
 | `REGISTRY_TOKEN_ISSUER` / `REGISTRY_TOKEN_SERVICE` | `platform` / `pipeline-image-registry` | The `iss` and `service`/`aud` the registry's bearer tokens are minted with and validated against. **Both sides must agree** — the registry rejects a token whose `service` is not its own, so changing one without the other locks every push and pull out |
 | `REGISTRY_GC_STARTUP_DELAY_MS` | `300000` | Delay (ms, 5 min) before the first sweep after boot, so the registry settles first (`0` = sweep immediately) |
 
@@ -856,6 +858,7 @@ The message service backs in-app messaging: system announcements (broadcast to e
 | `S3_FORCE_PATH_STYLE` | `true` | Path-style addressing (required by RustFS; harmless for real S3). |
 | `MESSAGE_ATTACHMENT_MAX_MB` | `10` | Max attachment size (MiB). Uploads over this are rejected `413`. |
 | `MESSAGE_ATTACHMENT_PENDING_TTL_HOURS` | `24` | Age after which a pending attachment (uploaded but never linked to a message) is reaped with its blob by the retention sweep. Minimum 1. |
+| `MESSAGE_NOTIFICATION_RETENTION_DAYS` | `365` | Age after which a SYSTEM notification (written by `/internal/notify` — report delivery, dunning, downgrade, quota and compliance notices) is hard-deleted by the retention sweep. Conversations, support cases and notifications someone replied to are never aged out. Minimum 7. |
 
 > The object store backs more than attachments now: the **container registry** (S3 storage driver), **Loki** (log chunks + index), and **Thanos** (Prometheus long-term blocks) each use their own bucket + a per-service, bucket-scoped key (`registry-svc` / `loki-svc` / `thanos-svc`), all created by the `rustfs-init` bootstrap Job. See **[Deploy Operations → Object storage (RustFS)](deploy-operations.md#object-storage-rustfs)** for the bucket table + HA topology (distributed StatefulSet on EKS, single-node on ec2/minikube/docker).
 
@@ -1012,7 +1015,7 @@ Event reporting (`setup-events` → the reporting service) and DORA metrics. All
 | `REPORT_PDF_QUEUE_WAIT_MS` | `5000` | How long a queued render waits for a slot, separately from the render budget. Separate on purpose: sharing one budget makes total latency twice it, and makes "busy" versus "timeout" depend on which timer fires first. |
 | `REPORT_PDF_HEAP_MB` | `256` | Cap on one renderer's old-space heap (`--max-old-space-size`), so a pathological document fails its own render instead of the pod. |
 | `REPORT_PDF_SCRATCH_DIR` | `/tmp/report-pdf` | Chromium's user-data directory. The container root filesystem is read-only in every k8s deploy, so each mounts an `emptyDir` here. Chromium exits at startup if it cannot write this, so a wrong value does not degrade — PDFs simply never render. |
-| `ORG_SCORECARD_MAX_PIPELINES` | `50` | Pipeline service. Max pipelines graded in the org-wide scorecard roll-up (`GET /pipelines/scorecard`); the response flags `truncated` past it. Bounds the per-pipeline compliance + DORA cost of one request |
+| `ORG_SCORECARD_MAX_PIPELINES` | `50` | Pipeline service. Max pipelines graded in ONE page of the org-wide scorecard roll-up (`GET /pipelines/scorecard`) — the default and the ceiling of its `?limit=`; further pages via `?offset=` (`rollup.pagination.nextOffset`). Bounds the per-pipeline compliance + DORA cost of one request |
 | `ORG_SCORECARD_CONCURRENCY` | `4` | Pipeline service. Per-pipeline scorecard computations run in parallel within one roll-up (bounds load on the compliance service) |
 
 The retention window is a **tier baseline** that add-on retention packs extend. Each tier's baseline is overridable per-environment:
@@ -1061,7 +1064,7 @@ All optional (defaults shown). They tune behavior that matters only under horizo
 | `IDEMPOTENCY_MAX_STORE_SIZE` | `10000` | Max keys in the per-process (no-Redis) idempotency store |
 | `IDEMPOTENCY_CLEANUP_INTERVAL_MS` | `60000` | Sweep interval for expired keys in the per-process idempotency store |
 | `IDEMPOTENCY_PENDING_TTL_MS` | `120000` | How long an in-flight `Idempotency-Key` reservation holds the key if the process dies mid-request (retries get 409 until then). Must exceed the slowest handler; a client disconnect no longer releases the key — the handler's own result settles it |
-| `REGISTRY_GC_LOCK_TTL_MS` | `900000` | Image-registry GC leader-lock TTL (ms); only one replica runs the destructive GC sweep at a time |
+| `REGISTRY_GC_LOCK_TTL_MS` | `120000` (api-core's default leader-lock TTL) | Image-registry GC leader-lock TTL (ms); only one replica runs the destructive GC sweep at a time. This is the CRASH-RECOVERY window only — the holder heartbeats the lock for as long as a sweep runs, so it need not outlast one; keep it well under the sweep interval |
 
 ---
 
@@ -1402,7 +1405,8 @@ Lower-level knobs read through api-core's shared env readers (`envInt` / `envBoo
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `AUTH_VERIFICATION_TOKEN_TTL_MS` | `86400000` | Lifetime of an email-verification / password-reset token (24h) |
+| `AUTH_VERIFICATION_TOKEN_TTL_MS` | `86400000` | Lifetime of an email-verification link (24h) |
+| `AUTH_PASSWORD_RESET_TOKEN_TTL_MS` | `3600000` | Lifetime of a forgot-password link (1h). Single-use and stored only as a SHA-256; shorter than the verification link because it sets a credential. A reset ends every session and revokes every access key |
 | `SESSION_REVOCATION_TTL_SECONDS` | `3600` | How long a published `tokenVersion` bump is retained in Redis. Must exceed the access-token lifetime or a revocation can lapse before the token it revokes |
 | `AUDIT_RETENTION_DAYS` | `90` | Retention for platform audit events. Drives the Mongo TTL index |
 | `LOG_RETENTION_HOURS` | `720` (30 days) | How long Loki keeps logs, AND how far back a log query may reach — one variable for both, because they were two. `loki-config.yml` expands it into `retention_period` (`-config.expand-env=true`) and platform's log controller clamps queries to it. A clamp narrower than retention hides data that exists; a wider one returns an empty tail that reads as "nothing happened" rather than "nothing is kept", which is why `toolchain-drift-contract` asserts the two defaults match. **Raising it costs object-store space**: chunks and index live in the RustFS `loki` bucket on a 20Gi volume shared with the registry, Thanos blocks and plugin build contexts, so watch `PersistentVolumeFillingUp`. Hours, not days: `h` is the suffix proven to parse in that config, and a config Loki cannot read is a Loki that will not start |
@@ -1441,7 +1445,8 @@ Lower-level knobs read through api-core's shared env readers (`envInt` / `envBoo
 | `COMPLIANCE_MAX_REGEX_LENGTH` | `100` | Max length of a rule-authored regex pattern. Authoring hygiene — it is **not** the ReDoS bound |
 | `COMPLIANCE_REGEX_TIMEOUT_MS` | `50` | **Hard** wall-clock deadline for one rule-authored regex match. A match that exceeds it is aborted and treated as a violation (fail-closed) |
 | `COMPLIANCE_NOTIFY_TIMEOUT_MS` | `5000` | Per-channel timeout for a compliance notification delivery |
-| `COMPLIANCE_AUDIT_RETENTION_DAYS` | `180` | Retention for compliance check-log rows |
+| `COMPLIANCE_AUDIT_RETENTION_DAYS` | `180` | Retention for compliance check-log rows, finished scans and notification-log rows |
+| `COMPLIANCE_EXEMPTION_EXPIRY_WARN_DAYS` | `7` | Days ahead of an exemption's `expiresAt` the daily expiry sweep warns the org (1–90) |
 | `COMPLIANCE_MAX_ATTRIBUTE_DEPTH` | `10` | Max nesting depth of a validation request's attribute object |
 | `COMPLIANCE_MAX_ATTRIBUTE_KEYS` | `100` | Max keys in a validation request's attribute object |
 | `COMPLIANCE_SCAN_CONCURRENCY` | `10` | Entities evaluated in parallel during a compliance scan |
@@ -1507,6 +1512,7 @@ Lower-level knobs read through api-core's shared env readers (`envInt` / `envBoo
 | `S2S_BREAKER_ENABLED` | `true` | Enable the service-to-service circuit breaker |
 | `S2S_BREAKER_THRESHOLD` | `5` | Consecutive failures before the breaker opens for a peer |
 | `S2S_BREAKER_COOLDOWN_MS` | `10000` | How long the breaker stays open before a trial request |
-| `ASK_HTTP_TIMEOUT_MS` | `30000` | Timeout for the ask service's internal HTTP calls (long because answers stream) |
-| `ASK_MAX_OUTPUT_TOKENS` | `2048` | Cap on the tokens one Ask answer may generate (min 64) — bounds the cost and latency of a single turn |
+| `ASK_HTTP_TIMEOUT_MS` | `30000` | Timeout for the ask agent's ordinary internal HTTP calls (reads, compliance dry-runs). A DELEGATED generation (`/pipelines/generate`, `/plugins/generate`, …) waits `AI_REQUEST_TIMEOUT_MS` + 30s instead (never less than this value), because the peer has already reserved an `aiCalls` slot for it. Every call is also cancelled when the client disconnects. |
+| `ASK_MAX_OUTPUT_TOKENS` | `2048` | Cap on the tokens one Ask model step may generate (min 64) — bounds the cost of the turn's own `aiCalls` slot |
+| `ASK_MAX_TURN_GENERATIONS` | `2` | How many charged generations (propose_pipeline / propose_plugin / their from-repo forms / propose_template) one agent turn may START (1-10). Each draws its own `aiCalls` slot, and one model step can call several tools, so the step bound does not cap them; past this a generating tool declines. Refusals count `ask_turn_generation_budget_refused_total`. |
 | `MAX_PAGE_OFFSET` | `100000` | Hard ceiling on `?offset=` across paginated endpoints — bounds a deep-paging scan |

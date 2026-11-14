@@ -67,7 +67,7 @@ export default function QuotasPage() {
   const [searchFilter, setSearchFilter] = useState('');
   const [orgHealthColors, setOrgHealthColors] = useState<Record<string, string>>({});
 
-  const [orgData, setOrgData] = useState<OrgQuotaResponse | null>(null);
+  const [seededOrgData, setOrgData] = useState<OrgQuotaResponse | null>(null);
   const [saving, setSaving] = useState(false);
 
   const [editValues, setEditValues] = useState<Record<DisplayedQuotaType, number>>(
@@ -159,6 +159,11 @@ export default function QuotasPage() {
   const loading = orgQ.loading;
   const loadError = orgQ.error ? 'Failed to load quotas. The service may be unavailable.' : null;
   const retryOrg = orgQ.refetch;
+  // The editor's record, ONLY while it is the org the picker has selected. The
+  // seeded copy outlives a selection change (it is local state), so without this
+  // a failed read for Beta left Alpha's editor on screen under Beta's highlight —
+  // and Save / Reset usage wrote to Alpha.
+  const orgData = seededOrgData && seededOrgData.orgId === quotaOrgId ? seededOrgData : null;
 
   // A freshly read org seeds the view + the edit form.
   const loadedOrg = orgQ.data;
@@ -181,7 +186,7 @@ export default function QuotasPage() {
     // reads overlay it. Re-applying one verbatim therefore dropped the pooling
     // banner (and the root's name with it) the moment a sysadmin saved or reset.
     const pool = d.pool ?? opts?.keepPool;
-    const resolved: OrgQuotaResponse = { ...d, name, slug, ...(pool ? { pool } : {}) };
+    const resolved: OrgQuotaResponse = { ...d, orgId: opts?.orgId ?? d.orgId, name, slug, ...(pool ? { pool } : {}) };
     setOrgData(resolved);
     // DERIVED from the displayed list rather than hand-enumerated: this was a
     // sixth place naming every quota type, so adding one meant finding it, and

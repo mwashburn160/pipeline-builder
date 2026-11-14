@@ -17,10 +17,6 @@ export const runbookAccessKeysTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "<!-- Copyright 2026 Pipeline Builder Contributors SPDX-License-Identifier: Apache-2.0 -->"
-        },
-        {
-          "type": "text",
           "content": "Issuing the personal keys people need, and provisioning the three machine credentials an AWS deployment cannot run without."
         }
       ]

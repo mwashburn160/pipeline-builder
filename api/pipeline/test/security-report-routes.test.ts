@@ -170,4 +170,58 @@ describe('security report routes', () => {
     await handler('get')({ params: { id: 'p9' } }, r);
     expect(r.status).toHaveBeenCalledWith(404);
   });
+
+  // A scanner the pipeline dropped (or a renamed stage) used to feed the
+  // scorecard its last counts forever: there was no way to clear the slot.
+  describe('DELETE /:id/security-reports', () => {
+    const writer = { sub: 'u-1', permissions: ['pipelines:write'] };
+    const seed = async () => {
+      await handler('post')({ params: { id: 'p1' }, user: scoped, body: { tool: 'grype', format: 'grype-json', stage: 'Build', report: grype } }, res());
+      await handler('post')({ params: { id: 'p1' }, user: scoped, body: { tool: 'trivy', format: 'trivy-json', report: { Results: [] } } }, res());
+      jest.clearAllMocks();
+      mockFindById.mockResolvedValue({ id: 'p1', orgId: 'acme' });
+    };
+
+    // The pipelines:write gate + declared audit action are pinned by route-coverage.test.ts
+    // against the REAL route table (this suite stubs requirePermission).
+    it('removes exactly the named (tool, stage) slot, audited with what it carried', async () => {
+      await seed();
+      const r = res();
+      await handler('delete')({ params: { id: 'p1' }, query: { tool: 'GRYPE', stage: 'Build' }, user: writer }, r);
+      expect(r.status).toHaveBeenCalledWith(200);
+      expect(store.rows.map((x) => x.tool)).toEqual(['trivy']);
+      expect(mockRecordAudit).toHaveBeenCalledWith(expect.objectContaining({
+        action: 'pipeline.security_report.delete',
+        targetId: 'p1',
+        details: expect.objectContaining({ tool: 'grype', stage: 'Build', counts: expect.objectContaining({ critical: 1 }) }),
+      }));
+    });
+
+    it('an omitted stage names the stage-less slot', async () => {
+      await seed();
+      const r = res();
+      await handler('delete')({ params: { id: 'p1' }, query: { tool: 'trivy' }, user: writer }, r);
+      expect(r.status).toHaveBeenCalledWith(200);
+      expect(store.rows.map((x) => x.tool)).toEqual(['grype']);
+    });
+
+    it('404s an empty slot and a pipeline outside the org, 400s a missing tool — nothing audited', async () => {
+      await seed();
+      const empty = res();
+      await handler('delete')({ params: { id: 'p1' }, query: { tool: 'grype' }, user: writer }, empty);
+      expect(empty.status).toHaveBeenCalledWith(404);
+
+      mockFindById.mockResolvedValueOnce(null);
+      const foreign = res();
+      await handler('delete')({ params: { id: 'p9' }, query: { tool: 'grype', stage: 'Build' }, user: writer }, foreign);
+      expect(foreign.status).toHaveBeenCalledWith(404);
+
+      const bad = res();
+      await handler('delete')({ params: { id: 'p1' }, query: {}, user: writer }, bad);
+      expect(bad.status).toHaveBeenCalledWith(400);
+
+      expect(store.rows).toHaveLength(2);
+      expect(mockRecordAudit).not.toHaveBeenCalled();
+    });
+  });
 });

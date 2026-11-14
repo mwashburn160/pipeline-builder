@@ -56,6 +56,9 @@ jest.unstable_mockModule('@pipeline-builder/ai-core', () => stubModule('@pipelin
 }));
 
 const { buildAgentTools } = await import('../src/services/agent-tools.js');
+const { DownstreamError } = await import('../src/services/downstream-error.js');
+/** The options a DELEGATED generation is posted with (the generation timeout). */
+const GEN = { generation: true };
 // The SHARED allowlist — the same module the browser's confirm handler reads.
 // Imported here (not re-listed) so a test cannot assert against a second copy.
 const { ORG_SETTING_PROPOSAL_KEYS } = await import('@pipeline-builder/api-core');
@@ -82,6 +85,8 @@ const emailStatus = jest.fn<() => Promise<'enabled' | 'disabled' | 'unknown'>>(a
 const charge = { markConsumed: jest.fn<() => void>(), settle: jest.fn<(u: unknown) => void>() };
 const chargeAiCall = jest.fn<(tool: string) => Promise<typeof charge | null>>(async () => charge);
 const onRefusedFields = jest.fn<(tool: string, fields: string[]) => void>();
+// The turn's generation budget (ASK_MAX_TURN_GENERATIONS): granted by default.
+const generations = { claim: jest.fn<(tool: string) => boolean>(() => true), delegated: jest.fn<(tool: string) => void>() };
 
 type ToolEntry = {
   execute: (i: unknown, o: unknown) => Promise<Record<string, unknown>>;
@@ -102,6 +107,7 @@ const makeTools = (overrides: Partial<Parameters<typeof buildAgentTools>[0]> = {
     defaults: { provider: 'anthropic', model: 'claude-sonnet-5' },
     orgId: 'o',
     chargeAiCall,
+    generations,
     maxOutputTokens: 512,
     onRefusedFields,
     // Default: the caller holds everything, so the existing assertions see the
@@ -123,6 +129,7 @@ const CLEAN = { data: { passed: true, blocked: false, violations: [], warnings: 
 
 beforeEach(() => {
   jest.clearAllMocks();
+  generations.claim.mockReturnValue(true);
   compliance.post.mockResolvedValue(CLEAN);
   emailStatus.mockResolvedValue('enabled');
 });
@@ -514,7 +521,7 @@ describe('create proposals', () => {
   it('propose_pipeline DRAFTS via /generate, attaches the compliance verdict, and never creates', async () => {
     pipeline.post.mockResolvedValue({ data: { props: { project: 'p', organization: 'o' }, description: 'd', keywords: ['ci'] } });
     const out = await call('propose_pipeline', { prompt: 'ci for a node app' });
-    expect(pipeline.post).toHaveBeenCalledWith('/pipelines/generate', { prompt: 'ci for a node app', provider: 'anthropic', model: 'claude-sonnet-5' });
+    expect(pipeline.post).toHaveBeenCalledWith('/pipelines/generate', { prompt: 'ci for a node app', provider: 'anthropic', model: 'claude-sonnet-5' }, GEN);
     expect(out).toMatchObject({ kind: 'pipeline', description: 'd', keywords: ['ci'], refusedFields: [], provenance: { proposedBy: 'ask-agent' } });
     expect(out.compliance).toMatchObject({ checked: true, compliant: true });
     expect(postedPaths()).not.toContain('/pipelines');
@@ -526,7 +533,7 @@ describe('create proposals', () => {
     const out = await tools.propose_pipeline_from_repo.execute({ gitUrl: 'https://github.com/o/app' }, {});
     expect(pipeline.post).toHaveBeenCalledWith('/pipelines/generate/from-url', {
       gitUrl: 'https://github.com/o/app', provider: 'anthropic', model: 'claude-sonnet-5', repoToken: 'ghp_secret',
-    });
+    }, GEN);
     expect(out).toMatchObject({ kind: 'pipeline', analysis: { repo: 'app' } });
     expect(Object.keys(tools.propose_pipeline_from_repo.inputSchema.shape ?? {})).toEqual(['gitUrl']);
   });
@@ -537,8 +544,8 @@ describe('create proposals', () => {
     const tools = makeTools({ defaults: { provider: 'openai', model: 'gpt-5.6-sol', apiKey: 'sk-byo' } });
     await tools.propose_pipeline.execute({ prompt: 'ci' }, {});
     await tools.propose_plugin.execute({ prompt: 'scan' }, {});
-    expect(pipeline.post).toHaveBeenCalledWith('/pipelines/generate', { prompt: 'ci', provider: 'openai', model: 'gpt-5.6-sol', apiKey: 'sk-byo' });
-    expect(plugin.post).toHaveBeenCalledWith('/plugins/generate', { prompt: 'scan', provider: 'openai', model: 'gpt-5.6-sol', apiKey: 'sk-byo' });
+    expect(pipeline.post).toHaveBeenCalledWith('/pipelines/generate', { prompt: 'ci', provider: 'openai', model: 'gpt-5.6-sol', apiKey: 'sk-byo' }, GEN);
+    expect(plugin.post).toHaveBeenCalledWith('/plugins/generate', { prompt: 'scan', provider: 'openai', model: 'gpt-5.6-sol', apiKey: 'sk-byo' }, GEN);
     // No tool takes a key as MODEL input.
     for (const t of ['propose_pipeline', 'propose_plugin', 'propose_pipeline_from_repo', 'propose_plugin_from_repo']) {
       expect(Object.keys(tools[t].inputSchema.shape ?? {})).not.toContain('apiKey');
@@ -548,7 +555,7 @@ describe('create proposals', () => {
   it('propose_plugin DRAFTS via plugin /generate (config + dockerfile), never deploys', async () => {
     plugin.post.mockResolvedValue({ data: { config: { name: 'trivy' }, dockerfile: 'FROM x' } });
     const out = await call('propose_plugin', { prompt: 'trivy image scan' });
-    expect(plugin.post).toHaveBeenCalledWith('/plugins/generate', { prompt: 'trivy image scan', provider: 'anthropic', model: 'claude-sonnet-5' });
+    expect(plugin.post).toHaveBeenCalledWith('/plugins/generate', { prompt: 'trivy image scan', provider: 'anthropic', model: 'claude-sonnet-5' }, GEN);
     expect(out).toMatchObject({ kind: 'plugin', config: { name: 'trivy' }, dockerfile: 'FROM x' });
     expect(postedPaths()).not.toContain('/plugins/deploy-generated');
   });
@@ -562,8 +569,9 @@ describe('create proposals', () => {
     // The analysis-only endpoint: no model fields, no key — only the repo + its token.
     expect(pipeline.post).toHaveBeenCalledWith('/pipelines/analyze/from-url', { gitUrl: 'https://github.com/o/app', repoToken: 'ghp_secret' });
     expect(pipeline.post).not.toHaveBeenCalledWith('/pipelines/generate/from-url', expect.anything());
-    const [path, body] = plugin.post.mock.calls[0] as [string, { prompt: string }];
+    const [path, body, opts] = plugin.post.mock.calls[0] as [string, { prompt: string }, unknown];
     expect(path).toBe('/plugins/generate');
+    expect(opts).toEqual(GEN);
     expect(body.prompt).toContain('go mod');
     // The repo-derived analysis is FENCED as data, not spliced in as prose.
     expect(body.prompt).toContain('<<<DATA repository-analysis>>>');
@@ -590,6 +598,44 @@ describe('create proposals', () => {
     expect(out).toMatchObject({ kind: 'pipeline', description: 'from template' });
     expect(postedPaths()).not.toContain('/pipelines');
   });
+  it('a delegated generation runs with the GENERATION timeout and is counted for the turn', async () => {
+    pipeline.post.mockResolvedValue({ data: { props: { project: 'p' } } });
+    await call('propose_pipeline', { prompt: 'ci' });
+    expect(generations.claim).toHaveBeenCalledWith('propose_pipeline');
+    expect(generations.delegated).toHaveBeenCalledWith('propose_pipeline');
+  });
+
+  it.each([
+    ['QUOTA_EXCEEDED', 'no AI generation quota left'],
+    ['AI_MEMBER_SHARE_EXCEEDED', 'your share'],
+    ['AI_TOKEN_BUDGET_EXCEEDED', 'token budget'],
+    ['RATE_LIMIT_EXCEEDED', 'rate-limited'],
+    [undefined, 'no AI generation quota left'],
+  ])('a generator 429 (%s) DECLINES with the same quota wording as propose_template, never a bare status', async (code, wording) => {
+    pipeline.post.mockRejectedValue(new DownstreamError('POST /pipelines/generate -> 429', 429, code));
+    const out = await call('propose_pipeline', { prompt: 'ci' });
+    expect(out).toMatchObject({ kind: 'pipeline', error: expect.stringContaining(wording) });
+    expect(String(out.error)).not.toContain('429');
+    expect(generations.delegated).not.toHaveBeenCalled();
+  });
+
+  it('a generator failure that is NOT a 429 still surfaces as a tool error', async () => {
+    plugin.post.mockRejectedValue(new DownstreamError('POST /plugins/generate -> 502', 502));
+    await expect(call('propose_plugin', { prompt: 'x' })).rejects.toThrow('-> 502');
+  });
+
+  it.each(['propose_pipeline', 'propose_pipeline_from_repo', 'propose_plugin', 'propose_plugin_from_repo', 'propose_template'])(
+    '%s DECLINES without generating once the turn\'s generation budget is spent',
+    async (toolName) => {
+      generations.claim.mockReturnValue(false);
+      const out = await call(toolName, toolName.endsWith('_from_repo') ? { gitUrl: 'https://github.com/o/app' } : { prompt: 'x' });
+      expect(out).toMatchObject({ error: expect.stringContaining('limit of') });
+      expect(pipeline.post).not.toHaveBeenCalled();
+      expect(plugin.post).not.toHaveBeenCalled();
+      expect(chargeAiCall).not.toHaveBeenCalled();
+      expect(mockStreamText).not.toHaveBeenCalled();
+    },
+  );
 });
 
 describe('propose_template — in-process generation, validated like the create API', () => {
@@ -1072,15 +1118,15 @@ describe('edge cases', () => {
     const tools = makeTools({ defaults: {} });
     await tools.propose_pipeline.execute({ prompt: 'x' }, {});
     await tools.propose_plugin.execute({ prompt: 'y' }, {});
-    expect(pipeline.post).toHaveBeenCalledWith('/pipelines/generate', { prompt: 'x' });
-    expect(plugin.post).toHaveBeenCalledWith('/plugins/generate', { prompt: 'y' });
+    expect(pipeline.post).toHaveBeenCalledWith('/pipelines/generate', { prompt: 'x' }, GEN);
+    expect(plugin.post).toHaveBeenCalledWith('/plugins/generate', { prompt: 'y' }, GEN);
   });
 
   it('propose_pipeline_from_repo omits the repo token when the request carried none', async () => {
     pipeline.post.mockResolvedValue({ data: { props: {} } });
     const tools = makeTools({ defaults: {} });
     await tools.propose_pipeline_from_repo.execute({ gitUrl: 'https://github.com/o/app' }, {});
-    expect(pipeline.post).toHaveBeenCalledWith('/pipelines/generate/from-url', { gitUrl: 'https://github.com/o/app' });
+    expect(pipeline.post).toHaveBeenCalledWith('/pipelines/generate/from-url', { gitUrl: 'https://github.com/o/app' }, GEN);
   });
 
   it('tolerates a downstream body with no { data } envelope, and a null body', async () => {

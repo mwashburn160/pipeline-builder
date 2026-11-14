@@ -18,8 +18,10 @@ import { instantiateTemplate } from './commands/instantiate-template.js';
 import { listPipelines } from './commands/list-pipelines.js';
 import { listPlugins } from './commands/list-plugins.js';
 import { login } from './commands/login.js';
+import { logout } from './commands/logout.js';
 import { newPlugin } from './commands/new-plugin.js';
 import { orgExport } from './commands/org-export.js';
+import { deletePipeline, deregisterPipeline } from './commands/pipeline-remove.js';
 import { deprecatePlugin, yankPlugin } from './commands/plugin-lifecycle.js';
 import { provision } from './commands/provision.js';
 import { publishPlugin } from './commands/publish-plugin.js';
@@ -46,6 +48,8 @@ import {
   ENV_VARS,
   isDebugMode,
   generateExecutionId,
+  meetsNodeVersionFloor,
+  NODE_VERSION_FLOOR,
 } from './config/cli.constants.js';
 import { banner, miniBanner } from './utils/banner.js';
 import { getApiConfig } from './utils/config-loader.js';
@@ -122,9 +126,8 @@ function checkEnvironment({ signInRelevant = true }: { signInRelevant?: boolean 
 
   // Check Node version
   const nodeVersion = process.version;
-  const majorVersion = parseInt(nodeVersion.slice(1).split('.')[0] || '0', 10);
-  if (majorVersion < 24) {
-    warnings.push(`Node.js ${nodeVersion} detected - version 24+ required (see package.json engines)`);
+  if (!meetsNodeVersionFloor(nodeVersion)) {
+    warnings.push(`Node.js ${nodeVersion} detected - version ${NODE_VERSION_FLOOR}+ required (see package.json engines)`);
   }
 
   // Display warnings
@@ -171,14 +174,16 @@ function displayStartupInfo(options: CliOptions): void {
 /** Top-level `--help` epilogue: command groups, auth, env vars, examples, exit codes. */
 const HELP_TEXT = `
 Command groups:
-  auth      Authenticate and manage credentials (login, pat)
-  pipeline  Create, inspect, and deploy pipelines (create, list, get, register, synth, deploy)
+  auth      Authenticate and manage credentials (login, logout, pat)
+  pipeline  Create, inspect, and deploy pipelines (create, list, get, register, deregister, delete, synth, deploy)
   plugin    Author, validate, and publish plugins (new, validate, test, publish, upload, get, list, deprecate, yank, verify)
   template  Instantiate golden-path pipeline templates and validate {{ ... }} syntax (instantiate, validate)
   infra     Set up and operate platform infrastructure (bootstrap, setup-events, redrive-events, store-token, provision)
   audit     Operator audits, cron-friendly (tokens, stacks)
   org       Organization data operations (export)
   security-report  Upload SARIF / trivy / grype reports produced inside a pipeline (upload)
+  report    Stakeholder reports (list, create, run, publish, link, pdf, transfer)
+  toolchain The pipeline toolchain release (export)
   status / version / completions
 
 Authentication:
@@ -226,6 +231,7 @@ function registerTaskNamespaces(): void {
   // auth — authenticate and manage credentials
   const auth = program.command('auth').description('Authenticate and manage credentials');
   login(auth); // auth login — browser (device-authorization) sign-in, stored locally
+  logout(auth); // auth logout — revoke the stored session on the platform and delete it locally
   createPat(auth); // auth pat — create a named access key (device sign-in + browser step-up)
 
   // pipeline — create, inspect, and deploy pipelines
@@ -234,6 +240,8 @@ function registerTaskNamespaces(): void {
   listPipelines(pipeline); // pipeline list
   getPipeline(pipeline); // pipeline get
   register(pipeline); // pipeline register — re-register a deployed ARN + drain pending intents
+  deregisterPipeline(pipeline); // pipeline deregister — remove a registry row (audit stacks' missing-stack fix)
+  deletePipeline(pipeline); // pipeline delete — delete a pipeline configuration
   synth(pipeline); // pipeline synth — CDK synthesis from pipeline config
   deploy(pipeline); // pipeline deploy — CDK deploy (--app prints boilerplate path)
 

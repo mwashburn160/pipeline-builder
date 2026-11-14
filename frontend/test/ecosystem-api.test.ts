@@ -144,7 +144,7 @@ describe('ecosystem API — console routes', () => {
     await api.listAutoRules();
     await api.createAutoRule({ name: 'r', conditions }, 't1');
     await api.updateAutoRule('r1', { enabled: false }, 't2');
-    await api.approveAutoRuleChange('r1', 't3');
+    await api.approveAutoRuleChange('r1', '2026-11-13T10:00:00.000Z', 't3');
     await api.deleteAutoRule('r1', 't4');
     expect(calls[0].path).toBe('/api/plugins/ecosystem/rules');
     expect(calls[1].init.method).toBe('POST');
@@ -152,7 +152,7 @@ describe('ecosystem API — console routes', () => {
     expect(calls[2]).toMatchObject({ path: '/api/plugins/ecosystem/rules/r1', init: { method: 'PATCH' } });
     expect(calls[2].init.headers).toEqual({ 'X-Step-Up-Token': 't2' });
     expect(calls[3].path).toBe('/api/plugins/ecosystem/rules/r1/approve-change');
-    expect(calls[3].init.body).toBeUndefined();
+    expect(body(calls[3].init)).toEqual({ requestedAt: '2026-11-13T10:00:00.000Z' });
     expect(calls[4]).toMatchObject({ path: '/api/plugins/ecosystem/rules/r1', init: { method: 'DELETE', headers: { 'X-Step-Up-Token': 't4' } } });
   });
 

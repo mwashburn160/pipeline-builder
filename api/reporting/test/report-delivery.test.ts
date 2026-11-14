@@ -33,6 +33,7 @@ const mockDestinations = jest.fn<AnyFn>();
 const mockGetRecipients = jest.fn<AnyFn>();
 const mockRecordBounce = jest.fn<AnyFn>();
 const mockDeliverability = jest.fn<AnyFn>();
+const mockRecordDelivery = jest.fn<AnyFn>();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendSystemNotification: (...a: unknown[]) => mockSystemNotification(...a),
@@ -50,6 +51,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@p
     getRecipients: (...a: unknown[]) => mockGetRecipients(...a),
     recordBounce: (...a: unknown[]) => mockRecordBounce(...a),
     deliverability: (...a: unknown[]) => mockDeliverability(...a),
+    recordDelivery: (...a: unknown[]) => mockRecordDelivery(...a),
   },
 }));
 
@@ -100,6 +102,7 @@ beforeEach(() => {
   mockRecordBounce.mockResolvedValue(1);
   mockDeliverability.mockReturnValue({ deliverable: true });
   mockWebhookDeliver.mockResolvedValue({ ok: true, code: 200 });
+  mockRecordDelivery.mockResolvedValue(undefined);
 });
 
 describe('emailAvailable', () => {
@@ -206,20 +209,69 @@ describe('deliverPublishedRun', () => {
     expect(outcome.notes.join(' ')).toContain('bounced 3 times');
   });
 
-  it('does NOT record a bounce when the relay itself refused the call', async () => {
+  it('does NOT record a bounce when the relay itself refused the call — but says nobody was emailed', async () => {
     mockPost.mockResolvedValue({ statusCode: 503, body: {} });
     const outcome = await delivery.deliverPublishedRun(definition(), run());
     // The addresses are fine and the relay is not. Counting this would retire a manager's
     // address after three bad deploys.
     expect(mockRecordBounce).not.toHaveBeenCalled();
     expect(outcome.email.sent).toBe(0);
-    expect(outcome.email.failed).toBe(0);
+    // ...and the record must not read "0 failed" for a send that never happened.
+    expect(outcome.relayFailed).toBe(true);
+    expect(outcome.email.failed).toBe(1);
+    expect(outcome.state).toBe('failed');
+    expect(outcome.notes.join(' ')).toContain('relay refused the send, so 1 recipient(s) were not emailed');
   });
 
-  it('does not record a bounce when the relay is unreachable', async () => {
+  it('does not record a bounce when the relay is unreachable, and notes it', async () => {
     mockPost.mockRejectedValue(new Error('ECONNREFUSED'));
-    await delivery.deliverPublishedRun(definition(), run());
+    const outcome = await delivery.deliverPublishedRun(definition(), run());
     expect(mockRecordBounce).not.toHaveBeenCalled();
+    expect(outcome.relayFailed).toBe(true);
+    expect(outcome.notes.join(' ')).toContain('could not be reached');
+  });
+
+  it('records WHO has it, so a redelivery can skip them', async () => {
+    mockDestinations.mockResolvedValue([{ id: 'd1', channel: 'slack', target: 'https://hooks.slack.com/x', label: 'Eng' }]);
+    const outcome = await delivery.deliverPublishedRun(definition(), run());
+    expect(outcome.delivered).toEqual({ recipientIds: ['rec-1'], destinationIds: ['d1'] });
+    expect(outcome).toMatchObject({ state: 'delivered', attempts: 1 });
+  });
+
+  it('a REDELIVERY reaches only whoever the previous attempt missed', async () => {
+    mockGetRecipients.mockResolvedValue([recipient(), recipient({ id: 'rec-2', email: 'cfo@acme.test' })]);
+    mockPost.mockResolvedValue(relay(['cfo@acme.test']));
+    mockDestinations.mockResolvedValue([
+      { id: 'd1', channel: 'slack', target: 'https://hooks.slack.com/x', label: 'Eng' },
+      { id: 'd2', channel: 'webhook', target: 'https://teams.example/hook', label: 'Teams' },
+    ]);
+    const previous = {
+      state: 'failed',
+      attempts: 1,
+      attemptedAt: '2026-11-01T00:00:00.000Z',
+      inApp: 1,
+      email: { sent: 1, failed: 1, skipped: 0 },
+      destinations: { delivered: 1, failed: 1 },
+      emailAvailable: true,
+      relayFailed: false,
+      delivered: { recipientIds: ['rec-1'], destinationIds: ['d1'] },
+      notes: [],
+    } as never;
+    const outcome = await delivery.deliverPublishedRun(definition({ recipients: ['rec-1', 'rec-2'] }), run(), previous);
+
+    // In-app was already posted: not posted again.
+    expect(mockSystemNotification).not.toHaveBeenCalled();
+    const body = mockPost.mock.calls[0]?.[1] as { reportRecipients: Array<{ email: string }> };
+    expect(body.reportRecipients.map((r) => r.email)).toEqual(['cfo@acme.test']);
+    expect(mockWebhookDeliver).toHaveBeenCalledTimes(1);
+    expect(outcome).toMatchObject({
+      state: 'delivered',
+      attempts: 2,
+      inApp: 1,
+      email: { sent: 2, failed: 0, skipped: 0 },
+      destinations: { delivered: 2, failed: 0 },
+      delivered: { recipientIds: ['rec-1', 'rec-2'], destinationIds: ['d1', 'd2'] },
+    });
   });
 
   it('fans out to slack and webhook destinations', async () => {
@@ -247,12 +299,14 @@ describe('deliverPublishedRun', () => {
     expect(outcome.destinations).toEqual({ delivered: 0, failed: 0 });
   });
 
-  it('counts a failed destination without failing the delivery', async () => {
+  it('counts a failed destination without aborting the delivery — and marks it incomplete', async () => {
     mockDestinations.mockResolvedValue([{ id: 'd1', channel: 'slack', target: 'https://hooks.slack.com/x', label: 'Eng' }]);
     mockWebhookDeliver.mockResolvedValue({ ok: false, code: 404 });
     const outcome = await delivery.deliverPublishedRun(definition(), run());
     expect(outcome.destinations).toEqual({ delivered: 0, failed: 1 });
     expect(outcome.inApp).toBe(1);
+    expect(outcome.state).toBe('failed');
+    expect(outcome.notes.join(' ')).toContain('1 Slack / Teams / webhook destination(s) did not accept');
   });
 
   it('survives a throwing destination transport', async () => {
@@ -280,6 +334,60 @@ describe('deliverPublishedRun', () => {
     const body = mockPost.mock.calls[0]?.[1] as { text: string };
     // The context the data cannot supply, which is the whole reason a lead reviews.
     expect(body.text).toContain('paused deploys Tuesday');
+  });
+});
+
+describe('deliverAndRecord', () => {
+  it('records `delivering` BEFORE the fan-out and the outcome after it', async () => {
+    const outcome = await delivery.deliverAndRecord(definition(), run());
+    expect(mockRecordDelivery).toHaveBeenCalledTimes(2);
+    expect(mockRecordDelivery.mock.calls[0]?.[2]).toMatchObject({ state: 'delivering', attempts: 1 });
+    expect(mockRecordDelivery.mock.calls[1]?.[2]).toEqual(outcome);
+    expect(outcome.state).toBe('delivered');
+  });
+
+  it('notifies the LEAD when the delivery left someone out', async () => {
+    mockPost.mockImplementation(async (path: string) => (path === '/internal/notify-email' && mockPost.mock.calls.length === 1
+      ? { statusCode: 503, body: {} }
+      : { statusCode: 200, body: {} }));
+    await delivery.deliverAndRecord(definition(), run());
+    // [0] is the org in-app notice; [1] is the lead's failure notice.
+    const lead = mockSystemNotification.mock.calls[1]?.[0] as Record<string, unknown>;
+    expect(lead).toMatchObject({ recipientOrgId: 'acme', recipientUserId: 'user-lead', priority: 'high' });
+    expect(String(lead.subject)).toContain('was not delivered to everyone');
+    expect(String(lead.content)).toContain('redeliver');
+  });
+
+  it('does not notify the lead on a complete delivery', async () => {
+    await delivery.deliverAndRecord(definition(), run());
+    expect(mockSystemNotification).toHaveBeenCalledTimes(1);
+  });
+
+  it('NEVER throws: a crash mid-delivery is recorded as failed and the lead is told', async () => {
+    mockGetRecipients.mockRejectedValue(new Error('db down'));
+    const outcome = await delivery.deliverAndRecord(definition(), run());
+    expect(outcome.state).toBe('failed');
+    expect(outcome.notes[0]).toContain('Delivery stopped before it finished: db down');
+    expect(mockRecordDelivery.mock.calls.at(-1)?.[2]).toMatchObject({ state: 'failed' });
+    expect(mockSystemNotification).toHaveBeenCalledWith(expect.objectContaining({ recipientUserId: 'user-lead' }));
+  });
+});
+
+describe('deliveryIncomplete / recordedDelivery', () => {
+  const base = { state: 'delivered', inApp: 1, relayFailed: false, email: { sent: 1, failed: 0, skipped: 0 }, destinations: { delivered: 0, failed: 0 } } as const;
+  it('is complete only when every channel landed', () => {
+    expect(delivery.deliveryIncomplete(base)).toBe(false);
+    expect(delivery.deliveryIncomplete({ ...base, inApp: 0 })).toBe(true);
+    expect(delivery.deliveryIncomplete({ ...base, relayFailed: true })).toBe(true);
+    expect(delivery.deliveryIncomplete({ ...base, email: { sent: 0, failed: 1, skipped: 0 } })).toBe(true);
+    expect(delivery.deliveryIncomplete({ ...base, destinations: { delivered: 0, failed: 1 } })).toBe(true);
+  });
+
+  it('reads only a well-formed record from the untyped column', () => {
+    expect(delivery.recordedDelivery(run({ delivery: null }))).toBeNull();
+    expect(delivery.recordedDelivery(run({ delivery: { inApp: 1 } }))).toBeNull();
+    const rec = { state: 'delivered', delivered: { recipientIds: [], destinationIds: [] } };
+    expect(delivery.recordedDelivery(run({ delivery: rec }))).toBe(rec);
   });
 });
 

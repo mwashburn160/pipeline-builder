@@ -499,7 +499,7 @@ export function createAddonRoutes(): Router {
     // (an increase never trips it). Structured details drive the UI's "remove N".
     const overages = await checkEntitlementOvercap(orgId, plan.tier, next, '');
     if (overages.length > 0) {
-      return sendError(res, 409, 'This change would put the account over its limit — remove members/resources first', ErrorCode.ADDON_OVER_CAP, { overages });
+      return sendError(res, 409, 'This change would put the account over its limit — remove members, support contacts or resources first', ErrorCode.ADDON_OVER_CAP, { overages });
     }
 
     const committed = await commitAddonChange({
@@ -628,7 +628,7 @@ export function createAddonRoutes(): Router {
 
     const overages = await checkEntitlementOvercap(orgId, plan.tier, next, '');
     if (overages.length > 0) {
-      return sendError(res, 409, 'This change would put the account over its limit — remove members/resources first', ErrorCode.ADDON_OVER_CAP, { overages });
+      return sendError(res, 409, 'This change would put the account over its limit — remove members, support contacts or resources first', ErrorCode.ADDON_OVER_CAP, { overages });
     }
 
     const committed = await commitAddonChange({
@@ -693,7 +693,7 @@ export function createAddonRoutes(): Router {
 
     const overages = await checkEntitlementOvercap(orgId, plan.tier, next, '');
     if (overages.length > 0) {
-      return sendError(res, 409, 'Removing this bundle would put the account over its limit — remove members/resources first', ErrorCode.ADDON_OVER_CAP, { overages });
+      return sendError(res, 409, 'Removing this bundle would put the account over its limit — remove members, support contacts or resources first', ErrorCode.ADDON_OVER_CAP, { overages });
     }
 
     const committed = await commitAddonChange({

@@ -1,6 +1,6 @@
 // GENERATED FROM docs/authentication.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: f9818ff532f57baf868d67e9868a29eb5af12b214ca5371908809a19345dacdc
+// SOURCE-SHA256: d7088c89e32e706f96fd0bd87b2f2727c753c3f31c31cb93e2a007bb221cc453
 // SPDX-License-Identifier: Apache-2.0
 import { Lock } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -15,10 +15,6 @@ export const authenticationTopic: HelpTopic = {
       "id": "overview",
       "title": "Overview",
       "blocks": [
-        {
-          "type": "text",
-          "content": "<!-- Copyright 2026 Pipeline Builder Contributors SPDX-License-Identifier: Apache-2.0 -->"
-        },
         {
           "type": "text",
           "content": "Four ways to sign in, one optional second factor, and the machine credentials that never sign in at all."
@@ -187,6 +183,38 @@ export const authenticationTopic: HelpTopic = {
         {
           "type": "text",
           "content": "A password must be at least PASSWORD_MIN_LENGTH characters (default 8, at most 128) with an upper-case letter, a lower-case letter and a digit — checked by the request schema and again by the model before hashing (bcrypt)."
+        },
+        {
+          "type": "text",
+          "content": "Forgot password"
+        },
+        {
+          "type": "text",
+          "content": "A person who forgets their password resets it themselves from the sign-in page:"
+        },
+        {
+          "type": "list",
+          "items": [
+            "POST /auth/password/reset-request { email } always answers 200 with the"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "same message, so it cannot tell anyone whether an address has an account. When it does — and the account has a password and is not under an org's SSO required policy — a single-use link is emailed to /auth/reset-password?token=…. Only the token's SHA-256 is stored (password_reset_tokens, TTL-indexed), it lives AUTH_PASSWORD_RESET_TOKEN_TTL_MS (1 h), and a newer request supersedes it. Limited to 3 requests per address and 20 per IP per 15 minutes."
+        },
+        {
+          "type": "list",
+          "items": [
+            "POST /auth/password/reset { token, newPassword } checks the same rules as a"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "password change (platform rules, the strictest org minimum, the breach check), then claims the token atomically and ends everything that speaks for the account: tokenVersion is bumped, every refresh slot is cleared, and every access key is revoked. The next sign-in still asks for the account's second factor — a reset replaces the password, never the MFA."
+        },
+        {
+          "type": "text",
+          "content": "The same hard revocation — sessions and access keys — happens on a password change, an administrator's password reset and an MFA factor reset."
         },
         {
           "type": "text",

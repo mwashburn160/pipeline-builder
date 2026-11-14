@@ -81,8 +81,9 @@ describe('sweepExpiredImpersonationRequests', () => {
     expect(mockUpdateMany).toHaveBeenCalledTimes(1);
   });
 
-  it('never throws on a database error', async () => {
+  // Thrown, not swallowed: SchedulerJobStale only sees a cycle that throws.
+  it('surfaces a database error to the scheduler', async () => {
     mockUpdateMany.mockRejectedValue(new Error('mongo down'));
-    await expect(sweepExpiredImpersonationRequests()).resolves.toBe(0);
+    await expect(sweepExpiredImpersonationRequests()).rejects.toThrow('mongo down');
   });
 });

@@ -1435,6 +1435,8 @@ CREATE TABLE IF NOT EXISTS compliance_exemptions (    id UUID PRIMARY KEY DEFAUL
     rejection_reason TEXT,
     status VARCHAR(20) NOT NULL DEFAULT 'pending',
     expires_at TIMESTAMPTZ,
+    -- When the pre-expiry warning went out; one warning per exemption.
+    expiry_warned_at TIMESTAMPTZ,
     created_by TEXT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_by TEXT NOT NULL,
@@ -1479,7 +1481,6 @@ CREATE INDEX IF NOT EXISTS compliance_rule_sub_rule_idx
 CREATE TABLE IF NOT EXISTS compliance_scans (    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     org_id VARCHAR(255) NOT NULL,
     target VARCHAR(20) NOT NULL,
-    filter JSONB,
     status VARCHAR(20) NOT NULL DEFAULT 'pending',
     triggered_by VARCHAR(20) NOT NULL,
     user_id TEXT NOT NULL,
@@ -1488,9 +1489,6 @@ CREATE TABLE IF NOT EXISTS compliance_scans (    id UUID PRIMARY KEY DEFAULT gen
     pass_count INTEGER NOT NULL DEFAULT 0,
     warn_count INTEGER NOT NULL DEFAULT 0,
     block_count INTEGER NOT NULL DEFAULT 0,
-    -- True when a scan stopped early at a per-scan cap, so the counts above
-    -- are a subset rather than the full entity universe. Shown in the UI.
-    truncated BOOLEAN NOT NULL DEFAULT FALSE,
     started_at TIMESTAMPTZ,
     completed_at TIMESTAMPTZ,
     cancelled_at TIMESTAMPTZ,
@@ -2357,7 +2355,11 @@ CREATE TABLE IF NOT EXISTS plugin_publish_requests (
     reason TEXT,
     auto_rule_id UUID REFERENCES ecosystem_auto_approval_rules(id),
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    decided_at TIMESTAMPTZ
+    decided_at TIMESTAMPTZ,
+    -- Set once an approved request's execution returned; an approved row
+    -- without it past a grace period died mid-execution and is handed back
+    -- by the ecosystem maintenance job.
+    executed_at TIMESTAMPTZ
 );
 
 CREATE INDEX IF NOT EXISTS plugin_publish_request_status_created_idx

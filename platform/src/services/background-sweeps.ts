@@ -87,7 +87,7 @@ export async function sweepDefinitions(): Promise<SweepDefinition[]> {
 
   // Publish each audit chain's signed head to write-once object storage (see
   // services/audit-head-export.ts). One exporter per window.
-  const { exportAuditChainHeads, headExportTarget } = await import('./audit-head-export.js');
+  const { runAuditHeadExportSweep, headExportTarget } = await import('./audit-head-export.js');
   if (headExportTarget()) {
     defs.push({
       name: 'audit-head-export',
@@ -96,7 +96,8 @@ export async function sweepDefinitions(): Promise<SweepDefinition[]> {
       // two exporters would write identical heads, not conflicting ones.
       concurrencySafe: true,
       intervalMs: config.audit.headExport.intervalMs,
-      run: async () => { await exportAuditChainHeads(); },
+      // Throws when any chain failed, so SchedulerJobStale sees a failing export.
+      run: runAuditHeadExportSweep,
     });
   } else {
     logger.warn('Audit chain-head export DISABLED (AUDIT_HEAD_EXPORT_S3_* unset) — /audit/verify cannot detect tail truncation');
@@ -166,13 +167,14 @@ export async function sweepDefinitions(): Promise<SweepDefinition[]> {
     });
   }
 
-  const [{ invitationReaperSweep }, { impersonationReaperSweep }, { orgPurgeSweep }, { softDeletePurgeSweep }] = await Promise.all([
+  const [{ invitationReaperSweep }, { impersonationReaperSweep }, { orgPurgeSweep }, { softDeletePurgeSweep }, { deliveryHealthSweep }] = await Promise.all([
     import('./invitation-reaper.js'),
     import('./impersonation-reaper.js'),
     import('./org-purge.js'),
     import('./soft-delete-purge.js'),
+    import('./alert-delivery-status.js'),
   ]);
-  defs.push(invitationReaperSweep(), impersonationReaperSweep(), orgPurgeSweep(), softDeletePurgeSweep);
+  defs.push(invitationReaperSweep(), impersonationReaperSweep(), orgPurgeSweep(), softDeletePurgeSweep, deliveryHealthSweep());
   return defs;
 }
 

@@ -36,7 +36,7 @@ const { bold, green } = pico;
 export function orgExport(program: Command): void {
   withSslOptions(program
     .command('export')
-    .description('Export an organization\'s data as JSON (GDPR portability, ).')
+    .description('Export an organization\'s data as JSON (GDPR portability: sysadmins any org, org admins their own)')
     .requiredOption('-i, --id <id>', 'Organization ID to export')
     .option('-o, --output <file>', 'Output file path (default: org-<id>-export.json in CWD)'))
     .action(async (options) => {

@@ -189,3 +189,33 @@ export async function supportEntitlement(
   };
 }
 
+
+/**
+ * The account's (root) support-contact caps and its pooled ACTIVE designations —
+ * the support-dimension sibling of `pooledSeatUsage`, read by billing's over-cap
+ * gate (`used`) and entitlement-drift reconciler (`limit`) through
+ * `GET /organization/:id/support-usage`. `-1` = unlimited. Both figures are always
+ * present: billing treats a partial answer as a failed read.
+ *
+ * Counts run in a privileged tenant context: the caller is already authorized for
+ * this account (service principal or its admin), and the subtree spans tenants.
+ */
+export async function pooledSupportUsage(orgId: string): Promise<{
+  supportContacts: { limit: number; used: number };
+  supportPremiumContacts: { limit: number; used: number };
+}> {
+  const { rootOrgId } = await resolveOrgLineage(orgId);
+  const root = await Organization.findById(toOrgId(rootOrgId))
+    .select('quotas.supportContacts quotas.supportPremiumContacts')
+    .lean();
+  const { countActiveSupportContacts, countPremiumSupportContacts, runWithTenantContext } = await import('@pipeline-builder/pipeline-data');
+  const scope = (await expandOrgScope(rootOrgId)).map(String);
+  const [used, premiumUsed] = await runWithTenantContext({ orgId: rootOrgId, isSuperAdmin: true }, () => Promise.all([
+    countActiveSupportContacts(scope),
+    countPremiumSupportContacts(scope),
+  ]));
+  return {
+    supportContacts: { limit: root?.quotas?.supportContacts ?? 0, used },
+    supportPremiumContacts: { limit: root?.quotas?.supportPremiumContacts ?? 0, used: premiumUsed },
+  };
+}

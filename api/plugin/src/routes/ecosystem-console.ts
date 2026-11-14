@@ -200,7 +200,8 @@ export function createEcosystemConsoleRoutes(): Router {
   }));
 
   router.post('/rules/:id/approve-change', ...moderate, stepUp, a('ecosystem.auto-approval-rule.update'), ecosystemRoute(async ({ req, res, caller }) => {
-    sendSuccess(res, 200, { rule: await approveRuleChange(caller, param(req, 'id')) });
+    // `{ requestedAt }`: the pending change the approver reviewed (409 if it was replaced since).
+    sendSuccess(res, 200, { rule: await approveRuleChange(caller, param(req, 'id'), bodyOf(req).requestedAt) });
   }));
 
   router.delete('/rules/:id', ...moderate, stepUp, a('ecosystem.auto-approval-rule.delete'), ecosystemRoute(async ({ req, res, caller }) => {

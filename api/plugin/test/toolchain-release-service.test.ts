@@ -428,6 +428,22 @@ describe('release lifecycle', () => {
     expect(audits('toolchain.release.deprecate').at(-1)).toMatchObject({ outcome: 'failure', details: { refusal: 'NOT_FOUND' } });
   });
 
+  it('un-deprecate: both halves back to production and promotable; canary rows are not resurrected', async () => {
+    await release('1.0.0');
+    await release('1.1.0');
+    await initial('1.0.0');
+    await raw.query("INSERT INTO toolchain_rollout (org_id, release_version, added_by) VALUES ('org-a', '1.1.0', 'u')");
+    await svc.deprecateRelease({ releaseVersion: '1.1.0', actor: 'u-op', message: 'superseded' });
+    const out = await svc.undeprecateRelease({ releaseVersion: '1.1.0', actor: 'u-op' });
+    expect(out.plugins.map((p) => [p.name, p.lifecycle, p.deprecatedAt, p.deprecationMessage]).sort()).toEqual([
+      ['cdk-synth', 'production', null, null], ['pipeline-bootstrap', 'production', null, null],
+    ]);
+    expect(audits('toolchain.release.deprecate').at(-1)).toMatchObject({ details: { releaseVersion: '1.1.0', deprecated: false } });
+    expect((await raw.query("SELECT count(*)::int AS n FROM toolchain_rollout WHERE release_version = '1.1.0'")).rows[0]).toEqual({ n: 0 });
+    await expect(set('1.1.0', '1.0.0', { overrideReason: 'r' })).resolves.toBeDefined();
+    await expect(svc.undeprecateRelease({ releaseVersion: '9.9.9', actor: 'u-op' })).rejects.toMatchObject({ statusCode: 404 });
+  });
+
   it('yank a non-default release: both halves yanked, default untouched', async () => {
     await defaultChain();
     await release('1.2.0');

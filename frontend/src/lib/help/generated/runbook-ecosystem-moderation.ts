@@ -17,10 +17,6 @@ export const runbookEcosystemModerationTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "<!-- Copyright 2026 Pipeline Builder Contributors SPDX-License-Identifier: Apache-2.0 -->"
-        },
-        {
-          "type": "text",
           "content": "For Ecosystem Managers and superadmins: the people in the system organization who decide everything that enters or changes the plugin ecosystem."
         }
       ]

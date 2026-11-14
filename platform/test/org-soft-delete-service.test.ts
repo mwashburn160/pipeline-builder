@@ -74,7 +74,9 @@ jest.unstable_mockModule('../src/models/organization.js', () => ({
   __esModule: true,
   default: { findById: (...a: unknown[]) => mockOrgFindById(...a), updateOne: (...a: unknown[]) => mockOrgUpdateOne(...a) },
 }));
-jest.unstable_mockModule('../src/models/deleted-org-snapshot.js', () => ({ __esModule: true, default: { create: (...a: unknown[]) => mockSnapshotCreate(...a) } }));
+// The chunked header+chunk writer (deleted-org-snapshot-store) is exercised
+// against real Mongo in deleted-org-snapshot.integration.test.ts.
+jest.unstable_mockModule('../src/services/deleted-org-snapshot-store.js', () => ({ storeDeletedOrgSnapshot: (...a: unknown[]) => mockSnapshotCreate(...a) }));
 jest.unstable_mockModule('../src/models/user.js', () => ({
   __esModule: true,
   default: {
@@ -114,7 +116,7 @@ beforeEach(() => {
   // Live org (not yet soft-deleted).
   mockOrgFindById.mockReturnValue({ select: () => ({ lean: () => ({ _id: 'org-acme', name: 'Acme', deletedAt: null }) }) });
   mockOrgUpdateOne.mockReturnValue({ session: () => Promise.resolve({}) });
-  mockSnapshotCreate.mockResolvedValue({ _id: 'snap-1' });
+  mockSnapshotCreate.mockResolvedValue('snap-1');
   // Chainable: the session cut-off reads `.select().session().lean()`, while the
   // snapshot export reads the same collection with a plain `.lean()`.
   mockUserOrgFind.mockReturnValue(queryChain([{ userId: 'u1' }, { userId: 'u2' }]));
@@ -132,6 +134,10 @@ describe('softDeleteOrg', () => {
 
     // Snapshot persisted (name denormalized, deletedBy captured).
     expect(mockSnapshotCreate).toHaveBeenCalledWith(expect.objectContaining({ organizationId: 'org-acme', name: 'Acme', deletedBy: 'admin-1' }));
+    // Retention: the snapshot expires when the org is due to be purged — a copy
+    // of deleted data is kept no longer than the data itself.
+    const stored = mockSnapshotCreate.mock.calls[0][0] as { expiresAt: Date };
+    expect(stored.expiresAt.getTime()).toBe(result.purgeAfter.getTime());
 
     // Tombstone set: deletedAt + purgeAfter. The deadline is the GREATER of the
     // org window (7d here) and the shared row-level soft-delete window (30d) —

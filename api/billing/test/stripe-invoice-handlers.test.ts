@@ -28,7 +28,8 @@ import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import type Stripe from 'stripe';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
-jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
+const sendSystemNotification = jest.fn<(...a: unknown[]) => Promise<boolean>>(async () => true);
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({ sendSystemNotification }));
 
 // --- collaborators ----------------------------------------------------------
 const createBillingEvent = jest.fn<(...a: unknown[]) => Promise<void>>(async () => undefined);
@@ -66,7 +67,7 @@ jest.unstable_mockModule('../src/helpers/stripe-helpers.js', () => ({
 }));
 
 jest.unstable_mockModule('../src/config.js', () => ({
-  config: { paymentGracePeriodDays: 7 },
+  config: { paymentGracePeriodDays: 7, messageService: { host: 'message', port: 3000 } },
 }));
 
 // Ordering watermark + the shared "became entitled" grant live with the
@@ -268,8 +269,8 @@ describe('handlePaymentSucceeded', () => {
     });
   });
 
-  it('SKIPS an event older than the subscription watermark (Stripe delivers unordered)', async () => {
-    const sub = makeSub({ status: 'past_due' });
+  it('a stale event leaves the LIFECYCLE alone (Stripe delivers unordered)', async () => {
+    const sub = makeSub({ status: 'past_due', failedPaymentAttempts: 2, firstFailedAt: new Date('2026-08-20T00:00:00Z') });
     findSubscriptionByStripeId.mockResolvedValue(sub);
     acceptStripeEvent.mockResolvedValueOnce(false);
 
@@ -277,8 +278,28 @@ describe('handlePaymentSucceeded', () => {
 
     expect(acceptStripeEvent).toHaveBeenCalledWith(sub, EVT, 'invoice.payment_succeeded');
     expect(sub.status).toBe('past_due');
+    expect(sub.failedPaymentAttempts).toBe(2);
+    expect(sub.currentPeriodStart).toEqual(new Date('2026-08-01T00:00:00Z'));
     expect(sub.save).not.toHaveBeenCalled();
-    expect(createBillingEvent).not.toHaveBeenCalled();
+    expect(syncEntitlements).not.toHaveBeenCalled();
+    expect(grantOnBecomingEntitled).not.toHaveBeenCalled();
+  });
+
+  it('a stale event STILL settles its per-invoice effects (nothing else backfills them)', async () => {
+    const sub = makeSub({ status: 'active' });
+    findSubscriptionByStripeId.mockResolvedValue(sub);
+    acceptStripeEvent.mockResolvedValueOnce(false);
+    const invoice = makeInvoice();
+
+    await handlePaymentSucceeded(invoice, EVT);
+
+    expect(ingestStripeInvoice).toHaveBeenCalledWith('org-1', invoice);
+    expect(reconcileDiscountsOnInvoice).toHaveBeenCalledWith(sub, invoice);
+    expect(grantRecurringPromotions).toHaveBeenCalledWith(sub, '2026-09', { atomic: true });
+    expect(qualifyReferral).toHaveBeenCalledWith('org-1');
+    const [, kind, details] = createBillingEvent.mock.calls.at(-1) as [string, string, Record<string, unknown>];
+    expect(kind).toBe('payment_succeeded');
+    expect(details).toEqual(expect.objectContaining({ invoiceId: 'in_1', outOfOrder: true, recovered: false }));
   });
 
   it('settles an INCOMPLETE subscription to active and grants tier + withheld signup credit', async () => {
@@ -318,6 +339,26 @@ describe('handlePaymentFailed', () => {
     expect(sub.save).toHaveBeenCalled();
   });
 
+  it('posts ONE in-app notice on the first failure of a lapse, naming the grace deadline', async () => {
+    const sub = makeSub({ status: 'active' });
+    findSubscriptionByStripeId.mockResolvedValue(sub);
+
+    await handlePaymentFailed(makeInvoice(), EVT);
+
+    expect(sendSystemNotification).toHaveBeenCalledTimes(1);
+    const [notice] = sendSystemNotification.mock.calls[0] as [{ recipientOrgId: string; content: string; priority: string }];
+    expect(notice.recipientOrgId).toBe('org-1');
+    expect(notice.priority).toBe('high');
+    const deadline = new Date((sub.firstFailedAt as Date).getTime() + 7 * 86_400_000).toISOString().slice(0, 10);
+    expect(notice.content).toContain(deadline);
+  });
+
+  it('a notice failure never fails the webhook', async () => {
+    sendSystemNotification.mockRejectedValueOnce(new Error('message down'));
+    await expect(handlePaymentFailed(makeInvoice(), EVT)).resolves.toBeUndefined();
+    expect(createBillingEvent).toHaveBeenCalled();
+  });
+
   it('does NOT restart the grace clock on a later failure in the same dunning run', async () => {
     const firstFailedAt = new Date('2026-08-10T00:00:00Z');
     const sub = makeSub({ status: 'past_due', failedPaymentAttempts: 1, firstFailedAt });
@@ -328,6 +369,8 @@ describe('handlePaymentFailed', () => {
     // Resetting this would extend the grace period indefinitely, one retry at a time.
     expect(sub.firstFailedAt).toBe(firstFailedAt);
     expect(sub.failedPaymentAttempts).toBe(2);
+    // Not the first failure of the lapse — the org was already told.
+    expect(sendSystemNotification).not.toHaveBeenCalled();
   });
 
   it('records the failure event with the configured grace window', async () => {

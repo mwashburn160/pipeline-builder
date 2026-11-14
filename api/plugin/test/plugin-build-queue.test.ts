@@ -1689,6 +1689,53 @@ describe('plugin-build-queue', () => {
       expect(mockQueueAdd).not.toHaveBeenCalledWith(expect.stringMatching(/^retry-/), expect.anything());
     });
 
+    // T3: the DLQ's RE-QUEUE path (only the give-up branch was covered).
+    it('re-queues under budget: marks the slot handed off BEFORE the add, under a fixed dlq-retry:<id> job id', async () => {
+      queueModule.startWorker(makeSseManager(), makeQuotaService());
+      const job = makeDlqJob({ totalAttempts: 2, lastError: 'flaky registry', failureCategory: 'transient' as any });
+
+      await getDlqProcessor()(job);
+
+      expect(job.updateData).toHaveBeenCalledWith(expect.objectContaining({ quotaReleased: true }));
+      const add = mockQueueAdd.mock.calls.find((c: any[]) => c[0] === 'retry-my-plugin') as any[];
+      expect(add).toBeDefined();
+      expect(add[2]).toEqual({ jobId: 'dlq-retry:dlq-job-1' });
+      // The re-queued job starts clean: no failure carried over, and it owns the slot again.
+      expect(add[1]).not.toHaveProperty('lastError');
+      expect(add[1]).not.toHaveProperty('failureCategory');
+      expect(add[1].quotaReleased).toBeUndefined();
+      // Ordering: the record stops claiming the slot first, so a failed add can
+      // only strand a slot (self-heals at reset), never double-release one.
+      const addIndex = mockQueueAdd.mock.calls.indexOf(add);
+      expect(job.updateData.mock.invocationCallOrder[0]).toBeLessThan(mockQueueAdd.mock.invocationCallOrder[addIndex]!);
+      expect(auditActions()).toEqual([]);
+    });
+
+    it('refuses to re-queue a build whose context is gone (no local dir, no S3 key)', async () => {
+      const { BuildContextMissingError } = await import('../src/queue/build-workspace.js');
+      queueModule.startWorker(makeSseManager(), makeQuotaService());
+      const data = { totalAttempts: 1 } as Partial<PluginBuildJobData>;
+      const job = makeDlqJob(data);
+      delete (job.data.buildRequest as { s3Key?: string }).s3Key;
+
+      await expect(getDlqProcessor()(job)).rejects.toBeInstanceOf(BuildContextMissingError);
+      expect(job.updateData).not.toHaveBeenCalled();
+      expect(mockQueueAdd).not.toHaveBeenCalledWith('retry-my-plugin', expect.anything(), expect.anything());
+    });
+
+    it('a failed add rejects (BullMQ retries the DLQ job) with the hand-off already marked, and the retry reuses the job id', async () => {
+      queueModule.startWorker(makeSseManager(), makeQuotaService());
+      const job = makeDlqJob({ totalAttempts: 1 });
+      mockQueueAdd.mockRejectedValueOnce(new Error('redis down'));
+
+      await expect(getDlqProcessor()(job)).rejects.toThrow('redis down');
+      expect(job.data.quotaReleased).toBe(true);
+
+      await getDlqProcessor()(job);
+      const adds = mockQueueAdd.mock.calls.filter((c: any[]) => c[0] === 'retry-my-plugin');
+      expect(adds.map((c: any[]) => c[2].jobId)).toEqual(['dlq-retry:dlq-job-1', 'dlq-retry:dlq-job-1']);
+    });
+
     it('records actorId "system" when a DLQ-abandoned build carries no user (system-initiated)', async () => {
       const sse = makeSseManager();
       const quota = makeQuotaService();

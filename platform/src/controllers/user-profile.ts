@@ -164,33 +164,87 @@ export const updateUser = withController('Update user profile', async (req, res)
   sendSuccess(res, 200, { user: formatUserResponse(user as UserResponseInput, { activeOrgRole, activeOrgName: organizationName }) });
 }, userErrorMap);
 
-/** DELETE /user/account — refuses if user owns any orgs. */
+/**
+ * GET /user/export — the caller's own data as one JSON download (account,
+ * memberships, access-key and passkey metadata, sessions, preferences, join
+ * requests, and audit events naming them). Step-up gated at the route: it is a
+ * bulk read of personal data a stolen session must not be able to take.
+ */
+export const exportOwnData = withController('Export own data', async (req, res) => {
+  const userId = requireAuthUserId(req, res);
+  if (!userId) return;
+  const { exportUserData } = await import('../services/user-export.js');
+  const data = await exportUserData(userId);
+  audit(req, 'user.export', {
+    targetType: 'user',
+    targetId: userId,
+    details: { auditEvents: (data.auditEvents as unknown[]).length, truncated: !!data.truncated },
+  });
+  res.setHeader('Content-Disposition', `attachment; filename="pipeline-builder-account-${new Date().toISOString().slice(0, 10)}.json"`);
+  res.setHeader('Cache-Control', 'no-store');
+  sendSuccess(res, 200, data);
+}, userErrorMap);
+
+/**
+ * GET /user/account/deletion — what deleting the caller's account would do:
+ * `{ canDelete, orgsDeleted: [{ orgId, name }], blockedBy: [{ orgId, name,
+ * reason: 'other-members' | 'has-teams' | 'system-org', otherMembers }] }`.
+ * The Delete-account UI reads it to say which case applies before the step-up.
+ */
+export const getAccountDeletionPlan = withController('Get account deletion plan', async (req, res) => {
+  const userId = requireAuthUserId(req, res);
+  if (!userId) return;
+  const { planAccountDeletion } = await import('../services/account-deletion.js');
+  sendSuccess(res, 200, await planAccountDeletion(userId));
+}, userErrorMap);
+
+/**
+ * DELETE /user/account — deletes the account. An org the caller owns and is the
+ * ONLY member of is soft-deleted with it (`orgsDeleted` in the response); an
+ * owned org with other members (or teams) refuses with USER_OWNER_HAS_ORGS.
+ */
 export const deleteUser = withController('Delete user account', async (req, res) => {
   const userId = requireAuthUserId(req, res);
   if (!userId) return;
 
-  await userProfileService.deleteAccount(userId);
-  logger.info('Account deleted', { userId });
+  const { orgsDeleted } = await userProfileService.deleteAccount(userId);
+  logger.info('Account deleted', { userId, orgsDeleted: orgsDeleted.length });
   // The browser can't drop its own HttpOnly refresh cookie — this response must.
   clearRefreshCookie(res);
-  audit(req, 'user.delete', { targetType: 'user', targetId: userId });
-  sendSuccess(res, 200, undefined, 'Account successfully deleted');
+  for (const org of orgsDeleted) {
+    audit(req, 'org.soft_delete', {
+      targetType: 'organization',
+      targetId: org.orgId,
+      affectedOrgId: org.orgId,
+      details: { via: 'account-deletion', purgeAfter: org.purgeAfter, snapshotId: org.snapshotId, membersInvalidated: 1 },
+    });
+  }
+  audit(req, 'user.delete', {
+    targetType: 'user',
+    targetId: userId,
+    ...(orgsDeleted.length > 0 ? { details: { orgsDeleted: orgsDeleted.map((o) => o.orgId) } } : {}),
+  });
+  sendSuccess(
+    res, 200,
+    { orgsDeleted: orgsDeleted.map((o) => ({ orgId: o.orgId, name: o.name, purgeAfter: o.purgeAfter.toISOString() })) },
+    'Account successfully deleted',
+  );
 }, userErrorMap);
 
-/** POST /user/change-password — verify current pw + bump tokenVersion. */
+/** POST /user/change-password — verify current pw, bump tokenVersion, revoke access keys. */
 export const changePassword = withController('Change password', async (req, res) => {
   const userId = requireAuthUserId(req, res);
   if (!userId) return;
   const body = validateBody(changePasswordSchema, req.body, res);
   if (!body) return;
 
-  await userProfileService.changePassword(userId, body.currentPassword, body.newPassword);
-  logger.info('Password change success', { userId });
+  const { accessKeysRevoked } = await userProfileService.changePassword(userId, body.currentPassword, body.newPassword);
+  logger.info('Password change success', { userId, accessKeysRevoked });
   // Auth-factor change — a compromised session showing this event with an
   // unfamiliar IP is one of the first things a user / sysadmin looks for
   // during incident response.
-  audit(req, 'user.password.change', { targetType: 'user', targetId: userId });
-  sendSuccess(res, 200, undefined, 'Password changed successfully');
+  audit(req, 'user.password.change', { targetType: 'user', targetId: userId, details: { accessKeysRevoked } });
+  sendSuccess(res, 200, { accessKeysRevoked }, 'Password changed successfully');
 }, userErrorMap);
 
 

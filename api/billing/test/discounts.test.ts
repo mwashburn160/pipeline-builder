@@ -168,9 +168,12 @@ const mockSubscriptionFindOneAndUpdate = jest.fn(async (filter: any, update: any
   return subDoc;
 });
 // Atomic $set (mirror drawdown / recurring expiry) applied to the shared subDoc.
-const mockSubscriptionUpdateOne = jest.fn(async (_filter: any, update: any) => {
+// Honours the per-invoice balance watermark guard (`lastBalanceInvoiceAt` $or).
+const mockSubscriptionUpdateOne = jest.fn(async (filter: any, update: any) => {
+  const guard = filter?.$or?.[1]?.lastBalanceInvoiceAt?.$lte;
+  if (guard && subDoc.lastBalanceInvoiceAt && subDoc.lastBalanceInvoiceAt > guard) return { matchedCount: 0, modifiedCount: 0 };
   if (update.$set) Object.assign(subDoc, update.$set);
-  return { modifiedCount: 1 };
+  return { matchedCount: 1, modifiedCount: 1 };
 });
 jest.unstable_mockModule('../src/models/subscription.js', () => ({
   Subscription: { findOne: mockSubscriptionFindOne, findOneAndUpdate: mockSubscriptionFindOneAndUpdate, updateOne: mockSubscriptionUpdateOne },
@@ -576,6 +579,22 @@ describe('lifecycle reconciliation', () => {
     expect(subDoc.creditBalanceCents).toBe(2000);
     expect(mockSubscriptionUpdateOne).toHaveBeenCalledWith({ _id: subDoc._id }, { $set: { creditBalanceCents: 2000 } });
     expect(mockCreateBillingEvent).not.toHaveBeenCalledWith('org-cust', 'credit_exhausted', expect.anything(), expect.anything());
+  });
+
+  it('orders the mirror per INVOICE: an older invoice cannot roll the balance back', async () => {
+    subDoc = freshSub({ creditBalanceCents: 5000 });
+    const newer = 1767225600 + 86_400;
+    await reconcileDiscountsOnInvoice(subDoc as any, { id: 'in_new', ending_balance: -1000, created: newer });
+    expect(subDoc.creditBalanceCents).toBe(1000);
+    expect(subDoc.lastBalanceInvoiceAt).toEqual(new Date(newer * 1000));
+
+    // The older invoice lands late (a retry / unordered delivery): skipped.
+    await reconcileDiscountsOnInvoice(subDoc as any, { id: 'in_old', ending_balance: -4000, created: 1767225600 });
+    expect(subDoc.creditBalanceCents).toBe(1000);
+
+    // A redelivery of the newest invoice is idempotent.
+    await reconcileDiscountsOnInvoice(subDoc as any, { id: 'in_new', ending_balance: -1000, created: newer });
+    expect(subDoc.creditBalanceCents).toBe(1000);
   });
 
   it('emits credit_exhausted when the balance reaches zero', async () => {

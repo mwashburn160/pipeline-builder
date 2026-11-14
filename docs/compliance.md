@@ -123,7 +123,7 @@ Inline validation on upload or create is synchronous and blocking. Existing enti
 |--------|----------|-------------|
 | `GET` | `/compliance/scans` | List scans (filterable by target, status) |
 | `GET` | `/compliance/scans/:id` | Get scan by ID |
-| `POST` | `/compliance/scans` | Trigger a scan (`{ target: 'plugin' \| 'pipeline' \| 'all' }`) |
+| `POST` | `/compliance/scans` | Trigger a scan of the whole org (`{ target: 'plugin' \| 'pipeline' \| 'all', dryRun?: boolean }`; `dryRun` evaluates without blocking or notifying) |
 | `POST` | `/compliance/scans/:id/cancel` | Cancel a running scan |
 
 ### Scan Schedules
@@ -170,6 +170,8 @@ Exemptions waive a specific rule for a specific entity, with an approval workflo
 | `POST` | `/compliance/exemptions/bulk` | Request exemptions for multiple entities |
 | `PUT` | `/compliance/exemptions/:id/review` | Approve or reject an exemption |
 | `DELETE` | `/compliance/exemptions/:id` | Revoke an exemption |
+
+An approved exemption with an `expiresAt` stops applying the moment it passes. A daily sweep then records that: the row moves to `expired` (audited as `compliance.exemption.expire`), so the Expired filter and the status badge say what enforcement already does. `COMPLIANCE_EXEMPTION_EXPIRY_WARN_DAYS` (default 7) before it lapses, the org gets one in-app notice listing what is about to expire.
 
 ### Templates & Audit
 
@@ -439,7 +441,8 @@ Add your own by creating `deploy/compliance/rules/<name>/rule.json` + `README.md
 | `COMPLIANCE_SERVICE_HOST` | `compliance` | Hostname (used by plugin/pipeline services to reach compliance) |
 | `COMPLIANCE_SERVICE_PORT` | `3000` | Port |
 | `CACHE_TTL_COMPLIANCE_RULES` | `60` | Active rules cache TTL (seconds) |
-| `COMPLIANCE_AUDIT_RETENTION_DAYS` | `180` | Audit log retention (daily prune) |
+| `COMPLIANCE_AUDIT_RETENTION_DAYS` | `180` | Retention for the audit log, finished scans and the notification log (one daily prune) |
+| `COMPLIANCE_EXEMPTION_EXPIRY_WARN_DAYS` | `7` | How far ahead of `expiresAt` the daily expiry sweep warns the org (one in-app notice per exemption); the same sweep moves lapsed approved exemptions to `expired` |
 | `COMPLIANCE_MAX_REGEX_LENGTH` | `100` | Max length of a user-supplied `regex` pattern |
 | `COMPLIANCE_MAX_ATTRIBUTE_DEPTH` | `10` | Max nesting depth of entity attributes evaluated |
 | `COMPLIANCE_MAX_ATTRIBUTE_KEYS` | `100` | Max number of attribute keys evaluated |

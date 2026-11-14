@@ -12,13 +12,13 @@ import { createIncidentRoutes } from './routes/incidents.js';
 import { createIngestHealthRoutes } from './routes/ingest-health.js';
 import { createPluginReportRoutes } from './routes/plugin-reports.js';
 import { createPublicReportRoutes } from './routes/public-reports.js';
+import { createReportPreviewRoutes } from './routes/report-preview.js';
 import { createReportSettingsRoutes } from './routes/report-settings.js';
 import { createRetentionSyncRoutes } from './routes/retention-sync.js';
 import { createRetentionRoutes } from './routes/retention.js';
-import { createReportPreviewRoutes } from './routes/report-preview.js';
 import { createStakeholderInternalRoutes } from './routes/stakeholder-internal.js';
-import { createStakeholderSyncRoutes } from './routes/stakeholder-sync.js';
 import { createStakeholderReportRoutes } from './routes/stakeholder-reports.js';
+import { createStakeholderSyncRoutes } from './routes/stakeholder-sync.js';
 
 /** Dependencies the route factories need. */
 export interface ReportingRouteDeps {

@@ -20,6 +20,7 @@ import { useToast } from '@/components/ui/Toast';
 import { useEcosystemApprovers } from '@/hooks/useEcosystemApprovers';
 import { useFetch } from '@/hooks/useFetch';
 import api from '@/lib/api';
+import { ApiError } from '@/lib/api/errors';
 import { formatError } from '@/lib/constants';
 import { PUBLISHER_TIERS } from '@pipeline-builder/api-core/wire-vocabulary';
 import { PUBLISHER_TIER_LABELS } from '@/lib/plugin-installs';
@@ -239,7 +240,18 @@ export function AutoApprovalRulesPanel({ can, currentUserId }: Props) {
       await api.updateAutoRule(pending.rule.id, { enabled: false }, token);
       toast.success(`Disabled ${pending.rule.name}`);
     } else if (pending.kind === 'approve') {
-      await api.approveAutoRuleChange(pending.rule.id, token);
+      // The change shown when the approver opened the dialog — never "whatever is pending now".
+      try {
+        await api.approveAutoRuleChange(pending.rule.id, pending.rule.pendingChange?.requestedAt ?? '', token);
+      } catch (err) {
+        // 409 CONFLICT: the proposal was replaced (or withdrawn) after this
+        // approver opened it. Re-read so they review what is pending NOW.
+        if (!(err instanceof ApiError && err.code === 'CONFLICT')) throw err;
+        toast.warning(`The proposed change to ${pending.rule.name} changed after you opened it. The list is refreshed — review the new proposal before approving.`);
+        close();
+        void rulesQ.refetch();
+        return;
+      }
       toast.success(`Approved the change to ${pending.rule.name}`);
     } else if (pending.kind === 'delete') {
       await api.deleteAutoRule(pending.rule.id, token);

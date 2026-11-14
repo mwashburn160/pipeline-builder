@@ -54,6 +54,8 @@ export function MfaResetPanel({
   const read = useFetch(
     async (signal): Promise<MfaResetRequest[]> => (await api.listMfaResets(orgId, { signal })).data?.requests ?? [],
     [orgId, refreshKey],
+    // `refreshKey` re-reads the same org's list; keep it on screen meanwhile.
+    { keepPreviousData: true },
   );
   const [approving, setApproving] = useState<MfaResetRequest | null>(null);
   const [denying, setDenying] = useState<MfaResetRequest | null>(null);

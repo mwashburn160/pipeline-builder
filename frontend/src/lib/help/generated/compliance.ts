@@ -1,6 +1,6 @@
 // GENERATED FROM docs/compliance.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: f1895f8c0152d45185ca1472a649081aa5c7a59edc02b2dcdb20dc04a472661a
+// SOURCE-SHA256: e325204adb5a60559f832f59df06a8ad5be085789a8654a81e382e1c2b23dd88
 // SPDX-License-Identifier: Apache-2.0
 import { ShieldCheck } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -15,10 +15,6 @@ export const complianceTopic: HelpTopic = {
       "id": "overview",
       "title": "Overview",
       "blocks": [
-        {
-          "type": "text",
-          "content": "<!-- Copyright 2026 Pipeline Builder Contributors SPDX-License-Identifier: Apache-2.0 -->"
-        },
         {
           "type": "text",
           "content": "Per-organization rule enforcement for plugins and pipelines. Validates entity attributes against configurable rules, blocks operations that violate policy, and notifies org admins."
@@ -297,9 +293,9 @@ export const complianceTopic: HelpTopic = {
             [
               "POST",
               "/compliance/scans",
-              "Trigger a scan (`{ target: 'plugin' \\",
+              "Trigger a scan of the whole org (`{ target: 'plugin' \\",
               "'pipeline' \\",
-              "'all' }`)"
+              "'all', dryRun?: boolean }; dryRun` evaluates without blocking or notifying)"
             ],
             [
               "POST",
@@ -470,6 +466,10 @@ export const complianceTopic: HelpTopic = {
               "Revoke an exemption"
             ]
           ]
+        },
+        {
+          "type": "text",
+          "content": "An approved exemption with an expiresAt stops applying the moment it passes. A daily sweep then records that: the row moves to expired (audited as compliance.exemption.expire), so the Expired filter and the status badge say what enforcement already does. COMPLIANCE_EXEMPTION_EXPIRY_WARN_DAYS (default 7) before it lapses, the org gets one in-app notice listing what is about to expire."
         },
         {
           "type": "text",
@@ -1122,7 +1122,12 @@ export const complianceTopic: HelpTopic = {
             [
               "COMPLIANCE_AUDIT_RETENTION_DAYS",
               "180",
-              "Audit log retention (daily prune)"
+              "Retention for the audit log, finished scans and the notification log (one daily prune)"
+            ],
+            [
+              "COMPLIANCE_EXEMPTION_EXPIRY_WARN_DAYS",
+              "7",
+              "How far ahead of expiresAt the daily expiry sweep warns the org (one in-app notice per exemption); the same sweep moves lapsed approved exemptions to expired"
             ],
             [
               "COMPLIANCE_MAX_REGEX_LENGTH",

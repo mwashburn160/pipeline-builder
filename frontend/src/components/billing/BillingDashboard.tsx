@@ -77,7 +77,7 @@ export function BillingDashboard() {
   const { data: invoicePageData, error: invoicesError, refetch: refetchInvoices } = useFetch(async (signal) => {
     const res = await api.listBillingInvoices({ ...range, offset: invoicePage.offset, limit: invoicePage.limit }, { signal });
     return { invoices: res?.data?.invoices ?? [], total: res?.data?.pagination?.total ?? 0 };
-  }, [from, to, invoicePage.offset, invoicePage.limit]);
+  }, [from, to, invoicePage.offset, invoicePage.limit], { keepPreviousData: true });
   const invoices: BillingInvoiceRow[] = invoicePageData?.invoices ?? [];
   const invoiceTotal = invoicePageData?.total ?? 0;
 

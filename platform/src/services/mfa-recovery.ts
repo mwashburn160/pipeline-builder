@@ -75,6 +75,8 @@ export interface FactorResetResult {
   tokenVersion: number;
   /** End of the per-user enrolment grace. */
   graceUntil: Date;
+  /** Access keys (PATs) revoked by the reset — keys don't follow `tokenVersion`. */
+  accessKeysRevoked: number;
 }
 
 /** Who is acting (a signed-in person — real ids, never self-asserted). */
@@ -116,6 +118,11 @@ export async function resetFactors(userId: string, graceHours?: number): Promise
     { new: true },
   ).select('+tokenVersion').lean();
   await publishUserRevocation(userId);
+  // A factor reset is a "someone else may hold this account" event: a key the
+  // attacker minted must not survive it.
+  // (Lazily imported: the key service drags in the token-signing graph.)
+  const { apiKeyService } = await import('./api-key-service.js');
+  const accessKeysRevoked = await apiKeyService.revokeAllForUser(userId);
 
   const result: FactorResetResult = {
     userId,
@@ -125,6 +132,7 @@ export async function resetFactors(userId: string, graceHours?: number): Promise
     recoveryCodesRemoved: (codes.deletedCount ?? 0) > 0,
     tokenVersion: (updated as { tokenVersion?: number } | null)?.tokenVersion ?? 0,
     graceUntil,
+    accessKeysRevoked,
   };
   logger.warn('Multi-factor credentials reset', { ...result });
   return result;
@@ -166,6 +174,7 @@ export async function recoverMfa(opts: MfaRecoveryOptions): Promise<FactorResetR
       totpRemoved: result.totpRemoved,
       recoveryCodesRemoved: result.recoveryCodesRemoved,
       graceUntil: result.graceUntil.toISOString(),
+      accessKeysRevoked: result.accessKeysRevoked,
       via: 'operator-command',
       operatorAsserted: true,
     },

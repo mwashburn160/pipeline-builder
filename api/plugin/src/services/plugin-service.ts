@@ -798,6 +798,49 @@ export class PluginService extends CrudService<
   }
 
   /**
+   * Reverse a yank: the version resolves for ranges and `latest` again. Its
+   * lifecycle returns to what the timestamps say (`deprecated` when
+   * `deprecatedAt` is set, else `production`). It does NOT become the default
+   * again — a yank of the default promoted another one, and taking that back
+   * is a separate, explicit set-default. A version published to the ecosystem
+   * is unyanked by the system org (409 PLUGIN_VERSION_FROZEN here), and one
+   * that is not yanked is a 409 CONFLICT.
+   */
+  async unyankVersion(existing: Plugin, orgId: string, userId: string): Promise<Plugin | null> {
+    assertNotManaged(existing.name);
+    if (await withTenantTx((tx) => this.isListed(tx, existing.id))) {
+      throw new ConflictError(
+        'This plugin version is published to the ecosystem; request an unyank from the ecosystem instead.',
+        ErrorCode.PLUGIN_VERSION_FROZEN,
+      );
+    }
+    if (!existing.yankedAt && existing.lifecycle !== 'yanked') {
+      throw new ConflictError(`${existing.name}@${existing.version} is not yanked.`);
+    }
+    const now = new Date();
+    const unyanked = await withTenantTx(async (tx) => {
+      const [row] = await tx
+        .update(schema.plugin)
+        .set({
+          lifecycle: existing.deprecatedAt ? 'deprecated' : 'production',
+          yankedAt: null,
+          yankReason: null,
+          updatedAt: now,
+          updatedBy: userId,
+        })
+        .where(and(eq(schema.plugin.id, existing.id), eq(schema.plugin.orgId, orgId), isNull(schema.plugin.deletedAt)))
+        .returning();
+      return (row as Plugin | undefined) ?? null;
+    });
+    if (unyanked) {
+      await this.afterWrite(unyanked, userId);
+      // It resolves for ranges again: the declared side moves.
+      this.refreshDeclared(orgId, existing.name);
+    }
+    return unyanked;
+  }
+
+  /**
    * After the default `removed` was deleted or yanked, make the next version
    * the default: the highest live, active, stable, non-yanked version whose
    * major is not above the removed one's (a new major is never auto-promoted,

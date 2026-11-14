@@ -33,8 +33,8 @@ export function complianceApi(core: ApiCore) {
     // ============================================
 
     /** List compliance rules with optional filters */
-    getComplianceRules: async (params?: { target?: string; severity?: string; policyId?: string; scope?: string; tag?: string; limit?: number; offset?: number; sortBy?: string; sortOrder?: string }) => {
-      return core.request<ApiResponse<{ rules: ComplianceRule[]; pagination?: { total: number; limit: number; offset: number; hasMore: boolean } }>>(`/api/compliance/rules${buildQuery(params)}`);
+    getComplianceRules: async (params?: { target?: string; severity?: string; policyId?: string; scope?: string; tag?: string; limit?: number; offset?: number; sortBy?: string; sortOrder?: string }, opts?: { signal?: AbortSignal }) => {
+      return core.request<ApiResponse<{ rules: ComplianceRule[]; pagination?: { total: number; limit: number; offset: number; hasMore: boolean } }>>(`/api/compliance/rules${buildQuery(params)}`, { signal: opts?.signal });
     },
 
     /** Get rule change history */
@@ -331,10 +331,15 @@ export function complianceApi(core: ApiCore) {
     },
 
     /** Trigger a compliance scan */
-    triggerScan: async (target: 'plugin' | 'pipeline' | 'all') => {
+    /**
+     * Start an org-wide scan of `target`. `dryRun` evaluates every entity against
+     * the current rules WITHOUT blocking or notifying (recorded as
+     * `triggeredBy: 'rule-dry-run'`) — a preview of what a real scan would do.
+     */
+    triggerScan: async (target: 'plugin' | 'pipeline' | 'all', opts?: { dryRun?: boolean }) => {
       return core.request<ApiResponse<{ scan: ComplianceScan }>>('/api/compliance/scans', {
         method: 'POST',
-        body: JSON.stringify({ target }),
+        body: JSON.stringify(opts?.dryRun ? { target, dryRun: true } : { target }),
       });
     },
 

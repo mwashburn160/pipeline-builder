@@ -69,6 +69,27 @@ describe('AIServedBy', () => {
     expect(line).toContain('1,500 tokens (1,000 cached)');
   });
 
+  it('adds the Ask turn\'s tool-generation tokens to the total and names the AI calls charged', () => {
+    render(<AIServedBy
+      servedBy={{ provider: 'anthropic', model: 'claude-sonnet-5-5' }}
+      usage={{ inputTokens: 100, outputTokens: 50, cachedInputTokens: 10 }}
+      toolUsage={{ inputTokens: 300, outputTokens: 50, cachedInputTokens: 5 }}
+      aiCalls={3}
+    />);
+    const line = screen.getByTestId('ai-served-by').textContent ?? '';
+    expect(line).toContain('500 tokens (15 cached)');
+    expect(line).toContain('3 AI calls');
+  });
+
+  it('says one AI call in the singular, and a waived turn as none charged', () => {
+    const { rerender } = render(<AIServedBy servedBy={{ provider: 'anthropic', model: 'x' }} aiCalls={1} />);
+    expect(screen.getByTestId('ai-served-by').textContent).toContain('1 AI call');
+    expect(screen.getByTestId('ai-served-by').textContent).not.toContain('tokens');
+    rerender(<AIServedBy servedBy={{ provider: 'anthropic', model: 'x' }} toolUsage={{ inputTokens: 2, outputTokens: 1 }} aiCalls={0} />);
+    expect(screen.getByTestId('ai-served-by').textContent).toContain('3 tokens');
+    expect(screen.getByTestId('ai-served-by').textContent).toContain('no AI calls charged');
+  });
+
   it('renders nothing when the response carried no servedBy', () => {
     const { container } = render(<AIServedBy servedBy={undefined} usage={{ inputTokens: 1, outputTokens: 1 }} />);
     expect(container).toBeEmptyDOMElement();

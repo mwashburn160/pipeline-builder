@@ -36,7 +36,7 @@ import { and, desc, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
 import type { Plugin } from './plugin-service.js';
 import { announceToolchain, type RecoveryPipeline } from './toolchain-hygiene.js';
 import {
-  deleteRelease, deprecateRelease, previewPlatformDefaultGuards, setPlatformDefault, yankRelease, type ToolchainActor,
+  deleteRelease, deprecateRelease, previewPlatformDefaultGuards, setPlatformDefault, undeprecateRelease, yankRelease, type ToolchainActor,
 } from './toolchain-release-service.js';
 import {
   isDeprecatedVersion, isYankedVersion,
@@ -598,7 +598,12 @@ export async function setReleaseNotes(releaseVersion: string, releaseNotes: stri
   return { releaseVersion: row.releaseVersion, releaseNotes: row.releaseNotes ?? null };
 }
 
-export async function deprecateConsoleRelease(releaseVersion: string, actor: ToolchainActor, message?: string | null): Promise<void> {
+/** Deprecate a release, or (`deprecated: false`) reverse a deprecation. */
+export async function deprecateConsoleRelease(releaseVersion: string, actor: ToolchainActor, message?: string | null, deprecated = true): Promise<void> {
+  if (!deprecated) {
+    await undeprecateRelease({ releaseVersion, actor });
+    return;
+  }
   await deprecateRelease({ releaseVersion, actor, message: message?.trim() ? message.trim() : null });
 }
 

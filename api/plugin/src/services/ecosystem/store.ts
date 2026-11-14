@@ -346,6 +346,14 @@ export const requests = {
    */
   transition: (id: string, fromStatus: PublishRequestStatus, patch: Partial<PluginPublishRequestInsert>): Promise<PluginPublishRequest | null> =>
     elevated(async (tx) => first(await tx.update(R()).set(patch).where(and(eq(R().id, id), eq(R().status, fromStatus))).returning())),
+  /** Record that an approved request's execution returned (see `executedAt`). */
+  markExecuted: (id: string, at: Date = new Date()): Promise<void> =>
+    elevated(async (tx) => { await tx.update(R()).set({ executedAt: at }).where(eq(R().id, id)); }),
+  /** `approved` requests decided before `before` whose execution never returned (stalled), oldest first. */
+  unexecutedApprovedBefore: (before: Date, limit = 500): Promise<PluginPublishRequest[]> =>
+    elevated(async (tx) => tx.select().from(R())
+      .where(and(eq(R().status, 'approved'), isNull(R().executedAt), lt(R().decidedAt, before)))
+      .orderBy(asc(R().decidedAt)).limit(limit)),
   /** Rows auto-approved by a rule since `since` (the rate caps). */
   autoApprovedSince: (ruleId: string, since: Date): Promise<PluginPublishRequest[]> =>
     elevated(async (tx) => tx.select().from(R()).where(and(eq(R().autoRuleId, ruleId), gte(R().decidedAt, since)))),
@@ -366,6 +374,14 @@ export const rules = {
     elevated(async (tx) => (await tx.insert(AR()).values(values).returning())[0] as EcosystemAutoApprovalRule),
   update: (id: string, patch: Partial<EcosystemAutoApprovalRuleInsert>): Promise<EcosystemAutoApprovalRule | null> =>
     elevated(async (tx) => first(await tx.update(AR()).set({ ...patch, updatedAt: new Date() }).where(eq(AR().id, id)).returning())),
+  /**
+   * Apply `patch` only while the rule's pending change is still the one
+   * proposed at `requestedAt` — the second approver's optimistic lock. Null
+   * when the proposal was replaced (or withdrawn) after they reviewed it.
+   */
+  updateIfPendingFrom: (id: string, requestedAt: string, patch: Partial<EcosystemAutoApprovalRuleInsert>): Promise<EcosystemAutoApprovalRule | null> =>
+    elevated(async (tx) => first(await tx.update(AR()).set({ ...patch, updatedAt: new Date() })
+      .where(and(eq(AR().id, id), jsonPathEq(AR().pendingChange, ['requestedAt'], requestedAt))).returning())),
   remove: (id: string): Promise<boolean> =>
     elevated(async (tx) => (await tx.delete(AR()).where(eq(AR().id, id)).returning()).length > 0),
 };

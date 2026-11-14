@@ -123,7 +123,7 @@
       "description": "Runs after successful compilation",
       "steps": [
         {
-          "exec": "copyfiles -f ./src/utils/email-templates/*.html lib/utils/email-templates/ --verbose --error"
+          "exec": "copyfiles -f ./src/utils/email-templates/*.html ./src/utils/email-templates/*.txt lib/utils/email-templates/ --verbose --error"
         }
       ]
     },

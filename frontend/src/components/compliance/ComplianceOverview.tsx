@@ -19,6 +19,8 @@ import type { ComplianceAuditEntry } from '@/types/compliance';
 import { RULE_TARGET_IDS, RULE_TARGET_LABELS, COMPLIANCE_RESULT_IDS, RESULT_STYLES, resultStyle } from '@/lib/compliance-styles';
 import { formatDateTime } from '@/lib/format';
 import { useUrlTab } from '@/hooks/useUrlTab';
+import { useFetch } from '@/hooks/useFetch';
+import { formatError } from '@/lib/constants';
 import { useComplianceAudit } from './useComplianceAudit';
 import { EmptyState } from '@/components/ui/EmptyState';
 
@@ -118,11 +120,38 @@ function ChangesFeed({ changes, error, onRetry }: { changes: ComplianceAuditEntr
 }
 
 interface OverviewProps {
-  stats: { rules: number; pass: number; warn: number; block: number };
   onGoToRules: () => void;
 }
 
-export function ComplianceOverview({ stats, onGoToRules }: OverviewProps) {
+/** One `result=` count: `limit:1` and read `pagination.total` (a page's
+ *  `entries.length` is only that page). A failed read THROWS — a 0 here would
+ *  be a claim ("nothing blocked") the server never made. */
+async function auditCount(result: 'pass' | 'warn' | 'block', signal: AbortSignal): Promise<number> {
+  const res = await api.getComplianceAuditLog({ result, limit: 1 }, { signal });
+  const total = res.success ? res.data?.pagination?.total : undefined;
+  if (typeof total !== 'number') throw new Error(res.message || `Could not count ${result} checks`);
+  return total;
+}
+
+export function ComplianceOverview({ onGoToRules }: OverviewProps) {
+  // The posture counts. Read here, so they re-read each time the Overview opens
+  // (it unmounts on a tab switch) — after a scan, rule edit or exemption made on
+  // another tab, the numbers are current rather than the page-load totals.
+  // All three or none: the posture is the worst of them, and computing it from a
+  // partial set turned a failed `block` read into a green "All clear".
+  const checksQ = useFetch(async (signal) => {
+    const [pass, warn, block] = await Promise.all([
+      auditCount('pass', signal), auditCount('warn', signal), auditCount('block', signal),
+    ]);
+    return { pass, warn, block };
+  }, []);
+  const rulesQ = useFetch(async (signal) => {
+    const res = await api.getComplianceRules({ limit: 1 }, { signal });
+    const total = res.success ? res.data?.pagination?.total : undefined;
+    if (typeof total !== 'number') throw new Error(res.message || 'Could not count the rules');
+    return total;
+  }, []);
+  const checks = checksQ.data;
   // The check log's filters/pagination/fetch — state the Overview alone reads,
   // so it lives here rather than being drilled down from the dashboard shell.
   const {
@@ -165,25 +194,34 @@ export function ComplianceOverview({ stats, onGoToRules }: OverviewProps) {
       .catch(() => { if (!cancelled) setChangesError('Failed to load recent changes'); });
     return () => { cancelled = true; };
   }, [activityTab, changes]);
-  const totalChecks = stats.pass + stats.warn + stats.block;
-  const passRate = totalChecks > 0 ? Math.round((stats.pass / totalChecks) * 100) : 100;
+  const totalChecks = checks ? checks.pass + checks.warn + checks.block : 0;
+  const passRate = checks && totalChecks > 0 ? Math.round((checks.pass / totalChecks) * 100) : 100;
 
-  // Posture: the single "are we compliant?" headline — worst signal wins.
-  const posture = stats.block > 0
-    ? { tone: 'red' as const, icon: XCircle, title: `${stats.block} blocked`, detail: `${stats.warn} warning${stats.warn === 1 ? '' : 's'} · ${passRate}% passing` }
-    : stats.warn > 0
-      ? { tone: 'yellow' as const, icon: AlertTriangle, title: `${stats.warn} warning${stats.warn === 1 ? '' : 's'}`, detail: `No blocks · ${passRate}% passing` }
-      : totalChecks > 0
-        ? { tone: 'green' as const, icon: ShieldCheck, title: 'All clear', detail: `All ${stats.pass} check${stats.pass === 1 ? '' : 's'} passing` }
-        : { tone: 'gray' as const, icon: Shield, title: 'No checks yet', detail: 'Compliance check results will appear here' };
+  // Posture: the single "are we compliant?" headline — worst signal wins. Only
+  // computed from a complete set of counts; until then it says so.
+  const posture = !checks
+    ? checksQ.error
+      ? { tone: 'gray' as const, icon: Shield, title: 'Posture unavailable', detail: 'The check counts could not be loaded' }
+      : { tone: 'gray' as const, icon: Shield, title: 'Loading posture…', detail: 'Counting check results' }
+    : checks.block > 0
+      ? { tone: 'red' as const, icon: XCircle, title: `${checks.block} blocked`, detail: `${checks.warn} warning${checks.warn === 1 ? '' : 's'} · ${passRate}% passing` }
+      : checks.warn > 0
+        ? { tone: 'yellow' as const, icon: AlertTriangle, title: `${checks.warn} warning${checks.warn === 1 ? '' : 's'}`, detail: `No blocks · ${passRate}% passing` }
+        : totalChecks > 0
+          ? { tone: 'green' as const, icon: ShieldCheck, title: 'All clear', detail: `All ${checks.pass} check${checks.pass === 1 ? '' : 's'} passing` }
+          : { tone: 'gray' as const, icon: Shield, title: 'No checks yet', detail: 'Compliance check results will appear here' };
 
   // Stat cards double as filters: results toggle the log filter, rules jumps tabs.
+  // An unread count shows a dash, never a 0.
+  const shown = (n: number | null | undefined) => (typeof n === 'number' ? n : '—');
   const statCards = [
-    { key: 'rules', icon: Shield, label: 'Active rules', value: stats.rules, color: 'blue', result: null as string | null, onClick: onGoToRules },
-    { key: 'pass', icon: CheckCircle, label: 'Passed', value: stats.pass, color: 'green', result: 'pass', onClick: () => onResultChange(auditResult === 'pass' ? '' : 'pass') },
-    { key: 'warn', icon: AlertTriangle, label: 'Warnings', value: stats.warn, color: 'yellow', result: 'warn', onClick: () => onResultChange(auditResult === 'warn' ? '' : 'warn') },
-    { key: 'block', icon: XCircle, label: 'Blocked', value: stats.block, color: 'red', result: 'block', onClick: () => onResultChange(auditResult === 'block' ? '' : 'block') },
+    { key: 'rules', icon: Shield, label: 'Active rules', value: shown(rulesQ.data), color: 'blue', result: null as string | null, onClick: onGoToRules },
+    { key: 'pass', icon: CheckCircle, label: 'Passed', value: shown(checks?.pass), color: 'green', result: 'pass', onClick: () => onResultChange(auditResult === 'pass' ? '' : 'pass') },
+    { key: 'warn', icon: AlertTriangle, label: 'Warnings', value: shown(checks?.warn), color: 'yellow', result: 'warn', onClick: () => onResultChange(auditResult === 'warn' ? '' : 'warn') },
+    { key: 'block', icon: XCircle, label: 'Blocked', value: shown(checks?.block), color: 'red', result: 'block', onClick: () => onResultChange(auditResult === 'block' ? '' : 'block') },
   ];
+  const countsError = checksQ.error ?? rulesQ.error;
+  const retryCounts = () => { void checksQ.refetch(); void rulesQ.refetch(); };
 
   // Date-range presets — nobody wants to type two dates for "this week".
   const presets: { label: string; days: number | null }[] = [
@@ -210,8 +248,11 @@ export function ComplianceOverview({ stats, onGoToRules }: OverviewProps) {
         Icon={posture.icon}
         title={posture.title}
         detail={posture.detail}
-        rate={totalChecks > 0 ? passRate : undefined}
+        rate={checks && totalChecks > 0 ? passRate : undefined}
       />
+      {countsError && (
+        <RetryError message={formatError(countsError, 'Could not load the compliance counts')} onRetry={retryCounts} />
+      )}
 
       {/* Stat cards — clickable: results filter the log below, rules opens the tab */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">

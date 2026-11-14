@@ -34,6 +34,7 @@ import { organizationService } from './organization-service.js';
 import { config } from '../config/index.js';
 import { recordAuditEvent } from '../helpers/audit.js';
 import { Organization, PURGE_CLAIM_STALE_MS } from '../models/index.js';
+import { incCounter } from '../observability/metrics.js';
 
 const logger = createLogger('org-purge');
 
@@ -110,7 +111,9 @@ async function releaseClaim(orgId: string): Promise<void> {
 
 /**
  * Find every soft-deleted org whose `purgeAfter` has lapsed and run the
- * fail-closed cascade + hard delete for each. Returns a tally. Never throws.
+ * fail-closed cascade + hard delete for each. Returns a tally. Never throws —
+ * {@link runOrgPurgeSweep} is what turns a deferred/failed org into a failed
+ * scheduler cycle.
  */
 export async function purgeExpiredOrgs(run?: { signal: AbortSignal }): Promise<PurgeSweepResult> {
   const result: PurgeSweepResult = { scanned: 0, purged: 0, deferred: 0, failed: 0, skipped: 0 };
@@ -122,6 +125,8 @@ export async function purgeExpiredOrgs(run?: { signal: AbortSignal }): Promise<P
     }).select('_id name').lean();
   } catch (err) {
     logger.warn('Org purge sweep scan failed', { error: errorMessage(err) });
+    result.failed += 1;
+    incCounter('org_purge_outcome_total', { result: 'scan_failed' });
     return result;
   }
 
@@ -168,6 +173,7 @@ export async function purgeExpiredOrgs(run?: { signal: AbortSignal }): Promise<P
     } catch (err) {
       logger.warn('Org purge claim failed (continuing)', { orgId, error: errorMessage(err) });
       result.failed += 1;
+      incCounter('org_purge_outcome_total', { result: 'failed' });
       continue;
     }
     if (!claimed) {
@@ -194,12 +200,14 @@ export async function purgeExpiredOrgs(run?: { signal: AbortSignal }): Promise<P
         // for the full stale window would delay the retry it exists to allow.
         await releaseClaim(orgId);
         result.deferred += 1;
+        incCounter('org_purge_outcome_total', { result: 'deferred' });
         continue;
       }
 
       await organizationService.delete(orgId);
       logger.info('Org purged (hard-deleted after retention window)', { orgId });
       result.purged += 1;
+      incCounter('org_purge_outcome_total', { result: 'purged' });
 
       // Audit the hard delete — the single most destructive lifecycle action.
       // This is a BACKGROUND sweep (no `req`), so it records with a synthetic
@@ -222,6 +230,7 @@ export async function purgeExpiredOrgs(run?: { signal: AbortSignal }): Promise<P
       logger.error('Org purge failed for one org (continuing)', { orgId, error: errorMessage(err) });
       await releaseClaim(orgId);
       result.failed += 1;
+      incCounter('org_purge_outcome_total', { result: 'failed' });
     }
   }
 
@@ -240,6 +249,19 @@ export function orgPurgeSweep(intervalMs: number = config.organization.purgeSwee
     name: 'org-purge-sweep',
     lockKey: LOCK_KEY,
     intervalMs,
-    run: async (run) => { await purgeExpiredOrgs(run); },
+    run: runOrgPurgeSweep,
   };
+}
+
+/**
+ * The scheduled body: one purge pass that THROWS when any org was deferred or
+ * failed. An org whose teardown fails on every pass is an erasure deadline
+ * being missed; throwing keeps the scheduler from recording those passes as
+ * successes, so `SchedulerJobStale` pages instead of a warn log nobody reads.
+ */
+export async function runOrgPurgeSweep(run?: { signal: AbortSignal }): Promise<void> {
+  const result = await purgeExpiredOrgs(run);
+  if (result.deferred > 0 || result.failed > 0) {
+    throw new Error(`Org purge: ${result.deferred} deferred, ${result.failed} failed (${result.purged} purged); retried next pass`);
+  }
 }

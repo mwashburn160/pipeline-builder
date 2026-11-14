@@ -17,6 +17,7 @@
  */
 
 import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
+import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 interface CapturedSchedulerOpts {
@@ -38,21 +39,29 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () =>
 );
 
 // The scheduler module imports these at load; stub them so nothing real runs.
+const listRepositoriesUnderPrefix = jest.fn<(p: string) => Promise<string[]>>(async () => []);
 jest.unstable_mockModule('../src/services/registry-client.js', () => ({
-  listRepositoriesUnderPrefix: jest.fn(async () => []),
+  listRepositoriesUnderPrefix,
 }));
 const runQuarantineGc = jest.fn(async () => ({ reposScanned: 0, deleted: 0, skippedNoTimestamp: 0 }));
+interface FakeGcResult { candidates: number; deleted: number; reposScanned: number; companionsDeleted: number; failedRepos: number }
+const runRegistryGc = jest.fn<(o: { prefix: string }) => Promise<FakeGcResult>>(
+  async () => ({ candidates: 0, deleted: 0, reposScanned: 1, companionsDeleted: 0, failedRepos: 0 }),
+);
 jest.unstable_mockModule('../src/services/registry-gc.js', () => ({
-  runRegistryGc: jest.fn(async () => ({ candidates: 0, deleted: 0, reposScanned: 0 })),
+  runRegistryGc,
   runQuarantineGc,
+  GC_FAILED_COUNTER: 'registry_gc_failed_total',
 }));
+const incCounter = jest.fn();
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', { incCounter }));
 jest.unstable_mockModule('../src/services/storage-usage.js', () => ({
   invalidateStorageCache: jest.fn(),
   computeStorageUsage: jest.fn(async () => ({ bytes: 0, incomplete: false })),
 }));
 
 const {
-  startGcScheduler, stopGcScheduler, startQuarantineGcScheduler, stopQuarantineGcScheduler,
+  startGcScheduler, stopGcScheduler, startQuarantineGcScheduler, stopQuarantineGcScheduler, sweepOnceForTests,
 } = await import('../src/services/gc-scheduler.js');
 
 const ENV_KEYS = ['REGISTRY_GC_ENABLED', 'REGISTRY_GC_LOCK_TTL_MS'] as const;
@@ -76,7 +85,7 @@ afterEach(() => {
 describe('startGcScheduler leader lock', () => {
   it('wires the leader lock (key + TTL) when Redis is configured', () => {
     process.env.REGISTRY_GC_ENABLED = 'true';
-    delete process.env.REGISTRY_GC_LOCK_TTL_MS; // default 15 min
+    delete process.env.REGISTRY_GC_LOCK_TTL_MS; // default: api-core DEFAULT_LEADER_LOCK_TTL_MS (120s)
 
     startGcScheduler();
 
@@ -139,15 +148,50 @@ describe('startQuarantineGcScheduler', () => {
     expect(runQuarantineGc).toHaveBeenCalledTimes(1);
   });
 
-  it('never lets a failed sweep escape the scheduler', async () => {
+  it('hands a failed sweep to the scheduler, so no success is stamped and SchedulerJobStale can fire', async () => {
+    // createScheduler catches and logs a throwing run; swallowing it HERE made
+    // every failed sweep look like a success.
     startQuarantineGcScheduler();
     runQuarantineGc.mockRejectedValueOnce(new Error('registry down'));
-    await expect(createScheduler.mock.calls[0][0].run()).resolves.toBeUndefined();
+    await expect(createScheduler.mock.calls[0][0].run()).rejects.toThrow('registry down');
   });
 
   it('is idempotent', () => {
     startQuarantineGcScheduler();
     startQuarantineGcScheduler();
     expect(createScheduler).toHaveBeenCalledTimes(1);
+  });
+});
+
+// The org sweep's failures must reach the scheduler (SchedulerJobStale) and a
+// counter (RegistryGcFailing) — a registry that is down must not look swept.
+describe('org sweep failure visibility', () => {
+  it('throws, and counts, when the catalog cannot be listed', async () => {
+    listRepositoriesUnderPrefix.mockRejectedValueOnce(new Error('registry down'));
+    await expect(sweepOnceForTests(30)).rejects.toThrow(/catalog listing failed/);
+    expect(incCounter).toHaveBeenCalledWith('registry_gc_failed_total', { stage: 'catalog' });
+  });
+
+  it('throws when EVERY namespace failed', async () => {
+    listRepositoriesUnderPrefix.mockResolvedValueOnce(['org-a/x', 'org-b/y']);
+    runRegistryGc.mockRejectedValue(new Error('boom'));
+    await expect(sweepOnceForTests(30)).rejects.toThrow(/every namespace failed/);
+    expect(incCounter).toHaveBeenCalledWith('registry_gc_failed_total', { stage: 'namespace' });
+    runRegistryGc.mockReset();
+  });
+
+  it('counts a namespace none of whose repositories could be walked as failed', async () => {
+    listRepositoriesUnderPrefix.mockResolvedValueOnce(['org-a/x']);
+    runRegistryGc.mockResolvedValueOnce({ candidates: 0, deleted: 0, reposScanned: 2, companionsDeleted: 0, failedRepos: 2 });
+    await expect(sweepOnceForTests(30)).rejects.toThrow(/every namespace failed/);
+  });
+
+  it('completes (stamping success) when only SOME namespaces failed — those are counted', async () => {
+    listRepositoriesUnderPrefix.mockResolvedValueOnce(['org-a/x', 'org-b/y']);
+    runRegistryGc
+      .mockRejectedValueOnce(new Error('boom'))
+      .mockResolvedValueOnce({ candidates: 1, deleted: 1, reposScanned: 1, companionsDeleted: 2, failedRepos: 0 });
+    await expect(sweepOnceForTests(30)).resolves.toBeUndefined();
+    expect(incCounter).toHaveBeenCalledWith('registry_gc_failed_total', { stage: 'namespace' });
   });
 });

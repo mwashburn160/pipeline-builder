@@ -227,8 +227,8 @@ Stripe Dashboard → **Developers → Webhooks → Add endpoint** → enter that
 | `customer.subscription.created` | Records the subscription + grants the tier |
 | `customer.subscription.updated` | Re-syncs status/plan (status mapped internally; `unpaid` ⇒ canceled after grace) |
 | `customer.subscription.deleted` | Cancels the subscription, downgrades tier |
-| `invoice.payment_succeeded` | Marks paid / clears past-due |
-| `invoice.payment_failed` | Moves to past-due (grace period applies) |
+| `invoice.payment_succeeded` | Marks paid / clears past-due. Its per-invoice effects (billing-ledger actuals, usage-credit draw-down, recurring promotion and discount re-grant, referral credit) always run and are idempotent per invoice / period; only the status and period changes are skipped when the event is older than one already applied, because Stripe delivers events unordered |
+| `invoice.payment_failed` | Moves to past-due (grace period applies). The first failure of a lapse posts one in-app notice naming the date access ends; `GET /billing/subscriptions` carries `dunning: { firstFailedAt, downgradeAt, downgraded, downgradedAt? }` while past-due |
 | `invoice.upcoming` | Drives renewal reminders + recurring-credit re-grant |
 | `charge.refunded` | Reverses the matching subscription |
 | `charge.dispute.created` | Reverses on dispute |

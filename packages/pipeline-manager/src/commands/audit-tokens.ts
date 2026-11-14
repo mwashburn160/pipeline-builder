@@ -7,7 +7,7 @@ import { Command } from 'commander';
 import { resolveAwsRegion } from '../utils/aws-env.js';
 import { getSecretValue, listSecrets } from '../utils/aws-secrets.js';
 import { printCommandHeader, withProfileOption, withRegionOption } from '../utils/command-utils.js';
-import { ERROR_CODES, handleError } from '../utils/error-handler.js';
+import { ERROR_CODES, reportError } from '../utils/error-handler.js';
 import { printError, printInfo, printSection, printSuccess, printWarning } from '../utils/output-utils.js';
 
 interface TokenAuditEntry {
@@ -169,9 +169,8 @@ export function auditTokens(program: Command): void {
         }
         process.exit(exitCode);
       } catch (error) {
-        handleError(error, ERROR_CODES.API_REQUEST, {
+        reportError(error, ERROR_CODES.API_REQUEST, {
           debug: program.opts().debug,
-          exit: false,
           context: { command: 'audit-tokens', executionId },
         });
         process.exit(2);

@@ -100,7 +100,7 @@ Author and ship pipelines and plugins.
 | [CDK Usage](cdk-usage.md) | `PipelineBuilder` construct, sources, stages, VPC, IAM, secrets |
 | [Template Syntax](templates.md) | `{{ ... }}` synth-time interpolation for pipeline configs + plugin specs, and golden-path templates |
 | [Metadata Keys](metadata-keys.md) | Typed CodePipeline / CodeBuild / networking / IAM configuration keys |
-| [Plugin Catalog](plugins/README.md) | 119 pre-built plugins across 10 categories, and how to author your own |
+| [Plugin Catalog](plugins/README.md) | 118 pre-built plugins across 10 categories, and how to author your own |
 | [Installing Plugins](plugin-installing.md) | Trust tiers, installs and version policies, the per-org consumption policy, reviews and reporting |
 | [Publishing Plugins](plugin-publishing.md) | Publisher profiles, publish requests and moderation, catalog metadata, pausing a plugin |
 | [Developer Portal](developer-portal.md) | Catalog ownership & My Services, golden-path templates, per-pipeline maturity scorecards |
@@ -455,7 +455,7 @@ For end-to-end request → build → deploy flow diagrams, see [Architecture Flo
 
 ## Plugin Categories
 
-119 plugins across 10 categories. See the [Plugin Catalog](plugins/README.md) for the full list.
+118 plugins across 10 categories. See the [Plugin Catalog](plugins/README.md) for the full list.
 
 | Category | Count | Details |
 |----------|-------|---------|

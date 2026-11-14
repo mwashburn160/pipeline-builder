@@ -991,6 +991,7 @@ services:
       POSTGRES_RUNG_MAX_REPLICA: ${POSTGRES_RUNG_MAX_REPLICA:-}
       AUTH_LIMITER_MAX: ${AUTH_LIMITER_MAX:-}
       AUTH_LIMITER_WINDOWMS: ${AUTH_LIMITER_WINDOWMS:-}
+      AUTH_PASSWORD_RESET_TOKEN_TTL_MS: ${AUTH_PASSWORD_RESET_TOKEN_TTL_MS:-}
       AUTH_VERIFICATION_TOKEN_TTL_MS: ${AUTH_VERIFICATION_TOKEN_TTL_MS:-}
       DASHBOARD_MAX_DESCRIPTION: ${DASHBOARD_MAX_DESCRIPTION:-}
       DASHBOARD_MAX_NAME: ${DASHBOARD_MAX_NAME:-}
@@ -2397,6 +2398,59 @@ services:
         reservations:
           cpus: '0.3'
           memory: 256M
+
+  # Registry BLOB garbage collection — weekly, Sunday 03:10 UTC. Every manifest
+  # delete image-registry makes removes a REFERENCE; Distribution never frees
+  # the bytes by itself, so this runs `registry garbage-collect` against the
+  # same RustFS bucket. Safe while the registry is up: image-registry withholds
+  # `push` from every token from (03:10 - token TTL - 60s) to 03:40 UTC
+  # (api/image-registry/src/services/blob-gc-window.ts), so no push token is
+  # alive while it marks and sweeps. NO --delete-untagged — pipelines pin by
+  # digest and untagged manifests are deliberate (storage prune, public yank).
+  # Compose has no cron, so it sleeps to the next window; a failed run exits
+  # non-zero and the restart policy brings the loop back. Pinned to the code's
+  # window by test/deploy-contracts/test/registry-blob-gc-contract.test.ts.
+  registry-blob-gc:
+    image: 'registry@sha256:ddf754342cfc8acc51a56d5d0ab6af06826461864460636d8bd5c546dab2a7b8'  # registry:3.1.2
+    labels:
+      version: "3.1.2"
+      track: stable
+    container_name: registry-blob-gc
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -eu
+        while true; do
+          now=$$(date -u +%s)
+          dow=$$(date -u +%w)
+          # Next Sunday 03:10 UTC (11400s after midnight).
+          target=$$(( now - now % 86400 + ((7 - dow) % 7) * 86400 + 11400 ))
+          if [ "$$target" -le "$$now" ]; then target=$$(( target + 604800 )); fi
+          echo "registry-blob-gc: next run in $$(( target - now ))s"
+          sleep $$(( target - now ))
+          echo "registry-blob-gc: starting (push freeze in effect)"
+          timeout 1500 registry garbage-collect /etc/distribution/config.yml
+          echo "registry-blob-gc: done"
+        done
+    environment:
+      REGISTRY_STORAGE_DELETE_ENABLED: 'true'
+      REGISTRY_STORAGE_S3_ACCESSKEY: ${REGISTRY_S3_ACCESS_KEY}
+      REGISTRY_STORAGE_S3_SECRETKEY: ${REGISTRY_S3_SECRET_KEY}
+    volumes:
+      - './config/registry-config.yml:/etc/distribution/config.yml:ro'
+    depends_on:
+      <<: *needs-rustfs
+    networks:
+      - backend-network
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.05'
+          memory: 64M
 
   # ---------------------------------------------------------------------------
   # Observability (Prometheus + Thanos + Loki + Promtail + Jaeger + Grafana)

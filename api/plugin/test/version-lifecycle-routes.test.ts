@@ -32,8 +32,9 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
 const mockFindById = jest.fn<(...a: any[]) => Promise<any>>();
 const mockSetDeprecated = jest.fn<(...a: any[]) => Promise<any>>();
 const mockYankVersion = jest.fn<(...a: any[]) => Promise<any>>();
+const mockUnyankVersion = jest.fn<(...a: any[]) => Promise<any>>();
 jest.unstable_mockModule('../src/services/plugin-service.js', () => ({
-  pluginService: { findById: mockFindById, setDeprecated: mockSetDeprecated, yankVersion: mockYankVersion },
+  pluginService: { findById: mockFindById, setDeprecated: mockSetDeprecated, yankVersion: mockYankVersion, unyankVersion: mockUnyankVersion },
 }));
 
 const mockEmitPluginAudit = jest.fn<AnyFn>();
@@ -185,6 +186,54 @@ describe('POST /plugins/:id/yank', () => {
   });
 });
 
+// P6: a yank of an org's own version used to be permanent ("cannot be undone
+// here", with nowhere else to go).
+describe('POST /plugins/:id/unyank', () => {
+  const unyank = handler('/:id/unyank');
+  const yankedRow = { ...row, lifecycle: 'yanked', yankedAt: new Date('2026-11-01T00:00:00Z'), yankReason: 'CVE-1' };
+
+  it('unyanks and audits it with the yank it reverses', async () => {
+    mockFindById.mockResolvedValue(yankedRow);
+    mockUnyankVersion.mockResolvedValue({ ...row, lifecycle: 'production', yankedAt: null, yankReason: null });
+    const r = res();
+
+    await unyank(req({ reason: 'false positive' }), r);
+
+    expect(mockUnyankVersion).toHaveBeenCalledWith(expect.objectContaining({ id: 'p-1' }), 'org-1', 'user-1');
+    expect(r.status).toHaveBeenCalledWith(200);
+    expect(mockEmitPluginAudit).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'plugin.version.unyank',
+      targetId: 'p-1',
+      details: { pluginName: 'trivy', version: '1.2.0', yankedAt: yankedRow.yankedAt, yankReason: 'CVE-1', reason: 'false positive' },
+    }));
+  });
+
+  it('surfaces the 409 (listed, or not yanked) without auditing a success', async () => {
+    mockFindById.mockResolvedValue(row);
+    mockUnyankVersion.mockRejectedValueOnce(new MockConflictError('not yanked'));
+    const r = res();
+    await unyank(req({}), r);
+    expect(r.status).toHaveBeenCalledWith(409);
+    expect(mockEmitPluginAudit).not.toHaveBeenCalled();
+  });
+
+  it('404s an unknown id, 400s an unknown field, and stops on the visibility ladder', async () => {
+    mockFindById.mockResolvedValueOnce(null);
+    const a = res();
+    await unyank(req({}), a);
+    expect(a.status).toHaveBeenCalledWith(404);
+
+    const b = res();
+    await unyank(req({ force: true }), b);
+    expect(b.status).toHaveBeenCalledWith(400);
+
+    mockFindById.mockResolvedValueOnce(yankedRow);
+    mockRequireVisibilityWriteAccess.mockReturnValueOnce(false);
+    await unyank(req({}), res());
+    expect(mockUnyankVersion).not.toHaveBeenCalled();
+  });
+});
+
 // docs/plans/bootstrap-image-versioning.md §5 — the managed toolchain's
 // lifecycle is the Toolchain console's, for the system org too.
 describe('managed toolchain names', () => {
@@ -193,6 +242,7 @@ describe('managed toolchain names', () => {
   it.each([
     ['/:id/deprecate', {}],
     ['/:id/yank', { reason: 'bad image' }],
+    ['/:id/unyank', {}],
   ])('%s answers 400 TOOLCHAIN_USE_CONSOLE and never reaches the service', async (path, body) => {
     mockFindById.mockResolvedValue(managedRow);
     const r = res();
@@ -201,6 +251,7 @@ describe('managed toolchain names', () => {
     expect(r.json).toHaveBeenCalledWith(expect.objectContaining({ code: 'TOOLCHAIN_USE_CONSOLE' }));
     expect(mockSetDeprecated).not.toHaveBeenCalled();
     expect(mockYankVersion).not.toHaveBeenCalled();
+    expect(mockUnyankVersion).not.toHaveBeenCalled();
     expect(mockEmitPluginAudit).not.toHaveBeenCalled();
   });
 });

@@ -6,6 +6,7 @@ import {
   ErrorCode,
   errorMessage,
   fetchParentOrgId,
+  resolveRootOrgIdStrict,
   sendError,
   SYSTEM_ORG_ID,
 } from '@pipeline-builder/api-core';
@@ -60,4 +61,22 @@ export async function refuseTeamBilling(req: Request, res: Response, next: NextF
     return;
   }
   next();
+}
+
+/**
+ * The ACCOUNT (root) org that holds `orgId`'s billing state — the subscription
+ * and everything stored on it (credit balance, support-incident balance) lives
+ * on the root only, while a team member acts with their team's org id.
+ *
+ * Walks `parentOrgId` up via platform, FAIL-CLOSED: a lookup failure, a cycle
+ * or an over-deep chain THROWS rather than returning the team id (which would
+ * silently read/spend nothing) or a wrong ancestor.
+ */
+export async function resolveAccountRootOrgId(orgId: string): Promise<string> {
+  const root = await resolveRootOrgIdStrict(orgId, (id) => fetchParentOrgId(id, {
+    authOrgId: SYSTEM_ORG_ID,
+    throwOnHttpError: true,
+  }));
+  if (!root) throw new Error(`could not prove the account root of org ${orgId}`);
+  return root.toLowerCase();
 }

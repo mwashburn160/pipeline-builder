@@ -1049,6 +1049,41 @@ groups:
           summary: "Plugin re-sign job stalled"
           description: "Re-sign jobs are queued but nothing was re-signed in 2h, so tier or suspension changes are not yet reflected in image annotations. Check the ecosystem-maintenance scheduler and image-registry."
 
+      # A step of the leader-locked ecosystem maintenance pass failed
+      # (api/plugin/src/services/ecosystem/maintenance.ts). Each step is
+      # isolated, so the others still ran — which is exactly why nothing else
+      # notices. `submitter_email_purge` is a privacy retention promise (a
+      # submitter's address is deleted 90 days after the decision) and
+      # `submission_expiry` the 30-day bound on unconfirmed submissions. A pass
+      # in which EVERY step fails also stops stamping its scheduler success,
+      # so SchedulerJobStale covers the outage.
+      - alert: EcosystemMaintenanceStepFailing
+        expr: sum by (step) (increase(ecosystem_maintenance_step_failed_total[1h])) > 0
+        for: 30m
+        labels:
+          severity: warning
+          component: plugin-ecosystem
+          tenancy: platform
+        annotations:
+          summary: "Ecosystem maintenance step '{{ $labels.step }}' is failing"
+          description: "The '{{ $labels.step }}' step of the plugin service's ecosystem maintenance failed {{ $value | humanize }} time(s) in the last hour (it runs every 15 minutes). For submitter_email_purge that means submitter addresses are being kept past their 90-day retention. Check the plugin service's ecosystem-maintenance logs for the step's warning."
+
+      # A submission left in `publishing`, or a publish request left `approved`
+      # without its execution recorded, for more than an hour: a pod died
+      # mid-publish. The maintenance pass hands these back every 15 minutes
+      # (services/ecosystem/stalled.ts), so a value that STAYS up means that
+      # recovery is not running or keeps failing.
+      - alert: EcosystemPublishStalled
+        expr: max by (kind) (ecosystem_stalled_publishes) > 0
+        for: 45m
+        labels:
+          severity: warning
+          component: plugin-ecosystem
+          tenancy: platform
+        annotations:
+          summary: "{{ $value | humanize }} abandoned ecosystem {{ $labels.kind }}(s) not handed back"
+          description: "A {{ $labels.kind }} has sat mid-publish for over an hour and the maintenance pass has not returned it to the moderation queue. The submitter sees it as pending and a moderator's retry answers 409. Check EcosystemMaintenanceStepFailing (step stalled_publishes) and the ecosystem-maintenance scheduler."
+
       - alert: EcosystemApproverShortage
         # Two-person approval needs two different approvers; below that a
         # superadmin must act as the second one on every such request.
@@ -1200,16 +1235,26 @@ groups:
       # happened". AlertRelayDeliveryFailing is the worst of the three — it is the
       # relay every other org-facing alert goes through, so when it breaks the
       # failure mode is silence everywhere.
+      # Scoped ACROSS ORGS, not per failure: one tenant's revoked webhook is that
+      # tenant's problem — it shows on their destinations list and their admins
+      # are emailed after 3 straight failures (services/alert-delivery-status.ts)
+      # — so it must not page the platform. What IS the platform's problem is a
+      # channel failing for several orgs at once (the transport, not a target).
+      # `alert_destination_orgs` counts orgs per channel over the last hour.
       - alert: AlertRelayDeliveryFailing
-        expr: sum by (channel) (increase(alert_notification_delivery{result="failed"}[1h])) > 0
-        for: 0m
+        expr: |
+          max by (channel) (alert_destination_orgs{state="failing"}) >= 2
+          and on (channel)
+          max by (channel) (alert_destination_orgs{state="failing"})
+            / max by (channel) (alert_destination_orgs{state="attempted"}) >= 0.5
+        for: 10m
         labels:
           severity: warning
           component: platform
           tenancy: platform
         annotations:
-          summary: "Alert delivery to organizations is failing (channel={{ $labels.channel }})"
-          description: "{{ $value | humanize }} alert notification(s) failed to deliver over {{ $labels.channel }} in the last hour — an unknown destination channel, or the channel's transport returning not-ok. Every org-facing alert routes through this relay, so while it fails the orgs are simply not being told anything. Check the destination's configuration and platform/src/services/alert-relay.ts logs."
+          summary: "Alert delivery is failing for several organizations (channel={{ $labels.channel }})"
+          description: "At least half of the organizations that sent alerts over {{ $labels.channel }} in the last hour (and at least two) are failing to deliver — the channel's transport, not one org's target. Every org-facing alert routes through this relay, so while it fails those orgs are not being told anything. Check platform/src/services/alert-relay.ts logs and the channel's credentials/egress."
 
       - alert: EcosystemNotificationFailing
         expr: sum by (event) (increase(ecosystem_notification_failed_total{event!~"N21|N22"}[1h])) > 0
@@ -1746,6 +1791,26 @@ groups:
         annotations:
           summary: "Registry returning 5xx errors"
           description: "{{ $value | humanize }} 5xx/s over the last 5 minutes. Check image-registry logs."
+
+      # A step of image-registry's GC sweeps FAILED (api/image-registry/src/
+      # services/registry-gc.ts): a catalog or tag listing, the in-use read,
+      # the pre-delete re-check, a delete, or a quarantine scan/delete. Each one
+      # is fail-safe — nothing that should have stayed is deleted — so the cost
+      # is bytes left on disk and quarantined submissions outliving their 30-day
+      # bound, which nobody sees in a warn log. A sweep that fails as a WHOLE
+      # (registry down, every namespace failing) also stops stamping its
+      # scheduler success, so SchedulerJobStale covers the long outage; this
+      # catches the partial ones.
+      - alert: RegistryGcFailing
+        expr: sum by (stage) (increase(registry_gc_failed_total[6h])) > 0
+        for: 15m
+        labels:
+          severity: warning
+          component: registry
+          tenancy: platform
+        annotations:
+          summary: "Registry GC step '{{ $labels.stage }}' failed"
+          description: "image-registry's GC failed at stage {{ $labels.stage }} {{ $value | humanize }} time(s) in the last 6h. Nothing was deleted that should have stayed (every step fails safe), but the affected manifests stay on disk until a sweep succeeds. Check the image-registry logs for 'GC:' / 'Quarantine GC:' warnings; catalog/tag_list/reverify usually mean the registry itself is unhealthy, references means the plugin service is."
 
       # ---- Quota ----
       # `quota_fail_open_total` is incremented by api-core's quota client
@@ -2862,6 +2927,48 @@ groups:
         annotations:
           summary: "AI provider {{ $labels.provider }} erroring"
           description: "{{ $value | humanize }} failed AI turns/sec for provider {{ $labels.provider }} over 5m sustained for 10m — likely a provider brownout or credential issue. Check the ask/generation logs."
+
+      # ---- Ask agent: prompt-injection signal ----
+      # ask_proposal_refused_fields_total{tool} counts field names a propose_*
+      # tool REFUSED because they are outside its allowlist (api/ask
+      # routes/agent.ts, design rule 10). A legitimate user never produces one:
+      # the model only names a security setting (MFA, SSO, ownership, AI
+      # credentials) when a message, document or repository told it to. The
+      # refusal held, so nothing changed, but someone is trying; the turn's
+      # `ask.agent.turn` audit row carries the refused field names.
+      - alert: AskProposalRefusedFields
+        expr: sum by (tool) (increase(ask_proposal_refused_fields_total[15m])) > 0
+        labels:
+          severity: warning
+          component: ai
+          tenancy: platform
+        annotations:
+          summary: "Ask agent refused off-allowlist fields from {{ $labels.tool }}"
+          description: "{{ $value | humanize }} field(s) named outside {{ $labels.tool }}'s allowlist in the last 15m. That is the prompt-injection signal: the refusal held and nothing was changed, but find the turn in the audit trail (action ask.agent.turn, details.refusedFields) to see which org and which input carried the instruction."
+
+      # ---- AI token spend on platform keys ----
+      # ai_tokens_total{key_source="platform"} is the spend the platform pays for
+      # (a BYOK or org key bills its owner). Fires when the last hour runs at more
+      # than 3x the trailing week's hourly rate for a tier, with a floor so a
+      # quiet tier's first busy hour stays silent. Aborted and failed agent turns
+      # count too (their completed steps are summed), so a runaway loop that is
+      # cancelled is still visible here. Per-org totals live on the audit rows.
+      - alert: AITokenSpendSurge
+        expr: |
+          (
+            sum by (tier) (rate(ai_tokens_total{key_source="platform"}[1h]))
+              > 3 * sum by (tier) (rate(ai_tokens_total{key_source="platform"}[7d] offset 1h))
+          )
+          and
+          sum by (tier) (rate(ai_tokens_total{key_source="platform"}[1h])) > 50
+        for: 30m
+        labels:
+          severity: warning
+          component: ai
+          tenancy: platform
+        annotations:
+          summary: "Platform-key AI token spend surging on the {{ $labels.tier }} tier"
+          description: "Platform-key tokens on the {{ $labels.tier }} tier have run above 3x their trailing-week rate for 30m ({{ $value | humanize }} tokens/s). Check the Product health dashboard's AI rows (tokens by route, charged tool generations) and the ask.agent.turn / ai usage audit rows for the orgs driving it; per-org AI controls (member share, token budget) are the lever."
 
       # ---- Service mesh (Istio ambient) ----
       # Fires when two MESHED workloads talk without mTLS. Ambient applies

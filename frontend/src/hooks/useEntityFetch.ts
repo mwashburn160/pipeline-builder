@@ -23,10 +23,16 @@ export function useEntityFetch<T>(
   fetcher: (id: string, signal: AbortSignal) => Promise<T>,
   fallback?: T,
 ): { entity: T | null; fetching: boolean; error: Error | null; reload: () => void } {
-  const [entity, setEntity] = useState<T | null>(fallback ?? null);
-  const [fetching, setFetching] = useState(false);
-  const [error, setError] = useState<Error | null>(null);
+  // The loaded record and any error are stamped with the id they belong to and
+  // only returned while that id is still current. When `id` changes the very
+  // next render shows `fallback` (or null), never the previous record — so a
+  // failed read for the new id can't leave the old record on screen with its
+  // actions (delete, stop, save) still wired to it.
+  const [loaded, setLoaded] = useState<{ id: string; value: T } | null>(null);
+  const [failed, setFailed] = useState<{ id: string; error: Error } | null>(null);
+  const [settledFor, setSettledFor] = useState<string | null>(null);
   const [reloadNonce, setReloadNonce] = useState(0);
+  const [reloading, setReloading] = useState(false);
   const fetcherRef = useRef(fetcher);
   fetcherRef.current = fetcher;
 
@@ -34,23 +40,29 @@ export function useEntityFetch<T>(
 
   useEffect(() => {
     if (!id) {
-      setEntity(fallback ?? null);
+      setLoaded(null);
+      setFailed(null);
       return;
     }
     return runCancellableFetch((signal) => fetcherRef.current(id, signal), {
       onStart: () => {
-        setFetching(true);
-        setError(null);
+        setReloading(true);
+        setFailed(null);
+        setLoaded((prev) => (prev && prev.id === id ? prev : null));
       },
-      onSuccess: setEntity,
-      onError: setError,
-      onSettled: () => setFetching(false),
+      onSuccess: (value) => setLoaded({ id, value }),
+      onError: (error) => setFailed({ id, error }),
+      onSettled: () => { setReloading(false); setSettledFor(id); },
     });
-    // fallback intentionally omitted: it's only the initial seed and changes
-    // on every render in callers that pass an inline object. reloadNonce forces
-    // a same-id refetch when a caller calls reload().
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- `fallback` is the initial seed only, and is an inline object in most callers
+    // fallback intentionally omitted: it's only the seed shown until the read
+    // lands and is an inline object in most callers. reloadNonce forces a
+    // same-id refetch when a caller calls reload().
   }, [id, reloadNonce]);
 
+  const entity = id && loaded?.id === id ? loaded.value : (fallback ?? null);
+  const error = id && failed?.id === id ? failed.error : null;
+  // A render whose id has not settled yet is a read that is pending (or about
+  // to start), so it reports `fetching` even before the effect has run.
+  const fetching = !!id && (reloading || settledFor !== id);
   return { entity, fetching, error, reload };
 }

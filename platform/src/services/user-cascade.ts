@@ -5,7 +5,7 @@ import type { ClientSession } from 'mongoose';
 import { Types } from 'mongoose';
 import { assertNotLastPrivilegedMember } from './role-crud.js';
 import { USER_OWNER_HAS_ORGS } from './user-errors.js';
-import { JoinRequest, MfaRecoveryCodes, MfaResetRequest, PersonalAccessToken, RoleAssignment, User, UserOrganization, UserPreferences, UserTotp, WebAuthnCredential } from '../models/index.js';
+import { JoinRequest, MfaRecoveryCodes, MfaResetRequest, Organization, PasswordResetToken, PersonalAccessToken, RoleAssignment, User, UserOrganization, UserPreferences, UserTotp, WebAuthnCredential } from '../models/index.js';
 import SamlSession from '../models/saml-session.js';
 
 /**
@@ -15,11 +15,12 @@ import SamlSession from '../models/saml-session.js';
  *
  * Guards (read inside the transaction, so they see a snapshot consistent with
  * the delete):
- *   - `USER_OWNER_HAS_ORGS` when the user owns an organization (transfer first);
+ *   - `USER_OWNER_HAS_ORGS` when the user owns a LIVE organization (transfer
+ *     first); an owned org that is already soft-deleted does not block;
  *   - `RL_LAST_PRIVILEGED_MEMBER` when they are the last member of an
- *     admin/superadmin-granting Role.
+ *     admin/superadmin-granting Role (Roles of those soft-deleted orgs excepted).
  *
- * Removes the user, their memberships, Role assignments, PATs, passkeys, TOTP
+ * Removes the user, their memberships, Role assignments, PATs, password-reset tokens, passkeys, TOTP
  * enrolment, preferences, SAML SLO sessions and domain-join requests. A leftover join request would otherwise let an admin
  * approve it later and mint a membership for a user who no longer exists — an
  * orphan row that still counts toward the org's seats.
@@ -42,10 +43,17 @@ export async function deleteUserCascade(
 ): Promise<{ accessVersion: number } | null> {
   const uid = new Types.ObjectId(String(userId));
 
-  if (await UserOrganization.countDocuments({ userId: uid, role: 'owner' }).session(session) > 0) {
-    throw new Error(USER_OWNER_HAS_ORGS);
-  }
-  await assertNotLastPrivilegedMember(session, uid);
+  // Ownership blocks deletion only for a LIVE org. An org already soft-deleted
+  // (the sole-owner self-delete tombstones it first — see
+  // `userProfileService.deleteAccount`) is on its way out through the org
+  // purge, which removes its memberships and Roles itself.
+  const owned = await UserOrganization.find({ userId: uid, role: 'owner' })
+    .select('organizationId').session(session).lean();
+  const ownedIds = owned.map((o) => o.organizationId as Types.ObjectId);
+  const deletedOwned = ownedIds.length === 0 ? [] : (await Organization.find({ _id: { $in: ownedIds }, deletedAt: { $ne: null } })
+    .select('_id').session(session).lean()).map((o) => o._id as Types.ObjectId);
+  if (deletedOwned.length < ownedIds.length) throw new Error(USER_OWNER_HAS_ORGS);
+  await assertNotLastPrivilegedMember(session, uid, undefined, deletedOwned);
 
   const deleted = await User.findByIdAndDelete(uid, { session }).select('+tokenVersion');
   if (!deleted) return null;
@@ -53,6 +61,8 @@ export async function deleteUserCascade(
   await UserOrganization.deleteMany({ userId: uid }, { session });
   await RoleAssignment.deleteMany({ userId: uid }, { session });
   await PersonalAccessToken.deleteMany({ userId: uid }, { session });
+  // An unclaimed forgot-password link must not outlive the account.
+  await PasswordResetToken.deleteMany({ userId: uid }, { session });
   // Passkeys are credentials for THIS person only. Left behind they would keep a
   // unique `credentialId` reserved, so re-registering the same authenticator on a
   // re-created account would fail with a duplicate key.

@@ -87,6 +87,8 @@ jest.unstable_mockModule('../src/services/session/refresh-sessions.js', () => ({
 }));
 
 jest.unstable_mockModule('../src/models/index.js', () => ({
+  // Linking stub: the shared user cascade removes forgot-password tokens.
+  PasswordResetToken: {},
   JoinRequest: {},
   // The user-delete cascade also removes the account's passkeys.
   WebAuthnCredential: { deleteMany: jest.fn(async () => ({ deletedCount: 0 })) },

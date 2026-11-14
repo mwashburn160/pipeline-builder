@@ -21,11 +21,13 @@
  * or a lead could widen their own audience.
  *
  * DELIVERY IS DETACHED FROM THE REQUEST. Publishing marks the run and records the
- * audit event, then hands the run to `deliverPublishedRun` (email, in-app,
+ * audit event, then hands the run to `deliverAndRecord` (email, in-app,
  * Slack/Teams) WITHOUT awaiting it, so a publish cannot be held open by a mail
- * server; what the delivery did is recorded on the run when it settles. The
+ * server; what the delivery did is recorded on the run when it settles, returned
+ * as `delivery` by every run view, and a failure notifies the lead. The
  * scheduler's auto-send path delivers the same way, awaited, because it has no
- * caller to keep waiting.
+ * caller to keep waiting. A delivery that left anyone out can be re-sent with
+ * `POST /runs/:id/redeliver`, which skips everyone who already has it.
  */
 
 import {
@@ -34,9 +36,7 @@ import {
   actorId,
   audited,
   clientAbortSignal,
-  createLogger,
   emitCounter,
-  errorMessage,
   recordAudit,
   requirePermission,
   sendBadRequest,
@@ -71,14 +71,20 @@ import { Router, type Request } from 'express';
 import { z } from 'zod';
 import { resolveOrgSubtree, sendPdf, sendPdfRefusal, shareLinkUrl } from '../helpers/report-helpers.js';
 import { retentionOrgIdFor } from '../helpers/retention-cap.js';
-import { deliverPublishedRun, emailAvailable, sendRecipientConfirmation } from '../services/report-delivery.js';
-import { reportIdentity } from '../services/report-identity.js';
 import { attachExecutiveSummary } from '../services/report-ai-summary.js';
+import {
+  DELIVERY_STALE_MS,
+  deliverAndRecord,
+  deliveryIncomplete,
+  emailAvailable,
+  recordedDelivery,
+  sendRecipientConfirmation,
+} from '../services/report-delivery.js';
+import { reportIdentity } from '../services/report-identity.js';
+import { pdfAvailable, renderPdf } from '../services/report-pdf.js';
 import { composeRun } from '../services/report-runner.js';
 import { nextRunFor } from '../services/report-schedule.js';
-import { pdfAvailable, renderPdf } from '../services/report-pdf.js';
 
-const logger = createLogger('stakeholder-reports');
 
 /** Section ids a definition may carry. Checked against the live registry. */
 const sectionIdSchema = z.string().min(1).max(64).refine((id) => getSection(id) !== undefined, {
@@ -184,6 +190,9 @@ function runView(r: ReportRun, opts: { snapshot?: boolean } = {}) {
     publishedAt: r.publishedAt?.toISOString() ?? null,
     publishedBy: r.publishedBy,
     supersededBy: r.supersededBy,
+    // What delivery actually did — who has it, what failed, in words. Null until
+    // the run is published (and on a run whose delivery never started).
+    delivery: recordedDelivery(r),
     createdAt: r.createdAt.toISOString(),
     ...(opts.snapshot ? { snapshot: r.snapshot } : {}),
   };
@@ -706,7 +715,8 @@ export function createStakeholderReportRoutes(): Router {
       });
       // Detached on purpose (see the file header): the publish has landed, and a
       // slow relay or webhook must not hold the lead's request open.
-      if (definition) void deliverAfterPublish(definition, run);
+      // `deliverAndRecord` never throws: it records, counts and notifies the lead itself.
+      if (definition) void deliverAndRecord(definition, run);
     }
     ctx.log('COMPLETED', 'Published report run', { runId: id, version: run.version, alreadyPublished });
     return sendSuccess(res, 200, {
@@ -716,6 +726,56 @@ export function createStakeholderReportRoutes(): Router {
       notice: 'Delivered copies cannot be recalled. Revoking a share link stops new views of the link; '
         + 'it does not pull back an email that has already arrived.',
     });
+  }));
+
+  /**
+   * Re-send a published run whose delivery left someone out — a relay outage, a
+   * destination that was down, or a pod that died mid-fan-out.
+   *
+   * WITHOUT A CORRECTION. The only recovery used to be minting v2 of the period,
+   * which reads in the audit trail as "the numbers a manager acted on were
+   * superseded" when nothing about the numbers changed. This resends the SAME run
+   * to the recipients and destinations that do not have it yet (the run's own
+   * delivery record says who does), so nobody gets it twice.
+   *
+   * 409 when there is nothing to redeliver: an unpublished or superseded run, a
+   * delivery that reached everyone, or one still in flight (a `delivering` record
+   * younger than DELIVERY_STALE_MS — past that, the attempt is presumed dead).
+   * Detached like publish: 202, and the outcome lands on the run.
+   */
+  router.post('/runs/:id/redeliver', requirePermission('reports:publish'), audited('reporting.report.redelivered'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
+    const id = getParam(req.params, 'id') ?? '';
+    const run = await stakeholderReportStore.requireRun(orgId, id);
+    if (!run.publishedAt || run.supersededBy) {
+      return sendError(res, 409, 'Only the current published version of a report can be redelivered', ErrorCode.CONFLICT);
+    }
+    const previous = recordedDelivery(run);
+    if (previous?.state === 'delivering' && Date.now() - Date.parse(previous.attemptedAt) < DELIVERY_STALE_MS) {
+      return sendError(res, 409, 'This report is still being delivered — check back in a few minutes', ErrorCode.CONFLICT);
+    }
+    if (previous && previous.state !== 'delivering' && !deliveryIncomplete(previous)) {
+      return sendError(res, 409, 'This report already reached every recipient and destination', ErrorCode.CONFLICT);
+    }
+    const definition = await stakeholderReportStore.getDefinition(orgId, run.definitionId);
+    if (!definition) return sendError(res, 404, 'Report definition not found', ErrorCode.NOT_FOUND);
+
+    recordAudit({
+      action: 'reporting.report.redelivered',
+      actorId: actorId({ userId }),
+      orgId,
+      targetType: 'report-run',
+      targetId: run.id,
+      details: {
+        definitionId: run.definitionId,
+        period: run.periodLabel,
+        version: run.version,
+        attempt: (previous?.attempts ?? 0) + 1,
+        alreadyDelivered: previous?.delivered.recipientIds.length ?? 0,
+      },
+    });
+    void deliverAndRecord(definition, run, previous);
+    ctx.log('COMPLETED', 'Redelivering report run', { runId: id, attempt: (previous?.attempts ?? 0) + 1 });
+    return sendSuccess(res, 202, { run: runView(run) });
   }));
 
   // ── Share links ────────────────────────────────────────────────────────────
@@ -1040,18 +1100,3 @@ async function unknownRecipients(orgId: string, ids: string[]): Promise<string |
   return `Unknown recipient${missing.length === 1 ? '' : 's'}: ${missing.join(', ')}. Add the address first.`;
 }
 
-/**
- * Deliver a run a person just published and record what happened on the run.
- * NEVER THROWS — it runs detached from the request that published, so a failure
- * here has nobody to answer to but the log, the counter and the run's own
- * (absent) delivery record.
- */
-async function deliverAfterPublish(definition: ReportDefinition, run: ReportRun): Promise<void> {
-  try {
-    const outcome = await deliverPublishedRun(definition, run);
-    await stakeholderReportStore.recordDelivery(definition.orgId, run.id, outcome as unknown as Record<string, unknown>);
-  } catch (err) {
-    logger.warn('Delivery after publish failed', { orgId: definition.orgId, runId: run.id, error: errorMessage(err) });
-    emitCounter('report_delivery_failed_total', { orgId: definition.orgId, channel: 'publish' });
-  }
-}

@@ -9,6 +9,7 @@ import YAML from 'yaml';
 import { printCommandHeader, printSslWarning, createAuthenticatedClientAsync, withSslOptions } from '../utils/command-utils.js';
 import { ERROR_CODES, handleError } from '../utils/error-handler.js';
 import { printError, printInfo, printSuccess, printWarning } from '../utils/output-utils.js';
+import { extractSingleResponse } from '../utils/response-utils.js';
 
 interface ValidateOptions {
   pipeline?: string;
@@ -63,8 +64,7 @@ export function validateTemplatesCommand(program: Command): void {
           const client = await createAuthenticatedClientAsync(options);
           const cfg = client.getConfig();
           const res = await client.get<{ pipeline?: { props: unknown } }>(`${cfg.api.pipelineUrl}/${options.pipeline}`);
-          const doc = (res as { pipeline?: { props: unknown } }).pipeline?.props
-            ?? (res as { data?: { pipeline?: { props: unknown } } }).data?.pipeline?.props;
+          const doc = extractSingleResponse<{ props: unknown }>(res, 'pipeline', 'props')?.props;
           if (!doc) throw new Error(`Pipeline ${options.pipeline} not found`);
           const errors = validatePipelineDoc(core, doc);
           if (errors.length) problems.push({ source: `pipeline/${options.pipeline}`, errors });
@@ -79,8 +79,7 @@ export function validateTemplatesCommand(program: Command): void {
           const res = await client.get<{ plugin: unknown }>(
             `${cfg.api.pluginUrl}/find?name=${encodeURIComponent(name)}&version=${encodeURIComponent(version)}`,
           );
-          const doc = (res as { plugin?: unknown }).plugin
-            ?? (res as { data?: { plugin?: unknown } }).data?.plugin;
+          const doc = extractSingleResponse<Record<string, unknown>>(res, 'plugin', 'name');
           if (!doc) throw new Error(`Plugin ${name}:${version} not found`);
           const errors = validatePluginDoc(core, doc);
           if (errors.length) problems.push({ source: `plugin/${name}:${version}`, errors });

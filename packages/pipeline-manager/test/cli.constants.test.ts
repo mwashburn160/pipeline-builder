@@ -1,6 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { readFileSync } from 'node:fs';
 import { describe, it, expect, afterEach } from '@jest/globals';
 
 import {
@@ -14,6 +15,8 @@ import {
   TIMEOUTS,
   FILE_SIZE_LIMITS,
   ENV_VARS,
+  meetsNodeVersionFloor,
+  NODE_VERSION_FLOOR,
 } from '../src/config/cli.constants.js';
 
 // Tests
@@ -217,5 +220,22 @@ describe('assertShellSafe', () => {
 
   it('should include field name in error message', () => {
     expect(() => assertShellSafe('bad;input', 'myField')).toThrow('myField');
+  });
+});
+
+describe('Node.js version floor', () => {
+  it('is read from package.json engines.node (one source for npm and the start-up warning)', () => {
+    const engines = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf-8')).engines.node as string;
+    expect(engines).toContain(NODE_VERSION_FLOOR);
+    expect(NODE_VERSION_FLOOR).toMatch(/^\d+\.\d+\.\d+$/);
+  });
+
+  it('compares versions component-wise', () => {
+    expect(meetsNodeVersionFloor('v26.13.1', '26.13.1')).toBe(true);
+    expect(meetsNodeVersionFloor('v26.14.0', '26.13.1')).toBe(true);
+    expect(meetsNodeVersionFloor('v27.0.0', '26.13.1')).toBe(true);
+    expect(meetsNodeVersionFloor('v26.13.0', '26.13.1')).toBe(false);
+    expect(meetsNodeVersionFloor('v24.9.0', '26.13.1')).toBe(false);
+    expect(meetsNodeVersionFloor('v26.2.0', '26.13.1')).toBe(false);
   });
 });

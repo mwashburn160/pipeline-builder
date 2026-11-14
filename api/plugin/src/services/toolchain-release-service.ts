@@ -475,6 +475,40 @@ export async function deprecateRelease(input: ReleaseLifecycleInput & { message?
 }
 
 /**
+ * Reverse a deprecation (both halves): the release is eligible for new org
+ * defaults and pins again. The canary rows the deprecation removed are NOT
+ * restored — they were deleted, and re-adding a canary group is a decision of
+ * its own (the Rollout panel). A yanked half stays yanked (a yank is not
+ * reversible). Audited `toolchain.release.deprecate` with `deprecated: false`.
+ */
+export async function undeprecateRelease(input: ReleaseLifecycleInput): Promise<{ plugins: Plugin[] }> {
+  return auditRefusal(input.actor, 'toolchain.release.deprecate', input.releaseVersion, async () => {
+    const out = await elevated(() => withTenantTx(async (tx) => {
+      const halves = await requireHalves(tx, input.releaseVersion);
+      const now = new Date();
+      const updated: Plugin[] = [];
+      for (const row of halves) {
+        const [u] = await tx.update(schema.plugin).set({
+          deprecatedAt: null,
+          deprecationMessage: null,
+          ...(isYankedVersion(row) || row.lifecycle !== 'deprecated' ? {} : { lifecycle: 'production' as const }),
+          updatedAt: now,
+          updatedBy: input.actor,
+        }).where(eq(schema.plugin.id, row.id)).returning();
+        updated.push(u as Plugin);
+      }
+      return { plugins: updated };
+    }));
+    await pluginService.afterManagedWrite(out.plugins, input.actor);
+    emitAudit(input.actor, {
+      action: 'toolchain.release.deprecate',
+      details: { releaseVersion: input.releaseVersion, deprecated: false },
+    });
+    return out;
+  });
+}
+
+/**
  * Yank a release (both halves) and remove its canary rows. Existing pins and
  * org defaults keep resolving it with a warning (exact selection).
  *

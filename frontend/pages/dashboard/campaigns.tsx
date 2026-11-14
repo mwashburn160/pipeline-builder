@@ -1,5 +1,5 @@
 import { useMemo, useState, useCallback } from 'react';
-import { Megaphone, Plus, ShieldAlert, Ban } from 'lucide-react';
+import { Megaphone, Plus, ShieldAlert, Ban, Pencil } from 'lucide-react';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { AccessDenied } from '@/components/ui/AccessDenied';
 import { useListPage } from '@/hooks/useListPage';
@@ -10,6 +10,7 @@ import { Badge } from '@/components/ui/Badge';
 import { BillingAdminTabs } from '@/components/billing/BillingAdminTabs';
 import { FeatureDisabledCard } from '@/components/ui/FeatureDisabledCard';
 import { CreateCampaignModal } from '@/components/discounts/CreateCampaignModal';
+import { EditCampaignModal } from '@/components/discounts/EditCampaignModal';
 import { Button } from '@/components/ui/Button';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { useToast } from '@/components/ui/Toast';
@@ -71,6 +72,8 @@ export default function CampaignsPage() {
   });
 
   const [createOpen, setCreateOpen] = useState(false);
+  /** The campaign whose detail (codes, ledger spend) + edit form is open. */
+  const [editTarget, setEditTarget] = useState<Campaign | null>(null);
 
   // Ending a campaign also deactivates every code in it, which is the point —
   // so it is confirmed, and the confirmation says how many codes it will take.
@@ -150,13 +153,16 @@ export default function CampaignsPage() {
       id: 'actions',
       header: '',
       render: (c) => (
-        c.isActive
-          ? (
+        <div className="flex items-center gap-1">
+          <Button variant="ghost" size="sm" onClick={() => setEditTarget(c)} aria-label={`Inspect or edit campaign ${c.name}`}>
+            <Pencil className="h-4 w-4" /> Details
+          </Button>
+          {c.isActive && (
             <Button variant="ghost" size="sm" onClick={() => setEndTarget(c)} aria-label={`End campaign ${c.name}`}>
               <Ban className="h-4 w-4" /> End
             </Button>
-          )
-          : null
+          )}
+        </div>
       ),
     },
   ], []);
@@ -221,6 +227,18 @@ export default function CampaignsPage() {
             setCreateOpen(false);
             list.refresh();
             toast.success('Campaign created');
+          }}
+        />
+      )}
+
+      {editTarget && (
+        <EditCampaignModal
+          campaign={editTarget}
+          onClose={() => setEditTarget(null)}
+          onSaved={() => {
+            setEditTarget(null);
+            list.refresh();
+            toast.success('Campaign updated');
           }}
         />
       )}

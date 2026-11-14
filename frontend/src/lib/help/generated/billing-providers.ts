@@ -1,6 +1,6 @@
 // GENERATED FROM docs/billing-providers.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 61f8cfa23b0c383b49fa419eea88890031425b092fbc3cfdd52b4ee3c3debb80
+// SOURCE-SHA256: 9a111fd7f72e660574cd9733892e9b05f421f4d627706dd95edc5307c0dc4841
 // SPDX-License-Identifier: Apache-2.0
 import { CreditCard } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -15,10 +15,6 @@ export const billingProvidersTopic: HelpTopic = {
       "id": "overview",
       "title": "Overview",
       "blocks": [
-        {
-          "type": "text",
-          "content": "<!-- Copyright 2026 Pipeline Builder Contributors SPDX-License-Identifier: Apache-2.0 -->"
-        },
         {
           "type": "text",
           "content": "Setup walkthroughs for the two real billing providers."
@@ -540,11 +536,11 @@ export const billingProvidersTopic: HelpTopic = {
             ],
             [
               "invoice.payment_succeeded",
-              "Marks paid / clears past-due"
+              "Marks paid / clears past-due. Its per-invoice effects (billing-ledger actuals, usage-credit draw-down, recurring promotion and discount re-grant, referral credit) always run and are idempotent per invoice / period; only the status and period changes are skipped when the event is older than one already applied, because Stripe delivers events unordered"
             ],
             [
               "invoice.payment_failed",
-              "Moves to past-due (grace period applies)"
+              "Moves to past-due (grace period applies). The first failure of a lapse posts one in-app notice naming the date access ends; GET /billing/subscriptions carries dunning: { firstFailedAt, downgradeAt, downgraded, downgradedAt? } while past-due"
             ],
             [
               "invoice.upcoming",

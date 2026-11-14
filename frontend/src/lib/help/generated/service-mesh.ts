@@ -17,10 +17,6 @@ export const serviceMeshTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "<!-- Copyright 2026 Pipeline Builder Contributors SPDX-License-Identifier: Apache-2.0 -->"
-        },
-        {
-          "type": "text",
           "content": "An Istio ambient (sidecar-less) service mesh on every deploy target, giving STRICT mutual TLS and identity-based L4 authorization between every service."
         }
       ]

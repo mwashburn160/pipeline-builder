@@ -7,8 +7,9 @@ import { Router } from 'express';
 import recoveryCodesRoutes from './recovery-codes.js';
 import totpRoutes from './totp.js';
 import webauthnRoutes from './webauthn.js';
-import { login, logout, register, refresh, switchOrg, sendVerificationEmail, verifyEmail, markEmailVerified, completeOnboarding, getDomainOrgs, joinDomainOrg } from '../controllers/index.js';
+import { login, logout, register, refresh, switchOrg, sendVerificationEmail, verifyEmail, markEmailVerified, completeOnboarding, getDomainOrgs, joinDomainOrg, withdrawDomainJoinRequest } from '../controllers/index.js';
 import { completeRequiredPasswordChange } from '../controllers/password-change-required.js';
+import { confirmReset, requestReset } from '../controllers/password-reset.js';
 import { completeStepUpReauth, startStepUpReauth } from '../controllers/step-up-reauth.js';
 import { stepUpVerify } from '../controllers/step-up.js';
 import { exchangeToken, revokeKey, rotateKey } from '../controllers/token-exchange.js';
@@ -186,6 +187,38 @@ router.post('/mfa/verify', mfaVerifyLimiter, audited('user.login', 'user.login.f
  *  + a NEW password → the session (controllers/password-change-required.ts). */
 router.post('/password/change-required', audited('user.password.change', 'user.login'), completeRequiredPasswordChange);
 
+/**
+ * Forgot-password (controllers/password-reset.ts). Pre-auth, under the /auth
+ * per-IP limiter plus two of their own:
+ *  - PER ADDRESS on the request: a reset email is something an attacker can
+ *    make us send to a victim, so one address gets 3 per 15 minutes however
+ *    many IPs ask (keyed on a hash — never the address — in the shared store);
+ *  - PER IP on both: the reset token is 256 bits, so this bounds spam and load,
+ *    not guessing.
+ */
+const passwordResetIpLimiter = createLimiter({
+  name: 'password-reset-ip',
+  windowMs: 15 * 60_000,
+  max: 20,
+  keyGenerator: extractClientIp,
+  message: 'Too many password reset attempts. Please wait a few minutes and try again.',
+});
+const passwordResetEmailLimiter = createLimiter({
+  name: 'password-reset-email',
+  windowMs: 15 * 60_000,
+  max: 3,
+  keyGenerator: (req) => (typeof req.body?.email === 'string' && req.body.email
+    ? `e:${createHash('sha256').update(req.body.email.trim().toLowerCase()).digest('hex')}`
+    : extractClientIp(req)),
+  message: 'Too many password reset requests for this address. Please wait a few minutes and try again.',
+});
+
+/** POST /auth/password/reset-request - Email a single-use reset link (always 200). */
+router.post('/password/reset-request', passwordResetIpLimiter, passwordResetEmailLimiter, audited('user.password.reset.request'), requestReset);
+
+/** POST /auth/password/reset - Set a new password with the emailed token; ends every session and revokes access keys. */
+router.post('/password/reset', passwordResetIpLimiter, audited('user.password.reset'), confirmReset);
+
 /** Passkey registration, management and sign-in (/auth/webauthn/*). */
 router.use('/webauthn', webauthnRoutes);
 
@@ -214,5 +247,8 @@ router.get('/onboarding/domain-orgs', requireAuth, domainJoinLimiter, getDomainO
 
 /** POST /auth/onboarding/join - Auto-join or request to join a domain-discovered org */
 router.post('/onboarding/join', requireAuth, domainJoinLimiter, audited('org.join.auto', 'org.join.request'), joinDomainOrg);
+
+/** DELETE /auth/onboarding/join/:orgId - Withdraw the caller's own pending join request */
+router.delete('/onboarding/join/:orgId', requireAuth, domainJoinLimiter, audited('org.join.withdraw'), withdrawDomainJoinRequest);
 
 export default router;

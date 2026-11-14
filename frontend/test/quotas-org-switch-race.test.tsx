@@ -32,13 +32,14 @@ jest.mock('@/components/ui/Toast', () => require('./helpers/pageMocks').toastMod
 jest.mock('@/components/ui/DashboardLayout', () => require('./helpers/pageMocks').dashboardLayoutModule());
 
 // Deferred quota fetches, keyed by orgId, so the test controls resolution order.
-type Deferred = { promise: Promise<unknown>; resolve: (v: unknown) => void };
+type Deferred = { promise: Promise<unknown>; resolve: (v: unknown) => void; reject: (e: Error) => void };
 const deferreds: Record<string, Deferred> = {};
 function getDeferred(orgId: string): Deferred {
   if (!deferreds[orgId]) {
     let resolve!: (v: unknown) => void;
-    const promise = new Promise<unknown>((r) => { resolve = r; });
-    deferreds[orgId] = { promise, resolve };
+    let reject!: (e: Error) => void;
+    const promise = new Promise<unknown>((r, j) => { resolve = r; reject = j; });
+    deferreds[orgId] = { promise, resolve, reject };
   }
   return deferreds[orgId];
 }
@@ -100,14 +101,32 @@ describe('QuotasPage — org-switch race', () => {
   });
 });
 
+describe('QuotasPage — failed read after a switch', () => {
+  it('drops the previous org\'s editor when the newly selected org fails to load', async () => {
+    render(<QuotasPage />);
+    await act(async () => { getDeferred('org-a').resolve(mkQuota('org-a', 'Alpha', 'alpha-slug')); });
+    await waitFor(() => expect(screen.getByText('alpha-slug')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByText('Beta'));
+    await act(async () => { getDeferred('org-b').reject(new Error('quota service down')); });
+
+    // Beta is selected but unread: Alpha's editor (and its Save / Reset usage,
+    // which would write to Alpha) must not be on screen under Beta.
+    await waitFor(() => expect(screen.getByText(/Failed to load quotas/)).toBeInTheDocument());
+    expect(screen.queryByText('alpha-slug')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Reset usage/i })).toBeDisabled();
+  });
+});
+
 describe('QuotasPage — org search race', () => {
   it('keeps the newest search results when an older search resolves last', async () => {
     const searches: Record<string, Deferred> = {};
     const searchDeferred = (term: string) => {
       if (!searches[term]) {
         let resolve!: (v: unknown) => void;
-        const promise = new Promise<unknown>((r) => { resolve = r; });
-        searches[term] = { promise, resolve };
+        let reject!: (e: Error) => void;
+        const promise = new Promise<unknown>((r, j) => { resolve = r; reject = j; });
+        searches[term] = { promise, resolve, reject };
       }
       return searches[term];
     };

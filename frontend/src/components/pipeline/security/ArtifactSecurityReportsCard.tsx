@@ -1,7 +1,11 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { useState } from 'react';
 import { FileSearch } from 'lucide-react';
+import { Button } from '@/components/ui/Button';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { useToast } from '@/components/ui/Toast';
 import { SectionCard } from '@/components/ui/SectionCard';
 import { RetryError } from '@/components/ui/RetryError';
 import { LoadingSpinner } from '@/components/ui/Loading';
@@ -9,7 +13,7 @@ import { RelativeTime } from '@/components/ui/RelativeTime';
 import { useFetch } from '@/hooks/useFetch';
 import api from '@/lib/api';
 import { formatError } from '@/lib/constants';
-import type { PipelineSecurityReports, SeverityCounts } from '@/lib/api/pipeline-security-types';
+import type { ArtifactSecurityReport, PipelineSecurityReports, SeverityCounts } from '@/lib/api/pipeline-security-types';
 
 function Counts({ counts }: { counts: SeverityCounts }) {
   return (
@@ -27,13 +31,33 @@ function Counts({ counts }: { counts: SeverityCounts }) {
  * per (tool, stage) a run uploaded, with summed counts. Informational — like
  * plugin findings, these never stop the pipeline; they feed its scorecard.
  */
-export function ArtifactSecurityReportsCard({ pipelineId }: { pipelineId: string }) {
+export function ArtifactSecurityReportsCard({ pipelineId, canWrite }: { pipelineId: string; canWrite: boolean }) {
+  const toast = useToast();
+  const [removing, setRemoving] = useState<ArtifactSecurityReport | null>(null);
+  const [busy, setBusy] = useState(false);
   const read = useFetch<PipelineSecurityReports>(async (signal) => {
     const res = await api.getPipelineSecurityReports(pipelineId, { signal });
     if (!res.success || !res.data) throw new Error(res.message || 'Failed to load security reports');
     return res.data;
   }, [pipelineId]);
   const data = read.data;
+  const lock = canWrite ? undefined : 'Requires pipelines:write';
+
+  const remove = async () => {
+    if (!removing) return;
+    setBusy(true);
+    try {
+      const res = await api.deletePipelineSecurityReport(pipelineId, { tool: removing.tool, stage: removing.stage || undefined });
+      if (!res.success) throw new Error(res.message || 'Failed to remove the report');
+      toast.success(`Removed the ${removing.tool} report${removing.stage ? ` for ${removing.stage}` : ''}`);
+      setRemoving(null);
+      void read.refetch();
+    } catch (err) {
+      toast.error(formatError(err, 'Failed to remove the report'));
+    } finally {
+      setBusy(false);
+    }
+  };
 
   return (
     <SectionCard
@@ -62,7 +86,8 @@ export function ArtifactSecurityReportsCard({ pipelineId }: { pipelineId: string
                   <th scope="col" className="py-2 pr-3 font-medium">Tool</th>
                   <th scope="col" className="py-2 pr-3 font-medium">Stage</th>
                   <th scope="col" className="py-2 pr-3 font-medium">Findings</th>
-                  <th scope="col" className="py-2 font-medium">Uploaded</th>
+                  <th scope="col" className="py-2 pr-3 font-medium">Uploaded</th>
+                  <th scope="col" className="py-2 font-medium"><span className="sr-only">Actions</span></th>
                 </tr>
               </thead>
               <tbody>
@@ -81,13 +106,36 @@ export function ArtifactSecurityReportsCard({ pipelineId }: { pipelineId: string
                         </span>
                       )}
                     </td>
-                    <td className="py-2 text-xs text-fg-muted"><RelativeTime value={r.createdAt} /></td>
+                    <td className="py-2 pr-3 text-xs text-fg-muted"><RelativeTime value={r.createdAt} /></td>
+                    <td className="py-2 text-right">
+                      <Button variant="secondary" size="xs" disabled={!canWrite} title={lock}
+                        aria-label={`Remove ${r.tool}${r.stage ? ` ${r.stage}` : ''} report`} onClick={() => setRemoving(r)}>
+                        Remove
+                      </Button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
         </div>
+      )}
+      {removing && (
+        <ConfirmDialog
+          title="Remove this security report?"
+          confirmLabel="Remove report"
+          tone="danger"
+          loading={busy}
+          onConfirm={() => void remove()}
+          onCancel={() => setRemoving(null)}
+        >
+          <p>
+            The latest <span className="font-medium text-fg">{removing.tool}</span> report
+            {removing.stage ? <> for stage <span className="font-medium text-fg">{removing.stage}</span></> : ' (no stage)'} stops
+            counting toward this pipeline&apos;s security score and scorecard.
+          </p>
+          <p>Use it for a scanner the pipeline no longer runs or a stage it renamed — a run that still uploads to this slot recreates it.</p>
+        </ConfirmDialog>
       )}
     </SectionCard>
   );

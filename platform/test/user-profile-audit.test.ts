@@ -144,13 +144,15 @@ describe('updateUser audit', () => {
 
 describe('changePassword audit', () => {
   it('records user.password.change on success', async () => {
-    mockChangePassword.mockResolvedValue(undefined);
+    mockChangePassword.mockResolvedValue({ accessKeysRevoked: 3 });
     const req: any = { user: { sub: 'u1' }, body: { currentPassword: 'x', newPassword: 'y' } };
     await (changePassword as unknown as (req: any, res: any) => Promise<void>)(req, mockRes());
 
+    // The row says how many access keys the change revoked (G7).
     expect(mockAudit).toHaveBeenCalledWith(req, 'user.password.change', expect.objectContaining({
       targetType: 'user',
       targetId: 'u1',
+      details: { accessKeysRevoked: 3 },
     }));
   });
 

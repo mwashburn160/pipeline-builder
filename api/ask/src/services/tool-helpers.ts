@@ -22,6 +22,28 @@ export function unwrap<T>(res: unknown): T | undefined {
   return res as T | undefined;
 }
 
+/**
+ * What a generating tool tells the model when a quota refused its generation.
+ * One wording for both paths: an in-process draft whose own reservation was
+ * denied, and a delegated generator that answered 429 — so the model (and the
+ * user reading its reply) hears the same thing whichever path ran. Keyed by the
+ * peer's ErrorCode where it sent one.
+ */
+export const AI_QUOTA_EXHAUSTED = 'The organization has no AI generation quota left for this period.';
+
+export function quotaRefusalMessage(code: string | undefined): string {
+  switch (code) {
+    case 'AI_MEMBER_SHARE_EXCEEDED':
+      return 'You have used your share of the organization\'s AI generation quota for this period.';
+    case 'AI_TOKEN_BUDGET_EXCEEDED':
+      return 'The organization\'s AI token budget for this period is used up.';
+    case 'RATE_LIMIT_EXCEEDED':
+      return 'The generator is rate-limited right now. Try again in a minute.';
+    default:
+      return AI_QUOTA_EXHAUSTED;
+  }
+}
+
 /** A plain object, or `{}` — never an array. */
 export function asRecord(v: unknown): Record<string, unknown> {
   return v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : {};

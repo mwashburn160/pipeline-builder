@@ -280,6 +280,21 @@ See `deploy/aws/eks/k8s/rustfs.yaml` and each other target's `k8s/rustfs.yaml` f
 
 Back up the object-store drives as part of DR: EKS the 4 `data-rustfs-*` PVCs, ec2 `rustfs-data`, dev `./data/rustfs-data`.
 
+### Registry blob garbage collection
+
+Every manifest delete image-registry makes — the age GC, a tenant's storage prune, the quarantine sweep, an org teardown, a discarded image — removes a **reference**. Distribution never frees the bytes by itself; that is `registry garbage-collect`, and every target runs it **weekly, Sunday 03:10 UTC**, against the `registry` bucket:
+
+| Target | Runs as |
+|--------|---------|
+| eks, ec2, minikube | `CronJob/registry-blob-gc` in `k8s/registry.yaml` (`10 3 * * 0`, `timeZone: Etc/UTC`, 25 min deadline) |
+| docker | the `registry-blob-gc` compose service, which sleeps to the same window (`timeout 1500`) |
+
+**It runs while the registry stays up, inside a push freeze.** `garbage-collect` marks every blob a manifest references and sweeps the rest, so a push landing between the two would have its new layers swept from under a manifest that then points at nothing — a corrupted image, not a failed push. Image-registry is the registry's only token issuer, so it withholds `push` from every token (management included) from 03:10 minus the token TTL (`REGISTRY_TOKEN_EXPIRES_IN`, default 300s) minus 60s, until 03:40 UTC. No push token is alive when the job starts; pulls and deletes carry on. A token issued inside the freeze is audited with `pushFrozenForBlobGc: true`. A plugin build that reaches its push in that half hour fails it, and the build queue's retries and dead-letter re-queue apply as for any push failure. The window lives in `api/image-registry/src/services/blob-gc-window.ts`; `test/deploy-contracts/test/registry-blob-gc-contract.test.ts` pins every tree's schedule to it. The k8s job refuses to run outside 03:10–03:35, so a late start is a failed Job, not an unprotected sweep.
+
+**It never passes `--delete-untagged`.** Pipelines pin plugin images by digest, and the storage prune and the public yank deliberately remove a TAG while leaving the manifest pullable. Untagged manifests are reclaimed only when image-registry deletes them (the age GC deletes a stale index's untagged children with it, and an org teardown deletes everything).
+
+**Signals.** `CronJobRunFailed` / `CronJobNotScheduled` cover the k8s job where kube-state-metrics runs (eks, ec2); on minikube and docker a failed run shows only in the job's log, as for the backup. The app-level sweeps feed `RegistryGcFailing` (`registry_gc_failed_total{stage}`) and `SchedulerJobStale`. Disk: the registry is stateless — its bytes are in RustFS — so the fill signal is the RustFS volume's: `PersistentVolumeFillingUp` / `CriticallyFull` / `FillingUpFast` on the four pb-ebs `data-rustfs-*` claims on eks (EBS, not EFS), and `NodeDiskFillingUp` / `NodeDiskCriticallyFull` on the hostPath data disk on ec2 and minikube.
+
 ### Long-term metrics (Thanos) read path
 
 The sidecar only *uploads* Prometheus' 2h blocks to the `thanos` bucket. Querying them back is served by two components — `thanos-query.yaml` on the k8s targets, equivalent services in docker-compose:
@@ -610,7 +625,7 @@ accepts writes at all, because RustFS exposes no Prometheus endpoint of its own.
 
 #### Inhibition: suppressing consequences, and what cannot be suppressed
 
-At 207 rules one root cause is a pager flood, and a flood is functionally the same
+At 212 rules one root cause is a pager flood, and a flood is functionally the same
 as no alert. The inhibition tree in `alertmanager.yml` suppresses the consequences
 of DNS failure, a dead waypoint, Redis at its cap, node saturation, and a service
 being down.

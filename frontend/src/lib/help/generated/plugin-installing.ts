@@ -1,6 +1,6 @@
 // GENERATED FROM docs/plugin-installing.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: ee55a425fc09572b763fa92d8c9bc70e3ea9274d066e3493e93eea120e6fcc21
+// SOURCE-SHA256: 98adaad28283116eb94cb44ec8c7be70f556e7e167f256718f838f80e3766290
 // SPDX-License-Identifier: Apache-2.0
 import { PackagePlus } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -15,10 +15,6 @@ export const pluginInstallingTopic: HelpTopic = {
       "id": "overview",
       "title": "Overview",
       "blocks": [
-        {
-          "type": "text",
-          "content": "<!-- Copyright 2026 Pipeline Builder Contributors SPDX-License-Identifier: Apache-2.0 -->"
-        },
         {
           "type": "text",
           "content": "Using plugins other organizations published: what an install is, which versions it lets resolve, and the policy that decides what your org may install at all."
@@ -486,6 +482,22 @@ export const pluginInstallingTopic: HelpTopic = {
         },
         {
           "type": "text",
+          "content": "Your consumption policy's shadowing field decides what happens when a NEW plugin version would shadow something — a listing from any publisher, or (for a team) its parent organization's plugin. It is checked by both ways of creating a version, the ZIP upload (POST /api/plugins) and the AI-generated deploy (POST /api/plugins/deploy-generated), before compliance or any build:"
+        },
+        {
+          "type": "list",
+          "items": [
+            "allow — the version is created; the shadow is recorded on its plugin.upload / plugin.deploy audit entry.",
+            "warn (the default) — the same, plus an operator-visible log line.",
+            "deny — refused with 409 PLUGIN_NAME_SHADOWS (details.shadows names what it would override), audited as plugin.shadowing.denied. Nothing is charged: the plugins quota slot is not kept."
+          ]
+        },
+        {
+          "type": "text",
+          "content": "If the check itself can't be evaluated (a listing read fails), the version is created and the shadow is still reported by GET /api/plugins/shadowing afterwards."
+        },
+        {
+          "type": "text",
           "content": "What pipeline create and update check"
         },
         {
@@ -581,6 +593,12 @@ export const pluginInstallingTopic: HelpTopic = {
               "a number, or none",
               "0",
               "Fixable High findings above this many grade a version warning instead of info. A grade, never a refusal: vulnerability state doesn't stop a pipeline. None keeps them info."
+            ],
+            [
+              "shadowing",
+              "allow, warn, deny",
+              "warn",
+              "What happens when a new own plugin version would override a listing or the parent org's plugin — see Shadowing."
             ]
           ]
         },
@@ -640,6 +658,10 @@ export const pluginInstallingTopic: HelpTopic = {
             [
               "warnFixableHigh",
               "The lower threshold"
+            ],
+            [
+              "shadowing",
+              "The stricter mode (deny > warn > allow)"
             ]
           ]
         }

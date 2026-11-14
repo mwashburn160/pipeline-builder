@@ -909,7 +909,7 @@ spec:
             matchExpressions:
               - key: app
                 operator: In
-                values: [message, platform, registry, rustfs-init, loki, prometheus, rustfs, thanos-store-gateway, thanos-compact]
+                values: [message, platform, registry, registry-blob-gc, rustfs-init, loki, prometheus, rustfs, thanos-store-gateway, thanos-compact]
       ports:
         - port: 9000
     # nginx -> the CONSOLE port only. A separate rule rather than adding nginx to

@@ -53,7 +53,6 @@ Environment variables the app reads:
 | `PLATFORM_BASE_URL` | `https://localhost:8443` | SSR only | Backend API base URL for server-side requests. In the browser the client uses relative `/api/*` URLs through nginx, so this is unused client-side. |
 | `ERROR_REPORT_URL` | _(unset)_ | Server (runtime) | Collector endpoint for client-side error reports. The browser posts to the same-origin `/client-errors` relay (so the CSP stays `connect-src 'self'`), which forwards each report here; read at request time, so one image serves every deployment. When unset, reports are dropped and the browser stops sending after the first. Errors are always logged to the console in development. |
 | `NEXT_PUBLIC_PLUGIN_BUILD_TIMEOUT_MS` | `300000` (5 min) | Browser | Client-side abort timeout for plugin Docker build requests. |
-| `ANALYZE` | _(unset)_ | Build | Set to `true` to enable `@next/bundle-analyzer`. |
 | `NODE_ENV` | — | Both | Standard Next.js mode flag (affects error-report behavior). |
 
 ## Development
@@ -68,6 +67,7 @@ Next.js commands are:
 | `pnpm compile` | `next build` | Production build only |
 | `pnpm server` | `next start` | Serve the production build |
 | `pnpm test` | `jest` | Jest + Testing Library (jsdom) |
+| `npx next analyze` | `next analyze` | Interactive bundle-size report (Turbopack's analyzer; builds no app) |
 
 `next dev` serves the app directly on port 3000 for local iteration. In a
 running deployment the dashboard is served through nginx (which terminates TLS)

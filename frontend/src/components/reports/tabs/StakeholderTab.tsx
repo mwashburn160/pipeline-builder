@@ -6,6 +6,7 @@ import { CalendarClock, FileText, Pause, Play, RefreshCw, Trash2, UserCog } from
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { FeatureLock } from '@/components/ui/FeatureLock';
@@ -151,8 +152,9 @@ export function StakeholderTab({
     [definitions.data, selectedId],
   );
 
-  // The selected definition's run history. Keyed on the definition, so switching
-  // reports does not show the previous one's runs.
+  // The selected definition's run history. `useFetch` returns null from the
+  // first render after `selectedId` changes, so switching reports never shows
+  // (or lets you open) the previous one's runs.
   const runs = useFetch<ReportRun[]>(
     async (signal) => {
       if (!selectedId) return [];
@@ -198,6 +200,9 @@ export function StakeholderTab({
     );
   };
 
+  /** The definition a Delete click is asking about. Deleting has no undo and
+   *  revokes every share link minted for any of its periods. */
+  const [deleting, setDeleting] = useState<ReportDefinition | null>(null);
   const remove = async (definition: ReportDefinition) => {
     await action.run(
       async () => { await api.deleteReportDefinition(definition.id); },
@@ -334,7 +339,7 @@ export function StakeholderTab({
                             ? <><Pause className="w-3 h-3" aria-hidden="true" /> Pause</>
                             : <><Play className="w-3 h-3" aria-hidden="true" /> Resume</>}
                         </Button>
-                        <Button size="xs" variant="danger" onClick={() => remove(definition)} readOnly={readOnly}>
+                        <Button size="xs" variant="danger" onClick={() => setDeleting(definition)} readOnly={readOnly}>
                           <Trash2 className="w-3 h-3" aria-hidden="true" />
                           <span className="sr-only">Delete {definition.name}</span>
                         </Button>
@@ -353,7 +358,7 @@ export function StakeholderTab({
 
                 {selectedId === definition.id && (
                   <div className="mt-3 border-t border-default pt-3">
-                    {runs.loading && <p className="text-sm text-fg-muted">Loading the run history…</p>}
+                    {runs.loading && !runs.data && <p className="text-sm text-fg-muted">Loading the run history…</p>}
                     {!runs.loading && (runs.data ?? []).length === 0 && (
                       <p className="text-sm text-fg-muted">
                         No periods have been reported yet. Generate one to see what a recipient would read.
@@ -394,8 +399,11 @@ export function StakeholderTab({
               </Card>
             ))}
 
+            {/* Keyed by run: the review holds per-run state (the notes draft, the
+                share-link panel's one-time token), none of which may carry over. */}
             {run.data && (
               <ReportReview
+                key={run.data.id}
                 run={run.data}
                 canAuthor={canAuthor}
                 canShare={canShare}
@@ -437,6 +445,25 @@ export function StakeholderTab({
           onClose={() => setTransferring(null)}
           onTransferred={() => { void definitions.refetch(); }}
         />
+      )}
+
+      {deleting && (
+        <ConfirmDialog
+          title={`Delete “${deleting.name}”?`}
+          confirmLabel="Delete report"
+          tone="danger"
+          loading={action.loading}
+          // Closed whatever the outcome, so a failure lands in the page's error alert
+          // rather than behind the dialog.
+          onConfirm={() => { void remove(deleting).finally(() => setDeleting(null)); }}
+          onCancel={() => setDeleting(null)}
+        >
+          <p className="text-sm text-fg-muted">
+            The schedule stops and the report cannot be restored. <strong className="text-fg">Every share
+            link</strong> created for any of its periods stops working immediately — anyone you sent one to
+            will get an error. Copies already delivered by email stay in their inboxes.
+          </p>
+        </ConfirmDialog>
       )}
     </div>
   );

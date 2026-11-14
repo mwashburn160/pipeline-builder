@@ -7,9 +7,29 @@ import { readFileSync } from 'node:fs';
 // ESM has no synchronous named JSON import (Node only exposes a default export,
 // and importing `../../package.json` would also fall outside `rootDir: src`), so
 // read the version from package.json at load time relative to this module.
-const { version } = JSON.parse(
+const { version, engines } = JSON.parse(
   readFileSync(new URL('../../package.json', import.meta.url), 'utf-8'),
-) as { version: string };
+) as { version: string; engines?: { node?: string } };
+
+/**
+ * The lowest Node.js version the CLI supports, read from package.json
+ * `engines.node` (a `>= x.y.z` floor) so the start-up warning can never name a
+ * different floor than the one npm enforces.
+ */
+export const NODE_VERSION_FLOOR = /(\d+(?:\.\d+){0,2})/.exec(engines?.node ?? '')?.[1] ?? '0';
+
+/** Whether `nodeVersion` (`v26.13.1` or `26.13.1`) is at or above `floor` (`26.13.1`). */
+export function meetsNodeVersionFloor(nodeVersion: string, floor: string = NODE_VERSION_FLOOR): boolean {
+  const parse = (v: string) => v.replace(/^v/, '').split('.').map((n) => parseInt(n, 10) || 0);
+  const have = parse(nodeVersion);
+  const need = parse(floor);
+  for (let i = 0; i < Math.max(have.length, need.length); i++) {
+    const a = have[i] ?? 0;
+    const b = need[i] ?? 0;
+    if (a !== b) return a > b;
+  }
+  return true;
+}
 
 /**
  * Application metadata

@@ -52,6 +52,13 @@ export interface StoredSession {
 interface StoreFile {
   version: 1;
   sessions: Record<string, StoredSession>;
+  /**
+   * The platform the last `auth login` signed in to. Every other command reads
+   * its base URL from this (below `PLATFORM_BASE_URL`, above the config files —
+   * see config-loader), so `auth login --url X` is followed by commands that
+   * talk to X, which is where the session was stored.
+   */
+  activePlatform?: string;
 }
 
 /** Where the sessions live — surfaced in help text and errors. */
@@ -89,6 +96,24 @@ function writeStore(store: StoreFile): void {
   fs.renameSync(tmp, STORE_FILE);
 }
 
+/** The base URL in the form it is remembered as the active platform. */
+function normalizeBaseUrl(baseUrl: string): string {
+  return baseUrl.trim().replace(/\/+$/, '');
+}
+
+/** The platform the last `auth login` signed in to, or undefined. */
+export function activePlatform(): string | undefined {
+  const value = readStore().activePlatform;
+  return typeof value === 'string' && value ? value : undefined;
+}
+
+/** Remember `baseUrl` as the platform later commands talk to. */
+export function setActivePlatform(baseUrl: string): void {
+  const store = readStore();
+  store.activePlatform = normalizeBaseUrl(baseUrl);
+  writeStore(store);
+}
+
 /** Persist the session for `baseUrl`, replacing any previous one. */
 export function saveSession(baseUrl: string, session: Omit<StoredSession, 'savedAt'>): void {
   const store = readStore();
@@ -103,7 +128,11 @@ export function loadSession(baseUrl: string): StoredSession | undefined {
   return readStore().sessions[storeKey(baseUrl)];
 }
 
-/** Forget the session for `baseUrl` (sign-out, or a refresh the platform rejected). */
+/**
+ * Forget the session for `baseUrl` (sign-out, or a refresh the platform
+ * rejected). The active platform is kept: it is the platform the person chose,
+ * so the next `auth login` (whose `--url` defaults to it) signs back in there.
+ */
 export function clearSession(baseUrl: string): void {
   const store = readStore();
   if (!(storeKey(baseUrl) in store.sessions)) return;

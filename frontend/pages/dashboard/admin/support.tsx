@@ -12,7 +12,7 @@ import { AccessDenied } from '@/components/ui/AccessDenied';
 import { Select } from '@/components/ui/Select';
 import { Button } from '@/components/ui/Button';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
-import { useFetch } from '@/hooks/useFetch';
+import { useCursorPages } from '@/hooks/useCursorPages';
 import { useToast } from '@/components/ui/Toast';
 import api from '@/lib/api';
 import { responseTargetLabel } from '@/components/message/MessageList';
@@ -56,9 +56,12 @@ export default function SupportQueuePage() {
   const [busy, setBusy] = useState<string | null>(null);
   /** Threads ticked for a bulk action. */
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const queue = useFetch(async () => {
-    const res = await api.getSupportQueue();
-    return res.data?.cases ?? [];
+  // Longest-waiting first, 100 a page; "Load more" follows the opaque
+  // `nextCursor`. A refetch after an action re-reads the FIRST page and drops
+  // the appended ones — the queue's order moves with every action.
+  const queue = useCursorPages<SupportQueueRow>(async (cursor) => {
+    const res = await api.getSupportQueue(cursor ? { cursor } : {});
+    return { items: res.data?.cases ?? [], hasMore: !!res.data?.hasMore, nextCursor: res.data?.nextCursor };
   }, []);
 
   const act = async (threadId: string, fn: () => Promise<unknown>) => {
@@ -107,7 +110,7 @@ export default function SupportQueuePage() {
   if (accessDenied) return <AccessDenied denial={accessDenied} />;
   if (!isReady) return <LoadingPage />;
 
-  const rows: SupportQueueRow[] = queue.data ?? [];
+  const rows: SupportQueueRow[] = queue.rows;
 
   return (
     <DashboardLayout title="Support queue">
@@ -220,6 +223,15 @@ export default function SupportQueuePage() {
             <SupportCaseNotes threadId={c.threadId} caseNumber={c.displayNumber} />
           </Card>
         ))}
+
+        {queue.moreError && <RetryError message={queue.moreError} onRetry={() => void queue.loadMore()} />}
+        {queue.hasMore && (
+          <div className="flex justify-center">
+            <Button variant="secondary" size="sm" onClick={() => void queue.loadMore()} loading={queue.loadingMore}>
+              Load more
+            </Button>
+          </div>
+        )}
       </div>
     </DashboardLayout>
   );

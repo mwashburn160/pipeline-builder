@@ -12,7 +12,8 @@
  */
 
 import { LIVE_SUPPORT_CASE_STATUSES, type SupportCaseStatus } from '@pipeline-builder/api-core';
-import { and, asc, eq, gte, inArray, isNull, lte, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, getTableColumns, gte, inArray, isNull, lte, sql, type SQL } from 'drizzle-orm';
+import { CURSOR_SORT_KEY, decodeCursor, encodeCursor, isCastableTo, keysetAfter } from './keyset-cursor.js';
 import { schema } from '../database/drizzle-schema.js';
 import type { SupportCase } from '../database/schema/support.js';
 import { runWithTenantContext, withTenantTx } from '../database/tenancy.js';
@@ -131,31 +132,103 @@ export async function findCaseByThread(threadId: string): Promise<SupportCase | 
   return rows[0] ?? null;
 }
 
+/** Default and ceiling page size for the two case lists. */
+export const SUPPORT_CASE_PAGE_DEFAULT = 100;
+export const SUPPORT_CASE_PAGE_MAX = 1000;
+
+/** Paging input for the case lists: a page size and the `nextCursor` of the previous page. */
+export interface SupportCasePageOptions {
+  limit?: number;
+  /** Opaque — pass back the previous page's `nextCursor` verbatim. */
+  cursor?: string;
+}
+
 /**
- * The staff queue: open cases across ALL tenants, oldest first.
- *
- * The one read with no org predicate, so it runs under sysadmin scope and is
- * served by the partial `support_case_queue_idx`.
- *
- * Ordered by `response_due_at` ASCENDING, NULLS LAST — soonest deadline first,
- * which is what "most at risk" actually means. Arrival order was the earlier
- * proxy for it and is a poor one: a standard case opened on Monday is owed
- * Wednesday's close while a priority case opened on Tuesday is owed Wednesday's
- * close too, so arrival order puts them in the wrong sequence whenever levels
- * are mixed. Cases with no deadline (an unrecognised level, or one opened while
- * the calendar was misconfigured) sort last rather than first, since a missing
- * deadline is not an urgent one; `createdAt` breaks ties so the order is stable.
+ * One page of cases. `hasMore` says a further page exists and `nextCursor`
+ * fetches it — so a list is never silently cut at the page size.
  */
-export async function listQueue(limit = 100): Promise<SupportCase[]> {
-  return withTenantTx((tx) => tx
-    .select()
+export interface SupportCasePage {
+  cases: SupportCase[];
+  hasMore: boolean;
+  nextCursor?: string;
+}
+
+function pageLimit(limit: number | undefined): number {
+  const n = Math.floor(limit ?? SUPPORT_CASE_PAGE_DEFAULT);
+  return Number.isFinite(n) ? Math.min(Math.max(n, 1), SUPPORT_CASE_PAGE_MAX) : SUPPORT_CASE_PAGE_DEFAULT;
+}
+
+/** A decoded cursor whose id and sort text are safe to bind, or null (read from the start). */
+function decodeCaseCursor(cursor: string | undefined): { sortText: string; id: string } | null {
+  if (!cursor) return null;
+  const decoded = decodeCursor(cursor);
+  return decoded && decoded.sortText !== null
+    && isCastableTo(schema.supportCase.id, decoded.id)
+    && isCastableTo(schema.supportCase.createdAt, decoded.sortText)
+    ? { sortText: decoded.sortText, id: decoded.id }
+    : null;
+}
+
+/** Fetch `limit + 1` rows (selecting the sort key as text), and cut them into a page. */
+async function readPage(
+  limit: number,
+  sortKey: SQL,
+  query: (select: Record<string, unknown>) => Promise<Array<Record<string, unknown>>>,
+): Promise<SupportCasePage> {
+  const rows = await query({ ...getTableColumns(schema.supportCase), [CURSOR_SORT_KEY]: sql<string>`(${sortKey})::text` });
+  const hasMore = rows.length > limit;
+  const page = hasMore ? rows.slice(0, limit) : rows;
+  const cases = page.map((row) => {
+    const { [CURSOR_SORT_KEY]: _sort, ...rest } = row;
+    return rest as unknown as SupportCase;
+  });
+  const last = page[page.length - 1];
+  return {
+    cases,
+    hasMore,
+    ...(hasMore && last ? { nextCursor: encodeCursor(String(last[CURSOR_SORT_KEY]), String(last.id)) } : {}),
+  };
+}
+
+/**
+ * The instant a case's waiting clock reads from: `created_at` pushed forward by
+ * the time it spent on the customer (`awaiting_total_seconds`). Ordering by it
+ * ascending IS "longest waiting first" — `waitingSeconds = now − created_at −
+ * awaiting_total_seconds` is this instant subtracted from now — but, unlike
+ * waitingSeconds, it does not move with the clock, so it can be ordered on,
+ * LIMITed on and paged by a keyset cursor.
+ */
+const queueWaitAnchor = sql`(${schema.supportCase.createdAt} + make_interval(secs => ${schema.supportCase.awaitingTotalSeconds}))`;
+
+/**
+ * The staff queue: open cases across ALL tenants, LONGEST WAITING first.
+ *
+ * The one read with no org predicate, so it runs under sysadmin scope; the
+ * partial `support_case_queue_idx` (open statuses, not deleted) bounds the rows
+ * it sorts.
+ *
+ * The order is the queue's displayed order — the waiting time a human acts on
+ * (see {@link queueWaitAnchor}) — and it is applied BEFORE the limit. It used
+ * to be `response_due_at` here and waitingSeconds in the route, so with more
+ * cases than the limit the route re-sorted a page taken on a different key and
+ * the longest-waiting case could be the one cut off. `id` breaks ties, so the
+ * order is total and the cursor stable.
+ */
+export async function listQueue(opts: SupportCasePageOptions = {}): Promise<SupportCasePage> {
+  const limit = pageLimit(opts.limit);
+  const after = decodeCaseCursor(opts.cursor);
+  return withTenantTx((tx) => readPage(limit, queueWaitAnchor, (select) => tx
+    .select(select as never)
     .from(schema.supportCase)
     .where(and(
       inArray(schema.supportCase.status, [...QUEUE_STATUSES]),
       isNull(schema.supportCase.deletedAt),
+      ...(after
+        ? [sql`(${queueWaitAnchor} > ${after.sortText}::timestamptz OR (${queueWaitAnchor} = ${after.sortText}::timestamptz AND ${schema.supportCase.id} > ${after.id}))`]
+        : []),
     ))
-    .orderBy(sql`${schema.supportCase.responseDueAt} ASC NULLS LAST`, asc(schema.supportCase.createdAt))
-    .limit(limit));
+    .orderBy(sql`${queueWaitAnchor} ASC`, asc(schema.supportCase.id))
+    .limit(limit + 1) as unknown as Promise<Array<Record<string, unknown>>>));
 }
 
 /**
@@ -203,14 +276,24 @@ export async function listCasesDueForPage(leadMs: number, limit = 100): Promise<
     .limit(limit)));
 }
 
-/** An org's own cases, newest first. */
-export async function listOrgCases(orgId: string, limit = 100): Promise<SupportCase[]> {
-  return withTenantTx((tx) => tx
-    .select()
+/**
+ * An org's own cases (closed ones included), newest first, one page at a time.
+ * `created_at DESC, id DESC` is total, so the keyset cursor neither repeats nor
+ * skips a case; served by `support_case_org_created_idx`.
+ */
+export async function listOrgCases(orgId: string, opts: SupportCasePageOptions = {}): Promise<SupportCasePage> {
+  const limit = pageLimit(opts.limit);
+  const after = decodeCaseCursor(opts.cursor);
+  return withTenantTx((tx) => readPage(limit, sql`${schema.supportCase.createdAt}`, (select) => tx
+    .select(select as never)
     .from(schema.supportCase)
-    .where(and(eq(schema.supportCase.orgId, orgId), isNull(schema.supportCase.deletedAt)))
-    .orderBy(sql`${schema.supportCase.createdAt} DESC`)
-    .limit(limit));
+    .where(and(
+      eq(schema.supportCase.orgId, orgId),
+      isNull(schema.supportCase.deletedAt),
+      ...(after ? [keysetAfter(schema.supportCase.createdAt, schema.supportCase.id, 'desc', after.sortText, after.id)] : []),
+    ))
+    .orderBy(desc(schema.supportCase.createdAt), desc(schema.supportCase.id))
+    .limit(limit + 1) as unknown as Promise<Array<Record<string, unknown>>>));
 }
 
 /**

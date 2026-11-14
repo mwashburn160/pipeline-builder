@@ -132,22 +132,33 @@ function parseLimit(query: Request['query'], def = DEFAULT_LIMIT): number {
  * fleet-wide view is literally an enumeration, capped). Default for a sysadmin
  * is `_infra` alone: an implicit firehose is a surprising default for a shared
  * backend.
+ *
+ * `all` lists LIVE orgs in id order, and leaves room for `_infra` under the
+ * cap — it used to read `MAX_TENANTS_PER_QUERY` orgs PLUS `_infra`, which the
+ * cap then refused outright once a fleet reached that size, in arbitrary order
+ * and including soft-deleted orgs. `truncated` says the enumeration hit the cap.
  */
-async function tenantsForRequest(req: Request, sysadmin: boolean): Promise<string> {
-  if (!sysadmin) return resolveTenants({ isSuperAdmin: false, orgId: req.user?.organizationId });
+async function tenantsForRequest(req: Request, sysadmin: boolean): Promise<{ tenants: string; truncated: boolean }> {
+  if (!sysadmin) return { tenants: resolveTenants({ isSuperAdmin: false, orgId: req.user?.organizationId }), truncated: false };
 
   const raw = parseQueryString(req.query.orgs);
-  if (!raw) return resolveTenants({ isSuperAdmin: true }, [INFRA_TENANT]);
+  if (!raw) return { tenants: resolveTenants({ isSuperAdmin: true }, [INFRA_TENANT]), truncated: false };
 
   if (raw === 'all') {
     // Imported lazily: only this sysadmin branch needs the Organization model.
     const { default: Organization } = await import('../models/organization.js');
-    const orgs = await Organization.find({}, { _id: 1 })
-      .limit(MAX_TENANTS_PER_QUERY)
+    const room = MAX_TENANTS_PER_QUERY - 1; // `_infra` takes one slot
+    const orgs = await Organization.find({ deletedAt: null }, { _id: 1 })
+      .sort({ _id: 1 })
+      .limit(room + 1)
       .lean();
-    return resolveTenants({ isSuperAdmin: true }, [INFRA_TENANT, ...orgs.map((o) => String(o._id))]);
+    const truncated = orgs.length > room;
+    return {
+      tenants: resolveTenants({ isSuperAdmin: true }, [INFRA_TENANT, ...orgs.slice(0, room).map((o) => String(o._id))]),
+      truncated,
+    };
   }
-  return resolveTenants({ isSuperAdmin: true }, raw.split(',').map((s) => s.trim()).filter(Boolean));
+  return { tenants: resolveTenants({ isSuperAdmin: true }, raw.split(',').map((s) => s.trim()).filter(Boolean)), truncated: false };
 }
 
 /** Record a sysadmin reading a tenant other than `_infra` — cross-org data access. */
@@ -185,7 +196,7 @@ export const logSearch = withController('Log search', async (req, res) => {
 
   try {
     const filter = parseLogQuery(parseQueryString(req.query.q));
-    const tenants = await tenantsForRequest(req, sysadmin);
+    const { tenants, truncated } = await tenantsForRequest(req, sysadmin);
     if (sysadmin) auditCrossOrgRead(req, tenants, 'search');
     const entries = await loki.queryLogs(buildLogQL(filter), tenants, {
       startMs: window.startMs,
@@ -195,6 +206,7 @@ export const logSearch = withController('Log search', async (req, res) => {
     sendSuccess(res, 200, {
       entries,
       window: { from: window.startMs, to: window.endMs, clamped: window.clamped },
+      ...(truncated ? { tenantsTruncated: true } : {}),
     });
   } catch (err) {
     sendQueryFailure(res, err, { entries: [], window: { from: window.startMs, to: window.endMs, clamped: window.clamped } });
@@ -216,11 +228,19 @@ export const logVolume = withController('Log volume', async (req, res) => {
 
   try {
     const filter = parseLogQuery(parseQueryString(req.query.q));
-    const tenants = await tenantsForRequest(req, sysadmin);
+    const { tenants, truncated } = await tenantsForRequest(req, sysadmin);
+    // NOT audited as a cross-org read, deliberately: volume is per-level COUNTS
+    // (no log line leaves), and the page that draws it issues the search that
+    // IS audited for the same tenants. Auditing both would double every row.
     const series = await loki.queryLogVolume(
       buildLogVolumeQL(filter, step), tenants, window.startMs, window.endMs, step,
     );
-    sendSuccess(res, 200, { series, step, window: { from: window.startMs, to: window.endMs, clamped: window.clamped } });
+    sendSuccess(res, 200, {
+      series,
+      step,
+      window: { from: window.startMs, to: window.endMs, clamped: window.clamped },
+      ...(truncated ? { tenantsTruncated: true } : {}),
+    });
   } catch (err) {
     sendQueryFailure(res, err, { series: [], step, window: { from: window.startMs, to: window.endMs, clamped: window.clamped } });
   }
@@ -238,7 +258,7 @@ export const logContext = withController('Log context', async (req, res) => {
 
   try {
     const filter = parseLogQuery(parseQueryString(req.query.q));
-    const tenants = await tenantsForRequest(req, sysadmin);
+    const { tenants } = await tenantsForRequest(req, sysadmin);
     if (sysadmin) auditCrossOrgRead(req, tenants, 'context');
     const logQL = buildLogQL(filter);
     // `after` deliberately STARTS AT `atMs` (inclusive): timestamps here are
@@ -272,7 +292,7 @@ export const logRaw = withController('Log raw view', async (req, res) => {
 
   try {
     const filter = parseLogQuery(parseQueryString(req.query.q));
-    const tenants = await tenantsForRequest(req, sysadmin);
+    const { tenants } = await tenantsForRequest(req, sysadmin);
     if (sysadmin) auditCrossOrgRead(req, tenants, 'raw');
     const entries = await loki.queryLogs(buildLogQL(filter), tenants, {
       startMs: window.startMs,
@@ -354,7 +374,7 @@ export const logExport = withController('Log export', async (req, res) => {
   const filterText = parseQueryString(req.query.q) ?? '';
   try {
     const filter = parseLogQuery(filterText);
-    tenants = await tenantsForRequest(req, sysadmin);
+    ({ tenants } = await tenantsForRequest(req, sysadmin));
     logQL = buildLogQL(filter);
   } catch (err) {
     sendQueryFailure(res, err, { entries: [] });

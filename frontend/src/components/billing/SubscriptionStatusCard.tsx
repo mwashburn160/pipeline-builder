@@ -20,6 +20,22 @@ interface SubscriptionStatusCardProps {
   onManageBilling: () => void;
 }
 
+/**
+ * The dunning banner's sentence — WHEN access ends, or that it already has.
+ *
+ * `dunning` is null on a `past_due` subscription only when no first failure was
+ * recorded, so there is no date to name; the sentence then says what to do
+ * without inventing a deadline.
+ */
+export function dunningMessage(subscription: Subscription): string {
+  const d = subscription.dunning;
+  if (!d) return 'Update your payment method to keep your plan.';
+  if (d.downgraded) {
+    return `Moved to Developer${d.downgradedAt ? ` on ${formatDateLong(d.downgradedAt)}` : ''} — pay the open invoice to restore your plan.`;
+  }
+  return `Payment failed — access ends on ${formatDateLong(d.downgradeAt)}. Update your payment method to keep your plan.`;
+}
+
 /** Current-subscription status card with reactivate/cancel controls. */
 export function SubscriptionStatusCard({
   subscription,
@@ -41,8 +57,8 @@ export function SubscriptionStatusCard({
             <AlertTriangle className="w-5 h-5 text-danger shrink-0 mt-0.5" />
             <div className="flex-1">
               <h3 className="text-sm font-semibold text-danger-strong">Payment failed</h3>
-              <p className="text-sm text-danger mt-0.5">
-                Update your payment method to avoid losing access to your subscription.
+              <p className="text-sm text-danger mt-0.5" data-testid="dunning-message">
+                {dunningMessage(subscription)}
               </p>
               {canChangePlan && (
                 <div className="mt-3">

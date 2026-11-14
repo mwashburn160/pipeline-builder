@@ -21,8 +21,8 @@
  *   GET    /releases/:v/default-preview      blast radius + §8 guards (?n=&m=&t=)
  *   POST   /releases/:v/default              set as platform default            toolchain.default.set
  *   PATCH  /releases/:v                      release notes                       toolchain.release.notes
- *   POST   /releases/:v/deprecate                                                toolchain.release.deprecate
- *   POST   /releases/:v/yank                 (yanking the default restores the previous one)  toolchain.release.yank (+ .default.restore)
+ *   POST   /releases/:v/deprecate            `{ deprecated: false }` reverses it   toolchain.release.deprecate
+ *   POST   /releases/:v/yank                 (yanking the default restores the previous one; PERMANENT)  toolchain.release.yank (+ .default.restore)
  *   DELETE /releases/:v                                                          toolchain.release.delete
  *   GET    /history                          toolchain_default_history
  *   GET    /affected?release=                §9 Affected view
@@ -64,7 +64,8 @@ const DefaultBodySchema = z.object({
 }).strict();
 
 const NotesBodySchema = z.object({ releaseNotes: z.string().max(20_000) }).strict();
-const DeprecateBodySchema = z.object({ message: z.string().trim().max(1000).optional() }).strict();
+// `deprecated: false` reverses a deprecation (like a plugin version's).
+const DeprecateBodySchema = z.object({ deprecated: z.boolean().optional(), message: z.string().trim().max(1000).optional() }).strict();
 const YankBodySchema = z.object({ reason: z.string().trim().min(1, 'A yank needs a reason').max(1000) }).strict();
 const AffectedQuerySchema = z.object({ release: releaseVersion }).strict();
 const NotifyBodySchema = z.object({ releaseVersion }).strict();
@@ -170,7 +171,7 @@ export function createToolchainConsoleRoutes(): Router {
     if (!v) return;
     const body = validateBody(rc.req, DeprecateBodySchema.optional().transform((b) => b ?? {}));
     if (!body.ok) return sendBadRequest(rc.res, body.error, ErrorCode.VALIDATION_ERROR);
-    await deprecateConsoleRelease(v, rc.userId, body.value.message ?? null);
+    await deprecateConsoleRelease(v, rc.userId, body.value.message ?? null, body.value.deprecated ?? true);
     return sendSuccess(rc.res, 200, {});
   }));
 

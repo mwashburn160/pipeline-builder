@@ -17,10 +17,6 @@ export const metadataKeysTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "<!-- Copyright 2026 Pipeline Builder Contributors SPDX-License-Identifier: Apache-2.0 -->"
-        },
-        {
-          "type": "text",
           "content": "Strongly-typed configuration keys for customizing CodePipeline and CodeBuild resources at synth time. Import from @pipeline-builder/pipeline-core."
         }
       ]

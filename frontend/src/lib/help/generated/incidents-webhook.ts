@@ -17,10 +17,6 @@ export const incidentsWebhookTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "<!-- Copyright 2026 Pipeline Builder Contributors SPDX-License-Identifier: Apache-2.0 -->"
-        },
-        {
-          "type": "text",
           "content": "Point your existing incident tooling at the platform once, and two DORA metrics fill themselves in."
         }
       ]

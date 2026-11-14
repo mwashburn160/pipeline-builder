@@ -1,6 +1,6 @@
 // GENERATED FROM docs/environment-variables.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 846ebf286c119a4e835575417cb6da2e728e2170e5d5aac67bec41799ef77ee2
+// SOURCE-SHA256: 98b295ddc8fc7a1ed40953aca03815142217c6eb69760cb9dc72b53d9c97804e
 // SPDX-License-Identifier: Apache-2.0
 import { FileCode } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -15,10 +15,6 @@ export const envVariablesTopic: HelpTopic = {
       "id": "overview",
       "title": "Overview",
       "blocks": [
-        {
-          "type": "text",
-          "content": "<!-- Copyright 2026 Pipeline Builder Contributors SPDX-License-Identifier: Apache-2.0 -->"
-        },
         {
           "type": "text",
           "content": "Complete reference for every environment variable across the Pipeline Builder services."
@@ -1549,6 +1545,10 @@ export const envVariablesTopic: HelpTopic = {
           "content": "Image-registry's scheduled GC prunes old manifests from every org namespace. Off by default — an operator opts in."
         },
         {
+          "type": "text",
+          "content": "That sweep (like every other manifest delete) removes REFERENCES only. The bytes on disk are freed by the registry's own registry garbage-collect, which every deploy tree runs weekly as the registry-blob-gc job (Sunday 03:10 UTC, no --delete-untagged). Image-registry withholds push from every registry token from the token TTL (REGISTRY_TOKEN_EXPIRES_IN) + 60s before that until 03:40 UTC, so no push can land mid-sweep — see Deploy operations."
+        },
+        {
           "type": "table",
           "headers": [
             "Variable",
@@ -1573,8 +1573,8 @@ export const envVariablesTopic: HelpTopic = {
             ],
             [
               "REGISTRY_GC_PROTECTED_TAGS",
-              "latest, plus the running platform version",
-              "Comma-separated tags the GC sweep must never prune, on top of the built-in protections. A tag listed here is kept even when it is older than REGISTRY_GC_MAX_AGE_DAYS"
+              "latest,stable,main,master,release,prod,production,edge",
+              "Comma-separated \"floating\" tag names (case-insensitive) whose digest the GC sweep never prunes, however old its build. Setting it REPLACES the default list. The structural protections (a digest with more than one tag, a live index's child, any digest a plugin row or pipeline references, cosign .sig/.att companions of a kept image) always apply"
             ],
             [
               "REGISTRY_TOKEN_ISSUER / REGISTRY_TOKEN_SERVICE",
@@ -2787,6 +2787,11 @@ export const envVariablesTopic: HelpTopic = {
               "MESSAGE_ATTACHMENT_PENDING_TTL_HOURS",
               "24",
               "Age after which a pending attachment (uploaded but never linked to a message) is reaped with its blob by the retention sweep. Minimum 1."
+            ],
+            [
+              "MESSAGE_NOTIFICATION_RETENTION_DAYS",
+              "365",
+              "Age after which a SYSTEM notification (written by /internal/notify — report delivery, dunning, downgrade, quota and compliance notices) is hard-deleted by the retention sweep. Conversations, support cases and notifications someone replied to are never aged out. Minimum 7."
             ]
           ]
         },
@@ -3378,7 +3383,7 @@ export const envVariablesTopic: HelpTopic = {
             [
               "ORG_SCORECARD_MAX_PIPELINES",
               "50",
-              "Pipeline service. Max pipelines graded in the org-wide scorecard roll-up (GET /pipelines/scorecard); the response flags truncated past it. Bounds the per-pipeline compliance + DORA cost of one request"
+              "Pipeline service. Max pipelines graded in ONE page of the org-wide scorecard roll-up (GET /pipelines/scorecard) — the default and the ceiling of its ?limit=; further pages via ?offset= (rollup.pagination.nextOffset). Bounds the per-pipeline compliance + DORA cost of one request"
             ],
             [
               "ORG_SCORECARD_CONCURRENCY",
@@ -3555,8 +3560,8 @@ export const envVariablesTopic: HelpTopic = {
             ],
             [
               "REGISTRY_GC_LOCK_TTL_MS",
-              "900000",
-              "Image-registry GC leader-lock TTL (ms); only one replica runs the destructive GC sweep at a time"
+              "120000 (api-core's default leader-lock TTL)",
+              "Image-registry GC leader-lock TTL (ms); only one replica runs the destructive GC sweep at a time. This is the CRASH-RECOVERY window only — the holder heartbeats the lock for as long as a sweep runs, so it need not outlast one; keep it well under the sweep interval"
             ]
           ]
         }
@@ -4589,7 +4594,12 @@ export const envVariablesTopic: HelpTopic = {
             [
               "AUTH_VERIFICATION_TOKEN_TTL_MS",
               "86400000",
-              "Lifetime of an email-verification / password-reset token (24h)"
+              "Lifetime of an email-verification link (24h)"
+            ],
+            [
+              "AUTH_PASSWORD_RESET_TOKEN_TTL_MS",
+              "3600000",
+              "Lifetime of a forgot-password link (1h). Single-use and stored only as a SHA-256; shorter than the verification link because it sets a credential. A reset ends every session and revokes every access key"
             ],
             [
               "SESSION_REVOCATION_TTL_SECONDS",
@@ -4751,7 +4761,12 @@ export const envVariablesTopic: HelpTopic = {
             [
               "COMPLIANCE_AUDIT_RETENTION_DAYS",
               "180",
-              "Retention for compliance check-log rows"
+              "Retention for compliance check-log rows, finished scans and notification-log rows"
+            ],
+            [
+              "COMPLIANCE_EXEMPTION_EXPIRY_WARN_DAYS",
+              "7",
+              "Days ahead of an exemption's expiresAt the daily expiry sweep warns the org (1–90)"
             ],
             [
               "COMPLIANCE_MAX_ATTRIBUTE_DEPTH",
@@ -5026,12 +5041,17 @@ export const envVariablesTopic: HelpTopic = {
             [
               "ASK_HTTP_TIMEOUT_MS",
               "30000",
-              "Timeout for the ask service's internal HTTP calls (long because answers stream)"
+              "Timeout for the ask agent's ordinary internal HTTP calls (reads, compliance dry-runs). A DELEGATED generation (/pipelines/generate, /plugins/generate, …) waits AI_REQUEST_TIMEOUT_MS + 30s instead (never less than this value), because the peer has already reserved an aiCalls slot for it. Every call is also cancelled when the client disconnects."
             ],
             [
               "ASK_MAX_OUTPUT_TOKENS",
               "2048",
-              "Cap on the tokens one Ask answer may generate (min 64) — bounds the cost and latency of a single turn"
+              "Cap on the tokens one Ask model step may generate (min 64) — bounds the cost of the turn's own aiCalls slot"
+            ],
+            [
+              "ASK_MAX_TURN_GENERATIONS",
+              "2",
+              "How many charged generations (propose_pipeline / propose_plugin / their from-repo forms / propose_template) one agent turn may START (1-10). Each draws its own aiCalls slot, and one model step can call several tools, so the step bound does not cap them; past this a generating tool declines. Refusals count ask_turn_generation_budget_refused_total."
             ],
             [
               "MAX_PAGE_OFFSET",

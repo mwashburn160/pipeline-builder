@@ -45,7 +45,7 @@ jest.unstable_mockModule('../src/config.js', () => ({
   },
 }));
 
-const { fetchOwnQuotaSnapshot, fetchQuotaSnapshot, fetchQuotaTypeUsage, fetchSeatUsage, getJson, putJson } = await import('../src/helpers/downstream-client.js');
+const { fetchOwnQuotaSnapshot, fetchQuotaSnapshot, fetchQuotaTypeUsage, fetchSeatUsage, fetchSupportUsage, getJson, putJson } = await import('../src/helpers/downstream-client.js');
 
 beforeEach(() => { clientGet.mockReset(); clientPut.mockReset(); });
 
@@ -165,5 +165,33 @@ describe('fetchSeatUsage', () => {
   it('is fail-soft on a transport failure (the safe client resolves null)', async () => {
     clientGet.mockReturnValue(null);
     expect(await fetchSeatUsage('org-1', 'Bearer x')).toBeNull();
+  });
+});
+
+describe('fetchSupportUsage', () => {
+  it('parses both support dimensions from the platform envelope', async () => {
+    clientGet.mockReturnValue({
+      statusCode: 200,
+      body: { success: true, data: { supportContacts: { limit: 5, used: 3 }, supportPremiumContacts: { limit: -1, used: 1 } } },
+    });
+    expect(await fetchSupportUsage('org-1', 'Bearer x')).toEqual({
+      supportContacts: { limit: 5, used: 3 },
+      supportPremiumContacts: { limit: -1, used: 1 },
+    });
+    expect(clientGet).toHaveBeenCalledWith('/organization/org-1/support-usage', { headers: { 'Authorization': 'Bearer x', 'x-org-id': 'org-1' } });
+  });
+
+  it('returns null on an incomplete payload (a partial answer must never read as zero)', async () => {
+    clientGet.mockReturnValue({ statusCode: 200, body: { data: { supportContacts: { limit: 5, used: 3 } } } });
+    expect(await fetchSupportUsage('org-1', 'Bearer x')).toBeNull();
+    clientGet.mockReturnValue({ statusCode: 200, body: { data: { supportContacts: { limit: 5 }, supportPremiumContacts: { limit: 1, used: 0 } } } });
+    expect(await fetchSupportUsage('org-1', 'Bearer x')).toBeNull();
+  });
+
+  it('returns null on a non-2xx or transport failure', async () => {
+    clientGet.mockReturnValue({ statusCode: 404, body: {} });
+    expect(await fetchSupportUsage('org-1', 'Bearer x')).toBeNull();
+    clientGet.mockReturnValue(null);
+    expect(await fetchSupportUsage('org-1', 'Bearer x')).toBeNull();
   });
 });

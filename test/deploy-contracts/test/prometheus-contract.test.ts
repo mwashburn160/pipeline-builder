@@ -622,6 +622,10 @@ describe('plugin ecosystem operations', () => {
         // the second is pricing off an unknown.
         'quota_overshoot_total', 'pipeline_compute_credits_total', 'pipeline_compute_actions_total',
         'ai_tokens_total', 'ai_generation_duration_seconds_bucket', 'help_search_miss_total',
+        // The Ask agent's cost and injection signals: what one turn's tools charged
+        // and what its generation budget refused, and the off-allowlist fields a
+        // propose tool refused (alerted as AskProposalRefusedFields).
+        'ai_tool_generation_charged_total', 'ask_turn_generation_budget_refused_total', 'ask_proposal_refused_fields_total',
         'billing_invoice_ingested_total',
         'mongo_index_unknown', 'user_erasure_incomplete_total',
         // Alert delivery. `alert_delivery_enabled` is the one panel that answers

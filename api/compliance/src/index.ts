@@ -13,6 +13,7 @@ import { createSoftDeletePurgeScheduler } from '@pipeline-builder/pipeline-data'
 import { mountRoutes } from './app-routes.js';
 import { startAuditPruneCron } from './helpers/compliance-check-log.js';
 import { startDigestScheduler, stopDigestScheduler } from './helpers/digest-scheduler.js';
+import { startExemptionExpiryScheduler } from './helpers/exemption-expiry.js';
 import { startScanScheduler, stopScanScheduler } from './helpers/scan-scheduler.js';
 import { complianceRuleService } from './services/compliance-rule-service.js';
 import { compliancePolicyService } from './services/policy-service.js';
@@ -43,10 +44,15 @@ logger.info('All /compliance routes registered');
 // token expiry (never a lockout) when Redis is absent.
 wireServiceSecurity('compliance');
 
-// Daily prune of compliance_audit_log (default 180 days, override via
+// Daily prune of compliance_audit_log, finished compliance_scans and
+// compliance_notification_log (default 180 days, override via
 // COMPLIANCE_AUDIT_RETENTION_DAYS). The handle is captured for graceful
 // shutdown so tests/process-exit don't leave a dangling timer.
 const auditPrune = startAuditPruneCron();
+
+// Daily exemption expiry: approved → expired past `expiresAt`, plus a one-time
+// pre-expiry warning (COMPLIANCE_EXEMPTION_EXPIRY_WARN_DAYS ahead).
+const exemptionExpiry = startExemptionExpiryScheduler();
 
 // Retention purge: hard-delete compliance policy + rule tombstones past their
 // purge_after deadline. Leader-locked + sysadmin-scoped inside the sweep. Opt
@@ -66,6 +72,7 @@ void runServer(app, {
     stopScanScheduler();
     stopDigestScheduler();
     auditPrune.stop();
+    exemptionExpiry.stop();
     purgeScheduler?.stop();
   },
 });

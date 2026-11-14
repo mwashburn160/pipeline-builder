@@ -61,7 +61,7 @@ jest.unstable_mockModule('../src/controllers/totp.js', () => Object.fromEntries(
 // doesn't drag in the identity graph this suite says nothing about.
 jest.unstable_mockModule('../src/controllers/index.js', () => Object.fromEntries([
   'login', 'logout', 'register', 'refresh', 'switchOrg', 'sendVerificationEmail', 'verifyEmail',
-  'markEmailVerified', 'completeOnboarding', 'getDomainOrgs', 'joinDomainOrg',
+  'markEmailVerified', 'completeOnboarding', 'getDomainOrgs', 'joinDomainOrg', 'withdrawDomainJoinRequest',
 ].map((c) => [c, tagged(c)])));
 jest.unstable_mockModule('../src/controllers/step-up-reauth.js', () => ({
   startStepUpReauth: tagged('startStepUpReauth'), completeStepUpReauth: tagged('completeStepUpReauth'),
@@ -75,6 +75,10 @@ jest.unstable_mockModule('../src/controllers/recovery-codes.js', () => ({
 // per-account login throttle; stubbed so this suite loads neither graph.
 jest.unstable_mockModule('../src/controllers/password-change-required.js', () => ({
   completeRequiredPasswordChange: tagged('completeRequiredPasswordChange'),
+}));
+jest.unstable_mockModule('../src/controllers/password-reset.js', () => ({
+  requestReset: tagged('requestReset'),
+  confirmReset: tagged('confirmReset'),
 }));
 jest.unstable_mockModule('../src/middleware/login-limiter.js', () => ({ loginAccountLimiter: tagged('limiter:login-account') }));
 jest.unstable_mockModule('../src/controllers/token-exchange.js', () => ({

@@ -58,7 +58,7 @@ export function normalizeGate(raw: unknown): SubmissionGate | null {
 }
 
 /** Normalize the inspect payload (the spec summary may come as `plugin` or `spec`). */
-export function normalizeInspect(raw: unknown): SubmissionInspectResult {
+function normalizeInspect(raw: unknown): SubmissionInspectResult {
   const o = (raw ?? {}) as Record<string, unknown>;
   const spec = (o.plugin ?? o.spec ?? {}) as Record<string, unknown>;
   const lintSource = o.lint ?? o.lintWarnings ?? o.warnings;

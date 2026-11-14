@@ -44,6 +44,21 @@ export function recordAiTokens(
   if (tokens.cachedInputTokens > 0) incCounter('ai_tokens_total', { ...base, kind: 'cached_input' }, tokens.cachedInputTokens);
 }
 
+/** Token counts, as every AI call in this service reports them. */
+export interface TurnTokens { inputTokens: number; outputTokens: number; cachedInputTokens: number }
+
+/** `a + b`, field by field. */
+export function addTokens(a: TurnTokens, b: TurnTokens): TurnTokens {
+  return {
+    inputTokens: a.inputTokens + b.inputTokens,
+    outputTokens: a.outputTokens + b.outputTokens,
+    cachedInputTokens: a.cachedInputTokens + b.cachedInputTokens,
+  };
+}
+
+/** No tokens. */
+export const NO_TOKENS: TurnTokens = Object.freeze({ inputTokens: 0, outputTokens: 0, cachedInputTokens: 0 });
+
 /**
  * A reader's verdict on an answer.
  *

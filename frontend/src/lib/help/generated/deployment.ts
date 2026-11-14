@@ -1,6 +1,6 @@
 // GENERATED FROM docs/aws-deployment.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: e8e74773a367b84b00e60609770bae09a4f03933bf56e4480f0c14090673d521
+// SOURCE-SHA256: e35dd0e68808d28720acd88f5d920f359ebb422b79875dd262c91ce1e772b24d
 // SPDX-License-Identifier: Apache-2.0
 import { Server } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -15,10 +15,6 @@ export const deploymentTopic: HelpTopic = {
       "id": "overview",
       "title": "Overview",
       "blocks": [
-        {
-          "type": "text",
-          "content": "<!-- Copyright 2026 Pipeline Builder Contributors SPDX-License-Identifier: Apache-2.0 -->"
-        },
         {
           "type": "text",
           "content": "Two targets: EC2 (a single Minikube instance) or EKS (managed Kubernetes, Auto Mode)."
@@ -2035,7 +2031,7 @@ export const deploymentTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "The audit stacks command joins the registry against live CloudFormation stacks tagged pipeline-builder and surfaces two categories of drift:"
+          "content": "The audit stacks command joins your org's registry rows for ONE region (every page of them) against the live CloudFormation stacks in that region whose stack tags include pipeline-builder (the PipelineBuilder construct puts pipeline-builder, OrgId and pb.pipeline-id on the stack itself), skipping stacks tagged with another OrgId. It surfaces two categories of drift:"
         },
         {
           "type": "table",
@@ -2063,7 +2059,7 @@ export const deploymentTopic: HelpTopic = {
         },
         {
           "type": "code",
-          "content": "pipeline-manager audit stacks --region us-east-1\n\npipeline-manager audit stacks --org acme --region us-east-1 --json\n\npipeline-manager audit stacks --profile production --region us-east-1",
+          "content": "pipeline-manager audit stacks --region us-east-1\n\npipeline-manager audit stacks --region us-east-1 --json\n\npipeline-manager audit stacks --org <orgId> --region us-east-1 --json\n\npipeline-manager audit stacks --profile production --region us-east-1",
           "language": "bash"
         },
         {
@@ -2083,11 +2079,15 @@ export const deploymentTopic: HelpTopic = {
             ],
             [
               "--org <orgId>",
-              "Restrict both the registry fetch and the stack scan to a single org."
+              "Audit this org instead of your own: sent as ?orgId= on GET /api/pipelines/registry (403 unless you are a system admin) and used to filter the stacks' OrgId tag. If the platform answers for a different org, the command fails (exit 2) rather than report that org's stacks as orphaned."
+            ],
+            [
+              "--max-pages <n>",
+              "Safety cap on CloudFormation DescribeStacks pages (~100 stacks each; default 200). Hitting it marks the scan truncated and exits 1."
             ],
             [
               "--profile <profile>",
-              "AWS CLI profile (default: default)."
+              "AWS CLI profile (default: the standard AWS credential chain)."
             ],
             [
               "--json",
@@ -2116,11 +2116,11 @@ export const deploymentTopic: HelpTopic = {
             ],
             [
               "1",
-              "One or more findings (orphaned and/or missing stacks)"
+              "One or more findings (orphaned and/or missing stacks), or an incomplete (truncated) scan"
             ],
             [
               "2",
-              "AWS error or scan failure"
+              "AWS or platform error, or a scan failure"
             ]
           ]
         },
@@ -2139,13 +2139,13 @@ export const deploymentTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Drift is not auto-fixed — the command only reports. Reconciliation is manual and depends on the cause:"
+          "content": "Drift is not auto-fixed — the command reports, and prints with each finding the command that reconciles it (fix in the JSON):"
         },
         {
           "type": "list",
           "items": [
-            "Orphaned stack: confirm the pipeline definition really was deleted, then aws cloudformation delete-stack --stack-name <name> to clean up the leftover. If the deletion was unintentional, recreate the pipeline definition and redeploy.",
-            "Missing stack: redeploy the pipeline (pipeline-manager pipeline deploy --id <pipelineId>) to recreate the stack and refresh the registry row. There is currently no API or dashboard surface to drop a stale registry row in isolation — if redeploy isn't desired, the row must be removed directly in Postgres (DELETE FROM pipeline_registry WHERE pipeline_id = '<pipelineId>')."
+            "Orphaned stack: if the stack is still wanted, pipeline-manager pipeline register --id <pb.pipeline-id tag> --region <region> adds its registry row back. If it is a leftover (the pipeline definition really was deleted), aws cloudformation delete-stack --stack-name <name> --region <region>.",
+            "Missing stack: pipeline-manager pipeline deregister --id <registryId> --yes removes the stale row (DELETE /api/pipelines/registry/:id; the registryId is in the finding). To recreate the stack instead, redeploy it (pipeline-manager pipeline deploy --id <pipelineId>), which refreshes the row."
           ]
         },
         {
@@ -2155,7 +2155,7 @@ export const deploymentTopic: HelpTopic = {
         {
           "type": "list",
           "items": [
-            "Out-of-region drift — only scans the region you pass with --region. Run once per region you deploy to.",
+            "Out-of-region drift — only scans the region you pass with --region, and compares only that region's registry rows (rows of other regions are counted in registryEntriesOtherRegions, rows with no region in registryEntriesWithoutRegion). Run once per region you deploy to.",
             "Stack content drift — doesn't detect when a stack's resources have been edited in-console but the template still matches the last deploy. Use aws cloudformation detect-stack-drift for that.",
             "Mid-deploy states — only *_COMPLETE statuses are considered active. A stack stuck in CREATE_IN_PROGRESS or ROLLBACK_FAILED will look like a missing stack."
           ]

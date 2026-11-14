@@ -99,6 +99,21 @@ describe('validate-templates CLI', () => {
     fs.unlinkSync(file);
   });
 
+  it('--pipeline reads the props out of the real { success, data: { pipeline } } envelope', async () => {
+    const getMock = jest.fn<AnyFn>().mockResolvedValue({
+      success: true,
+      statusCode: 200,
+      data: { pipeline: { id: 'p1', props: { project: 'p', organization: 'o', synth: { source: { type: 'github', options: { repo: 'a/b' } } } } } },
+    });
+    mockCreateAuthenticatedClientAsync.mockResolvedValue({
+      getConfig: () => ({ api: { pipelineUrl: 'https://p.example.com/api/pipelines' } }),
+      get: getMock,
+    });
+    // Found (a missing doc throws "not found" and exits non-zero).
+    await expect(runCli(['--pipeline', 'p1'])).resolves.toBeDefined();
+    expect(getMock).toHaveBeenCalledWith('https://p.example.com/api/pipelines/p1');
+  });
+
   it('--plugin fetches and validates a remote plugin', async () => {
     const getMock = jest.fn<AnyFn>().mockResolvedValue({
       plugin: {

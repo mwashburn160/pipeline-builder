@@ -1,9 +1,10 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { incCounter } from '@pipeline-builder/api-server';
 import { envInt, createLogger, errorMessage, createScheduler, createEnvRedisLock, type Scheduler, leaderLockKey, DEFAULT_LEADER_LOCK_TTL_MS } from '@pipeline-builder/api-core';
 import { listRepositoriesUnderPrefix } from './registry-client.js';
-import { runQuarantineGc, runRegistryGc } from './registry-gc.js';
+import { GC_FAILED_COUNTER, runQuarantineGc, runRegistryGc } from './registry-gc.js';
 import { computeStorageUsage, invalidateStorageCache } from './storage-usage.js';
 
 const logger = createLogger('gc-scheduler');
@@ -66,8 +67,11 @@ function readConfig(): SchedulerOptions {
 
 /**
  * One full sweep — discovers every `org-*` namespace from the registry
- * catalog and runs GC on each. Per-org failures are logged but don't
- * abort the rest of the sweep; the next run gets a clean attempt.
+ * catalog and runs GC on each. A per-org failure doesn't abort the rest of the
+ * sweep, but it is COUNTED (`registry_gc_failed_total{stage}`, alerted as
+ * RegistryGcFailing). The sweep THROWS when the catalog can't be listed or
+ * every namespace failed, so the scheduler records no success and
+ * SchedulerJobStale fires — a registry that is down must not look swept.
  */
 async function sweepOnce(maxAgeDays: number): Promise<void> {
   const startMs = Date.now();
@@ -75,8 +79,8 @@ async function sweepOnce(maxAgeDays: number): Promise<void> {
   try {
     repos = await listRepositoriesUnderPrefix(ORG_PREFIX);
   } catch (err) {
-    logger.warn('GC sweep: catalog listing failed; skipping cycle', { error: errorMessage(err) });
-    return;
+    incCounter(GC_FAILED_COUNTER, { stage: 'catalog' });
+    throw new Error(`GC sweep: catalog listing failed: ${errorMessage(err)}`);
   }
 
   // Extract the namespace (e.g. `org-acme/`) so we run GC once per org rather
@@ -103,17 +107,22 @@ async function sweepOnce(maxAgeDays: number): Promise<void> {
 
   let totalCandidates = 0;
   let totalDeleted = 0;
+  let failedNamespaces = 0;
   for (const prefix of orgPrefixes) {
     try {
       const result = await runRegistryGc({ prefix, maxAgeDays });
       totalCandidates += result.candidates;
       totalDeleted += result.deleted;
-      if (result.deleted > 0) {
+      // A namespace none of whose repositories could be walked failed as a whole.
+      if (result.reposScanned > 0 && result.failedRepos === result.reposScanned) failedNamespaces++;
+      if (result.deleted > 0 || result.companionsDeleted > 0) {
         logger.info('GC sweep: pruned namespace', {
-          prefix, candidates: result.candidates, deleted: result.deleted,
+          prefix, candidates: result.candidates, deleted: result.deleted, companionsDeleted: result.companionsDeleted,
         });
       }
     } catch (err) {
+      failedNamespaces++;
+      incCounter(GC_FAILED_COUNTER, { stage: 'namespace' });
       logger.warn('GC sweep: per-namespace run failed', { prefix, error: errorMessage(err) });
     }
   }
@@ -124,11 +133,18 @@ async function sweepOnce(maxAgeDays: number): Promise<void> {
 
   logger.info('GC sweep complete', {
     namespaces: orgPrefixes.size,
+    failedNamespaces,
     candidates: totalCandidates,
     deleted: totalDeleted,
     durationMs: Date.now() - startMs,
   });
+  if (failedNamespaces === orgPrefixes.size) {
+    throw new Error(`GC sweep: every namespace failed (${failedNamespaces})`);
+  }
 }
+
+/** Exported for tests: one org sweep, as the scheduler runs it. */
+export const sweepOnceForTests = sweepOnce;
 
 /**
  * Start the in-process GC scheduler if `REGISTRY_GC_ENABLED=true`. Runs
@@ -197,12 +213,10 @@ export function startQuarantineGcScheduler(): void {
     name: 'quarantine-gc',
     intervalMs: QUARANTINE_INTERVAL_MS,
     startupDelayMs: cfg.startupDelayMs,
+    // Not caught here: a throw is what keeps the scheduler from stamping a
+    // success, so SchedulerJobStale can see a sweep that keeps failing.
     run: async () => {
-      try {
-        await runQuarantineGc();
-      } catch (err) {
-        logger.warn('Quarantine GC sweep failed', { error: errorMessage(err) });
-      }
+      await runQuarantineGc();
     },
     ...(lockClient ? { lock: { redis: () => lockClient, key: QUARANTINE_LOCK_KEY, ttlMs: cfg.lockTtlMs } } : {}),
   });

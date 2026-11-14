@@ -14,6 +14,7 @@ import { RetryError } from '@/components/ui/RetryError';
 import { useToast } from '@/components/ui/Toast';
 import { useFetch } from '@/hooks/useFetch';
 import api from '@/lib/api';
+import { listAllOrgMembers } from '@/lib/list-all';
 import { formatError } from '@/lib/constants';
 import { responseTargetLabel } from '@/components/message/MessageList';
 import { FEATURE_METADATA, SUPPORT_FEATURE_FLAGS, type SupportFeatureFlag } from '@pipeline-builder/api-core/feature-flags';
@@ -64,9 +65,10 @@ export function SupportContactSettings({ orgId, readOnly = false }: { orgId: str
     async (signal): Promise<{ support: SupportContactsDto | null; members: OrganizationMember[] }> => {
       const [s, m] = await Promise.all([
         api.listSupportContacts(orgId, { signal }),
-        api.getOrganizationMembers(orgId, { limit: 200 }, { signal }),
+        // The whole roster: a single page left everyone past it unpickable.
+        listAllOrgMembers(orgId, { status: 'active' }, signal),
       ]);
-      return { support: s.data ?? null, members: m.data?.members ?? [] };
+      return { support: s.data ?? null, members: m };
     },
     [orgId],
   );

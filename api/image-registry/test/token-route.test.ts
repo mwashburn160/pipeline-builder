@@ -325,6 +325,17 @@ describe('GET /token — audit trail', () => {
     });
   });
 
+  it('says when push was withheld by the weekly blob-GC freeze (and only then)', async () => {
+    resolveIdentity.mockResolvedValue({ type: 'jwt', orgId: 'acme', userId: 'u-1' } as unknown as Identity);
+    authorizeAndIssue.mockResolvedValue({ token: 't', accessCount: 1, access: [{ type: 'repository', name: 'org-acme/p', actions: ['pull'] }], storageGate: null, pushFrozen: true } as never);
+    await getToken({ auth: basic('u', 'p'), query: '?scope=repository:org-acme/p:pull,push' });
+    expect(lastAudit().details).toMatchObject({ push: false, pushFrozenForBlobGc: true });
+
+    authorizeAndIssue.mockResolvedValue({ token: 't', accessCount: 1, access: [{ type: 'repository', name: 'org-acme/p', actions: ['pull', 'push'] }], storageGate: null, pushFrozen: false } as never);
+    await getToken({ auth: basic('u', 'p'), query: '?scope=repository:org-acme/p:pull,push' });
+    expect(lastAudit().details.pushFrozenForBlobGc).toBeUndefined();
+  });
+
   it('attributes quarantine and management identities to the system org', async () => {
     authorizeAndIssue.mockResolvedValue({ token: 't', accessCount: 2, access: [{ type: 'repository', name: 'a', actions: ['pull'] }, { type: 'repository', name: 'b', actions: ['pull'] }] } as never);
     resolveIdentity.mockResolvedValue({ type: 'quarantine', submissionId: 's1' } as unknown as Identity);
