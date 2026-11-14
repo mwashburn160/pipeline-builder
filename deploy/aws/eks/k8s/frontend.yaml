@@ -62,7 +62,7 @@ spec:
                 topologyKey: kubernetes.io/hostname
       containers:
         - name: frontend
-          image: ghcr.io/mwashburn160/frontend:4.7.23@sha256:eae84ebf251901fbcaa36c1053806df3e19fdc8d3f1d6e5ab4e15c2e139a08ba
+          image: ghcr.io/mwashburn160/frontend:4.7.23@sha256:78d96ca25124ba9869db24da1257f02795d7e2ec0a5909acd40e1270ee18ee07
           securityContext:
             runAsNonRoot: true
             runAsUser: 1000
