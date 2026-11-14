@@ -5,8 +5,7 @@ category: infrastructure
 # (from this directory's Dockerfile ARGs and a hash of both this directory's and
 # cdk-synth's build inputs). Never edit them by hand; bump minor/major by editing
 # `version` in BOTH specs together.
-version: 1.1.4
-version: 1.1.4
+version: 1.1.5
 pluginType: BuildImage
 # icon: none — managed toolchain build image, never listed in the catalog (monogram; see _icons/SOURCES.md)
 toolchain:
@@ -16,4 +15,4 @@ toolchain:
   esbuild: "0.28.1"
   pnpm: "12.14.0"
   node: "26.13.1"
-sourceDigest: "sha256:e1e87984255674b9468e38473c14449899642152a8b890a757211059cafa62fa"
+sourceDigest: "sha256:882e28aa2a41810dc1b4dbdd269ed079df6da6b10cf30160f860f29c1844f4ea"
