@@ -56,7 +56,9 @@ synth step's env (they override the spec defaults):
 | Env var | Default | Purpose |
 |---|---|---|
 | `PIPELINE_MANAGER_UPGRADE` | `false` | `true` runs `pipeline-manager --upgrade` before synth; any value other than `true`/`false` fails the step |
-| `PIPELINE_MANAGER_UPGRADE_VERSION` | `latest` | Version to upgrade to: a semver (`4.5.3`) or an npm dist-tag. Blank means `latest` |
+| `PIPELINE_MANAGER_UPGRADE_VERSION` | `latest` | Version to upgrade to. Left at `latest` (or blank), the step runs a bare `pipeline-manager --upgrade`: the latest release, never a move backwards if the baked CLI is already newer. Any other semver (`4.5.3`) or dist-tag (`next`) is installed as named, downgrade included |
+
+So setting only `PIPELINE_MANAGER_UPGRADE=true` takes the latest release.
 
 The upgrade checks the target's `engines.node`, refuses to go below the first
 release with `--upgrade`, and verifies the tarball's integrity and npm registry

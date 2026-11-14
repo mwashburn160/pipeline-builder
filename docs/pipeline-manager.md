@@ -108,12 +108,16 @@ for a new release, opt in on the synth step's `env`:
   "plugin": { "name": "cdk-synth" },
   "env": {
     "PIPELINE_MANAGER_UPGRADE": "true",           // default "false"
-    "PIPELINE_MANAGER_UPGRADE_VERSION": "4.5.3"   // semver or dist-tag; default/blank = "latest"
+    "PIPELINE_MANAGER_UPGRADE_VERSION": "4.5.3"   // optional: semver or dist-tag; default "latest"
   }
 }
 ```
 
-The step then runs `pipeline-manager --upgrade <version>` before synthesizing,
+With only `PIPELINE_MANAGER_UPGRADE` set (or the version blank or `latest`), the
+step runs a bare `pipeline-manager --upgrade` before synthesizing: the latest
+release, and never a move backwards if the baked CLI is already newer. Any other
+version is passed as `--upgrade <version>` and installed as named, downgrade
+included. Either way it runs
 with every check described under [Upgrading](#upgrading), including the registry
 signature. Any refusal or failure fails the step, and a value other than `true`
 or `false` is rejected. With it on, the step no longer runs the CLI the release

@@ -1,6 +1,6 @@
 // GENERATED FROM docs/environment-variables.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 98b295ddc8fc7a1ed40953aca03815142217c6eb69760cb9dc72b53d9c97804e
+// SOURCE-SHA256: 8cb1e80a250bf6dd5d1265c1fae7b4d37278b8d1e08f1613999e980e8bcc8c4c
 // SPDX-License-Identifier: Apache-2.0
 import { FileCode } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -867,7 +867,7 @@ export const envVariablesTopic: HelpTopic = {
             [
               "PIPELINE_MANAGER_UPGRADE_VERSION",
               "latest",
-              "Synth step (cdk-synth env). Version for that upgrade: a semver or npm dist-tag. Blank means latest"
+              "Synth step (cdk-synth env). Version for that upgrade. latest or blank runs a bare --upgrade (latest release, never a downgrade); any other semver or npm dist-tag is installed as named"
             ]
           ]
         },

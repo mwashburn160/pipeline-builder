@@ -1,6 +1,6 @@
 // GENERATED FROM docs/pipeline-manager.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 8760a7fcfbb6f638e48d3435c112fcccf6a2e9601732a0db96fba009259ed0cb
+// SOURCE-SHA256: 6fcdde31575e4c1f9f5c0193652ad84c87f5116f80e9dac8ae70127550e73591
 // SPDX-License-Identifier: Apache-2.0
 import { Terminal } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -186,12 +186,12 @@ export const cliReferenceTopic: HelpTopic = {
         },
         {
           "type": "code",
-          "content": "{\n  \"plugin\": { \"name\": \"cdk-synth\" },\n  \"env\": {\n    \"PIPELINE_MANAGER_UPGRADE\": \"true\",           // default \"false\"\n    \"PIPELINE_MANAGER_UPGRADE_VERSION\": \"4.5.3\"   // semver or dist-tag; default/blank = \"latest\"\n  }\n}",
+          "content": "{\n  \"plugin\": { \"name\": \"cdk-synth\" },\n  \"env\": {\n    \"PIPELINE_MANAGER_UPGRADE\": \"true\",           // default \"false\"\n    \"PIPELINE_MANAGER_UPGRADE_VERSION\": \"4.5.3\"   // optional: semver or dist-tag; default \"latest\"\n  }\n}",
           "language": "jsonc"
         },
         {
           "type": "text",
-          "content": "The step then runs pipeline-manager --upgrade <version> before synthesizing, with every check described under Upgrading, including the registry signature. Any refusal or failure fails the step, and a value other than true or false is rejected. With it on, the step no longer runs the CLI the release records, so release and canary data describe a CLI it didn't use. Pin a version rather than latest if you need repeatable synths."
+          "content": "With only PIPELINE_MANAGER_UPGRADE set (or the version blank or latest), the step runs a bare pipeline-manager --upgrade before synthesizing: the latest release, and never a move backwards if the baked CLI is already newer. Any other version is passed as --upgrade <version> and installed as named, downgrade included. Either way it runs with every check described under Upgrading, including the registry signature. Any refusal or failure fails the step, and a value other than true or false is rejected. With it on, the step no longer runs the CLI the release records, so release and canary data describe a CLI it didn't use. Pin a version rather than latest if you need repeatable synths."
         },
         {
           "type": "list",

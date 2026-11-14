@@ -33,13 +33,16 @@ installCommands:
   - command -v pipeline-manager
   # Opt-in self-upgrade of the baked CLI (`pipeline-manager --upgrade`), OFF by
   # default so the step runs exactly the release's pinned CLI. Set
-  # PIPELINE_MANAGER_UPGRADE=true on the step to take
-  # PIPELINE_MANAGER_UPGRADE_VERSION (a semver or dist-tag; blank = latest).
+  # PIPELINE_MANAGER_UPGRADE=true on the step to upgrade. With only that set (or
+  # PIPELINE_MANAGER_UPGRADE_VERSION blank or `latest`) it runs a BARE
+  # `--upgrade`: the latest release, and never a move backwards when the baked
+  # CLI is already newer. Any other PIPELINE_MANAGER_UPGRADE_VERSION (a semver or
+  # dist-tag) is passed through and installed as named, downgrade included.
   # CodeBuild runs build commands as root, so the global install is writable.
   # The upgrade verifies the tarball's integrity and npm registry signature, and
   # any refusal or failure fails the step — it never synthesizes on a CLI it
   # could not verify. Any value other than true/false is refused, not ignored.
-  - 'case "${PIPELINE_MANAGER_UPGRADE:-false}" in true) pipeline-manager --upgrade "${PIPELINE_MANAGER_UPGRADE_VERSION:-latest}" ;; false) ;; *) echo "ERROR: PIPELINE_MANAGER_UPGRADE must be true or false (got: ${PIPELINE_MANAGER_UPGRADE})"; exit 1 ;; esac'
+  - 'case "${PIPELINE_MANAGER_UPGRADE:-false}" in true) case "${PIPELINE_MANAGER_UPGRADE_VERSION:-latest}" in latest) pipeline-manager --upgrade ;; *) pipeline-manager --upgrade "${PIPELINE_MANAGER_UPGRADE_VERSION}" ;; esac ;; false) ;; *) echo "ERROR: PIPELINE_MANAGER_UPGRADE must be true or false (got: ${PIPELINE_MANAGER_UPGRADE})"; exit 1 ;; esac'
 commands:
   # A private-CA platform: curl verifies against PLATFORM_CA_BUNDLE (the CLI
   # reads it from the env itself). TLS is never disabled here.
@@ -66,6 +69,7 @@ network:
     - "pypi.org"
     - "files.pythonhosted.org"
 changelog: |
+  1.1.4: PIPELINE_MANAGER_UPGRADE=true on its own (or with PIPELINE_MANAGER_UPGRADE_VERSION blank or `latest`) now runs a bare `pipeline-manager --upgrade`, which never moves backwards; 1.1.3 passed `latest` as a named version, which would have downgraded a baked CLI newer than npm's `latest`. Any other version is still installed as named.
   1.1.3: Opt-in CLI self-upgrade before synth: PIPELINE_MANAGER_UPGRADE (default false) runs `pipeline-manager --upgrade` to PIPELINE_MANAGER_UPGRADE_VERSION (semver or dist-tag; blank = latest). Off by default, so the step still runs the release's pinned CLI; any other value fails the step.
   1.1.2: Toolchain release 1.1.2 — pipeline-manager 4.5.3 (release sync).
   1.1.1: Toolchain release 1.1.1 — the 2026-11-13 pin refresh (Node.js 26.13.1, a 2026-11-10 security release; aws-cdk 2.1148.1) and pipeline-manager 4.5.2.

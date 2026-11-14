@@ -6,6 +6,7 @@ category: infrastructure
 # cdk-synth's build inputs). Never edit them by hand; bump minor/major by editing
 # `version` in BOTH specs together.
 version: 1.1.4
+version: 1.1.4
 pluginType: BuildImage
 # icon: none — managed toolchain build image, never listed in the catalog (monogram; see _icons/SOURCES.md)
 toolchain:
@@ -15,4 +16,4 @@ toolchain:
   esbuild: "0.28.1"
   pnpm: "12.14.0"
   node: "26.13.1"
-sourceDigest: "sha256:4792adca7be68e8a4b0c24eb8771f6f9df756474f6a8aca37f4cb1d02666d019"
+sourceDigest: "sha256:e1e87984255674b9468e38473c14449899642152a8b890a757211059cafa62fa"
