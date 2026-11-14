@@ -520,9 +520,6 @@ All pipelines continue to work unchanged; when they start supplying metadata key
 **"Template cycle detected"**  
 → One of your `metadata.*` or `vars.*` fields references another that references back to the first. The error message includes the full cycle chain.
 
-**`{{ ... }}` still visible in my CodeBuild logs**  
-→ The plugin was loaded without `pipelineScope` — this happens only in legacy direct-invocation paths. The platform-managed synth flow always passes scope.
-
 ---
 
 ## Golden pipeline templates

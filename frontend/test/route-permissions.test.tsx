@@ -1018,7 +1018,7 @@ const CONTROLS: Control[] = [
     ],
     behaviour: {
       // The panel renders only for a thread that HAS a case, which is why the
-      // case list is mocked here: legacy support correspondence has none, and
+      // case list is mocked here: correspondence from an unentitled org has none, and
       // those threads correctly show no panel at all.
       mount: page('../pages/dashboard/messages'),
       api: {

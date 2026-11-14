@@ -398,8 +398,8 @@ export function ThreadView({ rootMessage, currentOrgId, currentUserId, resolveOr
 
       {/* The case controls, directly under the header so the case number, its
           status and its response target are visible without scrolling the
-          conversation. Rendered only when the thread HAS a case — legacy support
-          correspondence has none, deliberately. */}
+          conversation. Rendered only when the thread HAS a case — correspondence from
+          an org without a support entitlement has none, deliberately. */}
       {supportCase && (
         <div className="px-4 pt-3">
           <SupportCasePanel

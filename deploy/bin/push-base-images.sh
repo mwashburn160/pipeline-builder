@@ -59,8 +59,8 @@ CRANE_IMAGE="${CRANE_IMAGE:-gcr.io/go-containerregistry/crane@sha256:e78770b3125
 # `pipeline-builder` minikube profile, and for eks it's whatever
 # `aws eks update-kubeconfig` / eksctl wrote (e.g. arn:aws:eks:...:cluster/pipeline-builder
 # or developer@pipeline-builder.<region>.eksctl.io) — NOT literally "pipeline-builder",
-# which is why the old hardcoded default failed on eks. Fall back to the legacy name
-# only when there's no current context. Override via KUBECTL_CONTEXT.
+# which is why a hardcoded default fails on eks. `pipeline-builder` is used only
+# when there's no current context. Override via KUBECTL_CONTEXT.
 KUBECTL_CONTEXT="${KUBECTL_CONTEXT:-$(kubectl config current-context 2>/dev/null || echo pipeline-builder)}"
 kubectl_ctx() {
   if [ "$DEPLOY_TARGET" = "docker" ]; then

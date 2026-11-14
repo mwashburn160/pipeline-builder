@@ -175,9 +175,8 @@ function ObservabilityDegradedBanner() {
  *
  * The 5 default dashboards seeded under `org_id='system'` (Platform Overview,
  * Plugin Builds, Queue Health, Registry Activity, Audit Activity) render
- * through this page too — the legacy static pages remain as back-compat
- * redirects (handled by the index page's sidebar list, which now points at
- * `/dashboard/observability/[id]`).
+ * through this page too; `/dashboard/observability/audit-activity` resolves
+ * the seeded Audit activity dashboard's generated id and redirects here.
  */
 export default function DashboardPage() {
   const { accessDenied, isReady, isAuthenticated, user, can, isReadOnly } = useAuthGuard();

@@ -624,61 +624,6 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
 
-  /organization/members:
-    post:
-      summary: Add member to own organization (legacy, org admin)
-      operationId: addMember
-      tags: [Organization]
-      security:
-        - bearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [email]
-              properties:
-                email: { type: string, format: email }
-      responses:
-        '200':
-          description: Member added
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/MessageResponse'
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
-
-  /organization/transfer-owner:
-    patch:
-      summary: Transfer own organization ownership (legacy, org admin)
-      operationId: transferOwnership
-      tags: [Organization]
-      security:
-        - bearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [newOwnerId]
-              properties:
-                newOwnerId: { type: string }
-      responses:
-        '200':
-          description: Ownership transferred
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/MessageResponse'
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-
   # ---------------------------------------------------------------------------
   # Invitations
   # ---------------------------------------------------------------------------

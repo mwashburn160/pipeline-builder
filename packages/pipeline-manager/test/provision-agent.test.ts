@@ -10,6 +10,9 @@ jest.mock('child_process', () => ({
   }),
 }));
 
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
 import { diagnoseFailure, isAiConfigured, parseGoal } from '../src/agent/ai.js';
 import { executionBlocked } from '../src/agent/executor.js';
 import { deriveHealthUrl } from '../src/agent/health.js';
@@ -222,6 +225,25 @@ describe('checkPrereqs / prereqsSatisfied', () => {
     const checks = checkPrereqs('docker');
     expect(checks.map((c) => c.name)).toEqual(['Docker', 'Docker Compose', 'yq', 'openssl']);
     expect(checks.every((c) => c.required)).toBe(true);
+  });
+  it('does not accept docker-compose v1 for local: setup.sh needs the Compose V2 plugin', () => {
+    // A PATH holding only stubs: `docker-compose` (v1) exists, `docker` exits 1
+    // for everything, so there is no `docker compose` plugin. setup.sh would
+    // abort on this machine, so the check must fail.
+    const bin = mkdtempSync(join(tmpdir(), 'pm-compose-v1-'));
+    const savedPath = process.env.PATH;
+    try {
+      writeFileSync(join(bin, 'docker-compose'), '#!/bin/sh\nexit 0\n');
+      writeFileSync(join(bin, 'docker'), '#!/bin/sh\nexit 1\n');
+      chmodSync(join(bin, 'docker-compose'), 0o755);
+      chmodSync(join(bin, 'docker'), 0o755);
+      process.env.PATH = bin;
+      const compose = checkPrereqs('docker').find((c) => c.name === 'Docker Compose');
+      expect(compose?.ok).toBe(false);
+    } finally {
+      process.env.PATH = savedPath;
+      rmSync(bin, { recursive: true, force: true });
+    }
   });
   it('minikube checks Docker/minikube/kubectl/openssl, and yq only with plugins', () => {
     const base = checkPrereqs('minikube').map((c) => c.name);

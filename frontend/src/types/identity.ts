@@ -26,8 +26,7 @@ export interface User {
   role: OrgRole;
   /**
    * Global super-admin flag carried in the JWT. True for Pipeline Builder
-   * operators; supersedes the legacy "is this user in the system org"
-   * check. Only set when true to keep payloads small for the common case.
+   * operators. Only set when true to keep payloads small for the common case.
    */
   isSuperAdmin?: boolean;
   /** Active organization ID (user may belong to multiple orgs; see `organizations`) */

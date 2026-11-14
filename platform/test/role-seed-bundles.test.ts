@@ -108,7 +108,7 @@ describe('the seeded Role set is derived from the one table', () => {
   });
 
   // `team_lead` is a tenant job and a TEMPLATE now, so it is a seed bundle
-  // (legacy Roles keep theirs, and Pass A keeps it current) without being
+  // (Roles created from it keep theirs, and Pass A keeps it current) without being
   // seeded anywhere.
   it('does not seed team_lead, which became a template', () => {
     expect(SYSTEM_ORG_JOB_BUNDLES).not.toContain('team_lead');

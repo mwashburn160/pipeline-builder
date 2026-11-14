@@ -24,8 +24,7 @@ local.file_match "pods" {
 
 loki.source.file "pods" {
   targets               = local.file_match.pods.targets
-  forward_to            = [loki.process.pipeline.receiver]
-  legacy_positions_file = "/tmp/positions.yaml"
+  forward_to = [loki.process.pipeline.receiver]
 }
 
 loki.process "pipeline" {

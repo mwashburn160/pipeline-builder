@@ -689,7 +689,7 @@ describe('setTokenRevocationStore + requireAuth revocation check', () => {
     expect((await runAuth(await authReq(2))).passed).toBe(true);
   });
 
-  it('does no revocation check when no store is registered (backward compatible)', async () => {
+  it('does no revocation check when no store is registered', async () => {
     expect((await runAuth(await authReq(1))).passed).toBe(true);
   });
 

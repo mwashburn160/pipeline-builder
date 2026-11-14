@@ -1280,7 +1280,7 @@ describe('POST /messages/:id/reply — first-response measurement', () => {
     expect(mockStampFirst).not.toHaveBeenCalled();
   });
 
-  it('does not stamp a thread with no case (legacy support correspondence)', async () => {
+  it('does not stamp a thread with no case (unentitled support correspondence)', async () => {
     mockFindCase.mockResolvedValue(null);
     await reply(SYSTEM_ORG);
     expect(mockStampFirst).not.toHaveBeenCalled();

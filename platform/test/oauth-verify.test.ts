@@ -212,7 +212,7 @@ describe('verifyOAuthCode', () => {
     const state = await mintState('google');
     global.fetch = jest.fn<AnyFn>()
       .mockResolvedValueOnce(okJson({ access_token: 'tok' }))
-      .mockResolvedValueOnce(okJson({ id: 'g-42', email: 'real@x.com', email_verified: true, name: 'Real' })) as any;
+      .mockResolvedValueOnce(okJson({ sub: 'g-42', email: 'real@x.com', email_verified: true, name: 'Real' })) as any;
 
     const identity = await verifyOAuthCode('google', 'auth-code', state, browser());
     expect(identity).toMatchObject({ id: 'g-42', email: 'real@x.com' });
@@ -222,7 +222,7 @@ describe('verifyOAuthCode', () => {
     const state = await mintState('google');
     const fetchMock = jest.fn<AnyFn>()
       .mockResolvedValueOnce(okJson({ access_token: 'tok' }))
-      .mockResolvedValueOnce(okJson({ id: 'g-42', email: 'real@x.com', email_verified: true }));
+      .mockResolvedValueOnce(okJson({ sub: 'g-42', email: 'real@x.com', email_verified: true }));
     global.fetch = fetchMock as any;
 
     await verifyOAuthCode('google', 'auth-code', state, browser());
@@ -242,7 +242,7 @@ describe('verifyOAuthCode', () => {
     const state = await mintState('google');
     global.fetch = jest.fn<AnyFn>()
       .mockResolvedValueOnce(okJson({ access_token: 'tok' }))
-      .mockResolvedValueOnce(okJson({ id: 'g-1', email: 'a@x.com', email_verified: true })) as any;
+      .mockResolvedValueOnce(okJson({ sub: 'g-1', email: 'a@x.com', email_verified: true })) as any;
 
     await verifyOAuthCode('google', 'code', state, browser()); // consumes it
     await expect(verifyOAuthCode('google', 'code', state, browser())).rejects.toThrow(OAUTH_INVALID_STATE);
@@ -271,13 +271,23 @@ describe('verifyOAuthCode', () => {
     let state = await mintState('google');
     global.fetch = jest.fn<AnyFn>()
       .mockResolvedValueOnce(okJson({ access_token: 'tok' }))
-      .mockResolvedValueOnce(okJson({ id: 'g-1', email_verified: true })) as any;
+      .mockResolvedValueOnce(okJson({ sub: 'g-1', email_verified: true })) as any;
     await expect(verifyOAuthCode('google', 'code', state, browser())).rejects.toThrow(OAUTH_NO_EMAIL);
 
     state = await mintState('google');
     global.fetch = jest.fn<AnyFn>()
       .mockResolvedValueOnce(okJson({ access_token: 'tok' }))
-      .mockResolvedValueOnce(okJson({ id: 'g-1', email: 'a@x.com', email_verified: false })) as any;
+      .mockResolvedValueOnce(okJson({ sub: 'g-1', email: 'a@x.com', email_verified: false })) as any;
+    await expect(verifyOAuthCode('google', 'code', state, browser())).rejects.toThrow(OAUTH_EMAIL_UNVERIFIED);
+  });
+
+  it('refuses a Google payload in the old oauth2/v2 shape (`id` + `verified_email`)', async () => {
+    // The provider reads the OIDC userinfo endpoint only; a v2-shaped answer
+    // carries no `email_verified`, so its email is never trusted as verified.
+    const state = await mintState('google');
+    global.fetch = jest.fn<AnyFn>()
+      .mockResolvedValueOnce(okJson({ access_token: 'tok' }))
+      .mockResolvedValueOnce(okJson({ id: 'g-1', email: 'a@x.com', verified_email: true })) as any;
     await expect(verifyOAuthCode('google', 'code', state, browser())).rejects.toThrow(OAUTH_EMAIL_UNVERIFIED);
   });
 
@@ -331,8 +341,8 @@ describe('handleCallback (OAUTH_ERROR_MAP wiring)', () => {
   });
 
   it.each([
-    ['an unverified provider email', { id: 'g-1', email: 'a@x.com', email_verified: false }, 403],
-    ['a missing provider email', { id: 'g-1', email_verified: true }, 400],
+    ['an unverified provider email', { sub: 'g-1', email: 'a@x.com', email_verified: false }, 403],
+    ['a missing provider email', { sub: 'g-1', email_verified: true }, 400],
   ])('maps %s to its status instead of 500', async (_label, claims, status) => {
     const state = await mintState('google');
     global.fetch = jest.fn<AnyFn>()
@@ -384,7 +394,7 @@ describe('handleCallback (OAUTH_ERROR_MAP wiring)', () => {
     const state = await mintState('google');
     global.fetch = jest.fn<AnyFn>()
       .mockResolvedValueOnce(okJson({ access_token: 'tok' }))
-      .mockResolvedValueOnce(okJson({ id: 'g-7', email: 'ok@x.com', email_verified: true })) as any;
+      .mockResolvedValueOnce(okJson({ sub: 'g-7', email: 'ok@x.com', email_verified: true })) as any;
     mockFindOrCreate.mockResolvedValue({ _id: 'u1', lastActiveOrgId: { toString: () => 'org-1' } });
     mockSignInMethods.mockResolvedValueOnce({ hasPassword: true, hasProvider: true, passkeyCount: 0, hasTotp: true });
 
@@ -401,7 +411,7 @@ describe('handleCallback (OAUTH_ERROR_MAP wiring)', () => {
     const state = await mintState('google');
     global.fetch = jest.fn<AnyFn>()
       .mockResolvedValueOnce(okJson({ access_token: 'tok' }))
-      .mockResolvedValueOnce(okJson({ id: 'g-7', email: 'ok@x.com', email_verified: true })) as any;
+      .mockResolvedValueOnce(okJson({ sub: 'g-7', email: 'ok@x.com', email_verified: true })) as any;
     mockFindOrCreate.mockResolvedValue({ _id: 'u1', lastActiveOrgId: { toString: () => 'org-1' } });
     mockSignInMethods.mockResolvedValueOnce({ hasPassword: false, hasProvider: true, passkeyCount: 1, hasTotp: false });
 
@@ -416,7 +426,7 @@ describe('handleCallback (OAUTH_ERROR_MAP wiring)', () => {
     const state = await mintState('google');
     global.fetch = jest.fn<AnyFn>()
       .mockResolvedValueOnce(okJson({ access_token: 'tok' }))
-      .mockResolvedValueOnce(okJson({ id: 'g-7', email: 'ok@x.com', email_verified: true })) as any;
+      .mockResolvedValueOnce(okJson({ sub: 'g-7', email: 'ok@x.com', email_verified: true })) as any;
     mockFindOrCreate.mockResolvedValue({ _id: 'u1', lastActiveOrgId: { toString: () => 'org-1' } });
 
     const res = makeRes();
@@ -440,7 +450,7 @@ describe('handleCallback (OAUTH_ERROR_MAP wiring)', () => {
     const state = await mintState('google');
     global.fetch = jest.fn<AnyFn>()
       .mockResolvedValueOnce(okJson({ access_token: 'tok' }))
-      .mockResolvedValueOnce(okJson({ id: 'g-9', email: 'user@sso-org.com', email_verified: true })) as any;
+      .mockResolvedValueOnce(okJson({ sub: 'g-9', email: 'user@sso-org.com', email_verified: true })) as any;
     // The org's IdP forces SSO for this domain: the gate handles the response.
     mockRejectIfSsoEnforced.mockImplementation(async (_req: unknown, res: any) => {
       res.status(403).json({ success: false, code: 'SSO_REQUIRED' });
@@ -488,7 +498,7 @@ describe('OAuth step-up re-auth', () => {
   it('returns the verified identity with no authTime when the provider sends no id_token', async () => {
     global.fetch = jest.fn<AnyFn>()
       .mockResolvedValueOnce(okJson({ access_token: 'tok' }))
-      .mockResolvedValueOnce(okJson({ id: 'g-42', email: 'real@x.com', email_verified: true })) as any;
+      .mockResolvedValueOnce(okJson({ sub: 'g-42', email: 'real@x.com', email_verified: true })) as any;
 
     const out = await verifyOAuthReauthCode('google', 'code', 'reauth-verifier');
     expect(out.userInfo).toMatchObject({ id: 'g-42' });
@@ -499,7 +509,7 @@ describe('OAuth step-up re-auth', () => {
     const idToken = jwt.sign({ aud: 'g-client', sub: 'g-42', auth_time: 1_700_000_000 }, 'x');
     global.fetch = jest.fn<AnyFn>()
       .mockResolvedValueOnce(okJson({ access_token: 'tok', id_token: idToken }))
-      .mockResolvedValueOnce(okJson({ id: 'g-42', email: 'real@x.com', email_verified: true })) as any;
+      .mockResolvedValueOnce(okJson({ sub: 'g-42', email: 'real@x.com', email_verified: true })) as any;
 
     expect((await verifyOAuthReauthCode('google', 'code', 'reauth-verifier')).authTime).toBe(1_700_000_000);
   });
@@ -508,7 +518,7 @@ describe('OAuth step-up re-auth', () => {
     const idToken = jwt.sign({ aud: 'other-client', sub: 'g-42', auth_time: 1 }, 'x');
     global.fetch = jest.fn<AnyFn>()
       .mockResolvedValueOnce(okJson({ access_token: 'tok', id_token: idToken }))
-      .mockResolvedValueOnce(okJson({ id: 'g-42', email: 'real@x.com', email_verified: true })) as any;
+      .mockResolvedValueOnce(okJson({ sub: 'g-42', email: 'real@x.com', email_verified: true })) as any;
 
     await expect(verifyOAuthReauthCode('google', 'code', 'reauth-verifier')).rejects.toThrow(OAUTH_INVALID_ID_TOKEN);
   });
@@ -517,7 +527,7 @@ describe('OAuth step-up re-auth', () => {
     const idToken = jwt.sign({ aud: 'g-client', sub: 'someone-else', auth_time: 1 }, 'x');
     global.fetch = jest.fn<AnyFn>()
       .mockResolvedValueOnce(okJson({ access_token: 'tok', id_token: idToken }))
-      .mockResolvedValueOnce(okJson({ id: 'g-42', email: 'real@x.com', email_verified: true })) as any;
+      .mockResolvedValueOnce(okJson({ sub: 'g-42', email: 'real@x.com', email_verified: true })) as any;
 
     await expect(verifyOAuthReauthCode('google', 'code', 'reauth-verifier')).rejects.toThrow(OAUTH_INVALID_ID_TOKEN);
   });
@@ -554,7 +564,7 @@ describe('PKCE on social sign-in', () => {
     const state = await mintState('google');
     const fetchMock = jest.fn<AnyFn>()
       .mockResolvedValueOnce(okJson({ access_token: 'tok' }))
-      .mockResolvedValueOnce(okJson({ id: 'g-42', email: 'real@x.com', email_verified: true }));
+      .mockResolvedValueOnce(okJson({ sub: 'g-42', email: 'real@x.com', email_verified: true }));
     global.fetch = fetchMock as any;
 
     await verifyOAuthCode('google', 'auth-code', state, browser());

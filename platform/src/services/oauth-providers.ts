@@ -269,10 +269,11 @@ function createGoogleProvider(): OAuthProvider {
     // not honour `max_age`; the account picker is the strongest re-prompt it
     // offers. Recency is enforced only if its id_token carries `auth_time`.
     reauthAuthorizeParams: { prompt: 'select_account', max_age: '0' },
-    // OIDC userinfo → `email_verified`; legacy oauth2/v2 → `verified_email`.
+    // OIDC userinfo: `sub` is the same stable numeric Google account id the old
+    // oauth2/v2 endpoint returned as `id`, so linked accounts keep matching.
     toUserInfo: (d) => ({
-      id: String(d.id ?? d.sub),
-      email: requireVerifiedEmail(d.email, d.email_verified === true || d.verified_email === true),
+      id: String(d.sub),
+      email: requireVerifiedEmail(d.email, d.email_verified === true),
       name: optionalString(d.name),
       picture: optionalString(d.picture),
     }),

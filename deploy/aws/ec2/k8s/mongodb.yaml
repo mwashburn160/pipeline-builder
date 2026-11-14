@@ -222,13 +222,12 @@ spec:
               readOnly: true
         # Prometheus exporter sidecar — see the postgres-exporter note for why
         # this is a sidecar. --collect-all enables the replset/oplog collectors
-        # this deployment cares about; --compatible-mode keeps the legacy metric
-        # names that most community dashboards and alert rules expect.
+        # this deployment cares about. mongodb_up (the only exporter metric the
+        # alert rules read) is emitted by the general collector in every mode.
         - name: mongodb-exporter
           image: percona/mongodb_exporter@sha256:0214e482b2cd4b1849f9f4dcef90d328a99ba3727dd1103e7da48b42060bcec1  # percona/mongodb_exporter:0.53.0
           args:
             - "--collect-all"
-            - "--compatible-mode"
             - "--web.listen-address=:9216"
           ports:
             - containerPort: 9216

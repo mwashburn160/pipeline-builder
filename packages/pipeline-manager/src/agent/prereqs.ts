@@ -19,10 +19,14 @@ export interface PrereqCheck {
   readonly required: boolean;
 }
 
-/** True if `cmd` is on PATH. */
+/**
+ * True if `cmd` is on PATH. Both helpers pass `env` explicitly so the lookup
+ * uses THIS module's `process.env` (what a caller or a test set), not whatever
+ * environment the child_process binding happened to capture.
+ */
 function has(cmd: string): boolean {
   try {
-    execSync(`command -v ${cmd}`, { stdio: 'ignore', timeout: 5000 });
+    execSync(`command -v ${cmd}`, { stdio: 'ignore', timeout: 5000, env: process.env });
     return true;
   } catch {
     return false;
@@ -32,7 +36,7 @@ function has(cmd: string): boolean {
 /** Run a read-only command; return its trimmed stdout or null on failure. */
 function read(cmd: string): string | null {
   try {
-    return execSync(cmd, { stdio: ['ignore', 'pipe', 'ignore'], timeout: 15000 }).toString().trim();
+    return execSync(cmd, { stdio: ['ignore', 'pipe', 'ignore'], timeout: 15000, env: process.env }).toString().trim();
   } catch {
     return null;
   }
@@ -42,9 +46,9 @@ function dockerRunning(): boolean {
   return has('docker') && read('docker info --format "{{.ServerVersion}}"') !== null;
 }
 
-/** Docker Compose v2 (`docker compose`) or legacy v1 (`docker-compose`) — setup.sh needs one. */
+/** Docker Compose V2 (`docker compose`) — setup.sh supports nothing else. */
 function dockerComposeAvailable(): boolean {
-  return read('docker compose version') !== null || has('docker-compose');
+  return read('docker compose version') !== null;
 }
 
 function awsIdentity(): string | null {
@@ -106,7 +110,7 @@ export function checkPrereqs(target: TargetId, opts: { bootstrap?: boolean; with
     // any is missing — mirror them here so provision blocks up front instead of
     // failing mid-deploy (e.g. the classic "yq is not installed").
     checks.push(check('Docker', dockerRunning(), 'daemon reachable', 'install Docker and start the daemon'));
-    checks.push(check('Docker Compose', dockerComposeAvailable(), 'available', 'needs `docker compose` (v2 plugin) or `docker-compose` (v1)'));
+    checks.push(check('Docker Compose', dockerComposeAvailable(), 'available', 'needs `docker compose` (the Compose V2 plugin)'));
     checks.push(check('yq', has('yq'), 'on PATH', 'install yq (macOS: `brew install yq`) — setup.sh requires it'));
     checks.push(check('openssl', has('openssl'), 'on PATH', OPENSSL_TLS));
     return checks;

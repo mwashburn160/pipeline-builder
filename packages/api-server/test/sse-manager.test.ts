@@ -372,7 +372,7 @@ describe('SSEManager', () => {
       expect((await manager.createTicket('org-a', REQ_A)).ok).toBe(true);
     });
 
-    it('mints normally when no owner is bound (backward-compatible)', async () => {
+    it('mints normally when no owner is bound', async () => {
       // No bindStreamOwner call → falls back to binding the ticket to the caller.
       expect((await manager.createTicket('org-x', REQ_B)).ok).toBe(true);
     });

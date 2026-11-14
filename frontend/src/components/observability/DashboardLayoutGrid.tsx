@@ -11,9 +11,9 @@
  *
  * Mapping between `layoutJson` and react-grid-layout's `Layout[]` * - layoutJson is keyed by panel id: `{ [panelId]: { x, y, w, h, minW?, minH? } }`
  * - the grid library wants an array of `{ i, x, y, w, h, minW?, minH? }`
- * - panels missing from layoutJson get a default position derived from
- * `panel.position` so legacy dashboards (created before drag-resize was
- * available) still render in a sane order.
+ * - panels missing from layoutJson (every panel of a seeded or never-arranged
+ * dashboard, whose layoutJson starts `{}`) get a default position derived
+ * from `panel.position`, so they render in a sane order.
  */
 
 import { useMemo } from 'react';

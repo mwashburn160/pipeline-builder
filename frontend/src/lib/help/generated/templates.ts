@@ -1,6 +1,6 @@
 // GENERATED FROM docs/templates.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 050364e3b9234b481a1a2336f556b7ad6fcfbc0f9eb0eb35aebb3977584c793d
+// SOURCE-SHA256: 8e45cd446f839a44e6dc2c437dcaa1244b652cb1f6c737b35293ebac0d0f657f
 // SPDX-License-Identifier: Apache-2.0
 import { Braces } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -717,10 +717,6 @@ export const templatesTopic: HelpTopic = {
         {
           "type": "text",
           "content": "\"Template cycle detected\" → One of your metadata.* or vars.* fields references another that references back to the first. The error message includes the full cycle chain."
-        },
-        {
-          "type": "text",
-          "content": "{{ ... }} still visible in my CodeBuild logs → The plugin was loaded without pipelineScope — this happens only in legacy direct-invocation paths. The platform-managed synth flow always passes scope."
         }
       ]
     },

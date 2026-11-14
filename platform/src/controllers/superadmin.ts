@@ -113,8 +113,7 @@ export const removeUserGrant = withController('Remove user grant', async (req, r
     if (!user) return sendError(res, 404, 'User not found');
 
     // Remove the system-org Super Admin Role + recompute (clears isSuperAdmin,
-    // bumps tokenVersion, clears the refresh-session slots) atomically. Works even for a
-    // legacy user who had the flag set directly but never held the Role.
+    // bumps tokenVersion, clears the refresh-session slots) atomically.
     const { changed } = await revokePlatformAdmin(userId);
     if (changed) {
       // `affectedOrgId` is the SYSTEM org, not whatever org the operator happens

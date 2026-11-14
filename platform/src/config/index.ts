@@ -695,7 +695,7 @@ export const config = {
       enabled: !!process.env.OAUTH_GOOGLE_CLIENT_ID,
       authorizeUrl: process.env.GOOGLE_AUTHORIZE_URL || 'https://accounts.google.com/o/oauth2/v2/auth',
       tokenUrl: process.env.GOOGLE_TOKEN_URL || 'https://oauth2.googleapis.com/token',
-      userinfoUrl: process.env.GOOGLE_USERINFO_URL || 'https://www.googleapis.com/oauth2/v2/userinfo',
+      userinfoUrl: process.env.GOOGLE_USERINFO_URL || 'https://openidconnect.googleapis.com/v1/userinfo',
     },
     github: {
       clientId: process.env.OAUTH_GITHUB_CLIENT_ID || '',

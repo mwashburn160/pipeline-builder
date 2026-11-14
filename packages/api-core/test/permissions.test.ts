@@ -70,8 +70,8 @@ describe('SEED_BUNDLES — the one table', () => {
 
   it('draws the system-org job list from the bundle ids, and leaves out the tenant one', () => {
     for (const id of SYSTEM_ORG_JOB_BUNDLES) expect(SEED_BUNDLE_IDS).toContain(id);
-    // `team_lead` is a TENANT job and a template now — a seed bundle (legacy
-    // Roles keep theirs) that is seeded nowhere.
+    // `team_lead` is a TENANT job and a template now — a seed bundle (Roles
+    // created from it keep theirs) that is seeded nowhere.
     expect(SYSTEM_ORG_JOB_BUNDLES).not.toContain('team_lead');
     expect(new Set(SYSTEM_ORG_JOB_BUNDLES).size).toBe(SYSTEM_ORG_JOB_BUNDLES.length);
   });

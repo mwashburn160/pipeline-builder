@@ -50,7 +50,7 @@ export const message = pgTable('messages', {
     .notNull(),
 
   // Optional per-user targeting WITHIN the recipient org. NULL (default) = the
-  // whole recipient org sees it — the original, backward-compatible behavior.
+  // whole recipient org sees it.
   // When set, only this user (a member of `recipientOrgId`) sees it, enforced in
   // `buildMessageConditions` against the viewer's userId. Announcement broadcasts
   // (`recipientOrgId = '*'`) never set this — they are org-wide by definition.

@@ -863,8 +863,8 @@ services:
     deploy: *exporter-deploy
 
   # --collect-all enables the replset/oplog collectors this deployment cares
-  # about; --compatible-mode keeps the legacy metric names the alert rules and
-  # community dashboards expect (mongodb_up among them).
+  # about. mongodb_up (the only exporter metric the alert rules read) is emitted
+  # by the general collector in every mode.
   mongodb-exporter:
     image: 'percona/mongodb_exporter@sha256:0214e482b2cd4b1849f9f4dcef90d328a99ba3727dd1103e7da48b42060bcec1'  # percona/mongodb_exporter:0.53.0
     labels:
@@ -874,7 +874,6 @@ services:
     restart: always
     command:
       - '--collect-all'
-      - '--compatible-mode'
       - '--web.listen-address=:9216'
     environment:
       MONGODB_URI: ${MONGODB_URI}
@@ -2786,18 +2785,11 @@ services:
       track: stable
     container_name: alloy
     restart: always
-    # Wrap Alloy to auto-clean a corrupted positions file on startup. The
-    # ./data/alloy-data bind mount preserves read positions across restarts for
-    # log dedup, but unclean shutdowns can corrupt the YAML — purge it first.
-    # (Alloy still reads promtail's positions format via legacy_positions_file.)
-    entrypoint: ["/bin/sh", "-c"]
     command:
-      - |
-        if [ -f /tmp/positions.yaml ] && ! grep -q '^positions:' /tmp/positions.yaml 2>/dev/null; then
-          echo "Removing corrupted positions file"
-          rm -f /tmp/positions.yaml
-        fi
-        exec /bin/alloy run --server.http.listen-addr=0.0.0.0:12345 --storage.path=/tmp/alloy /etc/alloy/config.alloy
+      - 'run'
+      - '--server.http.listen-addr=0.0.0.0:12345'
+      - '--storage.path=/tmp/alloy'
+      - '/etc/alloy/config.alloy'
     volumes:
       - './config/alloy/config.alloy:/etc/alloy/config.alloy:ro'
       - '/var/run/docker.sock:/var/run/docker.sock:ro'
