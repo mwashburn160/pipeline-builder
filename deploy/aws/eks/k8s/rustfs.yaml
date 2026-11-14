@@ -227,7 +227,7 @@ spec:
               # head is ever written to it.
               #
               # Four things verified live against this exact image before writing this
-              # test (docker pull rustfs/rustfs:1.0.0 + rustfs/rc:v0.1.36, both run
+              # test (docker pull rustfs/rustfs:1.0.5 + rustfs/rc:v0.1.36, both run
               # standalone):
               #   - The flag is `--retain-until`, not `--retention-until` (caught by
               #     actually running `rc put --help`, not assumed from the option name
@@ -327,7 +327,7 @@ spec:
       labels:
         app: rustfs
         app.kubernetes.io/component: rustfs
-        version: "1.0.0"
+        version: "1.0.5"
         track: stable
     spec:
       serviceAccountName: rustfs
@@ -348,7 +348,13 @@ spec:
                 topologyKey: kubernetes.io/hostname
       containers:
         - name: rustfs
-          image: rustfs/rustfs:1.0.0@sha256:8cc9801755448b71a786705ce76692c77e14936cccd87cf2fc31842e58f4d1ff
+          # 1.0.0 -> 1.0.5: 1.0.0's heal retries an object whose shards are gone
+          # ("Storage error: File not found", result=recreate_failed) forever, and
+          # its heap grows with the retry backlog until the pod is OOMKilled —
+          # seen on EKS after a node OOM orphaned registry `_uploads/` sessions.
+          # Fixed upstream in rustfs#8697 (absence decided from storage evidence)
+          # and #9144/#9193 (bounded heal/scanner memory), both first in 1.0.5.
+          image: rustfs/rustfs:1.0.5@sha256:b81d16a90ee25bd9511280127ca1471788c6e874cf0f0da759645f46b2dc1d74
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: false
