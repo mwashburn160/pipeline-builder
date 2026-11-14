@@ -46,7 +46,7 @@ Shared server/auth/DB/Redis settings (`PORT`, `DB_*`, `PLATFORM_BASE_URL`, CORS)
 | Variable | Purpose | Default |
 |----------|---------|---------|
 | `PLUGIN_UPLOAD_DIR` | Directory where uploaded ZIPs are staged for the build | `/opt/pipeline/pipeline-data/plugins-data` |
-| `PLUGIN_UPLOAD_TIMEOUT_MS` | Upload request timeout (ms) | `300000` |
+| `PLUGIN_UPLOAD_TIMEOUT_MS` | Upload request timeout (ms) | `900000` |
 | `PLUGIN_ORG_BUILD_SLOTS_STANDARD` | BASELINE per-org build slots on the standard class; the tier ladder only raises it, and the system org is exempt | `5` |
 | `PLUGIN_ORG_BUILD_SLOTS_FLEXIBLE` | Same baseline for the flexible class, higher so the cheap class keeps headroom on every tier | `8` |
 | `PLUGIN_ORG_SLOT_DELAY_MS` | Delay before re-checking an org build slot (ms) | `10000` |

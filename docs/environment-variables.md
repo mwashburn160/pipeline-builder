@@ -542,7 +542,7 @@ there is no docker daemon, no privileged build sidecar, and no strategy switch.
 | `DOCKER_BUILD_TEMP_ROOT` | `<cwd>/tmp` | Directory the local Docker build strategy stages its build contexts in. Point it at a volume with room for the largest context; the default follows the process's working directory, which on a container is usually the image's own filesystem |
 | `ALLOW_INCLUSTER_PULL_HOST` | `false` | Permit a plugin image reference whose pull host is only resolvable INSIDE the cluster. Off, such a reference is refused at validation — it would resolve for the builder and fail for anything pulling from outside. `true` only when every consumer is in-cluster |
 | `DOCKER_PUSH_TIMEOUT_MS` | `300000` | Push timeout (5 min) |
-| `PLUGIN_UPLOAD_TIMEOUT_MS` | `300000` | Upload HTTP timeout (5 min) — overrides `HANDLER_TIMEOUT_MS` for the upload route |
+| `PLUGIN_UPLOAD_TIMEOUT_MS` | `900000` | Upload HTTP timeout (15 min) — overrides `HANDLER_TIMEOUT_MS` for the upload route. Kept equal to nginx's upload-route proxy timeouts and the loader's `UPLOAD_TIMEOUT` (see [Plugin Upload Timeout Chain](#plugin-upload-timeout-chain)) |
 | `PLUGIN_UPLOAD_DIR` | `/opt/pipeline/pipeline-data/plugins-data` | Where an uploaded plugin archive is staged before it goes to object storage and is extracted. Each upload is removed in a `finally`, so this needs room for concurrent uploads, not for the catalog |
 | `PLUGIN_MAX_UPLOAD_MB` | `4096` | Max plugin ZIP upload size in MB (supports prebuilt image.tar) |
 | `GRYPE_DB_CACHE_DIR` | `$TMPDIR/grype-db` (deploys set `/var/cache/grype`) | grype's vulnerability DB for the build-time scan and the nightly rescan. Every deploy mounts a volume here — the plugin container's root filesystem is read-only. **eks:** one shared, read-only copy on the `grype-db` EFS claim, written only by the `grype-db-refresh` CronJob (every 6 h, and once per deploy); the pods run with `PLUGIN_GRYPE_DB_AUTO_UPDATE=false`. **ec2 / minikube:** a per-pod 12 Gi `emptyDir`. **compose:** the `grype-db` named volume. The DB is ~3.3 GiB installed, and a refresh over an existing copy peaks around 7.3 GiB on disk |
@@ -1078,7 +1078,7 @@ All optional (defaults shown). They tune behavior that matters only under horizo
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `HANDLER_TIMEOUT_MS` | `25000` | Global HTTP request timeout (25s) |
-| `PLUGIN_UPLOAD_TIMEOUT_MS` | `300000` | Upload route timeout override (5 min) |
+| `PLUGIN_UPLOAD_TIMEOUT_MS` | `900000` | Upload route timeout override (15 min) |
 | `DOCKER_BUILD_TIMEOUT_MS` | `900000` | Docker build timeout (15 min) |
 | `DOCKER_PUSH_TIMEOUT_MS` | `300000` | Docker push timeout (5 min) |
 | `HTTP_CLIENT_TIMEOUT` | `5000` | Internal HTTP client timeout — a TOTAL deadline for the whole exchange (connect, send, full body), not just socket idle |
@@ -1097,7 +1097,7 @@ When uploading a large plugin ZIP (up to 4GB with prebuilt image.tar), the reque
 ```
 Client (curl)                    UPLOAD_TIMEOUT = 900s (15 min)
   └─ nginx proxy_read_timeout    900s (shipped configs); nginx's own default is 60s
-      └─ Express route           PLUGIN_UPLOAD_TIMEOUT_MS = 300s (5 min)
+      └─ Express route           PLUGIN_UPLOAD_TIMEOUT_MS = 900s (15 min)
           └─ Express global      HANDLER_TIMEOUT_MS = 25s (overridden by route)
               └─ Build queue     DOCKER_BUILD_TIMEOUT_MS = 900s (15 min, async)
                   └─ Push        DOCKER_PUSH_TIMEOUT_MS = 300s (5 min, async)
@@ -1105,7 +1105,9 @@ Client (curl)                    UPLOAD_TIMEOUT = 900s (15 min)
 
 The upload request returns `202 Accepted` after the ZIP is parsed and the build job is enqueued. The Docker build and push happen asynchronously in the build queue — their timeouts do not affect the upload response.
 
-**If uploads fail with 503 (timeout):** Increase `PLUGIN_UPLOAD_TIMEOUT_MS` and ensure nginx `proxy_read_timeout` is at least as long (the shipped nginx configs already set it to `900s` for the upload route). Do not increase `HANDLER_TIMEOUT_MS` — it applies globally to all routes.
+The first three layers must agree, because the shortest one cuts the upload: the shipped defaults are all 900 s, and a deploy-contracts test (`upload-timeout-contract.test.ts`) fails if the server default, any target's nginx upload-route timeouts or the loader's default drift apart.
+
+**If uploads fail with 503 (timeout):** Raise all three together: `PLUGIN_UPLOAD_TIMEOUT_MS`, nginx's `proxy_send_timeout` / `proxy_read_timeout` / `send_timeout` on `location = /api/plugins/upload`, and the loader's `--timeout`. Do not increase `HANDLER_TIMEOUT_MS` — it applies globally to all routes.
 
 ---
 

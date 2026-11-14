@@ -1,6 +1,6 @@
 // GENERATED FROM docs/environment-variables.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 1b817a035e37305787b33a4d2e0325e19ae8436fcd542f55d5187123c201b44e
+// SOURCE-SHA256: 2aff965555143a5e009738c97f763c9b0c12bf0fac71eeaf644df5a2a1fbdadc
 // SPDX-License-Identifier: Apache-2.0
 import { FileCode } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -1704,8 +1704,8 @@ export const envVariablesTopic: HelpTopic = {
             ],
             [
               "PLUGIN_UPLOAD_TIMEOUT_MS",
-              "300000",
-              "Upload HTTP timeout (5 min) — overrides HANDLER_TIMEOUT_MS for the upload route"
+              "900000",
+              "Upload HTTP timeout (15 min) — overrides HANDLER_TIMEOUT_MS for the upload route. Kept equal to nginx's upload-route proxy timeouts and the loader's UPLOAD_TIMEOUT (see Plugin Upload Timeout Chain)"
             ],
             [
               "PLUGIN_UPLOAD_DIR",
@@ -3611,8 +3611,8 @@ export const envVariablesTopic: HelpTopic = {
             ],
             [
               "PLUGIN_UPLOAD_TIMEOUT_MS",
-              "300000",
-              "Upload route timeout override (5 min)"
+              "900000",
+              "Upload route timeout override (15 min)"
             ],
             [
               "DOCKER_BUILD_TIMEOUT_MS",
@@ -3676,7 +3676,7 @@ export const envVariablesTopic: HelpTopic = {
         },
         {
           "type": "code",
-          "content": "Client (curl)                    UPLOAD_TIMEOUT = 900s (15 min)\n  └─ nginx proxy_read_timeout    900s (shipped configs); nginx's own default is 60s\n      └─ Express route           PLUGIN_UPLOAD_TIMEOUT_MS = 300s (5 min)\n          └─ Express global      HANDLER_TIMEOUT_MS = 25s (overridden by route)\n              └─ Build queue     DOCKER_BUILD_TIMEOUT_MS = 900s (15 min, async)\n                  └─ Push        DOCKER_PUSH_TIMEOUT_MS = 300s (5 min, async)"
+          "content": "Client (curl)                    UPLOAD_TIMEOUT = 900s (15 min)\n  └─ nginx proxy_read_timeout    900s (shipped configs); nginx's own default is 60s\n      └─ Express route           PLUGIN_UPLOAD_TIMEOUT_MS = 900s (15 min)\n          └─ Express global      HANDLER_TIMEOUT_MS = 25s (overridden by route)\n              └─ Build queue     DOCKER_BUILD_TIMEOUT_MS = 900s (15 min, async)\n                  └─ Push        DOCKER_PUSH_TIMEOUT_MS = 300s (5 min, async)"
         },
         {
           "type": "text",
@@ -3684,7 +3684,11 @@ export const envVariablesTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "If uploads fail with 503 (timeout): Increase PLUGIN_UPLOAD_TIMEOUT_MS and ensure nginx proxy_read_timeout is at least as long (the shipped nginx configs already set it to 900s for the upload route). Do not increase HANDLER_TIMEOUT_MS — it applies globally to all routes."
+          "content": "The first three layers must agree, because the shortest one cuts the upload: the shipped defaults are all 900 s, and a deploy-contracts test (upload-timeout-contract.test.ts) fails if the server default, any target's nginx upload-route timeouts or the loader's default drift apart."
+        },
+        {
+          "type": "text",
+          "content": "If uploads fail with 503 (timeout): Raise all three together: PLUGIN_UPLOAD_TIMEOUT_MS, nginx's proxy_send_timeout / proxy_read_timeout / send_timeout on location = /api/plugins/upload, and the loader's --timeout. Do not increase HANDLER_TIMEOUT_MS — it applies globally to all routes."
         }
       ]
     },
