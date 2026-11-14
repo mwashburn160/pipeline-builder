@@ -43,7 +43,7 @@ spec:
       labels:
         app: compliance
         app.kubernetes.io/component: backend
-        version: "4.4.18"
+        version: "4.4.19"
         track: stable
       annotations:
         prometheus.io/scrape: "true"
@@ -87,7 +87,7 @@ spec:
               echo "Dependencies ready"
       containers:
         - name: compliance
-          image: ghcr.io/mwashburn160/compliance:4.4.18@sha256:89cde58e9a1b89aeab117de75b622fcfdcac004c16083357e86d4d1b874f44ed
+          image: ghcr.io/mwashburn160/compliance:4.4.19@sha256:30842070fba48b4661d38e363e2bbaf51183eb6ef2b12a08780b7fc7cb18516a
           securityContext:
             runAsNonRoot: true
             runAsUser: 1000
