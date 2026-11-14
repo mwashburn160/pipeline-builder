@@ -920,7 +920,7 @@ spec:
 ---
 # image-registry -> plugin: GET /internal/plugins/public-names — which of a
 # parent org's plugins are public, the only parent repositories a TEAM's
-# registry token may pull (E22). App-side gate: requireInternalService(['image-registry']).
+# registry token may pull. App-side gate: requireInternalService(['image-registry']).
 apiVersion: security.istio.io/v1
 kind: AuthorizationPolicy
 metadata:

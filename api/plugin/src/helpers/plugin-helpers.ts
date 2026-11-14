@@ -209,7 +209,7 @@ export interface PluginBuildJobData {
    */
   setupLoad?: boolean;
   /**
-   * Scheduling class (D11), defaulting to `standard` when absent — including for
+   * Scheduling class, defaulting to `standard` when absent — including for
    * a job already in the queue when the field shipped. Defaulting to `flexible`
    * would quietly move in-flight builds onto the slower class.
    *
@@ -219,7 +219,7 @@ export interface PluginBuildJobData {
    */
   buildClass?: BuildClass;
   /**
-   * Machine size (D13), defaulting to `1x`. Validated against the org's tier at
+   * Machine size, defaulting to `1x`. Validated against the org's tier at
    * SUBMISSION (`resolveBuildShape`), not here: a job already enqueued must not
    * start failing because the org downgraded mid-flight, and a build that was
    * admitted at `4x` is charged at `4x` whatever the tier says later.

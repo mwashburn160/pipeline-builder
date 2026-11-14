@@ -1059,7 +1059,7 @@ spec:
 ---
 # =============================================================================
 # image-registry -> plugin (GET /internal/plugins/public-names): the parent
-# org's public plugin set a team's registry token may pull (E22). Without this,
+# org's public plugin set a team's registry token may pull. Without this,
 # default-deny drops the read and every team parent-pull fails closed.
 # =============================================================================
 apiVersion: networking.k8s.io/v1

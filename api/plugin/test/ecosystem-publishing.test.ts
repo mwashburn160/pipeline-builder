@@ -632,7 +632,7 @@ describe('Official catalog auto-approval rule', () => {
 });
 
 // -----------------------------------------------------------------------------
-// Managed toolchain names are never listed (docs/plans/bootstrap-image-versioning.md D5)
+// Managed toolchain names are never listed
 // -----------------------------------------------------------------------------
 
 describe('managed toolchain names', () => {

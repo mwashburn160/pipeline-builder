@@ -66,7 +66,7 @@ function toOfferResponse(offer: Pick<OfferDocument,
     offerType: offer.offerType,
     targetTier: offer.targetTier ?? null,
     // WHAT was proposed, so the card can present a basket rather than send the
-    // account to assemble it (F6).
+    // account to assemble it.
     targetBundles: (offer.targetBundles ?? []).map((b) => ({ bundleId: b.bundleId, quantity: b.quantity })),
     // The copy as SENT, read back rather than re-rendered: a card that
     // re-derived from today's catalogue would restate last month's offer at
@@ -85,9 +85,9 @@ function toOfferResponse(offer: Pick<OfferDocument,
 }
 
 /**
- * The expansion-offer surfaces (docs/plans/sales-agent.md F4, F7, F8).
+ * The expansion-offer surfaces.
  *
- * **Served by billing, not by the offers process (D13).** The decision engine is
+ * **Served by billing, not by the offers process.** The decision engine is
  * internal only and exposes no customer-facing route of its own; everything a
  * customer or an admin sees is here, beside the add-on and discount surfaces
  * they already use. An account should never have to learn that a separate
@@ -102,7 +102,7 @@ function toOfferResponse(offer: Pick<OfferDocument,
  *
  * **Decline and dismiss are different verbs and the distinction is the point.**
  * Redemption was the only action before this, so "never saw it" and "said no"
- * were the same row — and D6's lengthened window after a decline is
+ * were the same row — and the lengthened quiet window after a decline is
  * unimplementable without telling them apart. Dismissal is server-side for the
  * same reason the cap is: a `localStorage` dismissal is per-browser, so the same
  * offer reappears on a laptop.
@@ -118,8 +118,8 @@ export function createOfferRoutes(): Router {
    * now" is the normal state of an account, not an error, and a 404 would make
    * the card render an error for the overwhelmingly common case.
    *
-   * `quietUntil` is here rather than on a second route because F7 requires the
-   * card to show the quiet period's state — an account with offers ENABLED and
+   * `quietUntil` is here rather than on a second route because the
+   * card must show the quiet period's state — an account with offers ENABLED and
    * simply inside its 45 days should see that rather than wonder whether the
    * switch works.
    */
@@ -153,8 +153,8 @@ export function createOfferRoutes(): Router {
   /**
    * POST /billing/offers/:id/decline — "no".
    *
-   * The single most valuable thing the outcome log measures (D12), and the input
-   * D6's lengthened quiet window runs on. A reason is optional: making it
+   * The single most valuable thing the outcome log measures, and the input
+   * the lengthened quiet window runs on. A reason is optional: making it
    * required would push accounts into dismissing instead, which records less.
    */
   router.post(
@@ -233,7 +233,7 @@ export function createOfferRoutes(): Router {
   );
 
   // -------------------------------------------------------------------------
-  // The system-org surface (F8). An automated granter needs its own view.
+  // The system-org surface. An automated granter needs its own view.
   // -------------------------------------------------------------------------
 
   /**
@@ -241,7 +241,7 @@ export function createOfferRoutes(): Router {
    *
    * The per-reason suppression counts are the headline rather than a detail: a
    * feature suppressing almost everything is misconfigured rather than careful,
-   * and that is only visible if every reason is counted separately (D6).
+   * and that is only visible if every reason is counted separately.
    *
    * Holdout membership is reported as a COUNT beside the rest, because the
    * holdout's whole value is that it was decided before the rules ran — a
@@ -383,7 +383,7 @@ export function createOfferRoutes(): Router {
 
   /**
    * POST /billing/admin/offers/withdraw — recall everything ONE actor sent in a
-   * window (docs/plans/sales-agent.md D14).
+   * window.
    *
    * **The control an operator wants on the morning a rule turns out to be
    * wrong.** Naming the deciding actor is what makes this a query rather than an
@@ -444,7 +444,7 @@ export function createOfferRoutes(): Router {
   /**
    * POST /billing/admin/offers/trigger/:orgId — decide this account NOW.
    *
-   * The other half of D6's manual override. It runs the SAME decision path the
+   * The other half of the manual override (the do-not-offer list is the first). It runs the SAME decision path the
    * cycle runs — every gate, the holdout included — rather than forcing an
    * offer: a trigger that bypassed the rules would be a way to mint an offer
    * for an account the rules had just refused, with the agent's name on it.

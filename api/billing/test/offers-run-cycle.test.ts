@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The cycle's impure seam (docs/plans/sales-agent.md Phases 2–3 joined up).
+ * The cycle's impure seam.
  *
  * Three properties, each of which is a money or privacy question rather than a
  * formatting one:
@@ -230,7 +230,7 @@ describe('record before deliver', () => {
   });
 });
 
-describe('the agent is a NAMED actor (D14)', () => {
+describe('the agent is a NAMED actor', () => {
   it('attributes the cycle\'s own decision to the agent, not to the system', async () => {
     await runForAccount(SUB);
     expect(mockCreate.mock.calls[0]![0]).toMatchObject({ actorId: 'offers-agent' });

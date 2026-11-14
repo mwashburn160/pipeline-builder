@@ -24,8 +24,7 @@
  * plugin, or another org's install, pins the same digest), else by name +
  * version within the owner org and its teams.
  *
- * A MANAGED TOOLCHAIN half (the system org's `pipeline-bootstrap` / `cdk-synth`,
- * docs/plans/bootstrap-image-versioning.md §4/§5) is referenced whenever its
+ * A MANAGED TOOLCHAIN half (the system org's `pipeline-bootstrap` / `cdk-synth`) is referenced whenever its
  * RELEASE is: a pipeline deploying or declaring EITHER half of the same version
  * references both. A pipeline that only runs the release's build image (the
  * manifest's non-step `build-image` row) still holds its synth half, and the

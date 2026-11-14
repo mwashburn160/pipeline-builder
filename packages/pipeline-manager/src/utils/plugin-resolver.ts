@@ -216,7 +216,7 @@ function serviceMessage(err: unknown): string | null {
  * platform outages don't block synth/deploy. The exceptions abort the synth:
  * the {@link FATAL_LOOKUP_CODES} refusals, an exact version pin that does
  * not exist, and ANY failure on a managed toolchain reference (`cdk-synth`),
- * which has no deploy-time fallback (D2). A managed reference sends the
+ * which has no deploy-time fallback. A managed reference sends the
  * pipeline's `toolchain.release` as `releasePin` — the same pin the bootstrap
  * lookup sends — and its resolved release lands in `toolchainSink` by key.
  *

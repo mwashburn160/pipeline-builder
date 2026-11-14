@@ -90,7 +90,7 @@ export function buildSpendsCredits(data: Pick<PluginBuildJobData, 'orgId' | 'set
  *
  * Charge what the tenant caused, not what the platform did. A `permanent`
  * failure is tenant content — a broken Dockerfile, a refused scan gate — and it
- * occupied the pool exactly as a success would, so it is charged (D4). A
+ * occupied the pool exactly as a success would, so it is charged. A
  * `retryable` one is the platform's (a Redis blip, a registry timeout), and
  * charging it would bill a tenant for our own retry.
  *
@@ -167,13 +167,13 @@ export async function chargeBuildCredits(
  *
  * A CHECK rather than a reservation, and that is a deliberate limit of this
  * step: a build's cost is not known until it has run, so there is nothing
- * precise to reserve. Reserving an ESTIMATE and truing it up (D3) is the
+ * precise to reserve. Reserving an ESTIMATE and truing it up is the
  * refinement that makes concurrent submissions safe against each other; until
  * then two simultaneous builds can both be admitted at the cap and overshoot it
  * by their own cost, which the metered increment records as `overshoot` rather
  * than losing.
  *
- * Fails CLOSED (returns false) when the quota service cannot answer, per D6:
+ * Fails CLOSED (returns false) when the quota service cannot answer:
  * admitting a build whose budget could not be confirmed is how an unmetered
  * build pool is discovered later from a bill.
  */

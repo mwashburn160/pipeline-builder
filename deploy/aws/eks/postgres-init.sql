@@ -2175,7 +2175,7 @@ CREATE TABLE IF NOT EXISTS plugin_listings (
     keywords JSONB NOT NULL DEFAULT '[]',
     state VARCHAR(20) NOT NULL DEFAULT 'listed'
                         CHECK (state IN ('listed', 'unmaintained', 'suspended', 'transferred')),
-    -- Publisher pause (D14): no new installs; existing installs keep resolving.
+    -- Publisher pause: no new installs; existing installs keep resolving.
     paused_at TIMESTAMPTZ,
     featured BOOLEAN NOT NULL DEFAULT false,
     latest_version VARCHAR(50),
@@ -2784,7 +2784,7 @@ CREATE INDEX IF NOT EXISTS plugin_kept_setup_image_expires_idx
     ON plugin_kept_setup_images(expires_at);
 
 -- ============================================================================
--- Managed toolchain releases (docs/plans/bootstrap-image-versioning.md §1, §5)
+-- Managed toolchain releases (docs/pipeline-manager.md, "The toolchain release")
 -- ============================================================================
 -- `pipeline-bootstrap@V` and `cdk-synth@V` are two plugin rows (system org)
 -- sharing ONE release version `V`. These tables hold what the plugin rows don't:
@@ -2812,7 +2812,7 @@ CREATE TABLE IF NOT EXISTS toolchain_release (
 );
 
 -- THE platform default: at most one row, ever (the PK can only hold TRUE).
--- Set once at install (`kind: 'initial'`, D14); from then on there is always a
+-- Set once at install (`kind: 'initial'`); from then on there is always a
 -- default. A release that is the default can't be deleted (ON DELETE RESTRICT).
 CREATE TABLE IF NOT EXISTS toolchain_platform_default (
     singleton BOOLEAN PRIMARY KEY DEFAULT TRUE

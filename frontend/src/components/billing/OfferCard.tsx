@@ -14,15 +14,15 @@ import { OfferBasketModal } from './OfferBasketModal';
 import type { AccountOffer, Bundle, BillingInterval } from '@/types';
 
 /**
- * Where an expansion offer APPEARS (docs/plans/sales-agent.md F4).
+ * Where an expansion offer APPEARS.
  *
  * The redemption model was pull-only — `DiscountRedeem` takes a code the account
  * already has — so offers were being made with nowhere to land. This is the push
  * surface, and it sits on the billing page because that is where a user already
  * goes for anything commercial, served by billing rather than by the process
- * that decided it (D13).
+ * that decided it.
  *
- * **Not in `QuotaBanner`, and that is a decision rather than an omission (F5).**
+ * **Not in `QuotaBanner`, and that is a decision rather than an omission.**
  * The banner is the app-wide WARNING channel. Offers there would compete with
  * genuine pressure warnings for the same strip and train people to dismiss it —
  * degrading the warning channel in order to sell is a bad trade, and the quota

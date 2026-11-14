@@ -93,10 +93,10 @@ export const PluginDeployGeneratedSchema = z.object({
   /** Access visibility. */
   visibility: VisibilitySchema.default('private'),
 
-  /** Scheduling class for the image build (D11); see `PluginUploadBodySchema`. */
+  /** Scheduling class for the image build; see `PluginUploadBodySchema`. */
   buildClass: z.enum(BUILD_CLASSES).optional(),
 
-  /** Machine size for the image build (D13); refused above the tier's ceiling. */
+  /** Machine size for the image build; refused above the tier's ceiling. */
   buildSize: z.enum(BUILD_SIZES).optional(),
 });
 

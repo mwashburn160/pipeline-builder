@@ -62,7 +62,7 @@ export interface StepManifestEntry {
 
 /**
  * The pipeline's BUILD IMAGE: the toolchain release's `pipeline-bootstrap` half
- * every plugin-less action runs on (docs/plans/bootstrap-image-versioning.md §4).
+ * every plugin-less action runs on (docs/pipeline-manager.md, "The toolchain release").
  * Not a step — it rides the manifest as a non-step entry under the
  * `build-image` key and the sentinel (stage, action) the platform stores it
  * under, so the deploy-reference path (in-use protection) counts the release.

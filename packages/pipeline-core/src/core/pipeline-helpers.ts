@@ -327,7 +327,7 @@ const BOOTSTRAP_IMAGE_REPOSITORY = `system/${BOOTSTRAP_PLUGIN_NAME}`;
  * `<external pull host>/system/pipeline-bootstrap@<signed digest>` with the
  * org's `registry-push` secret as the pull credential. There is no env-driven
  * image, no tag pull and no curated fallback: the bootstrap is resolved from
- * the platform (`pipeline-manager`'s `resolveBootstrapImage`, D2) and anything
+ * the platform (`pipeline-manager`'s `resolveBootstrapImage`, which has no fallback) and anything
  * short of a pinned, pullable image fails the synth.
  */
 export function resolveDefaultBuildImage(scope: Construct, orgId: string | undefined, bootstrap: Plugin): IBuildImage {
@@ -352,7 +352,7 @@ export function resolveDefaultBuildImage(scope: Construct, orgId: string | undef
 }
 
 /**
- * The AWS curated image self-mutation runs on (D10): it only needs Node and the
+ * The AWS curated image self-mutation runs on: it only needs Node and the
  * pinned CDK CLI, and a curated image keeps a defective toolchain release
  * recoverable. Curated ⇒ `fromCodeBuildImageId` (CODEBUILD pull credentials —
  * `fromDockerRegistry` would set SERVICE_ROLE, which CFN rejects for a curated image).

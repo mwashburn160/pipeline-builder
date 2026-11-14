@@ -3,8 +3,7 @@
 
 /**
  * Pure helpers shared by the org "Pipeline toolchain" panel and the pipeline
- * editor's toolchain selector (docs/plans/bootstrap-image-versioning.md §5,
- * §10, §11). No React, so each rule is testable on its own.
+ * editor's toolchain selector. No React, so each rule is testable on its own.
  */
 import { ApiError } from '@/lib/api/errors';
 import { formatError } from '@/lib/constants';
@@ -13,7 +12,7 @@ import type {
   ToolchainOrgDefaultView, ToolchainRelease, ToolchainReleaseStatus, ToolchainResolvedVia, ToolchainWarning,
 } from '@/types/toolchain';
 
-/** An org default this many releases (or more) behind the platform default is flagged (§10, K=3). */
+/** An org default this many releases (or more) behind the platform default is flagged (K=3). */
 export const TOOLCHAIN_BEHIND_WARN_AFTER = 3;
 
 export const RELEASE_STATUS_LABEL: Record<ToolchainReleaseStatus, string> = {
@@ -97,7 +96,7 @@ export function toolchainVersionsText(t: ToolchainRelease['toolchain']): string 
 }
 
 /**
- * The §10 hygiene warnings for an org default (or a pipeline pin): yanked,
+ * The hygiene warnings for an org default (or a pipeline pin): yanked,
  * deprecated, vulnerable, or more than K releases behind the platform default.
  * A release missing from the eligible list is reported as no longer eligible.
  */

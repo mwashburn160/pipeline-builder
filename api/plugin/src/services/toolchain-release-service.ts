@@ -2,20 +2,19 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The managed toolchain RELEASE service (docs/plans/bootstrap-image-versioning.md
- * §1, §5, §6, §8, D1, D14): the platform default and the release lifecycle.
+ * The managed toolchain RELEASE service: the platform default and the release lifecycle.
  *
  * A release is `pipeline-bootstrap@V` + `cdk-synth@V`, two system-org plugin
  * rows sharing one version, plus its `toolchain_release` row (written on
  * upload, see `PluginService.deployVersion`). Managed rows never use
  * `plugins.is_default`; THE platform default is the singleton
- * `toolchain_platform_default`, and only {@link setPlatformDefault} moves it
- * (D1): a console promotion (`set`), the fresh-install default (`initial`, D14)
+ * `toolchain_platform_default`, and only {@link setPlatformDefault} moves it:
+ * a console promotion (`set`), the fresh-install default (`initial`)
  * or the yank-restore of the previous default (`restore`).
  *
  * Every read and write here is ELEVATED (`isSuperAdmin`): the release tables
  * are system-org only under RLS, and in-use checks span every org. Callers
- * authorize first — step-up for people (the Phase 5 console), the
+ * authorize first — step-up for people (the Toolchain console), the
  * `deploy-bootstrap` identity gate for `initial` (routes/toolchain.ts).
  */
 
@@ -55,7 +54,7 @@ export interface SetPlatformDefaultInput {
   overrideReason?: string;
   /**
    * The canary gate's thresholds (N runs, M orgs, T points), as the console
-   * sets them (Phase 5). Omitted fields take `DEFAULT_CANARY_GATE` (20 / 2 / 5).
+   * sets them. Omitted fields take `DEFAULT_CANARY_GATE` (20 / 2 / 5).
    */
   canaryGate?: Partial<CanaryGateParams>;
   /**
@@ -172,7 +171,7 @@ function floorBreach(row: Plugin): { gated: number; flagged: boolean } | null {
 }
 
 /**
- * The §6 canary gate: at least N synth runs across at least M orgs (each org
+ * The canary gate: at least N synth runs across at least M orgs (each org
  * capped at ceil(N/M)), with a failure rate within T points of the CURRENT
  * default's — a query over the run rows api/reporting stamps with the release
  * from the platform's deployed manifest (pipeline-data `readCanaryGate`).
@@ -199,7 +198,7 @@ function describeGate(g: CanaryGateResult): string {
 
 // -- The guards + write ------------------------------------------------------
 
-/** One §8 guard's verdict, in the order the service applies them. */
+/** One promotion guard's verdict, in the order the service applies them. */
 export interface DefaultGuardCheck {
   code: ErrorCode;
   ok: boolean;
@@ -216,7 +215,7 @@ export interface DefaultGuardCheck {
 }
 
 /**
- * Evaluate every §8 guard for making `input.releaseVersion` the default over
+ * Evaluate every promotion guard for making `input.releaseVersion` the default over
  * `current` — the ONE implementation behind both {@link setPlatformDefault}
  * (which throws the first failing guard's refusal) and the console's
  * default-preview (which shows them all). When the pair is incomplete the
@@ -307,7 +306,7 @@ async function evaluateGuards(tx: TenantTx, input: Pick<SetPlatformDefaultInput,
 }
 
 /**
- * The §8 guards for making `releaseVersion` the platform default over the
+ * The promotion guards for making `releaseVersion` the platform default over the
  * CURRENT default, as `setPlatformDefault({ kind: 'set' })` would judge them —
  * no lock, no write (the console's default-preview). Elevated read.
  */
@@ -326,7 +325,7 @@ export async function previewPlatformDefaultGuards(
 
 /**
  * Apply a platform-default change inside `tx` (which the caller opened,
- * elevated): lock the singleton, run the §8 guards, write the default, its
+ * elevated): lock the singleton, run the promotion guards, write the default, its
  * history row, and clear the release's canary rows. Returns the result and the
  * audit to emit after COMMIT.
  */
@@ -404,7 +403,7 @@ async function applyPlatformDefault(tx: TenantTx, input: SetPlatformDefaultInput
 }
 
 /**
- * Set THE platform default (D1) through the §8 guards, in one transaction with
+ * Set THE platform default through the promotion guards, in one transaction with
  * the singleton locked. Audited `toolchain.default.<kind>`; a refusal is the
  * same action with outcome `failure`.
  */
@@ -413,13 +412,13 @@ export async function setPlatformDefault(input: SetPlatformDefaultInput): Promis
   return auditRefusal(input.actor, action, input.releaseVersion, async () => {
     const { result, audit } = await elevated(() => withTenantTx((tx) => applyPlatformDefault(tx, input)));
     if (audit) emitAudit(input.actor, audit);
-    // §10 hygiene: org defaults this move left more than K releases behind. Best-effort, after COMMIT.
+    // Customer-notice hygiene: org defaults this move left more than K releases behind. Best-effort, after COMMIT.
     if (result.changed) void notifyToolchainHygiene({ kind: 'behind', platformDefault: result.releaseVersion, previousDefault: result.previousReleaseVersion });
     return result;
   });
 }
 
-// -- Release lifecycle (console service functions; routes are Phase 5) -------
+// -- Release lifecycle (console service functions; routes in toolchain-console.ts)
 
 export interface ReleaseLifecycleInput {
   releaseVersion: string;
@@ -468,7 +467,7 @@ export async function deprecateRelease(input: ReleaseLifecycleInput & { message?
       action: 'toolchain.release.deprecate',
       details: { releaseVersion: input.releaseVersion, message: input.message ?? null, removedRolloutOrgs: out.removedRollout },
     });
-    // §10 hygiene: the orgs whose default it is. Best-effort, after COMMIT.
+    // Customer-notice hygiene: the orgs whose default it is. Best-effort, after COMMIT.
     void notifyToolchainHygiene({ kind: 'deprecated', releaseVersion: input.releaseVersion, message: input.message ?? null });
     return out;
   });
@@ -572,7 +571,7 @@ export async function yankRelease(input: ReleaseLifecycleInput & { reason: strin
         ...(out.restored ? { restoredReleaseVersion: out.restored.result.releaseVersion } : {}),
       },
     });
-    // §10 hygiene: orgs whose default it is, and owners of pipelines pinned to it. Best-effort, after COMMIT.
+    // Customer-notice hygiene: orgs whose default it is, and owners of pipelines pinned to it. Best-effort, after COMMIT.
     void notifyToolchainHygiene({ kind: 'yanked', releaseVersion: input.releaseVersion, reason: input.reason.trim() });
     return { plugins: out.plugins, restored: out.restored?.result ?? null, removedRollout: out.removedRollout };
   });

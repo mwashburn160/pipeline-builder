@@ -2,8 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The removal rule for a MANAGED TOOLCHAIN release (docs/plans/
- * bootstrap-image-versioning.md §4/§5) against REAL SQL: the shipped
+ * The removal rule for a MANAGED TOOLCHAIN release against REAL SQL: the shipped
  * `postgres-init.sql` on PGlite, read as the application role under the
  * elevated scope every removal path uses.
  *

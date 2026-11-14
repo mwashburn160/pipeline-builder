@@ -517,7 +517,7 @@ describe('validateBuildArgs', () => {
   });
 });
 
-// docs/plans/bootstrap-image-versioning.md §1: the managed build image.
+// The managed build image.
 describe('parsePluginZip — BuildImage', () => {
   const spec = `
 name: pipeline-bootstrap

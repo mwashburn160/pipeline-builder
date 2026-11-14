@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The build-shape surfaces (D11/D13).
+ * The build-shape surfaces.
  *
  * The catalog is IMPORTED here, not mirrored: `lib/build-shape.ts` and the test
  * that parsed api-core's TypeScript source to detect drift are both gone, so
@@ -90,7 +90,7 @@ describe('BuildShapeFields — the machine select', () => {
     expect(onClassChange).not.toHaveBeenCalled();
   });
 
-  it('names the plan\'s own slot counts beside the deferral toggle', () => {
+  it('names the tier\'s own slot counts beside the deferral toggle', () => {
     render(<BuildShapeFields tier="team" buildClass="standard" buildSize="1x" onClassChange={noop} onSizeChange={noop} />);
     expect(screen.getByText(/3 standard · 6 flexible builds at once/)).toBeInTheDocument();
   });

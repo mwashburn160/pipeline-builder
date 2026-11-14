@@ -140,7 +140,7 @@ describe('EditPluginModal — catalog details only', () => {
   });
 });
 
-// docs/plans/bootstrap-image-versioning.md §11: a managed toolchain version is
+// docs/error-handling.md, "Managed toolchain": a managed toolchain version is
 // edited only in the Toolchain console — the API refuses every edit here.
 describe('EditPluginModal — managed toolchain versions', () => {
   it('hides the Default control, locks the form and explains where the toolchain is managed', async () => {

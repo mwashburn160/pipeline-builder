@@ -6,8 +6,7 @@ import type { HelpTopic } from './types';
 
 /**
  * Help for the managed pipeline toolchain: which release a pipeline's build
- * image and `cdk-synth` step run, and who decides (docs/plans/
- * bootstrap-image-versioning.md §5). Hand-authored: there is no 1:1 doc yet.
+ * image and `cdk-synth` step run, and who decides. Hand-authored: there is no 1:1 doc yet.
  */
 export const pipelineToolchainTopic: HelpTopic = {
   id: 'pipeline-toolchain',

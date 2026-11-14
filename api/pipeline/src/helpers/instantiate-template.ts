@@ -74,7 +74,7 @@ export function instantiateTemplateProps(template: TemplateLike, body: Instantia
   const vars = buildTemplateVars(inputs, body.inputs ?? {});
 
   // Deep clone so we never mutate the stored template row; a stored
-  // `toolchain` (D12) is ignored.
+  // `toolchain` is ignored: a template never carries a toolchain pin.
   const props = withoutToolchainPin(JSON.parse(JSON.stringify(template.props ?? {})) as Record<string, unknown>);
 
   props.project = body.project;

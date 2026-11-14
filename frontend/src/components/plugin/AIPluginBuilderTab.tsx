@@ -120,7 +120,7 @@ export default function AIPluginBuilderTab({ canPublish, disabled, onCreated, on
 
   // Visibility — `org` is the backend's create default for plugins; `private` is opt-in.
   const [access, setAccess] = useState<Visibility>('org');
-  // Build shape (D11/D13), defaulting to what every tier has.
+  // Build shape, defaulting to what every tier has.
   const [buildClass, setBuildClass] = useState<BuildClass>('standard');
   const [buildSize, setBuildSize] = useState<BuildSize>('1x');
 
@@ -363,7 +363,7 @@ export default function AIPluginBuilderTab({ canPublish, disabled, onCreated, on
 
           {/* Access Level + Deploy */}
           <div className="border-t border-default pt-4">
-            {/* Build shape (D11/D13) + what the build will cost, beside the
+            {/* Build shape + what the build will cost, beside the
                 deploy control that spends it. */}
             <BuildShapeFields
               tier={creditQuota?.tier}

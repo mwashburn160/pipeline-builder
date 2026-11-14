@@ -3,12 +3,12 @@
 
 /**
  * The CROSSOVER: an account already paying more in packs than the next tier
- * costs (docs/plans/sales-agent.md, D4).
+ * costs.
  *
  * The cheapest defensible expansion offer in the product, and the only one that
  * needs **no discount, no campaign, no model, no profile and no consent beyond
  * what a billing notice already raises** — it is arithmetic over the
- * subscription record. The plan's example: Team plus four seat packs is
+ * subscription record. The canonical example: Team plus four seat packs is
  * $278.96 for 7 seats; Business is $249 for 8 of everything.
  *
  * It is INFORMATION rather than solicitation, which is why it ships ahead of the
@@ -91,7 +91,7 @@ export interface CrossoverVerdict {
    * True when `savingCents` depends on the account removing packs the tier
    * change will not remove for it. The UI must say so — an offer whose saving
    * is conditional, presented as unconditional, leaves the account worse off
-   * and is the failure mode D9's pre-flight exists to prevent.
+   * and is the failure mode pricing every offer before promising it exists to prevent.
    */
   savingRequiresDrops: boolean;
   /** Add-ons that must be kept (and are still charged) for the move to dominate.

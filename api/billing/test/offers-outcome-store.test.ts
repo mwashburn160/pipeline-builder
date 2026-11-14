@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Phase 6's three store-touching parts (docs/plans/sales-agent.md).
+ * Phase 6's three store-touching parts.
  *
  * Attribution is the one with a judgement in it: a DISMISSED offer still
  * converts (dismissing is "not now", and an account that bought a week later is

@@ -3,7 +3,7 @@
 
 /**
  * A template's props without a toolchain release pin: pipeline templates never
- * carry `toolchain` (docs/plans/bootstrap-image-versioning.md D12) — a template
+ * carry `toolchain` — a template
  * is a starting point, and a pin is a per-pipeline decision with its own
  * eligibility check. Stripped on save, ignored on instantiate.
  */

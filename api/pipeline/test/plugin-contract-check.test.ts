@@ -325,7 +325,7 @@ describe('recordPipelineResolution', () => {
   });
 });
 
-// docs/plans/bootstrap-image-versioning.md §1: the managed build image is what
+// The managed build image is what
 // a pipeline runs ON, never a step.
 describe('BuildImage plugins are never a step', () => {
   it('refuses pipeline-bootstrap by name, before any lookup', async () => {
@@ -352,7 +352,7 @@ describe('BuildImage plugins are never a step', () => {
   });
 });
 
-// docs/plans/bootstrap-image-versioning.md §2, §5: a managed cdk-synth resolves
+// A managed cdk-synth resolves
 // through the toolchain resolver only, with the pipeline's release pin.
 describe('managed cdk-synth', () => {
   const SYSTEM = '000000000000000000000001';

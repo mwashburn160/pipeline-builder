@@ -59,7 +59,7 @@ jest.unstable_mockModule('../src/services/plugin-artifact-storage.js', () => ({
 // the safe HTTP client returns null, so reserve RESOLVES `unavailable` rather
 // than throwing. Loaded by file path, not through the mocked api-core entry.
 // The CPU-credit admission gate fails CLOSED when the quota service cannot
-// answer (D6), and this suite deliberately points a REAL quota client at an
+// answer, and this suite deliberately points a REAL quota client at an
 // unreachable port — so without this stub every case here would 503 on credits
 // before reaching the idempotency behaviour it exists to test. Credits have
 // their own suite (`build-credits.test.ts`); this one is about the key.

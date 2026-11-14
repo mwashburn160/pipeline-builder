@@ -12,7 +12,7 @@ import { TabBar } from '@/components/ui/TabBar';
  * Offers is a TAB rather than a page of its own because it is the same
  * audience, the same gate and the same question — what did we grant, to whom,
  * and why — for an automated granter instead of a hand-run campaign
- * (docs/plans/sales-agent.md F8).
+ *.
  */
 const TABS = [
   { id: 'admin', label: 'Overview', href: '/dashboard/admin/billing' },

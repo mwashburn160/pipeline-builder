@@ -8,10 +8,10 @@ import { requireServiceAuth } from '../middleware/index.js';
 
 /**
  * `/internal/offers/*` — the membership reads the expansion-offers profile
- * needs (docs/plans/sales-agent.md D4 Class 3, Phase 0).
+ * needs.
  *
- * BILLING ONLY. D13 makes the offers agent purely a CALLER with no public
- * surface of its own, and it runs inside billing until Phase 5 extracts it. The
+ * BILLING ONLY. The offers agent is purely a CALLER with no public surface of
+ * its own, and it runs inside billing. The
  * mesh policy on the Istio targets names the same single caller; compose relies
  * on this gate alone.
  *

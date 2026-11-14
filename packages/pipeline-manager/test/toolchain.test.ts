@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The pipeline's toolchain release on the CLI side (plan §2, D2):
+ * The pipeline's toolchain release on the CLI side:
  *  - resolveBootstrapImage — the lookup it sends, and that EVERY failure is fatal;
  *  - fetchPipelineProps — the managed cdk-synth and the bootstrap carry the
  *    same releasePin, and halves from two releases are refused;

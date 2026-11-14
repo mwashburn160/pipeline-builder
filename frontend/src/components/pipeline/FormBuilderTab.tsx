@@ -62,7 +62,7 @@ interface FormBuilderTabProps {
   /**
    * Leave out the "Toolchain" release selector — for TEMPLATES, which never
    * carry `toolchain` (the server strips it on save and ignores it on
-   * instantiation, D12), so offering it there would be a control that does nothing.
+   * instantiation), so offering it there would be a control that does nothing.
    */
   hideToolchain?: boolean;
 }

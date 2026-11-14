@@ -2,8 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The org toolchain DEFAULT (docs/plans/bootstrap-image-versioning.md §5,
- * Phase 4, D7, D13, D15): which managed toolchain release the caller org's
+ * The org toolchain DEFAULT: which managed toolchain release the caller org's
  * UNPINNED pipelines (and its teams that set none) synthesize with.
  *
  * - **Reads of eligibility and the effective release are ELEVATED**, through
@@ -185,13 +184,13 @@ function statusOf(r: EligibleToolchainRelease): ToolchainReleaseStatus {
   return 'available';
 }
 
-/** A release's selector row. Deprecated / yanked never reach here (D15 excludes them). */
+/** A release's selector row. Deprecated / yanked never reach here (eligibility excludes them). */
 export function eligibleReleaseView(r: EligibleToolchainRelease, platformDefault: string | null): EligibleReleaseView {
   return {
     releaseVersion: r.releaseVersion,
     status: statusOf(r),
     relation: relationOf(r.releaseVersion, platformDefault),
-    // D15 guarantees both halves live; the §8 metadata guard ran on promotion.
+    // Eligibility guarantees both halves live; the promotion metadata guard ran.
     toolchain: toolchainFromMetadata(r.bootstrap.metadata) as PluginToolchain,
     releaseNotes: r.release.releaseNotes ?? null,
     scan: scanOf([r.bootstrap, r.synth]),
@@ -200,7 +199,7 @@ export function eligibleReleaseView(r: EligibleToolchainRelease, platformDefault
 
 /**
  * `GET /plugins/toolchain/eligible` — ONLY the releases the caller may pin or
- * set (D15), newest first: live, both halves, and either a former / current
+ * set, newest first: live, both halves, and either a former / current
  * platform default or the caller's OWN canary. Nothing about other orgs.
  */
 export async function getEligibleToolchainReleases(caller: OrgToolchainCaller): Promise<{ platformDefault: string | null; releases: EligibleReleaseView[] }> {
@@ -246,7 +245,7 @@ function audit(caller: OrgToolchainCaller, action: 'toolchain.org_default.set' |
 
 /**
  * `PUT /plugins/toolchain/org-default` — set the caller org's default to an
- * ELIGIBLE release (D15; else 400 TOOLCHAIN_RELEASE_NOT_ELIGIBLE). A
+ * ELIGIBLE release (else 400 TOOLCHAIN_RELEASE_NOT_ELIGIBLE). A
  * vulnerability found after promotion is a warning, not a refusal. Writes the
  * row and a history row in the org's own tenant context; audited
  * `toolchain.org_default.set` with `previousReleaseVersion`.

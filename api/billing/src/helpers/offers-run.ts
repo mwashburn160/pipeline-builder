@@ -2,15 +2,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The offer cycle — the thing that actually runs (docs/plans/sales-agent.md,
- * Phases 2 and 3 joined up).
+ * The offer cycle — the thing that actually runs: the decision and the
+ * delivery joined up.
  *
  * `offers-cycle.ts` decides and `offers-notify.ts` delivers; both are pure or
  * nearly so, deliberately. This is the impure seam: it reads, decides, records
  * and only then delivers.
  *
  * **Record before deliver, never the reverse.** The row is the idempotency key
- * (D15) and the thing Phase 6 counts. Delivering first and then failing to write
+ * and the thing the outcome measurement counts. Delivering first and then failing to write
  * would offer the same account again next cycle, and two grants for one slot is
  * money. Writing first and failing to deliver costs one silent offer and shows
  * up as `billing_offer_emails_total{outcome="failed"}` — much the cheaper of the
@@ -84,7 +84,7 @@ export const PROFILE_HISTORY_PERIODS = 4;
 /**
  * A loaded profile. Wider than `ProfileLike` by the two figures the COPY needs:
  * the rules only compare ratios, but a mail that cannot say "9 of 10 pipelines"
- * is the vague advert Phase 3 refuses to send.
+ * is the vague advert delivery refuses to send.
  */
 export interface RunProfile extends ProfileLike {
   dimensions: Record<string, { ratio: number | null; crossed: number | null; used: number; limit: number }>;
@@ -95,7 +95,7 @@ export interface OfferCycleResult {
   considered: number;
   /** Decisions that came out as an offer and were recorded. */
   sent: number;
-  /** Suppressions recorded, keyed by reason — the per-reason count D6 asks for. */
+  /** Suppressions recorded, keyed by reason — counted per reason, never in aggregate. */
   suppressed: Record<string, number>;
   /** Slots a concurrent cycle had already written. */
   duplicate: number;
@@ -147,7 +147,7 @@ export async function runOfferCycle(now: Date = new Date()): Promise<OfferCycleR
       } else if (outcome.decision.reason) {
         const reason = outcome.decision.reason;
         result.suppressed[reason] = (result.suppressed[reason] ?? 0) + 1;
-        // PER REASON, which is the point (D6): a feature suppressing almost
+        // PER REASON, which is the point: a feature suppressing almost
         // everything looks identical to one working carefully unless each
         // reason is counted on its own.
         emitCounter('billing_offers_total', { outcome: 'suppressed', reason });
@@ -209,7 +209,7 @@ export async function runForAccount(
    */
   source: 'agent' | 'manual' = 'agent',
   /**
-   * WHO decided (D14). The cycle leaves this alone and the agent's own actor id
+   * WHO decided. The cycle leaves this alone and the agent's own actor id
    * is used; the operator trigger passes the person who asked.
    */
   decidedBy: string = OFFERS_AGENT_ACTOR_ID,
@@ -222,13 +222,13 @@ export async function runForAccount(
   if (profiles.length === 0) return null;
 
   // The slot: one decision per account per profile PERIOD. A later period is a
-  // later offer, which D15 requires to stay possible; the same period twice is
+  // later offer, which must stay possible; the same period twice is
   // the duplicate the unique index refuses.
   const cycleKey = `period:${profiles[0]!.period}`;
 
   // Live, for consent. A failed read is not read as consent: the switches below
-  // default to FALSE on a null, which fails closed exactly as D8 asks the whole
-  // path to — unlike the customer-facing quota path, which fails open.
+  // default to FALSE on a null, which fails closed exactly as the whole path
+  // must — unlike the customer-facing quota path, which fails open.
   const live = await fetchUsageProfile(
     sub.orgId,
     getServiceAuthHeader({ serviceName: 'billing', orgId: sub.orgId, role: 'member' }),
@@ -252,7 +252,7 @@ export async function runForAccount(
     profiles,
     // A crossover whose saving depends on the account DROPPING add-ons is not
     // offered. The mail would promise a lower bill and the checkout would
-    // present a higher one — the exact mismatch F1 exists to prevent.
+    // present a higher one — the exact mismatch the discount-aware plan-change preview exists to prevent.
     crossover: crossover.savingRequiresDrops ? null : crossover,
     annualValueForDimension: (dimension) => annualPackValue(dimension, bundles, tier),
     // The SAME resolver the value came from, so the basket the account is shown
@@ -263,7 +263,7 @@ export async function runForAccount(
   const [excluded, lastSent, frustration] = await Promise.all([
     OfferExclusion.exists({ orgId: rootOrgId }),
     Offer.findOne({ orgId: rootOrgId, sentAt: { $exists: true, $ne: null } }).sort({ sentAt: -1 }).lean(),
-    // The Phase 4 signal. Read for every account the cycle reaches rather than
+    // The frustration signal. Read for every account the cycle reaches rather than
     // only for the ones a rule matched — it is a SUPPRESSION, so skipping it for
     // the accounts that are about to be offered to is skipping it exactly where
     // it matters. Null (unreachable) is no signal, never contentment.
@@ -302,7 +302,7 @@ export async function runForAccount(
   if (!recorded) return { decision, recorded: false };
   if (decision.status !== 'sent' || !facts) return { decision, recorded: true };
 
-  // The central trail, under the DECIDING actor (D14). The `Offer` row is the
+  // The central trail, under the DECIDING actor. The `Offer` row is the
   // detailed record; this is what makes the agent's work visible beside every
   // other audited billing action, and queryable by the actor that did it rather
   // than lost among system work.
@@ -450,8 +450,8 @@ function offersScheduler(): Scheduler {
     name: 'offers-cycle',
     intervalMs: config.offers.cycleIntervalMs,
     run: async () => {
-      // Re-read BOTH switches every tick rather than capturing them at boot
-      // (D6). A knob that only takes effect on redeploy is not a kill switch,
+      // Re-read BOTH switches every tick rather than capturing them at boot.
+      // A knob that only takes effect on redeploy is not a kill switch,
       // and this is the process that spends money.
       if (!config.enabled || !config.offersEnabled) {
         logger.debug('Offers disabled — skipping cycle');

@@ -2,8 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * THE resolver for the managed toolchain (docs/plans/bootstrap-image-versioning.md
- * §2). `pipeline-bootstrap@V` and `cdk-synth@V` are two SYSTEM-ORG plugin rows
+ * THE resolver for the managed toolchain. `pipeline-bootstrap@V` and `cdk-synth@V` are two SYSTEM-ORG plugin rows
  * that share one release version `V`; every path that can resolve a managed
  * name answers from here and nothing else may:
  *
@@ -13,13 +12,13 @@
  *   else canary       → the NEAREST `toolchain_rollout` membership, served only
  *                       while it passes the scan + metadata guards
  *   else platform     → `toolchain_platform_default`
- *   else              → 409 TOOLCHAIN_NO_DEFAULT (never "highest version", D11)
+ *   else              → 409 TOOLCHAIN_NO_DEFAULT (never "highest version")
  *
  * - Reads are ELEVATED (`runWithTenantContext({ isSuperAdmin: true })`, as
  *   `versionReferences` does) and touch SYSTEM-ORG plugin rows only: the owner
  *   rank of `pluginResolutionOrderBy` is never consulted, so a same-named row in
  *   any other org is never a candidate.
- * - Eligibility (D15) is a SET-time rule ({@link isEligibleRelease}); at resolve
+ * - Eligibility is a SET-time rule ({@link isEligibleRelease}); at resolve
  *   time a pin / org default only has to exist.
  * - Both halves always come from ONE release (`TOOLCHAIN_PAIR_MISMATCH` otherwise).
  * - The answer carries `resolvedVia` and nothing about any other org: no
@@ -262,7 +261,7 @@ function vulnFloor(): number {
 }
 
 /**
- * The §8 candidate guards (pair, scan, metadata) a release fails, as their
+ * The promotion candidate guards (pair, scan, metadata) a release fails, as their
  * error codes — empty when it passes. The canary gate and concurrency are the
  * platform-default service's; a canary is served only while this is empty.
  */
@@ -411,7 +410,7 @@ export async function isEligibleReleaseWith(deps: ManagedToolchainDeps, orgId: s
 }
 
 /**
- * D15: whether `orgId` may SET `releaseVersion` as a pipeline pin or its org
+ * Eligibility: whether `orgId` may SET `releaseVersion` as a pipeline pin or its org
  * default — both halves live (active, unyanked, not deprecated) AND either it
  * has been the platform default or it is the caller's canary (nearest
  * membership on its chain).
@@ -422,7 +421,6 @@ export function isEligibleRelease(orgId: string, releaseVersion: string): Promis
 
 // -----------------------------------------------------------------------------
 // The org's own picture: the org-default panel and the eligible-release list
-// (docs/plans/bootstrap-image-versioning.md §5, Phase 4, D15)
 // -----------------------------------------------------------------------------
 
 /**
@@ -479,7 +477,7 @@ export function readOrgToolchainOverview(orgId: string): Promise<OrgToolchainOve
   return readOrgToolchainOverviewWith(defaultDeps, orgId);
 }
 
-/** One release the caller may pin or set (D15), with what the selectors show. */
+/** One release the caller may pin or set, with what the selectors show. */
 export interface EligibleToolchainRelease {
   releaseVersion: string;
   release: ToolchainRelease;
@@ -530,7 +528,7 @@ export async function listEligibleReleasesWith(deps: ManagedToolchainDeps, orgId
 }
 
 /**
- * Every release `orgId` may SET as a pipeline pin or its org default (D15, the
+ * Every release `orgId` may SET as a pipeline pin or its org default (the
  * same rule as {@link isEligibleRelease}), newest first. Never another org's
  * data: a canary appears only when it is the caller's own (nearest) membership.
  */

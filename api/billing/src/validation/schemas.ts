@@ -40,7 +40,7 @@ export const AddonMutateSchema = z.object({
 });
 
 /**
- * A BASKET of add-ons applied in ONE change (docs/plans/sales-agent.md F6).
+ * A BASKET of add-ons applied in ONE change.
  *
  * `useAddonChange` changes one add-on at a time, so a three-item basket was
  * three calls — and a partially-applied basket is worse than either end state:

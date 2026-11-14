@@ -33,7 +33,7 @@ export interface FetchedPipeline {
  *  - pre-resolve plugins so the template ships real CodeBuild image URIs
  *    (otherwise the steps fall back to the deploy-time lookup path),
  *  - resolve the toolchain release's pipeline-bootstrap (FATAL on any
- *    failure, D2) with the same `toolchain.release` pin a managed cdk-synth
+ *    failure, no fallback) with the same `toolchain.release` pin a managed cdk-synth
  *    reference sent, and check both halves are one release,
  *  - bake the registry pull-host from the platform URL (no-op when
  *    IMAGE_REGISTRY_PULL_HOST is set).

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The DO-NOT-OFFER list (docs/plans/sales-agent.md D6).
+ * The DO-NOT-OFFER list.
  *
  * "The veto is the price of shipping this at all." Somebody will know something
  * the signals cannot: an account in contract negotiation, a strategic account

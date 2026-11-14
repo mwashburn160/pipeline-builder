@@ -14,7 +14,7 @@ const thresholdQuery = (t?: ToolchainGateThresholds) => (t ? `?n=${t.n}&m=${t.m}
 
 /**
  * The managed pipeline toolchain, from the caller's own org (plugin service;
- * docs/plans/bootstrap-image-versioning.md §5).
+ * docs/organization-benefits.md, "Pipeline toolchain default").
  *
  * Reads need `pipelines:read`. The org-default writes need `toolchain:manage`
  * and a step-up token (`requireStepUp`, always on), and only accept an
@@ -45,7 +45,7 @@ export function toolchainApi(core: ApiCore) {
     getToolchainOrgDefaultHistory: async (opts?: { signal?: AbortSignal }) =>
       core.request<ApiResponse<{ history: ToolchainOrgDefaultHistoryEntry[] }>>('/api/plugins/toolchain/org-default/history', { signal: opts?.signal }),
 
-    /** The releases this caller may pin or set as the org default (D15). Never
+    /** The releases this caller may pin or set as the org default. Never
      *  yanked or deprecated ones: a current pin / org default that is no longer
      *  eligible is absent here and the UI shows it as "(no longer offered)". */
     getToolchainEligible: async (opts?: { signal?: AbortSignal }) =>
@@ -62,7 +62,7 @@ export function toolchainApi(core: ApiCore) {
     getToolchainAdoption: async (releaseVersion: string, opts?: { signal?: AbortSignal }) =>
       core.request<ApiResponse<ToolchainAdoptionView>>(`/api/plugins/toolchain/releases/${encodeURIComponent(releaseVersion)}/adoption`, { signal: opts?.signal }),
 
-    /** The release's canary members and its §6 gate, judged with `thresholds` when given. */
+    /** The release's canary members and its canary gate, judged with `thresholds` when given. */
     getToolchainCanary: async (releaseVersion: string, opts?: { signal?: AbortSignal; thresholds?: ToolchainGateThresholds }) =>
       core.request<ApiResponse<ToolchainCanaryView>>(`/api/plugins/toolchain/releases/${encodeURIComponent(releaseVersion)}/canary${thresholdQuery(opts?.thresholds)}`, { signal: opts?.signal }),
 
@@ -74,7 +74,7 @@ export function toolchainApi(core: ApiCore) {
         headers: core.stepUpHeader(stepUpToken),
       }),
 
-    /** What "Set as platform default" would do: the §8 guards and the blast radius. */
+    /** What "Set as platform default" would do: the promotion guards and the blast radius. */
     getToolchainDefaultPreview: async (releaseVersion: string, opts?: { signal?: AbortSignal; thresholds?: ToolchainGateThresholds }) =>
       core.request<ApiResponse<ToolchainDefaultPreview>>(`/api/plugins/toolchain/releases/${encodeURIComponent(releaseVersion)}/default-preview${thresholdQuery(opts?.thresholds)}`, { signal: opts?.signal }),
 
@@ -131,7 +131,7 @@ export function toolchainApi(core: ApiCore) {
     getToolchainDefaultHistory: async (opts?: { signal?: AbortSignal }) =>
       core.request<ApiResponse<{ history: ToolchainDefaultHistoryEntry[] }>>('/api/plugins/toolchain/history', { signal: opts?.signal }),
 
-    /** §9: pipelines deployed on the release whose latest synth failed, by org. */
+    /** Recovery: pipelines deployed on the release whose latest synth failed, by org. */
     getToolchainAffected: async (releaseVersion: string, opts?: { signal?: AbortSignal }) =>
       core.request<ApiResponse<ToolchainAffectedView>>(`/api/plugins/toolchain/affected?release=${encodeURIComponent(releaseVersion)}`, { signal: opts?.signal }),
 

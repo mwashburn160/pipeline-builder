@@ -13,7 +13,7 @@ import api from '@/lib/api';
 
 /**
  * The account's expansion-OFFERS switch, on the card that already owns this
- * account's notice settings (docs/plans/sales-agent.md F7).
+ * account's notice settings.
  *
  * One more row rather than a new settings page, because the control belongs to
  * the same account root, the same `billing:manage` gate and the same channel.

@@ -2,8 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The managed toolchain hygiene notices (docs/plans/bootstrap-image-versioning.md
- * §10) — N34 — against a REAL Postgres (PGlite, the shipped postgres-init.sql),
+ * The managed toolchain hygiene notices — N34 — against a REAL Postgres (PGlite, the shipped postgres-init.sql),
  * so the elevated reads of every org's defaults and pins are real SQL. The relay
  * client is a recording stub: what is under test is who hears what.
  */

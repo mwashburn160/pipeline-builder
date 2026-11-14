@@ -98,7 +98,7 @@ const OVERWRITE_REFUSAL: Readonly<
 /**
  * A managed toolchain release is immutable: an upload of an existing
  * (name, version) — live, yanked or a tombstone — is refused rather than
- * overwritten in place (docs/plans/bootstrap-image-versioning.md §1). The
+ * overwritten in place. The
  * loader counts a 409 as "already loaded".
  */
 function managedVersionImmutable(name: string, version: string): ConflictError {
@@ -1162,7 +1162,7 @@ export class PluginService extends CrudService<
       // once both halves of that version exist. In the same transaction, so a
       // half never lands without its release row. RLS admits it: only the
       // system org reaches this branch (asserted above), and the release tables
-      // are writable by the system org's own scope. Never a default (D1).
+      // are writable by the system org's own scope. Never a default.
       if (managed) {
         await tx.insert(schema.toolchainRelease)
           .values({ releaseVersion: version, createdBy: userId })

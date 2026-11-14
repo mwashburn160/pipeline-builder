@@ -2,13 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Phase 2's grant path — the decision an account actually experiences
- * (docs/plans/sales-agent.md).
+ * The grant path — the decision an account actually experiences.
  *
  * The cycle is a SEQUENCE OF REFUSALS, and the order is the design: the cheap
  * and absolute checks come first so an account that must not be offered to is
- * never evaluated against a rule, and the expensive judgement (D17's hold,
- * D18's EV) runs last on the few accounts that survive.
+ * never evaluated against a rule, and the expensive judgement (the hold for a
+ * better offer, the expected-value check) runs last on the few accounts that survive.
  *
  * Every outcome is a ROW, including every refusal. "Offers made, suppressed AND
  * WHY, PER REASON" is a product metric rather than plumbing: a feature
@@ -16,7 +15,7 @@
  * is only visible if each reason is counted separately.
  *
  * NOTHING HERE MINTS ANYTHING YET. It decides, records the decision, and leaves
- * the discount grant to the existing promotion machinery (D2: extend the engine,
+ * the discount grant to the existing promotion machinery (extend the engine,
  * do not build a second one) — which is also what keeps the ceilings, the
  * campaign budget and the aggregate floor in one place.
  */
@@ -44,15 +43,15 @@ export interface AccountFacts {
   profiles: readonly ProfileLike[];
   /** The account's own `offersEnabled`, default true when never set. */
   accountOptIn: boolean;
-  /** When the last offer was SENT, if any — the clock D6 measures from. */
+  /** When the last offer was SENT, if any — the clock the 45-day offer rate measures from. */
   lastSentAt?: Date | null;
   lastWasDeclined?: boolean;
-  /** On the manual do-not-offer list (D6). */
+  /** On the manual do-not-offer list. */
   doNotOffer?: boolean;
   /** Candidates the rules produced for this account. */
   candidates: readonly OfferCandidate[];
   /**
-   * The Phase 4 signal, when one could be derived. ABSENT and `degraded` both
+   * The frustration signal, when one could be derived. ABSENT and `degraded` both
    * mean "no signal" — never "content".
    *
    * It is carried as an input to the decision rather than consulted inside it,
@@ -83,12 +82,12 @@ export interface CycleDecision {
  *     must not even evaluate rules;
  *  2. the ACCOUNT switch and the do-not-offer list, which are the account's own
  *     statement and outrank every signal;
- *  3. the HOLDOUT (D7), before any rule runs — a holdout account must be
+ *  3. the HOLDOUT, before any rule runs — a holdout account must be
  *     indistinguishable from one the rules declined, or the control group is
  *     contaminated by having been evaluated differently;
- *  4. the FREQUENCY rate (D6), which is the anti-flooding guarantee;
- *  5. profile COMPLETENESS (D8), failing closed;
- *  6. the rules, then D17/D18 — the only expensive step.
+ *  4. the FREQUENCY rate, which is the anti-flooding guarantee;
+ *  5. profile COMPLETENESS, failing closed;
+ *  6. the rules, then the hold and the expected-value check — the only expensive step.
  */
 export function decideForAccount(facts: AccountFacts, opts?: {
   now?: Date;
@@ -122,12 +121,12 @@ export function decideForAccount(facts: AccountFacts, opts?: {
   });
   if (!freq.allowed) return no('quiet_period', { holdUntil: freq.nextAllowedAt });
 
-  // 5. Fail CLOSED on an unusable profile (D8). An offer argued from a partial
+  // 5. Fail CLOSED on an unusable profile. An offer argued from a partial
   //    read is argued from an artefact.
   const latest = facts.profiles[0];
   if (!latest || !latest.complete) return no('incomplete_profile');
 
-  // 6. The one thing the MODEL may do (Phase 4, D5): suppress.
+  // 6. The one thing the MODEL may do: suppress.
   //
   //    It runs after the profile gate and before the judgement, so a frustrated
   //    account is refused on its own named reason rather than disappearing into
@@ -173,7 +172,7 @@ export function decideForAccount(facts: AccountFacts, opts?: {
 }
 
 /**
- * What an unwanted offer costs, in cents, for D18's EV comparison.
+ * What an unwanted offer costs, in cents, for the expected-value check.
  *
  * A PRICE on the annoyance rather than a checklist, and deliberately not small:
  * the unsubscribe rate is "the only metric here that measures whether the
@@ -186,7 +185,7 @@ export const DEFAULT_ANNOYANCE_COST_CENTS = 2_000;
 /**
  * How sure the model has to be before its signal costs an account its offer.
  *
- * High, because the asymmetry runs the other way from the rest of the plan: a
+ * High, because the asymmetry runs the other way from the rest of the offers path: a
  * false `frustrated` denies an account information it might have wanted, and
  * nothing downstream notices. A hesitant answer is therefore treated as no
  * answer rather than as a weak vote.
@@ -196,7 +195,7 @@ export const FRUSTRATION_CONFIDENCE_FLOOR = 0.6;
 /**
  * Persist one decision, idempotently.
  *
- * The unique `(orgId, cycleKey)` index is the idempotency key D15 asks for: a
+ * The unique `(orgId, cycleKey)` index is the per-cycle idempotency key: a
  * cycle that runs twice, or two replicas that both won the lock, cannot produce
  * two offers for one account. That matters more here than for the profile store
  * because this row is paired with a grant — a duplicate is money.
@@ -209,7 +208,7 @@ export async function recordDecision(
   cycleKey: string,
   source: 'agent' | 'manual' = 'agent',
   /**
-   * WHO decided (D14). Defaults to the agent, which is the only correct answer
+   * WHO decided. Defaults to the agent, which is the only correct answer
    * for the cycle; the manual trigger passes the operator.
    */
   decidedBy: string = OFFERS_AGENT_ACTOR_ID,
@@ -257,7 +256,7 @@ export async function recordDecision(
  * and tier-dependent), and it makes the value explicit. An earlier version of
  * this left pack and compose candidates at `valueCents: 0`, which is not a
  * missing figure but a silent REFUSAL — zero value against any annoyance cost
- * is negative EV (D18), so every pack offer would have been suppressed as
+ * is negative EV, so every pack offer would have been suppressed as
  * `negative_ev` while the feature looked like it was working.
  */
 export function candidatesFor(input: {
@@ -299,7 +298,7 @@ export function candidatesFor(input: {
     });
   }
 
-  // CO-OCCURRENCE is what distinguishes a tier move from a pack sale (D4): one
+  // CO-OCCURRENCE is what distinguishes a tier move from a pack sale: one
   // dimension at 90% is a pack, three at once is a tier that no longer fits.
   const pressured = Object.entries(latest.dimensions)
     .filter(([, d]) => d.ratio !== null && d.ratio >= 0.8)
@@ -358,7 +357,7 @@ export interface PackLike {
  * `interval` — ONE resolver, so the figure the EV was computed from and the
  * figure the mail quotes cannot be two different packs.
  *
- * Cheapest rather than largest, matching the quota card's `packForQuota` (F2)
+ * Cheapest rather than largest, matching the quota card's `packForQuota`
  * exactly: the card is answering "what would it cost to not run out", the offer
  * is answering the same question, and an account shown two prices for one
  * problem stops believing either.

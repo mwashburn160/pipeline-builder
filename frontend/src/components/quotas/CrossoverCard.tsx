@@ -9,20 +9,19 @@ import { getTierMeta } from '@/lib/tiers';
 import type { CrossoverVerdict } from '@/types';
 
 /**
- * "Your packs already cost more than the next plan" (docs/plans/sales-agent.md
- * D4 and F3).
+ * "Your packs already cost more than the next plan".
  *
- * The best offer in the plan and the only one that needs nothing else built:
+ * The best expansion offer there is, and the only one that needs nothing else built:
  * arithmetic over the account's own subscription, no discount, no campaign, no
  * model and no consent question a billing notice does not already raise. The
- * plan's example — Team plus four seat packs at $278.96 against Business at
+ * canonical example — Team plus four seat packs at $278.96 against Business at
  * $249 for more of everything — is an account paying a premium for less.
  *
  * **It states the CONDITION with the saving.** A plan change prunes only pure
  * feature bundles the new tier includes; a resource pack survives it and keeps
  * billing on top of the new tier's base. So an account that upgrades and does
  * nothing else pays MORE, not less. Quoting the saving without the drops would
- * be the offer leaving them worse off that D9's pre-flight exists to prevent.
+ * be the offer leaving them worse off that pricing every offer before promising it exists to prevent.
  *
  * Renders nothing unless there is a real crossover. The verdict's `reason`
  * distinguishes "holds no packs" (an ordinary state) from "a cheaper tier exists

@@ -2,8 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The system org's Toolchain console (docs/plans/bootstrap-image-versioning.md
- * §6, §8, §9, §11): the managed toolchain releases (the `pipeline-bootstrap`
+ * The system org's Toolchain console (docs/permissions.md, `toolchain:operate`): the managed toolchain releases (the `pipeline-bootstrap`
  * build image and the `cdk-synth` step, one release), their canary, adoption,
  * stranded pipelines, the platform-default history and cleanup.
  *

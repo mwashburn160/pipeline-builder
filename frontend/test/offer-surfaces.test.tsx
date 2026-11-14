@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The push surfaces of docs/plans/sales-agent.md — F4, F6 and F7.
+ * The expansion-offer push surfaces: where an offer appears, the add-on
+ * basket, and the account's notice settings.
  *
  * Three claims are worth a test rather than a comment:
  *

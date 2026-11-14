@@ -2,14 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Phase 2's record (docs/plans/sales-agent.md).
+ * The offer record.
  *
  * "The record is the point. It is what the admin surface lists, what the audit
- * trail references, what D12 retunes from, and what answers 'why did this
+ * trail references, what the rules are retuned from, and what answers 'why did this
  * account get this?' without re-running anything."
  *
  * Every offer gets a row — including the ones that were NOT made. A held slot
- * (D17) and a suppressed account (D6) are rows with a reason, not absences:
+ * and a suppressed account are rows with a reason, not absences:
  * "offers suppressed and why, PER REASON" is a product metric, because a feature
  * suppressing almost everything is misconfigured rather than careful, and that
  * is only visible if each reason is counted separately.
@@ -18,9 +18,9 @@
 import mongoose, { Schema } from 'mongoose';
 
 /**
- * THREE offer types, not one (D4's crossover and Example C).
+ * THREE offer types, not one.
  *
- *  - `upgrade` — move a tier. The only type a percentage suits (D10), and the
+ *  - `upgrade` — move a tier. The only type a percentage suits, and the
  *    only one carrying a renewal cliff when discounted.
  *  - `pack` — add capacity on one dimension. Structurally hard to discount
  *    meaningfully, so usually offered at list.
@@ -36,14 +36,14 @@ export type OfferType = (typeof OFFER_TYPES)[number];
  * Terminal and non-terminal states an offer can be in.
  *
  * `declined` exists separately from `expired`, and that distinction is "the
- * single most valuable thing D12 measures": redemption is the only action
- * today, so "never saw it" and "said no" are the same row — and D6's lengthened
+ * single most valuable thing the outcome log measures": redemption is the only action
+ * today, so "never saw it" and "said no" are the same row — and the lengthened quiet
  * window after a decline is unimplementable without telling them apart.
  *
  * `suppressed` and `withdrawn` are also separate, and were briefly the same
  * value. `suppressed` means NO OFFER WAS MADE — the row records why the rules
  * declined, and the account never heard anything. `withdrawn` means an offer WAS
- * made and an operator pulled it back (D14). Collapsing them would make
+ * made and an operator pulled it back. Collapsing them would make
  * "withdraw everything the agent did in the last hour" unanswerable, because the
  * result would be indistinguishable from the accounts it had declined to offer.
  */
@@ -51,12 +51,12 @@ export const OFFER_STATUSES = ['sent', 'redeemed', 'declined', 'expired', 'suppr
 export type OfferStatus = (typeof OFFER_STATUSES)[number];
 
 /**
- * Why no offer was made. Each is counted separately in Phase 6.
+ * Why no offer was made. Each is counted separately.
  *
- * `held` is the interesting one: D17 makes declining to offer a legitimate
+ * `held` is the interesting one: the hold decision makes declining to offer a legitimate
  * OUTCOME rather than an absence — "offer when this is the best offer expected
  * within the window, not merely when an offer is permitted" — so a hold carries
- * the date it expects the better offer by, and Phase 6 can ask whether holds
+ * the date it expects the better offer by, and the outcome measurement can ask whether holds
  * were vindicated.
  */
 export const SUPPRESSION_REASONS = [
@@ -71,9 +71,9 @@ export const SUPPRESSION_REASONS = [
   'budget_exhausted',
   'preflight_refused',
   /**
-   * The account is currently FRUSTRATED (Phase 4).
+   * The account is currently FRUSTRATED.
    *
-   * The one signal in the plan that no counter can produce, and the only thing
+   * The one signal in the offers path that no counter can produce, and the only thing
    * the model is allowed to affect — it suppresses, and it can do nothing else.
    * A separate reason rather than folding into `negative_ev` because "we did not
    * sell to them because they are unhappy with us" is a different operational
@@ -102,7 +102,7 @@ export interface OfferDocument extends mongoose.Document {
   /** The campaign the grant spends from, so budget burn-down is attributable. */
   campaign?: string;
   status: OfferStatus;
-  /** When it was SENT — the clock D6's 45-day rate is measured from. */
+  /** When it was SENT — the clock the 45-day offer rate is measured from. */
   sentAt?: Date;
   /** Must be SHORTER than the quiet period, or the rate is undefined. */
   expiresAt?: Date;
@@ -114,12 +114,12 @@ export interface OfferDocument extends mongoose.Document {
   suppressedReason?: SuppressionReason;
   /** For `held_better_offer`: when the better offer is expected. */
   holdUntil?: Date;
-  /** True when the account is in the measurement holdout (D7). */
+  /** True when the account is in the measurement holdout. */
   holdout: boolean;
   /** `agent` or `manual` — mixing them silently corrupts the only measurement that matters. */
   source: 'agent' | 'manual';
   /**
-   * WHO decided (D14): `OFFERS_AGENT_ACTOR_ID` for the cycle, the operator's
+   * WHO decided: `OFFERS_AGENT_ACTOR_ID` for the cycle, the operator's
    * actor id for a manual trigger.
    *
    * Named rather than left as the generic system actor, because "why did this
@@ -133,7 +133,7 @@ export interface OfferDocument extends mongoose.Document {
    * granter would share the path while needing its own name.
    */
   actorId: string;
-  /** The cycle that produced this row, for idempotency (D15). */
+  /** The cycle that produced this row, for idempotency. */
   cycleKey: string;
   /**
    * The copy the account was actually shown, stored rather than re-derived.
@@ -149,21 +149,21 @@ export interface OfferDocument extends mongoose.Document {
   subject?: string;
   body?: string;
   /**
-   * When the account DISMISSED the card, server-side (F4).
+   * When the account DISMISSED the card, server-side.
    *
    * Server-side because the frequency cap is: a `localStorage` dismissal is
    * per-browser and per-device, so the same offer reappears on a laptop. The cap
    * and the UI's memory have to be one record.
    *
    * Distinct from `declined` on purpose — dismissing is "not now", declining is
-   * "no", and D6's lengthened window applies only to the second.
+   * "no", and the lengthened quiet window applies only to the second.
    */
   dismissedAt?: Date;
   /** Free text the account gave when declining, when it gave any. */
   declineReason?: string;
   /**
    * What the account actually BOUGHT, when it converted — a tier id or a bundle
-   * id (Phase 6).
+   * id.
    *
    * Recorded against the offer rather than inferred later, because "offered-SKU
    * against bought-SKU" is one of the two measures that decide whether the
@@ -218,7 +218,7 @@ const offerSchema = new Schema<OfferDocument>(
 );
 
 /**
- * ONE ROW PER (ORG, CYCLE) — the idempotency key D15 asks for.
+ * ONE ROW PER (ORG, CYCLE) — the per-cycle idempotency key.
  *
  * A cycle that runs twice, or two replicas that both won the lock, cannot
  * produce two offers for one account: the second loses on insert. That matters
@@ -237,14 +237,14 @@ offerSchema.index({ orgId: 1, status: 1, expiresAt: -1 });
 offerSchema.index({ status: 1, expiresAt: 1 });
 
 /**
- * The D14 recall: everything ONE actor did, newest first.
+ * The actor recall: everything ONE actor did, newest first.
  *
  * "Withdraw everything the agent did in the last hour" is this index plus a
  * date bound — which is the point of naming the actor at all.
  */
 offerSchema.index({ actorId: 1, createdAt: -1 });
 
-/** The admin surface and Phase 6's counts. */
+/** The admin surface and the per-reason outcome counts. */
 offerSchema.index({ status: 1, createdAt: -1 });
 offerSchema.index({ suppressedReason: 1, createdAt: -1 });
 

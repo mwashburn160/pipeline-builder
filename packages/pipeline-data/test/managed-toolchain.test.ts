@@ -2,8 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The managed toolchain resolver (docs/plans/bootstrap-image-versioning.md §2,
- * §5, D11, D15) against REAL SQL: the shipped `postgres-init.sql` on PGlite,
+ * The managed toolchain resolver against REAL SQL: the shipped `postgres-init.sql` on PGlite,
  * read as the APPLICATION role under the elevated (sysadmin) scope the resolver
  * uses — so the dedicated toolchain RLS policies are exercised too.
  */
@@ -124,7 +123,7 @@ async function rejection(p: Promise<unknown>): Promise<ManagedToolchainError> {
   throw new Error('expected a rejection');
 }
 
-describe('resolveManagedToolchain — no default (D11)', () => {
+describe('resolveManagedToolchain — no default → 409', () => {
   it('refuses 409 TOOLCHAIN_NO_DEFAULT, never the highest version', async () => {
     await release('1.0.0');
     await release('9.9.9');
@@ -442,7 +441,7 @@ describe('readOrgToolchainOverview — the org-default panel\'s reads', () => {
   });
 });
 
-describe('listEligibleReleases — D15 as a list', () => {
+describe('listEligibleReleases — eligibility as a list', () => {
   it('only live, complete releases that were promoted or are the caller\'s own canary, newest first', async () => {
     await release('1.0.0');
     await release('1.1.0');

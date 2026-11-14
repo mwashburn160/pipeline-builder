@@ -20,7 +20,7 @@ import { TIER_META } from '@/lib/tiers';
 import type { QuotaTier } from '@/types';
 
 /**
- * The machine a build runs on, and whether it may start later (D11/D13).
+ * The machine a build runs on, and whether it may start later.
  *
  * ONE select over five named sizes — Small, Standard, Medium, Large, X-Large —
  * rather than two dropdowns over a class and a multiple. The two ids are still

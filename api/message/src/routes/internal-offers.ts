@@ -22,7 +22,7 @@ const logger = createLogger('internal-offers');
 const SIGNAL_CALLERS = ['billing'] as const;
 
 /**
- * The FRUSTRATION signal for one org (docs/plans/sales-agent.md Phase 4).
+ * The FRUSTRATION signal for one org.
  *
  * `GET /messages/internal/offers/frustration/:orgId` → a boolean and a
  * confidence, derived from the org's own recent support text.
@@ -36,12 +36,12 @@ const SIGNAL_CALLERS = ['billing'] as const;
  *
  * **It cannot be used to widen anything.** The answer's only downstream effect
  * is suppression, so a wrong `true` costs an offer and a wrong `false` costs
- * nothing extra — the asymmetry the D5 boundary is drawn around.
+ * nothing extra — the asymmetry the model's suppress-only boundary is drawn around.
  *
  * NEVER FAILS for a reachable org: an AI outage, an unconfigured provider or an
  * unparseable answer all come back as `degraded: true` with `frustrated: false`,
  * which the caller reads as "no signal". A 500 here would make an AI outage stop
- * expansion offers, which the plan explicitly forbids.
+ * expansion offers, which must never happen.
  *
  * NOT tenant-bound to the caller's token org, deliberately: billing's token is
  * scoped to the account it is evaluating, and that IS the org in the path — the

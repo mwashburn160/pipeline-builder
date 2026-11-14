@@ -29,7 +29,7 @@ const mockEnqueueBuild = jest.fn<(...a: any[]) => Promise<void>>(async () => und
 const mockProducesImage = { value: false };
 
 // The CPU-credit admission gate fails CLOSED when the quota service cannot
-// answer (D6). This suite's quota double does not implement `check`, so without
+// answer. This suite's quota double does not implement `check`, so without
 // this stub every upload here would be refused on credits before reaching the
 // behaviour under test. Credits have their own suite (`build-credits.test.ts`).
 jest.unstable_mockModule('../src/queue/build-credits.js', () => ({

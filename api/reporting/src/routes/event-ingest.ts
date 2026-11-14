@@ -211,7 +211,7 @@ export function createEventIngestRoutes(sseManager: SSEManager): Router {
     // only stage events that carry a deploy environment.
     const onMetric = (m: IngestMetric): void => {
       if (m.kind === 'toolchain') {
-        // Managed toolchain runs (docs/plans/bootstrap-image-versioning.md §7),
+        // Managed toolchain runs,
         // ALERTING ONLY: the canary gate and the Affected view read the stamped
         // rows, which carry org_id — this series deliberately does not. The
         // release label is the platform's deployed manifest, never the payload.

@@ -91,7 +91,7 @@ const mockFind = jest.fn((filter: any) => {
 });
 
 // A minimal in-memory `$facet`/`$group`/`$project`/`$sort`/`$match` interpreter so
-// the summary aggregations (D2) can be unit-tested against the same store without
+// the summary aggregations can be unit-tested against the same store without
 // a live Mongo. Supports exactly the operators the billing-ledger pipelines use.
 function matchRows(filter: any): any[] {
   return [...store.values()]

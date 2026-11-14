@@ -12,7 +12,7 @@ import type { AccountOffer, Bundle, BillingInterval } from '@/types';
 
 /**
  * The basket a compose offer proposed, bought in ONE step
- * (docs/plans/sales-agent.md F6).
+ *.
  *
  * `AddonGrid` sells one add-on at a time and `AddonPreviewModal` previews one,
  * so before this the answer to "three dimensions are under pressure" was three

@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The org toolchain default and the eligible-release list
- * (docs/plans/bootstrap-image-versioning.md §5, Phase 4, D13, D15). Every route
+ * The org toolchain default and the eligible-release list.
+ * Every route
  * acts on the CALLER'S OWN org — a team on the team — and never names another:
  *
  *   GET    /plugins/toolchain/org-default          pipelines:read

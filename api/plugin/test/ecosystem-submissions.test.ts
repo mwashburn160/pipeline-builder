@@ -899,7 +899,7 @@ describe('maintenance', () => {
   });
 });
 
-// docs/plans/bootstrap-image-versioning.md D5: managed toolchain names are never listed.
+// Managed toolchain names are never listed.
 describe('managed toolchain names', () => {
   it.each(['cdk-synth', 'pipeline-bootstrap'])('refuses an anonymous submission named %s with 400 PLUGIN_MANAGED_NOT_LISTABLE', async (name) => {
     const res = await submit({ zip: goodZip(name) });

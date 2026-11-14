@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Contract (D10, Phase 0): the Node major self-mutation pins through
+ * Contract: the Node major self-mutation pins through
  * `runtime-versions.nodejs` must be one the pinned aws-cdk CLI's
  * `engines.node` accepts AND one `aws/codebuild/standard:8.0` publishes.
  */

@@ -110,7 +110,7 @@ async function reusableListing(listing: PluginListing | null, publisher: Publish
  */
 async function publishVersion(r: Req, publisher: Publisher, actor: string): Promise<void> {
   const plugin = await pinnedPlugin(r, publisher);
-  // Managed toolchain names are never listed (D5) — not even by an approval.
+  // Managed toolchain names are never listed — not even by an approval.
   assertListable(plugin.name);
   const payload = payloadOf(r);
   const metadata = (payload.metadata as RequestMetadata | undefined) ?? effectiveMetadata(plugin);

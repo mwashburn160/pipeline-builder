@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Phase 3's two delivery legs (docs/plans/sales-agent.md).
+ * Phase 3's two delivery legs.
  *
  * The consent check is asserted as "no network call happened at all" rather than
  * "it returned false": platform does NOT re-check either switch — it owns

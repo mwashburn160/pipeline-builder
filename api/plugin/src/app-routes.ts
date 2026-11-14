@@ -77,7 +77,7 @@ export function mountRoutes(app: Express, { quotaService, sseManager }: PluginRo
   //    /internal (service principals) — both halves skip those callers anyway.
   app.use('/plugins', ...apiCallsQuota(quotaService));
 
-  // -- Managed toolchain: the D14 initial default. Identity-gated by its own
+  // -- Managed toolchain: the fresh-install initial default. Identity-gated by its own
   //    chain (requireAuth({ acceptServices: ['deploy-bootstrap'] }) +
   //    requireInternalService(['deploy-bootstrap'])) — the only route in this
   //    service that opts in to that signer — so

@@ -5,12 +5,12 @@
  * Where a quota counter is HEADED, from where it is now.
  *
  * Extracted out of `frontend/src/components/quotas/QuotaCard.tsx`, which owned
- * this privately (docs/plans/sales-agent.md, Phase 0 groundwork). Three callers
+ * this privately. Three callers
  * need the same answer and were going to compute it three ways:
  *
  *  - the quota card's forecast row, which is where it started;
  *  - the threshold notice, which decides whether to warn;
- *  - the usage profile's TRAJECTORY signal (D4 Class 2), which is the whole
+ *  - the usage profile's TRAJECTORY signal, which is the whole
  *    basis for "when will they run out" rather than "are they out".
  *
  * A projection that disagreed between the page and the offer would be the worst
@@ -48,7 +48,7 @@ export interface UsageProjection {
  * The burn rate is LINEAR, and that is a deliberate floor rather than a model:
  * real workloads spike, but a straight line still catches "pacing three times
  * ahead of plan", which is the case worth acting on. Anything cleverer wants the
- * history the profile store keeps (D16), not a better formula here.
+ * history the profile store keeps, not a better formula here.
  */
 export function projectUsage(input: {
   used: number;

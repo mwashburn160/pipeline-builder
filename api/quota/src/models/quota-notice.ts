@@ -54,12 +54,12 @@ export interface QuotaNoticeSettingsDocument {
   enabled: boolean;
   /**
    * False opts the ACCOUNT out of expansion offers
-   * (docs/plans/sales-agent.md D6).
+   *.
    *
    * Sits on this object rather than on a new one because the precedent is
    * exact: same account-root scope, same card (`QuotaNoticeSettingsCard`), same
    * route. `undefined` means never set, which reads as TRUE — the account
-   * switch is opt-OUT, and D6's unsubscribe is what makes that defensible.
+   * switch is opt-OUT, and the offer unsubscribe is what makes that defensible.
    *
    * ANDed with `enabled` for the EMAIL channel, not overriding it: "an account
    * that muted the quota channel muted the quota channel; an offer is not an
@@ -94,7 +94,7 @@ const quotaNoticeSettingsSchema = new Schema<QuotaNoticeSettingsDocument>({
   orgId: { type: String, required: true, unique: true },
   enabled: { type: Boolean, default: true },
   // `null` rather than `true`: an account that has never expressed a preference
-  // is distinguishable from one that opted IN, which D12's measurement wants —
+  // is distinguishable from one that opted IN, which the outcome measurement wants —
   // and both read as "may be offered to" at the decision site.
   offersEnabled: { type: Boolean, default: null },
   webhookUrl: { type: String, default: null },

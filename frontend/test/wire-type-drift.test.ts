@@ -51,7 +51,7 @@ const REGISTERED: ReadonlyArray<readonly [string, string, string]> = [
   ['BlockedInfo', 'frontend/src/types/plugin-installs.ts', 'api/plugin/src/services/ecosystem/installs-views.ts'],
   ['BuildHealth', 'frontend/src/lib/api/domains/reporting.ts', 'packages/pipeline-data/src/api/reporting/types.ts'],
   ['BuildHealthStage', 'frontend/src/lib/api/domains/reporting.ts', 'packages/pipeline-data/src/api/reporting/types.ts'],
-  // The crossover verdict (docs/plans/sales-agent.md D4). Registered rather
+  // The crossover verdict. Registered rather
   // than shared because it is served by api/billing, which the client cannot
   // import — and the figures in it reach a customer, so the two shapes drifting
   // apart is a wrong price rather than a type error.

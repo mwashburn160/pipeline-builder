@@ -44,7 +44,7 @@ function HalfCell({ label, half, render }: { label: string; half: ToolchainRelea
 }
 
 /**
- * Releases (§11): every toolchain release with both halves' digests and scans,
+ * Releases: every toolchain release with both halves' digests and scans,
  * its status and notes, and the lifecycle actions. Every write steps up.
  */
 export function ToolchainReleasesPanel({ view, canWrite, onChanged, onOpenCanary }: Props) {

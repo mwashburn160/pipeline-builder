@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Self-mutation runtime (docs/plans/bootstrap-image-versioning.md §3, D10).
+ * Self-mutation runtime.
  *
  * Self-mutation runs on an AWS CURATED image, not the toolchain's bootstrap
  * image, so a defective toolchain release can always be rolled back: the step

@@ -68,10 +68,10 @@ export function createReadQuotaRoutes(svc: QuotaService = defaultQuotaService): 
 
   /**
    * GET /quotas/internal/:orgId/profile — the per-dimension usage picture the
-   * expansion-offers profile is built from (docs/plans/sales-agent.md Phase 0).
+   * expansion-offers profile is built from.
    *
-   * THE QUOTA SERVICE'S FIRST `/internal/*` ROUTE. D13 makes the offers agent
-   * purely a CALLER, so every signal it needs has to have a callee that accepts
+   * THE QUOTA SERVICE'S FIRST `/internal/*` ROUTE. The offers agent has no
+   * surface of its own and is purely a CALLER, so every signal it needs has to have a callee that accepts
    * a service principal — and this is the one the whole profile rests on.
    *
    * Reads through `findByOrgId`, which means POOLED: limits pool at the account
@@ -96,8 +96,8 @@ export function createReadQuotaRoutes(svc: QuotaService = defaultQuotaService): 
     //
     // Narrowed to BILLING rather than the whole fleet (which is what
     // `requireInternalCaller` admits, because every service meters its own
-    // traffic): only the offers scheduler reads this, and it runs in billing
-    // until Phase 5 extracts it. Same shape as `/quotas/:orgId/own-usage`.
+    // traffic): only the offers scheduler reads this, and it runs in billing.
+    // Same shape as `/quotas/:orgId/own-usage`.
     requireInternalService({ callers: ['billing'] }) as RequestHandler,
     withRoute(async ({ req, res, ctx }) => {
       const targetOrgId = getParam(req.params, 'orgId')!;
@@ -136,7 +136,7 @@ export function createReadQuotaRoutes(svc: QuotaService = defaultQuotaService): 
       }
 
       // Both consent switches ride on THIS read rather than a second route.
-      // D6 ANDs them for the email channel, so the caller needs both at once;
+      // The consent check ANDs them for the email channel, so the caller needs both at once;
       // two routes would be two round trips per account per cycle and a window
       // in which they disagree.
       const settings = await QuotaNoticeSettings.findOne({ orgId: quota.pool?.rootOrgId ?? quota.orgId })

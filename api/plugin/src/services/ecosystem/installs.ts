@@ -313,7 +313,7 @@ export async function createInstall(caller: Caller, body: Record<string, unknown
   if (typeof handle !== 'string' || !HANDLE_RE.test(handle) || typeof name !== 'string' || !NAME_RE.test(name)) {
     throw new EcosystemError(ErrorCode.VALIDATION_ERROR, 'publisher and name are required (a publisher handle and a plugin name)');
   }
-  // Managed toolchain names are never listed, so never installed (D5).
+  // Managed toolchain names are never listed, so never installed.
   assertListable(name);
   const versionPolicy = parsePolicy(body.versionPolicy, 'minor');
   const { publisher, listing } = await listingOr404(handle, name);

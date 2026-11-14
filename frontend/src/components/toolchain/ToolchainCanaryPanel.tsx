@@ -31,7 +31,7 @@ interface Props {
 }
 
 /**
- * Canary (§6, §11): the orgs trying a release before it is promoted, and the
+ * Canary: the orgs trying a release before it is promoted, and the
  * gate that keeps "Promote" disabled until the canary has enough runs across
  * enough orgs with a failure rate close to the default's. An org with its own
  * default is flagged: the canary does not reach its pipelines. Promoting past

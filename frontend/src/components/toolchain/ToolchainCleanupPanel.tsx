@@ -17,7 +17,7 @@ import { formatError } from '@/lib/constants';
 import type { ToolchainCleanupCandidate } from '@/types/toolchain';
 
 /**
- * Cleanup (§11): releases no deployed manifest, pin or org default references,
+ * Cleanup: releases no deployed manifest, pin or org default references,
  * older than the last K defaults. Delete steps up; the server re-checks that
  * nothing references the release (in-use protection) and refuses otherwise.
  */

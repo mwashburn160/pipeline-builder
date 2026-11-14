@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The scheduling class and machine size a submitted build runs with (D11/D13).
+ * The scheduling class and machine size a submitted build runs with.
  *
  * One resolver for both build-queuing routes (the zip upload and the AI-generated
  * deploy), because the gate has to read the same way on both: a tenant who finds

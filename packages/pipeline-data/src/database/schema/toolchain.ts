@@ -5,7 +5,7 @@ import { sql } from 'drizzle-orm';
 import { boolean, varchar, pgTable, text, timestamp, uuid, index, check } from 'drizzle-orm/pg-core';
 
 /**
- * Managed toolchain releases (docs/plans/bootstrap-image-versioning.md §1, §5).
+ * Managed toolchain releases.
  *
  * `pipeline-bootstrap@V` and `cdk-synth@V` are two system-org plugin rows that
  * share ONE release version `V`. These tables hold the release-level state the
@@ -21,7 +21,7 @@ import { boolean, varchar, pgTable, text, timestamp, uuid, index, check } from '
  */
 
 /** How a platform-default change came about: a console `set`, the install-time
- *  `initial` (D14), or a `restore` of the previous default on a yank. */
+ *  `initial` (fresh install), or a `restore` of the previous default on a yank. */
 export type ToolchainDefaultKind = 'set' | 'initial' | 'restore';
 
 /**

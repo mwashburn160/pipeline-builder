@@ -3,7 +3,7 @@
 
 /**
  * Tests for helpers/managed-toolchain — the refusals for the managed toolchain
- * names (docs/plans/bootstrap-image-versioning.md §1, §5, D5).
+ * names.
  */
 
 import { describe, it, expect } from '@jest/globals';

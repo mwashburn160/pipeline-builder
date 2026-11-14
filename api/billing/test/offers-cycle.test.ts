@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Phase 2's grant path (docs/plans/sales-agent.md): the decision an account
- * actually experiences.
+ * The grant path: the decision an account actually
+ * experiences.
  *
  * The cycle is a SEQUENCE OF REFUSALS and the ORDER is the design, so the order
  * is what these assert: a deployment that has not agreed to solicit never
@@ -111,7 +111,7 @@ describe('decideForAccount — the order of refusals', () => {
     expect(d.holdUntil).toBeInstanceOf(Date);
   });
 
-  it('fails CLOSED on an incomplete profile (D8)', () => {
+  it('fails CLOSED on an incomplete profile', () => {
     expect(decideForAccount(facts({ profiles: [profile({ complete: false })] })))
       .toMatchObject({ status: 'suppressed', reason: 'incomplete_profile' });
   });
@@ -127,7 +127,7 @@ describe('decideForAccount — the order of refusals', () => {
       .toMatchObject({ status: 'suppressed', reason: 'negative_ev' });
   });
 
-  it('HOLDS the slot for a better offer landing inside the window (D17)', () => {
+  it('HOLDS the slot for a better offer landing inside the window', () => {
     const now = new Date('2026-06-01T00:00:00.000Z');
     const later = new Date(now.getTime() + 20 * 24 * 60 * 60 * 1000);
     const big = { offerType: 'upgrade' as const, valueCents: 650_000, probability: 0.5, rationale: ['crossover'], availableAt: later };
@@ -231,10 +231,10 @@ describe('annualPackValue — the catalogue figure, annualised', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Phase 4 — the one thing the model may do
+// The frustration signal — the one thing the model may do
 // ---------------------------------------------------------------------------
 
-describe('the frustration signal can only SUPPRESS (D5)', () => {
+describe('the frustration signal can only SUPPRESS', () => {
   it('refuses an otherwise-valid offer to a frustrated account', () => {
     const d = decideForAccount(facts({
       frustration: { frustrated: true, confidence: 0.9, degraded: false },
@@ -254,7 +254,7 @@ describe('the frustration signal can only SUPPRESS (D5)', () => {
   });
 
   it('treats a hesitant answer as no answer', () => {
-    // The asymmetry runs the other way from the rest of the plan: a false
+    // The asymmetry runs the other way from the rest of the offers path: a false
     // `frustrated` denies an account information and nothing notices.
     const d = decideForAccount(facts({
       frustration: { frustrated: true, confidence: FRUSTRATION_CONFIDENCE_FLOOR - 0.01, degraded: false },
@@ -286,10 +286,10 @@ describe('the frustration signal can only SUPPRESS (D5)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// F6 — what was proposed, recorded on the offer
+// What was proposed, recorded on the offer
 // ---------------------------------------------------------------------------
 
-describe('candidates carry WHAT was proposed (F6)', () => {
+describe('candidates carry WHAT was proposed', () => {
   // Annotated for the same reason the fixture above is: the differing `grants`
   // keys widen the inferred element type into a union the resolver's parameter
   // will not accept. Jest never sees it; `typecheck:tests` does.

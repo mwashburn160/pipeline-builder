@@ -2,10 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Phase 1's usage predicates, as PURE FUNCTIONS of profile history
- * (docs/plans/sales-agent.md).
+ * The usage predicates, as PURE FUNCTIONS of profile history.
  *
- * "A rule is a function of a `UsageProfile` (that is why Phase 0 persists one),
+ * "A rule is a function of a `UsageProfile` (that is why the signal store persists one),
  * so the test shape is a set of GOLDEN PROFILES — a handful of hand-built
  * accounts covering each co-occurrence pattern, each disqualifier, and the
  * crossover case — asserted against the offer each should produce, including
@@ -15,7 +14,7 @@
  *
  * Nothing here reads a database, mints anything or spends a budget. It answers
  * one question — does this account's history satisfy this predicate — and the
- * grant path (Phase 2) decides what to do about it.
+ * grant path decides what to do about it.
  */
 
 import type { PromotionUsageConditions } from '../models/promotion.js';
@@ -56,7 +55,7 @@ export type UsageRejection =
  * life. An account that was saturated last spring and is idle now is not a
  * candidate, and counting any three would make it one.
  *
- * FAILS CLOSED on a missing or incomplete profile (D8), and the default is the
+ * FAILS CLOSED on a missing or incomplete profile, and the default is the
  * closed one: a `usage` block that omits `requireCompleteProfile` still refuses
  * an incomplete profile. The opposite default would make the safe behaviour
  * something an operator has to remember.

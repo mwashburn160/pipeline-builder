@@ -26,7 +26,7 @@ interface PlanChangeModalProps {
  * Confirmation dialog shown before switching an existing subscription's plan.
  *
  * It PRICES the change rather than quoting the list price, which it did not do
- * before (docs/plans/sales-agent.md F1): an account that accepted a 50%-off
+ * before: an account that accepted a 50%-off
  * offer opened this modal and saw the full figure, so every discounted offer in
  * the product was a promise the checkout contradicted.
  *

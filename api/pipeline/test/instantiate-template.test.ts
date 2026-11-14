@@ -62,7 +62,7 @@ describe('instantiateTemplateProps', () => {
   });
 });
 
-describe('instantiateTemplateProps — toolchain (D12)', () => {
+describe('instantiateTemplateProps — a stored toolchain pin is stripped', () => {
   it('ignores a stored toolchain pin', () => {
     const props = instantiateTemplateProps({ props: { synth: { plugin: { name: 'cdk-synth' } }, toolchain: { release: '1.2.0' } }, inputs: [] }, { project: 'p', organization: 'o' });
     expect(props).not.toHaveProperty('toolchain');

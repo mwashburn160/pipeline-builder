@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Settings → Organization → "Pipeline toolchain" (docs/plans/
- * bootstrap-image-versioning.md §5, §11).
+ * Settings → Organization → "Pipeline toolchain"
+ * (docs/organization-benefits.md, "Pipeline toolchain default").
  *
  * The properties that matter:
  *   - read-only without `toolchain:manage` — shown, not hidden;

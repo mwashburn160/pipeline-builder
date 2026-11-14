@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The pipeline's toolchain release pin at save time
- * (docs/plans/bootstrap-image-versioning.md §5, D15): a managed cdk-synth can't
+ * The pipeline's toolchain release pin at save time:
+ * a managed cdk-synth can't
  * carry its own version, and `toolchain.release` must be eligible — checked only
  * when the pin CHANGES against the stored pipeline.
  */

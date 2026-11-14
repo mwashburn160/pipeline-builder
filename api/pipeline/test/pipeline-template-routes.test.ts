@@ -200,7 +200,7 @@ describe('POST / (author)', () => {
   });
 });
 
-// D12: a template never carries the pipeline's toolchain release pin.
+// A template never carries the pipeline's toolchain release pin.
 describe('templates never round-trip toolchain', () => {
   it('strips toolchain on create and on update', async () => {
     const created = res();

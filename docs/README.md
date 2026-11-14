@@ -479,7 +479,7 @@ change, what it deliberately would not, and any decision it is waiting on.
 
 | Plan | Covers |
 |------|--------|
-| [Versioned toolchain releases](plans/bootstrap-image-versioning.md) | Moving the CodeBuild bootstrap image out of operator env vars into the plugin catalog as a versioned toolchain release (bootstrap + `cdk-synth`), resolved per pipeline: its pin, else its org default, else a canary, else the platform default |
+| [Retire superseded system plugin versions](plans/superseded-image-retention.md) | A retention pass that keeps the newest N versions of each system plugin plus every version anything still needs, and retires the rest so the registry GC can free their bytes |
 
 ---
 

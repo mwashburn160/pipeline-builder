@@ -11,7 +11,7 @@
  * give the standby its own NetworkPolicy rules or mesh identity, cannot express
  * "minimum 1 replica" without `replicas: 2`, and would have forced the primary
  * through a volume-adoption migration whose failure mode is a database that
- * looks like it lost everything (see decision D1 in the plan).
+ * looks like it lost everything.
  *
  * So the parity became a convention — and this file is what stops it being one.
  * That is the standing preference in this repo: duplicate the manifest, guard
@@ -425,8 +425,8 @@ describe('the read path is wired consistently across every target', () => {
   it('leaves no per-tier pool behind', () => {
     // They were dead configuration — the names appeared in these four files and
     // nowhere else in the repository, so the isolation their comments claimed
-    // was never in effect. See decision D2 in the plan. This assertion stops
-    // them being reintroduced as decoration rather than as real routing.
+    // was never in effect. This assertion stops them being reintroduced as
+    // decoration rather than as real routing.
     const leftovers: string[] = [];
     for (const t of ALL_TARGETS) {
       const cfg = t === 'deploy/local/docker'
@@ -492,7 +492,7 @@ describe('the read path is wired consistently across every target', () => {
   });
 
   it('ships with DB_READ_HOST unset, so reads stay on the primary until someone opts in', () => {
-    // The whole feature is inert out of the box. Phase 5's guardrails exist but
+    // The whole feature is inert out of the box. The replica-read guardrails exist but
     // have never run against a real replica, so a target that shipped with a
     // host configured would be serving replica reads with no operator having
     // chosen that.

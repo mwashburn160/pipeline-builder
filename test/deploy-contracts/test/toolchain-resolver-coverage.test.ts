@@ -2,13 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Resolver coverage (docs/plans/bootstrap-image-versioning.md §2, §13): a
+ * Resolver coverage (docs/pipeline-manager.md, "The toolchain release"): a
  * managed toolchain name (`pipeline-bootstrap`, `cdk-synth`) resolves through
  * `resolveManagedToolchain` and NOTHING else. The generic resolvers would answer
- * it wrongly — a listing resolution never finds it (D5), and the owner-ranked
- * row query (`pluginResolutionOrderBy`) would hand a system-org caller the
- * HIGHEST unpromoted release (managed rows never set `isDefault`), which D11
- * forbids, or a customer a same-named row.
+ * it wrongly — a listing resolution never finds it (managed names are never
+ * listed), and the owner-ranked row query (`pluginResolutionOrderBy`) would
+ * hand a system-org caller the HIGHEST unpromoted release (managed rows never
+ * set `isDefault`), when no default must be a 409 and never "highest version",
+ * or a customer a same-named row.
  *
  * So every call site of `resolveListingReference`, `selectListingVersion` and
  * `pluginResolutionOrderBy` — plus the row branch of `/plugins/lookup`
@@ -53,7 +54,7 @@ const REVIEWED: ReviewedSite[] = [
     call: 'selectListingVersion',
     count: 2,
     how: 'unreachable',
-    reason: 'inside the LISTING resolver (resolveListingReference / orgListingStates): managed names are never listed (D5, PLUGIN_MANAGED_NOT_LISTABLE), so no listing version of one exists',
+    reason: 'inside the LISTING resolver (resolveListingReference / orgListingStates): managed names are never listed (PLUGIN_MANAGED_NOT_LISTABLE), so no listing version of one exists',
   },
 
   // /plugins/lookup + /plugins/find: the managed branch returns before the row and listing branches.

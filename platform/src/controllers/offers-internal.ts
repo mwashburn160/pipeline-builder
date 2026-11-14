@@ -17,7 +17,7 @@ const MAX_WINDOW_DAYS = 365;
  * GET /internal/offers/seat-activity/:orgId — seats held against members who
  * actually used them.
  *
- * The VALUE signal (docs/plans/sales-agent.md D4 Class 3), and the reason it
+ * The VALUE signal, and the reason it
  * exists is that it DISQUALIFIES: "an account at 95% of a cap that is quietly
  * disengaging is a churn save, not an expansion, and offering it an upgrade is
  * the worst available outcome." A pressure-only profile cannot tell that account

@@ -520,7 +520,7 @@ describe('syncEntitlements reporting retention leg', () => {
     expect(call![1]).toEqual({ eventRetentionDays: -1, doraRetentionDays: -1, occurredAt: expect.any(String) });
   });
 
-  it('D7: clamps a summed retention above 730 down to the ceiling (defensive)', async () => {
+  it('clamps a summed retention above 730 down to the ceiling (defensive)', async () => {
     mockClientPut.mockResolvedValue({ statusCode: 200 });
 
     // base 30 + 8× retention_pack(90) = 750 > 730 → clamped to 730 by the sync leg

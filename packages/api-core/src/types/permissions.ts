@@ -129,8 +129,7 @@ const PERMISSION_DEFS = {
   // beside `pipelines:write` (the Member bundle); the `pipeline-register`
   // service account holds it alone.
   'pipeline_registry:write': { label: 'Register deployments', description: 'Record and remove the deployed stack and step manifest behind a pipeline (the pipeline registry)', category: 'Pipelines' },
-  // The org's managed-toolchain DEFAULT (docs/plans/bootstrap-image-versioning.md
-  // D13): which toolchain release every unpinned pipeline in the org (and its
+  // The org's managed-toolchain DEFAULT: which toolchain release every unpinned pipeline in the org (and its
   // teams that set none) synthesizes with on its next run. Org-assignable, so
   // Admin and Owner hold it; NOT in Member or any pipeline-editor bundle. Split
   // by blast radius: `pipelines:write` moves ONE pipeline (its own
@@ -181,7 +180,7 @@ const PERMISSION_DEFS = {
   // Same mistake, and same fix, as `consoles:datastore` before it was split by
   // what a mistaken grant costs.
   'orgs:read': { label: 'View all organizations', description: 'List and open every organization on the deployment \u2014 the roster the operator surfaces work from (system org only)', category: 'Platform operations' },
-  // The Toolchain CONSOLE (plan D9; named after `billing:operate`): publish
+  // The Toolchain CONSOLE (named after `billing:operate`): publish
   // lifecycle, canary membership and THE platform default — every org without
   // its own default moves with it. System-org-only (otherwise ADMIN_PERMISSIONS,
   // derived from ORG_ASSIGNABLE_PERMISSIONS, would hand it to every tenant
@@ -483,7 +482,7 @@ export const SYSTEM_ORG_ONLY_PERMISSIONS: readonly Permission[] = [
   'orgs:manage',
   'quotas:manage',
   'plugin_queue:manage',
-  // The Toolchain console (plan D9): THE platform default and canary move the
+  // The Toolchain console: THE platform default and canary move the
   // build toolchain of every org that follows it, so no tenant may hold it.
   'toolchain:operate',
 ];
@@ -651,7 +650,7 @@ export const PLATFORM_OPERATOR_PERMISSIONS: readonly Permission[] = [
   // queue and purge its dead-letter queue.
   'quotas:manage',
   'plugin_queue:manage',
-  // The Toolchain console (plan D9): canary, promotion, rollback and release
+  // The Toolchain console: canary, promotion, rollback and release
   // lifecycle of the managed build toolchain — running the deployment.
   'toolchain:operate',
   // Reads that make the operator views usable: the dashboards the posture panels

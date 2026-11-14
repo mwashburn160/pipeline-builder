@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The pipeline's toolchain release (docs/plans/bootstrap-image-versioning.md §2, D2).
+ * The pipeline's toolchain release.
  *
  * `pipeline-bootstrap` (the default CodeBuild image) and `cdk-synth` (the synth
  * step) are one release. The bootstrap is not a step, so nothing else resolves

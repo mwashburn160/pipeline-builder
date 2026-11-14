@@ -230,7 +230,7 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
   // Each tier gets its own Worker on its own queue, and a Worker's concurrency
   // bounds how many of that tier's builds run at once ACROSS EVERY ORG on the
   // tier — so this ladder, not a quota, is what bounds the aggregate. That is
-  // what lets `SINGLE_TENANT_SHARE` be 1.0 (D9, open item 3): a tier's cap stays
+  // what lets `SINGLE_TENANT_SHARE` be 1.0: a tier's cap stays
   // reachable by one tenant alone, while the number of tenants reaching for it
   // concurrently is bounded here, where it can be tuned without touching the
   // price list.
@@ -664,8 +664,8 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
   const completedHandler = (job: Job<PluginBuildJobData>) => {
     const orgId = job.data?.orgId ?? 'unknown';
     // `trigger` makes "should automated builds have their own budget?" answerable
-    // from data rather than from argument — D8 declines to build the split until
-    // it is. Bounded to two values, so the label set stays small.
+    // from data rather than from argument — there is ONE build budget, no
+    // human/automation split, until the data says otherwise. Bounded to two values, so the label set stays small.
     incCounter('plugin_builds_total', { status: 'success', org_id: orgId, trigger: buildTrigger(job.data) });
     if (job.processedOn && job.finishedOn) {
       observe('plugin_build_duration_seconds',

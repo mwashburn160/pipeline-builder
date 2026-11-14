@@ -270,7 +270,7 @@ export interface QuotaNoticeSettings {
   orgId: string;
   enabled: boolean;
   /**
-   * The account's EXPANSION-OFFERS switch (docs/plans/sales-agent.md D6/F7).
+   * The account's EXPANSION-OFFERS switch.
    *
    * Default TRUE — an opt-OUT. It rides this row rather than a billing one
    * because the two are ANDed at send time: an offer travels the quota-notice

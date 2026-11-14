@@ -2660,7 +2660,7 @@ groups:
           summary: "Platform-key AI token spend surging on the {{ $labels.tier }} tier"
           description: "Platform-key tokens on the {{ $labels.tier }} tier have run above 3x their trailing-week rate for 30m ({{ $value | humanize }} tokens/s). Check the Product health dashboard's AI rows (tokens by route, charged tool generations) and the ask.agent.turn / ai usage audit rows for the orgs driving it; per-org AI controls (member share, token budget) are the lever."
 
-      # ---- Managed toolchain releases (docs/plans/bootstrap-image-versioning.md §7) ----
+      # ---- Managed toolchain releases ----
       # A toolchain release whose synth / self-mutation actions fail markedly more
       # often than the platform default's. Fed by api/reporting's ingest, which
       # stamps each run with the release from the PLATFORM's deployed step

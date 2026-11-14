@@ -200,7 +200,7 @@ describe('PluginLifecycleModal', () => {
   });
 });
 
-// docs/plans/bootstrap-image-versioning.md §11: the managed toolchain's lifecycle
+// docs/error-handling.md, "Managed toolchain": the managed toolchain's lifecycle
 // is the Toolchain console's.
 describe('managed toolchain versions', () => {
   it('offer no lifecycle actions', () => {

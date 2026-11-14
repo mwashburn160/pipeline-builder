@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Phase 3's delivery leg (docs/plans/sales-agent.md).
+ * The offer delivery leg.
  *
  * Two things are asserted here because each was a way the feature could have
  * shipped looking fine: the consent AND (platform does NOT re-check it, so a
@@ -31,7 +31,7 @@ function facts(over: Partial<Facts> = {}): Facts {
   };
 }
 
-describe('the consent AND (D6)', () => {
+describe('the consent AND', () => {
   it('allows only when BOTH switches are on', () => {
     expect(offerChannelAllowed({ accountOptIn: true, noticesEnabled: true })).toBe(true);
   });

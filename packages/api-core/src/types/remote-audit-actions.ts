@@ -319,14 +319,14 @@ export const REMOTE_AUDIT_ACTIONS = [
   'billing.promotion.revoke',
   'billing.promotion.grant',
   'billing.promotion.activate',
-  // Expansion OFFERS (docs/plans/sales-agent.md). An automated granter needs its
+  // Expansion OFFERS. An automated granter needs its
   // own trail: `declined` and `dismissed` are the account's own answers (and the
-  // pair D6's lengthened quiet window depends on — "never saw it" and "said no"
+  // pair the lengthened quiet window after a decline depends on — "never saw it" and "said no"
   // must not be the same row); `exclusion.set`/`cleared` are the operator veto,
   // which is the price of shipping the feature at all and therefore has to be
   // attributable; `trigger` is a human asking for an offer now, recorded so a
   // manual offer is distinguishable from an agent one in the outcome log.
-  // The agent's OWN work, under its own actor (D14 — `OFFERS_AGENT_ACTOR_ID`).
+  // The agent's OWN work, under its own actor (`OFFERS_AGENT_ACTOR_ID`).
   // `sent` is what makes "why did this account get this?" answerable from the
   // central trail rather than only from the service's own collection, and
   // `withdrawn` is the recall an operator reaches for on the morning a rule
@@ -487,7 +487,7 @@ export const REMOTE_AUDIT_ACTIONS = [
   'plugin.version.pause',
   'plugin.version.yank',
   'plugin.version.unyank',
-  // Pipeline toolchain releases (docs/plans/bootstrap-image-versioning.md §13).
+  // Pipeline toolchain releases.
   'toolchain.default.set',
   'toolchain.default.initial',
   'toolchain.default.restore',

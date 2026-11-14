@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Phase 4's extractor (docs/plans/sales-agent.md).
+ * Phase 4's extractor.
  *
  * Two properties carry the whole design, and both are tested rather than
  * asserted in a comment:

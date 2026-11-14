@@ -55,7 +55,7 @@ export default function CreatePluginModal({ canPublish, onClose, onCreated, init
   const [catalogEdits, setCatalogEdits] = useState<PluginCatalogEdits>({});
   // `org` is the backend's create default for plugins; `private` is opt-in.
   const [access, setAccess] = useState<Visibility>('org');
-  // Build shape (D11/D13). Both default to what every tier has, so an org that
+  // Build shape. Both default to what every tier has, so an org that
   // never touches these fields submits exactly what it submitted before.
   const [buildClass, setBuildClass] = useState<BuildClass>('standard');
   const [buildSize, setBuildSize] = useState<BuildSize>('1x');

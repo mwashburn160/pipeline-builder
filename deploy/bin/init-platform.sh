@@ -64,7 +64,7 @@ CONTINUE_ON_BUILD_FAILURE=false
 FORCE_REBUILD_ALL=false
 # --accept-initial-vulnerabilities "<reason>": the ONLY override of the
 # fixable-Critical floor anywhere, and only for the initial platform default
-# (plan §8). Sent as `acceptVulnerabilities` and recorded in the
+# (a promotion-guard override). Sent as `acceptVulnerabilities` and recorded in the
 # toolchain.default.initial audit event.
 ACCEPT_INITIAL_VULNERABILITIES=""
 
@@ -394,7 +394,7 @@ TOOLCHAIN_WAIT_POLL="${TOOLCHAIN_WAIT_POLL:-15}"
 
 # The deploy-bootstrap ES256 service identity (the key build-plugin-images.sh
 # signs its registry pushes with) — the ONLY identity the initial-default route
-# (D14) accepts. Same per-target certs layout as build-plugin-images.sh.
+# accepts. Same per-target certs layout as build-plugin-images.sh.
 case "$TARGET" in
   minikube) _pb_target_dir="$DEPLOY_DIR/local/minikube" ;;
   ec2)      _pb_target_dir="$DEPLOY_DIR/aws/ec2" ;;
@@ -461,12 +461,12 @@ wait_for_toolchain_release() {
   done
 }
 
-# set_initial_toolchain_default VERSION — POST the D14 route as deploy-bootstrap.
+# set_initial_toolchain_default VERSION — POST the initial-default route as deploy-bootstrap.
 # 200 sets it; TOOLCHAIN_INITIAL_ALREADY_SET means a default exists (a re-run):
 # fine, this script never MOVES a default. A guard refusal stops the install.
 set_initial_toolchain_default() {
   local _ver="$1" _jwt _body _resp _status _code
-  # The D14 route is gated on the deploy-bootstrap IDENTITY, not on a permission;
+  # The initial-default route is gated on the deploy-bootstrap IDENTITY, not on a permission;
   # sign_service_jwt requires one, so this carries the same least-privilege
   # `plugins:write` every other deploy-bootstrap caller asks for. The token is
   # refused by every service and route that has not opted in to this signer.

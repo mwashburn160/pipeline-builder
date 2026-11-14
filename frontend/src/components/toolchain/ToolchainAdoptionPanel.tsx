@@ -38,7 +38,7 @@ const COLUMNS: Column<OrgRow>[] = [
 export const ADOPTION_CSV_HEADERS = ['releaseVersion', 'orgId', 'orgName', 'pipelines', 'pinned', 'orgDefault'] as const;
 
 /**
- * Adoption (§11): pipelines on a release across all orgs, from deployed
+ * Adoption: pipelines on a release across all orgs, from deployed
  * manifests and pins — by how they resolve it, and per org — with a CSV export.
  */
 export function ToolchainAdoptionPanel({ releaseVersion }: { releaseVersion: string }) {

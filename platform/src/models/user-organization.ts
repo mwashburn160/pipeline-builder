@@ -50,7 +50,7 @@ export interface UserOrganizationData {
    * When this member last opened a session in this organization.
    *
    * The ONLY new instrumentation the expansion-offers plan requires
-   * (docs/plans/sales-agent.md D4 Class 3), and it is a DISQUALIFIER rather
+   *, and it is a DISQUALIFIER rather
    * than a sales signal: an account at 95% of its seat cap whose members have
    * not signed in is a churn save, not an expansion, and offering it more seats
    * is the worst available outcome. Without this the seat offer cannot tell

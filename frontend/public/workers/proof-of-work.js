@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /*
- * Proof-of-work solver for anonymous plugin submissions (plan §4.2, E3), run
+ * Proof-of-work solver for anonymous plugin submissions, run
  * as a Web Worker by src/lib/plugin-submissions/proof-of-work.ts.
  *
  * Finds the smallest decimal nonce such that SHA-256("<challenge>:<nonce>")

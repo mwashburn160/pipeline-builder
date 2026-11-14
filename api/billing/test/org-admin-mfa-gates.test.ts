@@ -31,7 +31,7 @@ const GATED = [
   'POST /billing/subscriptions/:id/addons',
   // A basket is a purchase of several add-ons under ONE confirmation, so it
   // belongs here beside the single add rather than being a quieter way to buy
-  // the same things (docs/plans/sales-agent.md F6).
+  // the same things.
   'POST /billing/subscriptions/:id/addons/basket',
   'DELETE /billing/subscriptions/:id/addons/:bundleId',
   'POST /billing/subscriptions/:id/discounts',
@@ -48,7 +48,7 @@ const GATED = [
  * card, and neither moves a single cent. Demanding an MFA step-up to click "No
  * thanks" would be the wrong trade — it would push accounts into ignoring the
  * card instead of answering it, and "never saw it" versus "said no" is the
- * single most valuable distinction the outcome log measures (D12).
+ * single most valuable distinction the outcome log measures.
  *
  * They still need `billing:manage` (a decline suppresses offers for the WHOLE
  * account for months, which is more than a reader should decide) and they still

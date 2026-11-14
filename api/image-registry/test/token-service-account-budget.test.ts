@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The storage push-gate with `QUOTA_STORAGE_ACCOUNT_BUDGET=true` — D1 of the
- * storage plan.
+ * The storage push-gate with `QUOTA_STORAGE_ACCOUNT_BUDGET=true` — storage
+ * enforced against the whole account's budget.
  *
  * Storage is the ONLY quota without pooling's joint-overshoot guarantee: every
  * namespace is measured against the same pooled cap, so a five-team Pro account
@@ -66,7 +66,7 @@ describe('storage push-gate — account budget', () => {
   it('refuses on the ACCOUNT total even when this namespace is small', () => {
     // The namespace holds 100 bytes; the account holds 2,000 against a 1,000
     // cap. Per-namespace enforcement would wave this push through — which is
-    // exactly the overshoot D1 closes.
+    // exactly the overshoot the account budget closes.
     quotaCheck.mockResolvedValue({ limit: 1000, used: 2000 });
     return authorizeAndIssue(writer, push, 'u1').then(({ token, storageGate }) => {
       expect(accessOf(token)).toEqual([{ type: 'repository', name: 'org-acme/app', actions: ['pull'] }]);

@@ -4,7 +4,7 @@
 /**
  * The step picker never offers a managed build image (pluginType `BuildImage`,
  * `pipeline-bootstrap`): it is what the synth runs ON, never a step
- * (docs/plans/bootstrap-image-versioning.md §1).
+ * (docs/pipeline-manager.md, "The toolchain release").
  */
 
 import { describe, it, expect, jest } from '@jest/globals';

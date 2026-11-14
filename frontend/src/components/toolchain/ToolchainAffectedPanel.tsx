@@ -38,7 +38,7 @@ const COLUMNS: Column<OrgRow>[] = [
 ];
 
 /**
- * Affected (§9): pipelines deployed on a release whose latest synth failed, by
+ * Affected: pipelines deployed on a release whose latest synth failed, by
  * org. They can't heal themselves — the platform has no credentials in their
  * AWS accounts — so "Notify affected owners" sends each owner the redeploy
  * command, which re-synthesizes against the current default.

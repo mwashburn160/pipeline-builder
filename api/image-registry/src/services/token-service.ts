@@ -528,7 +528,7 @@ async function isStorageOverBudget(orgId: string): Promise<StorageGateDecision> 
     // `automationCalls` does.
     const enforced = enforcedQuotaLimit('storageBytes', limit);
 
-    // THE ACCOUNT BUDGET (D1). The quota service's status now carries the whole
+    // THE ACCOUNT BUDGET. The quota service's status now carries the whole
     // pool's measured storage against the pooled cap, so when this is on the
     // gate decides against the ACCOUNT's total rather than this one namespace.
     //
@@ -537,7 +537,7 @@ async function isStorageOverBudget(orgId: string): Promise<StorageGateDecision> 
     // Pro account could hold 5 × 25 GB against a headline 25 GB, and a single
     // $19.99 Storage Pack raised every namespace's ceiling at once. Closing that
     // is right, and it can newly refuse a push that works today. So the sequence
-    // the plan insists on is measure → notify → enforce, and this flag is the
+    // that has to hold is measure → notify → enforce, and this flag is the
     // last step: the account total is already measured and already reported on
     // the dashboard, and the sweep already notifies at 80%/100% against it.
     // Turn this on once affected accounts have had a reminder window to act.

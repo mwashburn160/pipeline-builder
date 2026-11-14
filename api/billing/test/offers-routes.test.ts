@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The offer SURFACES (docs/plans/sales-agent.md F4, F8).
+ * The offer SURFACES.
  *
  * The assertions here are the ones a typecheck cannot make:
  *
@@ -130,7 +130,7 @@ beforeEach(() => {
   mockUpdateMany.mockResolvedValue({ modifiedCount: 3 });
 });
 
-describe('the D14 recall', () => {
+describe('the actor recall', () => {
   it('withdraws the AGENT\'s unanswered offers in the window by default', async () => {
     await call(handler('post', '/admin/offers/withdraw'), { body: { sinceMinutes: 60 } });
     const [filter, update] = mockUpdateMany.mock.calls[0] as [Record<string, unknown>, Record<string, Record<string, unknown>>];
@@ -198,7 +198,7 @@ describe('the manual trigger', () => {
       expect.objectContaining({ orgId: 'acct-1' }),
       expect.any(Date),
       'manual',
-      // …and attributed to the operator who asked, not to the agent (D14).
+      // …and attributed to the operator who asked, not to the agent.
       'u-1',
     );
   });

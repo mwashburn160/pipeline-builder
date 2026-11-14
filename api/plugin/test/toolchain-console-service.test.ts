@@ -2,8 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The Toolchain CONSOLE service (docs/plans/bootstrap-image-versioning.md §5,
- * §6, §8, §9, §10, §11, Phase 5) end to end through the Phase 2-4 services,
+ * The Toolchain CONSOLE service end to end through the Phase 2-4 services,
  * against a REAL Postgres (PGlite, the shipped postgres-init.sql, as the
  * RLS-enforced app role): releases, adoption, canary replace + move, the
  * blast-radius preview, promotion (guards, refusals, audience-specific
@@ -308,7 +307,7 @@ describe('Set as platform default — preview, guards, promotion, notices', () =
     sent.length = 0;
   }
 
-  it('the preview shows the blast radius and every §8 guard, without writing', async () => {
+  it('the preview shows the blast radius and every promotion guard, without writing', async () => {
     await world();
     const out = await consoleSvc.previewDefault('1.1.0');
     expect(out.currentDefault).toBe('1.0.0');

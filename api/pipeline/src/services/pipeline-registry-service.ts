@@ -114,8 +114,7 @@ async function listedStepPlugins(ids: string[], orgId: string, parentOrgId?: str
  * entry naming anything else is dropped, so an org can't attribute its runs to
  * someone else's plugin.
  *
- * The BUILD-IMAGE entry (the sentinel (stage, action), docs/plans/
- * bootstrap-image-versioning.md §4) is kept only when it names the system
+ * The BUILD-IMAGE entry (the sentinel (stage, action)) is kept only when it names the system
  * org's `pipeline-bootstrap`: its `plugin_version` is the release the pipeline
  * runs. Against the row it replaces, a different release records the change
  * (`previous_release_version`, `release_changed_at`: the run-history marker);

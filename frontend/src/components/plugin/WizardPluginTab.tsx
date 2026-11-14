@@ -108,7 +108,7 @@ export default function WizardPluginTab({ canPublish, disabled, onCreated, onClo
   const [dockerfile, setDockerfile] = useState(DEFAULT_DOCKERFILE);
   // `org` is the backend's create default for plugins; `private` is opt-in.
   const [access, setAccess] = useState<Visibility>('org');
-  // Build shape (D11/D13), defaulting to what every tier has.
+  // Build shape, defaulting to what every tier has.
   const [buildClass, setBuildClass] = useState<BuildClass>('standard');
   const [buildSize, setBuildSize] = useState<BuildSize>('1x');
   // Edit-only settings (not accepted by the create/build path).
@@ -461,7 +461,7 @@ export default function WizardPluginTab({ canPublish, disabled, onCreated, onClo
           )}
 
           <div className="border-t border-default pt-4">
-            {/* Build shape (D11/D13) + what the build will cost, beside the
+            {/* Build shape + what the build will cost, beside the
                 control that spends it. Editing an existing plugin runs no
                 build, so the shape only applies to the create path. */}
             {!editing && (

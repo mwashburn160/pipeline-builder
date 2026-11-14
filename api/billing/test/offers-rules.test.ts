@@ -2,15 +2,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The GOLDEN PROFILES the plan asks for (docs/plans/sales-agent.md Phase 0):
+ * The GOLDEN PROFILES:
  * "a handful of hand-built accounts covering each co-occurrence pattern, each
  * disqualifier, and the crossover case — asserted against the offer each should
  * produce, INCLUDING THE ONES THAT SHOULD PRODUCE NONE. In a repository with
  * eighteen thousand tests, a rule engine that decides discounts should not be
  * the part with none."
  *
- * Plus Phase 2's gates: the holdout (D7), the frequency rate (D6), the EV check
- * (D18) and the hold decision (D17).
+ * Plus the offer gates: the holdout, the frequency rate, the EV check and the
+ * hold decision.
  */
 
 import { describe, it, expect } from '@jest/globals';
@@ -174,9 +174,9 @@ describe('evaluateUsage — the account that SHOULD be offered', () => {
   });
 });
 
-// -- Phase 2 gates -----------------------------------------------------------
+// -- Offer gates -------------------------------------------------------------
 
-describe('inHoldout (D7) — deterministic, so membership is stable', () => {
+describe('inHoldout — deterministic, so membership is stable', () => {
   it('gives the same answer every time for the same org', () => {
     // "An account that flips in and out of the holdout is in neither group."
     const first = inHoldout('org-abc');
@@ -196,7 +196,7 @@ describe('inHoldout (D7) — deterministic, so membership is stable', () => {
   });
 });
 
-describe('frequencyVerdict (D6) — a RATE measured from SEND', () => {
+describe('frequencyVerdict — a RATE measured from SEND', () => {
   const sent = new Date('2026-01-01T00:00:00.000Z');
   const plus = (days: number) => new Date(sent.getTime() + days * 24 * 60 * 60 * 1000);
 
@@ -206,7 +206,7 @@ describe('frequencyVerdict (D6) — a RATE measured from SEND', () => {
 
   it('refuses inside the window and names WHEN the next offer may go', () => {
     // The date is what lets the account's settings surface say "you are inside
-    // your quiet period until X" rather than leaving them wondering (F7).
+    // your quiet period until X" rather than leaving them wondering.
     const v = frequencyVerdict({ lastSentAt: sent, now: plus(10) });
     expect(v.allowed).toBe(false);
     expect(v.nextAllowedAt).toEqual(plus(DEFAULT_QUIET_PERIOD_DAYS));
@@ -218,7 +218,7 @@ describe('frequencyVerdict (D6) — a RATE measured from SEND', () => {
   });
 
   it('makes DECLINING slower than ignoring, not faster', () => {
-    // The bug the plan records: measured from resolution, a decline on day 2
+    // The bug this guards against: measured from resolution, a decline on day 2
     // restarted the clock immediately while an ignored offer resolved on day 30
     // — so declining earned a FASTER next offer than ignoring, rewarding the
     // account that engaged with what it asked not to receive.
@@ -249,7 +249,7 @@ describe('offerExpiryIsLegal — an overlapping expiry is a config error', () =>
   });
 });
 
-describe('expectedValueCents (D18) — price the annoyance', () => {
+describe('expectedValueCents — price the annoyance', () => {
   const c = (over: Partial<OfferCandidate> = {}): OfferCandidate =>
     ({ offerType: 'pack', valueCents: 10_000, probability: 0.5, rationale: [], ...over });
 
@@ -264,7 +264,7 @@ describe('expectedValueCents (D18) — price the annoyance', () => {
   });
 });
 
-describe('chooseOffer (D17) — the SLOT is the scarce resource', () => {
+describe('chooseOffer — the SLOT is the scarce resource', () => {
   const now = new Date('2026-06-01T00:00:00.000Z');
   const inDays = (d: number) => new Date(now.getTime() + d * 24 * 60 * 60 * 1000);
 
@@ -273,7 +273,7 @@ describe('chooseOffer (D17) — the SLOT is the scarce resource', () => {
   const soonCrossover: OfferCandidate = { ...crossover, availableAt: inDays(30) };
 
   it('HOLDS the slot when a much better offer lands inside the window', () => {
-    // The plan's worked example: spending the slot on a ~$59/year pack today
+    // Worked example: spending the slot on a ~$59/year pack today
     // forecloses a ~$650 crossover two to three months out.
     const d = chooseOffer({ candidates: [pack, soonCrossover], annoyanceCostCents: 500, now });
     expect(d.chosen).toBeNull();
@@ -305,7 +305,7 @@ describe('chooseOffer (D17) — the SLOT is the scarce resource', () => {
   });
 
   it('holds rather than reporting negative_ev when a future candidate exists', () => {
-    // Different findings: Phase 6 asks whether holds were VINDICATED, and a
+    // Different findings: the outcome measurement asks whether holds were VINDICATED, and a
     // hold recorded as "nothing matched" cannot be audited that way.
     const weak: OfferCandidate = { offerType: 'pack', valueCents: 100, probability: 0.1, rationale: [] };
     const d = chooseOffer({ candidates: [weak, soonCrossover], annoyanceCostCents: 5_000, now });

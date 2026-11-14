@@ -33,7 +33,7 @@ interface Props {
 }
 
 /**
- * "Set as platform default" (§8): ONE step-up dialog that first shows what the
+ * "Set as platform default": ONE step-up dialog that first shows what the
  * promotion would do — every guard, ok or not, and the blast radius — then
  * re-verifies and sends `expectedCurrentDefault` (the default the preview was
  * read against), so two operators can't race.

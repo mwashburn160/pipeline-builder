@@ -3028,7 +3028,7 @@ groups:
           summary: "istiod is not reporting metrics"
           description: "The Istio control plane has been unscrapeable for 5m. Mesh config changes will not propagate; the ztunnel data path continues on its last-known config."
 
-      # ---- Managed toolchain releases (docs/plans/bootstrap-image-versioning.md §7) ----
+      # ---- Managed toolchain releases ----
       # A toolchain release whose synth / self-mutation actions fail markedly more
       # often than the platform default's. Fed by api/reporting's ingest, which
       # stamps each run with the release from the PLATFORM's deployed step

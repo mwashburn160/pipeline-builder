@@ -3,8 +3,8 @@
 
 /**
  * The managed pipeline toolchain as an org sees it: its effective release, its
- * own default, and the releases it may choose (docs/plans/
- * bootstrap-image-versioning.md §5, §11). Served by the plugin service under
+ * own default, and the releases it may choose
+ * (docs/organization-benefits.md, "Pipeline toolchain default"). Served by the plugin service under
  * `/api/plugins/toolchain/*`.
  */
 
@@ -85,7 +85,7 @@ export interface ToolchainEligibleView {
 export type ToolchainWarning = string | { code?: string; message: string };
 
 // ---------------------------------------------------------------------------
-// System org: the Toolchain console (`toolchain:operate`; §6, §8, §9, §11).
+// System org: the Toolchain console (`toolchain:operate`).
 
 /** One half of a release (`pipeline-bootstrap` or `cdk-synth`) as the console lists it. */
 export interface ToolchainReleaseHalf {
@@ -142,7 +142,7 @@ export interface ToolchainGateThresholds {
   t: number;
 }
 
-/** The §6 canary gate and the numbers behind it. Rates are percent (0–100). */
+/** The canary gate and the numbers behind it. Rates are percent (0–100). */
 export interface ToolchainCanaryGate {
   passes: boolean;
   runs: number;
@@ -158,7 +158,7 @@ export interface ToolchainCanaryView {
   gate: ToolchainCanaryGate;
 }
 
-/** One §8 guard as the preview evaluates it. */
+/** One promotion guard as the preview evaluates it. */
 export interface ToolchainGuard {
   code: string;
   ok: boolean;
@@ -197,7 +197,7 @@ export interface ToolchainDefaultHistoryEntry {
   reason: string | null;
 }
 
-/** `GET /plugins/toolchain/affected?release=v` (§9). */
+/** `GET /plugins/toolchain/affected?release=v`. */
 export interface ToolchainAffectedView {
   releaseVersion: string;
   orgs: Array<{ orgId: string; orgName: string; pipelineCount: number; pipelineIds: string[] }>;

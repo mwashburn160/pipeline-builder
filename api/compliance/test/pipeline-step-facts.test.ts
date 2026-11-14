@@ -4,7 +4,7 @@
 /**
  * Step facts resolve a managed toolchain step (cdk-synth) through the toolchain
  * resolver ONLY, with the pipeline's `toolchain.release` — never a row or
- * listing of the same name (docs/plans/bootstrap-image-versioning.md §2).
+ * listing of the same name.
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';

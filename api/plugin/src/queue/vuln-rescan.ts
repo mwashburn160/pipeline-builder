@@ -368,7 +368,7 @@ async function rescanTenantRow(ctx: PassContext, row: TenantRow): Promise<'resca
     ctx.result.newCriticalOrHigh++;
     onNewCriticalOrHigh({ id: row.id, orgId: row.orgId, name: row.name, version: row.version, imageDigest: row.imageDigest!, listingVersionIds: [] }, newFindings, scan);
     // A managed toolchain half picked up a KEV or fixable Critical: the orgs
-    // whose toolchain DEFAULT is this release hear it (§10 hygiene, N34).
+    // whose toolchain DEFAULT is this release hear it (hygiene notice N34).
     if (isSystemOrgId(row.orgId) && isManagedToolchainPlugin(row.name)
       && newFindings.some((f) => f.kev === true || (f.severity === 'critical' && f.fixedIn.length > 0))) {
       void notifyToolchainHygiene({

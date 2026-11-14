@@ -3,7 +3,7 @@
 
 /**
  * `GET /quotas/internal/:orgId/profile` — the read the expansion-offers profile
- * is built from (docs/plans/sales-agent.md Phase 0).
+ * is built from.
  *
  * The assertions are about the three things a caller cannot recover if this gets
  * them wrong:

@@ -425,7 +425,7 @@ describe('PUT /plugins/:id (update)', () => {
   });
 });
 
-// docs/plans/bootstrap-image-versioning.md §5: a managed toolchain release is
+// A managed toolchain release is
 // edited (isDefault included) only in the Toolchain console — for the system org too.
 describe('PUT /plugins/:id — managed toolchain names', () => {
   const handler = getHandler('put', '/:id');

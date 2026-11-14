@@ -2,14 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * ONE ROW PER ROOT ORG PER PERIOD, APPEND-ONLY (docs/plans/sales-agent.md,
- * Phase 0).
+ * ONE ROW PER ROOT ORG PER PERIOD, APPEND-ONLY.
  *
- * **This is the plan's cheapest irreversible decision, and the reason it is
+ * **This is the offers path's cheapest irreversible decision, and the reason it is
  * append-only rather than one mutable row per org.** Overwriting costs nothing
  * today and makes four things impossible LATER rather than merely harder:
- * trajectory (D4 Class 2), self-relative baselines (D16), cohort comparison
- * (D19) and calibration from history (D12). You cannot reconstruct what an
+ * trajectory, self-relative baselines, cohort comparison and calibration
+ * from history. You cannot reconstruct what an
  * account looked like six months ago from a row that was overwritten, so the
  * only chance to start keeping the history is before the first cycle runs.
  *
@@ -24,7 +23,7 @@
  * that should produce none.
  *
  * **Staleness is a first-class field, not an assumption.** A profile older than
- * its own period is not a profile; D8 says skip the account rather than offer
+ * its own period is not a profile; the path fails closed and skips the account rather than offer
  * against figures that may predate a tier change.
  */
 
@@ -46,7 +45,7 @@ export interface ProfileDimension {
 }
 
 /**
- * Class 3 — VALUE: whether the product is working for them.
+ * The VALUE signal: whether the product is working for them.
  *
  * The disqualifier that keeps the seat offer from backfiring. An account at 95%
  * of a cap that is quietly disengaging is a CHURN SAVE, not an expansion, and
@@ -73,12 +72,12 @@ export interface UsageProfileDocument extends mongoose.Document {
    */
   period: string;
   tier: QuotaTier;
-  /** Per-dimension pressure and trajectory (D4 Classes 1–2). */
+  /** Per-dimension pressure and trajectory. */
   dimensions: Record<string, ProfileDimension>;
   value: ProfileValue;
-  /** Add-on bundle ids held when the row was computed (D4 Class 4). */
+  /** Add-on bundle ids held when the row was computed. */
   addonsHeld: string[];
-  /** Whole-account recurring spend for the period, in cents (D4 Class 4). */
+  /** Whole-account recurring spend for the period, in cents. */
   spendCents: number;
   /** Days since the subscription began — young accounts are not expansion cases. */
   subscriptionAgeDays: number;
@@ -88,7 +87,7 @@ export interface UsageProfileDocument extends mongoose.Document {
    * A profile assembled from partial reads is WORSE than no profile: it looks
    * like an account with low usage on whichever dimension failed, which is
    * exactly the shape that suppresses an offer the account should have had — or
-   * worse, argues for one it should not. D8 fails CLOSED on it.
+   * worse, argues for one it should not. The rules fail CLOSED on it.
    */
   complete: boolean;
   /** Which reads failed, so a persistent gap is diagnosable rather than silent. */

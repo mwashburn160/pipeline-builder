@@ -2,16 +2,16 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Phase 3 — the DELIVERY leg (docs/plans/sales-agent.md).
+ * The DELIVERY leg of expansion offers.
  *
- * Phase 2 decides; this is the only place an account actually hears about it —
+ * The offer cycle decides; this is the only place an account actually hears about it —
  * over the two surfaces quota pressure ALREADY uses, the org inbox and the email
  * relay, rather than a third one the account has to learn.
  *
  * Three things are load-bearing and each is here rather than at the call site,
  * because each was a way the feature could have shipped looking fine:
  *
- * 1. **The consent AND (D6).** An offer is sent only when the account's own
+ * 1. **The consent AND.** An offer is sent only when the account's own
  *    `offersEnabled` AND its quota-notice switch are both on. The notice switch
  *    counts because this offer rides the quota channel: an account that turned
  *    usage email off has already said what it wants from this channel, and
@@ -24,7 +24,7 @@
  *    that says "you're running out, talk to sales" is the spam version of this
  *    feature; the account should be able to decide from the mail alone, which
  *    means the dimension, where it stands against its cap, what the fix is and
- *    what it costs — the same figures its quota card already shows (F2), so the
+ *    what it costs — the same figures its quota card already shows, so the
  *    mail and the dashboard cannot disagree.
  *
  * 3. **It is BEST EFFORT and never thrown.** A relay failure must not fail the
@@ -54,7 +54,7 @@ const logger = createLogger('offers-notify');
 export const OFFER_LANDING_PATH = '/dashboard/quotas';
 
 /**
- * The two switches D6 ANDs. Both arrive on the profile read billing already
+ * The two switches the consent check ANDs. Both arrive on the profile read billing already
  * makes (`UsageProfileRead`), which is why this phase opened no second route:
  * a consent check that needs its own fetch is a consent check that gets skipped
  * when the fetch fails.
@@ -66,7 +66,7 @@ export interface OfferConsent {
   noticesEnabled: boolean;
 }
 
-/** D6's AND, in one place so no caller can apply half of it. */
+/** The consent AND, in one place so no caller can apply half of it. */
 export function offerChannelAllowed(consent: OfferConsent): boolean {
   return consent.accountOptIn && consent.noticesEnabled;
 }
@@ -78,7 +78,7 @@ export interface PressurePoint {
   limit: number;
 }
 
-/** The pack the offer quotes — the SAME pack the quota card quotes (F2). */
+/** The pack the offer quotes — the SAME pack the quota card quotes. */
 export interface QuotedPack {
   name: string;
   priceCents: number;
@@ -178,7 +178,7 @@ function platform(): ReturnType<typeof createSafeClient> {
   return platformClient;
 }
 
-/** Why an offer mail did not go out, for the per-reason counter Phase 6 reads. */
+/** Why an offer mail did not go out, for the per-reason outcome counter. */
 export type OfferEmailOutcome = 'sent' | 'consent' | 'no_copy' | 'no_recipients' | 'failed';
 
 export interface OfferDelivery {
@@ -189,8 +189,8 @@ export interface OfferDelivery {
 
 /**
  * Deliver one offer over BOTH of the surfaces quota pressure already uses: the
- * org inbox and the email relay. Not a second channel the account has to learn
- * (Phase 3), and not a separate consent either — `offerChannelAllowed` gates both
+ * org inbox and the email relay. Not a second channel the account has to learn,
+ * and not a separate consent either — `offerChannelAllowed` gates both
  * legs, matching the quota notifier, where `enabled: false` silences the inbox
  * notice as well as the mail.
  *

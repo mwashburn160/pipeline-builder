@@ -67,14 +67,14 @@ export function createBuildFailedHandler(sseManager: SSEManager, quotaService: Q
       incCounter('plugin_builds_total', {
         status: isTimeout ? 'timeout' : 'failed',
         org_id: orgId ?? 'unknown',
-        // Bounded to user|automation (D8): the one label that makes "should
+        // Bounded to user|automation: the one label that makes "should
         // automated builds have their own budget?" answerable from data.
         trigger: buildTrigger(job.data),
       });
 
       // Charge the compute a FAILED build occupied — but only a permanent one.
-      // A failed build held the pool exactly as a success would, so D4 charges
-      // it; a RETRYABLE failure is the platform's (a Redis blip, a registry
+      // A failed build held the pool exactly as a success would, so it is charged
+      // too; a RETRYABLE failure is the platform's (a Redis blip, a registry
       // timeout) and billing a tenant for our own retry is indefensible. The
       // condition matters because BullMQ sets processedOn/finishedOn on EVERY
       // attempt, so without it a job retried to exhaustion charges once per

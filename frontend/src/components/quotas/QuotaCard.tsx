@@ -189,7 +189,7 @@ export function QuotaCard({
 }
 
 /**
- * What it would cost to not run out (docs/plans/sales-agent.md F2).
+ * What it would cost to not run out.
  *
  * Deliberately NOT an offer: it quotes a catalogue price for a pack the account
  * can already buy, which is why it needs no consent, no quiet period and no

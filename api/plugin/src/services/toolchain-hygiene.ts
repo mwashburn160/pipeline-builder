@@ -2,8 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Managed toolchain HYGIENE notices (docs/plans/bootstrap-image-versioning.md
- * §10, Phase 4) — N34, through the ecosystem notification path the
+ * Managed toolchain HYGIENE notices — N34, through the ecosystem notification path the
  * version-withdrawal and plugin-security notices use:
  *
  *  - **yanked** — every org whose OWN default is the release hears it (its
@@ -228,7 +227,7 @@ export async function notifyToolchainHygiene(event: ToolchainHygieneEvent): Prom
 }
 
 // -----------------------------------------------------------------------------
-// Console announcements (§9, §10, Phase 5): promotion, canary membership and
+// Console announcements: promotion, canary membership and
 // the recovery hint. The SAME path as the hygiene notices — N34, immediate, the
 // org's `toolchain:manage` holders (a team without any: its root's, then the
 // owners), or its pipeline writers for the per-pipeline recovery hint — and the

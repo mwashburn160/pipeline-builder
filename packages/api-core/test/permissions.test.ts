@@ -726,7 +726,7 @@ describe('plugin ecosystem permissions (docs/plugin-publishing.md)', () => {
       'support_cases:write', 'support_content:write',
       'subscriptions:read', 'subscriptions:manage',
       'orgs:manage', 'quotas:manage', 'plugin_queue:manage',
-      // The Toolchain console (bootstrap-image-versioning D9): THE platform
+      // The Toolchain console: THE platform
       // default moves every org that follows it.
       'toolchain:operate',
     ]);
@@ -855,7 +855,7 @@ describe('machine Roles — least privilege for the stored credentials', () => {
   });
 });
 
-describe('toolchain:manage (docs/plans/bootstrap-image-versioning.md D13)', () => {
+describe('toolchain:manage', () => {
   it('is in the catalog as an org-assignable Pipelines permission, never system-org-only', () => {
     expect(ALL_PERMISSIONS).toContain('toolchain:manage');
     expect(PERMISSION_CATALOG.find((m) => m.id === 'toolchain:manage')?.category).toBe('Pipelines');
@@ -882,7 +882,7 @@ describe('toolchain:manage (docs/plans/bootstrap-image-versioning.md D13)', () =
   });
 });
 
-describe('toolchain:operate (docs/plans/bootstrap-image-versioning.md D9)', () => {
+describe('toolchain:operate', () => {
   it('is system-org-only: never org-assignable, so no tenant Admin derives it', () => {
     expect(ALL_PERMISSIONS).toContain('toolchain:operate');
     expect(isValidPermission('toolchain:operate')).toBe(true);

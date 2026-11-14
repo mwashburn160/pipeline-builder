@@ -344,8 +344,7 @@ function scanView(record: DigestRecord) {
 }
 
 /**
- * The pipeline's "Build image" row (docs/plans/bootstrap-image-versioning.md
- * §11): the toolchain release its last deploy runs on (the manifest's
+ * The pipeline's "Build image" row: the toolchain release its last deploy runs on (the manifest's
  * `build-image` row) or, before a deploy, the last bootstrap lookup — with the
  * image's scan state, the lookup's warnings, whether it is BEHIND the org's
  * EFFECTIVE default (what `resolveManagedToolchain` answers the org without a

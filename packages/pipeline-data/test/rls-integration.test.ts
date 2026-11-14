@@ -399,7 +399,7 @@ describe('dashboard_panels — scoped through the dashboard', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Managed toolchain releases (docs/plans/bootstrap-image-versioning.md §1).
+// Managed toolchain releases.
 // ---------------------------------------------------------------------------
 
 const SYSTEM_ONLY_TOOLCHAIN_TABLES = [

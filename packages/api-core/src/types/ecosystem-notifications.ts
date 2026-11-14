@@ -107,7 +107,7 @@ const EVENTS = {
   // Routed to the org's pipeline writers under the same security settings.
   N32: { description: 'Pipeline blocked by a plugin vulnerability policy', channels: ['in_app', 'email'], preference: null, allowsAddress: true },
   N33: { description: 'Pipeline vulnerability risk acceptance lapsed', channels: ['in_app', 'email'], preference: null, allowsAddress: true },
-  // Managed toolchain hygiene (docs/plans/bootstrap-image-versioning.md §10): an
+  // Managed toolchain hygiene: an
   // org's toolchain default (to its `toolchain:manage` holders) or a pipeline's
   // pinned release (to the org's pipeline writers) was yanked or deprecated,
   // picked up a KEV or fixable Critical finding, or fell more than three

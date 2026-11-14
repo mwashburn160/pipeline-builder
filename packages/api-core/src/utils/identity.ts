@@ -53,7 +53,7 @@ export const ANONYMOUS_ACTOR_ID = 'anonymous';
 
 /**
  * The actor id written for work the EXPANSION-OFFERS agent did on its own
- * (docs/plans/sales-agent.md D14).
+ *.
  *
  * Distinct from {@link SYSTEM_ACTOR_ID} because "why did this account get this
  * offer?" is the only question anybody will ask about that feature, and the

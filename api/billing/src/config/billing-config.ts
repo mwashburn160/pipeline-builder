@@ -479,7 +479,7 @@ function envDimension(key: string): string {
  * tolerable while every stackable pack granted exactly one dimension; it stopped
  * being tolerable when `cpuCredits` arrived, because credits are DERIVED from
  * plugin-build volume, so every pack that grants builds has to grant the minutes
- * to run them (see `docs/plans/cpu-credits.md`, Phase 3b). A pack selling builds
+ * to run them (see docs/quotas.md, "CPU credits"). A pack selling builds
  * with no minutes sells work the buyer cannot perform.
  */
 function applyGrantOverride(id: string, grants: GrantMap): GrantMap {
@@ -552,7 +552,7 @@ function applyVolumeTiersOverride(id: string, defaultTiers?: VolumeTier[]): Volu
 }
 
 /**
- * Purchasable add-on bundles (docs/billing-bundles.md §3). Grants are per-unit
+ * Purchasable add-on bundles (docs/billing-bundles.md, "The bundles"). Grants are per-unit
  * deltas on QuotaTierLimits; prices (cents, `BILLING_BUNDLE_<ID>_MONTHLY` /
  * `_ANNUAL`), the single-dimension grant amount (`BILLING_BUNDLE_<ID>_GRANT`),
  * and the purchasable-tier list (`BILLING_BUNDLE_<ID>_TIERS`) are all
@@ -787,7 +787,7 @@ function loadBundles(): BundleConfig[] {
     // Pro's own rate (Pro held 25 plugins / 100k API / 2.5k AI, the packs
     // granted 25 / 100k / 2.5k), so a single $10-$20 pack doubled the tier.
     // +10 plugin builds a period is +100 builds a month, and a build costs 45
-    // credits at D12's flat 30 wall-minutes x 1.5 vCPU — so this grants 4,500
+    // credits at the flat 30 wall-minutes x 1.5 vCPU charged per build — so this grants 4,500
     // credits alongside them. A pack selling builds with no minutes to run them
     // is the same defect `pipeline_pack` and `seat` were both already fixed for:
     // the catalogue carries both of those comments, and this is the third time
@@ -797,7 +797,7 @@ function loadBundles(): BundleConfig[] {
     // dimension with genuine per-unit marginal cost, so the one pack priced off
     // compute we actually buy.
     //
-    // $2.99 and NOT the $2.49 the plan authored: `snapUpPrice` requires every
+    // $2.99 and NOT the $2.49 originally authored: `snapUpPrice` requires every
     // customer-visible amount to end in .00 or .99 and rounds UP, so 249 is not
     // an expressible price here — it resolves to 299 whatever is written. Pinned
     // to 299 explicitly so the authored number is the effective one; a silent

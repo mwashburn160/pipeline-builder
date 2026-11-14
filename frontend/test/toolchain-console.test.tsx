@@ -2,8 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The system org's Toolchain console (docs/plans/bootstrap-image-versioning.md
- * §6, §8, §9, §11).
+ * The system org's Toolchain console (docs/permissions.md, `toolchain:operate`).
  *
  * The properties that matter:
  *   - the page is gated on `toolchain:operate` (declared once on the nav entry)

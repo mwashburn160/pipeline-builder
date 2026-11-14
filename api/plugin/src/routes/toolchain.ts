@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Managed toolchain routes (docs/plans/bootstrap-image-versioning.md §5, D14).
+ * Managed toolchain routes.
  *
  * - `POST /plugins/toolchain/initial-default` `{ releaseVersion, acceptVulnerabilities? }`
  *   → 200 `{ releaseVersion }`: the fresh-install platform default, set once by
@@ -11,7 +11,7 @@
  *   sign). `requireStepUp` refuses every machine, and an org service account
  *   (`principalType: 'service_account'`) or a user is not that principal, so
  *   `requireInternalService` refuses both. A second call is 409
- *   TOOLCHAIN_INITIAL_ALREADY_SET; the §8 guards run with the canary gate
+ *   TOOLCHAIN_INITIAL_ALREADY_SET; the promotion guards run with the canary gate
  *   waived, and `acceptVulnerabilities` is the only override of the
  *   vulnerability floor.
  *

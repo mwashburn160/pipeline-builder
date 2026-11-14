@@ -106,16 +106,16 @@ export enum ErrorCode {
    *  a managed toolchain name — for the system org too. Release lifecycle lives
    *  only in the Toolchain console, which acts on both halves at once. */
   TOOLCHAIN_USE_CONSOLE = 'TOOLCHAIN_USE_CONSOLE',
-  // Pipeline toolchain releases (docs/plans/bootstrap-image-versioning.md §13).
-  /** The CLI could not resolve the bootstrap image (D2) — unreachable platform,
+  // Pipeline toolchain releases.
+  /** The CLI could not resolve the bootstrap image (there is no fallback image) — unreachable platform,
    *  no default, a deleted pin, a signature failure, or a local-spec deploy
    *  without `--toolchain-file`. Never falls back. */
   BOOTSTRAP_IMAGE_UNRESOLVED = 'BOOTSTRAP_IMAGE_UNRESOLVED',
-  /** No platform default release exists (D11). Never "highest version". */
+  /** No platform default release exists. Never "highest version". */
   TOOLCHAIN_NO_DEFAULT = 'TOOLCHAIN_NO_DEFAULT',
   /** The resolver found halves with different release versions — a bug, never served. */
   TOOLCHAIN_PAIR_MISMATCH = 'TOOLCHAIN_PAIR_MISMATCH',
-  /** A pin or org default names a release that is not eligible (D15) at set time. */
+  /** A pin or org default names a release that is not eligible at set time. */
   TOOLCHAIN_RELEASE_NOT_ELIGIBLE = 'TOOLCHAIN_RELEASE_NOT_ELIGIBLE',
   /** A managed `cdk-synth` step carries its own version; pin the release instead. */
   TOOLCHAIN_PIN_VIA_RELEASE = 'TOOLCHAIN_PIN_VIA_RELEASE',
@@ -123,9 +123,9 @@ export enum ErrorCode {
   TOOLCHAIN_DEFAULT_REQUIRED = 'TOOLCHAIN_DEFAULT_REQUIRED',
   /** `expectedCurrentDefault` did not match the current platform default. */
   TOOLCHAIN_DEFAULT_CHANGED = 'TOOLCHAIN_DEFAULT_CHANGED',
-  /** A second D14 initial-default call. */
+  /** A second fresh-install initial-default call. */
   TOOLCHAIN_INITIAL_ALREADY_SET = 'TOOLCHAIN_INITIAL_ALREADY_SET',
-  /** §8 guards on setting the platform default — one code per guard. */
+  /** Guards on setting the platform default — one code per guard. */
   TOOLCHAIN_GUARD_UNSCANNED = 'TOOLCHAIN_GUARD_UNSCANNED',
   TOOLCHAIN_GUARD_VULN_FLOOR = 'TOOLCHAIN_GUARD_VULN_FLOOR',
   TOOLCHAIN_GUARD_METADATA = 'TOOLCHAIN_GUARD_METADATA',

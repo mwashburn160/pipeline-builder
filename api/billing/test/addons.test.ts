@@ -100,7 +100,7 @@ const CATALOG = [
   { id: 'bulk_operations', name: 'Bulk Operations', description: 'Bulk operations', isActive: true, stackable: false, availableForTiers: ['team', 'enterprise'], prices: { monthly: 2000, annual: 20000 }, grants: {}, features: ['bulk_operations'] },
   { id: 'legacy_pack', name: 'Legacy', description: 'retired', isActive: false, stackable: true, availableForTiers: ['pro'], prices: { monthly: 500, annual: 5000 }, grants: {}, features: [] },
   { id: 'free_feature', name: 'Free Feature', description: 'no charge', isActive: true, stackable: false, availableForTiers: ['pro'], prices: { monthly: 0, annual: 0 }, grants: {}, features: ['free_feature'] },
-  // D7: a stackable retention pack capped at maxQuantity (30 + 7×90 = 660 ≤ 730).
+  // A stackable retention pack capped at maxQuantity (30 + 7×90 = 660 ≤ 730).
   { id: 'retention_pack', name: 'Retention Pack', description: '+90d', isActive: true, stackable: true, availableForTiers: ['pro', 'team', 'enterprise'], prices: { monthly: 1500, annual: 15000 }, grants: { eventRetentionDays: 90 }, features: [], maxQuantity: 7 },
   // Compliance content add-ons: Advanced `requires` Standard (drives the requires
   // gate + cascade-cancel tests). Pure-feature, non-stackable.
@@ -147,7 +147,7 @@ jest.unstable_mockModule('../src/helpers/subscription-response.js', () => ({
 }));
 jest.unstable_mockModule('../src/helpers/addon-prune.js', () => ({
   syncProviderAddons: mockSyncProviderAddons,
-  // Read by the plan-change preview (F1) to quote the total the next invoice
+  // Read by the plan-change preview to quote the total the next invoice
   // carries rather than the plan line alone. Nothing pruned by default.
   pruneTierIncludedFeatureAddons: () => ({ addons: [], pruned: [] }),
 }));
@@ -431,7 +431,7 @@ describe('POST /subscriptions/:id/addons (add)', () => {
     expect(mockSyncEntitlements).not.toHaveBeenCalled();
   });
 
-  it('400s a retention bundle purchased past its maxQuantity ceiling (D7) and does not sync', async () => {
+  it('400s a retention bundle purchased past its maxQuantity ceiling and does not sync', async () => {
     withActiveSub(); // pro tier — retention_pack (maxQuantity 7) is available
     await handler(mockReq({ body: { bundleId: 'retention_pack', quantity: 8 } }), mockRes());
     expect(mockSendError).toHaveBeenCalledWith(expect.anything(), 400, expect.stringContaining('capped at 7'), 'VALIDATION_ERROR');
@@ -783,7 +783,7 @@ describe('POST /subscriptions/:id/addons/preview', () => {
     expect(payload.effectiveLimits).toEqual({ seats: 10, plugins: 20 });
   });
 
-  it('400s a preview of a retention bundle over its maxQuantity ceiling (D7)', async () => {
+  it('400s a preview of a retention bundle over its maxQuantity ceiling', async () => {
     withActiveSub();
     await handler(mockReq({ body: { bundleId: 'retention_pack', quantity: 8 } }), mockRes());
     expect(mockSendError).toHaveBeenCalledWith(expect.anything(), 400, expect.stringContaining('capped at 7'), 'VALIDATION_ERROR');

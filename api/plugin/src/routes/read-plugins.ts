@@ -391,8 +391,7 @@ export function createReadPluginRoutes(): Router {
 
     // A MANAGED toolchain name answers from the toolchain resolver and nothing
     // else — with or without a publisher, for the system org too — so a
-    // same-named row or listing anywhere is never a candidate
-    // (docs/plans/bootstrap-image-versioning.md §2).
+    // same-named row or listing anywhere is never a candidate.
     if (typeof rowFilter.name === 'string' && isManagedToolchainPlugin(rowFilter.name)) {
       const name = rowFilter.name.trim().toLowerCase() as ManagedToolchainPlugin;
       if (managedRefPinsVersion(rowFilter)) {

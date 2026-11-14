@@ -294,7 +294,7 @@ async function buildRequest(caller: Caller, publisher: Publisher, kind: PublishR
     case 'new_listing':
     case 'new_version': {
       const plugin = await ownPlugin(caller, body.pluginId);
-      // Before the freeze below: a managed toolchain name is never listed (D5).
+      // Before the freeze below: a managed toolchain name is never listed.
       assertListable(plugin.name);
       const listing = await listings.byName(publisher.id, plugin.name);
       if (kind === 'new_listing' && listing) throw new EcosystemError(ErrorCode.CONFLICT, `${plugin.name} is already listed; submit a new_version request.`);
@@ -468,7 +468,7 @@ export async function submit(caller: Caller, body: Record<string, unknown>): Pro
 
   const built = await buildRequest(caller, publisher, kind, body);
   const listingName = (built.payload as Record<string, unknown>).name as string;
-  // Managed toolchain names are never listed (D5): no request of any kind names
+  // Managed toolchain names are never listed: no request of any kind names
   // one (new_listing / new_version refused before their freeze, above).
   assertListable(listingName);
   // A listing can carry several advisory drafts at once (the open-request unique index exempts them too).

@@ -101,7 +101,7 @@ export interface PromotionConfig {
 export interface AppConfig {
   /**
    * `OFFERS_ENABLED` — may this deployment make expansion offers
-   * (docs/plans/sales-agent.md D6). Independent of `enabled`, default true, and
+   *. Independent of `enabled`, default true, and
    * the effective state is `offersEnabled && enabled`: offers need billing,
    * billing does not imply offers.
    */
@@ -240,7 +240,7 @@ function resolveBillingProvider(): BillingProviderType {
 const billingEnabled = envBool('BILLING_ENABLED', true);
 
 /**
- * Whether this deployment makes EXPANSION OFFERS (docs/plans/sales-agent.md D6).
+ * Whether this deployment makes EXPANSION OFFERS.
  *
  * ITS OWN KNOB, not a reading of `BILLING_ENABLED`, because the state an
  * operator most wants has to be reachable: billing on, offers off. A deployment

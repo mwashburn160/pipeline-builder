@@ -56,7 +56,7 @@ function stepKey(pipelineId: string, stageName: string, actionName: string): str
  * stores them scrubbed the same way).
  *
  * The toolchain map is the PLATFORM's record of what was deployed (the
- * manifest's `build-image` entry) — the only source the §7 run stamp may use.
+ * manifest's `build-image` entry) — the only source the toolchain run stamp may use.
  */
 async function loadStepPlugins(tx: CrudTx, attributable: IngestEvent[]): Promise<{ steps: Map<string, StepPlugin>; toolchain: Map<string, DeployedToolchain> }> {
   const pipelineIds = [...new Set(attributable.map((e) => e.pipelineId))];
@@ -235,7 +235,7 @@ function emitIngestMetrics(
   for (const r of rows) {
     if (!r.pipelineId) continue;
 
-    // Toolchain runs (§7, alerting only): a terminal outcome on a stamped row.
+    // Toolchain runs (alerting only): a terminal outcome on a stamped row.
     // Not exclusive — the same action is also a compute measurement below.
     const outcome = r.toolchainRelease ? toolchainOutcomeOf(r.status) : null;
     if (r.toolchainRelease && outcome) {

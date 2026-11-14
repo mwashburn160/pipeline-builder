@@ -117,14 +117,14 @@ async function notifyQuota(req: Request, res: Response): Promise<void> {
 const OFFER_NOTICE_CALLER = 'billing';
 
 /**
- * Mail an EXPANSION OFFER to the people who can act on it (Phase 3).
+ * Mail an EXPANSION OFFER to the people who can act on it.
  *
  * The same recipients as a quota notice — the org's admins/owners plus its
  * billing contacts — and resolved HERE for the same reason: billing knows
  * subscriptions, not people, and letting it name recipients would make a billing
  * token a way to mail anyone in the org.
  *
- * A SEPARATE LEG from the quota notice, deliberately. The plan says an offer
+ * A SEPARATE LEG from the quota notice, deliberately. An offer
  * should ride the same CHANNEL rather than open a second one the account has to
  * learn — but the same channel is not the same message: one is a warning the
  * account needs and the other is a solicitation it can switch off, and the relay
@@ -132,7 +132,7 @@ const OFFER_NOTICE_CALLER = 'billing';
  * into `quotaNotice` would make "we emailed them a warning" and "we emailed them
  * an advert" the same event.
  *
- * The consent AND (D6 — notices off suppresses offers on this channel) is
+ * The consent AND (notices off suppresses offers on this channel) is
  * applied by the CALLER, which holds both switches from its profile read. It is
  * not re-checked here: platform does not own either switch, and a second
  * evaluation against a different read is how the two start disagreeing.

@@ -263,7 +263,7 @@ export const pipelineEvent = pgTable('pipeline_events', {
    */
   failureCategory: varchar('failure_category', { length: 30 }),
   /**
-   * The managed toolchain release (docs/plans/bootstrap-image-versioning.md §7)
+   * The managed toolchain release
    * a `synth` or `self-mutation` ACTION ran on. Stamped at ingest from the
    * PLATFORM's deployed step manifest for the pipeline (its `build-image`
    * entry) — never from the payload or a pipeline tag, both of which the

@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The D14 initial-default route and the `deploy-bootstrap` identity gate
- * (docs/plans/bootstrap-image-versioning.md §5, D14), over the REAL app: the
+ * The fresh-install initial-default route and the `deploy-bootstrap` identity gate,
+ * over the REAL app: the
  * real `createApp`, the real `mountRoutes` and the real api-core verifiers,
  * with real ES256 tokens — per-service keys for the service principals, a test
  * JWKS for users and service accounts.

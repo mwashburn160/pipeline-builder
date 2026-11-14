@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The Toolchain console routes' GATES and wire contract
- * (docs/plans/bootstrap-image-versioning.md §5, §11, D9, Phase 5), over the
+ * The Toolchain console routes' GATES and wire contract,
+ * over the
  * REAL app: the real `createApp`, `mountRoutes`, api-core verifiers,
  * `requireSystemOrgPermission` and `requireStepUp`, with real ES256 user and
  * step-up tokens. The service is replaced — what it does with the database is

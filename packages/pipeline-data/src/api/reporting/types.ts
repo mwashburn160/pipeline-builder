@@ -575,8 +575,7 @@ export interface ComputeIngestMetric {
 }
 
 /**
- * One terminal managed-toolchain run (docs/plans/bootstrap-image-versioning.md
- * §7): a `synth` or `self-mutation` action whose row was stamped with the
+ * One terminal managed-toolchain run: a `synth` or `self-mutation` action whose row was stamped with the
  * release from the platform's deployed manifest. ALERTING ONLY — the canary
  * gate and the Affected view read the rows, never this metric.
  *

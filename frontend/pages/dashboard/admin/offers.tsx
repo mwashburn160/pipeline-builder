@@ -21,7 +21,7 @@ import type { AdminOffer, AdminOfferSummary, OfferExclusion, OfferLiftArm } from
 
 /**
  * What the expansion-offers agent has been doing
- * (docs/plans/sales-agent.md F8).
+ *.
  *
  * **An automated granter needs its own view.** Without this, "why did this
  * account get this?" has no answer in the UI — which is what the `Offer` record
@@ -34,7 +34,7 @@ import type { AdminOffer, AdminOfferSummary, OfferExclusion, OfferLiftArm } from
  * never ran; reading `negative_ev: 4,000` learns they ran and refused.
  *
  * Served by billing, not by the decision process, which exposes no
- * customer-facing or admin route of its own (D13).
+ * customer-facing or admin route of its own.
  */
 export default function AdminOffersPage() {
   const { accessDenied, user, isReady, isAuthenticated, can } = useAuthGuard();

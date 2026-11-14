@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Toolchain run data (docs/plans/bootstrap-image-versioning.md §6, §7, §9):
+ * Toolchain run data:
  *
  *  - the PURE canary gate (N runs, M orgs, T points, per-org cap ceil(N/M));
  *  - recorded CodePipeline Action events REPLAYED through the real ingest

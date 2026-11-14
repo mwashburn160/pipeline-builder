@@ -83,7 +83,7 @@ export interface QuotaTierLimits {
    *
    * This is the first dimension with genuine per-unit marginal cost: every other
    * quota is a rate limit protecting shared infrastructure, this one is compute
-   * the platform pays for. See `docs/plans/cpu-credits.md`.
+   * the platform pays for. See docs/quotas.md, "CPU credits".
    */
   cpuCredits: number;
   /** Count-quotas on the user-editable feature tables added to close per-org

@@ -2,8 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The Toolchain CONSOLE routes (docs/plans/bootstrap-image-versioning.md §5,
- * §6, §8, §9, §11, D9, Phase 5) — the API of
+ * The Toolchain CONSOLE routes — the API of
  * `frontend/pages/dashboard/toolchain.tsx`. Mounted at `/plugins/toolchain`
  * behind the shared auth + org chain.
  *
@@ -16,16 +15,16 @@
  *
  *   GET    /releases                         the Releases panel
  *   GET    /releases/:v/adoption             the Adoption panel
- *   GET    /releases/:v/canary               canary members + the §6 gate (?n=&m=&t=)
+ *   GET    /releases/:v/canary               canary members + the canary gate (?n=&m=&t=)
  *   PUT    /releases/:v/rollout              replace the canary set              toolchain.rollout.update
- *   GET    /releases/:v/default-preview      blast radius + §8 guards (?n=&m=&t=)
+ *   GET    /releases/:v/default-preview      blast radius + promotion guards (?n=&m=&t=)
  *   POST   /releases/:v/default              set as platform default            toolchain.default.set
  *   PATCH  /releases/:v                      release notes                       toolchain.release.notes
  *   POST   /releases/:v/deprecate            `{ deprecated: false }` reverses it   toolchain.release.deprecate
  *   POST   /releases/:v/yank                 (yanking the default restores the previous one; PERMANENT)  toolchain.release.yank (+ .default.restore)
  *   DELETE /releases/:v                                                          toolchain.release.delete
  *   GET    /history                          toolchain_default_history
- *   GET    /affected?release=                §9 Affected view
+ *   GET    /affected?release=                Affected view
  *   POST   /affected/notify                  "Notify affected owners"            toolchain.recovery.notify
  *   GET    /cleanup                          Cleanup candidates
  */

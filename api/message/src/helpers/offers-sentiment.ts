@@ -2,12 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Phase 4 — the model, inside the D5 boundary (docs/plans/sales-agent.md).
+ * The model, inside the rules-decide boundary: it supplies a signal, never a
+ * decision about money.
  *
  * The one thing the rules cannot do AT ALL: turn unstructured evidence into a
  * structured signal. Support-case text will say an account is frustrated, which
  * is a SUPPRESSION signal no counter can produce — and which the rest of the
- * plan has no way to see.
+ * offers path has no way to see.
  *
  * **It lives here, not in billing, and that is the privacy design.** Ticket
  * bodies are the most PII-dense material in the product. Only a boolean and a

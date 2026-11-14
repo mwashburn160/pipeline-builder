@@ -251,7 +251,7 @@ export type OfferStatus = 'sent' | 'redeemed' | 'declined' | 'expired' | 'suppre
 
 /**
  * ONE expansion offer, as the account's own surface renders it
- * (`GET /billing/offers`, docs/plans/sales-agent.md F4).
+ * (`GET /billing/offers`).
  *
  * `subject`/`body` are the copy AS SENT, read back rather than re-rendered: a
  * card that re-derived from today's catalogue would restate last month's offer

@@ -3,7 +3,7 @@
 
 /**
  * The seam between a decision and the copy it is stated in
- * (docs/plans/sales-agent.md Phase 3).
+ *.
  *
  * `emailFactsFor` is where a decision becomes something an account can read, and
  * the failure worth guarding is quiet: facts assembled with `used`/`limit` of

@@ -49,7 +49,7 @@ export type MetadataSource = typeof METADATA_SOURCES[number];
 export type MetadataSources = Partial<Record<PluginCatalogField, MetadataSource>>;
 
 // -----------------------------------------------------------------------------
-// Managed toolchain names (docs/plans/bootstrap-image-versioning.md §1, D5)
+// Managed toolchain names
 // -----------------------------------------------------------------------------
 
 /**
@@ -127,8 +127,7 @@ export function toolchainReleasePin(props: unknown): string | undefined {
 
 /**
  * Where a pipeline's BUILD IMAGE (the toolchain release's `pipeline-bootstrap`
- * half) is recorded in its deployed step manifest (docs/plans/
- * bootstrap-image-versioning.md §4). The bootstrap is not a step, so its entry
+ * half) is recorded in its deployed step manifest. The bootstrap is not a step, so its entry
  * is a non-step row: `step_key` is {@link BUILD_IMAGE_STEP_KEY} (the key its
  * lookup warnings are recorded under too) and its (stage, action) are these
  * sentinels. The stage name holds characters CodePipeline never allows in a

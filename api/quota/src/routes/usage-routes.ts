@@ -43,7 +43,7 @@ function noticeSettingsView(orgId: string, row: Partial<QuotaNoticeSettingsDocum
     orgId,
     enabled: row?.enabled ?? true,
     // Stored `null` means the account never said, which reads as ON — the
-    // switch is an opt-OUT (D6). `!== false` rather than `?? true` so a
+    // switch is an opt-OUT. `!== false` rather than `?? true` so a
     // stored `false` survives.
     offersEnabled: row?.offersEnabled !== false,
     webhookUrl: row?.webhookUrl ?? null,
@@ -156,7 +156,7 @@ export function createUsageRoutes(svc: QuotaService = defaultQuotaService): Rout
 
   // PUT /quotas/:orgId/notice-settings — opt out of / back into the 80% and
   // 100% notices, opt out of / back into expansion OFFERS on the same channel
-  // (`offersEnabled`, D6: default on, and ANDed with `enabled` at send time, so
+  // (`offersEnabled`: default on, and ANDed with `enabled` at send time, so
   // silencing notices silences offers too), set the `quota.threshold` webhook,
   // and set or clear (`null`) the optional AI controls: `aiCallsPerMemberPct` (per-member share of the
   // account's aiCalls) and `aiTokenBudget` (per-period platform-key tokens).

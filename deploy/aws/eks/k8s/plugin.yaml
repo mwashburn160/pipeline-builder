@@ -169,7 +169,7 @@ spec:
               # arithmetic (`credits = builds x wall-minutes x vCPU`) is derived
               # from the limit, and selling against an unreserved burst is
               # selling capacity the scheduler never set aside. See
-              # docs/plans/cpu-credits.md D9.
+              # docs/quotas.md, "CPU credits".
               cpu: "1500m"
               # RAISED TO MATCH THE LIMIT, for the same reason the CPU request
               # above was: Kubernetes schedules on REQUESTS. A 1024Mi request

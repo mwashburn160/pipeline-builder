@@ -305,7 +305,7 @@ export {
   type VersionGap,
 } from './api/reporting/plugin-exposure.js';
 
-// Toolchain run data (docs/plans/bootstrap-image-versioning.md §6, §7, §9): the
+// Toolchain run data: the
 // release stamp on synth / self-mutation rows, the canary gate and the Affected view.
 export {
   canaryPerOrgCap,

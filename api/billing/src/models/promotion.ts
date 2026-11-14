@@ -24,7 +24,7 @@ export type PromotionUnit = (typeof PROMOTION_UNITS)[number];
 
 /** Eligibility predicate — every present field must match for a promo to fire. */
 /**
- * USAGE predicates (docs/plans/sales-agent.md Phase 1).
+ * USAGE predicates.
  *
  * Added so `matchesConditions` stays the single place eligibility is decided:
  * before this, a promotion could say "20% off annual for Pro accounts on their
@@ -32,7 +32,7 @@ export type PromotionUnit = (typeof PROMOTION_UNITS)[number];
  * above 90% of its plugin-build cap" — which is the only kind of statement an
  * expansion offer should rest on.
  *
- * Evaluated against the `UsageProfile` history the Phase 0 store keeps, which is
+ * Evaluated against the `UsageProfile` history the signal store keeps, which is
  * why the store had to be append-only: `sustainedPeriods` is unanswerable from a
  * row that was overwritten.
  *
@@ -57,7 +57,7 @@ export interface PromotionUsageConditions {
   /**
    * At least this many dimensions under pressure in the latest period.
    *
-   * CO-OCCURRENCE is the intelligence (D4): one dimension at 90% is a pack
+   * CO-OCCURRENCE is the intelligence: one dimension at 90% is a pack
    * sale, three at once is a tier that no longer fits. A single-dimension rule
    * can only ever offer the pack.
    */
@@ -69,7 +69,7 @@ export interface PromotionUsageConditions {
   /** Minimum subscription age in days: a young account is not an expansion case. */
   minSubscriptionAgeDays?: number;
   /**
-   * Refuse unless the profile is COMPLETE (D8).
+   * Refuse unless the profile is COMPLETE.
    *
    * Defaults to true at the evaluation site rather than here, because a
    * condition block that omits it must still fail closed: a profile assembled
@@ -86,7 +86,7 @@ export interface PromotionConditions {
   intervals?: Array<BillingInterval>;
   /** Only the org's FIRST-ever subscription (no prior subscription doc). */
   firstSubscriptionOnly?: boolean;
-  /** Usage-derived eligibility (Phase 1). Absent ⇒ no usage predicate applies. */
+  /** Usage-derived eligibility. Absent ⇒ no usage predicate applies. */
   usage?: PromotionUsageConditions;
 }
 
@@ -159,7 +159,7 @@ const promotionSchema = new Schema<PromotionDocument>(
             tiers: { type: [String], default: undefined },
             intervals: { type: [String], default: undefined },
             firstSubscriptionOnly: { type: Boolean, default: undefined },
-            // Usage predicates (Phase 1). All `default: undefined` so an
+            // Usage predicates. All `default: undefined` so an
             // existing promotion stores no usage block at all and keeps its
             // exact current behaviour — a block of zeroes would read as
             // "requires 0 sustained periods", which matches everything.

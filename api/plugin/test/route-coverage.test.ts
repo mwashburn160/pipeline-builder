@@ -92,7 +92,7 @@ const INTERNAL_ROUTES: InternalRouteDeclaration[] = [
   // image-registry's age GC: the digests an org's namespace still needs.
   { method: 'GET', path: '/internal/plugins/image-references', callers: ['image-registry'] },
   // The deploy scripts (init-platform.sh, from an operator's shell through the
-  // ingress — no mesh principal): the fresh-install toolchain default (D14).
+  // ingress — no mesh principal): the fresh-install toolchain default.
   { method: 'POST', path: '/plugins/toolchain/initial-default', callers: ['deploy-bootstrap'] },
 ];
 

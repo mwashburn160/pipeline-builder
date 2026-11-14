@@ -2,8 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The org toolchain default service (docs/plans/bootstrap-image-versioning.md
- * §5, Phase 4, D7, D15) against a REAL Postgres (PGlite, the shipped
+ * The org toolchain default service against a REAL Postgres (PGlite, the shipped
  * postgres-init.sql, as the RLS-enforced app role).
  *
  * Real, not mocked, because the property under test is RLS: writes run in the
@@ -159,7 +158,7 @@ describe('set / clear / revert — own org only', () => {
   });
 });
 
-describe('eligibility (D15)', () => {
+describe('eligibility: what a pin or org default may name', () => {
   it.each([
     ['unknown', '9.9.9', async () => undefined],
     ['never promoted, not a canary', '1.2.0', async () => { await release('1.2.0'); }],

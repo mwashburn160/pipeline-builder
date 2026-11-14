@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The "first slice" of docs/plans/sales-agent.md — the three surfaces that need
+ * The "first slice" of expansion offers — the three surfaces that need
  * no agent, no campaign, no discount and (for two of them) no consent, because
  * they are INFORMATION rather than solicitation:
  *

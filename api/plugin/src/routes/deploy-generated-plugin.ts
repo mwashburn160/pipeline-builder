@@ -182,7 +182,7 @@ export function createDeployGeneratedPluginRoutes( quotaService: QuotaService,
       let outcome;
       // CPU-CREDIT ADMISSION, before the plugins reservation: an org out of build
       // compute is told at submission rather than discovering it when a build
-      // that looked accepted never produces an image. Fails CLOSED (D6) — a
+      // that looked accepted never produces an image. Fails CLOSED — a
       // build whose budget could not be confirmed is not admitted, because an
       // unmetered build pool is otherwise discovered from a bill.
       const credits = await admitBuildOnCredits(quotaService, orgId, { orgId });
@@ -190,7 +190,7 @@ export function createDeployGeneratedPluginRoutes( quotaService: QuotaService,
         ctx.log('WARN', 'CPU credit budget exhausted or unconfirmable', { orgId, used: credits.used, limit: credits.limit });
         return sendQuotaExceeded(res, 'cpuCredits', { type: 'cpuCredits', used: credits.used ?? 0, limit: credits.limit ?? 0, remaining: 0 }, credits.resetAt);
       }
-      // Scheduling class + machine size (D11/D13). Resolved with the same rules
+      // Scheduling class + machine size. Resolved with the same rules
       // the upload route uses, and refused rather than downgraded above the
       // tier's ceiling — two routes that answered differently would be two
       // different stories about what the tier includes.

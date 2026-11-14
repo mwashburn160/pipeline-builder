@@ -3,7 +3,7 @@
 
 /**
  * What a limit COSTS — the cheapest pack that raises a given quota
- * (docs/plans/sales-agent.md, F2).
+ *.
  *
  * "The moment someone opens a quota card at 90% is the best sales moment the
  * product has, and the card currently says only that they are about to run

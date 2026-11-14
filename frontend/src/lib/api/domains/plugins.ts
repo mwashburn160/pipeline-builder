@@ -407,9 +407,9 @@ export function pluginsApi(core: ApiCore) {
       env?: Record<string, string>;
       dockerfile: string;
       visibility: Visibility;
-      /** Scheduling class (D11); omit for `standard`. */
+      /** Scheduling class; omit for `standard`. */
       buildClass?: BuildClass;
-      /** Machine size (D13); omit for `1x`. The route refuses one above the tier's ceiling. */
+      /** Machine size; omit for `1x`. The route refuses one above the tier's ceiling. */
       buildSize?: BuildSize;
     }, opts?: ProposedByOptions) => {
       return core.request<ApiResponse<{

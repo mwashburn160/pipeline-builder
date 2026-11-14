@@ -234,7 +234,7 @@ describe('POST /plugins/:id/unyank', () => {
   });
 });
 
-// docs/plans/bootstrap-image-versioning.md §5 — the managed toolchain's
+// The managed toolchain's
 // lifecycle is the Toolchain console's, for the system org too.
 describe('managed toolchain names', () => {
   const managedRow = { ...row, name: 'cdk-synth', orgId: '000000000000000000000001', isDefault: true };

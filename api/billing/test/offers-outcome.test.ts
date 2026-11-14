@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Phase 6's measurement arithmetic (docs/plans/sales-agent.md).
+ * Phase 6's measurement arithmetic.
  *
  * The SKU match is the one assertion worth having here: "an account that
  * converts to a DIFFERENT SKU is a targeting failure wearing a conversion win",

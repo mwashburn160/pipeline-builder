@@ -302,7 +302,7 @@ describe('DELETE /plugins/:id — step-up only for force', () => {
   });
 });
 
-// docs/plans/bootstrap-image-versioning.md §5: a managed toolchain release is
+// A managed toolchain release is
 // deleted only in the Toolchain console — for the system org too.
 describe('DELETE /plugins/:id — managed toolchain names', () => {
   const handler = getHandler('delete', '/:id');

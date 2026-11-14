@@ -2,8 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The managed toolchain release service (docs/plans/bootstrap-image-versioning.md
- * §1, §5, §6, §8, D1, D14) against a REAL Postgres (PGlite, the shipped
+ * The managed toolchain release service against a REAL Postgres (PGlite, the shipped
  * postgres-init.sql, as the RLS-enforced app role).
  *
  * Real, not mocked, because what is under test is SQL: the singleton row lock
@@ -39,7 +38,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@p
   withTenantTx: testDb.withTenantTx,
   findVersionReferences: mockFindVersionReferences,
 }));
-// The §10 hygiene notices are their own suite (toolchain-hygiene.test.ts); here only WHEN they fire.
+// The hygiene notices are their own suite (toolchain-hygiene.test.ts); here only WHEN they fire.
 const mockNotifyToolchainHygiene = jest.fn<AnyFn>(async () => ({ orgDefaultOrgs: 0, pinnedOrgs: 0 }));
 jest.unstable_mockModule('../src/services/toolchain-hygiene.js', () => ({ notifyToolchainHygiene: mockNotifyToolchainHygiene }));
 // A deploy re-resolves declared ranges in the background; not this suite's concern.
@@ -122,7 +121,7 @@ describe('upload registers the release', () => {
   });
 });
 
-describe('setPlatformDefault — the §8 guards, each with its own code', () => {
+describe('setPlatformDefault — the promotion guards, each with its own code', () => {
   it('pair: one half missing, a half yanked or deprecated → TOOLCHAIN_GUARD_PAIR_INCOMPLETE', async () => {
     await upload('pipeline-bootstrap', '1.0.0');
     await raw.query('UPDATE plugins SET scanned_at = now()');
@@ -207,7 +206,7 @@ describe('setPlatformDefault — the §8 guards, each with its own code', () => 
     expect((await history()).at(-1)).toEqual({ release_version: '1.1.0', previous_release_version: '1.0.0', kind: 'set', reason: 'hotfix for CVE-2026-1' });
   });
 
-  describe('canary gate over the stamped run rows (§6)', () => {
+  describe('canary gate over the stamped run rows', () => {
     /** Terminal synth runs of `releaseVersion` in `orgId`, as api/reporting stamps them. */
     async function synthRuns(orgId: string, releaseVersion: string, succeeded: number, failed = 0) {
       for (let i = 0; i < succeeded + failed; i++) {
@@ -346,7 +345,7 @@ describe('setPlatformDefault — concurrency', () => {
   });
 });
 
-describe('setPlatformDefault — initial (D14)', () => {
+describe('setPlatformDefault — the fresh-install initial default', () => {
   it('sets the first default once; a second call → TOOLCHAIN_INITIAL_ALREADY_SET', async () => {
     await release('1.0.0');
     await release('1.1.0');

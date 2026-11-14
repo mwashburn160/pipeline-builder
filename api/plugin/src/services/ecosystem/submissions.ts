@@ -319,7 +319,7 @@ async function stageSubmission(
     const spec = plugin.pluginSpec;
     name = spec.name;
     version = spec.version ?? DEFAULT_PLUGIN_VERSION;
-    // Managed toolchain names are never listed (D5), anonymously least of all.
+    // Managed toolchain names are never listed, anonymously least of all.
     assertListable(name);
     const gate = await submissionNameGate(name, emailHash);
     assertName(gate);

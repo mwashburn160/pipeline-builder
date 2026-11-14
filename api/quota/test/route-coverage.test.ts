@@ -74,7 +74,7 @@ const INTERNAL_ROUTES: InternalRouteDeclaration[] = (() => {
     // The billing → quota entitlement sync (tier + effective limits).
     { method: 'PUT', path: '/quotas/entitlement-sync/:orgId', callers: ['billing'] },
     // The POOLED per-dimension picture the expansion-offers profile is built
-    // from (docs/plans/sales-agent.md Phase 0). Billing only: the offers
+    // from. Billing only: the offers
     // scheduler runs there until Phase 5 extracts it.
     { method: 'GET', path: '/quotas/internal/:orgId/profile', callers: ['billing'] },
   ];

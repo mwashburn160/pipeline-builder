@@ -2,18 +2,18 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Phase 0 — the signal store's writer (docs/plans/sales-agent.md).
+ * The usage-profile signal store's writer.
  *
  * Builds one `UsageProfile` row per account root per period, APPEND-ONLY, from
- * the internal reads the plan's Phase 0 had to create: quota's pooled
+ * the internal reads created for it: quota's pooled
  * per-dimension picture and platform's seat activity.
  *
- * **It runs even when offers are off.** `OFFERS_ENABLED` gates the GRANT (Phase
- * 2), not this: history is the one thing in the plan that cannot be backfilled,
+ * **It runs even when offers are off.** `OFFERS_ENABLED` gates the GRANT, not
+ * this: history is the one thing in the offers path that cannot be backfilled,
  * so a quarter with offers disabled must not cost a quarter of trajectory. What
  * the switch stops is any offer being created — never the observation.
  *
- * **Fails CLOSED on an incomplete read (D8), and that is the opposite of the
+ * **Fails CLOSED on an incomplete read, and that is the opposite of the
  * path it feeds.** The quota service fails OPEN so a reachability problem never
  * blocks a customer's work. This does the reverse: a profile assembled from
  * partial reads looks like an account with low usage on whichever dimension
@@ -232,7 +232,7 @@ function isDuplicateKey(err: unknown): boolean {
   return (err as { code?: number } | null)?.code === 11000;
 }
 
-/** Whether this deployment may MAKE offers right now (read per cycle, D6). */
+/** Whether this deployment may MAKE offers right now (read per cycle). */
 export function offersAllowed(): boolean {
   return config.enabled && config.offersEnabled;
 }
@@ -247,7 +247,7 @@ const scheduler: Scheduler = createScheduler({
   name: 'offers-profile',
   intervalMs: config.offers.profileIntervalMs,
   run: async () => {
-    // RE-READ the switch every tick rather than capturing it at start (D6). A
+    // RE-READ the switch every tick rather than capturing it at start. A
     // knob that only takes effect on redeploy is not a kill switch, and this is
     // a default-on process feeding one that spends a campaign budget.
     //

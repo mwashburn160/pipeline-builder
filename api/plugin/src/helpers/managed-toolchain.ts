@@ -2,8 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The managed toolchain refusals (docs/plans/bootstrap-image-versioning.md §1,
- * §5, D5). `pipeline-bootstrap` and `cdk-synth` are one release published by
+ * The managed toolchain refusals. `pipeline-bootstrap` and `cdk-synth` are one release published by
  * the system org:
  *
  * - only the system org creates rows with these names

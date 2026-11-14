@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The crossover (docs/plans/sales-agent.md D4): an account already paying more
+ * The crossover: an account already paying more
  * in packs than the next tier costs.
  *
  * The cases that must produce NOTHING carry as much weight as the ones that

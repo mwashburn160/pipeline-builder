@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Phase 6 — measurement (docs/plans/sales-agent.md).
+ * Phase 6 — measurement.
  *
  * "Expansion revenue is the easiest thing in a product to claim and the hardest
  * to prove." Three things here, and each exists because the feature would

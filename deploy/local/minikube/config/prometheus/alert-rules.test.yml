@@ -3610,7 +3610,7 @@ tests:
             exp_annotations:
               summary: "Background job digest has not completed a run in two intervals"
               description: "No replica has finished a successful digest cycle for 30m 0s, more than twice its configured interval plus 15m. Usual causes: every cycle is throwing (see the owning service's 'Scheduler cycle failed' logs), the lock is held by a dead pod whose key has not expired (redis-cli TTL digest), Redis is unreachable (LeaderLockUnavailable), or the owning service is down."
-  # PipelineToolchainFailureSpike (docs/plans/bootstrap-image-versioning.md §7).
+  # PipelineToolchainFailureSpike (managed toolchain releases).
   # a) a canary release failing half its runs while the default fails none
   #    fires — for the canary only. Two reporting pods disagree about the
   #    default; the FRESHER observation (1.0.0) is the baseline, so neither the

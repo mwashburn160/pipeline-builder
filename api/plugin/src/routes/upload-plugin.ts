@@ -201,7 +201,7 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
         // ignored there, and its refused image discarded like any other.
         const setupLoad = validation.value.setupLoad === 'true';
 
-        // Scheduling class + machine size (D11/D13), resolved against the tier
+        // Scheduling class + machine size, resolved against the tier
         // BEFORE anything is reserved so a refused size costs no quota. A size
         // above the tier's ceiling is refused, never downgraded — see
         // `resolveBuildShape`.
@@ -221,7 +221,7 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
         // the queued build job owns the slot instead.
         // CPU-CREDIT ADMISSION, before the plugins reservation: an org out of
         // build compute is told at submission rather than discovering it when a
-        // build that looked accepted never produces an image. Fails CLOSED (D6)
+        // build that looked accepted never produces an image. Fails CLOSED
         // — a build whose budget could not be confirmed is not admitted, because
         // an unmetered build pool is otherwise discovered from a bill.
         const credits = await admitBuildOnCredits(quotaService, orgId, { orgId });

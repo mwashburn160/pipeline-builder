@@ -843,7 +843,7 @@ describe('PluginService', () => {
     });
   });
 
-  // docs/plans/bootstrap-image-versioning.md §1: a managed toolchain upload never
+  // A managed toolchain upload never
   // promotes and never overwrites; its lifecycle is the Toolchain console's.
   describe('managed toolchain names (pipeline-bootstrap, cdk-synth)', () => {
     let versionRows: Array<Record<string, unknown>>;

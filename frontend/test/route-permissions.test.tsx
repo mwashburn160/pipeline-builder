@@ -1474,7 +1474,7 @@ const CONTROLS: Control[] = [
     file: 'pages/dashboard/settings.tsx',
     gateFiles: ['src/components/settings/PipelineToolchainSettings.tsx'],
     // The card mounts with `pipelines:read` (read-only there); the write controls
-    // need `toolchain:manage` (docs/plans/bootstrap-image-versioning.md D13), and
+    // need `toolchain:manage` (docs/organization-benefits.md, "Pipeline toolchain default"), and
     // every write steps up. The negative render takes away `toolchain:manage`.
     permissions: ['toolchain:manage', 'pipelines:read'],
     stepUp: true,
@@ -2656,11 +2656,11 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
   },
   'platform GET /internal/offers/seat-activity/:orgId': {
     category: 'machine-only',
-    why: 'Service-principal route (callers: billing): the expansion-offers profile\'s VALUE signal (docs/plans/sales-agent.md D4 Class 3), which exists to DISQUALIFY — an account at its seat cap whose members have not signed in is a churn save, and offering it more seats is the worst available outcome. Billing only, because the offers agent has no public surface of its own (D13) and runs there until it is extracted. No user token is admitted and the answer is three counts across the account subtree — never a member, a name or an address. The tenant-facing view of the same question is the members list.',
+    why: 'Service-principal route (callers: billing): the expansion-offers profile\'s VALUE signal, which exists to DISQUALIFY — an account at its seat cap whose members have not signed in is a churn save, and offering it more seats is the worst available outcome. Billing only, because the offers agent has no public surface of its own and runs there until it is extracted. No user token is admitted and the answer is three counts across the account subtree — never a member, a name or an address. The tenant-facing view of the same question is the members list.',
   },
   'quota GET /quotas/internal/:orgId/profile': {
     category: 'machine-only',
-    why: 'Service-principal route (callers: billing): the POOLED per-dimension usage picture the expansion-offers profile is built from (docs/plans/sales-agent.md Phase 0) — usage, limit, ratio and the shared `projectUsage` trajectory per quota type. Billing only, for the same reason as the seat read: this is a commercial read of an account\'s whole usage shape, not a member read, and `authorizeOrg()` alone would admit any same-org member. The tenant-facing equivalent is GET /quotas, which serves the same numbers to the dashboard.',
+    why: 'Service-principal route (callers: billing): the POOLED per-dimension usage picture the expansion-offers profile is built from — usage, limit, ratio and the shared `projectUsage` trajectory per quota type. Billing only, for the same reason as the seat read: this is a commercial read of an account\'s whole usage shape, not a member read, and `authorizeOrg()` alone would admit any same-org member. The tenant-facing equivalent is GET /quotas, which serves the same numbers to the dashboard.',
   },
   ...group('platform', [
     'GET /internal/reporting/recipient-check/:orgId',
@@ -2831,8 +2831,8 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
   'image-registry POST /internal/plugin-images/discard': { category: 'machine-only', why: 'Service-principal route (callers: plugin): api/plugin/src/helpers/supply-chain.ts asks image-registry to delete a pushed, signed image (and its cosign .sig/.att companions) that the scan gates or compliance refused; no user token is admitted.' },
   'image-registry POST /internal/quarantine/:submissionId/credential': { category: 'machine-only', why: 'Service-principal route (callers: plugin): api/plugin/src/services/ecosystem/registry.ts asks for a short-lived, registry-only pull credential scoped to one anonymous submission\'s quarantine image, for the submission build; no user token is admitted.' },
   'plugin GET /internal/plugins/image-references': { category: 'machine-only', why: 'Service-principal route (callers: image-registry): api/image-registry/src/services/plugin-image-references.ts reads the digests an org\'s namespace still needs (plugin rows, pipelines declaring / running them, open deployed exposures) before the age GC deletes anything; no user token is admitted.' },
-  'plugin GET /internal/plugins/public-names': { category: 'machine-only', why: 'Service-principal route (callers: image-registry): api/image-registry/src/services/parent-public-plugins.ts reads the names of an org\'s live public plugins — the only repositories of its namespace its teams may pull (E22); no user token is admitted.' },
-  'plugin POST /plugins/toolchain/initial-default': { category: 'machine-only', why: 'Service-principal route (callers: deploy-bootstrap): deploy/bin/init-platform.sh sets the fresh-install platform toolchain default once (D14, docs/plans/bootstrap-image-versioning.md), signed with the deploy\'s own key from an operator shell; requireInternalService refuses every user and service-account token, and the plugin service refuses that identity on every other route. The console route that moves the default later is a separate, step-up route.' },
+  'plugin GET /internal/plugins/public-names': { category: 'machine-only', why: 'Service-principal route (callers: image-registry): api/image-registry/src/services/parent-public-plugins.ts reads the names of an org\'s live public plugins — the only repositories of its namespace its teams may pull; no user token is admitted.' },
+  'plugin POST /plugins/toolchain/initial-default': { category: 'machine-only', why: 'Service-principal route (callers: deploy-bootstrap): deploy/bin/init-platform.sh sets the fresh-install platform toolchain default once (the fresh-install default, deploy/local/docker/README.md "Upgrading the pipeline toolchain"), signed with the deploy\'s own key from an operator shell; requireInternalService refuses every user and service-account token, and the plugin service refuses that identity on every other route. The console route that moves the default later is a separate, step-up route.' },
 
   // ── Machine credentials: a scoped key, never a session ────────────────────
   ...group('platform', [
@@ -3060,7 +3060,7 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
     'GET /plugins/toolchain/releases', 'GET /plugins/toolchain/releases/:v/adoption', 'GET /plugins/toolchain/releases/:v/canary',
     'GET /plugins/toolchain/releases/:v/default-preview', 'GET /plugins/toolchain/history', 'GET /plugins/toolchain/affected',
     'GET /plugins/toolchain/cleanup',
-  ], { category: 'sysadmin-console', why: "Toolchain console reads (pages/dashboard/toolchain.tsx and its src/components/toolchain/ panels — Releases, Canary, Adoption, Affected, History, Cleanup, and the set-as-default preview). Here because `toolchain:operate` is system-org-only, so each carries requireSystemOrg + aal2 alongside the permission; the page's own gate is the nav entry's `requiredPermission: 'toolchain:operate'`. No step-up on reads (docs/plans/bootstrap-image-versioning.md §5)." }),
+  ], { category: 'sysadmin-console', why: "Toolchain console reads (pages/dashboard/toolchain.tsx and its src/components/toolchain/ panels — Releases, Canary, Adoption, Affected, History, Cleanup, and the set-as-default preview). Here because `toolchain:operate` is system-org-only, so each carries requireSystemOrg + aal2 alongside the permission; the page's own gate is the nav entry's `requiredPermission: 'toolchain:operate'`. No step-up on reads (docs/permissions.md, `toolchain:operate`)." }),
   ...group('plugin', [
     'PUT /plugins/toolchain/releases/:v/rollout', 'POST /plugins/toolchain/releases/:v/default', 'PATCH /plugins/toolchain/releases/:v',
     'POST /plugins/toolchain/releases/:v/deprecate', 'POST /plugins/toolchain/releases/:v/yank', 'DELETE /plugins/toolchain/releases/:v',

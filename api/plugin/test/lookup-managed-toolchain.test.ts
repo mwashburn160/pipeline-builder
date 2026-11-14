@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * `/plugins/lookup` and `/plugins/find` for a MANAGED toolchain name
- * (docs/plans/bootstrap-image-versioning.md §2): answered from
+ * `/plugins/lookup` and `/plugins/find` for a MANAGED toolchain name:
+ * answered from
  * `resolveManagedToolchain` only — never the row or listing branch, for the
  * system org too — with `{ plugin, warnings, toolchain: { releaseVersion,
  * resolvedVia } }`, the half's image verified, 409 TOOLCHAIN_NO_DEFAULT and 404

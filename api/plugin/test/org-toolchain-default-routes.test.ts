@@ -2,8 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The org toolchain default routes' GATES (docs/plans/bootstrap-image-versioning.md
- * §5, Phase 4, D13), over the REAL app: the real `createApp`, `mountRoutes`,
+ * The org toolchain default routes' GATES, over the REAL app: the real `createApp`, `mountRoutes`,
  * api-core verifiers, `requirePermission` and `requireStepUp`, with real ES256
  * user and step-up tokens. The service is replaced — what it does with the
  * database is org-toolchain-default-service.test.ts.

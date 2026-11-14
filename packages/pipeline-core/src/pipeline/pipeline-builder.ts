@@ -83,7 +83,7 @@ function buildDeploysTag(props: BuilderProps): string | undefined {
 
 
 /**
- * The CodePipeline props a toolchain release pins (§3, D10):
+ * The CodePipeline props a toolchain release pins:
  *  - `cliVersion` / `cdkAssetsCliVersion` — the release's `awsCdk` /
  *    `cdkAssets`, so SelfMutate and asset publishing never install npm `latest`;
  *  - `selfMutationCodeBuildDefaults` — the curated image with its Node runtime
@@ -198,7 +198,7 @@ export interface BuilderProps {
   /**
    * The toolchain release this pipeline runs on, pinned by the pipeline's own
    * config (`toolchain.release`). Absent ⇒ the org default, its canary, or the
-   * platform default — whichever the platform resolves (D7, D8).
+   * platform default — whichever the platform resolves.
    */
   readonly toolchain?: { readonly release: string };
 
@@ -209,7 +209,7 @@ export interface BuilderProps {
    * CDK CLI (`cliVersion`) and `cdk-assets` (`cdkAssetsCliVersion`) versions.
    * `pipeline-manager pipeline synth/deploy` resolves it from the platform
    * (`/plugins/lookup`, name `pipeline-bootstrap`); CDK consumers building
-   * PipelineBuilder directly pass the same record. There is no fallback (D2).
+   * PipelineBuilder directly pass the same record. There is no fallback.
    */
   readonly resolvedBootstrap: ResolvedBootstrap;
 
@@ -725,7 +725,7 @@ export class PipelineBuilder extends Construct {
       // ShellStep CodeBuild action and asset publishing, which otherwise run
       // on CDK's default curated image. It is the release's pipeline-bootstrap,
       // pulled exactly like a plugin image. Per-step `buildImage` on a
-      // CodeBuildStep still wins; self-mutation overrides it (curated, D10).
+      // CodeBuildStep still wins; self-mutation overrides it (curated).
       buildEnvironment: {
         buildImage: defaultBuildImage,
         environmentVariables: pipelineEnvVars,

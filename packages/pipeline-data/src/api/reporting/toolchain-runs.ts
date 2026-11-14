@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Toolchain RUN DATA (docs/plans/bootstrap-image-versioning.md §6, §7, §9):
+ * Toolchain RUN DATA:
  * which managed toolchain release each `synth` / `self-mutation` action ran on,
  * and the two queries built over those rows — the canary gate and the Affected
  * view.
@@ -126,7 +126,7 @@ export function toolchainOutcomeOf(status: string): ToolchainOutcome | null {
 const IS_SELF_MUTATION = sql`(e.stage_name = ${SELF_MUTATION_STAGE} AND e.action_name = ${SELF_MUTATION_ACTION})`;
 
 // -----------------------------------------------------------------------------
-// Canary gate (§6) — pure computation
+// Canary gate — pure computation
 // -----------------------------------------------------------------------------
 
 /** The gate's thresholds (set on the console, Phase 5). */
@@ -267,7 +267,7 @@ export function evaluateCanaryGate(input: CanaryGateInput): CanaryGateResult {
  * Window: since the release was registered (`toolchain_release.created_at`),
  * for both the candidate and the default, so the two rates are contemporaneous.
  * Only terminal (SUCCEEDED / FAILED) SYNTH runs count; self-mutation is not
- * part of the gate (§6 counts synth runs).
+ * part of the gate (the canary gate counts synth runs).
  *
  * Reads every org's rows: run it ELEVATED (the plugin service's toolchain tx
  * is). The candidate read is bounded at `ceil(N/M)` rows per org.
@@ -326,7 +326,7 @@ export async function readCanaryGate(
 }
 
 // -----------------------------------------------------------------------------
-// Affected view (§9)
+// Affected view
 // -----------------------------------------------------------------------------
 
 export interface AffectedOrg {

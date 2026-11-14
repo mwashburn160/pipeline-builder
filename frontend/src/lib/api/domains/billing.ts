@@ -124,7 +124,7 @@ export function billingApi(core: ApiCore) {
 
     /**
      * Does this account's pack spend already argue for a tier move?
-     * (`GET /billing/crossover`, docs/plans/sales-agent.md D4.)
+     * (`GET /billing/crossover`)
      *
      * INFORMATION, not an offer: arithmetic over the subscription with no
      * discount, campaign or consent question beyond what a billing notice
@@ -144,7 +144,7 @@ export function billingApi(core: ApiCore) {
 
     /**
      * What a plan change would actually COST, discount included
-     * (`GET /billing/plan-preview`, docs/plans/sales-agent.md F1).
+     * (`GET /billing/plan-preview`).
      *
      * Computed server-side rather than in the modal: the discount stack — the
      * interval, the volume curve, combos, the coupon and the aggregate floor
@@ -162,7 +162,7 @@ export function billingApi(core: ApiCore) {
 
     /**
      * The account's live expansion offer, plus its consent state
-     * (`GET /billing/offers`, docs/plans/sales-agent.md F4/F7).
+     * (`GET /billing/offers`).
      *
      * `offer: null` is the NORMAL state of an account, not an error — most
      * accounts have no live offer most of the time, and the card renders nothing
@@ -203,7 +203,7 @@ export function billingApi(core: ApiCore) {
 
     /**
      * Buy several add-ons as ONE change
-     * (`POST /billing/subscriptions/:id/addons/basket`, docs/plans/sales-agent.md F6).
+     * (`POST /billing/subscriptions/:id/addons/basket`).
      *
      * A separate verb from `addAddon` rather than a loop over it, because a
      * partially-applied basket is worse than either end state: the account has
@@ -259,7 +259,7 @@ export function billingApi(core: ApiCore) {
 
     /**
      * Recall everything one actor sent in a window
-     * (`POST /billing/admin/offers/withdraw`, docs/plans/sales-agent.md D14).
+     * (`POST /billing/admin/offers/withdraw`).
      *
      * Defaults to the agent, which is the case it exists for: the control an
      * operator reaches for on the morning a rule turns out to be wrong. It

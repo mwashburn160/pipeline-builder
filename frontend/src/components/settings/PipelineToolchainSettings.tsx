@@ -46,7 +46,7 @@ interface PendingWrite {
 
 /**
  * The blast radius of moving the org's unpinned pipelines to `target`, in the
- * plan's words (§11). Pinned pipelines never move with the org default.
+ * console's words. Pinned pipelines never move with the org default.
  */
 export function blastRadiusText(view: ToolchainOrgDefaultView, target: string | null): string {
   const { pipelines, pinned } = view.counts;

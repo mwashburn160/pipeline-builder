@@ -170,7 +170,7 @@ export interface UsageProfileRead {
   orgId: string;
   tier: string;
   rootOrgId: string;
-  /** The account's quota-notice switch — ANDed with `offersEnabled` for email (D6). */
+  /** The account's quota-notice switch — ANDed with `offersEnabled` for email. */
   noticesEnabled: boolean;
   /** The account's own offers switch. Absent upstream reads as true (opt-out). */
   offersEnabled: boolean;
@@ -239,7 +239,7 @@ export interface FrustrationSignalRead {
 
 /**
  * Is this account currently unhappy with us?
- * (`GET /messages/internal/offers/frustration/:orgId`, Phase 4.)
+ * (`GET /messages/internal/offers/frustration/:orgId`.)
  *
  * A BOOLEAN crosses the boundary, never the text: ticket bodies are the most
  * PII-dense material in the product, and the derivation runs in the service that
@@ -249,7 +249,7 @@ export interface FrustrationSignalRead {
  * than as contentment. That is the opposite of how the rest of this path fails
  * closed, and deliberately so: this signal only ever suppresses, so failing
  * closed on it would mean an AI or message-service outage silently stopped every
- * offer — which the plan forbids in as many words.
+ * offer — which must never happen.
  */
 export async function fetchFrustrationSignal(orgId: string, auth: string): Promise<FrustrationSignalRead | null> {
   const body = await getJson<{ data?: { signal?: FrustrationSignalRead } }>(

@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The pipeline editor's toolchain controls (docs/plans/
- * bootstrap-image-versioning.md §5, §11):
+ * The pipeline editor's toolchain controls
+ * (docs/organization-benefits.md, "Pipeline toolchain default"):
  *   - the "Toolchain" selector follows the org / platform default or pins an
  *     eligible release; yanked/deprecated are labelled and not newly
  *     selectable; an older pin says "behind default";

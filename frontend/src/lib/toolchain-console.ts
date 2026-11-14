@@ -2,8 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Pure helpers for the system org's Toolchain console (docs/plans/
- * bootstrap-image-versioning.md §6, §8, §9, §11). No React, so each rule is
+ * Pure helpers for the system org's Toolchain console. No React, so each rule is
  * testable on its own. The server enforces every guard; these only explain.
  */
 import { ApiError } from '@/lib/api/errors';
@@ -16,13 +15,13 @@ import type {
 /** The console's route. */
 export const TOOLCHAIN_CONSOLE_HREF = '/dashboard/toolchain';
 
-/** §6 defaults (N runs, M orgs, T points), used until the server reports its own. */
+/** Canary-gate defaults (N runs, M orgs, T points), used until the server reports its own. */
 export const DEFAULT_GATE_THRESHOLDS: ToolchainGateThresholds = { n: 20, m: 2, t: 5 };
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 /**
- * The §8 confirmation sentence: "N pipelines in M orgs follow the platform
+ * The promotion confirmation sentence: "N pipelines in M orgs follow the platform
  * default and will move on their next run; Q orgs have their own default and
  * P pipelines are pinned, so they won't move."
  */

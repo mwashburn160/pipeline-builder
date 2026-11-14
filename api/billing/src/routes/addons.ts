@@ -230,7 +230,7 @@ export function createAddonRoutes(): Router {
   // GET /billing/bundles — the add-on catalog filtered to the account's tier
   /**
    * GET /billing/crossover — does this account's pack spend already argue for a
-   * tier move? (docs/plans/sales-agent.md D4.)
+   * tier move?
    *
    * INFORMATION, not an offer: arithmetic over the subscription record with no
    * discount, no campaign and no consent beyond what a billing notice already
@@ -265,7 +265,7 @@ export function createAddonRoutes(): Router {
 
   /**
    * GET /billing/plan-preview?tier=business — what a plan change would actually
-   * COST, discount included (docs/plans/sales-agent.md F1).
+   * COST, discount included.
    *
    * A PREREQUISITE rather than an enhancement: `PlanChangeModal` carried no
    * discount references at all, so an account accepting a 50%-off offer opened
@@ -276,8 +276,8 @@ export function createAddonRoutes(): Router {
    * interval, the volume curve, combos, the coupon and the aggregate floor that
    * can refuse the lot — is money math with one implementation, and a second
    * one in a React component is a second answer the invoice would disagree with.
-   * This is also D9's pre-flight in miniature: price the thing before promising
-   * it.
+   * This is also the offer pre-flight in miniature: price the thing before
+   * promising it.
    *
    * The standing discount SURVIVES a plan change (nothing clears
    * `recurringDiscount` outside cancellation, and the per-period re-grant sizes
@@ -410,7 +410,7 @@ export function createAddonRoutes(): Router {
     const { bundle } = resolved;
 
     const qty = bundle.stackable ? Math.max(0, Math.trunc(quantity ?? 1)) : (quantity && quantity > 0 ? 1 : 0);
-    // D7: a retention bundle can't be stacked past its 730-day ceiling
+    // A retention bundle can't be stacked past its 730-day ceiling
     // (`maxQuantity` on the config; e.g. retention_pack=7, dora_history_pack=1).
     // Bundles without a `maxQuantity` are unbounded (unchanged).
     const capError = bundleQuantityCapError(bundle, qty);
@@ -466,7 +466,7 @@ export function createAddonRoutes(): Router {
 
     // Stackable packs take a quantity (>=1); boolean feature bundles are qty 1.
     const qty = bundle.stackable ? Math.max(1, Math.trunc(quantity ?? 1)) : 1;
-    // D7: reject a retention bundle stacked past its 730-day ceiling (`maxQuantity`).
+    // Reject a retention bundle stacked past its 730-day ceiling (`maxQuantity`).
     const capError = bundleQuantityCapError(bundle, qty);
     if (capError) return sendError(res, 400, capError, ErrorCode.VALIDATION_ERROR);
     const current = (subscription.addons ?? []) as Addon[];
@@ -519,7 +519,7 @@ export function createAddonRoutes(): Router {
 
     logger.info('Add-on applied', { orgId, bundleId, quantity: qty });
 
-    // Credit an open offer, if this purchase plausibly answers one (Phase 6).
+    // Credit an open offer, if this purchase plausibly answers one.
     // The purchase routes are the ONLY place a conversion is observable — an
     // offer records what we said, not what they then did — and it is best
     // effort: a measurement row must never fail a completed purchase.
@@ -542,7 +542,7 @@ export function createAddonRoutes(): Router {
 
   /**
    * POST /billing/subscriptions/:id/addons/basket — buy several add-ons as ONE
-   * change (docs/plans/sales-agent.md F6).
+   * change.
    *
    * **Atomic because a half-applied basket must not be a reachable state.** A
    * compose offer is sized to the dimensions actually under pressure, so three

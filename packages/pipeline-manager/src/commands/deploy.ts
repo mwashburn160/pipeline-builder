@@ -61,7 +61,7 @@ export function deploy(program: Command): void {
           throw new Error('--toolchain-file applies to --local-spec only (with --id the platform resolves the toolchain release)');
         }
         // Without the platform, the toolchain release can only come from a file
-        // (D2: never a fallback image). Refuse before reading anything else.
+        // (there is never a fallback image). Refuse before reading anything else.
         if (options.localSpec && !options.toolchainFile) throw toolchainFileRequired();
 
         auditLog('deploy', { executionId, pipelineId: options.id, profile: options.profile });

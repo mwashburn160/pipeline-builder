@@ -61,7 +61,7 @@ export function mountRoutes(app: Express): void {
   app.use('/billing', createSupportIncidentRoutes());
   // Expansion offers: the account's own surface (read / decline / dismiss) and
   // the system-org view of what the agent has been doing. Served HERE rather
-  // than by the decision process, which is internal only (D13).
+  // than by the decision process, which is internal only.
   app.use('/billing', createOfferRoutes());
   app.use('/billing', createUsageRoutes());
   app.use('/billing', createAdminSubscriptionRoutes());

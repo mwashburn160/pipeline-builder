@@ -3,11 +3,10 @@
 
 /**
  * The managed toolchain's whole platform-side LIFECYCLE, in order, as one
- * deployment lives it (docs/plans/bootstrap-image-versioning.md Phase 6,
- * steps 1-3), against a REAL Postgres (PGlite with the shipped
+ * deployment lives it, against a REAL Postgres (PGlite with the shipped
  * postgres-init.sql, RLS enforced):
  *
- *   1. fresh install: both halves uploaded, the initial default set (D14);
+ *   1. fresh install: both halves uploaded, the initial default set;
  *   2. a second release uploaded (what `upgrade-toolchain.sh` does): it is
  *      `available` and reaches NO pipeline;
  *   3. canary -> promote (the gate opened by real run rows) -> rollback ->
@@ -139,7 +138,7 @@ describe('managed toolchain lifecycle, end to end', () => {
     await expect(resolve(FOLLOWER)).rejects.toMatchObject({ statusCode: 409, code: 'TOOLCHAIN_NO_DEFAULT' });
   });
 
-  it('1. fresh install: the initial default (D14) is set once and every org resolves it', async () => {
+  it('1. fresh install: the initial default is set once and every org resolves it', async () => {
     await installRelease('1.0.0');
     // Uploading never promotes.
     expect(await platformDefault()).toBeNull();

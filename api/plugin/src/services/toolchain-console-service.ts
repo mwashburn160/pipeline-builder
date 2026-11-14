@@ -2,12 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The Toolchain CONSOLE service (docs/plans/bootstrap-image-versioning.md §5,
- * §6, §8, §9, §10, §11, D9, Phase 5): the system org's view of every managed
+ * The Toolchain CONSOLE service: the system org's view of every managed
  * toolchain release across every org, and the operator actions on it.
  *
  * It wraps, never re-implements, the Phase 2-4 services:
- *  - the platform default moves ONLY through `setPlatformDefault` (§8 guards);
+ *  - the platform default moves ONLY through `setPlatformDefault` (the promotion guards);
  *    the default-preview reads the same guard evaluation without writing;
  *  - deprecate / yank / delete are `toolchain-release-service`'s;
  *  - the canary gate and the Affected view are pipeline-data's run-row queries;
@@ -353,7 +352,7 @@ async function membersOf(releaseVersion: string, settings: OrgSettings): Promise
   return memberIds.map((orgId) => ({ orgId, orgName: name(orgId), hasOrgDefault: cls.get(orgId)?.via === 'org-default' }));
 }
 
-/** `GET /plugins/toolchain/releases/:v/canary` — members and the §6 gate against the current default. */
+/** `GET /plugins/toolchain/releases/:v/canary` — members and the canary gate against the current default. */
 export async function getCanary(releaseVersion: string, thresholds?: Partial<CanaryThresholds>): Promise<{ members: CanaryMember[]; gate: CanaryGateView }> {
   const { settings, gate, waived } = await elevated(async (tx) => {
     await requireKnownRelease(tx, releaseVersion);
@@ -412,7 +411,7 @@ function audit(actor: ToolchainActor, action: 'toolchain.rollout.update' | 'tool
  * `PUT /plugins/toolchain/releases/:v/rollout` — REPLACE the release's canary
  * set. An org is in at most one canary (`toolchain_rollout` is keyed by org),
  * so adding an org that is in another release's canary MOVES it, and the move
- * is reported. A non-empty set needs the release to pass the §8 pair, scan and
+ * is reported. A non-empty set needs the release to pass the promotion guards: pair, scan and
  * metadata guards (the guards a canary is served under), and the release must
  * not be the platform default. Serialized with promotions (the same advisory
  * lock), audited `toolchain.rollout.update`, and newly added orgs are told.
@@ -506,7 +505,7 @@ async function orgPicture(): Promise<{ pipelines: Map<string, { unpinned: number
 
 /**
  * `GET /plugins/toolchain/releases/:v/default-preview` — what "Set as platform
- * default" would do and whether it would be allowed, without writing: the §8
+ * default" would do and whether it would be allowed, without writing: the
  * blast radius and every guard as `setPlatformDefault` judges it. Orgs in a
  * canary of ANOTHER release stay on it, so they are neither following nor
  * "own default".
@@ -534,7 +533,7 @@ export async function previewDefault(releaseVersion: string, thresholds?: Partia
 }
 
 /**
- * Tell orgs about a promotion (§10): orgs that follow the platform default get
+ * Tell orgs about a promotion: orgs that follow the platform default get
  * "updating to X"; orgs with their own default get "a newer platform toolchain
  * is available". Canary members of other releases stay on them and aren't told.
  * Best-effort, after COMMIT.
@@ -558,9 +557,9 @@ export async function announcePromotion(releaseVersion: string): Promise<{ follo
 
 /**
  * `POST /plugins/toolchain/releases/:v/default` — "Set as platform default"
- * (`setPlatformDefault`, kind `set`): every §8 guard, `expectedCurrentDefault`
+ * (`setPlatformDefault`, kind `set`): every promotion guard, `expectedCurrentDefault`
  * concurrency, the canary gate (or a written override). Refusals pass through
- * with their codes and details. A change is announced (§10).
+ * with their codes and details. A change is announced.
  */
 export async function promoteRelease(releaseVersion: string, input: {
   expectedCurrentDefault: string | null;
@@ -651,7 +650,7 @@ export interface AffectedView {
   orgs: Array<{ orgId: string; orgName: string; pipelineCount: number; pipelineIds: string[] }>;
 }
 
-/** `GET /plugins/toolchain/affected?release=` — §9: pipelines on the release whose latest synth failed, by org. */
+/** `GET /plugins/toolchain/affected?release=` — pipelines on the release whose latest synth failed, by org. */
 export async function getAffected(releaseVersion: string): Promise<AffectedView> {
   const affected = await elevated((tx) => readAffectedPipelines(tx, releaseVersion));
   const name = await namesFor(affected.orgs.map((o) => o.orgId));
@@ -662,7 +661,7 @@ export async function getAffected(releaseVersion: string): Promise<AffectedView>
 }
 
 /**
- * `POST /plugins/toolchain/affected/notify` — §9 "Notify affected owners": each
+ * `POST /plugins/toolchain/affected/notify` — "Notify affected owners": each
  * affected org's pipeline writers get `pipeline-manager pipeline deploy --id
  * <id>` for its own pipelines only. Audited `toolchain.recovery.notify` with
  * what was reached.

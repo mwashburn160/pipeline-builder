@@ -20,8 +20,8 @@ interface Props {
 }
 
 /**
- * The pipeline editor's "Toolchain" selector (docs/plans/
- * bootstrap-image-versioning.md §5, §11): follow the default — the org's own,
+ * The pipeline editor's "Toolchain" selector
+ * (docs/organization-benefits.md, "Pipeline toolchain default"): follow the default — the org's own,
  * or the platform's — or pin the whole managed release (build image +
  * `cdk-synth`) to one eligible version. Yanked and deprecated releases are
  * labelled and can't be NEWLY chosen; a pipeline already pinned to one keeps

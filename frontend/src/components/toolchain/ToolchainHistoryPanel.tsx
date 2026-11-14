@@ -28,9 +28,9 @@ const COLUMNS: Column<ToolchainDefaultHistoryEntry>[] = [
 ];
 
 /**
- * History (§11): every platform-default change (`set` / `initial` /
+ * History: every platform-default change (`set` / `initial` /
  * `restore`), newest first, and the normal rollback — "Set previous as
- * default", an ordinary promotion through the §8 guards whose canary gate is
+ * default", an ordinary promotion through the promotion guards whose canary gate is
  * waived because the release has already been default.
  */
 export function ToolchainHistoryPanel({ platformDefault, canWrite, onChanged }: {

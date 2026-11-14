@@ -668,7 +668,7 @@ logger.info('OrgMembersService ready');
 /**
  * Stamp this membership as active, at most once a day.
  *
- * The seat offer's DISQUALIFIER (docs/plans/sales-agent.md D4 Class 3): an
+ * The seat offer's DISQUALIFIER: an
  * account at its seat cap whose members have not signed in is a churn save
  * rather than an expansion, and a pressure-only profile cannot tell the two
  * apart.

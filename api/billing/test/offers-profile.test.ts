@@ -2,10 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Phase 0's signal store (docs/plans/sales-agent.md).
+ * The usage-profile signal store.
  *
- * The properties under test are the ones the plan calls irreversible or
- * load-bearing, not the happy path:
+ * The properties under test are the irreversible or load-bearing ones, not the happy path:
  *
  *  - a partial read produces an INCOMPLETE row, never a confident one. "A
  *    profile assembled from partial reads looks like an account with low usage
@@ -123,7 +122,7 @@ describe('buildProfile — the happy path carries every class of signal', () => 
   });
 });
 
-describe('buildProfile — fails CLOSED on an incomplete read (D8)', () => {
+describe('buildProfile — fails CLOSED on an incomplete read', () => {
   it('marks the row incomplete when the quota read fails, rather than reporting no usage', async () => {
     mockFetchUsageProfile.mockResolvedValue(null);
     const p = await buildProfile(BASE);

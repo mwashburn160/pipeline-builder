@@ -1,6 +1,6 @@
 // GENERATED FROM docs/permissions.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: b13a0c692e2c7ce2e8148b3b8355a11258a38fef953515695bd9184ee3e68241
+// SOURCE-SHA256: c22cab814576a5b6435d55364fda94b4eafc53e7438749fd023ad2a0bda27af6
 // SPDX-License-Identifier: Apache-2.0
 import { UserCog } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -278,7 +278,7 @@ export const permissionsTopic: HelpTopic = {
             [
               "Pipeline toolchain console (system org only)",
               "toolchain:operate",
-              "System-org only (plan D9), carried by Platform Operator. Runs the Toolchain console (/dashboard/toolchain, /plugins/toolchain/releases, /history, /affected, /cleanup): canary membership, release notes, deprecate (reversible: { deprecated: false }) / yank (permanent) / delete releases, notify the owners of pipelines stranded on a release, and set the platform default — which every org without its own default follows on its next run. Every write steps up and is audited (toolchain.*); reads never step up. It must be system-org-only because ADMIN_PERMISSIONS derives from the org-assignable list, so otherwise every tenant Admin would hold it. The org-level toolchain:manage confers none of it."
+              "System-org only, carried by Platform Operator. Runs the Toolchain console (/dashboard/toolchain, /plugins/toolchain/releases, /history, /affected, /cleanup): canary membership, release notes, deprecate (reversible: { deprecated: false }) / yank (permanent) / delete releases, notify the owners of pipelines stranded on a release, and set the platform default — which every org without its own default follows on its next run. Every write steps up and is audited (toolchain.*); reads never step up. It must be system-org-only because ADMIN_PERMISSIONS derives from the org-assignable list, so otherwise every tenant Admin would hold it. The org-level toolchain:manage confers none of it."
             ],
             [
               "Cross-tenant administration (system org only)",

@@ -130,7 +130,7 @@ export interface StepContractViolation {
 
 /**
  * A managed `cdk-synth` step carrying its own version (or row id): refused —
- * the toolchain is pinned as a whole release with `toolchain.release` (§5).
+ * the toolchain is pinned as a whole release with `toolchain.release`.
  */
 export function pinViaReleaseViolation(step: { path: string; label: string; name: string; publisher?: string | null }, version: string): StepContractViolation {
   return {
@@ -150,8 +150,8 @@ export function pinViaReleaseViolation(step: { path: string; label: string; name
 
 /**
  * The managed build image (`pipeline-bootstrap`, pluginType `BuildImage`) is the
- * image the synth and self-mutation RUN ON, never a step of its own
- * (docs/plans/bootstrap-image-versioning.md §1). Refused by name before any
+ * image the synth and self-mutation RUN ON, never a step of its own.
+ * Refused by name before any
  * lookup (a tenant can't resolve the system row, and the name is reserved) and
  * by the resolved plugin's type.
  */
@@ -270,7 +270,7 @@ export async function resolveContractPlugin(
 ): Promise<ContractResolution> {
   const { publisher, ...rowFilter } = filter;
   // A managed toolchain name resolves through the toolchain resolver only, with
-  // or without a publisher, for the system org too (§2).
+  // or without a publisher, for the system org too.
   if (typeof rowFilter.name === 'string' && isManagedToolchainPlugin(rowFilter.name)) {
     return resolveManagedContractPlugin(rowFilter.name.trim().toLowerCase() as ManagedToolchainPlugin, rowFilter, orgId, opts.releasePin);
   }

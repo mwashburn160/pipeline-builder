@@ -168,7 +168,7 @@ export const MAX_AI_TOKEN_BUDGET = 1_000_000_000_000;
 export const NoticeSettingsSchema = z.object({
   enabled: z.boolean().optional(),
   /**
-   * The account's EXPANSION-OFFERS switch (docs/plans/sales-agent.md D6/F7).
+   * The account's EXPANSION-OFFERS switch.
    *
    * It lives on this row rather than in billing because the two switches are
    * ANDed at send time — an offer rides the quota-notice channel, so an account

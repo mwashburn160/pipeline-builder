@@ -319,7 +319,7 @@ describe('POST /reports/events', () => {
   });
 
   /**
-   * Managed toolchain runs (docs/plans/bootstrap-image-versioning.md §7) —
+   * Managed toolchain runs —
    * ALERTING ONLY. The release label is what the ingest stamped from the
    * platform's manifest; the series carries no org (the gate reads the rows).
    */

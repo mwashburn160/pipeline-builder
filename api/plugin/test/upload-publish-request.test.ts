@@ -27,7 +27,7 @@ const spec = { value: { name: 'lint', version: '1.0.0', commands: ['lint'], desc
 const mockOrgId = { value: 'org-1' };
 
 // The CPU-credit admission gate fails CLOSED when the quota service cannot
-// answer (D6). This suite's quota double does not implement `check`, so without
+// answer. This suite's quota double does not implement `check`, so without
 // this stub every upload here would be refused on credits before reaching the
 // behaviour under test. Credits have their own suite (`build-credits.test.ts`).
 jest.unstable_mockModule('../src/queue/build-credits.js', () => ({
@@ -153,7 +153,7 @@ describe('POST /plugins with publishRequest=true', () => {
   });
 });
 
-// docs/plans/bootstrap-image-versioning.md §5 — the upload entry point for the
+// The upload entry point for the
 // managed toolchain names (pipeline-bootstrap, cdk-synth).
 describe('POST /plugins with a managed toolchain name', () => {
   const { SYSTEM_ORG_ID } = jest.requireActual('@pipeline-builder/api-core') as { SYSTEM_ORG_ID: string };

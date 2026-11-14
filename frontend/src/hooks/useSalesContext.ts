@@ -9,7 +9,7 @@ import type { Bundle, BillingInterval, CrossoverVerdict } from '@/types';
 /**
  * The two pieces of commercial context the quota page needs to say what a limit
  * COSTS (F2) and whether the account's spend already argues for a tier move
- * (F3) — docs/plans/sales-agent.md.
+ * (F3).
  *
  * Both are INFORMATION rather than solicitation, which is why this is read
  * unconditionally rather than behind an offers switch: a catalogue price and

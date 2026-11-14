@@ -24,8 +24,7 @@ import { PLUGIN_CHANGELOG_MAX_BYTES, TOOLCHAIN_METADATA_PREFIX, isManagedToolcha
 // -----------------------------------------------------------------------------
 
 /**
- * `BuildImage` is the managed toolchain's build image (`pipeline-bootstrap`,
- * docs/plans/bootstrap-image-versioning.md §1): a prebuilt image with no
+ * `BuildImage` is the managed toolchain's build image (`pipeline-bootstrap`): a prebuilt image with no
  * commands, never a pipeline step. {@link STEP_PLUGIN_TYPES} is the subset a
  * step (or a generator) may use.
  */
@@ -209,7 +208,7 @@ export const PluginSpecSchema = z.object({
 export type PluginSpecInput = z.infer<typeof PluginSpecSchema>;
 
 /**
- * The `BuildImage` rules (docs/plans/bootstrap-image-versioning.md §1): a
+ * The `BuildImage` rules: a
  * managed build image uses a managed toolchain name, carries `toolchain` and
  * `sourceDigest`, and declares nothing a step would run (`commands`,
  * `installCommands`, `metadata`). Conversely `toolchain` / `sourceDigest` are

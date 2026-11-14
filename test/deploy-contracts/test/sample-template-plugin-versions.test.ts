@@ -21,9 +21,9 @@
  * The MANAGED toolchain (`cdk-synth`, `pipeline-bootstrap`) is the exception:
  * it is never pinned per step — the pipeline service refuses a managed
  * `cdk-synth` carrying its own version (TOOLCHAIN_PIN_VIA_RELEASE), and a
- * template never carries the pipeline's `toolchain.release` either (D12) — so a
+ * template never carries the pipeline's `toolchain.release` either — so a
  * template references it unpinned and follows the org / platform default
- * (docs/plans/bootstrap-image-versioning.md §5).
+ * (docs/organization-benefits.md, "Pipeline toolchain default").
  */
 
 import { readdirSync } from 'node:fs';
@@ -112,7 +112,7 @@ describe('sample templates pin the plugin versions the catalogue publishes', () 
     const refs = managedReferences(parsed);
     expect(refs.map((r) => r.name)).toContain('cdk-synth');
     expect(refs.filter((r) => r.version !== undefined || r.id !== undefined)).toEqual([]);
-    // No `toolchain` pin anywhere in the template's props (D12).
+    // No `toolchain` pin anywhere in the template's props.
     const props = (parsed.props ?? parsed) as Record<string, unknown>;
     expect(props).not.toHaveProperty('toolchain');
   });

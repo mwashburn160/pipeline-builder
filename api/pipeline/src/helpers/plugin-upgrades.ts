@@ -28,7 +28,7 @@
  *
  * Managed toolchain steps (pipeline-bootstrap, cdk-synth) are NEVER offered: the
  * toolchain moves as one release, through the platform / org default or the
- * pipeline's `toolchain.release` (docs/plans/bootstrap-image-versioning.md §2, §6).
+ * pipeline's `toolchain.release`.
  */
 
 import { managedToolchainRefName, PluginFilterSchema, scanFreshness, versionScanFacts } from '@pipeline-builder/api-core';

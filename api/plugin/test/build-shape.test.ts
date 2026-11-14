@@ -83,7 +83,7 @@ describe('resolveBuildShape — the size gate', () => {
     }
   });
 
-  it('puts 2x at Team and 4x at Business, per D13', () => {
+  it('puts 2x at Team and 4x at Business', () => {
     expect(resolveBuildShape('pro', { buildSize: '2x' }).ok).toBe(false);
     expect(resolveBuildShape('team', { buildSize: '2x' }).ok).toBe(true);
     expect(resolveBuildShape('team', { buildSize: '4x' }).ok).toBe(false);

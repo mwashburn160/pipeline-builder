@@ -3,7 +3,7 @@
 
 /**
  * What a build's CLASS and SIZE are called, what they cost, and which tier may
- * ask for them (D11/D13).
+ * ask for them.
  *
  * ONE module instead of six tables. The facts used to live in
  * `wire-vocabulary.ts` (the two id lists and the size multipliers),

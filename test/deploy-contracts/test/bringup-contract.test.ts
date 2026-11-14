@@ -572,7 +572,7 @@ describe('services.txt consumers', () => {
 });
 
 /**
- * Every bring-up reaches the managed toolchain step (plan §12, Phase 2). Without
+ * Every bring-up reaches the managed toolchain step. Without
  * a platform default no pipeline can synthesize (BOOTSTRAP_IMAGE_UNRESOLVED), so
  * each target's path must end in init-platform.sh, and init-platform.sh must
  * install the release UNCONDITIONALLY — not behind the optional plugin load.
@@ -637,7 +637,7 @@ describe('every bring-up reaches the toolchain step', () => {
     expect(init).not.toMatch(/LOAD_CATEGORY_ARG="[^"\n]*TOOLCHAIN_CATEGORY/);
   });
 
-  it('the initial default goes through the D14 route as deploy-bootstrap, stops on the vuln floor, and honours the audited override', () => {
+  it('the initial default goes through the initial-default route as deploy-bootstrap, stops on the vuln floor, and honours the audited override', () => {
     const set = shellFunction(init, 'set_initial_toolchain_default');
     expect(set).toContain('sign_service_jwt "$BOOTSTRAP_KEY_FILE" "$BOOTSTRAP_BUNDLE_FILE"');
     expect(set).toContain('/api/plugins/toolchain/initial-default');

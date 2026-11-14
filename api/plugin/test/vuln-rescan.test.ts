@@ -75,7 +75,7 @@ jest.unstable_mockModule('../src/services/ecosystem/store.js', () => ({
 const mockNotifyRescanFindings = jest.fn<(...a: any[]) => Promise<number>>();
 const mockNotifyAcceptancesLapsed = jest.fn<(...a: any[]) => Promise<number>>(async () => 0);
 jest.unstable_mockModule('../src/services/plugin-security-notifications.js', () => ({ notifyRescanFindings: mockNotifyRescanFindings, notifyAcceptancesLapsed: mockNotifyAcceptancesLapsed }));
-// The §10 toolchain hygiene notice (its own suite: toolchain-hygiene.test.ts); here only WHEN it fires.
+// The toolchain hygiene notice (its own suite: toolchain-hygiene.test.ts); here only WHEN it fires.
 const mockNotifyToolchainHygiene = jest.fn<(...a: any[]) => Promise<unknown>>(async () => ({ orgDefaultOrgs: 0, pinnedOrgs: 0 }));
 jest.unstable_mockModule('../src/services/toolchain-hygiene.js', () => ({ notifyToolchainHygiene: mockNotifyToolchainHygiene }));
 // The kept-setup-image sweep rides the scheduler tick (its own suite: kept-setup-images.test.ts).
@@ -447,7 +447,7 @@ describe('rescanAllPlugins — (a) tenant plugin rows', () => {
   });
 });
 
-describe('rescanAllPlugins — managed toolchain hygiene (§10)', () => {
+describe('rescanAllPlugins — managed toolchain hygiene', () => {
   const SYSTEM = '000000000000000000000001';
 
   it('a system-org managed half picking up a fixable Critical or a KEV notifies the orgs whose default it is', async () => {

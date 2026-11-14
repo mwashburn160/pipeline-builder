@@ -94,7 +94,7 @@ export const PluginUploadBodySchema = z.object({
    */
   setupLoad: z.enum(['true', 'false']).optional(),
   /**
-   * Scheduling class for this build (D11). `standard` is the default and the
+   * Scheduling class for this build. `standard` is the default and the
    * only class an urgent fix should use; `batch` trades start latency for more
    * per-org headroom, and every tier has both — a free account must still be
    * able to push one urgent build through.
@@ -106,7 +106,7 @@ export const PluginUploadBodySchema = z.object({
    */
   buildClass: z.enum(BUILD_CLASSES).optional(),
   /**
-   * Machine size for this build (D13). Credit-neutral per build — a `2x` build
+   * Machine size for this build. Credit-neutral per build — a `2x` build
    * burns the same credits twice as fast — so this is a capability gate, not a
    * price: `TIER_BUILD_SIZES` says which tier may ask for which, and a request
    * above the tier's ceiling is refused rather than silently downgraded.

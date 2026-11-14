@@ -566,7 +566,7 @@ export const notifyQuotaEmailSchema = z.object({
 });
 
 /**
- * An EXPANSION OFFER notice (docs/plans/sales-agent.md Phase 3).
+ * An EXPANSION OFFER notice.
  *
  * Its own shape rather than reusing the quota one, because the two are not the
  * same message and must not be indistinguishable in the relay's audit: a quota
