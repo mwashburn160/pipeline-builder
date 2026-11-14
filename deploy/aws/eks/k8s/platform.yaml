@@ -45,7 +45,7 @@ spec:
       labels:
         app: platform
         app.kubernetes.io/component: backend
-        version: "5.5.18"
+        version: "5.5.19"
         track: stable
       annotations:
         prometheus.io/scrape: "true"
@@ -89,7 +89,7 @@ spec:
               echo "Dependencies ready"
       containers:
         - name: platform
-          image: ghcr.io/mwashburn160/platform:5.5.18@sha256:602e7f76977e6b331e1c64879101204072992bcc8de7b853822c78294b4784f6
+          image: ghcr.io/mwashburn160/platform:5.5.19@sha256:e56e7e28df3e83435398cc745015ab83ca8e5bcb13cd15d78470f8b527e69ad5
           securityContext:
             runAsNonRoot: true
             runAsUser: 1000

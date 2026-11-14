@@ -79,7 +79,7 @@ RUN set -eux; \
 # commits it with the other synced deploy pins. A concrete version also makes
 # the npm-install layer cache-correct. Never overridden with --build-arg: the
 # image's toolchain LABELs and the spec's `toolchain` must name the same bits.
-ARG PIPELINE_MANAGER_VERSION="4.5.2"
+ARG PIPELINE_MANAGER_VERSION="4.5.3"
 # AWS CDK CLI — `pipeline-manager pipeline synth` shells out to `cdk synth`, so the
 # `cdk` binary must be on PATH. Compatible with aws-cdk-lib 2.258.x.
 #
