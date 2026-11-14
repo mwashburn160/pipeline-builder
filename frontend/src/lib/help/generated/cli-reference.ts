@@ -1,6 +1,6 @@
 // GENERATED FROM docs/pipeline-manager.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 23ff3294238de60e546cd569d83f3bfc2c3de237571dbdd78e61f3225f052594
+// SOURCE-SHA256: 10a3a93896461021d16f413b2d537f4b5531a808d7477316ff2f41495180bea3
 // SPDX-License-Identifier: Apache-2.0
 import { Terminal } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -185,6 +185,19 @@ export const cliReferenceTopic: HelpTopic = {
           "content": "toolchain:manage) applies to every pipeline that does not pin — see Organization Benefits → Pipeline toolchain default."
         },
         {
+          "type": "text",
+          "content": "Upgrading the CLI inside the synth step. By default the cdk-synth step runs the pipeline-manager baked into its release. To run a newer CLI without waiting for a new release, opt in on the synth step's env:"
+        },
+        {
+          "type": "code",
+          "content": "{\n  \"plugin\": { \"name\": \"cdk-synth\" },\n  \"env\": {\n    \"PIPELINE_MANAGER_UPGRADE\": \"true\",           // default \"false\"\n    \"PIPELINE_MANAGER_UPGRADE_VERSION\": \"4.5.3\"   // semver or dist-tag; default/blank = \"latest\"\n  }\n}",
+          "language": "jsonc"
+        },
+        {
+          "type": "text",
+          "content": "The step then runs pipeline-manager --upgrade <version> before synthesizing, with every check described under Upgrading, including the registry signature. Any refusal or failure fails the step, and a value other than true or false is rejected. With it on, the step no longer runs the CLI the release records, so release and canary data describe a CLI it didn't use. Pin a version rather than latest if you need repeatable synths."
+        },
+        {
           "type": "list",
           "items": [
             "Escape hatch. The raw aws:cdk:codebuild:buildenvironment:buildimage"
@@ -357,7 +370,7 @@ export const cliReferenceTopic: HelpTopic = {
         {
           "type": "list",
           "items": [
-            "CI is never refused. A request carrying X-CodeBuild-Build-Id runs the CLI baked into a plugin image and can't upgrade itself, so it is counted (caller=\"ci\") but never refused. Raising the minimum therefore can't break pipelines; their images move when the plugin is rebuilt.",
+            "CI is never refused. A request carrying X-CodeBuild-Build-Id runs the CLI baked into a plugin image, which doesn't upgrade itself unless the synth step opts in (Upgrading the CLI inside the synth step). So it is counted (caller=\"ci\") but never refused. Raising the minimum therefore can't break pipelines; their images move when the plugin is rebuilt.",
             "A compatibility check, not a security control. The version header is set by the caller: a CLI can omit it or claim any version. Never use the minimum to shut out a CLI with a security flaw; revoke its tokens instead.",
             "An older CLI gets exit code 8 from a 426, the same as a local configuration problem, so scripts can tell it apart."
           ]

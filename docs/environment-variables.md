@@ -291,6 +291,8 @@ Every platform call from `pipeline-manager` 4.4.21+ carries `X-Pb-Client-Version
 | `PIPELINE_MANAGER_MIN_VERSION` | *(empty: no gate)* | Oldest CLI the APIs accept. An older CLI gets `426 CLIENT_UPGRADE_REQUIRED` with "run: pipeline-manager --upgrade". Requests without the header (browsers, older CLIs) pass. A value that isn't a semver stops the service from starting. Read by every api-server service and platform |
 | `PIPELINE_MANAGER_NO_UPDATE_CHECK` | *(unset)* | **CLI side.** Any value turns off the daily "update available" check and notice. It is already off in CI and when stderr is not a terminal |
 | `PIPELINE_MANAGER_UPGRADE_SKIP_VERIFY` | *(unset)* | **CLI side.** `1` lets `--upgrade` install without checking the registry signature, for a mirror that doesn't serve `/-/npm/v1/keys`. Leave it unset otherwise |
+| `PIPELINE_MANAGER_UPGRADE` | `false` | **Synth step (`cdk-synth` env).** `true` runs `pipeline-manager --upgrade` before synthesizing; any value other than `true`/`false` fails the step. See [Upgrading the CLI inside the synth step](pipeline-manager.md#the-toolchain-release-synth-and-deploy) |
+| `PIPELINE_MANAGER_UPGRADE_VERSION` | `latest` | **Synth step (`cdk-synth` env).** Version for that upgrade: a semver or npm dist-tag. Blank means `latest` |
 
 ### Passkeys (WebAuthn)
 

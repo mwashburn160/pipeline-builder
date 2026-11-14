@@ -1,6 +1,6 @@
 // GENERATED FROM docs/environment-variables.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 13a3c9b68a8792a371b461e440f3b4eccd42dbba9af2000af92e0429c1bec809
+// SOURCE-SHA256: 846ebf286c119a4e835575417cb6da2e728e2170e5d5aac67bec41799ef77ee2
 // SPDX-License-Identifier: Apache-2.0
 import { FileCode } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -862,6 +862,16 @@ export const envVariablesTopic: HelpTopic = {
               "PIPELINE_MANAGER_UPGRADE_SKIP_VERIFY",
               "(unset)",
               "CLI side. 1 lets --upgrade install without checking the registry signature, for a mirror that doesn't serve /-/npm/v1/keys. Leave it unset otherwise"
+            ],
+            [
+              "PIPELINE_MANAGER_UPGRADE",
+              "false",
+              "Synth step (cdk-synth env). true runs pipeline-manager --upgrade before synthesizing; any value other than true/false fails the step. See Upgrading the CLI inside the synth step"
+            ],
+            [
+              "PIPELINE_MANAGER_UPGRADE_VERSION",
+              "latest",
+              "Synth step (cdk-synth env). Version for that upgrade: a semver or npm dist-tag. Blank means latest"
             ]
           ]
         },

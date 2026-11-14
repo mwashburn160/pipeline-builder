@@ -98,6 +98,27 @@ config; a managed `cdk-synth` can't be pinned on its own
 - **The org's default** (Settings → Organization → Pipeline toolchain,
   `toolchain:manage`) applies to every pipeline that does not pin — see
   [Organization Benefits → Pipeline toolchain default](organization-benefits.md#pipeline-toolchain-default).
+
+**Upgrading the CLI inside the synth step.** By default the `cdk-synth` step runs
+the `pipeline-manager` baked into its release. To run a newer CLI without waiting
+for a new release, opt in on the synth step's `env`:
+
+```jsonc
+{
+  "plugin": { "name": "cdk-synth" },
+  "env": {
+    "PIPELINE_MANAGER_UPGRADE": "true",           // default "false"
+    "PIPELINE_MANAGER_UPGRADE_VERSION": "4.5.3"   // semver or dist-tag; default/blank = "latest"
+  }
+}
+```
+
+The step then runs `pipeline-manager --upgrade <version>` before synthesizing,
+with every check described under [Upgrading](#upgrading), including the registry
+signature. Any refusal or failure fails the step, and a value other than `true`
+or `false` is rejected. With it on, the step no longer runs the CLI the release
+records, so release and canary data describe a CLI it didn't use. Pin a version
+rather than `latest` if you need repeatable synths.
 - **Escape hatch.** The raw `aws:cdk:codebuild:buildenvironment:buildimage`
   metadata key still overrides the image per step.
 
@@ -188,7 +209,7 @@ Afterwards it reads the installed version back from disk and prints a link to th
 
 **Minimum CLI version (operators).** Every platform call carries `X-Pb-Client-Version`. If `PIPELINE_MANAGER_MIN_VERSION` is set on the services (docker-compose passes it through `x-common-env`; in Kubernetes, add it to each service's env), an older CLI gets `426 CLIENT_UPGRADE_REQUIRED` with "run: pipeline-manager --upgrade". Requests without the header pass: browsers, other clients and CLIs from before 4.4.21. A malformed value stops the service from starting.
 
-- **CI is never refused.** A request carrying `X-CodeBuild-Build-Id` runs the CLI baked into a plugin image and can't upgrade itself, so it is counted (`caller="ci"`) but never refused. Raising the minimum therefore can't break pipelines; their images move when the plugin is rebuilt.
+- **CI is never refused.** A request carrying `X-CodeBuild-Build-Id` runs the CLI baked into a plugin image, which doesn't upgrade itself unless the synth step opts in ([Upgrading the CLI inside the synth step](#the-toolchain-release-synth-and-deploy)). So it is counted (`caller="ci"`) but never refused. Raising the minimum therefore can't break pipelines; their images move when the plugin is rebuilt.
 - **A compatibility check, not a security control.** The version header is set by the caller: a CLI can omit it or claim any version. Never use the minimum to shut out a CLI with a security flaw; revoke its tokens instead.
 - An older CLI gets exit code **8** from a 426, the same as a local configuration problem, so scripts can tell it apart.
 

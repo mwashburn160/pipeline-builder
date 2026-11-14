@@ -47,6 +47,27 @@ upload to Snyk). `cdk-synth` is the only plugin in the catalog that:
 | `RESOLVED_SYNTH_PLUGIN` | Always `'true'` | Flag that pipeline-manager checks to confirm it's running inside the synth plugin (not invoked locally) |
 | `PLATFORM_CA_BUNDLE` | CodeBuild env (propagated by the synth when set where `pipeline deploy` ran) | PEM of a private CA the platform's certificate chains to; trusted by curl and the CLI |
 
+## Optional: upgrade the CLI before synth
+
+Off by default: the step runs the `pipeline-manager` baked into this toolchain
+release. To run a newer CLI without waiting for a new release, set these on the
+synth step's env (they override the spec defaults):
+
+| Env var | Default | Purpose |
+|---|---|---|
+| `PIPELINE_MANAGER_UPGRADE` | `false` | `true` runs `pipeline-manager --upgrade` before synth; any value other than `true`/`false` fails the step |
+| `PIPELINE_MANAGER_UPGRADE_VERSION` | `latest` | Version to upgrade to: a semver (`4.5.3`) or an npm dist-tag. Blank means `latest` |
+
+The upgrade checks the target's `engines.node`, refuses to go below the first
+release with `--upgrade`, and verifies the tarball's integrity and npm registry
+signature (keys from `registry.npmjs.org`, already in the plugin's egress).
+Any refusal fails the step rather than synthesizing on an unverified CLI.
+
+With the upgrade on, the step no longer runs the release's recorded
+`toolchain.pipelineManager`, so the release manifest and canary data describe
+a CLI this step didn't use. Use a pinned version rather than `latest` if you
+want repeatable synths.
+
 ## Failure modes
 
 - **`Platform unreachable at ${PLATFORM_BASE_URL}`** — health check failed.
