@@ -298,7 +298,7 @@ describe('nginx.conf includes are all mounted', () => {
  * It is the only console that cannot be a path on the gateway, so it is the only
  * one with its own port, and that makes it the easiest to get subtly wrong. All of
  * the following were real mistakes caught while writing it, each verified live
- * against rustfs/rustfs:1.0.0 rather than read off a doc:
+ * against rustfs/rustfs:1.0.5 rather than read off a doc:
  *   * a trailing slash on proxy_pass strips the prefix, but the UI bakes
  *     /rustfs/console into its own asset URLs, so every asset 404s;
  *   * RUSTFS_CONSOLE_PREFIX=/rustfs is FATAL ("overlaps a reserved server route");

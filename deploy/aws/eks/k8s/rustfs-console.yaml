@@ -11,7 +11,7 @@
 # Service stays 9000-only so "the rustfs Service" keeps meaning the data plane.
 #
 # Why the console needs its own ORIGIN rather than a path on the gateway —
-# verified live against rustfs/rustfs:1.0.0 by running that image as a one-shot
+# verified live against rustfs/rustfs:1.0.5 by running that image as a one-shot
 # pod in-cluster, not inferred from docs:
 #   * With the console enabled, :9001 serves a Next.js UI at the DEFAULT prefix
 #     /rustfs/console/. Without it, :9001 accepts connections but 403s every path.

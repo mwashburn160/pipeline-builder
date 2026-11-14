@@ -125,7 +125,7 @@ describe.each(K8S_TARGETS)('network contract — %s', (target) => {
    * The object store is deliberately ABSENT from this list.
    *
    * RustFS serves no Prometheus endpoint. Verified against the pinned image
-   * (`rustfs/rustfs:1.0.0`): `/minio/v2/metrics/cluster`, `/minio/v2/metrics/node`,
+   * (`rustfs/rustfs:1.0.5`): `/minio/v2/metrics/cluster`, `/minio/v2/metrics/node`,
    * `/metrics` and `/rustfs/metrics` all answer 403 with S3 `AccessDenied` XML — the
    * generic S3 handler refusing a path it does not special-case — on both :9000 and
    * :9001, and neither `RUSTFS_PROMETHEUS_AUTH_TYPE=public` nor MinIO's
