@@ -50,7 +50,7 @@ export const DEFAULT_OFFER_EXPIRY_DAYS = 30;
  * from send: added to a resolution-measured window it would compound with the
  * early-resolution bug and punish declining twice.
  */
-export const DEFAULT_DECLINE_BACKOFF_DAYS = 90;
+const DEFAULT_DECLINE_BACKOFF_DAYS = 90;
 
 /**
  * Whether `expiryDays` is a legal configuration against `quietDays`.

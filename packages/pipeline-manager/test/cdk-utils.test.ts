@@ -16,7 +16,6 @@ jest.unstable_mockModule('child_process', () => ({
 const {
   checkCdkAvailable,
   ensureCdkAvailable,
-  ensureBundlerAvailable,
   executeCdkShellCommand,
   getCdkInfo,
   resolveBoilerplatePath,
@@ -123,7 +122,7 @@ describe('executeCdkShellCommand', () => {
     expect(typeof result.duration).toBe('number');
     expect(mockExecSync).toHaveBeenCalledWith(
       'cdk bootstrap aws://123/us-east-1',
-      expect.objectContaining({ stdio: ['inherit', 'inherit', 'pipe'] }),
+      expect.objectContaining({ stdio: 'inherit' }),
     );
   });
 
@@ -180,43 +179,5 @@ describe('executeCdkShellCommand', () => {
     expect(() => executeCdkShellCommand('cdk deploy', { debug: false })).toThrow('CDK failed');
     expect(consoleSpy).not.toHaveBeenCalled();
     consoleSpy.mockRestore();
-  });
-});
-
-describe('ensureBundlerAvailable', () => {
-  beforeEach(() => {
-    mockExecSync.mockReset();
-    delete process.env.SKIP_BUNDLER_CHECK;
-  });
-
-  it('passes when both esbuild and pnpm are available', () => {
-    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
-    mockExecSync.mockReturnValue('1.0.0' as any);
-    expect(() => ensureBundlerAvailable()).not.toThrow();
-    logSpy.mockRestore();
-  });
-
-  it('throws when esbuild is missing (pnpm present)', () => {
-    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
-    mockExecSync.mockImplementation((cmd: unknown) => {
-      if (String(cmd).includes('esbuild')) throw new Error('not found');
-      return '12.14.0' as any;
-    });
-    expect(() => ensureBundlerAvailable()).toThrow(/esbuild/);
-    logSpy.mockRestore();
-  });
-
-  it('throws listing both when neither is available', () => {
-    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
-    mockExecSync.mockImplementation(() => { throw new Error('not found'); });
-    expect(() => ensureBundlerAvailable()).toThrow(/esbuild, pnpm/);
-    logSpy.mockRestore();
-  });
-
-  it('is bypassed by SKIP_BUNDLER_CHECK=1 even when tools are missing', () => {
-    process.env.SKIP_BUNDLER_CHECK = '1';
-    mockExecSync.mockImplementation(() => { throw new Error('not found'); });
-    expect(() => ensureBundlerAvailable()).not.toThrow();
-    expect(mockExecSync).not.toHaveBeenCalled();
   });
 });

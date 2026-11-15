@@ -21,9 +21,9 @@ const logger = createLogger('pipeline-image-registry');
 wireServiceSecurity('image-registry');
 
 // The routes that parse their own body with their own limit (the plugin-
-// signature route's multi-MB SBOM; the tight limits of the discard and
-// storage-prune bodies): the global 1mb JSON parser must skip them, or it
-// parses first and their limit never applies.
+// signature route's streamed multi-MB SBOM; the discard body's tight limit):
+// the global 1mb JSON parser must skip them, or it parses first and their
+// limit never applies.
 const { app, sseManager } = createApp({ jsonBodyExclude: [...OWN_BODY_PARSER_PATHS] });
 
 app.use(attachRequestContext(sseManager));

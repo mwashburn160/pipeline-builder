@@ -67,6 +67,21 @@ tagRouteGate(requireReportUploader,
   { kind: 'scope', scope: UPLOAD_SCOPE });
 
 /**
+ * The pipeline a report write targets, only when the caller's org OWNS it.
+ *
+ * `findById` applies the READ ladder, which also returns other orgs' public
+ * pipelines and the system samples. A report slot is keyed by (pipeline, tool,
+ * stage) alone, so writing one for a pipeline another org owns would claim that
+ * org's slot under the caller's org, and the owner's next upload of the same
+ * slot would then collide with a row its tenant scope cannot update. Anything
+ * not owned answers 404, like an unknown id.
+ */
+async function findOwnPipeline(id: string, orgId: string) {
+  const pipeline = await pipelineService.findById(id, orgId);
+  return pipeline && pipeline.orgId === orgId ? pipeline : null;
+}
+
+/**
  * Application-artifact security reports — what a pipeline's OWN scan steps
  * found in what it builds (helpers/security-report.ts).
  *
@@ -101,8 +116,7 @@ export function createSecurityReportRoutes(): Router {
       if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
       const body = validation.value;
 
-      const pipeline = await pipelineService.findById(id, orgId);
-      if (!pipeline) return sendEntityNotFound(res, 'Pipeline');
+      if (!(await findOwnPipeline(id, orgId))) return sendEntityNotFound(res, 'Pipeline');
 
       let normalized;
       try {
@@ -165,8 +179,7 @@ export function createSecurityReportRoutes(): Router {
       if (!id) return sendBadRequest(res, 'Pipeline id is required.', ErrorCode.MISSING_REQUIRED_FIELD);
       const slot = SlotSchema.safeParse(req.query);
       if (!slot.success) return sendBadRequest(res, slot.error.issues.map((i) => i.message).join('; '), ErrorCode.VALIDATION_ERROR);
-      const pipeline = await pipelineService.findById(id, orgId);
-      if (!pipeline) return sendEntityNotFound(res, 'Pipeline');
+      if (!(await findOwnPipeline(id, orgId))) return sendEntityNotFound(res, 'Pipeline');
 
       // Upload stores the tool lower-cased and an absent stage as ''.
       const tool = slot.data.tool.toLowerCase();

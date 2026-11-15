@@ -1,6 +1,6 @@
 // GENERATED FROM docs/runbooks/ecosystem-moderation.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: e894e2d688e660a5daef6ec1fd27fd343d08013003ef034d95c2d02781115c24
+// SOURCE-SHA256: 0344cb9ad2a18b6b4590ac4ea8eb63577ba2c6e6fc0d37493f3690b6877f4858
 // SPDX-License-Identifier: Apache-2.0
 import { ShieldCheck } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -620,7 +620,7 @@ export const runbookEcosystemModerationTopic: HelpTopic = {
           "rows": [
             [
               "reports",
-              "Three different people reported it (REVIEW_AUTO_HOLD_REPORTS)",
+              "Three different people outside the publisher's org reported it (REVIEW_AUTO_HOLD_REPORTS)",
               "Read the reports; release if they're wrong, remove if they're right"
             ],
             [

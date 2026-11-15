@@ -13,7 +13,7 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
-import type { QuotaTier } from '../src/types/quota-tiers.js';
+import type { PlanTier } from '../src/types/plan-tiers.js';
 
 // Mock boundaries: the safe HTTP client (so no real network) and the logger
 // (avoids Winston open handles). Re-registered on every fresh module load.
@@ -427,7 +427,7 @@ describe('quota.getTier', () => {
     const quotaService = await loadQuotaService();
     mockGet.mockResolvedValue(httpResponse(200, { success: true, data: { quota: { tier: 'pro' } } }));
 
-    const tier: QuotaTier = await quotaService.getTier('org1', AUTH);
+    const tier: PlanTier = await quotaService.getTier('org1', AUTH);
     expect(tier).toBe('pro');
   });
 

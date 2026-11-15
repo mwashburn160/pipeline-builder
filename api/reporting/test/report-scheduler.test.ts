@@ -72,6 +72,13 @@ jest.unstable_mockModule('../src/helpers/report-helpers.js', () => ({
   REPORTING_HTTP_TIMEOUT_MS: 3000,
 }));
 
+// The account-root walk a scheduled run bounds its retention by. Identity by default
+// (a flat org is its own root); a test overrides it for a team, or for platform down.
+const mockRetentionRoot = jest.fn<AnyFn>(async (orgId: unknown) => orgId);
+jest.unstable_mockModule('../src/services/reporting-retention.js', () => ({
+  createRetentionRootResolver: () => (orgId: string) => mockRetentionRoot(orgId),
+}));
+
 jest.unstable_mockModule('../src/services/report-identity.js', () => ({
   reportIdentity: () => ({ authority: (...a: unknown[]) => mockAuthority(...a) }),
 }));
@@ -317,6 +324,25 @@ describe('running a definition', () => {
     expect(mockReadyForReview).not.toHaveBeenCalled();
   });
 
+  it("bounds a TEAM's run by its account root's retention, as the on-demand route does", async () => {
+    // Retention is synced onto the root only; read against the team's own row the run fell
+    // back to the env default and refused every period older than it.
+    mockRetentionRoot.mockResolvedValueOnce('acme-root');
+    store.dueDefinitions.mockResolvedValue([definition({ orgId: 'acme-team' })]);
+    await cycle();
+    expect(mockRetentionRoot).toHaveBeenCalledWith('acme-team');
+    expect(mockComposeRun.mock.calls[0]?.[0]).toMatchObject({ retentionOrgId: 'acme-root' });
+  });
+
+  it('composes nothing when the account root cannot be resolved', async () => {
+    mockRetentionRoot.mockResolvedValueOnce(null);
+    store.dueDefinitions.mockResolvedValue([definition()]);
+    await cycle();
+    // Not a refusal on the (shorter) wrong window, and not a lead notice claiming one.
+    expect(mockComposeRun).not.toHaveBeenCalled();
+    expect(mockRunFailed).not.toHaveBeenCalled();
+  });
+
   it('resolves the rollup only for a rollup-scoped definition', async () => {
     store.dueDefinitions.mockResolvedValue([definition({ scope: { kind: 'org' } })]);
     await cycle();
@@ -416,8 +442,8 @@ describe('start and stop', () => {
  *
  * Every weekly definition in the fleet becomes due at the same calendar instant, so the
  * load controls are not a nicety — they are the difference between a scheduler and an
- * outage. The plan's test plan names this case explicitly: "Scheduler under a Monday spike
- * (jitter, concurrency limit, timeouts)".
+ * outage: the scheduler must survive a Monday spike through its jitter, its concurrency
+ * limit and its per-run timeout.
  *
  * Each of the three is asserted at the property that protects the system, not at the knob:
  * the jitter SPREADS (rather than merely exists), the concurrency cap BOUNDS what is in
@@ -503,6 +529,48 @@ describe('the Monday spike', () => {
     expect(mockReadyForReview).toHaveBeenCalledTimes(1);
     delete process.env.REPORT_RUN_TIMEOUT_MS;
     delete process.env.REPORT_SCHEDULER_CONCURRENCY;
+  });
+
+  it('ABORTS a timed-out run: a compose that finishes late publishes and delivers nothing', async () => {
+    process.env.REPORT_RUN_TIMEOUT_MS = '1000';
+    store.dueDefinitions.mockResolvedValue([definition({ autoSend: true })]);
+    // Finishes AFTER the timeout. Giving up on the promise alone let it carry on
+    // and mail the report minutes after the cycle logged the run as failed.
+    mockComposeRun.mockImplementationOnce(() => new Promise((resolve) => {
+      setTimeout(() => resolve({ ok: true, run: run(), period: period('2026-W38'), reused: false }), 2000);
+    }));
+
+    const cycled = cycle();
+    await jest.advanceTimersByTimeAsync(1500);
+    await cycled;
+    // Let the late compose land: the aborted run must stop at its next checkpoint.
+    await jest.advanceTimersByTimeAsync(1000);
+
+    expect(mockComposeRun).toHaveBeenCalledTimes(1);
+    expect(store.publishRun).not.toHaveBeenCalled();
+    expect(mockDeliver).not.toHaveBeenCalled();
+    expect(mockRunFailed).not.toHaveBeenCalled();
+    delete process.env.REPORT_RUN_TIMEOUT_MS;
+  });
+
+  it('hands the run\'s abort signal to the AI draft, and tells nobody once it has fired', async () => {
+    process.env.REPORT_RUN_TIMEOUT_MS = '1000';
+    store.dueDefinitions.mockResolvedValue([definition()]);
+    let seen: AbortSignal | undefined;
+    mockAttachSummary.mockImplementationOnce(async (...a: unknown[]) => {
+      seen = (a[1] as { signal?: AbortSignal }).signal;
+      // A slow provider: still going when the run times out.
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      return { ok: false, reason: 'aborted', message: 'x' };
+    });
+
+    const cycled = cycle();
+    await jest.advanceTimersByTimeAsync(1500);
+    await cycled;
+    expect(seen?.aborted).toBe(true);
+    await jest.advanceTimersByTimeAsync(1000);
+    expect(mockReadyForReview).not.toHaveBeenCalled();
+    delete process.env.REPORT_RUN_TIMEOUT_MS;
   });
 
   it('runs each org in its own tenant context, even under load', async () => {

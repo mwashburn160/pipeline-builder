@@ -207,6 +207,22 @@ class EmailService {
     return this.send({ to: adminEmails, subject, text, html });
   }
 
+  /**
+   * Tell the PREVIOUS address that the account's sign-in email was changed.
+   * Sent to the old address on purpose: if the change was a session takeover,
+   * the new address is the attacker's and a password reset now goes there, so
+   * the old one is the only place the real owner still reads.
+   */
+  async sendEmailChanged(previousEmail: string, newEmail: string): Promise<boolean> {
+    const subject = `Your ${config.email.fromName} sign-in email was changed`;
+    const text = `The sign-in email on your ${config.email.fromName} account was changed from ${previousEmail} to ${newEmail}. `
+      + 'If you made this change, no action is needed. If you did not, someone else may have access to your account: '
+      + 'contact your administrator or support right away.';
+    // Both addresses are user-supplied and emailSchema admits HTML metacharacters.
+    const html = `<p>${htmlEscape(text)}</p>`;
+    return this.send({ to: previousEmail, subject, text, html });
+  }
+
   /** Notify a user that their domain-based join request was approved or denied. */
   async sendJoinRequestDecision(userEmail: string, organizationName: string, approved: boolean): Promise<boolean> {
     const subject = approved ? `You’ve been added to ${organizationName}` : `Your request to join ${organizationName} was declined`;

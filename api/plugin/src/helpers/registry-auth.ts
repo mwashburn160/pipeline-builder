@@ -38,7 +38,7 @@ export function imageRepository(name: string, registry: RegistryInfo, orgId?: st
  * What a registry credential may do. `push` carries `plugins:write` — the
  * image-registry authorizer grants push on the org's namespace for
  * `isAdmin || permissions.includes('plugins:write')` (auth-resolver
- * canWritePlugins) — so a member-role token with just that permission can push
+ * `mayPushPlugins`; a service token additionally must be `plugin`) — so a member-role token with just that permission can push
  * without the org-wide `isAdmin` blast radius an owner token would leak. `pull`
  * carries no permission at all: pull is open to every member of the owning org
  * (and `system/*` to everyone).
@@ -46,8 +46,8 @@ export function imageRepository(name: string, registry: RegistryInfo, orgId?: st
 export type RegistryAccess = 'push' | 'pull';
 
 /**
- * Mint a platform JWT (TTL = the operation's window, passed by the caller) and
- * write it to a fresh `$DOCKER_CONFIG/config.json` as Basic-auth credentials for
+ * Mint a plugin SERVICE token (TTL = the operation's window, passed by the
+ * caller) and write it to a fresh `$DOCKER_CONFIG/config.json` as Basic-auth credentials for
  * the registry. Returns the directory; the CALLER removes it once the operation
  * that uses it completes. image-registry's /token endpoint verifies the JWT and
  * mints a scoped Bearer token in response to the registry's bearer challenge.
@@ -63,9 +63,9 @@ export type RegistryAccess = 'push' | 'pull';
  *    public realm with no credentials and gets 401.
  */
 export function writeAuthConfig(registry: RegistryInfo, orgId: string, ttlSeconds: number, access: RegistryAccess = 'push'): string {
-  // Signed as `plugin` — this IS the plugin service, and since a service
-  // holds only its own key. image-registry grants push to a SERVICE principal
-  // only when it is `plugin` and carries `plugins:write`.
+  // Signed as `plugin` — this IS the plugin service, and a service holds only
+  // its own signing key. image-registry grants push to a SERVICE principal only
+  // when it is `plugin` and carries `plugins:write`.
   const password = signServiceToken({
     serviceName: 'plugin',
     orgId,

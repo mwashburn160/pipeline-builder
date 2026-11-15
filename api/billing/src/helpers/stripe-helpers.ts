@@ -101,8 +101,7 @@ export async function findReversalSubscription(
 
 /**
  * The subscription id carried on an invoice, whether Stripe expanded it or sent
- * a bare id. Lives here (rather than in the webhook route) because both the
- * route and `stripe-reversals.ts` read it.
+ * a bare id. Shared by the invoice lifecycle handlers and `stripe-reversals.ts`.
  */
 export function invoiceSubscriptionId(invoice: Stripe.Invoice): string | undefined {
   const sub = invoice.parent?.subscription_details?.subscription;

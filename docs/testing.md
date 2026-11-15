@@ -132,7 +132,7 @@ import { drizzleMock } from '@pipeline-builder/api-core/testing';
 |---|---|
 | `mock-drizzle.ts` → `drizzleMock(overrides)` | Every `drizzle-orm` mock. |
 | `mock-api-core.ts` → `baseApiCoreMock` / `primitiveApiCoreMock`, plus shared defaults, error classes and gate helpers | Backs each project's `test/helpers/mock-api-core.ts`. |
-| `tier-mock.ts` | Complete `QUOTA_TIERS` / tier lists sourced from the real `VALID_TIERS`. |
+| `tier-mock.ts` | Complete `PLAN_TIERS` / tier lists sourced from the real `VALID_TIERS`. |
 | `stub-module.ts` → `stubModule(specifier, overrides)` | Every other `@pipeline-builder/*` mock (see above). |
 | `any-fn.ts` → `type AnyFn` | `jest.fn<AnyFn>()` for a collaborator stub whose signature the suite does not care about. |
 | `audit-binding.ts` → `bindTestAuditService(serviceName?, spy?)` / `unbindTestAuditService()` | Bind a service identity for api-core's `recordAudit` in a suite that runs the REAL api-core (the real `recordAudit` throws "audit not initialised" until `wireServiceSecurity` binds a service at boot). Returns a spy called with each recorded event. A suite that mocks api-core instead passes `apiCoreMock({ recordAudit: spy })` — the shared default is an inert `jest.fn()`. |
@@ -280,7 +280,7 @@ Found by looking, and recorded as `no-ui` dispositions. None is reachable from t
 | `platform POST /auth/token/exchange` | Service-account token exchange. |
 | `platform POST /auth/key/rotate`, `POST /auth/key/revoke` | Unattended service-account key self-rotation/revocation — the audit-event text says explicitly that no person is present. |
 | `compliance POST /compliance/validate/pipeline`, `POST /compliance/validate/plugin` | The enforcing (non dry-run) validation, called by the CDK at deploy time. The client layer only has the `/dry-run` variants. |
-| `plugin POST /plugins/lookup` | Deploy-time PluginLookup Lambda call from the CDK. |
+| `plugin POST /plugins/lookup` | `pipeline-manager`'s plugin pre-resolution before synth. |
 | `ask POST /ask`, `POST /ask/stream` | API / CLI answer endpoints; the dashboard's Ask panel drives only `/ask/agent/stream`. |
 | `quota DELETE /quotas/:orgId` | The org-purge **cascade hook**, driven with a service token by `platform/src/services/org-cascade-service.ts`. A human sysadmin is admitted by the gate, but no control exists and none should: `quotaService.update()` and `.resetUsage()` both throw `OrgNotFoundError` on a missing document and never upsert, so dropping the row leaves the org unenforceable and unrepairable from the dashboard. |
 

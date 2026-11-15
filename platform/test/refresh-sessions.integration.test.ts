@@ -6,7 +6,7 @@
  * hash-matched rotation and the per-KIND caps (aggregation-pipeline update) can
  * only be proven against a real server.
  *
- * Drives the REAL `isValidRefreshToken` middleware + `refresh` / `logout` /
+ * Drives the REAL `requireRefreshSession` middleware + `refresh` / `logout` /
  * `generate-token` / sessions controllers end to end:
  *   - each sign-in opens its own INTERACTIVE slot; the oldest is evicted past the cap;
  *   - refresh rotates only its own slot;
@@ -122,7 +122,7 @@ suite('refresh-session slots (real Mongo)', () => {
       : { body: { refreshToken }, headers: {} };
     const r = res();
     let passed = false;
-    await authMw.isValidRefreshToken(req, r, () => { passed = true; });
+    await authMw.requireRefreshSession(req, r, () => { passed = true; });
     if (passed) await authCtl.refresh(req, r);
     return { status: r.status.mock.calls[0]?.[0], body: r.json.mock.calls[0]?.[0], res: r };
   }

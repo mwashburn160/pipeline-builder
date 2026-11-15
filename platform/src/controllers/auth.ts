@@ -33,7 +33,7 @@ async function autoSubscribeToPublishedRules(orgId: string): Promise<void> {
     const client = createSafeClient({
       host: config.compliance.serviceHost,
       port: config.compliance.servicePort,
-      timeout: config.compliance.serviceTimeout,
+      timeout: config.compliance.serviceTimeoutMs,
     });
 
     const res = await client.post('/compliance/subscriptions/auto-subscribe', {}, {
@@ -365,7 +365,7 @@ export const login = withController('Login', async (req, res) => {
  * are short-lived like a person's; the slot itself ends at its fixed
  * `expiresAt`, after which nothing renews).
  *
- * The presented token comes from `isValidRefreshToken` — the browser's cookie
+ * The presented token comes from `requireRefreshSession` — the browser's cookie
  * or a CLI caller's body — and the rotated one goes back the same way.
  */
 export const refresh = withController('Refresh', async (req, res) => {
@@ -465,7 +465,7 @@ export const switchOrg = withController('Switch org', async (req, res) => {
   const fromOrgId = req.user?.organizationId;
   // Membership in the org, or admin authority inherited from an ancestor (a
   // parent admin opening one of its teams) — see helpers/org-authority.ts.
-  const switched = await authService.switchActiveOrg(userId, organizationId);
+  const switched = await authService.resolveSwitchTarget(userId, organizationId);
   if (!switched) return forbid(req, res, 'org-membership', 'You are not an active member of this organization');
   const { user, authority } = switched;
 
@@ -497,6 +497,13 @@ export const switchOrg = withController('Switch org', async (req, res) => {
   // widened) — `renewSessionTokens` reads them from the slot.
   const tokens = await renewSessionTokens(user, organizationId, { sessionId }, { client: clientInfoOf(req) });
   if (!tokens) return sendError(res, 401, 'Session invalid');
+  // Only now, with every gate passed and the session re-issued, does the
+  // destination become where the next sign-in lands. Written earlier, a REFUSED
+  // switch still moved it: sign-in trusts `lastActiveOrgId` and does not ask for
+  // `team_access:open`, so the next login opened the very team just refused —
+  // and an org whose MFA requirement refused the switch became the org every
+  // later password sign-in was scoped to.
+  await authService.setLastActiveOrg(userId, organizationId);
 
   // Record which org the actor pivoted their session INTO. `affectedOrgId` is
   // the destination org so it surfaces in that org's audit view.

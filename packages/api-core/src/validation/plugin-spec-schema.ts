@@ -77,8 +77,6 @@ export const PluginToolchainSchema = z.object({
   pipelineManager: exactSemver,
   awsCdk: exactSemver,
   cdkAssets: exactSemver,
-  esbuild: exactSemver,
-  pnpm: exactSemver,
   node: exactSemver,
 }).strict();
 export type PluginToolchain = z.infer<typeof PluginToolchainSchema>;

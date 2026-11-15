@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The tenant side of the publish-request queue (docs/plugin-publishing.md
- * ): a publisher SUBMITS requests — nothing
- * a tenant does alone puts anything in the directory — and can withdraw them.
+ * The tenant side of the publish-request queue (docs/plugin-publishing.md):
+ * a publisher SUBMITS requests — nothing a tenant does alone puts anything in
+ * the directory — and can withdraw them.
  *
  *  - A version request (new_listing / new_version) needs a `public` version
  *    with a license, a README and a passing vulnerability gate. Its image
@@ -226,6 +226,12 @@ async function securityAdvisory(advisoryId: unknown, listingId: string | null): 
   return advisory.id;
 }
 
+/** The community publisher's listing of this name — the only claimable kind. */
+async function communityListingByName(name: string): Promise<PluginListing | null> {
+  const community = await publishers.byHandle(COMMUNITY_PUBLISHER_HANDLE);
+  return community ? listings.byName(community.id, name) : null;
+}
+
 /**
  * Refuse a request that fails a submit gate — and SAY SO SERVER-SIDE.
  *
@@ -249,12 +255,6 @@ async function securityAdvisory(advisoryId: unknown, listingId: string | null): 
  * image failing `vuln` at once — which is a rate question this counter now makes
  * askable, not an individual event.
  */
-/** The community publisher's listing of this name — the only claimable kind. */
-async function communityListingByName(name: string): Promise<PluginListing | null> {
-  const community = await publishers.byHandle(COMMUNITY_PUBLISHER_HANDLE);
-  return community ? listings.byName(community.id, name) : null;
-}
-
 function assertGates(gates: Gate[], subject?: { name?: string; version?: string }): void {
   const failing = gates.filter((g) => !g.ok);
   if (failing.length === 0) return;

@@ -10,20 +10,20 @@
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
 import type { AnyFn } from '@pipeline-builder/api-core/testing';
-import { MOCK_TIER_NAMES, mockQuotaTiers } from '@pipeline-builder/api-core/testing';
+import { MOCK_TIER_NAMES, mockPlanTiers } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 /**
  * EVERY real tier, not just the two this suite spells numbers for.
  *
- * `defaultLimitExpr` emits one `$switch` branch per `QUOTA_TIERS` key, and the
+ * `defaultLimitExpr` emits one `$switch` branch per `PLAN_TIERS` key, and the
  * fixture used to carry two — so the branch assertion below compared two
  * branches and would have passed against an implementation that silently
- * dropped the rest of the ladder. `mockQuotaTiers` fills the tiers a suite does
+ * dropped the rest of the ladder. `mockPlanTiers` fills the tiers a suite does
  * not care about with uncapped limits, so the map is exhaustive over the real
  * `VALID_TIERS` without hand-listing six tiers' worth of numbers here.
  */
-const QUOTA_TIERS = mockQuotaTiers({
+const PLAN_TIERS = mockPlanTiers({
   developer: { plugins: 10, automationCalls: 20_000, storageBytes: 1000 },
   pro: { plugins: 25, automationCalls: 50_000, storageBytes: 5000 },
 });
@@ -33,7 +33,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   ValidationError: class ValidationError extends Error {},
   DEFAULT_TIER: 'developer',
   VALID_QUOTA_TYPES: ['plugins', 'automationCalls', 'storageBytes'],
-  QUOTA_TIERS,
+  PLAN_TIERS,
   VALID_TIERS: [...MOCK_TIER_NAMES],
 }));
 
@@ -88,7 +88,7 @@ describe('tier-aware defaults for a missing stored limit', () => {
       $switch: {
         branches: MOCK_TIER_NAMES.map((tier) => ({
           case: { $eq: ['$tier', tier] },
-          then: QUOTA_TIERS[tier].limits.automationCalls,
+          then: PLAN_TIERS[tier].limits.automationCalls,
         })),
         default: 20_000,
       },
@@ -200,6 +200,29 @@ describe('refund edge cases', () => {
 
     expect(await quotaService.incrementUsage('t', 'plugins', 1)).toMatchObject({ exceeded: false, quota: { limit: 25, used: 3 } });
     expect(await quotaService.decrementUsage('t', 'plugins', 1)).toMatchObject({ applied: true, quota: { used: 3 } });
+  });
+
+  // A mid-period downgrade: the account now holds 10, the live period started
+  // at 25, so the EFFECTIVE limit — what increments and reads report — is 25.
+  // Every refund branch must report that figure, not the raw stored 10.
+  it('reports the EFFECTIVE limit on every refund branch, not the raw stored cap', async () => {
+    const downgraded = { used: 2, resetAt: future, limitAtPeriodStart: 25 };
+
+    findOrgWithHierarchy.mockResolvedValue({ self: { _id: 'o' }, hasChildren: false });
+    findOneAndUpdate.mockResolvedValueOnce({ tier: 'developer', quotas: { plugins: 10 }, usage: { plugins: downgraded } });
+    expect(await quotaService.decrementUsage('o', 'plugins', 1))
+      .toMatchObject({ applied: true, quota: { limit: 25, used: 2, remaining: 23 } });
+
+    findOneAndUpdate.mockResolvedValueOnce(null);
+    findById.mockResolvedValueOnce({ tier: 'developer', quotas: { plugins: 10 }, usage: { plugins: downgraded } });
+    expect(await quotaService.decrementUsage('o', 'plugins', 1, { resetAtSnapshot: new Date(0).toISOString() }))
+      .toMatchObject({ applied: false, quota: { limit: 25, used: 2 } });
+
+    findOrgWithHierarchy.mockResolvedValue({ self: { _id: 't' }, parentOrgId: 'root', hasChildren: false });
+    resolveRootOrgId.mockResolvedValue('root');
+    findOneAndUpdate.mockResolvedValueOnce({ tier: 'developer', quotas: { plugins: 10 }, poolUsage: { plugins: downgraded } });
+    expect(await quotaService.decrementUsage('t', 'plugins', 1))
+      .toMatchObject({ applied: true, rootOrgId: 'root', quota: { limit: 25, used: 2 } });
   });
 
   it('a pooled refusal against a vanished root is OrgNotFound; a refund against one is null', async () => {

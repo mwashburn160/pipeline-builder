@@ -39,11 +39,20 @@ export * from './config/service-client.js';
 export { parsePlatformBaseUrl } from './config/infrastructure-config.js';
 
 // Core types (public surface)
-export { ComputeType, PluginType, type MetaDataType, type Visibility, TriggerType, MetadataKeys, type MetadataKey } from './core/pipeline-types.js';
+export { ComputeType, PluginType, type MetaDataType, type Visibility, MetadataKeys, type MetadataKey } from './core/pipeline-types.js';
 export * from './core/role-types.js';
 export * from './core/security-group-types.js';
 export { replaceNonAlphanumeric, extractMetadataEnv, resolveFailureBehavior, wrapCommandsForFailureBehavior, STEP_BOOTSTRAP_CMD } from './core/metadata-helpers.js';
-export * from './core/step-manifest.js';
+export {
+  BUILD_IMAGE_MANIFEST_ACTION,
+  BUILD_IMAGE_MANIFEST_STAGE,
+  BUILD_IMAGE_STEP_KEY,
+  STEP_MANIFEST_FILE,
+  type StepManifestEntry,
+  type BuildImageManifestEntry,
+  type PluginImageRef,
+  pluginImageRepository,
+} from './core/step-manifest.js';
 export {
   type ContractValueType,
   type PluginContract,
@@ -52,8 +61,6 @@ export {
   type ContractScopeProps,
   pipelineScopeMetadata,
   pipelineContractScope,
-  contractScopeFromTemplateScope,
-  isContractValueOfType,
   checkPluginContract,
   type PluginStepRef,
   collectPluginSteps,
@@ -61,12 +68,10 @@ export {
   pluginArtifactAlias,
   pluginStepLabel,
   type PluginRefIdentity,
-  sanitizePublisher,
 } from './core/plugin-contract.js';
 export {
   unwrapLookup,
   summarizeLookupWarnings,
-  LOOKUP_WARNING_SEVERITIES,
   type LookupWarning,
   type LookupWarningSeverity,
   lookupNotFoundState,
@@ -76,23 +81,37 @@ export {
   type ToolchainVersions,
   type LookupToolchain,
   type ResolvedBootstrap,
-  SYNTH_OMITTED_PLUGIN_FIELDS,
-  type SynthPlugin,
-  toSynthPlugin,
+  RESOLVED_PLUGIN_OMITTED_FIELDS,
+  type ResolvedPlugin,
+  toResolvedPlugin,
 } from './core/plugin-lookup-envelope.js';
-export * from './core/self-mutation.js';
 export * from './core/synth-failure.js';
-export * from './core/runtime-check.js';
-export * from './core/platform-tls.js';
-export * from './core/audit-correlation.js';
+export {
+  RUNTIME_CHECK_STEPS_ENV,
+  type RuntimeCheckStep,
+  type RuntimeCheckVerdict,
+  RUNTIME_CHECK_VERDICTS,
+  type RuntimeCheckResult,
+  parseRuntimeCheckSteps,
+} from './core/runtime-check.js';
+export { platformCaList, platformTlsVerify } from './core/platform-tls.js';
+export { sanitizeCorrelationValue, correlationHeaders } from './core/audit-correlation.js';
 export * from './core/quota-exceeded.js';
-export * from './core/security-reports.js';
+export { SECURITY_REPORT_FORMATS, type SecurityReportFormat } from './core/security-reports.js';
 export * from './core/pipeline-registration.js';
 
 // Plugin domain type (the synth-time authoring types live in the `/cdk` entry)
 // CDK-free: the DORA deploy attribution the API reports in create/validate
 // responses. The construct that stamps the tag reads the same function.
-export * from './pipeline/deploy-attribution.js';
+export {
+  type DeployPair,
+  type DeployAttributionStage,
+  type DeployAttributionInput,
+  type DeployAttribution,
+  type DeployAttributionWarning,
+  type DeployAttributionReport,
+  describeDeployAttribution,
+} from './pipeline/deploy-attribution.js';
 // CDK-free: the stage/plugin/IAM projection the create + validate responses return
 // so a reviewer approves something concrete rather than raw props JSON.
 export * from './pipeline/structure-preview.js';
@@ -102,8 +121,6 @@ export * from './pipeline/plugin-spec.js';
 export {
   tokenize,
   hasTemplate,
-  MAX_FIELD_SIZE_BYTES,
-  MAX_PATH_DEPTH,
   type Token,
   type LiteralToken,
   type ExprToken,
@@ -120,7 +137,6 @@ export {
   type ResolveResult,
   resolveSelfReferencing,
   validateTemplateDraft,
-  formatTemplateDraftProblems,
   type TemplateDraftInput,
   type TemplateDraftLike,
   type TemplateDraftProblem,

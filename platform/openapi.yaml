@@ -2,9 +2,15 @@ openapi: 3.0.3
 info:
   title: Platform Service API
   description: |
-    User authentication, organization management, invitation system,
-    and proxy endpoints to pipeline/plugin microservices.
-    Supports JWT and OAuth (Google) authentication.
+    Identity, organizations, RBAC and invitations. This document describes the
+    core sign-in, profile, organization, invitation and user-administration
+    routes only; platform mounts about 270. The generated, complete route list
+    (with each route's permission, step-up and assurance gates) is
+    frontend/src/generated/route-table/platform.json.
+
+    Every success body is the shared envelope
+    `{ success: true, statusCode, data?, message? }`; the payloads below are
+    what `data` holds.
   version: 0.1.0
   license:
     name: Apache 2.0
@@ -25,45 +31,48 @@ paths:
   # ---------------------------------------------------------------------------
   /health:
     get:
-      summary: Health check
+      summary: Liveness probe
+      description: 200 while the process answers. Dependency status is informational only; readiness is GET /ready.
       operationId: healthCheck
       tags: [Health]
       security: []
       responses:
         '200':
-          description: Service is healthy
+          description: Process is alive
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthCheckResponse'
+
+  /ready:
+    get:
+      summary: Readiness probe
+      operationId: readinessCheck
+      tags: [Health]
+      security: []
+      responses:
+        '200':
+          description: Ready to serve
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/HealthCheckResponse'
         '503':
-          description: Service is unhealthy
+          description: A dependency (MongoDB) is disconnected
 
   /metrics:
     get:
-      summary: Service metrics
+      summary: Prometheus metrics
       operationId: getMetrics
       tags: [Health]
       security: []
       responses:
         '200':
-          description: Metrics retrieved
+          description: Prometheus text exposition format
           content:
-            application/json:
+            text/plain:
               schema:
-                type: object
-                properties:
-                  uptime:
-                    type: number
-                  memory:
-                    type: object
-                  cpu:
-                    type: object
-                  database:
-                    type: object
-                    properties:
-                      state: { type: integer }
-                      status: { type: string }
+                type: string
 
   # ---------------------------------------------------------------------------
   # Authentication
@@ -112,7 +121,10 @@ paths:
               $ref: '#/components/schemas/LoginRequest'
       responses:
         '200':
-          description: Login successful
+          description: >-
+            Login successful — or, for an account with an authenticator app, `{ mfaRequired: true,
+            challengeId }` to finish at POST /auth/mfa/verify, or `{ passwordChangeRequired: true, ... }`
+            when the password no longer meets the org's policy.
           content:
             application/json:
               schema:
@@ -194,7 +206,7 @@ paths:
                         properties:
                           providers:
                             type: array
-                            items: { type: string, enum: [google] }
+                            items: { $ref: '#/components/schemas/OAuthProvider' }
 
   /auth/oauth/{provider}/url:
     get:
@@ -234,9 +246,12 @@ paths:
           application/json:
             schema:
               type: object
-              required: [code]
+              required: [code, state]
               properties:
                 code: { type: string, description: Authorization code from OAuth provider }
+                state:
+                  type: string
+                  description: One-time CSRF state minted by GET /auth/oauth/{provider}/url
       responses:
         '200':
           description: Authentication successful
@@ -282,6 +297,10 @@ paths:
 
     patch:
       summary: Update current user profile
+      description: >-
+        CHANGING the email requires a step-up token (`X-Step-Up-Token`), clears
+        email verification, and emails a notice to the previous address. A
+        username edit, or re-sending the current address, needs no step-up.
       operationId: updateProfile
       tags: [User]
       security:
@@ -318,6 +337,7 @@ paths:
   /user/account:
     delete:
       summary: Delete current user account
+      description: Requires a step-up token (`X-Step-Up-Token`). Orgs the user solely owns are soft-deleted with it.
       operationId: deleteAccount
       tags: [User]
       security:
@@ -328,13 +348,28 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/MessageResponse'
+                allOf:
+                  - $ref: '#/components/schemas/MessageResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          orgsDeleted:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                orgId: { type: string }
+                                name: { type: string }
+                                purgeAfter: { type: string, format: date-time }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
 
   /user/change-password:
     post:
       summary: Change password
+      description: Requires a step-up token (`X-Step-Up-Token`). Revokes the user's access keys.
       operationId: changePassword
       tags: [User]
       security:
@@ -355,7 +390,14 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/MessageResponse'
+                allOf:
+                  - $ref: '#/components/schemas/MessageResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          accessKeysRevoked: { type: integer }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
@@ -377,8 +419,8 @@ paths:
                   - $ref: '#/components/schemas/SuccessResponse'
                   - type: object
                     properties:
-                      accessToken: { type: string }
-                      refreshToken: { type: string }
+                      data:
+                        $ref: '#/components/schemas/TokenPair'
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
 
@@ -402,8 +444,11 @@ paths:
                   - $ref: '#/components/schemas/SuccessResponse'
                   - type: object
                     properties:
-                      organization:
-                        $ref: '#/components/schemas/Organization'
+                      data:
+                        type: object
+                        properties:
+                          organization:
+                            $ref: '#/components/schemas/Organization'
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
 
@@ -433,7 +478,7 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
 
     put:
-      summary: Update organization (system admin)
+      summary: Update organization (platform `orgs:manage`, step-up, MFA-grade session)
       operationId: updateOrganization
       tags: [Organization]
       security:
@@ -457,13 +502,22 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/MessageResponse'
+                allOf:
+                  - $ref: '#/components/schemas/MessageResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          organization:
+                            $ref: '#/components/schemas/Organization'
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
 
     delete:
-      summary: Delete organization (system admin)
+      summary: Delete organization (platform `orgs:manage`, step-up, MFA-grade session)
       operationId: deleteOrganization
       tags: [Organization]
       security:
@@ -491,6 +545,17 @@ paths:
         - bearerAuth: []
       parameters:
         - $ref: '#/components/parameters/orgId'
+        - $ref: '#/components/parameters/offset'
+        - $ref: '#/components/parameters/limit'
+        - name: search
+          in: query
+          schema: { type: string }
+        - name: role
+          in: query
+          schema: { $ref: '#/components/schemas/OrgRole' }
+        - name: status
+          in: query
+          schema: { type: string, enum: [active, inactive] }
       responses:
         '200':
           description: Members listed
@@ -501,19 +566,23 @@ paths:
                   - $ref: '#/components/schemas/SuccessResponse'
                   - type: object
                     properties:
-                      organizationId: { type: string }
-                      organizationName: { type: string }
-                      ownerId: { type: string }
-                      members:
-                        type: array
-                        items: { $ref: '#/components/schemas/Member' }
-                      total: { type: integer }
+                      data:
+                        type: object
+                        properties:
+                          organizationId: { type: string }
+                          organizationName: { type: string }
+                          ownerId: { type: string }
+                          members:
+                            type: array
+                            items: { $ref: '#/components/schemas/Member' }
+                          pagination:
+                            $ref: '#/components/schemas/OffsetPagination'
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
 
     post:
-      summary: Add member to organization
+      summary: Add member to organization (`members:manage`)
       operationId: addMemberToOrganization
       tags: [Organization]
       security:
@@ -544,14 +613,15 @@ paths:
 
   /organization/{id}/members/{userId}:
     delete:
-      summary: Remove member from organization
+      summary: Remove member from organization (`members:manage`)
+      description: Membership roles change through the org's Roles (`/organization/{id}/roles/...`), not here.
       operationId: removeMember
       tags: [Organization]
       security:
         - bearerAuth: []
       parameters:
         - $ref: '#/components/parameters/orgId'
-        - $ref: '#/components/parameters/userId'
+        - $ref: '#/components/parameters/memberUserId'
       responses:
         '200':
           description: Member removed
@@ -564,39 +634,10 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
 
-    patch:
-      summary: Update member role
-      operationId: updateMemberRole
-      tags: [Organization]
-      security:
-        - bearerAuth: []
-      parameters:
-        - $ref: '#/components/parameters/orgId'
-        - $ref: '#/components/parameters/userId'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [role]
-              properties:
-                role: { type: string, enum: [user, admin] }
-      responses:
-        '200':
-          description: Role updated
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/MessageResponse'
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
 
   /organization/{id}/transfer-owner:
     patch:
-      summary: Transfer organization ownership
+      summary: Transfer organization ownership (`org_settings:write`, step-up, MFA-grade session)
       operationId: transferOrganizationOwnership
       tags: [Organization]
       security:
@@ -629,7 +670,7 @@ paths:
   # ---------------------------------------------------------------------------
   /invitation:
     get:
-      summary: List organization invitations (org admin)
+      summary: List organization invitations (`invitations:manage`)
       operationId: listInvitations
       tags: [Invitation]
       security:
@@ -641,12 +682,15 @@ paths:
         - name: invitationType
           in: query
           schema: { type: string, enum: [email, oauth, any] }
-        - name: page
+        - name: role
           in: query
-          schema: { type: integer, default: 1 }
-        - name: limit
+          schema: { type: string, enum: [admin, member] }
+        - name: search
           in: query
-          schema: { type: integer, default: 20 }
+          schema: { type: string }
+          description: Case-insensitive email substring
+        - $ref: '#/components/parameters/offset'
+        - $ref: '#/components/parameters/limit'
       responses:
         '200':
           description: Invitations listed
@@ -657,17 +701,20 @@ paths:
                   - $ref: '#/components/schemas/SuccessResponse'
                   - type: object
                     properties:
-                      invitations:
-                        type: array
-                        items: { $ref: '#/components/schemas/InvitationSummary' }
-                      pagination:
-                        $ref: '#/components/schemas/PagePagination'
+                      data:
+                        type: object
+                        properties:
+                          invitations:
+                            type: array
+                            items: { $ref: '#/components/schemas/InvitationSummary' }
+                          pagination:
+                            $ref: '#/components/schemas/OffsetPagination'
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
 
   /invitation/send:
     post:
-      summary: Send invitation (org admin)
+      summary: Invite one or many addresses (`invitations:manage`)
       operationId: sendInvitation
       tags: [Invitation]
       security:
@@ -679,8 +726,10 @@ paths:
             schema:
               $ref: '#/components/schemas/SendInvitationRequest'
       responses:
-        '201':
-          description: Invitation sent
+        '200':
+          description: >-
+            Per-address outcome. `acceptUrl` is returned only when the email was not delivered —
+            the one response that may carry the invitation token.
           content:
             application/json:
               schema:
@@ -688,8 +737,24 @@ paths:
                   - $ref: '#/components/schemas/SuccessResponse'
                   - type: object
                     properties:
-                      invitation:
-                        $ref: '#/components/schemas/InvitationSummary'
+                      data:
+                        type: object
+                        properties:
+                          sent:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                email: { type: string }
+                                delivery: { type: string }
+                                acceptUrl: { type: string, format: uri }
+                          failed:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                email: { type: string }
+                                reason: { type: string }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
@@ -738,13 +803,16 @@ paths:
               required: [token, oauthProvider, code, state]
               properties:
                 token: { type: string }
-                oauthProvider: { type: string, enum: [google] }
+                oauthProvider:
+                  type: string
+                  enum: [google]
+                  description: Only Google is accepted on this public route; other providers accept through POST /invitation/accept with a linked identity.
                 code:
                   type: string
                   description: OAuth authorization code from the provider redirect (server-side exchanged; the caller never supplies the profile).
                 state:
                   type: string
-                  description: One-time CSRF state minted by GET /auth/url and returned on the provider redirect.
+                  description: One-time CSRF state minted by GET /auth/oauth/{provider}/url and returned on the provider redirect.
       responses:
         '200':
           description: Invitation accepted via OAuth
@@ -777,13 +845,16 @@ paths:
                   - $ref: '#/components/schemas/SuccessResponse'
                   - type: object
                     properties:
-                      invitation:
-                        $ref: '#/components/schemas/InvitationDetail'
+                      data:
+                        type: object
+                        properties:
+                          invitation:
+                            $ref: '#/components/schemas/InvitationDetail'
         '404': { $ref: '#/components/responses/NotFound' }
 
   /invitation/{invitationId}:
     delete:
-      summary: Revoke pending invitation (org admin)
+      summary: Revoke pending invitation (`invitations:manage`)
       operationId: revokeInvitation
       tags: [Invitation]
       security:
@@ -807,7 +878,7 @@ paths:
 
   /invitation/{invitationId}/resend:
     post:
-      summary: Resend invitation email (org admin)
+      summary: Resend invitation email (`invitations:manage`)
       operationId: resendInvitation
       tags: [Invitation]
       security:
@@ -827,344 +898,13 @@ paths:
                   - $ref: '#/components/schemas/MessageResponse'
                   - type: object
                     properties:
-                      expiresAt: { type: string, format: date-time }
+                      data:
+                        type: object
+                        properties:
+                          expiresAt: { type: string, format: date-time }
+                          delivery: { type: string }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
-
-  # ---------------------------------------------------------------------------
-  # Pipeline (proxy to pipeline service)
-  # ---------------------------------------------------------------------------
-  /pipeline:
-    get:
-      summary: List pipelines
-      operationId: listPipelines
-      tags: [Pipeline]
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: project
-          in: query
-          schema: { type: string }
-        - name: organization
-          in: query
-          schema: { type: string }
-        - name: pipelineName
-          in: query
-          schema: { type: string }
-        - name: isActive
-          in: query
-          schema: { type: boolean }
-        - name: isDefault
-          in: query
-          schema: { type: boolean }
-        - name: visibility
-          in: query
-          schema: { type: string, enum: [private, org, public] }
-        - name: page
-          in: query
-          schema: { type: integer, default: 1 }
-        - name: limit
-          in: query
-          schema: { type: integer, default: 20, maximum: 100 }
-      responses:
-        '200':
-          description: Pipelines listed
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: '#/components/schemas/SuccessResponse'
-                  - type: object
-                    properties:
-                      pipelines:
-                        type: array
-                        items: { type: object }
-                      total: { type: integer }
-                      page: { type: integer }
-                      limit: { type: integer }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-
-    post:
-      summary: Create a new pipeline
-      operationId: createPipeline
-      tags: [Pipeline]
-      security:
-        - bearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [props]
-              properties:
-                pipelineName: { type: string }
-                visibility: { type: string, enum: [private, org, public], default: org }
-                props:
-                  type: object
-                  description: Pipeline builder configuration (project, organization, synth, etc.)
-                  required: [project, organization]
-                  properties:
-                    project: { type: string }
-                    organization: { type: string }
-      responses:
-        '201':
-          description: Pipeline created
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: '#/components/schemas/SuccessResponse'
-                  - type: object
-                    properties:
-                      pipeline:
-                        type: object
-                        properties:
-                          id: { type: string, format: uuid }
-                          project: { type: string }
-                          organization: { type: string }
-                          pipelineName: { type: string }
-                          visibility: { type: string }
-                          isDefault: { type: boolean }
-                          isActive: { type: boolean }
-                          createdAt: { type: string, format: date-time }
-                          createdBy: { type: string }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-
-  /pipeline/search:
-    get:
-      summary: Search for a single pipeline
-      operationId: searchPipeline
-      tags: [Pipeline]
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: id
-          in: query
-          schema: { type: string }
-        - name: project
-          in: query
-          schema: { type: string }
-        - name: organization
-          in: query
-          schema: { type: string }
-        - name: pipelineName
-          in: query
-          schema: { type: string }
-        - name: isActive
-          in: query
-          schema: { type: boolean }
-        - name: isDefault
-          in: query
-          schema: { type: boolean }
-        - name: visibility
-          in: query
-          schema: { type: string, enum: [private, org, public] }
-      responses:
-        '200':
-          description: Pipeline found
-          content:
-            application/json:
-              schema:
-                type: object
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '404': { $ref: '#/components/responses/NotFound' }
-
-  /pipeline/{id}:
-    get:
-      summary: Get pipeline by ID
-      operationId: getPipelineById
-      tags: [Pipeline]
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema: { type: string, format: uuid }
-      responses:
-        '200':
-          description: Pipeline retrieved
-          content:
-            application/json:
-              schema:
-                type: object
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '404': { $ref: '#/components/responses/NotFound' }
-
-  # ---------------------------------------------------------------------------
-  # Plugin (proxy to plugin service)
-  # ---------------------------------------------------------------------------
-  /plugin:
-    get:
-      summary: List plugins
-      operationId: listPlugins
-      tags: [Plugin]
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: name
-          in: query
-          schema: { type: string }
-        - name: version
-          in: query
-          schema: { type: string }
-        - name: pluginType
-          in: query
-          schema: { type: string }
-        - name: computeType
-          in: query
-          schema: { type: string }
-        - name: isActive
-          in: query
-          schema: { type: boolean }
-        - name: isDefault
-          in: query
-          schema: { type: boolean }
-        - name: visibility
-          in: query
-          schema: { type: string, enum: [private, org, public] }
-        - name: page
-          in: query
-          schema: { type: integer, default: 1 }
-        - name: limit
-          in: query
-          schema: { type: integer, default: 20, maximum: 100 }
-      responses:
-        '200':
-          description: Plugins listed
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: '#/components/schemas/SuccessResponse'
-                  - type: object
-                    properties:
-                      plugins:
-                        type: array
-                        items: { type: object }
-                      total: { type: integer }
-                      page: { type: integer }
-                      limit: { type: integer }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-
-    post:
-      summary: Upload and create a new plugin
-      operationId: createPlugin
-      tags: [Plugin]
-      security:
-        - bearerAuth: []
-      requestBody:
-        required: true
-        content:
-          multipart/form-data:
-            schema:
-              type: object
-              required: [plugin]
-              properties:
-                plugin:
-                  type: string
-                  format: binary
-                  description: ZIP archive containing spec and Dockerfile
-                visibility:
-                  type: string
-                  enum: [private, org, public]
-                  default: org
-      responses:
-        '201':
-          description: Plugin created
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: '#/components/schemas/SuccessResponse'
-                  - type: object
-                    properties:
-                      plugin:
-                        type: object
-                        properties:
-                          id: { type: string, format: uuid }
-                          name: { type: string }
-                          version: { type: string }
-                          uri: { type: string, description: 'Computed image URI: <namespace>/<name>:<version>' }
-                          fullImage: { type: string }
-                          visibility: { type: string }
-                          isDefault: { type: boolean }
-                          isActive: { type: boolean }
-                          createdBy: { type: string }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-
-  /plugin/search:
-    get:
-      summary: Search for a single plugin
-      operationId: searchPlugin
-      tags: [Plugin]
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: id
-          in: query
-          schema: { type: string }
-        - name: name
-          in: query
-          schema: { type: string }
-        - name: version
-          in: query
-          schema: { type: string }
-        - name: pluginType
-          in: query
-          schema: { type: string }
-        - name: computeType
-          in: query
-          schema: { type: string }
-        - name: isActive
-          in: query
-          schema: { type: boolean }
-        - name: isDefault
-          in: query
-          schema: { type: boolean }
-        - name: visibility
-          in: query
-          schema: { type: string, enum: [private, org, public] }
-      responses:
-        '200':
-          description: Plugin found
-          content:
-            application/json:
-              schema:
-                type: object
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '404': { $ref: '#/components/responses/NotFound' }
-
-  /plugin/{id}:
-    get:
-      summary: Get plugin by ID
-      operationId: getPluginById
-      tags: [Plugin]
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema: { type: string, format: uuid }
-      responses:
-        '200':
-          description: Plugin retrieved
-          content:
-            application/json:
-              schema:
-                type: object
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
 
   # ---------------------------------------------------------------------------
@@ -1172,7 +912,7 @@ paths:
   # ---------------------------------------------------------------------------
   /users:
     get:
-      summary: List all users (system admin)
+      summary: List users (`members:manage`; scoped to the caller's org unless platform admin)
       operationId: listAllUsers
       tags: [Admin]
       security:
@@ -1183,17 +923,13 @@ paths:
           schema: { type: string }
         - name: role
           in: query
-          schema: { type: string, enum: [user, admin] }
+          schema: { $ref: '#/components/schemas/OrgRole' }
         - name: search
           in: query
           schema: { type: string }
           description: Search by username or email
-        - name: page
-          in: query
-          schema: { type: integer, default: 1 }
-        - name: limit
-          in: query
-          schema: { type: integer, default: 20, maximum: 100 }
+        - $ref: '#/components/parameters/offset'
+        - $ref: '#/components/parameters/limit'
       responses:
         '200':
           description: Users listed
@@ -1204,19 +940,20 @@ paths:
                   - $ref: '#/components/schemas/SuccessResponse'
                   - type: object
                     properties:
-                      users:
-                        type: array
-                        items: { $ref: '#/components/schemas/UserProfile' }
-                      total: { type: integer }
-                      page: { type: integer }
-                      limit: { type: integer }
-                      totalPages: { type: integer }
+                      data:
+                        type: object
+                        properties:
+                          users:
+                            type: array
+                            items: { $ref: '#/components/schemas/UserProfile' }
+                          pagination:
+                            $ref: '#/components/schemas/OffsetPagination'
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
 
   /users/{id}:
     get:
-      summary: Get user by ID (system admin)
+      summary: Get user by ID (`members:manage`; a member of the caller's org unless platform admin)
       operationId: getUserById
       tags: [Admin]
       security:
@@ -1233,14 +970,17 @@ paths:
                   - $ref: '#/components/schemas/SuccessResponse'
                   - type: object
                     properties:
-                      user:
-                        $ref: '#/components/schemas/UserProfile'
+                      data:
+                        type: object
+                        properties:
+                          user:
+                            $ref: '#/components/schemas/UserProfile'
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
 
     put:
-      summary: Update user by ID (system admin)
+      summary: Update user by ID (`members:manage`, step-up, MFA-grade session)
       operationId: updateUserById
       tags: [Admin]
       security:
@@ -1256,7 +996,10 @@ paths:
               properties:
                 username: { type: string }
                 email: { type: string, format: email }
-                role: { type: string, enum: [user, admin] }
+                role:
+                  type: string
+                  enum: [admin, member]
+                  description: '`owner` is refused — ownership moves only by transfer'
                 organizationId: { type: string, nullable: true }
                 password: { type: string, format: password, minLength: 8 }
               minProperties: 1
@@ -1281,7 +1024,7 @@ paths:
         '409': { $ref: '#/components/responses/Conflict' }
 
     delete:
-      summary: Delete user by ID (system admin)
+      summary: Delete user by ID (`members:manage`, step-up, MFA-grade session)
       operationId: deleteUserById
       tags: [Admin]
       security:
@@ -1302,11 +1045,24 @@ paths:
 
   /organizations:
     get:
-      summary: List all organizations (system admin)
+      summary: List all organizations (system-org `orgs:read`, MFA-grade session)
       operationId: listAllOrganizations
       tags: [Admin]
       security:
         - bearerAuth: []
+      parameters:
+        - name: search
+          in: query
+          schema: { type: string }
+        - name: tier
+          in: query
+          schema: { type: string }
+        - name: ids
+          in: query
+          schema: { type: string }
+          description: Comma-separated org ids to resolve (at most 100)
+        - $ref: '#/components/parameters/offset'
+        - $ref: '#/components/parameters/limit'
       responses:
         '200':
           description: Organizations listed
@@ -1317,9 +1073,14 @@ paths:
                   - $ref: '#/components/schemas/SuccessResponse'
                   - type: object
                     properties:
-                      organizations:
-                        type: array
-                        items: { $ref: '#/components/schemas/OrganizationDetail' }
+                      data:
+                        type: object
+                        properties:
+                          organizations:
+                            type: array
+                            items: { $ref: '#/components/schemas/OrganizationDetail' }
+                          pagination:
+                            $ref: '#/components/schemas/OffsetPagination'
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
 
@@ -1352,12 +1113,26 @@ components:
       required: true
       description: User ID
       schema: { type: string }
+    memberUserId:
+      name: userId
+      in: path
+      required: true
+      description: User ID of the member
+      schema: { type: string }
+    offset:
+      name: offset
+      in: query
+      schema: { type: integer, minimum: 0, default: 0 }
+    limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1 }
     provider:
       name: provider
       in: path
       required: true
       description: OAuth provider
-      schema: { type: string, enum: [google] }
+      schema: { $ref: '#/components/schemas/OAuthProvider' }
 
   schemas:
     SuccessResponse:
@@ -1390,23 +1165,37 @@ components:
         accessToken: { type: string }
         refreshToken: { type: string }
 
+    OAuthProvider:
+      type: string
+      enum: [google, github, facebook, microsoft, gitlab, linkedin]
+
+    OrgRole:
+      type: string
+      description: Coarse per-org label, derived from the member's Roles
+      enum: [owner, admin, member]
+
     RegisterRequest:
       type: object
       required: [username, email, password]
       properties:
-        username: { type: string }
+        username: { type: string, minLength: 2, maxLength: 30 }
         email: { type: string, format: email }
         password: { type: string, format: password }
         organizationName:
           type: string
-          description: If provided (min 2 chars), creates org and assigns user as admin
+          minLength: 2
+          maxLength: 100
+        planId: { type: string }
+        invitationToken:
+          type: string
+          description: Registering to accept an invitation — the inviting org's password policy applies
 
     RegisterResult:
       type: object
       properties:
         sub: { type: string, description: User ID }
         email: { type: string }
-        role: { type: string, enum: [user, admin] }
+        role: { $ref: '#/components/schemas/OrgRole' }
         organizationId: { type: string, nullable: true }
         organizationName: { type: string, nullable: true }
 
@@ -1423,7 +1212,11 @@ components:
         id: { type: string }
         username: { type: string }
         email: { type: string, format: email }
-        role: { type: string, enum: [user, admin] }
+        role:
+          allOf: [{ $ref: '#/components/schemas/OrgRole' }]
+          nullable: true
+          description: Role in the active org
+        isSuperAdmin: { type: boolean }
         isEmailVerified: { type: boolean }
         organizationId: { type: string, nullable: true }
         organizationName: { type: string, nullable: true }
@@ -1470,7 +1263,7 @@ components:
         id: { type: string }
         username: { type: string }
         email: { type: string }
-        role: { type: string, enum: [user, admin] }
+        role: { $ref: '#/components/schemas/OrgRole' }
         isEmailVerified: { type: boolean }
         isOwner: { type: boolean }
         createdAt: { type: string, format: date-time }
@@ -1478,14 +1271,26 @@ components:
 
     SendInvitationRequest:
       type: object
-      required: [email]
+      required: [emails]
       properties:
-        email: { type: string, format: email }
-        role: { type: string, enum: [user, admin], default: user }
+        emails:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items: { type: string, format: email }
+        role: { type: string, enum: [admin, member], default: member }
+        roleIds:
+          type: array
+          maxItems: 50
+          items: { type: string }
+          description: Roles assigned on acceptance, bounded by the inviter's own ceiling
         invitationType: { type: string, enum: [email, oauth, any], default: any }
         allowedOAuthProviders:
           type: array
-          items: { type: string, enum: [google] }
+          items: { $ref: '#/components/schemas/OAuthProvider' }
+        targetOrgId:
+          type: string
+          description: Invite into a team beneath the caller's org
 
     InvitationSummary:
       type: object
@@ -1521,16 +1326,19 @@ components:
       type: object
       properties:
         status: { type: string, enum: [healthy, unhealthy] }
+        service: { type: string }
         timestamp: { type: string, format: date-time }
-        database: { type: string, enum: [connected, disconnected] }
+        dependencies:
+          type: object
+          additionalProperties: { type: string, enum: [connected, disconnected] }
 
-    PagePagination:
+    OffsetPagination:
       type: object
       properties:
         total: { type: integer }
-        page: { type: integer }
+        offset: { type: integer }
         limit: { type: integer }
-        pages: { type: integer }
+        hasMore: { type: boolean }
 
   responses:
     BadRequest:
@@ -1573,16 +1381,12 @@ tags:
   - name: Authentication
     description: Registration, login, logout, token refresh
   - name: OAuth
-    description: OAuth provider authentication (Google)
+    description: Social sign-in (Google, GitHub, GitLab, Microsoft, LinkedIn, Facebook)
   - name: User
     description: Current user profile management
   - name: Organization
     description: Organization CRUD, members, quotas, ownership
   - name: Invitation
     description: Organization invitation management
-  - name: Pipeline
-    description: Pipeline operations (proxy to pipeline service)
-  - name: Plugin
-    description: Plugin operations (proxy to plugin service)
   - name: Admin
     description: System admin user and organization management

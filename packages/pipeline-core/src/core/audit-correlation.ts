@@ -14,9 +14,9 @@
  * Dependency-free so the plugin-lookup, token-renew and event-ingest Lambdas
  * (each a single bundled file) can import it.
  */
-export const REQUEST_ID_HEADER = 'X-Request-Id';
-export const PIPELINE_EXECUTION_ID_HEADER = 'X-Pipeline-Execution-Id';
-export const CODEBUILD_BUILD_ID_HEADER = 'X-CodeBuild-Build-Id';
+const REQUEST_ID_HEADER = 'X-Request-Id';
+const PIPELINE_EXECUTION_ID_HEADER = 'X-Pipeline-Execution-Id';
+const CODEBUILD_BUILD_ID_HEADER = 'X-CodeBuild-Build-Id';
 
 /** The longest correlation value sent; the server caps at the same bound. */
 export const MAX_CORRELATION_VALUE = 128;

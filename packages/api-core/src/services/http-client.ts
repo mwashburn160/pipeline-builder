@@ -22,9 +22,9 @@ import { errorMessage } from '../utils/response.js';
 const logger = createLogger('http-client');
 
 /**
- * Default request timeout in milliseconds (env: `HTTP_CLIENT_TIMEOUT`).
+ * Default request timeout in milliseconds (env: `HTTP_CLIENT_TIMEOUT_MS`).
  */
-const DEFAULT_TIMEOUT = envInt('HTTP_CLIENT_TIMEOUT', 5000, { min: 1 });
+const DEFAULT_TIMEOUT = envInt('HTTP_CLIENT_TIMEOUT_MS', 5000, { min: 1 });
 
 /**
  * Default cap on concurrent keep-alive sockets per client agent
@@ -88,6 +88,13 @@ export interface RequestOptions {
    */
   breakerClass?: string;
 }
+
+/**
+ * Options for a DELETE. The client sends no body on a DELETE, so `body` is a
+ * type error here: a body in the options would reach the peer as nothing at
+ * all. Put what the peer needs in the path or query string.
+ */
+export type DeleteRequestOptions = RequestOptions & { body?: never };
 
 /**
  * HTTP client response wrapper.
@@ -219,7 +226,7 @@ export class InternalHttpClient {
   /**
    * Make a DELETE request.
    */
-  async delete<T = unknown>(path: string, options?: RequestOptions): Promise<HttpClientResponse<T>> {
+  async delete<T = unknown>(path: string, options?: DeleteRequestOptions): Promise<HttpClientResponse<T>> {
     return this.requestWithRetry<T>('DELETE', path, undefined, options);
   }
 
@@ -569,7 +576,7 @@ export function createSafeClient(config: ServiceConfig, options?: HttpClientOpti
      */
     async delete<T>(
       path: string,
-      options?: RequestOptions,
+      options?: DeleteRequestOptions,
     ): Promise<HttpClientResponse<T> | null> {
       try {
         return await client.delete<T>(path, options);

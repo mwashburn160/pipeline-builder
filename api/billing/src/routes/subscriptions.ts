@@ -184,7 +184,7 @@ export function createSubscriptionRoutes(): Router {
     // Previously the provider's createCustomer/createSubscription ran first, so a
     // concurrent/retried POST minted real Stripe objects and then 500'd on the
     // unique-index collision, leaking orphaned Stripe state. Inserting the local
-    // row first means the loser trips the `{orgId,status:'active'}` unique index
+    // row first means the loser trips the per-org manageable-subscription unique index
     // (11000) and gets a clean 409 without ever touching the provider. The row is
     // created externally-unbound (externalId/externalCustomerId null) and rolled
     // back if the provider calls fail, so a failure can't wedge the org behind a
@@ -230,7 +230,7 @@ export function createSubscriptionRoutes(): Router {
       subscription.externalId = externalResult.externalId;
       subscription.externalCustomerId = externalResult.externalCustomerId;
       // Reconcile the local status to the provider's REAL state. The row was
-      // reserved as `active` purely to trip the {orgId,status:'active'}
+      // reserved as `active` purely to take the per-org manageable-subscription
       // uniqueness slot BEFORE any provider call; that reservation must not be
       // mistaken for a settled subscription. A Stripe sub created with no card
       // lands `incomplete`, so blindly persisting `active` would hand the org
@@ -392,6 +392,7 @@ export function createSubscriptionRoutes(): Router {
       }
     }
 
+    let oldIntervalForEvent: string | undefined;
     if (intervalChanged) {
       const oldInterval = subscription.interval;
       subscription.interval = effectiveInterval;
@@ -405,12 +406,18 @@ export function createSubscriptionRoutes(): Router {
       // overwrites both fields with the provider's authoritative dates anyway.
       subscription.currentPeriodStart = new Date();
       subscription.currentPeriodEnd = calculatePeriodEnd(subscription.currentPeriodStart, effectiveInterval);
-      await createBillingEvent(orgId, 'interval_changed', {
-        oldInterval, newInterval: effectiveInterval,
-      }, subscriptionId, req.user?.sub);
+      oldIntervalForEvent = oldInterval;
     }
 
     await subscription.save();
+
+    // Recorded post-save, like the plan_changed row, so a failed save can't leave
+    // an interval_changed row for a change the document never kept.
+    if (oldIntervalForEvent) {
+      await createBillingEvent(orgId, 'interval_changed', {
+        oldInterval: oldIntervalForEvent, newInterval: effectiveInterval,
+      }, subscriptionId, req.user?.sub);
+    }
 
     // Post-save side effects for a plan change: sync effective entitlements
     // (service token — never the caller's bearer; see create-subscription
@@ -495,10 +502,9 @@ export function createSubscriptionRoutes(): Router {
       return sendError(res, 404, 'Active subscription not found', ErrorCode.NOT_FOUND);
     }
 
-    // Provider-first: if the upstream cancel fails after we've persisted
-    // cancelAtPeriodEnd=true, the customer's UI says "canceled" but Stripe/etc.
-    // keeps billing them. Roll the local flip back on provider failure so the
-    // two stores can't diverge.
+    // Local flip, then the provider, rolled back on provider failure: left
+    // persisted, cancelAtPeriodEnd=true would tell the customer "canceled" while
+    // Stripe/etc. keeps billing them.
     subscription.cancelAtPeriodEnd = true;
     await subscription.save();
     try {

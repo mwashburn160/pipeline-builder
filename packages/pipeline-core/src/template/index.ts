@@ -32,7 +32,6 @@ export {
 
 export {
   validateTemplateDraft,
-  formatTemplateDraftProblems,
   type TemplateDraftInput,
   type TemplateDraftLike,
   type TemplateDraftProblem,

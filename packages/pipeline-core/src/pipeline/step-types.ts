@@ -10,7 +10,7 @@ import type { ArtifactKey, ArtifactManager } from '../core/artifact-manager.js';
 import type { UniqueId } from '../core/id-generator.js';
 import type { NetworkConfig } from '../core/network-types.js';
 import type { MetaDataType } from '../core/pipeline-types.js';
-import type { SynthPlugin } from '../core/plugin-lookup-envelope.js';
+import type { ResolvedPlugin } from '../core/plugin-lookup-envelope.js';
 
 /**
  * Options for selecting and configuring a plugin
@@ -200,7 +200,7 @@ export interface CodeBuildStepOptions extends StepCustomization {
    * Plugin configuration from the database
    * Contains all the plugin's spec data and runtime information
    */
-  readonly plugin: SynthPlugin;
+  readonly plugin: ResolvedPlugin;
 
   /**
    * CDK scope used to create constructs (VPC/subnet/security-group lookups).

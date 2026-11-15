@@ -388,7 +388,7 @@ describe('.env.example key parity', () => {
  * it reads as a secret that must be rotated. Three of these (`SERVICE_TIMEOUT`,
  * `ME_CONFIG_MONGODB_ADMINUSERNAME`, `ME_CONFIG_MONGODB_ADMINPASSWORD`) shipped
  * in all four targets before 2026-09-20; the first was shadowed by the real,
- * PREFIXED knobs (`QUOTA_SERVICE_TIMEOUT` and friends), which is why a naive
+ * PREFIXED knobs (`QUOTA_SERVICE_TIMEOUT_MS` and friends), which is why a naive
  * substring search never noticed it.
  *
  * A "consumer" is any non-doc, non-test file under the roots below: service
@@ -458,7 +458,7 @@ describe('deploy env contract — no dead vars', () => {
   it('reads at least one consumer file per root (guards against an empty corpus)', () => {
     // If the walk silently found nothing, the assertion below passes vacuously.
     expect(consumerText.length).toBeGreaterThan(1_000_000);
-    expect(consumerText).toContain('QUOTA_SERVICE_TIMEOUT');
+    expect(consumerText).toContain('QUOTA_SERVICE_TIMEOUT_MS');
   });
 
   it.each(TARGETS)('%s declares no var that nothing reads', (target) => {
@@ -467,7 +467,7 @@ describe('deploy env contract — no dead vars', () => {
     const dead = declared.filter((key) => {
       if (key in THIRD_PARTY_CONSUMED) return false;
       // Whole-word: `SERVICE_TIMEOUT` must not be satisfied by
-      // `QUOTA_SERVICE_TIMEOUT`, which is the real knob and a different var.
+      // `QUOTA_SERVICE_TIMEOUT_MS`, which is the real knob and a different var.
       return !new RegExp(`(?<![A-Z0-9_])${key}(?![A-Z0-9_])`).test(consumerText);
     });
     expect(dead).toEqual([]);

@@ -16,7 +16,7 @@ const logger = createLogger('feature-quota');
 const quotaService = createQuotaService({
   host: config.quota.serviceHost,
   port: config.quota.servicePort,
-  timeout: config.quota.serviceTimeout,
+  timeout: config.quota.serviceTimeoutMs,
 });
 
 /**

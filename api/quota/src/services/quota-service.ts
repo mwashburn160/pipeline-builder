@@ -1,8 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, enforcedQuotaLimit, isValidTier, QUOTA_TIERS, ValidationError, VALID_QUOTA_TYPES, nextQuotaResetDate } from '@pipeline-builder/api-core';
-import type { QuotaType, QuotaReserveResult, QuotaTier } from '@pipeline-builder/api-core';
+import { createLogger, enforcedQuotaLimit, isValidTier, PLAN_TIERS, ValidationError, VALID_QUOTA_TYPES, nextQuotaResetDate } from '@pipeline-builder/api-core';
+import type { QuotaType, QuotaReserveResult, PlanTier } from '@pipeline-builder/api-core';
 import { applyPooledQuotas, pooledStatusFromRows, pooledStatusOrFallback, QuotaPoolUnavailableError, resolveIncrementRoot } from './pooled-quota.js';
 import type { PoolRow } from './pooled-quota.js';
 import { fetchStorageBytes } from './storage-usage.js';
@@ -312,10 +312,15 @@ export class QuotaService {
     // size is clamped ONCE and the same figure drives the stride and the
     // exhaustion test, so a caller passing more than the clamp cannot end the
     // walk after the first page.
+    //
+    // LIVE orgs only (`deletedAt: null` also matches an absent field): a
+    // soft-deleted org sits in the shared collection until platform's purge, and
+    // scanning it reported a deleted account as at-risk and folded a deleted
+    // team's usage into its pool — which every other pool read excludes.
     const size = Math.min(pageSize, FIND_ALL_MAX_LIMIT);
     const rows: ScanRow[] = [];
     for (let offset = 0; ; offset += size) {
-      const page = await Organization.find()
+      const page = await Organization.find({ deletedAt: null })
         .select('name slug tier quotas usage poolUsage parentOrgId')
         .sort({ _id: 1 })
         .skip(offset)
@@ -560,9 +565,9 @@ export class QuotaService {
       if (!isValidTier(data.tier)) {
         throw new ValidationError(`Invalid tier: ${data.tier}`);
       }
-      const tier: QuotaTier = data.tier;
+      const tier: PlanTier = data.tier;
       org.tier = tier;
-      applyQuotaLimits(org, QUOTA_TIERS[tier].limits);
+      applyQuotaLimits(org, PLAN_TIERS[tier].limits);
     }
     if (data.quotas) applyQuotaLimits(org, data.quotas);
 
@@ -887,8 +892,10 @@ export class QuotaService {
         logger.warn('Pooled refund applied but the team\'s own counter did not follow', { orgId, rootOrgId, quotaType, err: String(err) });
       }
     }
-    const limit = root.quotas?.[quotaType] ?? defaultLimitFor(root.tier, quotaType);
+    // The EFFECTIVE pooled limit (the pool period's snapshot honoured), as the
+    // increment and read paths report it — not the raw stored cap.
     const p = root.poolUsage?.[quotaType];
+    const limit = effectiveLimit(root.quotas?.[quotaType] ?? defaultLimitFor(root.tier, quotaType), p?.limitAtPeriodStart);
     return { ...buildReserveResult(quotaType, limit, p?.used ?? 0, p?.resetAt, 'allowed'), rootOrgId, applied: true };
   }
 
@@ -923,7 +930,6 @@ export class QuotaService {
         const existing = await Organization.findById(toOrgId(orgId));
         if (!existing) return null;
 
-        const limit = existing.quotas[quotaType] ?? defaultLimitFor(existing.tier, quotaType);
         const usage = existing.usage[quotaType] ?? {
           used: 0,
           resetAt: nextQuotaResetDate(periodDaysFor(quotaType)),
@@ -934,7 +940,10 @@ export class QuotaService {
           snapshot: resetAtSnapshot,
           currentResetAt: usage.resetAt?.toISOString(),
         });
-        return { ...buildReserveResult(quotaType, limit, usage.used, usage.resetAt, 'allowed'), rootOrgId: orgId, applied: false };
+        // The current state as the read path reports it: the EFFECTIVE limit
+        // (the live period's snapshot honoured), not the raw stored cap.
+        const status = computeQuotaStatus(existing.quotas[quotaType] ?? defaultLimitFor(existing.tier, quotaType), usage);
+        return { ...buildReserveResult(quotaType, status.limit, status.used, status.resetAt, 'allowed'), rootOrgId: orgId, applied: false };
       }
       return null;
     }
@@ -942,9 +951,12 @@ export class QuotaService {
     // Default a MISSING stored limit exactly as the exceeded/read paths do.
     // Without it the success path returned `limit: undefined` and
     // `remaining: Math.max(0, undefined - used)` = NaN, which flowed out to
-    // every reserveQuota caller and the `/quotas` read surface.
-    const limit = org.quotas[quotaType] ?? defaultLimitFor(org.tier, quotaType);
+    // every reserveQuota caller and the `/quotas` read surface. Reported as the
+    // EFFECTIVE limit (the period's snapshot honoured), as the increment and
+    // read paths report it — the raw stored cap understated it after a
+    // mid-period downgrade.
     const usage = org.usage[quotaType];
+    const limit = effectiveLimit(org.quotas[quotaType] ?? defaultLimitFor(org.tier, quotaType), usage.limitAtPeriodStart);
     return { ...buildReserveResult(quotaType, limit, usage.used ?? 0, usage.resetAt, 'allowed'), rootOrgId: orgId, applied: true };
   }
 }

@@ -545,7 +545,7 @@ publishToNpm(apiCore);
 // stop being five) and `./build-catalog` (what a build's class and size are
 // called, what they cost in credits, which tier may ask for them, and how many
 // of each an org may run at once — one keyed catalog in place of two id lists in
-// wire-vocabulary.ts, two tier tables in quota-tiers.ts, and a frontend mirror
+// wire-vocabulary.ts, two tier tables in plan-tiers.ts, and a frontend mirror
 // of all four guarded by a test that parsed this package's SOURCE) and
 // `./tier-limits` (the limits SHAPE and the code-default number for every tier x
 // quota type, in place of a hand-synced frontend copy whose own comment said
@@ -647,10 +647,6 @@ const pipelineCore = new PackageProject({
     `constructs@${constructsVersion}`, `aws-cdk-lib@${cdkVersion}`,
     typesNode, '@types/aws-lambda@8.10.164', '@types/jsonwebtoken@9.0.10',
     `@aws-sdk/client-secrets-manager@${awsSdkVersion}`,
-    // Bundles the PluginLookup handler at RELEASE time (post-compile below), so
-    // a deploy needs no esbuild of its own. `copyfiles` used to sit here for the
-    // stub-lock copy that bundling replaced.
-    'esbuild@0.25.12',
   ],
 });
 pipelineCore.eslint?.addRules(rules);
@@ -677,30 +673,6 @@ pipelineCore.package.addField('typesVersions', {
 });
 addPackageMetadata(pipelineCore, 'AWS CDK constructs that turn a Pipeline Builder spec into a CodePipeline stack.');
 if (pipelineCore.jest) pipelineCore.jest.config.maxWorkers = 1;
-// Ship the PluginLookup Lambda READY TO RUN.
-//
-// It used to be built on the deploying machine by CDK's `NodejsFunction`, which
-// needs a `depsLockFilePath` — so a 146-byte stub `pnpm-lock.yaml` was copied in
-// here. That stub never reached anyone: `pnpm pack` strips a file by that name,
-// so every published copy shipped without it (111 files via `npm pack`, 110 via
-// pnpm — the difference was exactly this file) and every deploy failed at synth
-// before reaching AWS.
-//
-// Bundling once at release removes the whole class of problem: no lock file to
-// ship, no esbuild on the deploying machine, and the artifact is identical for
-// every deploy — the bundling options were already static (minify, es2022, a
-// fixed `externalModules` list), so nothing per-deploy is lost.
-//
-// ESM to match the package (`"type": "module"`) and the handler's
-// `export const handler`; Lambda resolves `index.handler` to `index.mjs`.
-// `aws-cdk-lib` and `constructs` stay external as a guard — they are synth-only,
-// and a stray transitive import dragging the CDK in would OOM the bundler.
-pipelineCore.postCompileTask.exec([
-  'esbuild lib/handlers/plugin-lookup-handler.js',
-  '--bundle --platform=node --format=esm --target=es2022 --minify',
-  '--external:@aws-sdk/* --external:aws-cdk-lib --external:aws-cdk-lib/* --external:constructs',
-  '--outfile=lib/handlers/bundle/index.mjs',
-].join(' '));
 
 // -- API Server --
 const apiServer = new PackageProject({

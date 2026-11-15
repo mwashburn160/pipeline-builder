@@ -34,7 +34,7 @@
 import { readFileSync, readdirSync, statSync } from 'fs';
 import { join, sep } from 'path';
 import { describe, it, expect } from '@jest/globals';
-import { VALID_TIERS } from '../src/types/quota-tiers.js';
+import { VALID_TIERS } from '../src/types/plan-tiers.js';
 
 /** Repo root, from `packages/api-core`. */
 const REPO_ROOT = join(import.meta.dirname, '..', '..', '..');
@@ -65,7 +65,7 @@ function walk(dir: string, out: string[] = []): string[] {
 }
 
 /** `envInt('NAME'` / `envBool("NAME"` / `envStr('NAME'` — literal names only.
- *  A computed name (`QUOTA_TIER_${tier}_PLUGINS`) can't be checked statically;
+ *  A computed name (`PLAN_TIER_${tier}_PLUGINS`) can't be checked statically;
  *  those families are documented as a pattern instead. */
 const READER = /\benv(?:Int|Bool|Str)\(\s*['"]([A-Z][A-Z0-9_]*)['"]/g;
 
@@ -174,23 +174,8 @@ const SET_BY_RUNTIME = new Set([
   'KUBERNETES_SERVICE_HOST', 'KUBERNETES_SERVICE_PORT',
 ]);
 
-/**
- * Injected by the PLATFORM'S OWN generated infrastructure, so again never
- * authored by an operator — but set by this repo rather than by a third party,
- * which is a different claim and worth keeping separate.
- *
- * Each entry must name the code that sets it, so the exemption is checkable
- * rather than asserted:
- *  - `PIPELINE_ID` — `pipeline-builder.ts` puts it in the generated CodeBuild /
- *    Lambda environment (`PIPELINE_ID: { value: pipelineId }`); the plugin
- *    lookup handler reads it back to attribute warnings to the pipeline.
- */
-const INJECTED_BY_PLATFORM = new Set([
-  'PIPELINE_ID',
-]);
-
 /** Every name exempt from the documentation requirement, with its reason above. */
-const NOT_OUR_CONFIG = new Set([...SET_BY_RUNTIME, ...INJECTED_BY_PLATFORM]);
+const NOT_OUR_CONFIG = SET_BY_RUNTIME;
 
 /** Placeholders a pattern row may use, and what they stand for. */
 const PLACEHOLDERS: Record<string, readonly string[]> = {
@@ -312,19 +297,11 @@ describe('raw process.env reads are documented too', () => {
     expect(undocumented).toEqual([]);
   });
 
-  it('keeps both exemption lists honest — every entry is still read somewhere', () => {
+  it('keeps the exemption list honest — every entry is still read somewhere', () => {
     // A name that no longer appears in the source is a stale exemption, and a
-    // stale exemption is how a real knob gets silently excused later. Reported
-    // per list, because the two carry different claims: one says a third party
-    // sets it, the other says THIS repo does.
+    // stale exemption is how a real knob gets silently excused later.
     const read = new Set(rawReads().keys());
-    const stale = (label: string, names: Set<string>) => [...names]
-      .filter((name) => !read.has(name))
-      .map((name) => `${label}: ${name}`);
-    expect([
-      ...stale('SET_BY_RUNTIME', SET_BY_RUNTIME),
-      ...stale('INJECTED_BY_PLATFORM', INJECTED_BY_PLATFORM),
-    ]).toEqual([]);
+    expect([...SET_BY_RUNTIME].filter((name) => !read.has(name)).map((name) => `SET_BY_RUNTIME: ${name}`)).toEqual([]);
   });
 });
 

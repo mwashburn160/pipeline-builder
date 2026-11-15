@@ -27,7 +27,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   ValidationError: class ValidationError extends Error {},
   DEFAULT_TIER: 'developer',
   VALID_QUOTA_TYPES: ['plugins', 'cpuCredits'],
-  QUOTA_TIERS: { developer: { limits: { plugins: 100, cpuCredits: 100 } } },
+  PLAN_TIERS: { developer: { limits: { plugins: 100, cpuCredits: 100 } } },
   VALID_TIERS: [...MOCK_TIER_NAMES],
 }));
 

@@ -38,6 +38,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@p
 
 const { parsePluginZip, validateBuildArgs } = await import('../src/helpers/plugin-spec.js');
 const { extractionLimits } = await import('../src/helpers/zip-extract.js');
+const { ValidationError } = await import('@pipeline-builder/api-core');
 
 // Helper: build an in-memory ZIP with the given entries
 function buildZip(entries: Record<string, string>): string {
@@ -137,7 +138,10 @@ dockerfile: "/etc/passwd"
     await expect(parsePluginZip(zipPath)).rejects.toThrow('path traversal');
   });
 
-  it('should return null dockerfileContent when Dockerfile is not present', async () => {
+  // Accepted, a build_image upload with no Dockerfile only failed later in the
+  // build — on a missing file every retry would miss again. Refused at upload
+  // with the missing path named instead.
+  it('refuses a build_image upload whose named Dockerfile is not in the ZIP', async () => {
     const pluginSpecYaml = `
 name: no-docker
 version: "2.0.0"
@@ -147,8 +151,20 @@ dockerfile: missing-dockerfile
 `;
     const zipPath = buildZip({ 'plugin-spec.yaml': pluginSpecYaml });
 
-    const result = await parsePluginZip(zipPath);
-    expect(result.dockerfileContent).toBeNull();
+    await expect(parsePluginZip(zipPath)).rejects.toThrow(ValidationError);
+    await expect(parsePluginZip(zipPath)).rejects.toThrow('"missing-dockerfile" is not in the uploaded ZIP');
+  });
+
+  it('refuses a build_image upload with no Dockerfile at the default path', async () => {
+    const pluginSpecYaml = `
+name: no-docker
+version: "2.0.0"
+commands:
+  - make build
+`;
+    const zipPath = buildZip({ 'plugin-spec.yaml': pluginSpecYaml });
+
+    await expect(parsePluginZip(zipPath)).rejects.toThrow('A build_image plugin needs a Dockerfile: "Dockerfile" is not in the uploaded ZIP');
   });
 
   it('should use default Dockerfile when spec does not specify one', async () => {
@@ -527,8 +543,6 @@ toolchain:
   pipelineManager: "4.4.19"
   awsCdk: "2.1100.0"
   cdkAssets: "3.2.0"
-  esbuild: "0.25.0"
-  pnpm: "10.12.1"
   node: "24.11.0"
 sourceDigest: "${'a'.repeat(64)}"
 `;

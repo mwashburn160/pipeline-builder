@@ -96,7 +96,7 @@ const OVERWRITE_REFUSAL: Readonly<Record<VisibilityWriteRefusal, () => Error>> =
 };
 
 /** Server-side cache for pipeline reads. */
-const pipelineCache = createCacheService('pipeline:', CoreConstants.CACHE_TTL_ENTITY);
+const pipelineCache = createCacheService('pipeline:', CoreConstants.CACHE_TTL_ENTITY_SECONDS);
 
 export type Pipeline = typeof schema.pipeline.$inferSelect;
 export type PipelineInsert = typeof schema.pipeline.$inferInsert;
@@ -146,6 +146,16 @@ export class PipelineService extends CrudService<
 
   protected getProjectColumn(): AnyColumn {
     return schema.pipeline.project;
+  }
+
+  /**
+   * A pipeline's default slot is `(project, organization)` within the org —
+   * the slot {@link createAsDefaultReportInserted} demotes in and the unique
+   * index keys on. Promoting one organization's pipeline must not clear another
+   * organization's default in the same project.
+   */
+  protected getDefaultScopeColumns(): AnyColumn[] {
+    return [schema.pipeline.project, schema.pipeline.organization];
   }
 
   // setDefault scopes clear-others by this column against the tenant context's
@@ -397,7 +407,7 @@ export class PipelineService extends CrudService<
       throw new Error('createAsDefaultReportInserted requires data.orgId');
     }
     const orgId = data.orgId;
-    return withTenantTx(async (tx) => {
+    const saved = await withTenantTx(async (tx) => {
       await tx.execute(
         sql`SELECT pg_advisory_xact_lock(hashtext(${'pipeline:' + orgId + ':' + project + ':' + organization}))`,
       );
@@ -480,13 +490,40 @@ export class PipelineService extends CrudService<
         .returning(returningCols as any);
 
       const { inserted: insertedFlag, ...rest } = upserted as Record<string, unknown> & { inserted: number };
-      const pipeline = rest as unknown as Pipeline;
-      const inserted = insertedFlag === 1;
-
-      await pipelineCache.invalidatePattern(`${data.orgId}:*`);
-      await this.invalidateSharedReadCaches(pipeline.id);
-      return { pipeline, inserted };
+      return { pipeline: rest as unknown as Pipeline, inserted: insertedFlag === 1 };
     });
+
+    // After the commit, as CrudService runs its lifecycle hooks: invalidating
+    // inside the transaction let a concurrent read re-cache the pre-write row
+    // before the commit landed. The upsert bypasses `CrudService.create`, so this
+    // is also the only place its compliance event can be emitted (`created`, or
+    // `updated` for an upsert overwrite). Best-effort, like those hooks: the
+    // pipeline is saved.
+    try {
+      await this.invalidateAndEmit(saved.inserted ? 'created' : 'updated', saved.pipeline.id, saved.pipeline, userId);
+    } catch (err) {
+      logger.warn('Pipeline create lifecycle hook failed', { pipelineId: saved.pipeline.id, error: errorMessage(err) });
+    }
+    return saved;
+  }
+
+  /**
+   * Promote a pipeline to its slot's default. The base transaction rewrites
+   * `isDefault` on the promoted row AND on every sibling it demotes, but runs no
+   * lifecycle hook, so a promotion that changed nothing else (PUT `{ isDefault:
+   * true }` alone) left every cached copy reporting the old default for the
+   * rest of the TTL. The org sweep covers the demoted siblings' org-keyed
+   * entries; the promoted row's shared copies are swept by id.
+   */
+  async setDefault(org: string, id: string, userId: string): Promise<Pipeline> {
+    const promoted = await super.setDefault(org, id, userId);
+    try {
+      await pipelineCache.invalidatePattern(`${promoted.orgId}:*`);
+      await this.invalidateSharedReadCaches(promoted.id);
+    } catch (err) {
+      logger.warn('Pipeline default-promotion cache invalidation failed', { pipelineId: promoted.id, error: errorMessage(err) });
+    }
+    return promoted;
   }
 }
 

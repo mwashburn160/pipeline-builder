@@ -37,9 +37,6 @@ const createEnvRedisClient = jest.fn(() => fakeRedis);
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   createEnvRedisClient,
-  // The real gate waits (bounded, never rejecting) for the connection. Resolved
-  // immediately here; its behaviour is api-core's to test, not this module's.
-  createRedisReadyGate: () => () => Promise.resolve(),
 }));
 
 const {

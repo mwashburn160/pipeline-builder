@@ -13,7 +13,7 @@
  * `resolvePageGate(pathname)` answers "what does this ROUTE require?" from the
  * SAME declaration the nav reads, so the two can't drift: for a page that has a
  * nav entry the gate IS that nav item's gate. Pages with no nav entry of their
- * own (detail routes, sub-routes, redirect shims) are listed explicitly below.
+ * own (detail routes, sub-routes) are listed explicitly below.
  * `useAuthGuard` applies the result automatically, so a page needs no options.
  *
  * NOT included here: `NavItem.requiredFeature` (tier entitlements). A missing
@@ -108,9 +108,6 @@ const EXTRA_PAGE_GATES: Record<string, PageGate> = {
   '/dashboard/observability/[id]/edit': { permission: 'dashboards:read' },
   // Sysadmin per-org drill-down.
   '/dashboard/admin/orgs/[orgId]': { systemAdminOnly: true },
-  // Forwards to Security → Service accounts. Keeps its own gate (it is NOT a
-  // next.config redirect) so a viewer without the permission is told why here
-  // instead of landing on a tab that won't render.
 };
 
 /**

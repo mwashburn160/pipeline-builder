@@ -85,14 +85,14 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
     }
     return out;
   },
-  QUOTA_TIERS: {
+  PLAN_TIERS: {
     developer: { limits: { plugins: 5, seats: 1, eventRetentionDays: 7, doraRetentionDays: 30 } },
     pro: { limits: { plugins: 10, seats: 3, eventRetentionDays: 30, doraRetentionDays: 90 } },
     team: { limits: { plugins: 50, seats: 10, eventRetentionDays: 30, doraRetentionDays: 180 } },
     enterprise: { limits: { plugins: -1, seats: -1, eventRetentionDays: -1, doraRetentionDays: -1 } },
   },
 }));
-jest.unstable_mockModule('../src/config/index.js', () => mockConfig({ billing: { enabled: true, serviceHost: 'billing', servicePort: 3000, serviceTimeout: 1000 } }));
+jest.unstable_mockModule('../src/config/index.js', () => mockConfig({ billing: { enabled: true, serviceHost: 'billing', servicePort: 3000, serviceTimeoutMs: 1000 } }));
 jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (id: string) => id }));
 jest.unstable_mockModule('../src/helpers/session-revocation.js', () => ({ publishSessionSlotRevocation: async () => true, publishAccessKeyRevocation: async () => true, publishUsersRevocation: (...a: unknown[]) => mockPublish(...a) }));
 jest.unstable_mockModule('../src/utils/mongo-tx.js', () => ({

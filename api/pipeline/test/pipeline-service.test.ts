@@ -18,7 +18,7 @@ let mockExistingRows: Array<Record<string, unknown>> = [];
 const mockSelectFor = jest.fn(async (..._args: unknown[]) => mockExistingRows);
 
 jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@pipeline-builder/pipeline-core', {
-  CoreConstants: { CACHE_TTL_ENTITY: 60 },
+  CoreConstants: { CACHE_TTL_ENTITY_SECONDS: 60 },
 }));
 const mockCloseExposures = jest.fn(async (..._args: unknown[]) => 0);
 const mockRecordResolution = jest.fn(async (..._args: unknown[]) => undefined);
@@ -115,6 +115,18 @@ describe('PipelineService', () => {
     service = new PipelineService();
   });
 
+  // The default slot must be the one create demotes in — (project,
+  // organization) within the org — or promoting one organization's pipeline
+  // clears another organization's default in the same project. The base
+  // demotion SQL itself is pinned on a real Postgres in pipeline-data.
+  describe('default slot', () => {
+    it('scopes setDefault to (project, organization), the same slot create uses', () => {
+      const cols = (service as unknown as { getDefaultScopeColumns(): unknown[] }).getDefaultScopeColumns();
+      expect(cols).toEqual(['project', 'organization']);
+    });
+
+  });
+
   describe('createAsDefaultReportInserted', () => {
     const data = { orgId: 'org-1', project: 'proj', organization: 'org' } as any;
     const member = { isSystemAdmin: false, canPublish: false };
@@ -144,6 +156,45 @@ describe('PipelineService', () => {
       );
 
       expect(result.pipeline).toEqual({ id: 'new-pipeline', isDefault: true });
+    });
+
+    // The upsert bypasses CrudService.create, so it emits its own compliance
+    // event once the write committed — `created` for a fresh row, `updated` for
+    // an `?upsert=true` overwrite. It used to emit nothing at all.
+    it('emits the compliance lifecycle event after the write (created, or updated on overwrite)', async () => {
+      const captured: any[] = [];
+      const subscriber = { onEntityEvent: async (e: any) => { captured.push(e); } };
+      entityEvents.subscribe(subscriber);
+      try {
+        mockTransactionOnConflict.mockReturnValueOnce({
+          returning: jest.fn<AnyFn>().mockResolvedValue([{ id: 'new-pipeline', orgId: 'org-1', inserted: 1 }]),
+        });
+        await service.createAsDefaultReportInserted(data, 'user-1', 'proj', 'org', member);
+        mockExistingRows = [{ visibility: 'org', createdBy: 'user-1', deletedAt: null }];
+        mockTransactionOnConflict.mockReturnValueOnce({
+          returning: jest.fn<AnyFn>().mockResolvedValue([{ id: 'new-pipeline', orgId: 'org-1', inserted: 0 }]),
+        });
+        await service.createAsDefaultReportInserted(data, 'user-1', 'proj', 'org', member, { upsert: true });
+      } finally {
+        entityEvents.unsubscribe(subscriber);
+      }
+      expect(captured.map((e) => [e.eventType, e.entityId, e.orgId])).toEqual([
+        ['created', 'new-pipeline', 'org-1'],
+        ['updated', 'new-pipeline', 'org-1'],
+      ]);
+    });
+
+    it('emits nothing when the create is refused', async () => {
+      const captured: any[] = [];
+      const subscriber = { onEntityEvent: async (e: any) => { captured.push(e); } };
+      entityEvents.subscribe(subscriber);
+      try {
+        mockExistingRows = [{ visibility: 'org', createdBy: 'user-1', deletedAt: null }];
+        await expect(service.createAsDefaultReportInserted(data, 'user-1', 'proj', 'org', member)).rejects.toThrow();
+      } finally {
+        entityEvents.unsubscribe(subscriber);
+      }
+      expect(captured).toEqual([]);
     });
 
     it('never un-deletes on the conflict branch (no deletedAt/deletedBy reset in the SET)', async () => {

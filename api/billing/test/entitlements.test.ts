@@ -8,7 +8,7 @@ import type { BundleConfig } from '../src/config/billing-types.js';
 import { effectiveEntitlements } from '../src/config/entitlements.js';
 
 // Assertions are relative to the live `getTierLimits` base so they hold even if
-// a QUOTA_TIER_* env override is present.
+// a PLAN_TIER_* env override is present.
 const bundle = (over: Partial<BundleConfig> & Pick<BundleConfig, 'id' | 'grants'>): BundleConfig => ({
   name: over.id,
   description: '',

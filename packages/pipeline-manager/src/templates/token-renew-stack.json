@@ -6,7 +6,7 @@
       "Type": "String",
       "Description": "Secrets Manager secret name holding the service-account key (e.g. pipeline-builder/{orgId}/platform)"
     },
-    "RenewDays": {
+    "KeyLifetimeDays": {
       "Type": "Number",
       "Default": 30,
       "MinValue": 1,
@@ -78,7 +78,7 @@
         "Environment": {
           "Variables": {
             "PLATFORM_SECRET_NAME": { "Ref": "PlatformSecretName" },
-            "RENEW_DAYS": { "Ref": "RenewDays" },
+            "KEY_TTL_DAYS": { "Ref": "KeyLifetimeDays" },
             "PIPELINE_MANAGER_VERSION": { "Ref": "PipelineManagerVersion" },
             "NODE_ENV": "production"
           }

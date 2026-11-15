@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import type { RedisCacheClient } from './cache-service.js';
-import { createEnvRedisClient, createRedisReadyGate, type ReadyAwareRedis } from './env-redis.js';
+import { createEnvRedisClient } from './env-redis.js';
 import type { CredentialRevocationRefs, SessionRevocationState, TokenRevocationStore } from '../middleware/revocation.js';
 import { createLogger } from '../utils/logger.js';
 import { emitCounter } from '../utils/metric-emitter.js';
@@ -160,52 +160,41 @@ export function createRedisTokenRevocationStore(redis: RedisCacheClient): TokenR
  * Build a {@link TokenRevocationStore} backed by a Redis client that is lazily
  * constructed from the standard `REDIS_URL` or `REDIS_SENTINELS` env —
  * for a stateless service that keeps NO Redis client of its own. The client is
- * built on first `getCurrentVersion` call and memoized; `ioredis` is loaded via
- * a guarded dynamic require so merely importing this never breaks a build/test
- * where Redis isn't present.
+ * built on the first revocation read and memoized.
  *
- * FULLY FAIL-OPEN: no env configured, an ioredis load failure, a connect error,
- * or any read failure all resolve to `null` ("no known revocation"), so a
- * service degrades to natural token expiry rather than locking users out. A
- * service opts in with a single boot line:
+ * The tokenVersion and credential reads are FAIL-OPEN: no Redis configured or
+ * a read failure resolve to "no known revocation", so a service degrades to
+ * natural token expiry rather than locking users out. The impersonation-session
+ * read is NOT: without an answer it is `unavailable`, and the token is refused
+ * (see `TokenRevocationStore.getSessionRevocation`). A service opts in with a
+ * single boot line:
  *   `setTokenRevocationStore(createEnvRedisTokenRevocationStore());`
  */
 export function createEnvRedisTokenRevocationStore(): TokenRevocationStore {
-  type ReaderRedis = RedisCacheClient & ReadyAwareRedis;
   // undefined = not yet attempted; null = attempted and unavailable (stay off).
-  let cached: ReaderRedis | null | undefined;
-  let ready: (() => Promise<void>) | undefined;
+  let cached: RedisCacheClient | null | undefined;
 
   /**
-   * The reader client, built on first use. The env client has no offline queue,
-   * so a GET before the first connection completes is rejected — which made the
-   * FIRST impersonation check on every pod read 'unavailable' (401). Wait
-   * (bounded, never rejecting) for readiness; a genuinely down Redis then keeps
-   * the existing fail-open / 'unavailable' semantics.
+   * The reader client, built on first use. The env client waits (bounded) for
+   * its first connection before every command, so the first check on a pod is
+   * not refused for racing the connect.
    */
-  async function client(): Promise<ReaderRedis | null> {
+  function client(): RedisCacheClient | null {
     if (cached === undefined) {
-      // Shared env-configured ioredis construction (error listener attached, null
-      // when Redis isn't configured); the reader stays fail-open — a null client
-      // just falls back to natural token expiry.
-      cached = createEnvRedisClient<ReaderRedis>('revocation-reader');
-      if (cached) {
-        logger.info('Redis token-revocation reader initialized');
-        ready = createRedisReadyGate(cached);
-      }
+      cached = createEnvRedisClient<RedisCacheClient>('revocation-reader');
+      if (cached) logger.info('Redis token-revocation reader initialized');
     }
-    if (ready) await ready();
     return cached;
   }
 
   return {
     async getCurrentVersion(userId: string): Promise<number | null> {
-      const redis = await client();
+      const redis = client();
       if (!redis) return null;
       return createRedisTokenRevocationStore(redis).getCurrentVersion(userId);
     },
     async getSessionRevocation(jti: string): Promise<SessionRevocationState> {
-      const redis = await client();
+      const redis = client();
       // No Redis configured ⇒ there is no way to learn a session was ended, so
       // an impersonation token can't be trusted. Every real deployment runs Redis
       // (the build queue needs it), so this only bites a misconfigured service.
@@ -216,7 +205,7 @@ export function createEnvRedisTokenRevocationStore(): TokenRevocationStore {
       return createRedisTokenRevocationStore(redis).getSessionRevocation!(jti);
     },
     async isCredentialRevoked(refs: CredentialRevocationRefs): Promise<boolean> {
-      const redis = await client();
+      const redis = client();
       if (!redis) return false;
       return createRedisTokenRevocationStore(redis).isCredentialRevoked!(refs);
     },

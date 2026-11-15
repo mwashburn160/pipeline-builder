@@ -81,44 +81,18 @@ export function ensureCdkAvailable(): void {
 }
 
 /**
- * Asserts that the local toolchain CDK needs to bundle the PluginLookup Lambda
- * is present. Synth builds that Lambda via `NodejsFunction` (esbuild); when
- * esbuild isn't on PATH, CDK silently falls back to **Docker bundling**, which
- * can't resolve the handler's cross-directory imports and dies with an opaque
- * `Could not resolve "axios"` / `"../config/handler-constants.js"`. pnpm is also
- * required because the handler's lockfile is `pnpm-lock.yaml`, so CDK drives
- * esbuild through pnpm. Fail fast here with the fix instead of deep in a bundle.
- *
- * Bypass with `SKIP_BUNDLER_CHECK=1` (e.g. an environment that intentionally
- * bundles in Docker with a working mount scope).
- */
-export function ensureBundlerAvailable(): void {
-  if (process.env.SKIP_BUNDLER_CHECK === '1') return;
-
-  const missing = ['esbuild', 'pnpm'].filter((tool) => !getToolInfo(tool).available);
-  if (missing.length === 0) return;
-
-  printError(`Missing local bundling prerequisite${missing.length > 1 ? 's' : ''}: ${missing.join(', ')}`);
-  console.log('');
-  console.log('Synth bundles the PluginLookup Lambda via esbuild (CDK NodejsFunction).');
-  console.log('Without esbuild + pnpm on PATH, CDK falls back to Docker bundling, which');
-  console.log('fails with: Could not resolve "axios" / "../config/handler-constants.js".');
-  console.log('');
-  console.log('Install with:');
-  console.log('  npm install -g esbuild@0.28.1 pnpm@12.14.0');
-  console.log('');
-  console.log('Docs: pipeline-manager.md#prerequisites-for-local-pipeline-deploys');
-  console.log('(Set SKIP_BUNDLER_CHECK=1 to bypass this check.)');
-  throw new Error(`Missing bundler prerequisites: ${missing.join(', ')}`);
-}
-
-/**
  * Options for executing a CDK shell command.
  */
 export interface CdkShellOptions {
   /** When `true`, prints the error to stderr on failure. */
   debug?: boolean;
-  /** When `true`, inherits stdio so output streams to the terminal. Defaults to `true`. */
+  /**
+   * When `true` (the default), inherits stdio so output streams to the
+   * terminal. That includes stderr: cdk writes its progress there, so piping it
+   * would hide a whole deploy until it ended (and abort one whose log outgrew
+   * execSync's buffer). When `false`, output is captured and replayed
+   * only on failure.
+   */
   showOutput?: boolean;
   /** Additional environment variables to inject. */
   env?: Record<string, string>;
@@ -153,7 +127,9 @@ export function executeCdkShellCommand(
     };
 
     execSync(command, {
-      stdio: showOutput ? ['inherit', 'inherit', 'pipe'] : 'pipe',
+      stdio: showOutput ? 'inherit' : 'pipe',
+      // Captured output must not overflow execSync's 1 MiB default, which kills cdk mid-run.
+      maxBuffer: 64 * 1024 * 1024,
       env,
     });
 
@@ -173,7 +149,7 @@ export function executeCdkShellCommand(
       const stdout = execError.stdout?.toString().trim();
 
       console.error('');
-      console.error('CDK deployment failed:');
+      console.error('CDK command failed:');
       if (stderr) console.error(stderr);
       if (stdout) console.error(stdout);
       if (execError.status !== undefined) {

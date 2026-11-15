@@ -15,7 +15,7 @@
  * Returns 200 with a short-lived `stepUpToken` JWT (default 60s TTL) bound to
  * `req.user.sub`, or 401 on a bad password. The frontend pattern is:
  *   1. User clicks a destructive action.
- *   2. UI prompts for password and calls POST /step-up.
+ *   2. UI prompts for password and calls POST /auth/step-up.
  *   3. UI sends the token as `X-Step-Up-Token` on the destructive request.
  *
  * api-core's `requireStepUp` enforces it on every gated route (platform's

@@ -140,7 +140,7 @@ function previousOf(c: SectionContext): { from: string; to: string } | undefined
 const REGISTRY = new Map<string, SectionSpec>();
 
 /** Register a section. Throws on a duplicate id or a per-person one. */
-export function registerSection(spec: SectionSpec): SectionSpec {
+export function registerReportSection(spec: SectionSpec): SectionSpec {
   assertNotPerPerson(spec.id);
   if (REGISTRY.has(spec.id)) throw new Error(`Duplicate report section id: ${spec.id}`);
   REGISTRY.set(spec.id, spec);
@@ -148,7 +148,7 @@ export function registerSection(spec: SectionSpec): SectionSpec {
 }
 
 /** Look a section up; undefined when the id is unknown. */
-export function getSection(id: string): SectionSpec | undefined {
+export function getReportSection(id: string): SectionSpec | undefined {
   return REGISTRY.get(id);
 }
 
@@ -164,21 +164,21 @@ export function sectionIds(): string[] {
 
 // ── Delivery ────────────────────────────────────────────────────────────────
 
-registerSection({
+registerReportSection({
   id: 'execution_count',
   title: 'Pipeline runs',
   comparable: true,
   run: (s, c) => s.getExecutionCount(c.orgId, c.orgIds, { from: c.from, to: c.to }),
 });
 
-registerSection({
+registerReportSection({
   id: 'success_rate',
   title: 'Success rate',
   comparable: true,
   run: (s, c) => s.getSuccessRate(c.orgId, 'week', c.from, c.to, c.orgIds, { tz: c.tz, weekStart: c.weekStart }),
 });
 
-registerSection({
+registerReportSection({
   id: 'duration',
   title: 'Run duration',
   comparable: true,
@@ -187,7 +187,7 @@ registerSection({
 
 // ── What is blocking us ─────────────────────────────────────────────────────
 
-registerSection({
+registerReportSection({
   id: 'stage_failures',
   title: 'Top failing stages',
   // A list, not a number: "change" on a top-N list is meaningless.
@@ -195,21 +195,21 @@ registerSection({
   run: (s, c) => s.getStageFailures(c.orgId, c.from, c.to, c.orgIds),
 });
 
-registerSection({
+registerReportSection({
   id: 'stage_bottlenecks',
   title: 'Slowest stages',
   comparable: false,
   run: (s, c) => s.getStageBottlenecks(c.orgId, c.from, c.to, c.orgIds),
 });
 
-registerSection({
+registerReportSection({
   id: 'action_failures',
   title: 'Top failing steps',
   comparable: false,
   run: (s, c) => s.getActionFailures(c.orgId, c.from, c.to, c.orgIds),
 });
 
-registerSection({
+registerReportSection({
   id: 'errors',
   title: 'Recent failures',
   comparable: false,
@@ -219,21 +219,21 @@ registerSection({
 
 // ── Plugin / supply-chain posture ───────────────────────────────────────────
 
-registerSection({
+registerReportSection({
   id: 'plugin_summary',
   title: 'Plugins in use',
   comparable: true,
   run: (s, c) => s.getPluginSummary(c.orgId),
 });
 
-registerSection({
+registerReportSection({
   id: 'plugin_distribution',
   title: 'Plugin mix',
   comparable: false,
   run: (s, c) => s.getPluginDistribution(c.orgId),
 });
 
-registerSection({
+registerReportSection({
   id: 'plugin_versions',
   title: 'Outdated plugins',
   comparable: true,
@@ -242,21 +242,21 @@ registerSection({
 
 // ── Build health ────────────────────────────────────────────────────────────
 
-registerSection({
+registerReportSection({
   id: 'build_success_rate',
   title: 'Plugin build success',
   comparable: true,
   run: (s, c) => s.getBuildSuccessRate(c.orgId, 'week', c.from, c.to, c.orgIds, { tz: c.tz, weekStart: c.weekStart }),
 });
 
-registerSection({
+registerReportSection({
   id: 'build_duration',
   title: 'Plugin build duration',
   comparable: true,
   run: (s, c) => s.getBuildDuration(c.orgId, c.from, c.to, c.orgIds),
 });
 
-registerSection({
+registerReportSection({
   id: 'build_failures',
   title: 'Plugin build failures',
   comparable: false,
@@ -267,7 +267,7 @@ registerSection({
 // These need `advanced_reporting`. Without it the composer renders a locked
 // section and the rest of the report still delivers.
 
-registerSection({
+registerReportSection({
   id: 'dora',
   title: 'Delivery metrics (DORA)',
   requiresFeature: 'advanced_reporting',
@@ -275,7 +275,7 @@ registerSection({
   run: (s, c) => s.getDoraMetrics(c.orgId, c.from, c.to, c.orgIds),
 });
 
-registerSection({
+registerReportSection({
   id: 'dora_trend',
   title: 'Delivery trend',
   requiresFeature: 'advanced_reporting',
@@ -283,7 +283,7 @@ registerSection({
   run: (s, c) => s.getDoraTrend(c.orgId, 'week', c.from, c.to, c.orgIds, { tz: c.tz, weekStart: c.weekStart }),
 });
 
-registerSection({
+registerReportSection({
   id: 'environments',
   title: 'Deploy environments',
   comparable: false,
@@ -295,7 +295,7 @@ registerSection({
 // question the on-demand dashboards do not: not "how are we doing" but "what
 // should somebody do about it".
 
-registerSection({
+registerReportSection({
   id: 'pipeline_breakdown',
   title: 'Pipelines needing the most attention',
   comparable: false,
@@ -307,7 +307,7 @@ registerSection({
  * behind them, because a flag without evidence is an opinion the reader has to take
  * on trust — and the first time one is wrong the section stops being read.
  */
-registerSection({
+registerReportSection({
   id: 'needs_attention',
   title: 'Needs attention',
   comparable: false,
@@ -316,14 +316,14 @@ registerSection({
     : Promise.resolve({ items: [], unavailable: 'needs-attention evaluation is not wired in this context' })),
 });
 
-registerSection({
+registerReportSection({
   id: 'failure_analysis',
   title: 'What is breaking',
   comparable: false,
   run: (s, c) => s.getFailureAnalysis(scopeOf(c), previousOf(c)),
 });
 
-registerSection({
+registerReportSection({
   id: 'stage_performance',
   title: 'Slowest stages',
   comparable: false,
@@ -338,35 +338,35 @@ registerSection({
   },
 });
 
-registerSection({
+registerReportSection({
   id: 'promotion',
   title: 'What reached production, and what did not',
   comparable: false,
   run: (s, c) => s.getPromotionView(scopeOf(c)),
 });
 
-registerSection({
+registerReportSection({
   id: 'resource_consumption',
   title: 'Where the build time went',
   comparable: false,
   run: (s, c) => s.getResourceConsumption(scopeOf(c), 20),
 });
 
-registerSection({
+registerReportSection({
   id: 'outdated_plugins',
   title: 'Plugins behind their latest version',
   comparable: false,
   run: (s, c) => s.getOutdatedPlugins(scopeOf(c), 50),
 });
 
-registerSection({
+registerReportSection({
   id: 'plugin_vulnerabilities',
   title: 'Plugin vulnerabilities',
   comparable: false,
   run: (s, c) => s.getPluginVulnerabilities(scopeOf(c), 50),
 });
 
-registerSection({
+registerReportSection({
   id: 'adoption',
   title: 'Adoption and coverage',
   comparable: false,
@@ -382,7 +382,7 @@ registerSection({
  * report that did not arrive because one optional panel's upstream was down is a
  * support ticket; a panel that says it could not be computed is information.
  */
-registerSection({
+registerReportSection({
   id: 'compliance_posture',
   title: 'Compliance and access posture',
   comparable: false,

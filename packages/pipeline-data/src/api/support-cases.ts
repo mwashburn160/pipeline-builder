@@ -250,9 +250,14 @@ export async function listQueue(opts: SupportCasePageOptions = {}): Promise<Supp
  * the index stays small while the table grows, and without it every tick is a
  * scan.
  *
- * Deliberately NOT filtered on status. A case that is `awaiting_support` and one
- * that is `open` both owe a first response, and reading the status here would
- * duplicate a rule that `first_response_at IS NULL` already states exactly.
+ * A CLOSED case is excluded (`closed_at IS NULL`). Closing does not stamp
+ * `first_response_at` — that column is the sold response number and only a
+ * staff reply may set it — so a case resolved or closed before anyone answered
+ * still has it NULL, and without this predicate it would page on-call on every
+ * tick forever. `closed_at` rather than a status list because `setCaseStatus`
+ * keeps it in step with the closing statuses (stamped on closed/resolved,
+ * cleared on reopen), so a reopened unanswered case pages again. The extra
+ * predicate is a filter over the partial index's rows, not a reason to scan.
  */
 export async function listCasesDueForPage(leadMs: number, limit = 100): Promise<SupportCase[]> {
   const cutoff = new Date(Date.now() + leadMs);
@@ -269,6 +274,7 @@ export async function listCasesDueForPage(leadMs: number, limit = 100): Promise<
     .where(and(
       eq(schema.supportCase.level, 'support_premium'),
       isNull(schema.supportCase.firstResponseAt),
+      isNull(schema.supportCase.closedAt),
       isNull(schema.supportCase.deletedAt),
       lte(schema.supportCase.responseDueAt, cutoff),
     ))

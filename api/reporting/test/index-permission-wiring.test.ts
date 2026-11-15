@@ -103,6 +103,8 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@p
 jest.unstable_mockModule('../src/services/reporting-retention.js', () => ({
   startReportingRetention: jest.fn(),
   stopReportingRetention: jest.fn(),
+  // The report scheduler (loaded for real) bounds a run by the account root's retention.
+  createRetentionRootResolver: jest.fn(() => async (orgId: string) => orgId),
 }));
 
 await import('../src/index.js');

@@ -107,8 +107,8 @@ jest.unstable_mockModule('../src/helpers/stripe-helpers.js', () => ({
   findSubscriptionByStripeId: (...args: unknown[]) => mockFindByStripeId(...args),
   claimStripeEventOrder: (...args: unknown[]) => mockClaimOrder(...args),
   findReversalSubscription: (...args: unknown[]) => mockFindReversalSub(...args),
-  // Shared by the webhook route and stripe-reversals (moved here so both can
-  // read an invoice's subscription id); the real implementation is trivial.
+  // Shared by the invoice handlers and stripe-reversals; the real
+  // implementation is trivial.
   invoiceSubscriptionId: (invoice: { parent?: { subscription_details?: { subscription?: unknown } } }) => {
     const sub = invoice?.parent?.subscription_details?.subscription;
     return typeof sub === 'string' ? sub : (sub as { id?: string } | undefined)?.id;
@@ -181,7 +181,7 @@ jest.unstable_mockModule('../src/helpers/signup-promotions.js', () => ({
   runSignupPromotions: (...a: unknown[]) => mockRunSignupPromotions(...a),
 }));
 
-const { planFromStripePrice, handleSubscriptionUpdated, handleSubscriptionCreated } = await import('../src/helpers/stripe-subscription-handlers.js');
+const { planFromStripePrice, handleSubscriptionUpdated, handleSubscriptionCreated, handleSubscriptionDeleted } = await import('../src/helpers/stripe-subscription-handlers.js');
 
 /** Event envelope the webhook route passes every lifecycle handler. */
 const EVT = { id: 'evt_1', created: 1767225600 };
@@ -732,5 +732,51 @@ describe('Stripe event ordering', () => {
 
     await expect(handleSubscriptionUpdated({ id: 'sub_ext', status: 'active', items: { data: [] }, metadata: {} } as any, EVT))
       .rejects.toThrow(/retry/);
+  });
+});
+
+// ============================================
+// customer.subscription.deleted
+// ============================================
+
+describe('handleSubscriptionDeleted', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockClaimOrder.mockResolvedValue(true);
+  });
+
+  const makeSub = (status: string) => ({
+    _id: { toString: () => 'sub-d' },
+    orgId: 'org-d',
+    planId: 'team',
+    status,
+    cancelAtPeriodEnd: true,
+    metadata: { provider: 'stripe' },
+    save: jest.fn<() => Promise<void>>().mockResolvedValue(undefined),
+  });
+
+  it.each(['active', 'trialing', 'past_due'])('cancels a %s row and downgrades the org', async (status) => {
+    const sub = makeSub(status);
+    mockFindByStripeId.mockResolvedValue(sub);
+
+    await handleSubscriptionDeleted({ id: 'sub_ext' } as any, EVT);
+
+    expect(sub.status).toBe('canceled');
+    expect(sub.save).toHaveBeenCalled();
+    expect(mockSyncTier).toHaveBeenCalledWith('org-d', 'developer', '', 'sub-d');
+  });
+
+  // The org may have resubscribed since this row ended (stale-period reconciler,
+  // admin override, terminal .updated): a late .deleted for the OLD row must not
+  // push developer over the new subscription's paid tier.
+  it.each(['canceled', 'incomplete'])('does NOT re-downgrade the org when the row was already %s', async (status) => {
+    const sub = makeSub(status);
+    mockFindByStripeId.mockResolvedValue(sub);
+
+    await handleSubscriptionDeleted({ id: 'sub_ext' } as any, EVT);
+
+    expect(sub.status).toBe('canceled');
+    expect(mockSyncTier).not.toHaveBeenCalled();
+    expect(mockCreateBillingEvent).toHaveBeenCalledWith('org-d', 'subscription_canceled', expect.objectContaining({ previousStatus: status }), 'sub-d');
   });
 });

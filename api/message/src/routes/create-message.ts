@@ -498,122 +498,134 @@ export function createCreateMessageRoutes(sseManager: SSEManager): Router {
       updatedBy: userId,
     };
 
-    return persistAndRespond(sseManager, ctx, res, {
-      data: messageData,
-      orgId,
-      userId,
-      attachmentIds,
-      partialAttachmentWarning: 'Some attachments did not link',
-      completed: { label: 'Support message created' },
-      notification: {
-        recipientOrgId,
-        subject,
-        targeted: false,
-        senderOrgId: orgId,
-        messageType: 'conversation',
-      },
-      afterInsert: async (message) => {
-        // --- Case record -------------------------------------------------------
-        //
-        // The message is already committed. A case is the WORKFLOW record on top of
-        // it — status, ownership, the response clock — and it is created only when
-        // platform confirmed, above, that the org is entitled to one.
-        if (opening) {
-          try {
-            const supportCase = await openSupportCase({
-              // The root message IS the case identity — the convention the thread
-              // reader already walks.
-              threadId: message.id,
-              orgId,
-              // Frozen at open: a mid-case downgrade must not change the promise
-              // underneath someone already waiting.
-              level: caseLevel!,
-              severity,
-              openedBy: userId,
-              // Computed HERE and frozen onto the row. The business calendar is
-              // deployment config, so the deadline is derived once at open against
-              // the calendar in force at that moment — a later change to the working
-              // week or the holiday list must not move a promise already made.
-              // Premium's own measure consults no calendar at all, which is the whole
-              // of its 24x7 claim.
-              responseDueAt: responseDueAt(new Date(), caseLevel!),
-              // Which DOOR this case came through. The store defaults it to false,
-              // so omitting it here meant an incident-opened case recorded itself as
-              // seat-opened — the audit row said one thing and the case row another.
-              openedWithIncident: byIncident,
-            });
-            ctx.log('COMPLETED', 'Support case opened', {
-              id: message.id, caseNumber: supportCase.displayNumber, level: caseLevel!,
-            });
-            // Audited because a case carries a response-time commitment: the facts a
-            // dispute turns on are who raised it, when, and under which level. Safe
-            // METADATA ONLY — never the body of what the customer wrote.
-            recordAudit({
-              action: 'support.case.open',
-              actorId: actorId({ userId }),
-              orgId,
-              affectedOrgId: orgId,
-              targetType: 'support_case',
-              // The thread root id IS the case identity, so the trail and the
-              // product agree on what "this case" means.
-              targetId: message.id,
-              details: {
-                caseNumber: supportCase.displayNumber,
-                // The CONTACT's level, plus the account baseline it was resolved
-                // against, so the trail shows both what was promised and why.
+    // Whether the case step below was reached. The incident (if any) was spent
+    // ABOVE, before the message insert, so a failure in the insert or the
+    // attachment link — which throws out of persistAndRespond before the case
+    // step runs — would otherwise keep the concession with no case to show for
+    // it, exactly the loss the case-insert refund below exists to prevent.
+    let caseStepReached = false;
+    try {
+      return await persistAndRespond(sseManager, ctx, res, {
+        data: messageData,
+        orgId,
+        userId,
+        attachmentIds,
+        partialAttachmentWarning: 'Some attachments did not link',
+        completed: { label: 'Support message created' },
+        notification: {
+          recipientOrgId,
+          subject,
+          targeted: false,
+          senderOrgId: orgId,
+          messageType: 'conversation',
+        },
+        afterInsert: async (message) => {
+          caseStepReached = true;
+          // --- Case record -------------------------------------------------------
+          //
+          // The message is already committed. A case is the WORKFLOW record on top of
+          // it — status, ownership, the response clock — and it is created only when
+          // platform confirmed, above, that the org is entitled to one.
+          if (opening) {
+            try {
+              const supportCase = await openSupportCase({
+                // The root message IS the case identity — the convention the thread
+                // reader already walks.
+                threadId: message.id,
+                orgId,
+                // Frozen at open: a mid-case downgrade must not change the promise
+                // underneath someone already waiting.
                 level: caseLevel!,
-                accountLevel: entitlement!.level!,
-                openerIsPremium,
-                // The ADMITTED severity, plus whether it was cut down. A dispute
-                // over "we said urgent" turns on exactly this pair.
                 severity,
-                severityRequested: priority ?? 'normal',
-                // Recorded so a later fair-use conversation has the case list behind
-                // it rather than a single aggregate number.
-                overAllowance,
-                // Whether this case came through the INCIDENT door rather than a
-                // contact seat, so incident usage is answerable from the cases
-                // themselves and not only from a balance delta.
+                openedBy: userId,
+                // Computed HERE and frozen onto the row. The business calendar is
+                // deployment config, so the deadline is derived once at open against
+                // the calendar in force at that moment — a later change to the working
+                // week or the holiday list must not move a promise already made.
+                // Premium's own measure consults no calendar at all, which is the whole
+                // of its 24x7 claim.
+                responseDueAt: responseDueAt(new Date(), caseLevel!),
+                // Which DOOR this case came through. The store defaults it to false,
+                // so omitting it here meant an incident-opened case recorded itself as
+                // seat-opened — the audit row said one thing and the case row another.
                 openedWithIncident: byIncident,
-              },
+              });
+              ctx.log('COMPLETED', 'Support case opened', {
+                id: message.id, caseNumber: supportCase.displayNumber, level: caseLevel!,
+              });
+              // Audited because a case carries a response-time commitment: the facts a
+              // dispute turns on are who raised it, when, and under which level. Safe
+              // METADATA ONLY — never the body of what the customer wrote.
+              recordAudit({
+                action: 'support.case.open',
+                actorId: actorId({ userId }),
+                orgId,
+                affectedOrgId: orgId,
+                targetType: 'support_case',
+                // The thread root id IS the case identity, so the trail and the
+                // product agree on what "this case" means.
+                targetId: message.id,
+                details: {
+                  caseNumber: supportCase.displayNumber,
+                  // The CONTACT's level, plus the account baseline it was resolved
+                  // against, so the trail shows both what was promised and why.
+                  level: caseLevel!,
+                  accountLevel: entitlement!.level!,
+                  openerIsPremium,
+                  // The ADMITTED severity, plus whether it was cut down. A dispute
+                  // over "we said urgent" turns on exactly this pair.
+                  severity,
+                  severityRequested: priority ?? 'normal',
+                  // Recorded so a later fair-use conversation has the case list behind
+                  // it rather than a single aggregate number.
+                  overAllowance,
+                  // Whether this case came through the INCIDENT door rather than a
+                  // contact seat, so incident usage is answerable from the cases
+                  // themselves and not only from a balance delta.
+                  openedWithIncident: byIncident,
+                },
+              });
+              incCounter('support_cases_total', { action: byIncident ? 'opened_with_incident' : 'opened' });
+            } catch (err) {
+              // The message stands. A failed case insert must not 500 a send that
+              // already succeeded — the tenant would retry and file a duplicate.
+              ctx.log('ERROR', 'Support case insert failed; message kept without a case', { id: message.id, error: errorMessage(err) });
+              incCounter('support_cases_total', { action: 'open_failed' });
+              // GIVE THE INCIDENT BACK. It was already spent to get here, and losing a
+              // concession to our own failed insert is the worst possible way to spend
+              // one — the customer paid nothing for it and received nothing. Awaited
+              // so the refund is attempted before the response, and itself
+              // never-throwing, because failing the send to report a failed refund
+              // turns one problem into two.
+              if (byIncident) await refundSupportIncident(orgId);
+            }
+          } else if (entitlement && !entitlement.canOpenCase) {
+            // Entitlement was READ and says no: the org has no designated contact in
+            // THIS org (the allowance pools subtree-wide, ownership does not). Not an
+            // error — the message is support correspondence, it just carries no
+            // response target.
+            ctx.log('INFO', 'No support entitlement for this org; message sent without a case', {
+              id: message.id, ownOrgContacts: entitlement.ownOrgContacts, limit: entitlement.limit,
             });
-            incCounter('support_cases_total', { action: byIncident ? 'opened_with_incident' : 'opened' });
-          } catch (err) {
-            // The message stands. A failed case insert must not 500 a send that
-            // already succeeded — the tenant would retry and file a duplicate.
-            ctx.log('ERROR', 'Support case insert failed; message kept without a case', { id: message.id, error: errorMessage(err) });
-            incCounter('support_cases_total', { action: 'open_failed' });
-            // GIVE THE INCIDENT BACK. It was already spent to get here, and losing a
-            // concession to our own failed insert is the worst possible way to spend
-            // one — the customer paid nothing for it and received nothing. Awaited
-            // so the refund is attempted before the response, and itself
-            // never-throwing, because failing the send to report a failed refund
-            // turns one problem into two.
-            if (byIncident) await refundSupportIncident(orgId);
+            incCounter('support_cases_total', { action: 'unentitled' });
           }
-        } else if (entitlement && !entitlement.canOpenCase && !byIncident) {
-          // Entitlement was READ and says no: the org has no designated contact in
-          // THIS org (the allowance pools subtree-wide, ownership does not). Not an
-          // error — the message is support correspondence, it just carries no
-          // response target.
-          ctx.log('INFO', 'No support entitlement for this org; message sent without a case', {
-            id: message.id, ownOrgContacts: entitlement.ownOrgContacts, limit: entitlement.limit,
-          });
-          incCounter('support_cases_total', { action: 'unentitled' });
-        }
-        // Not an error count — a DEMAND count. Every increment is an org that
-        // wanted the one thing only premium admits, which is the most direct read on
-        // premium's addressable demand the system can produce.
-        if (downgraded) incCounter('support_cases_total', { action: 'severity_downgraded' });
-      },
-      // Say it plainly when the severity was cut down. The payload already carries
-      // the admitted `priority`, but a sender who typed "urgent" and hears nothing
-      // will reasonably believe it was honoured — and that belief is exactly what
-      // a response-time dispute is made of.
-      successMessage: downgraded
-        ? 'Message created. Urgent severity is available on Premium Support; this case was opened as high.'
-        : 'Message created successfully',
-    });
+          // Not an error count — a DEMAND count. Every increment is an org that
+          // wanted the one thing only premium admits, which is the most direct read on
+          // premium's addressable demand the system can produce.
+          if (downgraded) incCounter('support_cases_total', { action: 'severity_downgraded' });
+        },
+        // Say it plainly when the severity was cut down. The payload already carries
+        // the admitted `priority`, but a sender who typed "urgent" and hears nothing
+        // will reasonably believe it was honoured — and that belief is exactly what
+        // a response-time dispute is made of.
+        successMessage: downgraded
+          ? 'Message created. Urgent severity is available on Premium Support; this case was opened as high.'
+          : 'Message created successfully',
+      });
+    } catch (err) {
+      if (byIncident && !caseStepReached) await refundSupportIncident(orgId);
+      throw err;
+    }
   }));
 
   // POST /messages/:id/reply — Reply to a thread

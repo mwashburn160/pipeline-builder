@@ -13,8 +13,10 @@ import express, { Router } from 'express';
 import {
   audited,
   buildRouteTable,
+  gateWhen,
   isWriteMethod,
   requireAllPermissions,
+  requireAssurance,
   requireAuth,
   requireFeature,
   requireInternalService,
@@ -23,6 +25,7 @@ import {
   requireServicePrincipal,
   requireStepUp,
   requireSystemAdmin,
+  STRONG_STEP_UP_METHODS,
   summarizeRouteTable,
   tagRouteGate,
   type RouteTableEntry,
@@ -143,6 +146,45 @@ describe('buildRouteTable', () => {
     expect(entry(table, 'GET', '/svc').permissions[0].allowService).toBe(true);
     expect(entry(table, 'POST', '/ingest').scopes).toEqual(['reporting:ingest']);
     expect(entry(table, 'GET', '/gated').features).toEqual(['advanced_reporting']);
+  });
+
+  it('records a gateWhen\'s gates under conditionalGates, never at top level', () => {
+    const app = express();
+    app.patch('/profile', requireAuth, gateWhen('changes the sign-in email', () => true, requireStepUp), noop);
+    app.post('/users', requireAuth, requirePermission('members:manage'), gateWhen(
+      'creates a platform super-admin',
+      () => true,
+      requireAssurance({ minAssurance: 2 }),
+      requireStepUp({ methods: STRONG_STEP_UP_METHODS }),
+    ), noop);
+    app.put('/both', requireAuth, requireStepUp, gateWhen('moves the org', () => true, requireAssurance({ minAssurance: 2 })), noop);
+    app.get('/plain', requireAuth, noop);
+
+    const table = buildRouteTable(app);
+    const profile = entry(table, 'PATCH', '/profile');
+    expect(profile).toMatchObject({ stepUp: false, stepUpMethods: [], minAssurance: 0 });
+    expect(profile.conditionalGates).toEqual([
+      { when: 'changes the sign-in email', stepUp: true, stepUpMethods: [], minAssurance: 0 },
+    ]);
+    const users = entry(table, 'POST', '/users');
+    expect(users).toMatchObject({ stepUp: false, stepUpMethods: [], minAssurance: 0 });
+    expect(users.conditionalGates).toEqual([
+      { when: 'creates a platform super-admin', stepUp: true, stepUpMethods: ['totp', 'webauthn'], minAssurance: 2 },
+    ]);
+    // An unconditional gate beside a conditional one stays where it is.
+    const both = entry(table, 'PUT', '/both');
+    expect(both).toMatchObject({ stepUp: true, minAssurance: 0 });
+    expect(both.conditionalGates).toEqual([{ when: 'moves the org', stepUp: false, stepUpMethods: [], minAssurance: 2 }]);
+    expect(entry(table, 'GET', '/plain').conditionalGates).toEqual([]);
+  });
+
+  it('refuses a gateWhen the table could not project', () => {
+    const untagged = (_req: unknown, _res: unknown, next: () => void): void => next();
+    expect(() => gateWhen('x', () => true, untagged)).toThrow(/carries no route-table tag/);
+    expect(() => gateWhen('x', () => true, requirePermission('members:manage'))).toThrow(/cannot wrap/);
+    expect(() => gateWhen('x', () => true, requireAssurance({ minAssurance: 2, maxAge: 60 }))).toThrow(/cannot wrap/);
+    expect(() => gateWhen(' ', () => true, requireStepUp)).toThrow(/description/);
+    expect(() => gateWhen('x', () => true)).toThrow(/wraps no gate/);
   });
 
   it('keeps only the first registration of a duplicated method + path (what Express serves)', () => {

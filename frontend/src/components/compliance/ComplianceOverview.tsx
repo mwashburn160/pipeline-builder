@@ -191,7 +191,7 @@ export function ComplianceOverview({ onGoToRules }: OverviewProps) {
         if (res.success && res.data) setChanges(res.data.entries);
         else setChangesError(res.message || 'Failed to load recent changes');
       })
-      .catch(() => { if (!cancelled) setChangesError('Failed to load recent changes'); });
+      .catch((err) => { if (!cancelled) setChangesError(formatError(err, 'Failed to load recent changes')); });
     return () => { cancelled = true; };
   }, [activityTab, changes]);
   const totalChecks = checks ? checks.pass + checks.warn + checks.block : 0;

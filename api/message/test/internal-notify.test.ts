@@ -102,6 +102,24 @@ describe('POST /messages/internal/notify', () => {
     expect(ssePayload.subject).toBeUndefined();
   });
 
+  it('answers 400, not a thrown 500, for non-string fields', async () => {
+    const res = makeRes();
+    await handler()({ body: { recipientOrgId: 'org-1', subject: 42, content: { x: 1 } } }, res);
+    expect(res.status).toHaveBeenCalledWith(400);
+    const badPriority = makeRes();
+    await handler()({ body: { recipientOrgId: 'org-1', subject: 's', content: 'c', priority: 7 } }, badPriority);
+    expect(badPriority.status).toHaveBeenCalledWith(400);
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it('treats an empty recipientUserId as org-wide, not as a target nobody holds', async () => {
+    mockCreate.mockResolvedValue({ id: 'm4' });
+    const res = makeRes();
+    await handler()({ body: { recipientOrgId: 'org-1', recipientUserId: '  ', subject: 's', content: 'c' } }, res);
+    expect((mockCreate.mock.calls[0][0] as any).recipientUserId).toBeNull();
+    expect(((mockSse.send as jest.Mock<AnyFn>).mock.calls[0][3] as any).subject).toBe('s');
+  });
+
   it('carries a valid priority and rejects an unknown one', async () => {
     mockCreate.mockResolvedValue({ id: 'm3' });
     const res = makeRes();

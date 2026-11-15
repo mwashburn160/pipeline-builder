@@ -58,7 +58,7 @@ const logger = createLogger('compliance-rule-service');
 const warnNonFatal = (err: unknown): void => { logger.warn('Non-fatal side effect failed', { error: errorMessage(err) }); };
 
 /** Cache for active rules per org+target. Rules change infrequently. */
-const rulesCache = createCacheService('compliance:rules:', CoreConstants.CACHE_TTL_COMPLIANCE_RULES);
+const rulesCache = createCacheService('compliance:rules:', CoreConstants.CACHE_TTL_COMPLIANCE_RULES_SECONDS);
 
 export type ComplianceRule = typeof schema.complianceRule.$inferSelect;
 export type ComplianceRuleInsert = typeof schema.complianceRule.$inferInsert;
@@ -439,8 +439,13 @@ export class ComplianceRuleService extends CrudService<
    * Coalesces by (orgId, target): if a pending or running scan for the same
    * pair already exists, skip the insert. Avoids backlog buildup when many
    * rules are mutated in quick succession (e.g. bulk imports).
+   *
+   * Never for the system org: its rules (the published library, templates) are
+   * enforced on no entity of its own, so every published-rule edit queued an
+   * empty scan of the system org.
    */
   private async triggerRuleChangeScan(orgId: string, target: RuleTarget, userId: string = SYSTEM_ACTOR_ID): Promise<void> {
+    if (orgId.toLowerCase() === SYSTEM_ORG_ID) return;
     await withTenantTx(async (tx) => {
       const [existing] = await tx
         .select({ id: schema.complianceScan.id })

@@ -21,7 +21,7 @@ const complianceClient = createComplianceClient();
  * descriptive-only edit (summary, links, README, lifecycle, …) keeps the same
  * posture and shouldn't pay a round-trip or be blocked by a compliance outage.
  */
-export const COMPLIANCE_RELEVANT_FIELDS = ['visibility', 'keywords', 'labels'] as const;
+const COMPLIANCE_RELEVANT_FIELDS = ['visibility', 'keywords', 'labels'] as const;
 
 /** Whether `updateData` touches a compliance-relevant field. */
 export function needsComplianceRecheck(updateData: Record<string, unknown>): boolean {

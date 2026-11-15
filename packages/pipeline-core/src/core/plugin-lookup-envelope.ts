@@ -1,41 +1,42 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-// The dependency-free plugin-catalog subpath only: the plugin-lookup Lambda
-// bundles this module, so it must not pull in the api-core root.
+// The dependency-free plugin-catalog subpath: this module needs only its constants.
 import type { PluginToolchain } from '@pipeline-builder/api-core';
 import { TOOLCHAIN_METADATA_PREFIX, TOOLCHAIN_RESOLVED_VIA, type ToolchainResolvedVia } from '@pipeline-builder/api-core/plugin-catalog';
 import type { Plugin } from '@pipeline-builder/pipeline-data';
 
 /**
- * Plugin record fields synth never reads: display text (README, changelog,
- * icons), the build's Dockerfile, and the last scan's findings list (up to 500
- * Critical/High findings, tens of KB per image). `/plugins/lookup` leaves them
- * out of its answer and every parsed answer drops them, because the resolved
- * records travel to the synth app whole: a few large summaries made the props
- * exceed what a single process environment variable can hold (E2BIG).
+ * Plugin record fields that building a pipeline never reads, for any plugin it
+ * uses (every stage's steps, the synth plugin, the build image): display text
+ * (README, changelog, icons), the build's Dockerfile, and the last scan's
+ * findings list (up to 500 Critical/High findings, tens of KB per image).
+ * `/plugins/lookup` leaves them out of its answer and every parsed answer drops
+ * them, because the resolved records travel into the CDK app's props whole: a
+ * few large summaries once made the props exceed what a single process
+ * environment variable can hold (E2BIG).
  */
-export const SYNTH_OMITTED_PLUGIN_FIELDS = [
+export const RESOLVED_PLUGIN_OMITTED_FIELDS = [
   'readmeMd', 'readmeHtml', 'changelog', 'scanSummary', 'dockerfile', 'icon', 'uploadedIcon',
 ] as const satisfies readonly (keyof Plugin)[];
 
-type SynthOmittedField = typeof SYNTH_OMITTED_PLUGIN_FIELDS[number];
+type ResolvedPluginOmittedField = typeof RESOLVED_PLUGIN_OMITTED_FIELDS[number];
 
-/** A plugin record as synth receives it: without {@link SYNTH_OMITTED_PLUGIN_FIELDS}. */
-export type SynthPlugin = Omit<Plugin, SynthOmittedField>;
+/** A plugin record as `/plugins/lookup` resolves it for a pipeline: without {@link RESOLVED_PLUGIN_OMITTED_FIELDS}. */
+export type ResolvedPlugin = Omit<Plugin, ResolvedPluginOmittedField>;
 
-/** `record` without {@link SYNTH_OMITTED_PLUGIN_FIELDS} (a shallow copy; the input is untouched). */
-export function toSynthPlugin<P extends object>(record: P): Omit<P, SynthOmittedField> {
+/** `record` without {@link RESOLVED_PLUGIN_OMITTED_FIELDS} (a shallow copy; the input is untouched). */
+export function toResolvedPlugin<P extends object>(record: P): Omit<P, ResolvedPluginOmittedField> {
   const out = { ...record } as Record<string, unknown>;
-  for (const field of SYNTH_OMITTED_PLUGIN_FIELDS) delete out[field];
-  return out as Omit<P, SynthOmittedField>;
+  for (const field of RESOLVED_PLUGIN_OMITTED_FIELDS) delete out[field];
+  return out as Omit<P, ResolvedPluginOmittedField>;
 }
 
 /** How serious a lookup warning is (vulnerability state is graded, never refused). */
 export type LookupWarningSeverity = 'info' | 'warning' | 'error' | 'critical';
 
 /** Severities, least to most serious. */
-export const LOOKUP_WARNING_SEVERITIES: readonly LookupWarningSeverity[] = ['info', 'warning', 'error', 'critical'];
+const LOOKUP_WARNING_SEVERITIES: readonly LookupWarningSeverity[] = ['info', 'warning', 'error', 'critical'];
 
 /** One warning riding beside a resolved plugin. */
 export interface LookupWarning {
@@ -50,7 +51,7 @@ export type ToolchainVersions = Partial<Readonly<PluginToolchain>>;
 
 /** Every tool field, keyed so a field added to api-core's `PluginToolchainSchema` fails to compile here until listed. */
 const TOOLCHAIN_VERSION_FIELDS: Record<keyof PluginToolchain, true> = {
-  pipelineManager: true, awsCdk: true, cdkAssets: true, esbuild: true, pnpm: true, node: true,
+  pipelineManager: true, awsCdk: true, cdkAssets: true, node: true,
 };
 const TOOLCHAIN_VERSION_KEYS = Object.keys(TOOLCHAIN_VERSION_FIELDS) as (keyof PluginToolchain)[];
 
@@ -73,7 +74,7 @@ export interface LookupToolchain {
  * `PipelineBuilder` as `resolvedBootstrap`.
  */
 export interface ResolvedBootstrap {
-  readonly plugin: SynthPlugin;
+  readonly plugin: ResolvedPlugin;
   readonly toolchain: LookupToolchain;
 }
 
@@ -125,19 +126,17 @@ export function parseLookupToolchain(raw: unknown, plugin?: unknown): LookupTool
  * are tolerated too. Returns the plugin (null when absent or nameless) and the
  * graded warnings (lifecycle, vulnerability, compliance) that ride beside it,
  * and — for a managed toolchain name — the release it resolved to (`toolchain`).
- * The plugin comes back without {@link SYNTH_OMITTED_PLUGIN_FIELDS}, whatever
+ * The plugin comes back without {@link RESOLVED_PLUGIN_OMITTED_FIELDS}, whatever
  * the platform sent.
- *
- * Dependency-free (type-only imports) so the plugin-lookup Lambda can bundle it.
  */
-export function unwrapLookup(body: unknown): { plugin: SynthPlugin | null; warnings: LookupWarning[]; toolchain?: LookupToolchain } {
+export function unwrapLookup(body: unknown): { plugin: ResolvedPlugin | null; warnings: LookupWarning[]; toolchain?: LookupToolchain } {
   if (!body || typeof body !== 'object') return { plugin: null, warnings: [] };
   const inner = (body as { data?: unknown }).data;
   const container = (inner && typeof inner === 'object' ? inner : body) as { plugin?: unknown; warnings?: unknown; toolchain?: unknown };
   const candidate = container.plugin ?? container;
   const plugin = candidate && typeof candidate === 'object' && typeof (candidate as { name?: unknown }).name === 'string'
     && (candidate as { name: string }).name.length > 0
-    ? toSynthPlugin(candidate as Plugin)
+    ? toResolvedPlugin(candidate as Plugin)
     : null;
   const warnings: LookupWarning[] = [];
   if (Array.isArray(container.warnings)) {

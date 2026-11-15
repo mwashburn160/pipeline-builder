@@ -32,7 +32,7 @@
 
 import { BlockList, isIPv4, isIPv6 } from 'net';
 import { createLogger, isoOrNull, TOKEN_SCOPES } from '@pipeline-builder/api-core';
-import type { QuotaTier, TokenScope } from '@pipeline-builder/api-core';
+import type { PlanTier, TokenScope } from '@pipeline-builder/api-core';
 import { Types } from 'mongoose';
 import { apiKeyService, type AccessKeyView } from './api-key-service.js';
 import { assertActorMayAssignRole, type RoleAssignmentActor } from './role-authority.js';
@@ -209,7 +209,7 @@ type OrgFacts = {
   name?: string;
   /** Required: `Organization.tier` is an enum field with a default, so every
    *  org row carries a valid tier. */
-  tier: QuotaTier;
+  tier: PlanTier;
   parentOrgId?: string | null;
   featureEntitlements?: string[];
 };

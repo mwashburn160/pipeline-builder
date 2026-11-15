@@ -595,6 +595,8 @@ spec:
               - cluster.local/ns/pipeline-builder/sa/plugin
               # quota: the 80%/100% threshold notices (POST /messages/internal/notify).
               - cluster.local/ns/pipeline-builder/sa/quota
+              # reporting: stakeholder-report delivery and failure notices (POST /messages/internal/notify).
+              - cluster.local/ns/pipeline-builder/sa/reporting
               - cluster.local/ns/pipeline-builder/sa/pb-waypoint
       to:
         - operation:

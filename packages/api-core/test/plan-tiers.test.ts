@@ -4,7 +4,7 @@
 import { describe, it, expect } from '@jest/globals';
 
 import {
-  QUOTA_TIERS,
+  PLAN_TIERS,
   VALID_TIERS,
   DEFAULT_TIER,
   isValidTier,
@@ -18,7 +18,7 @@ import {
   seatRemedy,
   automationCallsFor,
   enforcedQuotaLimit,
-} from '../src/types/quota-tiers.js';
+} from '../src/types/plan-tiers.js';
 import { DEFAULT_TIER_LIMITS, tierLabel } from '../src/types/tier-limits.js';
 import { VALID_QUOTA_TYPES } from '../src/types/common.js';
 import { quotaAccrual } from '../src/types/quota-catalog.js';
@@ -26,12 +26,12 @@ import { quotaAccrual } from '../src/types/quota-catalog.js';
 // storageBytes sized per tier. Tiers: developer / pro / team / enterprise.
 const GB = 1024 * 1024 * 1024;
 
-describe('QUOTA_TIERS', () => {
+describe('PLAN_TIERS', () => {
   it('should define developer tier', () => {
-    expect(QUOTA_TIERS.developer).toEqual({
+    expect(PLAN_TIERS.developer).toEqual({
       label: 'Developer',
       // aiCalls is sized smaller than apiCalls because each AI call has
-      // external dollar cost; see quota-tiers.ts for rationale.
+      // external dollar cost; see plan-tiers.ts for rationale.
       // Count caps on user-editable feature tables added to close per-org
       // DoS via spam (dashboards / alertRules / alertDestinations / idpConfigs).
       limits: {
@@ -57,7 +57,7 @@ describe('QUOTA_TIERS', () => {
   });
 
   it('should define pro tier', () => {
-    expect(QUOTA_TIERS.pro).toEqual({
+    expect(PLAN_TIERS.pro).toEqual({
       label: 'Pro',
       limits: {
         plugins: 25,
@@ -82,7 +82,7 @@ describe('QUOTA_TIERS', () => {
   });
 
   it('should define team tier', () => {
-    expect(QUOTA_TIERS.team).toEqual({
+    expect(PLAN_TIERS.team).toEqual({
       label: 'Team',
       limits: {
         plugins: 50,
@@ -107,7 +107,7 @@ describe('QUOTA_TIERS', () => {
   });
 
   it('should define business tier', () => {
-    expect(QUOTA_TIERS.business).toEqual({
+    expect(PLAN_TIERS.business).toEqual({
       label: 'Business',
       // 100,000 apiCalls and 200 aiCalls PER SEAT — the same per-seat rate as
       // Pro/Team/Enterprise, which is the property that makes the ladder read
@@ -135,7 +135,7 @@ describe('QUOTA_TIERS', () => {
   });
 
   it('should define enterprise tier', () => {
-    expect(QUOTA_TIERS.enterprise).toEqual({
+    expect(PLAN_TIERS.enterprise).toEqual({
       label: 'Enterprise',
       limits: {
         plugins: 150,
@@ -163,8 +163,8 @@ describe('QUOTA_TIERS', () => {
     // The billing-DISABLED default tier must meter nothing. Assert every limit
     // field (derived from the shape, so a newly-added quota is covered too) is
     // exactly -1. tierLimits() hardcodes this for `unlimited` and bypasses the
-    // QUOTA_TIER_UNLIMITED_* env reads, so no override can cap it.
-    const limits = QUOTA_TIERS.unlimited.limits as unknown as Record<string, number>;
+    // PLAN_TIER_UNLIMITED_* env reads, so no override can cap it.
+    const limits = PLAN_TIERS.unlimited.limits as unknown as Record<string, number>;
     const keys = Object.keys(limits);
     expect(keys.length).toBeGreaterThan(0);
     for (const k of keys) {
@@ -337,7 +337,7 @@ describe('automationCalls sizing — the table is the formula', () => {
     // The itemized per-run count (lookups, synth, runtime check, security
     // upload, register, ingest batches) + heartbeats, × headroom, rounded up.
     const off = STANDARD_TIERS
-      .map((t) => ({ t, have: QUOTA_TIERS[t].limits.automationCalls, want: automationCallsFor(QUOTA_TIERS[t].limits.pipelines) }))
+      .map((t) => ({ t, have: PLAN_TIERS[t].limits.automationCalls, want: automationCallsFor(PLAN_TIERS[t].limits.pipelines) }))
       .filter(({ have, want }) => have !== want);
     expect(off).toEqual([]);
   });
@@ -405,10 +405,10 @@ describe('quotaPeriodDays — the period is PER TYPE', () => {
   });
 });
 
-describe('the QUOTA_TIER_<TIER>_<LIMIT> knob names', () => {
+describe('the PLAN_TIER_<TIER>_<LIMIT> knob names', () => {
   /**
    * The names an operator sets are DERIVED from the limit field names
-   * (`apiCalls` → `QUOTA_TIER_PRO_API_CALLS`), which replaced seventeen
+   * (`apiCalls` → `PLAN_TIER_PRO_API_CALLS`), which replaced seventeen
    * hand-written lines. The derivation is the point of this test: a field rename
    * would silently move a knob somebody already has set in a `.env`, and nothing
    * else in the build would say a word — the old hand-written lines at least made
@@ -459,8 +459,8 @@ describe('tierLabel', () => {
   });
 
   it('names every real tier', () => {
-    // Not compared against `QUOTA_TIERS[t].label`: that honours
-    // `QUOTA_TIER_<TIER>_LABEL`, so the comparison would depend on the ambient
+    // Not compared against `PLAN_TIERS[t].label`: that honours
+    // `PLAN_TIER_<TIER>_LABEL`, so the comparison would depend on the ambient
     // environment. This asserts the derivation covers the ladder.
     for (const tier of VALID_TIERS) {
       expect({ tier, label: tierLabel(tier) }).toEqual({ tier, label: expect.stringMatching(/^[A-Z]/) });
@@ -469,7 +469,7 @@ describe('tierLabel', () => {
 
   it('does NOT invent an acronym or a stylized name — that is the override\'s job', () => {
     // Pinned deliberately: these outputs are WRONG as product copy, and a
-    // deployment selling such a tier sets `QUOTA_TIER_<TIER>_LABEL`. Asserting
+    // deployment selling such a tier sets `PLAN_TIER_<TIER>_LABEL`. Asserting
     // the wrong-but-documented output stops someone "fixing" it with a list of
     // special cases that then drifts from whatever is actually being sold.
     expect(tierLabel('sso')).toBe('Sso');

@@ -69,7 +69,7 @@ async function postSubscription(orgId: string, planId: string): Promise<void> {
   const client = createSafeClient({
     host: config.billing.serviceHost,
     port: config.billing.servicePort,
-    timeout: config.billing.serviceTimeout,
+    timeout: config.billing.serviceTimeoutMs,
   });
 
   const res = await client.post('/billing/subscriptions', { planId, interval: 'monthly' }, {

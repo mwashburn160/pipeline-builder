@@ -167,10 +167,10 @@ Where it is enforced:
 ### Sign-in throttling
 
 `/auth/*` sits behind the per-IP auth limiter (`AUTH_LIMITER_MAX` per
-`AUTH_LIMITER_WINDOWMS`, default 20 / 15 min). `POST /auth/login` additionally
+`AUTH_LIMITER_WINDOW_MS`, default 20 / 15 min). `POST /auth/login` additionally
 has a **per-account** limiter keyed on a SHA-256 of the normalized (trimmed,
 lower-cased) identifier that counts only **failed** attempts
-(`LOGIN_ACCOUNT_LIMITER_MAX` / `_WINDOWMS`, default 10 / 15 min) — so a
+(`LOGIN_ACCOUNT_LIMITER_MAX` / `_WINDOW_MS`, default 10 / 15 min) — so a
 credential-stuffing run spread across many addresses still stalls on the
 account, while the owner's successful sign-ins never consume the budget. Both
 use the shared Redis rate-limit store (limits hold across replicas; a store
@@ -366,7 +366,7 @@ and clears the flag. Email/password registrants and SSO-provisioned users are
 
 A few consequences worth knowing:
 
-- **Tier.** The new org takes the default quota tier and is **not** provisioned to
+- **Tier.** The new org takes the default plan tier and is **not** provisioned to
   a paid tier until billing does so (no free paid-tier grant). When billing is
   off, the onboarding plan step is hidden and any `planId` is inert.
 - **Facebook needs email.** Facebook only returns an email if the user grants the
@@ -1231,9 +1231,10 @@ off (**Enable single sign-on**) instead.
 
 ## Step-up re-authentication (every account)
 
-Sensitive actions — deleting an account or org, minting a PAT, rotating KMS,
-granting platform-admin, starting an impersonation, restoring soft-deleted data,
-writing an IdP secret — need a **step-up**: a fresh proof of identity in addition
+Sensitive actions — deleting an account or org, changing a password or the
+account's sign-in email, minting a PAT, rotating KMS, granting platform-admin,
+starting an impersonation, restoring soft-deleted data, writing an IdP secret —
+need a **step-up**: a fresh proof of identity in addition
 to the session, replayed as the `X-Step-Up-Token` header (60s, single-use,
 caller-bound). Step-up is **factor-agnostic**: every factor mints the same token,
 so the `requireStepUp` gate on every service is identical.
@@ -1244,6 +1245,18 @@ so the `requireStepUp` gate on every service is identical.
 | **Authenticator app** | `POST /auth/step-up/totp` `{ code }` | Anyone with a TOTP enrolment. Offered second: it proves possession of a device, and it is the one factor that works on a machine with no passkey. A recovery code satisfies it too. |
 | **Password** | `POST /auth/step-up` `{ password }` | Accounts created with email + password. |
 | **Provider re-auth** | `POST /auth/step-up/reauth` → `POST /auth/step-up/reauth/callback` | Accounts with a linked social provider or org SSO — including the Google/GitHub/SSO accounts that have **no password at all** and previously could not pass step-up. |
+
+**Changing the sign-in email** (`PATCH /user/profile` with a new `email`) is
+step-up gated because the email is where `POST /auth/password/reset-request`
+sends a reset link: a hijacked session that could set it silently would own the
+account. Only a real change is gated — a username edit, or re-sending the
+current address, is not — so the gate is applied per request (`gateWhen`). The
+route table records it under `conditionalGates` as `{ when: "changes the sign-in
+email", stepUp: true }`, not as the route's top-level `stepUp`, and the
+permission contract renders it as `step-up(any when changes the sign-in email)`.
+The **previous** address is emailed a notice
+of the change, since after a takeover it is the only one the real owner still
+reads.
 
 `GET /user/profile` reports what the account has as `authFactors`
 (`hasPassword`, `passkeyCount`, `hasTotp`, `providers[]`), and the step-up dialog
@@ -1682,6 +1695,7 @@ is for administrative actions that need `aal: 2` only while the org's
 | Write a per-org KMS config | `/admin/orgs/:orgId/kms-config` | Always, + second-factor step-up | 403 |
 | Write an IdP config (self-serve or fleet) | `/organization/:id/idp`, `/admin/org-idp/:orgId` | Always, + second-factor step-up | 403 |
 | Grant / revoke platform-admin | `/admin/users/:id/grants` | Always, + second-factor step-up | 403 |
+| Create an account pre-flagged as a platform super-admin (sysadmin) | `POST /users` with `isSuperAdmin: true` | Always, + second-factor step-up — applied at the route to that body only (`gateWhen`, recorded under the route table's `conditionalGates`); an ordinary account create needs neither | 403 |
 | Loosen the org MFA policy (require-MFA off, admin-actions policy off, "our IdP enforces MFA" on) | `PATCH /organization/:id/mfa-policy` | Always, checked in the handler — **turning a requirement on stays open to `aal: 1`** | 403 |
 | Loosen the impersonation policy (less strict mode, self-approval on) | `PATCH /organization/:id/impersonation-policy` | Always, checked in the handler — tightening stays open | 403 |
 | Create a service account / issue its key | `POST /organization/:id/service-accounts`, `…/:accountId/keys` | Always, + step-up — with ONE exemption, the [bootstrap-administrator window](#the-bootstrap-administrator-exception) (`assurance_exempted_total{reason="bootstrap-setup"}`) | 403 |
@@ -2581,7 +2595,7 @@ stored:
 
 | Secret | Account | Roles | Key scope | Read by |
 |---|---|---|---|---|
-| `pipeline-builder/{orgId}/platform` | `platform-automation` | org admin | none | CDK synth/deploy callbacks (`--store-tokens`), the plugin-lookup Lambda |
+| `pipeline-builder/{orgId}/platform` | `platform-automation` | org admin | none | CDK synth/deploy callbacks (`--store-tokens`) |
 | `pipeline-builder/{orgId}/registry-push` | `registry-push` | none | `registry:push` | CodeBuild's `secretsManagerCredentials` (Basic auth to image-registry) |
 | `pipeline-builder/{orgId}/reporting-ingest` | `reporting-ingest` | none | `reporting:ingest` | the event-ingestion Lambda |
 

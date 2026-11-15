@@ -16,7 +16,7 @@
  * `diffOrgSettings`, and plans the commit with `orgSettingRequests`. Adding a
  * proposable setting is an edit to that module and nothing else.
  *
- * Which is exactly how design rule 1 is meant to work, and why the fields that
+ * Which is exactly how an allowlist is meant to work, and why the fields that
  * are NOT there — MFA / password / authenticator / impersonation policy, SSO and
  * its group mappings, verified domains, owner transfer, team lifecycle, the
  * install policy, AI provider credentials, every webhook URL and secret, every
@@ -56,7 +56,7 @@ function schemaFor(spec: OrgSettingSpec): z.ZodTypeAny {
  * The tool's `changes` schema, BUILT FROM the shared allowlist — so a field
  * becomes proposable by being added there, and nowhere else. `catchall` keeps
  * unknown keys rather than silently stripping them, because `pickAllowed` has to
- * SEE an invented field to report it as the injection signal (design rule 10).
+ * SEE an invented field to report it as the injection signal.
  */
 const ChangesSchema = z
   .object(Object.fromEntries(ORG_SETTING_PROPOSAL_ALLOWLIST.map((spec) => [
@@ -137,9 +137,8 @@ export function orgSettingsTools(deps: AgentToolDeps): ToolSet {
         }
 
         // A field whose CURRENT value could not be read has no baseline, so the
-        // confirm handler could not verify state had not moved before applying
-        // (design rule 7). Drop it rather than ship a diff whose "before" is a
-        // guess.
+        // confirm handler could not verify state had not moved before applying.
+        // Drop it rather than ship a diff whose "before" is a guess.
         const readable = wanted.filter((key) => current[key] !== undefined);
         const unreadable = wanted.filter((key) => current[key] === undefined);
         const proposedPatch: OrgSettingPatch = Object.fromEntries(readable.map((k) => [k, picked.allowed[k] as OrgSettingValue]));

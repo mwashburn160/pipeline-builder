@@ -250,7 +250,7 @@ describe('startOrgSlotHeartbeat', () => {
 
     const stop = startOrgSlotHeartbeat('org-a', 'q:job-1', 'standard');
 
-    // Default heartbeat is PLUGIN_ORG_SLOT_TTL_SEC / 3 = 300s.
+    // Default heartbeat is PLUGIN_ORG_SLOT_TTL_SECONDS / 3 = 300s.
     await jest.advanceTimersByTimeAsync(300_000);
     expect(expiresFor('org-a')).toBe(baseline + 1);
 

@@ -13,7 +13,7 @@
  */
 
 import { CacheService, envInt, createLogger, createRedisClient, DEFAULT_TIER, describeRedisConnection, errorMessage, resolveRedisConnection, VALID_TIERS } from '@pipeline-builder/api-core';
-import type { QuotaService, QuotaTier } from '@pipeline-builder/api-core';
+import type { QuotaService, PlanTier } from '@pipeline-builder/api-core';
 import type { PluginBuildConfig } from '@pipeline-builder/pipeline-core';
 import { Config, CoreConstants } from '@pipeline-builder/pipeline-core';
 import { Queue } from 'bullmq';
@@ -46,15 +46,15 @@ export const DLQ_NAME = `${QUEUE_NAME}-dlq`;
 // Per-tier queue partitioning
 // ---------------------------------------------------------------------------
 //
-// One BullMQ queue + Worker per quota tier; cross-tier scheduling is isolated so
+// One BullMQ queue + Worker per plan tier; cross-tier scheduling is isolated so
 // a Developer-tier burst can't block Pro/Team/Enterprise dispatch. The per-org
 // semaphore (slot-manager) still enforces intra-tier fairness. Each tier gets a
 // name suffixed with the tier, so queues are symmetric and self-describing.
 // `unlimited` is in here like any other: it is the billing-disabled default, so
 // on such a deployment it is the queue EVERY org lands in, not a leftover row.
-const TIER_QUEUE_NAMES: Record<QuotaTier, string> = Object.fromEntries(
+const TIER_QUEUE_NAMES: Record<PlanTier, string> = Object.fromEntries(
   VALID_TIERS.map((tier) => [tier, `${QUEUE_NAME}-${tier}`]),
-) as Record<QuotaTier, string>;
+) as Record<PlanTier, string>;
 
 /**
  * Per-tier Redis DB partitioning. Defaults to db=0 for every tier; operators
@@ -62,7 +62,7 @@ const TIER_QUEUE_NAMES: Record<QuotaTier, string> = Object.fromEntries(
  * REDIS_DB_<TIER> env vars (0-15). CLUSTER mode collapses everything to db=0
  * regardless.
  */
-function getRedisDbForTier(tier: QuotaTier): number {
+function getRedisDbForTier(tier: PlanTier): number {
   // api-core's reader, not a local `parseInt`: that accepted `5abc` as db 5 and
   // `5.5` as db 5, so a typo'd value silently partitioned a tier onto the wrong
   // database. Out of range still falls back to db 0 rather than CLAMPING to 15 —
@@ -75,7 +75,7 @@ function getRedisDbForTier(tier: QuotaTier): number {
 // One ioredis client per DB number, shared across Queue/Worker instances per
 // BullMQ guidance. Constructed lazily on first use.
 const connectionsByDb = new Map<number, Redis>();
-const tierQueues = new Map<QuotaTier, Queue<PluginBuildJobData>>();
+const tierQueues = new Map<PlanTier, Queue<PluginBuildJobData>>();
 let dlq: Queue<PluginBuildJobData> | null = null;
 
 // ---------------------------------------------------------------------------
@@ -122,12 +122,12 @@ export function getHealthRedisConnection(): Redis {
   return getConnectionForDb(0);
 }
 
-export function getConnectionForTier(tier: QuotaTier): Redis {
+export function getConnectionForTier(tier: PlanTier): Redis {
   return getConnectionForDb(getRedisDbForTier(tier));
 }
 
 /** True when the (already-created) Redis connection backing `tier` is ready. */
-export function isTierConnectionReady(tier: QuotaTier): boolean {
+export function isTierConnectionReady(tier: PlanTier): boolean {
   return connectionsByDb.get(getRedisDbForTier(tier))?.status === 'ready';
 }
 
@@ -135,7 +135,7 @@ export function isTierConnectionReady(tier: QuotaTier): boolean {
 // Queues
 // ---------------------------------------------------------------------------
 
-export function getTierQueue(tier: QuotaTier): Queue<PluginBuildJobData> {
+export function getTierQueue(tier: PlanTier): Queue<PluginBuildJobData> {
   let q = tierQueues.get(tier);
   if (!q) {
     const cfg = getBuildCfg();
@@ -161,19 +161,19 @@ export function getTierQueue(tier: QuotaTier): Queue<PluginBuildJobData> {
  * rather than from a guess. Falls back to the default tier so an unrecognised
  * queue name degrades a label instead of throwing inside a build.
  */
-const QUEUE_NAME_TIERS: Record<string, QuotaTier> = Object.fromEntries(
-  (Object.entries(TIER_QUEUE_NAMES) as Array<[QuotaTier, string]>).map(([tier, name]) => [name, tier]),
+const QUEUE_NAME_TIERS: Record<string, PlanTier> = Object.fromEntries(
+  (Object.entries(TIER_QUEUE_NAMES) as Array<[PlanTier, string]>).map(([tier, name]) => [name, tier]),
 );
 
-export function tierForQueueName(name: string): QuotaTier {
+export function tierForQueueName(name: string): PlanTier {
   return QUEUE_NAME_TIERS[name] ?? DEFAULT_TIER;
 }
 
-export function getAllTierQueues(): Array<{ tier: QuotaTier; queue: Queue<PluginBuildJobData> }> {
+export function getAllTierQueues(): Array<{ tier: PlanTier; queue: Queue<PluginBuildJobData> }> {
   return VALID_TIERS.map((tier) => ({ tier, queue: getTierQueue(tier) }));
 }
 
-export async function enqueueBuild(tier: QuotaTier, jobName: string, jobData: PluginBuildJobData): Promise<void> {
+export async function enqueueBuild(tier: PlanTier, jobName: string, jobData: PluginBuildJobData): Promise<void> {
   await getTierQueue(tier).add(jobName, jobData);
 }
 
@@ -237,15 +237,15 @@ const tierCache = new CacheService({ prefix: 'plugin-tier:', defaultTtlSeconds: 
 /** Look up the org's tier with a short-TTL in-process cache. Falls open to
  *  DEFAULT_TIER (and caches the fallback) when the quota service is
  *  unreachable so a transient outage doesn't fail every build submission. */
-export async function getOrgTier(quotaService: QuotaService, orgId: string, authHeader: string): Promise<QuotaTier> {
-  const cached = await tierCache.get<QuotaTier>(orgId);
+export async function getOrgTier(quotaService: QuotaService, orgId: string, authHeader: string): Promise<PlanTier> {
+  const cached = await tierCache.get<PlanTier>(orgId);
   if (cached) return cached;
 
-  let tier: QuotaTier;
+  let tier: PlanTier;
   try {
     tier = await quotaService.getTier(orgId, authHeader);
   } catch (err) {
-    logger.warn('Quota tier lookup failed; using default tier', { orgId, error: errorMessage(err) });
+    logger.warn('Plan tier lookup failed; using default tier', { orgId, error: errorMessage(err) });
     tier = DEFAULT_TIER;
   }
   await tierCache.set(orgId, tier);

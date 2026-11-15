@@ -13,7 +13,7 @@ import {
 import { withRoute } from '@pipeline-builder/api-server';
 import { reportingService, type PluginRuntimeFilter, type PluginRuntimeStats } from '@pipeline-builder/pipeline-data';
 import { Router, type Request, type Response } from 'express';
-import { MAX_REPORT_LIMIT, MAX_REPORT_RANGE_MS, scrubField, rollupIds } from '../helpers/report-helpers.js';
+import { MAX_REPORT_LIMIT, MAX_REPORT_RANGE_MS, scrubField } from '../helpers/report-helpers.js';
 import { resolveReportScope } from '../helpers/report-scope.js';
 
 /** Plugin name shape (the plugin spec's `name` rule). */
@@ -68,9 +68,9 @@ async function pluginRuntimeStats(req: Request, res: Response, orgId: string): P
 export function createPluginReportRoutes(): Router {
   const router = Router();
 
-  // The BUILD reports (build-success-rate/duration/failures) are rollup-aware
-  // via the shared `rollupIds` gate (`?includeDescendants=true` honored only for
-  // `reports:rollup` holders). The plugin INVENTORY reports
+  // The BUILD reports (build-success-rate/duration) are rollup-aware via the
+  // shared report scope (`?includeDescendants=true` honored only for
+  // `reports:rollup` holders); build-failures is the cross-org operator read. The plugin INVENTORY reports
   // (summary/distribution/versions) stay single-org by design (see
   // ReportingService.getPluginSummary), so they don't resolve a rollup.
 
@@ -126,14 +126,14 @@ export function createPluginReportRoutes(): Router {
     });
   }));
 
-  // Cross-org failure TEXT, so the retention floor doesn't apply — a platform
-  // operator read, gated like the others on `orgs:read`.
-  router.get('/build-failures', ...requireSystemOrgPermission('orgs:read'), withRoute(async ({ req, res, orgId }) => {
+  // Free-form failure TEXT across EVERY org — the platform operator's read,
+  // gated on `orgs:read` and cross-org exactly like /reports/execution/errors,
+  // under the absolute range ceiling.
+  router.get('/build-failures', ...requireSystemOrgPermission('orgs:read'), withRoute(async ({ req, res }) => {
     const range = parseDateRange(req.query, { maxRangeMs: MAX_REPORT_RANGE_MS });
     if ('error' in range) return sendBadRequest(res, range.error, ErrorCode.VALIDATION_ERROR);
     const limit = parseQueryIntClamped(req.query.limit, 20, MAX_REPORT_LIMIT);
-    const orgIds = await rollupIds(req, orgId);
-    const failures = await reportingService.getBuildFailures(orgId, range.from, range.to, limit, orgIds);
+    const failures = await reportingService.getPlatformBuildFailures(range.from, range.to, limit);
     sendSuccess(res, 200, { failures: scrubField(failures, 'error_message') });
   }));
 

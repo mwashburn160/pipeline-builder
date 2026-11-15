@@ -50,7 +50,7 @@ const { getConfig, getApiConfig, getConfigWithOptions } = await import('../src/u
 // Environment helpers
 const ENV_KEYS = [
   'PLATFORM_TOKEN', 'PLATFORM_BASE_URL', 'CLI_CONFIG_PATH',
-  'TLS_REJECT_UNAUTHORIZED', 'NODE_TLS_REJECT_UNAUTHORIZED', 'UPLOAD_TIMEOUT', 'DEBUG', 'NODE_ENV',
+  'PLATFORM_TLS_VERIFY', 'NODE_TLS_REJECT_UNAUTHORIZED', 'UPLOAD_TIMEOUT_MS', 'DEBUG', 'NODE_ENV',
 ] as const;
 
 let savedEnv: Record<string, string | undefined>;
@@ -180,15 +180,39 @@ describe('config.loader', () => {
       expect(config.auth.token).toBe('tok');
     });
 
-    it('should handle TLS_REJECT_UNAUTHORIZED=0', () => {
+    it('should handle PLATFORM_TLS_VERIFY=false', () => {
       process.env.PLATFORM_TOKEN = 'tok';
-      process.env.TLS_REJECT_UNAUTHORIZED = '0';
+      process.env.PLATFORM_TLS_VERIFY = 'false';
       mockExistsSync.mockReturnValue(true);
       mockReadFileSync.mockReturnValue('');
       mockYamlParse.mockReturnValue({ api: {} });
 
       const config = getConfig();
       expect(config.api.rejectUnauthorized).toBe(false);
+    });
+
+    // The old second and third names are gone: only PLATFORM_TLS_VERIFY turns it off.
+    it('ignores the removed TLS_REJECT_UNAUTHORIZED name', () => {
+      process.env.PLATFORM_TOKEN = 'tok';
+      process.env.TLS_REJECT_UNAUTHORIZED = '0';
+      mockExistsSync.mockReturnValue(true);
+      mockReadFileSync.mockReturnValue('');
+      mockYamlParse.mockReturnValue({ api: {} });
+      try {
+        expect(getConfig().api.rejectUnauthorized).not.toBe(false);
+      } finally {
+        delete process.env.TLS_REJECT_UNAUTHORIZED;
+      }
+    });
+
+    it('refuses PLATFORM_TLS_VERIFY=false in production', () => {
+      process.env.PLATFORM_TOKEN = 'tok';
+      process.env.PLATFORM_TLS_VERIFY = 'false';
+      process.env.NODE_ENV = 'production';
+      mockExistsSync.mockReturnValue(true);
+      mockReadFileSync.mockReturnValue('');
+      mockYamlParse.mockReturnValue({ api: {} });
+      expect(getConfig().api.rejectUnauthorized).not.toBe(false);
     });
 
     // The dev relaxation reaches the CodeBuild synth as NODE_TLS_REJECT_UNAUTHORIZED
@@ -204,9 +228,9 @@ describe('config.loader', () => {
       expect(getConfig().api.rejectUnauthorized).toBe(true);
     });
 
-    it('should handle valid UPLOAD_TIMEOUT', () => {
+    it('should handle valid UPLOAD_TIMEOUT_MS', () => {
       process.env.PLATFORM_TOKEN = 'tok';
-      process.env.UPLOAD_TIMEOUT = '60000';
+      process.env.UPLOAD_TIMEOUT_MS = '60000';
       mockExistsSync.mockReturnValue(true);
       mockReadFileSync.mockReturnValue('');
       mockYamlParse.mockReturnValue({ api: {} });
@@ -215,9 +239,9 @@ describe('config.loader', () => {
       expect(config.api.uploadTimeout).toBe(60000);
     });
 
-    it('should ignore invalid UPLOAD_TIMEOUT', () => {
+    it('should ignore invalid UPLOAD_TIMEOUT_MS', () => {
       process.env.PLATFORM_TOKEN = 'tok';
-      process.env.UPLOAD_TIMEOUT = 'not-a-number';
+      process.env.UPLOAD_TIMEOUT_MS = 'not-a-number';
       mockExistsSync.mockReturnValue(true);
       mockReadFileSync.mockReturnValue('');
       mockYamlParse.mockReturnValue({ api: {} });
@@ -261,9 +285,9 @@ describe('config.loader', () => {
       expect(() => getConfig()).toThrow('pipeline-manager auth login');
     });
 
-    it('honors TLS_REJECT_UNAUTHORIZED=0 without a token', () => {
+    it('honors PLATFORM_TLS_VERIFY=false without a token', () => {
       delete process.env.PLATFORM_TOKEN;
-      process.env.TLS_REJECT_UNAUTHORIZED = '0';
+      process.env.PLATFORM_TLS_VERIFY = 'false';
       mockExistsSync.mockReturnValue(true);
       mockReadFileSync.mockReturnValue('');
       mockYamlParse.mockReturnValue({ api: {} });

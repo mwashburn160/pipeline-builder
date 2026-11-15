@@ -335,6 +335,24 @@ describe('failures', () => {
     expect(pdfQueueDepth().active).toBe(0);
   }, 15_000);
 
+  it('destroys a browser whose LAUNCH outlived the deadline, once it finally arrives', async () => {
+    process.env.REPORT_PDF_TIMEOUT_MS = '1000';
+    const browser = fakeBrowser();
+    let arrive: () => void = () => undefined;
+    // The launch resolves only after the render has already timed out and freed its slot:
+    // without the late cleanup this Chromium would run on, outside the concurrency cap.
+    setPdfLauncher(() => new Promise((resolve) => { arrive = () => resolve(browser as never); }));
+    const result = await renderPdf('<html></html>');
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('unreachable');
+    expect(result.reason).toBe('timeout');
+    expect(browser.closed).toBe(0);
+    arrive();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(browser.closed).toBe(1);
+    expect(browser.newPage).not.toHaveBeenCalled();
+  }, 15_000);
+
   it('does not kill a browser that closed cleanly', async () => {
     const browser = fakeBrowser();
     useBrowser(browser);

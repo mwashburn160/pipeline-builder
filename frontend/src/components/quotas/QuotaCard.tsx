@@ -10,7 +10,7 @@ import { fmtNum } from '@/lib/format';
 import { isAITrialTier } from '@/lib/ai-quota';
 import { packForQuota } from '@/lib/quota-pack-offer';
 import { formatPrice } from '@/components/billing/helpers';
-import type { OrgQuotaResponse, DisplayedQuotaType, QuotaTier, Bundle, BillingInterval } from '@/types';
+import type { OrgQuotaResponse, DisplayedQuotaType, PlanTier, Bundle, BillingInterval } from '@/types';
 
 /**
  * Colored badge indicating quota health status (OK, Warning, Critical, Unlimited).
@@ -57,7 +57,7 @@ export function QuotaCard({
   periodDays?: number;
   /** The org's tier: a trial tier's AI calls are labelled as a trial, and a pack
    *  is only priced when it is actually sold to this tier. */
-  tier?: QuotaTier;
+  tier?: PlanTier;
   /** The add-on catalogue, for "a pack of 10 is $11.99" (F2). Omitted ⇒ the
    *  price line is simply absent; a failed catalogue fetch must cost the card
    *  nothing. */
@@ -212,7 +212,7 @@ export function QuotaPackHint({
   quota: OrgQuotaResponse['quotas'][DisplayedQuotaType];
   bundles?: readonly Bundle[];
   interval?: BillingInterval;
-  tier?: QuotaTier;
+  tier?: PlanTier;
 }) {
   if (!bundles?.length || quota.unlimited || quota.limit <= 0) return null;
   // The warning band, shared with the forecast row above it.

@@ -6,6 +6,7 @@ import { SQL, eq, and, or, asc, desc, sql, inArray, isNull, getTableColumns } fr
 import type { AnyColumn } from 'drizzle-orm/column';
 import type { PgTable } from 'drizzle-orm/pg-core';
 import { CURSOR_SORT_KEY, decodeCursor, encodeCursor, isCastableTo, keysetAfter } from './keyset-cursor.js';
+import { resultRows } from '../database/pg-result.js';
 import { withTenantTx, runWithTenantContext, getTenantContext } from '../database/tenancy.js';
 
 
@@ -173,7 +174,7 @@ export abstract class CrudService<
   /** Get the schema column for sorting by field name */
   protected abstract getSortColumn(sortBy: string): AnyColumn | null;
 
-  /** Get the project column for setDefault scoping (null if entity has no project scope) */
+  /** The project column — the default {@link getDefaultScopeColumns} slot (null if entity has no project scope) */
   protected abstract getProjectColumn(): AnyColumn | null;
 
   /**
@@ -734,12 +735,25 @@ export abstract class CrudService<
   }
 
   /**
-   * Set an entity as the default for a project/organization scope.
-   * Marks all other entities as non-default, then sets the specified entity.
-   * Uses a transaction to ensure atomicity.
+   * The columns that, together with the org, bound a "default" slot: promoting
+   * one row demotes only the other defaults that share ITS values for these
+   * columns. Defaults to the project column (or none — org-wide). A subclass
+   * whose create path treats a wider tuple as the slot MUST return that tuple
+   * here, or promoting a default in one slot clears another slot's default.
+   */
+  protected getDefaultScopeColumns(): AnyColumn[] {
+    const project = this.getProjectColumn();
+    return project ? [project] : [];
+  }
+
+  /**
+   * Set an entity as the default for its slot ({@link getDefaultScopeColumns}
+   * within the org), demoting the slot's other defaults, in one transaction.
+   *
+   * The slot is read from the TARGET row (locked), never supplied by the caller,
+   * so a caller cannot demote a slot the promoted row does not belong to.
    */
   async setDefault(
-    project: string,
     org: string,
     id: string,
     userId: string,
@@ -751,27 +765,33 @@ export abstract class CrudService<
     if (ctx && !ctx.isSuperAdmin && ctx.orgId) org = ctx.orgId;
     return withTenantTx(async (tx) => {
       const orgColumn = this.getOrgColumn();
-      const projectColumn = this.getProjectColumn();
+      const scopeColumns = this.getDefaultScopeColumns();
 
-      // Build scoping conditions for clearing defaults
-      const scopeConditions = [
-        eq(orgColumn, org),
-        eq(this.cols.isDefault, true),
-      ];
-      if (projectColumn) {
-        scopeConditions.push(eq(projectColumn, project));
+      // Lock the target and read its slot. Guard against promoting a
+      // soft-deleted row (isActive = true) and pin the id with the same
+      // lowercased exactIdCondition the mutation paths use, so a mixed-case id
+      // still finds its row. No row → NotFoundError, before anything is demoted.
+      const [target] = resultRows<Record<string, unknown>>(await tx.execute(
+        sql`SELECT ${sql.join([this.cols.id, ...scopeColumns], sql`, `)} FROM ${this.schema}
+            WHERE ${this.exactIdCondition(id)} AND ${orgColumn} = ${org} AND ${this.cols.isActive} = true
+            FOR UPDATE`,
+      ));
+      if (!target) {
+        throw new NotFoundError(`Entity with id ${id} not found`);
       }
+      const slot = scopeColumns.map((col) => {
+        const value = target[col.name];
+        return value === null || value === undefined ? isNull(col) : eq(col, value);
+      });
 
-      // Lock existing defaults with FOR UPDATE to prevent concurrent setDefault races
+      // Lock the slot's existing defaults with FOR UPDATE to prevent concurrent setDefault races
       await tx.execute(
         sql`SELECT id FROM ${this.schema}
-            WHERE ${orgColumn} = ${org}
-              AND ${this.cols.isDefault} = true
-            ${projectColumn ? sql`AND ${projectColumn} = ${project}` : sql``}
+            WHERE ${and(eq(orgColumn, org), eq(this.cols.isDefault, true), ...slot)}
             FOR UPDATE`,
       );
 
-      // Mark all entities in scope as non-default
+      // Mark the slot's other defaults non-default
       await tx
         .update(this.schema)
         .set(this.row({
@@ -779,14 +799,10 @@ export abstract class CrudService<
           updatedAt: new Date(),
           updatedBy: this.actor(userId),
         }))
-        .where(and(...scopeConditions));
+        .where(and(eq(orgColumn, org), eq(this.cols.isDefault, true), ...slot));
 
-      // Set the specified entity as default. Guard against promoting a
-      // soft-deleted row (isActive = true) — a deleted entity must never become
-      // the active default — and pin the id with the same lowercased
-      // exactIdCondition the mutation paths use (the raw `eq(cols.id, id)` here
-      // skipped the lower-casing that `buildIdFilter`/`writeConditions` apply,
-      // so a mixed-case id could miss its row). A non-match → NotFoundError below.
+      // Set the specified entity as default — the same id/org/isActive pin as
+      // the lock above, so the row cannot have moved out from under it.
       const [updated] = await tx
         .update(this.schema)
         .set(this.row({

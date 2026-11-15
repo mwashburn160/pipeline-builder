@@ -244,11 +244,20 @@ describe('GET /internal/storage-breakdown/:orgId', () => {
 });
 
 describe('DELETE /internal/storage-prune/:orgId', () => {
+  /** `repo`/`tag` ride the query string — the plugin's internal client sends a DELETE with no body. */
+  const prunePath = (repo: string, tag: string) => `/internal/storage-prune/${ORG}?${new URLSearchParams({ repo, tag })}`;
+
+  it('refuses a prune that names no repo or tag', async () => {
+    const { status } = await sendJson('DELETE', `/internal/storage-prune/${ORG}`, asPlugin);
+    expect(status).toBe(400);
+    expect(deleteTag).not.toHaveBeenCalled();
+  });
+
   it('drops the version TAG and evicts the cached reading', async () => {
     // A tag delete is enough: storage is measured by walking tags → manifests →
     // blobs, so the layers leave the org's total at once. It is also the
     // conservative choice — a digest-pinned pipeline keeps working.
-    const { status, body } = await sendJson('DELETE', `/internal/storage-prune/${ORG}`, asPlugin, { repo: `org-${ORG}/app`, tag: '1.0.0' });
+    const { status, body } = await sendJson('DELETE', prunePath(`org-${ORG}/app`, '1.0.0'), asPlugin);
     expect(status).toBe(200);
     expect(body.data).toEqual({ repo: `org-${ORG}/app`, tag: '1.0.0', pruned: true });
     expect(deleteTag).toHaveBeenCalledWith(`org-${ORG}/app`, '1.0.0');
@@ -260,7 +269,7 @@ describe('DELETE /internal/storage-prune/:orgId', () => {
     // to the publisher until the listing is withdrawn, so deleting it here
     // would free nothing AND break the orgs that installed it.
     for (const repo of ['public/acme/app', 'system/base', `org-${OTHER_ORG}/app`]) {
-      const { status } = await sendJson('DELETE', `/internal/storage-prune/${ORG}`, asPlugin, { repo, tag: '1.0.0' });
+      const { status } = await sendJson('DELETE', prunePath(repo, '1.0.0'), asPlugin);
       expect({ repo, status }).toEqual({ repo, status: 403 });
     }
     expect(deleteTag).not.toHaveBeenCalled();
@@ -268,14 +277,12 @@ describe('DELETE /internal/storage-prune/:orgId', () => {
 
   it('refuses a digest where a tag is required', async () => {
     // Deleting by digest would take any second tag on the same manifest with it.
-    const { status } = await sendJson('DELETE', `/internal/storage-prune/${ORG}`, asPlugin, {
-      repo: `org-${ORG}/app`, tag: 'sha256:abc',
-    });
+    const { status } = await sendJson('DELETE', prunePath(`org-${ORG}/app`, 'sha256:abc'), asPlugin);
     expect(status).toBe(400);
   });
 
   it('refuses a caller that is not the plugin service', async () => {
-    const { status } = await sendJson('DELETE', `/internal/storage-prune/${ORG}`, { 'x-test-as': 'service:quota' }, { repo: `org-${ORG}/app`, tag: '1.0.0' });
+    const { status } = await sendJson('DELETE', prunePath(`org-${ORG}/app`, '1.0.0'), { 'x-test-as': 'service:quota' });
     expect(status).toBe(403);
   });
 });

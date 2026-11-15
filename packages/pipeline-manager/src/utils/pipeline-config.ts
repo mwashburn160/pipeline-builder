@@ -31,7 +31,7 @@ export interface FetchedPipeline {
  *  - GET the pipeline and validate it has `props`,
  *  - assemble `propsWithIds` (props + pipelineId + orgId),
  *  - pre-resolve plugins so the template ships real CodeBuild image URIs
- *    (otherwise the steps fall back to the deploy-time lookup path),
+ *    (FATAL when any plugin does not resolve),
  *  - resolve the toolchain release's pipeline-bootstrap (FATAL on any
  *    failure, no fallback) with the same `toolchain.release` pin a managed cdk-synth
  *    reference sent, and check both halves are one release,

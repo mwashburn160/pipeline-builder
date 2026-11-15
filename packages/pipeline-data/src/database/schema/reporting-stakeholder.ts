@@ -234,6 +234,12 @@ export const reportRecipient = pgTable('report_recipients', {
    */
   verifiedAt: timestamp('verified_at', { withTimezone: true }),
   verificationTokenHash: varchar('verification_token_hash', { length: 64 }),
+  /**
+   * When the CURRENT verification token was minted (first send or a resend). The
+   * 7-day window runs from here, not from `created_at`, so a link re-sent after
+   * the first week still verifies.
+   */
+  verificationIssuedAt: timestamp('verification_issued_at', { withTimezone: true }),
   /** Honoured across every definition — an unsubscribe is per person, not per report. */
   unsubscribedAt: timestamp('unsubscribed_at', { withTimezone: true }),
   /**

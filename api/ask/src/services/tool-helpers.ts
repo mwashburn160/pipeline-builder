@@ -6,12 +6,13 @@
  *
  * Three jobs:
  *  - unwrap the services' `{ data: … }` envelope,
- *  - SHAPE a downstream read into the few facts the model needs (design rule 5:
- *    anything in the model's context can surface in its prose, so addresses,
- *    webhook URLs and raw error bodies must never get there),
+ *  - SHAPE a downstream read into the few facts the model needs (anything in
+ *    the model's context can surface in its prose, so addresses, webhook URLs
+ *    and raw error bodies must never get there),
  *  - turn a model-supplied `changes` object plus the entity's CURRENT state into
  *    the `{ changedFields, current, proposed, changedPaths, refusedFields }`
- *    diff every change proposal carries (design rules 1, 3 and 10).
+ *    diff every change proposal carries: allowlisted fields only, the reviewed
+ *    diff as the commit payload, and off-allowlist fields reported, not dropped.
  */
 
 /** Unwrap `sendSuccess`'s `{ data: … }` envelope; tolerate a bare body. */
@@ -130,7 +131,7 @@ export interface FieldDiff {
 /**
  * Build the diff a change proposal carries.
  *
- * `allowed` is the tool's ALLOWLIST (design rule 1): a key outside it is refused
+ * `allowed` is the tool's ALLOWLIST: a key outside it is refused
  * and counted, never applied — a new settable field stays unavailable to the
  * agent until somebody deliberately adds it. A key whose proposed value already
  * equals the current one is dropped: the card must show only real changes, so

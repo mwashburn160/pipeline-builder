@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/Button';
 import { Callout } from '@/components/ui/Callout';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { LoadingSpinner } from '@/components/ui/Loading';
+import { formatError } from '@/lib/constants';
 
 
 const CATEGORY_COLORS: Record<string, BadgeColor> = {
@@ -34,7 +35,7 @@ export default function TemplateOnboarding({ readOnly = false }: TemplateOnboard
   const [loading, setLoading] = useState(true);
   const [applying, setApplying] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<{ created: number; skipped: number } | null>(null);
+  const [result, setResult] = useState<{ created: number; skipped: Array<{ id: string; reason: string }> } | null>(null);
 
   useEffect(() => {
     api.getRuleTemplates().then(res => {
@@ -46,7 +47,7 @@ export default function TemplateOnboarding({ readOnly = false }: TemplateOnboard
       } else {
         setError(res.message || 'Failed to load rule templates');
       }
-    }).catch(() => setError('Failed to load rule templates')).finally(() => setLoading(false));
+    }).catch((err) => setError(formatError(err, 'Failed to load rule templates'))).finally(() => setLoading(false));
   }, []);
 
   const toggleTemplate = (id: string) => {
@@ -66,8 +67,8 @@ export default function TemplateOnboarding({ readOnly = false }: TemplateOnboard
       const res = await api.applyRuleTemplates([...selectedIds]);
       if (res.success && res.data) setResult(res.data);
       else setError(res.message || 'Failed to apply templates');
-    } catch {
-      setError('Failed to apply templates');
+    } catch (err) {
+      setError(formatError(err, 'Failed to apply templates'));
     }
     setApplying(false);
   };
@@ -77,10 +78,20 @@ export default function TemplateOnboarding({ readOnly = false }: TemplateOnboard
   }
 
   if (result) {
+    const nameOf = (id: string) => templates.find((t) => t.id === id)?.name ?? id;
     return (
-      <Callout variant="success" icon={Check} title="Templates applied">
+      <Callout
+        variant={result.skipped.length > 0 ? 'warning' : 'success'}
+        icon={result.skipped.length > 0 ? undefined : Check}
+        title="Templates applied"
+      >
         {result.created} rule{result.created !== 1 ? 's' : ''} created
-        {result.skipped > 0 && `, ${result.skipped} skipped (already exist)`}
+        {result.skipped.length > 0 && `, ${result.skipped.length} not created:`}
+        {result.skipped.length > 0 && (
+          <ul className="mt-1 list-disc pl-5">
+            {result.skipped.map((s) => <li key={s.id}>{nameOf(s.id)}: {s.reason}</li>)}
+          </ul>
+        )}
       </Callout>
     );
   }

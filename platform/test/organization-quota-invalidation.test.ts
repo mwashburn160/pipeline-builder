@@ -38,7 +38,7 @@ const limits = (seats: number, plugins: number) => ({
 });
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
-  QUOTA_TIERS: {
+  PLAN_TIERS: {
     developer: { label: 'Developer', limits: limits(1, 10) },
     pro: { label: 'Pro', limits: limits(3, 100) },
     team: { label: 'Team', limits: limits(10, 500) },

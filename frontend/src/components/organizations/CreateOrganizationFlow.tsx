@@ -14,7 +14,7 @@ import { EligibleParentPicker, type ParentOrgOption } from '@/components/teams/E
 import api from '@/lib/api';
 import { invalidate } from '@/lib/api-cache';
 import { TIER_KEYS, getTierMeta } from '@/lib/tiers';
-import type { QuotaTier } from '@/types';
+import type { PlanTier } from '@/types';
 
 interface CreateOrganizationFlowProps {
   /** Whether the create modal is shown. */
@@ -37,7 +37,7 @@ export function CreateOrganizationFlow({ open, onClose, onCreated }: CreateOrgan
   const [setupTier, setSetupTier] = useState<string | undefined>(undefined);
   const [setupOpen, setSetupOpen] = useState(false);
 
-  const handleCreated = ({ name, tier, asTeam }: { name: string; tier: QuotaTier; asTeam: boolean }) => {
+  const handleCreated = ({ name, tier, asTeam }: { name: string; tier: PlanTier; asTeam: boolean }) => {
     onClose();
     onCreated();
     toast.success(`${asTeam ? 'Team' : 'Organization'} "${name}" created`);
@@ -65,11 +65,11 @@ export function CreateOrganizationFlow({ open, onClose, onCreated }: CreateOrgan
 /** The create form. Mounted only while open, so each open starts from a clean state. */
 function CreateOrganizationModal({ onClose, onCreated }: {
   onClose: () => void;
-  onCreated: (result: { name: string; tier: QuotaTier; asTeam: boolean }) => void;
+  onCreated: (result: { name: string; tier: PlanTier; asTeam: boolean }) => void;
 }) {
   const uid = useId();
   const [newOrgName, setNewOrgName] = useState('');
-  const [newOrgTier, setNewOrgTier] = useState<QuotaTier>('developer');
+  const [newOrgTier, setNewOrgTier] = useState<PlanTier>('developer');
   // Defaults to a top-level org (matching the "New Organization" label); check
   // the Team box to instead nest under a parent. Parent candidates come from a
   // server-side search over the ELIGIBLE roots only (team/enterprise tier), so
@@ -140,7 +140,7 @@ function CreateOrganizationModal({ onClose, onCreated }: {
             <label className="block text-xs font-medium text-fg-muted" htmlFor={`${uid}-tier`}>Tier</label>
             <Select id={`${uid}-tier`}
               value={newOrgTier}
-              onChange={(e) => setNewOrgTier(e.target.value as QuotaTier)}
+              onChange={(e) => setNewOrgTier(e.target.value as PlanTier)}
               className="text-sm"
               disabled={createForm.loading}
             >

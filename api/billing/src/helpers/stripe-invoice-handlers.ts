@@ -19,7 +19,7 @@ import { findSubscriptionByStripeId, invoiceSubscriptionId, type StripeEventMeta
 import { acceptStripeEvent, grantOnBecomingEntitled } from './stripe-subscription-handlers.js';
 import { MANAGEABLE_SUBSCRIPTION_STATUSES } from './subscription-status.js';
 import { config } from '../config.js';
-import { Plan } from '../models/plan.js';
+import { Plan, type PlanDocument } from '../models/plan.js';
 
 const logger = createLogger('billing-stripe-webhook');
 
@@ -83,6 +83,7 @@ export async function handlePaymentSucceeded(invoice: Stripe.Invoice, event: Str
   let wasRecovery = false;
   let wasSettle = false;
   let settleReferralCode: string | undefined;
+  let recoveryPlan: PlanDocument | null = null;
 
   if (inOrder) {
     // A paid invoice settles the sub whether it was in dunning (`past_due`) or had
@@ -120,11 +121,12 @@ export async function handlePaymentSucceeded(invoice: Stripe.Invoice, event: Str
         subscription.metadata = rest;
       }
 
-      // Re-upgrade to their plan's tier, preserving purchased add-on grants.
-      const plan = await Plan.findById(subscription.planId);
-      if (plan) {
-        await syncEntitlements(subscription.orgId, plan.tier, '', subscription._id.toString(), subscription.addons ?? []);
-      } else {
+      // Re-upgrade to their plan's tier, preserving purchased add-on grants. The
+      // sync itself runs AFTER the save below, like every other entitlement push:
+      // pushed first, a failed save left the org on its paid tier while the row
+      // still read lapsed `past_due`.
+      recoveryPlan = await Plan.findById(subscription.planId);
+      if (!recoveryPlan) {
         // planId points at a deleted/missing plan: the sub recovers to an entitled
         // status but we can't resolve a tier to re-grant — without this branch the
         // re-upgrade silently no-ops. Surface it (WARN + audit row + metric) so
@@ -175,6 +177,9 @@ export async function handlePaymentSucceeded(invoice: Stripe.Invoice, event: Str
   // concurrent credit-ledger write. A stale event set none, so it saves nothing.
   if (inOrder) await subscription.save();
 
+  if (recoveryPlan) {
+    await syncEntitlements(subscription.orgId, recoveryPlan.tier, '', subscription._id.toString(), subscription.addons ?? []);
+  }
   if (wasSettle) {
     await grantOnBecomingEntitled(subscription, null, { previousStatus, referralCode: settleReferralCode });
   }

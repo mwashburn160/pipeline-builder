@@ -192,6 +192,10 @@ export async function withLeaderLock(
     if (!lost.signal.aborted) lost.abort('shutdown' satisfies LeaderLockAbortReason);
   };
   opts.signal?.addEventListener('abort', onExternalAbort, { once: true });
+  // A signal aborted WHILE the lock was being acquired never fires 'abort' for a
+  // listener added afterwards, so without this check a shutdown that landed
+  // during the SET would let `fn` run its whole window unaware.
+  if (opts.signal?.aborted) onExternalAbort();
 
   let heartbeat: NodeJS.Timeout | undefined;
   if (typeof redis.eval === 'function') {

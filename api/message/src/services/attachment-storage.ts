@@ -35,10 +35,10 @@ import { Jimp } from 'jimp';
 const logger = createLogger('attachment-storage');
 
 /** Resolved bucket name — the single bucket all attachment blobs live in. */
-export const ATTACHMENT_BUCKET = envStr('S3_BUCKET', 'message-attachments');
+const ATTACHMENT_BUCKET = envStr('S3_BUCKET', 'message-attachments');
 
 /** Max long-edge (px) of a generated thumbnail. Env-overridable. */
-export const THUMB_MAX_DIM = Math.max(48, envInt('MESSAGE_THUMBNAIL_MAX_DIM', 320));
+const THUMB_MAX_DIM = Math.max(48, envInt('MESSAGE_THUMBNAIL_MAX_DIM', 320));
 
 /**
  * The thumbnail sibling of a full storage key (`…/<file>` → `…/thumb`), and the
@@ -60,7 +60,7 @@ export function thumbnailContentType(originalContentType: string): string {
   return originalContentType === 'image/png' ? 'image/png' : 'image/jpeg';
 }
 
-/** Store a blob. Key convention: `<orgId>/<attachmentId>/<filename>`. */
+/** Store a blob. Key convention: `<orgId>/<uuid>/<filename>` (the uuid is minted per upload, not the row id). */
 export async function putAttachment(key: string, body: Buffer, contentType: string): Promise<void> {
   await ensureBucket(ATTACHMENT_BUCKET);
   await s3Client().send(new PutObjectCommand({

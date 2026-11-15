@@ -148,14 +148,15 @@ export const listAuditEvents = withController('List audit events', async (req, r
 });
 
 /**
- * GET /audit/verify?orgId=... — verify a tenant's audit hash chain (sysadmin
- * only). Walks the chain for `orgId` (the `affectedOrgId ?? orgId` chain key)
+ * GET /audit/verify?orgId=... — verify a tenant's audit hash chain. Walks the
+ * chain for `orgId` (the `affectedOrgId ?? orgId` chain key)
  * and returns `{ ok, brokenAt?, reason?, count, lastSeq, publishedHead? }`.
  * `ok:false` means a stored row was ALTERED, DELETED or RE-ORDERED after the
  * fact, or the chain no longer reaches its published write-once head (tail
  * truncation) — a tamper signal. This reads
- * nothing sensitive back (only hashes + a boolean), but it exposes cross-tenant
- * chain state, so it's gated to platform sysadmins, not org admins.
+ * nothing sensitive back (only hashes + a boolean). An `audit:read` holder may
+ * verify their OWN active org's chain; naming any other org needs a platform
+ * sysadmin, because that is cross-tenant chain state.
  */
 export const verifyAuditChainHandler = withController('Verify audit chain', async (req, res) => {
   if (!requirePlatformPermission(req, res, 'audit:read')) return;

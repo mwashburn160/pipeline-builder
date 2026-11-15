@@ -9,7 +9,7 @@ import {
 import type { ManagedToolchainPlugin, VulnSeverity, VulnWarning } from '@pipeline-builder/api-core';
 import { incCounter, withRoute } from '@pipeline-builder/api-server';
 import type { RequestContext } from '@pipeline-builder/api-server';
-import { Config, CoreConstants, pluginImageRepository, toSynthPlugin } from '@pipeline-builder/pipeline-core';
+import { Config, CoreConstants, pluginImageRepository, toResolvedPlugin } from '@pipeline-builder/pipeline-core';
 import {
   bootstrapToolchainOf, compareSemver, executeRows, isVersionRange, ManagedToolchainError, recordStepLookup,
   resolveManagedToolchain, vulnUpgradeAvailableWarning, withTenantTx,
@@ -72,8 +72,7 @@ function answerSeverity(warnings: readonly LookupWarning[]): VulnSeverity | null
  * `context` on `POST /plugins/lookup`: the pipeline STEPS synth is resolving —
  * each named by its label (`pluginStepLabel`: `synth` or `<stage>/<alias ?? name>`,
  * the key the step manifest and the declared resolution rows use). The CLI
- * de-duplicates references by alias, so one lookup may serve several steps; the
- * deploy-time custom resource sends one.
+ * de-duplicates references by alias, so one lookup may serve several steps.
  * When the caller's org owns the pipeline, the outcome is recorded per step
  * (`pipeline_step_lookups`, read by `GET /plugins/pipelines/:id/security`), the
  * pipeline's active risk acceptances downgrade what they accepted, and an answer
@@ -314,7 +313,7 @@ export function createReadPluginRoutes(): Router {
     filter: PluginFilter,
     req: Request, res: Response, orgId: string,
     ctx: RequestContext,
-    opts: { setCacheHeader: boolean; context?: LookupContext | null; releasePin?: string; forSynth?: boolean },
+    opts: { setCacheHeader: boolean; context?: LookupContext | null; releasePin?: string; resolved?: boolean },
   ) => {
     // Org → team hierarchy: a team org also sees its parent's public plugins
     // (mirrors the list path). No-op for root orgs (claim absent).
@@ -371,10 +370,11 @@ export function createReadPluginRoutes(): Router {
         });
       }
       if (opts.setCacheHeader) res.setHeader('Cache-Control', CoreConstants.CACHE_CONTROL_LIST);
-      // Synth carries the record into the CDK app whole, so `/lookup` answers
-      // without the display and scan fields it never reads (pipeline-core's
-      // SYNTH_OMITTED_PLUGIN_FIELDS); `/find` answers the full record.
-      return sendSuccess(res, 200, { plugin: opts.forSynth ? toSynthPlugin(plugin) : plugin, warnings, severity, ...extra });
+      // A resolved record travels into the CDK app's props whole, so `/lookup`
+      // answers without the display and scan fields no pipeline build reads
+      // (pipeline-core's RESOLVED_PLUGIN_OMITTED_FIELDS); `/find` answers the
+      // full record.
+      return sendSuccess(res, 200, { plugin: opts.resolved ? toResolvedPlugin(plugin) : plugin, warnings, severity, ...extra });
     };
     const refused = (status: number, message: string, code: ErrorCode, details: Record<string, unknown> | undefined, plugin?: Record<string, unknown>) => {
       const reason = typeof details?.reason === 'string' ? details.reason : String(code);
@@ -528,7 +528,7 @@ export function createReadPluginRoutes(): Router {
     if (typeof lookupContext === 'string') return sendBadRequest(res, lookupContext, ErrorCode.VALIDATION_ERROR);
     const pin = parseReleasePin(releasePin);
     if (typeof pin === 'object') return sendBadRequest(res, pin.error, ErrorCode.VALIDATION_ERROR);
-    return respondWithSinglePlugin(parsed.data as PluginFilter, req, res, orgId, ctx, { setCacheHeader: false, forSynth: true, context: lookupContext, ...(pin ? { releasePin: pin } : {}) });
+    return respondWithSinglePlugin(parsed.data as PluginFilter, req, res, orgId, ctx, { setCacheHeader: false, resolved: true, context: lookupContext, ...(pin ? { releasePin: pin } : {}) });
   }));
 
   // GET /plugins/find — single plugin by filter

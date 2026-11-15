@@ -15,7 +15,7 @@ import { stepUpVerify } from '../controllers/step-up.js';
 import { exchangeToken, revokeKey, rotateKey } from '../controllers/token-exchange.js';
 import { stepUpVerifyTotp, verifyMfaLogin } from '../controllers/totp.js';
 import { stepUpOptions, stepUpVerifyWebAuthn } from '../controllers/webauthn.js';
-import { requireAuth, isValidRefreshToken, requireClientType, stepUpLimiter } from '../middleware/index.js';
+import { requireAuth, requireRefreshSession, requireClientType, stepUpLimiter } from '../middleware/index.js';
 import { loginAccountLimiter } from '../middleware/login-limiter.js';
 import { extractClientIp } from '../middleware/rate-limit-keys.js';
 import { createLimiter, userOrIpKey } from '../middleware/rate-limiter.js';
@@ -111,7 +111,7 @@ router.post(
  * `requireClientType` is the CSRF gate: the browser's token is a cookie, so the
  * request must carry a header no cross-site page can set.
  */
-router.post('/refresh', requireClientType, isValidRefreshToken, refresh);
+router.post('/refresh', requireClientType, requireRefreshSession, refresh);
 
 /** POST /auth/logout - Invalidate current session (and clear the refresh cookie) */
 router.post('/logout', requireClientType, requireAuth, audited('user.logout'), logout);

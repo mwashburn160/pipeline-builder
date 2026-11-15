@@ -27,7 +27,7 @@ import { pipelinePluginRefs } from '../helpers/pipeline-plugin-refs.js';
 const logger = createLogger('plugin-service');
 
 /** Server-side cache for plugin reads. */
-const pluginCache = createCacheService('plugin:', CoreConstants.CACHE_TTL_ENTITY);
+const pluginCache = createCacheService('plugin:', CoreConstants.CACHE_TTL_ENTITY_SECONDS);
 
 type TenantTx = Parameters<Parameters<typeof withTenantTx>[0]>[0];
 

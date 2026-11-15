@@ -139,8 +139,9 @@ export interface UserData {
    * added to the system org.
    *
    * Hide from default queries — operators can't grant themselves this via
-   * the user-profile API; it's set out-of-band (db update) or via a
-   * dedicated sysadmin-only endpoint (future).
+   * the user-profile API; it's set by the bootstrap allowlist, the sysadmin
+   * grant route (`/admin/users/:id/grants`), a sysadmin-created account
+   * (POST /users) or the system org's Super Admin Role.
    *
    * The schema field uses `select: false`, so callers that need to consult
    * this flag MUST explicitly opt in: `User.findById(id).select('+isSuperAdmin')`.

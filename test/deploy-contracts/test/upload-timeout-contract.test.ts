@@ -24,10 +24,10 @@ function serviceDefaultSeconds(): number {
   return Number(m[1].replace(/_/g, '')) / 1000;
 }
 
-/** The loader's default `UPLOAD_TIMEOUT`, in seconds. */
+/** The loader's default `UPLOAD_TIMEOUT_SECONDS`, in seconds. */
 function loaderDefaultSeconds(): number {
-  const m = read('deploy/bin/load-plugins.sh').match(/^UPLOAD_TIMEOUT=(\d+)$/m);
-  if (!m) throw new Error('load-plugins.sh no longer sets a numeric UPLOAD_TIMEOUT default');
+  const m = read('deploy/bin/load-plugins.sh').match(/^UPLOAD_TIMEOUT_SECONDS=(\d+)$/m);
+  if (!m) throw new Error('load-plugins.sh no longer sets a numeric UPLOAD_TIMEOUT_SECONDS default');
   return Number(m[1]);
 }
 

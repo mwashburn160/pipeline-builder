@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { isSystemOrgId, DEFAULT_TIER, QUOTA_TIERS, SYSTEM_ORG_SLUG, tierAllowsTeams } from '@pipeline-builder/api-core';
+import { isSystemOrgId, DEFAULT_TIER, PLAN_TIERS, SYSTEM_ORG_SLUG, tierAllowsTeams } from '@pipeline-builder/api-core';
 import type { Types } from 'mongoose';
 import { ORG_NOT_FOUND, SYSTEM_ORG_DELETE_FORBIDDEN, ORG_SLUG_TAKEN } from './org-errors.js';
 import { RESERVED_ORG_NAME } from './auth-errors.js';
@@ -18,7 +18,7 @@ import { getOrgName } from '../helpers/org-hierarchy.js';
 import { toOrgId } from '../helpers/org-id.js';
 import { publishUsersRevocation } from '../helpers/session-revocation.js';
 import { Role, RoleAssignment, Organization, OrgIdpConfig, User, UserOrganization } from '../models/index.js';
-import type { QuotaTier } from '../models/organization.js';
+import type { PlanTier } from '../models/organization.js';
 import { withMongoTransaction } from '../utils/mongo-tx.js';
 import { escapeRegex } from '../utils/regex.js';
 import { unwrapEncrypted } from '../utils/secret-blob.js';
@@ -38,7 +38,7 @@ interface OrgSummary {
   createdAt: Date;
   updatedAt: Date;
   /** Pricing tier — exposed so the orgs facet UI can filter by it. */
-  tier?: QuotaTier;
+  tier?: PlanTier;
   /** True iff `kmsConfig.keyId` is present on the org doc. Lets the UI
    *  badge KMS-configured orgs and filter for "no per-org CMK yet". */
   kmsConfigured: boolean;
@@ -62,7 +62,7 @@ interface OrgSummary {
 interface ListParams {
   search?: string;
   /** Filter by pricing tier. Cheap (single-doc field). */
-  tier?: QuotaTier;
+  tier?: PlanTier;
   /** Only these orgs — lets a page resolve names for exactly the ids it shows
    *  instead of paging the whole fleet and missing the ones past the cap. */
   ids?: string[];
@@ -91,7 +91,7 @@ interface OrgWithMembers extends Omit<OrgSummary, 'memberCount'> {
 interface CreateOrgInput {
   name: string;
   description?: string;
-  tier?: QuotaTier;
+  tier?: PlanTier;
   /** When set, create as a team nested under this (root) org. */
   parentOrgId?: string;
 }
@@ -239,13 +239,13 @@ class OrganizationService {
    * transaction. Quota limits seeded from tier config so subsequent quota lookups
    * have a baseline even before the quota service is ever called.
    */
-  async create(userId: string, body: CreateOrgInput): Promise<{ id: string; name: string; slug: string; description: string; tier: QuotaTier; parentOrgId?: string }> {
+  async create(userId: string, body: CreateOrgInput): Promise<{ id: string; name: string; slug: string; description: string; tier: PlanTier; parentOrgId?: string }> {
     return withMongoTransaction(async (session) => {
       // A team (child org) is a pooled sub-unit of the root: it inherits the
       // root's tier and gets locally-unlimited quotas (-1) so ONLY the root's
       // pooled cap binds (docs/billing-bundles.md "Pooling across teams"). A root org
       // seeds its own quotas from its tier preset (matches setTier).
-      let tier: QuotaTier;
+      let tier: PlanTier;
       let quotas: Record<string, number>;
       // A team inherits the root's purchased feature entitlements (bundle grants)
       // so it isn't missing them until the next billing sync (mirrors how
@@ -257,11 +257,11 @@ class OrganizationService {
         tier = parent?.tier ?? DEFAULT_TIER;
         inheritedFeatures = (parent?.featureEntitlements as string[] | undefined) ?? [];
         quotas = Object.fromEntries(
-          Object.keys(QUOTA_TIERS[tier].limits).map((k) => [k, -1]),
+          Object.keys(PLAN_TIERS[tier].limits).map((k) => [k, -1]),
         );
       } else {
         tier = body.tier || DEFAULT_TIER;
-        quotas = { ...QUOTA_TIERS[tier].limits };
+        quotas = { ...PLAN_TIERS[tier].limits };
       }
 
       assertNotReservedOrgName(body.name);
@@ -319,7 +319,7 @@ class OrganizationService {
     orgId: string,
     seats: number,
     features?: string[],
-    tier?: QuotaTier,
+    tier?: PlanTier,
     supportContacts?: number,
     supportPremiumContacts?: number,
   ): Promise<SeatLimitResult | null> {
@@ -417,7 +417,7 @@ class OrganizationService {
    */
   async checkTierOvercap(
     orgId: string,
-    newTier: QuotaTier,
+    newTier: PlanTier,
   ): Promise<Array<{ quotaType: string; currentUsage: number; targetCap: number; overage: number }>> {
     return checkTierOvercap(orgId, newTier);
   }
@@ -427,7 +427,7 @@ class OrganizationService {
    * config — see {@link setTier} in organization-quota.js. Delegates; the public
    * method signature is unchanged.
    */
-  async setTier(id: string, newTier: QuotaTier): Promise<{ id: string; previousTier: QuotaTier; tier: QuotaTier; featuresRemoved?: string[] } | null> {
+  async setTier(id: string, newTier: PlanTier): Promise<{ id: string; previousTier: PlanTier; tier: PlanTier; featuresRemoved?: string[] } | null> {
     return setTier(id, newTier);
   }
 

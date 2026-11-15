@@ -6,13 +6,13 @@ import { Modal } from '@/components/ui/Modal';
 import { ModalFooter } from '@/components/ui/ModalFooter';
 import { Select } from '@/components/ui/Select';
 import { TIER_KEYS, getTierMeta } from '@/lib/tiers';
-import type { Organization, QuotaTier } from '@/types';
+import type { Organization, PlanTier } from '@/types';
 
 interface ChangeTierDialogProps {
   org: Organization;
   onClose: () => void;
   /** Called with the picked tier when it differs from the org's current tier (then closes). */
-  onSelect: (tier: QuotaTier) => void;
+  onSelect: (tier: PlanTier) => void;
 }
 
 /**
@@ -23,12 +23,12 @@ interface ChangeTierDialogProps {
 export function ChangeTierDialog({ org, onClose, onSelect }: ChangeTierDialogProps) {
   const uid = useId();
   const current = org.tier ?? 'developer';
-  const [newTier, setNewTier] = useState<QuotaTier>(current);
+  const [newTier, setNewTier] = useState<PlanTier>(current);
   // `unlimited` is the tier every org is on when billing is disabled, and it is
   // deliberately not purchasable — so it is never OFFERED, but it has to be
   // listed while the org is on it or the <select> would silently show (and
   // submit) "Developer" for an org that is on no such plan.
-  const options: readonly QuotaTier[] = TIER_KEYS.includes(current) ? TIER_KEYS : [current, ...TIER_KEYS];
+  const options: readonly PlanTier[] = TIER_KEYS.includes(current) ? TIER_KEYS : [current, ...TIER_KEYS];
 
   // Advance from tier-picker to the step-up prompt (no-op if unchanged).
   const confirmTierSelection = () => {
@@ -57,7 +57,7 @@ export function ChangeTierDialog({ org, onClose, onSelect }: ChangeTierDialogPro
         <label className="block text-xs font-medium text-fg-muted" htmlFor={`${uid}-tier`}>Tier</label>
         <Select id={`${uid}-tier`}
           value={newTier}
-          onChange={(e) => setNewTier(e.target.value as QuotaTier)}
+          onChange={(e) => setNewTier(e.target.value as PlanTier)}
           className="text-sm"
         >
           {options.map((tier) => (

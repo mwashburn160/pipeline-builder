@@ -176,10 +176,14 @@ describe('chargeBuildCredits', () => {
   });
 
   it('charges a permanent failure and skips a retryable one', async () => {
-    await chargeBuildCredits(quotaService, makeJob({}, { failureCategory: 'retryable' }), 'failed');
+    await chargeBuildCredits(quotaService, makeJob(), 'failed', 'retryable');
     expect(mockIncrementMetered).not.toHaveBeenCalled();
 
-    await chargeBuildCredits(quotaService, makeJob({}, { failureCategory: 'permanent' }), 'failed');
+    // No category: nothing classified it, so nothing is charged.
+    await chargeBuildCredits(quotaService, makeJob(), 'failed');
+    expect(mockIncrementMetered).not.toHaveBeenCalled();
+
+    await chargeBuildCredits(quotaService, makeJob(), 'failed', 'permanent');
     expect(mockIncrementMetered).toHaveBeenCalledTimes(1);
     expect(mockIncCounter).toHaveBeenCalledWith('cpu_credits_charged_total', { org_id: 'org-1', outcome: 'failed', build_class: 'standard', build_size: '1x' });
   });

@@ -45,6 +45,10 @@ describe('classifyFailure', () => {
   it('classifies by the synth\'s structured refusal code first, falling back to the text for an unknown code', () => {
     expect(classifyFailure({ status: 'FAILED', errorMessage: 'npm ERR! ETARGET', failureCode: 'PLUGIN_NOT_INSTALLED' })).toBe('configuration');
     expect(classifyFailure({ status: 'FAILED', errorMessage: 'whatever', failureCode: 'IMAGE_VERIFICATION_FAILED' })).toBe('security_scan');
+    // The plugin resolver's refusals: an unknown plugin is the pipeline's config;
+    // a lookup that failed is the platform, whatever the message happens to say.
+    expect(classifyFailure({ status: 'FAILED', errorMessage: 'npm ERR! ETARGET', failureCode: 'PLUGIN_NOT_FOUND' })).toBe('configuration');
+    expect(classifyFailure({ status: 'FAILED', errorMessage: '401 Unauthorized', failureCode: 'PLUGIN_LOOKUP_FAILED' })).toBe('external_service');
     expect(classifyFailure({ status: 'FAILED', errorMessage: '401 Unauthorized', failureCode: 'SOMETHING_NEW' })).toBe('authentication');
     expect(classifyFailure({ status: 'SUCCEEDED', failureCode: 'PLUGIN_DELETED' })).toBeNull();
   });

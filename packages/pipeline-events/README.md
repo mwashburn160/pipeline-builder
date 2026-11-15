@@ -9,10 +9,10 @@ AWS Lambda handler for [Pipeline Builder](https://mwashburn160.github.io/pipelin
 ## Responsibilities
 
 1. Receives CodePipeline (pipeline / stage / action) events delivered as an SQS batch sourced from EventBridge.
-2. Classifies each record into a normalized event type (`PIPELINE`, `STAGE`, `ACTION`) and derives status, start/completion times, run duration, and — on failures — the `errorMessage` (from the action's `execution-result.external-execution-summary`).
+2. Classifies each record into a normalized event type (`PIPELINE`, `STAGE`, `ACTION`) and derives status, start/completion times (`completedAt` on every terminal state: `SUCCEEDED`, `FAILED`, `CANCELED`, `STOPPED`, `SUPERSEDED`, `ABANDONED`), run duration, and — on failures — the `errorMessage` (from the action's `execution-result.external-execution-summary`).
 3. Resolves each pipeline's tags via `codepipeline:ListTagsForResource`, cached per pipeline. The ARN and AWS account never leave AWS, so there is no masking/secret to manage. Untagged (unregistered) pipelines are skipped.
 4. Resolves the DORA **commit range** in-account for source/deploy events (Phase 4) and attaches `commitTimestamp`/`commitCount`.
-5. Posts the normalized batch (keyed by `pipelineId`) to the reporting service via `POST /api/reports/events`.
+5. Posts the normalized batch (keyed by `pipelineId`) to the reporting service via `POST /api/reports/events`. A transient failure (5xx, throttling, a network error) returns every carried record for redelivery. A refusal of the content (`400`, `413`, `422` — e.g. one event over the 8 KB `detail` bound) is not retried as a batch: each event is resent on its own, the accepted ones land, a refused one is dropped and logged as `Reporting ingest refused an event; dropping it` (with its `messageId`, `pipelineId` and the ingest's answer — the message to count with a log metric filter), and one whose resend fails transiently is redelivered.
 6. After a successful batch, emits a **delivery-health** signal and **self-heals the dead-letter queue** (Phase 3).
 
 CodeBuild `Build State` events are skipped: a build project can be shared across pipelines, so there is no clean 1:1 mapping to a pipeline id.

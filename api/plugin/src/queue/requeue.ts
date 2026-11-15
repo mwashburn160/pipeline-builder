@@ -35,7 +35,7 @@ export interface Retrier {
 }
 
 /** A re-enqueue refused before anything was queued (no quota slot for a non-sysadmin). */
-export class RequeueRefusedError extends AppError {
+class RequeueRefusedError extends AppError {
   constructor(message: string, statusCode: 429 | 503, code: ErrorCode) {
     super(statusCode, code, message);
     this.name = 'RequeueRefusedError';
@@ -95,10 +95,13 @@ async function requeueWithFreshBudget(
     // reserved) so this re-run's own terminal release is period-safe.
     reservedResetAt,
   };
-  delete (freshData as { lastError?: string }).lastError;
-  delete (freshData as { failureCategory?: string }).failureCategory;
+  delete freshData.lastError;
+  delete freshData.failureCategory;
+  // A fresh run waits for its slot on a fresh clock (see the DLQ re-queue).
+  delete freshData.slotDelays;
+  delete freshData.slotWaitStartedAt;
   if (source.data.publish && retrier.canPublish) freshData.publish = { caller: retrier.caller };
-  else delete (freshData as { publish?: unknown }).publish;
+  else delete freshData.publish;
 
   const tier = await getOrgTier(quotaService, orgId, authHeader);
 

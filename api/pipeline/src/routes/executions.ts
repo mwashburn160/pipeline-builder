@@ -17,7 +17,7 @@ import {
 import { createAuthenticatedWithOrgRoute, withRoute, incCounter } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { z } from 'zod';
-import { executionIdempotency } from '../services/execution-idempotency.js';
+import { DUPLICATE_TRIGGER_MESSAGE, triggerExecutionInWindow } from '../helpers/trigger-execution.js';
 import {
   pipelineExecutionService,
   PipelineExecutionError,
@@ -89,38 +89,31 @@ export function createExecutionRoutes(): Router {
 
       // Short idempotency window: refuse a duplicate trigger for the same
       // (org, pipeline) within the window rather than starting a second run.
-      // Fails open when Redis is unavailable (single-replica / outage).
-      const claim = await executionIdempotency.claim(orgId, pipelineId);
-      if (!claim) {
-        ctx.log('WARN', 'Duplicate pipeline execution trigger suppressed', { pipelineId });
-        recordAudit({
-          action: 'pipeline.execution.start',
-          actorId: actorId({ userId }),
-          orgId,
-          targetType: 'pipeline_execution',
-          outcome: 'failure',
-          details: { pipelineId, reason: 'duplicate_suppressed' },
-        });
-        return sendError(res, 409, 'A pipeline execution was just triggered; please wait a moment before retrying', ErrorCode.CONFLICT);
-      }
-
+      // Fails open when Redis is unavailable (single-replica / outage). The
+      // window is shared with every other start path (plugin-upgrade redeploy).
       try {
-        const { executionId } = await pipelineExecutionService.triggerExecution(pipelineId, orgId);
+        const started = await triggerExecutionInWindow(pipelineId, orgId);
+        if (started.status === 'duplicate') {
+          ctx.log('WARN', 'Duplicate pipeline execution trigger suppressed', { pipelineId });
+          recordAudit({
+            action: 'pipeline.execution.start',
+            actorId: actorId({ userId }),
+            orgId,
+            targetType: 'pipeline_execution',
+            outcome: 'failure',
+            details: { pipelineId, reason: 'duplicate_suppressed' },
+          });
+          return sendError(res, 409, DUPLICATE_TRIGGER_MESSAGE, ErrorCode.CONFLICT);
+        }
+        const { executionId } = started;
         ctx.log('COMPLETED', 'Triggered pipeline execution', { pipelineId, executionId });
 
         // Domain metric — CodePipeline execution started. Labelled by outcome
-        // and ORG.
-        //
-        // org_id was deliberately omitted before, for label cardinality, and
-        // that trade is no longer the right one: a pipeline execution is the one
-        // unit of consumption `cpuCredits` does NOT count yet (Phase 4), so
-        // without this label there is no per-tenant figure for pipeline usage at
-        // all — not to charge from, and not to re-derive the tier ladder from
-        // when the charge does land. Counting by org is the cheap half of that
-        // and needs none of the rest. Cardinality is bounded by the tenant
-        // count, the same bound `cpu_credits_charged_total` and
-        // `quota_denied_total` already accept; pipelineId stays off, because
-        // that one is unbounded per tenant.
+        // and ORG: a pipeline execution is a unit of consumption `cpuCredits`
+        // does not count, so this label is the only per-tenant figure for
+        // pipeline usage. Cardinality is bounded by the tenant count, the same
+        // bound `cpu_credits_charged_total` and `quota_denied_total` accept;
+        // pipelineId stays off, because that one is unbounded per tenant.
         incCounter('pipeline_executions_total', { outcome: 'started', org_id: orgId });
 
         // Best-effort attributed audit — the AWS CodePipeline start succeeded.
@@ -148,13 +141,8 @@ export function createExecutionRoutes(): Router {
           outcome: 'failure',
           details: { pipelineId, reason: executionFailureReason(code) },
         });
-        // Reopen the idempotency window ONLY when the run definitely never
-        // started (nothing to start). After an AWS error or a timeout the start
-        // may have landed — keeping the short window is what stops the user's
-        // retry from launching a duplicate run.
-        if (code === PE_PIPELINE_NOT_REGISTERED || code === PE_AWS_PIPELINE_NOT_FOUND) {
-          await executionIdempotency.release(orgId, pipelineId, claim);
-        }
+        // The window was already reopened by the helper iff the run definitely
+        // never started.
         if (code === PE_PIPELINE_NOT_REGISTERED) {
           return sendError(res, 404, 'Pipeline is not deployed/registered', ErrorCode.NOT_FOUND);
         }

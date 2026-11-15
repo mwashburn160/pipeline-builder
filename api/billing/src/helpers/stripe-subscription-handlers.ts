@@ -419,7 +419,8 @@ export async function grantOnBecomingEntitled(
 
 /**
  * Handle subscription deletion from Stripe.
- * Marks subscription as canceled and downgrades the org to developer tier.
+ * Marks subscription as canceled and, if it was still entitled, downgrades the
+ * org to developer tier.
  */
 export async function handleSubscriptionDeleted(stripeSubscription: Stripe.Subscription, event: StripeEventMeta): Promise<void> {
   const externalId = stripeSubscription.id;
@@ -442,8 +443,15 @@ export async function handleSubscriptionDeleted(stripeSubscription: Stripe.Subsc
   clearDiscountsOnCancel(subscription);
   await subscription.save();
 
-  // Downgrade to developer tier
-  await syncEntitlements(subscription.orgId, 'developer', '', subscription._id.toString());
+  // Downgrade to developer tier — but only when THIS row was still entitled. A
+  // row that is already canceled was downgraded by whichever path ended it (the
+  // stale-period reconciler, an admin override, a terminal `.updated`), and an
+  // `incomplete` row was never granted a tier. Entitlements are pushed per ORG,
+  // so re-downgrading here when the `.deleted` lands late — after the org has
+  // resubscribed — would strip the NEW subscription's paid tier.
+  if ((MANAGEABLE_SUBSCRIPTION_STATUSES as readonly string[]).includes(previousStatus)) {
+    await syncEntitlements(subscription.orgId, 'developer', '', subscription._id.toString());
+  }
 
   await createBillingEvent(subscription.orgId, 'subscription_canceled', {
     provider: 'stripe',

@@ -29,7 +29,7 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
 
 jest.unstable_mockModule('@pipeline-builder/pipeline-core', async () => {
   return stubModule('@pipeline-builder/pipeline-core', {
-    Config: { get: () => ({ services: { billingTimeout: 5000 } }) },
+    Config: { get: () => ({ services: { billingTimeoutMs: 5000 } }) },
     CoreConstants: {
       IDEMPOTENCY_CLEANUP_INTERVAL_MS: 60_000,
       IDEMPOTENCY_TTL_MS: 300_000,

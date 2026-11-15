@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { BUILD_LADDER_CONCURRENCY_SUM, buildWorkerConcurrencyFor, createKeyedConcurrencyGate, createLogger, envInt, VALID_TIERS } from '@pipeline-builder/api-core';
-import type { QuotaTier } from '@pipeline-builder/api-core';
+import type { PlanTier } from '@pipeline-builder/api-core';
 import { incCounter, observe, setGauge } from '@pipeline-builder/api-server';
 
 const logger = createLogger('build-gate');
@@ -75,7 +75,7 @@ export function buildBorrowMax(): number {
 
 /** A tier's GUARANTEED floor on this replica — the ladder row, unchanged. */
 function floorFor(tier: string): number {
-  return buildWorkerConcurrencyFor(tier as QuotaTier);
+  return buildWorkerConcurrencyFor(tier as PlanTier);
 }
 
 /** Slots currently held ABOVE their tier's floor. */
@@ -114,14 +114,9 @@ const gate = createKeyedConcurrencyGate<string>({
 export function buildGateState(): { inFlight: number; waiting: number } {
   // PROJECTED, not passed through: the keyed gate also carries per-tier counts,
   // and returning them here would widen a published shape that callers compare
-  // exactly. Per-tier occupancy has its own accessor below.
+  // exactly. Per-tier occupancy is published by `onOccupancy` above.
   const { inFlight, waiting } = gate.state();
   return { inFlight, waiting };
-}
-
-/** Per-tier occupancy of the build budget — for the borrowing tests and gauges. */
-export function buildGatePerTier(): ReadonlyMap<string, number> {
-  return gate.state().perKey;
 }
 
 /** Test seam. */

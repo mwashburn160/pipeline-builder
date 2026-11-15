@@ -17,8 +17,8 @@
  * commit, where a reviewer can see it.
  *
  * The comparison covers the whole authorization posture, not just `permissions`:
- * assurance level, step-up, entitlement, scope and internal-caller list are all
- * things that can be quietly relaxed.
+ * assurance level, step-up (including a conditional one), entitlement, scope and
+ * internal-caller list are all things that can be quietly relaxed.
  */
 
 import { describe, it, expect } from '@jest/globals';
@@ -52,6 +52,8 @@ interface RouteEntry {
    * reviewable. The rule belongs in the route's own doc section.
    */
   dynamicAuthz?: string[];
+  /** Gates applied to only the requests `when` describes (`gateWhen`). */
+  conditionalGates?: Array<{ when: string; stepUp: boolean; stepUpMethods: string[]; minAssurance: number }>;
 }
 
 /**
@@ -86,6 +88,13 @@ function authorizationOf(e: RouteEntry): string {
   }
   if (e.stepUp) parts.push(`step-up(${[...(e.stepUpMethods ?? [])].sort().join(',') || 'any'})`);
   if (e.orgAdminAssurance) parts.push('org-admin-assurance');
+  // A conditional gate carries its condition INTO each token, so dropping the
+  // `gateWhen` — or what it wraps, or narrowing which requests it selects in
+  // words — fails here like any other weakening.
+  for (const c of e.conditionalGates ?? []) {
+    if (c.minAssurance > 0) parts.push(`aal${c.minAssurance}(when ${c.when})`);
+    if (c.stepUp) parts.push(`step-up(${[...c.stepUpMethods].sort().join(',') || 'any'} when ${c.when})`);
+  }
   if (parts.length === 0) return e.auth ? 'authenticated' : 'public';
   return parts.join(' + ');
 }
@@ -93,7 +102,8 @@ function authorizationOf(e: RouteEntry): string {
 /** A route is in scope for the contract once it enforces ANY caller identity. */
 function isGated(e: RouteEntry): boolean {
   return (e.permissions?.length ?? 0) > 0 || e.systemAdmin || e.servicePrincipal
-    || (e.internalCallers?.length ?? 0) > 0 || (e.dynamicAuthz?.length ?? 0) > 0;
+    || (e.internalCallers?.length ?? 0) > 0 || (e.dynamicAuthz?.length ?? 0) > 0
+    || (e.conditionalGates?.length ?? 0) > 0;
 }
 
 const routeKey = (service: string, method: string, path: string) => `${service} ${method} ${path}`;

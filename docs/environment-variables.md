@@ -18,7 +18,7 @@ Complete reference for every environment variable across the Pipeline Builder se
 - **Set only what your target needs.** Defaults here mirror the code, so an unset variable is a deliberate default, not a gap.
 - **Never commit a `.env`.** Generate secrets with `openssl rand -base64 32`.
 - **Several switches interact.** A master switch being off makes everything beneath it inert — `EMAIL_ENABLED`, `BILLING_ENABLED`, `BILLING_DISCOUNTS_ENABLED`, `REPORT_SCHEDULER_ENABLED`.
-- **Per-tier overrides follow a pattern**: `QUOTA_TIER_<TIER>_<LIMIT>`, `BILLING_PLAN_<TIER>_MONTHLY`, `JWT_EXPIRES_IN_*`.
+- **Per-tier overrides follow a pattern**: `PLAN_TIER_<TIER>_<LIMIT>`, `BILLING_PLAN_<TIER>_MONTHLY`, `JWT_EXPIRES_IN_*`.
 - **Secrets belong in a sealed secret or SSM**, not in a ConfigMap. The k8s targets build `app-env` from the whole `.env`, so anything you put there is mounted.
 - **Some values must match something outside the app** — `EMAIL_FROM` against the SES IAM condition, `SES_REGION` against the identity's region.
 
@@ -68,7 +68,7 @@ Use the [Table of Contents](#table-of-contents) below to jump to a section.
 - [Email](#email) -- SMTP and SES configuration
 - [Billing](#billing) -- Subscription billing provider
 - [Reporting & DORA](#reporting--dora) -- Event reporting, DORA metrics, retention
-- [AWS CDK / Lambda](#aws-cdk--lambda) -- Lambda runtime, CodeBuild compute
+- [AWS CDK / CodeBuild](#aws-cdk--codebuild) -- CodeBuild compute
 - [Timeouts](#timeouts) -- Request, build, and connection timeouts
 - [Caching](#caching) -- Response and entity cache TTLs
 - [SSE](#server-sent-events) -- Server-sent events configuration
@@ -121,7 +121,7 @@ Use the [Table of Contents](#table-of-contents) below to jump to a section.
 | `PASSWORD_BREACH_CHECK_URL` | `https://api.pwnedpasswords.com/range/` | Range API base (the 5-char prefix is appended). Point at an internal mirror to keep the check without public egress |
 | `PASSWORD_BREACH_CHECK_TIMEOUT_MS` | `2000` | Per-check timeout; past it the check fails open |
 | `LOGIN_ACCOUNT_LIMITER_MAX` | `10` | Per-**account** failed password sign-ins allowed per window on `POST /auth/login` (keyed on a SHA-256 of the normalized identifier; successful sign-ins are not counted). The per-IP limit is `AUTH_LIMITER_*` |
-| `LOGIN_ACCOUNT_LIMITER_WINDOWMS` | `900000` | Per-account sign-in throttle window (15 min) |
+| `LOGIN_ACCOUNT_LIMITER_WINDOW_MS` | `900000` | Per-account sign-in throttle window (15 min) |
 | `BOOTSTRAP_SUPERADMIN_EMAILS` | — | Comma-separated user emails auto-promoted to `isSuperAdmin=true` at platform boot. **Required for fresh installs** — the first sysadmin can only be granted through this env or a direct DB update. Idempotent. Also names who the **bootstrap-admin MFA exception** applies to (#8): until one of these accounts enrols a passkey or an authenticator app, its password sign-in yields a limited session that can reach only enrolment, sign-out and the setup routes, and SSO enforcement never applies to it. Read live, so changing it needs no redeploy. See [Assurance levels and required MFA](authentication.md#assurance-levels-and-required-mfa). |
 | `BOOTSTRAP_SETUP_WINDOW_MS` | `86400000` | How long (ms, measured from the system org's creation — the install time) a password-only bootstrap-admin session may still mint the `setup` service account and its key through the MFA exception. Past it those two routes demand a real second factor; enrolment, sign-out and refresh stay open forever, so a late admin is never locked out. Raise it only for an install that legitimately takes longer than a day to finish; unset / non-positive = the 24h default |
 | `MFA_RECOVER_OPERATOR` | — | Default `--operator` for the `scripts/mfa-recover.js` factor-reset command — who is running it, recorded as the audit actor. Only read by that command; the flag wins when both are given, and the command refuses to run with neither (an audit row for a factor reset is worth little without a name). |
@@ -400,8 +400,8 @@ owning user, so the master-key rotation notes above apply to them too.
 | `DB_REPLICATION_USER` | `pb_replicator` | The read replicas' login, created by `postgres-init.sql` as `LOGIN REPLICATION` and nothing else. **Must not equal `DB_USER`** — init raises if it does. Replication streams WAL, which sits below row-level security, so a role that can replicate can read every org's rows; the application role is created `NOREPLICATION` for exactly that reason. |
 | `DB_REPLICATION_PASSWORD` | — | Password for `DB_REPLICATION_USER`. Unset = the replication role is not created and no standby can seed; the standby's seeding step then fails loudly rather than quietly `initdb`-ing a second, independent cluster that looks healthy and shares no data. Rotation has no overlap window — see [Secret Rotation](runbooks/secret-rotation.md#db_replication_password-read-replicas). |
 | `DRIZZLE_MAX_POOL_SIZE` | `20` | Connection pool size |
-| `DRIZZLE_IDLE_TIMEOUT_MILLIS` | `30000` | Idle connection timeout (ms) |
-| `DRIZZLE_CONNECTION_TIMEOUT_MILLIS` | `10000` | Connection timeout (ms) |
+| `DRIZZLE_IDLE_TIMEOUT_MS` | `30000` | Idle connection timeout (ms) |
+| `DRIZZLE_CONNECTION_TIMEOUT_MS` | `10000` | Connection timeout (ms) |
 | `DB_MAX_RETRIES` | `3` | Connection retry attempts |
 | `DB_RETRY_DELAY_MS` | `1000` | Retry delay (ms) |
 | `DATABASE` | `pipeline_builder` | Database name for services |
@@ -542,7 +542,7 @@ there is no docker daemon, no privileged build sidecar, and no strategy switch.
 | `DOCKER_BUILD_TEMP_ROOT` | `<cwd>/tmp` | Directory the local Docker build strategy stages its build contexts in. Point it at a volume with room for the largest context; the default follows the process's working directory, which on a container is usually the image's own filesystem |
 | `ALLOW_INCLUSTER_PULL_HOST` | `false` | Permit a plugin image reference whose pull host is only resolvable INSIDE the cluster. Off, such a reference is refused at validation — it would resolve for the builder and fail for anything pulling from outside. `true` only when every consumer is in-cluster |
 | `DOCKER_PUSH_TIMEOUT_MS` | `300000` | Push timeout (5 min) |
-| `PLUGIN_UPLOAD_TIMEOUT_MS` | `900000` | Upload HTTP timeout (15 min) — overrides the 25 s default request timeout for the upload route. Kept equal to nginx's upload-route proxy timeouts and the loader's `UPLOAD_TIMEOUT` (see [Plugin Upload Timeout Chain](#plugin-upload-timeout-chain)) |
+| `PLUGIN_UPLOAD_TIMEOUT_MS` | `900000` | Upload HTTP timeout (15 min) — overrides the 25 s default request timeout for the upload route. Kept equal to nginx's upload-route proxy timeouts and the loader's `UPLOAD_TIMEOUT_SECONDS` (see [Plugin Upload Timeout Chain](#plugin-upload-timeout-chain)) |
 | `PLUGIN_UPLOAD_DIR` | `/opt/pipeline/pipeline-data/plugins-data` | Where an uploaded plugin archive is staged before it goes to object storage and is extracted. Each upload is removed in a `finally`, so this needs room for concurrent uploads, not for the catalog |
 | `PLUGIN_MAX_UPLOAD_MB` | `4096` | Max plugin ZIP upload size in MB (supports prebuilt image.tar) |
 | `GRYPE_DB_CACHE_DIR` | `$TMPDIR/grype-db` (deploys set `/var/cache/grype`) | grype's vulnerability DB for the build-time scan and the nightly rescan. Every deploy mounts a volume here — the plugin container's root filesystem is read-only. **eks:** one shared, read-only copy on the `grype-db` EFS claim, written only by the `grype-db-refresh` CronJob (every 6 h, and once per deploy); the pods run with `PLUGIN_GRYPE_DB_AUTO_UPDATE=false`. **ec2 / minikube:** a per-pod 12 Gi `emptyDir`. **compose:** the `grype-db` named volume. The DB is ~3.3 GiB installed, and a refresh over an existing copy peaks around 7.3 GiB on disk |
@@ -611,9 +611,9 @@ The per-tier concurrencies are a **ladder, not one figure**, and each one bounds
 | `PLUGIN_BUILDKIT_ADDR_SIZE_<SUFFIX>` | *(unset)* | buildkitd address for one **build machine**: `HALF`, `1X`, `2X`, `4X`, `8X` (Small … X-Large). The pool that makes a machine mean anything, and a size with no pool is **refused at submission** rather than served off the shared daemon. Takes precedence over the per-tier address, because a tenant asking for Large wants the big daemon even when their tier has one of its own. The suffix comes from the build catalog, not from the id — `0.5x` would produce the illegal `..._0.5X` |
 | `PLUGIN_ORG_SLOT_DELAY_MS` | `10000` | How long (ms) a job that couldn't get an org slot waits before retrying |
 
-| `PLUGIN_ORG_SLOT_TTL_SEC` | `900` | Crash-recovery expiry (seconds) of a held org build slot, so a dead worker can't leak one forever. A running build heartbeats its own slot at a third of this, so the TTL is NOT a cap on build duration. Refreshed only on a GRANTED acquire: when denials refreshed it too, a starved org's own retries pushed back the recovery of the leaked slot that was starving it, so the window never elapsed |
+| `PLUGIN_ORG_SLOT_TTL_SECONDS` | `900` | Crash-recovery expiry (seconds) of a held org build slot, so a dead worker can't leak one forever. A running build heartbeats its own slot at a third of this, so the TTL is NOT a cap on build duration. Refreshed only on a GRANTED acquire: when denials refreshed it too, a starved org's own retries pushed back the recovery of the leaked slot that was starving it, so the window never elapsed |
 | `PLUGIN_ORG_SLOT_MAX_WAIT_MS` | `1800000` | How long (ms) a build may wait for an org slot before failing terminally with a 503. A slot delay spends no BullMQ attempt, so this budget is what stops a starved job bouncing forever |
-| `PLUGIN_ORG_SLOT_SCRUB_MS` | `PLUGIN_ORG_SLOT_TTL_SEC / 3` | How often leaked org build slots are reconciled against live BullMQ state |
+| `PLUGIN_ORG_SLOT_SCRUB_MS` | `PLUGIN_ORG_SLOT_TTL_SECONDS / 3` | How often leaked org build slots are reconciled against live BullMQ state |
 | `PLUGIN_TIER_CACHE_TTL_MS` | `300000` | Per-pod cache (ms) of each org's tier, used to route a build to its tier queue; a stale entry only misroutes to a neighbouring queue until expiry |
 
 **Per-org build slots are per class as well as per tier.** The defaults, from `TIER_BUILD_SLOTS`:
@@ -629,7 +629,7 @@ The per-tier concurrencies are a **ladder, not one figure**, and each one bounds
 
 Two things in that table are deliberate. **Flexible has more headroom than standard on every row**, because the cheap class is where the room has to be for it to smooth anything — a row where `flexible <= standard` would make the class pointless to choose. And **every tier has both classes**, so a free account can still push one urgent fix through `standard` rather than queueing behind its own deferred work; the classes hold separate counters precisely so flexible saturation cannot take that slot away.
 
-The defaults live in the **build catalog** (`BUILD_CLASS_CATALOG[class].slotsByTier`) alongside the class labels and the machine floors, not in the tier-limit table: the catalog is browser-importable and therefore cannot read an env var, so it holds defaults and `maxBuildsPerOrg` applies the overlay. Before it, these numbers lived in `quota-tiers.ts` and were mirrored by hand in the frontend.
+The defaults live in the **build catalog** (`BUILD_CLASS_CATALOG[class].slotsByTier`) alongside the class labels and the machine floors, not in the tier-limit table: the catalog is browser-importable and therefore cannot read an env var, so it holds defaults and `maxBuildsPerOrg` applies the overlay. Before it, these numbers lived in `plan-tiers.ts` and were mirrored by hand in the frontend.
 
 It was one flat figure before (`PLUGIN_MAX_BUILDS_PER_ORG=3`), which gave a Developer org the same three in-flight builds as an Enterprise one — the per-org semaphore was the one place in the build path that ignored what the tenant pays for. **That name is retired and has no alias**: it sat dead in three deploy targets' `.env.example` for long enough that reviving it would have silently applied a stale `=3`. The baselines are now `PLUGIN_ORG_BUILD_SLOTS_STANDARD` / `_FLEXIBLE`, which the ladder still raises wherever it exceeds them, and a per-cell override still wins over both. A garbage override still falls back to the cell's default rather than reaching the acquire script as `NaN`: `tonumber('NaN')` is nil in Lua, and one fat-fingered variable would otherwise brick **every** plugin build, not just that tier's.
 
@@ -650,6 +650,7 @@ The deadline scales with the machine: a sub-Standard build gets `DOCKER_BUILD_TI
 | `PLUGIN_DLQ_SCAN_INTERVAL_MS` | `5000` | Minimum interval (ms) between DLQ max-size enforcement scans |
 | `PLUGIN_QUEUE_METRICS_INTERVAL_MS` | `15000` | How often (ms) the build-queue job counts are scraped into Prometheus metrics |
 | `PLUGIN_QUEUE_MAX_PAGE_DEPTH` | `5000` | Deepest row a caller may page to on the queue `GET /failed` and `GET /dlq` views (each page reads `offset + limit` entries from every queue, so this bounds the Redis range read) |
+| `PLUGIN_QUEUE_TENANT_SCAN_MAX_ROWS` | `10000` | Deepest row a TENANT-scoped queue view (`GET /failed`, `GET /dlq`, `GET /triage`) scans per source (each tier's failed set, each DLQ state set). Those views keep the caller's own jobs before limiting, so other orgs' failures cannot push them off the page; the caller's jobs older than this depth are not listed |
 | `PLUGIN_TRIAGE_CACHE_TTL_MS` | `5000` | Memo TTL (ms) for the queue `GET /triage` aggregate, collapsing a dashboard's repeated polls into one scan |
 | `PLUGIN_TRIAGE_CACHE_MAX_ENTRIES` | `500` | Cap on distinct `/triage` memo keys (keyed per org), oldest evicted first |
 | `TEMP_DIR_MAX_AGE_MS` | `14400000` | Stale temp dir cleanup threshold (4 hours) |
@@ -685,12 +686,12 @@ The deadline scales with the machine: a sub-Standard build gets `DOCKER_BUILD_TI
 | `QUOTA_STORAGE_FAIL_OPEN` | `false` | What a registry push does when the storage-quota lookup itself FAILS. Default fails CLOSED — the push is refused rather than admitted unmetered. Only the literal `true` admits it, trading enforcement for availability |
 | `QUOTA_SERVICE_PORT` | `3000` | Quota service port |
 | `LIMITER_MAX` | `100` | Global rate limit (requests/window) |
-| `LIMITER_WINDOWMS` | `900000` | Global rate limit window (15 min) |
+| `LIMITER_WINDOW_MS` | `900000` | Global rate limit window (15 min) |
 | `REGISTRY_TOKEN_RATE_LIMIT_MAX` | `60` | image-registry `/token`: requests per window per (source IP, username) — also listed under [Docker Registry](#docker-registry) |
 | `REGISTRY_TOKEN_RATE_LIMIT_IP_MAX` | `300` | image-registry `/token`: requests per window per source IP across all usernames |
 | `REGISTRY_TOKEN_RATE_LIMIT_WINDOW_MS` | `60000` | image-registry `/token` rate-limit window (ms) |
 | `AUTH_LIMITER_MAX` | `20` | Auth endpoint rate limit |
-| `AUTH_LIMITER_WINDOWMS` | `900000` | Auth rate limit window (15 min) |
+| `AUTH_LIMITER_WINDOW_MS` | `900000` | Auth rate limit window (15 min) |
 | `MESSAGE_SEND_RATE_MAX` | `60` | Per-**org** message send + reply limit (post-auth; complements the global per-IP limiter). Verified service principals exempt |
 | `MESSAGE_SEND_RATE_WINDOW_MS` | `60000` | Per-org message-send window (1 min) |
 | `MESSAGE_ATTACHMENT_RATE_MAX` | `30` | Per-**org** attachment-upload limit (rejected before multipart buffering) |
@@ -742,9 +743,9 @@ The deadline scales with the machine: a sub-Standard build gets `DOCKER_BUILD_TI
 |----------|---------|-------------|
 | `SCIM_DOCUMENTATION_URL` | `https://docs.pipeline-builder.io/docs/authentication.html` | The `documentationUri` served in the SCIM `ServiceProviderConfig` — the first document an IdP fetches. Override it for an air-gapped install that republishes the docs internally |
 
-> **These are not the caps a new org gets.** The platform service is the sole authority for org lifecycle: it seeds each org's stored limits from its **tier** (see `QUOTA_TIERS` below) at creation time, and enforcement reserves against those stored values. The `QUOTA_DEFAULT_*` values govern only the *fallback read* for an org that has no document yet — so the dashboard renders something instead of erroring. Changing them does not raise or lower any real org's limit.
+> **These are not the caps a new org gets.** The platform service is the sole authority for org lifecycle: it seeds each org's stored limits from its **tier** (see `PLAN_TIERS` below) at creation time, and enforcement reserves against those stored values. The `QUOTA_DEFAULT_*` values govern only the *fallback read* for an org that has no document yet — so the dashboard renders something instead of erroring. Changing them does not raise or lower any real org's limit.
 
-Tier presets ship in `@pipeline-builder/api-core` (`QUOTA_TIERS` in `quota-tiers.ts`):
+Tier presets ship in `@pipeline-builder/api-core` (`PLAN_TIERS` in `plan-tiers.ts`):
 
 | Tier | plugins | pipelines | apiCalls | automationCalls | aiCalls | listings | seats |
 |------|---------|-----------|----------|-----------------|---------|----------|-------|
@@ -755,11 +756,11 @@ Tier presets ship in `@pipeline-builder/api-core` (`QUOTA_TIERS` in `quota-tiers
 | enterprise | 150 | 30 | 1,500,000 | 310,000 | 3,000 | 100 | 15 |
 | unlimited | -1 | -1 | -1 | -1 | -1 | -1 | -1 |
 
-`automationCalls` is the metered-API budget of **non-interactive credentials** — org service accounts (platform-automation, pipeline-register, reporting-ingest and registry-push keys) and personal access keys: a request authenticated by one spends `automationCalls` *instead of* `apiCalls`, so pipelines and CI scripts can't exhaust the console for the org's people. The defaults come from an itemized per-run count — 12 plugin lookups + synth + runtime check + security-report upload + registry register + ~12 ingest batches = 28 calls per run, × 24 runs/day × the 3-day period = 2,016 per active pipeline, × (4 × the tier's `pipelines`) active pipelines, + 4,320 ingest heartbeats per org, × 1.25 headroom, rounded up to 10,000 (`automationCallsFor` in `quota-tiers.ts`; [API Quotas → Automation calls](quotas.md#automation-calls)). The cap is soft by `QUOTA_AUTOMATION_GRACE_PCT`. The limits are **per period**: lengthening `QUOTA_RESET_DAYS` should scale `QUOTA_TIER_<TIER>_AUTOMATION_CALLS` by the same factor.
+`automationCalls` is the metered-API budget of **non-interactive credentials** — org service accounts (platform-automation, pipeline-register, reporting-ingest and registry-push keys) and personal access keys: a request authenticated by one spends `automationCalls` *instead of* `apiCalls`, so pipelines and CI scripts can't exhaust the console for the org's people. The defaults come from an itemized per-run count — 12 plugin lookups + synth + runtime check + security-report upload + registry register + ~12 ingest batches = 28 calls per run, × 24 runs/day × the 3-day period = 2,016 per active pipeline, × (4 × the tier's `pipelines`) active pipelines, + 4,320 ingest heartbeats per org, × 1.25 headroom, rounded up to 10,000 (`automationCallsFor` in `plan-tiers.ts`; [API Quotas → Automation calls](quotas.md#automation-calls)). The cap is soft by `QUOTA_AUTOMATION_GRACE_PCT`. The limits are **per period**: lengthening `QUOTA_RESET_DAYS` should scale `PLAN_TIER_<TIER>_AUTOMATION_CALLS` by the same factor.
 
-Any preset can be overridden per-environment via `QUOTA_TIER_<DEVELOPER|PRO|TEAM|BUSINESS|ENTERPRISE|UNLIMITED>_<LIMIT>` (e.g. `QUOTA_TIER_TEAM_SEATS=20`, `QUOTA_TIER_PRO_LISTINGS=15`), and `DEFAULT_QUOTA_TIER` sets the tier assigned to newly created orgs (`developer` by default). `cpuCredits` is vCPU-minutes of plugin-build compute per **month**, derived from the tier's `plugins` cap rather than guessed (`plugins x 10` builds a month at a flat 30 wall-minutes and 1.5 vCPU, so `credits = builds x 45`: 4,500 / 11,250 / 22,500 / 45,000 / 67,500). It is the first dimension with genuine per-unit marginal cost — every other quota is a rate limit protecting shared infrastructure, this one is compute the platform pays for — and the only flow on a window other than `QUOTA_RESET_DAYS`. `seats` is a tier limit, not a tracked counter — it is enforced live at invite time against active org membership. `supportContacts` works the same way but is enforced at **designation** time, and its base is **0 on every tier** (`-1` on `unlimited`): support is an add-on at every tier and included in none, so an org with no support bundle has no contacts and cannot open a case — the support paywall is a quota check, not a feature flag.
+Any preset can be overridden per-environment via `PLAN_TIER_<DEVELOPER|PRO|TEAM|BUSINESS|ENTERPRISE|UNLIMITED>_<LIMIT>` (e.g. `PLAN_TIER_TEAM_SEATS=20`, `PLAN_TIER_PRO_LISTINGS=15`), and `DEFAULT_PLAN_TIER` sets the tier assigned to newly created orgs (`developer` by default). `cpuCredits` is vCPU-minutes of plugin-build compute per **month**, derived from the tier's `plugins` cap rather than guessed (`plugins x 10` builds a month at a flat 30 wall-minutes and 1.5 vCPU, so `credits = builds x 45`: 4,500 / 11,250 / 22,500 / 45,000 / 67,500). It is the first dimension with genuine per-unit marginal cost — every other quota is a rate limit protecting shared infrastructure, this one is compute the platform pays for — and the only flow on a window other than `QUOTA_RESET_DAYS`. `seats` is a tier limit, not a tracked counter — it is enforced live at invite time against active org membership. `supportContacts` works the same way but is enforced at **designation** time, and its base is **0 on every tier** (`-1` on `unlimited`): support is an add-on at every tier and included in none, so an org with no support bundle has no contacts and cannot open a case — the support paywall is a quota check, not a feature flag.
 
-**`unlimited` tier.** Every limit is `-1` (uncapped) and every gated feature is on. It is the automatic default when **billing is disabled** (`BILLING_ENABLED=false`) — `DEFAULT_QUOTA_TIER` is ignored in that case and new orgs get `unlimited`. When billing is **enabled** it is never displayed, selectable, or purchasable (excluded from the plans list and tier pickers), and `DEFAULT_QUOTA_TIER=unlimited` is rejected in favour of `developer`. Its label is overridable via `QUOTA_TIER_UNLIMITED_LABEL` (default `Unlimited`).
+**`unlimited` tier.** Every limit is `-1` (uncapped) and every gated feature is on. It is the automatic default when **billing is disabled** (`BILLING_ENABLED=false`) — `DEFAULT_PLAN_TIER` is ignored in that case and new orgs get `unlimited`. When billing is **enabled** it is never displayed, selectable, or purchasable (excluded from the plans list and tier pickers), and `DEFAULT_PLAN_TIER=unlimited` is rejected in favour of `developer`. Its label is overridable via `PLAN_TIER_UNLIMITED_LABEL` (default `Unlimited`).
 
 Quota counters roll over on a period that is **per type**. Every flow quota but one shares `QUOTA_RESET_DAYS` (default `3`), read by both the quota service (which resets counters) and platform (which seeds a new org's counters); `cpuCredits` rolls on `QUOTA_CPU_CREDITS_PERIOD_DAYS` (default `30`). Ask for a type's own window with `quotaPeriodDays(type)` rather than reading the global constant — the two differ by a factor of ten, and a forecast or a "resets in N days" line against the wrong one is simply wrong. Stocks (`storageBytes` and the resource counts) have no period at all; check `quotaAccrual(type)` before using one.
 
@@ -801,7 +802,7 @@ Feature flags and kill switches for the plugin ecosystem
 | `REVIEW_ORG_WRITE_RATE_LIMIT_PER_MIN` | `120` | Plugin review writes per minute, per org |
 | `REVIEW_IP_DAILY_LIMIT` | `20` | Plugin review writes per day, per source IP |
 | `REVIEW_ORG_DAILY_LIMIT` | `20` | Reviews one org may post per day |
-| `REVIEW_AUTO_HOLD_REPORTS` | `3` | Distinct abuse reports that automatically hold a review for moderation |
+| `REVIEW_AUTO_HOLD_REPORTS` | `3` | Distinct abuse reports that automatically hold a review for moderation. Reports from the listing owner's own org never count |
 
 Public directory API tuning (plugin service; all optional):
 
@@ -878,7 +879,6 @@ Attachments are validated against a MIME allow-list (common images + documents; 
 | `COMPLIANCE_BYPASS` | `false` | Bypass compliance checks when service is unavailable (dev/DR only) |
 | `COMPLIANCE_ENABLED` | `true` | Enable compliance enforcement |
 | `SCAN_SCHEDULER_INTERVAL_MS` | `60000` | Compliance scan scheduler interval (ms) |
-| `SYSTEM_ORG_SCANS_ENABLED` | `false` | Run scheduled scans for the system org too |
 | `SCAN_LOCK_TTL_MS` | `300000` | Scan scheduler cross-pod leader-lock TTL (ms); only one replica sweeps per tick |
 | `COMPLIANCE_SCAN_STALE_TIMEOUT_MS` | `7200000` | Mark a scan `failed` once it has been `running` this long (min 60000) |
 | `DIGEST_SCHEDULER_INTERVAL_MS` | `3600000` | How often the notification digest scheduler checks for due daily/weekly digests (ms) |
@@ -908,7 +908,7 @@ For AWS SES: set `EMAIL_PROVIDER=ses` with `SES_REGION` (and `SES_CONFIGURATION_
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `BILLING_ENABLED` | `true` | Enable billing (opt-out — on unless set to `false`). When `false`, new orgs default to the uncapped `unlimited` tier and no plans/tiers are offered; when `true`, `unlimited` is hidden and orgs get `DEFAULT_QUOTA_TIER` (default `developer`). |
+| `BILLING_ENABLED` | `true` | Enable billing (opt-out — on unless set to `false`). When `false`, new orgs default to the uncapped `unlimited` tier and no plans/tiers are offered; when `true`, `unlimited` is hidden and orgs get `DEFAULT_PLAN_TIER` (default `developer`). |
 | `BILLING_SUPPORT_FLOOR_ENABLED` | `true` | Whether support carries a seat-derived **size floor** on top of its per-contact price. `false` leaves support priced purely per contact — the **fixed** model. **Why it exists:** per-contact pricing assumes contacts proxy for case volume, which holds at ten seats and fails at a hundred, where three named contacts become an internal help desk *forwarding* tickets. A 100-person org holding 3 contacts and 1 premium upgrade pays $159.96/mo and generates a 100-person org's case volume, so the per-contact price buys the interface rather than the load. The floor is applied as `contacts > 0 ? max(contactsPrice, floor × (1 − volume%)) : 0` — **never** charged to an org holding no support, and the volume discount carries through so the ramp cannot silently annihilate a credit the customer earned. |
 | `BILLING_SUPPORT_FLOOR_PER_SEAT_CENTS` | `499` | Cents per billable seat per month. Calibrated to PARTIAL cost recovery, not full: a 100-person org generating ~20 cases/month costs roughly $2,000 to serve and cannot be charged that against a $79 plan, so $425 recovers ~12% with plan revenue carrying the rest. The monthly figure is rounded **up to the whole dollar** after the level weight, so the number quoted is one a customer can reproduce. |
 | `BILLING_SUPPORT_FLOOR_FREE_SEATS` | `15` | Seats excluded before the ramp starts, so the floor is `max(0, seats − this) × rate`. **Defaults to the enterprise tier's own seat base**, which makes it a purchase boundary rather than an arbitrary number: seats beyond it can only exist if the account bought seat packs past the top tier, so the floor only ever reaches orgs that already paid to grow. It also makes the ramp **continuous** — at exactly this many seats the floor is $0, so there is no seat count at which the price jumps. That matters because `seats` pools at the account **root**: a hard threshold would be stepped over for free by splitting into a second account. In practice the floor starts binding at **27 seats** for a three-contact account. |
@@ -987,12 +987,13 @@ For `BILLING_PROVIDER=aws-marketplace`: add-on charges are reported as metered u
 
 ## Reporting & DORA
 
-Event reporting (`setup-events` → the reporting service) and DORA metrics. All are **optional** — the platform runs on the defaults. DORA metrics sit behind the `advanced_reporting` entitlement; see [DORA Metrics](dora-metrics.md). Retention windows are **tier-aware and bundle-extendable** (effective window = tier baseline + Σ retention-pack grant, computed by billing and synced into `dora_settings`) and additionally **per-organization** overridable via the org's reporting settings; the `REPORTING_*` values below are the deployment-wide fallback used when neither a tier baseline nor an org override applies. The per-tier baselines are set by `QUOTA_TIER_<TIER>_EVENT_RETENTION_DAYS` / `QUOTA_TIER_<TIER>_DORA_RETENTION_DAYS` (see below).
+Event reporting (`setup-events` → the reporting service) and DORA metrics. All are **optional** — the platform runs on the defaults. DORA metrics sit behind the `advanced_reporting` entitlement; see [DORA Metrics](dora-metrics.md). Retention windows are **tier-aware and bundle-extendable** (effective window = tier baseline + Σ retention-pack grant, computed by billing and synced into `dora_settings`) and additionally **per-organization** overridable via the org's reporting settings; the `REPORTING_*` values below are the deployment-wide fallback used when neither a tier baseline nor an org override applies. The per-tier baselines are set by `PLAN_TIER_<TIER>_EVENT_RETENTION_DAYS` / `PLAN_TIER_<TIER>_DORA_RETENTION_DAYS` (see below).
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `PLATFORM_ACCESS_KEY` | — | Set on the **event-ingestion Lambda** (not a service var) to hand it the `reporting:ingest` service-account key directly, skipping the Secrets Manager read. Normally unset: `setup-events` points the Lambda at `PLATFORM_SECRET_NAME` instead, which is also the only form the key ROTATOR can replace — an env-provided key cannot change without a redeploy. A JWT here is refused at startup with the fix named. |
 | `PLATFORM_SECRET_NAME` | — | Set on the **event-ingestion Lambda** and the **key-rotation Lambda** (not a service var) to the Secrets Manager secret holding the service-account key in its `password` field (`pipeline-builder/{orgId}/reporting-ingest`). Written by `pipeline-manager infra store-token`; wired by `infra setup-events --scoped-ingest`. |
+| `KEY_TTL_DAYS` | `30` | Set on the **key-rotation Lambda** (not a service var) by its stack's `KeyLifetimeDays` parameter, from `infra store-token --schedule --expires-days`. The lifetime (1–365 days) of each key the rotator mints — not how often it rotates (the schedule is daily). |
 | `DORA_ENABLED` | `false` | Set on the **event-ingestion Lambda** (not a service var) to enable DORA **lead-time** commit-range resolution in your AWS account (SCM calls + `github-token` read). Toggle via `pipeline-manager infra setup-events --with-dora`, not by hand. Off ⇒ standard reporting still works and DORA lead time reports `unknown`. |
 | `DORA_INCIDENT_WINDOW_HOURS` | `24` | Reporting service. Window in which a production **incident** correlates to the most recent deploy (feeds post-deploy CFR / MTTR). Per-org override via `dora_settings`. |
 | `REPORTING_RETENTION_ENABLED` | `true` | Master switch for the retention purge sweep. **Set `false` to keep all reporting history forever** — recommended for self-hosted / unlimited-tier deployments that want unbounded retention. |
@@ -1027,25 +1028,20 @@ The retention window is a **tier baseline** that add-on retention packs extend. 
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `QUOTA_TIER_<TIER>_EVENT_RETENTION_DAYS` | `30` (paid tiers) / unlimited on `unlimited` | Per-tier baseline retention (days) for **standard** pipeline events, where `<TIER>` is `DEVELOPER`, `PRO`, `TEAM`, `BUSINESS`, `ENTERPRISE`, or `UNLIMITED`. The `unlimited` tier derives `-1` (unlimited — the sweep skips the org and keeps all history). The **Standard Retention Pack** add-on adds +90 days on top. |
-| `QUOTA_TIER_<TIER>_DORA_RETENTION_DAYS` | `180` (paid tiers) / unlimited on `unlimited` | Per-tier baseline retention (days) for **DORA-source** records. The `unlimited` tier derives `-1`. The **DORA History Pack** add-on adds +365 days on top (and widens the report-query window to match). |
+| `PLAN_TIER_<TIER>_EVENT_RETENTION_DAYS` | `30` (paid tiers) / unlimited on `unlimited` | Per-tier baseline retention (days) for **standard** pipeline events, where `<TIER>` is `DEVELOPER`, `PRO`, `TEAM`, `BUSINESS`, `ENTERPRISE`, or `UNLIMITED`. The `unlimited` tier derives `-1` (unlimited — the sweep skips the org and keeps all history). The **Standard Retention Pack** add-on adds +90 days on top. |
+| `PLAN_TIER_<TIER>_DORA_RETENTION_DAYS` | `180` (paid tiers) / unlimited on `unlimited` | Per-tier baseline retention (days) for **DORA-source** records. The `unlimited` tier derives `-1`. The **DORA History Pack** add-on adds +365 days on top (and widens the report-query window to match). |
 
 Billing computes the effective window (`tierBase + Σ pack grant`, `-1` = unlimited passthrough) and pushes it to the reporting service (`PUT /api/reports/retention-sync/:orgId`, writing `dora_settings`). The per-org report-query window tracks this effective retention (`min(730, orgRetentionDays)`, absolute ceiling **730 days**); an unlimited-tier org queries up to the 730-day ceiling.
 
 ---
 
-## AWS CDK / Lambda
+## AWS CDK / CodeBuild
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `LAMBDA_RUNTIME` | `nodejs26.x` | Lambda runtime. The default is a **public preview** runtime — set `nodejs24.x` for the GA one. |
-| `LAMBDA_TIMEOUT` | `900` | Timeout (seconds) |
-| `LAMBDA_MEMORY_SIZE` | `512` | Memory (MB) |
-| `LAMBDA_ARCHITECTURE` | `ARM_64` | Plugin-lookup Lambda architecture: `ARM_64` or `x86_64` |
-| `LAMBDA_RESERVED_CONCURRENCY` | — | Reserved concurrency for the plugin-lookup Lambda; unset → unreserved |
 | `CODEBUILD_COMPUTE_TYPE` | `SMALL` | `SMALL`, `MEDIUM`, `LARGE`, `X2_LARGE` |
-| `PLATFORM_CA_BUNDLE` | — | PEM text of a private CA the platform's certificate chains to. Trusted (on top of Node's roots) by `pipeline-manager`'s API client, propagated into every CodeBuild step and the plugin-lookup Lambda — so the CodeBuild synth verifies TLS instead of disabling it. |
-| `PLATFORM_TLS_VERIFY` | `true` | Whether pipelines verify the platform's TLS certificate. Read at synth time. `false` (a dev platform on a self-signed certificate with no CA to distribute) adds `--no-verify-ssl` to the self-mutating synth and sets `NODE_TLS_REJECT_UNAUTHORIZED=0` on every CodeBuild step and the plugin-lookup Lambda; `NODE_TLS_REJECT_UNAUTHORIZED=0` in the synth's environment is treated the same. Prefer `PLATFORM_CA_BUNDLE`, which keeps verification on. Credentialed unverified calls are still refused when `NODE_ENV=production`. |
+| `PLATFORM_CA_BUNDLE` | — | PEM text of a private CA the platform's certificate chains to. Trusted (on top of Node's roots) by `pipeline-manager`'s API client, propagated into every CodeBuild step — so the CodeBuild synth verifies TLS instead of disabling it. |
+| `PLATFORM_TLS_VERIFY` | `true` | Whether pipelines verify the platform's TLS certificate. Read at synth time. `false` (a dev platform on a self-signed certificate with no CA to distribute) adds `--no-verify-ssl` to the self-mutating synth and sets `NODE_TLS_REJECT_UNAUTHORIZED=0` on every CodeBuild step; `NODE_TLS_REJECT_UNAUTHORIZED=0` in the synth's environment is treated the same. The one name for this switch: `pipeline-manager` itself and the key-rotation Lambda read it too. Prefer `PLATFORM_CA_BUNDLE`, which keeps verification on. Credentialed unverified calls are still refused when `NODE_ENV=production` (the key-rotation Lambda always runs in production, so it always verifies). |
 | `LOG_GROUP_NAME` | `/pipeline-builder/logs` | CloudWatch log group |
 | `SECRETS_PATH_PREFIX` | `pipeline-builder` | AWS Secrets Manager path prefix |
 | `REPORTING_FETCH_TIMEOUT_MS` | `5000` | **Event-forwarder Lambda.** Deadline for one outbound call to the reporting service (the batch POST, the ingest-health signal, the last-deploy-commit lookup). A Lambda has no supervisor to notice it is stuck: an untimed request holds the invocation until the FUNCTION timeout, burning the whole budget, returning no batch response, and letting SQS redeliver the same records to the same wedged endpoint. Third-party forge calls keep their own tighter 3s deadline. |
@@ -1060,7 +1056,7 @@ All optional (defaults shown). They tune behavior that matters only under horizo
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `PIPELINE_EXEC_IDEMPOTENCY_WINDOW_SECONDS` | `60` | Window for the execution-trigger idempotency guard — a duplicate `POST /pipelines/:id/executions` within it is a no-op, not a second CodePipeline run |
+| `PIPELINE_EXEC_IDEMPOTENCY_WINDOW_SECONDS` | `10` | Window for the execution-trigger idempotency guard, per (org, pipeline), shared by every start path — a second `POST /pipelines/:id/executions` or plugin-upgrade apply with `redeploy` within it starts no second CodePipeline run (a 409 / that pipeline's `redeploy.error`) |
 | `BILLING_WEBHOOK_INPROGRESS_TTL_SECONDS` | `300` | Webhook in-progress lock TTL — a crash mid-processing releases the claim after this so the provider's retry re-runs the event's side-effects (not dropped as a duplicate) |
 | `COMPLIANCE_VALIDATE_TIMEOUT_MS` | `4000` | Per-attempt timeout for the fail-closed compliance validate call (now retried, so a transient blip doesn't reject a legit upload/create) |
 | `HTTP_CLIENT_MAX_SOCKETS` | `64` | Max sockets per internal HTTP keep-alive agent (was unbounded) |
@@ -1080,13 +1076,13 @@ All optional (defaults shown). They tune behavior that matters only under horizo
 | `PLUGIN_UPLOAD_TIMEOUT_MS` | `900000` | Upload route timeout override (15 min) |
 | `DOCKER_BUILD_TIMEOUT_MS` | `900000` | Docker build timeout (15 min) |
 | `DOCKER_PUSH_TIMEOUT_MS` | `300000` | Docker push timeout (5 min) |
-| `HTTP_CLIENT_TIMEOUT` | `5000` | Internal HTTP client timeout — a TOTAL deadline for the whole exchange (connect, send, full body), not just socket idle |
+| `HTTP_CLIENT_TIMEOUT_MS` | `5000` | Internal HTTP client timeout — a TOTAL deadline for the whole exchange (connect, send, full body), not just socket idle |
 | `HTTP_CLIENT_MAX_RETRIES` | `2` | Internal HTTP client retries |
 | `HTTP_CLIENT_RETRY_DELAY_MS` | `200` | Internal HTTP client retry delay |
-| `REPORTING_HTTP_TIMEOUT` | `3000` | Timeout (ms) for reporting's outbound org-hierarchy lookups to platform. Deliberately TIGHTER than `HTTP_CLIENT_TIMEOUT`: a report that degrades fast beats a dashboard that hangs |
-| `REGISTRY_HTTP_TIMEOUT` | `30000` | Timeout (ms) for image-registry's management calls to the upstream OCI registry. Deliberately LONGER than `HTTP_CLIENT_TIMEOUT` because catalog, manifest and blob operations are slow |
-| `QUOTA_SERVICE_TIMEOUT` | `5000` | Quota service call timeout |
-| `BILLING_SERVICE_TIMEOUT` | `5000` | Billing service call timeout |
+| `REPORTING_HTTP_TIMEOUT_MS` | `3000` | Timeout (ms) for reporting's outbound org-hierarchy lookups to platform. Deliberately TIGHTER than `HTTP_CLIENT_TIMEOUT_MS`: a report that degrades fast beats a dashboard that hangs |
+| `REGISTRY_HTTP_TIMEOUT_MS` | `30000` | Timeout (ms) for image-registry's management calls to the upstream OCI registry. Deliberately LONGER than `HTTP_CLIENT_TIMEOUT_MS` because catalog, manifest and blob operations are slow |
+| `QUOTA_SERVICE_TIMEOUT_MS` | `5000` | Quota service call timeout |
+| `BILLING_SERVICE_TIMEOUT_MS` | `5000` | Billing service call timeout |
 | `PIPELINE_PLUGIN_SERVICE_TIMEOUT_MS` | `30000` | Timeout (ms) for the pipeline service's calls into the plugin service — long because a plugin upload response includes build-queue results |
 
 ### Plugin Upload Timeout Chain
@@ -1094,7 +1090,7 @@ All optional (defaults shown). They tune behavior that matters only under horizo
 When uploading a large plugin ZIP (up to 4GB with prebuilt image.tar), the request passes through multiple timeout layers. Each layer must allow enough time for the upload to complete:
 
 ```
-Client (curl)                    UPLOAD_TIMEOUT = 900s (15 min)
+Client (curl)                    UPLOAD_TIMEOUT_SECONDS = 900s (15 min)
   └─ nginx proxy_read_timeout    900s (shipped configs); nginx's own default is 60s
       └─ Express route           PLUGIN_UPLOAD_TIMEOUT_MS = 900s (15 min)
           └─ Express global      25s request timeout (fixed; overridden by route)
@@ -1120,12 +1116,12 @@ No browser or loader request waits for that call. An approval returns once the p
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `CACHE_TTL_ENTITY` | `60` | Entity cache TTL (seconds) |
-| `CACHE_TTL_MESSAGE` | `300` | Message cache TTL (seconds) |
-| `CACHE_TTL_REPORT_INVENTORY` | `300` | Report inventory cache TTL (seconds) |
-| `CACHE_TTL_REPORT_TIMESERIES` | `120` | Report timeseries cache TTL (seconds) |
-| `CACHE_TTL_COMPLIANCE_RULES` | `60` | Compliance rules cache TTL (seconds) |
-| `CACHE_TTL_BILLING_PLANS` | `14400` | Billing plans cache TTL (4 hours) |
+| `CACHE_TTL_ENTITY_SECONDS` | `60` | Entity cache TTL (seconds) |
+| `CACHE_TTL_MESSAGE_SECONDS` | `300` | Message cache TTL (seconds) |
+| `CACHE_TTL_REPORT_INVENTORY_SECONDS` | `300` | Report inventory cache TTL (seconds) |
+| `CACHE_TTL_REPORT_TIMESERIES_SECONDS` | `120` | Report timeseries cache TTL (seconds) |
+| `CACHE_TTL_COMPLIANCE_RULES_SECONDS` | `60` | Compliance rules cache TTL (seconds) |
+| `CACHE_TTL_BILLING_PLANS_SECONDS` | `14400` | Billing plans cache TTL (4 hours) |
 | `CACHE_CONTROL_LIST` | `private, max-age=30, stale-while-revalidate=60` | `Cache-Control` header on list responses |
 | `CACHE_CONTROL_DETAIL` | `private, max-age=60, stale-while-revalidate=120` | `Cache-Control` header on single-entity responses |
 | `COMPRESSION_THRESHOLD_BYTES` | `1024` | Responses smaller than this are sent uncompressed |
@@ -1406,9 +1402,9 @@ Lower-level knobs read through api-core's shared env readers (`envInt` / `envBoo
 | `ALERT_DESTINATION_MAX_LABEL` | `100` | Max characters in an alert destination's label |
 | `ALERT_DESTINATION_MAX_TARGET` | `2048` | Max characters in an alert destination's target (webhook URL / email address) |
 | `ALERT_WEBHOOK_LIMITER_MAX` | `3000` | Requests per window allowed on the Alertmanager relay endpoint. Sized for a burst fan-out, not for human traffic |
-| `ALERT_WEBHOOK_LIMITER_WINDOWMS` | `60000` | Rate-limit window for the Alertmanager relay endpoint |
+| `ALERT_WEBHOOK_LIMITER_WINDOW_MS` | `60000` | Rate-limit window for the Alertmanager relay endpoint |
 | `OBSERVABILITY_LIMITER_MAX` | `120` | Requests per window on the observability query endpoints (PromQL, logs) |
-| `OBSERVABILITY_LIMITER_WINDOWMS` | `60000` | Rate-limit window for the observability query endpoints |
+| `OBSERVABILITY_LIMITER_WINDOW_MS` | `60000` | Rate-limit window for the observability query endpoints |
 | `PLATFORM_SCRAPER_INTERVAL_MS` | `60000` | Interval for the platform's own metrics scrape loop |
 | `READINESS_MONITOR_INTERVAL_MS` | `15000` | Interval at which a service re-probes its dependencies for the readiness endpoint |
 | `SHUTDOWN_TIMEOUT_MS` | `15000` | Grace period for in-flight requests during coordinated shutdown before the process exits |
@@ -1465,19 +1461,19 @@ Lower-level knobs read through api-core's shared env readers (`envInt` / `envBoo
 | `COMPLIANCE_SCAN_ENTITY_PAGE_SIZE` | `1000` | Rows read per page while enumerating scan targets |
 | `COMPLIANCE_SCAN_ENTITY_MAX_TOTAL` | `100000` | Hard ceiling on entities examined by one scan |
 | `COMPLIANCE_SCAN_PROGRESS_BATCH_SIZE` | `10` | Entities processed between scan-progress writes |
-| `COMPLIANCE_SERVICE_TIMEOUT` | `5000` | Platform's timeout when calling the compliance service |
-| `MESSAGE_SERVICE_TIMEOUT` | `5000` | Platform's timeout when calling the message service |
-| `REPORTING_SERVICE_TIMEOUT` | `5000` | Platform's timeout when telling reporting that a member left (so the stakeholder reports they owned stop) |
+| `COMPLIANCE_SERVICE_TIMEOUT_MS` | `5000` | Platform's timeout when calling the compliance service |
+| `MESSAGE_SERVICE_TIMEOUT_MS` | `5000` | Platform's timeout when calling the message service |
+| `REPORTING_SERVICE_TIMEOUT_MS` | `5000` | Platform's timeout when telling reporting that a member left (so the stakeholder reports they owned stop) |
 
 ### Quotas
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `QUOTA_TIER_DEVELOPER_LABEL` | `Developer` | Display label for the developer tier |
-| `QUOTA_TIER_PRO_LABEL` | `Pro` | Display label for the pro tier |
-| `QUOTA_TIER_TEAM_LABEL` | `Team` | Display label for the team tier |
-| `QUOTA_TIER_BUSINESS_LABEL` | `Business` | Display label for the business tier |
-| `QUOTA_TIER_ENTERPRISE_LABEL` | `Enterprise` | Display label for the enterprise tier |
+| `PLAN_TIER_DEVELOPER_LABEL` | `Developer` | Display label for the developer tier |
+| `PLAN_TIER_PRO_LABEL` | `Pro` | Display label for the pro tier |
+| `PLAN_TIER_TEAM_LABEL` | `Team` | Display label for the team tier |
+| `PLAN_TIER_BUSINESS_LABEL` | `Business` | Display label for the business tier |
+| `PLAN_TIER_ENTERPRISE_LABEL` | `Enterprise` | Display label for the enterprise tier |
 | `QUOTA_DEFAULT_DASHBOARDS` | developer-tier value | Dashboard limit for an org with no tier resolved |
 | `QUOTA_DEFAULT_ALERT_RULES` | developer-tier value | Alert-rule limit for an org with no tier resolved |
 | `QUOTA_DEFAULT_ALERT_DESTINATIONS` | developer-tier value | Alert-destination limit for an org with no tier resolved |

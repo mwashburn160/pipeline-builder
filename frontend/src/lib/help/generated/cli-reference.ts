@@ -1,6 +1,6 @@
 // GENERATED FROM docs/pipeline-manager.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 6fcdde31575e4c1f9f5c0193652ad84c87f5116f80e9dac8ae70127550e73591
+// SOURCE-SHA256: 601ef905cc82c72690f9e7153add79ab6016d07bc15640fd297a773e0cb3a7cd
 // SPDX-License-Identifier: Apache-2.0
 import { Terminal } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -109,7 +109,7 @@ export const cliReferenceTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "platform default — TOOLCHAIN_NO_DEFAULT, a deleted pin, a refused signature) the synth stops with BOOTSTRAP_IMAGE_UNRESOLVED. A managed cdk-synth reference is fatal the same way; it has no deploy-time fallback."
+          "content": "platform default — TOOLCHAIN_NO_DEFAULT, a deleted pin, a refused signature) the synth stops with BOOTSTRAP_IMAGE_UNRESOLVED. A managed cdk-synth reference is fatal the same way, as is every other plugin that does not resolve."
         },
         {
           "type": "list",
@@ -381,24 +381,16 @@ export const cliReferenceTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "pipeline synth / pipeline deploy (and running cdk deploy directly) synthesize the pipeline stack, which bundles the PluginLookup Lambda via CDK's NodejsFunction (esbuild). pipeline synth/deploy preflight this for you — they check esbuild + pnpm are on PATH and fail fast with the fix below rather than letting the build die deep in an opaque bundling error. (Bypass the check with SKIP_BUNDLER_CHECK=1.) If esbuild isn't on PATH, CDK silently falls back to Docker bundling, which can't resolve the handler's axios / ../config imports and fails with:"
+          "content": "pipeline synth / pipeline deploy run the AWS CDK CLI, so cdk must be on PATH; they check for it and stop with the fix if it's missing. Nothing is bundled on your machine and nothing is deployed to look plugins up — every plugin is resolved by the CLI before synth — so neither esbuild, pnpm nor Docker is needed. Install the CDK CLI version the pipeline-bootstrap image bakes in (its toolchain in deploy/toolchain/pipeline-bootstrap/plugin-spec.yaml):"
         },
         {
           "type": "code",
-          "content": "esbuild cannot run locally. Switching to Docker bundling\n✘ [ERROR] Could not resolve \"axios\"\n✘ [ERROR] Could not resolve \"../config/handler-constants.js\""
-        },
-        {
-          "type": "text",
-          "content": "Install esbuild and pnpm (the handler's lockfile is pnpm-lock.yaml, so CDK uses pnpm to run esbuild) — plus the CDK CLI — globally, matching the versions the pipeline-bootstrap image bakes in (its toolchain in deploy/toolchain/pipeline-bootstrap/plugin-spec.yaml):"
-        },
-        {
-          "type": "code",
-          "content": "npm install -g esbuild@0.28.1 pnpm@10.33.0 aws-cdk@2.1126.0",
+          "content": "npm install -g aws-cdk@2.1148.1",
           "language": "bash"
         },
         {
           "type": "text",
-          "content": "With esbuild on PATH, NodejsFunction bundles locally (no Docker) and the Lambda resolves correctly. In CodeBuild this is handled for you — the bootstrap image ships these tools (see AWS deployment → the managed toolchain release)."
+          "content": "In CodeBuild this is handled for you — the bootstrap image ships the CDK CLI (see AWS deployment → the managed toolchain release)."
         }
       ]
     },
@@ -608,7 +600,7 @@ export const cliReferenceTopic: HelpTopic = {
             ],
             [
               "infra store-token",
-              "Provision the org's machine identity — a service account plus one pb_sa_… key — and store the key in AWS Secrets Manager (read by CodeBuild's registry credentials, the plugin-lookup Lambda, the events Lambda and --store-tokens). Add --schedule to also deploy a daily key-rotation stack (rotate → store → revoke) so the key never lapses. Re-run per scope (--scope reporting:ingest, --scope registry:push) — each is its own least-privilege account. Needs PLATFORM_PASSWORD: both writes are step-up gated"
+              "Provision the org's machine identity — a service account plus one pb_sa_… key — and store the key in AWS Secrets Manager (read by CodeBuild's registry credentials, the events Lambda and --store-tokens). Add --schedule to also deploy a daily key-rotation stack (rotate → store → revoke) so the key never lapses. Re-run per scope (--scope reporting:ingest, --scope registry:push) — each is its own least-privilege account. Needs PLATFORM_PASSWORD: both writes are step-up gated"
             ],
             [
               "infra setup-events",
@@ -657,7 +649,7 @@ export const cliReferenceTopic: HelpTopic = {
             ],
             [
               "report link",
-              "Mint an expiring read-only link (--run <id>, --days, --redact-names). Shown once — only a hash is stored, so a lost link is replaced, not recovered."
+              "Mint an expiring read-only link (--run <id>, --expires-days, --redact-names). Shown once — only a hash is stored, so a lost link is replaced, not recovered."
             ],
             [
               "report pdf",
@@ -874,19 +866,14 @@ export const cliReferenceTopic: HelpTopic = {
               "Override the project config file path (default ./config.yml)"
             ],
             [
-              "UPLOAD_TIMEOUT",
+              "UPLOAD_TIMEOUT_MS",
               "No",
               "Override the plugin-upload request timeout (ms)"
             ],
             [
-              "SKIP_BUNDLER_CHECK",
+              "PLATFORM_TLS_VERIFY",
               "No",
-              "Set to 1 to skip the esbuild + pnpm preflight before pipeline synth/deploy (see local deploy prerequisites)"
-            ],
-            [
-              "TLS_REJECT_UNAUTHORIZED",
-              "No",
-              "Set to 0 to skip TLS verification (ignored in NODE_ENV=production)"
+              "Set to false to skip TLS verification of the platform, for a dev platform on a self-signed certificate (NODE_TLS_REJECT_UNAUTHORIZED=0 counts the same). Ignored in NODE_ENV=production. The one name for this switch: the CLI, the synth and the key-rotation Lambda all read it. Prefer PLATFORM_CA_BUNDLE, which keeps verification on"
             ],
             [
               "ANTHROPIC_API_KEY (or other provider key)",
@@ -982,6 +969,7 @@ export const cliReferenceTopic: HelpTopic = {
             "A qualified reference resolves only that publisher's listing, and only through an install. Install it first (dashboard → Plugins, or POST /api/plugins/installs). Official listings (pipeline-builder) are installed implicitly.",
             "pipeline create (and every other create or update path) refuses a qualified reference that isn't installed, is blocked by the org's consumption policy or can't resolve, with 400 and the per-step reasons. It also checks the plugin contract of listed versions.",
             "Lookup verifies the image signature (and, for a listing, the signed trust tier and publisher) and returns imageRepository; synth pins <repository>@<digest>. Warnings such as PLUGIN_SHADOWS_LISTING or PLUGIN_SECRETS_WITHHELD are printed.",
+            "Every plugin must resolve, or the synth fails. A step never ships without its plugin. pipeline synth looks up every reference, then fails once with every refusal, each naming the plugin and its cause: IMAGE_VERIFICATION_FAILED, PLUGIN_NOT_INSTALLED, PLUGIN_BLOCKED_BY_POLICY, PLUGIN_UNAVAILABLE, PLUGIN_DELETED, PLUGIN_VERSION_NOT_FOUND (an exact pin that does not exist), PLUGIN_NOT_FOUND (nothing matches a range or default reference) or PLUGIN_LOOKUP_FAILED (the lookup got no answer: the platform was unreachable, or it returned an auth or server error). Inside CodeBuild the same codes go on the PB_SYNTH_FAILURE line the execution event carries.",
             "A qualified step's construct id is <publisher>-<name> (when it has no alias) and its default artifact alias is <publisher>-<name>-alias. Unqualified references are unchanged."
           ]
         },

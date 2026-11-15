@@ -302,7 +302,7 @@ env:
           items: [
             'Deprecate a version (row action, or pipeline-manager plugin deprecate --id <id> --message "…") — lookups and synth warn, AI pipeline generation stops choosing it, and orgs whose pipelines use it are notified. It keeps working.',
             'Yank a version (pipeline-manager plugin yank --id <id> --reason "…") — new resolutions skip it; a pipeline that pins that exact version still gets it, with a warning. Existing deployed pipelines keep running (they pull by digest).',
-            'Deleting a version a pipeline still uses, or one that is listed in the directory, is refused (409) unless you force it — and forcing asks you to re-enter your password. Deleting the default promotes the next one automatically, and the plugin quota is refunded.',
+            'Deleting a version a pipeline still uses is refused (409) — update the pipeline first; there is no override. A version that is listed in the directory is refused too unless you force it, and forcing asks you to confirm your identity again. Deleting the default promotes the next one automatically, and the plugin quota is refunded.',
             'A listed version is frozen: the same version can never point at a different image. Fix a mistake by yanking it and publishing a new version.',
           ],
         },

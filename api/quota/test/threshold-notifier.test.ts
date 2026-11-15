@@ -34,7 +34,7 @@ jest.unstable_mockModule('../src/models/quota-notice.js', () => ({
 const cfg = { quota: { thresholdNoticesEnabled: true } };
 jest.unstable_mockModule('../src/config.js', () => ({ config: cfg }));
 
-const { clearThresholdMemos, crossedThresholds, notifyThresholds, thresholdNoticeText, thresholdWebhookPayload } = await import('../src/services/threshold-notifier.js');
+const { clearThresholdMemos, crossedThresholds, forgetClaimedNotices, notifyThresholds, thresholdNoticeText, thresholdWebhookPayload } = await import('../src/services/threshold-notifier.js');
 
 const RESET = '2026-11-05T00:00:00.000Z';
 const base = { rootOrgId: 'root', quotaType: 'apiCalls' as const, limit: 100, resetAt: RESET };
@@ -91,6 +91,20 @@ describe('notifyThresholds', () => {
     expect(sendSystemNotification).toHaveBeenCalledTimes(1);
     expect(sendSystemNotification).toHaveBeenCalledWith(expect.objectContaining({ subject: 'API call quota reached', priority: 'high' }));
     expect(emitCounter).toHaveBeenCalledWith('quota_threshold_notices_total', { type: 'apiCalls', threshold: '80', outcome: 'superseded' });
+  });
+
+  it('a forgotten claim notifies again on this pod; other accounts and lower bands stay memoized', async () => {
+    const stock = { rootOrgId: 'root', quotaType: 'storageBytes' as const, limit: 100, resetAt: 'stock-window:1', source: 'sweep' as const };
+    await notifyThresholds({ ...stock, used: 100, amount: 0 });
+    await notifyThresholds({ ...stock, rootOrgId: 'other', used: 100, amount: 0 });
+    expect(noticeCreate).toHaveBeenCalledTimes(4);
+    // The sweep deleted the 100% claim row (usage fell back to 85%), so the
+    // memo must not keep suppressing a refill.
+    forgetClaimedNotices('root', 'storageBytes', 80);
+    noticeCreate.mockClear();
+    await notifyThresholds({ ...stock, used: 100, amount: 0 });
+    await notifyThresholds({ ...stock, rootOrgId: 'other', used: 100, amount: 0 });
+    expect(noticeCreate.mock.calls.map((c) => c[0])).toEqual([expect.objectContaining({ rootOrgId: 'root', threshold: 100 })]);
   });
 
   it('honours the account opt-out', async () => {

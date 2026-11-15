@@ -286,7 +286,7 @@ export const acceptInvitation = withController('Accept invitation', async (req, 
 
 /** POST /invitation/accept-oauth — first-time OAuth-based accept (creates user if needed).
  *  Public route: the caller supplies the OAuth authorization `code` + `state`
- *  (obtained via the normal /auth/url → provider redirect), NOT a profile. The
+ *  (obtained via the normal GET /auth/oauth/:provider/url → provider redirect), NOT a profile. The
  *  identity is verified SERVER-SIDE via {@link verifyOAuthCode}: accepting a
  *  client-supplied `oauthData` would let anyone holding an invite token bind
  *  the invitee's email to an attacker-chosen account (org/account takeover). */
@@ -359,7 +359,7 @@ export const getInvitation = withController('Get invitation', async (req, res) =
   });
 });
 
-/** GET /invitation/list — invitations for the current org. */
+/** GET /invitation — invitations for the current org. */
 export const listInvitations = withController('List invitations', async (req, res) => {
   const orgId = requireOrgMembership(req, res);
   if (!orgId) return;
@@ -384,7 +384,7 @@ export const listInvitations = withController('List invitations', async (req, re
   });
 });
 
-/** DELETE /invitation/:invitationId — owner/admin only. */
+/** DELETE /invitation/:invitationId — gated by `invitations:manage` on the route. */
 export const revokeInvitation = withController('Revoke invitation', async (req, res) => {
   const orgId = requireOrgMembership(req, res);
   if (!orgId) return;
@@ -409,7 +409,7 @@ export const revokeInvitation = withController('Revoke invitation', async (req, 
   [INV_UNAUTHORIZED]: { status: 403, message: 'You are not authorized to revoke invitations' },
 });
 
-/** POST /invitation/:invitationId/resend — owner/admin only. */
+/** POST /invitation/:invitationId/resend — gated by `invitations:manage` on the route. */
 export const resendInvitation = withController('Resend invitation', async (req, res) => {
   const orgId = requireOrgMembership(req, res);
   if (!orgId) return;

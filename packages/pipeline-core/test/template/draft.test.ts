@@ -4,7 +4,6 @@
 import { describe, it, expect } from '@jest/globals';
 
 import {
-  formatTemplateDraftProblems,
   validateTemplateDraft,
   type TemplateDraftProblemKind,
 } from '../../src/template/draft.js';
@@ -151,25 +150,5 @@ describe('validateTemplateDraft — the vars contract', () => {
     const result = validateTemplateDraft({ props: { project: '{{ vars }}' } });
     expect(result.referencedVariables).toEqual([]);
     expect(result.problems.map((p) => p.kind)).toEqual([]);
-  });
-});
-
-describe('formatTemplateDraftProblems', () => {
-  it('renders field, position and message', () => {
-    const problems = validateTemplateDraft({ props: { project: '{{ vars.A', global: { b: '{{ pipeline.x }}' } } }).problems;
-    const lines = formatTemplateDraftProblems(problems);
-    expect(lines[0]).toMatch(/^\[project:1:10\] /);
-    expect(lines.some((l) => l.startsWith('[global.b:1:1] '))).toBe(true);
-  });
-
-  it('falls back to the kind when a problem names no field', () => {
-    const problems = validateTemplateDraft({ props: { project: '{{ vars.A }}' } }).problems;
-    expect(formatTemplateDraftProblems(problems)).toEqual([
-      "[undeclared-variable] Template references {{ vars.A }} but declares no input named 'A'",
-    ]);
-  });
-
-  it('renders nothing for a clean draft', () => {
-    expect(formatTemplateDraftProblems([])).toEqual([]);
   });
 });

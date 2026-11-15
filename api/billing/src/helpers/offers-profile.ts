@@ -30,7 +30,7 @@ import {
   getServiceAuthHeader,
   isValidTier,
   leaderLockKey,
-  type QuotaTier,
+  type PlanTier,
   type Scheduler,
   type BillingInterval,
 } from '@pipeline-builder/api-core';
@@ -79,7 +79,7 @@ export function periodKeyFor(dimensions: Record<string, { resetAt: string | null
 /** Build one account's profile row without writing it — the testable half. */
 export async function buildProfile(input: {
   orgId: string;
-  tier: QuotaTier;
+  tier: PlanTier;
   interval: BillingInterval;
   addons: Array<{ bundleId: string; quantity: number }>;
   subscriptionStartedAt: Date;
@@ -87,7 +87,7 @@ export async function buildProfile(input: {
 }): Promise<{
     orgId: string;
     period: string;
-    tier: QuotaTier;
+    tier: PlanTier;
     dimensions: Record<string, ProfileDimension>;
     value: { activeMembers: number; seatsHeld: number; successfulRuns: number; failedBuilds: number };
     addonsHeld: string[];
@@ -184,7 +184,7 @@ function bandFor(ratio: number): number | null {
  * cycle or a second replica that won the lock late all lose on insert instead
  * of appending a second row the trajectory would read as two periods.
  */
-export async function runProfileCycle(): Promise<ProfileCycleResult> {
+async function runProfileCycle(): Promise<ProfileCycleResult> {
   const result: ProfileCycleResult = { written: 0, incomplete: 0, duplicate: 0 };
   const cursor = Subscription.find({ status: { $in: [...MANAGEABLE_SUBSCRIPTION_STATUSES] } }).cursor();
 

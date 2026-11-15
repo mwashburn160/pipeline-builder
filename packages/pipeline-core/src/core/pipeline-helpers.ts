@@ -13,7 +13,7 @@ import { STEP_BOOTSTRAP_CMD, extractMetadataEnv, merge, wrapCommandsForFailureBe
 import { resolveNetwork } from './network.js';
 import { PluginType, ComputeType, type MetaDataType } from './pipeline-types.js';
 import { pluginArtifactAlias } from './plugin-contract.js';
-import type { SynthPlugin } from './plugin-lookup-envelope.js';
+import type { ResolvedPlugin } from './plugin-lookup-envelope.js';
 import { SECURITY_REPORT_KEY_ENV, SECURITY_REPORT_SECRET_LEAF, SECURITY_REPORT_UPLOAD_ENV } from './security-reports.js';
 import { CURATED_SELF_MUTATION_IMAGE } from './self-mutation.js';
 import { PLUGIN_IMAGE_REPOSITORY_RE } from './step-manifest.js';
@@ -31,7 +31,7 @@ const log = createLogger('pipeline-helpers');
  *   2. non-namespaced metadata keys — e.g. PYTHON_VERSION, WORKDIR
  *   3. customEnv — per-step custom env vars (highest priority)
  */
-function buildEnv(plugin: SynthPlugin, metadata: MetaDataType, customEnv?: Record<string, string>): Record<string, string> {
+function buildEnv(plugin: ResolvedPlugin, metadata: MetaDataType, customEnv?: Record<string, string>): Record<string, string> {
   return {
     ...(plugin.env ?? {}),
     ...extractMetadataEnv(metadata),
@@ -45,7 +45,7 @@ function buildEnv(plugin: SynthPlugin, metadata: MetaDataType, customEnv?: Recor
  * When custom commands are provided, they are injected before/after the plugin's commands.
  * Build commands are optionally wrapped by failureBehavior logic.
  */
-function buildCommands(plugin: SynthPlugin, custom?: StepCustomization, failureBehavior?: 'fail' | 'warn' | 'ignore'): { installCommands: string[]; commands: string[] } {
+function buildCommands(plugin: ResolvedPlugin, custom?: StepCustomization, failureBehavior?: 'fail' | 'warn' | 'ignore'): { installCommands: string[]; commands: string[] } {
   const userCommands = [
     ...(custom?.preCommands ?? []),
     ...(plugin.commands?.length ? plugin.commands : []),
@@ -206,7 +206,7 @@ function resolveExternalPullTarget(
  * `pipeline-builder/<orgId>/platform`, and `Secret.fromSecretNameV2()`
  * needs a Construct to anchor the imported secret to.
  */
-export function resolvePluginImage(scope: Construct | undefined, plugin: SynthPlugin, orgId?: string): IBuildImage | undefined {
+export function resolvePluginImage(scope: Construct | undefined, plugin: ResolvedPlugin, orgId?: string): IBuildImage | undefined {
   // `metadata_only` plugins legitimately have no image — their work runs
   // in the default CodeBuild image. Quiet skip.
   if (plugin.buildType === 'metadata_only') return undefined;
@@ -235,11 +235,11 @@ export function resolvePluginImage(scope: Construct | undefined, plugin: SynthPl
   // listed plugin (the read-only copy every org may pull), `org-<id>/<name>`
   // for the org's own. Never derived here from the record's owner — a listing's
   // image doesn't live in its publisher's namespace.
-  const repository = (plugin as SynthPlugin & { imageRepository?: string | null }).imageRepository;
+  const repository = (plugin as ResolvedPlugin & { imageRepository?: string | null }).imageRepository;
   if (!repository || !PLUGIN_IMAGE_REPOSITORY_RE.test(repository)) {
     throw new Error(
       `Plugin "${plugin.name}:${plugin.version}" has no image repository from the plugin lookup. ` +
-      'Resolve plugins through the platform (`pipeline-manager pipeline synth` / the lookup custom resource).',
+      'Resolve plugins through the platform (`pipeline-manager pipeline synth`).',
     );
   }
 
@@ -330,7 +330,7 @@ const BOOTSTRAP_IMAGE_REPOSITORY = `system/${BOOTSTRAP_PLUGIN_NAME}`;
  * the platform (`pipeline-manager`'s `resolveBootstrapImage`, which has no fallback) and anything
  * short of a pinned, pullable image fails the synth.
  */
-export function resolveDefaultBuildImage(scope: Construct, orgId: string | undefined, bootstrap: SynthPlugin): IBuildImage {
+export function resolveDefaultBuildImage(scope: Construct, orgId: string | undefined, bootstrap: ResolvedPlugin): IBuildImage {
   const fail = (why: string): never => {
     throw new Error(
       `BOOTSTRAP_IMAGE_UNRESOLVED: the default build image can't be pinned — ${why}. ` +
@@ -340,7 +340,7 @@ export function resolveDefaultBuildImage(scope: Construct, orgId: string | undef
   if (!bootstrap || bootstrap.name !== BOOTSTRAP_PLUGIN_NAME) {
     fail(`resolvedBootstrap is "${bootstrap?.name ?? 'missing'}", not ${BOOTSTRAP_PLUGIN_NAME}`);
   }
-  const repository = (bootstrap as SynthPlugin & { imageRepository?: string | null }).imageRepository;
+  const repository = (bootstrap as ResolvedPlugin & { imageRepository?: string | null }).imageRepository;
   if (repository !== BOOTSTRAP_IMAGE_REPOSITORY) {
     fail(`${BOOTSTRAP_PLUGIN_NAME}:${bootstrap.version} has image repository "${repository ?? 'none'}", not ${BOOTSTRAP_IMAGE_REPOSITORY}`);
   }

@@ -84,8 +84,9 @@ const WebhookDedupe =
   mongoose.model<WebhookDedupeDocument>('WebhookDedupe', webhookDedupeSchema);
 
 /**
- * Step 1 — take (or re-take) the in-progress claim. Returns `true` if the caller
- * should process the event, `false` if it's a duplicate to skip.
+ * Step 1 — take (or re-take) the in-progress claim. Returns a claim token if the
+ * caller should process the event, `null` if another delivery holds it (see
+ * {@link webhookEventStatus} for whether that is a finished duplicate).
  *
  * Atomic upsert that matches ONLY a reclaimable state: no document (insert), or an
  * `in_progress` claim whose lease has expired (a crashed prior attempt). A LIVE
@@ -95,7 +96,7 @@ const WebhookDedupe =
  * call {@link markWebhookEventDone} after its side-effects (or
  * {@link releaseWebhookEvent} with the returned token on a handled failure).
  *
- * @returns the claim token (process the event) or `null` (duplicate — skip).
+ * @returns the claim token (process the event) or `null` (claimed elsewhere).
  */
 export async function claimWebhookEvent(source: WebhookSource, eventId: string): Promise<string | null> {
   const now = new Date();

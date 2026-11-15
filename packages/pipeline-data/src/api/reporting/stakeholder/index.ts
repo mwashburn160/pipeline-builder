@@ -21,8 +21,8 @@ export {
 } from './period.js';
 
 export {
-  registerSection,
-  getSection,
+  registerReportSection,
+  getReportSection,
   allSections,
   sectionIds,
   type SectionSpec,
@@ -32,9 +32,9 @@ export {
 
 export {
   REPORT_TEMPLATE_SPECS,
-  getTemplate,
+  getReportTemplate,
   assertTemplatesResolve,
-  type TemplateSpec,
+  type ReportTemplateSpec,
 } from './templates.js';
 
 export {
@@ -58,12 +58,12 @@ export {
 export {
   StakeholderReportStore,
   stakeholderReportStore,
-  hashToken,
-  mintToken,
+  hashReportToken,
+  mintReportToken,
   DEFAULT_SHARE_LINK_TTL_DAYS,
   MAX_SHARE_LINK_TTL_DAYS,
-  MAX_BOUNCES,
-  VERIFICATION_TTL_MS,
+  MAX_REPORT_BOUNCES,
+  RECIPIENT_VERIFICATION_TTL_MS,
   type CreateDefinitionInput,
   type UpdateDefinitionInput,
   type MintedShareLink,

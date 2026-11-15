@@ -34,9 +34,9 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
 jest.unstable_mockModule('@pipeline-builder/pipeline-core', async () => {
   return stubModule('@pipeline-builder/pipeline-core', {
     Config: {
-      getAny: () => ({ services: { billingTimeout: 5000 } }),
+      getAny: () => ({ services: { billingTimeoutMs: 5000 } }),
       // getBillingTimeout() reads Config.get('server').
-      get: () => ({ services: { billingTimeout: 5000 } }),
+      get: () => ({ services: { billingTimeoutMs: 5000 } }),
     },
     // usage-helpers transitively imports api-server (via billing-helpers),
     // whose idempotency-middleware reads these at module load.

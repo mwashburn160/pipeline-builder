@@ -134,3 +134,31 @@ describe('zip bombs', () => {
     await expect(extract(file)).rejects.toThrow();
   });
 });
+
+describe('captured text entries', () => {
+  it('captures a wanted entry and still writes it to disk', async () => {
+    const zipPath = zipOf([{ name: 'config.yaml', content: 'buildType: prebuilt\n' }, { name: 'other.bin', content: 'x' }]);
+    const out = path.join(tmp, 'out');
+    fs.mkdirSync(out, { recursive: true });
+    const texts = await readAndExtractZip(zipPath, ['config.yaml'], out);
+    expect(texts.get('config.yaml')).toBe('buildType: prebuilt\n');
+    expect(texts.has('other.bin')).toBe(false);
+    expect(fs.readFileSync(path.join(out, 'config.yaml'), 'utf-8')).toBe('buildType: prebuilt\n');
+  });
+
+  it('refuses a captured entry past the in-memory text ceiling instead of buffering it whole', async () => {
+    // 17 MiB of zeros deflates to a few KiB, well inside the extraction cap.
+    const zipPath = zipOf([{ name: 'config.yaml', content: Buffer.alloc(17 * 1024 * 1024) }]);
+    const out = path.join(tmp, 'out');
+    fs.mkdirSync(out, { recursive: true });
+    await expect(readAndExtractZip(zipPath, ['config.yaml'], out)).rejects.toThrow(/config\.yaml exceeds/);
+  });
+
+  it('accepts a trailing-slash extract directory', async () => {
+    const zipPath = zipOf([{ name: 'a/b.txt', content: 'hi' }]);
+    const out = path.join(tmp, 'out');
+    fs.mkdirSync(out, { recursive: true });
+    await readAndExtractZip(zipPath, [], `${out}${path.sep}`);
+    expect(fs.readFileSync(path.join(out, 'a', 'b.txt'), 'utf-8')).toBe('hi');
+  });
+});

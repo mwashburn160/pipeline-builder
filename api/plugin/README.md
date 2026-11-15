@@ -16,28 +16,43 @@ Built on the shared core packages: `@pipeline-builder/api-core` (auth, quota, re
 
 The service listens on port `3000`. The API gateway (nginx) routes `/api/plugin*` and `/api/plugins*` here, rewriting to the internal `/plugins/*` paths below.
 
+Every `/plugins` route sits behind auth + org context; reads need `plugins:read`, writes `plugins:write` unless noted.
+
 | Method | Path | Purpose |
 |--------|------|---------|
 | GET | `/plugins` | List plugins (paginated, filtered) |
 | GET | `/plugins/find` | Find a single plugin by query filter |
 | POST | `/plugins/lookup` | Find a single plugin by filter in the request body |
-| GET | `/plugins/:id` | Get a plugin by ID |
+| GET | `/plugins/deleted` | List soft-deleted plugins (restorable) |
+| GET | `/plugins/vuln-waivers` | List vulnerability waivers |
 | GET | `/plugins/plugin-usage` | Count pipelines referencing each plugin |
+| GET | `/plugins/:id` | Get a plugin by ID |
+| GET | `/plugins/:id/sbom` | Get a plugin version's SBOM |
+| GET | `/plugins/:id/findings` | Get a plugin version's vulnerability findings |
 | POST | `/plugins` | Upload a plugin ZIP and queue its build (consumes `plugins` quota) |
+| POST | `/plugins/inspect` | Validate a plugin ZIP without building it |
 | PUT | `/plugins/:id` | Update a plugin |
-| DELETE | `/plugins/:id` | Soft-delete a plugin (admin-only) |
+| DELETE | `/plugins/:id` | Soft-delete a plugin version (refused while in use; `?force=true` + step-up for a listed version) |
+| POST | `/plugins/:id/restore` | Restore a soft-deleted plugin |
+| POST | `/plugins/:id/purge` | Permanently purge a soft-deleted plugin |
+| POST | `/plugins/:id/deprecate` / `yank` / `unyank` | Version lifecycle |
 | POST | `/plugins/bulk/delete` | Bulk delete (`bulk_operations` gate) |
 | PUT | `/plugins/bulk/update` | Bulk update (`bulk_operations` gate) |
-| GET | `/plugins/providers` | List available AI generation providers |
+| GET | `/plugins/providers` | List available AI generation providers (`ai_generation` gate) |
 | POST | `/plugins/generate` | Generate a plugin from a prompt (`ai_generation` gate) |
 | POST | `/plugins/generate/stream` | Generate a plugin (SSE stream) |
 | POST | `/plugins/deploy-generated` | Deploy an AI-generated plugin |
-| GET | `/plugins/queue/status` | Build-queue status |
-| GET | `/plugins/queue/failed` | List failed build jobs |
-| GET | `/plugins/queue/dlq` | List dead-letter-queue jobs |
-| DELETE | `/plugins/queue/dlq` | Purge the dead-letter queue |
-| POST | `/plugins/queue/dlq/:jobId/replay` | Replay a dead-letter job |
-| GET | `/plugins/queue/triage` | Build-queue triage view |
+| GET | `/plugins/storage` | Per-version registry storage for the org |
+| POST | `/plugins/storage/prune` | Retire one unreferenced version's image to reclaim storage |
+| GET | `/plugins/queue/status` | Build-queue status (system org, `plugin_queue:manage`) |
+| GET | `/plugins/queue/failed` | List failed build jobs (every org's for a system-org `plugin_queue:manage` holder with an aal2 session; the caller's own org's newest jobs for any other `plugins:write` holder) |
+| POST | `/plugins/queue/failed/:jobId/retry` | Retry a failed build (same access as the list) |
+| GET | `/plugins/queue/dlq` | List dead-letter-queue jobs (same access as the failed list) |
+| DELETE | `/plugins/queue/dlq` | Purge the dead-letter queue (system org, `plugin_queue:manage`) |
+| POST | `/plugins/queue/dlq/:jobId/replay` | Replay a dead-letter job (same access as the failed list) |
+| GET | `/plugins/queue/triage` | Build-queue triage view (same access as the failed list) |
+
+Further route families, each with its own gates (see `src/app-routes.ts` for the mount order): the ecosystem (`/plugins/ecosystem`, publishers, installs, reviews), toolchain releases and org toolchain defaults, security notifications, pipeline security/exposures, retention and kept setup images, `/public/*` (the public directory, anonymous submissions, security-notification confirmation) and `/internal/*` (service-to-service).
 
 ## Configuration
 
@@ -50,7 +65,7 @@ Shared server/auth/DB/Redis settings (`PORT`, `DB_*`, `PLATFORM_BASE_URL`, CORS)
 | `PLUGIN_ORG_BUILD_SLOTS_STANDARD` | BASELINE per-org build slots on the standard class; the tier ladder only raises it, and the system org is exempt | `5` |
 | `PLUGIN_ORG_BUILD_SLOTS_FLEXIBLE` | Same baseline for the flexible class, higher so the cheap class keeps headroom on every tier | `8` |
 | `PLUGIN_ORG_SLOT_DELAY_MS` | Delay before re-checking an org build slot (ms) | `10000` |
-| `PLUGIN_ORG_SLOT_TTL_SEC` | Per-org slot TTL (s) | `900` |
+| `PLUGIN_ORG_SLOT_TTL_SECONDS` | Per-org slot TTL (s) | `900` |
 | `PLUGIN_BUILD_CONCURRENCY_DEVELOPER` | Worker concurrency for the developer tier | (computed) |
 | `PLUGIN_BUILD_CONCURRENCY_PRO` | Worker concurrency for the pro tier | (computed) |
 | `PLUGIN_BUILD_CONCURRENCY_TEAM` | Worker concurrency for the team tier | (computed) |

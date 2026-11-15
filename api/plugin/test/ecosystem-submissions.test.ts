@@ -49,6 +49,7 @@ const execution = await import('../src/services/ecosystem/execution.js');
 const requestsSvc = await import('../src/services/ecosystem/requests.js');
 const consoleSvc = await import('../src/services/ecosystem/console.js');
 const { setEmailStatusProbeForTests } = await import('../src/services/ecosystem/email-status.js');
+const { settings } = await import('../src/services/ecosystem/store.js');
 await wireEcosystemHarness(h);
 
 const { db } = h;
@@ -915,7 +916,71 @@ describe('maintenance', () => {
   it('runs from the ecosystem maintenance pass', async () => {
     const { runEcosystemMaintenance } = await import('../src/services/ecosystem/maintenance.js');
     const out = await runEcosystemMaintenance();
-    expect(out).toMatchObject({ submissionsExpired: 0, submitterEmailsPurged: 0 });
+    expect(out).toMatchObject({ submissionsExpired: 0, submitterEmailsPurged: 0, submissionNoticesResent: 0 });
+  });
+});
+
+// A stored submission whose N1 could not be queued has no magic link, so it
+// could never be verified: it must be kept AND its notice retried.
+describe('a magic-link notice that fails at submit', () => {
+  const PENDING = 'submission-received-notice-pending:';
+  const failN1Once = () => {
+    h.notify.mockImplementationOnce(async (event: unknown) => {
+      if (event === 'N1') throw new Error('notification queue down');
+      return 'sent';
+    });
+  };
+
+  beforeEach(() => { h.notify.mockClear(); });
+
+  it('keeps the submission (202, zip staged) and marks the notice owed', async () => {
+    failN1Once();
+    const res = await submit({ zip: goodZip('notice-down') });
+    expect(res.status).toBe(202);
+    const s = row(res.body.data.id);
+    expect(s.status).toBe('pending_verification');
+    expect(artifacts.put).toHaveBeenCalledWith(`submissions/${s.id}.zip`, expect.any(Buffer), 'plugin-quarantine');
+    expect((await settings.withPrefix(PENDING)).map((r) => r.key)).toContain(`${PENDING}${s.id}`);
+  });
+
+  it('is re-sent by the maintenance pass with a fresh, working link, then cleared', async () => {
+    failN1Once();
+    const { id } = (await submit({ zip: goodZip('notice-retry') })).body.data;
+    const firstHash = row(id).verifyTokenHash;
+    h.notify.mockClear();
+
+    const { runEcosystemMaintenance } = await import('../src/services/ecosystem/maintenance.js');
+    const out = await runEcosystemMaintenance();
+
+    expect(out.submissionNoticesResent).toBeGreaterThanOrEqual(1);
+    const n1 = h.notify.mock.calls.filter((c: any[]) => c[0] === 'N1');
+    expect(n1).toHaveLength(out.submissionNoticesResent);
+    expect(row(id).verifyTokenHash).not.toBe(firstHash);
+    expect((await settings.withPrefix(PENDING)).map((r) => r.key)).not.toContain(`${PENDING}${id}`);
+    // The re-sent link verifies the submission.
+    const v = await verify(magicToken());
+    expect(v.status).toBe(200);
+    expect(row(id).status).toBe('pending_review');
+  });
+
+  it('stays owed while the queue is still down, and is dropped once nothing waits on it', async () => {
+    failN1Once();
+    const { id } = (await submit({ zip: goodZip('notice-still-down') })).body.data;
+    h.notify.mockImplementation(async () => { throw new Error('still down'); });
+    try {
+      expect(await submissionsSvc.resendPendingReceivedNotices()).toBe(0);
+    } finally {
+      h.notify.mockImplementation(async () => 'sent');
+    }
+    expect((await settings.withPrefix(PENDING)).map((r) => r.key)).toContain(`${PENDING}${id}`);
+
+    // Expired in the meantime: nothing is owed and nothing is sent.
+    row(id).expiresAt = new Date(Date.now() - 1000);
+    await submissionsSvc.expireSubmissions();
+    h.notify.mockClear();
+    expect(await submissionsSvc.resendPendingReceivedNotices()).toBe(0);
+    expect(h.notify.mock.calls.filter((c: any[]) => c[0] === 'N1')).toHaveLength(0);
+    expect((await settings.withPrefix(PENDING)).map((r) => r.key)).not.toContain(`${PENDING}${id}`);
   });
 });
 

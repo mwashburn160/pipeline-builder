@@ -756,6 +756,24 @@ describe('plugin-build-queue', () => {
       expect(job.updateData).toHaveBeenCalledWith(expect.objectContaining({ slotWaitStartedAt: data.slotWaitStartedAt }));
     });
 
+    it('resets the slot-wait clock once a slot is held, so a retry of the build waits on a fresh one', async () => {
+      queueModule.startWorker(makeSseManager(), makeQuotaService());
+      mockBuildAndPush.mockResolvedValue({ fullImage: 'img', digest: `sha256:${'a'.repeat(64)}`, imageSource: 'built' });
+      mockDeployVersion.mockResolvedValue({ id: 'plugin-1', name: 'my-plugin', version: '1.0.0' });
+      // Waited 25 minutes, then got its slot: a BullMQ retry of this job must not
+      // start its next wait already that far into the budget.
+      const data = { ...makeJobData(), slotDelays: 30, slotWaitStartedAt: Date.now() - 25 * 60_000 };
+      const job = makeJob(data, { data });
+
+      await getMainProcessor()(job);
+
+      const written = job.updateData.mock.calls.map((c: any[]) => c[0]);
+      expect(written).toContainEqual(expect.not.objectContaining({ slotWaitStartedAt: expect.anything() }));
+      const reset = written.find((d: any) => !('slotWaitStartedAt' in d));
+      expect(reset).not.toHaveProperty('slotDelays');
+      expect(reset).toMatchObject({ requestId: 'req-123', orgId: 'org-1' });
+    });
+
     it('competes for the slot counter of its OWN class, and defaults to standard', async () => {
       queueModule.startWorker(makeSseManager(), makeQuotaService());
       mockBuildAndPush.mockResolvedValue({ fullImage: 'img', digest: `sha256:${'a'.repeat(64)}`, imageSource: 'built' });
@@ -1323,6 +1341,29 @@ describe('plugin-build-queue', () => {
       expect(errCall?.[3]).toEqual(expect.objectContaining({ reason: 'exit code 1', tail }));
     });
 
+    it('charges a permanent failure its credits on the final attempt only — never a retryable one', async () => {
+      const quota = { ...makeQuotaService(), incrementMetered: jest.fn<AnyFn>().mockResolvedValue(undefined) };
+      queueModule.startWorker(makeSseManager(), quota);
+      const failedHandler = mockWorkerOn.mock.calls.filter((c: any) => c[0] === 'failed')[0][1];
+      const timing = { processedOn: 1_000, finishedOn: 1_000 + 120_000 };
+
+      // Not the final attempt: BullMQ retries it, so it is not charged yet.
+      await failedHandler(makeJob(makeJobData(), { ...timing, attemptsMade: 1 }), new Error('COMPLIANCE_VIOLATION: blocked'));
+      await flush();
+      expect(quota.incrementMetered).not.toHaveBeenCalled();
+
+      // Final attempt, retryable: the platform's failure, never billed.
+      await failedHandler(makeJob(makeJobData(), { ...timing, attemptsMade: 2 }), new Error('registry timeout'));
+      await flush();
+      expect(quota.incrementMetered).not.toHaveBeenCalled();
+
+      // Final attempt, permanent: the tenant's failure, charged once.
+      await failedHandler(makeJob(makeJobData(), { ...timing, attemptsMade: 2 }), new Error('COMPLIANCE_VIOLATION: blocked'));
+      await flush();
+      expect(quota.incrementMetered).toHaveBeenCalledTimes(1);
+      expect(quota.incrementMetered).toHaveBeenCalledWith('org-1', 'cpuCredits', expect.anything(), [expect.objectContaining({ amount: expect.any(Number) })]);
+    });
+
     it('handles null job gracefully', () => {
       const sse = makeSseManager();
       const quota = makeQuotaService();
@@ -1692,7 +1733,7 @@ describe('plugin-build-queue', () => {
     // T3: the DLQ's RE-QUEUE path (only the give-up branch was covered).
     it('re-queues under budget: marks the slot handed off BEFORE the add, under a fixed dlq-retry:<id> job id', async () => {
       queueModule.startWorker(makeSseManager(), makeQuotaService());
-      const job = makeDlqJob({ totalAttempts: 2, lastError: 'flaky registry', failureCategory: 'transient' as any });
+      const job = makeDlqJob({ totalAttempts: 2, lastError: 'flaky registry', failureCategory: 'transient' as any, slotDelays: 40, slotWaitStartedAt: 1 });
 
       await getDlqProcessor()(job);
 
@@ -1703,6 +1744,9 @@ describe('plugin-build-queue', () => {
       // The re-queued job starts clean: no failure carried over, and it owns the slot again.
       expect(add[1]).not.toHaveProperty('lastError');
       expect(add[1]).not.toHaveProperty('failureCategory');
+      // ...and waits for its org slot on a fresh clock, not the original run's.
+      expect(add[1]).not.toHaveProperty('slotDelays');
+      expect(add[1]).not.toHaveProperty('slotWaitStartedAt');
       expect(add[1].quotaReleased).toBeUndefined();
       // Ordering: the record stops claiming the slot first, so a failed add can
       // only strand a slot (self-heals at reset), never double-release one.
@@ -1938,6 +1982,62 @@ describe('plugin-build-queue', () => {
   // object storage, so BullMQ must fail the job immediately (UnrecoverableError)
   // — and since BullMQ then skips the remaining attempts, the failure handlers
   // must treat it as terminal or the quota slot and artifacts leak.
+  // The temp-dir sweep protects only the context dirs job data names, so a
+  // context rehydrated on another replica must be recorded on the job — or a
+  // build running past the sweep age has its context deleted under it.
+  describe('cross-replica rehydrate', () => {
+    const recordedDirs = (job: { updateData: jest.Mock<(...args: any[]) => any> }) =>
+      job.updateData.mock.calls
+        .map((c) => (c[0] as PluginBuildJobData | undefined)?.buildRequest?.contextDir)
+        .filter((d): d is string => typeof d === 'string');
+
+    it('records the rehydrated context dir on the job, where the sweep reads it', async () => {
+      queueModule.startWorker(makeSseManager(), makeQuotaService());
+      mockBuildAndPush.mockResolvedValue({ fullImage: 'img', digest: `sha256:${'c'.repeat(64)}`, imageSource: 'built' });
+      mockDeployVersion.mockResolvedValue({ id: 'p1', name: 'my-plugin', version: '1.0.0' });
+      mockExistsSync.mockReturnValue(false);
+      const job = makeJob(makeJobData());
+
+      await getMainProcessor()(job);
+
+      expect(mockGetPluginArtifactToFile).toHaveBeenCalledWith('org-1/req-123.zip', expect.any(String));
+      const recorded = recordedDirs(job);
+      expect(recorded).toHaveLength(1);
+      expect(recorded[0]).not.toBe('/tmp/build-ctx');
+      // The dir recorded is the one the build ran in.
+      expect(mockBuildAndPush).toHaveBeenCalledWith(expect.objectContaining({ contextDir: recorded[0] }), expect.anything());
+      expect(job.updateData).toHaveBeenCalledWith(expect.objectContaining({
+        buildRequest: expect.objectContaining({ contextDir: recorded[0], s3Key: 'org-1/req-123.zip' }),
+      }));
+    });
+
+    it('writes nothing when the uploader\'s context is already on this replica', async () => {
+      queueModule.startWorker(makeSseManager(), makeQuotaService());
+      mockBuildAndPush.mockResolvedValue({ fullImage: 'img', digest: `sha256:${'c'.repeat(64)}`, imageSource: 'built' });
+      mockDeployVersion.mockResolvedValue({ id: 'p1', name: 'my-plugin', version: '1.0.0' });
+      mockExistsSync.mockReturnValue(true);
+      const job = makeJob(makeJobData());
+
+      await getMainProcessor()(job);
+
+      expect(mockGetPluginArtifactToFile).not.toHaveBeenCalled();
+      expect(recordedDirs(job)).toEqual([]);
+    });
+
+    it('a failed record does not fail the build', async () => {
+      queueModule.startWorker(makeSseManager(), makeQuotaService());
+      mockBuildAndPush.mockResolvedValue({ fullImage: 'img', digest: `sha256:${'c'.repeat(64)}`, imageSource: 'built' });
+      mockDeployVersion.mockResolvedValue({ id: 'p1', name: 'my-plugin', version: '1.0.0' });
+      mockExistsSync.mockReturnValue(false);
+      const job = makeJob(makeJobData(), { updateData: jest.fn<(...args: any[]) => any>().mockRejectedValue(new Error('redis away')) });
+
+      // Throws if the build failed; the lost record is only logged.
+      await getMainProcessor()(job);
+      expect(mockBuildAndPush).toHaveBeenCalled();
+      expect(mockDeployVersion).toHaveBeenCalled();
+    });
+  });
+
   describe('missing build context', () => {
     it('the processor throws an UnrecoverableError when the context is absent and has no S3 key', async () => {
       const { UnrecoverableError } = await import('bullmq') as any;

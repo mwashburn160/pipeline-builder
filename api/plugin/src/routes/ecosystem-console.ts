@@ -234,16 +234,16 @@ export function createEcosystemConsoleRoutes(): Router {
     sendSuccess(res, 200, await removeReply(caller, param(req, 'id'), bodyOf(req)));
   }));
 
-  // -- Reserved names --------------------------------------------------------
-  // Both writes are step-up gated. DELETE is the one that matters: a reserved
-  // name is this deployment's typosquat defence, and freeing one lets the next
-  // caller register it.
   // Listed versions a rescan flagged AFTER they were published (oldest flag
   // first), and those whose scan is stale or missing: the listing gate checked
   // them once, at request time, and nothing else puts them back in front of a
   // moderator.
   router.get('/flagged-versions', ...moderate, ecosystemRoute(async ({ res }) => { sendSuccess(res, 200, await listedVersionsNeedingAttention()); }));
 
+  // -- Reserved names --------------------------------------------------------
+  // Both writes are step-up gated. DELETE is the one that matters: a reserved
+  // name is this deployment's typosquat defence, and freeing one lets the next
+  // caller register it.
   router.get('/reserved-names', ...moderate, ecosystemRoute(async ({ res }) => { sendSuccess(res, 200, { names: await listReserved() }); }));
 
   router.put('/reserved-names/:name', ...moderate, stepUp, a('ecosystem.reserved-name.update'), ecosystemRoute(async ({ req, res, caller }) => {

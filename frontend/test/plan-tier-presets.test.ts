@@ -21,13 +21,13 @@ import { ALL_TIER_KEYS, TIER_KEYS as SELECTABLE_TIER_KEYS, TIER_META, getTierMet
  * barrel pulls in express, which does not load under jsdom, and the union is a
  * type (no runtime list to import from a browser subpath).
  */
-const CORE = readFileSync(path.join(__dirname, '../../packages/api-core/src/types/quota-tiers.ts'), 'utf8');
+const CORE = readFileSync(path.join(__dirname, '../../packages/api-core/src/types/plan-tiers.ts'), 'utf8');
 
-/** The `QuotaTier` union members. `VALID_TIERS` is DERIVED (Object.keys), so the
+/** The `PlanTier` union members. `VALID_TIERS` is DERIVED (Object.keys), so the
  *  type union is the only literal list of tiers in that file. */
 function coreTiers(): string[] {
-  const m = /export type QuotaTier =([^;]*);/.exec(CORE);
-  if (!m) throw new Error('QuotaTier union not found in api-core quota-tiers.ts');
+  const m = /export type PlanTier =([^;]*);/.exec(CORE);
+  if (!m) throw new Error('PlanTier union not found in api-core plan-tiers.ts');
   return [...m[1].matchAll(/'([a-z]+)'/g)].map((x) => x[1]);
 }
 

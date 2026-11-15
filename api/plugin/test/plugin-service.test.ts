@@ -23,7 +23,7 @@ const mockPluginResolutionOrderBy = jest.fn((..._a: any[]) => ['resolution-order
 const { SYSTEM_ORG_ID } = await import('@pipeline-builder/api-core');
 
 jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@pipeline-builder/pipeline-core', {
-  CoreConstants: { CACHE_TTL_ENTITY: 60 },
+  CoreConstants: { CACHE_TTL_ENTITY_SECONDS: 60 },
   // Mirrors pipeline-core's owner-namespaced repository rule.
   pluginImageRepository: (p: any) => (p.buildType === 'metadata_only' ? null : `${p.orgId === SYSTEM_ORG_ID ? 'system' : `org-${p.orgId}`}/${p.name}`),
   ComputeType: {},

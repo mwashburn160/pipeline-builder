@@ -27,7 +27,7 @@
 
 import { randomUUID, createHash, randomBytes } from 'node:crypto';
 import { NotFoundError, ConflictError, ErrorCode, type WeekStart } from '@pipeline-builder/api-core';
-import { and, asc, desc, eq, inArray, isNull, lte, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, inArray, isNull, lte, sql } from 'drizzle-orm';
 import { schema } from '../../../database/drizzle-schema.js';
 import type {
   ReportCadence,
@@ -59,24 +59,29 @@ export interface UnsubscribeResult {
 export const DEFAULT_SHARE_LINK_TTL_DAYS = 30;
 /** The longest a share link may live. Beyond this it is a permanent URL. */
 export const MAX_SHARE_LINK_TTL_DAYS = 180;
-/** A recipient's verification link. Short: it is clicked within minutes or never. */
-export const VERIFICATION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+/**
+ * How long a recipient's verification link is accepted: 7 days, measured from
+ * when that link's token was minted (`verification_issued_at`) — a resend starts
+ * a fresh window. Generous on purpose — the address belongs to someone outside the product who
+ * may be away for a week, and an expired link means re-adding them.
+ */
+export const RECIPIENT_VERIFICATION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 /**
  * Bounces before an address is treated as undeliverable and skipped. Three, not
  * one: a single bounce is often an out-of-office autoresponder or a full mailbox,
  * and dropping a manager off the list for one of those is a silent failure.
  */
-export const MAX_BOUNCES = 3;
+export const MAX_REPORT_BOUNCES = 3;
 
-/** SHA-256 hex of a token. The only form any token is ever stored in. */
-export function hashToken(token: string): string {
+/** SHA-256 hex of a report token (share link, verification, unsubscribe). The only form any of them is ever stored in. */
+export function hashReportToken(token: string): string {
   return createHash('sha256').update(token, 'utf8').digest('hex');
 }
 
-/** A fresh URL-safe token, and its hash. The raw value is returned exactly once. */
-export function mintToken(): { token: string; tokenHash: string } {
+/** A fresh URL-safe report token, and its hash. The raw value is returned exactly once. */
+export function mintReportToken(): { token: string; tokenHash: string } {
   const token = randomBytes(32).toString('base64url');
-  return { token, tokenHash: hashToken(token) };
+  return { token, tokenHash: hashReportToken(token) };
 }
 
 /** What creating a definition needs. */
@@ -509,7 +514,7 @@ export class StakeholderReportStore {
     }
     const days = Math.min(input.ttlDays ?? DEFAULT_SHARE_LINK_TTL_DAYS, MAX_SHARE_LINK_TTL_DAYS);
     const now = input.now ?? new Date();
-    const { token, tokenHash } = mintToken();
+    const { token, tokenHash } = mintReportToken();
     const rows = await withTenantTx((tx) => tx.insert(schema.reportShareLink).values({
       id: randomUUID(),
       orgId: input.orgId,
@@ -582,7 +587,7 @@ export class StakeholderReportStore {
    * 404 and a holder of a dead link learns nothing about which of those it was.
    */
   async resolveShareLink(token: string, now = new Date()): Promise<ResolvedShareLink | null> {
-    const tokenHash = hashToken(token);
+    const tokenHash = hashReportToken(token);
     const links = await runWithTenantContext({ isSuperAdmin: true }, () =>
       withTenantTx((tx) => tx.select().from(schema.reportShareLink)
         .where(eq(schema.reportShareLink.tokenHash, tokenHash))
@@ -649,11 +654,11 @@ export class StakeholderReportStore {
   }): Promise<{ recipient: ReportRecipient; verificationToken?: string }> {
     const email = input.email.trim().toLowerCase();
     const now = input.now ?? new Date();
-    const minted = input.preVerified ? undefined : mintToken();
+    const minted = input.preVerified ? undefined : mintReportToken();
     // The unsubscribe token is minted for EVERY recipient, member or not, because every
     // report email carries the link. Minted once and kept: a link in a report from March
     // has to keep working.
-    const unsub = mintToken();
+    const unsub = mintReportToken();
     const rows = await withTenantTx((tx) => tx.insert(schema.reportRecipient).values({
       id: randomUUID(),
       orgId: input.orgId,
@@ -661,6 +666,7 @@ export class StakeholderReportStore {
       displayName: input.displayName ?? null,
       verifiedAt: input.preVerified ? now : null,
       verificationTokenHash: minted?.tokenHash ?? null,
+      verificationIssuedAt: minted ? now : null,
       unsubscribeToken: unsub.token,
       approvedBy: input.approvedBy ?? null,
       createdBy: input.createdBy,
@@ -676,6 +682,9 @@ export class StakeholderReportStore {
         // Only mint over an UNVERIFIED row; a verified address keeps its state.
         verificationTokenHash: sql`CASE WHEN ${schema.reportRecipient.verifiedAt} IS NULL
           THEN ${minted?.tokenHash ?? null} ELSE ${schema.reportRecipient.verificationTokenHash} END`,
+        // The window restarts with the token it guards.
+        verificationIssuedAt: sql`CASE WHEN ${schema.reportRecipient.verifiedAt} IS NULL
+          THEN ${minted ? now : null}::timestamptz ELSE ${schema.reportRecipient.verificationIssuedAt} END`,
         verifiedAt: input.preVerified
           ? sql`COALESCE(${schema.reportRecipient.verifiedAt}, ${now})`
           : sql`${schema.reportRecipient.verifiedAt}`,
@@ -708,11 +717,14 @@ export class StakeholderReportStore {
     return rows as ReportRecipient[];
   }
 
-  /** Mint a fresh verification token for a recipient that has not confirmed yet. */
-  async resendVerification(orgId: string, id: string): Promise<{ recipient: ReportRecipient; token: string }> {
-    const { token, tokenHash } = mintToken();
+  /**
+   * Mint a fresh verification token for a recipient that has not confirmed yet.
+   * The new token gets its own full window ({@link RECIPIENT_VERIFICATION_TTL_MS}).
+   */
+  async resendVerification(orgId: string, id: string, now = new Date()): Promise<{ recipient: ReportRecipient; token: string }> {
+    const { token, tokenHash } = mintReportToken();
     const rows = await withTenantTx((tx) => tx.update(schema.reportRecipient)
-      .set({ verificationTokenHash: tokenHash })
+      .set({ verificationTokenHash: tokenHash, verificationIssuedAt: now })
       .where(and(
         eq(schema.reportRecipient.id, id),
         eq(schema.reportRecipient.orgId, orgId),
@@ -740,18 +752,17 @@ export class StakeholderReportStore {
    * link cannot be replayed by whoever the mail was forwarded to.
    */
   async verifyRecipientByToken(token: string, now = new Date()): Promise<ReportRecipient | null> {
-    const tokenHash = hashToken(token);
+    const tokenHash = hashReportToken(token);
     const rows = await runWithTenantContext({ isSuperAdmin: true }, () =>
       withTenantTx((tx) => tx.update(schema.reportRecipient)
-        .set({ verifiedAt: now, verificationTokenHash: null })
+        .set({ verifiedAt: now, verificationTokenHash: null, verificationIssuedAt: null })
         .where(and(
           eq(schema.reportRecipient.verificationTokenHash, tokenHash),
           isNull(schema.reportRecipient.verifiedAt),
           isNull(schema.reportRecipient.deletedAt),
-          // A token older than the window is not accepted. `created_at` is the
-          // floor for the first token; a resend refreshes the hash, so this bounds
-          // the original mint and is deliberately generous.
-          sql`${schema.reportRecipient.createdAt} > ${new Date(now.getTime() - VERIFICATION_TTL_MS)}`,
+          // A token older than the window is not accepted. Measured from when THIS
+          // token was minted, so a resend gets a full window of its own.
+          gt(schema.reportRecipient.verificationIssuedAt, new Date(now.getTime() - RECIPIENT_VERIFICATION_TTL_MS)),
         ))
         .returning()));
     return (rows as ReportRecipient[])[0] ?? null;
@@ -806,7 +817,7 @@ export class StakeholderReportStore {
     });
   }
 
-  /** Record a delivery bounce. At {@link MAX_BOUNCES} the address is skipped. */
+  /** Record a delivery bounce. At {@link MAX_REPORT_BOUNCES} the address is skipped. */
   async recordBounce(orgId: string, email: string, now = new Date()): Promise<number> {
     const rows = await withTenantTx((tx) => tx.update(schema.reportRecipient)
       .set({ bounceCount: sql`${schema.reportRecipient.bounceCount} + 1`, lastBounceAt: now })
@@ -842,7 +853,7 @@ export class StakeholderReportStore {
     if (recipient.deletedAt) return { deliverable: false, reason: 'removed' };
     if (recipient.unsubscribedAt) return { deliverable: false, reason: 'unsubscribed' };
     if (!recipient.verifiedAt) return { deliverable: false, reason: 'pending_verification' };
-    if (recipient.bounceCount >= MAX_BOUNCES) return { deliverable: false, reason: 'bouncing' };
+    if (recipient.bounceCount >= MAX_REPORT_BOUNCES) return { deliverable: false, reason: 'bouncing' };
     return { deliverable: true };
   }
 

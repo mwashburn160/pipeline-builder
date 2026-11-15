@@ -54,7 +54,9 @@ const StepManifestEntrySchema = z.object({
 const MAX_MANIFEST_STEPS = 500;
 
 const PipelineRegistrySchema = z.object({
-  pipelineId: z.string().min(1, 'pipelineId is required'),
+  // The pipeline's row id (a uuid column): anything else would reach the
+  // ownership lookup as a Postgres cast error and answer 500, not 400.
+  pipelineId: z.string().uuid('pipelineId must be a pipeline UUID'),
   pipelineName: z.string().min(1, 'pipelineName is required'),
   region: z.string().optional(),
   project: z.string().optional(),
@@ -65,7 +67,7 @@ const PipelineRegistrySchema = z.object({
 
 /**
  * Register pipeline registry routes.
- * - POST /pipelines/registry — upsert a pipeline ARN mapping for event reporting,
+ * - POST /pipelines/registry — upsert a pipeline's deployment registration for event reporting,
  *   and (when `steps` is sent — a post-deploy registration) replace the
  *   pipeline's step manifest, which attributes action events to plugins.
  * - GET  /pipelines/registry — list registry entries owned by the caller's org.
@@ -193,6 +195,9 @@ export function createRegistryRoutes(): Router {
   router.delete('/registry/:id', requirePermission('pipeline_registry:write'), audited('pipeline.registry.deregister'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const id = getParam(req.params, 'id');
     if (!id) return sendBadRequest(res, 'Registry id is required.', ErrorCode.MISSING_REQUIRED_FIELD);
+    // The row id is a uuid column: a malformed one names no row (404, like an
+    // absent one) instead of failing the delete with a Postgres cast error (500).
+    if (!z.string().uuid().safeParse(id).success) return sendError(res, 404, 'Registry entry not found.', ErrorCode.NOT_FOUND);
 
     const deleted = await pipelineRegistryService.delete(id, orgId);
     if (!deleted) return sendError(res, 404, 'Registry entry not found.', ErrorCode.NOT_FOUND);

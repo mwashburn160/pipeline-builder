@@ -55,9 +55,9 @@ const CONNECTION_FAILURE =
 
 /** `ASK_SCHEDULE_UP`/`DOWN` are five-field cron; only these parts are needed. */
 interface Window {
-  /** Minutes past midnight UTC the model comes up. */
+  /** Minutes past local midnight (`ASK_SCHEDULE_TIMEZONE`) the model comes up. */
   readonly startMinute: number;
-  /** Minutes past midnight UTC it goes down. */
+  /** Minutes past local midnight it goes down. */
   readonly endMinute: number;
   /** Days-of-week the window applies to, or null for every day. */
   readonly days: ReadonlySet<number> | null;
@@ -73,7 +73,7 @@ function plainNumber(field: string | undefined): number | null {
  * A cron day-of-week field: `*`, `3`, `1-5`, `1,3,5` or a mix. Returns null for
  * `*` (every day) and undefined when it cannot be read.
  *
- * Cron accepts both 0 and 7 for Sunday; `Date#getUTCDay` only ever returns 0,
+ * Cron accepts both 0 and 7 for Sunday; the zoned weekday only ever reads 0,
  * so 7 is normalised rather than silently never matching.
  */
 function parseDays(field: string | undefined): ReadonlySet<number> | null | undefined {
@@ -166,7 +166,7 @@ const SCHEDULE_TZ = (): string => process.env.ASK_SCHEDULE_TIMEZONE || 'America/
 /** Where `now` falls in a zone: minutes past local midnight, and the local weekday. */
 interface ZonedNow {
   readonly minuteOfDay: number;
-  /** 0 = Sunday, matching cron's day-of-week and `Date#getUTCDay`. */
+  /** 0 = Sunday, matching cron's day-of-week. */
   readonly day: number;
   /** The zone's CURRENT abbreviation (`EST`, `EDT`, `UTC`) — correct for this instant. */
   readonly label: string;
@@ -248,8 +248,8 @@ function evaluateWindow(now: Date): WindowState {
  * @param providerId - The RESOLVED provider that failed (not the requested one,
  *   which is often absent — the registry picks the first configured provider).
  * @param failure - The error message as the route already stringified it.
- * @param now - Injectable clock; the window is UTC, matching the CronJobs,
- *   which carry no timezone.
+ * @param now - Injectable clock; the window is read in `ASK_SCHEDULE_TIMEZONE`,
+ *   matching the CronJobs' `spec.timeZone`.
  */
 export function askModelScheduleNotice(providerId: string | undefined, failure: string, now: Date = new Date()): string | undefined {
   if (providerId !== OPENAI_COMPATIBLE_PROVIDER_ID) return undefined;
@@ -262,8 +262,8 @@ export function askModelScheduleNotice(providerId: string | undefined, failure: 
   }
 
   const state = evaluateWindow(now);
-  // Times are stated as UTC explicitly. The CronJobs have no timezone, so a
-  // bare "08:00" would be read as local and be wrong for most readers.
+  // Times carry the schedule zone's current abbreviation (EST/EDT…), so a bare
+  // "08:00" is never read in the reader's own zone.
   if (state.kind === 'none' || state.kind === 'unreadable') {
     return 'The Ask assistant\'s self-hosted model is not responding. It runs on a schedule and may be switched off right now, or still starting up — try again in a few minutes.';
   }
@@ -291,11 +291,11 @@ export type AskAvailability =
   | {
     readonly available: false;
     readonly reason: AskUnavailableReason;
-    /** A sentence for the user, already naming times as UTC. */
+    /** A sentence for the user, already naming times in the schedule's zone. */
     readonly message: string;
-    /** When it returns, e.g. `07:45 UTC`. Absent when nothing will change on its own. */
+    /** When it returns, e.g. `07:45 EST`. Absent when nothing will change on its own. */
     readonly resumesAt?: string;
-    /** The configured window, e.g. `07:45-17:00 UTC, Monday to Friday`. */
+    /** The configured window, e.g. `07:45-17:00 EST, Monday to Friday`. */
     readonly window?: string;
   };
 
@@ -313,7 +313,7 @@ export type AskAvailability =
  *
  * @param providerId - The provider Ask would resolve for a request right now, or
  *   undefined when nothing is configured.
- * @param now - Injectable clock; the window is UTC, matching the CronJobs.
+ * @param now - Injectable clock; the window is read in `ASK_SCHEDULE_TIMEZONE`.
  */
 export function askModelAvailability(providerId: string | undefined, now: Date = new Date()): AskAvailability {
   if (!providerId) {

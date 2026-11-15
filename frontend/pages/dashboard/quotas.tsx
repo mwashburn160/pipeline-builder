@@ -12,7 +12,7 @@ import { LoadingPage } from '@/components/ui/Loading';
 import { useToast } from '@/components/ui/Toast';
 import { overallHealthColor } from '@/lib/quota-helpers';
 import { DISPLAYED_QUOTA_TYPES } from '@/types';
-import type { OrgQuotaResponse, QuotaType, QuotaTier, DisplayedQuotaType } from '@/types';
+import type { OrgQuotaResponse, QuotaType, PlanTier, DisplayedQuotaType } from '@/types';
 import { QUOTA_KEYS, buildTierPresets } from '@/components/quotas/constants';
 import { QuotasReadOnly, type AtRiskDimension } from '@/components/quotas/QuotasReadOnly';
 import { QuotasAdmin } from '@/components/quotas/QuotasAdmin';
@@ -73,12 +73,12 @@ export default function QuotasPage() {
   const [editValues, setEditValues] = useState<Record<DisplayedQuotaType, number>>(
     () => Object.fromEntries(DISPLAYED_QUOTA_TYPES.map((t) => [t, 0])) as Record<DisplayedQuotaType, number>,
   );
-  const [editTier, setEditTier] = useState<QuotaTier>('developer');
+  const [editTier, setEditTier] = useState<PlanTier>('developer');
   const [dirty, setDirty] = useState(false);
 
   // Effective per-tier presets: the hardcoded fallback overlaid with the server's
   // env-override-aware values from /config (already loaded by FeaturesProvider),
-  // so the tier-preset prefill stays honest under `QUOTA_TIER_*` overrides (pkg#9).
+  // so the tier-preset prefill stays honest under `PLAN_TIER_*` overrides (pkg#9).
   const serverTierPresets = useFeatures().tierPresets;
   const tierPresets = useMemo(() => buildTierPresets(serverTierPresets), [serverTierPresets]);
 
@@ -205,7 +205,7 @@ export default function QuotasPage() {
     setDirty(true);
   }
 
-  function handleTierChange(tier: QuotaTier) {
+  function handleTierChange(tier: PlanTier) {
     setEditTier(tier);
     setEditValues({ ...tierPresets[tier].limits });
     setDirty(true);
@@ -226,7 +226,7 @@ export default function QuotasPage() {
     if (!orgData || !dirty) return;
     setSaving(true);
 
-    const body: { tier?: QuotaTier; quotas?: Record<string, number> } = {};
+    const body: { tier?: PlanTier; quotas?: Record<string, number> } = {};
     if (editTier !== (orgData.tier || 'developer')) body.tier = editTier;
 
     const qc: Record<string, number> = {};

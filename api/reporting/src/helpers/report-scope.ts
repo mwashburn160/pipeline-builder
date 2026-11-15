@@ -19,8 +19,8 @@ export interface ReportScope {
  * lookups are independent, so they run concurrently. A bad range comes back as
  * `{ error }` for the route to 400.
  *
- * System-admin cross-org routes deliberately don't use this — they keep the
- * absolute range ceiling and no retention floor.
+ * The platform-operator error/failure routes deliberately don't use this — they
+ * keep the absolute range ceiling and no retention floor.
  */
 export async function resolveReportScope(
   req: Request,

@@ -10,15 +10,15 @@ const _descLogger = createLogger('reporting-rollup');
 /**
  * Timeout (ms) for reporting's outbound service calls — the platform
  * org-hierarchy lookups, the email-status read, and the posture legs to
- * compliance and platform (env: `REPORTING_HTTP_TIMEOUT`).
+ * compliance and platform (env: `REPORTING_HTTP_TIMEOUT_MS`).
  *
- * Deliberately TIGHTER than the global `HTTP_CLIENT_TIMEOUT` (5s): every caller
+ * Deliberately TIGHTER than the global `HTTP_CLIENT_TIMEOUT_MS` (5s): every caller
  * sits in front of a user-facing report, a scheduled run or a batched retention
  * sweep, where failing fast (and degrading, refusing, or skipping the org this
  * tick — each caller's own policy) beats holding the work for the full global
  * budget.
  */
-export const REPORTING_HTTP_TIMEOUT_MS = envInt('REPORTING_HTTP_TIMEOUT', 3000, { min: 1 });
+export const REPORTING_HTTP_TIMEOUT_MS = envInt('REPORTING_HTTP_TIMEOUT_MS', 3000, { min: 1 });
 
 /**
  * The base URL user-facing report links are built from.
@@ -44,8 +44,8 @@ export function shareLinkUrl(token: string): string {
 export const MAX_REPORT_LIMIT = 1000;
 // The absolute retention ceiling bounds every report range. A per-org effective
 // window (tier baseline + purchased retention bundles) narrows it per request via
-// `resolveOrgRetentionWindow`; an unlimited (`-1`) org — and the system-admin
-// cross-org reports — clamp to the ceiling itself.
+// `resolveOrgRetentionWindow`; an unlimited (`-1`) org — and the platform-operator
+// error/failure reports — clamp to the ceiling itself.
 export const MAX_REPORT_RANGE_MS = RETENTION_MAX_DAYS * 24 * 60 * 60 * 1000;
 
 /** Patterns that match common credential leakage in error messages. */

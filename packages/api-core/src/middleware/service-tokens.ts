@@ -20,7 +20,7 @@ import { decodeJwtHeader } from '../utils/jwk.js';
 // `signServiceToken` mints a short-lived ES256 JWT signed with THIS service's
 // OWN key (see `services/service-keys.ts`), carrying `principalType: 'service'`
 // and naming the calling service via `sub: 'service:<name>'`. Gates branch on
-// the claim; the subject names — and since #14 the name is cryptographically
+// the claim; the subject names — and the name is cryptographically
 // bound to the signing key, so it can also be trusted.
 // `requireAuth` accepts these tokens transparently — they pass `decoded.sub`
 // and `decoded.role` checks, and downstream tenancy gates read the org embedded
@@ -114,8 +114,8 @@ export interface ServiceTokenOptions {
  *
  * `opts.serviceName` must be THIS process's own identity (`SERVICE_NAME`): a
  * service holds only its own signing key, so minting a token that names another
- * service throws rather than producing one every peer would reject. That is the
- * one behaviour change #14 forces on callers — see `services/service-keys.ts`.
+ * service throws rather than producing one every peer would reject — see
+ * `services/service-keys.ts`.
  */
 export function signServiceToken(opts: ServiceTokenOptions): string {
   const role = opts.role;

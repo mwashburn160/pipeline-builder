@@ -47,7 +47,7 @@ export function createBuildFailedHandler(sseManager: SSEManager, quotaService: Q
 
     // The 'failed' event fires OUTSIDE the processor's runWithTenantContext, so
     // recordBuildEvent's withTenantTx insert would run with an empty
-    // `app.org_id` and RLS silently drops the failed BUILD row (the insert's.
+    // `app.org_id` and RLS silently drops the failed BUILD row (the insert's
     // catch just logs a warn). Re-establish the job's tenant scope for the
     // whole handler so the failure is recorded (and any other tenant-scoped
     // read/write here is attributable).
@@ -71,15 +71,6 @@ export function createBuildFailedHandler(sseManager: SSEManager, quotaService: Q
         // automated builds have their own budget?" answerable from data.
         trigger: buildTrigger(job.data),
       });
-
-      // Charge the compute a FAILED build occupied — but only a permanent one.
-      // A failed build held the pool exactly as a success would, so it is charged
-      // too; a RETRYABLE failure is the platform's (a Redis blip, a registry
-      // timeout) and billing a tenant for our own retry is indefensible. The
-      // condition matters because BullMQ sets processedOn/finishedOn on EVERY
-      // attempt, so without it a job retried to exhaustion charges once per
-      // attempt and PLUGIN_BUILD_MAX_ATTEMPTS defaults to 2.
-      void chargeBuildCredits(quotaService, job, 'failed');
 
       logger.error('Plugin build failed', {
         jobId: job.id,
@@ -133,6 +124,17 @@ export function createBuildFailedHandler(sseManager: SSEManager, quotaService: Q
 
       const category = classifyFailure(error);
       const cfg = getBuildCfg();
+
+      // Charge the compute a FAILED build occupied — but only a permanent one,
+      // and only on its final attempt. A failed build held the pool exactly as a
+      // success would, so it is charged too; a RETRYABLE failure is the
+      // platform's (a Redis blip, a registry timeout) and billing a tenant for
+      // our own retry is indefensible. Charged HERE, after classification,
+      // because the category is decided here and nowhere upstream records it on
+      // the job — and on the final attempt only because BullMQ sets
+      // processedOn/finishedOn on EVERY attempt, so a per-attempt charge bills
+      // a job retried to exhaustion once per attempt.
+      void chargeBuildCredits(quotaService, job, 'failed', category);
       const budget = totalAttemptBudget();
 
       // Permanent failure: terminal. Decrement here because the job will not

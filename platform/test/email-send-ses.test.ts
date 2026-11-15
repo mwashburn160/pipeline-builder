@@ -123,3 +123,18 @@ describe('domain-join notifications — HTML escaping', () => {
     expect(arg.html).toContain('&lt;img src=x onerror=alert(1)&gt;');
   });
 });
+
+describe('sendEmailChanged — the notice to the PREVIOUS address', () => {
+  it('goes to the old address, names the new one, and escapes both in the HTML', async () => {
+    const svc = await loadEmailService(sesConfig());
+    await svc.sendEmailChanged('owner@example.com', 'x"><svg/onload=alert(1)>@evil.com');
+
+    const arg = mockSendMail.mock.calls[0][0] as { to: string; subject: string; text: string; html: string };
+    expect(arg.to).toBe('owner@example.com');
+    expect(arg.subject).toContain('sign-in email was changed');
+    expect(arg.text).toContain('owner@example.com');
+    expect(arg.text).toContain('@evil.com');
+    expect(arg.html).not.toContain('<svg/onload=alert(1)>');
+    expect(arg.html).toContain('&lt;svg/onload=alert(1)&gt;');
+  });
+});

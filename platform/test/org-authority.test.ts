@@ -4,7 +4,7 @@
 /**
  * helpers/org-authority.ts — the single rule for who may be "in" an org:
  * a membership row, or admin authority inherited from a live ancestor. Plus the
- * refresh path (`isValidRefreshToken` → `populateRequestUser`), which must apply
+ * refresh path (`requireRefreshSession` → `populateRequestUser`), which must apply
  * the same rule so a parent admin working in a team stays there across a refresh.
  */
 
@@ -50,7 +50,7 @@ jest.unstable_mockModule('../src/utils/token.js', () => ({
 }));
 
 const { resolveOrgAuthority, findAncestorAdminMembership } = await import('../src/helpers/org-authority.js');
-const { isValidRefreshToken } = await import('../src/middleware/auth.js');
+const { requireRefreshSession } = await import('../src/middleware/auth.js');
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -134,7 +134,7 @@ describe('refresh path keeps an inherited-authority session in its team', () => 
     const { req, res } = refreshAs('team');
     const next = jest.fn();
 
-    await isValidRefreshToken(req, res, next as any);
+    await requireRefreshSession(req, res, next as any);
 
     expect(next).toHaveBeenCalled();
     expect(req.user).toMatchObject({ organizationId: 'team', organizationName: 'Blue', role: 'admin', isAdmin: true });

@@ -34,7 +34,7 @@ const OFF: TotpStatus = {
  * Authenticator-app (TOTP) management — where a person turns two-factor
  * authentication on, off, and re-keys their recovery codes.
  *
- * It sits in Settings → Security next to "Passkeys", and for the same reason:
+ * It sits in Security → Factors next to "Passkeys", and for the same reason:
  * both are credentials for the PERSON, unlike the machine-facing access keys.
  *
  * Three server-gated actions, each opening ONE `StepUpModal` — which states what

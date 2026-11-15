@@ -76,3 +76,16 @@ describe('notify-email body', () => {
     expect(v.notifyEmailSchema.parse({ orgId: 'o', subject: 's', text: 't' }).targetUsers).toBeNull();
   });
 });
+
+describe('admin user-create schema', () => {
+  const base = { username: 'ops2', email: 'ops2@example.com', password: 'Str0ng!Passw0rd', organizationId: 'org-1' };
+
+  it('refuses role: owner — the org already has one, and ownership moves only by transfer', () => {
+    expect(v.adminCreateUserSchema.safeParse({ ...base, role: 'owner' }).success).toBe(false);
+  });
+
+  it('accepts the grantable roles', () => {
+    expect(v.adminCreateUserSchema.safeParse({ ...base, role: 'admin' }).success).toBe(true);
+    expect(v.adminCreateUserSchema.safeParse({ ...base, role: 'member' }).success).toBe(true);
+  });
+});

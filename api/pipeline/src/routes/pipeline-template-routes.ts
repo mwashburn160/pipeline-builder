@@ -280,6 +280,14 @@ export function createPipelineTemplateRoutes(): Router {
     // template belongs to its author alone.
     if (!requireVisibilityWriteAccess(req, res, existing, userId, 'templates:publish')) return;
 
+    // A rename onto a name the org already uses collides with the org-wide
+    // `(name, org_id)` unique index — a 409 here, not a 500 from the UPDATE.
+    // Checked visibility- and tombstone-blind for the same reason as create.
+    if (body.name !== undefined && body.name !== existing.name) {
+      const sameName = await pipelineTemplateService.findByNameInOrg(body.name, orgId);
+      if (sameName && sameName.id !== id) return sendError(res, 409, `A template named "${body.name}" already exists in this organization.`, ErrorCode.CONFLICT);
+    }
+
     if (body.props) {
       try {
         validatePipelineTemplates({ props: body.props });

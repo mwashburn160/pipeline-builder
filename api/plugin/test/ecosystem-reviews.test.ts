@@ -137,6 +137,17 @@ describe('createReview', () => {
     await rejects(reviewsSvc.createReview(REVIEWER(), 'acme', 'lint', { rating: 2 }), 'DUPLICATE_ENTRY');
   });
 
+  it('answers a concurrent duplicate (the unique index refuses it) as DUPLICATE_ENTRY, not a 500', async () => {
+    seedListing();
+    const store = await import('../src/services/ecosystem/reviews-store.js');
+    const insert = jest.spyOn(store.reviews, 'insert').mockRejectedValueOnce(Object.assign(new Error('duplicate key'), { code: '23505' }));
+    try {
+      await rejects(reviewsSvc.createReview(REVIEWER(), 'acme', 'lint', { rating: 4 }), 'DUPLICATE_ENTRY');
+    } finally {
+      insert.mockRestore();
+    }
+  });
+
   it('caps new reviews per org per day', async () => {
     const { listing } = seedListing();
     process.env.REVIEW_ORG_DAILY_LIMIT = '2';
@@ -311,6 +322,24 @@ describe('reportReview', () => {
     expect(lastAudit()).toMatchObject({ action: 'plugin.review.hold', actorId: 'system', orgId: SYSTEM_ORG, details: { reason: 'reports', trigger: 'reports' } });
     expect(notices('N17')).toHaveLength(1);
     expect(statsRow(listing.id)).toMatchObject({ ratingCount: 0 });
+  });
+
+  it('records the reporter\'s org, and the listing owner\'s own members never count toward the hold', async () => {
+    const { review } = await published();
+    process.env.REVIEW_AUTO_HOLD_REPORTS = '3';
+    // Three members of the publisher's own org (one reporting from a team under
+    // it): enough reports, none of them count.
+    await reviewsSvc.reportReview(MANAGER({ userId: 'u-a1' }), review.id, { category: 'abuse' });
+    await reviewsSvc.reportReview(MANAGER({ userId: 'u-a2' }), review.id, { category: 'spam' });
+    await reviewsSvc.reportReview(REVIEWER({ userId: 'u-a3', orgId: 'team-1', parentOrgId: 'org-acme' }), review.id, { category: 'abuse' });
+    expect(review.status).toBe('published');
+    expect(db.tables.plugin_review_reports!.map((r) => r.reporterOrgId)).toEqual(['org-acme', 'org-acme', 'org-acme']);
+    // Outside reporters still hold it, at the same threshold.
+    await reviewsSvc.reportReview(REVIEWER({ userId: 'u-1', orgId: 'org-x' }), review.id, { category: 'abuse' });
+    await reviewsSvc.reportReview(REVIEWER({ userId: 'u-2', orgId: 'org-y' }), review.id, { category: 'abuse' });
+    expect(review.status).toBe('published');
+    await reviewsSvc.reportReview(REVIEWER({ userId: 'u-3', orgId: 'org-z' }), review.id, { category: 'abuse' });
+    expect(review).toMatchObject({ status: 'held', holdReason: 'reports' });
   });
 
   it('refuses reporting your own review, a bad category and removed reviews', async () => {

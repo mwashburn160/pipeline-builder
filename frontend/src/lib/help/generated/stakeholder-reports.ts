@@ -1,6 +1,6 @@
 // GENERATED FROM docs/stakeholder-reports.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 78ff1683befcc072754ff5c6b6082f425a8edc260460b594cc6bd87c170c8b1a
+// SOURCE-SHA256: 4d36d24f902089f9c6e78e4eaf3d5d8998888d2f2308f576d9bfa535c2e744cd
 // SPDX-License-Identifier: Apache-2.0
 import { FileText } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -436,7 +436,7 @@ export const stakeholderReportsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "An external address then confirms by email before the first delivery, so typing an address is never enough to make a report arrive at it. The confirmation is a POST from an explicit button on /reports/confirm, not a GET, because a mail scanner opening every link in an email would otherwise consume the token before the person clicked it."
+          "content": "An external address then confirms by email before the first delivery, so typing an address is never enough to make a report arrive at it. The confirmation is a POST from an explicit button on /reports/confirm, not a GET, because a mail scanner opening every link in an email would otherwise consume the token before the person clicked it. A confirmation link is accepted for 7 days from when it was sent; Resend mints a new link with a fresh 7 days, and the old one stops working."
         },
         {
           "type": "text",

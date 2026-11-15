@@ -22,7 +22,7 @@ import { useFormState } from '@/hooks/useFormState';
 import { formatError } from '@/lib/constants';
 import { TIER_KEYS, getTierMeta } from '@/lib/tiers';
 import type { OrganizationDetail } from '@/lib/api/domains/organizations';
-import type { QuotaTier } from '@/types';
+import type { PlanTier } from '@/types';
 
 type IdentityChanges = { name?: string; slug?: string; description?: string };
 
@@ -62,15 +62,15 @@ export function OrgIdentityCard({
   const [description, setDescription] = useState('');
   // Validated identity changes, held while the step-up dialog is open.
   const [pendingEdit, setPendingEdit] = useState<IdentityChanges | null>(null);
-  const [pendingTier, setPendingTier] = useState<QuotaTier | null>(null);
+  const [pendingTier, setPendingTier] = useState<PlanTier | null>(null);
   const [tierError, setTierError] = useState<string | null>(null);
 
-  const currentTier: QuotaTier = org.tier ?? 'developer';
+  const currentTier: PlanTier = org.tier ?? 'developer';
   const isTeam = !!org.parentOrgId;
   // `unlimited` is what every org is on when billing is disabled, and it is
   // deliberately not purchasable — never offered, but listed while the org is
   // on it, or the <select> would show (and submit) "Developer" instead.
-  const tierOptions: readonly QuotaTier[] = TIER_KEYS.includes(currentTier) ? TIER_KEYS : [currentTier, ...TIER_KEYS];
+  const tierOptions: readonly PlanTier[] = TIER_KEYS.includes(currentTier) ? TIER_KEYS : [currentTier, ...TIER_KEYS];
 
   const openEdit = () => {
     setName(org.name ?? '');
@@ -152,7 +152,7 @@ export function OrgIdentityCard({
             <FilterSelect
               value={currentTier}
               onChange={(e) => {
-                const next = e.target.value as QuotaTier;
+                const next = e.target.value as PlanTier;
                 if (next !== currentTier) setPendingTier(next);
               }}
               className="text-xs"

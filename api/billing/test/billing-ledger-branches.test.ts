@@ -28,6 +28,13 @@ const BillingInvoice = {
   countDocuments: jest.fn<AnyFn>(),
 };
 jest.unstable_mockModule('../src/models/billing-invoice.js', () => ({ BillingInvoice }));
+const banked = jest.fn<AnyFn>(async () => null);
+const BillingPendingReversal = {
+  updateOne: jest.fn<AnyFn>(async () => ({ acknowledged: true })),
+  findOne: jest.fn<AnyFn>(() => ({ lean: banked })),
+  deleteOne: jest.fn<AnyFn>(async () => ({ deletedCount: 1 })),
+};
+jest.unstable_mockModule('../src/models/billing-pending-reversal.js', () => ({ BillingPendingReversal, PENDING_REVERSAL_TTL_MS: 1000 }));
 
 const ledger = await import('../src/helpers/billing-ledger.js');
 
@@ -37,6 +44,7 @@ const lastSet = () => (BillingInvoice.updateOne.mock.calls.at(-1)![1] as { $set:
 beforeEach(() => {
   jest.clearAllMocks();
   existing.mockResolvedValue(null);
+  banked.mockResolvedValue(null);
 });
 
 describe('ingestStripeInvoice', () => {
@@ -96,10 +104,63 @@ describe('reverseLedgerInvoice', () => {
     expect(incCounter).toHaveBeenCalledWith('billing_invoice_reversed_total', { source: 'stripe', status: 'refunded' });
   });
 
-  it('is a no-op (null) when the invoice was never ingested', async () => {
+  it('banks the reversal (null) when the invoice was never ingested', async () => {
     BillingInvoice.findOneAndUpdate.mockResolvedValue(null);
     await expect(ledger.reverseLedgerInvoice('in_x', 'refunded', 0)).resolves.toBeNull();
-    expect(incCounter).not.toHaveBeenCalled();
+    expect(BillingPendingReversal.updateOne).toHaveBeenCalledWith(
+      { _id: 'in_x' },
+      { $set: { status: 'refunded', amountPaidCents: 0, expiresAt: expect.any(Date) } },
+      { upsert: true },
+    );
+    expect(BillingPendingReversal.deleteOne).not.toHaveBeenCalled();
+    expect(incCounter).toHaveBeenCalledWith('billing_invoice_reversal_banked_total', { source: 'stripe', status: 'refunded' });
+    expect(incCounter).not.toHaveBeenCalledWith('billing_invoice_reversed_total', expect.anything());
+  });
+
+  it('banks a reversal without an amount by clearing any stale banked amount', async () => {
+    BillingInvoice.findOneAndUpdate.mockResolvedValue(null);
+    await ledger.reverseLedgerInvoice('in_x', 'void');
+    expect(BillingPendingReversal.updateOne).toHaveBeenCalledWith(
+      { _id: 'in_x' },
+      { $set: { status: 'void', expiresAt: expect.any(Date) }, $unset: { amountPaidCents: '' } },
+      { upsert: true },
+    );
+  });
+
+  it('applies directly when the invoice was ingested between the miss and the bank', async () => {
+    BillingInvoice.findOneAndUpdate.mockResolvedValueOnce(null).mockResolvedValueOnce({ orgId: 'org_1' });
+    await expect(ledger.reverseLedgerInvoice('in_race', 'refunded', 100)).resolves.toBe('org_1');
+    expect(BillingInvoice.findOneAndUpdate).toHaveBeenCalledTimes(2);
+    expect(BillingPendingReversal.deleteOne).toHaveBeenCalledWith({ _id: 'in_race' });
+    expect(incCounter).toHaveBeenCalledWith('billing_invoice_reversed_total', { source: 'stripe', status: 'refunded' });
+  });
+});
+
+describe('ingestStripeInvoice — banked reversals', () => {
+  it('applies a banked reversal after the upsert, then deletes exactly that version', async () => {
+    const updatedAt = new Date(5);
+    banked.mockResolvedValue({ status: 'refunded', amountPaidCents: 300, updatedAt });
+    BillingInvoice.findOneAndUpdate.mockResolvedValue({ orgId: 'org_1' });
+    await ledger.ingestStripeInvoice('org_1', { id: 'in_b', status: 'paid', amount_paid: 4900 } as any);
+
+    expect(BillingInvoice.updateOne).toHaveBeenCalled(); // the invoice row itself
+    expect(BillingInvoice.findOneAndUpdate).toHaveBeenCalledWith(
+      { externalInvoiceId: 'in_b' }, { $set: { status: 'refunded', amountPaidCents: 300 } }, { new: true },
+    );
+    expect(BillingPendingReversal.deleteOne).toHaveBeenCalledWith({ _id: 'in_b', updatedAt });
+  });
+
+  it('applies a banked amount-less reversal as status only', async () => {
+    banked.mockResolvedValue({ status: 'void', updatedAt: new Date(1) });
+    BillingInvoice.findOneAndUpdate.mockResolvedValue({ orgId: 'org_1' });
+    await ledger.ingestStripeInvoice('org_1', { id: 'in_v', status: 'paid' } as any);
+    expect(BillingInvoice.findOneAndUpdate).toHaveBeenCalledWith({ externalInvoiceId: 'in_v' }, { $set: { status: 'void' } }, { new: true });
+  });
+
+  it('does nothing extra when no reversal is banked', async () => {
+    await ledger.ingestStripeInvoice('org_1', { id: 'in_n', status: 'paid' } as any);
+    expect(BillingInvoice.findOneAndUpdate).not.toHaveBeenCalled();
+    expect(BillingPendingReversal.deleteOne).not.toHaveBeenCalled();
   });
 });
 

@@ -100,7 +100,7 @@ export function getMarketplaceProvider(): AWSMarketplaceProvider | null {
  * reports active subscriptions only, so usage in that last partial hour is not
  * reported.
  */
-export async function handleLicenseDeprovisioned(licenseArn: string): Promise<void> {
+async function handleLicenseDeprovisioned(licenseArn: string): Promise<void> {
   const licenseId = licenseIdOf(licenseArn);
   // Take the NEWEST row for the license, so a stale canceled row never wins.
   const subscription = await Subscription.findOne({

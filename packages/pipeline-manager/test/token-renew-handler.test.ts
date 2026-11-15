@@ -40,7 +40,7 @@ const STORED = {
 
 const ENV = {
   PLATFORM_SECRET_NAME: 'pipeline-builder/acme/reporting-ingest',
-  RENEW_DAYS: '30',
+  KEY_TTL_DAYS: '30',
   AWS_REGION: 'us-east-1',
 };
 
@@ -238,19 +238,39 @@ describe('token-renew-handler (key rotator)', () => {
     await expect(handler()).rejects.toThrow(/PLATFORM_SECRET_NAME/);
   });
 
-  it('rejects an out-of-range RENEW_DAYS instead of asking for a key that cannot be issued', async () => {
-    process.env.RENEW_DAYS = '400';
-    await expect(handler()).rejects.toThrow(/RENEW_DAYS/);
+  it('asks for each rotated key to live KEY_TTL_DAYS days', async () => {
+    process.env.KEY_TTL_DAYS = '90';
+    await handler();
+    const [rotate] = calls();
+    expect(rotate![1].expiresIn).toBe(90 * 24 * 60 * 60);
+  });
+
+  it('rejects an out-of-range KEY_TTL_DAYS instead of asking for a key that cannot be issued', async () => {
+    process.env.KEY_TTL_DAYS = '400';
+    await expect(handler()).rejects.toThrow(/KEY_TTL_DAYS/);
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
-  it('honors PLATFORM_VERIFY_SSL=false outside production, and REFUSES it in production', async () => {
-    process.env.PLATFORM_VERIFY_SSL = 'false';
+  it('honors PLATFORM_TLS_VERIFY=false outside production, and REFUSES it in production', async () => {
+    process.env.PLATFORM_TLS_VERIFY = 'false';
     await handler();
     expect(process.env.NODE_TLS_REJECT_UNAUTHORIZED).toBe('0');
 
     delete process.env.NODE_TLS_REJECT_UNAUTHORIZED;
     process.env.NODE_ENV = 'production';
+    await handler();
+    expect(process.env.NODE_TLS_REJECT_UNAUTHORIZED).toBeUndefined();
+  });
+
+  it('drops an inherited NODE_TLS_REJECT_UNAUTHORIZED=0 in production', async () => {
+    process.env.NODE_ENV = 'production';
+    process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+    await handler();
+    expect(process.env.NODE_TLS_REJECT_UNAUTHORIZED).toBeUndefined();
+  });
+
+  it('ignores the removed PLATFORM_VERIFY_SSL name', async () => {
+    process.env.PLATFORM_VERIFY_SSL = 'false';
     await handler();
     expect(process.env.NODE_TLS_REJECT_UNAUTHORIZED).toBeUndefined();
   });

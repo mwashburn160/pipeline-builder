@@ -91,7 +91,7 @@ export const SESSION_AUTH_MISSING = 'SESSION_AUTH_MISSING';
  *  or sign in again with one, never to retry the same credential. */
 export const MFA_REQUIRED_FOR_ORG = 'MFA_REQUIRED_FOR_ORG';
 
-/** `POST /organization/:id/mfa-policy` tried to turn "require MFA" ON for the
+/** `PATCH /organization/:id/mfa-policy` tried to turn "require MFA" ON for the
  *  SYSTEM org while the bootstrap-admin exception is still open — which would
  *  lock out the only account that can close it. → 409 */
 export const MFA_BOOTSTRAP_STILL_OPEN = 'MFA_BOOTSTRAP_STILL_OPEN';

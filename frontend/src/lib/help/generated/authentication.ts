@@ -1,6 +1,6 @@
 // GENERATED FROM docs/authentication.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: d7088c89e32e706f96fd0bd87b2f2727c753c3f31c31cb93e2a007bb221cc453
+// SOURCE-SHA256: 60d6f1057b1a9740a3287bc8176a1c413cdc2ec258aea75b83b6c7d5f63a29d4
 // SPDX-License-Identifier: Apache-2.0
 import { Lock } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -276,7 +276,7 @@ export const authenticationTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "/auth/* sits behind the per-IP auth limiter (AUTH_LIMITER_MAX per AUTH_LIMITER_WINDOWMS, default 20 / 15 min). POST /auth/login additionally has a per-account limiter keyed on a SHA-256 of the normalized (trimmed, lower-cased) identifier that counts only failed attempts (LOGIN_ACCOUNT_LIMITER_MAX / _WINDOWMS, default 10 / 15 min) — so a credential-stuffing run spread across many addresses still stalls on the account, while the owner's successful sign-ins never consume the budget. Both use the shared Redis rate-limit store (limits hold across replicas; a store outage lets requests through). The trade-off: anyone who knows an identifier can delay its password sign-in for one window; passkey, social and SSO sign-in are unaffected. TOTP codes have their own per-account lockout."
+          "content": "/auth/* sits behind the per-IP auth limiter (AUTH_LIMITER_MAX per AUTH_LIMITER_WINDOW_MS, default 20 / 15 min). POST /auth/login additionally has a per-account limiter keyed on a SHA-256 of the normalized (trimmed, lower-cased) identifier that counts only failed attempts (LOGIN_ACCOUNT_LIMITER_MAX / _WINDOW_MS, default 10 / 15 min) — so a credential-stuffing run spread across many addresses still stalls on the account, while the owner's successful sign-ins never consume the budget. Both use the shared Redis rate-limit store (limits hold across replicas; a store outage lets requests through). The trade-off: anyone who knows an identifier can delay its password sign-in for one window; passkey, social and SSO sign-in are unaffected. TOTP codes have their own per-account lockout."
         }
       ]
     },
@@ -600,7 +600,7 @@ export const authenticationTopic: HelpTopic = {
         {
           "type": "list",
           "items": [
-            "Tier. The new org takes the default quota tier and is not provisioned to"
+            "Tier. The new org takes the default plan tier and is not provisioned to"
           ]
         },
         {
@@ -1939,7 +1939,7 @@ export const authenticationTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "Sensitive actions — deleting an account or org, minting a PAT, rotating KMS, granting platform-admin, starting an impersonation, restoring soft-deleted data, writing an IdP secret — need a step-up: a fresh proof of identity in addition to the session, replayed as the X-Step-Up-Token header (60s, single-use, caller-bound). Step-up is factor-agnostic: every factor mints the same token, so the requireStepUp gate on every service is identical."
+          "content": "Sensitive actions — deleting an account or org, changing a password or the account's sign-in email, minting a PAT, rotating KMS, granting platform-admin, starting an impersonation, restoring soft-deleted data, writing an IdP secret — need a step-up: a fresh proof of identity in addition to the session, replayed as the X-Step-Up-Token header (60s, single-use, caller-bound). Step-up is factor-agnostic: every factor mints the same token, so the requireStepUp gate on every service is identical."
         },
         {
           "type": "table",
@@ -1970,6 +1970,10 @@ export const authenticationTopic: HelpTopic = {
               "Accounts with a linked social provider or org SSO — including the Google/GitHub/SSO accounts that have no password at all and previously could not pass step-up."
             ]
           ]
+        },
+        {
+          "type": "text",
+          "content": "Changing the sign-in email (PATCH /user/profile with a new email) is step-up gated because the email is where POST /auth/password/reset-request sends a reset link: a hijacked session that could set it silently would own the account. Only a real change is gated — a username edit, or re-sending the current address, is not — so the gate is applied per request (gateWhen). The route table records it under conditionalGates as { when: \"changes the sign-in email\", stepUp: true }, not as the route's top-level stepUp, and the permission contract renders it as step-up(any when changes the sign-in email). The previous address is emailed a notice of the change, since after a takeover it is the only one the real owner still reads."
         },
         {
           "type": "text",
@@ -2535,6 +2539,12 @@ export const authenticationTopic: HelpTopic = {
               "Grant / revoke platform-admin",
               "/admin/users/:id/grants",
               "Always, + second-factor step-up",
+              "403"
+            ],
+            [
+              "Create an account pre-flagged as a platform super-admin (sysadmin)",
+              "POST /users with isSuperAdmin: true",
+              "Always, + second-factor step-up — applied at the route to that body only (gateWhen, recorded under the route table's conditionalGates); an ordinary account create needs neither",
               "403"
             ],
             [
@@ -4051,7 +4061,7 @@ export const authenticationTopic: HelpTopic = {
               "platform-automation",
               "org admin",
               "none",
-              "CDK synth/deploy callbacks (--store-tokens), the plugin-lookup Lambda"
+              "CDK synth/deploy callbacks (--store-tokens)"
             ],
             [
               "pipeline-builder/{orgId}/registry-push",

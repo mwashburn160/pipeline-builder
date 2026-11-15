@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Phase 4's extractor.
+ * The frustration-signal extractor (support text → a suppress-only offers signal).
  *
  * Two properties carry the whole design, and both are tested rather than
  * asserted in a comment:

@@ -13,7 +13,7 @@ import { mockConfig } from './helpers/config-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockSend = jest.fn<(...a: unknown[]) => Promise<boolean>>();
-const messageConfig = { enabled: true, serviceHost: 'message', servicePort: 3000, serviceTimeout: 5000 };
+const messageConfig = { enabled: true, serviceHost: 'message', servicePort: 3000, serviceTimeoutMs: 5000 };
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendSystemNotification: (...a: unknown[]) => mockSend(...a),

@@ -14,7 +14,8 @@
  *    submission), stored only as an HMAC (rate limits, claim matching) and an
  *    encrypted copy (N1/N3/N4 and takedown notices), both purged 90 days after
  *    a decision — no API ever returns it and audit never carries it;
- *  - 3 submissions per rolling 24 h per email and per client IP;
+ *  - 3 submissions per 24 h per email and per client IP (fixed windows that
+ *    start at the first attempt — see `consumeDailyCaps`);
  *  - QUARANTINE: the zip goes to its own bucket, the build to the isolated
  *    quarantine buildkitd and `quarantine/<id>` — never a `plugins` row, never
  *    a tenant or `public/*` namespace before two-person moderation.
@@ -68,7 +69,7 @@ import { recordSubmission } from './metrics.js';
 import { notifySubmissionReceived } from './notify.js';
 import type { Gate } from './policy.js';
 import { deleteQuarantineImage } from './registry.js';
-import { listings, publishers, reservedNames, versions } from './store.js';
+import { listings, publishers, reservedNames, settings, versions } from './store.js';
 import {
   SUBMISSIONS_PER_DAY,
   INSPECTS_PER_DAY,
@@ -89,6 +90,7 @@ import {
   consumeProofOfWork,
   consumeDailyCaps,
   encryptEmail,
+  submitterEmail,
 } from './submission-guards.js';
 import { closeSubmissionRequest } from './submission-moderation.js';
 import { listingOwnerHash, submissions, topInstalledListings, trustedListingsNamed } from './submissions-store.js';
@@ -357,7 +359,12 @@ async function stageSubmission(
       logger.error('Quarantine staging failed; submission dropped', { submissionId: id, error: errorMessage(err) });
       throw new EcosystemError(ErrorCode.SERVICE_UNAVAILABLE, 'Storage is temporarily unavailable; try again shortly.');
     }
-    await notifySubmissionReceived({ email, name, version, verifyUrl: verifyUrl(verifyToken), statusUrl: statusUrl(statusToken) });
+    // The submission is stored; a notice failure never undoes that. Without the
+    // magic link it can never be verified, so mark it for the maintenance pass
+    // to re-send rather than leave it waiting out its expiry.
+    if (!await sendReceivedNotice({ email, name, version, verifyToken, statusToken })) {
+      await markReceivedNoticePending(id);
+    }
   } finally {
     await fs.rm(plugin.extractDir, { recursive: true, force: true }).catch(() => undefined);
   }
@@ -365,6 +372,70 @@ async function stageSubmission(
   ecosystemAudit({ action: 'plugin.submission.create', actor: ANONYMOUS_ACTOR_ID, targetType: 'plugin-submission', targetId: id, details: { submissionId: id, name, version, emailHash, clientIpHash: ipHash } });
   recordSubmission('pending_verification');
   return { id, status: 'pending_verification' };
+}
+
+/** Settings-key prefix marking a submission whose N1 magic-link notice is owed. */
+const RECEIVED_NOTICE_PENDING_PREFIX = 'submission-received-notice-pending:';
+
+/** Send N1; false when it could not be queued (or building it threw). Never throws. */
+async function sendReceivedNotice(input: { email: string; name: string; version: string; verifyToken: string; statusToken: string }): Promise<boolean> {
+  try {
+    return await notifySubmissionReceived({
+      email: input.email,
+      name: input.name,
+      version: input.version,
+      verifyUrl: verifyUrl(input.verifyToken),
+      statusUrl: statusUrl(input.statusToken),
+    });
+  } catch (err) {
+    logger.warn('Submission notice could not be built', { error: errorMessage(err) });
+    return false;
+  }
+}
+
+/** Record that `id`'s N1 is owed. Best-effort: the submission itself is already stored. */
+async function markReceivedNoticePending(id: string): Promise<void> {
+  try {
+    await settings.put(`${RECEIVED_NOTICE_PENDING_PREFIX}${id}`, { since: new Date().toISOString() }, SYSTEM_ACTOR_ID);
+    logger.warn('Submission notice not sent; queued for re-send by the maintenance pass', { submissionId: id });
+  } catch (err) {
+    logger.error('Submission notice not sent and could not be queued for re-send', { submissionId: id, error: errorMessage(err) });
+  }
+}
+
+/**
+ * Re-send every owed N1 (the maintenance pass). Each re-send mints a FRESH
+ * magic link — the first never reached the submitter, and its 30 minutes may
+ * already be over — and the mark is cleared once the notice is queued, or once
+ * the submission no longer waits on verification (verified, expired, gone) or
+ * its address is unreadable. Returns how many notices were re-sent.
+ */
+export async function resendPendingReceivedNotices(now: Date = new Date()): Promise<number> {
+  let resent = 0;
+  for (const { key } of await settings.withPrefix(RECEIVED_NOTICE_PENDING_PREFIX)) {
+    const id = key.slice(RECEIVED_NOTICE_PENDING_PREFIX.length);
+    const s = await submissions.byId(id);
+    const email = s?.status === 'pending_verification' ? await submitterEmail(s) : null;
+    if (!s || !email) {
+      await settings.remove(key);
+      continue;
+    }
+    const verifyToken = randomBytes(32).toString('base64url');
+    const renewed = await submissions.transition(s.id, 'pending_verification', {
+      verifyTokenHash: tokenHash(verifyToken),
+      verifyExpiresAt: new Date(now.getTime() + VERIFY_TOKEN_TTL_MS),
+    });
+    if (!renewed) {
+      // Verified or expired since it was read: nothing is owed any more.
+      await settings.remove(key);
+      continue;
+    }
+    if (await sendReceivedNotice({ email, name: s.name, version: s.version, verifyToken, statusToken: statusTokenFor(s.id) })) {
+      await settings.remove(key);
+      resent++;
+    }
+  }
+  return resent;
 }
 
 /** Enqueue the quarantine gate run (submission-pipeline.ts). Overridable in tests. */

@@ -81,7 +81,7 @@ export async function runDeploy(input: RunDeployInput): Promise<void> {
 
   // The props reach the CDK app as a file (see props-file.ts). The resolved
   // platform base URL is forwarded too (the app reads only process.env) for the
-  // PluginLookup Lambda endpoint + registry pull-host fallback. Absent in
+  // registry pull-host fallback. Absent in
   // local-spec mode.
   // Throws on failure — surfaced by the caller as a non-zero exit.
   const result = withPropsFile(propsWithIds, (propsEnv) => executeCdkShellCommand(command, {

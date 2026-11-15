@@ -51,7 +51,7 @@ paths:
         after the registry responds with `WWW-Authenticate: Bearer realm=...`.
         Authenticates via Basic — either a platform-issued JWT as the
         password (path 1: the plugin service's own pushes + customer
-        CodeBuild + plugin-lookup Lambda), or platform credentials proxied
+        CodeBuild), or platform credentials proxied
         to `/auth/login` (path 2: interactive `docker login`).
       operationId: getRegistryToken
       tags: [Token]

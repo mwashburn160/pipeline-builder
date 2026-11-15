@@ -9,8 +9,8 @@
  * whole point is to be reachable by someone who does not hold the feature. Everything
  * else about the add-on stays behind that gate.
  *
- * WHAT MAKES IT UNSCHEDULABLE AND UNSHAREABLE IS THAT NOTHING IS PERSISTED. The plan
- * requires a preview that "can't be scheduled or shared"; the obvious implementation —
+ * WHAT MAKES IT UNSCHEDULABLE AND UNSHAREABLE IS THAT NOTHING IS PERSISTED. A preview
+ * must be impossible to schedule or share; the obvious implementation —
  * store a run and mark it `preview` — leaves both properties depending on every future
  * caller checking the flag. Composing and returning the snapshot inline means there is
  * no definition to schedule and no run id to mint a share link against. The constraint
@@ -39,7 +39,7 @@ import {
 import { rateLimitByOrg, withRoute } from '@pipeline-builder/api-server';
 import {
   composeSnapshot,
-  getTemplate,
+  getReportTemplate,
   resolvePeriod,
   stakeholderReportStore,
   type ReportSnapshot,
@@ -116,7 +116,7 @@ export function createReportPreviewRoutes(): Router {
         );
       }
 
-      const template = getTemplate(PREVIEW_TEMPLATE);
+      const template = getReportTemplate(PREVIEW_TEMPLATE);
       if (!template) {
         // Unreachable unless the template registry changed under us; a 500 is right
         // because the preview WAS claimed and the caller got nothing.
@@ -150,11 +150,13 @@ export function createReportPreviewRoutes(): Router {
         // The claim is NOT rolled back. That looks harsh, and it is the safer of two
         // wrong answers: an org whose compose fails can be given a preview again by
         // support, whereas a rollback makes the claim re-runnable and turns a reliably
-        // failing compose into an unbounded free compute loop.
+        // failing compose into an unbounded free compute loop. So the message says the
+        // preview is spent and how to get it back — not that it was kept, which the
+        // "already used" check would contradict on the very next click.
         logger.warn('Preview compose failed after the claim was spent', { orgId, error: errorMessage(err) });
         return sendError(
           res, 500,
-          'The preview could not be computed. Contact support — your free preview has not been lost.',
+          'The preview could not be computed. Contact support to have your free preview restored.',
         );
       }
     }));

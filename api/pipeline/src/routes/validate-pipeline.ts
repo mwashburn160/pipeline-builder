@@ -7,7 +7,6 @@ import {
   errorMessage,
   getQuotaServiceAuthHeader,
   requirePermission,
-  resolveVisibility,
   sendBadRequest,
   sendSuccess,
   validateBody,
@@ -87,8 +86,7 @@ export function createValidatePipelineRoutes(quotaService: QuotaService): Router
           warnings: [],
         }, 'Pipeline configuration is not valid');
       }
-      const { project, organization, pipelineName } = prepared;
-      const visibility = resolveVisibility(req, body.visibility, 'pipelines:publish', 'org');
+      const { project, organization, pipelineName, visibility } = prepared;
 
       // Templates + plugin contracts — the same helper the create path runs.
       const check = await validatePipelineWrite(body, orgId, req.user?.parentOrganizationId);

@@ -45,6 +45,15 @@ jest.unstable_mockModule('../src/services/pipeline-service.js', () => ({
 }));
 jest.unstable_mockModule('../src/services/pipeline-execution-service.js', () => ({
   pipelineExecutionService: { triggerExecution: (...a: unknown[]) => mockTrigger(...a) },
+  PE_PIPELINE_NOT_REGISTERED: 'PE_PIPELINE_NOT_REGISTERED',
+  PE_AWS_PIPELINE_NOT_FOUND: 'PE_AWS_PIPELINE_NOT_FOUND',
+}));
+// The REAL windowed-trigger helper runs over this guard: the redeploy must take
+// the same duplicate window as POST /:id/executions.
+const mockClaim = jest.fn<AnyFn>();
+const mockRelease = jest.fn<AnyFn>();
+jest.unstable_mockModule('../src/services/execution-idempotency.js', () => ({
+  executionIdempotency: { claim: (...a: unknown[]) => mockClaim(...a), release: (...a: unknown[]) => mockRelease(...a) },
 }));
 jest.unstable_mockModule('../src/helpers/plugin-upgrades.js', () => ({
   previewPluginUpgrades: (...a: unknown[]) => mockPreview(...a),
@@ -95,6 +104,8 @@ beforeEach(() => {
   mockCompliance.mockResolvedValue({ status: 'ok' });
   mockUpdate.mockImplementation(async (id: string, data: any) => ({ id, pipelineName: 'p', props: data.props }));
   mockPipelinesOnVersion.mockResolvedValue([]);
+  mockClaim.mockResolvedValue({ token: 'tok-1' });
+  mockRelease.mockResolvedValue(undefined);
 });
 
 describe('POST /:id/plugin-upgrades/preview', () => {
@@ -207,6 +218,36 @@ describe('POST /plugin-upgrades/apply', () => {
     ]));
     // Every event of one apply shares a single batchId.
     expect(new Set(events.map((e) => e.details.batchId)).size).toBe(1);
+  });
+
+  it('a redeploy inside the duplicate window starts no second run, and says so', async () => {
+    mockTrigger.mockResolvedValue({ executionId: 'ex-1' });
+    // P1's window is free; P2 was triggered moments ago (e.g. a manual run).
+    mockClaim.mockImplementation(async (_org: string, id: string) => (id === P2 ? null : { token: `tok-${id}` }));
+    const r = res();
+    await apply({ body: { pipelineIds: [P1, P2], redeploy: true }, user: {} }, r);
+    expect(mockClaim).toHaveBeenCalledWith('acme', P1);
+    expect(mockClaim).toHaveBeenCalledWith('acme', P2);
+    expect(mockTrigger).toHaveBeenCalledTimes(1);
+    expect(mockTrigger).toHaveBeenCalledWith(P1, 'acme');
+    expect(dataOf(r).results.map((x: any) => x.redeploy)).toEqual([
+      { executionId: 'ex-1' },
+      { error: expect.stringMatching(/just triggered/) },
+    ]);
+    expect(mockRecordAudit).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'pipeline.execution.start',
+      outcome: 'failure',
+      details: expect.objectContaining({ pipelineId: P2, reason: 'duplicate_suppressed' }),
+    }));
+  });
+
+  it('reopens the window only when the redeploy definitely never started', async () => {
+    mockTrigger
+      .mockRejectedValueOnce(new Error('PE_PIPELINE_NOT_REGISTERED'))
+      .mockRejectedValueOnce(new Error('PE_AWS_ERROR'));
+    await apply({ body: { pipelineIds: [P1, P2], redeploy: true }, user: {} }, res());
+    expect(mockRelease).toHaveBeenCalledTimes(1);
+    expect(mockRelease).toHaveBeenCalledWith('acme', P1, { token: 'tok-1' });
   });
 
   it('400s an invalid body and reports an unexpected error per pipeline', async () => {

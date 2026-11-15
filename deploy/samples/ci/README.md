@@ -29,10 +29,9 @@ platform's live catalog, so the template must already be loaded there
 
 ## What each job needs
 
-**Toolchain** (installed by every sample): Node 24+, plus `pipeline-manager`,
-`aws-cdk`, `esbuild`, and `pnpm` on `PATH` — `--deploy` shells out to
-`cdk deploy`, whose synth uses esbuild + pnpm. The instantiate step needs nothing
-extra — it runs through the same CLI.
+**Toolchain** (installed by every sample): Node 24+, plus `pipeline-manager` and
+`aws-cdk` on `PATH` — `--deploy` shells out to `cdk deploy`. The instantiate step
+needs nothing extra — it runs through the same CLI.
 
 **Platform auth** (CI secrets/variables):
 

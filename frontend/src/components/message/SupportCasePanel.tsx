@@ -6,6 +6,7 @@ import { LifeBuoy } from 'lucide-react';
 import { Select } from '@/components/ui/Select';
 import { Button } from '@/components/ui/Button';
 import api from '@/lib/api';
+import { formatError } from '@/lib/constants';
 import { TENANT_CASE_STATUSES, caseStatusLabel, isTenantTerminalCaseStatus, responseTargetLabel } from '@/components/message/MessageList';
 import type { SupportCaseSummary } from '@/types';
 
@@ -43,8 +44,8 @@ export function SupportCasePanel({ supportCase, contacts, onChanged }: SupportCa
   const closedToTenant = isTenantTerminalCaseStatus(supportCase.status);
 
   /** Run one mutation, surfacing the server's own refusal rather than a generic one. */
-  // `message`, not `error`: the API's failure shape has no `error` field, so
-  // reading one typechecks and always yields undefined.
+  // A refusal (4xx/5xx) arrives as a thrown ApiError carrying the server's
+  // message; a 2xx `success: false` envelope carries it as `message`.
   const run = async (fn: () => Promise<{ success: boolean; message?: string }>) => {
     setBusy(true);
     setError(null);
@@ -55,8 +56,8 @@ export function SupportCasePanel({ supportCase, contacts, onChanged }: SupportCa
       // "something went wrong" would hide exactly the part worth reading.
       if (!res.success) setError(res.message ?? 'That change was not applied');
       else onChanged?.();
-    } catch {
-      setError('That change could not be saved');
+    } catch (err) {
+      setError(formatError(err, 'That change could not be saved'));
     } finally {
       setBusy(false);
     }

@@ -62,7 +62,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   // rather than as a stale double (it cost one debugging round on `cpuCredits`).
   VALID_QUOTA_TYPES: ['plugins', 'pipelines', 'apiCalls', 'automationCalls', 'aiCalls', 'storageBytes', 'cpuCredits', 'dashboards'],
   isValidQuotaType: (t: string) => ['plugins', 'pipelines', 'apiCalls'].includes(t),
-  QUOTA_TIERS: {
+  PLAN_TIERS: {
     developer: { limits: { plugins: 100, pipelines: 10, apiCalls: -1 } },
     pro: { limits: { plugins: 500, pipelines: 50, apiCalls: -1 } },
     unlimited: { limits: { plugins: -1, pipelines: -1, apiCalls: -1 } },

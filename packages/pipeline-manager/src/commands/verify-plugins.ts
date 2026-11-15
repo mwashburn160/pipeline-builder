@@ -62,7 +62,7 @@ export function loadVerifySteps(options: Pick<VerifyOptions, 'stepsFile' | 'mani
   return steps;
 }
 
-/** `POST /api/plugins/runtime-check` (contract C2), envelope unwrapped. */
+/** `POST /api/plugins/runtime-check`, envelope unwrapped. */
 export async function runtimeCheck(client: ApiClient, pipelineId: string, steps: readonly RuntimeCheckStep[]): Promise<RuntimeCheckResult> {
   const response = await client.post<unknown>(`${client.getConfig().api.pluginUrl}/runtime-check`, { pipelineId, steps });
   const body = unwrapEnvelope(response) as Partial<RuntimeCheckResult>;

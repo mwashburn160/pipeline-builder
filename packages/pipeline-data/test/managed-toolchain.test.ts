@@ -47,7 +47,7 @@ const TEAM = 'aaaaaaaaaaaaaaaaaaaaaaa3';
 const OTHER = 'bbbbbbbbbbbbbbbbbbbbbbb1';
 const PARENTS: Record<string, string | undefined> = { [TEAM]: MID, [MID]: ROOT };
 
-const TOOLCHAIN = { pipelineManager: '3.4.0', awsCdk: '2.275.0', cdkAssets: '3.1.0', esbuild: '0.25.0', pnpm: '10.0.0', node: '22.11.0' };
+const TOOLCHAIN = { pipelineManager: '3.4.0', awsCdk: '2.275.0', cdkAssets: '3.1.0', node: '22.11.0' };
 
 function deps(parents: Record<string, string | undefined> = PARENTS): ManagedToolchainDeps & { getParent: jest.Mock } {
   return {

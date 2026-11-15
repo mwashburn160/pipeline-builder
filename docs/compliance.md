@@ -17,7 +17,7 @@ Per-organization rule enforcement for plugins and pipelines. Validates entity at
 
 - **Fail-closed.** If the compliance service is unreachable, plugin uploads and pipeline creates are **rejected** (HTTP 503) rather than waved through.
 - **Each organization owns its compliance.** The system org does not enforce rules on other orgs — it *publishes* recommendations any org can browse, subscribe to and customize. The one exception is the org → team hierarchy.
-- **The system org is itself exempt**, and scheduled scans skip it unless `SYSTEM_ORG_SCANS_ENABLED=true`.
+- **The system org is itself exempt**, and scheduled scans always skip it.
 - **Blocking is by severity.** `error` and `critical` block creation with a 403; `warning` logs and allows.
 - **Curated libraries are a shared reference, not a copy.** Buying an add-on grants *access* — one library of 30 rules serves 10,000 orgs as 30 rules plus pointer rows.
 - **Enforcement is entitlement-unaware** by design: it reads the org's *active* subscriptions, and a separate sync leg keeps that active set in step with billing.
@@ -56,7 +56,7 @@ Plugin/Pipeline Service                  Compliance Service
 
 The one exception is the **org → team hierarchy**: a parent organization's rule marked *apply to child teams* (`propagateToChildren`) is inherited and enforced on its nested teams.
 
-The system org is itself **exempt from enforcement** — no rules are evaluated against its own entities, and scheduled or bulk scans skip it unless `SYSTEM_ORG_SCANS_ENABLED=true`. Alongside its published rules it also owns shared **template** policies and rules (`isTemplate: true`) that any org can clone into its own editable copy.
+The system org is itself **exempt from enforcement** — no rules are evaluated against its own entities, its scan schedules never run, and a scan launched for it completes at once with zero results. Alongside its published rules it also owns shared **template** policies and rules (`isTemplate: true`) that any org can clone into its own editable copy.
 
 ### The two rule sets, and caching
 
@@ -440,7 +440,7 @@ Add your own by creating `deploy/compliance/rules/<name>/rule.json` + `README.md
 |----------|---------|-------------|
 | `COMPLIANCE_SERVICE_HOST` | `compliance` | Hostname (used by plugin/pipeline services to reach compliance) |
 | `COMPLIANCE_SERVICE_PORT` | `3000` | Port |
-| `CACHE_TTL_COMPLIANCE_RULES` | `60` | Active rules cache TTL (seconds) |
+| `CACHE_TTL_COMPLIANCE_RULES_SECONDS` | `60` | Active rules cache TTL (seconds) |
 | `COMPLIANCE_AUDIT_RETENTION_DAYS` | `180` | Retention for the audit log, finished scans and the notification log (one daily prune) |
 | `COMPLIANCE_EXEMPTION_EXPIRY_WARN_DAYS` | `7` | How far ahead of `expiresAt` the daily expiry sweep warns the org (one in-app notice per exemption); the same sweep moves lapsed approved exemptions to `expired` |
 | `COMPLIANCE_MAX_REGEX_LENGTH` | `100` | Max length of a user-supplied `regex` pattern |

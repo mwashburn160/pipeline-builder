@@ -40,7 +40,8 @@ const defaultLimitFor = jest.fn<(tier: string | undefined, t: string) => number>
 jest.unstable_mockModule('../src/helpers/quota-helpers.js', () => ({ defaultLimitFor }));
 
 const notifyThresholds = jest.fn<AnyFn>();
-jest.unstable_mockModule('../src/services/threshold-notifier.js', () => ({ notifyThresholds }));
+const forgetClaimedNotices = jest.fn<AnyFn>();
+jest.unstable_mockModule('../src/services/threshold-notifier.js', () => ({ notifyThresholds, forgetClaimedNotices }));
 
 const setGauge = jest.fn<AnyFn>();
 jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', { setGauge }));
@@ -174,6 +175,9 @@ describe('sweepStorageNotices', () => {
     const r = await sweep();
     expect(r).toEqual({ considered: 1, unknown: 0, notified: 0, cleared: 1 });
     expect(deleteMany).toHaveBeenCalledWith({ rootOrgId: 'org-1', quotaType: 'storageBytes' });
+    // The pod's claim memo goes with the rows, or the notifier drops the
+    // refill's notice before it ever reaches the deleted claim.
+    expect(forgetClaimedNotices).toHaveBeenCalledWith('org-1', 'storageBytes');
     expect(notifyThresholds).not.toHaveBeenCalled();
   });
 
@@ -187,6 +191,7 @@ describe('sweepStorageNotices', () => {
     expect(deleteMany).toHaveBeenCalledWith({
       rootOrgId: 'org-1', quotaType: 'storageBytes', threshold: { $gt: 80 },
     });
+    expect(forgetClaimedNotices).toHaveBeenCalledWith('org-1', 'storageBytes', 80);
   });
 
   it('keeps going when one org fails', async () => {

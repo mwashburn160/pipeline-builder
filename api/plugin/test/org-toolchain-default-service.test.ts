@@ -36,7 +36,7 @@ const ROOT = 'aaaaaaaaaaaaaaaaaaaaaaa1';
 const TEAM = 'aaaaaaaaaaaaaaaaaaaaaaa2';
 const OTHER = 'bbbbbbbbbbbbbbbbbbbbbbb1';
 const PARENTS: Record<string, string | undefined> = { [TEAM]: ROOT };
-const TOOLCHAIN = { pipelineManager: '4.4.20', awsCdk: '2.1148.0', cdkAssets: '4.8.0', esbuild: '0.28.1', pnpm: '12.14.0', node: '26.13.0' };
+const TOOLCHAIN = { pipelineManager: '4.4.20', awsCdk: '2.1148.0', cdkAssets: '4.8.0', node: '26.13.0' };
 
 realPipelineData.setManagedToolchainDepsForTests({
   read: (fn) => realPipelineData.runWithTenantContext({ isSuperAdmin: true }, () => testDb.withTenantTx((tx) => fn(tx))),

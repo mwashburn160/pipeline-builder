@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The plugin build WORKERS: one BullMQ worker per quota tier running the build
+ * The plugin build WORKERS: one BullMQ worker per plan tier running the build
  * processor, plus the DLQ worker, the periodic temp-dir sweep and graceful
  * shutdown. Queue handles and Redis connections live in `connections.ts`; the
  * `failed` handler in `failure-handler.ts`; operator re-enqueue in `requeue.ts`.
@@ -12,7 +12,7 @@ import * as fs from 'fs';
 import path from 'path';
 
 import { SYSTEM_ACTOR_ID, BUILD_CLASSES, buildConcurrencyEnvVar, buildWorkerConcurrencyFor, ErrorCode, envInt, createLogger, errorMessage, getServiceAuthHeader, VALID_TIERS, recordAudit } from '@pipeline-builder/api-core';
-import type { AppError, BuildClass, BuildSize, PluginScanSummary, QuotaService, QuotaTier } from '@pipeline-builder/api-core';
+import type { AppError, BuildClass, BuildSize, PluginScanSummary, QuotaService, PlanTier } from '@pipeline-builder/api-core';
 import { incCounter, observe, setGauge, withSpan } from '@pipeline-builder/api-server';
 import type { SSEManager } from '@pipeline-builder/api-server';
 import { runWithTenantContext, schema, withTenantTx } from '@pipeline-builder/pipeline-data';
@@ -22,7 +22,7 @@ import { and, eq } from 'drizzle-orm';
 
 import { buildTrigger, chargeBuildCredits } from './build-credits.js';
 import { recordBuildEvent } from './build-failures.js';
-import { cleanupBuildArtifacts, ensureLocalBuildContext } from './build-workspace.js';
+import { cleanupBuildArtifacts, ensureLocalBuildContext, recordRehydratedContext } from './build-workspace.js';
 import {
   closeQueuesAndConnections,
   DLQ_NAME,
@@ -64,7 +64,8 @@ const logger = createLogger('plugin-build-queue');
  * A scan-gate refusal as a BullMQ {@link UnrecoverableError}: the verdict is
  * deterministic for this image, so BullMQ must not spend another attempt
  * rebuilding it. The typed code / details ride along for the failure handler
- * (build stream, audit, N30), with what became of the refused image.
+ * (build stream, audit, the org's version-blocked notice), with what became of
+ * the refused image.
  */
 function terminal(err: AppError, refusedImage: RefusedImageOutcome, image?: { imageDigest: string; keptSetupImageId?: string }): UnrecoverableError {
   // The digest (and a kept image's row id) ride the error so the terminal
@@ -147,7 +148,7 @@ async function keepRefusedSetupImage(
   }
 }
 
-const tierWorkers = new Map<QuotaTier, Worker<PluginBuildJobData>>();
+const tierWorkers = new Map<PlanTier, Worker<PluginBuildJobData>>();
 
 function isWorkerReady(): boolean {
   return VALID_TIERS.every((tier) => tierWorkers.has(tier) && isTierConnectionReady(tier));
@@ -201,10 +202,9 @@ export function waitForWorkerReady(timeoutMs = getBuildCfg().workerTimeoutMs): P
  * work. The message names both figures and which one is actually binding.
  *
  * Per-REPLICA: the concurrency is this worker's, so N replicas of this
- * deployment multiply it. The deploy targets ship `replicas: 1`, which is why
- * the comparison is stated against one.
+ * deployment multiply it; the comparison is stated for one replica.
  */
-function warnIfConcurrencyBinds(tier: QuotaTier, concurrency: number): void {
+function warnIfConcurrencyBinds(tier: PlanTier, concurrency: number): void {
   for (const buildClass of BUILD_CLASSES) {
     const cap = maxBuildsPerOrg(tier, buildClass);
     if (concurrency >= cap) continue;
@@ -264,13 +264,13 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
   // KEYED over VALID_TIERS rather than six near-identical lines: those lines
   // were a surface for a wrong cross-reference (`pro: envInt('…_PRO',
   // tierDefault.team)`), which silently takes another tier's default and which
-  // no type can catch. `Record<QuotaTier, number>` still forces exhaustiveness.
+  // no type can catch. `Record<PlanTier, number>` still forces exhaustiveness.
   const tierConcurrency = Object.fromEntries(
     VALID_TIERS.map((tier) => [
       tier,
       envInt(buildConcurrencyEnvVar(tier), buildWorkerConcurrencyFor(tier), { min: 1 }),
     ]),
-  ) as Record<QuotaTier, number>;
+  ) as Record<PlanTier, number>;
   const processor = async (job: Job<PluginBuildJobData>, token?: string) => {
     const { requestId, orgId, userId, access, buildRequest, pluginRecord } = job.data;
     // The setup catalog load's marker keeps a gate-refused image for promotion
@@ -285,7 +285,7 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
     // inbound HTTP span, so without this a slow/hung build shows no trace detail.
     return withSpan('plugin.build', () => runWithTenantContext({ orgId, isSuperAdmin: false }, async () => {
       // Qualify the owner-hash key by queue name: BullMQ job ids are
-      // per-queue-monotonic, so the four per-tier queues mint colliding ids
+      // per-queue-monotonic, so the per-tier queues mint colliding ids
       // and a bare id would let one tier's job overwrite another's owner
       // record (wrong-org decrement / leaked slots). scrubOrgSlots builds its
       // live set with the same `${queueName}:${jobId}` shape.
@@ -393,6 +393,17 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
         throw new DelayedError();
       }
 
+      // The slot-wait clock measures ONE wait. Left on the job, a BullMQ retry of
+      // this build would start its next wait already past the budget (the clock
+      // counting the first wait and the whole failed build) and could fail
+      // terminally on its first denial. Best-effort: a lost write costs at worst
+      // that early verdict, never this build.
+      if (job.data.slotWaitStartedAt !== undefined || job.data.slotDelays !== undefined) {
+        const { slotDelays: _sd, slotWaitStartedAt: _sw, ...rest } = job.data;
+        await job.updateData(rest).catch((err) =>
+          logger.debug('Could not reset the slot-wait clock', { jobId: job.id, error: errorMessage(err) }));
+      }
+
       // The TTL on the slot counter is a crash-recovery window, so a build that
       // outlives it has to keep its own slot alive (see startOrgSlotHeartbeat).
       const stopSlotHeartbeat = startOrgSlotHeartbeat(orgId, slotJobId, buildClass);
@@ -422,7 +433,9 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
         // uploader was here; else download+extract the staged ZIP from S3). Only
         // needed when the build produces an image — metadata-only jobs never
         // enqueue, so this is on the image path regardless.
-        await ensureLocalBuildContext(buildRequest);
+        if (await ensureLocalBuildContext(buildRequest)) {
+          await recordRehydratedContext(job, buildRequest.contextDir);
+        }
 
         try { fs.utimesSync(buildRequest.contextDir, new Date(), new Date()); } catch { /* ignore */ }
 
@@ -690,7 +703,7 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
   // borrowing allowance. With PLUGIN_BUILD_BORROW_MAX at its default of 0 this
   // is exactly the ladder row, so nothing changes until an operator opts in.
   const borrowMax = buildBorrowMax();
-  const fetchConcurrency = (tier: QuotaTier): number => tierConcurrency[tier] + borrowMax;
+  const fetchConcurrency = (tier: PlanTier): number => tierConcurrency[tier] + borrowMax;
 
   for (const tier of VALID_TIERS) {
     const tierQueue = getTierQueue(tier);
@@ -827,24 +840,35 @@ async function publishSlotGauges(): Promise<void> {
 /**
  * Collect context dirs referenced by jobs across main queue and DLQ.
  * Includes failed state to protect dirs during DLQ backoff.
+ *
+ * REJECTS when the queues cannot be read, and the sweep then deletes nothing:
+ * an empty set on a Redis blip would mark every in-flight and queued build's
+ * context as unprotected, and the sweep would remove any of them past the max
+ * age — a waiting build's inputs, deleted because Redis was briefly away.
  */
 async function getProtectedContextDirs(): Promise<Set<string>> {
   const dirs = new Set<string>();
   const states = ['waiting', 'delayed', 'active', 'failed'] as const;
-  try {
-    const tierJobLists = await Promise.all([
-      ...getAllTierQueues().map(({ queue }) => queue.getJobs([...states])),
-      getDeadLetterQueue().getJobs([...states]),
-    ]);
-    for (const jobs of tierJobLists) {
-      for (const job of jobs) {
-        const dir = job.data?.buildRequest?.contextDir;
-        if (dir) dirs.add(dir);
-      }
+  const tierJobLists = await Promise.all([
+    ...getAllTierQueues().map(({ queue }) => queue.getJobs([...states])),
+    getDeadLetterQueue().getJobs([...states]),
+  ]);
+  for (const jobs of tierJobLists) {
+    for (const job of jobs) {
+      const dir = job.data?.buildRequest?.contextDir;
+      if (dir) dirs.add(dir);
     }
-  } catch { /* best-effort */ }
+  }
   return dirs;
 }
+
+/**
+ * A stray rehydration download: `ensureLocalBuildContext` stages the context
+ * ZIP as `<uuid>.zip` in the temp root and removes it in a `finally`, so one
+ * survives only a worker killed mid-download — and nothing else would ever
+ * delete it.
+ */
+const STAGED_ZIP_RE = /\.zip$/;
 
 function cleanupStaleTempDirs(): void {
   const tmpRoot = BUILD_TEMP_ROOT;
@@ -856,7 +880,7 @@ function cleanupStaleTempDirs(): void {
       const entries = fs.readdirSync(tmpRoot, { withFileTypes: true });
       const now = Date.now();
       for (const entry of entries) {
-        if (!entry.isDirectory()) continue;
+        if (!entry.isDirectory() && !(entry.isFile() && STAGED_ZIP_RE.test(entry.name))) continue;
         const dirPath = path.join(tmpRoot, entry.name);
         if (protectedDirs.has(dirPath)) continue;
         try {
@@ -872,7 +896,9 @@ function cleanupStaleTempDirs(): void {
     } catch (err) {
       logger.debug('Temp dir cleanup scan failed', { error: errorMessage(err) });
     }
-  }).catch(() => {});
+  }).catch((err) => {
+    logger.warn('Temp dir cleanup skipped: build queues unreadable, so in-use contexts are unknown', { error: errorMessage(err) });
+  });
 }
 
 function startTempCleanup(): void {

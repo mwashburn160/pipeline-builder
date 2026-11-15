@@ -178,6 +178,25 @@ jest.unstable_mockModule('../src/models/billing-invoice.js', () => ({
   },
 }));
 
+// In-memory banked reversals keyed by invoice id (a reversal that beat its invoice).
+const bank = new Map<string, any>();
+let bankClock = 0;
+jest.unstable_mockModule('../src/models/billing-pending-reversal.js', () => ({
+  BillingPendingReversal: {
+    updateOne: async (filter: any, update: any) => {
+      const row = { ...(bank.get(filter._id) ?? { _id: filter._id }), ...update.$set, updatedAt: new Date(++bankClock) };
+      for (const k of Object.keys(update.$unset ?? {})) delete row[k];
+      bank.set(filter._id, row);
+    },
+    findOne: (filter: any) => ({ lean: async () => (bank.has(filter._id) ? { ...bank.get(filter._id) } : null) }),
+    deleteOne: async (filter: any) => {
+      const row = bank.get(filter._id);
+      if (row && (!filter.updatedAt || row.updatedAt.getTime() === filter.updatedAt.getTime())) bank.delete(filter._id);
+    },
+  },
+  PENDING_REVERSAL_TTL_MS: 1000,
+}));
+
 const { ingestStripeInvoice, recordMarketplaceConsumption, getBillingSummary, getAdminBillingSummary, reverseLedgerInvoice } = await import('../src/helpers/billing-ledger.js');
 const { createBillingSummaryRoutes } = await import('../src/routes/billing-summary.js');
 
@@ -195,7 +214,7 @@ const invoice = (over: any = {}) => ({
   ...over,
 });
 
-beforeEach(() => { jest.clearAllMocks(); store.clear(); });
+beforeEach(() => { jest.clearAllMocks(); store.clear(); bank.clear(); });
 
 describe('ingestStripeInvoice', () => {
   it('upserts an invoice with credit consumed = balance delta', async () => {
@@ -350,8 +369,62 @@ describe('reverseLedgerInvoice', () => {
     expect(store.get('in_keep')).toMatchObject({ status: 'void', amountPaidCents: before });
   });
 
-  it('is a no-op returning null when the invoice was never ingested', async () => {
+  it('banks a reversal for an invoice that was never ingested (returns null, writes no ledger row)', async () => {
     expect(await reverseLedgerInvoice('in_missing', 'refunded', 0)).toBeNull();
+    expect(store.has('in_missing')).toBe(false);
+    expect(bank.get('in_missing')).toMatchObject({ status: 'refunded', amountPaidCents: 0 });
+  });
+});
+
+describe('refund vs invoice arrival order', () => {
+  /** The ledger row + dashboard summary, minus bookkeeping timestamps. */
+  async function ledgerState(id: string) {
+    return { row: { ...store.get(id) }, summary: await getBillingSummary('org-1'), banked: bank.size };
+  }
+
+  it.each([
+    ['a full refund', 'refunded' as const, 0],
+    ['a partial refund', 'refunded' as const, 1200],
+    ['a dispute', 'disputed' as const, 0],
+  ])('%s gives the same ledger whether it lands before or after its invoice', async (_label, status, net) => {
+    // Invoice first, then the reversal.
+    await ingestStripeInvoice('org-1', invoice({ id: 'in_order' }));
+    await reverseLedgerInvoice('in_order', status, net);
+    const invoiceFirst = await ledgerState('in_order');
+
+    store.clear();
+    bank.clear();
+
+    // Reversal first (the invoice ingest was late or failed and was redelivered).
+    expect(await reverseLedgerInvoice('in_order', status, net)).toBeNull();
+    await ingestStripeInvoice('org-1', invoice({ id: 'in_order' }));
+    const reversalFirst = await ledgerState('in_order');
+
+    expect(reversalFirst).toEqual(invoiceFirst);
+    expect(reversalFirst.row).toMatchObject({ status, amountPaidCents: net });
+    expect(reversalFirst.summary.totals.amountPaidCents).toBe(net);
+    expect(reversalFirst.banked).toBe(0); // the bank is consumed once applied
+  });
+
+  it('a re-ingest after a banked refund was applied keeps the refund', async () => {
+    await reverseLedgerInvoice('in_twice', 'refunded', 0);
+    await ingestStripeInvoice('org-1', invoice({ id: 'in_twice' }));
+    await ingestStripeInvoice('org-1', invoice({ id: 'in_twice' }));
+    expect(store.get('in_twice')).toMatchObject({ status: 'refunded', amountPaidCents: 0 });
+  });
+
+  it('the latest of several banked reversals wins (cumulative amounts), as on an ingested row', async () => {
+    await reverseLedgerInvoice('in_multi', 'refunded', 2000); // partial refund
+    await reverseLedgerInvoice('in_multi', 'refunded', 900); // a second partial: cumulative net
+    await ingestStripeInvoice('org-1', invoice({ id: 'in_multi' }));
+    expect(store.get('in_multi')).toMatchObject({ status: 'refunded', amountPaidCents: 900 });
+  });
+
+  it('a banked reversal without an amount leaves the ingested amount paid', async () => {
+    await reverseLedgerInvoice('in_void', 'refunded', 100);
+    await reverseLedgerInvoice('in_void', 'void'); // supersedes, and carries no amount
+    await ingestStripeInvoice('org-1', invoice({ id: 'in_void', amount_paid: 2900 }));
+    expect(store.get('in_void')).toMatchObject({ status: 'void', amountPaidCents: 2900 });
   });
 });
 

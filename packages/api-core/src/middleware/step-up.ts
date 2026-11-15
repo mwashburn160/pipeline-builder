@@ -24,7 +24,7 @@ import { verifyUserJwt } from './jwt-verify.js';
 import { recordAuthzDenial } from './permission-gates.js';
 import { tagRouteGate } from './route-table.js';
 import { isServiceAccountPrincipal, isServicePrincipal } from './service-tokens.js';
-import { createEnvRedisClient, createRedisReadyGate, type ReadyAwareRedis } from '../services/env-redis.js';
+import { createEnvRedisClient } from '../services/env-redis.js';
 import { getHeaderString } from '../utils/headers.js';
 import { createLogger } from '../utils/logger.js';
 import { sendError } from '../utils/response.js';
@@ -42,7 +42,7 @@ export type StepUpMethod = 'password' | 'webauthn' | 'totp' | 'reauth';
 
 /**
  * The factors that count as a SECOND FACTOR, for routes that may only be
- * unlocked by one (#8: impersonation, KMS, IdP settings, platform admin).
+ * unlocked by one (impersonation, KMS, IdP settings, platform admin).
  *
  * A password or a provider re-auth proves the same single factor the session was
  * already opened with, so on those routes they are not enough: the point is that
@@ -101,21 +101,16 @@ export async function verifyStepUpToken(token: string): Promise<StepUpTokenPaylo
 // degrading to the per-instance mem guard, which would accept a cross-instance
 // replay during the outage. The mem guard is used ONLY when Redis is absent.
 
-type JtiRedis = ReadyAwareRedis & { set: (...args: unknown[]) => Promise<unknown> };
+type JtiRedis = { set: (...args: unknown[]) => Promise<unknown> };
 let _redis: JtiRedis | null | undefined;
-let _redisReady: (() => Promise<void>) | undefined;
 /**
- * The jti client, built lazily. The env client has no offline queue, so a SET on
- * a connection that isn't up yet is rejected — the FIRST step-up on every pod
- * would fail. Wait (bounded, never rejecting) for readiness before
- * handing it out; a genuinely down Redis still fails closed on the SET below.
+ * The jti client, built lazily. The env client waits (bounded) for its first
+ * connection before every command, so the first step-up on a pod is not
+ * rejected for racing the connect; a genuinely down Redis still fails closed on
+ * the SET below.
  */
-async function redis(): Promise<JtiRedis | null> {
-  if (_redis === undefined) {
-    _redis = createEnvRedisClient<JtiRedis>('step-up-jti');
-    _redisReady = _redis ? createRedisReadyGate(_redis) : undefined;
-  }
-  if (_redisReady) await _redisReady();
+function redis(): JtiRedis | null {
+  if (_redis === undefined) _redis = createEnvRedisClient<JtiRedis>('step-up-jti');
   return _redis;
 }
 
@@ -153,7 +148,7 @@ function evictOldestJti(): void {
  */
 export async function consumeStepUpJti(jti: string, expEpochSeconds: number): Promise<boolean> {
   const ttlSeconds = Math.max(1, expEpochSeconds - Math.floor(Date.now() / 1000));
-  const client = await redis();
+  const client = redis();
   if (client) {
     // Redis configured ⇒ authoritative cross-instance store. SET NX EX → 'OK'
     // when newly set, null when already consumed. A thrown Redis error is NOT

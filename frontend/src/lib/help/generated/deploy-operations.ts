@@ -1,6 +1,6 @@
 // GENERATED FROM docs/deploy-operations.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 79ee8a62963bd1a012a10e06ea70d848b55cad36e22c6d1bd7dbbf3553608d30
+// SOURCE-SHA256: d55ef94399c44137bd3aa54d949822a1b5f475f43aaa89fd35cc9ada5a69aa3f
 // SPDX-License-Identifier: Apache-2.0
 import { Wrench } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -1248,7 +1248,7 @@ export const deployOperationsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Why the slot TTL is not a build timeout. The semaphore key carries PLUGIN_ORG_SLOT_TTL_SEC as a crash-recovery window, and a running build refreshes its own slot at a third of that. Without the heartbeat the TTL doubled as a cap on build duration: the counter expired while builds were still running, the next acquire started from zero, and the per-org cap could then be exceeded by however many were in flight. This is the same split the leader lock makes — a TTL for a dead holder, a heartbeat for a long run."
+          "content": "Why the slot TTL is not a build timeout. The semaphore key carries PLUGIN_ORG_SLOT_TTL_SECONDS as a crash-recovery window, and a running build refreshes its own slot at a third of that. Without the heartbeat the TTL doubled as a cap on build duration: the counter expired while builds were still running, the next acquire started from zero, and the per-org cap could then be exceeded by however many were in flight. This is the same split the leader lock makes — a TTL for a dead holder, a heartbeat for a long run."
         },
         {
           "type": "text",

@@ -20,10 +20,10 @@ const ORG_ID_PATTERN = /^[a-z0-9][a-z0-9-]*$/;
  * This one call uses raw axios (it needs `validateStatus` so a failed login
  * never throws an error whose message could interpolate the password), so it
  * cannot inherit `InternalHttpClient`'s default. It reads the SAME knob
- * (`HTTP_CLIENT_TIMEOUT`, same 5s default) on purpose — dropping the value
+ * (`HTTP_CLIENT_TIMEOUT_MS`, same 5s default) on purpose — dropping the value
  * entirely would give axios an UNBOUNDED wait, not the shared default.
  */
-const PLATFORM_LOGIN_TIMEOUT_MS = envInt('HTTP_CLIENT_TIMEOUT', 5000, { min: 1 });
+const PLATFORM_LOGIN_TIMEOUT_MS = envInt('HTTP_CLIENT_TIMEOUT_MS', 5000, { min: 1 });
 
 /**
  * Platform's `/auth/login` reply. Platform answers through api-core's
@@ -38,9 +38,10 @@ const PlatformLoginResponseSchema = z.object({
 
 /**
  * Caller identity. The `jwt` variant is produced by `resolveIdentity` from
- * incoming Basic auth (the password is verified as a platform JWT — both
- * the Bearer-as-password path and the `docker login` → /auth/login round
- * trip end up here). `management` is constructed directly in-process by
+ * incoming Basic auth (the password is verified as a platform JWT — the
+ * token-as-password path, an exchanged access key and the `docker login` →
+ * /auth/login round trip all end up here). `quarantine` is a submission's
+ * build credential, verified locally. `management` is constructed directly in-process by
  * `registry-client` for image-registry's own outbound calls and is NOT
  * producible via any external auth path.
  */
@@ -77,7 +78,7 @@ export type Identity =
 
 /**
  * Decoded shape of a platform JWT. Mirrors AccessTokenPayload as platform
- * mints it (see platform/src/types/AccessTokenPayload). We don't import
+ * mints it (see platform/src/types/jwt.ts). We don't import
  * platform's type to avoid cross-service coupling — the fields we read are
  * the contractual ones.
  */
@@ -150,7 +151,7 @@ export function mayPushBaseImages(decoded: Pick<PlatformJwtPayload, 'principalTy
  *    permissions its token claims;
  *  - an ORG SERVICE ACCOUNT: `plugins:write`, or the `registry:push` scope —
  *    the CI push identity, which platform mints only while the account's
- *    creator still holds `plugins:write` (I10);
+ *    creator still holds `plugins:write`;
  *  - a USER: `plugins:write` or an admin role. A `registry:push` scope on a
  *    person's key grants nothing here: that scope is the machine credential's.
  */
@@ -175,8 +176,7 @@ export function mayPushPlugins(decoded: Pick<PlatformJwtPayload, 'principalType'
  *      as every `requireAuth` in the fleet does it:
  *      - a USER token is ES256 and is verified against platform's published
  *        JWKS (api-core's shared cache: 10-minute refresh, one refetch on an
- *        unknown `kid`). This is the path customer CodeBuild and the
- *        plugin-lookup Lambda use.
+ *        unknown `kid`). This is the path customer CodeBuild uses.
  *      - an INTERNAL SERVICE token is ES256 signed by the CALLING service with
  *        its own key and verified against the per-service public bundle,
  *        and must declare `principalType: 'service'`. This is the path
@@ -227,9 +227,9 @@ export async function resolveIdentity(username: string, password: string): Promi
 /**
  * Verify a platform JWT and project it onto the resolver's identity shape.
  * Returns null on any verification failure (caller falls through to other
- * paths). Logged at debug only — Path 2/3 inputs always fail Path 1.
+ * paths). Logged at debug only — a Path 2 (`docker login` password) input always fails here.
  *
- * Verification goes through api-core's `verifyUserJwt`, so this resolver gets
+ * Verification goes through api-core's `verifyBearerToken`, so this resolver gets
  * the same guarantees as every `requireAuth` in the fleet: ES256 only, a `kid`
  * that must resolve to one of platform's published keys, and a `kid` rotation
  * picked up without restarting. Fails CLOSED — an unreachable JWKS yields

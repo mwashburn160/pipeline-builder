@@ -3,7 +3,7 @@
 
 /**
  * The build catalog: one keyed module in place of two id lists in
- * wire-vocabulary.ts, two tier tables in quota-tiers.ts, and a frontend mirror
+ * wire-vocabulary.ts, two tier tables in plan-tiers.ts, and a frontend mirror
  * of all four that a source-parsing test had to police.
  *
  * These assert the INVARIANTS the shape is supposed to make cheap — that no
@@ -33,7 +33,7 @@ import {
   defaultClassForSize,
   tierAllowsBuildSize,
 } from '../src/types/build-catalog.js';
-import { VALID_TIERS } from '../src/types/quota-tiers.js';
+import { VALID_TIERS } from '../src/types/plan-tiers.js';
 
 describe('the ids and their labels', () => {
   it('names the classes for the TRADE, not for a magnitude or a rank', () => {

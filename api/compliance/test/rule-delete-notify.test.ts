@@ -70,7 +70,7 @@ const pipelineDataMock = {
   // Imported (via the entitlement watermark store) by subscription-service.
   drizzleRows: <T>(rows: T[]) => rows,
   CrudService: StubCrudService,
-  CoreConstants: { CACHE_TTL_COMPLIANCE_RULES: 60 },
+  CoreConstants: { CACHE_TTL_COMPLIANCE_RULES_SECONDS: 60 },
   buildComplianceRuleConditions: jest.fn(() => []),
   buildPublishedRuleCatalogConditions: jest.fn(() => []),
   drizzleCount: (r: unknown) => r,

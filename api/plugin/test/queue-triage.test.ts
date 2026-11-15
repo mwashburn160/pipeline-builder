@@ -53,15 +53,10 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   isSystemAdmin: jest.fn<AnyFn>(),
   // The cross-org widening (`seesEveryOrg`): system org + plugin_queue:manage.
   isSystemOrgRequest: jest.fn<AnyFn>(),
-  // Every caller here holds plugin_queue:manage; the system-org mock decides.
-  userHasPermission: (_req: unknown, perm: string) => perm === 'plugin_queue:manage',
-  // Functional gate (default apiCoreMock stub is pass-through): grants a
-  // superadmin implicitly, else requires one of the named permissions.
-  requirePermission: (...perms: string[]) => (req: any, res: any, next: () => void) => {
-    const granted: string[] = req.user?.permissions ?? [];
-    if (req.user?.isSuperAdmin || perms.some((p) => granted.includes(p))) return next();
-    return res.status(403).json({ success: false, statusCode: 403, message: 'forbidden' });
-  },
+  // Every caller here holds plugin_queue:manage (the system-org mock decides
+  // whether it widens anything); other permissions come from the fixture.
+  userHasPermission: (req: any, perm: string) => perm === 'plugin_queue:manage'
+    || !!req.user?.isSuperAdmin || (req.user?.permissions ?? []).includes(perm),
   getParam: (p: any, k: string) => p[k],
   parseQueryInt: (val: unknown, def: number) => {
     const n = parseInt(String(val), 10);
@@ -88,7 +83,7 @@ const { createQueueStatusRoutes } = await import('../src/routes/queue-status.js'
 function getTriageHandler() {
   const router = createQueueStatusRoutes(mockQuotaService);
   // Find the GET /triage handler by route path. The route now carries a
-  // `requirePermission('plugins:write')` middleware ahead of the withRoute
+  // `requireQueueAccess` gate ahead of the withRoute
   // handler, so the terminal (tenant-isolation) handler is the LAST layer.
   const triageLayer = (router.stack as any[]).find( (l) => l.route?.path === '/triage' && l.route?.methods?.get,
   );
@@ -104,12 +99,16 @@ async function runTriage(req: any, res: any) {
   const layer = (router.stack as any[]).find((l) => l.route?.path === '/triage' && l.route?.methods?.get);
   const handles: Array<(req: any, res: any, next: () => unknown) => unknown> =
     layer.route.stack.map((s: any) => s.handle);
-  let i = 0;
-  const next = async (): Promise<void> => {
-    const h = handles[i++];
-    if (h) await h(req, res, next);
+  // A synchronous gate calls next() without awaiting it, so the chain must be
+  // joined explicitly — otherwise the assertions run before the async handler.
+  const run = async (i: number): Promise<void> => {
+    const handle = handles[i];
+    if (!handle) return;
+    let downstream: Promise<void> | undefined;
+    await handle(req, res, () => { downstream = run(i + 1); return downstream; });
+    await downstream;
   };
-  await next();
+  await run(0);
 }
 
 function makeRes() {
@@ -197,10 +196,11 @@ describe('GET /triage auth and tenant isolation', () => {
       job('2', 'org-b'),
       job('3', 'org-a'),
     ]);
-    dlqGetJobs.mockResolvedValue([
+    // A tenant's scan reads each DLQ state set on its own.
+    dlqGetJobs.mockImplementation(async (types: string[]) => (types[0] === 'failed' ? [
       job('4', 'org-c'),
       job('5', 'org-a'),
-    ]);
+    ] : []));
     const handler = getTriageHandler();
     const { res, json } = makeRes();
     await handler({
@@ -251,6 +251,23 @@ describe('GET /triage auth and tenant isolation', () => {
     expect(json).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ totalFailed: 1 }),
     }));
+  });
+
+  it('a tenant\'s summary covers its OWN newest 200 jobs per source, not the newest 200 of every org', async () => {
+    (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(false);
+    (isSystemOrgRequest as jest.Mock<AnyFn>).mockReturnValue(false);
+    const rows = [
+      ...Array.from({ length: 700 }, (_, i) => job(`x${i}`, 'org-other')),
+      ...Array.from({ length: 250 }, (_, i) => job(`m${i}`, 'org-a')),
+    ];
+    queueGetJobs.mockImplementation(async (_t: string[], start: number, end: number) => rows.slice(start, end + 1));
+    const handler = getTriageHandler();
+    const { res, json } = makeRes();
+    await handler({ __orgId: 'org-a', user: { role: 'admin', organizationId: 'org-a' }, query: {} } as any, res);
+
+    const payload = (json.mock.calls[0]?.[0]) as { data: { totalFailed: number } };
+    // Previously the newest 200 rows were ALL another org's, so this read 0.
+    expect(payload.data.totalFailed).toBe(200);
   });
 
   it('jobs with missing orgId are excluded for non-system admins', async () => {

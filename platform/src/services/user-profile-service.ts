@@ -18,6 +18,9 @@ import { withMongoTransaction } from '../utils/mongo-tx.js';
 
 const logger = createLogger('user-profile-service');
 
+/** How a sign-in email is stored: trimmed and lower-cased. */
+const normalizeEmail = (email: string): string => email.trim().toLowerCase();
+
 /** A user's per-org preferences as the API returns them (defaults filled in). */
 export interface UserPreferencesView {
   favorites: string[];
@@ -75,7 +78,7 @@ interface MembershipInfo {
   /** The parent's display name (teams only) — lets the switcher label a team
    *  whose parent the user is not a member of. */
   parentOrgName?: string;
-  /** Org's quota tier — lets the UI gate tier-gated actions (e.g. only team/enterprise roots may parent teams). */
+  /** Org's plan tier — lets the UI gate tier-gated actions (e.g. only team/enterprise roots may parent teams). */
   tier?: string;
   /** Live (not soft-deleted) teams nested directly under this org. The UI shows
    *  its hierarchy surfaces (team lists, rollup toggles, per-team breakdowns)
@@ -311,14 +314,35 @@ class UserProfileService {
   }
 
   /**
-   * Update username and/or email on the user record. Email change clears
-   * `isEmailVerified` so the user re-verifies. Throws PROFILE_EMAIL_TAKEN when
-   * the new email is already in use, PROFILE_USER_NOT_FOUND when the user is gone.
+   * Whether `email` would CHANGE this user's sign-in address — the case
+   * `PATCH /user/profile` step-up gates. A missing user counts as a change, so
+   * the gate fails closed (the update then answers PROFILE_USER_NOT_FOUND).
+   */
+  async isEmailChange(userId: string, email: string): Promise<boolean> {
+    const current = await User.findById(userId).select('email').lean();
+    return !current || normalizeEmail(email) !== current.email;
+  }
+
+  /**
+   * Update username and/or email on the user record. An email CHANGE clears
+   * `isEmailVerified` so the user re-verifies, and `previousEmail` names the old
+   * address so the caller can tell its owner; re-sending the current address is
+   * not a change and touches nothing. Throws PROFILE_EMAIL_TAKEN when the new
+   * email is already in use, PROFILE_USER_NOT_FOUND when the user is gone.
    */
   async updateProfile(userId: string, body: { username?: string; email?: string }) {
     const updates: Partial<{ username: string; email: string; isEmailVerified: boolean }> = {};
     if (body.username) updates.username = body.username.trim().toLowerCase();
-    if (body.email) updates.email = body.email.trim().toLowerCase();
+    let previousEmail: string | undefined;
+    if (body.email) {
+      const current = await User.findById(userId).select('email').lean();
+      if (!current) throw new Error(PROFILE_USER_NOT_FOUND);
+      const email = normalizeEmail(body.email);
+      if (email !== current.email) {
+        updates.email = email;
+        previousEmail = current.email;
+      }
+    }
 
     if (updates.email) {
       const existing = await User.findOne({
@@ -337,7 +361,7 @@ class UserProfileService {
     if (!updated) throw new Error(PROFILE_USER_NOT_FOUND);
 
     const { organizationName, activeOrgRole } = await loadActiveOrgInfo(updated._id, updated.lastActiveOrgId?.toString());
-    return { user: updated, organizationName, activeOrgRole };
+    return { user: updated, organizationName, activeOrgRole, ...(previousEmail ? { previousEmail } : {}) };
   }
 
   /**

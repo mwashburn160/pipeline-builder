@@ -10,7 +10,7 @@ import { PUBLISH_REQUEST_KINDS, type PublishRequestKind } from './wire-vocabular
  * the frontend and the CLI can import it too.
  */
 
-import { isBillingEnabled } from './quota-tiers.js';
+import { isBillingEnabled } from './plan-tiers.js';
 
 /**
  * The name of the system-org SERVICE ACCOUNT the Official catalog loader

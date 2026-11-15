@@ -15,7 +15,7 @@ Assembles the standardized HTTP runtime shared by every backend service: a confi
 ### App factory & lifecycle (`./api`)
 | Export | Purpose |
 | --- | --- |
-| `createApp` | Configured Express app: CORS, Helmet (strict CSP), gzip/deflate compression, org-keyed rate limiting (shared Redis store when `redisUrl` is set), `/health`, `/ready`, `/warmup`, `/metrics`, and Swagger UI + OpenAPI at `/docs`. Fails fast if this service's own internal signing key or the public key bundle is unset (`SERVICE_SIGNING_KEY_FILE`/`SERVICE_KEY_BUNDLE_FILE`). |
+| `createApp` | Configured Express app: CORS, Helmet (strict CSP), gzip/deflate compression, IP-keyed global rate limiting (verified service principals exempt; shared Redis store when `REDIS_URL`/`REDIS_SENTINELS` is set), `/health`, `/ready`, `/warmup`, `/metrics`, and Swagger UI + OpenAPI at `/docs`. Fails fast if this service's own internal signing key or the public key bundle is unset (`SERVICE_SIGNING_KEY_FILE`/`SERVICE_KEY_BUNDLE_FILE`). |
 | `startServer`, `runServer` | Server lifecycle with graceful shutdown |
 
 ### Middleware (`./api`)
@@ -39,9 +39,9 @@ Assembles the standardized HTTP runtime shared by every backend service: a confi
 | --- | --- |
 | `postgresHealthCheck` | Returns `{ postgres: 'connected' \| 'disconnected' }` |
 | `mongoHealthCheck` | Returns `{ mongodb: 'connected' \| 'unknown' \| 'disconnected' }` from mongoose `readyState` |
-| `incrementQuotaFromCtx` | Increment a quota counter from the route context |
+| `checkQuota`, `meterQuotaOnSuccess`, `apiCallsQuota` | Pre-request quota gate, post-success metering, and the paired `apiCalls` mount |
 | `metricsMiddleware`, `metricsHandler`, `incCounter`, `observe`, `setGauge` | Prometheus metrics collection and `/metrics` handler |
-| `initTracing`, `currentTraceId` | OpenTelemetry tracing init and current trace ID |
+| `withSpan`, `currentTraceId` | OpenTelemetry spans and the current trace ID (the SDK itself starts from `otel-bootstrap`; `runServer` flushes it on shutdown) |
 
 ### Server-Sent Events (`./http`)
 | Export | Purpose |

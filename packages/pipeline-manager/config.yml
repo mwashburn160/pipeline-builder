@@ -67,7 +67,7 @@ api:
 #   CLI_CONFIG_PATH             - Path to this config file
 #                                 Example: export CLI_CONFIG_PATH='/path/to/config.yml'
 #
-#   TLS_REJECT_UNAUTHORIZED - Set to '0' to disable cert validation
-#                                  Example: export TLS_REJECT_UNAUTHORIZED='0'
+#   PLATFORM_TLS_VERIFY         - Set to 'false' to disable cert validation (refused in production)
+#                                 Example: export PLATFORM_TLS_VERIFY='false'
 #
 # ============================================================================

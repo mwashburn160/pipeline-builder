@@ -76,7 +76,7 @@ const EXCEPTIONS: RouteCoverageException[] = [
     method: 'POST',
     path: '/auth/refresh',
     waive: 'all',
-    reason: 'Rotates a session on a valid REFRESH token (verified by isValidRefreshToken against the stored session slot + tokenVersion); no access token, and nothing but the slot is mutated.',
+    reason: 'Rotates a session on a valid REFRESH token (verified by requireRefreshSession against the stored session slot + tokenVersion); no access token, and nothing but the slot is mutated.',
   },
   {
     method: 'POST',

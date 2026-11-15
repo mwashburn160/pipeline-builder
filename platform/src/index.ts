@@ -252,8 +252,8 @@ app.use(generalLimiter);
 
 /**
  * Read-only impersonation gate. When the caller's JWT carries
- * `impersonationReadOnly: true` (issued by POST /admin/impersonate),
- * any non-GET request is rejected — sysadmins can "view as user X"
+ * `impersonationReadOnly: true` (an impersonation session, minted through the
+ * /admin/impersonate routes), any state-changing request is rejected — sysadmins can "view as user X"
  * without any chance of a destructive action landing under that
  * identity. Same JWT-peek pattern as the rate limiter: the signature
  * is still verified by `requireAuth` later, but if the token is

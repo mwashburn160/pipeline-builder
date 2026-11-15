@@ -52,8 +52,7 @@ export const SYSTEM_ACTOR_ID = 'system';
 export const ANONYMOUS_ACTOR_ID = 'anonymous';
 
 /**
- * The actor id written for work the EXPANSION-OFFERS agent did on its own
- *.
+ * The actor id written for work the EXPANSION-OFFERS agent did on its own.
  *
  * Distinct from {@link SYSTEM_ACTOR_ID} because "why did this account get this
  * offer?" is the only question anybody will ask about that feature, and the
@@ -66,9 +65,9 @@ export const ANONYMOUS_ACTOR_ID = 'anonymous';
  * archaeology exercise, which is the control an operator wants on the morning a
  * rule turns out to be wrong.
  *
- * An ACTOR, not a network identity: the agent runs inside billing until Phase 5
- * extracts it, so its service principal is still `billing`. This names who
- * decided, which is what the audit trail is queried by.
+ * An ACTOR, not a network identity: the agent runs inside billing, so its
+ * service principal is `billing`. This names who decided, which is what the
+ * audit trail is queried by.
  */
 export const OFFERS_AGENT_ACTOR_ID = 'offers-agent';
 

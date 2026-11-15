@@ -36,7 +36,7 @@ const billingConfig = {
   enabled: true,
   serviceHost: 'billing',
   servicePort: 3000,
-  serviceTimeout: 5000,
+  serviceTimeoutMs: 5000,
   provisionRetryAttempts: 3,
   provisionRetryBaseMs: 0, // 0 → retries don't actually sleep in tests
   reconcileIntervalMs: 300000,

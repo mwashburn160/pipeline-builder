@@ -256,7 +256,7 @@ describe('POST /reports/events', () => {
     expect(mockIncCounter).not.toHaveBeenCalledWith('pipeline_deploy_result_total', expect.anything());
   });
   /**
-   * Phase 4's measurement half. NOTHING here enters a quota counter: the tier
+   * Measured, not charged. NOTHING here enters a quota counter: the tier
    * ladder was derived without pipeline execution in it, so charging this before
    * re-deriving the ladder would raise every account's consumption with no
    * change in its behaviour.

@@ -11,6 +11,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 0,
+    "conditionalGates": [],
     "features": [],
     "scopes": [],
     "audit": []
@@ -27,6 +28,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 0,
+    "conditionalGates": [],
     "features": [],
     "scopes": [],
     "audit": []
@@ -43,6 +45,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 0,
+    "conditionalGates": [],
     "features": [],
     "scopes": [],
     "audit": [
@@ -61,6 +64,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 0,
+    "conditionalGates": [],
     "features": [],
     "scopes": [],
     "audit": [
@@ -79,6 +83,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 0,
+    "conditionalGates": [],
     "features": [],
     "scopes": [],
     "audit": []
@@ -95,6 +100,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 0,
+    "conditionalGates": [],
     "features": [],
     "scopes": [],
     "audit": []
@@ -111,6 +117,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 0,
+    "conditionalGates": [],
     "features": [],
     "scopes": [],
     "audit": []
@@ -135,6 +142,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 0,
+    "conditionalGates": [],
     "features": [
       "advanced_reporting"
     ],
@@ -163,6 +171,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 0,
+    "conditionalGates": [],
     "features": [],
     "scopes": [
       "reporting:ingest"
@@ -190,6 +199,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 0,
+    "conditionalGates": [],
     "features": [],
     "scopes": [
       "reporting:ingest"
@@ -222,6 +232,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 0,
+    "conditionalGates": [],
     "features": [],
     "scopes": [],
     "audit": [],
@@ -254,6 +265,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 0,
+    "conditionalGates": [],
     "features": [],
     "scopes": [],
     "audit": [],
@@ -286,6 +298,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 0,
+    "conditionalGates": [],
     "features": [],
     "scopes": [],
     "audit": [],
@@ -318,6 +331,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 0,
+    "conditionalGates": [],
     "features": [
       "advanced_reporting"
     ],
@@ -352,6 +366,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 0,
+    "conditionalGates": [],
     "features": [
       "advanced_reporting"
     ],
@@ -386,6 +401,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 0,
+    "conditionalGates": [],
     "features": [],
     "scopes": [],
     "audit": [],
@@ -418,6 +434,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 0,
+    "conditionalGates": [],
     "features": [
       "advanced_reporting"
     ],
@@ -459,6 +476,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 2,
+    "conditionalGates": [],
     "features": [],
     "scopes": [],
     "audit": [],
@@ -492,6 +510,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 0,
+    "conditionalGates": [],
     "features": [],
     "scopes": [],
     "audit": [],
@@ -524,6 +543,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 0,
+    "conditionalGates": [],
     "features": [],
     "scopes": [],
     "audit": [],
@@ -556,6 +576,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 0,
+    "conditionalGates": [],
     "features": [],
     "scopes": [],
     "audit": [],
@@ -580,6 +601,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 0,
+    "conditionalGates": [],
     "features": [],
     "scopes": [],
     "audit": [],
@@ -612,6 +634,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 0,
+    "conditionalGates": [],
     "features": [],
     "scopes": [],
     "audit": [],
@@ -641,6 +664,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 0,
+    "conditionalGates": [],
     "features": [],
     "scopes": [],
     "audit": [],
@@ -673,6 +697,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 0,
+    "conditionalGates": [],
     "features": [
       "advanced_reporting"
     ],
@@ -699,6 +724,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 0,
+    "conditionalGates": [],
     "features": [],
     "scopes": [
       "reporting:ingest"
@@ -726,6 +752,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 0,
+    "conditionalGates": [],
     "features": [],
     "scopes": [
       "reporting:ingest"
@@ -761,6 +788,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 0,
+    "conditionalGates": [],
     "features": [
       "advanced_reporting"
     ],
@@ -795,6 +823,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 0,
+    "conditionalGates": [],
     "features": [],
     "scopes": [],
     "audit": [],
@@ -819,6 +848,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 0,
+    "conditionalGates": [],
     "features": [],
     "scopes": [
       "reporting:ingest"
@@ -853,6 +883,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 0,
+    "conditionalGates": [],
     "features": [],
     "scopes": [],
     "audit": [],
@@ -892,6 +923,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 2,
+    "conditionalGates": [],
     "features": [],
     "scopes": [],
     "audit": [],
@@ -925,6 +957,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 0,
+    "conditionalGates": [],
     "features": [],
     "scopes": [],
     "audit": [],
@@ -957,6 +990,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 0,
+    "conditionalGates": [],
     "features": [],
     "scopes": [],
     "audit": [],
@@ -989,6 +1023,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 0,
+    "conditionalGates": [],
     "features": [],
     "scopes": [],
     "audit": [],
@@ -1021,6 +1056,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 0,
+    "conditionalGates": [],
     "features": [],
     "scopes": [],
     "audit": [],
@@ -1053,6 +1089,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 0,
+    "conditionalGates": [],
     "features": [],
     "scopes": [],
     "audit": [],
@@ -1085,6 +1122,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 0,
+    "conditionalGates": [],
     "features": [],
     "scopes": [],
     "audit": [],
@@ -1117,6 +1155,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 0,
+    "conditionalGates": [],
     "features": [],
     "scopes": [],
     "audit": [],
@@ -1143,6 +1182,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 0,
+    "conditionalGates": [],
     "features": [],
     "scopes": [],
     "audit": []
@@ -1161,6 +1201,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 0,
+    "conditionalGates": [],
     "features": [],
     "scopes": [],
     "audit": [
@@ -1187,6 +1228,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 0,
+    "conditionalGates": [],
     "features": [
       "advanced_reporting"
     ],
@@ -1228,6 +1270,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 0,
+    "conditionalGates": [],
     "features": [
       "advanced_reporting"
     ],
@@ -1258,6 +1301,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 0,
+    "conditionalGates": [],
     "features": [],
     "scopes": [],
     "audit": [
@@ -1284,6 +1328,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 0,
+    "conditionalGates": [],
     "features": [],
     "scopes": [],
     "audit": [],
@@ -1316,6 +1361,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 0,
+    "conditionalGates": [],
     "features": [],
     "scopes": [],
     "audit": [],
@@ -1342,6 +1388,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 0,
+    "conditionalGates": [],
     "features": [],
     "scopes": [],
     "audit": [
@@ -1369,6 +1416,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 0,
+    "conditionalGates": [],
     "features": [
       "stakeholder_reports"
     ],
@@ -1403,6 +1451,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 0,
+    "conditionalGates": [],
     "features": [
       "stakeholder_reports"
     ],
@@ -1439,6 +1488,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 0,
+    "conditionalGates": [],
     "features": [
       "stakeholder_reports"
     ],
@@ -1475,6 +1525,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 0,
+    "conditionalGates": [],
     "features": [
       "stakeholder_reports"
     ],
@@ -1509,6 +1560,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 0,
+    "conditionalGates": [],
     "features": [
       "stakeholder_reports"
     ],
@@ -1545,6 +1597,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 0,
+    "conditionalGates": [],
     "features": [
       "stakeholder_reports"
     ],
@@ -1579,6 +1632,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 0,
+    "conditionalGates": [],
     "features": [
       "stakeholder_reports"
     ],
@@ -1615,6 +1669,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 0,
+    "conditionalGates": [],
     "features": [
       "stakeholder_reports"
     ],
@@ -1651,6 +1706,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 0,
+    "conditionalGates": [],
     "features": [
       "stakeholder_reports"
     ],
@@ -1685,6 +1741,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 0,
+    "conditionalGates": [],
     "features": [
       "stakeholder_reports"
     ],
@@ -1721,6 +1778,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 0,
+    "conditionalGates": [],
     "features": [
       "stakeholder_reports"
     ],
@@ -1755,6 +1813,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 0,
+    "conditionalGates": [],
     "features": [
       "stakeholder_reports"
     ],
@@ -1791,6 +1850,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 0,
+    "conditionalGates": [],
     "features": [
       "stakeholder_reports"
     ],
@@ -1825,6 +1885,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 0,
+    "conditionalGates": [],
     "features": [
       "stakeholder_reports"
     ],
@@ -1861,6 +1922,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 0,
+    "conditionalGates": [],
     "features": [
       "stakeholder_reports"
     ],
@@ -1897,6 +1959,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 0,
+    "conditionalGates": [],
     "features": [
       "stakeholder_reports"
     ],
@@ -1933,6 +1996,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 0,
+    "conditionalGates": [],
     "features": [
       "stakeholder_reports"
     ],
@@ -1967,6 +2031,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 0,
+    "conditionalGates": [],
     "features": [
       "stakeholder_reports"
     ],
@@ -2001,6 +2066,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 0,
+    "conditionalGates": [],
     "features": [
       "stakeholder_reports"
     ],
@@ -2037,6 +2103,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 0,
+    "conditionalGates": [],
     "features": [
       "stakeholder_reports"
     ],
@@ -2073,6 +2140,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 0,
+    "conditionalGates": [],
     "features": [
       "stakeholder_reports"
     ],
@@ -2107,6 +2175,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 0,
+    "conditionalGates": [],
     "features": [
       "stakeholder_reports"
     ],
@@ -2144,6 +2213,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 0,
+    "conditionalGates": [],
     "features": [
       "stakeholder_reports"
     ],
@@ -2180,6 +2250,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 0,
+    "conditionalGates": [],
     "features": [
       "stakeholder_reports"
     ],
@@ -2208,6 +2279,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 0,
+    "conditionalGates": [],
     "features": [],
     "scopes": [],
     "audit": []

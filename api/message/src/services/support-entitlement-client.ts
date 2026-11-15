@@ -4,8 +4,7 @@
 /**
  * Reading an org's support entitlement from platform.
  *
- * This is the message service's FIRST outbound internal call, so it is worth
- * saying why it exists rather than keeping the decision local. Measured:
+ * Why the decision is read from platform rather than kept local:
  *
  *  - `supportContacts` is not a `QuotaType` (absent from `VALID_QUOTA_TYPES`,
  *    like `seats`), so the quota client cannot answer it;

@@ -13,19 +13,19 @@
  * self-referencing its own mock. Both sides are ESM so there's no interop wrinkle.
  *
  * WHAT IT BUYS: the tier NAME LIST is sourced from the real `VALID_TIERS`, so
- * adding a tier in `quota-tiers.ts` flows into every mock automatically — no more
+ * adding a tier in `plan-tiers.ts` flows into every mock automatically — no more
  * "add a tier → hand-edit N mocks, discover the misses one gate round at a time"
  * (which is exactly how the `unlimited` tier broke pipeline-core/api-server/platform).
- * `mockQuotaTiers()` builds a COMPLETE `QUOTA_TIERS` (an entry for every tier) from
+ * `mockPlanTiers()` builds a COMPLETE `PLAN_TIERS` (an entry for every tier) from
  * caller-supplied per-tier limits, defaulting any unspecified tier to uncapped — so
- * a new tier can never leave a `QUOTA_TIERS[tier].limits` undefined at mock load.
+ * a new tier can never leave a `PLAN_TIERS[tier].limits` undefined at mock load.
  */
 
-import { VALID_TIERS, type QuotaTier, type QuotaTierLimits } from '../types/quota-tiers.js';
+import { VALID_TIERS, type PlanTier, type PlanTierLimits } from '../types/plan-tiers.js';
 import { DEFAULT_TIER_LIMITS, tierLabel } from '../types/tier-limits.js';
 
 /** The real, complete tier-name list — the single source mocks derive from. */
-export const MOCK_TIER_NAMES: readonly QuotaTier[] = VALID_TIERS;
+export const MOCK_TIER_NAMES: readonly PlanTier[] = VALID_TIERS;
 
 /** Mirrors api-core's `isValidTier`, driven by the shared name list. */
 export const mockIsValidTier = (t: string): boolean =>
@@ -39,33 +39,33 @@ export const mockIsValidTier = (t: string): boolean =>
  * added limit a compile error here whose only possible answer was `-1`; now the
  * mock carries it the moment the table does.
  */
-const uncappedLimits = (): QuotaTierLimits => {
-  // Starts from a real `QuotaTierLimits` and overwrites every field, rather than
-  // `Object.fromEntries(...) as QuotaTierLimits` — that yields
+const uncappedLimits = (): PlanTierLimits => {
+  // Starts from a real `PlanTierLimits` and overwrites every field, rather than
+  // `Object.fromEntries(...) as PlanTierLimits` — that yields
   // `{ [k: string]: number }`, which TS rightly refuses to convert, and the cast
   // that silences it would assert a shape nothing checked. Same shape as the
   // real `tierLimits('unlimited')`, deliberately.
   const out = { ...DEFAULT_TIER_LIMITS.unlimited };
-  for (const k of Object.keys(out) as (keyof QuotaTierLimits)[]) out[k] = -1;
+  for (const k of Object.keys(out) as (keyof PlanTierLimits)[]) out[k] = -1;
   return out;
 };
 
-type TierPreset = { label: string; limits: QuotaTierLimits };
+type TierPreset = { label: string; limits: PlanTierLimits };
 
 /**
- * Build a COMPLETE `QUOTA_TIERS` map (one entry per real tier) for a mock.
+ * Build a COMPLETE `PLAN_TIERS` map (one entry per real tier) for a mock.
  * Pass the per-tier limit overrides a suite actually asserts on; every other
  * dimension (and every unspecified tier) falls back to uncapped, so the map is
  * always exhaustive over `VALID_TIERS` — the property that keeps a newly-added
  * tier from crashing mock load.
  */
-export function mockQuotaTiers(
-  limitsByTier: Partial<Record<QuotaTier, Partial<QuotaTierLimits>>> = {},
-): Record<QuotaTier, TierPreset> {
+export function mockPlanTiers(
+  limitsByTier: Partial<Record<PlanTier, Partial<PlanTierLimits>>> = {},
+): Record<PlanTier, TierPreset> {
   return Object.fromEntries(
     MOCK_TIER_NAMES.map((t) => [
       t,
       { label: tierLabel(t), limits: { ...uncappedLimits(), ...(limitsByTier[t] ?? {}) } },
     ]),
-  ) as Record<QuotaTier, TierPreset>;
+  ) as Record<PlanTier, TierPreset>;
 }

@@ -101,6 +101,9 @@ describe('QuotaService.findAtRisk', () => {
 
     expect(entries).toHaveLength(1);
     expect(entries[0]).toMatchObject({ orgId: 'acct', type: 'plugins', used: 95, limit: 100, percent: 95 });
+    // Live orgs only: a soft-deleted account is not at risk, and a soft-deleted
+    // team is out of its pool on every other read.
+    expect(find).toHaveBeenCalledWith({ deletedAt: null });
   });
 
   it('reports the account ONCE, not once per team', async () => {

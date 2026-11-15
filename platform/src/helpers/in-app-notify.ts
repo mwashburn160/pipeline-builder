@@ -24,7 +24,7 @@ export type InAppNotification = SystemNotification;
 export async function sendInAppNotificationConfirmed(input: InAppNotification): Promise<boolean> {
   if (!config.message.enabled) return false;
   return sendSystemNotification(input, {
-    service: { host: config.message.serviceHost, port: config.message.servicePort, timeout: config.message.serviceTimeout },
+    service: { host: config.message.serviceHost, port: config.message.servicePort, timeout: config.message.serviceTimeoutMs },
     serviceName: 'platform',
   });
 }

@@ -2,8 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The anonymous-submission gate queue (docs/plugin-publishing.md,
- * ): one BullMQ queue, SEPARATE from the per-tier tenant build queues, whose
+ * The anonymous-submission gate queue (docs/plugin-publishing.md): one BullMQ queue, SEPARATE from the per-tier tenant build queues, whose
  * jobs carry nothing but a submission id. The worker runs the quarantine gate
  * pipeline (services/ecosystem/submission-pipeline.ts) — build on the isolated
  * quarantine buildkitd, scan, smoke test — never the tenant build processor,

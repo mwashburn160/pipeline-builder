@@ -33,8 +33,7 @@ const mockReserveQuota = jest.fn<(...a: any[]) => Promise<any>>();
 const mockDecrementQuota = jest.fn();
 
 jest.unstable_mockModule('../src/helpers/plugin-contract-check.js', () => ({
-  checkPluginContracts: async () => ({ violations: [], vulnerabilities: [], severity: null }),
-  findPluginContractViolations: async () => [],
+  checkPluginContracts: async () => ({ violations: [], vulnerabilities: [] }),
   formatContractViolations: () => '',
   recordPipelineResolution: async () => undefined,
 }));
@@ -72,7 +71,8 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   decrementQuota: (...a: unknown[]) => mockDecrementQuota(...a),
   sendSuccess: mockSendSuccess,
   sendBadRequest: jest.fn((res: any, msg: string) => res.status(400).json({ success: false, message: msg })),
-  sendError: jest.fn((res: any, status: number, msg: string) => res.status(status).json({ success: false, message: msg })),
+  sendError: jest.fn((res: any, status: number, msg: string, _code?: string, details?: unknown) =>
+    res.status(status).json({ success: false, message: msg, details })),
 }));
 
 let realWithQuotaReservation: (...a: any[]) => unknown;
@@ -168,7 +168,44 @@ describe('bulk delete/update — per-row visibility (real ladder)', () => {
 
 describe('bulk create — quota', () => {
   const item = (n: number) => ({ project: `p${n}`, organization: 'o', props: {} });
-  const payload = (r: any) => r.json.mock.calls[0][0].data;
+  // The per-item body: `data` on a 201/207, the error envelope's `details` on
+  // the all-failed 422.
+  const payload = (r: any) => r.json.mock.calls[0][0].data ?? r.json.mock.calls[0][0].details;
+
+  it('answers 201 when every item was saved', async () => {
+    const r = mkRes();
+    await getHandler('post', '/bulk/create')(req({ pipelines: [item(1), item(2)] }), r);
+    expect(r.status).toHaveBeenCalledWith(201);
+    expect(payload(r)).toEqual(expect.objectContaining({ created: 2, failed: 0 }));
+  });
+
+  it('answers 207 when some items failed, with the per-item outcomes', async () => {
+    mockReserveQuota
+      .mockResolvedValueOnce({ exceeded: false, quota: { used: 9, limit: 10 } })
+      .mockResolvedValueOnce({ exceeded: true, quota: { used: 10, limit: 10 } });
+    const r = mkRes();
+    await getHandler('post', '/bulk/create')(req({ pipelines: [item(1), item(2)] }), r);
+    expect(r.status).toHaveBeenCalledWith(207);
+    expect(r.json.mock.calls[0][0].success).toBe(true);
+    expect(payload(r)).toEqual(expect.objectContaining({ created: 1, failed: 1 }));
+  });
+
+  it('answers 422 when NOTHING was saved, keeping the per-item outcomes', async () => {
+    mockReserveQuota.mockResolvedValue({ exceeded: true, quota: { used: 10, limit: 10 } });
+    const r = mkRes();
+    await getHandler('post', '/bulk/create')(req({ pipelines: [item(1), item(2)] }), r);
+    expect(r.status).toHaveBeenCalledWith(422);
+    expect(r.json.mock.calls[0][0]).toEqual(expect.objectContaining({
+      success: false,
+      message: 'No pipeline was saved: all 2 items failed',
+    }));
+    expect(payload(r)).toEqual(expect.objectContaining({
+      created: 0,
+      updated: 0,
+      failed: 2,
+      errors: [{ index: 0, error: 'Quota exceeded: 10/10' }, { index: 1, error: 'Quota exceeded: 10/10' }],
+    }));
+  });
 
   it('reports a real limit as "Quota exceeded: used/limit" and creates nothing for that item', async () => {
     mockReserveQuota

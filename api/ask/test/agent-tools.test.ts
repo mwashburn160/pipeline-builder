@@ -83,7 +83,7 @@ const selection = { model: { id: 'm' }, provider: 'anthropic', modelId: 'claude-
 // `unknown` ("could not determine"), which is NOT "disabled".
 const emailStatus = jest.fn<() => Promise<'enabled' | 'disabled' | 'unknown'>>(async () => 'enabled');
 const charge = { markConsumed: jest.fn<() => void>(), settle: jest.fn<(u: unknown) => void>() };
-const chargeAiCall = jest.fn<(tool: string) => Promise<typeof charge | null>>(async () => charge);
+const chargeAiCall = jest.fn<(tool: string, promptVersion?: string) => Promise<typeof charge | null>>(async () => charge);
 const onRefusedFields = jest.fn<(tool: string, fields: string[]) => void>();
 // The turn's generation budget (ASK_MAX_TURN_GENERATIONS): granted by default.
 const generations = { claim: jest.fn<(tool: string) => boolean>(() => true), delegated: jest.fn<(tool: string) => void>() };
@@ -177,9 +177,9 @@ describe('buildAgentTools — docs + catalog reads', () => {
   });
 });
 
-// -- PHASE 1: diagnosis -------------------------------------------------------
+// -- DIAGNOSIS ---------------------------------------------------------------
 
-describe('phase 1 — inspect_pipeline_run', () => {
+describe('diagnosis — inspect_pipeline_run', () => {
   it('reads the execution history and NAMES the most common failing stage/action', async () => {
     reporting.get.mockImplementation(async (path: string) => {
       if (path.startsWith('/reports/execution/list')) {
@@ -215,7 +215,7 @@ describe('phase 1 — inspect_pipeline_run', () => {
   });
 });
 
-describe('phase 1 — inspect_plugin_build', () => {
+describe('diagnosis — inspect_plugin_build', () => {
   it('shapes the stored version and keeps the queue legs optional', async () => {
     plugin.get.mockImplementation(async (path: string) => {
       if (path === '/plugins/pl1') {
@@ -262,7 +262,7 @@ describe('phase 1 — inspect_plugin_build', () => {
   });
 });
 
-describe('phase 1 — diagnose_notifications', () => {
+describe('diagnosis — diagnose_notifications', () => {
   const wire = (configEmail: boolean) => {
     platform.get.mockImplementation(async (path: string) => {
       if (path === '/config') return { data: { serviceFeatures: { email: configEmail, billing: true } } };
@@ -384,7 +384,7 @@ describe('phase 1 — diagnose_notifications', () => {
   });
 });
 
-describe('phase 1 — diagnose_installs', () => {
+describe('diagnosis — diagnose_installs', () => {
   it('finds the exposed installs and the SMALLEST upgrade that clears each', async () => {
     plugin.get.mockResolvedValue({
       data: {
@@ -425,7 +425,7 @@ describe('phase 1 — diagnose_installs', () => {
   });
 });
 
-describe('phase 1 — check_quota_headroom', () => {
+describe('diagnosis — check_quota_headroom', () => {
   it('reads the AUTHENTICATED org only (no orgId input) and flags what is at risk', async () => {
     const tools = makeTools();
     expect(Object.keys(tools.check_quota_headroom.inputSchema.shape ?? {})).toEqual([]);
@@ -453,25 +453,37 @@ describe('phase 1 — check_quota_headroom', () => {
   });
 });
 
-describe('phase 1 — inspect_dora_drivers', () => {
+describe('diagnosis — inspect_dora_drivers', () => {
   it('reads DORA plus its drivers, and survives a missing advanced_reporting entitlement', async () => {
     reporting.get.mockImplementation(async (path: string) => {
       if (path.includes('/dora')) throw new Error(`GET ${path} -> 402`);
-      if (path.endsWith('stage-failures')) return { data: { stages: [{ stage: 'Deploy' }] } };
-      if (path.endsWith('action-failures')) return { data: { actions: [] } };
+      if (path.includes('stage-failures')) return { data: { stages: [{ stage: 'Deploy' }] } };
+      if (path.includes('action-failures')) return { data: { actions: [] } };
       return { data: { healthy: true } };
     });
     const out = await call('inspect_dora_drivers', { from: '2026-09-01T00:00:00Z', to: '2026-09-23T00:00:00Z', pipelineId: 'p1' });
     expect(reporting.get).toHaveBeenCalledWith(expect.stringContaining('/reports/execution/dora?from='));
     expect(out.dora).toEqual({ unavailable: expect.stringContaining('402') });
     expect((out.drivers as { stageFailures: unknown[] }).stageFailures).toEqual([{ stage: 'Deploy' }]);
+    // The drivers read the window the DORA numbers cover, and build health is asked for
+    // the named pipeline — the route refuses it without one.
+    expect(reporting.get).toHaveBeenCalledWith('/reports/execution/stage-failures?from=2026-09-01T00%3A00%3A00Z&to=2026-09-23T00%3A00%3A00Z');
+    expect(reporting.get).toHaveBeenCalledWith(expect.stringMatching(/^\/reports\/execution\/build-health\?.*pipelineId=p1/));
+    expect((out.drivers as { buildHealth: unknown }).buildHealth).toEqual({ healthy: true });
     expect(postedPaths()).toEqual([]);
+  });
+
+  it('does not ask for build health without a pipeline, and says why it is absent', async () => {
+    reporting.get.mockImplementation(async () => ({ data: {} }));
+    const out = await call('inspect_dora_drivers', {});
+    expect(reporting.get).not.toHaveBeenCalledWith(expect.stringContaining('build-health'));
+    expect((out.drivers as { buildHealth: unknown }).buildHealth).toEqual({ unavailable: expect.stringContaining('per pipeline') });
   });
 });
 
-// -- PHASE 2: policy-aware drafting -------------------------------------------
+// -- POLICY-AWARE DRAFTING ---------------------------------------------------
 
-describe('phase 2 — check_compliance', () => {
+describe('policy — check_compliance', () => {
   it('uses the DRY-RUN leg (no audit row, no block notification) and shapes the findings', async () => {
     compliance.post.mockResolvedValue({
       data: {
@@ -649,7 +661,7 @@ describe('propose_template — in-process generation, validated like the create 
   it('drafts a template, charges its own aiCalls slot, caps output tokens, and settles with the tokens', async () => {
     templateStream({ name: 'node-ci', props: { project: '{{ vars.NAME }}' }, inputs: [{ name: 'NAME' }] });
     const out = await call('propose_template', { prompt: 'reusable node CI' });
-    expect(chargeAiCall).toHaveBeenCalledWith('propose_template');
+    expect(chargeAiCall).toHaveBeenCalledWith('propose_template', 'ask-template@2');
     expect(mockStreamText).toHaveBeenCalledWith(expect.objectContaining({ maxOutputTokens: 512, model: { id: 'm' } }));
     expect(out).toMatchObject({ kind: 'template', validation: { valid: true, problems: [], declaredInputs: ['NAME'], referencedVariables: ['NAME'] } });
     // Provider contact marks the slot consumed; the settle carries the tokens.
@@ -714,9 +726,9 @@ describe('propose_template — in-process generation, validated like the create 
   });
 });
 
-// -- PHASE 3: edit proposals --------------------------------------------------
+// -- EDIT PROPOSALS ----------------------------------------------------------
 
-describe('phase 3 — propose_pipeline_edit', () => {
+describe('edit — propose_pipeline_edit', () => {
   const current = { id: 'p1', pipelineName: 'api', description: 'old', keywords: ['a'], props: { project: 'p', synth: { stages: ['build'] } } };
 
   it('returns CURRENT and PROPOSED for only the fields that really changed', async () => {
@@ -780,7 +792,7 @@ describe('phase 3 — propose_pipeline_edit', () => {
   });
 });
 
-describe('phase 3 — propose_plugin_edit', () => {
+describe('edit — propose_plugin_edit', () => {
   it('edits catalog metadata and REFUSES execution-contract keys', async () => {
     plugin.get.mockResolvedValue({ data: { plugin: { id: 'pl1', name: 'trivy', summary: 'old', commands: ['a'] } } });
     const out = await call('propose_plugin_edit', {
@@ -796,9 +808,18 @@ describe('phase 3 — propose_plugin_edit', () => {
     expect(out.commit).toEqual({ service: 'plugin', method: 'PUT', path: '/plugins/:id', permission: 'plugins:write' });
     expect(plugin.post).not.toHaveBeenCalled();
   });
+
+  it('dry-runs the WHOLE edited spec, not only the changed fields', async () => {
+    plugin.get.mockResolvedValue({ data: { plugin: { id: 'pl1', name: 'trivy', category: 'security', summary: 'old' } } });
+    await call('propose_plugin_edit', { id: 'pl1', changes: { summary: 'new summary' } });
+    // A rule on an untouched field (here `name`/`category`) must see its real value.
+    expect(compliance.post).toHaveBeenCalledWith('/compliance/validate/plugin/dry-run', {
+      attributes: expect.objectContaining({ name: 'trivy', category: 'security', summary: 'new summary', visibility: 'private' }),
+    });
+  });
 });
 
-describe('phase 3 — propose_template_edit', () => {
+describe('edit — propose_template_edit', () => {
   it('validates the MERGED document, so an edit cannot orphan a placeholder', async () => {
     pipeline.get.mockResolvedValue({
       data: { template: { id: 't1', name: 'node', props: { project: '{{ vars.REGION }}' }, inputs: [{ name: 'REGION' }] } },
@@ -821,9 +842,9 @@ describe('phase 3 — propose_template_edit', () => {
   });
 });
 
-// -- PHASE 4: remediation into the EXISTING approval queues -------------------
+// -- REMEDIATION INTO THE EXISTING APPROVAL QUEUES ---------------------------
 
-describe('phase 4 — propose_install_change', () => {
+describe('remediation — propose_install_change', () => {
   const install = {
     id: 'i1',
     publisherHandle: 'acme',
@@ -884,7 +905,7 @@ describe('phase 4 — propose_install_change', () => {
   });
 });
 
-describe('phase 4 — propose_compliance_exemption', () => {
+describe('remediation — propose_compliance_exemption', () => {
   const ruleId = '11111111-1111-4111-8111-111111111111';
   const entityId = '22222222-2222-4222-8222-222222222222';
 
@@ -919,9 +940,9 @@ describe('phase 4 — propose_compliance_exemption', () => {
   });
 });
 
-// -- PHASE 5: org settings ----------------------------------------------------
+// -- ORG SETTINGS ------------------------------------------------------------
 
-describe('phase 5 — propose_org_settings', () => {
+describe('org settings — propose_org_settings', () => {
   const wireCurrent = () => {
     reporting.get.mockResolvedValue({ data: { settings: { incidentWindowHours: 24, eventRetentionDays: 30 } } });
     compliance.get.mockResolvedValue({ data: { notifyOnBlock: true, notifyOnWarning: false, emailEnabled: false, digestMode: 'immediate' } });

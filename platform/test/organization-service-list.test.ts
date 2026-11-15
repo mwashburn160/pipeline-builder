@@ -27,13 +27,13 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   decryptSecret: jest.fn<AnyFn>(),
   encryptSecret: jest.fn<AnyFn>(),
   isEncryptedBlob: jest.fn(() => false),
-  // `organization-service.setTier` now reseeds quotas from QUOTA_TIERS so
-  // every QuotaTierLimits field stays in lockstep with api-core. Mirror the
-  // real shape — `setTier` does `{...QUOTA_TIERS[newTier].limits}`. The
+  // `organization-service.setTier` now reseeds quotas from PLAN_TIERS so
+  // every PlanTierLimits field stays in lockstep with api-core. Mirror the
+  // real shape — `setTier` does `{...PLAN_TIERS[newTier].limits}`. The
   // tier-config in this file's `../src/config` mock supplies the numeric
-  // shape the *list* tests assert on; this QUOTA_TIERS mock supplies the
+  // shape the *list* tests assert on; this PLAN_TIERS mock supplies the
   // shape `setTier` actually spreads into `org.quotas`.
-  QUOTA_TIERS: {
+  PLAN_TIERS: {
     developer: {
       label: 'Developer',
       limits: {
@@ -301,8 +301,8 @@ describe('organizationService.setTier', () => {
 
     expect(result).toEqual({ id: 'o1', previousTier: 'developer', tier: 'pro' });
     expect(org.tier).toBe('pro');
-    // Quotas reseeded from QUOTA_TIERS.pro.limits — schema requires every
-    // QuotaTierLimits field (storageBytes/dashboards/etc.), so the spread
+    // Quotas reseeded from PLAN_TIERS.pro.limits — schema requires every
+    // PlanTierLimits field (storageBytes/dashboards/etc.), so the spread
     // brings them all over.
     expect(org.quotas).toEqual({
       plugins: 100,
@@ -366,7 +366,7 @@ describe('organizationService.setTier', () => {
     expect(result?.previousTier).toBe('developer');
     expect(result?.tier).toBe('enterprise');
     expect(org.tier).toBe('enterprise');
-    // QUOTA_TIERS.enterprise (mock): every limit -1.
+    // PLAN_TIERS.enterprise (mock): every limit -1.
     expect(org.quotas).toEqual({
       plugins: -1,
       pipelines: -1,

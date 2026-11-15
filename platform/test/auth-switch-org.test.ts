@@ -16,6 +16,7 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockAudit = jest.fn();
 const mockSwitchActiveOrg = jest.fn<(...a: unknown[]) => Promise<unknown>>();
+const mockSetLastActiveOrg = jest.fn<(...a: unknown[]) => Promise<void>>();
 const mockIssueTokens = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockRenewSessionTokens = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockRevokeRefreshSession = jest.fn<(...a: unknown[]) => Promise<void>>();
@@ -40,7 +41,8 @@ jest.unstable_mockModule('../src/observability/metrics.js', () => ({ incCounter:
 jest.unstable_mockModule('../src/services/billing-provision.js', () => ({ provisionBillingSubscription: jest.fn() }));
 jest.unstable_mockModule('../src/services/index.js', () => ({
   authService: {
-    switchActiveOrg: (...a: unknown[]) => mockSwitchActiveOrg(...a),
+    resolveSwitchTarget: (...a: unknown[]) => mockSwitchActiveOrg(...a),
+    setLastActiveOrg: (...a: unknown[]) => mockSetLastActiveOrg(...a),
     revokeRefreshSession: (...a: unknown[]) => mockRevokeRefreshSession(...a),
     invalidateAllSessions: (...a: unknown[]) => mockInvalidateAllSessions(...a),
     findForTokenIssue: (...a: unknown[]) => mockFindForTokenIssue(...a),
@@ -175,6 +177,9 @@ describe('switchOrg — org.switch audit', () => {
     expect(res.status).toHaveBeenCalledWith(403);
     expect(mockRenewSessionTokens).not.toHaveBeenCalled();
     expect(mockAudit).not.toHaveBeenCalled();
+    // The refused team must not become where the next sign-in lands — sign-in
+    // does not re-ask for team_access:open.
+    expect(mockSetLastActiveOrg).not.toHaveBeenCalled();
   });
 
   it('does NOT require team_access:open for a MEMBERSHIP switch', async () => {
@@ -228,14 +233,17 @@ describe('switchOrg — session slot', () => {
     expect(mockRenewSessionTokens).toHaveBeenCalledWith(user, 'org-to', { sessionId: 's1' }, expect.objectContaining({ client: expect.anything() }));
     expect(mockIssueTokens).not.toHaveBeenCalled();
     expect(res.status).toHaveBeenCalledWith(200);
+    // The completed switch is what the next sign-in opens in.
+    expect(mockSetLastActiveOrg).toHaveBeenCalledWith('u1', 'org-to');
   });
 
-  it('401s when the caller\'s slot is gone', async () => {
+  it('401s when the caller\'s slot is gone — and leaves the next sign-in where it was', async () => {
     mockSwitchActiveOrg.mockResolvedValue({ user: { _id: 'u1' }, authority: MEMBER });
     mockRenewSessionTokens.mockResolvedValue(null);
     const res = makeRes();
     await (switchOrg as any)({ user: { sub: 'u1', sid: 's1' }, headers: {}, body: { organizationId: 'org-to' } }, res);
     expect(res.status).toHaveBeenCalledWith(401);
+    expect(mockSetLastActiveOrg).not.toHaveBeenCalled();
   });
 });
 

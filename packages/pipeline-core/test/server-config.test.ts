@@ -126,7 +126,7 @@ describe('loadRateLimitConfig', () => {
 
   it('returns correct defaults', () => {
     delete process.env.LIMITER_MAX;
-    delete process.env.LIMITER_WINDOWMS;
+    delete process.env.LIMITER_WINDOW_MS;
 
     const config = loadRateLimitConfig();
 
@@ -136,7 +136,7 @@ describe('loadRateLimitConfig', () => {
 
   it('overrides from env', () => {
     process.env.LIMITER_MAX = '50';
-    process.env.LIMITER_WINDOWMS = '60000';
+    process.env.LIMITER_WINDOW_MS = '60000';
 
     const config = loadRateLimitConfig();
 
@@ -159,7 +159,7 @@ describe('validateServerConfig', () => {
     compliancePort: 3000,
     billingHost: 'billing',
     billingPort: 3000,
-    billingTimeout: 5000,
+    billingTimeoutMs: 5000,
     platformHost: 'platform',
     platformPort: 3000,
     imageRegistryHost: 'image-registry',

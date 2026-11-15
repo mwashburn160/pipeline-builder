@@ -127,7 +127,6 @@ X-Quota-Reset: 2026-11-05T00:00:00.000Z
 
 - **Dashboard:** a global notice on every page names the quota and links to the upgrade page, whichever service refused.
 - **CLI (`pipeline-manager`):** prints `API call quota reached (25,000/25,000); resets 2026-11-05. Upgrade: https://<platform>/dashboard/billing` and does not suggest retrying. A plain 429 keeps "rate limit exceeded — wait a moment". `synth`, `deploy`, `plugin verify` and `security-report upload` send `X-Pipeline-Id`, so the ledger attributes their calls to the pipeline.
-- **Plugin-lookup Lambda:** a quota refusal fails the custom resource **immediately** with that same sentence as the CloudFormation `Reason` (retrying can't help); a plain 429 is retried, honouring `Retry-After` up to 10s.
 
 ### CPU credits
 
@@ -232,7 +231,7 @@ Every other budget on this page is a per-period **flow**: it resets on `QUOTA_RE
 | Business | 120 GB |
 | Enterprise | 250 GB |
 
-A **Storage Pack** adds 10 GB on any tier, including Developer, and stacks (with a volume discount from four packs). Operators can override a tier with `QUOTA_TIER_<TIER>_STORAGE_BYTES` or a single org through the quota API.
+A **Storage Pack** adds 10 GB on any tier, including Developer, and stacks (with a volume discount from four packs). Operators can override a tier with `PLAN_TIER_<TIER>_STORAGE_BYTES` or a single org through the quota API.
 
 **With teams, the figure is the account's.** Limits pool at the account root, so the number above is what the root and all its teams hold **together** — the usage shown on your Quotas page is the whole account's, and the 80% / 100% notices are computed from it. (Enforcement at push time follows the same figure once the operator enables `QUOTA_STORAGE_ACCOUNT_BUDGET`; until then each namespace is checked against the pooled number on its own, which is more generous.)
 
@@ -307,7 +306,7 @@ Usage is stored as **hourly buckets** (`quota_usage_buckets`): one document per 
 
 | Setting | Effect |
 |---------|--------|
-| `QUOTA_TIER_<TIER>_API_CALLS`, `QUOTA_TIER_<TIER>_AUTOMATION_CALLS` | Per-tier budgets ([Environment variables](environment-variables.md)) |
+| `PLAN_TIER_<TIER>_API_CALLS`, `PLAN_TIER_<TIER>_AUTOMATION_CALLS` | Per-tier budgets ([Environment variables](environment-variables.md)) |
 | `QUOTA_RESET_DAYS` | Period length |
 | `QUOTA_AUTOMATION_GRACE_PCT` | Soft band above the `automationCalls` cap (default 10, 0 = hard) |
 | `QUOTA_CHECK_CACHE_TTL_MS`, `QUOTA_CHECK_DENIED_CACHE_MS` | Per-pod check cache (5 s allowed / ≤ 60 s denied) |

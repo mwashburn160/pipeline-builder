@@ -153,15 +153,18 @@ export class ApiClient {
    * looks like a server bug rather than a client one.
    *
    * The server's `Content-Disposition` name is preferred over anything the caller guesses:
-   * it knows the report's title and whether the run is a revision.
+   * it knows the report's title and whether the run is a revision. Only its last path
+   * segment is kept: the name is built from data other people can edit, and a
+   * `../../.bashrc` would otherwise be written outside the working directory.
    */
   async getBinary(url: string, headers?: Record<string, string>): Promise<{ data: Buffer; filename?: string }> {
     const response = await this.client.get<ArrayBuffer>(url, { headers, responseType: 'arraybuffer' });
     const disposition = String(response.headers['content-disposition'] ?? '');
     const match = /filename="([^"]+)"/.exec(disposition);
+    const filename = match?.[1]?.split(/[/\\]/).pop()?.trim();
     return {
       data: Buffer.from(response.data),
-      ...(match?.[1] ? { filename: match[1] } : {}),
+      ...(filename && filename !== '.' && filename !== '..' ? { filename } : {}),
     };
   }
 

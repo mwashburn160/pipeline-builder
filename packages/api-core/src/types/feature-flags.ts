@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import type { QuotaTier } from './quota-tiers.js';
+import type { PlanTier } from './plan-tiers.js';
 
 // Feature flag identifiers
 
@@ -163,9 +163,9 @@ export function isValidFeatureFlag(value: string): value is FeatureFlag {
 // Tier-to-feature mapping
 
 /** Features enabled by default for each tier. */
-export const TIER_FEATURES: Record<QuotaTier, readonly FeatureFlag[]> = {
+export const TIER_FEATURES: Record<PlanTier, readonly FeatureFlag[]> = {
   // Developer gets `ai_generation` as a TRIAL: the tier's 20 `aiCalls` per
-  // period (QUOTA_TIERS.developer) is the trial's cap, so the AI surfaces are
+  // period (PLAN_TIERS.developer) is the trial's cap, so the AI surfaces are
   // usable — not just previewed — before an upgrade. A BYOK key spends no slot.
   developer: ['ai_generation'],
   pro: ['ai_generation', 'bulk_operations'],
@@ -279,7 +279,7 @@ export const FEATURE_METADATA: Record<FeatureFlag, { label: string; description:
  * 3. Apply per-user overrides: `true` adds a feature, `false` removes it.
  * 4. Invalid override keys are silently ignored.
  *
- * @param tier - The organization's quota tier
+ * @param tier - The organization's plan tier
  * @param opts - Resolution options:
  *   - `overrides`: per-user overrides (key = feature flag, value = enabled)
  *   - `isSuperAdmin`: whether the user has the global super-admin flag
@@ -289,7 +289,7 @@ export const FEATURE_METADATA: Record<FeatureFlag, { label: string; description:
  * @returns Sorted array of enabled feature flags
  */
 export function resolveUserFeatures(
-  tier: QuotaTier,
+  tier: PlanTier,
   opts?: {
     overrides?: Record<string, boolean> | null;
     isSuperAdmin?: boolean;

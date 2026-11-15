@@ -40,7 +40,8 @@ export interface ParsedPlugin {
   /**
    * README.md from the zip root, or null when absent. Not size-checked here: it
    * is a DETECTED catalog value, so an oversized README is shown blank with the
-   * reason (catalog-metadata.ts) rather than failing the upload. Rendered to
+   * reason (catalog-metadata.ts) rather than failing the upload — short of the
+   * extractor's in-memory text ceiling (zip-extract.ts), which refuses it. Rendered to
    * sanitized HTML only once the user has accepted or edited it.
    */
   readmeMd: string | null;
@@ -73,6 +74,21 @@ function parseBoundedYaml(text: string, label: string): unknown {
 // config.yaml + plugin-spec.yaml (schemas shared with the CLI from api-core)
 // -----------------------------------------------------------------------------
 
+/**
+ * Read a YAML file the extractor did not capture (a `pluginSpec` path named by
+ * config.yaml), refusing past {@link MAX_YAML_BYTES} BEFORE reading it: the
+ * file may be as large as the extraction cap allows, and {@link parseBoundedYaml}
+ * only sees its size once it is all in memory. Null when the file is absent.
+ */
+async function readBoundedText(file: string, label: string): Promise<string | null> {
+  const stat = await fs.stat(file).catch(() => null);
+  if (!stat?.isFile()) return null;
+  if (stat.size > MAX_YAML_BYTES) {
+    throw new ValidationError(`${label} exceeds the maximum allowed size (${MAX_YAML_BYTES} bytes)`);
+  }
+  return fs.readFile(file, 'utf-8');
+}
+
 /** Parse and validate config.yaml text. */
 function parsePluginConfig(configText: string | undefined): PluginConfig {
   if (!configText) return {};
@@ -100,7 +116,7 @@ function parsePluginSpec(specText: string): PluginSpec {
 // -----------------------------------------------------------------------------
 
 /** Longest accepted plugin name (the CLI's `new-plugin` bound). */
-export const PLUGIN_NAME_MAX = 64;
+const PLUGIN_NAME_MAX = 64;
 
 /**
  * The name/version shape every upload must have. Enforced server-side for
@@ -108,7 +124,7 @@ export const PLUGIN_NAME_MAX = 64;
  * flow into registry repository names, listing URLs and notification
  * subjects, so a CR/LF or a path separator in either is an injection, not a typo.
  */
-export function pluginIdentityProblem(spec: Pick<PluginSpec, 'name' | 'version'>): string | null {
+function pluginIdentityProblem(spec: Pick<PluginSpec, 'name' | 'version'>): string | null {
   if (typeof spec.name === 'string' && (spec.name.length > PLUGIN_NAME_MAX || !PLUGIN_NAME_PATTERN.test(spec.name))) {
     return `plugin-spec.yaml: name must match ${PLUGIN_NAME_PATTERN} and be at most ${PLUGIN_NAME_MAX} characters`;
   }
@@ -146,7 +162,7 @@ export async function parsePluginZip(zipPath: string, opts: ParseZipOptions = {}
     // --- Spec ---------------------------------------------------------------
     const specPath = config.pluginSpec ?? 'plugin-spec.yaml';
     const specText = texts.get(specPath)
-      ?? (specPath !== 'plugin-spec.yaml' ? await fs.readFile(path.join(extractDir, specPath), 'utf-8').catch(() => null) : null);
+      ?? (specPath !== 'plugin-spec.yaml' ? await readBoundedText(path.join(extractDir, specPath), 'plugin-spec.yaml') : null);
 
     if (!specText) {
       throw new ValidationError('plugin-spec.yaml file missing in ZIP');

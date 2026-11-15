@@ -97,7 +97,6 @@ export const STORAGE_PRUNE_PATH = '/storage-prune';
 export const OWN_BODY_PARSER_PATHS = [
   PLUGIN_SIGNATURES_PATH,
   `/internal${PLUGIN_IMAGE_DISCARD_PATH}`,
-  `/internal${STORAGE_PRUNE_PATH}/`,
 ] as const;
 
 /**
@@ -191,30 +190,12 @@ const SBOM_MAX_BYTES = envInt('REGISTRY_SBOM_MAX_BYTES', 256 * 1024 * 1024, { mi
 const sbomLimitLabel = () => `${Math.round(SBOM_MAX_BYTES / (1024 * 1024))} MiB`;
 
 /**
- * Internal (service-to-service) routes. Mounted after `requireAuth`.
- *
- *  - POST /internal/plugin-signatures — plugin → sign a pushed plugin image
- *    digest and attach its SBOM as a signed attestation.
- *  - /internal/plugin-publications* — plugin → the public namespace
- *    (publish / resign / yank / gc / verify); see internal-publications.ts.
- *  - POST /internal/plugin-images/discard — plugin → delete a pushed, signed
- *    image its scan gates / compliance refused, with its signature.
- *  - DELETE /internal/quarantine/:submissionId — plugin → drop an anonymous
- *    submission's quarantined build (`quarantine/<submissionId>`) once it is
- *    decided or expired.
- *  - POST /internal/quarantine/:submissionId/credential — plugin → the
- *    registry-only credential that submission's build pushes with.
- *  - GET /internal/storage-usage/:orgId — quota → one org's registry storage in
- *    bytes, so the quota dashboard's `storageBytes.used` shows a real number.
- */
-/**
  * Stream the request body to a file, refusing past {@link SBOM_MAX_BYTES}.
  *
  * Streamed rather than buffered-and-parsed because the document's only
- * destination is a file: cosign attests from `--predicate <path>`. The old path
- * held it three times over — the raw body, the parsed object, and the
- * `JSON.stringify` written back out — to move bytes that were already on disk
- * in the plugin pod. This holds a chunk.
+ * destination is a file: cosign attests from `--predicate <path>`. Buffering
+ * would hold it in memory to move bytes that were already on disk in the
+ * plugin pod; this holds a chunk (writes respect the file stream's backpressure).
  *
  * The cap is enforced on the bytes as they ARRIVE, not from `Content-Length`,
  * which the sender controls.
@@ -233,15 +214,27 @@ async function streamBodyToFile(req: Request, dest: string): Promise<{ bytes: nu
   let overLimit = false;
   try {
     await new Promise<void>((resolve, reject) => {
+      // A body some earlier parser already consumed will never emit `end`
+      // again; resolve on the empty file (the SPDX check then refuses it).
+      if (req.readableEnded) return resolve();
+      let ended = false;
       req.on('data', (chunk: Buffer) => {
         bytes += chunk.length;
         if (bytes > SBOM_MAX_BYTES) {
           overLimit = true;
           return; // read on, write nothing
         }
-        out.write(chunk);
+        // Backpressure: a disk slower than the network would otherwise queue
+        // the whole document in the write stream's buffer.
+        if (!out.write(chunk)) {
+          req.pause();
+          out.once('drain', () => req.resume());
+        }
       });
-      req.on('end', () => resolve());
+      req.on('end', () => { ended = true; resolve(); });
+      // A client that disconnects mid-upload never emits `end`; without this
+      // the route (and its temp dir) would wait forever.
+      req.on('close', () => { if (!ended) reject(new Error('request closed before the SBOM body completed')); });
       req.on('error', reject);
       out.on('error', reject);
     });
@@ -275,14 +268,37 @@ function looksLikeSpdx(file: string): boolean {
   }
 }
 
+/**
+ * Internal (service-to-service) routes. Mounted after `requireAuth`.
+ *
+ *  - POST /internal/plugin-signatures — plugin → sign a pushed plugin image
+ *    digest and attach its SBOM as a signed attestation.
+ *  - /internal/plugin-publications* — plugin → the public namespace
+ *    (publish / resign / yank / gc / verify); see internal-publications.ts.
+ *  - POST /internal/plugin-images/discard — plugin → delete a pushed, signed
+ *    image its scan gates / compliance refused, with its signature.
+ *  - DELETE /internal/quarantine/:submissionId — plugin → drop an anonymous
+ *    submission's quarantined build (`quarantine/<submissionId>`) once it is
+ *    decided or expired.
+ *  - POST /internal/quarantine/:submissionId/credential — plugin → the
+ *    registry-only credential that submission's build pushes with.
+ *  - GET /internal/storage-usage/:orgId — quota → one org's registry storage in
+ *    bytes, so the quota dashboard's `storageBytes.used` shows a real number.
+ *  - GET /internal/storage-breakdown/:orgId — plugin → per-version storage
+ *    attribution (`?scope=retention`: the system org's retention view).
+ *  - DELETE /internal/storage-prune/:orgId — plugin → drop one version tag in
+ *    the org's own namespace to reclaim its storage.
+ *  - DELETE /internal/org-namespace/:orgId — platform → purge a deleted org's
+ *    private `org-<id>/*` namespace.
+ */
 export function createInternalRoutes(): Router {
   const router: Router = Router();
 
   router.post(
-    '/plugin-signatures',
+    PLUGIN_SIGNATURES_PATH.slice('/internal'.length),
     // Only the plugin build worker asks for signatures — never a user token,
     // however privileged (the key is what synth trusts). Gated BEFORE the large
-    // body is parsed, so no other caller can make this route buffer 32mb.
+    // body is streamed, so no other caller can make this route write an SBOM to disk.
     requireInternalService({ callers: ['plugin'] }) as RequestHandler,
     audited('registry.image.sign') as RequestHandler,
     // NO body parser: the SBOM is streamed to disk below. The metadata rides in
@@ -586,9 +602,6 @@ export function createInternalRoutes(): Router {
   router.delete(
     `${STORAGE_PRUNE_PATH}/:orgId`,
     requireInternalService({ callers: ['plugin'] }) as RequestHandler,
-    // Body parsers are per-route in this router, not router-wide. A `{repo,tag}`
-    // body is tiny, so the limit is tight.
-    express.json({ limit: '4kb' }) as RequestHandler,
     audited('registry.image.delete') as RequestHandler,
     withRoute(async ({ req, res, ctx }) => {
       const orgId = getParam(req.params, 'orgId')?.toLowerCase();
@@ -599,9 +612,11 @@ export function createInternalRoutes(): Router {
         recordAuthzDenial(req, `storage prune for org ${orgId}`);
         return sendError(res, 403, 'Forbidden: storage can only be pruned for the token\'s own org.', ErrorCode.ORG_MISMATCH);
       }
-      const parsed = storagePruneSchema.safeParse(req.body);
+      // `repo` and `tag` ride the QUERY string: a DELETE carries no body through
+      // the shared internal HTTP client.
+      const parsed = storagePruneSchema.safeParse({ repo: req.query.repo, tag: req.query.tag });
       if (!parsed.success) {
-        return sendBadRequest(res, 'repo and tag are required', ErrorCode.VALIDATION_ERROR);
+        return sendBadRequest(res, 'repo and tag query parameters are required', ErrorCode.VALIDATION_ERROR);
       }
       const { repo, tag } = parsed.data;
       // The ONLY namespace a tenant may prune is its own, decided by the same

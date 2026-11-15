@@ -18,20 +18,14 @@
  * **Constructs**
  * - PipelineBuilder — top-level CDK pipeline construct
  * - StageBuilder — pipeline stage composition
- * - PluginLookup — plugin resolution custom resource
+ * - PluginLookup — hands each step its pre-resolved plugin record
  * - ArtifactManager — build artifact management
  * - PipelineConfiguration — pipeline config resolution
  *
  * **Authoring types**
  * - SourceTypes, StepTypes — pipeline source and step configuration
  * - NetworkTypes — VPC/subnet/security-group configuration
- *
- * **Config adapters**
- * - lambdaRuntime, lambdaTimeout, lambdaArchitecture — `AWSConfig` → CDK values
  */
-
-// Config adapters (plain AWSConfig data → CDK value objects)
-export * from './config/aws-config-cdk.js';
 
 // Infrastructure types that reference CDK values
 export * from './core/network-types.js';

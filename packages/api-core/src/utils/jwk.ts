@@ -14,9 +14,9 @@
  * so nothing here needs a JOSE library.
  *
  * Internal SERVICE tokens (`principalType: 'service'`) are ES256 too, signed by
- * the CALLING service with its own key (#14, `services/service-keys.ts`). Both
+ * the CALLING service with its own key (`services/service-keys.ts`). Both
  * chains therefore share these primitives, and a bearer token is routed by which
- * key set owns its `kid` rather than by its algorithm — see `middleware/auth.ts`.
+ * key set owns its `kid` rather than by its algorithm — see `middleware/jwt-verify.ts`.
  */
 
 import crypto, { type KeyObject } from 'crypto';

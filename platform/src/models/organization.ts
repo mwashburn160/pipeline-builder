@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { DEFAULT_TIER, QUOTA_TIERS, type QuotaTier, type QuotaTierLimits, VALID_TIERS, nextQuotaResetDate, quotaPeriodDays } from '@pipeline-builder/api-core';
+import { DEFAULT_TIER, PLAN_TIERS, type PlanTier, type PlanTierLimits, VALID_TIERS, nextQuotaResetDate, quotaPeriodDays } from '@pipeline-builder/api-core';
 import { Schema, model, Types, Model, type HydratedDocument } from 'mongoose';
 import slugify from 'slugify';
 import { IMPERSONATION_POLICIES } from '../constants/vocabulary.js';
@@ -17,12 +17,12 @@ export interface QuotaUsage {
 /**
  * Quota limits interface.
  *
- * Aliased to api-core's `QuotaTierLimits` so the schema, the in-memory
+ * Aliased to api-core's `PlanTierLimits` so the schema, the in-memory
  * preset tables, and every consumer stay in lockstep — adding a new
- * countable resource in `QUOTA_TIERS` surfaces a compile error in the
+ * countable resource in `PLAN_TIERS` surfaces a compile error in the
  * schema-defaults block below.
  */
-export type QuotaLimits = QuotaTierLimits;
+export type QuotaLimits = PlanTierLimits;
 
 /**
  * Quota usage interface
@@ -35,7 +35,7 @@ export interface QuotaUsageTracking {
   aiCalls: QuotaUsage;
 }
 
-export type { QuotaTier };
+export type { PlanTier };
 
 /**
  * Organization document interface.
@@ -54,7 +54,7 @@ export interface OrganizationData {
    *  Identifies the system org by flag rather than a magic string `_id`. */
   isSystem?: boolean;
   description?: string;
-  tier: QuotaTier;
+  tier: PlanTier;
   /** Account-level purchased feature entitlements (bundles), synced by billing
    *  to the root and propagated onto teams. */
   featureEntitlements: string[];
@@ -276,11 +276,11 @@ const quotaUsageSchema = new Schema<QuotaUsage>(
  * `PERSISTED_QUOTA_KEYS` must list EXACTLY the keys the schema block persists.
  * The `satisfies` clause rejects any typo, stale, or retention key; the
  * `_AllPersistedKeysCovered` assertion rejects a MISSING one. Together they
- * make adding a new non-retention dimension to `QuotaTierLimits` (in api-core)
+ * make adding a new non-retention dimension to `PlanTierLimits` (in api-core)
  * a real COMPILE ERROR here until it is added both to the schema block and to
  * this list.
  */
-type PersistedQuotaKey = Exclude<keyof QuotaTierLimits, 'eventRetentionDays' | 'doraRetentionDays'>;
+type PersistedQuotaKey = Exclude<keyof PlanTierLimits, 'eventRetentionDays' | 'doraRetentionDays'>;
 const PERSISTED_QUOTA_KEYS = [
   'plugins', 'pipelines', 'apiCalls', 'automationCalls', 'aiCalls', 'storageBytes',
   'cpuCredits',
@@ -332,7 +332,7 @@ const organizationSchema = new Schema<OrganizationData>(
       // a tier in api-core surfaces here automatically (no string drift
       // between the type and the schema).
       enum: [...VALID_TIERS],
-      // Default to the operator-configured DEFAULT_QUOTA_TIER (api-core resolves
+      // Default to the operator-configured DEFAULT_PLAN_TIER (api-core resolves
       // it from env; falls back to 'developer'). Quota defaults below track the
       // same tier so a new org's tier and seeded limits stay consistent.
       default: DEFAULT_TIER,
@@ -405,47 +405,47 @@ const organizationSchema = new Schema<OrganizationData>(
       default: null,
       index: true,
     },
-    // Defaults sourced from `QUOTA_TIERS[DEFAULT_TIER].limits` (the
-    // DEFAULT_QUOTA_TIER preset) so every persisted FLOW quota tracks the preset
+    // Defaults sourced from `PLAN_TIERS[DEFAULT_TIER].limits` (the
+    // DEFAULT_PLAN_TIER preset) so every persisted FLOW quota tracks the preset
     // without hand-syncing values. The two BILLING-OWNED retention dims
     // (`eventRetentionDays` / `doraRetentionDays`) are INTENTIONALLY EXCLUDED —
     // they live only on the reporting store's `dora_settings`, never on the org
     // doc (see `PERSISTED_QUOTA_KEYS` above, which enforces exactly this set at
-    // compile time). Adding any OTHER new limit to `QuotaTierLimits` in api-core
+    // compile time). Adding any OTHER new limit to `PlanTierLimits` in api-core
     // is a compile error at `PERSISTED_QUOTA_KEYS` until it is added here too.
     quotas: {
       plugins: {
         type: Number,
-        default: () => QUOTA_TIERS[DEFAULT_TIER].limits.plugins,
+        default: () => PLAN_TIERS[DEFAULT_TIER].limits.plugins,
         min: -1, // -1 means unlimited
       },
       pipelines: {
         type: Number,
-        default: () => QUOTA_TIERS[DEFAULT_TIER].limits.pipelines,
+        default: () => PLAN_TIERS[DEFAULT_TIER].limits.pipelines,
         min: -1,
       },
       apiCalls: {
         type: Number,
-        default: () => QUOTA_TIERS[DEFAULT_TIER].limits.apiCalls,
+        default: () => PLAN_TIERS[DEFAULT_TIER].limits.apiCalls,
         min: -1,
       },
       // Metered API calls made by org SERVICE ACCOUNTS, counted instead of
       // apiCalls (api-core `meteredQuotaTypeFor`).
       automationCalls: {
         type: Number,
-        default: () => QUOTA_TIERS[DEFAULT_TIER].limits.automationCalls,
+        default: () => PLAN_TIERS[DEFAULT_TIER].limits.automationCalls,
         min: -1,
       },
       aiCalls: {
         type: Number,
-        default: () => QUOTA_TIERS[DEFAULT_TIER].limits.aiCalls,
+        default: () => PLAN_TIERS[DEFAULT_TIER].limits.aiCalls,
         min: -1,
       },
       // Aggregate registry storage cap (bytes). Enforced by the
       // image-registry push-gate.
       storageBytes: {
         type: Number,
-        default: () => QUOTA_TIERS[DEFAULT_TIER].limits.storageBytes,
+        default: () => PLAN_TIERS[DEFAULT_TIER].limits.storageBytes,
         min: -1,
       },
       // vCPU-minutes of plugin-build compute. The one counter on a MONTHLY
@@ -454,35 +454,35 @@ const organizationSchema = new Schema<OrganizationData>(
       // one by a factor of ten.
       cpuCredits: {
         type: Number,
-        default: () => QUOTA_TIERS[DEFAULT_TIER].limits.cpuCredits,
+        default: () => PLAN_TIERS[DEFAULT_TIER].limits.cpuCredits,
         min: -1,
       },
       // Per-org count caps on user-editable feature tables. -1 means unlimited.
       dashboards: {
         type: Number,
-        default: () => QUOTA_TIERS[DEFAULT_TIER].limits.dashboards,
+        default: () => PLAN_TIERS[DEFAULT_TIER].limits.dashboards,
         min: -1,
       },
       alertRules: {
         type: Number,
-        default: () => QUOTA_TIERS[DEFAULT_TIER].limits.alertRules,
+        default: () => PLAN_TIERS[DEFAULT_TIER].limits.alertRules,
         min: -1,
       },
       alertDestinations: {
         type: Number,
-        default: () => QUOTA_TIERS[DEFAULT_TIER].limits.alertDestinations,
+        default: () => PLAN_TIERS[DEFAULT_TIER].limits.alertDestinations,
         min: -1,
       },
       idpConfigs: {
         type: Number,
-        default: () => QUOTA_TIERS[DEFAULT_TIER].limits.idpConfigs,
+        default: () => PLAN_TIERS[DEFAULT_TIER].limits.idpConfigs,
         min: -1,
       },
       // Active plugin-ecosystem listings the org publishes (count quota;
       // docs/plugin-publishing.md "Plans and limits"). Raised by `listing_pack`.
       listings: {
         type: Number,
-        default: () => QUOTA_TIERS[DEFAULT_TIER].limits.listings,
+        default: () => PLAN_TIERS[DEFAULT_TIER].limits.listings,
         min: -1,
       },
       // Max org members. NOT usage-tracked (no counter) — enforced live at
@@ -490,7 +490,7 @@ const organizationSchema = new Schema<OrganizationData>(
       // limit so per-org overrides via the quota CRUD API work like any limit.
       seats: {
         type: Number,
-        default: () => QUOTA_TIERS[DEFAULT_TIER].limits.seats,
+        default: () => PLAN_TIERS[DEFAULT_TIER].limits.seats,
         min: -1,
       },
       // Support contacts: the other platform-owned limit, enforced live at
@@ -500,7 +500,7 @@ const organizationSchema = new Schema<OrganizationData>(
       // the paywall is this number, not a feature flag.
       supportContacts: {
         type: Number,
-        default: () => QUOTA_TIERS[DEFAULT_TIER].limits.supportContacts,
+        default: () => PLAN_TIERS[DEFAULT_TIER].limits.supportContacts,
         min: -1,
       },
       // How many of those contacts may be UPGRADED to premium. A second
@@ -510,7 +510,7 @@ const organizationSchema = new Schema<OrganizationData>(
       // themselves.
       supportPremiumContacts: {
         type: Number,
-        default: () => QUOTA_TIERS[DEFAULT_TIER].limits.supportPremiumContacts,
+        default: () => PLAN_TIERS[DEFAULT_TIER].limits.supportPremiumContacts,
         min: -1,
       },
     },

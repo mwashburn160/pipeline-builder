@@ -44,7 +44,7 @@ function client(): InternalHttpClient {
   return new InternalHttpClient({
     host: config.reporting.serviceHost,
     port: config.reporting.servicePort,
-    timeout: config.reporting.serviceTimeout,
+    timeout: config.reporting.serviceTimeoutMs,
   });
 }
 

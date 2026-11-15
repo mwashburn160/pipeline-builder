@@ -4,7 +4,7 @@
 /**
  * Data access for the plugin ecosystem's governance tables (publishers,
  * listings, listing versions, the publish-request queue, auto-approval rules,
- * reserved names, settings) — docs/plugin-publishing.md
+ * reserved names, settings) — docs/plugin-publishing.md.
  *
  * Every function runs ELEVATED (superadmin tenant context): the ecosystem
  * tables are instance-wide (no `org_id`, app-role-only RLS), and a moderator's
@@ -106,9 +106,8 @@ export const publishers = {
     elevated(async (tx) => {
       const where: SQL[] = [];
       if (filter.tier) where.push(eq(P().tier, filter.tier as Publisher['tier']));
-      const rows = await tx.select().from(P()).where(and(...where)).orderBy(desc(P().createdAt));
-      if (filter.suspended === undefined) return rows;
-      return rows.filter((r) => (r.suspendedAt !== null) === filter.suspended);
+      if (filter.suspended !== undefined) where.push(filter.suspended ? isNotNull(P().suspendedAt) : isNull(P().suspendedAt));
+      return tx.select().from(P()).where(and(...where)).orderBy(desc(P().createdAt));
     }),
   insert: (values: PublisherInsert): Promise<Publisher> =>
     elevated(async (tx) => (await tx.insert(P()).values(values).returning())[0] as Publisher),

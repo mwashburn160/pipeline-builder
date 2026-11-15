@@ -41,7 +41,7 @@ jest.mock('@/components/pipeline/editors/PluginNameCombobox', () => ({
 jest.mock('@/components/pipeline/editors/PluginResolutionWarnings', () => ({ __esModule: true, PluginResolutionWarnings: () => null }));
 
 const ok = (data: unknown) => Promise.resolve({ success: true, statusCode: 200, data });
-const versions = { pipelineManager: '3.4.1', awsCdk: '2.200.0', cdkAssets: '3.1.0', esbuild: '0.25.0', pnpm: '10.1.0', node: '22.12.0' };
+const versions = { pipelineManager: '3.4.1', awsCdk: '2.200.0', cdkAssets: '3.1.0', node: '22.12.0' };
 const release = (releaseVersion: string, over: Partial<ToolchainRelease> = {}): ToolchainRelease => ({
   releaseVersion, status: 'available', relation: 'older', toolchain: versions, releaseNotes: null,
   scan: { scannedAt: '2026-11-01T00:00:00Z', criticalFixable: 0, highFixable: 0, kev: 0 }, ...over,

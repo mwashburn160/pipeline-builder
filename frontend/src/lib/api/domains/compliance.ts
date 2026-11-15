@@ -399,9 +399,13 @@ export function complianceApi(core: ApiCore) {
       return core.request<ApiResponse<{ templates: RuleTemplate[] }>>('/api/compliance/templates');
     },
 
-    /** Apply selected templates to org */
+    /**
+     * Apply selected templates to org. `created` counts the rules minted;
+     * `skipped` lists each template whose rule could not be created, with the
+     * server's reason (e.g. a rule of that name already exists).
+     */
     applyRuleTemplates: async (templateIds: string[]) => {
-      return core.request<ApiResponse<{ created: number; skipped: number; ruleIds: string[] }>>('/api/compliance/templates/apply', {
+      return core.request<ApiResponse<{ created: number; skipped: Array<{ id: string; reason: string }>; ruleIds: string[] }>>('/api/compliance/templates/apply', {
         method: 'POST',
         body: JSON.stringify({ templateIds }),
       });

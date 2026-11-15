@@ -10,6 +10,7 @@ import { Textarea } from '@/components/ui/Textarea';
 import { useToast } from '@/components/ui/Toast';
 import { VulnWarningList } from '@/components/plugin/VulnSeverity';
 import api from '@/lib/api';
+import { ApiError } from '@/lib/api/errors';
 import { invalidate } from '@/lib/api-cache';
 import { formatError } from '@/lib/constants';
 import type { BulkCreateResult, BulkPipelineSpec } from '@/lib/api/domains/pipelines';
@@ -31,6 +32,20 @@ export function parseBulkPipelineSpecs(text: string): { specs: BulkPipelineSpec[
     return { error: 'Provide a non-empty JSON array of pipeline specs (or a { "pipelines": [...] } object).' };
   }
   return { specs: arr as BulkPipelineSpec[] };
+}
+
+/**
+ * The per-item outcomes carried by a bulk create that saved NOTHING. The server
+ * answers that case 422 (201 = all saved, 207 = some failed), with the same
+ * per-item body in the error envelope's `details` — so the request throws, and
+ * the outcomes are read back here instead of being lost behind a generic error.
+ */
+export function bulkResultFromError(err: unknown): BulkCreateResult | null {
+  if (!(err instanceof ApiError) || err.statusCode !== 422) return null;
+  const details = err.details as Partial<BulkCreateResult> | undefined;
+  return details && Array.isArray(details.errors) && Array.isArray(details.items)
+    ? details as BulkCreateResult
+    : null;
 }
 
 /**
@@ -77,7 +92,13 @@ export default function BulkImportPipelinesModal({ onClose, onImported }: {
         setError(res.message || 'Bulk create failed');
       }
     } catch (err) {
-      setError(formatError(err, 'Bulk create failed'));
+      const allFailed = bulkResultFromError(err);
+      if (allFailed) {
+        setResult(allFailed);
+        toast.error(`0 created, ${allFailed.failed} failed`);
+      } else {
+        setError(formatError(err, 'Bulk create failed'));
+      }
     } finally {
       setCreating(false);
     }

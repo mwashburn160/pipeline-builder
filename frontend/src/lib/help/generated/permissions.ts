@@ -1,6 +1,6 @@
 // GENERATED FROM docs/permissions.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: c22cab814576a5b6435d55364fda94b4eafc53e7438749fd023ad2a0bda27af6
+// SOURCE-SHA256: bad5002052ea71da6506f6f5458cfb1a17dc5bb75ecdd23e668415a9ece271d8
 // SPDX-License-Identifier: Apache-2.0
 import { UserCog } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -1523,7 +1523,7 @@ export const permissionsTopic: HelpTopic = {
               "(no --scope)",
               "Pipeline Automation Role",
               "platform",
-              "CodeBuild synth, pipeline deploy --store-tokens, the plugin-lookup Lambda, the run-time vulnerability check"
+              "CodeBuild synth, pipeline deploy --store-tokens, the run-time vulnerability check"
             ],
             [
               "pipeline-register",
@@ -1565,7 +1565,7 @@ export const permissionsTopic: HelpTopic = {
             ],
             [
               "plugins:read",
-              "POST /plugins/lookup: plugin resolution at synth/deploy and in the plugin-lookup Lambda. Also POST /plugins/runtime-check: the run-time vulnerability check step"
+              "POST /plugins/lookup: plugin resolution at synth/deploy. Also POST /plugins/runtime-check: the run-time vulnerability check step"
             ]
           ]
         },

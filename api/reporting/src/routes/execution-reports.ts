@@ -173,17 +173,17 @@ export function createExecutionReportRoutes(): Router {
     });
   }));
 
-  // Cross-org error TEXT, so the retention floor doesn't apply — a platform
-  // operator read, gated like the others on `orgs:read` (system-org-only,
-  // so it is ungrantable inside a tenant) rather than on the superadmin flag.
-  router.get('/errors', ...requireSystemOrgPermission('orgs:read'), withRoute(async ({ req, res, orgId }) => {
+  // Free-form error TEXT across EVERY org — the platform operator's read, which
+  // is why it is gated on `orgs:read` (system-org-only, so ungrantable inside a
+  // tenant) rather than `reports:read` or the superadmin flag. Cross-org by
+  // construction: no caller org and no rollup, so `includeDescendants` has
+  // nothing to add. Bounded by the absolute range ceiling rather than a per-org
+  // retention floor, since no single org's retention applies.
+  router.get('/errors', ...requireSystemOrgPermission('orgs:read'), withRoute(async ({ req, res }) => {
     const range = parseDateRange(req.query, { maxRangeMs: MAX_REPORT_RANGE_MS });
     if ('error' in range) return sendBadRequest(res, range.error, ErrorCode.VALIDATION_ERROR);
     const limit = parseQueryIntClamped(req.query.limit, 20, MAX_REPORT_LIMIT);
-    // Rollup-aware like the sibling execution reports: ?includeDescendants rolls
-    // the error report up over the org→team subtree for a reports:rollup holder.
-    const orgIds = await rollupIds(req, orgId);
-    const errors = await reportingService.getErrors(orgId, range.from, range.to, limit, orgIds);
+    const errors = await reportingService.getPlatformErrors(range.from, range.to, limit);
     sendSuccess(res, 200, { errors: scrubField(errors, 'error_pattern') });
   }));
 

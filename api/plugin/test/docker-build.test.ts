@@ -290,6 +290,33 @@ describe('buildAndPush', () => {
     expect(patchWrite![1]).toContain('ENV DEBIAN_FRONTEND=noninteractive');
   });
 
+  it('refuses a present context with no Dockerfile as a typed (non-retryable) error, before buildctl runs', async () => {
+    mockExistsSync.mockImplementation((p: string) => !String(p).endsWith('Dockerfile'));
+    try {
+      await expect(buildAndPush(makeRequest())).rejects.toThrow(ValidationError);
+      await expect(buildAndPush(makeRequest())).rejects.toThrow('Dockerfile "Dockerfile" not found in the build context');
+      expect(mockSpawn).not.toHaveBeenCalled();
+      // The registry credential written before the build is still removed.
+      expect(mockRmSync).toHaveBeenCalled();
+    } finally {
+      mockExistsSync.mockReturnValue(true);
+    }
+  });
+
+  it('lets a MISSING context surface as its own error, not as a missing Dockerfile', async () => {
+    const enoent = Object.assign(new Error('ENOENT: no such file or directory'), { code: 'ENOENT' });
+    mockExistsSync.mockReturnValue(false);
+    mockReadFileSync.mockImplementation((file: string) => {
+      if (String(file).endsWith('Dockerfile')) throw enoent;
+      return readFileDefault(file);
+    });
+    try {
+      await expect(buildAndPush(makeRequest())).rejects.toBe(enoent);
+    } finally {
+      mockExistsSync.mockReturnValue(true);
+    }
+  });
+
   it('passes build args as --opt build-arg:KEY=VALUE', async () => {
     await buildAndPush(makeRequest({ buildArgs: { FOO: 'bar', BAZ: '1' } }));
     const args = mockSpawn.mock.calls[0][1];

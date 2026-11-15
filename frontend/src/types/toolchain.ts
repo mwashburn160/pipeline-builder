@@ -52,8 +52,6 @@ export interface ToolchainVersions {
   pipelineManager: string;
   awsCdk: string;
   cdkAssets: string;
-  esbuild: string;
-  pnpm: string;
   node: string;
 }
 

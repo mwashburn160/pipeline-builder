@@ -19,11 +19,10 @@ import type { BuilderProps } from '../src/pipeline/pipeline-builder.js';
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 
-// Stub PluginLookup (the real one bundles a Lambda). Each name resolves to a
+// Stub PluginLookup. Each name resolves to a
 // distinct catalog row; `unresolved` stands in for a lookup that fell back to
 // the synth-time placeholder, which the manifest must skip.
 jest.unstable_mockModule('../src/pipeline/plugin-lookup.js', async () => {
-  const { Construct } = await import('constructs');
   const { PLACEHOLDER_PLUGIN_ID } = await import('../src/core/step-manifest.js');
   const row = (name: string) => ({
     id: name === 'unresolved' ? PLACEHOLDER_PLUGIN_ID : `id-${name}`,
@@ -45,7 +44,7 @@ jest.unstable_mockModule('../src/pipeline/plugin-lookup.js', async () => {
     imageDigest: null,
     category: 'unknown',
   });
-  class PluginLookup extends Construct {
+  class PluginLookup {
     plugin(ref: { name: string }) { return row(ref.name); }
     bootstrap() { return row('unresolved'); }
   }
@@ -53,7 +52,8 @@ jest.unstable_mockModule('../src/pipeline/plugin-lookup.js', async () => {
 });
 
 const { PipelineBuilder } = await import('../src/pipeline/pipeline-builder.js');
-const { pluginImageRepository, isBuildImageEntry } = await import('../src/core/step-manifest.js');
+const { pluginImageRepository } = await import('../src/core/step-manifest.js');
+const isBuildImageEntry = (e: object) => (e as { kind?: unknown }).kind === 'build-image';
 const { StepManifestRecorder } = await import('../src/pipeline/step-manifest-recorder.js');
 
 function build(props: Partial<BuilderProps>) {

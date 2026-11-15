@@ -1,6 +1,6 @@
 // GENERATED FROM docs/environment-variables.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 7a1981bc1193f12fd664f595cd9b592c7084fbedf36288025b5fa8df24d8a207
+// SOURCE-SHA256: f65bc7909f0d055b7c0006fe156e620048bd53341cf00f2eaaade50fa7e47db9
 // SPDX-License-Identifier: Apache-2.0
 import { FileCode } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -32,7 +32,7 @@ export const envVariablesTopic: HelpTopic = {
             "Set only what your target needs. Defaults here mirror the code, so an unset variable is a deliberate default, not a gap.",
             "Never commit a .env. Generate secrets with openssl rand -base64 32.",
             "Several switches interact. A master switch being off makes everything beneath it inert — EMAIL_ENABLED, BILLING_ENABLED, BILLING_DISCOUNTS_ENABLED, REPORT_SCHEDULER_ENABLED.",
-            "Per-tier overrides follow a pattern: QUOTA_TIER_<TIER>_<LIMIT>, BILLING_PLAN_<TIER>_MONTHLY, JWT_EXPIRES_IN_*.",
+            "Per-tier overrides follow a pattern: PLAN_TIER_<TIER>_<LIMIT>, BILLING_PLAN_<TIER>_MONTHLY, JWT_EXPIRES_IN_*.",
             "Secrets belong in a sealed secret or SSM, not in a ConfigMap. The k8s targets build app-env from the whole .env, so anything you put there is mounted.",
             "Some values must match something outside the app — EMAIL_FROM against the SES IAM condition, SES_REGION against the identity's region."
           ]
@@ -122,7 +122,7 @@ export const envVariablesTopic: HelpTopic = {
             "Email -- SMTP and SES configuration",
             "Billing -- Subscription billing provider",
             "Reporting & DORA -- Event reporting, DORA metrics, retention",
-            "AWS CDK / Lambda -- Lambda runtime, CodeBuild compute",
+            "AWS CDK / CodeBuild -- CodeBuild compute",
             "Timeouts -- Request, build, and connection timeouts",
             "Caching -- Response and entity cache TTLs",
             "SSE -- Server-sent events configuration",
@@ -322,7 +322,7 @@ export const envVariablesTopic: HelpTopic = {
               "Per-account failed password sign-ins allowed per window on POST /auth/login (keyed on a SHA-256 of the normalized identifier; successful sign-ins are not counted). The per-IP limit is AUTH_LIMITER_*"
             ],
             [
-              "LOGIN_ACCOUNT_LIMITER_WINDOWMS",
+              "LOGIN_ACCOUNT_LIMITER_WINDOW_MS",
               "900000",
               "Per-account sign-in throttle window (15 min)"
             ],
@@ -1231,12 +1231,12 @@ export const envVariablesTopic: HelpTopic = {
               "Connection pool size"
             ],
             [
-              "DRIZZLE_IDLE_TIMEOUT_MILLIS",
+              "DRIZZLE_IDLE_TIMEOUT_MS",
               "30000",
               "Idle connection timeout (ms)"
             ],
             [
-              "DRIZZLE_CONNECTION_TIMEOUT_MILLIS",
+              "DRIZZLE_CONNECTION_TIMEOUT_MS",
               "10000",
               "Connection timeout (ms)"
             ],
@@ -1705,7 +1705,7 @@ export const envVariablesTopic: HelpTopic = {
             [
               "PLUGIN_UPLOAD_TIMEOUT_MS",
               "900000",
-              "Upload HTTP timeout (15 min) — overrides the 25 s default request timeout for the upload route. Kept equal to nginx's upload-route proxy timeouts and the loader's UPLOAD_TIMEOUT (see Plugin Upload Timeout Chain)"
+              "Upload HTTP timeout (15 min) — overrides the 25 s default request timeout for the upload route. Kept equal to nginx's upload-route proxy timeouts and the loader's UPLOAD_TIMEOUT_SECONDS (see Plugin Upload Timeout Chain)"
             ],
             [
               "PLUGIN_UPLOAD_DIR",
@@ -1922,7 +1922,7 @@ export const envVariablesTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "| PLUGIN_ORG_SLOT_TTL_SEC | 900 | Crash-recovery expiry (seconds) of a held org build slot, so a dead worker can't leak one forever. A running build heartbeats its own slot at a third of this, so the TTL is NOT a cap on build duration. Refreshed only on a GRANTED acquire: when denials refreshed it too, a starved org's own retries pushed back the recovery of the leaked slot that was starving it, so the window never elapsed | | PLUGIN_ORG_SLOT_MAX_WAIT_MS | 1800000 | How long (ms) a build may wait for an org slot before failing terminally with a 503. A slot delay spends no BullMQ attempt, so this budget is what stops a starved job bouncing forever | | PLUGIN_ORG_SLOT_SCRUB_MS | PLUGIN_ORG_SLOT_TTL_SEC / 3 | How often leaked org build slots are reconciled against live BullMQ state | | PLUGIN_TIER_CACHE_TTL_MS | 300000 | Per-pod cache (ms) of each org's tier, used to route a build to its tier queue; a stale entry only misroutes to a neighbouring queue until expiry |"
+          "content": "| PLUGIN_ORG_SLOT_TTL_SECONDS | 900 | Crash-recovery expiry (seconds) of a held org build slot, so a dead worker can't leak one forever. A running build heartbeats its own slot at a third of this, so the TTL is NOT a cap on build duration. Refreshed only on a GRANTED acquire: when denials refreshed it too, a starved org's own retries pushed back the recovery of the leaked slot that was starving it, so the window never elapsed | | PLUGIN_ORG_SLOT_MAX_WAIT_MS | 1800000 | How long (ms) a build may wait for an org slot before failing terminally with a 503. A slot delay spends no BullMQ attempt, so this budget is what stops a starved job bouncing forever | | PLUGIN_ORG_SLOT_SCRUB_MS | PLUGIN_ORG_SLOT_TTL_SECONDS / 3 | How often leaked org build slots are reconciled against live BullMQ state | | PLUGIN_TIER_CACHE_TTL_MS | 300000 | Per-pod cache (ms) of each org's tier, used to route a build to its tier queue; a stale entry only misroutes to a neighbouring queue until expiry |"
         },
         {
           "type": "text",
@@ -1974,7 +1974,7 @@ export const envVariablesTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "The defaults live in the build catalog (BUILD_CLASS_CATALOG[class].slotsByTier) alongside the class labels and the machine floors, not in the tier-limit table: the catalog is browser-importable and therefore cannot read an env var, so it holds defaults and maxBuildsPerOrg applies the overlay. Before it, these numbers lived in quota-tiers.ts and were mirrored by hand in the frontend."
+          "content": "The defaults live in the build catalog (BUILD_CLASS_CATALOG[class].slotsByTier) alongside the class labels and the machine floors, not in the tier-limit table: the catalog is browser-importable and therefore cannot read an env var, so it holds defaults and maxBuildsPerOrg applies the overlay. Before it, these numbers lived in plan-tiers.ts and were mirrored by hand in the frontend."
         },
         {
           "type": "text",
@@ -1990,7 +1990,7 @@ export const envVariablesTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "The deadline scales with the machine: a sub-Standard build gets DOCKER_BUILD_TIMEOUT_MS multiplied by the inverse of its multiplier, never divided for a bigger one. The timeout is a safety bound on a runaway build rather than a budget — at half the vCPU a ten-minute build becomes about twenty and would die on the 15-minute bound, while scaling it down at Large would break I/O-bound builds that gain nothing from the extra CPU. | PLUGIN_BUILD_QUEUE_NAME | plugin-build | BullMQ queue name | | PLUGIN_BUILD_MAX_ATTEMPTS | 2 | Max build attempts before moving to DLQ | | PLUGIN_BUILD_BACKOFF_DELAY_MS | 5000 | Backoff delay between retries (ms) | | PLUGIN_BUILD_COMPLETED_RETENTION_SECS | 3600 | Completed job retention (1 hour) | | PLUGIN_BUILD_FAILED_RETENTION_SECS | 86400 | Failed job retention (24 hours) | | PLUGIN_BUILD_WORKER_TIMEOUT_MS | 10000 | Worker ready timeout (ms) | | PLUGIN_DLQ_MAX_ATTEMPTS | 3 | Max DLQ retry attempts (exponential backoff) | | PLUGIN_DLQ_BACKOFF_BASE_MS | 300000 | DLQ backoff base delay (5 min; scales 5m, 15m, 45m) | | PLUGIN_DLQ_MAX_SIZE | 20 | Max DLQ jobs before oldest are purged | | PLUGIN_DLQ_SCAN_INTERVAL_MS | 5000 | Minimum interval (ms) between DLQ max-size enforcement scans | | PLUGIN_QUEUE_METRICS_INTERVAL_MS | 15000 | How often (ms) the build-queue job counts are scraped into Prometheus metrics | | PLUGIN_QUEUE_MAX_PAGE_DEPTH | 5000 | Deepest row a caller may page to on the queue GET /failed and GET /dlq views (each page reads offset + limit entries from every queue, so this bounds the Redis range read) | | PLUGIN_TRIAGE_CACHE_TTL_MS | 5000 | Memo TTL (ms) for the queue GET /triage aggregate, collapsing a dashboard's repeated polls into one scan | | PLUGIN_TRIAGE_CACHE_MAX_ENTRIES | 500 | Cap on distinct /triage memo keys (keyed per org), oldest evicted first | | TEMP_DIR_MAX_AGE_MS | 14400000 | Stale temp dir cleanup threshold (4 hours) |"
+          "content": "The deadline scales with the machine: a sub-Standard build gets DOCKER_BUILD_TIMEOUT_MS multiplied by the inverse of its multiplier, never divided for a bigger one. The timeout is a safety bound on a runaway build rather than a budget — at half the vCPU a ten-minute build becomes about twenty and would die on the 15-minute bound, while scaling it down at Large would break I/O-bound builds that gain nothing from the extra CPU. | PLUGIN_BUILD_QUEUE_NAME | plugin-build | BullMQ queue name | | PLUGIN_BUILD_MAX_ATTEMPTS | 2 | Max build attempts before moving to DLQ | | PLUGIN_BUILD_BACKOFF_DELAY_MS | 5000 | Backoff delay between retries (ms) | | PLUGIN_BUILD_COMPLETED_RETENTION_SECS | 3600 | Completed job retention (1 hour) | | PLUGIN_BUILD_FAILED_RETENTION_SECS | 86400 | Failed job retention (24 hours) | | PLUGIN_BUILD_WORKER_TIMEOUT_MS | 10000 | Worker ready timeout (ms) | | PLUGIN_DLQ_MAX_ATTEMPTS | 3 | Max DLQ retry attempts (exponential backoff) | | PLUGIN_DLQ_BACKOFF_BASE_MS | 300000 | DLQ backoff base delay (5 min; scales 5m, 15m, 45m) | | PLUGIN_DLQ_MAX_SIZE | 20 | Max DLQ jobs before oldest are purged | | PLUGIN_DLQ_SCAN_INTERVAL_MS | 5000 | Minimum interval (ms) between DLQ max-size enforcement scans | | PLUGIN_QUEUE_METRICS_INTERVAL_MS | 15000 | How often (ms) the build-queue job counts are scraped into Prometheus metrics | | PLUGIN_QUEUE_MAX_PAGE_DEPTH | 5000 | Deepest row a caller may page to on the queue GET /failed and GET /dlq views (each page reads offset + limit entries from every queue, so this bounds the Redis range read) | | PLUGIN_QUEUE_TENANT_SCAN_MAX_ROWS | 10000 | Deepest row a TENANT-scoped queue view (GET /failed, GET /dlq, GET /triage) scans per source (each tier's failed set, each DLQ state set). Those views keep the caller's own jobs before limiting, so other orgs' failures cannot push them off the page; the caller's jobs older than this depth are not listed | | PLUGIN_TRIAGE_CACHE_TTL_MS | 5000 | Memo TTL (ms) for the queue GET /triage aggregate, collapsing a dashboard's repeated polls into one scan | | PLUGIN_TRIAGE_CACHE_MAX_ENTRIES | 500 | Cap on distinct /triage memo keys (keyed per org), oldest evicted first | | TEMP_DIR_MAX_AGE_MS | 14400000 | Stale temp dir cleanup threshold (4 hours) |"
         }
       ]
     },
@@ -2132,7 +2132,7 @@ export const envVariablesTopic: HelpTopic = {
               "Global rate limit (requests/window)"
             ],
             [
-              "LIMITER_WINDOWMS",
+              "LIMITER_WINDOW_MS",
               "900000",
               "Global rate limit window (15 min)"
             ],
@@ -2157,7 +2157,7 @@ export const envVariablesTopic: HelpTopic = {
               "Auth endpoint rate limit"
             ],
             [
-              "AUTH_LIMITER_WINDOWMS",
+              "AUTH_LIMITER_WINDOW_MS",
               "900000",
               "Auth rate limit window (15 min)"
             ],
@@ -2322,11 +2322,11 @@ export const envVariablesTopic: HelpTopic = {
         },
         {
           "type": "note",
-          "content": "These are not the caps a new org gets. The platform service is the sole authority for org lifecycle: it seeds each org's stored limits from its tier (see QUOTA_TIERS below) at creation time, and enforcement reserves against those stored values. The QUOTA_DEFAULT_* values govern only the fallback read for an org that has no document yet — so the dashboard renders something instead of erroring. Changing them does not raise or lower any real org's limit."
+          "content": "These are not the caps a new org gets. The platform service is the sole authority for org lifecycle: it seeds each org's stored limits from its tier (see PLAN_TIERS below) at creation time, and enforcement reserves against those stored values. The QUOTA_DEFAULT_* values govern only the fallback read for an org that has no document yet — so the dashboard renders something instead of erroring. Changing them does not raise or lower any real org's limit."
         },
         {
           "type": "text",
-          "content": "Tier presets ship in @pipeline-builder/api-core (QUOTA_TIERS in quota-tiers.ts):"
+          "content": "Tier presets ship in @pipeline-builder/api-core (PLAN_TIERS in plan-tiers.ts):"
         },
         {
           "type": "table",
@@ -2405,15 +2405,15 @@ export const envVariablesTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "automationCalls is the metered-API budget of non-interactive credentials — org service accounts (platform-automation, pipeline-register, reporting-ingest and registry-push keys) and personal access keys: a request authenticated by one spends automationCalls instead of apiCalls, so pipelines and CI scripts can't exhaust the console for the org's people. The defaults come from an itemized per-run count — 12 plugin lookups + synth + runtime check + security-report upload + registry register + ~12 ingest batches = 28 calls per run, × 24 runs/day × the 3-day period = 2,016 per active pipeline, × (4 × the tier's pipelines) active pipelines, + 4,320 ingest heartbeats per org, × 1.25 headroom, rounded up to 10,000 (automationCallsFor in quota-tiers.ts; API Quotas → Automation calls). The cap is soft by QUOTA_AUTOMATION_GRACE_PCT. The limits are per period: lengthening QUOTA_RESET_DAYS should scale QUOTA_TIER_<TIER>_AUTOMATION_CALLS by the same factor."
+          "content": "automationCalls is the metered-API budget of non-interactive credentials — org service accounts (platform-automation, pipeline-register, reporting-ingest and registry-push keys) and personal access keys: a request authenticated by one spends automationCalls instead of apiCalls, so pipelines and CI scripts can't exhaust the console for the org's people. The defaults come from an itemized per-run count — 12 plugin lookups + synth + runtime check + security-report upload + registry register + ~12 ingest batches = 28 calls per run, × 24 runs/day × the 3-day period = 2,016 per active pipeline, × (4 × the tier's pipelines) active pipelines, + 4,320 ingest heartbeats per org, × 1.25 headroom, rounded up to 10,000 (automationCallsFor in plan-tiers.ts; API Quotas → Automation calls). The cap is soft by QUOTA_AUTOMATION_GRACE_PCT. The limits are per period: lengthening QUOTA_RESET_DAYS should scale PLAN_TIER_<TIER>_AUTOMATION_CALLS by the same factor."
         },
         {
           "type": "text",
-          "content": "Any preset can be overridden per-environment via QUOTA_TIER_<DEVELOPER|PRO|TEAM|BUSINESS|ENTERPRISE|UNLIMITED>_<LIMIT> (e.g. QUOTA_TIER_TEAM_SEATS=20, QUOTA_TIER_PRO_LISTINGS=15), and DEFAULT_QUOTA_TIER sets the tier assigned to newly created orgs (developer by default). cpuCredits is vCPU-minutes of plugin-build compute per month, derived from the tier's plugins cap rather than guessed (plugins x 10 builds a month at a flat 30 wall-minutes and 1.5 vCPU, so credits = builds x 45: 4,500 / 11,250 / 22,500 / 45,000 / 67,500). It is the first dimension with genuine per-unit marginal cost — every other quota is a rate limit protecting shared infrastructure, this one is compute the platform pays for — and the only flow on a window other than QUOTA_RESET_DAYS. seats is a tier limit, not a tracked counter — it is enforced live at invite time against active org membership. supportContacts works the same way but is enforced at designation time, and its base is 0 on every tier (-1 on unlimited): support is an add-on at every tier and included in none, so an org with no support bundle has no contacts and cannot open a case — the support paywall is a quota check, not a feature flag."
+          "content": "Any preset can be overridden per-environment via PLAN_TIER_<DEVELOPER|PRO|TEAM|BUSINESS|ENTERPRISE|UNLIMITED>_<LIMIT> (e.g. PLAN_TIER_TEAM_SEATS=20, PLAN_TIER_PRO_LISTINGS=15), and DEFAULT_PLAN_TIER sets the tier assigned to newly created orgs (developer by default). cpuCredits is vCPU-minutes of plugin-build compute per month, derived from the tier's plugins cap rather than guessed (plugins x 10 builds a month at a flat 30 wall-minutes and 1.5 vCPU, so credits = builds x 45: 4,500 / 11,250 / 22,500 / 45,000 / 67,500). It is the first dimension with genuine per-unit marginal cost — every other quota is a rate limit protecting shared infrastructure, this one is compute the platform pays for — and the only flow on a window other than QUOTA_RESET_DAYS. seats is a tier limit, not a tracked counter — it is enforced live at invite time against active org membership. supportContacts works the same way but is enforced at designation time, and its base is 0 on every tier (-1 on unlimited): support is an add-on at every tier and included in none, so an org with no support bundle has no contacts and cannot open a case — the support paywall is a quota check, not a feature flag."
         },
         {
           "type": "text",
-          "content": "unlimited tier. Every limit is -1 (uncapped) and every gated feature is on. It is the automatic default when billing is disabled (BILLING_ENABLED=false) — DEFAULT_QUOTA_TIER is ignored in that case and new orgs get unlimited. When billing is enabled it is never displayed, selectable, or purchasable (excluded from the plans list and tier pickers), and DEFAULT_QUOTA_TIER=unlimited is rejected in favour of developer. Its label is overridable via QUOTA_TIER_UNLIMITED_LABEL (default Unlimited)."
+          "content": "unlimited tier. Every limit is -1 (uncapped) and every gated feature is on. It is the automatic default when billing is disabled (BILLING_ENABLED=false) — DEFAULT_PLAN_TIER is ignored in that case and new orgs get unlimited. When billing is enabled it is never displayed, selectable, or purchasable (excluded from the plans list and tier pickers), and DEFAULT_PLAN_TIER=unlimited is rejected in favour of developer. Its label is overridable via PLAN_TIER_UNLIMITED_LABEL (default Unlimited)."
         },
         {
           "type": "text",
@@ -2562,7 +2562,7 @@ export const envVariablesTopic: HelpTopic = {
             [
               "REVIEW_AUTO_HOLD_REPORTS",
               "3",
-              "Distinct abuse reports that automatically hold a review for moderation"
+              "Distinct abuse reports that automatically hold a review for moderation. Reports from the listing owner's own org never count"
             ]
           ]
         },
@@ -2858,11 +2858,6 @@ export const envVariablesTopic: HelpTopic = {
               "Compliance scan scheduler interval (ms)"
             ],
             [
-              "SYSTEM_ORG_SCANS_ENABLED",
-              "false",
-              "Run scheduled scans for the system org too"
-            ],
-            [
               "SCAN_LOCK_TTL_MS",
               "300000",
               "Scan scheduler cross-pod leader-lock TTL (ms); only one replica sweeps per tick"
@@ -2966,7 +2961,7 @@ export const envVariablesTopic: HelpTopic = {
             [
               "BILLING_ENABLED",
               "true",
-              "Enable billing (opt-out — on unless set to false). When false, new orgs default to the uncapped unlimited tier and no plans/tiers are offered; when true, unlimited is hidden and orgs get DEFAULT_QUOTA_TIER (default developer)."
+              "Enable billing (opt-out — on unless set to false). When false, new orgs default to the uncapped unlimited tier and no plans/tiers are offered; when true, unlimited is hidden and orgs get DEFAULT_PLAN_TIER (default developer)."
             ],
             [
               "BILLING_SUPPORT_FLOOR_ENABLED",
@@ -3250,7 +3245,7 @@ export const envVariablesTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "Event reporting (setup-events → the reporting service) and DORA metrics. All are optional — the platform runs on the defaults. DORA metrics sit behind the advanced_reporting entitlement; see DORA Metrics. Retention windows are tier-aware and bundle-extendable (effective window = tier baseline + Σ retention-pack grant, computed by billing and synced into dora_settings) and additionally per-organization overridable via the org's reporting settings; the REPORTING_* values below are the deployment-wide fallback used when neither a tier baseline nor an org override applies. The per-tier baselines are set by QUOTA_TIER_<TIER>_EVENT_RETENTION_DAYS / QUOTA_TIER_<TIER>_DORA_RETENTION_DAYS (see below)."
+          "content": "Event reporting (setup-events → the reporting service) and DORA metrics. All are optional — the platform runs on the defaults. DORA metrics sit behind the advanced_reporting entitlement; see DORA Metrics. Retention windows are tier-aware and bundle-extendable (effective window = tier baseline + Σ retention-pack grant, computed by billing and synced into dora_settings) and additionally per-organization overridable via the org's reporting settings; the REPORTING_* values below are the deployment-wide fallback used when neither a tier baseline nor an org override applies. The per-tier baselines are set by PLAN_TIER_<TIER>_EVENT_RETENTION_DAYS / PLAN_TIER_<TIER>_DORA_RETENTION_DAYS (see below)."
         },
         {
           "type": "table",
@@ -3269,6 +3264,11 @@ export const envVariablesTopic: HelpTopic = {
               "PLATFORM_SECRET_NAME",
               "—",
               "Set on the event-ingestion Lambda and the key-rotation Lambda (not a service var) to the Secrets Manager secret holding the service-account key in its password field (pipeline-builder/{orgId}/reporting-ingest). Written by pipeline-manager infra store-token; wired by infra setup-events --scoped-ingest."
+            ],
+            [
+              "KEY_TTL_DAYS",
+              "30",
+              "Set on the key-rotation Lambda (not a service var) by its stack's KeyLifetimeDays parameter, from infra store-token --schedule --expires-days. The lifetime (1–365 days) of each key the rotator mints — not how often it rotates (the schedule is daily)."
             ],
             [
               "DORA_ENABLED",
@@ -3430,12 +3430,12 @@ export const envVariablesTopic: HelpTopic = {
           ],
           "rows": [
             [
-              "QUOTA_TIER_<TIER>_EVENT_RETENTION_DAYS",
+              "PLAN_TIER_<TIER>_EVENT_RETENTION_DAYS",
               "30 (paid tiers) / unlimited on unlimited",
               "Per-tier baseline retention (days) for standard pipeline events, where <TIER> is DEVELOPER, PRO, TEAM, BUSINESS, ENTERPRISE, or UNLIMITED. The unlimited tier derives -1 (unlimited — the sweep skips the org and keeps all history). The Standard Retention Pack add-on adds +90 days on top."
             ],
             [
-              "QUOTA_TIER_<TIER>_DORA_RETENTION_DAYS",
+              "PLAN_TIER_<TIER>_DORA_RETENTION_DAYS",
               "180 (paid tiers) / unlimited on unlimited",
               "Per-tier baseline retention (days) for DORA-source records. The unlimited tier derives -1. The DORA History Pack add-on adds +365 days on top (and widens the report-query window to match)."
             ]
@@ -3448,8 +3448,8 @@ export const envVariablesTopic: HelpTopic = {
       ]
     },
     {
-      "id": "aws-cdk-lambda",
-      "title": "AWS CDK / Lambda",
+      "id": "aws-cdk-codebuild",
+      "title": "AWS CDK / CodeBuild",
       "blocks": [
         {
           "type": "table",
@@ -3460,31 +3460,6 @@ export const envVariablesTopic: HelpTopic = {
           ],
           "rows": [
             [
-              "LAMBDA_RUNTIME",
-              "nodejs26.x",
-              "Lambda runtime. The default is a public preview runtime — set nodejs24.x for the GA one."
-            ],
-            [
-              "LAMBDA_TIMEOUT",
-              "900",
-              "Timeout (seconds)"
-            ],
-            [
-              "LAMBDA_MEMORY_SIZE",
-              "512",
-              "Memory (MB)"
-            ],
-            [
-              "LAMBDA_ARCHITECTURE",
-              "ARM_64",
-              "Plugin-lookup Lambda architecture: ARM_64 or x86_64"
-            ],
-            [
-              "LAMBDA_RESERVED_CONCURRENCY",
-              "—",
-              "Reserved concurrency for the plugin-lookup Lambda; unset → unreserved"
-            ],
-            [
               "CODEBUILD_COMPUTE_TYPE",
               "SMALL",
               "SMALL, MEDIUM, LARGE, X2_LARGE"
@@ -3492,12 +3467,12 @@ export const envVariablesTopic: HelpTopic = {
             [
               "PLATFORM_CA_BUNDLE",
               "—",
-              "PEM text of a private CA the platform's certificate chains to. Trusted (on top of Node's roots) by pipeline-manager's API client, propagated into every CodeBuild step and the plugin-lookup Lambda — so the CodeBuild synth verifies TLS instead of disabling it."
+              "PEM text of a private CA the platform's certificate chains to. Trusted (on top of Node's roots) by pipeline-manager's API client, propagated into every CodeBuild step — so the CodeBuild synth verifies TLS instead of disabling it."
             ],
             [
               "PLATFORM_TLS_VERIFY",
               "true",
-              "Whether pipelines verify the platform's TLS certificate. Read at synth time. false (a dev platform on a self-signed certificate with no CA to distribute) adds --no-verify-ssl to the self-mutating synth and sets NODE_TLS_REJECT_UNAUTHORIZED=0 on every CodeBuild step and the plugin-lookup Lambda; NODE_TLS_REJECT_UNAUTHORIZED=0 in the synth's environment is treated the same. Prefer PLATFORM_CA_BUNDLE, which keeps verification on. Credentialed unverified calls are still refused when NODE_ENV=production."
+              "Whether pipelines verify the platform's TLS certificate. Read at synth time. false (a dev platform on a self-signed certificate with no CA to distribute) adds --no-verify-ssl to the self-mutating synth and sets NODE_TLS_REJECT_UNAUTHORIZED=0 on every CodeBuild step; NODE_TLS_REJECT_UNAUTHORIZED=0 in the synth's environment is treated the same. The one name for this switch: pipeline-manager itself and the key-rotation Lambda read it too. Prefer PLATFORM_CA_BUNDLE, which keeps verification on. Credentialed unverified calls are still refused when NODE_ENV=production (the key-rotation Lambda always runs in production, so it always verifies)."
             ],
             [
               "LOG_GROUP_NAME",
@@ -3540,8 +3515,8 @@ export const envVariablesTopic: HelpTopic = {
           "rows": [
             [
               "PIPELINE_EXEC_IDEMPOTENCY_WINDOW_SECONDS",
-              "60",
-              "Window for the execution-trigger idempotency guard — a duplicate POST /pipelines/:id/executions within it is a no-op, not a second CodePipeline run"
+              "10",
+              "Window for the execution-trigger idempotency guard, per (org, pipeline), shared by every start path — a second POST /pipelines/:id/executions or plugin-upgrade apply with redeploy within it starts no second CodePipeline run (a 409 / that pipeline's redeploy.error)"
             ],
             [
               "BILLING_WEBHOOK_INPROGRESS_TTL_SECONDS",
@@ -3620,7 +3595,7 @@ export const envVariablesTopic: HelpTopic = {
               "Docker push timeout (5 min)"
             ],
             [
-              "HTTP_CLIENT_TIMEOUT",
+              "HTTP_CLIENT_TIMEOUT_MS",
               "5000",
               "Internal HTTP client timeout — a TOTAL deadline for the whole exchange (connect, send, full body), not just socket idle"
             ],
@@ -3635,22 +3610,22 @@ export const envVariablesTopic: HelpTopic = {
               "Internal HTTP client retry delay"
             ],
             [
-              "REPORTING_HTTP_TIMEOUT",
+              "REPORTING_HTTP_TIMEOUT_MS",
               "3000",
-              "Timeout (ms) for reporting's outbound org-hierarchy lookups to platform. Deliberately TIGHTER than HTTP_CLIENT_TIMEOUT: a report that degrades fast beats a dashboard that hangs"
+              "Timeout (ms) for reporting's outbound org-hierarchy lookups to platform. Deliberately TIGHTER than HTTP_CLIENT_TIMEOUT_MS: a report that degrades fast beats a dashboard that hangs"
             ],
             [
-              "REGISTRY_HTTP_TIMEOUT",
+              "REGISTRY_HTTP_TIMEOUT_MS",
               "30000",
-              "Timeout (ms) for image-registry's management calls to the upstream OCI registry. Deliberately LONGER than HTTP_CLIENT_TIMEOUT because catalog, manifest and blob operations are slow"
+              "Timeout (ms) for image-registry's management calls to the upstream OCI registry. Deliberately LONGER than HTTP_CLIENT_TIMEOUT_MS because catalog, manifest and blob operations are slow"
             ],
             [
-              "QUOTA_SERVICE_TIMEOUT",
+              "QUOTA_SERVICE_TIMEOUT_MS",
               "5000",
               "Quota service call timeout"
             ],
             [
-              "BILLING_SERVICE_TIMEOUT",
+              "BILLING_SERVICE_TIMEOUT_MS",
               "5000",
               "Billing service call timeout"
             ],
@@ -3671,7 +3646,7 @@ export const envVariablesTopic: HelpTopic = {
         },
         {
           "type": "code",
-          "content": "Client (curl)                    UPLOAD_TIMEOUT = 900s (15 min)\n  └─ nginx proxy_read_timeout    900s (shipped configs); nginx's own default is 60s\n      └─ Express route           PLUGIN_UPLOAD_TIMEOUT_MS = 900s (15 min)\n          └─ Express global      25s request timeout (fixed; overridden by route)\n              └─ Build queue     DOCKER_BUILD_TIMEOUT_MS = 900s (15 min, async)\n                  └─ Push        DOCKER_PUSH_TIMEOUT_MS = 300s (5 min, async)"
+          "content": "Client (curl)                    UPLOAD_TIMEOUT_SECONDS = 900s (15 min)\n  └─ nginx proxy_read_timeout    900s (shipped configs); nginx's own default is 60s\n      └─ Express route           PLUGIN_UPLOAD_TIMEOUT_MS = 900s (15 min)\n          └─ Express global      25s request timeout (fixed; overridden by route)\n              └─ Build queue     DOCKER_BUILD_TIMEOUT_MS = 900s (15 min, async)\n                  └─ Push        DOCKER_PUSH_TIMEOUT_MS = 300s (5 min, async)"
         },
         {
           "type": "text",
@@ -3712,32 +3687,32 @@ export const envVariablesTopic: HelpTopic = {
           ],
           "rows": [
             [
-              "CACHE_TTL_ENTITY",
+              "CACHE_TTL_ENTITY_SECONDS",
               "60",
               "Entity cache TTL (seconds)"
             ],
             [
-              "CACHE_TTL_MESSAGE",
+              "CACHE_TTL_MESSAGE_SECONDS",
               "300",
               "Message cache TTL (seconds)"
             ],
             [
-              "CACHE_TTL_REPORT_INVENTORY",
+              "CACHE_TTL_REPORT_INVENTORY_SECONDS",
               "300",
               "Report inventory cache TTL (seconds)"
             ],
             [
-              "CACHE_TTL_REPORT_TIMESERIES",
+              "CACHE_TTL_REPORT_TIMESERIES_SECONDS",
               "120",
               "Report timeseries cache TTL (seconds)"
             ],
             [
-              "CACHE_TTL_COMPLIANCE_RULES",
+              "CACHE_TTL_COMPLIANCE_RULES_SECONDS",
               "60",
               "Compliance rules cache TTL (seconds)"
             ],
             [
-              "CACHE_TTL_BILLING_PLANS",
+              "CACHE_TTL_BILLING_PLANS_SECONDS",
               "14400",
               "Billing plans cache TTL (4 hours)"
             ],
@@ -4584,7 +4559,7 @@ export const envVariablesTopic: HelpTopic = {
               "Requests per window allowed on the Alertmanager relay endpoint. Sized for a burst fan-out, not for human traffic"
             ],
             [
-              "ALERT_WEBHOOK_LIMITER_WINDOWMS",
+              "ALERT_WEBHOOK_LIMITER_WINDOW_MS",
               "60000",
               "Rate-limit window for the Alertmanager relay endpoint"
             ],
@@ -4594,7 +4569,7 @@ export const envVariablesTopic: HelpTopic = {
               "Requests per window on the observability query endpoints (PromQL, logs)"
             ],
             [
-              "OBSERVABILITY_LIMITER_WINDOWMS",
+              "OBSERVABILITY_LIMITER_WINDOW_MS",
               "60000",
               "Rate-limit window for the observability query endpoints"
             ],
@@ -4835,17 +4810,17 @@ export const envVariablesTopic: HelpTopic = {
               "Entities processed between scan-progress writes"
             ],
             [
-              "COMPLIANCE_SERVICE_TIMEOUT",
+              "COMPLIANCE_SERVICE_TIMEOUT_MS",
               "5000",
               "Platform's timeout when calling the compliance service"
             ],
             [
-              "MESSAGE_SERVICE_TIMEOUT",
+              "MESSAGE_SERVICE_TIMEOUT_MS",
               "5000",
               "Platform's timeout when calling the message service"
             ],
             [
-              "REPORTING_SERVICE_TIMEOUT",
+              "REPORTING_SERVICE_TIMEOUT_MS",
               "5000",
               "Platform's timeout when telling reporting that a member left (so the stakeholder reports they owned stop)"
             ]
@@ -4864,27 +4839,27 @@ export const envVariablesTopic: HelpTopic = {
           ],
           "rows": [
             [
-              "QUOTA_TIER_DEVELOPER_LABEL",
+              "PLAN_TIER_DEVELOPER_LABEL",
               "Developer",
               "Display label for the developer tier"
             ],
             [
-              "QUOTA_TIER_PRO_LABEL",
+              "PLAN_TIER_PRO_LABEL",
               "Pro",
               "Display label for the pro tier"
             ],
             [
-              "QUOTA_TIER_TEAM_LABEL",
+              "PLAN_TIER_TEAM_LABEL",
               "Team",
               "Display label for the team tier"
             ],
             [
-              "QUOTA_TIER_BUSINESS_LABEL",
+              "PLAN_TIER_BUSINESS_LABEL",
               "Business",
               "Display label for the business tier"
             ],
             [
-              "QUOTA_TIER_ENTERPRISE_LABEL",
+              "PLAN_TIER_ENTERPRISE_LABEL",
               "Enterprise",
               "Display label for the enterprise tier"
             ],

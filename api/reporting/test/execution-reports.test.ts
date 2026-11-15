@@ -17,7 +17,7 @@ const mockGetAverageDuration = jest.fn<AnyFn>();
 const mockGetStageFailures = jest.fn<AnyFn>();
 const mockGetStageBottlenecks = jest.fn<AnyFn>();
 const mockGetActionFailures = jest.fn<AnyFn>();
-const mockGetErrors = jest.fn<AnyFn>();
+const mockGetPlatformErrors = jest.fn<AnyFn>();
 const mockGetDoraMetrics = jest.fn<AnyFn>();
 const mockGetDoraTrend = jest.fn<AnyFn>();
 const mockGetBuildHealth = jest.fn<AnyFn>();
@@ -100,7 +100,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@p
     getStageFailures: mockGetStageFailures,
     getStageBottlenecks: mockGetStageBottlenecks,
     getActionFailures: mockGetActionFailures,
-    getErrors: mockGetErrors,
+    getPlatformErrors: mockGetPlatformErrors,
     getDoraMetrics: mockGetDoraMetrics,
     getDoraTrend: mockGetDoraTrend,
     getBuildHealth: mockGetBuildHealth,
@@ -421,32 +421,16 @@ describe('Execution Report Routes', () => {
       ]);
     });
 
-    it('should pass limit parameter (no rollup by default)', async () => {
-      mockGetErrors.mockResolvedValue([]);
+    // Cross-org: the operator's read spans every org, so the caller's org is
+    // never an argument and ?includeDescendants has nothing to resolve.
+    it('reads across every org — no caller org, no rollup', async () => {
+      mockGetPlatformErrors.mockResolvedValue([{ error_pattern: 'boom', occurrences: 1 }]);
       const handler = getHandler('/errors');
-      // /errors is system-admin-only; mark the request principal so the
-      // isSystemAdmin gate passes.
-      const req = { query: { limit: '10' }, user: { isSuperAdmin: true } };
-      const res = {};
+      const req = { query: { limit: '10', includeDescendants: 'true' }, user: { isSuperAdmin: true } };
+      await handler(req, {});
 
-      await handler(req, res);
-
-      // 5th arg is the optional org→team rollup id-list — undefined without
-      // ?includeDescendants even for a superadmin.
       expect(mockResolveOrgRollup).not.toHaveBeenCalled();
-      expect(mockGetErrors).toHaveBeenCalledWith('acme', expect.any(String), expect.any(String), 10, undefined);
-    });
-
-    // Rollup parity: ?includeDescendants rolls the error report up over the
-    // org→team subtree for a reports:rollup holder (superadmin is implicit-all).
-    it('rolls up over the subtree with ?includeDescendants for a reports:rollup holder', async () => {
-      mockResolveOrgRollup.mockResolvedValue(['acme', 'team-child']);
-      mockGetErrors.mockResolvedValue([]);
-      const handler = getHandler('/errors');
-      await handler({ query: { includeDescendants: 'true' }, user: { isSuperAdmin: true } }, {});
-
-      expect(mockResolveOrgRollup).toHaveBeenCalledWith('acme');
-      expect(mockGetErrors).toHaveBeenCalledWith('acme', expect.any(String), expect.any(String), 20, ['acme', 'team-child']);
+      expect(mockGetPlatformErrors).toHaveBeenCalledWith(expect.any(String), expect.any(String), 10);
     });
   });
 });

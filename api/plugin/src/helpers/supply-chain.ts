@@ -49,7 +49,6 @@ import type { RegistryInfo } from './registry-auth.js';
 
 const logger = createLogger('supply-chain');
 
-/** SPDX predicate type cosign records for `--type spdxjson`. */
 /** `sha256:` + 64 lowercase hex — the only digest shape the platform stores. */
 export const DIGEST_RE = /^sha256:[0-9a-f]{64}$/;
 
@@ -221,6 +220,22 @@ export async function attachSupplyChain(params: AttachSupplyChainParams, opts?: 
 // Discard (a build the gates refused)
 // -----------------------------------------------------------------------------
 
+/** Why a refused image is being discarded, for image-registry's `registry.image.delete` row. */
+export interface DiscardContext {
+  /** The refusal (`PLUGIN_VULN_GATE`, `COMPLIANCE_VIOLATION`, …). */
+  refusalCode?: string;
+  pluginVersion?: string;
+  jobId?: string;
+  requestId?: string;
+  /** The user whose upload/build this was — the delete's originating user. */
+  userId?: string;
+  /** What is being discarded: a refused build (default) or a lapsed/superseded kept setup image. */
+  scope?: 'refused-build' | 'kept-setup-image';
+  /** Why a kept setup image goes (`expired` | `superseded`). */
+  reason?: string;
+  keptSetupImageId?: string;
+}
+
 /**
  * Remove a pushed-and-signed image the scan gates or compliance then REFUSED.
  *
@@ -238,22 +253,6 @@ export async function attachSupplyChain(params: AttachSupplyChainParams, opts?: 
  *
  * Throws on any failure; the caller treats it as best-effort.
  */
-/** Why a refused image is being discarded, for image-registry's `registry.image.delete` row. */
-export interface DiscardContext {
-  /** The refusal (`PLUGIN_VULN_GATE`, `COMPLIANCE_BLOCKED`, …). */
-  refusalCode?: string;
-  pluginVersion?: string;
-  jobId?: string;
-  requestId?: string;
-  /** The user whose upload/build this was — the delete's originating user. */
-  userId?: string;
-  /** What is being discarded: a refused build (default) or a lapsed/superseded kept setup image. */
-  scope?: 'refused-build' | 'kept-setup-image';
-  /** Why a kept setup image goes (`expired` | `superseded`). */
-  reason?: string;
-  keptSetupImageId?: string;
-}
-
 export async function discardPluginImage(params: { repository: string; digest: string; registry: RegistryInfo; orgId: string; context?: DiscardContext }): Promise<{ deleted: number }> {
   const { repository, digest, registry, orgId, context } = params;
   if (!DIGEST_RE.test(digest)) throw new Error(`Refusing to discard malformed digest "${digest}"`);

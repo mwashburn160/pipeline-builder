@@ -48,9 +48,9 @@ deploy_pipeline:
     - if: $CI_PIPELINE_SOURCE == "web" # run manually from the UI
     # - if: $CI_COMMIT_BRANCH == "main"  # or on every push to main
   before_script:
-    # `pipeline create --deploy` shells out to `cdk deploy`, whose synth uses
-    # esbuild + pnpm. Install the CLI + CDK toolchain on PATH.
-    - npm install -g @pipeline-builder/pipeline-manager aws-cdk esbuild pnpm
+    # `pipeline create --deploy` shells out to `cdk deploy`. Install the CLI +
+    # CDK toolchain on PATH.
+    - npm install -g @pipeline-builder/pipeline-manager aws-cdk
     # awscli for the STS exchange below.
     - apt-get update && apt-get install -y awscli
     # Exchange the GitLab OIDC token for temporary AWS credentials via STS.

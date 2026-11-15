@@ -55,10 +55,10 @@ const logger = createLogger('offers-sentiment');
 export const SENTIMENT_PROMPT_VERSION = 'offers-sentiment@1';
 
 /** How far back cases are read. One billing period's worth of recent experience. */
-export const SENTIMENT_WINDOW_DAYS = 30;
+const SENTIMENT_WINDOW_DAYS = 30;
 
 /** At most this many messages reach the prompt — a cost and a latency ceiling. */
-export const MAX_EXCERPTS = 12;
+const MAX_EXCERPTS = 12;
 
 /** Characters kept per message. Enough for tone; not a transcript. */
 export const EXCERPT_CHARS = 600;
@@ -206,9 +206,11 @@ export const SENTIMENT_SYSTEM_PROMPT = [
 /**
  * Recent support-case text for one org, newest first.
  *
- * Root messages of the org's live cases, redacted and capped. Read inside the
- * tenant transaction like every other read here, so an org can only ever be
- * assessed from its own cases.
+ * Root messages of the org's live cases, redacted and capped. The read runs in a
+ * SYSADMIN scope (the caller is a service with no tenant session), so the
+ * explicit `org_id` predicate on the cases — not RLS — is what confines the
+ * assessment to this org's own cases; the messages are then read only by those
+ * cases' thread ids.
  */
 export async function recentCaseExcerpts(orgId: string): Promise<string[]> {
   const since = new Date(Date.now() - SENTIMENT_WINDOW_DAYS * 24 * 60 * 60 * 1000);

@@ -17,7 +17,7 @@
  * `apiCalls` → `API_CALLS`, `supportPremiumContacts` → `SUPPORT_PREMIUM_CONTACTS`.
  *
  * Here, in the env module, because the two callers are in different PACKAGES —
- * `quota-tiers.ts` builds `QUOTA_TIER_<TIER>_<LIMIT>` and api/quota's config
+ * `plan-tiers.ts` builds `PLAN_TIER_<TIER>_<LIMIT>` and api/quota's config
  * builds `QUOTA_DEFAULT_<TYPE>` — and each had its own copy of the same regex.
  * Two spellings of one transform is a drift waiting to happen: "fixing" either
  * one would silently rename half of an operator's configured knobs.

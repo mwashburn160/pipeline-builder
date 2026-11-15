@@ -128,6 +128,28 @@ describe('exchangeApiKey', () => {
     expect(post).toHaveBeenCalledTimes(1);
   });
 
+  it('a refusal on a background refresh drops the cached token, so the key stays dead after the negative window', async () => {
+    post.mockResolvedValueOnce(ok('jwt-live', 300))
+      .mockResolvedValueOnce({ statusCode: 401, body: { success: false }, headers: {} })
+      .mockResolvedValueOnce({ statusCode: 401, body: { success: false }, headers: {} });
+    expect(await exchangeApiKey(KEY)).toBe('jwt-live');
+    const realNow = Date.now;
+    try {
+      // Past the refresh point, still inside the token's life: a background
+      // re-exchange starts and platform refuses the (now revoked) key.
+      const t0 = realNow();
+      Date.now = () => t0 + 260_000;
+      await expect(exchangeApiKey(KEY)).resolves.toBe('jwt-live');
+      await new Promise((r) => setTimeout(r, 0));
+      // Negative window (30s) lapsed; the token would still be inside its 300s
+      // life were it kept.
+      Date.now = () => t0 + 291_000;
+      await expect(exchangeApiKey(KEY)).rejects.toBeInstanceOf(ApiKeyRejectedError);
+    } finally {
+      Date.now = realNow;
+    }
+  });
+
   it('reports platform being unreachable as UNAVAILABLE, and never caches it', async () => {
     post.mockRejectedValue(new Error('connect ETIMEDOUT'));
     await expect(exchangeApiKey(KEY)).rejects.toBeInstanceOf(ApiKeyExchangeUnavailableError);

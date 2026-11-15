@@ -2,9 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The Ecosystem console's system-org operations (docs/plugin-publishing.md.
- * 1): the queue and its review data, publishers and
- * their tier/suspension, listing state and yanks, the auto-approval rules and
+ * The Ecosystem console's system-org operations (docs/plugin-publishing.md):
+ * the queue and its review data, publishers and their tier/suspension, listing state and yanks, the auto-approval rules and
  * the reserved-name list. Every function is reached only through
  * `requireSystemOrgPermission` (system org + permission + aal2).
  *
@@ -653,8 +652,10 @@ export async function putReserved(moderator: Caller, name: string, body: Record<
 
 /** DELETE /ecosystem/reserved-names/:name */
 export async function deleteReserved(moderator: Caller, name: string) {
-  const removed = await reservedNames.remove(name.trim().toLowerCase());
+  const n = name.trim().toLowerCase();
+  const removed = await reservedNames.remove(n);
   if (!removed) throw new EcosystemError(ErrorCode.NOT_FOUND, 'Reserved name not found');
-  ecosystemAudit({ action: 'ecosystem.reserved-name.update', actor: actor(moderator), targetType: 'reserved-name', targetId: name, details: { op: 'delete' } });
+  // The normalized name, as `putReserved` records it — one trail key per name.
+  ecosystemAudit({ action: 'ecosystem.reserved-name.update', actor: actor(moderator), targetType: 'reserved-name', targetId: n, details: { op: 'delete' } });
   return { deleted: true };
 }

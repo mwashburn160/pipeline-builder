@@ -45,7 +45,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 }));
 
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
-  MAX_BOUNCES: 3,
+  MAX_REPORT_BOUNCES: 3,
   listEnabledAlertDestinations: (...a: unknown[]) => mockDestinations(...a),
   stakeholderReportStore: {
     getRecipients: (...a: unknown[]) => mockGetRecipients(...a),

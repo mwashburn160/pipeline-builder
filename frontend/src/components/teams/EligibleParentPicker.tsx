@@ -10,7 +10,7 @@ import { useFetch } from '@/hooks/useFetch';
 // The FRONTEND's copy, not api-core's: importing the api-core barrel here pulls
 // in express, which has no TextDecoder under jsdom, and took out every suite
 // that renders this picker at LOAD. `@/lib/tiers` holds the same list and
-// quota-tier-presets.test.ts now asserts it equals api-core's, so the drift this
+// plan-tier-presets.test.ts now asserts it equals api-core's, so the drift this
 // import was meant to prevent is covered by a test instead.
 import { TEAM_CAPABLE_TIERS } from '@pipeline-builder/api-core/tier-limits';
 import type { TierKey } from '@/lib/tiers';

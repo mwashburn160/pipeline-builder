@@ -40,7 +40,7 @@
  */
 
 import { AppError, createLogger, emitCounter, enforcedQuotaLimit, ErrorCode, VALID_QUOTA_TYPES, nextQuotaResetDate } from '@pipeline-builder/api-core';
-import type { QuotaType, QuotaTier } from '@pipeline-builder/api-core';
+import type { QuotaType, PlanTier } from '@pipeline-builder/api-core';
 import { config } from '../config.js';
 import { expandOrgScope, findOrgWithHierarchy, getParentOrgId, resolveRootOrgId } from '../helpers/org-hierarchy.js';
 import type { OrgHierarchyLookup } from '../helpers/org-hierarchy.js';
@@ -62,7 +62,7 @@ export interface OrgPool {
 export interface PoolRow {
   _id?: unknown;
   name?: string;
-  tier?: QuotaTier;
+  tier?: PlanTier;
   quotas?: Partial<Record<QuotaType, number>>;
   usage?: Partial<Record<QuotaType, { used?: number; resetAt?: Date; limitAtPeriodStart?: number }>>;
   /** Root only: the atomic pooled counter enforcement moves. `limitAtPeriodStart`

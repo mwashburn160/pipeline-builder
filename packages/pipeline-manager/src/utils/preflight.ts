@@ -2,26 +2,25 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { type Command } from 'commander';
-import { ensureBundlerAvailable, ensureCdkAvailable } from './cdk-utils.js';
+import { ensureCdkAvailable } from './cdk-utils.js';
 
-export type LocalTool = 'cdk' | 'bundler';
+export type LocalTool = 'cdk';
 
 /**
  * Per-command local-tool requirements, checked by the CLI's `preAction` hook
  * BEFORE a command's action runs — so a missing tool fails fast with an
- * actionable message instead of deep inside a CDK bundle. Keyed by full command
+ * actionable message instead of deep inside a cdk run. Keyed by full command
  * path (e.g. "pipeline deploy").
  *
- * Only `pipeline synth`/`deploy` shell out to cdk (+ esbuild/pnpm for the
- * PluginLookup Lambda bundle). Every other command is API-only and requires
- * nothing local, so it's absent here and never gated — as are version / help /
- * completions. (`infra provision` runs its own target-specific prereq checks.)
+ * Only `pipeline synth`/`deploy` and `infra bootstrap` shell out to cdk
+ * (nothing is bundled locally). Every
+ * other command is API-only and requires nothing local, so it's absent here
+ * and never gated — as are version / help / completions. (`infra provision`
+ * runs its own target-specific prereq checks.)
  */
 export const COMMAND_TOOL_REQUIREMENTS: Record<string, LocalTool[]> = {
-  'pipeline synth': ['cdk', 'bundler'],
-  'pipeline deploy': ['cdk', 'bundler'],
-  // `infra bootstrap` runs `cdk bootstrap` (AWS env bootstrap) — cdk only; it
-  // synthesizes no Lambda, so no esbuild/pnpm bundler is needed.
+  'pipeline synth': ['cdk'],
+  'pipeline deploy': ['cdk'],
   'infra bootstrap': ['cdk'],
 };
 
@@ -52,7 +51,6 @@ export function preflightCommandTools(actionCommand: Command): void {
   if (reqs.length === 0) return;
   try {
     if (reqs.includes('cdk')) ensureCdkAvailable();
-    if (reqs.includes('bundler')) ensureBundlerAvailable();
   } catch {
     // Message already printed by ensureX. Halt before the action runs so the
     // command doesn't proceed with a broken toolchain.

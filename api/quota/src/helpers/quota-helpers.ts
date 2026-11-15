@@ -1,8 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { DEFAULT_TIER, QUOTA_TIERS, VALID_QUOTA_TYPES, enforcedQuotaLimit, quotaGracePct, nextQuotaResetDate, quotaPeriodDays } from '@pipeline-builder/api-core';
-import type { QuotaType, QuotaTier, QuotaReserveResult } from '@pipeline-builder/api-core';
+import { DEFAULT_TIER, PLAN_TIERS, VALID_QUOTA_TYPES, enforcedQuotaLimit, quotaGracePct, nextQuotaResetDate, quotaPeriodDays } from '@pipeline-builder/api-core';
+import type { QuotaType, PlanTier, QuotaReserveResult } from '@pipeline-builder/api-core';
 import { config } from '../config.js';
 import type { QuotaLimits, QuotaUsageTracking, OrganizationDocument } from '../models/organization.js';
 
@@ -92,7 +92,7 @@ export function applyQuotaLimits(
  * Developer's. Unknown / missing tier ⇒ the unprovisioned-org default.
  */
 export function defaultLimitFor(tier: string | undefined, quotaType: QuotaType): number {
-  const preset = tier ? (QUOTA_TIERS as Partial<Record<string, { limits?: Partial<Record<QuotaType, number>> }>>)[tier] : undefined;
+  const preset = tier ? (PLAN_TIERS as Partial<Record<string, { limits?: Partial<Record<QuotaType, number>> }>>)[tier] : undefined;
   return preset?.limits?.[quotaType] ?? config.quota.defaults[quotaType];
 }
 
@@ -102,7 +102,7 @@ export function defaultLimitFor(tier: string | undefined, quotaType: QuotaType):
  * limit coalesces to the same number there as in every read.
  */
 export function defaultLimitExpr(quotaType: QuotaType): unknown {
-  const branches = Object.keys(QUOTA_TIERS)
+  const branches = Object.keys(PLAN_TIERS)
     .map((tier) => ({ tier, limit: defaultLimitFor(tier, quotaType) }))
     .map(({ tier, limit }) => ({ case: { $eq: ['$tier', tier] }, then: limit }));
   return { $switch: { branches, default: config.quota.defaults[quotaType] } };
@@ -247,7 +247,7 @@ export interface OrgQuotaResponse {
   orgId: string;
   name: string;
   slug: string;
-  tier: QuotaTier;
+  tier: PlanTier;
   quotas: Record<QuotaType, QuotaSummary>;
   /**
    * Length of the usage period in days, for the quotas that share the GLOBAL
@@ -303,7 +303,7 @@ interface OrgQuotaSource {
   _id: unknown;
   name: string;
   slug: string;
-  tier?: QuotaTier;
+  tier?: PlanTier;
   quotas?: Partial<QuotaLimits>;
   usage?: Partial<QuotaUsageTracking>;
 }

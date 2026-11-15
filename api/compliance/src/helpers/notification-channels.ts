@@ -18,6 +18,7 @@ import {
   createEmailChannel,
   createWebhookChannel,
   getServiceAuthHeader,
+  NOTIFY_EMAIL_PATH,
   sendSystemNotification,
   type ChannelTarget,
   type NotificationChannel,
@@ -60,7 +61,7 @@ const emailChannel = createEmailChannel({
   send: async (req) => {
     // The client resolves (not throws) on a 4xx/5xx, so the status is the only
     // signal that platform refused or failed the send.
-    const resp = await emailClient.post('/internal/notify-email', {
+    const resp = await emailClient.post(NOTIFY_EMAIL_PATH, {
       orgId: req.orgId,
       targetUsers: req.targetUsers ?? null,
       subject: req.subject,
@@ -84,4 +85,4 @@ export const getNotificationChannel = createChannelRegistry([
   emailChannel,
 ]);
 
-export { inAppChannel, webhookChannel };
+export { inAppChannel };

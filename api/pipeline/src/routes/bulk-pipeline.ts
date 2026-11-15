@@ -168,7 +168,14 @@ export function createBulkPipelineRoutes(quotaService: QuotaService): Router {
       failed: results.failed,
     });
 
-    sendSuccess(res, 201, results);
+    // The status says what happened, not just that the request was read: 201
+    // when every item was saved, 207 (Multi-Status) when some failed, and 422
+    // when NOTHING was saved — a 2xx there let a client that only checks the
+    // status report a bulk import that created nothing as a success. The
+    // per-item body is the same in every case (the error envelope's `details`).
+    if (results.failed === 0) return sendSuccess(res, 201, results);
+    if (results.failed < pipelines.length) return sendSuccess(res, 207, results);
+    return sendError(res, 422, `No pipeline was saved: all ${results.failed} items failed`, undefined, results);
   }));
 
   /** POST /pipelines/bulk/delete — Soft-delete multiple pipelines by ID */

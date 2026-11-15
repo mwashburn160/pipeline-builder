@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { Card } from '@/components/ui/Card';
-import type { QuotaTier } from '@/types';
+import type { PlanTier } from '@/types';
 import { TIER_KEYS, TIER_PRESETS } from './constants';
 
 /**
@@ -24,13 +24,13 @@ export function CurrentTierPanel({
   pendingTier,
   selectorBelow = false,
 }: {
-  tier: QuotaTier;
-  pendingTier?: QuotaTier;
+  tier: PlanTier;
+  pendingTier?: PlanTier;
   selectorBelow?: boolean;
 }) {
   const preset = TIER_PRESETS[tier];
   const isUnlimited = tier === 'unlimited';
-  const isSelectable = (TIER_KEYS as readonly QuotaTier[]).includes(tier);
+  const isSelectable = (TIER_KEYS as readonly PlanTier[]).includes(tier);
   const changing = pendingTier != null && pendingTier !== tier;
   const pendingPreset = changing ? TIER_PRESETS[pendingTier!] : null;
 

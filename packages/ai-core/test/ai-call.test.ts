@@ -49,6 +49,7 @@ describe('limits', () => {
     expect(samplingTemperature('claude-opus-5-5', 0.2)).toBeUndefined();
     expect(samplingTemperature('us.anthropic.claude-sonnet-5-5', 0.2)).toBeUndefined();
     expect(samplingTemperature('claude-fable-5-1', 0.2)).toBeUndefined();
+    expect(samplingTemperature('claude-haiku-5-5', 0.2)).toBeUndefined();
     expect(samplingTemperature('claude-haiku-4-5-20251001', 0.2)).toBe(0.2);
     expect(samplingTemperature('gpt-5.6-sol', 0.2)).toBe(0.2);
     expect(aiCallSettings({ selection: { modelId: 'claude-opus-5-5' }, temperature: 0.2 })).not.toHaveProperty('temperature');

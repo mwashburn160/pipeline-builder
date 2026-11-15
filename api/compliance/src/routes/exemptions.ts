@@ -82,10 +82,11 @@ export function createExemptionRoutes(): Router {
   }));
 
   // POST /bulk — bulk-create exemptions in one request (up to 500).
-  // Duplicates are deduped at the DB level via the unique index on
-  // (org_id, rule_id, entity_id) + `onConflictDoNothing` in the service, so a
-  // double-submit (or a batch repeating an entity) skips the colliding rows
-  // instead of erroring. `skipped = requested - created` reports the difference.
+  // Deduped on the (org_id, rule_id, entity_id) unique index in the service: a
+  // double-submit (or a batch repeating an entity) skips the rows colliding with
+  // a live request instead of erroring, while a rejected/expired request for the
+  // same entity is reopened as pending. `skipped = requested - created` reports
+  // the difference.
   router.post('/bulk', requireComplianceRead, audited('compliance.exemption.request'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const validation = validateBody(req, BulkExemptionsSchema);
     if (!validation.ok) {
@@ -117,8 +118,9 @@ export function createExemptionRoutes(): Router {
   }));
 
   // POST / — request a new exemption. Deduped on (org, rule, entity) at the DB
-  // level (same unique index as POST /bulk): a duplicate triple returns a clean
-  // 409 instead of the raw unique-violation 500.
+  // level (same unique index as POST /bulk): a triple with a live (pending or
+  // approved) request returns a clean 409 instead of the raw unique-violation
+  // 500; a rejected or expired one is reopened as this new request.
   // `proposable`: this row is decided by someone ELSE holding `compliance:write`
   // (PUT /:id/review below), and that approver is the one reader who cannot
   // otherwise tell the request was drafted by the Ask agent.
@@ -150,7 +152,7 @@ export function createExemptionRoutes(): Router {
       if (errorMessage(err) === CE_ALREADY_EXISTS) {
         return sendError(
           res, 409,
-          'An exemption already exists for this rule and entity.',
+          'A pending or approved exemption already exists for this rule and entity.',
           ErrorCode.CONFLICT,
         );
       }

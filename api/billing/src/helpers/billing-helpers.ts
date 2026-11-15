@@ -23,8 +23,8 @@ const logger = createLogger('billing-helpers');
 
 /** Resolve the per-request timeout for billing's outbound service calls. */
 export function getBillingTimeout(): number {
-  const server = Config.get('server') as { services?: { billingTimeout?: number } } | undefined;
-  return server?.services?.billingTimeout ?? 5000;
+  const server = Config.get('server') as { services?: { billingTimeoutMs?: number } } | undefined;
+  return server?.services?.billingTimeoutMs ?? 5000;
 }
 
 /**

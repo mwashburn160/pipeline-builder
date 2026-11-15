@@ -214,7 +214,7 @@ within 14 days, and one that has never been used.
 > this same `store-token` → `setup-events` sequence, with a with/without-DORA toggle
 > — but only on the AWS targets (`DEPLOY_TARGET=aws-ec2`/`aws-eks`).
 
-CodeBuild, the plugin-lookup Lambda and the event-ingestion Lambda each read a
+CodeBuild and the event-ingestion Lambda each read a
 **service-account key** from AWS Secrets Manager (under `pipeline-builder/{orgId}/…`)
 — a machine identity owned by the org, not your own token. If you didn't pass
 `--with-events`, provision them by hand:
@@ -224,7 +224,7 @@ CodeBuild, the plugin-lookup Lambda and the event-ingestion Lambda each read a
 # step-up gated, so the command needs your password too:
 export PLATFORM_PASSWORD='…'
 
-pipeline-manager infra store-token --days 30 --schedule --region us-east-1
+pipeline-manager infra store-token --expires-days 30 --schedule --region us-east-1
 pipeline-manager infra store-token --scope registry:push --schedule --region us-east-1
 pipeline-manager infra store-token --scope reporting:ingest --schedule --region us-east-1
 ```

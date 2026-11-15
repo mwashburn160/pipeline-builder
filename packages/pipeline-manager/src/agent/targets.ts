@@ -326,10 +326,12 @@ export function teardownCommand(
   target: TargetId,
   opts: { stackName?: string; clusterName?: string; region?: string; domain?: string; hostedZoneId?: string; assumeYes?: boolean } = {},
 ): TeardownResult {
-  const region = resolveAwsRegion(opts.region);
-  // Anything flowing unquoted into a shell-executed teardown command is rejected
-  // for shell metacharacters (mirrors assembleCommand).
-  assertShellSafe(region, 'region');
+  const rawRegion = resolveAwsRegion(opts.region);
+  // Anything flowing into a shell-executed teardown command is rejected for
+  // shell metacharacters and quoted when it holds spaces/quotes (mirrors
+  // assembleCommand), so it reaches the command as one argument.
+  assertShellSafe(rawRegion, 'region');
+  const region = maybeShellQuote(rawRegion);
   if (opts.stackName) assertShellSafe(opts.stackName, 'stack-name');
   if (opts.clusterName) assertShellSafe(opts.clusterName, 'cluster-name');
   if (opts.domain) assertShellSafe(opts.domain, 'domain');
@@ -340,7 +342,7 @@ export function teardownCommand(
     case 'minikube':
       return { command: 'cd deploy/local/minikube && bash bin/shutdown.sh', destructive: false };
     case 'ec2': {
-      const stack = opts.stackName || DEFAULT_EC2_STACK;
+      const stack = maybeShellQuote(opts.stackName || DEFAULT_EC2_STACK);
       return {
         command:
           `aws cloudformation delete-stack --stack-name ${stack} --region ${region} && ` +
@@ -354,10 +356,10 @@ export function teardownCommand(
       // filesystem and, when --domain is given, the ACM cert + Route 53 alias. The
       // agent's typed-confirmation gate already ran, so pass --yes to skip the
       // script's own prompt.
-      const cluster = opts.clusterName || DEFAULT_EKS_CLUSTER;
+      const cluster = maybeShellQuote(opts.clusterName || DEFAULT_EKS_CLUSTER);
       let command = `cd deploy/aws/eks && bash bin/shutdown.sh --cluster-name ${cluster} --region ${region}`;
-      if (opts.domain) command += ` --domain ${opts.domain}`;
-      if (opts.hostedZoneId) command += ` --hosted-zone-id ${opts.hostedZoneId}`;
+      if (opts.domain) command += ` --domain ${maybeShellQuote(opts.domain)}`;
+      if (opts.hostedZoneId) command += ` --hosted-zone-id ${maybeShellQuote(opts.hostedZoneId)}`;
       if (opts.assumeYes) command += ' --yes';
       return { command, destructive: true };
     }

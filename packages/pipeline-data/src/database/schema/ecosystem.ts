@@ -511,7 +511,8 @@ export const pluginReviewReply = pgTable('plugin_review_replies', {
 });
 
 /**
- * "Report review" — one per reporter per review; N reports auto-hold it.
+ * "Report review" — one per reporter per review; N reports from outside the
+ * listing owner's org auto-hold it.
  *
  * @table plugin_review_reports
  */
@@ -519,6 +520,11 @@ export const pluginReviewReport = pgTable('plugin_review_reports', {
   id: uuid('id').primaryKey().defaultRandom(),
   reviewId: uuid('review_id').notNull().references(() => pluginReview.id, { onDelete: 'cascade' }),
   reporterUserId: text('reporter_user_id').notNull(),
+  // The reporter's account (root) org — publishers are owned by a root org, so
+  // a team member reports under its root. Reports from the listing owner's own
+  // org never count toward the auto-hold, so an org cannot hold a review of its
+  // own listing.
+  reporterOrgId: text('reporter_org_id').notNull(),
   category: varchar('category', { length: 20 }).$type<ReviewReportCategory>().default('abuse').notNull(),
   reason: text('reason'),
   // Set once a moderator released or removed the review.

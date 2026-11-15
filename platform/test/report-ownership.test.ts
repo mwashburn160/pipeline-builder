@@ -36,7 +36,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 }));
 
 jest.unstable_mockModule('../src/config/index.js', () => ({
-  config: { reporting: { serviceHost: 'reporting', servicePort: 3000, serviceTimeout: 5000 } },
+  config: { reporting: { serviceHost: 'reporting', servicePort: 3000, serviceTimeoutMs: 5000 } },
 }));
 
 jest.unstable_mockModule('../src/services/ecosystem-notifications.js', () => ({

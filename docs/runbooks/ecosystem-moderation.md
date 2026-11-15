@@ -322,7 +322,7 @@ Why a review is held (`holdReason`):
 
 | Reason | Trigger | What to check |
 |--------|---------|---------------|
-| `reports` | Three different people reported it (`REVIEW_AUTO_HOLD_REPORTS`) | Read the reports; release if they're wrong, remove if they're right |
+| `reports` | Three different people outside the publisher's org reported it (`REVIEW_AUTO_HOLD_REPORTS`) | Read the reports; release if they're wrong, remove if they're right |
 | `burst` | Five or more reviews from organizations with no verified use of the plugin arrived on the listing within an hour | Look for a ring: same wording, new accounts, the same rating; remove the fakes, release the genuine ones |
 | `filter` | More than three links in the title and body | Spam almost always; release a genuine review with reference links |
 | `security` | Someone reported it as a security issue | The publisher and moderators got N19 and a private advisory draft was opened (Advisories tab). Keep it held while the advisory is handled, then release or remove it; never paste exploit details into a removal reason |

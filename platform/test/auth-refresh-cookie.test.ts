@@ -49,7 +49,7 @@ jest.unstable_mockModule('../src/utils/token.js', () => ({
 
 const { deliverSessionTokens, readRefreshCookie, clearRefreshCookie, isBrowserClient } =
   await import('../src/helpers/session-cookie.js');
-const { requireClientType, isValidRefreshToken } = await import('../src/middleware/auth.js');
+const { requireClientType, requireRefreshSession } = await import('../src/middleware/auth.js');
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 function makeRes() {
@@ -172,19 +172,19 @@ describe('requireClientType — CSRF gate', () => {
   });
 });
 
-describe('isValidRefreshToken — a database outage is not a bad token', () => {
+describe('requireRefreshSession — a database outage is not a bad token', () => {
   it('answers 503 (not 401) when the user lookup fails, so the client keeps its session', async () => {
     mockVerifyRefreshToken.mockReturnValue({ sub: 'u1', tokenVersion: 3, sid: 's1' });
     mockUserFindById.mockReturnValue({ select: () => Promise.reject(new Error('mongo down')) });
     const res = makeRes();
     const next = jest.fn();
-    await isValidRefreshToken(cliReq({ body: { refreshToken: 'body.jwt' } }), res, next as any);
+    await requireRefreshSession(cliReq({ body: { refreshToken: 'body.jwt' } }), res, next as any);
     expect(res.status).toHaveBeenCalledWith(503);
     expect(next).not.toHaveBeenCalled();
   });
 });
 
-describe('isValidRefreshToken — which token is presented', () => {
+describe('requireRefreshSession — which token is presented', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockVerifyRefreshToken.mockImplementation((token: unknown) => ({
@@ -208,7 +208,7 @@ describe('isValidRefreshToken — which token is presented', () => {
   it('accepts the CLI body token when there is no cookie', async () => {
     const res = makeRes();
     const next = jest.fn();
-    await isValidRefreshToken(cliReq({ body: { refreshToken: 'body.jwt' } }), res, next as any);
+    await requireRefreshSession(cliReq({ body: { refreshToken: 'body.jwt' } }), res, next as any);
 
     expect(next).toHaveBeenCalled();
     expect(res.locals.presentedRefreshToken).toBe('body.jwt');
@@ -218,7 +218,7 @@ describe('isValidRefreshToken — which token is presented', () => {
   it('prefers the cookie over a body token, so injected script input cannot win', async () => {
     const res = makeRes();
     const next = jest.fn();
-    await isValidRefreshToken(
+    await requireRefreshSession(
       browserReq({ headers: { 'x-pb-client': 'web', 'cookie': 'pb_refresh=cookie.jwt' }, body: { refreshToken: 'body.jwt' } }),
       res,
       next as any,
@@ -231,7 +231,7 @@ describe('isValidRefreshToken — which token is presented', () => {
   it('401s when neither transport carries a token', async () => {
     const res = makeRes();
     const next = jest.fn();
-    await isValidRefreshToken(browserReq(), res, next as any);
+    await requireRefreshSession(browserReq(), res, next as any);
 
     expect(res.status).toHaveBeenCalledWith(401);
     expect(next).not.toHaveBeenCalled();

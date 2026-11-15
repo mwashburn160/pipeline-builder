@@ -105,17 +105,9 @@ export function DiscountRedeem({ subscription, canManage, onApplied }: DiscountR
     }
   };
 
-  // Readable label for the standing recurring discount: value+unit+kind when
-  // available, otherwise the discount id.
+  // Readable label for the standing recurring discount.
   const recurringLabel = recurring
-    ? [
-        recurring.value != null
-          ? recurring.unit === 'percent'
-            ? `${recurring.value}% off`
-            : formatCents(recurring.value)
-          : null,
-        recurring.kind,
-      ].filter(Boolean).join(' · ') || recurring.discountId
+    ? recurring.unit === 'percent' ? `${recurring.value}% off` : formatCents(recurring.value)
     : null;
 
   return (

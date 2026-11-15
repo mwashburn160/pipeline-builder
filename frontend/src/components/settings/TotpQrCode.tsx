@@ -7,7 +7,7 @@ import { useFetch } from '@/hooks/useFetch';
  * The enrolment QR code, drawn as real SVG rectangles.
  *
  * `uqr` is loaded with a dynamic `import()` for two reasons: nothing but this one
- * panel in Settings → Security needs a QR encoder, and the encoder touches no
+ * panel in Security → Factors needs a QR encoder, and the encoder touches no
  * browser API, so keeping it out of the initial bundle costs nothing. It returns
  * the raw module matrix (`boolean[][]`), which is why this renders `<rect>`
  * elements rather than injecting a markup string — no `dangerouslySetInnerHTML`

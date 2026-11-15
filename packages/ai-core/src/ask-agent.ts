@@ -124,10 +124,6 @@ export async function answerHowTo(opts: AnswerHowToOptions): Promise<{ text: str
   return { text: result.text, sources };
 }
 
-/**
- * Streaming variant — returns the retrieved `sources` immediately (so the UI can show
- * them while tokens arrive) and the live `textStream`.
- */
 /** What a how-to stream yields. */
 export type AskStreamEvent =
   /** The provider has started responding — a paid call has been made. */
@@ -138,7 +134,8 @@ export type AskStreamEvent =
   | { type: 'usage'; usage: LanguageModelUsage };
 
 /**
- * Stream a grounded answer.
+ * Stream a grounded answer. The retrieved `sources` come back immediately (so the
+ * UI can show them while tokens arrive), beside the live `events`.
  *
  * Built on the SDK's full stream rather than `textStream`, which silently drops
  * error parts (a failed provider call would look like an empty "answer") and

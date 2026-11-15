@@ -1,13 +1,13 @@
 # image-registry
 
-Authentication and management layer in front of a Docker Distribution registry — mints short-lived scoped registry tokens, enforces multi-tenant namespace isolation, and exposes a sysadmin-only management API that proxies the underlying registry.
+Authentication and management layer in front of a Docker Distribution registry — mints short-lived scoped registry tokens, enforces multi-tenant namespace isolation, and exposes a permission-gated management API that proxies the underlying registry, plus service-to-service routes for plugin-image signing, the public namespace and storage.
 
 ## Responsibilities
 
 - **Token issuance** — implements the Docker Distribution `/token` endpoint. Clients authenticate via Basic auth (a platform-issued token as the password — a USER token verified against platform's published ES256 key set, an internal SERVICE token verified with the shared secret, or an opaque `pb_pat_…` key exchanged at platform — or `docker login` creds forwarded to the platform's `/auth/login`) and receive an RS256-signed JWT scoped to exactly the repositories and actions they may use.
-- **Namespace policy** — any authenticated identity may pull `system/*` and `library/*`; an org may pull/push its own `org-{orgId}/*` namespace; system admins may push anywhere. Enforced when scopes are authorized, so an unauthorized push never gets a usable token.
-- **Storage-quota push gate** — strips `push` scope on an org namespace when the org is over its `storageBytes` quota (fail-open on quota errors); `pull` is preserved.
-- **Management API** — sysadmin-only routes to list repositories, list tags, fetch/delete manifests, preview small config blobs, and copy/promote tags.
+- **Namespace policy** — any authenticated identity may pull `system/*`, `library/*` and `public/*`; an org may pull its own `org-{orgId}/*` namespace and push there with `plugins:write`; a team may pull its parent org's public plugins; `public/*` is append-only (written only through the internal publication routes), `registry-meta/*` is closed, and `quarantine/*` belongs to the submission's build credential and the plugin service; platform superadmins may push to the remaining namespaces. Enforced when scopes are authorized, so an unauthorized push never gets a usable token.
+- **Storage-quota push gate** — strips `push` scope on an org namespace when the org is over its `storageBytes` quota (plus the grace band). Fails closed when the quota or usage cannot be verified (`QUOTA_STORAGE_FAIL_OPEN=true` reverts that); `pull` is preserved.
+- **Management API** — system-org routes gated by `registry:read` / `registry:write` / `registry:purge` to list repositories, list tags, fetch/delete manifests and repositories, preview small config blobs, and copy/promote tags.
 - **Storage rollup & GC** — per-namespace byte rollups (cached) plus application-level garbage collection that prunes manifests older than a retention window, on a schedule or on demand.
 
 Built on the shared core packages: `@pipeline-builder/api-core` (auth middleware, logging) and `@pipeline-builder/api-server` (app factory, request context). Does **not** use Postgres — it proxies the underlying registry's v2 API over HTTP.
@@ -19,14 +19,16 @@ The service listens on port `3000` (env `PORT`). The API gateway (nginx) routes 
 | Method | Path | Purpose |
 |--------|------|---------|
 | GET | `/token` | Docker Distribution token-auth issuer (Basic auth; returns a scoped RS256 JWT) |
-| GET | `/api/images` | List repositories (sysadmin) |
-| GET | `/api/images/:name/tags` | List tags for a repository (sysadmin) |
-| GET | `/api/images/:name/manifests/:reference` | Fetch a manifest (sysadmin) |
-| DELETE | `/api/images/:name/manifests/:reference` | Delete a manifest/tag (sysadmin) |
-| GET | `/api/images/:name/blobs/:digest` | Proxy a (small) config blob (sysadmin) |
-| POST | `/api/images/copy` | Copy/promote a tag across repositories (sysadmin) |
-| GET | `/api/admin/storage/:prefix` | Per-namespace storage rollup (sysadmin) |
-| POST | `/api/admin/gc` | Trigger garbage collection on demand (sysadmin) |
+| GET | `/api/images` | List repositories (`registry:read`, system org) |
+| GET | `/api/images/:name/tags` | List tags for a repository (`registry:read`, system org) |
+| GET | `/api/images/:name/manifests/:reference` | Fetch a manifest (`registry:read`, system org) |
+| DELETE | `/api/images/:name/manifests/:reference` | Delete a manifest/tag (`registry:purge`, aal2) |
+| DELETE | `/api/images/:name` | Delete a whole repository (`registry:purge`, aal2) |
+| GET | `/api/images/:name/blobs/:digest` | Proxy a (small) config blob (`registry:read`, system org) |
+| POST | `/api/images/copy` | Copy/promote a tag across repositories (`registry:read` + `registry:write`, system org, aal2) |
+| GET | `/api/admin/storage/:prefix` | Per-namespace storage rollup (`registry:read`, system org) |
+| POST | `/api/admin/gc` | Trigger garbage collection on demand (`registry:purge`, aal2) |
+| * | `/internal/*` | Service-to-service routes (plugin signing, public publications, discard, quarantine, storage usage/breakdown/prune, org-namespace purge); each carries its own caller allow-list — see `src/routes/internal.ts` |
 
 ## Configuration
 
@@ -75,7 +77,7 @@ pnpm test    # jest
 pnpm watch   # incremental compile
 ```
 
-The default Postgres health check is disabled (`testDatabase: false`) since the service has no database; on startup it logs the registry target and starts the GC scheduler (opt-in via `REGISTRY_GC_ENABLED`).
+The default Postgres health check is disabled (`testDatabase: false`) since the service has no database; on startup it logs the registry target and starts the GC scheduler (opt-in via `REGISTRY_GC_ENABLED`) and the always-on 30-day `quarantine/*` sweep.
 
 ## License
 

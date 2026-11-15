@@ -41,7 +41,7 @@ export interface SimilarPlugin {
 export const MAX_SIMILAR_PLUGINS = 5;
 
 /** Maximum length of the `summary` returned (and rendered into the prompt). */
-export const SIMILAR_SUMMARY_MAX = 160;
+const SIMILAR_SUMMARY_MAX = 160;
 
 const WEIGHT_NAME = 5;
 const WEIGHT_KEYWORD = 3;

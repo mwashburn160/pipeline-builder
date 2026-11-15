@@ -16,8 +16,8 @@ type QuotaDefaults = Record<QuotaType, number>;
 
 /** `apiCalls` → `QUOTA_DEFAULT_API_CALLS`. */
 export function quotaDefaultEnvName(type: QuotaType): string {
-  // api-core's shared fragment, not a second copy of the regex: `quota-tiers.ts`
-  // derives `QUOTA_TIER_<TIER>_<LIMIT>` with the same rule, and the two families
+  // api-core's shared fragment, not a second copy of the regex: `plan-tiers.ts`
+  // derives `PLAN_TIER_<TIER>_<LIMIT>` with the same rule, and the two families
   // must agree on how a camelCase quota name becomes an env name.
   return `QUOTA_DEFAULT_${envNameFragment(type)}`;
 }
@@ -57,9 +57,10 @@ export const config: AppConfig = {
     uri: process.env.MONGODB_URI,
   },
   quota: {
-    // `defaults` (and the `QUOTA_DEFAULT_*` overrides) govern the
-    // UNPROVISIONED-ORG FALLBACK READ only (buildDefaultOrgQuotaResponse /
-    // Mongoose field defaults) — see models/organization.ts. Real orgs are
+    // `defaults` (and the `QUOTA_DEFAULT_*` overrides) are the limit for an org
+    // with NO tier preset to fall back to: the UNPROVISIONED-ORG FALLBACK READ
+    // (buildDefaultOrgQuotaResponse) and `defaultLimitFor` with an unknown or
+    // missing tier — see models/organization.ts. Real orgs are
     // created + seeded by the platform service, and enforcement reserves against
     // those STORED limits, so changing these does NOT change the cap an existing
     // org is held to; it only changes what a not-yet-provisioned org reads back.

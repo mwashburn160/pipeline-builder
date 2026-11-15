@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { errorMessage } from '@pipeline-builder/api-core';
 import { formatSynthFailure, synthFailure } from '@pipeline-builder/pipeline-core';
 import { Command } from 'commander';
-import { assertShellSafe } from '../config/cli.constants.js';
+import { assertShellSafe, shellQuote } from '../config/cli.constants.js';
 import type { ApiClient } from '../utils/api-client.js';
 import { auditLog } from '../utils/audit-log.js';
 import { executeCdkShellCommand, resolveBoilerplatePath } from '../utils/cdk-utils.js';
@@ -45,9 +45,8 @@ async function fetchPipelineConfig(
   const { pipeline, propsWithIds, baseUrl, pluginWarnings } = await fetchPipelineProps(client, pipelineId);
 
   // Propagate the resolved platform base URL into the boilerplate synth (which
-  // inherits process.env). The synth uses it for serverConfig.platformUrl (the
-  // PluginLookup Lambda endpoint) and as the loadRegistryConfig pull-host
-  // fallback. Without this, a URL configured via ~/.pipeline-manager/config.yml
+  // inherits process.env). The synth uses it for serverConfig.platformUrl and
+  // as the loadRegistryConfig pull-host fallback. Without this, a URL configured via ~/.pipeline-manager/config.yml
   // is invisible to the synth subprocess (it reads only the env).
   if (baseUrl) {
     process.env.PLATFORM_BASE_URL = baseUrl;
@@ -138,10 +137,10 @@ export function synth(program: Command): void {
         printInfo('Fetching pipeline configuration', { id: pipelineId });
         const fetched = await fetchPipelineConfig(pipelineId, options);
 
-        // Local-tool prerequisites (cdk + esbuild/pnpm) are verified up front by
-        // the CLI's preAction hook, so by here they're guaranteed present.
+        // The cdk prerequisite is verified up front by the CLI's preAction hook.
 
-        // Build cdk synth command
+        // Build cdk synth command. `assertShellSafe` allows spaces, so quote
+        // each value too (as `pipeline deploy` does) or it splits into extra args.
         if (options.output) assertShellSafe(options.output, 'output');
         if (options.profile) assertShellSafe(options.profile, 'profile');
 
@@ -149,10 +148,10 @@ export function synth(program: Command): void {
         const parts = [
           'cdk synth',
           `--app="node ${boilerplatePath}"`,
-          `--output=${options.output}`,
+          `--output=${shellQuote(options.output)}`,
         ];
 
-        if (options.profile) parts.push(`--profile=${options.profile}`);
+        if (options.profile) parts.push(`--profile=${shellQuote(options.profile)}`);
         if (options.quiet) parts.push('--quiet');
         if (options.notices === false) parts.push('--no-notices');
         if (options.verbose) parts.push('--verbose');

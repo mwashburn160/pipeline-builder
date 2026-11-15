@@ -47,7 +47,7 @@ export async function verifyUserJwt<T = JwtPayload>(token: string): Promise<T> {
 /**
  * Verify ANY bearer token and return its claims.
  *
- * Since #14 there is no shared secret left: BOTH chains are ES256 with a `kid`,
+ * There is no shared secret: BOTH chains are ES256 with a `kid`,
  * so the dispatch is by **who owns the `kid`** rather than by algorithm — and
  * because a `kid` is an RFC 7638 thumbprint, ownership is a fact about the key,
  * not a claim the token makes about itself:

@@ -27,7 +27,7 @@
  * against figures that may predate a tier change.
  */
 
-import type { QuotaTier, QuotaType } from '@pipeline-builder/api-core';
+import type { PlanTier, QuotaType } from '@pipeline-builder/api-core';
 import mongoose, { Schema } from 'mongoose';
 
 /** One quota dimension's state in a period. */
@@ -71,7 +71,7 @@ export interface UsageProfileDocument extends mongoose.Document {
    * write two rows for one period.
    */
   period: string;
-  tier: QuotaTier;
+  tier: PlanTier;
   /** Per-dimension pressure and trajectory. */
   dimensions: Record<string, ProfileDimension>;
   value: ProfileValue;

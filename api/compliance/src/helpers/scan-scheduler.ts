@@ -18,11 +18,9 @@ const logger = createLogger('scan-scheduler');
  */
 const complianceConfig = (Config.getAny('compliance') ?? {}) as Partial<{
   scanSchedulerIntervalMs: number;
-  systemOrgScansEnabled: boolean;
   scanLockTtlMs: number;
 }>;
 const SCHEDULER_INTERVAL_MS = Number(complianceConfig.scanSchedulerIntervalMs ?? 60_000);
-const SYSTEM_ORG_SCANS_ENABLED = Boolean(complianceConfig.systemOrgScansEnabled ?? false);
 // Cross-pod single-runner lock so only one replica sweeps per tick (otherwise N
 // pods double-execute the same pending scans). The TTL is a CRASH-RECOVERY
 // window, not a run-duration cover: the holder heartbeats for as long as a cycle
@@ -66,20 +64,19 @@ export function startScanScheduler(): void { scheduler.start(); }
 /** Stop the scan scheduler (for graceful shutdown). */
 export function stopScanScheduler(): void { scheduler.stop(); }
 
-/** Find and execute all pending scans. */
+/**
+ * Find and execute all pending scans.
+ *
+ * System-org scans are claimed like any other: `executeScan` completes them at
+ * once with zero counts (the system org is exempt from compliance). Filtering
+ * them out here instead left every one — a manual launch, a schedule's run —
+ * stuck in `pending` forever.
+ */
 async function processPendingScans(): Promise<void> {
-  // System-org scans are skipped unless SYSTEM_ORG_SCANS_ENABLED — they tend to
-  // be catalog/template seeds, not real workloads, so running them by default
-  // wastes cycles and pollutes the audit feed.
-  const conditions = [eq(schema.complianceScan.status, 'pending')];
-  if (!SYSTEM_ORG_SCANS_ENABLED) {
-    // Case-insensitive system-org filter (matches SYSTEM_ORG_ID, which is lowercased at module load).
-    conditions.push(sql`lower(${schema.complianceScan.orgId}) <> ${SYSTEM_ORG_ID}`);
-  }
   const pendingScans = await withTenantTx(async (tx) => tx
     .select({ id: schema.complianceScan.id })
     .from(schema.complianceScan)
-    .where(and(...conditions))
+    .where(eq(schema.complianceScan.status, 'pending'))
     .limit(10));
 
   for (const scan of pendingScans) {
@@ -95,17 +92,16 @@ async function processPendingScans(): Promise<void> {
 async function checkDueSchedules(): Promise<void> {
   const now = new Date();
 
-  const conditions = [
-    eq(schema.complianceScanSchedule.isActive, true),
-    lte(schema.complianceScanSchedule.nextRunAt, now),
-  ];
-  if (!SYSTEM_ORG_SCANS_ENABLED) {
-    conditions.push(sql`lower(${schema.complianceScanSchedule.orgId}) <> ${SYSTEM_ORG_ID}`);
-  }
+  // System-org schedules are skipped: the system org is exempt from compliance,
+  // so their runs would only ever be empty scans.
   const dueSchedules = await withTenantTx(async (tx) => tx
     .select()
     .from(schema.complianceScanSchedule)
-    .where(and(...conditions))
+    .where(and(
+      eq(schema.complianceScanSchedule.isActive, true),
+      lte(schema.complianceScanSchedule.nextRunAt, now),
+      sql`lower(${schema.complianceScanSchedule.orgId}) <> ${SYSTEM_ORG_ID}`,
+    ))
     .limit(10));
 
   for (const schedule of dueSchedules) {

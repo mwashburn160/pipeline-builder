@@ -9,7 +9,7 @@ set -euo pipefail
 # Required env vars:
 #   PLATFORM_BASE_URL       Platform API URL
 #   JWT_TOKEN               Auth token
-#   UPLOAD_TIMEOUT          Curl timeout in seconds
+#   UPLOAD_TIMEOUT_SECONDS          Curl timeout in seconds
 #   UPLOAD_RETRIES          Max retry count
 #   UPLOAD_RETRY_DELAY      Sleep between retries
 #   COUNTER_DIR             Counter files dir (parallel) or empty (serial)
@@ -176,7 +176,7 @@ esac
 _rc=0
 curl_with_retry "$label" \
   -X POST "${PLATFORM_BASE_URL}/api/plugins/upload" \
-  --max-time "$UPLOAD_TIMEOUT" \
+  --max-time "$UPLOAD_TIMEOUT_SECONDS" \
   -F "plugin=@${zip_file}" \
   -F "visibility=public" \
   "${_publish_args[@]+"${_publish_args[@]}"}" \

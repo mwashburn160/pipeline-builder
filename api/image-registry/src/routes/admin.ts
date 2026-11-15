@@ -51,7 +51,7 @@ const GcSchema = z.object({
  *  - POST /api/admin/gc — a PURGE (`registry:purge`, superadmin-only) with
  *    step-up, since it deletes manifests across a whole namespace at once.
  *
- * `requireAuth` runs at mount time (see src/index.ts) so `req.user` is always
+ * `requireAuth` runs at mount time (see src/app-routes.ts) so `req.user` is always
  * populated here.
  */
 export function createAdminRoutes(): Router {

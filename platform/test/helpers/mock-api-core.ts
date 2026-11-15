@@ -42,7 +42,7 @@ import {
   withInternalServiceGate,
   MOCK_TIER_NAMES,
   mockIsValidTier,
-  mockQuotaTiers,
+  mockPlanTiers,
 } from '@pipeline-builder/api-core/testing';
 
 export { loggerMock };
@@ -61,7 +61,7 @@ const platformDefaults = (): Record<string, unknown> => ({
   SYSTEM_ORG_ID: '000000000000000000000001',
   SYSTEM_ORG_SLUG: 'system',
   // Tier identity — organization-service / validation import these at module
-  // load. A suite can override QUOTA_TIERS via `overrides` for shape-specific
+  // load. A suite can override PLAN_TIERS via `overrides` for shape-specific
   // assertions; DEFAULT_TIER stays 'developer' unless a suite overrides it.
   DEFAULT_TIER: 'developer',
   // Opt-out default-on, mirroring the real api-core (BILLING_ENABLED != 'false').
@@ -74,8 +74,8 @@ const platformDefaults = (): Record<string, unknown> => ({
   seatRemedy: (t: string | undefined | null) => (!t || t === 'unlimited' || !MOCK_TIER_NAMES.includes(t as never) ? null : ['team', 'enterprise'].includes(t) ? 'seat_pack' : 'upgrade'),
   isValidTier: mockIsValidTier,
   // Minimal default so any suite importing the real quota/service chain resolves
-  // the `QUOTA_TIERS` binding at module load; a suite override wins.
-  QUOTA_TIERS: mockQuotaTiers({
+  // the `PLAN_TIERS` binding at module load; a suite override wins.
+  PLAN_TIERS: mockPlanTiers({
     developer: { seats: 1 },
     pro: { seats: 3 },
     team: { seats: 10 },

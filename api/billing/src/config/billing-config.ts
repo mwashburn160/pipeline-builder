@@ -14,19 +14,19 @@
  *
  * All defaults match the original hardcoded seed data.
  */
-import { QUOTA_RESET_DAYS, QUOTA_TIERS, TIER_FEATURES, FEATURE_METADATA, SUPPORT_RESPONSE_TARGETS, VALID_TIERS, STANDARD_TIERS, SEAT_PACK_TIERS, envBool, isValidFeatureFlag, isValidTier, type QuotaTier, type QuotaTierLimits } from '@pipeline-builder/api-core';
+import { QUOTA_RESET_DAYS, PLAN_TIERS, TIER_FEATURES, FEATURE_METADATA, SUPPORT_RESPONSE_TARGETS, VALID_TIERS, STANDARD_TIERS, SEAT_PACK_TIERS, envBool, isValidFeatureFlag, isValidTier, type PlanTier, type PlanTierLimits } from '@pipeline-builder/api-core';
 import type { BillingConfig, BillingPlanConfig, BundleConfig, ComboDiscountConfig } from './billing-types.js';
 import { snapUpPrice } from '../helpers/price-rounding.js';
 
 /** Per-unit quota deltas for a bundle — keys constrained to real quota fields
  *  (matches `BundleConfig.grants`), so a typo'd dimension fails to compile. */
-type GrantMap = Partial<Record<keyof QuotaTierLimits, number>>;
+type GrantMap = Partial<Record<keyof PlanTierLimits, number>>;
 
 // -- Default features ---------------------------------------------------------
 // The marketed feature list is built from two derived sources so it can never
 // drift from what the platform actually enforces:
-//   1. LIMIT lines derived from each tier's EFFECTIVE quota limits (QUOTA_TIERS),
-//      so they track QUOTA_TIER_* env overrides.
+//   1. LIMIT lines derived from each tier's EFFECTIVE quota limits (PLAN_TIERS),
+//      so they track PLAN_TIER_* env overrides.
 //   2. INCLUDED-FEATURE lines derived from the enforced entitlement set
 //      (TIER_FEATURES) via FEATURE_METADATA labels — so an advertised base
 //      feature is always one `requireFeature` actually grants for that tier.
@@ -65,8 +65,8 @@ function limitLine(limit: number, singular: string, plural: string, rate = false
   return `Up to ${limit.toLocaleString('en-US')} ${limit === 1 ? singular : plural}${per}`;
 }
 
-function defaultFeatures(tier: QuotaTier, perks: string[]): string[] {
-  const l = QUOTA_TIERS[tier].limits;
+function defaultFeatures(tier: PlanTier, perks: string[]): string[] {
+  const l = PLAN_TIERS[tier].limits;
   // Developer's `ai_generation` is a TRIAL (TIER_FEATURES.developer): its small
   // aiCalls cap is the trial, and the card says so rather than reading as a
   // full AI allowance.
@@ -93,8 +93,8 @@ function defaultFeatures(tier: QuotaTier, perks: string[]): string[] {
 /**
  * Per-tier plan SEED: the parts of a plan that cannot be derived.
  *
- * Keyed by `QuotaTier`, so a new tier is a COMPILE ERROR until it has a seed —
- * the same discipline `quota-tiers.ts` applies to its presets, which are
+ * Keyed by `PlanTier`, so a new tier is a COMPILE ERROR until it has a seed —
+ * the same discipline `plan-tiers.ts` applies to its presets, which are
  * "keyed off VALID_TIERS rather than written out tier by tier". Everything
  * derivable is derived at the call site instead of repeated here: the env var
  * names from the tier, and `sortOrder` from the tier's index in `VALID_TIERS`.
@@ -146,7 +146,7 @@ export const PLAN_ENV_SUFFIXES = ['NAME', 'DESCRIPTION', 'MONTHLY', 'ANNUAL', 'F
 export type PlanEnvSuffix = typeof PLAN_ENV_SUFFIXES[number];
 
 /** The env var name carrying `suffix` for `tier`. The ONE place this is spelled. */
-export function planEnvName(tier: QuotaTier, suffix: PlanEnvSuffix): string {
+export function planEnvName(tier: PlanTier, suffix: PlanEnvSuffix): string {
   return `BILLING_PLAN_${tier.toUpperCase()}_${suffix}`;
 }
 
@@ -155,7 +155,7 @@ export function planEnvKeys(): string[] {
   return VALID_TIERS.flatMap((tier) => PLAN_ENV_SUFFIXES.map((s) => planEnvName(tier, s)));
 }
 
-const PLAN_SEED: Record<QuotaTier, PlanSeed> = {
+const PLAN_SEED: Record<PlanTier, PlanSeed> = {
   developer: {
     name: 'Developer',
     description: 'Free starter tier for individual developers',
@@ -257,8 +257,8 @@ function parseFeatures(envVar: string | undefined, fallback: string[]): string[]
  * Load billing plan configuration from environment variables.
  */
 export function loadBillingConfig(): BillingConfig {
-  // Keyed by QuotaTier so the compiler forces a plan for EVERY tier — adding a
-  // 5th QuotaTier without a plan here is now a compile error (was a hand-kept
+  // Keyed by PlanTier so the compiler forces a plan for EVERY tier — adding a
+  // 5th PlanTier without a plan here is now a compile error (was a hand-kept
   // 4-element array that silently shipped no plan/price for a new tier). The
   // public `config.plans` shape stays an array, derived below in VALID_TIERS
   // order (developer, pro, team, enterprise, unlimited) to preserve consumer ordering.
@@ -284,7 +284,7 @@ export function loadBillingConfig(): BillingConfig {
       sortOrder,
     };
     return [tier, plan];
-  })) as Record<QuotaTier, BillingPlanConfig>;
+  })) as Record<PlanTier, BillingPlanConfig>;
 
   // Derive the array consumers read (`config.plans`) in canonical tier order.
   const plans: BillingPlanConfig[] = VALID_TIERS.map((tier) => planByTier[tier]);
@@ -485,7 +485,7 @@ function envDimension(key: string): string {
 function applyGrantOverride(id: string, grants: GrantMap): GrantMap {
   const prefix = `BILLING_BUNDLE_${id.toUpperCase()}_GRANT_`;
   const out: GrantMap = { ...grants };
-  for (const key of Object.keys(grants) as Array<keyof QuotaTierLimits>) {
+  for (const key of Object.keys(grants) as Array<keyof PlanTierLimits>) {
     const raw = process.env[`${prefix}${envDimension(key)}`];
     if (raw === undefined || raw === '') continue;
     const n = parseInt(raw, 10);
@@ -501,13 +501,13 @@ function applyGrantOverride(id: string, grants: GrantMap): GrantMap {
  * — parallel to the price/grant overrides. Falls back to `defaultTiers` when
  * unset, malformed, empty, or containing an unknown tier.
  */
-function applyTiersOverride(id: string, defaultTiers: QuotaTier[]): QuotaTier[] {
+function applyTiersOverride(id: string, defaultTiers: PlanTier[]): PlanTier[] {
   const raw = process.env[`BILLING_BUNDLE_${id.toUpperCase()}_TIERS`];
   if (!raw) return defaultTiers;
   try {
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed) || parsed.length === 0) return defaultTiers;
-    const valid = parsed.filter((t): t is QuotaTier => typeof t === 'string' && isValidTier(t));
+    const valid = parsed.filter((t): t is PlanTier => typeof t === 'string' && isValidTier(t));
     return valid.length === parsed.length ? valid : defaultTiers;
   } catch {
     return defaultTiers;
@@ -553,7 +553,7 @@ function applyVolumeTiersOverride(id: string, defaultTiers?: VolumeTier[]): Volu
 
 /**
  * Purchasable add-on bundles (docs/billing-bundles.md, "The bundles"). Grants are per-unit
- * deltas on QuotaTierLimits; prices (cents, `BILLING_BUNDLE_<ID>_MONTHLY` /
+ * deltas on PlanTierLimits; prices (cents, `BILLING_BUNDLE_<ID>_MONTHLY` /
  * `_ANNUAL`), the single-dimension grant amount (`BILLING_BUNDLE_<ID>_GRANT`),
  * and the purchasable-tier list (`BILLING_BUNDLE_<ID>_TIERS`) are all
  * env-overridable. Annual ≈ 10× monthly.
@@ -647,7 +647,7 @@ function loadBundles(): BundleConfig[] {
     description: string,
     grants: GrantMap,
     monthly: number,
-    availableForTiers: QuotaTier[],
+    availableForTiers: PlanTier[],
     sortOrder: number,
     extra: { features?: string[]; stackable?: boolean; maxQuantity?: number; requires?: string[]; requiresAnyOf?: string[]; requiresFeatures?: string[]; volumeTiers?: VolumeTier[]; isActive?: boolean } = {},
   ): BundleConfig => {
@@ -684,7 +684,7 @@ function loadBundles(): BundleConfig[] {
 
   // Bundles are purchasable on every SELECTABLE tier (excludes `unlimited`, which
   // is the billing-off tier and buys nothing) — so this is exactly STANDARD_TIERS.
-  const ALL: QuotaTier[] = [...STANDARD_TIERS];
+  const ALL: PlanTier[] = [...STANDARD_TIERS];
   // Capacity packs are NOT sold on `developer`. It is the $0 tier, and any pack
   // grant large enough to be worth selling is large relative to a free tier's
   // own rate — so a free account could out-buy a paid one on a single
@@ -695,7 +695,7 @@ function loadBundles(): BundleConfig[] {
   // `pipeline_pack` at Team+, applied to the rest of the capacity packs.
   // `storage_pack` stays on ALL: at +10 GB it cannot cross a tier boundary
   // (Developer 2 GB + 10 GB = 12 GB, still under Pro's 25 GB).
-  const PAID: QuotaTier[] = ALL.filter((t) => t !== 'developer');
+  const PAID: PlanTier[] = ALL.filter((t) => t !== 'developer');
   // Volume breaks on the capacity packs, mirroring `seat`. The grants below are
   // ~a third of Pro's own rate, so a buyer with real headroom needs 4-6 packs
   // where one oversized pack used to do; priced linearly that is strictly worse

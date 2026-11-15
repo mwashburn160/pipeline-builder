@@ -22,7 +22,7 @@
 
 export const MAX_FIELD_SIZE_BYTES = 4 * 1024;
 export const MAX_PATH_DEPTH = 5;
-export const MAX_IDENTIFIER_LENGTH = 64;
+const MAX_IDENTIFIER_LENGTH = 64;
 
 const utf8 = new TextEncoder();
 

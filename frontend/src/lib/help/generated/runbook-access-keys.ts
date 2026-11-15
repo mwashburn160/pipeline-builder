@@ -1,6 +1,6 @@
 // GENERATED FROM docs/runbooks/access-key-cutover.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 5ccffb7c72e8f4ac31d180792657ca8ee5b074d1f0f2956617ff68d2538480a6
+// SOURCE-SHA256: 7a6815ad363d067549debd5fc91ee7ed9311680d731abb9242629c7bbc68b43e
 // SPDX-License-Identifier: Apache-2.0
 import { Lock } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -223,7 +223,7 @@ export const runbookAccessKeysTopic: HelpTopic = {
               "platform-automation",
               "org admin",
               "none",
-              "CDK synth/deploy (--store-tokens), the plugin-lookup Lambda"
+              "CDK synth/deploy (--store-tokens)"
             ],
             [
               "pipeline-builder/{orgId}/registry-push",

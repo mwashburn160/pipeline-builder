@@ -213,8 +213,7 @@ function toRef(raw: unknown, path: string, label: (name: string, alias?: string,
 /**
  * THE step label: `synth` for the synth step, else
  * `<stageName>/<alias ?? [<publisher>/]name>`. Every per-step record keys on it —
- * the lookup `context.stepKeys` synth sends (CLI pre-resolver and the deploy-time
- * custom resource), the step manifest, the runtime check, the declared
+ * the lookup `context.stepKeys` the CLI pre-resolver sends, the step manifest, the runtime check, the declared
  * resolution rows and the pipeline security view that joins them.
  */
 export function pluginStepLabel(stageName: string | null, ref: PluginRefIdentity): string {
@@ -248,8 +247,7 @@ export function collectPluginSteps(props: unknown): PluginStepRef[] {
 
 /**
  * The lookup filter synth sends for a reference (pipeline-manager
- * `resolvePluginsForProps`, the deploy-time custom resource, the pipeline
- * service's contract check): the ref's name — and its `publisher`, which
+ * `resolvePluginsForProps`, the pipeline service's contract check): the ref's name — and its `publisher`, which
  * routes the lookup to that publisher's installed listing — overlaid by
  * an explicit `filter` (whose `name` wins), else the default active+default
  * version.

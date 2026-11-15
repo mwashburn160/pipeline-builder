@@ -19,7 +19,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendError: jest.fn(),
   DEFAULT_TIER: 'developer',
   VALID_QUOTA_TYPES: ['plugins', 'pipelines', 'apiCalls'] as const,
-  QUOTA_TIERS: {
+  PLAN_TIERS: {
     developer: { limits: { plugins: 100, pipelines: 10, apiCalls: -1 } },
     pro: { limits: { plugins: 500, pipelines: 50, apiCalls: -1 } },
     unlimited: { limits: { plugins: -1, pipelines: -1, apiCalls: -1 } },

@@ -199,13 +199,24 @@ interface RouteTableEntry {
    *  user token reaches such a route, so no UI control can ever drive one. */
   internalCallers: string[];
   stepUp: boolean;
+  /** Factors that may earn the step-up; empty means any factor. */
+  stepUpMethods: string[];
   features: string[];
   scopes: string[];
   /** Minimum authenticator-assurance level (0 = none, 2 = strong factor). */
   minAssurance: number;
+  /**
+   * Gates applied to only SOME requests (`gateWhen`): `when` names those
+   * requests, and the rest says what they must meet on top of the fields above.
+   */
+  conditionalGates: Array<{ when: string; stepUp: boolean; stepUpMethods: string[]; minAssurance: number }>;
   /** Present when the org's "administrative actions require MFA" policy applies
    *  to the route (`requireOrgAdminAssurance`); absent otherwise. */
   orgAdminAssurance?: { machines: 'allow' | 'refuse' };
+  /** A handler-side gate the static fields can't express: what it checks, in prose. */
+  dynamicAuthz?: string[];
+  /** The permissions that handler-side gate consults; holding any one of them can admit. */
+  dynamicPermissions?: string[];
   audit: string[];
 }
 
@@ -2920,7 +2931,7 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
     category: 'own-account',
     why: 'The "not now" / "don\'t ask again" buttons on the password-only banner (src/components/ui/MfaEnrolmentNudge.tsx) and "Remind me again" on Security → Factors (src/components/settings/MfaPromptPreference.tsx). Own account and deliberately ungated: all three decide only whether the shell offers to help this person enrol, never what their session may do — so there is no permission to hold and step-up would cost more than the question does.',
   }),
-  'platform PATCH /user/profile': { category: 'own-account', why: '"Save changes" on Settings → Profile; own account, so only the read-only-impersonation notice applies.' },
+  'platform PATCH /user/profile': { category: 'own-account', why: '"Save changes" on Settings → Profile; own account, so only the read-only-impersonation notice applies. CHANGING the email is step-up gated per request (conditionalGates on the table), so that save opens StepUpModal first (test/settings-profile-email-step-up.test.tsx; pinned in CONDITIONAL_STEP_UP_CONTROLS).' },
   'platform POST /user/change-password': { category: 'own-account', why: 'Profile → password section; step-up only (the user is acting on their own account).' },
   'platform DELETE /user/account': { category: 'own-account', why: '"Delete account" on Settings → Profile; own account, so step-up is the only gate. GET /user/account/deletion is read first so the step-up dialog says which owned orgs go with the account and which block it (src/components/settings/AccountDeletionDetails.tsx).' },
   'platform GET /user/export': { category: 'own-account', why: '"Download my data" on Settings → Profile (src/components/settings/PersonalDataExport.tsx, api.exportOwnData): the caller\'s own data as JSON; step-up is the only gate (a bulk read of personal data).' },
@@ -3033,7 +3044,7 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
     category: 'sysadmin-console',
     why: '"Reset usage counters" on pages/dashboard/quotas.tsx → QuotasAdmin.tsx (step-up dialog as the confirm + api.resetOrgQuota with its token); systemAdmin + step-up.',
   },
-  'platform POST /users': { category: 'sysadmin-console', why: '"Add user" on pages/dashboard/users.tsx (systemAdminOnly). The route table lists members:manage, but createUserByAdmin (platform/src/controllers/user-admin.ts) refuses anyone who is not a system admin — the same gate as the page.' },
+  'platform POST /users': { category: 'sysadmin-console', why: '"Add user" on pages/dashboard/users.tsx (systemAdminOnly). The route table lists members:manage, but createUserByAdmin (platform/src/controllers/user-admin.ts) refuses anyone who is not a system admin — the same gate as the page. With isSuperAdmin the route also demands aal2 + a second-factor step-up (conditionalGates on the table), so the page confirms that create in a requireStrongFactor StepUpModal (pinned in CONDITIONAL_STEP_UP_CONTROLS).' },
   'platform POST /admin/orgs/:orgId/kms-config/test': { category: 'sysadmin-console', why: '"Test" in src/components/admin/OrgKmsConfigModal.tsx, opened from the sysadmin org pages behind `can(\'org_kms:write\')` — the same gate the route carries.' },
   'platform PUT /organization/:id/seat-limit': { category: 'sysadmin-console', why: '"Set limit" in src/components/admin/org-detail/OrgSeatsCard.tsx on the systemAdminOnly org drill-down; the handler admits only a service principal or a system admin.' },
   ...group('platform', [
@@ -3177,7 +3188,7 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
   'plugin POST /plugins/lookup': {
     category: 'same-control',
     coveredBy: 'Plugin list + detail reads',
-    why: 'A READ over POST: the pipeline editor previews how a step\'s plugin reference resolves (src/components/pipeline/editors/PluginResolutionWarnings.tsx → api.lookupPlugin) to show its severity-graded VULN_* / scan / compliance warnings, failing soft; same plugins:read gate as the plugin list. Its main caller is still the deploy-time PluginLookup Lambda (CDK) and pipeline-manager.',
+    why: 'A READ over POST: the pipeline editor previews how a step\'s plugin reference resolves (src/components/pipeline/editors/PluginResolutionWarnings.tsx → api.lookupPlugin) to show its severity-graded VULN_* / scan / compliance warnings, failing soft; same plugins:read gate as the plugin list. Its main caller is pipeline-manager, which pre-resolves every plugin before synth.',
   },
   ...group('compliance', ['GET /compliance/rules/:id', 'GET /compliance/policies/:id'], {
     category: 'no-ui',
@@ -3277,8 +3288,14 @@ function lookup(route: string): { service: string; entry: RouteTableEntry | unde
   return { service, entry: tables[service]?.find((e) => e.method === method && e.path === path) };
 }
 
-/** Whether holding `held` satisfies every permission gate on the route. */
+/**
+ * Whether holding `held` satisfies every permission gate on the route. A route
+ * gated handler-side (`dynamicAuthz`) admits on any one of the permissions it
+ * consults, so holding none of them can never pass.
+ */
 function satisfies(entry: RouteTableEntry, held: string[]): boolean {
+  const dynamic = entry.dynamicPermissions ?? [];
+  if (dynamic.length > 0 && !dynamic.some((p) => held.includes(p))) return false;
   return entry.permissions.every((gate) => (gate.mode === 'all'
     ? gate.permissions.every((p) => held.includes(p))
     : gate.permissions.some((p) => held.includes(p))));
@@ -3295,7 +3312,17 @@ function gateSources(control: Control): string {
 function gatedRoutes(): string[] {
   return Object.entries(tables)
     .flatMap(([service, table]) => table
-      .filter((e) => e.features.length > 0 || e.stepUp || e.scopes.length > 0 || e.minAssurance > 0 || !!e.orgAdminAssurance)
+      .filter((e) => e.features.length > 0 || e.stepUp || e.scopes.length > 0 || e.minAssurance > 0 || !!e.orgAdminAssurance
+        || e.conditionalGates.length > 0)
+      .map((e) => `${service} ${e.method} ${e.path}`))
+    .sort();
+}
+
+/** Every route with a CONDITIONAL step-up: some requests to it need one (`gateWhen`). */
+function conditionalStepUpRoutes(): string[] {
+  return Object.entries(tables)
+    .flatMap(([service, table]) => table
+      .filter((e) => e.conditionalGates.some((c) => c.stepUp))
       .map((e) => `${service} ${e.method} ${e.path}`))
     .sort();
 }
@@ -3322,7 +3349,8 @@ function readRoutes(): string[] {
   return Object.entries(tables)
     .flatMap(([service, table]) => table
       .filter((e) => e.method === 'GET' && e.auth
-        && !(e.features.length > 0 || e.stepUp || e.scopes.length > 0 || e.minAssurance > 0 || !!e.orgAdminAssurance))
+        && !(e.features.length > 0 || e.stepUp || e.scopes.length > 0 || e.minAssurance > 0 || !!e.orgAdminAssurance
+          || e.conditionalGates.length > 0))
       .map((e) => `${service} ${e.method} ${e.path}`))
     .sort();
 }
@@ -3482,7 +3510,8 @@ describe('UI gates match the routes they call', () => {
 
       // 2. The route must be gated at ALL — an ungated write behind a UI gate is
       // the mismatch this whole mechanism exists to prevent.
-      expect(entry.permissions.length + (entry.systemAdmin ? 1 : 0) + entry.features.length + entry.scopes.length)
+      expect(entry.permissions.length + (entry.systemAdmin ? 1 : 0) + entry.features.length + entry.scopes.length
+        + (entry.dynamicAuthz?.length ?? 0))
         .toBeGreaterThan(0);
 
       // 3. FEATURES — every entitlement the route enforces must be declared here,
@@ -3504,6 +3533,12 @@ describe('UI gates match the routes they call', () => {
       .toEqual({ control: control.control, minAssurance: Math.max(0, ...entries.map((e) => e.minAssurance)) });
     expect({ control: control.control, orgAdminAssurance: !!control.orgAdminAssurance })
       .toEqual({ control: control.control, orgAdminAssurance: entries.some((e) => !!e.orgAdminAssurance) });
+    // A CONDITIONAL step-up is not declared on the row (it costs only some
+    // clicks), but the control must still be able to answer it in place.
+    if (entries.some((e) => e.conditionalGates.some((c) => c.stepUp))) {
+      expect({ control: control.control, handlesStepUp: sources.includes('StepUpModal') })
+        .toEqual({ control: control.control, handlesStepUp: true });
+    }
 
     // Each declared feature must (a) be one the API really enforces, and (b) be
     // rendered somewhere in this control's sources — a declared-but-absent lock
@@ -3820,6 +3855,37 @@ describe('MFA refusals are handled app-wide', () => {
     expect(readdirSync(dir).filter((f) => /\bfetch\(/.test(read(f)))).toEqual([]);
     expect(readdirSync(dir).filter((f) => read(f).includes("from '../anonymous'")).sort())
       .toEqual(['plugin-security.ts', 'plugin-submissions.ts', 'stakeholder-reports-public.ts']);
+  });
+});
+
+/**
+ * Each route with a CONDITIONAL step-up → the file holding the control that
+ * sends the requests it selects. The global step-up resume would replay a
+ * refused request, but these controls know in advance which submissions need a
+ * step-up and ask for it in place — and a strong-factor condition must be asked
+ * for as one, or the user meets a password prompt the server then refuses.
+ */
+const CONDITIONAL_STEP_UP_CONTROLS: Record<string, { file: string; when: string }> = {
+  'platform PATCH /user/profile': { file: 'pages/dashboard/settings.tsx', when: 'changes the sign-in email' },
+  'platform POST /users': { file: 'pages/dashboard/users.tsx', when: 'creates a platform super-admin' },
+};
+
+describe('conditional step-ups are handled by the control that sends them', () => {
+  it('names a control for exactly the routes with a conditional step-up', () => {
+    expect(Object.keys(CONDITIONAL_STEP_UP_CONTROLS).sort()).toEqual(conditionalStepUpRoutes());
+  });
+
+  it.each(Object.entries(CONDITIONAL_STEP_UP_CONTROLS))('%s', (route, { file, when }) => {
+    const { entry } = lookup(route);
+    if (!entry) throw new Error(`${route} is not in its route table`);
+    const gate = entry.conditionalGates.find((c) => c.stepUp && c.when === when);
+    expect({ route, when, onTable: !!gate }).toEqual({ route, when, onTable: true });
+    const source = readFileSync(resolve(FRONTEND_DIR, file), 'utf8');
+    expect({ file, handlesStepUp: source.includes('StepUpModal') }).toEqual({ file, handlesStepUp: true });
+    if (gate && gate.stepUpMethods.length > 0) {
+      expect({ file, asksForStrongFactor: source.includes('requireStrongFactor') })
+        .toEqual({ file, asksForStrongFactor: true });
+    }
   });
 });
 

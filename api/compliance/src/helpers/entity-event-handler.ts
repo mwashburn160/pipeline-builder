@@ -44,8 +44,8 @@ interface EvaluationResult {
 }
 
 /**
- * Evaluate compliance rules against an entity event.
- * Used by both the HTTP entity-events route and the BullMQ worker.
+ * Evaluate compliance rules against an entity event, for the internal
+ * entity-events route (`POST /compliance/events/entity`).
  */
 export async function evaluateEntityEvent(event: EntityEventInput): Promise<EvaluationResult> {
   const ruleTarget = ruleTargetOf(event.target);
@@ -112,7 +112,7 @@ export async function evaluateEntityEvent(event: EntityEventInput): Promise<Eval
       error: errorMessage(err),
     });
     // Fail CLOSED: flag the error so the route returns non-2xx and the caller
-    // (BullMQ producer) retries — do NOT silently let the entity through.
+    // retries — do NOT silently let the entity through.
     return { evaluated: false, reason: 'evaluation error', error: true };
   }
 }

@@ -67,9 +67,10 @@ export interface AgentToolDeps {
    * extra model invocation must pay its own, exactly as the delegated
    * pipeline/plugin generators do. Resolves null when the org is out of quota
    * (the tool then declines instead of generating). `tool` labels the metric and
-   * the usage ledger's `agent-tool:<tool>` feature.
+   * the usage ledger's `agent-tool:<tool>` feature; `promptVersion` is the
+   * generation's own prompt version, recorded on the turn's audit row beside it.
    */
-  chargeAiCall: (tool: string) => Promise<AiToolCharge | null>;
+  chargeAiCall: (tool: string, promptVersion?: string) => Promise<AiToolCharge | null>;
   /**
    * The turn's budget of charged generations (`ASK_MAX_TURN_GENERATIONS`). Every
    * generating tool claims one BEFORE it generates and declines when the claim is
@@ -92,8 +93,8 @@ export interface AgentToolDeps {
    */
   holdsPermission: (permission: Permission) => boolean;
   /**
-   * Design rule 10: a proposal naming a field outside the tool's allowlist is
-   * the injection signal, so it gets a counter and a log line rather than a
+   * A proposal naming a field outside the tool's allowlist is the injection
+   * signal, so it gets a counter and a log line rather than a
    * silent drop. Injected (not imported) so the tool layer stays free of the
    * metrics/logging runtime and the tests can assert on it.
    */

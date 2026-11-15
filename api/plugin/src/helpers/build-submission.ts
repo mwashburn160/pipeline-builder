@@ -16,7 +16,7 @@ import {
   errorMessage,
   type PluginComplianceAttributes,
   type QuotaService,
-  type QuotaTier,
+  type PlanTier,
 } from '@pipeline-builder/api-core';
 import type { SSEManager } from '@pipeline-builder/api-server';
 
@@ -82,7 +82,7 @@ export async function queuePluginBuild(input: {
   jobData: PluginBuildJobData;
   /** The org's tier, when the caller already resolved it (both routes do, for
    *  the machine-size gate). Saves a second quota round trip per submission. */
-  tier?: QuotaTier;
+  tier?: PlanTier;
   logWarn: LogFn;
 }): Promise<void> {
   const { quotaService, sseManager, orgId, authHeader, jobData } = input;

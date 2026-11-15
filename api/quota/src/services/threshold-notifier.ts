@@ -87,6 +87,20 @@ async function noticeSettings(rootOrgId: string): Promise<{ enabled?: boolean; w
   return value ?? null;
 }
 
+/**
+ * Forget this pod's memo of claimed notices for one account + quota type, for
+ * thresholds above `aboveThreshold` (0 = all). The caller that deletes the
+ * {@link QuotaNotice} claim rows must call this too: the memo short-circuits
+ * BEFORE the insert that is the dedupe, so a claim deleted in Mongo but still
+ * memoized here stayed suppressed on this pod until its key changed.
+ */
+export function forgetClaimedNotices(rootOrgId: string, quotaType: QuotaType, aboveThreshold = 0): void {
+  const prefix = `${rootOrgId}|${quotaType}|`;
+  for (const key of claimedNotices) {
+    if (key.startsWith(prefix) && Number(key.slice(key.lastIndexOf('|') + 1)) > aboveThreshold) claimedNotices.delete(key);
+  }
+}
+
 /** Drop the per-pod memos (tests; a safe operational reset). */
 export function clearThresholdMemos(): void {
   claimedNotices.clear();

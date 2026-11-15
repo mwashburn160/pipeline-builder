@@ -19,7 +19,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 PLUGINS_DIR="$DEPLOY_DIR/plugins"
 WORKER_SCRIPT="$SCRIPT_DIR/load-plugin-worker.sh"
-UPLOAD_TIMEOUT=900
+UPLOAD_TIMEOUT_SECONDS=900
 UPLOAD_RETRIES=${UPLOAD_RETRIES:-3}
 UPLOAD_RETRY_DELAY=${UPLOAD_RETRY_DELAY:-30}
 PARALLEL_JOBS=${PARALLEL_JOBS:-1}
@@ -63,8 +63,8 @@ while [ $# -gt 0 ]; do
     --category)  [ $# -ge 2 ] || { echo "ERROR: $1 requires a value" >&2; exit 1; }
                  CATEGORY_FILTER="${CATEGORY_FILTER:+$CATEGORY_FILTER,}$2"; shift 2 ;;
     --timeout)   [ $# -ge 2 ] || { echo "ERROR: $1 requires a value" >&2; exit 1; }
-                 UPLOAD_TIMEOUT="$2"
-                 [[ "$UPLOAD_TIMEOUT" =~ ^[1-9][0-9]*$ ]] || { echo "ERROR: --timeout requires a positive integer" >&2; exit 1; }
+                 UPLOAD_TIMEOUT_SECONDS="$2"
+                 [[ "$UPLOAD_TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$ ]] || { echo "ERROR: --timeout requires a positive integer" >&2; exit 1; }
                  shift 2 ;;
     --help|-h)
       echo "Usage: $0 [options]"
@@ -200,7 +200,7 @@ COUNTER_DIR=$(mktemp -d)
 trap 'rm -rf "$COUNTER_DIR"' EXIT INT TERM
 touch "$COUNTER_DIR/succeeded" "$COUNTER_DIR/skipped" "$COUNTER_DIR/failed" "$COUNTER_DIR/uploaded"
 
-export PLATFORM_BASE_URL JWT_TOKEN UPLOAD_TIMEOUT UPLOAD_RETRIES UPLOAD_RETRY_DELAY
+export PLATFORM_BASE_URL JWT_TOKEN UPLOAD_TIMEOUT_SECONDS UPLOAD_RETRIES UPLOAD_RETRY_DELAY
 export DRY_RUN REBUILD COUNTER_DIR PLUGINS_DIR DEPLOY_DIR SCRIPT_DIR
 
 START_TIME=$(date +%s)

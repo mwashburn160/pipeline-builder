@@ -17,7 +17,7 @@ import { createLogger, errorMessage, getParam, isServicePrincipal, isSystemAdmin
 import { audit } from '../helpers/audit.js';
 import { canAdministerOrg, ensureAuthenticated, forbid, withController } from '../helpers/controller-helper.js';
 import { pooledFeatureEntitlements, pooledSeatUsage } from '../helpers/seats.js';
-import type { QuotaTier } from '../models/organization.js';
+import type { PlanTier } from '../models/organization.js';
 import { incCounter } from '../observability/metrics.js';
 import { organizationService } from '../services/index.js';
 import { ORG_SEAT_LIMIT_NOT_ROOT } from '../services/org-errors.js';
@@ -115,17 +115,17 @@ export const updateOrganizationSeatLimit = withController('Update organization s
   // Optional account tier — billing pushes it so a plan DOWNGRADE invalidates
   // stale tokens (setSeatLimit sets only the tier label, no quota reseed).
   //
-  // TRUST BOUNDARY: unlike the sysadmin `PATCH /tier` route, this path runs NO
+  // TRUST BOUNDARY: unlike the sysadmin `PATCH /organization/:id/tier` route, this path runs NO
   // over-cap / team-stranding guard (`checkTierOvercap`). Billing is the sole
   // caller and gates the downgrade via `checkEntitlementOvercap` BEFORE calling
   // this endpoint, so the guard lives caller-side by design. If another producer
   // ever writes here, add the structural guard.
-  let tier: QuotaTier | undefined;
+  let tier: PlanTier | undefined;
   if (body.tier !== undefined) {
-    if (typeof body.tier !== 'string' || !VALID_TIERS.includes(body.tier as QuotaTier)) {
+    if (typeof body.tier !== 'string' || !VALID_TIERS.includes(body.tier as PlanTier)) {
       return sendError(res, 400, `tier must be one of: ${VALID_TIERS.join(', ')}`);
     }
-    tier = body.tier as QuotaTier;
+    tier = body.tier as PlanTier;
   }
 
   // Support contacts: the other platform-owned tier limit, synced on the same

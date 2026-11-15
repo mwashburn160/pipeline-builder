@@ -3,7 +3,7 @@
 
 import type { ApiCore } from '../core';
 import { buildQuery } from '../util';
-import type { ApiResponse, OrgQuotaResponse, OrgIdpConfigDto, OrgIdpConfigCreate, User, QuotaTier, QuotaType, QuotaUsageParams, QuotaUsageBreakdown, QuotaNoticeSettings } from '@/types';
+import type { ApiResponse, OrgQuotaResponse, OrgIdpConfigDto, OrgIdpConfigCreate, User, PlanTier, QuotaType, QuotaUsageParams, QuotaUsageBreakdown, QuotaNoticeSettings } from '@/types';
 import type { AuditLogEvent, AuditChainVerification } from '@/types/audit';
 import type { ConsoleClass } from '@/lib/admin-console';
 import type { OrgRole } from '@pipeline-builder/api-core/wire-vocabulary';
@@ -232,9 +232,16 @@ export function adminApi(core: ApiCore) {
       return core.request<ApiResponse<{ users: User[]; pagination: { total: number; offset: number; limit: number; hasMore: boolean } }>>(`/api/users${buildQuery(params)}`);
     },
 
-    createUser: async (data: { username: string; email: string; password: string; isSuperAdmin?: boolean; organizationId?: string; role?: OrgRole; roleIds?: string[] }) => {
+    /** POST /users. `isSuperAdmin: true` is a platform-admin grant, so the
+     *  server then demands an aal2 session AND a second-factor step-up — pass the
+     *  token from a `requireStrongFactor` StepUpModal. An ordinary create sends none. */
+    createUser: async (
+      data: { username: string; email: string; password: string; isSuperAdmin?: boolean; organizationId?: string; role?: OrgRole; roleIds?: string[] },
+      stepUpToken?: string,
+    ) => {
       return core.request<ApiResponse<{ user: { id: string; username: string; email: string } }>>(`/api/users`, {
         method: 'POST',
+        headers: core.stepUpHeader(stepUpToken),
         body: JSON.stringify(data),
       });
     },
@@ -444,7 +451,7 @@ export function adminApi(core: ApiCore) {
     },
 
     /** Update org name, slug, and/or quotas (system admin only). */
-    updateOrgQuotas: async (orgId: string, data: { name?: string; slug?: string; tier?: QuotaTier; quotas?: Record<string, number> }) => {
+    updateOrgQuotas: async (orgId: string, data: { name?: string; slug?: string; tier?: PlanTier; quotas?: Record<string, number> }) => {
       return core.request<ApiResponse<{ quota: OrgQuotaResponse }>>(`/api/quota/${orgId}`, {
         method: 'PUT',
         body: JSON.stringify(data),

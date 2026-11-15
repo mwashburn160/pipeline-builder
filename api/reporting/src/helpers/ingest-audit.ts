@@ -22,7 +22,7 @@ import { incCounter } from '@pipeline-builder/api-server';
 import type { Request } from 'express';
 
 /** Cap on every id list an ingest audit row carries; `truncated` says when it bit. */
-export const INGEST_AUDIT_ID_CAP = 50;
+const INGEST_AUDIT_ID_CAP = 50;
 
 /** Which machine-ingest route wrote the batch. */
 export type IngestSource = 'events' | 'incidents' | 'alertmanager' | 'ingest-health';

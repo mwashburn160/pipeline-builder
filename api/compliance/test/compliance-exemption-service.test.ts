@@ -13,7 +13,7 @@ function shift(q: unknown[][]): unknown[] {
 
 function makeChain(terminal: () => Promise<unknown[]>): Record<string, unknown> {
   const chain: Record<string, unknown> = {};
-  for (const name of ['from', 'where', 'set', 'orderBy', 'limit', 'offset', 'values', 'onConflictDoNothing']) {
+  for (const name of ['from', 'where', 'set', 'orderBy', 'limit', 'offset', 'values', 'onConflictDoUpdate']) {
     chain[name] = jest.fn(() => chain);
   }
   chain.returning = jest.fn(() => Promise.resolve(shift(returningResults)));
@@ -53,7 +53,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@p
   buildComplianceExemptionConditions: (f: unknown, o: string) => buildComplianceExemptionConditions(f, o),
 }));
 
-const { complianceExemptionService, CE_NOT_FOUND, CE_SELF_APPROVE, CE_ALREADY_EXISTS } =
+const { complianceExemptionService, CE_NOT_FOUND, CE_SELF_APPROVE, CE_ALREADY_EXISTS, EXEMPTION_LOOKUP_CHUNK } =
   await import('../src/services/compliance-exemption-service.js');
 
 describe('ComplianceExemptionService', () => {
@@ -91,6 +91,15 @@ describe('ComplianceExemptionService', () => {
       const map = await complianceExemptionService.getActiveExemptionsForEntities('org-1', ['a', 'b']);
       expect(map.get('a')).toEqual([{ id: 'ex-1', ruleId: 'r1' }, { id: 'ex-2', ruleId: 'r2' }]);
       expect(map.get('b')).toEqual([{ id: 'ex-3', ruleId: 'r3' }]);
+    });
+
+    it('queries in bounded chunks, so a very large scan never exceeds the bind-parameter cap', async () => {
+      selectResults = [[{ id: 'ex-1', ruleId: 'r1', entityId: 'e0' }], [{ id: 'ex-2', ruleId: 'r2', entityId: `e${EXEMPTION_LOOKUP_CHUNK}` }]];
+      const ids = Array.from({ length: EXEMPTION_LOOKUP_CHUNK + 1 }, (_, i) => `e${i}`);
+      const map = await complianceExemptionService.getActiveExemptionsForEntities('org-1', ids);
+      expect(tx.select).toHaveBeenCalledTimes(2);
+      expect(map.get('e0')).toEqual([{ id: 'ex-1', ruleId: 'r1' }]);
+      expect(map.get(`e${EXEMPTION_LOOKUP_CHUNK}`)).toEqual([{ id: 'ex-2', ruleId: 'r2' }]);
     });
   });
 
@@ -149,19 +158,33 @@ describe('ComplianceExemptionService', () => {
       ruleId: 'r1', entityType: 'plugin' as const, entityId: 'a', reason: 'ok',
     };
 
-    it('inserts a pending exemption with onConflictDoNothing on (orgId, ruleId, entityId)', async () => {
+    it('inserts a pending exemption, conflicting on (orgId, ruleId, entityId)', async () => {
       returningResults = [[{ id: 'ex-1', status: 'pending' }]];
       const created = await complianceExemptionService.create(input, 'org-1', 'u-1');
       expect(created).toMatchObject({ id: 'ex-1', status: 'pending' });
       // Same conflict target as bulkCreate — the (org, rule, entity) unique index.
       const insertChain = tx.insert.mock.results[0].value as Record<string, jest.Mock>;
-      expect(insertChain.onConflictDoNothing).toHaveBeenCalledWith({
+      expect(insertChain.onConflictDoUpdate).toHaveBeenCalledWith(expect.objectContaining({
         target: ['col_org', 'col_rule', 'col_entity'],
-      });
+      }));
     });
 
-    it('throws CE_ALREADY_EXISTS when the triple collides (empty returning → clean 409, not a 500)', async () => {
-      returningResults = [[]]; // ON CONFLICT DO NOTHING skipped the duplicate row
+    it('a collision with a CLOSED (rejected / expired) request reopens it as pending, decision columns reset', async () => {
+      // Without this an exemption that lapsed could never be requested again:
+      // the unique index holds one row per triple.
+      returningResults = [[{ id: 'ex-1', status: 'pending' }]];
+      await complianceExemptionService.create(input, 'org-1', 'u-2');
+      const insertChain = tx.insert.mock.results[0].value as Record<string, jest.Mock>;
+      const clause = insertChain.onConflictDoUpdate.mock.calls[0]![0] as { set: Record<string, unknown>; setWhere: unknown };
+      expect(clause.set).toMatchObject({ status: 'pending', approvedBy: null, rejectionReason: null, expiryWarnedAt: null });
+      // The new requester owns it (self-approval binds on them), and only a
+      // closed row is reopened — a live one is still skipped.
+      expect(clause.set.createdBy).toBeDefined();
+      expect(clause.setWhere).toBeDefined();
+    });
+
+    it('throws CE_ALREADY_EXISTS when the triple collides with a live request (empty returning → clean 409, not a 500)', async () => {
+      returningResults = [[]]; // the conflict's WHERE skipped the live duplicate
       await expect(
         complianceExemptionService.create(input, 'org-1', 'u-1'),
       ).rejects.toThrow(CE_ALREADY_EXISTS);
@@ -173,9 +196,9 @@ describe('ComplianceExemptionService', () => {
       ruleId: 'r1', entityType: 'plugin' as const, entityId, reason: 'ok',
     });
 
-    it('dedupes via onConflictDoNothing on (orgId, ruleId, entityId) and returns only inserted ids', async () => {
+    it('dedupes on (orgId, ruleId, entityId) and returns only inserted ids', async () => {
       // Two inputs, but the DB returns one row (the other collided with an
-      // existing pending exemption and was skipped by ON CONFLICT DO NOTHING).
+      // existing pending exemption and was skipped by the conflict clause).
       returningResults = [[{ id: 'ex-1' }]];
       const ids = await complianceExemptionService.bulkCreate(
         [row('a'), row('b')], 'org-1', 'u-1',
@@ -184,9 +207,17 @@ describe('ComplianceExemptionService', () => {
       expect(ids).toEqual(['ex-1']);
       // The conflict target is the (org, rule, entity) unique index.
       const insertChain = tx.insert.mock.results[0].value as Record<string, jest.Mock>;
-      expect(insertChain.onConflictDoNothing).toHaveBeenCalledWith({
+      expect(insertChain.onConflictDoUpdate).toHaveBeenCalledWith(expect.objectContaining({
         target: ['col_org', 'col_rule', 'col_entity'],
-      });
+      }));
+    });
+
+    it('drops repeats within the batch before the insert (DO UPDATE cannot touch one row twice)', async () => {
+      returningResults = [[{ id: 'ex-1' }]];
+      await complianceExemptionService.bulkCreate([row('a'), row('a'), row('b')], 'org-1', 'u-1');
+      const insertChain = tx.insert.mock.results[0].value as Record<string, jest.Mock>;
+      const values = insertChain.values.mock.calls[0]![0] as Array<{ entityId: string }>;
+      expect(values.map((v) => v.entityId)).toEqual(['a', 'b']);
     });
 
     it('returns no ids when every row collided (all skipped)', async () => {

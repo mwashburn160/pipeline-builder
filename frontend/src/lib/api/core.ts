@@ -75,7 +75,6 @@ function writeStore(store: 'local' | 'session', key: string, value: string | nul
   }
 }
 
-/** SSE event received from AI streaming endpoints. */
 /** `fetch` options plus the api client's own knobs. */
 export interface ApiRequestOptions extends RequestInit {
   /**
@@ -112,6 +111,7 @@ const readEnvelope = async <T>(response: Response): Promise<T> => {
   }
 };
 
+/** SSE event received from AI streaming endpoints. */
 export interface StreamEvent {
   type: 'partial' | 'done' | 'error' | 'analyzing' | 'analyzed' | 'checking-plugins'
     // From-URL generation: the plugins the config references but the org lacks,
@@ -130,10 +130,6 @@ export interface StreamEvent {
   retryAfterSeconds?: number;
 }
 
-
-/**
- * API Client for communicating with the backend
- */
 /**
  * How long a 429 says to wait, in ms.
  *
@@ -154,6 +150,7 @@ function retryAfterMs(response: Response): number {
   return Math.min(ms, CAP_MS);
 }
 
+/** API client for communicating with the backend. */
 export class ApiCore {
   /** In memory only — never localStorage. A reload starts with none and calls
    *  `restoreSession()`, which trades the HttpOnly cookie for a new one. */
@@ -162,15 +159,14 @@ export class ApiCore {
   private isRefreshing = false;
   private refreshPromise: Promise<boolean> | null = null;
   private refreshTimer: ReturnType<typeof setTimeout> | null = null;
-  /** While set (ms timestamp), refreshes short-circuit to `false` without a
-   *  network call: the last refresh gave up on transient failures. */
   /**
    * How long the server told us to wait after a 429 on `/auth/refresh`, read
    * from `Retry-After` / `RateLimit-Reset`. Zero when it said nothing, in which
    * case the ordinary failure cooldown applies.
    */
   private throttledForMs = 0;
-
+  /** While set (ms timestamp), refreshes short-circuit to `false` without a
+   *  network call: the last refresh gave up on transient failures. */
   private refreshCooldownUntil = 0;
   /** Bumped whenever the identity changes (sign-in, sign-out, adoption). An
    *  in-flight refresh that sees it move no longer speaks for the session and

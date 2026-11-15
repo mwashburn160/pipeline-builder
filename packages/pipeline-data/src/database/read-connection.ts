@@ -77,8 +77,8 @@ export function getReadPool(): Pool | null {
     // exhaust connections the write path needs, and the replica has its own
     // max_connections budget which is NOT the primary's.
     max: envInt('DB_READ_MAX_POOL_SIZE', 10),
-    idleTimeoutMillis: envInt('DRIZZLE_IDLE_TIMEOUT_MILLIS', 30_000),
-    connectionTimeoutMillis: envInt('DRIZZLE_CONNECTION_TIMEOUT_MILLIS', 5000),
+    idleTimeoutMillis: envInt('DRIZZLE_IDLE_TIMEOUT_MS', 30_000),
+    connectionTimeoutMillis: envInt('DRIZZLE_CONNECTION_TIMEOUT_MS', 5000),
     ssl: getSslConfig(),
     allowExitOnIdle: true,
   };

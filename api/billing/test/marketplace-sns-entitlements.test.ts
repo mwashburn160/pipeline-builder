@@ -158,9 +158,9 @@ function mockRes(): any {
 }
 
 /**
- * A findOne query stub that is BOTH awaitable (handleEntitlementUpdate /
- * GET entitlements await it directly) and `.sort()`-chainable (the status-
- * change notification path calls `.sort({ createdAt: -1 })`).
+ * A findOne query stub that is BOTH awaitable (handleEntitlementUpdate awaits
+ * it directly) and `.sort()`-chainable (the deprovision path and GET
+ * entitlements call `.sort({ createdAt: -1 })`).
  */
 function query(doc: unknown): any {
   return {
@@ -699,9 +699,12 @@ describe('GET /marketplace/entitlements', () => {
     const [, status, data] = mockSendSuccess.mock.calls[0];
     expect(status).toBe(200);
     expect(data).toEqual({
-      licenseArn: LICENSE,
       entitlements,
       currentPlanId: 'team',
     });
+    // The license ARN embeds an AWS account id: it is the server's lookup key,
+    // never part of the response body.
+    expect(JSON.stringify(data)).not.toContain(LICENSE);
+    expect(JSON.stringify(data)).not.toContain('arn:aws:');
   });
 });

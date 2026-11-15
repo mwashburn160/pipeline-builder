@@ -332,6 +332,9 @@ export function createAskRoutes(quotaService: QuotaService): Router {
       logger.error('Ask how-to failed', { requestId: ctx.requestId, error: errorMessage(error) });
       const kept = providerContacted || errorSaysProviderContacted(error);
       recordAi('howto', { provider: served?.provider, model: served?.modelId }, 'error', startedAt);
+      // A failed turn still paid for whatever the provider reported before it
+      // failed — counted exactly as the stream route counts it.
+      recordAiTokens('howto', { provider: served?.provider, keySource: served?.keySource, tier: req.user?.tier }, tokenUsage(usage));
       aiSlot?.reportUsage(tokenUsage(usage));
       auditAskQuery(userId, orgId, {
         queryLength: query.length,

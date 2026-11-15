@@ -82,9 +82,9 @@ export function createUpdatePipelineRoutes(): Router {
     let updated;
     if (body.isDefault === true) {
       // Promote-to-default takes the FOR UPDATE-locked transactional path so
-      // it can't race a concurrent setDefault on the same project.
-      // Pass orgId (the tenant UUID) — setDefault scopes clear-others by orgId.
-      updated = await pipelineService.setDefault(existing.project, existing.orgId, id, userId);
+      // it can't race a concurrent setDefault on the same slot. Pass orgId (the
+      // tenant UUID); the slot itself is read from the promoted row.
+      updated = await pipelineService.setDefault(existing.orgId, id, userId);
 
       // Apply the rest of the update body (if any non-isDefault fields changed).
       if (Object.keys(updateData).length > 0) {

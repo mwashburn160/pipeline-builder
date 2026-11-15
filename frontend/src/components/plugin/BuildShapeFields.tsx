@@ -17,7 +17,7 @@ import {
 import { FormField } from '@/components/ui/FormField';
 import { Select } from '@/components/ui/Select';
 import { TIER_META } from '@/lib/tiers';
-import type { QuotaTier } from '@/types';
+import type { PlanTier } from '@/types';
 
 /**
  * The machine a build runs on, and whether it may start later.
@@ -50,7 +50,7 @@ export function BuildShapeFields({
   onSizeChange,
   disabled = false,
 }: {
-  tier?: QuotaTier;
+  tier?: PlanTier;
   buildClass: BuildClass;
   buildSize: BuildSize;
   onClassChange: (c: BuildClass) => void;

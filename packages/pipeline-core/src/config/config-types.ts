@@ -34,7 +34,7 @@ export interface ServerConfig {
   /** Frontend base URL, used as CORS fallback (env: `PLATFORM_BASE_URL`). */
   readonly platformUrl: string;
   readonly httpClient: {
-    /** Default HTTP request timeout in ms (env: `HTTP_CLIENT_TIMEOUT`). */
+    /** Default HTTP request timeout in ms (env: `HTTP_CLIENT_TIMEOUT_MS`). */
     readonly timeout: number;
     /** Maximum retry attempts for failed requests (env: `HTTP_CLIENT_MAX_RETRIES`). */
     readonly maxRetries: number;
@@ -64,7 +64,8 @@ export interface ServerConfig {
     readonly compliancePort: number;
     readonly billingHost: string;
     readonly billingPort: number;
-    readonly billingTimeout: number;
+    /** Billing service call timeout in ms (env: `BILLING_SERVICE_TIMEOUT_MS`). */
+    readonly billingTimeoutMs: number;
     /** image-registry service — the plugin worker asks it to sign pushed images (env: `IMAGE_REGISTRY_SERVICE_HOST`). */
     readonly imageRegistryHost: string;
     /** env: `IMAGE_REGISTRY_SERVICE_PORT` */
@@ -120,9 +121,9 @@ export interface DatabaseConfig {
   readonly drizzle: {
     /** Maximum connection pool size (env: `DRIZZLE_MAX_POOL_SIZE`). */
     readonly maxPoolSize: number;
-    /** Idle connection timeout in ms (env: `DRIZZLE_IDLE_TIMEOUT_MILLIS`). */
+    /** Idle connection timeout in ms (env: `DRIZZLE_IDLE_TIMEOUT_MS`). */
     readonly idleTimeoutMillis: number;
-    /** New connection timeout in ms (env: `DRIZZLE_CONNECTION_TIMEOUT_MILLIS`). */
+    /** New connection timeout in ms (env: `DRIZZLE_CONNECTION_TIMEOUT_MS`). */
     readonly connectionTimeoutMillis: number;
   };
 }
@@ -230,8 +231,6 @@ export interface ObservabilityConfig {
 
 export interface ComplianceConfig {
   readonly scanSchedulerIntervalMs: number;
-  /** When false, the scheduler skips scans/schedules for the system org. Default: false. */
-  readonly systemOrgScansEnabled: boolean;
   /** Cross-pod leader-lock TTL for the scan scheduler (ms). Default: 300000. */
   readonly scanLockTtlMs: number;
   /** How often the digest scheduler checks for due digests (ms). Default: 3600000. */
@@ -249,19 +248,9 @@ export interface ComplianceConfig {
  * pipeline-core/cdk`) builds stacks  typing this block with CDK classes put
  * `aws-cdk-lib` on the import graph of `Config`, and therefore of every API
  * service that reads so much as a port number. Conversion to CDK objects happens
- * at the construct boundary in `config/aws-config-cdk.ts`.
+ * at the construct boundary.
  */
 export interface AWSConfig {
-  readonly lambda: {
-    /** Lambda runtime identifier, e.g. `'nodejs26.x'` (env: `LAMBDA_RUNTIME`). */
-    readonly runtime: string;
-    /** Function timeout in seconds (env: `LAMBDA_TIMEOUT`). */
-    readonly timeoutSeconds: number;
-    readonly memorySize: number;
-    /** Lambda CPU architecture (env: `LAMBDA_ARCHITECTURE`, `ARM_64` or `x86_64`). */
-    readonly architecture: 'arm64' | 'x86_64';
-    readonly reservedConcurrentExecutions?: number;
-  };
   readonly logging: {
     readonly groupName: string;
   };
@@ -275,6 +264,6 @@ export interface AWSConfig {
 export interface RateLimitConfig {
   /** Maximum requests per window (env: `LIMITER_MAX`). */
   readonly max: number;
-  /** Rate limit window in milliseconds (env: `LIMITER_WINDOWMS`). */
+  /** Rate limit window in milliseconds (env: `LIMITER_WINDOW_MS`). */
   readonly windowMs: number;
 }

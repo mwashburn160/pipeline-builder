@@ -182,6 +182,10 @@ const FAILURE_CODE_CATEGORIES: Readonly<Record<string, FailureCategory>> = {
   PLUGIN_UNAVAILABLE: 'configuration',
   PLUGIN_DELETED: 'configuration',
   PLUGIN_VERSION_NOT_FOUND: 'configuration',
+  // pipeline-manager's plugin resolver: the reference names no plugin the org
+  // can resolve (configuration), or the lookup itself failed (the platform).
+  PLUGIN_NOT_FOUND: 'configuration',
+  PLUGIN_LOOKUP_FAILED: 'external_service',
   TEMPLATE_CONTRACT_VIOLATION: 'configuration',
 };
 

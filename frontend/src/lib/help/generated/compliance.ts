@@ -1,6 +1,6 @@
 // GENERATED FROM docs/compliance.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: e325204adb5a60559f832f59df06a8ad5be085789a8654a81e382e1c2b23dd88
+// SOURCE-SHA256: 152ed5f968050b4dc0ef13af8c20abf165971016dedf27966e683d81549c6a84
 // SPDX-License-Identifier: Apache-2.0
 import { ShieldCheck } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -30,7 +30,7 @@ export const complianceTopic: HelpTopic = {
           "items": [
             "Fail-closed. If the compliance service is unreachable, plugin uploads and pipeline creates are rejected (HTTP 503) rather than waved through.",
             "Each organization owns its compliance. The system org does not enforce rules on other orgs — it publishes recommendations any org can browse, subscribe to and customize. The one exception is the org → team hierarchy.",
-            "The system org is itself exempt, and scheduled scans skip it unless SYSTEM_ORG_SCANS_ENABLED=true.",
+            "The system org is itself exempt, and scheduled scans always skip it.",
             "Blocking is by severity. error and critical block creation with a 403; warning logs and allows.",
             "Curated libraries are a shared reference, not a copy. Buying an add-on grants access — one library of 30 rules serves 10,000 orgs as 30 rules plus pointer rows.",
             "Enforcement is entitlement-unaware by design: it reads the org's active subscriptions, and a separate sync leg keeps that active set in step with billing.",
@@ -86,7 +86,7 @@ export const complianceTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "The system org is itself exempt from enforcement — no rules are evaluated against its own entities, and scheduled or bulk scans skip it unless SYSTEM_ORG_SCANS_ENABLED=true. Alongside its published rules it also owns shared template policies and rules (isTemplate: true) that any org can clone into its own editable copy."
+          "content": "The system org is itself exempt from enforcement — no rules are evaluated against its own entities, its scan schedules never run, and a scan launched for it completes at once with zero results. Alongside its published rules it also owns shared template policies and rules (isTemplate: true) that any org can clone into its own editable copy."
         },
         {
           "type": "text",
@@ -1115,7 +1115,7 @@ export const complianceTopic: HelpTopic = {
               "Port"
             ],
             [
-              "CACHE_TTL_COMPLIANCE_RULES",
+              "CACHE_TTL_COMPLIANCE_RULES_SECONDS",
               "60",
               "Active rules cache TTL (seconds)"
             ],

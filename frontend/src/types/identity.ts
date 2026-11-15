@@ -5,7 +5,7 @@
  *  step-up factors (passkeys, authenticator app, recovery codes) and the org
  *  policies that govern them. */
 
-import type { QuotaTier } from '@pipeline-builder/api-core';
+import type { PlanTier } from '@pipeline-builder/api-core';
 
 import type { UserOrgMembership } from './organization';
 import type { OrgRole } from '@pipeline-builder/api-core/wire-vocabulary';
@@ -37,7 +37,7 @@ export interface User {
   /** First-run flag for social-signup users who never named their org / picked a
    *  plan. When true, the auth guard routes them to the onboarding screen. */
   needsOnboarding?: boolean;
-  tier?: QuotaTier;
+  tier?: PlanTier;
   features?: string[];
   /**
    * Effective fine-grained permissions for the active org (RBAC): the role's

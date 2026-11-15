@@ -82,11 +82,9 @@ new PipelineBuilder(stack, 'MyPipeline', {
 });
 ```
 
-> **Prerequisite for `cdk synth` / `cdk deploy`:** synth bundles the PluginLookup
-> Lambda via `NodejsFunction` (esbuild). Install **esbuild** + **pnpm** (the
-> handler's lockfile) on `PATH`, or CDK falls back to Docker bundling and fails
-> with `Could not resolve "axios"` / `"../config/handler-constants.js"`:
-> `npm install -g esbuild@0.28.1 pnpm@10.33.0`. See
+> **Prerequisite for `cdk synth` / `cdk deploy`:** the AWS CDK CLI on `PATH`.
+> Nothing is bundled at synth, and every plugin must arrive pre-resolved in
+> `resolvedPlugins` (an unresolved plugin fails the synth). See
 > [Pipeline Manager → local deploy prerequisites](pipeline-manager.md#prerequisites-for-local-pipeline-deploys).
 
 ---

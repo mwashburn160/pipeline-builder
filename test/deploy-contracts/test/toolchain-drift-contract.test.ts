@@ -91,12 +91,11 @@ describe('Node', () => {
 });
 
 describe('pnpm', () => {
-  it('pipeline-bootstrap and the generated workflows use the repo\'s pnpm', () => {
+  it('package.json and the generated workflows use the repo\'s pnpm', () => {
     const pnpm = grab('.projenrc.ts', /const pnpmVersion = '([0-9.]+)'/);
     const pairs: Array<[string, string | undefined]> = [
       ['.projenrc.ts pnpmVersion', pnpm],
       ['package.json packageManager', grab('package.json', /"packageManager":\s*"pnpm@([0-9.]+)"/)],
-      ['pipeline-bootstrap PNPM_VERSION', grab(BOOTSTRAP_DF, /^ARG PNPM_VERSION="?([0-9.]+)"?\s*$/m)],
     ];
     for (const wf of WORKFLOWS) {
       // pnpm/action-setup `with: version:` — hand-authored workflows omit it
@@ -283,8 +282,6 @@ describe('managed toolchain release (pipeline-bootstrap + cdk-synth)', () => {
         pipelineManager: arg('PIPELINE_MANAGER_VERSION'),
         awsCdk: arg('AWS_CDK_VERSION'),
         cdkAssets: arg('CDK_ASSETS_VERSION'),
-        esbuild: arg('ESBUILD_VERSION'),
-        pnpm: arg('PNPM_VERSION'),
         node: grab(BOOTSTRAP_DF, /^ARG NODE_IMAGE=node:(\d+\.\d+\.\d+)-/m),
       },
       fix: `run ${SYNC}`,

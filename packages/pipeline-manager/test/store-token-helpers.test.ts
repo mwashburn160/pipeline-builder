@@ -118,6 +118,6 @@ describe('store-token output', () => {
       days: 30,
       scheduleExpression: undefined,
     });
-    expect(log.mock.calls.flat().join('\n')).toContain('store-token --days 30');
+    expect(log.mock.calls.flat().join('\n')).toContain('store-token --expires-days 30');
   });
 });

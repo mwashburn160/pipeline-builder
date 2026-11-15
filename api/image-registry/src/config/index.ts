@@ -60,8 +60,8 @@ export interface AppConfig {
     readonly expiresInSeconds: number;
   };
 
-  // Platform JWTs presented as the Basic-auth password (customer CodeBuild, the
-  // plugin-lookup Lambda) are verified against platform's PUBLISHED ES256 keys
+  // Platform JWTs presented as the Basic-auth password (customer CodeBuild)
+  // are verified against platform's PUBLISHED ES256 keys
   // via api-core's JWKS cache — see `services/auth-resolver.ts`. There is no
   // verification material to configure here any more. Internal SERVICE tokens
   // are verified against the per-service public bundle — this service

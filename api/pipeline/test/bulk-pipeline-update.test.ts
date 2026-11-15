@@ -26,8 +26,7 @@ const mockCreateAsDefault = jest.fn<(...a: any[]) => Promise<any>>();
 const mockFindContractViolations = jest.fn<(...args: any[]) => Promise<any[]>>().mockResolvedValue([]);
 const mockRecordPipelineResolution = jest.fn(async (..._args: unknown[]) => undefined);
 jest.unstable_mockModule('../src/helpers/plugin-contract-check.js', () => ({
-  checkPluginContracts: async (...args: unknown[]) => ({ violations: await mockFindContractViolations(...args.slice(0, 3)), vulnerabilities: [], severity: null }),
-  findPluginContractViolations: (...args: unknown[]) => mockFindContractViolations(...args),
+  checkPluginContracts: async (...args: unknown[]) => ({ violations: await mockFindContractViolations(...args.slice(0, 3)), vulnerabilities: [] }),
   formatContractViolations: (v: unknown[]) => `Pipeline does not meet the contract of ${v.length} plugin step(s)`,
   recordPipelineResolution: (...args: unknown[]) => mockRecordPipelineResolution(...args),
 }));
@@ -46,6 +45,8 @@ jest.unstable_mockModule('../src/helpers/pipeline-template-validator.js', () => 
   validatePipelineTemplates: jest.fn(),
 }));
 
+const mockSendError = jest.fn((res: any, status: number, msg: string, _code?: string, details?: unknown) =>
+  res.status(status).json({ success: false, message: msg, details }));
 const mockSendSuccess = jest.fn((res: any, statusCode: number, data?: any) => {
   res.status(statusCode).json({ success: true, statusCode, data });
 });
@@ -73,7 +74,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   decrementQuota: jest.fn(),
   sendSuccess: mockSendSuccess,
   sendBadRequest: jest.fn((res: any, msg: string) => res.status(400).json({ success: false, message: msg })),
-  sendError: jest.fn((res: any, status: number, msg: string) => res.status(status).json({ success: false, message: msg })),
+  sendError: mockSendError,
 }));
 
 // The REAL reservation helper (its api-core calls hit this file's api-core mock).
@@ -308,7 +309,9 @@ describe('bulk routes — plugin contract enforcement', () => {
     }), mockRes());
 
     expect(reserveQuota).not.toHaveBeenCalled();
-    const [, , payload] = mockSendSuccess.mock.calls[0];
+    // Every item failed, so the batch is an error — with the per-item body intact.
+    const [, status, , , payload] = mockSendError.mock.calls[0] as unknown as [unknown, number, string, unknown, any];
+    expect(status).toBe(422);
     expect(payload.failed).toBe(1);
     expect(payload.errors).toEqual([{ index: 0, error: 'Pipeline does not meet the contract of 1 plugin step(s)' }]);
   });

@@ -13,20 +13,20 @@
  * Two families:
  *
  *  - CREATE proposals (`pipeline` | `plugin` | `template`) carry a whole new
- *    document. Unchanged from the shipped contract.
+ *    document.
  *  - CHANGE proposals (everything else) carry BOTH sides — `current` and
  *    `proposed`, keyed by the same field names, plus `changedFields`. The commit
  *    payload is exactly `pick(proposed, changedFields)`: a field the model
  *    slipped in that the card never rendered is structurally unappliable,
- *    because it is not in `changedFields` and so is never picked. That is design
- *    rule 3 — the reviewed diff IS the commit payload — expressed as a type.
+ *    because it is not in `changedFields` and so is never picked: the reviewed
+ *    diff IS the commit payload, expressed as a type.
  *
- * `current` is also the RE-READ BASELINE (design rule 7). These tables carry no
+ * `current` is also the RE-READ BASELINE. These tables carry no
  * version column, so before applying, the UI re-reads the entity and refuses
  * when any field in `changedFields` no longer equals `current[field]` — the
  * approved diff must be the applied diff.
  *
- * `provenance` is design rule 6: the commit records
+ * `provenance` is the AI-provenance stamp: the commit records
  * `details: { proposedBy: 'ask-agent' }` so the hash-chained audit trail can
  * tell "the admin changed this" from "an AI drafted it and the admin applied it".
  */
@@ -38,12 +38,11 @@ import type { TemplateDraftValidation } from '@pipeline-builder/pipeline-core';
 /**
  * Stamped into every proposal; the UI passes it to the create/update call's
  * audit details. The literal itself lives in api-core's shared
- * `ask-proposals` module (design rule 6) so this service and the browser's
+ * `ask-proposals` module so this service and the browser's
  * confirm handler cannot drift into two spellings of it — a typo would produce
  * an unqueryable audit trail rather than a compile error.
  */
 export const ASK_PROVENANCE: AskProposalProvenance = { proposedBy: ASK_AGENT_PROPOSER };
-export type AskProvenance = AskProposalProvenance;
 
 /** Which service, verb and route commits a change proposal, and what it needs. */
 export interface CommitTarget {
@@ -64,8 +63,8 @@ export interface ComplianceFinding {
 }
 
 /**
- * The policy verdict attached to a draft (design rule: the agent must not draft
- * in ignorance of policy-as-code). `checked: false` means the dry-run could not
+ * The policy verdict attached to a draft (the agent must not draft in ignorance
+ * of policy-as-code). `checked: false` means the dry-run could not
  * run — the draft is returned with the reason NAMED rather than silently
  * presented as compliant.
  */
@@ -85,11 +84,11 @@ export interface ComplianceNote {
 
 /** Fields shared by every proposal the agent can emit. */
 interface ProposalBase {
-  provenance: AskProvenance;
+  provenance: AskProposalProvenance;
   /** Short human sentence for the card ("adds a test stage before deploy"). */
   description?: string;
   /**
-   * Design rule 10: fields the model asked to change that are NOT in the tool's
+   * Fields the model asked to change that are NOT in the tool's
    * allowlist. Always present (empty when clean) — a non-empty array is the
    * injection signal and is surfaced on the card, not silently dropped.
    */
@@ -186,7 +185,7 @@ export interface OrgSettingsProposal extends ProposalBase {
   invalidFields: string[];
   /**
    * Allowlisted keys dropped because their CURRENT value could not be read, so
-   * there is no baseline for the confirm handler to re-read against (rule 7).
+   * there is no baseline for the confirm handler to re-read against.
    */
   unreadableFields: string[];
 }
@@ -251,7 +250,7 @@ export interface DeclinedProposal {
   kind: ProposalKind;
   error: string;
   refusedFields: string[];
-  provenance: AskProvenance;
+  provenance: AskProposalProvenance;
 }
 
 /** Build a {@link DeclinedProposal}. */

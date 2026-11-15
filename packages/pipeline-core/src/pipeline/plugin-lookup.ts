@@ -1,175 +1,60 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { dirname, join } from 'path';
-import { fileURLToPath } from 'url';
 import { createLogger, MANAGED_TOOLCHAIN, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
 import type { PluginFilter } from '@pipeline-builder/pipeline-data';
-import { CustomResource, Token, Duration } from 'aws-cdk-lib';
-import { PolicyStatement, Effect } from 'aws-cdk-lib/aws-iam';
-import { Runtime, Architecture, Function, Code } from 'aws-cdk-lib/aws-lambda';
-import { LogGroup } from 'aws-cdk-lib/aws-logs';
-import { Provider } from 'aws-cdk-lib/custom-resources';
-import { Construct } from 'constructs';
 import type { PluginOptions } from './step-types.js';
-import { Config, CoreConstants } from '../config/app-config.js';
-import { lambdaRuntime } from '../config/aws-config-cdk.js';
-import { UniqueId } from '../core/id-generator.js';
-import { PLATFORM_CA_BUNDLE_ENV, platformCaBundle, platformTlsVerify } from '../core/platform-tls.js';
+import { platformTlsVerify } from '../core/platform-tls.js';
 import { pluginArtifactAlias, pluginLookupFilter } from '../core/plugin-contract.js';
-import type { SynthPlugin } from '../core/plugin-lookup-envelope.js';
+import type { ResolvedPlugin } from '../core/plugin-lookup-envelope.js';
 import { PLACEHOLDER_PLUGIN_ID } from '../core/step-manifest.js';
 
 const log = createLogger('plugin-lookup');
 
-// ESM-safe module directory (the package is `type: module`; `__dirname` is
-// not defined under ES modules).
-const MODULE_DIR = dirname(fileURLToPath(import.meta.url));
-
-interface InputProps {
-  readonly baseURL: string;
-  readonly pluginFilter: PluginFilter;
-  /** The step's label (`pluginStepLabel`) — sent as the lookup `context.stepKeys` (contract C1). */
-  readonly stepKey?: string;
-}
-
 /**
- * Configuration for PluginLookup construct
+ * Configuration for {@link PluginLookup}.
  */
 export interface PluginLookupProps {
-  readonly organization: string;
-  readonly project: string;
-  readonly platformUrl: string;
-  readonly uniqueId: UniqueId;
-  /** Organization ID for resolving per-org secrets from Secrets Manager */
-  readonly orgId?: string;
-  /**
-   * Platform pipeline id. Sent as lookup `context` so the plugin service records
-   * the warnings it returns against each (pipeline, step); omitted when unknown.
-   */
-  readonly pipelineId?: string;
-  readonly runtime?: Runtime;
-  /** Lambda timeout (default: 30s) */
-  readonly timeout?: Duration;
-  /** Lambda memory in MB (default: 512) */
-  readonly memorySize?: number;
-  /** Lambda CPU architecture (default: ARM_64) */
-  readonly architecture?: Architecture;
-  /** Reserved concurrent executions for the lookup Lambda (default: 30) */
-  readonly reservedConcurrentExecutions?: number;
   /**
    * Plugins pre-resolved by `pipeline-manager pipeline synth` from the platform API.
-   * Keyed by `alias || name` (matches the construct's normalize() output).
-   * When a lookup hits this map, `plugin()` returns the resolved Plugin
-   * directly — no custom resource is created. This is what makes the
-   * name, version, commands, env, etc. available at synth time so the resulting
-   * CFN template ships with the real values baked in.
+   * Keyed by `alias || name` (matches the lookup's normalize() output). This is
+   * what makes the name, version, commands, env, etc. available at synth time
+   * so the resulting CFN template ships with the real values baked in.
    */
-  readonly resolvedPlugins?: Record<string, SynthPlugin>;
+  readonly resolvedPlugins?: Record<string, ResolvedPlugin>;
 }
 
 /**
- * CDK Construct responsible for looking up plugin configurations from an external platform
- * using AWS CloudFormation Custom Resources backed by a Lambda function.
+ * Hands each step its pre-resolved plugin record, and refuses (fails the
+ * synth) a plugin that was not pre-resolved.
  *
- * This construct creates:
- * - A Lambda function (plugin-lookup-handler) that fetches plugin configs
- * - A CloudWatch Log Group for the Lambda
- * - A Custom Resource Provider that invokes the Lambda
- * - An IAM policy granting the Lambda access to the credentials secret
- *
- * ## Prerequisites
- *
- * Before deploying, store a JWT token in Secrets Manager:
- * ```sh
- * pipeline-manager infra store-token --days 30 --region <region>
- * ```
- *
- * The Lambda resolves the secret by name at runtime:
- * `{SECRETS_PATH_PREFIX}/{orgId}/platform`
- *
- * @see handlers/plugin-lookup-handler.ts for the Lambda implementation
+ * Plain data, not a construct: every plugin is resolved by the CLI before the
+ * CDK app runs, so nothing here deploys anything — no Lambda, no custom
+ * resource.
  */
-export class PluginLookup extends Construct {
-  private readonly _uniqueId: UniqueId;
-  private readonly _provider: Provider;
-  private readonly _platformUrl: string;
-  private readonly _runtime: Runtime;
-  private readonly _timeout: Duration;
-  private readonly _memorySize: number;
-  private readonly _architecture: Architecture;
-  private readonly _reservedConcurrentExecutions?: number;
-  private readonly _orgId?: string;
-  private readonly _pipelineId?: string;
-  private readonly _resolvedPlugins?: Record<string, SynthPlugin>;
+export class PluginLookup {
+  private readonly _resolvedPlugins?: Record<string, ResolvedPlugin>;
 
-  constructor(scope: Construct, id: string, props: PluginLookupProps) {
-    super(scope, id);
-
-    if (!props.organization || !props.project) {
-      throw new Error('Both organization and project are required.');
-    }
-
-    this._uniqueId = props.uniqueId;
-    this._platformUrl = props.platformUrl;
-    this._orgId = props.orgId;
-    this._pipelineId = props.pipelineId;
-    this._runtime = props.runtime ?? lambdaRuntime('nodejs26.x');
-    this._timeout = props.timeout ?? Duration.seconds(30);
-    this._memorySize = props.memorySize ?? Config.get('aws').lambda.memorySize;
-    this._architecture = props.architecture ?? Architecture.ARM_64;
-    this._reservedConcurrentExecutions = props.reservedConcurrentExecutions;
+  constructor(props: PluginLookupProps = {}) {
     this._resolvedPlugins = props.resolvedPlugins;
-
-    const onEventHandler = this.createLambdaFunction();
-
-    // Log-group strategy:
-    //   Previous code created an `AWS::Logs::LogGroup` resource with an
-    //   EXPLICIT name (`/aws/lambda/plugin-lookup-N`). That breaks every
-    //   re-deploy after a rolled-back stack: AWS auto-creates the group on
-    //   first Lambda invocation, the rollback leaves it as an orphan, and
-    //   the next CDK run fails with "Resource ... already exists" because
-    //   the explicit name collides with the orphan.
-    //
-    //   Fix: use `LogGroup.fromLogGroupName()` to adopt-or-pass-through.
-    //   If the group exists, CDK references it without trying to recreate.
-    //   If it doesn't, AWS Lambda auto-creates it on first invocation.
-    //   Retention is then set via a separate retention-policy custom
-    //   resource which is idempotent (safe to apply to existing groups).
-    const logGroupName = `/aws/lambda/${this._uniqueId.generate('plugin:lookup').replace(/:/g, '-')}`;
-    const logGroup = LogGroup.fromLogGroupName(
-      this,
-      this._uniqueId.generate('log:group'),
-      logGroupName,
-    );
-
-    this._provider = new Provider(this, this._uniqueId.generate('resource:provider'), {
-      onEventHandler,
-      logGroup,
-    });
-
-    log.debug(`PluginLookup initialized for ${props.organization}/${props.project}`);
   }
 
   /**
-   * Looks up and resolves plugin configuration using either a simple name or full PluginOptions object
-   * During synthesis, if the value is unresolved (token), returns fallback plugin
-   * During deployment, attempts to parse the actual value returned by the custom resource
+   * The plugin record for a step: the one `pipeline-manager` pre-resolved
+   * (`resolvedPlugins`). Throws for a plugin that was not pre-resolved — the
+   * synth fails rather than build a step that cannot run its plugin.
    * @param plugin - Plugin name (string) or complete PluginOptions configuration
    * @param stepKey - The step's label (`pluginStepLabel`: `synth` or
-   *   `<stage>/<alias ?? name>`). The deploy-time lookup reports its warnings
-   *   against it, so it must match the step manifest's and the security view's key.
-   * @returns Resolved Plugin object or fallback default configuration
+   *   `<stage>/<alias ?? name>`), named in the error.
    */
-  public plugin(plugin: string | PluginOptions, stepKey?: string): SynthPlugin {
+  public plugin(plugin: string | PluginOptions, stepKey?: string): ResolvedPlugin {
     const props = this.normalize(plugin);
 
-    // Pre-resolved by `pipeline-manager pipeline synth` from the platform API.
-    // Skip the custom resource entirely — we already know the plugin's
-    // name, version, commands, env, etc. at synth time, so the resulting CFN
-    // template can ship with the real CodeBuild image baked in.
+    // Pre-resolved by `pipeline-manager pipeline synth` from the platform API:
+    // the plugin's name, version, commands, env, etc. are known at synth time,
+    // so the resulting CFN template ships with the real CodeBuild image baked in.
     const cacheKey = props.alias || props.name;
-    const preResolved = this._resolvedPlugins?.[cacheKey] as (SynthPlugin & { publisher?: string | null }) | undefined;
+    const preResolved = this._resolvedPlugins?.[cacheKey] as (ResolvedPlugin & { publisher?: string | null }) | undefined;
     // The map is keyed by ALIAS, so check it actually holds THIS plugin. Two
     // steps sharing an alias across different plugins would otherwise get the
     // first one's record back — the second step silently running the wrong
@@ -195,93 +80,16 @@ export class PluginLookup extends Construct {
       );
     }
     if (preResolved) {
-      log.debug(`Plugin "${props.name}" pre-resolved (alias=${cacheKey}) — skipping custom resource`);
+      log.debug(`Plugin "${props.name}" pre-resolved (alias=${cacheKey})`);
       return preResolved;
     }
 
-    const custom = this.createCustomResource(props, stepKey);
-    const encoded = custom.getAttString('ResultValue');
-
-    if (Token.isUnresolved(encoded)) {
-      log.debug(`Plugin "${props.name}" value is unresolved (token) during synthesis — using fallback. The actual plugin will be resolved at deployment time.`);
-      return this.fallback();
-    }
-
-    try {
-      const decoded = Buffer.from(encoded, 'base64').toString('utf-8');
-      const data = JSON.parse(decoded);
-
-      if (!data || typeof data !== 'object' || !data.name || !Array.isArray(data.commands)) {
-        throw new Error('Invalid plugin response: missing required fields (name, commands)');
-      }
-
-      return data as SynthPlugin;
-    } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
-      throw new Error(`Failed to parse plugin "${props.name}" data: ${errorMsg}`);
-    }
-  }
-
-  /**
-   * Creates the Lambda function that serves as the event handler for the custom resource provider.
-   *
-   * JWT token is stored in a pre-existing Secrets Manager secret at
-   * `{SECRETS_PATH_PREFIX}/{orgId}/platform`. The Lambda resolves the
-   * secret by name at runtime using `CoreConstants.SECRETS_PATH_PREFIX`.
-   *
-   * Create the secret before deploying with:
-   *   pipeline-manager infra store-token --days 30 --region <region>
-   */
-  private createLambdaFunction(): Function {
-    if (!this._orgId) {
-      throw new Error('orgId is required for PluginLookup — needed to resolve the per-org platform secret');
-    }
-    const secretName = CoreConstants.secretPath(this._orgId, 'platform');
-    const caBundle = platformCaBundle();
-
-    // PREBUILT at release (see `.projenrc.ts`, pipeline-core post-compile), not
-    // built here.
-    //
-    // This was a `NodejsFunction`, which bundles with esbuild during synth on
-    // whichever machine runs the deploy and therefore requires a
-    // `depsLockFilePath`. The stub lock that satisfied it was named
-    // `pnpm-lock.yaml`, and `pnpm pack` strips files by that name — so no
-    // published copy of the CLI ever had it and every deploy died at synth.
-    //
-    // Shipping the bundle instead costs nothing that was being used: the
-    // bundling options were all static, so each machine was rebuilding a
-    // byte-identical artifact. It also takes esbuild off the deploy path
-    // entirely, which is what the CodeBuild bootstrap image was carrying it for.
-    const fn = new Function(this, this._uniqueId.generate('onevent:handler'), {
-      runtime: this._runtime,
-      timeout: this._timeout,
-      memorySize: this._memorySize,
-      architecture: this._architecture,
-      code: Code.fromAsset(join(MODULE_DIR, '/../handlers/bundle')),
-      handler: 'index.handler',
-      reservedConcurrentExecutions: this._reservedConcurrentExecutions,
-      environment: {
-        PLATFORM_SECRET_NAME: secretName,
-        // PLATFORM_TLS_VERIFY=false: a dev platform on a self-signed certificate.
-        ...(!platformTlsVerify() && {
-          NODE_TLS_REJECT_UNAUTHORIZED: '0',
-        }),
-        // Private-CA platform: verify against the CA instead (core/platform-tls.ts).
-        ...(caBundle && { [PLATFORM_CA_BUNDLE_ENV]: caBundle }),
-        // The lookup reports its warnings against this pipeline (contract C1).
-        ...(this._pipelineId && { PIPELINE_ID: this._pipelineId }),
-      },
-    });
-
-    // Grant the Lambda permission to read the per-org platform secret.
-    // The wildcard suffix handles the 6-char random ID that Secrets Manager appends.
-    fn.addToRolePolicy(new PolicyStatement({
-      effect: Effect.ALLOW,
-      actions: ['secretsmanager:GetSecretValue'],
-      resources: [`arn:aws:secretsmanager:*:*:secret:${secretName}-*`],
-    }));
-
-    return fn;
+    // A step without its record has no image or commands to run, and a step
+    // that can't run its plugin must fail at synth — never ship as a placeholder.
+    throw new Error(
+      `Plugin "${props.publisher ? `${props.publisher}/` : ''}${props.name}"${stepKey ? ` (step ${stepKey})` : ''} was not resolved before synth. `
+      + 'Synthesize through `pipeline-manager pipeline synth`, which resolves every plugin from the platform and fails with the reason when one does not resolve.',
+    );
   }
 
   /**
@@ -304,25 +112,8 @@ export class PluginLookup extends Construct {
     };
   }
 
-  /**
-   * Creates a CustomResource instance that triggers plugin lookup during deployment
-   */
-  private createCustomResource(props: PluginOptions, stepKey?: string): CustomResource {
-    const resourceId = this._uniqueId.generate(props.alias || props.name);
-
-    return new CustomResource(this, resourceId, {
-      serviceToken: this._provider.serviceToken,
-      resourceType: 'Custom::PluginLookup',
-      properties: {
-        baseURL: this._platformUrl,
-        pluginFilter: props.filter,
-        ...(stepKey ? { stepKey } : {}),
-      } as InputProps,
-    });
-  }
-
   /** Base plugin shape with no-op defaults for fields CDK doesn't use. */
-  private static basePlugin(): SynthPlugin {
+  private static basePlugin(): ResolvedPlugin {
     const now = new Date();
     return {
       id: PLACEHOLDER_PLUGIN_ID,
@@ -396,30 +187,6 @@ export class PluginLookup extends Construct {
   }
 
   /**
-   * Fallback for a plugin whose lookup returned no record (not in the platform
-   * catalog for this org) and so could not be pre-resolved at synth.
-   *
-   * This step FAILS the build (exit 1) on purpose. The previous behaviour —
-   * `echo "…" && exit 0` — was a false positive: an unresolved security/quality
-   * step (dependency-check, semgrep, spotbugs, …) reported the stage green while
-   * running nothing, giving false assurance that scans/builds had passed. A
-   * plugin step that can't run its plugin must go red, consistent with
-   * `basePlugin().failureBehavior === 'fail'`. The message is actionable so the
-   * operator knows the catalog is empty/incomplete, not that the tool crashed.
-   */
-  private fallback(): SynthPlugin {
-    return {
-      ...PluginLookup.basePlugin(),
-      commands: [
-        'echo "ERROR: plugin lookup returned no record — this plugin is not in the platform catalog for this org, so the step cannot run." >&2',
-        'echo "This step fails instead of passing as a no-op (an unresolved plugin reporting success would be a false-positive green)." >&2',
-        'echo "Fix: load the plugin into the platform (deploy/bin/load-plugins.sh), then re-run the pipeline." >&2',
-        'exit 1',
-      ],
-    };
-  }
-
-  /**
    * Synth plugin with pipeline-manager commands. Cold-start bootstrap for
    * the synth step when pre-resolution by `pipeline-manager pipeline synth/deploy`
    * didn't populate `resolvedPlugins` for the synth plugin. Runs on the
@@ -438,7 +205,7 @@ export class PluginLookup extends Construct {
    * certificate) adds `--no-verify-ssl` — and the CLI refuses that in
    * production. See core/platform-tls.ts.
    */
-  public bootstrap(): SynthPlugin {
+  public bootstrap(): ResolvedPlugin {
     const tlsFlag = platformTlsVerify() ? '' : ' --no-verify-ssl';
     return {
       ...PluginLookup.basePlugin(),

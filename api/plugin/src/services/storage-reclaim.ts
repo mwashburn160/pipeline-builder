@@ -256,9 +256,11 @@ export async function pruneVersion(orgId: string, repo: string, tag: string): Pr
 
   const c = client();
   if (!c.delete) throw new Error('image-registry client cannot delete');
+  // Query parameters, not a body: the internal HTTP client's DELETE sends none.
+  const query = new URLSearchParams({ repo, tag }).toString();
   const res = await c.delete<{ data?: unknown }>(
-    `/internal/storage-prune/${encodeURIComponent(orgId)}`,
-    { headers: { Authorization: orgAuth(orgId) }, maxRetries: 0, body: { repo, tag } } as never,
+    `/internal/storage-prune/${encodeURIComponent(orgId)}?${query}`,
+    { headers: { Authorization: orgAuth(orgId) }, maxRetries: 0 },
   );
   if (res.statusCode < 200 || res.statusCode >= 300) {
     logger.warn('Registry refused the storage prune', { orgId, repo, tag, status: res.statusCode });

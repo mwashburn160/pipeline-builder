@@ -25,7 +25,7 @@ import { complianceBlockedDetails, validatePipelineWrite } from '../helpers/pipe
 import { recordPipelineResolution } from '../helpers/plugin-contract-check.js';
 import type { PluginWarning } from '../helpers/plugin-save-check.js';
 import { applyPluginUpgrades, previewPluginUpgrades, type AppliedUpgrade, type StepUpgrade } from '../helpers/plugin-upgrades.js';
-import { pipelineExecutionService } from '../services/pipeline-execution-service.js';
+import { DUPLICATE_TRIGGER_MESSAGE, triggerExecutionInWindow } from '../helpers/trigger-execution.js';
 import { pipelineService, type Pipeline } from '../services/pipeline-service.js';
 
 /** Upper bound on pipelines per apply (each is a full validated write). */
@@ -104,7 +104,7 @@ type ApplyOutcome =
  *   validation, plugin contract check, compliance re-check, resolution recording),
  *   audited `pipeline.plugin.upgraded` per pipeline. With `redeploy`, starts an
  *   execution of each upgraded registered pipeline (its synth reads the new config);
- *   otherwise each upgraded pipeline reports `redeployRequired`.
+ *   otherwise the response's `redeployRequired` is true when anything was upgraded.
  *
  * Each route owns its auth chain (mounted with the other self-guarded routers);
  * apiCalls is metered + checked by the '/pipelines' prefix mount in app-routes.ts.
@@ -194,16 +194,31 @@ export function createPluginUpgradeRoutes(): Router {
 
           let redeployOutcome: { executionId: string } | { error: string } | undefined;
           if (redeploy) {
+            // Through the same duplicate window as POST /:id/executions, so a
+            // manual trigger and this redeploy seconds apart start ONE run.
             try {
-              redeployOutcome = await pipelineExecutionService.triggerExecution(id, orgId);
-              recordAudit({
-                action: 'pipeline.execution.start',
-                actorId: actorId({ userId }),
-                orgId,
-                targetType: 'pipeline_execution',
-                targetId: redeployOutcome.executionId,
-                details: { pipelineId: id, reason: 'plugin-upgrade', batchId },
-              });
+              const started = await triggerExecutionInWindow(id, orgId);
+              if (started.status === 'duplicate') {
+                redeployOutcome = { error: DUPLICATE_TRIGGER_MESSAGE };
+                recordAudit({
+                  action: 'pipeline.execution.start',
+                  actorId: actorId({ userId }),
+                  orgId,
+                  targetType: 'pipeline_execution',
+                  outcome: 'failure',
+                  details: { pipelineId: id, reason: 'duplicate_suppressed', batchId },
+                });
+              } else {
+                redeployOutcome = { executionId: started.executionId };
+                recordAudit({
+                  action: 'pipeline.execution.start',
+                  actorId: actorId({ userId }),
+                  orgId,
+                  targetType: 'pipeline_execution',
+                  targetId: started.executionId,
+                  details: { pipelineId: id, reason: 'plugin-upgrade', batchId },
+                });
+              }
             } catch (err) {
               redeployOutcome = { error: errorMessage(err) };
               recordAudit({

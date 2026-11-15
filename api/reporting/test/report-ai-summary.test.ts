@@ -4,8 +4,7 @@
 /**
  * The AI-drafted executive summary.
  *
- * The plan's "Done when" for this phase names three things, and they are the three this
- * file is mostly about:
+ * Three guarantees, and they are the three this file is mostly about:
  *
  *  1. EVERY CLAIM TRACES TO A SNAPSHOT NUMBER. Enforced after generation, not asked for in
  *     the prompt: a prompt is a request and the check is a guarantee. A draft with one

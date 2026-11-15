@@ -5,12 +5,10 @@ import { describe, it, expect, jest, beforeEach, afterEach } from '@jest/globals
 import { Command } from 'commander';
 
 // Mock the tool checks so the preflight's behavior is testable without a real
-// esbuild/cdk on PATH.
+// cdk on PATH.
 const mockEnsureCdk = jest.fn();
-const mockEnsureBundler = jest.fn();
 jest.unstable_mockModule('../src/utils/cdk-utils.js', () => ({
   ensureCdkAvailable: mockEnsureCdk,
-  ensureBundlerAvailable: mockEnsureBundler,
 }));
 
 const { commandPath, requiredToolsFor, preflightCommandTools } = await import('../src/utils/preflight.js');
@@ -35,12 +33,9 @@ describe('commandPath', () => {
 });
 
 describe('requiredToolsFor', () => {
-  it('returns cdk + bundler for pipeline deploy/synth', () => {
-    expect(requiredToolsFor(leaf('pipeline', 'deploy'))).toEqual(['cdk', 'bundler']);
-    expect(requiredToolsFor(leaf('pipeline', 'synth'))).toEqual(['cdk', 'bundler']);
-  });
-
-  it('returns cdk only for infra bootstrap (no Lambda synth → no bundler)', () => {
+  it('returns cdk for pipeline deploy/synth and infra bootstrap (the Lambda ships prebuilt: no bundler)', () => {
+    expect(requiredToolsFor(leaf('pipeline', 'deploy'))).toEqual(['cdk']);
+    expect(requiredToolsFor(leaf('pipeline', 'synth'))).toEqual(['cdk']);
     expect(requiredToolsFor(leaf('infra', 'bootstrap'))).toEqual(['cdk']);
   });
 
@@ -56,22 +51,19 @@ describe('preflightCommandTools', () => {
   let exitSpy: ReturnType<typeof jest.spyOn>;
   beforeEach(() => {
     mockEnsureCdk.mockReset();
-    mockEnsureBundler.mockReset();
     exitSpy = jest.spyOn(process, 'exit').mockImplementation((() => undefined) as never);
   });
   afterEach(() => { exitSpy.mockRestore(); });
 
-  it('checks cdk + bundler for a gated command', () => {
+  it('checks cdk for a gated command', () => {
     preflightCommandTools(leaf('pipeline', 'deploy'));
     expect(mockEnsureCdk).toHaveBeenCalledTimes(1);
-    expect(mockEnsureBundler).toHaveBeenCalledTimes(1);
     expect(exitSpy).not.toHaveBeenCalled();
   });
 
   it('is a no-op (no checks, no exit) for an ungated command', () => {
     preflightCommandTools(leaf('plugin', 'list'));
     expect(mockEnsureCdk).not.toHaveBeenCalled();
-    expect(mockEnsureBundler).not.toHaveBeenCalled();
     expect(exitSpy).not.toHaveBeenCalled();
   });
 

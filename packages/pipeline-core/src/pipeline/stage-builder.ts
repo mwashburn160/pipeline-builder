@@ -63,11 +63,6 @@ export interface StageBuilderProps {
   readonly runtimeVulnCheck?: { readonly platformSecretName: string };
 }
 
-// `codePipelineStageName` moved to the CDK-free `deploy-attribution.ts` so the API
-// can derive `pb.deploys` without pulling aws-cdk-lib; re-exported here because
-// stage construction is where callers expect to find it.
-export { codePipelineStageName };
-
 /**
  * Builds and adds pipeline stages (waves) to a CodePipeline.
  *

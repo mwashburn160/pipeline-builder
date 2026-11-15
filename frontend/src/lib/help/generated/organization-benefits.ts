@@ -1,6 +1,6 @@
 // GENERATED FROM docs/organization-benefits.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 2cd5960caca3279b3d11dbf0b673d7120f2a1529e8dcb7d76d685471760835e9
+// SOURCE-SHA256: 05ec3eca182e0121b68559b10ebeaf51f891cb8faafe1edcf7662f8d1b491d1c
 // SPDX-License-Identifier: Apache-2.0
 import { Building2 } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -656,7 +656,7 @@ export const organizationBenefitsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "AI allowances are far smaller than API allowances because an AI call carries an external per-call dollar cost while an API call costs us almost nothing. One AI call is an agent turn (its reasoning, which may be several model round-trips); a generating tool the agent invokes consumes another. -1 in the code means unlimited. System-org users always have every feature. Every limit and price is env-overridable (QUOTA_TIER_<TIER>_<LIMIT>, BILLING_PLAN_<TIER>_MONTHLY)."
+          "content": "AI allowances are far smaller than API allowances because an AI call carries an external per-call dollar cost while an API call costs us almost nothing. One AI call is an agent turn (its reasoning, which may be several model round-trips); a generating tool the agent invokes consumes another. -1 in the code means unlimited. System-org users always have every feature. Every limit and price is env-overridable (PLAN_TIER_<TIER>_<LIMIT>, BILLING_PLAN_<TIER>_MONTHLY)."
         },
         {
           "type": "text",

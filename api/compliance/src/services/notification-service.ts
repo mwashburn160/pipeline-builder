@@ -118,8 +118,8 @@ export async function getOrgsWithPendingDigests(): Promise<string[]> {
 
 export interface PendingDigestEntry { id: string; notification: NotificationMessage }
 
-/** Pending digest entries for an org, oldest first. */
-export async function getPendingDigests(orgId: string): Promise<PendingDigestEntry[]> {
+/** Up to `limit` pending digest entries for an org, oldest first. */
+export async function getPendingDigests(orgId: string, limit: number): Promise<PendingDigestEntry[]> {
   const rows = await withTenantTx(async (tx) => tx
     .select({ id: schema.complianceNotificationLog.id, payload: schema.complianceNotificationLog.payload })
     .from(schema.complianceNotificationLog)
@@ -128,7 +128,8 @@ export async function getPendingDigests(orgId: string): Promise<PendingDigestEnt
       eq(schema.complianceNotificationLog.channel, 'digest'),
       eq(schema.complianceNotificationLog.status, 'pending'),
     ))
-    .orderBy(schema.complianceNotificationLog.createdAt));
+    .orderBy(schema.complianceNotificationLog.createdAt)
+    .limit(limit));
   return rows.map((r) => ({ id: r.id, notification: r.payload as unknown as NotificationMessage }));
 }
 

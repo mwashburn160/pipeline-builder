@@ -286,7 +286,7 @@ export function pipelinesApi(core: ApiCore) {
      * Register (upsert) a deployed pipeline in the registry by its stable
      * pipelineId. The server rejects a pipelineId the caller's org does not own
      * (404) or one already claimed by another org (409). Requires
-     * `pipelines:write`.
+     * `pipeline_registry:write`.
      */
     registerPipelineDeployment: async (body: {
       pipelineId: string;
@@ -305,7 +305,7 @@ export function pipelinesApi(core: ApiCore) {
     /**
      * Deregister a deployed pipeline by its registry row UUID (org-scoped on the
      * server). Used to reconcile drift after a stack is removed out-of-band.
-     * Requires `pipelines:write`.
+     * Requires `pipeline_registry:write`.
      */
     deregisterPipelineDeployment: async (id: string) => {
       return core.request<ApiResponse<{ id: string }>>(`/api/pipelines/registry/${encodeURIComponent(id)}`, {

@@ -96,9 +96,18 @@ export async function checkAiControls(
     if (controls.aiTokenBudget === null && !shareApplies) return null;
 
     // The period the account's counter is in: [resetAt − period length, resetAt).
+    // An EXPIRED `resetAt` means the next reservation opens a fresh period (the
+    // counter only rolls on a write), so nothing has been spent in it yet: count
+    // from now. Reading back from the stale `resetAt` instead was a permanent
+    // lockout — a spent budget refuses before the counter moves, so `resetAt`
+    // never advanced and the old period's spend kept refusing every call.
     const status = await svc.getQuotaStatus(orgId, 'aiCalls');
-    const resetAt = new Date(status.resetAt);
-    const periodStart = new Date(resetAt.getTime() - periodDaysFor('aiCalls') * DAY_MS);
+    const periodMs = periodDaysFor('aiCalls') * DAY_MS;
+    const now = Date.now();
+    const storedResetAt = new Date(status.resetAt);
+    const live = storedResetAt.getTime() > now;
+    const resetAt = live ? storedResetAt : new Date(now + periodMs);
+    const periodStart = live ? new Date(storedResetAt.getTime() - periodMs) : new Date(now);
 
     if (controls.aiTokenBudget !== null) {
       const spent = await aiTokensSince(rootOrgId, periodStart);

@@ -19,9 +19,9 @@
 import { describe, it, expect, jest } from '@jest/globals';
 import { composeSnapshot, LOW_SAMPLE_THRESHOLD } from '../src/api/reporting/stakeholder/compose.js';
 import { resolvePeriod } from '../src/api/reporting/stakeholder/period.js';
-import { allSections, getSection, registerSection, sectionIds } from '../src/api/reporting/stakeholder/sections.js';
+import { allSections, getReportSection, registerReportSection, sectionIds } from '../src/api/reporting/stakeholder/sections.js';
 import type { SectionDataSource } from '../src/api/reporting/stakeholder/sections.js';
-import { getTemplate, REPORT_TEMPLATE_SPECS } from '../src/api/reporting/stakeholder/templates.js';
+import { getReportTemplate, REPORT_TEMPLATE_SPECS } from '../src/api/reporting/stakeholder/templates.js';
 
 const PERIOD = resolvePeriod('weekly', 'UTC', 'monday', new Date('2026-09-23T12:00:00Z'));
 
@@ -72,24 +72,24 @@ describe('section registry', () => {
   it('registers a section per ReportingService read method that a report can use', () => {
     // Every id is addressable, which is what lets a definition name one.
     expect(sectionIds().length).toBeGreaterThanOrEqual(15);
-    expect(getSection('success_rate')).toBeDefined();
-    expect(getSection('dora')).toBeDefined();
+    expect(getReportSection('success_rate')).toBeDefined();
+    expect(getReportSection('dora')).toBeDefined();
   });
 
   it('gates DORA sections on advanced_reporting, and leaves the rest free', () => {
-    expect(getSection('dora')!.requiresFeature).toBe('advanced_reporting');
-    expect(getSection('dora_trend')!.requiresFeature).toBe('advanced_reporting');
+    expect(getReportSection('dora')!.requiresFeature).toBe('advanced_reporting');
+    expect(getReportSection('dora_trend')!.requiresFeature).toBe('advanced_reporting');
     // On-demand dashboard metrics stay free — the add-on sells scheduling and
     // publishing, not looking at your own success rate.
-    expect(getSection('success_rate')!.requiresFeature).toBeUndefined();
-    expect(getSection('execution_count')!.requiresFeature).toBeUndefined();
+    expect(getReportSection('success_rate')!.requiresFeature).toBeUndefined();
+    expect(getReportSection('execution_count')!.requiresFeature).toBeUndefined();
   });
 
   it('marks list sections as NOT comparable, so no nonsense trend arrow appears', () => {
     // "Top failing stages, down 3%" is meaningless.
-    expect(getSection('stage_failures')!.comparable).toBe(false);
-    expect(getSection('errors')!.comparable).toBe(false);
-    expect(getSection('success_rate')!.comparable).toBe(true);
+    expect(getReportSection('stage_failures')!.comparable).toBe(false);
+    expect(getReportSection('errors')!.comparable).toBe(false);
+    expect(getReportSection('success_rate')!.comparable).toBe(true);
   });
 
   it('gives every section a manager-facing title, not a metric name', () => {
@@ -104,14 +104,14 @@ describe('section registry', () => {
     // The guardrail has to be executable. A comment saying "team-level only" does
     // not stop the next person adding a leaderboard.
     for (const id of ['top_committers', 'per_member_success', 'developer_ranking', 'failures_by_user']) {
-      expect(() => registerSection({
+      expect(() => registerReportSection({
         id, title: 'Nope', comparable: true, run: async () => ({}),
       })).toThrow(/per-person/);
     }
   });
 
   it('refuses a duplicate id', () => {
-    expect(() => registerSection({
+    expect(() => registerReportSection({
       id: 'success_rate', title: 'Dup', comparable: true, run: async () => ({}),
     })).toThrow(/Duplicate/);
   });
@@ -123,22 +123,22 @@ describe('templates', () => {
     // rather than trusting that it ran.
     for (const t of REPORT_TEMPLATE_SPECS) {
       for (const id of t.sections) {
-        expect([t.id, id, getSection(id) !== undefined]).toEqual([t.id, id, true]);
+        expect([t.id, id, getReportSection(id) !== undefined]).toEqual([t.id, id, true]);
       }
     }
   });
 
   it('pairs each template with the cadence it is designed for', () => {
-    expect(getTemplate('weekly_delivery')!.cadence).toBe('weekly');
-    expect(getTemplate('monthly_health')!.cadence).toBe('monthly');
-    expect(getTemplate('quarterly_review')!.cadence).toBe('quarterly');
+    expect(getReportTemplate('weekly_delivery')!.cadence).toBe('weekly');
+    expect(getReportTemplate('monthly_health')!.cadence).toBe('monthly');
+    expect(getReportTemplate('quarterly_review')!.cadence).toBe('quarterly');
   });
 
   it('keeps DORA out of the WEEKLY template', () => {
     // Weekly DORA on a normal team is too small a sample to mean anything, and for
     // an org without the add-on the locked panel would dominate the page.
-    expect(getTemplate('weekly_delivery')!.sections).not.toContain('dora');
-    expect(getTemplate('monthly_health')!.sections).toContain('dora');
+    expect(getReportTemplate('weekly_delivery')!.sections).not.toContain('dora');
+    expect(getReportTemplate('monthly_health')!.sections).toContain('dora');
   });
 
   /**
@@ -155,7 +155,7 @@ describe('templates', () => {
   it('leads each template with the decision or an "are we shipping" headline, never a table', () => {
     for (const t of REPORT_TEMPLATE_SPECS) {
       const firstId = t.sections[0];
-      const first = getSection(firstId)!;
+      const first = getReportSection(firstId)!;
       const opensWell = firstId === 'needs_attention' || first.comparable;
       expect([t.id, firstId, opensWell]).toEqual([t.id, firstId, true]);
     }
@@ -386,7 +386,7 @@ describe('composeSnapshot', () => {
   });
 
   it('composes a whole template end to end', async () => {
-    const template = getTemplate('weekly_delivery')!;
+    const template = getReportTemplate('weekly_delivery')!;
     const snap = await composeSnapshot(template.sections, opts());
     expect(snap.sections).toHaveLength(template.sections.length);
     expect(snap.sections.every((s) => s.state === 'ok')).toBe(true);

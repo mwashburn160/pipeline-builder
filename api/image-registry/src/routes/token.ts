@@ -62,22 +62,7 @@ function identityAttribution(identity: Identity): { actorId: string; orgId: stri
   return { actorId: SYSTEM_ACTOR_ID, orgId: SYSTEM_ORG_ID, details: { identityType: identity.type } };
 }
 
-/**
- * Docker registry token endpoint per the Distribution token-auth spec.
- *
- *   GET /token?service=...&scope=...&account=...
- *   Authorization: Basic <b64(user:pass)>
- *
- * 200 OK
- *   { "token": "<JWT>", "access_token": "<JWT>", "expires_in": 300, "issued_at": "..." }
- *
- *   401 Unauthorized
- *   WWW-Authenticate: Basic realm="pipeline-image-registry"
- *
- * The `expires_in` and `issued_at` are advisory; the registry decides validity
- * by verifying the JWT itself. Both `token` and `access_token` carry the same
- * value — older Docker clients use `token`, newer ones expect `access_token`.
- */
+/** Put a GRANTING token issuance on the audit trail (never the credential itself). */
 function auditIssuedToken(
   identity: Identity,
   access: RegistryScope[],
@@ -126,6 +111,22 @@ function auditIssuedToken(
   });
 }
 
+/**
+ * Docker registry token endpoint per the Distribution token-auth spec.
+ *
+ *   GET /token?service=...&scope=...&account=...
+ *   Authorization: Basic <b64(user:pass)>
+ *
+ * 200 OK
+ *   { "token": "<JWT>", "access_token": "<JWT>", "expires_in": 300, "issued_at": "..." }
+ *
+ *   401 Unauthorized
+ *   WWW-Authenticate: Basic realm="pipeline-image-registry"
+ *
+ * The `expires_in` and `issued_at` are advisory; the registry decides validity
+ * by verifying the JWT itself. Both `token` and `access_token` carry the same
+ * value — older Docker clients use `token`, newer ones expect `access_token`.
+ */
 export function createTokenRoute(): Router {
   const router = Router();
 

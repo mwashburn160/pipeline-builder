@@ -1,6 +1,6 @@
 // GENERATED FROM docs/onboarding.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 487d1953a6c5491c71a7a7c59dbeefb80ff5b63722578f8052788f1b4cdfd101
+// SOURCE-SHA256: 47b54463c0a9c9c511d988f5c536f5e0cdc882726161c378a7196f7b2a9fb8ac
 // SPDX-License-Identifier: Apache-2.0
 import { Rocket } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -329,11 +329,11 @@ export const onboardingTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "CodeBuild, the plugin-lookup Lambda and the event-ingestion Lambda each read a service-account key from AWS Secrets Manager (under pipeline-builder/{orgId}/…) — a machine identity owned by the org, not your own token. If you didn't pass --with-events, provision them by hand:"
+          "content": "CodeBuild and the event-ingestion Lambda each read a service-account key from AWS Secrets Manager (under pipeline-builder/{orgId}/…) — a machine identity owned by the org, not your own token. If you didn't pass --with-events, provision them by hand:"
         },
         {
           "type": "code",
-          "content": "export PLATFORM_PASSWORD='…'\n\npipeline-manager infra store-token --days 30 --schedule --region us-east-1\npipeline-manager infra store-token --scope registry:push --schedule --region us-east-1\npipeline-manager infra store-token --scope reporting:ingest --schedule --region us-east-1",
+          "content": "export PLATFORM_PASSWORD='…'\n\npipeline-manager infra store-token --expires-days 30 --schedule --region us-east-1\npipeline-manager infra store-token --scope registry:push --schedule --region us-east-1\npipeline-manager infra store-token --scope reporting:ingest --schedule --region us-east-1",
           "language": "bash"
         },
         {

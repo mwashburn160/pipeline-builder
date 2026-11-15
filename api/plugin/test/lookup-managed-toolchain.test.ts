@@ -15,7 +15,7 @@ import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { stubModule } from '@pipeline-builder/api-core/testing';
 import * as z from 'zod';
 import { apiCoreMock } from './helpers/mock-api-core.js';
-import { toSynthPlugin } from './helpers/synth-plugin.js';
+import { toResolvedPlugin } from './helpers/resolved-plugin.js';
 
 const mockFind = jest.fn<AnyFn>();
 const mockNormalizeArrayFields = jest.fn((p: unknown) => p);
@@ -88,7 +88,7 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
 }));
 
 jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@pipeline-builder/pipeline-core', {
-  toSynthPlugin,
+  toResolvedPlugin,
   pluginImageRepository: (p: { orgId: string; name: string; buildType?: string | null }) => (p.buildType === 'metadata_only' ? null : `${p.orgId === '000000000000000000000001' ? 'system' : `org-${p.orgId}`}/${p.name}`),
   CoreConstants: { CACHE_CONTROL_LIST: 'public, max-age=60', CACHE_CONTROL_DETAIL: 'public, max-age=300' },
   Config: { get: () => ({ host: 'registry', port: 5000, network: '', http: true }) },
@@ -162,7 +162,7 @@ function makeRes() {
 
 const DIGEST = `sha256:${'b'.repeat(64)}`;
 const SYSTEM = '000000000000000000000001';
-const TOOLCHAIN = { pipelineManager: '3.4.0', awsCdk: '2.275.0', cdkAssets: '3.1.0', esbuild: '0.25.0', pnpm: '10.0.0', node: '22.11.0' };
+const TOOLCHAIN = { pipelineManager: '3.4.0', awsCdk: '2.275.0', cdkAssets: '3.1.0', node: '22.11.0' };
 const half = (name: string, version: string) => ({
   id: `${name}-${version}`,
   orgId: SYSTEM,
@@ -279,7 +279,7 @@ describe('/plugins/lookup — managed toolchain names', () => {
     expect(sent().toolchain).toEqual({ releaseVersion: '1.4.0', resolvedVia: 'default' });
   });
 
-  it('/lookup answers without the fields synth never reads; /find keeps the full record', async () => {
+  it('/lookup answers without the fields no pipeline build reads; /find keeps the full record', async () => {
     // The scan summary alone is up to 500 findings: carried into the synth
     // app's props whole, two toolchain halves' worth exceeded one process
     // environment variable (E2BIG).

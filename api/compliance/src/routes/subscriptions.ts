@@ -132,8 +132,9 @@ export function createPublishedRulesCatalogRoutes(): Router {
 }
 
 /**
- * Routes for managing rule subscriptions.
- * Any authenticated org can subscribe/unsubscribe from published rules.
+ * Routes for managing rule subscriptions: `compliance:read` for the opt-in
+ * actions, `compliance:write` for the posture-weakening and authoring ones
+ * (see {@link requireComplianceRead}).
  */
 export function createSubscriptionRoutes(): Router {
   const router = Router();
@@ -318,8 +319,7 @@ export function createSubscriptionRoutes(): Router {
   // upstream link). Named `clone`, not `fork`: "fork" carries git connotations
   // (track upstream for merge) this does not deliver.
   // Cloning authors a new org-scoped rule (same write as POST /compliance/rules),
-  // so it requires `compliance:write`. Subscribe/toggle/delete below stay at
-  // member level — those are per-org opt-in, not rule authoring.
+  // so it requires `compliance:write`, like pin/unpin/unsubscribe below.
   router.post('/clone', requireComplianceWrite, audited('compliance.rule.create'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const validation = validateBody(req, SubscribeSchema);
     if (!validation.ok) {
@@ -371,7 +371,7 @@ export function createSubscriptionRoutes(): Router {
     return sendSuccess(res, 200, { rules, total: rules.length });
   }));
 
-  // POST /preview/impact — evaluate a published-or-org rule against the caller's
+  // POST /preview/impact — evaluate a published rule against the caller's
   // existing plugins/pipelines (whichever target the rule applies to) WITHOUT
   // subscribing or persisting. Returns aggregate counts + up to 10 samples of
   // failing entities so the org admin can see "this rule would fail 12/80

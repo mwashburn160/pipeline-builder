@@ -265,10 +265,3 @@ export function validateTemplateDraft(draft: TemplateDraftLike): TemplateDraftVa
   };
 }
 
-/** One readable line per problem, for a tool result or an error body. */
-export function formatTemplateDraftProblems(problems: readonly TemplateDraftProblem[]): string[] {
-  return problems.map((p) => {
-    const where = p.field ? `${p.field}${p.line !== undefined ? `:${p.line}:${p.col}` : ''}` : p.kind;
-    return `[${where}] ${p.message}`;
-  });
-}

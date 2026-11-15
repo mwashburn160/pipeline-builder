@@ -1,281 +1,38 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import type { AnyFn } from '@pipeline-builder/api-core/testing';
-import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
+import { jest, describe, it, expect } from '@jest/globals';
 import { apiCoreMock } from './helpers/mock-api-core.js';
-
-// Mock CDK and heavy dependencies before imports
-// `Function` + a prebuilt `Code.fromAsset`, not `NodejsFunction`: the handler is
-// bundled once at release (see `.projenrc.ts`), so nothing is built here at
-// synth and there is no `depsLockFilePath` to ship.
-const mockFunction = jest.fn<AnyFn>().mockImplementation(() => ({
-  addToRolePolicy: jest.fn<AnyFn>(),
-}));
-const mockCodeFromAsset = jest.fn<AnyFn>().mockImplementation((path: string) => ({ path }));
-const mockLogGroup = jest.fn<AnyFn>();
-const mockProvider = jest.fn<AnyFn>().mockImplementation(() => ({
-  serviceToken: 'arn:aws:lambda:us-east-1:123456789:function:provider',
-}));
-const mockCustomResource = jest.fn<AnyFn>().mockImplementation(() => ({
-  getAttString: jest.fn<AnyFn>().mockReturnValue('unresolved-token'),
-}));
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 
-jest.unstable_mockModule('aws-cdk-lib/aws-codebuild', () => ({
-  BuildEnvironmentVariableType: { PLAINTEXT: 'PLAINTEXT', SECRETS_MANAGER: 'SECRETS_MANAGER', PARAMETER_STORE: 'PARAMETER_STORE' },
-  ComputeType: { SMALL: 'BUILD_GENERAL1_SMALL', MEDIUM: 'BUILD_GENERAL1_MEDIUM', LARGE: 'BUILD_GENERAL1_LARGE', X2_LARGE: 'BUILD_GENERAL1_2XLARGE' },
-  LinuxBuildImage: { STANDARD_8_0: 'aws/codebuild/standard:8.0' },
-  BuildSpec: { fromObject: (o: unknown) => ({ __buildSpec: o }) },
-}));
-
-jest.unstable_mockModule('aws-cdk-lib', () => ({
-  CustomResource: mockCustomResource,
-  Token: {
-    isUnresolved: jest.fn<AnyFn>().mockReturnValue(true),
-  },
-  Duration: {
-    seconds: jest.fn((s: number) => ({ toSeconds: () => s })),
-    minutes: jest.fn((m: number) => ({ toMinutes: () => m })),
-  },
-  RemovalPolicy: { DESTROY: 'DESTROY' },
-  Stack: jest.fn<AnyFn>(),
-  SecretValue: { plainText: jest.fn((v: string) => v) },
-  Tags: { of: jest.fn(() => ({ add: jest.fn<AnyFn>() })) },
-}));
-
-jest.unstable_mockModule('aws-cdk-lib/aws-lambda', () => ({
-  // Constructible on purpose: aws-config-cdk builds the nodejs26.x PREVIEW
-  // runtime with `new Runtime(...)`, because aws-cdk-lib ships no NODEJS_26_X
-  // member. A plain object here fails with "Runtime is not a constructor".
-  Runtime: Object.assign(
-    class MockRuntime {
-      constructor(readonly name: string) {}
-      toString() { return this.name; }
-    },
-    { NODEJS_24_X: 'nodejs24.x' },
-  ),
-  RuntimeFamily: { NODEJS: 0 },
-  Architecture: { ARM_64: 'arm64' },
-  Function: mockFunction,
-  Code: { fromAsset: mockCodeFromAsset },
-}));
-
-// LogGroup needs both the constructor stub AND the static `fromLogGroupName`
-// adopt-or-pass-through method (used for collision-resilient log group
-// references — see plugin-lookup.ts header).
-const mockLogGroupFromName = jest.fn<AnyFn>().mockImplementation((_scope: unknown, _id: unknown, name: string) => ({
-  logGroupName: name,
-  logGroupArn: `arn:aws:logs:us-east-1:123456789:log-group:${name}`,
-}));
-(mockLogGroup as unknown as { fromLogGroupName: typeof mockLogGroupFromName }).fromLogGroupName = mockLogGroupFromName;
-
-jest.unstable_mockModule('aws-cdk-lib/aws-logs', () => ({
-  LogGroup: mockLogGroup,
-  RetentionDays: { ONE_WEEK: 7, ONE_MONTH: 30 },
-}));
-
-jest.unstable_mockModule('aws-cdk-lib/custom-resources', () => ({
-  Provider: mockProvider,
-}));
-
-jest.unstable_mockModule('constructs', () => ({
-  Construct: jest.fn<AnyFn>(),
-}));
-
-const { Token } = await import('aws-cdk-lib');
-const { UniqueId } = await import('../src/core/id-generator.js');
 const { PluginLookup } = await import('../src/pipeline/plugin-lookup.js');
-type UniqueId = InstanceType<typeof UniqueId>;
-
-// Minimal mock scope
-const mockScope = {} as any;
-
-function createUniqueId(): UniqueId {
-  return new UniqueId({ organization: 'test-org', project: 'test-project' });
-}
 
 describe('PluginLookup', () => {
-  const originalEnv = process.env;
-
-  beforeEach(() => {
-    jest.clearAllMocks();
-    process.env = { ...originalEnv, CREDENTIALS_SECRET_ARN: 'arn:aws:secretsmanager:us-east-1:123456789:secret:test-AbCdEf' };
-
-    // Reset the mock to return the provider shape
-    mockProvider.mockImplementation(() => ({
-      serviceToken: 'arn:aws:lambda:us-east-1:123456789:function:provider',
-    }));
-
-    // Default: Token.isUnresolved returns true (synth-time behavior)
-    (Token.isUnresolved as jest.Mock<AnyFn>).mockReturnValue(true);
-  });
-
-  afterEach(() => {
-    process.env = originalEnv;
-  });
-
-  describe('constructor', () => {
-    it('should create construct with valid props', () => {
-      expect(() => new PluginLookup(mockScope, 'TestLookup', {
-        organization: 'my-org',
-        orgId: 'test-org',
-        project: 'my-project',
-        platformUrl: 'https://api.example.com',
-        uniqueId: createUniqueId(),
-      })).not.toThrow();
-    });
-
-    it('should throw if organization is missing', () => {
-      expect(() => new PluginLookup(mockScope, 'TestLookup', {
-        organization: '',
-        project: 'my-project',
-        platformUrl: 'https://api.example.com',
-        uniqueId: createUniqueId(),
-      })).toThrow('Both organization and project are required');
-    });
-
-    it('should throw if project is missing', () => {
-      expect(() => new PluginLookup(mockScope, 'TestLookup', {
-        organization: 'my-org',
-        orgId: 'test-org',
-        project: '',
-        platformUrl: 'https://api.example.com',
-        uniqueId: createUniqueId(),
-      })).toThrow('Both organization and project are required');
-    });
-  });
-
-  describe('credential security', () => {
-    it('should not embed plaintext credentials in Lambda environment', () => {
-      new PluginLookup(mockScope, 'TestLookup', {
-        organization: 'my-org',
-        orgId: 'test-org',
-        project: 'my-project',
-        platformUrl: 'https://api.example.com',
-        uniqueId: createUniqueId(),
-      });
-
-      const callArgs = mockFunction.mock.calls[0][2];
-      const env = callArgs.environment || {};
-      expect(env).not.toHaveProperty('PLATFORM_EMAIL');
-      expect(env).not.toHaveProperty('PLATFORM_PASSWORD');
-      expect(env).not.toHaveProperty('PLATFORM_BASE_URL');
-    });
-
-    it('should grant Secrets Manager read access via IAM policy', () => {
-      new PluginLookup(mockScope, 'TestLookup', {
-        organization: 'my-org',
-        orgId: 'test-org',
-        project: 'my-project',
-        platformUrl: 'https://api.example.com',
-        uniqueId: createUniqueId(),
-      });
-
-      // The mock Function should have addToRolePolicy called
-      const fnInstance = mockFunction.mock.results[0].value;
-      expect(fnInstance.addToRolePolicy).toHaveBeenCalled();
-    });
+  // Every plugin is resolved by the CLI before the CDK app runs, so the lookup
+  // deploys nothing: no Lambda, no Provider, no custom resource.
+  it('is plain data, not a construct, and needs no scope', () => {
+    const lookup = new PluginLookup();
+    expect(lookup).not.toHaveProperty('node');
   });
 
   describe('plugin()', () => {
-    it('should return fallback when token is unresolved during synth', () => {
-      (Token.isUnresolved as jest.Mock<AnyFn>).mockReturnValue(true);
+    // A plugin that did not resolve fails the synth: a step without its record
+    // has no image or commands, and must never ship as a placeholder step.
+    it('throws for a plugin that was not pre-resolved, ', () => {
+      const lookup = new PluginLookup();
 
-      const lookup = new PluginLookup(mockScope, 'TestLookup', {
-        organization: 'my-org',
-        orgId: 'test-org',
-        project: 'my-project',
-        platformUrl: 'https://api.example.com',
-        uniqueId: createUniqueId(),
-      });
-
-      const result = lookup.plugin('nodejs-build');
-
-      expect(result.name).toBe('fallback');
-      expect(result.primaryOutputDirectory).toBe('cdk.out');
-      // An unresolved plugin step must FAIL, not pass as a no-op — otherwise a
-      // missing security/quality plugin reports the stage green (false positive).
-      expect(result.commands[result.commands.length - 1]).toBe('exit 1');
-      expect(result.commands.some(c => c.includes('no record'))).toBe(true);
+      expect(() => lookup.plugin('nodejs-build')).toThrow(/Plugin "nodejs-build" was not resolved before synth/);
     });
 
-    it('should normalize string plugin to PluginOptions', () => {
-      (Token.isUnresolved as jest.Mock<AnyFn>).mockReturnValue(true);
+    it('names the publisher and the step in the error', () => {
+      const lookup = new PluginLookup();
 
-      const lookup = new PluginLookup(mockScope, 'TestLookup', {
-        organization: 'my-org',
-        orgId: 'test-org',
-        project: 'my-project',
-        platformUrl: 'https://api.example.com',
-        uniqueId: createUniqueId(),
-      });
-
-      lookup.plugin('my-plugin');
-
-      // CustomResource should have been called with the normalized filter
-      expect(mockCustomResource).toHaveBeenCalledWith(
-        expect.anything(),
-        expect.any(String),
-        expect.objectContaining({
-          properties: expect.objectContaining({
-            pluginFilter: { name: 'my-plugin', isActive: true, isDefault: true },
-          }),
-        }),
-      );
+      expect(() => lookup.plugin({ name: 'lint', publisher: 'acme' }, 'Build/lint'))
+        .toThrow(/Plugin "acme\/lint" \(step Build\/lint\) was not resolved before synth/);
     });
 
-    it('should use provided filter from PluginOptions', () => {
-      (Token.isUnresolved as jest.Mock<AnyFn>).mockReturnValue(true);
-
-      const lookup = new PluginLookup(mockScope, 'TestLookup', {
-        organization: 'my-org',
-        orgId: 'test-org',
-        project: 'my-project',
-        platformUrl: 'https://api.example.com',
-        uniqueId: createUniqueId(),
-      });
-
-      const customFilter = { name: 'my-plugin', version: '2.0.0', isActive: true };
-      lookup.plugin({ name: 'my-plugin', filter: customFilter });
-
-      expect(mockCustomResource).toHaveBeenCalledWith(
-        expect.anything(),
-        expect.any(String),
-        expect.objectContaining({
-          properties: expect.objectContaining({
-            pluginFilter: customFilter,
-          }),
-        }),
-      );
-    });
-
-    it('should pass platformUrl as baseURL to custom resource', () => {
-      (Token.isUnresolved as jest.Mock<AnyFn>).mockReturnValue(true);
-
-      const lookup = new PluginLookup(mockScope, 'TestLookup', {
-        organization: 'my-org',
-        orgId: 'test-org',
-        project: 'my-project',
-        platformUrl: 'https://my-platform.example.com',
-        uniqueId: createUniqueId(),
-      });
-
-      lookup.plugin('test-plugin');
-
-      expect(mockCustomResource).toHaveBeenCalledWith(
-        expect.anything(),
-        expect.any(String),
-        expect.objectContaining({
-          properties: expect.objectContaining({
-            baseURL: 'https://my-platform.example.com',
-          }),
-        }),
-      );
-    });
-
-    it('should return pre-resolved plugin and skip custom resource', () => {
+    it('should return the pre-resolved plugin verbatim', () => {
       const preResolved = {
         id: 'plugin-id',
         name: 'nodejs-build',
@@ -285,55 +42,35 @@ describe('PluginLookup', () => {
         buildType: 'build_image',
       };
 
-      const lookup = new PluginLookup(mockScope, 'TestLookup', {
-        organization: 'my-org',
-        orgId: 'test-org',
-        project: 'my-project',
-        platformUrl: 'https://api.example.com',
-        uniqueId: createUniqueId(),
+      const lookup = new PluginLookup({
         resolvedPlugins: { 'nodejs-build-alias': preResolved as never },
       });
 
-      mockCustomResource.mockClear();
       const result = lookup.plugin('nodejs-build');
 
       // Returns the pre-resolved plugin verbatim — name, version, commands, etc. intact.
       expect(result).toBe(preResolved);
       expect(result.name).toBe('nodejs-build');
       expect(result.version).toBe('1.2.3');
-      // Skips the custom resource entirely.
-      expect(mockCustomResource).not.toHaveBeenCalled();
     });
 
     it('should match pre-resolved plugin by explicit alias', () => {
       const preResolved = { name: 'snyk-scan', version: '1.0.0', commands: [] };
 
-      const lookup = new PluginLookup(mockScope, 'TestLookup', {
-        organization: 'my-org',
-        orgId: 'test-org',
-        project: 'my-project',
-        platformUrl: 'https://api.example.com',
-        uniqueId: createUniqueId(),
+      const lookup = new PluginLookup({
         resolvedPlugins: { 'snyk-prod': preResolved as never },
       });
 
-      mockCustomResource.mockClear();
       const result = lookup.plugin({ name: 'snyk-scan', alias: 'snyk-prod' });
 
       expect(result).toBe(preResolved);
-      expect(mockCustomResource).not.toHaveBeenCalled();
     });
 
     it('refuses a pre-resolved entry that holds a DIFFERENT plugin under this alias', () => {
       // The map is keyed by alias. Two steps sharing an alias across different
       // plugins used to get the first plugin's record back, so the second step
       // silently ran the wrong image and commands.
-      const lookup = new PluginLookup(mockScope, 'TestLookup', {
-        organization: 'my-org',
-        orgId: 'test-org',
-        project: 'my-project',
-        platformUrl: 'https://api.example.com',
-        uniqueId: createUniqueId(),
+      const lookup = new PluginLookup({
         resolvedPlugins: { build: { name: 'nodejs-build', version: '1.0.0', commands: [] } as never },
       });
 
@@ -342,240 +79,24 @@ describe('PluginLookup', () => {
     });
 
     it('keys a publisher reference by <publisher>-<name>-alias and refuses a record from another publisher', () => {
-      const lookup = new PluginLookup(mockScope, 'TestLookup', {
-        organization: 'my-org',
-        orgId: 'test-org',
-        project: 'my-project',
-        platformUrl: 'https://api.example.com',
-        uniqueId: createUniqueId(),
+      const lookup = new PluginLookup({
         resolvedPlugins: {
           'acme-lint-alias': { name: 'lint', version: '1.0.0', commands: [], publisher: 'acme' } as never,
           'other-lint-alias': { name: 'lint', version: '1.0.0', commands: [], publisher: null } as never,
         },
       });
 
-      mockCustomResource.mockClear();
       expect(lookup.plugin({ name: 'lint', publisher: 'acme' }).version).toBe('1.0.0');
-      expect(mockCustomResource).not.toHaveBeenCalled();
       expect(() => lookup.plugin({ name: 'lint', publisher: 'other' }))
         .toThrow(/resolves to your organization's lint, not other\/lint/);
     });
 
-    it('sends the publisher in the deploy-time lookup filter', () => {
-      (Token.isUnresolved as jest.Mock<AnyFn>).mockReturnValue(true);
-      const lookup = new PluginLookup(mockScope, 'TestLookup', {
-        organization: 'my-org',
-        orgId: 'test-org',
-        project: 'my-project',
-        platformUrl: 'https://api.example.com',
-        uniqueId: createUniqueId(),
-      });
-
-      lookup.plugin({ name: 'lint', publisher: 'acme', filter: { version: '^1.0.0' } });
-
-      expect(mockCustomResource).toHaveBeenCalledWith(
-        expect.anything(),
-        expect.any(String),
-        expect.objectContaining({
-          properties: expect.objectContaining({ pluginFilter: { name: 'lint', publisher: 'acme', version: '^1.0.0' } }),
-        }),
-      );
-    });
-
-    it('passes the step label to the custom resource as its stepKey', () => {
-      (Token.isUnresolved as jest.Mock<AnyFn>).mockReturnValue(true);
-      const lookup = new PluginLookup(mockScope, 'TestLookup', {
-        organization: 'my-org',
-        orgId: 'test-org',
-        project: 'my-project',
-        platformUrl: 'https://api.example.com',
-        uniqueId: createUniqueId(),
-      });
-
-      lookup.plugin({ name: 'trivy', alias: 'scan' }, 'Build/scan');
-
-      expect(mockCustomResource).toHaveBeenCalledWith(
-        expect.anything(),
-        expect.any(String),
-        expect.objectContaining({ properties: expect.objectContaining({ stepKey: 'Build/scan' }) }),
-      );
-    });
-
-    it('should fall through to custom resource when pre-resolved cache misses', () => {
-      const lookup = new PluginLookup(mockScope, 'TestLookup', {
-        organization: 'my-org',
-        orgId: 'test-org',
-        project: 'my-project',
-        platformUrl: 'https://api.example.com',
-        uniqueId: createUniqueId(),
+    it('throws when the pre-resolved map misses this plugin', () => {
+      const lookup = new PluginLookup({
         resolvedPlugins: { 'something-else-alias': { name: 'something-else' } as never },
       });
 
-      mockCustomResource.mockClear();
-      const result = lookup.plugin('not-cached');
-
-      expect(mockCustomResource).toHaveBeenCalled();
-      expect(result.name).toBe('fallback');
-    });
-
-    it('should parse base64-encoded resolved plugin data', () => {
-      const pluginData = {
-        name: 'nodejs-build',
-        version: '1.0.0',
-        commands: ['npm ci'],
-      };
-      const encoded = Buffer.from(JSON.stringify(pluginData)).toString('base64');
-
-      (Token.isUnresolved as jest.Mock<AnyFn>).mockReturnValue(false);
-      mockCustomResource.mockImplementation(() => ({
-        getAttString: jest.fn<AnyFn>().mockReturnValue(encoded),
-      }));
-
-      const lookup = new PluginLookup(mockScope, 'TestLookup', {
-        organization: 'my-org',
-        orgId: 'test-org',
-        project: 'my-project',
-        platformUrl: 'https://api.example.com',
-        uniqueId: createUniqueId(),
-      });
-
-      const result = lookup.plugin('nodejs-build');
-
-      expect(result.name).toBe('nodejs-build');
-      expect(result.version).toBe('1.0.0');
-      expect(result.commands).toEqual(['npm ci']);
-    });
-
-    it('should throw on invalid plugin data (missing name)', () => {
-      const badData = { version: '1.0.0', commands: ['npm ci'] };
-      const encoded = Buffer.from(JSON.stringify(badData)).toString('base64');
-
-      (Token.isUnresolved as jest.Mock<AnyFn>).mockReturnValue(false);
-      mockCustomResource.mockImplementation(() => ({
-        getAttString: jest.fn<AnyFn>().mockReturnValue(encoded),
-      }));
-
-      const lookup = new PluginLookup(mockScope, 'TestLookup', {
-        organization: 'my-org',
-        orgId: 'test-org',
-        project: 'my-project',
-        platformUrl: 'https://api.example.com',
-        uniqueId: createUniqueId(),
-      });
-
-      expect(() => lookup.plugin('nodejs-build')).toThrow('missing required fields');
-    });
-
-    it('should throw on invalid plugin data (missing commands)', () => {
-      const badData = { name: 'nodejs-build', version: '1.0.0' };
-      const encoded = Buffer.from(JSON.stringify(badData)).toString('base64');
-
-      (Token.isUnresolved as jest.Mock<AnyFn>).mockReturnValue(false);
-      mockCustomResource.mockImplementation(() => ({
-        getAttString: jest.fn<AnyFn>().mockReturnValue(encoded),
-      }));
-
-      const lookup = new PluginLookup(mockScope, 'TestLookup', {
-        organization: 'my-org',
-        orgId: 'test-org',
-        project: 'my-project',
-        platformUrl: 'https://api.example.com',
-        uniqueId: createUniqueId(),
-      });
-
-      expect(() => lookup.plugin('nodejs-build')).toThrow('missing required fields');
-    });
-
-    it('should throw on invalid base64 data', () => {
-      (Token.isUnresolved as jest.Mock<AnyFn>).mockReturnValue(false);
-      mockCustomResource.mockImplementation(() => ({
-        getAttString: jest.fn<AnyFn>().mockReturnValue('not-valid-base64!!!'),
-      }));
-
-      const lookup = new PluginLookup(mockScope, 'TestLookup', {
-        organization: 'my-org',
-        orgId: 'test-org',
-        project: 'my-project',
-        platformUrl: 'https://api.example.com',
-        uniqueId: createUniqueId(),
-      });
-
-      expect(() => lookup.plugin('nodejs-build')).toThrow('Failed to parse plugin');
-    });
-  });
-
-  describe('Lambda function configuration', () => {
-    it('uses the architecture it is given (from LAMBDA_ARCHITECTURE)', () => {
-      new PluginLookup(mockScope, 'TestLookup', {
-        organization: 'my-org',
-        orgId: 'test-org',
-        project: 'my-project',
-        platformUrl: 'https://api.example.com',
-        uniqueId: createUniqueId(),
-        architecture: 'x86_64' as never,
-      });
-
-      expect(mockFunction).toHaveBeenCalledWith(
-        expect.anything(),
-        expect.any(String),
-        expect.objectContaining({ architecture: 'x86_64' }),
-      );
-    });
-
-    it('defaults to ARM_64 architecture', () => {
-      new PluginLookup(mockScope, 'TestLookup', {
-        organization: 'my-org',
-        orgId: 'test-org',
-        project: 'my-project',
-        platformUrl: 'https://api.example.com',
-        uniqueId: createUniqueId(),
-      });
-
-      expect(mockFunction).toHaveBeenCalledWith(
-        expect.anything(),
-        expect.any(String),
-        expect.objectContaining({
-          architecture: 'arm64',
-        }),
-      );
-    });
-
-    it('ships a PREBUILT asset and bundles nothing at synth', () => {
-      new PluginLookup(mockScope, 'TestLookup', {
-        organization: 'my-org',
-        orgId: 'test-org',
-        project: 'my-project',
-        platformUrl: 'https://api.example.com',
-        uniqueId: createUniqueId(),
-      });
-
-      // The deploy-time build is gone. It required a `depsLockFilePath`, and the
-      // stub lock that satisfied it was called `pnpm-lock.yaml` — a name `pnpm
-      // pack` strips — so no published copy of the CLI ever had it and every
-      // deploy died at synth before reaching AWS.
-      const opts = mockFunction.mock.calls[0][2] as Record<string, unknown>;
-      expect(opts).not.toHaveProperty('bundling');
-      expect(opts).not.toHaveProperty('depsLockFilePath');
-      expect(opts).not.toHaveProperty('entry');
-      expect(opts.handler).toBe('index.handler');
-      expect(mockCodeFromAsset).toHaveBeenCalledWith(expect.stringContaining('handlers/bundle'));
-    });
-
-    it('keeps the CDK out of the RELEASE bundle (the guard moved, not vanished)', async () => {
-      // The `externalModules` guard used to live in the synth-time bundling
-      // options asserted here. It now lives in the release esbuild command, and
-      // it still matters for the same reason: a stray transitive import of
-      // aws-cdk-lib would drag hundreds of MB into a Lambda bundle.
-      const { readFileSync } = await import('node:fs');
-      const { fileURLToPath } = await import('node:url');
-      const projenrc = readFileSync(
-        fileURLToPath(new URL('../../../.projenrc.ts', import.meta.url)),
-        'utf8',
-      );
-      const cmd = projenrc.slice(projenrc.indexOf('esbuild lib/handlers/plugin-lookup-handler.js'));
-      for (const ext of ['@aws-sdk/*', 'aws-cdk-lib', 'aws-cdk-lib/*', 'constructs']) {
-        expect(cmd).toContain(`--external:${ext}`);
-      }
+      expect(() => lookup.plugin('not-cached')).toThrow(/"not-cached" was not resolved before synth/);
     });
   });
 });

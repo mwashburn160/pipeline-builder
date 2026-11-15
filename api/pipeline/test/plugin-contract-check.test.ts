@@ -48,8 +48,12 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@p
   },
 }));
 
-const { findPluginContractViolations, formatContractViolations, recordPipelineResolution, resolveContractPlugin, setContractListingSourceForTests } =
+const { checkPluginContracts, formatContractViolations, recordPipelineResolution, resolveContractPlugin, setContractListingSourceForTests } =
   await import('../src/helpers/plugin-contract-check.js');
+
+/** The refusing half of the save-time check. */
+const contractViolations = async (props: unknown, orgId: string, parentOrgId?: string) =>
+  (await checkPluginContracts(props, orgId, parentOrgId)).violations;
 
 const dialect = new PgDialect();
 const render = (q: Captured) => dialect.sqlToQuery(q.where as never);
@@ -143,7 +147,7 @@ describe('listed plugins', () => {
       versions: [version('l-h', '1.0.0')],
     }));
     results = [[]];
-    const violations = await findPluginContractViolations({ stages: [{ stageName: 'd', steps: [{ plugin: { name: 'helm-deploy' } }] }] }, 'org-a');
+    const violations = await contractViolations({ stages: [{ stageName: 'd', steps: [{ plugin: { name: 'helm-deploy' } }] }] }, 'org-a');
     expect(violations).toEqual([expect.objectContaining({ plugin: 'pipeline-builder/helm-deploy', version: '1.0.0', missing: ['vars.cluster'] })]);
   });
 
@@ -163,7 +167,7 @@ describe('listed plugins', () => {
         ],
       }],
     };
-    const violations = await findPluginContractViolations(props, 'org-a');
+    const violations = await contractViolations(props, 'org-a');
     expect(captured).toHaveLength(0); // own rows are never considered for a qualified reference
     expect(violations).toEqual([
       { path: 'stages[0].steps[0]', step: 'scan/acme/lint', plugin: 'acme/lint', version: '^1.0.0', missing: [], invalid: [], refusal: { code: 'PLUGIN_NOT_INSTALLED', reason: 'not_installed', message: 'acme/lint is not installed in your organization.' } },
@@ -175,7 +179,7 @@ describe('listed plugins', () => {
       ...src,
       installs: [{ id: 'i', orgId: 'org-a', listingId: 'l-l', status: 'active', versionPolicy: 'minor', pinnedVersion: '1.0.0', resolvedVersion: null }],
     }));
-    await expect(findPluginContractViolations(props, 'org-a').then((v) => v.map((x) => x.plugin))).resolves.toEqual(['nobody/lint']);
+    await expect(contractViolations(props, 'org-a').then((v) => v.map((x) => x.plugin))).resolves.toEqual(['nobody/lint']);
     await expect(resolveContractPlugin({ publisher: 'acme', name: 'lint' }, 'org-a')).resolves.toEqual({
       plugin: {
         id: 'l-l-1.0.0',
@@ -207,7 +211,7 @@ describe('listed plugins', () => {
   });
 });
 
-describe('findPluginContractViolations', () => {
+describe('checkPluginContracts violations', () => {
   const props = {
     project: 'p',
     organization: 'o',
@@ -227,7 +231,7 @@ describe('findPluginContractViolations', () => {
       [plugin({ requiredMetadata: ['namespace', 'replicas'], metadataTypes: { replicas: 'number' } })],
       [], // `ghost` resolves to nothing — not a contract problem
     ];
-    const violations = await findPluginContractViolations(props, 'org-a');
+    const violations = await contractViolations(props, 'org-a');
 
     expect(captured).toHaveLength(2); // helm-deploy (shared by two steps), ghost
     expect(violations).toEqual([
@@ -261,12 +265,12 @@ describe('findPluginContractViolations', () => {
       [plugin({ requiredMetadata: ['replicas'] })],
       [plugin({ name: 'ghost' })],
     ];
-    await expect(findPluginContractViolations(props, 'org-a')).resolves.toEqual([]);
+    await expect(contractViolations(props, 'org-a')).resolves.toEqual([]);
   });
 
   it('honours an explicit lookup filter (version pin) and skips one the lookup schema rejects', async () => {
     results = [[plugin({ version: '1.2.0', requiredVars: ['cluster'] })]];
-    const violations = await findPluginContractViolations({
+    const violations = await contractViolations({
       synth: { plugin: { name: 'helm-deploy', filter: { version: '1.2.0' } } },
       stages: [{ stageName: 's', steps: [{ plugin: { name: 'bad', filter: { version: '' } } }] }],
     }, 'org-a');
@@ -279,7 +283,7 @@ describe('findPluginContractViolations', () => {
   });
 
   it('does nothing for props without plugin steps', async () => {
-    await expect(findPluginContractViolations(undefined, 'org-a')).resolves.toEqual([]);
+    await expect(contractViolations(undefined, 'org-a')).resolves.toEqual([]);
     expect(captured).toHaveLength(0);
   });
 });
@@ -329,7 +333,7 @@ describe('recordPipelineResolution', () => {
 // a pipeline runs ON, never a step.
 describe('BuildImage plugins are never a step', () => {
   it('refuses pipeline-bootstrap by name, before any lookup', async () => {
-    const violations = await findPluginContractViolations({
+    const violations = await contractViolations({
       stages: [{ stageName: 'build', steps: [{ plugin: { name: 'pipeline-bootstrap' } }] }],
     }, 'org-a');
     expect(captured).toHaveLength(0);
@@ -343,7 +347,7 @@ describe('BuildImage plugins are never a step', () => {
 
   it('refuses any step whose resolved plugin is a BuildImage', async () => {
     results = [[plugin({ name: 'odd-image', pluginType: 'BuildImage' })]];
-    const violations = await findPluginContractViolations({
+    const violations = await contractViolations({
       stages: [{ stageName: 'build', steps: [{ plugin: { name: 'odd-image' } }] }],
     }, 'org-a');
     expect(violations).toEqual([expect.objectContaining({
@@ -374,7 +378,7 @@ describe('managed cdk-synth', () => {
     ['filter.name', { name: 'BuildSynth', filter: { name: 'cdk-synth', isActive: true, isDefault: true } }],
   ])('a reference by %s never reaches a row or listing query, and carries the release pin', async (_how, ref) => {
     mockManagedHalf.mockResolvedValue({ plugin: synthRow('1.2.0') });
-    const violations = await findPluginContractViolations({ toolchain: { release: '1.2.0' }, synth: { plugin: ref } }, 'org-a');
+    const violations = await contractViolations({ toolchain: { release: '1.2.0' }, synth: { plugin: ref } }, 'org-a');
     expect(violations).toEqual([]);
     expect(captured).toHaveLength(0);
     expect(mockManagedHalf).toHaveBeenCalledWith({ orgId: 'org-a' }, 'cdk-synth', { releasePin: '1.2.0' });
@@ -388,7 +392,7 @@ describe('managed cdk-synth', () => {
   });
 
   it('a managed cdk-synth carrying its own version is refused: TOOLCHAIN_PIN_VIA_RELEASE', async () => {
-    const violations = await findPluginContractViolations({ synth: { plugin: { name: 'cdk-synth', filter: { version: '1.1.0' } } } }, 'org-a');
+    const violations = await contractViolations({ synth: { plugin: { name: 'cdk-synth', filter: { version: '1.1.0' } } } }, 'org-a');
     expect(violations).toEqual([expect.objectContaining({
       path: 'synth', refusal: expect.objectContaining({ code: 'TOOLCHAIN_PIN_VIA_RELEASE', reason: 'pin_via_release' }),
     })]);
@@ -397,7 +401,7 @@ describe('managed cdk-synth', () => {
 
   it('a resolver refusal (no platform default, a deleted pin) is a step refusal', async () => {
     mockManagedHalf.mockResolvedValue({ refusal: { code: 'PLUGIN_UNAVAILABLE', reason: 'toolchain_no_default', message: 'No platform default' } });
-    const violations = await findPluginContractViolations({ synth: { plugin: { name: 'cdk-synth' } } }, 'org-a');
+    const violations = await contractViolations({ synth: { plugin: { name: 'cdk-synth' } } }, 'org-a');
     expect(violations).toEqual([expect.objectContaining({ refusal: expect.objectContaining({ reason: 'toolchain_no_default' }) })]);
   });
 

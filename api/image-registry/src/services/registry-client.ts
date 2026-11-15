@@ -18,14 +18,14 @@ const BLOB_STREAM_TIMEOUT_MS = envInt('REGISTRY_BLOB_STREAM_TIMEOUT_MS', 30_000,
 
 /**
  * Request timeout (ms) for management calls against the upstream OCI registry
- * (env: `REGISTRY_HTTP_TIMEOUT`).
+ * (env: `REGISTRY_HTTP_TIMEOUT_MS`).
  *
- * Deliberately LONGER than the global `HTTP_CLIENT_TIMEOUT` (5s): catalog
+ * Deliberately LONGER than the global `HTTP_CLIENT_TIMEOUT_MS` (5s): catalog
  * listings, manifest reads and blob operations against the registry are slow
  * by nature (large layers, cold object storage), so the service-to-service
  * budget would abort healthy work.
  */
-const REGISTRY_HTTP_TIMEOUT_MS = envInt('REGISTRY_HTTP_TIMEOUT', 30_000, { min: 1 });
+const REGISTRY_HTTP_TIMEOUT_MS = envInt('REGISTRY_HTTP_TIMEOUT_MS', 30_000, { min: 1 });
 
 const protocol = config.registry.http ? 'http': 'https';
 const baseURL = `${protocol}://${config.registry.host}:${config.registry.port}`;

@@ -5,9 +5,8 @@
  * Unit tests for PipelineBuilder (src/pipeline/pipeline-builder.ts) — the core
  * CDK construct that assembles a real CodePipeline from high-level props.
  *
- * The one genuinely un-unit-testable dependency is PluginLookup, which stands
- * up a bundled NodejsFunction + custom resource. We stub it with a lightweight
- * Construct that returns a fully-formed Plugin, so the rest of the builder
+ * PluginLookup is stubbed to return a fully-formed Plugin for every
+ * reference (the real one needs a pre-resolved record per step), so the rest of the builder
  * (source wiring, synth step, tags, notifications, schedule, metrics alarm,
  * KMS artifact bucket, stage waves) executes for real and is asserted against
  * the synthesized CloudFormation template.
@@ -30,9 +29,8 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () =>
   apiCoreMock({ createLogger: () => sharedLogger }),
 );
 
-// Stub the heavy PluginLookup construct (real one bundles a Lambda).
+// Stub PluginLookup so every reference resolves without a pre-resolved map.
 jest.unstable_mockModule('../src/pipeline/plugin-lookup.js', async () => {
-  const { Construct } = await import('constructs');
   const resolvedPlugin = () => ({
     id: '00000000-0000-0000-0000-000000000000',
     orgId: 'system',
@@ -58,10 +56,7 @@ jest.unstable_mockModule('../src/pipeline/plugin-lookup.js', async () => {
     isDefault: false,
     isActive: true,
   });
-  class PluginLookup extends Construct {
-    constructor(scope: any, id: string) {
-      super(scope, id);
-    }
+  class PluginLookup {
     plugin() {
       return resolvedPlugin();
     }

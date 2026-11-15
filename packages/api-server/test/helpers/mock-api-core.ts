@@ -16,7 +16,7 @@ import {
   loggerMock,
   MOCK_TIER_NAMES,
   mockIsValidTier,
-  mockQuotaTiers,
+  mockPlanTiers,
 } from '@pipeline-builder/api-core/testing';
 // Shared tier fixture — deep path is NOT intercepted by the api-core module mock
 // (see tier-mock.ts). Sources the tier NAME LIST from the real VALID_TIERS.
@@ -38,7 +38,7 @@ const actualApiCore = jest.requireActual('@pipeline-builder/api-core') as Record
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 /**
- * Per-tier quota limits, shared by the `QUOTA_TIERS` export and `getTierLimits`
+ * Per-tier quota limits, shared by the `PLAN_TIERS` export and `getTierLimits`
  * below so they can't drift.
  */
 const TIER_LIMITS: Record<string, Record<string, number>> = {
@@ -66,7 +66,7 @@ const apiServerDefaults = (): Record<string, unknown> => ({
   createMemorySseTicketStore: () => ({}),
   createEnvSseTicketStore: () => ({}),
   // Tier fixtures for the transitively-loaded graph: an entry for EVERY tier.
-  QUOTA_TIERS: mockQuotaTiers(TIER_LIMITS),
+  PLAN_TIERS: mockPlanTiers(TIER_LIMITS),
   // Mirrors api-core: returns a tier's limits, defaulting unknown tiers to developer.
   getTierLimits: (tier: string) => TIER_LIMITS[tier] ?? TIER_LIMITS.developer,
   DEFAULT_TIER: 'developer',

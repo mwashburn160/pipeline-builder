@@ -16,13 +16,16 @@
  *   key can no longer be exchanged, and the cached token it already produced
  *   dies on its own.
  * - **Early, jittered refresh.** The cached token is re-exchanged in the
- *   background at ~75% of its life (±20% jitter) so no request ever blocks on
+ *   background at ~75% of its life (±10% jitter) so no request ever blocks on
  *   the exchange, and a fleet of pods holding the same key doesn't stampede
  *   platform at the same instant.
  * - **One in-flight exchange per key.** Concurrent requests share a promise.
  * - **Short negative cache.** A key platform rejected is remembered for 30s, so
  *   a misconfigured client (or a scanner) can't turn every request into a
- *   platform round-trip.
+ *   platform round-trip. A rejection also drops any token cached for the key,
+ *   so a key revoked mid-life stops working once its negative entry lapses
+ *   instead of falling back to the token it was exchanged for earlier.
+ *   Both caches are capped at {@link MAX_CACHED_KEYS} entries.
  * - **Platform down is a 503, never a 200.** The caller maps
  *   {@link ApiKeyExchangeUnavailableError} to "try again", with a metric — it is
  *   deliberately NOT fail-open: an unverifiable credential is not an identity.
@@ -122,18 +125,23 @@ function jitteredRefreshAt(issuedAt: number, ttlSeconds: number): number {
   return issuedAt + lifeMs * fraction;
 }
 
-/** Drop the oldest entries once the cache is over its cap (keys are long-lived, tokens are not). */
-function evictIfFull(): void {
-  if (tokenCache.size <= MAX_CACHED_KEYS) return;
+/**
+ * Drop expired, then the oldest, entries once `cache` is over its cap. Applied
+ * to the rejection cache too: a scanner presenting a stream of distinct made-up
+ * keys never presents the same one twice, so without the cap every one of them
+ * would stay in memory for the life of the process.
+ */
+function evictIfFull<V>(cache: Map<string, V>, expiresAt: (value: V) => number): void {
+  if (cache.size <= MAX_CACHED_KEYS) return;
   const now = Date.now();
-  for (const [hash, entry] of tokenCache) {
-    if (entry.expiresAt <= now) tokenCache.delete(hash);
+  for (const [hash, value] of cache) {
+    if (expiresAt(value) <= now) cache.delete(hash);
   }
   // Map preserves insertion order — drop from the front until back under the cap.
-  while (tokenCache.size > MAX_CACHED_KEYS) {
-    const oldest = tokenCache.keys().next();
+  while (cache.size > MAX_CACHED_KEYS) {
+    const oldest = cache.keys().next();
     if (oldest.done) break;
-    tokenCache.delete(oldest.value);
+    cache.delete(oldest.value);
   }
 }
 
@@ -173,6 +181,8 @@ async function performExchange(key: string, hash: string, clientVersion?: string
 
   if (status === 401 || status === 403 || status === 400 || status === 404) {
     rejectionCache.set(hash, Date.now() + NEGATIVE_TTL_MS);
+    tokenCache.delete(hash);
+    evictIfFull(rejectionCache, (until) => until);
     emitCounter('api_key_exchange_total', { result: 'rejected' });
     emitCounter('api_key_exchange_failures_total', { reason: 'rejected' });
     throw new ApiKeyRejectedError();
@@ -198,7 +208,7 @@ async function performExchange(key: string, hash: string, clientVersion?: string
   };
   tokenCache.set(hash, entry);
   rejectionCache.delete(hash);
-  evictIfFull();
+  evictIfFull(tokenCache, (e) => e.expiresAt);
   emitCounter('api_key_exchange_total', { result: 'success' });
   return entry;
 }

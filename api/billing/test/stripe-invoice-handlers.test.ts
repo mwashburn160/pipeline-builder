@@ -200,6 +200,26 @@ describe('handlePaymentSucceeded', () => {
       expect(details.previousStatus).toBe('past_due');
     });
 
+    it('pushes the re-granted tier only AFTER the recovered row is saved', async () => {
+      const sub = makeSub({ status: 'past_due' });
+      findSubscriptionByStripeId.mockResolvedValue(sub);
+
+      await handlePaymentSucceeded(makeInvoice(), EVT);
+
+      const saveOrder = (sub.save as jest.Mock).mock.invocationCallOrder[0];
+      const syncOrder = syncEntitlements.mock.invocationCallOrder.at(-1)!;
+      expect(saveOrder).toBeLessThan(syncOrder);
+    });
+
+    it('does NOT push the paid tier when the recovered row fails to save', async () => {
+      const sub = makeSub({ status: 'past_due', save: jest.fn(async () => { throw new Error('write conflict'); }) });
+      findSubscriptionByStripeId.mockResolvedValue(sub);
+      syncEntitlements.mockClear();
+
+      await expect(handlePaymentSucceeded(makeInvoice(), EVT)).rejects.toThrow('write conflict');
+      expect(syncEntitlements).not.toHaveBeenCalled();
+    });
+
     it('CLEARS the grace-period downgrade marker so a future lapse can downgrade again', async () => {
       const sub = makeSub({
         status: 'past_due',

@@ -80,10 +80,10 @@ describe('useComplianceAudit', () => {
     expect(result.current.entries[0].id).toBe('fresh');
   });
 
-  it('surfaces a failed fetch as an error the caller can retry', async () => {
-    getComplianceAuditLog.mockRejectedValue(new Error('boom'));
+  it('surfaces a failed fetch, with the server\'s message, as an error the caller can retry', async () => {
+    getComplianceAuditLog.mockRejectedValue(new Error('Audit store unavailable'));
     const { result } = renderHook(() => useComplianceAudit());
-    await waitFor(() => expect(result.current.error).toMatch(/failed to load audit log/i));
+    await waitFor(() => expect(result.current.error).toBe('Audit store unavailable'));
 
     getComplianceAuditLog.mockResolvedValue(page([{ id: 'ok' }]));
     act(() => result.current.retry());

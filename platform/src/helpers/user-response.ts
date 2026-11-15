@@ -3,7 +3,7 @@
 
 /** The user object the profile and admin user APIs return. */
 
-import type { FeatureFlag, QuotaTier } from '@pipeline-builder/api-core';
+import type { FeatureFlag, PlanTier } from '@pipeline-builder/api-core';
 import type { Types } from 'mongoose';
 
 /** Compact organization summary included in user responses. */
@@ -50,7 +50,7 @@ export function formatUserResponse(
     activeOrgName?: string | null;
     organization?: OrgSummary;
     organizations?: OrgMembership[];
-    tier?: QuotaTier;
+    tier?: PlanTier;
     features?: FeatureFlag[];
     /** Effective fine-grained permissions for the active org (RBAC UI gating). */
     permissions?: string[];

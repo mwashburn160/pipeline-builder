@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createLogger, paginationMeta, sendError, sendSuccess, resolveUserFeatures, isValidFeatureFlag, validateBulkArray, TIER_FEATURES, errorMessage } from '@pipeline-builder/api-core';
-import type { QuotaTier } from '@pipeline-builder/api-core';
+import type { PlanTier } from '@pipeline-builder/api-core';
 import { isOrgRole } from '@pipeline-builder/api-core/wire-vocabulary';
 import { Types } from 'mongoose';
 import { audit } from '../helpers/audit.js';
@@ -43,7 +43,7 @@ async function orgFeatureEntitlements(orgId: string | undefined): Promise<string
  */
 async function orgEntitledFeatures(orgId: string): Promise<Set<string>> {
   const org = await Organization.findById(toOrgId(orgId)).select('tier featureEntitlements').lean();
-  const tier = ((org as { tier?: string } | null)?.tier as QuotaTier) || 'developer';
+  const tier = ((org as { tier?: string } | null)?.tier as PlanTier) || 'developer';
   const accountFeatures = (org as { featureEntitlements?: string[] } | null)?.featureEntitlements ?? [];
   return new Set<string>([...(TIER_FEATURES[tier] ?? []), ...accountFeatures]);
 }
@@ -160,14 +160,14 @@ export const getUserById = withController('Get user', async (req, res) => {
   let organizationName: string | null = null;
   let organization: OrgSummary | undefined;
   let activeOrgRole: string | undefined;
-  let tier: QuotaTier = 'developer';
+  let tier: PlanTier = 'developer';
 
   if (activeOrgId) {
     const activeOrg = orgMap.get(activeOrgId);
     if (activeOrg) {
       organizationName = activeOrg.name;
       organization = { id: activeOrg._id.toString(), name: activeOrg.name, slug: activeOrg.slug };
-      tier = (activeOrg.tier as QuotaTier) || 'developer';
+      tier = (activeOrg.tier as PlanTier) || 'developer';
     }
     const activeMembership = memberships.find(m => m.organizationId.toString() === activeOrgId);
     activeOrgRole = activeMembership?.role;
@@ -202,13 +202,21 @@ export const createUserByAdmin = withController('Create user', async (req, res) 
   if (!admin) return;
   if (!admin.isSuperAdmin) return forbid(req, res, 'system-admin', 'Forbidden: system admin required to create users');
 
+  // `isSuperAdmin: true` already met the grant route's gates (aal2 + a
+  // second-factor step-up) at the route — see routes/users.ts.
   const body = validateBody(adminCreateUserSchema, req.body, res);
   if (!body) return;
 
   const user = await userAdminService.createUser(body);
 
   logger.info('Create user by admin', { id: user.id, by: req.user!.sub, org: body.organizationId });
-  audit(req, 'admin.user.create', { targetType: 'user', targetId: user.id, affectedOrgId: body.organizationId });
+  audit(req, 'admin.user.create', {
+    targetType: 'user',
+    targetId: user.id,
+    affectedOrgId: body.organizationId,
+    // The grant is the security-relevant half of this create; record it.
+    ...(user.isSuperAdmin ? { details: { isSuperAdmin: true } } : {}),
+  });
   sendSuccess(res, 201, { user }, 'User created');
 }, {
   [UA_USERNAME_TAKEN]: { status: 409, message: 'A user with this username already exists' },
@@ -438,7 +446,7 @@ export const updateUserFeatures = withController('Update user features', async (
     (user as { lastActiveOrgId?: { toString(): string } }).lastActiveOrgId?.toString(),
   );
   const features = resolveUserFeatures(
-    (orgTier as QuotaTier) || 'developer',
+    (orgTier as PlanTier) || 'developer',
     {
       overrides: overrides as Record<string, boolean>,
       isSuperAdmin: (user as { isSuperAdmin?: boolean }).isSuperAdmin === true,
@@ -470,7 +478,7 @@ export const updateUserFeatures = withController('Update user features', async (
 
   sendSuccess(
     res, 200,
-    { user: formatUserResponse(user, { activeOrgRole, activeOrgName: organizationName, tier: (orgTier as QuotaTier) || 'developer', features }) },
+    { user: formatUserResponse(user, { activeOrgRole, activeOrgName: organizationName, tier: (orgTier as PlanTier) || 'developer', features }) },
     'Feature overrides updated successfully',
   );
 }, adminErrorMap);

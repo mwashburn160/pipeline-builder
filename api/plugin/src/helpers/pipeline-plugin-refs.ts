@@ -6,7 +6,7 @@ import { sql } from 'drizzle-orm';
 /**
  * `LATERAL (…) AS refs`: one `ref` row per plugin reference of the pipeline
  * aliased `p` — every stage step's `plugin`, plus the synth plugin. Join it as
- * `FROM pipelines p, ${pipelinePluginRefs}` and read `ref->>'name'`,
+ * `FROM pipelines p, ${pipelinePluginRefs()}` and read `ref->>'name'`,
  * `ref->>'publisher'`, `ref->'filter'->>'version'`.
  */
 export function pipelinePluginRefs() {

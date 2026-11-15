@@ -19,20 +19,14 @@
  *      boundary; readable from anywhere.
  *
  *   2. `withTenantTx(fn)` opens a transaction, SET LOCAL's both GUCs from
- *      the surrounding context, then invokes `fn(tx)`. Services migrate one
- *      at a time by wrapping their existing drizzle calls in this helper —
- *      `db.select().from(...)` becomes `withTenantTx(tx => tx.select().from(...))`.
+ *      the surrounding context, then invokes `fn(tx)` —
+ *      `withTenantTx(tx => tx.select().from(...))`.
  *
  *   3. `runWithTenantContext(ctx, fn)` is the Express-middleware-side
  *      bookend that establishes the AsyncLocalStorage scope for the request.
  *
- * Migration order:
- *   - First adopters: newly-written services (dashboard, alert-destination)
- *     where the change is mechanical.
- *   - Then high-write services (plugin, pipeline). Soak each one before
- *     flipping the underlying table to FORCE.
- *   - admin_audit_log uses a sysadmin-only policy — sysadmin paths must
- *     also set `app.is_sysadmin = 'true'` or they'll lose access to it.
+ *   4. `withTenantTxRead(fn)` is the read-only twin of `withTenantTx`, routed
+ *      to the read replica when one is configured and safe to use.
  */
 
 import { AsyncLocalStorage } from 'node:async_hooks';
@@ -153,10 +147,11 @@ export function getTenantContext(): TenantContext | undefined {
  * AsyncLocalStorage tenant context, then invoke `fn(tx)`.
  *
  * - When called outside a tenant scope (e.g. from a background job that
- *   doesn't have a caller identity), the transaction is opened with both
- *   GUCs cleared — RLS policies will return zero rows on FORCE'd tables.
- *   Callers that need a sysadmin-equivalent scope should wrap themselves in
- *   `runWithTenantContext({ isSuperAdmin: true }, …)` explicitly.
+ *   doesn't have a caller identity), it throws in production
+ *   (`RLS_CONTEXT_MODE`, see getContextMode); otherwise the transaction is
+ *   opened with both GUCs cleared — RLS policies will return zero rows on
+ *   FORCE'd tables. Callers that need a sysadmin-equivalent scope should wrap
+ *   themselves in `runWithTenantContext({ isSuperAdmin: true }, …)` explicitly.
  *
  * - Uses `set_config(key, value, true)` (the boolean = `is_local`, i.e.
  *   transaction-scoped). Equivalent to `SET LOCAL` but takes the value as
@@ -179,12 +174,10 @@ export async function withTenantTx<T>(
   const ctx = tenantContext.getStore();
 
   if (!ctx) {
-    // Surface the bug instead of silently SET'ing empty GUCs. The default
-    // mode ('warn') logs an actionable trace so the bad call site is easy
-    // to find; production deployments that have finished the audit can set
-    // RLS_CONTEXT_MODE=strict to fail-fast at the call site (better stack
-    // trace than the Postgres "permission denied" that would otherwise
-    // surface from FORCE'd RLS).
+    // Surface the bug instead of silently SET'ing empty GUCs (see
+    // getContextMode): production fails fast here, with a better stack trace
+    // than the empty result / "permission denied" FORCE'd RLS would give;
+    // elsewhere the default logs an actionable trace of the bad call site.
     const mode = getContextMode();
     if (mode === 'strict') {
       throw new Error(
@@ -204,8 +197,6 @@ export async function withTenantTx<T>(
   const orgId = ctx?.orgId ?? '';
   const isSuperAdmin = ctx?.isSuperAdmin ? 'true' : 'false';
 
-  const statementTimeoutMs = getStatementTimeoutMs();
-
   // This transaction runs on the PRIMARY and may write, so any later read in
   // this request must stay on the primary too. Set before the transaction opens
   // rather than after it commits: a read issued concurrently from the same
@@ -223,29 +214,39 @@ export async function withTenantTx<T>(
   if (ctx && markWritten) ctx.mayHaveWritten = true;
 
   return db.transaction(async (tx) => {
-    // Set every transaction-scoped GUC in a SINGLE round-trip. `set_config()`
-    // returns its value, so multiple calls compose in one SELECT rather than a
-    // round-trip per GUC — each a network hop that taxes the shared PgBouncer
-    // pool on the hot path. `true`
-    // = is_local (SET LOCAL semantics: auto-released on COMMIT/ROLLBACK). The
-    // driver binds the values as parameters, so a hostile org_id can't break out
-    // of the GUC syntax.
-    //
-    // The statement_timeout GUC bounds a runaway query so it can't hold a pooled
-    // connection open indefinitely (`SET LOCAL statement_timeout = $1` is rejected
-    // by Postgres, hence set_config with a bound ms value). Included in the same
-    // statement when enabled (>0), dropped entirely when disabled (0).
-    if (statementTimeoutMs > 0) {
-      await tx.execute(
-        sql`SELECT set_config('app.org_id', ${orgId}, true), set_config('app.is_sysadmin', ${isSuperAdmin}, true), set_config('statement_timeout', ${String(statementTimeoutMs)}, true)`,
-      );
-    } else {
-      await tx.execute(
-        sql`SELECT set_config('app.org_id', ${orgId}, true), set_config('app.is_sysadmin', ${isSuperAdmin}, true)`,
-      );
-    }
+    await setTransactionGucs(tx, orgId, isSuperAdmin);
     return fn(tx);
   });
+}
+
+/**
+ * Set every transaction-scoped GUC in a SINGLE round-trip. `set_config()`
+ * returns its value, so multiple calls compose in one SELECT rather than a
+ * round-trip per GUC — each a network hop that taxes the shared PgBouncer pool
+ * on the hot path. `true` = is_local (SET LOCAL semantics: auto-released on
+ * COMMIT/ROLLBACK). The driver binds the values as parameters, so a hostile
+ * org_id can't break out of the GUC syntax.
+ *
+ * The statement_timeout GUC bounds a runaway query so it can't hold a pooled
+ * connection open indefinitely (`SET LOCAL statement_timeout = $1` is rejected
+ * by Postgres, hence set_config with a bound ms value). Included in the same
+ * statement when enabled (>0), dropped entirely when disabled (0).
+ */
+async function setTransactionGucs(
+  tx: { execute: (query: ReturnType<typeof sql>) => Promise<unknown> },
+  orgId: string,
+  isSuperAdmin: 'true' | 'false',
+): Promise<void> {
+  const statementTimeoutMs = getStatementTimeoutMs();
+  if (statementTimeoutMs > 0) {
+    await tx.execute(
+      sql`SELECT set_config('app.org_id', ${orgId}, true), set_config('app.is_sysadmin', ${isSuperAdmin}, true), set_config('statement_timeout', ${String(statementTimeoutMs)}, true)`,
+    );
+  } else {
+    await tx.execute(
+      sql`SELECT set_config('app.org_id', ${orgId}, true), set_config('app.is_sysadmin', ${isSuperAdmin}, true)`,
+    );
+  }
 }
 
 /**
@@ -281,17 +282,6 @@ export interface ReadTarget {
   reason: ReadTargetReason;
 }
 
-/**
- * Decide where a read-only transaction should run.
- *
- * Pure and side-effect free on purpose: this is the whole of the routing
- * policy, and it is the part worth testing. Replication itself cannot be
- * reproduced locally, so the testable unit is the DECISION, not the lag.
- *
- * The bias is deliberate: anything uncertain resolves to the primary. A read
- * served by the primary is merely less efficient; a read served by a stale
- * replica is a user-visible bug nobody can reproduce.
- */
 /** Everything about the replica that is not request-specific. */
 export interface ReadReplicaHealth {
   /** A replica pool exists AND `DB_READ_ENABLED` is not false. */
@@ -301,7 +291,15 @@ export interface ReadReplicaHealth {
 }
 
 /**
- * Where a read goes, and why.
+ * Decide where a read-only transaction should run, and why.
+ *
+ * Pure and side-effect free on purpose: this is the whole of the routing
+ * policy, and it is the part worth testing. Replication itself cannot be
+ * reproduced locally, so the testable unit is the DECISION, not the lag.
+ *
+ * The bias is deliberate: anything uncertain resolves to the primary. A read
+ * served by the primary is merely less efficient; a read served by a stale
+ * replica is a user-visible bug nobody can reproduce.
  *
  * SYSTEM gates are checked before REQUEST gates, which matters only for the
  * explanation — but the explanation is what an operator reads when asking why
@@ -358,24 +356,15 @@ export async function withTenantTxRead<T>(
   }
 
   // Non-null by construction: chooseReadTarget only returns useReplica for a
-  // ctx that exists. Read the GUCs off it directly rather than defaulting to
-  // '' — a default here would silently re-open the hole that 'no-context'
-  // closes, because an empty app.org_id is a VALID-looking RLS scope.
-  const { orgId } = ctx!;
-  const isSuperAdmin = ctx!.isSuperAdmin ? 'true' : 'false';
-  const statementTimeoutMs = getStatementTimeoutMs();
+  // ctx that exists — a context-less read never reaches here, so it cannot run
+  // under an empty-but-valid-looking RLS scope without the 'no-context'
+  // diagnostic. A context WITHOUT an org (a sysadmin system job) scopes exactly
+  // as it would on the primary.
+  const scope = ctx!;
 
   return readDb!.transaction(async (tx) => {
     await tx.execute(sql`SET TRANSACTION READ ONLY`);
-    if (statementTimeoutMs > 0) {
-      await tx.execute(
-        sql`SELECT set_config('app.org_id', ${orgId}, true), set_config('app.is_sysadmin', ${isSuperAdmin}, true), set_config('statement_timeout', ${String(statementTimeoutMs)}, true)`,
-      );
-    } else {
-      await tx.execute(
-        sql`SELECT set_config('app.org_id', ${orgId}, true), set_config('app.is_sysadmin', ${isSuperAdmin}, true)`,
-      );
-    }
+    await setTransactionGucs(tx, scope.orgId ?? '', scope.isSuperAdmin ? 'true' : 'false');
     return fn(tx);
   });
 }

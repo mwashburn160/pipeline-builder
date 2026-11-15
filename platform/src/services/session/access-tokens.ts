@@ -10,7 +10,7 @@
 
 import crypto from 'crypto';
 import { API_KEY_TOKEN_TTL_SECONDS, confinePermissionsToOrg, createLogger, intersectPermissions, isSystemOrgId, resolveUserFeatures, resolveUserPermissions, STRONG_STEP_UP_METHODS } from '@pipeline-builder/api-core';
-import type { AssuranceLevel, AuthMethod, StepUpMethod, TokenScope, TokenUse, QuotaTier } from '@pipeline-builder/api-core';
+import type { AssuranceLevel, AuthMethod, StepUpMethod, TokenScope, TokenUse, PlanTier } from '@pipeline-builder/api-core';
 import { resolveOrgMembership, type MembershipContext } from './membership-context.js';
 import { config } from '../../config/index.js';
 import { IMPERSONATION_SESSION_TTL_MS } from '../../constants/impersonation.js';
@@ -144,7 +144,7 @@ export function createAccessTokenPayload(
   // re-derived at every issue, so a lost Role shrinks it and nothing grows it.
   const restricted = !scope && subset !== undefined;
   const role = scope || restricted ? 'member' : (membership?.role ?? 'member');
-  const tier: QuotaTier = membership?.tier ?? 'developer';
+  const tier: PlanTier = membership?.tier ?? 'developer';
   const holderIsSuperAdmin = user.isSuperAdmin === true;
   const isSuperAdmin = scope || restricted ? false : holderIsSuperAdmin;
   const overrides = user.featureOverrides
@@ -224,7 +224,7 @@ export function createAccessTokenPayload(
  * token; its access tokens are never longer-lived than a person's, so a
  * revocation entry sized to this lifetime can never lapse under a live token.
  */
-export function accessTokenTtlSeconds(tier: QuotaTier | undefined): number {
+export function accessTokenTtlSeconds(tier: PlanTier | undefined): number {
   const tierExpiresIn = tier ? config.auth.jwt.tierExpiresIn[tier] : undefined;
   return tierExpiresIn ?? config.auth.jwt.expiresIn;
 }
@@ -349,7 +349,7 @@ export interface ServiceAccountTokenContext {
   /** Org → team hierarchy claims of the owning org (omitted for a flat org). */
   parentOrganizationId?: string;
   rootOrganizationId?: string;
-  tier?: QuotaTier;
+  tier?: PlanTier;
   /** Account-level purchased entitlements of the owning account. */
   featureEntitlements?: readonly string[];
   /** Union of the permissions carried by the Roles the account holds. */
@@ -386,7 +386,7 @@ export async function signServiceAccountToken(
   scope?: TokenScope,
   expiresInSeconds: number = API_KEY_TOKEN_TTL_SECONDS,
 ): Promise<string> {
-  const tier: QuotaTier = account.tier ?? 'developer';
+  const tier: PlanTier = account.tier ?? 'developer';
   const payload: AccessTokenPayload = {
     type: 'access',
     sub: account.id,

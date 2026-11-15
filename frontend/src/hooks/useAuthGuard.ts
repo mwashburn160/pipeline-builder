@@ -13,7 +13,7 @@
  *  - A page's read gate lives in ONE place: its nav entry (`NavItem`
  *    `requiredPermission` / `adminOnly` / `systemAdminOnly`, with `paletteOnly`
  *    for a page that shouldn't get a sidebar row), or — for a page with no nav
- *    entry (detail routes, forwarding pages) — `EXTRA_PAGE_GATES` in
+ *    entry (detail routes, sub-routes) — `EXTRA_PAGE_GATES` in
  *    `page-access.ts`. `test/page-access.test.ts` fails for an undeclared page.
  *  - Do NOT restate that gate as options here. A copy can only drift: the
  *    parity test rejects options that DISAGREE with the declaration, and

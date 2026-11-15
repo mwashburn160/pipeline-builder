@@ -102,13 +102,23 @@ const buildImageStrategy: ImageBuildStrategy = {
       ? await fs.realpath(dockerfilePath)
       : null;
 
-    if (realDockerfilePath && !realDockerfilePath.startsWith(ctx.extractDir + path.sep)) {
+    // Compared against the extraction dir's OWN real path: a temp root reached
+    // through a symlink (macOS `/tmp` → `/private/tmp`) would otherwise put
+    // every Dockerfile "outside" it.
+    if (realDockerfilePath && !realDockerfilePath.startsWith(await fs.realpath(ctx.extractDir) + path.sep)) {
       throw new ValidationError('Invalid dockerfile path: resolves outside extraction directory');
     }
 
-    const dockerfileContent = realDockerfilePath
-      ? await fs.readFile(realDockerfilePath, 'utf-8')
-      : null;
+    // Refused here, at upload, with the file named: accepted, the build would
+    // fail on a missing file it can never find, however often it is retried.
+    if (!realDockerfilePath) {
+      throw new ValidationError(
+        `A build_image plugin needs a Dockerfile: "${dockerfile}" is not in the uploaded ZIP `
+        + '(add it at that path, set config.yaml `dockerfile`, or choose another buildType)',
+      );
+    }
+
+    const dockerfileContent = await fs.readFile(realDockerfilePath, 'utf-8');
     return { dockerfile, dockerfileContent };
   },
   async produceImage(req, deps) {

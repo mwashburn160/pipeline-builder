@@ -19,8 +19,8 @@ const mockRouter = { query: {}, pathname: '/dashboard/users', isReady: true, rep
 jest.mock('next/router', () => require('./helpers/pageMocks').routerModule(() => mockRouter));
 jest.mock('@/components/admin/StepUpModal', () => ({
   __esModule: true,
-  StepUpModal: ({ onConfirmed }: { onConfirmed: (t: string) => void }) => (
-    <button type="button" onClick={() => onConfirmed('step-up-token')}>Confirm password</button>
+  StepUpModal: ({ onConfirmed, requireStrongFactor }: { onConfirmed: (t: string) => void; requireStrongFactor?: boolean }) => (
+    <button type="button" data-strong={requireStrongFactor ? 'yes' : 'no'} onClick={() => onConfirmed('step-up-token')}>Confirm password</button>
   ),
 }));
 jest.mock('@/components/users/SysadminGrantHistory', () => ({ __esModule: true, SysadminGrantHistory: () => null }));
@@ -123,6 +123,28 @@ describe('users: create', () => {
     fireEvent.click(create);
     await waitFor(() => expect(createUser).toHaveBeenCalledWith({
       username: 'carol', email: 'carol@acme.com', password: 'longenough1', organizationId: 'org-a', role: 'member', roleIds: ['r1'],
-    }));
+    }, undefined));
+    // An ordinary account is created without a step-up.
+    expect(screen.queryByRole('button', { name: 'Confirm password' })).not.toBeInTheDocument();
+  }, SLOW);
+
+  it('a super-admin account is created only after a SECOND-FACTOR step-up, whose token it sends', async () => {
+    render(<UsersPage />);
+    fireEvent.click(await screen.findByRole('button', { name: /Add User/ }));
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.change(within(dialog).getByLabelText('Username'), { target: { value: 'ops' } });
+    fireEvent.change(within(dialog).getByLabelText('Email'), { target: { value: 'ops@acme.com' } });
+    fireEvent.change(within(dialog).getByLabelText('Password'), { target: { value: 'longenough1' } });
+    fireEvent.click(within(dialog).getByLabelText(/Platform super admin/));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Create User' }));
+
+    const confirm = await screen.findByRole('button', { name: 'Confirm password' });
+    expect(createUser).not.toHaveBeenCalled();
+    expect(confirm).toHaveAttribute('data-strong', 'yes');
+    fireEvent.click(confirm);
+    await waitFor(() => expect(createUser).toHaveBeenCalledWith(
+      { username: 'ops', email: 'ops@acme.com', password: 'longenough1', isSuperAdmin: true },
+      'step-up-token',
+    ));
   }, SLOW);
 });

@@ -42,7 +42,7 @@ describe('eligibility (Verified application facts)', () => {
     await expect(httpPlatformReads.eligibility('org/1')).resolves.toEqual({ verifiedDomains: ['acme.com', 'acme.io'], owners: 2, ownersWithMfa: 1 });
     expect(get).toHaveBeenCalledWith('/internal/ecosystem/publisher-eligibility/org%2F1', { headers: { Authorization: 'Bearer svc' } });
     // No per-client `timeout`: this call site inherits the shared client default
-    // (`HTTP_CLIENT_TIMEOUT`), which a pinned literal here would have overridden.
+    // (`HTTP_CLIENT_TIMEOUT_MS`), which a pinned literal here would have overridden.
     expect(ctorArgs[0]).toEqual({ host: 'platform', port: 3000 });
   });
 

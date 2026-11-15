@@ -54,7 +54,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   DEFAULT_TIER: 'developer',
   VALID_QUOTA_TYPES: ['plugins', 'pipelines', 'apiCalls'],
   isValidQuotaType: (t: string) => ['plugins', 'pipelines', 'apiCalls'].includes(t),
-  QUOTA_TIERS: {},
+  PLAN_TIERS: {},
   VALID_TIERS: [...MOCK_TIER_NAMES],
   isValidTier: mockIsValidTier,
   // Org → team hierarchy traversal helpers. quota-service → org-hierarchy.ts

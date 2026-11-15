@@ -1188,9 +1188,6 @@ importers:
       constructs:
         specifier: 10.8.1
         version: 10.8.1
-      esbuild:
-        specifier: 0.25.12
-        version: 0.25.12
       eslint:
         specifier: ^9
         version: 9.39.5(jiti@2.7.0)(supports-color@8.1.1)

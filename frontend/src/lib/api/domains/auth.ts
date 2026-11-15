@@ -9,7 +9,7 @@ import type {
 } from '@simplewebauthn/browser';
 import type { ApiCore } from '../core';
 import { withStepUpResume } from '../errors';
-import type { ApiResponse, AskUiMode, MfaChallenge, Passkey, PasswordChangeChallenge, QuotaTier, ReauthProvider, RecoveryCodeStatus, TotpEnrolment, TotpStatus, User, UserPreferences } from '@/types';
+import type { ApiResponse, AskUiMode, MfaChallenge, Passkey, PasswordChangeChallenge, PlanTier, ReauthProvider, RecoveryCodeStatus, TotpEnrolment, TotpStatus, User, UserPreferences } from '@/types';
 
 /**
  * One of the caller's sessions: a signed-in device (`interactive`) or a stored
@@ -138,7 +138,7 @@ export function authApi(core: ApiCore) {
         /** Which assistant surface the dashboard offers (ASK_UI_MODE):
          *  'ask-agent' (default) or 'help-topics'. */
         askUiMode?: AskUiMode;
-        /** Effective per-tier quota presets (honors QUOTA_TIER_* env overrides).
+        /** Effective per-tier quota presets (honors PLAN_TIER_* env overrides).
          *  Keyed by tier → the four displayed flow dimensions. */
         tierPresets?: Record<string, { plugins: number; pipelines: number; apiCalls: number; automationCalls: number; aiCalls: number }>;
         /** CLI package name + docs link (CLI_NPM_PACKAGE / CLI_NPM_URL). */
@@ -329,16 +329,20 @@ export function authApi(core: ApiCore) {
      * Pass `parentOrgId` to create it as a team nested under that org (the caller
      * must be an admin/owner of the parent).
      */
-    createOrganization: async (data: { name: string; description?: string; tier?: QuotaTier; parentOrgId?: string }) => {
+    createOrganization: async (data: { name: string; description?: string; tier?: PlanTier; parentOrgId?: string }) => {
       return core.request<ApiResponse<{ organization: { id: string; name: string; slug: string; description: string; tier: string; parentOrgId?: string } }>>('/api/organization', {
         method: 'POST',
         body: JSON.stringify(data),
       });
     },
 
-    updateProfile: async (data: { username?: string; email?: string }) => {
+    /** PATCH /user/profile. CHANGING the email is step-up gated server-side
+     *  (it is where a password reset is sent), so the UI confirms that edit in a
+     *  StepUpModal and forwards its token; a username-only edit sends none. */
+    updateProfile: async (data: { username?: string; email?: string }, stepUpToken?: string) => {
       return core.request<ApiResponse<{ user: User }>>('/api/user/profile', {
         method: 'PATCH',
+        headers: core.stepUpHeader(stepUpToken),
         body: JSON.stringify(data),
       });
     },

@@ -96,7 +96,7 @@ export const generateToken = withController('Generate token', async (req, res) =
   const userId = requireAuthUserId(req, res);
   if (!userId) return;
 
-  // Custom expiry cap matches pipeline-manager CLI's --days 365 ceiling.
+  // Custom expiry cap matches pipeline-manager CLI's --expires-days 365 ceiling.
   const MAX_EXPIRES_IN = 365 * 24 * 60 * 60;
   let expiresIn: number | undefined;
   if (req.body?.expiresIn !== undefined) {

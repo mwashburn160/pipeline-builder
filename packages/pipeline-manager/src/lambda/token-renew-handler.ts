@@ -27,12 +27,13 @@
  * Revoke-then-create would invert every one of those: a failure after the revoke
  * leaves the deployment with no working credential at all.
  *
- * Env: PLATFORM_SECRET_NAME, RENEW_DAYS (default 30),
- *      PLATFORM_VERIFY_SSL ("false" to disable TLS verification — refused in
+ * Env: PLATFORM_SECRET_NAME, KEY_TTL_DAYS (each rotated key's lifetime; default 30),
+ *      PLATFORM_TLS_VERIFY ("false" to disable TLS verification — refused in
  *      production).
  */
 import { SecretsManagerClient, PutSecretValueCommand } from '@aws-sdk/client-secrets-manager';
 import { correlationHeaders } from '@pipeline-builder/pipeline-core/lib/core/audit-correlation.js';
+import { platformTlsVerify } from '@pipeline-builder/pipeline-core/lib/core/platform-tls.js';
 import { assertAccessKey, readCredentialSecret } from '@pipeline-builder/pipeline-core/lib/handlers/platform-credential.js';
 
 /** Per-request timeout for the platform calls. */
@@ -101,14 +102,17 @@ async function post(
  * SECURITY: these calls carry a live credential. Refuse to disable TLS
  * verification in production so a MITM can't harvest it. Production is this
  * Lambda's normal mode (the rotation stack sets NODE_ENV=production), so
- * PLATFORM_VERIFY_SSL=false is honored ONLY outside production. This inlines the
- * same `NODE_ENV==='production'` policy as utils/tls.ts#assertSslDisableAllowed
- * (the handler ships as a single self-contained index.mjs and can't import it).
+ * `PLATFORM_TLS_VERIFY=false` (pipeline-core's platform-tls knob) is honored
+ * ONLY outside production — the same `NODE_ENV==='production'` policy as
+ * utils/tls.ts#assertSslDisableAllowed.
  */
 function applyTlsPolicy(): void {
-  if (process.env.PLATFORM_VERIFY_SSL !== 'false') return;
+  if (platformTlsVerify()) return;
   if (process.env.NODE_ENV === 'production') {
-    log('WARN', 'Refusing PLATFORM_VERIFY_SSL=false in production (NODE_ENV=production) — TLS verification stays enabled');
+    log('WARN', 'Refusing PLATFORM_TLS_VERIFY=false / NODE_TLS_REJECT_UNAUTHORIZED=0 in production (NODE_ENV=production) — TLS verification stays enabled');
+    // platformTlsVerify() also reads an inherited NODE_TLS_REJECT_UNAUTHORIZED=0;
+    // drop it so the refusal is real, not just logged.
+    delete process.env.NODE_TLS_REJECT_UNAUTHORIZED;
     return;
   }
   process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
@@ -117,9 +121,10 @@ function applyTlsPolicy(): void {
 export const handler = async (_event?: unknown, context?: { awsRequestId?: string }): Promise<void> => {
   const requestId = context?.awsRequestId;
   const secretName = required('PLATFORM_SECRET_NAME');
-  const days = Number(process.env.RENEW_DAYS || '30');
+  // Each rotated key's LIFETIME, not the rotation cadence (the schedule is).
+  const days = Number(process.env.KEY_TTL_DAYS || '30');
   if (!Number.isFinite(days) || days < 1 || days > 365) {
-    throw new Error(`RENEW_DAYS must be between 1 and 365 (got "${process.env.RENEW_DAYS}")`);
+    throw new Error(`KEY_TTL_DAYS must be between 1 and 365 (got "${process.env.KEY_TTL_DAYS}")`);
   }
   const region = process.env.AWS_REGION || 'us-east-1';
 

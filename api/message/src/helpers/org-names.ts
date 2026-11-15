@@ -7,8 +7,7 @@
  * A message row stores only org IDs (`orgId` / `recipientOrgId`), but the inbox
  * and thread UI show the counterparty by NAME. Names live in Mongo behind the
  * platform service, so this reads them over HTTP (system-scoped service token)
- * through the shared api-core client and caches each id→name for the message
- * cache TTL.
+ * through the shared api-core client and caches each id→name for five minutes.
  *
  * Best-effort throughout: any lookup failure leaves an id unresolved and the
  * client falls back to rendering the raw id — enrichment never blocks or fails a

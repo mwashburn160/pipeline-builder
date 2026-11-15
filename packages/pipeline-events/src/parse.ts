@@ -79,6 +79,14 @@ const MAX_ERROR_MESSAGE = 4000;
 /** Headroom under the reporting ingest's 8 KB serialized `detail` bound. */
 const MAX_DETAIL_BYTES = 7500;
 
+/**
+ * The CodePipeline states that end an execution, stage or action: each gets a
+ * `completedAt`. `SUPERSEDED` (a newer execution overtook this one) and
+ * `ABANDONED` (an action left unfinished when its execution moved on) end it as
+ * surely as `STOPPED` does — without them, those rows read as still running.
+ */
+const TERMINAL_STATES: ReadonlySet<string> = new Set(['SUCCEEDED', 'FAILED', 'CANCELED', 'STOPPED', 'SUPERSEDED', 'ABANDONED']);
+
 /** First non-empty string among the candidates, capped to the ingest max. */
 function firstAttr(...vals: unknown[]): string | undefined {
   for (const v of vals) {
@@ -191,7 +199,7 @@ export async function parseRecord(record: SQSRecord): Promise<ParsedEvent | null
   let durationMs: number | undefined;
   let completedAt: string | undefined;
 
-  if (['SUCCEEDED', 'FAILED', 'CANCELED', 'STOPPED'].includes(state)) {
+  if (TERMINAL_STATES.has(state)) {
     completedAt = event.time;
     // ONLY from a start AWS actually declared. With the fallback, `startedAt` and
     // `completedAt` are both `event.time` on a terminal event, so the duration came
@@ -213,21 +221,21 @@ export async function parseRecord(record: SQSRecord): Promise<ParsedEvent | null
     ? summary.slice(0, MAX_ERROR_MESSAGE)
     : undefined;
 
-  // A failed CodeBuild action may have printed a structured reason (the synth's
-  // `PB_SYNTH_FAILURE` line — a refused plugin, with its code). CodeBuild's
-  // summary never carries the build output, so read it from the build's log and
-  // promote it: the code + message become the failure reason, the per-plugin
-  // list rides in `detail.pbFailure`. Best-effort (see failure-reason.ts).
-  // The compute size this action ran on, for the vCPU-minute figure Phase 4
-  // measures. Only on a TERMINAL CodeBuild action: an in-progress event has no
-  // duration to pair it with, so reading it there would spend an AWS call to
-  // learn nothing. Best-effort — null forwards without the field.
+  // The compute size this action ran on, for the reporting service's
+  // vCPU-minute figure. Only on a TERMINAL CodeBuild action: an in-progress
+  // event has no duration to pair it with, so reading it there would spend an
+  // AWS call to learn nothing. Best-effort — null forwards without the field.
   let computeType: string | undefined;
   if (eventType === 'ACTION' && ['SUCCEEDED', 'FAILED', 'STOPPED'].includes(state)) {
     const cbId = codeBuildIdOf(detail);
     computeType = (cbId ? await readBuildCompute(event.region, cbId) : null) ?? undefined;
   }
 
+  // A failed CodeBuild action may have printed a structured reason (the synth's
+  // `PB_SYNTH_FAILURE` line — a refused plugin, with its code). CodeBuild's
+  // summary never carries the build output, so read it from the build's log and
+  // promote it: the code + message become the failure reason, the per-plugin
+  // list rides in `detail.pbFailure`. Best-effort (see failure-reason.ts).
   if (eventType === 'ACTION' && state === 'FAILED') {
     const buildId = codeBuildIdOf(detail);
     const failure = buildId ? await readSynthFailure(event.region, buildId) : null;

@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { audited, requireAssurance, requirePermission, requireStepUp } from '@pipeline-builder/api-core';
+import { audited, gateWhen, requireAssurance, requirePermission, requireStepUp, STRONG_STEP_UP_METHODS } from '@pipeline-builder/api-core';
 import { Router } from 'express';
 import {
   listAllUsers,
@@ -28,8 +28,25 @@ const mfaGrade = requireAssurance({ minAssurance: 2 });
 /** GET /users - List users (members:manage; sysadmin = all, org-admin = own org). */
 router.get('/', requireAuth, requirePermission('members:manage'), listAllUsers);
 
-/** POST /users - Create a user (members:manage; controller restricts to sysadmin). */
-router.post('/', requireAuth, requirePermission('members:manage'), audited('admin.user.create'), createUserByAdmin);
+/** POST /users - Create a user (members:manage; controller restricts to sysadmin).
+ *  Creating one pre-flagged `isSuperAdmin` IS a platform-admin grant, so it
+ *  carries the grant route's gates (POST /admin/users/:id/grants): an `aal: 2`
+ *  session AND a second-factor step-up. Conditional (`gateWhen`), so an
+ *  ordinary account stays creatable as before; the route table lists them
+ *  under `conditionalGates`. */
+router.post(
+  '/',
+  requireAuth,
+  requirePermission('members:manage'),
+  gateWhen(
+    'creates a platform super-admin',
+    (req) => (req.body as { isSuperAdmin?: unknown } | undefined)?.isSuperAdmin === true,
+    mfaGrade,
+    requireStepUp({ methods: STRONG_STEP_UP_METHODS }),
+  ),
+  audited('admin.user.create'),
+  createUserByAdmin,
+);
 
 /** GET /users/:id - Get a user (members:manage; org-admin scoped to a shared org). */
 router.get('/:id', requireAuth, requirePermission('members:manage'), getUserById);

@@ -251,6 +251,13 @@ owns one billing-only read:
 `sa/quota` is in the `message-allow` and `image-registry-allow` policies and the
 matching NetworkPolicies for these. See [API Quotas](quotas.md).
 
+**Reporting service callers.** Stakeholder-report delivery calls two internal
+routes: `platform POST /internal/notify-email`, which mails a published report to
+the addresses that were verified, and `message POST /messages/internal/notify`
+(`sa/reporting` in `message-internal-routes`), which posts the report to the
+org's inbox — the channel that cannot be misconfigured, so a report is never
+delivered nowhere — and tells its lead when a delivery was incomplete. See [Stakeholder Reports](stakeholder-reports.md).
+
 **Plugin ecosystem callers.** The plugin service is a caller of four internal
 surfaces:
 

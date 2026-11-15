@@ -45,9 +45,9 @@ jobs:
       - checkout
       - run:
           name: Install pipeline-manager and CDK toolchain
-          # `pipeline create --deploy` shells out to `cdk deploy`, whose synth
-          # uses esbuild + pnpm. Install all four on PATH.
-          command: sudo npm install -g @pipeline-builder/pipeline-manager aws-cdk esbuild pnpm
+          # `pipeline create --deploy` shells out to `cdk deploy`. Install both
+          # on PATH.
+          command: sudo npm install -g @pipeline-builder/pipeline-manager aws-cdk
       - run:
           name: Assume AWS role via OIDC
           command: |

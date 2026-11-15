@@ -1,6 +1,6 @@
 // GENERATED FROM docs/billing-providers.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 9a111fd7f72e660574cd9733892e9b05f421f4d627706dd95edc5307c0dc4841
+// SOURCE-SHA256: d5e50786eb23c28a2a7f2b61eb700b0c8d33fb1f7c99197889f3086d6ec4e482
 // SPDX-License-Identifier: Apache-2.0
 import { CreditCard } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -548,7 +548,7 @@ export const billingProvidersTopic: HelpTopic = {
             ],
             [
               "charge.refunded",
-              "Reverses the matching subscription"
+              "Reverses the matching subscription and the invoice's billing-ledger row. A refund that arrives before its invoice has been ingested is banked and applied when the invoice lands, so the ledger reads the same in either order"
             ],
             [
               "charge.dispute.created",
@@ -748,7 +748,7 @@ export const billingProvidersTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "The /marketplace/register page handles both: it resolves the token, then either shows a \"Link to my organization\" button (if already signed in) or sends the purchaser through sign-up/sign-in — carrying the registrationRef so it's claimed automatically when they reach the dashboard. Guards: a registrationRef binds once (single-use), an AWS customer can't bind to two orgs (409), and an org that already has an active subscription is rejected (409)."
+          "content": "The /marketplace/register page handles both: it resolves the token, then either shows a \"Link to my organization\" button (if already signed in) or sends the purchaser through sign-up/sign-in — carrying the registrationRef so it's claimed automatically when they reach the dashboard. Guards: a registrationRef binds once (single-use), an AWS customer can't bind to two orgs (409), and an org that already has a subscription is rejected (409). Every refusal is decided before the registrationRef is spent, so a refused claim leaves it claimable — the purchaser can retry from another org (or after resolving the conflict) within the 30-minute window instead of starting over from AWS. The ref is consumed only once the claim is going to succeed; a concurrent claim that loses the race puts it back."
         },
         {
           "type": "text",
@@ -1222,7 +1222,7 @@ export const billingProvidersTopic: HelpTopic = {
               "GET /billing/marketplace/entitlements",
               "Auth",
               "Marketplace",
-              "Current entitlements for the account"
+              "Current entitlements and plan for the account ({ entitlements, currentPlanId }; the license ARN stays server-side)"
             ]
           ]
         },

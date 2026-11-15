@@ -13,6 +13,8 @@ import { PgDialect } from 'drizzle-orm/pg-core';
 import { apiCoreMock, cacheKeyLog } from './helpers/mock-api-core.js';
 
 const mockExecute = jest.fn<AnyFn>();
+/** Every context `runWithTenantContext` was entered with, in order. */
+const tenantContexts: unknown[] = [];
 const mockInsert = jest.fn<AnyFn>();
 const mockSelect = jest.fn<AnyFn>();
 
@@ -45,7 +47,7 @@ jest.unstable_mockModule('../src/database/tenancy.js', () => ({
     insert: mockInsert,
     select: mockSelect,
   }),
-  runWithTenantContext: <T>(_ctx: unknown, fn: () => T) => fn(),
+  runWithTenantContext: <T>(ctx: unknown, fn: () => T) => { tenantContexts.push(ctx); return fn(); },
   getTenantContext: () => undefined,
   tenantContext: { run: <T>(_ctx: unknown, fn: () => T) => fn(), getStore: () => undefined },
 }));
@@ -1663,6 +1665,32 @@ describe('ReportingService', () => {
       const { sql, params } = rendered();
       expect(sql).toMatch(/e\.org_id in \(/i);
       expect(params).toContain('team-child');
+    });
+
+    // The operator reads: cross-org by construction, so NO org predicate is
+    // rendered and the read runs under the sysadmin scope (RLS off) — without
+    // it a system-org caller would see only the system org's own pipelines.
+    it('getPlatformErrors: no org predicate, sysadmin scope, shared SQL', async () => {
+      mockExecute.mockResolvedValue({ rows: [{ error_pattern: 'boom', occurrences: 2 }] });
+      tenantContexts.length = 0;
+      const rows = await service.getPlatformErrors('2026-01-01', '2026-03-15', 7);
+      const { sql, params } = rendered();
+      expect(sql).not.toMatch(/org_id/i);
+      expect(sql).toContain("e.status = 'FAILED'");
+      expect(params).toContain(7);
+      expect(tenantContexts).toEqual([{ isSuperAdmin: true }]);
+      expect(rows).toEqual([{ error_pattern: 'boom', occurrences: 2 }]);
+    });
+
+    it('getPlatformBuildFailures: no org predicate, sysadmin scope, shared SQL', async () => {
+      mockExecute.mockResolvedValue({ rows: [] });
+      tenantContexts.length = 0;
+      await service.getPlatformBuildFailures('2026-01-01', '2026-03-15', 5);
+      const { sql, params } = rendered();
+      expect(sql).not.toMatch(/org_id/i);
+      expect(sql).toContain("e.event_source = 'plugin-build'");
+      expect(params).toContain(5);
+      expect(tenantContexts).toEqual([{ isSuperAdmin: true }]);
     });
 
     it('build reports default to single-org `= $org` when no rollup ids are passed', async () => {

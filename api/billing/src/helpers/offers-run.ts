@@ -41,7 +41,7 @@ import {
   leaderLockKey,
   OFFERS_AGENT_ACTOR_ID,
   recordAudit,
-  type QuotaTier,
+  type PlanTier,
   type Scheduler,
   type BillingInterval,
 } from '@pipeline-builder/api-core';
@@ -79,7 +79,7 @@ const logger = createLogger('offers-run');
  * periods: a reader that loads exactly as many periods as the rule needs cannot
  * tell "three in a row" from "the only three there are".
  */
-export const PROFILE_HISTORY_PERIODS = 4;
+const PROFILE_HISTORY_PERIODS = 4;
 
 /**
  * A loaded profile. Wider than `ProfileLike` by the two figures the COPY needs:
@@ -375,7 +375,7 @@ export function emailFactsFor(input: {
   profiles: readonly RunProfile[];
   crossover: { candidateTier: string | null; savingCents: number };
   bundles: readonly PackLike[];
-  tier: QuotaTier;
+  tier: PlanTier;
   interval: BillingInterval;
 }): OfferEmailFacts | null {
   const chosen = input.decision.chosen;

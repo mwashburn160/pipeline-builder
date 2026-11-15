@@ -384,6 +384,13 @@ function parseCranePushDigest(stdout: string): string {
  */
 function patchDockerfile(contextDir: string, dockerfile: string) {
   const file = path.join(contextDir, dockerfile);
+  // A context that is present but has no Dockerfile will lack one on every
+  // retry, so it is a typed client error (classified permanent), not the bare
+  // ENOENT a retry would hit again. A MISSING context is a different failure —
+  // the context's own recovery owns it — so that ENOENT still propagates.
+  if (!fs.existsSync(file) && fs.existsSync(contextDir)) {
+    throw new ValidationError(`Dockerfile "${dockerfile}" not found in the build context`);
+  }
   const src = fs.readFileSync(file, 'utf-8');
   fs.writeFileSync(file, src.replace(/^(FROM\s+[^\n]+)/gm, '$1\nENV DEBIAN_FRONTEND=noninteractive'));
 }

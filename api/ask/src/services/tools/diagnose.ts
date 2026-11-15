@@ -2,8 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Diagnosis. Six READ tools, every one of them a GET (or a cached
- * report read) through the CALLER'S OWN forwarded token, so each owning service
+ * Diagnosis. Six diagnosis tools plus the two catalog reads (`list_pipelines`,
+ * `inspect_pipeline`), every one of them a GET through the CALLER'S OWN
+ * forwarded token, so each owning service
  * re-checks the caller's permissions and tenancy exactly as it would for the
  * user's own dashboard request.
  *
@@ -15,7 +16,7 @@
  * or tenancy are bypassed by reading it, and ask is not a caller of the send
  * route, so the same identity cannot make the instance send anything.
  *
- * Design rule 5 governs every return value here: these tools SHAPE, they do not
+ * One rule governs every return value here: these tools SHAPE, they do not
  * dump. No recipient address, no webhook URL (not even a masked one), no raw
  * downstream error body ever enters the model's context, because anything in
  * that context can surface in the assistant's prose or in a later tool call.
@@ -358,7 +359,7 @@ export function diagnoseTools(deps: AgentToolDeps): ToolSet {
     inspect_dora_drivers: tool({
       description:
         "Read the organization's DORA metrics (deployment frequency, lead time, change failure rate, MTTR) "
-        + 'together with the things that DRIVE them: the trend, the worst stages and actions, and build health. '
+        + 'together with the things that DRIVE them: the trend, the worst stages and actions, and (for one pipeline) build health. '
         + 'Use it for "why is our lead time bad?" or "are we getting better?". Read-only. DORA needs the '
         + '`advanced_reporting` entitlement; without it the DORA legs report as unavailable and the rest still returns.',
       inputSchema: z.object({
@@ -374,13 +375,28 @@ export function diagnoseTools(deps: AgentToolDeps): ToolSet {
         if (pipelineId) params.set('pipelineId', pipelineId);
         if (environment) params.set('environment', environment);
         const qs = params.toString() ? `?${params.toString()}` : '';
+        // The failure drivers read the SAME window as the DORA numbers they explain
+        // (those routes take only the range); without it they described the
+        // reports' default window instead of the one the user asked about.
+        const range = new URLSearchParams();
+        if (from) range.set('from', from);
+        if (to) range.set('to', to);
+        const rangeQs = range.toString() ? `?${range.toString()}` : '';
 
         const [dora, trend, stages, actions, health] = await Promise.all([
           settle(async () => unwrap<unknown>(await reporting.get(`/reports/execution/dora${qs}`))),
           settle(async () => unwrap<unknown>(await reporting.get(`/reports/execution/dora/trend${qs}`))),
-          settle(async () => unwrap<{ stages?: unknown[] }>(await reporting.get('/reports/execution/stage-failures'))),
-          settle(async () => unwrap<{ actions?: unknown[] }>(await reporting.get('/reports/execution/action-failures'))),
-          settle(async () => unwrap<unknown>(await reporting.get('/reports/execution/build-health'))),
+          settle(async () => unwrap<{ stages?: unknown[] }>(await reporting.get(`/reports/execution/stage-failures${rangeQs}`))),
+          settle(async () => unwrap<{ actions?: unknown[] }>(await reporting.get(`/reports/execution/action-failures${rangeQs}`))),
+          // Build health is PER PIPELINE: the route 400s without `pipelineId`, so
+          // an org-wide question used to report it "unavailable -> 400" every time.
+          pipelineId
+            ? settle(async () => {
+              const q = new URLSearchParams(range);
+              q.set('pipelineId', pipelineId);
+              return unwrap<unknown>(await reporting.get(`/reports/execution/build-health?${q.toString()}`));
+            })
+            : Promise.resolve(null),
         ]);
 
         return {
@@ -390,7 +406,9 @@ export function diagnoseTools(deps: AgentToolDeps): ToolSet {
           drivers: {
             stageFailures: stages.ok ? asArray(stages.value?.stages).slice(0, MAX_ROWS) : { unavailable: stages.reason },
             actionFailures: actions.ok ? asArray(actions.value?.actions).slice(0, MAX_ROWS) : { unavailable: actions.reason },
-            buildHealth: health.ok ? health.value : { unavailable: health.reason },
+            buildHealth: health === null
+              ? { unavailable: 'build health is per pipeline — pass pipelineId to read it' }
+              : health.ok ? health.value : { unavailable: health.reason },
           },
         };
       },

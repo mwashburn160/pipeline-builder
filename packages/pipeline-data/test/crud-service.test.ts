@@ -36,8 +36,8 @@ jest.unstable_mockModule('../src/database/postgres-connection.js', () => ({
 // pass-through that invokes the callback with the same fake `db` so existing
 // `mockSelect` / `mockInsert` / `mockUpdate` assertions still match. The
 // real tx-wrapping is exercised by the tenancy module's own tests.
-// Stubbed `tx.execute` for setDefault's FOR UPDATE row lock; tests don't
-// inspect the lock query so a no-op resolve is enough.
+// Stubbed `tx.execute` for setDefault's FOR UPDATE locks: the first call locks
+// and reads the TARGET row (its slot), the second locks the slot's defaults.
 const mockExecute = jest.fn<AnyFn>().mockResolvedValue(undefined);
 const mockDelete = jest.fn<AnyFn>();
 
@@ -95,7 +95,7 @@ interface TestUpdate {
 // equality that neutralizes prefix matching on the single-entity paths — same
 // empty-object column stand-in used for mockOrgColumn.
 const mockSchema = { id: {}, name: {}, isActive: {}, isDefault: {} } as unknown as PgTable;
-const mockProjectColumn = {} as AnyColumn;
+const mockProjectColumn = { name: 'project' } as unknown as AnyColumn;
 const mockOrgColumn = {} as AnyColumn;
 const mockConflictTarget = [{} as AnyColumn, {} as AnyColumn];
 
@@ -405,8 +405,9 @@ describe('CrudService', () => {
       // setDefault now runs through withTenantTx (mocked above to invoke
       // its callback with `{ select, insert, update, delete, execute }`).
       // Stub mockUpdate's chain to yield the row; mockExecute is the
-      // FOR UPDATE row lock.
-      mockExecute.mockResolvedValueOnce([]);
+      // FOR UPDATE target lock (returning the target's slot), then the
+      // defaults lock.
+      mockExecute.mockResolvedValueOnce([{ id: 'target-id', project: 'my-project' }]).mockResolvedValueOnce([]);
       mockUpdate.mockReturnValue({
         set: jest.fn<AnyFn>().mockReturnValue({
           where: jest.fn<AnyFn>().mockReturnValue({
@@ -415,33 +416,29 @@ describe('CrudService', () => {
         }),
       });
 
-      const result = await service.setDefault('my-project', 'org1', 'target-id', 'user1');
+      const result = await service.setDefault('org1', 'target-id', 'user1');
       expect(result).toEqual(updated);
       // Two UPDATEs run inside setDefault: clear existing defaults, then
       // set the target row.
       expect(mockUpdate).toHaveBeenCalledTimes(2);
     });
 
-    it('should throw NotFoundError when entity not found', async () => {
-      mockExecute.mockResolvedValueOnce([]);
-      mockUpdate.mockReturnValue({
-        set: jest.fn<AnyFn>().mockReturnValue({
-          where: jest.fn<AnyFn>().mockReturnValue({
-            returning: jest.fn<AnyFn>().mockResolvedValue([]),
-          }),
-        }),
-      });
+    it('should throw NotFoundError — demoting nothing — when the target is not found', async () => {
+      // The target lock finds no row: nothing is demoted, nothing is promoted.
+      mockExecute.mockResolvedValue([]);
 
       await expect(
-        service.setDefault('my-project', 'org1', 'missing-id', 'user1'),
+        service.setDefault('org1', 'missing-id', 'user1'),
       ).rejects.toThrow('Entity with id missing-id not found');
 
       try {
-        await service.setDefault('my-project', 'org1', 'missing-id', 'user1');
+        await service.setDefault('org1', 'missing-id', 'user1');
       } catch (error) {
         expect((error as any).name).toBe('NotFoundError');
         expect((error as any).statusCode).toBe(404);
       }
+      expect(mockUpdate).not.toHaveBeenCalled();
+      mockExecute.mockReset().mockResolvedValue(undefined);
     });
   });
 
@@ -1164,7 +1161,7 @@ describe('CrudService', () => {
     };
 
     it('promotes only an active row via the lowercased exactIdCondition', async () => {
-      mockExecute.mockResolvedValueOnce([]);
+      mockExecute.mockResolvedValueOnce([{ id: 'target-id', project: 'proj' }]).mockResolvedValueOnce([]);
       const exactSpy = jest.spyOn(service as unknown as { exactIdCondition: (id: string) => SQL }, 'exactIdCondition');
 
       const clearWhere = jest.fn<AnyFn>().mockReturnValue(undefined);
@@ -1175,7 +1172,7 @@ describe('CrudService', () => {
         .mockReturnValueOnce({ set: jest.fn<AnyFn>().mockReturnValue({ where: clearWhere }) })
         .mockReturnValueOnce({ set: jest.fn<AnyFn>().mockReturnValue({ where: targetWhere }) });
 
-      const result = await service.setDefault('proj', 'org1', 'TARGET-ID', 'user1');
+      const result = await service.setDefault('org1', 'TARGET-ID', 'user1');
       expect(result).toEqual(updated);
 
       // exactId cleanup: the target row is pinned with the lowercased exact-id

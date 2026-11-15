@@ -2,8 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The registry-only credential an anonymous submission's build runs with
- *.
+ * The registry-only credential an anonymous submission's build runs with.
  *
  * The quarantine buildkitd executes untrusted code, and a build sees whatever
  * credential its session carries. So the plugin service never hands it a

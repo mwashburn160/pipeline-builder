@@ -9,8 +9,8 @@
  * Dependency-free and env-free so the browser imports it directly
  * (`@pipeline-builder/api-core/tier-limits`). Its only import is a type, which
  * is erased at compile time, so nothing of the server graph reaches the bundle.
- * The env OVERLAY (`QUOTA_TIER_<TIER>_<LIMIT>`) deliberately stays in
- * `quota-tiers.ts`: it reads `process.env`, which is what kept this table out of
+ * The env OVERLAY (`PLAN_TIER_<TIER>_<LIMIT>`) deliberately stays in
+ * `plan-tiers.ts`: it reads `process.env`, which is what kept this table out of
  * the browser's reach in the first place.
  *
  * WHY IT EXISTS. The frontend kept a hand-written copy of this table
@@ -25,18 +25,18 @@
  * expressible.
  */
 
-import type { QuotaTier } from './quota-tiers.js';
+import type { PlanTier } from './plan-tiers.js';
 
 /**
  * A tier key as product copy: `developer` → "Developer", `pro_plus` → "Pro Plus".
  *
  * Lives here, with the other tier facts, because three callers want it: the
- * default `QUOTA_TIERS` label, the shared test fixture's labels (which kept a
+ * default `PLAN_TIERS` label, the shared test fixture's labels (which kept a
  * second `titleCase` of its own), and the browser.
  *
  * It will NOT guess at an acronym (`sso` → "Sso") or a stylized name ("Pro+"),
  * and deliberately takes no formatting options: the cases it cannot derive need
- * a human writing copy, which is what `QUOTA_TIER_<TIER>_LABEL` is for. A mode
+ * a human writing copy, which is what `PLAN_TIER_<TIER>_LABEL` is for. A mode
  * flag would add surface without reaching any of them, and a mid-sentence phrase
  * ("… — new version") is a different FACT from a standalone label rather than
  * another style of one — `quota-catalog.ts` carries `label` and `labelPlural` as
@@ -51,7 +51,7 @@ export function tierLabel(tier: string): string {
 }
 
 /** Limit values for each quota type within a tier. */
-export interface QuotaTierLimits {
+export interface PlanTierLimits {
   plugins: number;
   pipelines: number;
   apiCalls: number;
@@ -200,7 +200,7 @@ const GB = 1024 * 1024 * 1024;
  * table to it. Over the cap the 429 is SOFT for a band ({@link quotaGracePct}):
  * a self-mutating pipeline that hard-stopped at 100% stayed stopped until the
  * period reset, up to 3 days. The limits are PER PERIOD: an operator who
- * lengthens `QUOTA_RESET_DAYS` should scale `QUOTA_TIER_<TIER>_AUTOMATION_CALLS`
+ * lengthens `QUOTA_RESET_DAYS` should scale `PLAN_TIER_<TIER>_AUTOMATION_CALLS`
  * by the same factor.
  */
 export const AUTOMATION_CALLS_SIZING = {
@@ -234,8 +234,8 @@ export function automationCallsFor(pipelines: number, periodDays: number = 3): n
 /**
  * Code-default limits per tier — the fallback when no env override is set.
  *
- * SERVER CODE WANTS `getTierLimits(tier)` / `QUOTA_TIERS[tier].limits`, not this
- * table: those carry the deployment's `QUOTA_TIER_*` overrides, and this is what
+ * SERVER CODE WANTS `getTierLimits(tier)` / `PLAN_TIERS[tier].limits`, not this
+ * table: those carry the deployment's `PLAN_TIER_*` overrides, and this is what
  * they fall back to. It is exported for the BROWSER, which has no env to overlay
  * and gets the deployment's effective figures from `/config` instead.
  * -1 means unlimited. (Counts sized to "comfortably enough for one team, not
@@ -243,7 +243,7 @@ export function automationCallsFor(pipelines: number, periodDays: number = 3): n
  * for Developer; scaled up for Pro; -1 (uncapped) for the cheap count-quotas
  * on Team/Enterprise while cost-driving quotas — incl. apiCalls — stay finite.)
  */
-export const DEFAULT_TIER_LIMITS: Record<QuotaTier, QuotaTierLimits> = {
+export const DEFAULT_TIER_LIMITS: Record<PlanTier, PlanTierLimits> = {
   // Free tier: single seat, 2 pipelines, apiCalls CAPPED (was unlimited — a
   // DoS/abuse hole on a shared resource); aiCalls small (each has ~$0.01-0.10
   // external cost). Lean base — growth happens by upgrading, not stacking here.
@@ -391,7 +391,7 @@ export const DEFAULT_TIER_LIMITS: Record<QuotaTier, QuotaTierLimits> = {
  *  billing-off `unlimited` tier is team-capable (it's the most permissive); the
  *  entry-level `developer`/`pro` tiers are not. Single source for the parent-
  *  eligibility + downgrade-overcap checks so they can't drift. */
-export const TEAM_CAPABLE_TIERS: readonly QuotaTier[] = ['team', 'business', 'enterprise', 'unlimited'];
+export const TEAM_CAPABLE_TIERS: readonly PlanTier[] = ['team', 'business', 'enterprise', 'unlimited'];
 export function tierAllowsTeams(tier: string | undefined | null): boolean {
   return !!tier && (TEAM_CAPABLE_TIERS as readonly string[]).includes(tier);
 }
@@ -400,7 +400,7 @@ export function tierAllowsTeams(tier: string | undefined | null): boolean {
  *  the Team differentiator, so the single-seat `developer`/`pro` tiers cannot
  *  stack them and must upgrade instead; `unlimited` has no seat cap at all.
  *  Single source for the billing catalog and every "out of seats" message. */
-export const SEAT_PACK_TIERS: readonly QuotaTier[] = ['team', 'business', 'enterprise'];
+export const SEAT_PACK_TIERS: readonly PlanTier[] = ['team', 'business', 'enterprise'];
 
 /** How an account that has used every seat can get another. */
 export type SeatRemedy = 'upgrade' | 'seat_pack';

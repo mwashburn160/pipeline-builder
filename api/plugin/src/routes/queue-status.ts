@@ -3,13 +3,13 @@
 
 import {
   isoOrNull,
-  envInt, ErrorCode, audited, getParam, isSystemAdmin, isSystemOrgRequest, paginationMeta, parsePage, parseQueryInt, requirePermission, requireSystemOrgPermission, sendError, sendSuccess, actorId, userHasPermission,
+  envInt, ErrorCode, audited, getParam, isSystemAdmin, isSystemOrgRequest, paginationMeta, parsePage, parseQueryInt, refuseWeakSession, requireSystemOrgPermission, sendError, sendSuccess, actorId, tagRouteGate, userHasPermission,
   recordAudit, recordAuthzDenial, SYSTEM_ORG_ID, VALID_TIERS, buildConcurrencyEnvVar, buildWorkerConcurrencyFor,
 } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import type { Job } from 'bullmq';
-import { Router, type Request } from 'express';
+import { Router, type NextFunction, type Request, type Response } from 'express';
 
 import type { PluginBuildJobData } from '../helpers/plugin-helpers.js';
 import { findFailedJob, getAllTierQueues, getDeadLetterQueue } from '../queue/connections.js';
@@ -45,6 +45,49 @@ function seesEveryOrg(req: Request): boolean {
   return isSystemOrgRequest(req) && userHasPermission(req, 'plugin_queue:manage');
 }
 
+/**
+ * The gate on the org-scoped queue routes (`GET /failed`, `GET /dlq`,
+ * `GET /triage`, retry, replay). Two principals reach them:
+ *
+ *  - a system-org queue operator ({@link seesEveryOrg}) — the holder of
+ *    `plugin_queue:manage` the Builds page is gated on. It sees and acts on
+ *    every org's jobs, so, like `/status` and `DELETE /dlq`, it must present an
+ *    MFA-grade session;
+ *  - a holder of `plugins:write` in any org, confined to its own org's jobs by
+ *    the handlers' tenant filter.
+ *
+ * A static `requirePermission('plugins:write', 'plugin_queue:manage')` cannot
+ * say this: an any-of would admit `plugin_queue:manage` without the system-org
+ * and aal2 conditions, so the rule is declared as a dynamic one on the table.
+ */
+const QUEUE_ACCESS_RULE = 'a system-org queue operator (plugin_queue:manage, aal2) sees every org\'s jobs; '
+  + 'any other holder of plugins:write sees only its own org\'s';
+const requireQueueAccess = tagRouteGate(
+  function queueAccessGate(req: Request, res: Response, next: NextFunction): void {
+    if (!req.user) {
+      sendError(res, 401, 'Authentication required', ErrorCode.UNAUTHORIZED);
+      return;
+    }
+    if (seesEveryOrg(req)) {
+      if (refuseWeakSession(req, res, { minAssurance: 2 })) return;
+      next();
+      return;
+    }
+    if (userHasPermission(req, 'plugins:write')) {
+      next();
+      return;
+    }
+    recordAuthzDenial(req, 'plugins:write or system-org plugin_queue:manage');
+    sendError(res, 403, 'Missing required permission: plugins:write', ErrorCode.INSUFFICIENT_PERMISSIONS);
+  },
+  {
+    kind: 'dynamicAuthz',
+    rule: QUEUE_ACCESS_RULE,
+    reachableBy: ['superadmin', 'system-org', 'tenant-member'],
+    permissions: ['plugins:write', 'plugin_queue:manage'],
+  },
+);
+
 /** Shape returned by GET /triage — failed-build summary grouped by category. */
 interface TriageSample {
   id: string | number | undefined;
@@ -70,9 +113,10 @@ interface TriageCacheEntry {
 }
 
 /**
- * TTL (ms) for the GET /triage aggregate memo. The triage scan pulls up to
- * ~1200 job payloads (200 per tier queue × 4 tiers + 200 DLQ) and buckets them
- * in-memory on EVERY request; a short-TTL memo collapses a dashboard's repeated
+ * TTL (ms) for the GET /triage aggregate memo. The triage scan pulls 200 job
+ * payloads per source (each tier queue, the DLQ) — more for a tenant, whose
+ * scan reads past other orgs' jobs up to PLUGIN_QUEUE_TENANT_SCAN_MAX_ROWS per
+ * source — and buckets them in-memory on EVERY request; a short-TTL memo collapses a dashboard's repeated
  * polls into one scan without letting the summary go meaningfully stale. Mirrors
  * the read-quotas at-risk cache pattern.
  */
@@ -87,6 +131,9 @@ const TRIAGE_CACHE_TTL_MS = envInt('PLUGIN_TRIAGE_CACHE_TTL_MS', 5000, { min: 1 
  * cap, evict the oldest (Map preserves insertion order) to bound memory.
  */
 const TRIAGE_CACHE_MAX_ENTRIES = envInt('PLUGIN_TRIAGE_CACHE_MAX_ENTRIES', 500, { min: 1 });
+
+/** Jobs per source (tier failed set / DLQ) the triage summary buckets. */
+const TRIAGE_SOURCE_ROWS = 200;
 
 /** Drop expired entries, then evict oldest keys until at/under the cap. */
 function pruneTriageCache(cache: Map<string, TriageCacheEntry>, now: number): void {
@@ -119,13 +166,73 @@ const parseQueuePage = (query: Record<string, unknown>) => parsePage(query, {
   maxOffset: (limit) => QUEUE_MAX_PAGE_DEPTH - limit,
 });
 
+/**
+ * Deepest row a TENANT-scoped read scans in one source (a tier's failed set, or
+ * one DLQ state set). BullMQ has no per-org index, so a tenant's page is found
+ * by reading a source newest-first in {@link TENANT_SCAN_CHUNK} slices and
+ * keeping the caller's own jobs until it has enough or reaches this depth.
+ * Older jobs of that tenant beyond it are not listed.
+ */
+const TENANT_SCAN_MAX_ROWS = envInt('PLUGIN_QUEUE_TENANT_SCAN_MAX_ROWS', 10000, { min: 1 });
+
+/** Rows per BullMQ range read while scanning a source for a tenant. */
+const TENANT_SCAN_CHUNK = 500;
+
+/** One source of jobs: reads rows `start..end` (inclusive) newest-first. */
+type JobRangeReader = (start: number, end: number) => Promise<Job<PluginBuildJobData>[]>;
+
+/**
+ * The newest `want` jobs of one source that `keep` admits, scanning in chunks
+ * up to {@link TENANT_SCAN_MAX_ROWS}. Stops early once a short chunk shows the
+ * source is exhausted. Filtering BEFORE limiting is what keeps another org's
+ * failures from pushing the caller's own jobs out of the page.
+ */
+async function scanSource(
+  read: JobRangeReader,
+  want: number,
+  keep: (job: Job<PluginBuildJobData>) => boolean,
+): Promise<Job<PluginBuildJobData>[]> {
+  const found: Job<PluginBuildJobData>[] = [];
+  for (let start = 0; start < TENANT_SCAN_MAX_ROWS && found.length < want; start += TENANT_SCAN_CHUNK) {
+    const end = Math.min(start + TENANT_SCAN_CHUNK, TENANT_SCAN_MAX_ROWS) - 1;
+    const rows = await read(start, end);
+    for (const job of rows) {
+      if (keep(job)) found.push(job);
+    }
+    if (rows.length < end - start + 1) break;
+  }
+  return found.slice(0, want);
+}
+
+/**
+ * Read `want` jobs from each source: an operator's first `want` rows as they
+ * stand (every job is visible), or a tenant's own newest `want` per source.
+ * Taking each source's own top `want` makes the newest-first merge of their
+ * union exact for the first `want` rows overall.
+ */
+async function readSources(
+  sources: JobRangeReader[],
+  want: number,
+  everyOrg: boolean,
+  orgId: string,
+): Promise<Job<PluginBuildJobData>[]> {
+  const lists = await Promise.all(sources.map((read) => (everyOrg
+    ? read(0, want - 1)
+    : scanSource(read, want, (job) => jobBelongsToOrg(job.data, orgId)))));
+  return lists.flat();
+}
+
+/** The DLQ's state sets, each its own BullMQ set and so its own scan source. */
+const DLQ_STATES = ['waiting', 'delayed', 'active', 'completed', 'failed'] as const;
+
 /** Newest-first order over a merged multi-queue read (finished, else enqueued). */
 const newestFirst = (a: Job, b: Job): number =>
   ((b.finishedOn ?? b.timestamp ?? 0) - (a.finishedOn ?? a.timestamp ?? 0));
 
 /**
  * One page of a merged, tenant-filtered job listing. `window` holds the first
- * `offset + limit + 1` rows of every source already merged newest-first, so the
+ * `offset + limit + 1` VISIBLE rows of every source (see {@link readSources})
+ * already merged newest-first, so the
  * page is a slice of a stable global order and the extra row tells us whether
  * another page exists. `total` is exact for system-org queue operators (the queue counts
  * cover every tenant); a tenant-scoped caller's total can't be known without
@@ -241,29 +348,32 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
     });
   }));
 
-  // Access: gated by `requirePermission('plugins:write')` (route middleware),
-  // matching the sibling retry/replay writes so the queue surface uses ONE gate
-  // for org-scoped ops. System-org queue operators see all orgs; other holders of
-  // plugins:write see only their own org's jobs (tenant-isolation filter below).
+  // Access: `requireQueueAccess` — the shared gate of the org-scoped queue
+  // routes. System-org queue operators see all orgs; other holders of
+  // plugins:write see only their own org's jobs (tenant-isolation filter).
   //
   // Paged with `limit` (≤200) + `offset` (≤ QUEUE_MAX_PAGE_DEPTH): every tier's
-  // failed set contributes its newest `offset + limit + 1` rows, merged
-  // newest-first, so a page is a slice of one global order across tiers — a
-  // noisy tier can't crowd out another tier's jobs on a later page.
-  router.get('/failed', requirePermission('plugins:write'), withRoute(async ({ req, res, orgId }) => {
+  // failed set contributes its newest `offset + limit + 1` VISIBLE rows — for a
+  // tenant, its own jobs, filtered before the limit so other orgs' failures
+  // cannot push them out — merged newest-first, so a page is a slice of one
+  // global order across tiers.
+  router.get('/failed', requireQueueAccess, withRoute(async ({ req, res, orgId }) => {
     const paging = parseQueuePage(req.query as Record<string, unknown>);
     const tiers = getAllTierQueues();
     const everyOrg = seesEveryOrg(req);
-    const [failedByTier, counts] = await Promise.all([
-      Promise.all(tiers.map(({ queue }) => queue.getJobs(['failed'], 0, paging.offset + paging.limit))),
+    const want = paging.offset + paging.limit + 1;
+    const [failed, counts] = await Promise.all([
+      readSources(
+        tiers.map(({ queue }) => (start: number, end: number) => queue.getJobs(['failed'], start, end)),
+        want, everyOrg, orgId,
+      ),
       everyOrg ? Promise.all(tiers.map(({ queue }) => queue.getJobCounts('failed'))) : Promise.resolve(null),
     ]);
 
-    // Tenant isolation: callers other than system-org queue operators only see their own org's failed jobs.
-    // Without this filter, an org admin could see another tenant's failure
-    // metadata (plugin names, error messages).
-    const merged = failedByTier.flat().sort(newestFirst);
-    const visible = everyOrg ? merged : merged.filter((job) => jobBelongsToOrg(job.data, orgId));
+    // Tenant isolation already applied by readSources: callers other than
+    // system-org queue operators only ever hold their own org's failed jobs, so
+    // an org admin never sees another tenant's plugin names or error messages.
+    const visible = failed.sort(newestFirst);
     const total = counts ? counts.reduce((acc, c) => acc + (c.failed ?? 0), 0) : undefined;
     const { page, pagination } = pageOf(visible, paging, total);
 
@@ -290,14 +400,14 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
    * build queue from its retained job data. Mirrors /dlq/:jobId/replay but
    * sources from the per-tier failed set (distinct from the DLQ).
    *
-   * Access: gated by `requirePermission('plugins:write')` (route middleware).
-   * - System-org queue operators: can retry any failed job.
+   * Access: `requireQueueAccess`.
+   * - System-org queue operators (aal2): can retry any failed job.
    * - Callers with plugins:write: can retry only jobs that belong to their own org.
    *
    * Returns 404 if no failed job with that id exists. The retry carries fresh
    * retry counters; the original failed entry is removed on success.
    */
-  router.post('/failed/:jobId/retry', requirePermission('plugins:write'), audited('plugin.build.retry'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.post('/failed/:jobId/retry', requireQueueAccess, audited('plugin.build.retry'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const jobId = getParam(req.params, 'jobId');
     if (!jobId) return sendError(res, 400, 'Job ID is required', ErrorCode.MISSING_REQUIRED_FIELD);
 
@@ -341,26 +451,27 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
 
   // -- DLQ endpoints --------------------------------------------------------
 
-  // Access: gated by `requirePermission('plugins:write')` (route middleware) —
-  // same org-scoped gate as GET /failed. System-org queue operators see all orgs; other
-  // plugins:write holders see only their own org (tenant-isolation filter below).
-  // Paged exactly like /failed: BullMQ applies the range to EACH state set, so
-  // every state contributes its newest `offset + limit + 1` rows before the
-  // newest-first merge + slice.
-  router.get('/dlq', requirePermission('plugins:write'), withRoute(async ({ req, res, orgId }) => {
+  // Access: `requireQueueAccess` — same gate as GET /failed. System-org queue
+  // operators see all orgs; other plugins:write holders see only their own org.
+  // Paged exactly like /failed. An operator reads every state set in one call
+  // (BullMQ applies the range to EACH set); a tenant's scan runs per state set,
+  // so each set contributes its own newest `offset + limit + 1` jobs of the
+  // caller's org before the newest-first merge + slice.
+  router.get('/dlq', requireQueueAccess, withRoute(async ({ req, res, orgId }) => {
     const paging = parseQueuePage(req.query as Record<string, unknown>);
     const dlq = getDeadLetterQueue();
-    const states = ['waiting', 'delayed', 'active', 'completed', 'failed'] as const;
     const everyOrg = seesEveryOrg(req);
-    const [allJobs, counts] = await Promise.all([
-      dlq.getJobs([...states], 0, paging.offset + paging.limit),
-      everyOrg ? dlq.getJobCounts(...states) : Promise.resolve(null),
+    const want = paging.offset + paging.limit + 1;
+    const sources: JobRangeReader[] = everyOrg
+      ? [(start, end) => dlq.getJobs([...DLQ_STATES], start, end)]
+      : DLQ_STATES.map((state) => (start: number, end: number) => dlq.getJobs([state], start, end));
+    const [dlqJobs, counts] = await Promise.all([
+      readSources(sources, want, everyOrg, orgId),
+      everyOrg ? dlq.getJobCounts(...DLQ_STATES) : Promise.resolve(null),
     ]);
 
-    // Tenant isolation — same model as /failed above.
-    const merged = [...allJobs].sort(newestFirst);
-    const visible = everyOrg ? merged : merged.filter((job) => jobBelongsToOrg(job.data, orgId));
-    const total = counts ? states.reduce((acc, st) => acc + (counts[st] ?? 0), 0) : undefined;
+    const visible = dlqJobs.sort(newestFirst);
+    const total = counts ? DLQ_STATES.reduce((acc, st) => acc + (counts[st] ?? 0), 0) : undefined;
     const { page, pagination } = pageOf(visible, paging, total);
 
     const jobs = page.map((job) => ({
@@ -408,14 +519,14 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
   /**
    * POST /dlq/:jobId/replay re-enqueue a single DLQ job onto the main build queue.
    *
-   * Access: gated by `requirePermission('plugins:write')` (route middleware).
-   * - System-org queue operators: can replay any job.
+   * Access: `requireQueueAccess`.
+   * - System-org queue operators (aal2): can replay any job.
    * - Callers with plugins:write: can replay jobs that belong to their own org.
    *
    * Returns 404 if the DLQ job no longer exists. The replay carries fresh retry
    * counters; the original DLQ entry is removed on success.
    */
-  router.post('/dlq/:jobId/replay', requirePermission('plugins:write'), audited('plugin.dlq.replay'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
+  router.post('/dlq/:jobId/replay', requireQueueAccess, audited('plugin.dlq.replay'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const jobId = getParam(req.params, 'jobId');
     if (!jobId) return sendError(res, 400, 'Job ID is required', ErrorCode.MISSING_REQUIRED_FIELD);
 
@@ -459,20 +570,20 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
    * GET /triage failed-build summary grouped by failure category, with
    * a few representative examples per group. Powers the triage dashboard.
    *
-   * Access: gated by `requirePermission('plugins:write')` (route middleware) —
-   * same org-scoped gate as GET /failed and GET /dlq.
+   * Access: `requireQueueAccess` — same gate as GET /failed and GET /dlq.
    * Visibility:
-   * - System-org queue operators ({@link seesEveryOrg}): all failures across all orgs.
-   * - Other plugins:write holders: only failures whose job `data.orgId`
-   *   matches their org (tenant-isolation filter below).
+   * - System-org queue operators ({@link seesEveryOrg}): the newest 200 failures
+   *   of each source across all orgs.
+   * - Other plugins:write holders: the newest 200 of each source whose job
+   *   `data.orgId` matches their org, filtered BEFORE the limit.
    */
-  router.get('/triage', requirePermission('plugins:write'), withRoute(async ({ req, res, orgId }) => {
+  router.get('/triage', requireQueueAccess, withRoute(async ({ req, res, orgId }) => {
     const everyOrg = seesEveryOrg(req);
 
     const sampleLimit = Math.min(parseQueryInt(req.query.samples, 5), 20);
 
     // Short-TTL memo (see TRIAGE_CACHE_TTL_MS): collapse a dashboard's repeated
-    // polls into one ~1200-payload scan. Scope the key by visibility so a
+    // polls into one scan. Scope the key by visibility so a
     // sysadmin's cross-org view can't leak to an org-scoped caller.
     const cacheKey = `${everyOrg ? 'all' : `org:${orgId}`}:${sampleLimit}`;
     const now = Date.now();
@@ -481,20 +592,20 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
       return sendSuccess(res, 200, cached.payload);
     }
 
-    // failed jobs sit in the per-tier queue that ran them; union.
+    // failed jobs sit in the per-tier queue that ran them; union. Tenant
+    // isolation is applied by readSources, before the per-source limit.
     const dlq = getDeadLetterQueue();
     const tierQueueHandles = getAllTierQueues();
-    const [tierFailedLists, dlqAll] = await Promise.all([
-      Promise.all(tierQueueHandles.map(({ queue }) => queue.getJobs(['failed'], 0, 199))),
-      dlq.getJobs(['waiting', 'delayed', 'active', 'completed', 'failed'], 0, 199),
+    const dlqSources: JobRangeReader[] = everyOrg
+      ? [(start, end) => dlq.getJobs([...DLQ_STATES], start, end)]
+      : DLQ_STATES.map((state) => (start: number, end: number) => dlq.getJobs([state], start, end));
+    const [failed, dlqJobs] = await Promise.all([
+      readSources(
+        tierQueueHandles.map(({ queue }) => (start: number, end: number) => queue.getJobs(['failed'], start, end)),
+        TRIAGE_SOURCE_ROWS, everyOrg, orgId,
+      ),
+      readSources(dlqSources, TRIAGE_SOURCE_ROWS, everyOrg, orgId),
     ]);
-    const failedAll = tierFailedLists.flat();
-
-    // Filter to caller's org for callers other than system-org queue operators (tenant isolation).
-    const ownsJob = (job: Job<PluginBuildJobData>): boolean =>
-      everyOrg || jobBelongsToOrg(job.data, orgId);
-    const failed = failedAll.filter(ownsJob);
-    const dlqJobs = dlqAll.filter(ownsJob);
 
     interface Bucket {
       category: string;

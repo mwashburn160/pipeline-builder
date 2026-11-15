@@ -15,7 +15,7 @@ const mockGetPluginDistribution = jest.fn<AnyFn>();
 const mockGetPluginVersions = jest.fn<AnyFn>();
 const mockGetBuildSuccessRate = jest.fn<AnyFn>();
 const mockGetBuildDuration = jest.fn<AnyFn>();
-const mockGetBuildFailures = jest.fn<AnyFn>();
+const mockGetPlatformBuildFailures = jest.fn<AnyFn>();
 const mockGetPluginRuntime = jest.fn<AnyFn>();
 const mockResolveOrgRollup = jest.fn<AnyFn>();
 
@@ -91,7 +91,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@p
     getPluginVersions: mockGetPluginVersions,
     getBuildSuccessRate: mockGetBuildSuccessRate,
     getBuildDuration: mockGetBuildDuration,
-    getBuildFailures: mockGetBuildFailures,
+    getPlatformBuildFailures: mockGetPlatformBuildFailures,
     getPluginRuntime: mockGetPluginRuntime,
     // The per-org build reports resolve the org's effective retention
     // cap (resolveOrgMaxRangeMs) before parsing the date range. Default org (no
@@ -243,27 +243,15 @@ describe('Plugin Report Routes', () => {
   });
 
   describe('GET /build-failures', () => {
-    it('should return build failures with limit (no rollup by default)', async () => {
-      mockGetBuildFailures.mockResolvedValue([]);
-      const handler = getHandler('/build-failures');
-      // /build-failures is system-admin-only; mark the request principal so the
-      // isSystemAdmin gate passes.
-      const req = { query: { limit: '5' }, user: { isSuperAdmin: true } };
-      const res = {};
-
-      await handler(req, res);
-
-      expect(mockGetBuildFailures).toHaveBeenCalledWith('acme', expect.any(String), expect.any(String), 5, undefined);
-    });
-
-    it('rolls up over the subtree with ?includeDescendants (superadmin implicit-all)', async () => {
-      mockResolveOrgRollup.mockResolvedValue(['acme', 'team-child']);
-      mockGetBuildFailures.mockResolvedValue([]);
+    // Cross-org: the operator's read spans every org, so the caller's org is
+    // never an argument and ?includeDescendants has nothing to resolve.
+    it('reads across every org — no caller org, no rollup', async () => {
+      mockGetPlatformBuildFailures.mockResolvedValue([]);
       const handler = getHandler('/build-failures');
       await handler({ query: { limit: '5', includeDescendants: 'true' }, user: { isSuperAdmin: true } }, {});
 
-      expect(mockResolveOrgRollup).toHaveBeenCalledWith('acme');
-      expect(mockGetBuildFailures).toHaveBeenCalledWith('acme', expect.any(String), expect.any(String), 5, ['acme', 'team-child']);
+      expect(mockResolveOrgRollup).not.toHaveBeenCalled();
+      expect(mockGetPlatformBuildFailures).toHaveBeenCalledWith(expect.any(String), expect.any(String), 5);
     });
   });
 

@@ -70,10 +70,9 @@ jobs:
         with:
           node-version: 26
 
-      # `pipeline create --deploy` shells out to `cdk deploy`, whose synth uses
-      # esbuild + pnpm. Install all four on PATH.
+      # `pipeline create --deploy` shells out to `cdk deploy`. Install both on PATH.
       - name: Install pipeline-manager and CDK toolchain
-        run: npm install -g @pipeline-builder/pipeline-manager aws-cdk esbuild pnpm
+        run: npm install -g @pipeline-builder/pipeline-manager aws-cdk
 
       # Render the golden-path template into concrete pipeline props. This
       # creates nothing on the platform — it only resolves the template's

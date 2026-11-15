@@ -90,8 +90,6 @@ export function toolchainVersionsText(t: ToolchainRelease['toolchain']): string 
     `aws-cdk ${t.awsCdk}`,
     `cdk-assets ${t.cdkAssets}`,
     `Node ${t.node}`,
-    `pnpm ${t.pnpm}`,
-    `esbuild ${t.esbuild}`,
   ].join(' · ');
 }
 

@@ -53,7 +53,7 @@ export function getPublicReaderDb(): ReturnType<typeof drizzle<typeof schema>> {
     // Below pgbouncer's per-user cap (5), so a replica never queues inside pgbouncer.
     max: envInt('PUBLIC_DIRECTORY_POOL_SIZE', 4, { min: 1 }),
     idleTimeoutMillis: 30_000,
-    connectionTimeoutMillis: envInt('DRIZZLE_CONNECTION_TIMEOUT_MILLIS', 5000, { min: 1 }),
+    connectionTimeoutMillis: envInt('DRIZZLE_CONNECTION_TIMEOUT_MS', 5000, { min: 1 }),
     // Client-side bound on one directory query. pgbouncer (transaction mode)
     // refuses a `statement_timeout` startup parameter, so it can't be set there.
     query_timeout: envInt('PUBLIC_DIRECTORY_QUERY_TIMEOUT_MS', 5000, { min: 1 }),

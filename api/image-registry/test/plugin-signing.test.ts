@@ -75,6 +75,9 @@ describe('repository + digest shape', () => {
   it.each([
     ['system/trivy', true],
     ['org-6650f0c3a1b2c3d4e5f60718/my-plugin', true],
+    // Same org-id grammar as repoTenant / the token service's org namespace.
+    ['org-acme-2/my-plugin', true],
+    ['org--acme/my-plugin', false],
     ['library/plugin-base', false],
     ['org-acme/../system/x', false],
     ['system/Upper', false],

@@ -8,7 +8,7 @@ import {
 } from '../helpers/controller-helper.js';
 import { expandOrgScope } from '../helpers/org-hierarchy.js';
 import { listPage } from '../helpers/pagination.js';
-import type { QuotaTier } from '../models/organization.js';
+import type { PlanTier } from '../models/organization.js';
 import { organizationService, orgHierarchyService, changedAiProviderFields } from '../services/index.js';
 import { exportOrg, softDeleteOrg } from '../services/org-cascade-service.js';
 import {
@@ -29,10 +29,10 @@ const logger = createLogger('organization-controller');
 export const listAllOrganizations = withController('List organizations', async (req, res) => {
   const search = typeof req.query.search === 'string' ? req.query.search: undefined;
   // Tier facet — passed through verbatim; service coerces invalid values
-  // to "no filter" via the QuotaTier union (Mongo just no-ops on unknown enums).
+  // to "no filter" via the PlanTier union (Mongo just no-ops on unknown enums).
   const tierRaw = typeof req.query.tier === 'string' ? req.query.tier: undefined;
-  const tier = tierRaw && VALID_TIERS.includes(tierRaw as QuotaTier)
-    ? (tierRaw as QuotaTier)
+  const tier = tierRaw && VALID_TIERS.includes(tierRaw as PlanTier)
+    ? (tierRaw as PlanTier)
     : undefined;
   const { offset, limit } = listPage(req.query);
   // `ids=a,b,c` — resolve exactly these orgs (names for the ids a page shows).
@@ -219,10 +219,10 @@ export const updateOrganizationTier = withController('Update organization tier',
 
   const id = getParam(req.params, 'id')!;
   const tierRaw = (req.body as { tier?: unknown })?.tier;
-  if (typeof tierRaw !== 'string' || !VALID_TIERS.includes(tierRaw as QuotaTier)) {
+  if (typeof tierRaw !== 'string' || !VALID_TIERS.includes(tierRaw as PlanTier)) {
     return sendError(res, 400, `tier must be one of: ${VALID_TIERS.join(', ')}`);
   }
-  const tier: QuotaTier = tierRaw as QuotaTier;
+  const tier: PlanTier = tierRaw as PlanTier;
 
   // Over-cap gate: a downgrade must not strand
   // members/resources. Same protection as the billing plan-change path; a

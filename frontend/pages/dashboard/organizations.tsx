@@ -35,7 +35,7 @@ import { continueAfterStepUp } from '@/lib/api/errors';
 // quota picker, IdP roster and org pickers read from must be dropped too.
 import { invalidate } from '@/lib/api-cache';
 import { ALL_TIER_KEYS, getTierMeta } from '@/lib/tiers';
-import { Organization, type QuotaTier } from '@/types';
+import { Organization, type PlanTier } from '@/types';
 import type { OrganizationListItem } from '@/lib/api/domains/organizations';
 
 /**
@@ -107,7 +107,7 @@ export default function OrganizationsPage() {
       const tierParam = String(params.tier || 'all');
       const response = await api.listOrganizations({
         ...(params.search && { search: params.search }),
-        ...(tierParam !== 'all' && { tier: tierParam as QuotaTier }),
+        ...(tierParam !== 'all' && { tier: tierParam as PlanTier }),
         offset: Number(params.offset || 0),
         limit: Number(params.limit || 25),
       }, { signal });
@@ -175,7 +175,7 @@ export default function OrganizationsPage() {
   // small dialog, then re-verify via StepUpModal (the backend PATCH is step-up
   // gated because a tier change reseeds quota limits / affects billing).
   const [tierOrg, setTierOrg] = useState<Organization | null>(null);
-  const [pendingTierChange, setPendingTierChange] = useState<{ org: Organization; tier: QuotaTier } | null>(null);
+  const [pendingTierChange, setPendingTierChange] = useState<{ org: Organization; tier: PlanTier } | null>(null);
 
   // Create a new top-level organization or team (sysadmin).
   const toast = useToast();

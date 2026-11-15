@@ -2,8 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Installs and the org consumption policy (docs/plugin-publishing.md,
- *).
+ * Installs and the org consumption policy (docs/plugin-publishing.md).
  *
  *  - An org INSTALLS a listing (`plugins:install`). When its consumption
  *    policy requires approval for the listing's tier and the caller can't
@@ -21,7 +20,7 @@
 
 import type { IncomingHttpHeaders } from 'node:http';
 
-import { isoOrNull, actorId, ConflictError, ErrorCode, paginationMeta, type Permission, parsePage, type ShadowingMode, withProposalProvenance } from '@pipeline-builder/api-core';
+import { isoOrNull, actorId, ConflictError, ErrorCode, paginationMeta, type Permission, parsePage, PUBLISHER_HANDLE_PATTERN, type ShadowingMode, withProposalProvenance } from '@pipeline-builder/api-core';
 import {
   isUniqueViolation,
   applyPolicyUpdate,
@@ -262,7 +261,6 @@ export async function shadowing(caller: Caller) {
 // Writes
 // -----------------------------------------------------------------------------
 
-const HANDLE_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const NAME_RE = /^[a-z0-9][a-z0-9._-]*$/;
 
 function need(caller: Caller, permission: Permission): void {
@@ -310,7 +308,7 @@ export async function createInstall(caller: Caller, body: Record<string, unknown
   need(caller, 'plugins:install');
   const handle = body.publisher;
   const name = body.name;
-  if (typeof handle !== 'string' || !HANDLE_RE.test(handle) || typeof name !== 'string' || !NAME_RE.test(name)) {
+  if (typeof handle !== 'string' || !PUBLISHER_HANDLE_PATTERN.test(handle) || typeof name !== 'string' || !NAME_RE.test(name)) {
     throw new EcosystemError(ErrorCode.VALIDATION_ERROR, 'publisher and name are required (a publisher handle and a plugin name)');
   }
   // Managed toolchain names are never listed, so never installed.

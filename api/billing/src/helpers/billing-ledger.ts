@@ -12,6 +12,7 @@
 import { createLogger } from '@pipeline-builder/api-core';
 import { incCounter } from '@pipeline-builder/api-server';
 import { BillingInvoice } from '../models/billing-invoice.js';
+import { BillingPendingReversal, PENDING_REVERSAL_TTL_MS } from '../models/billing-pending-reversal.js';
 
 const logger = createLogger('billing-ledger');
 
@@ -46,16 +47,25 @@ function mapInvoiceStatus(status?: string | null): LedgerStatus {
   }
 }
 
+/** Write a reversal onto an existing ledger row; null when the row is absent. */
+async function applyReversal(invoiceId: string, set: Record<string, unknown>): Promise<{ orgId: string } | null> {
+  return BillingInvoice.findOneAndUpdate({ externalInvoiceId: invoiceId }, { $set: set }, { new: true });
+}
+
 /**
- * Reverse an already-ingested invoice row in the ledger — the charge-level
- * counterpart to {@link ingestStripeInvoice}. Sets the row's `status`
- * (`refunded`/`disputed`) and, when given, OVERWRITES `amountPaidCents` with the
- * net still-collected amount (Stripe sends the cumulative refunded/disputed total
- * on each event, so an absolute set is idempotent under redelivery/partial
- * refunds). No-op (returns null) when no row exists for the invoice — a charge
- * with no ingested invoice has nothing to reverse. Returns the row's `orgId` on
- * success. Best-effort: never computes money independently, only reflects the
- * provider's reversal.
+ * Reverse an invoice row in the ledger — the charge-level counterpart to
+ * {@link ingestStripeInvoice}. Sets the row's `status` (`refunded`/`disputed`,
+ * or `void`/`uncollectible`) and, when given, OVERWRITES `amountPaidCents` with
+ * the net still-collected amount (Stripe sends the cumulative refunded/disputed
+ * total on each event, so an absolute set is idempotent under redelivery/partial
+ * refunds).
+ *
+ * When the invoice has not been ingested yet (webhooks are unordered, and an
+ * ingest can fail and be redelivered later) the reversal is BANKED as a
+ * {@link BillingPendingReversal} and folded onto the row by the ingest, so the
+ * ledger ends up the same in either order. Returns the row's `orgId` when it was
+ * written now, null when it was banked. Never computes money independently,
+ * only reflects the provider's reversal.
  */
 export async function reverseLedgerInvoice(
   invoiceId: string,
@@ -64,18 +74,56 @@ export async function reverseLedgerInvoice(
 ): Promise<string | null> {
   const set: Record<string, unknown> = { status };
   if (netAmountPaidCents !== undefined) set.amountPaidCents = Math.max(0, netAmountPaidCents);
-  const row = await BillingInvoice.findOneAndUpdate(
-    { externalInvoiceId: invoiceId },
-    { $set: set },
-    { new: true },
-  );
-  if (!row) {
-    logger.debug('No ledger row to reverse', { invoiceId, status });
-    return null;
+  const row = await applyReversal(invoiceId, set);
+  if (row) {
+    incCounter('billing_invoice_reversed_total', { source: 'stripe', status });
+    logger.info('Billing invoice reversed in ledger', { orgId: row.orgId, invoiceId, status });
+    return row.orgId;
   }
-  incCounter('billing_invoice_reversed_total', { source: 'stripe', status });
-  logger.info('Billing invoice reversed in ledger', { orgId: row.orgId, invoiceId, status });
-  return row.orgId;
+
+  // No row yet: bank the reversal for the ingest to apply. `$unset` a stale
+  // amount when this reversal carries none, so the bank mirrors exactly what
+  // would have been written to the row.
+  await BillingPendingReversal.updateOne(
+    { _id: invoiceId },
+    {
+      $set: { status, expiresAt: new Date(Date.now() + PENDING_REVERSAL_TTL_MS), ...(set.amountPaidCents !== undefined ? { amountPaidCents: set.amountPaidCents } : {}) },
+      ...(set.amountPaidCents === undefined ? { $unset: { amountPaidCents: '' } } : {}),
+    },
+    { upsert: true },
+  );
+
+  // The invoice may have been ingested between the miss above and the bank —
+  // that ingest found no banked reversal. Look again so the reversal can't be
+  // stranded; applying twice is harmless (absolute set).
+  const late = await applyReversal(invoiceId, set);
+  if (late) {
+    await BillingPendingReversal.deleteOne({ _id: invoiceId });
+    incCounter('billing_invoice_reversed_total', { source: 'stripe', status });
+    logger.info('Billing invoice reversed in ledger', { orgId: late.orgId, invoiceId, status });
+    return late.orgId;
+  }
+  incCounter('billing_invoice_reversal_banked_total', { source: 'stripe', status });
+  logger.info('Invoice not in the ledger yet — reversal banked for its ingest', { invoiceId, status });
+  return null;
+}
+
+/**
+ * Fold a banked reversal onto a just-ingested row. The banked doc is deleted
+ * only AFTER it is applied, and only if no newer reversal replaced it in the
+ * meantime (matched on `updatedAt`), so a crash between the two re-applies it on
+ * the next ingest instead of losing it.
+ */
+async function applyBankedReversal(invoiceId: string): Promise<void> {
+  const banked = await BillingPendingReversal.findOne({ _id: invoiceId }).lean<{ status: LedgerStatus; amountPaidCents?: number; updatedAt?: Date }>();
+  if (!banked) return;
+  const set: Record<string, unknown> = { status: banked.status };
+  if (banked.amountPaidCents !== undefined && banked.amountPaidCents !== null) set.amountPaidCents = banked.amountPaidCents;
+  const row = await applyReversal(invoiceId, set);
+  if (!row) return;
+  await BillingPendingReversal.deleteOne({ _id: invoiceId, ...(banked.updatedAt ? { updatedAt: banked.updatedAt } : {}) });
+  incCounter('billing_invoice_reversed_total', { source: 'stripe', status: banked.status });
+  logger.info('Banked reversal applied to ingested invoice', { orgId: row.orgId, invoiceId, status: banked.status });
 }
 
 /**
@@ -124,6 +172,10 @@ export async function ingestStripeInvoice(orgId: string, invoice: StripeInvoiceL
   );
   incCounter('billing_invoice_ingested_total', { source: 'stripe' });
   logger.debug('Billing invoice ingested', { orgId, invoiceId: invoice.id });
+
+  // A refund/dispute that arrived before this invoice was banked rather than
+  // dropped — land it now so the row matches the invoice-first order.
+  await applyBankedReversal(invoice.id);
 }
 
 /**

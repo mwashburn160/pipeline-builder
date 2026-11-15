@@ -15,7 +15,7 @@ import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { stubModule } from '@pipeline-builder/api-core/testing';
 import * as z from 'zod';
 import { apiCoreMock } from './helpers/mock-api-core.js';
-import { toSynthPlugin } from './helpers/synth-plugin.js';
+import { toResolvedPlugin } from './helpers/resolved-plugin.js';
 
 const mockFind = jest.fn<AnyFn>();
 const mockNormalizeArrayFields = jest.fn((p: unknown) => p);
@@ -88,7 +88,7 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
 }));
 
 jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@pipeline-builder/pipeline-core', {
-  toSynthPlugin,
+  toResolvedPlugin,
   pluginImageRepository: (p: { orgId: string; name: string; buildType?: string | null }) => (p.buildType === 'metadata_only' ? null : `${p.orgId === '000000000000000000000001' ? 'system' : `org-${p.orgId}`}/${p.name}`),
   CoreConstants: { CACHE_CONTROL_LIST: 'public, max-age=60', CACHE_CONTROL_DETAIL: 'public, max-age=300' },
   Config: { get: () => ({ host: 'registry', port: 5000, network: '', http: true }) },

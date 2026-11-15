@@ -150,6 +150,21 @@ describe('security report routes', () => {
     expect(store.rows).toHaveLength(0);
   });
 
+  // The read ladder also returns other orgs' PUBLIC pipelines: a report slot is
+  // keyed by (pipeline, tool, stage) alone, so a write must not land on one.
+  it('404s an upload and a delete for a readable pipeline another org owns', async () => {
+    mockFindById.mockResolvedValue({ id: 'p1', orgId: 'other-org', visibility: 'public' });
+    const upload = res();
+    await handler('post')({ params: { id: 'p1' }, user: scoped, body: { tool: 'grype', format: 'grype-json', report: grype } }, upload);
+    expect(upload.status).toHaveBeenCalledWith(404);
+    expect(store.rows).toHaveLength(0);
+
+    const del = res();
+    await handler('delete')({ params: { id: 'p1' }, query: { tool: 'grype' }, user: { sub: 'u-1', permissions: ['pipelines:write'] } }, del);
+    expect(del.status).toHaveBeenCalledWith(404);
+    expect(mockRecordAudit).not.toHaveBeenCalled();
+  });
+
   it('reads the latest report per (tool, stage) with the summed counts', async () => {
     await handler('post')({ params: { id: 'p1' }, user: scoped, body: { tool: 'grype', format: 'grype-json', stage: 'Build', report: grype } }, res());
     await handler('post')({ params: { id: 'p1' }, user: scoped, body: { tool: 'grype', format: 'grype-json', stage: 'Build', report: grype } }, res());

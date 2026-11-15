@@ -18,7 +18,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { BUILD_IMAGE_STEP_KEY, ErrorCode, errorMessage, MANAGED_TOOLCHAIN, toolchainReleasePin } from '@pipeline-builder/api-core';
 import {
-  type LookupToolchain, type LookupWarning, type ResolvedBootstrap, parseLookupToolchain, pluginArtifactAlias, toSynthPlugin, unwrapLookup,
+  type LookupToolchain, type LookupWarning, type ResolvedBootstrap, parseLookupToolchain, pluginArtifactAlias, toResolvedPlugin, unwrapLookup,
 } from '@pipeline-builder/pipeline-core';
 import type { ApiClient } from './api-client.js';
 import { PluginResolutionError, isManagedToolchainRef, printLookupWarning, serviceErrorCode } from './plugin-resolver.js';
@@ -215,8 +215,8 @@ export function readToolchainFile(file: string): { bootstrap: ResolvedBootstrap;
     if (!rec.imageDigest || !DIGEST_RE.test(rec.imageDigest) || rec.imageDigest !== h!.imageDigest) bad(`${name} has no signed image digest`);
     if (rec.imageRepository !== `system/${name}` || h!.imageRepository !== rec.imageRepository) bad(`${name} is not system/${name}`);
     // An export written before /plugins/lookup slimmed its answer still carries
-    // the display and scan fields; synth never reads them.
-    return toSynthPlugin(h!.plugin);
+    // the display and scan fields; no pipeline build reads them.
+    return toResolvedPlugin(h!.plugin);
   };
   const bootstrap = check(f!.bootstrap, BOOTSTRAP_PLUGIN);
   const synth = check(f!.synth, SYNTH_PLUGIN);

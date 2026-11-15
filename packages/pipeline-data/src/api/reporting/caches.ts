@@ -12,8 +12,8 @@
 
 import { createCacheService, envInt } from '@pipeline-builder/api-core';
 
-export const inventoryCache = createCacheService('report:inv:', envInt('CACHE_TTL_REPORT_INVENTORY', 300, { min: 1 }));
-export const timeseriesCache = createCacheService('report:ts:', envInt('CACHE_TTL_REPORT_TIMESERIES', 120, { min: 1 }));
+export const inventoryCache = createCacheService('report:inv:', envInt('CACHE_TTL_REPORT_INVENTORY_SECONDS', 300, { min: 1 }));
+export const timeseriesCache = createCacheService('report:ts:', envInt('CACHE_TTL_REPORT_TIMESERIES_SECONDS', 120, { min: 1 }));
 
 /** Drop every cached report for an org — called after an ingest/write that
  *  could change any of them. Both caches are pattern-invalidated because a

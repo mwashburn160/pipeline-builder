@@ -44,7 +44,8 @@ const MAX_FINDINGS = 20;
 /**
  * Keep the four fields that identify a rule and say what it wants. Dropped:
  * `expectedValue` / `actualValue`, which echo arbitrary slices of the document
- * back into the model's context for no diagnostic gain (design rule 5).
+ * back into the model's context for no diagnostic gain — a tool shapes a read,
+ * it does not dump it.
  */
 function shapeFindings(raw: unknown[]): ComplianceFinding[] {
   return raw.slice(0, MAX_FINDINGS).map((v) => {

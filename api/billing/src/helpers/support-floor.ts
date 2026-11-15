@@ -43,7 +43,7 @@
  * on the same recalculation, in both directions, with no separate trigger.
  */
 
-import { envBool, envInt, type QuotaTier, type BillingInterval } from '@pipeline-builder/api-core';
+import { envBool, envInt, type PlanTier, type BillingInterval } from '@pipeline-builder/api-core';
 import { priceForInterval, volumeDiscountPct } from './combo-pricing.js';
 import { snapNetCharge, snapUpPrice } from './price-rounding.js';
 import type { BundleConfig } from '../config/billing-types.js';
@@ -288,7 +288,7 @@ export function supportFloor(
  * floor exists to catch.
  */
 export function supportFloorLine(
-  tier: QuotaTier,
+  tier: PlanTier,
   addons: ReadonlyArray<{ bundleId: string; quantity: number }>,
   bundles: readonly BundleConfig[],
   interval: BillingInterval,

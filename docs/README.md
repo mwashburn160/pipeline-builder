@@ -408,7 +408,7 @@ The **audit trail is not tier-gated** — it is available on every plan to organ
 
 **Unlimited** — a fifth tier with every quota uncapped and all features on. It is the **default tier when billing is disabled** (`BILLING_ENABLED=false`), so a self-hosted install with no billing runs everything uncapped out of the box. When billing is **enabled** it is never shown, selectable, or purchasable — it is filtered out of the plans list and tier pickers.
 
-System org users always have access to all features. Base limits are raised by [add-on bundles](billing-bundles.md) and are env-overridable (`QUOTA_TIER_<TIER>_<LIMIT>`, `BILLING_PLAN_<TIER>_MONTHLY`).
+System org users always have access to all features. Base limits are raised by [add-on bundles](billing-bundles.md) and are env-overridable (`PLAN_TIER_<TIER>_<LIMIT>`, `BILLING_PLAN_<TIER>_MONTHLY`).
 
 This table shows only the caps most people compare. The **full per-tier limit table** — API and AI calls, registry storage, dashboards, alert rules and destinations, IdP configs, and how the quota period relates to the monthly price — is in [Organization Benefits → Billing](organization-benefits.md#billing).
 

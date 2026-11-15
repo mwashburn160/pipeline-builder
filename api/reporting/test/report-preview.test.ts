@@ -55,7 +55,7 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
   stakeholderReportStore: store,
   composeSnapshot: (...a: unknown[]) => mockCompose(...a),
-  getTemplate: (t: string) => (t === 'weekly_delivery' ? { sections: ['success_rate', 'dora'] } : undefined),
+  getReportTemplate: (t: string) => (t === 'weekly_delivery' ? { sections: ['success_rate', 'dora'] } : undefined),
   resolvePeriod: () => ({
     start: new Date('2026-09-14T00:00:00Z'),
     end: new Date('2026-09-21T00:00:00Z'),
@@ -161,13 +161,13 @@ describe('POST /reports/stakeholder-preview', () => {
     expect(mockCompose).not.toHaveBeenCalled();
   });
 
-  it('does NOT roll the claim back when the compose fails, and says the preview is safe', async () => {
+  it('does NOT roll the claim back when the compose fails, and says support can restore it', async () => {
     mockCompose.mockRejectedValue(new Error('db down'));
     await call('post');
     // Deliberate: a rollback makes the claim re-runnable, which turns a reliably failing
     // compose into an unbounded free compute loop. Support can re-grant it.
     expect(errorOf()?.[1]).toBe(500);
-    expect(String(errorOf()?.[2])).toContain('has not been lost');
+    expect(String(errorOf()?.[2])).toContain('have your free preview restored');
   });
 });
 

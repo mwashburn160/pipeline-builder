@@ -20,7 +20,7 @@
 
 import type { WeekStart } from '@pipeline-builder/api-core';
 import type { ResolvedPeriod } from './period.js';
-import { getSection, type SectionContext, type SectionDataSource, type SectionSpec } from './sections.js';
+import { getReportSection, type SectionContext, type SectionDataSource, type SectionSpec } from './sections.js';
 
 /** Below this many observations a rate is noise, and says so. */
 export const LOW_SAMPLE_THRESHOLD = 5;
@@ -275,7 +275,7 @@ export async function composeSnapshot(sectionIdList: readonly string[], opts: Co
   const previousCtx = ctxFor(period.prevStart, period.prevEnd);
 
   for (const id of sectionIdList) {
-    const spec: SectionSpec | undefined = getSection(id);
+    const spec: SectionSpec | undefined = getReportSection(id);
     if (!spec) {
       // An unknown id is a definition referencing a section that no longer exists.
       // Recorded rather than dropped, so the lead can see why a panel vanished.

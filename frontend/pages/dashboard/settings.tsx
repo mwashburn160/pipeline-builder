@@ -87,6 +87,10 @@ export default function SettingsPage() {
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const profile = useFormState();
+  // A profile save that CHANGES the email, held until StepUpModal confirms: the
+  // server step-up gates that one edit (the email is where a password reset is
+  // sent). Username-only saves go straight through.
+  const [pendingProfile, setPendingProfile] = useState<{ username?: string; email?: string } | null>(null);
 
   // Email-verification resend (surfaced next to the Unverified state below).
   const verify = useFormState();
@@ -151,11 +155,24 @@ export default function SettingsPage() {
       profile.setError('No changes to save');
       return;
     }
+    if (updates.email !== undefined) {
+      setPendingProfile(updates);
+      return;
+    }
+    await saveProfile(updates);
+  };
 
+  const saveProfile = async (updates: { username?: string; email?: string }, stepUpToken?: string) => {
     await profile.run(
-      () => api.updateProfile(updates),
+      () => api.updateProfile(updates, stepUpToken),
       { successMessage: 'Profile updated successfully', onSuccess: () => { void refreshUser(); } },
     );
+  };
+
+  const executeProfile = async (stepUpToken: string) => {
+    const updates = pendingProfile;
+    setPendingProfile(null);
+    if (updates) await saveProfile(updates, stepUpToken);
   };
 
   // Step-up gated, so StepUpModal IS the confirmation — there is no
@@ -343,6 +360,16 @@ export default function SettingsPage() {
         )}
 
       </div>
+
+      {pendingProfile?.email !== undefined && (
+        <StepUpModal
+          title="Change your sign-in email?"
+          action={`Change this account's sign-in email to ${pendingProfile.email}`}
+          details={<p>Password resets and account notices will go to the new address, and it must be verified again. Your current address is told about the change.</p>}
+          onConfirmed={executeProfile}
+          onClose={() => setPendingProfile(null)}
+        />
+      )}
 
       {/* Deleting the account is destructive AND step-up gated, so it is ONE
           dialog that states what goes and takes the factor — the rule the whole

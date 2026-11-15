@@ -114,7 +114,7 @@ describe('POST /pipelines/registry', () => {
     jest.clearAllMocks();
     router = createRegistryRoutes();
 
-    mockReturning.mockResolvedValue([{ id: 'reg-1', pipelineId: 'p-1' }]);
+    mockReturning.mockResolvedValue([{ id: 'reg-1', pipelineId: '11111111-1111-4111-8111-111111111111' }]);
     mockOnConflictDoUpdate.mockReturnValue({ returning: mockReturning });
     mockInsert.mockReturnValue({
       values: jest.fn<AnyFn>().mockReturnValue({
@@ -131,7 +131,7 @@ describe('POST /pipelines/registry', () => {
           selectCallCount++;
           // Call 1 = pipeline tenancy lookup → return one row.
           // Call 2 = existing-registry lookup → return empty (new ARN).
-          return Promise.resolve(selectCallCount === 1 ? [{ id: 'p-1' }] : []);
+          return Promise.resolve(selectCallCount === 1 ? [{ id: '11111111-1111-4111-8111-111111111111' }] : []);
         }),
       })),
     }));
@@ -139,7 +139,7 @@ describe('POST /pipelines/registry', () => {
     // Default delete chain: delete().where().returning() → one removed row.
     mockDelete.mockReturnValue({
       where: jest.fn<AnyFn>().mockReturnValue({
-        returning: jest.fn<AnyFn>().mockResolvedValue([{ id: 'reg-1', pipelineId: 'p-1' }]),
+        returning: jest.fn<AnyFn>().mockResolvedValue([{ id: 'reg-1', pipelineId: '11111111-1111-4111-8111-111111111111' }]),
       }),
     });
   });
@@ -172,7 +172,7 @@ describe('POST /pipelines/registry', () => {
 
   it('should reject missing required fields', async () => {
     const handler = getHandler();
-    const req = { body: { pipelineId: 'p-1' } }; // missing pipelineArn and pipelineName
+    const req = { body: { pipelineId: '11111111-1111-4111-8111-111111111111' } }; // missing pipelineArn and pipelineName
     const res = { status: jest.fn<AnyFn>().mockReturnThis(), json: jest.fn<AnyFn>() };
 
     await handler(req, res);
@@ -180,11 +180,21 @@ describe('POST /pipelines/registry', () => {
     expect(sendBadRequest).toHaveBeenCalled();
   });
 
+  // A non-uuid id used to pass validation and fail the ownership lookup's uuid
+  // cast in Postgres, answering 500 "Failed to register pipeline".
+  it('rejects a pipelineId that is not a UUID with a 400, before any DB work', async () => {
+    const handler = getHandler();
+    const res = { status: jest.fn<AnyFn>().mockReturnThis(), json: jest.fn<AnyFn>() };
+    await handler({ body: { pipelineId: 'p-1', pipelineName: 'acme-pipeline' } }, res);
+    expect(sendBadRequest).toHaveBeenCalled();
+    expect(mockEmitPipelineAudit).not.toHaveBeenCalled();
+  });
+
   it('should upsert registry entry with valid data', async () => {
     const handler = getHandler();
     const req = {
       body: {
-        pipelineId: 'p-1',
+        pipelineId: '11111111-1111-4111-8111-111111111111',
         pipelineArn: 'arn:aws:codepipeline:us-east-1:123:acme-pipeline',
         pipelineName: 'acme-pipeline',
         accountId: '123',
@@ -206,11 +216,11 @@ describe('POST /pipelines/registry', () => {
     let call = 0;
     mockSelect.mockImplementation(() => ({
       from: jest.fn<AnyFn>().mockImplementation(() => ({
-        where: jest.fn<AnyFn>().mockImplementation(() => Promise.resolve(++call === 1 ? [{ id: 'p-1', deletedAt: new Date() }] : [])),
+        where: jest.fn<AnyFn>().mockImplementation(() => Promise.resolve(++call === 1 ? [{ id: '11111111-1111-4111-8111-111111111111', deletedAt: new Date() }] : [])),
       })),
     }));
     const res = { status: jest.fn<AnyFn>().mockReturnThis(), json: jest.fn<AnyFn>() };
-    await getHandler()({ body: { pipelineId: 'p-1', pipelineName: 'acme-pipeline' } }, res);
+    await getHandler()({ body: { pipelineId: '11111111-1111-4111-8111-111111111111', pipelineName: 'acme-pipeline' } }, res);
 
     expect(mockInsert).toHaveBeenCalled();
     expect(sendSuccess).toHaveBeenCalledWith(res, 200, { registry: expect.objectContaining({ pipelineDeleted: true }) });
@@ -227,7 +237,7 @@ describe('POST /pipelines/registry', () => {
   it('preserves stored optional columns via COALESCE on partial re-register', async () => {
     const handler = getHandler('post');
     // No region/project/organization/stackName in this re-register.
-    const req = { body: { pipelineId: 'p-1', pipelineName: 'acme-pipeline' } };
+    const req = { body: { pipelineId: '11111111-1111-4111-8111-111111111111', pipelineName: 'acme-pipeline' } };
     const res = { status: jest.fn<AnyFn>().mockReturnThis(), json: jest.fn<AnyFn>() };
 
     await handler(req, res);
@@ -261,7 +271,7 @@ describe('POST /pipelines/registry', () => {
     const handler = getHandler();
     const req = {
       body: {
-        pipelineId: 'p-other-org',
+        pipelineId: '22222222-2222-4222-8222-222222222222',
         pipelineArn: 'arn:aws:codepipeline:us-east-1:123:other-pipeline',
         pipelineName: 'other-pipeline',
       },
@@ -283,7 +293,7 @@ describe('POST /pipelines/registry', () => {
       from: jest.fn<AnyFn>().mockImplementation(() => ({
         where: jest.fn<AnyFn>().mockImplementation(() => {
           call++;
-          if (call === 1) return Promise.resolve([{ id: 'p-1' }]);
+          if (call === 1) return Promise.resolve([{ id: '11111111-1111-4111-8111-111111111111' }]);
           return Promise.resolve([{ orgId: 'OTHER-org' }]);
         }),
       })),
@@ -293,7 +303,7 @@ describe('POST /pipelines/registry', () => {
     const res = { status: jest.fn<AnyFn>().mockReturnThis(), json: jest.fn<AnyFn>() };
     await handler({
       body: {
-        pipelineId: 'p-1',
+        pipelineId: '11111111-1111-4111-8111-111111111111',
         pipelineArn: 'arn:aws:codepipeline:us-east-1:123:pipe',
         pipelineName: 'pipe',
       },
@@ -318,7 +328,7 @@ describe('POST /pipelines/registry', () => {
             orderBy: jest.fn<AnyFn>().mockReturnValue({
               limit: jest.fn<AnyFn>().mockReturnValue({
                 offset: jest.fn<AnyFn>().mockResolvedValue([
-                  { id: 'reg-1', pipelineId: 'p-1', pipelineName: 'demo', lastDeployed: new Date() },
+                  { id: 'reg-1', pipelineId: '11111111-1111-4111-8111-111111111111', pipelineName: 'demo', lastDeployed: new Date() },
                 ]),
               }),
             }),
@@ -344,7 +354,7 @@ describe('POST /pipelines/registry', () => {
   // beside `pipelines:write` (the Member bundle) — granted by Role, not by an
   // OR'd gate, so `pipelines:write` ALONE no longer opens these routes.
   describe('pipeline_registry:write gate on registry writes', () => {
-    const body = { pipelineId: 'p-1', pipelineName: 'acme-pipeline' };
+    const body = { pipelineId: '11111111-1111-4111-8111-111111111111', pipelineName: 'acme-pipeline' };
 
     it('POST /registry → 403 without pipeline_registry:write (no upsert)', async () => {
       const res = { status: jest.fn<AnyFn>().mockReturnThis(), json: jest.fn<AnyFn>() };
@@ -369,7 +379,7 @@ describe('POST /pipelines/registry', () => {
 
     it('DELETE /registry/:id → 403 without pipeline_registry:write (no delete)', async () => {
       const res = { status: jest.fn<AnyFn>().mockReturnThis(), json: jest.fn<AnyFn>() };
-      await runStack('/registry/:id', 'delete', { params: { id: 'reg-1' }, user: { capabilities: ['pipelines:write'] } }, res);
+      await runStack('/registry/:id', 'delete', { params: { id: '44444444-4444-4444-8444-444444444444' }, user: { capabilities: ['pipelines:write'] } }, res);
       expect(res.status).toHaveBeenCalledWith(403);
     });
   });
@@ -388,7 +398,7 @@ describe('POST /pipelines/registry', () => {
       const handler = getHandler('post');
       const req = {
         body: {
-          pipelineId: 'p-1',
+          pipelineId: '11111111-1111-4111-8111-111111111111',
           // These are NOT part of PipelineRegistrySchema and must never surface
           // in the audit details even when a client sends them.
           pipelineArn: 'arn:aws:codepipeline:us-east-1:123456789012:acme-pipeline',
@@ -411,7 +421,7 @@ describe('POST /pipelines/registry', () => {
           actorId: 'user-1',
           orgId: 'acme',
           targetType: 'pipeline',
-          targetId: 'p-1',
+          targetId: '11111111-1111-4111-8111-111111111111',
         }),
       );
       // Hard rule: no ARN and no AWS account id anywhere in details.
@@ -427,7 +437,7 @@ describe('POST /pipelines/registry', () => {
         })),
       }));
       const handler = getHandler('post');
-      const req = { body: { pipelineId: 'p-x', pipelineName: 'x' } };
+      const req = { body: { pipelineId: '33333333-3333-4333-8333-333333333333', pipelineName: 'x' } };
       const res = { status: jest.fn<AnyFn>().mockReturnThis(), json: jest.fn<AnyFn>() };
       await handler(req, res);
 
@@ -441,7 +451,7 @@ describe('POST /pipelines/registry', () => {
       const deleteHandler = handler[handler.length - 1].handle;
 
       const res = { status: jest.fn<AnyFn>().mockReturnThis(), json: jest.fn<AnyFn>() };
-      await deleteHandler({ params: { id: 'reg-1' } }, res);
+      await deleteHandler({ params: { id: '44444444-4444-4444-8444-444444444444' } }, res);
 
       expect(mockEmitPipelineAudit).toHaveBeenCalledTimes(1);
       const event: any = mockEmitPipelineAudit.mock.calls[0][0];
@@ -451,7 +461,7 @@ describe('POST /pipelines/registry', () => {
           actorId: 'user-1',
           orgId: 'acme',
           targetType: 'pipeline',
-          targetId: 'p-1',
+          targetId: '11111111-1111-4111-8111-111111111111',
         }),
       );
       expect(containsArnOrAccountId(event.details)).toBe(false);
@@ -469,8 +479,21 @@ describe('POST /pipelines/registry', () => {
       const deleteHandler = handler[handler.length - 1].handle;
 
       const res = { status: jest.fn<AnyFn>().mockReturnThis(), json: jest.fn<AnyFn>() };
-      await deleteHandler({ params: { id: 'missing' } }, res);
+      await deleteHandler({ params: { id: '55555555-5555-4555-8555-555555555555' } }, res);
 
+      expect(mockEmitPipelineAudit).not.toHaveBeenCalled();
+    });
+
+    it('DELETE /registry/:id 404s a malformed id without touching the DB', async () => {
+      mockDelete.mockClear();
+      const handler = router.stack.find(
+        (l: any) => l.route?.path === '/registry/:id' && l.route?.methods?.delete,
+      )?.route?.stack;
+      const res = { status: jest.fn<AnyFn>().mockReturnThis(), json: jest.fn<AnyFn>() };
+      await handler[handler.length - 1].handle({ params: { id: 'not-a-uuid' } }, res);
+
+      expect(sendError).toHaveBeenCalledWith(res, 404, expect.any(String), 'NOT_FOUND');
+      expect(mockDelete).not.toHaveBeenCalled();
       expect(mockEmitPipelineAudit).not.toHaveBeenCalled();
     });
   });
@@ -503,7 +526,7 @@ describe('POST /pipelines/registry', () => {
             // The build-image row the new manifest replaces.
             if (table?._table === 'pipeline_step_manifests') return Promise.resolve(priorBuildImage);
             call++;
-            if (call === 1) return Promise.resolve([{ id: 'p-1' }]);
+            if (call === 1) return Promise.resolve([{ id: '11111111-1111-4111-8111-111111111111' }]);
             if (call === 2) return Promise.resolve([]);
             return Promise.resolve(pluginRows);
           }),
@@ -530,7 +553,7 @@ describe('POST /pipelines/registry', () => {
       const res = { status: jest.fn<AnyFn>().mockReturnThis(), json: jest.fn<AnyFn>() };
       await getHandler('post')({
         body: {
-          pipelineId: 'p-1',
+          pipelineId: '11111111-1111-4111-8111-111111111111',
           pipelineName: 'acme-pipeline',
           steps: [
             step(),
@@ -541,11 +564,11 @@ describe('POST /pipelines/registry', () => {
         },
       }, res);
 
-      expect(manifestDeleteWhere).toHaveBeenCalledWith({ _kind: 'eq', col: 'pipeline_id', val: 'p-1' });
+      expect(manifestDeleteWhere).toHaveBeenCalledWith({ _kind: 'eq', col: 'pipeline_id', val: '11111111-1111-4111-8111-111111111111' });
       const rows = manifestValues.mock.calls[0][0] as Array<Record<string, unknown>>;
       expect(rows).toHaveLength(2);
       expect(rows[0]).toEqual(expect.objectContaining({
-        pipelineId: 'p-1',
+        pipelineId: '11111111-1111-4111-8111-111111111111',
         orgId: 'acme',
         stageName: 'test-wave',
         actionName: 'stage_abc_test-wave_jest_1',
@@ -568,7 +591,7 @@ describe('POST /pipelines/registry', () => {
       // The deployed side of exposure tracking: the recorded steps, with their scan state.
       expect(mockReconcileExposures).toHaveBeenCalledWith(expect.objectContaining({
         orgId: 'acme',
-        pipelineId: 'p-1',
+        pipelineId: '11111111-1111-4111-8111-111111111111',
         source: 'deployed',
         steps: [
           expect.objectContaining({ pluginPublisher: 'pipeline-builder', pluginName: 'jest', pluginVersion: '2.0.0', imageDigest: DIGEST }),
@@ -598,7 +621,7 @@ describe('POST /pipelines/registry', () => {
       await getHandler('post')({
         user: { parentOrganizationId: 'root-1' },
         body: {
-          pipelineId: 'p-1',
+          pipelineId: '11111111-1111-4111-8111-111111111111',
           pipelineName: 'acme-pipeline',
           steps: [
             step(),
@@ -634,7 +657,7 @@ describe('POST /pipelines/registry', () => {
       });
       const post = async (steps: unknown[]) => {
         const res = { status: jest.fn<AnyFn>().mockReturnThis(), json: jest.fn<AnyFn>() };
-        await getHandler('post')({ body: { pipelineId: 'p-1', pipelineName: 'acme-pipeline', steps } }, res);
+        await getHandler('post')({ body: { pipelineId: '11111111-1111-4111-8111-111111111111', pipelineName: 'acme-pipeline', steps } }, res);
         return res;
       };
 
@@ -694,7 +717,7 @@ describe('POST /pipelines/registry', () => {
     it('an empty steps array clears the manifest', async () => {
       const { manifestValues, manifestDeleteWhere } = wireManifest([]);
       const res = { status: jest.fn<AnyFn>().mockReturnThis(), json: jest.fn<AnyFn>() };
-      await getHandler('post')({ body: { pipelineId: 'p-1', pipelineName: 'acme-pipeline', steps: [] } }, res);
+      await getHandler('post')({ body: { pipelineId: '11111111-1111-4111-8111-111111111111', pipelineName: 'acme-pipeline', steps: [] } }, res);
       expect(manifestDeleteWhere).toHaveBeenCalled();
       expect(manifestValues).not.toHaveBeenCalled();
     });
@@ -702,7 +725,7 @@ describe('POST /pipelines/registry', () => {
     it('a registration without steps leaves the stored manifest untouched', async () => {
       const { manifestDeleteWhere } = wireManifest([]);
       const res = { status: jest.fn<AnyFn>().mockReturnThis(), json: jest.fn<AnyFn>() };
-      await getHandler('post')({ body: { pipelineId: 'p-1', pipelineName: 'acme-pipeline' } }, res);
+      await getHandler('post')({ body: { pipelineId: '11111111-1111-4111-8111-111111111111', pipelineName: 'acme-pipeline' } }, res);
       expect(manifestDeleteWhere).not.toHaveBeenCalled();
       expect(sendSuccess).toHaveBeenCalled();
       // No manifest, nothing to reconcile: exposures stay as the last deploy left them.
@@ -714,7 +737,7 @@ describe('POST /pipelines/registry', () => {
 
     it('rejects a malformed manifest entry', async () => {
       const res = { status: jest.fn<AnyFn>().mockReturnThis(), json: jest.fn<AnyFn>() };
-      await getHandler('post')({ body: { pipelineId: 'p-1', pipelineName: 'x', steps: [step({ pluginId: 'not-a-uuid' })] } }, res);
+      await getHandler('post')({ body: { pipelineId: '11111111-1111-4111-8111-111111111111', pipelineName: 'x', steps: [step({ pluginId: 'not-a-uuid' })] } }, res);
       expect(sendBadRequest).toHaveBeenCalled();
       expect(mockInsert).not.toHaveBeenCalled();
     });
@@ -723,14 +746,14 @@ describe('POST /pipelines/registry', () => {
       mockCloseExposures.mockResolvedValueOnce(2);
       const manifestWhere = jest.fn<AnyFn>().mockResolvedValue(undefined);
       mockDelete
-        .mockReturnValueOnce({ where: jest.fn<AnyFn>().mockReturnValue({ returning: jest.fn<AnyFn>().mockResolvedValue([{ id: 'reg-1', pipelineId: 'p-1' }]) }) })
+        .mockReturnValueOnce({ where: jest.fn<AnyFn>().mockReturnValue({ returning: jest.fn<AnyFn>().mockResolvedValue([{ id: 'reg-1', pipelineId: '11111111-1111-4111-8111-111111111111' }]) }) })
         .mockReturnValueOnce({ where: manifestWhere });
       const stack = router.stack.find((l: any) => l.route?.path === '/registry/:id' && l.route?.methods?.delete)?.route?.stack;
       const res = { status: jest.fn<AnyFn>().mockReturnThis(), json: jest.fn<AnyFn>() };
-      await stack[stack.length - 1].handle({ params: { id: 'reg-1' } }, res);
+      await stack[stack.length - 1].handle({ params: { id: '44444444-4444-4444-8444-444444444444' } }, res);
       expect(manifestWhere).toHaveBeenCalledWith(expect.objectContaining({ _kind: 'and' }));
       // Nothing runs any more: its DEPLOYED exposures close as `removed`.
-      expect(mockCloseExposures).toHaveBeenCalledWith('p-1', 'removed', { source: 'deployed' });
+      expect(mockCloseExposures).toHaveBeenCalledWith('11111111-1111-4111-8111-111111111111', 'removed', { source: 'deployed' });
       // …and the audit says how many it closed.
       expect(mockEmitPipelineAudit).toHaveBeenCalledWith(expect.objectContaining({
         action: 'pipeline.registry.deregister', details: { registryId: 'reg-1', exposuresClosed: 2 },
@@ -757,7 +780,7 @@ describe('findRegistrationStatus', () => {
   it('reports registered, with the deploy metadata, when a row exists', async () => {
     const lastDeployed = new Date('2026-03-01T00:00:00Z');
     oneRow([{ lastDeployed, stackName: 'pb-web', region: 'us-east-1' }]);
-    expect(await pipelineRegistryService.findRegistrationStatus('p-1', 'org-1')).toEqual({
+    expect(await pipelineRegistryService.findRegistrationStatus('11111111-1111-4111-8111-111111111111', 'org-1')).toEqual({
       registered: true,
       lastDeployed: lastDeployed.toISOString(),
       stackName: 'pb-web',
@@ -767,7 +790,7 @@ describe('findRegistrationStatus', () => {
 
   it('reports NOT registered — the reason a pipeline shows empty reports', async () => {
     oneRow([]);
-    expect(await pipelineRegistryService.findRegistrationStatus('p-1', 'org-1')).toEqual({
+    expect(await pipelineRegistryService.findRegistrationStatus('11111111-1111-4111-8111-111111111111', 'org-1')).toEqual({
       registered: false, lastDeployed: null, stackName: null, region: null,
     });
   });
@@ -776,7 +799,7 @@ describe('findRegistrationStatus', () => {
     // A registered-but-never-deployed row is a real state: the page must render it
     // without treating `undefined` as "not registered".
     oneRow([{ lastDeployed: null, stackName: null, region: null }]);
-    expect(await pipelineRegistryService.findRegistrationStatus('p-1', 'org-1')).toEqual({
+    expect(await pipelineRegistryService.findRegistrationStatus('11111111-1111-4111-8111-111111111111', 'org-1')).toEqual({
       registered: true, lastDeployed: null, stackName: null, region: null,
     });
   });

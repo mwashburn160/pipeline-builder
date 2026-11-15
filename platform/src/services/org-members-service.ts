@@ -539,12 +539,12 @@ class OrgMembersService {
    * new owner from member/admin to owner, update Organization.owner.
    * Caller is responsible for verifying the actor (owner or sysadmin).
    *
-   * Bumps BOTH users' `tokenVersion` in the same transaction (mirrors
-   * updateRole/removeMember). The membership `role` is baked into each user's
-   * JWT at issue time, so without this the demoted ex-owner would keep an
-   * owner-role token (~15 min) and the new owner's elevation wouldn't take effect
-   * until their token refreshed. The bump forces `requireAuth` to reject both
-   * users' outstanding tokens so a refresh reissues them with the swapped role.
+   * Bumps BOTH users' `claimsVersion` in the same transaction. The membership
+   * `role` is baked into each user's JWT at issue time, so without this the
+   * demoted ex-owner would keep an owner-role token (~15 min) and the new owner's
+   * elevation wouldn't take effect until their token refreshed. The bump makes
+   * `requireAuth` reject both users' outstanding ACCESS tokens; their sessions
+   * stay valid, so the next refresh reissues them with the swapped role.
    */
   async transferOwnership(orgId: string, newOwnerId: string): Promise<void> {
     let oldOwnerId: string | undefined;
@@ -573,7 +573,7 @@ class OrgMembersService {
       // just the Member Role, so grant the built-in Admin Role (idempotent upsert) —
       // the coarse 'owner' label alone yields zero admin permissions. No recompute is
       // needed here: `newOwnerMembership.role` is set to 'owner' explicitly (recompute
-      // preserves 'owner'), and BOTH users' tokenVersion is bumped below, so the new
+      // preserves 'owner'), and BOTH users' claimsVersion is bumped below, so the new
       // owner's next token already reflects the added permissions.
       await assignBuiltinAdminRole(newOwnerId, toOrgId(orgId), session);
 
@@ -588,7 +588,7 @@ class OrgMembersService {
         { session },
       );
     });
-    // Post-commit: publish BOTH users' now-current tokenVersion so the role swap
+    // Post-commit: publish BOTH users' now-current access version so the role swap
     // takes effect on the stateless services immediately.
     await publishUsersRevocation([oldOwnerId, newOwnerId].filter((v): v is string => !!v));
   }

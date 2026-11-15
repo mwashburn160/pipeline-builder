@@ -4,7 +4,7 @@
 import type { AccessKeyMeta } from './auth';
 import type { ApiCore } from '../core';
 import { buildQuery } from '../util';
-import type { ApiResponse, Organization, OrganizationMember, MemberTeam, OrganizationRole, OrgAIConfig, Invitation, InvitationDelivery, OrgIdpConfigDto, OrgIdpConfigCreate, IdpGroupMappingDto, OrgMfaPolicy, OrgPasswordPolicy, OrgAuthenticatorPolicy, MfaResetRequest, ParsedIdpMetadata, QuotaTier, SsoSpInfo, SsoTestReport } from '@/types';
+import type { ApiResponse, Organization, OrganizationMember, MemberTeam, OrganizationRole, OrgAIConfig, Invitation, InvitationDelivery, OrgIdpConfigDto, OrgIdpConfigCreate, IdpGroupMappingDto, OrgMfaPolicy, OrgPasswordPolicy, OrgAuthenticatorPolicy, MfaResetRequest, ParsedIdpMetadata, PlanTier, SsoSpInfo, SsoTestReport } from '@/types';
 import type { OrgRole } from '@pipeline-builder/api-core/wire-vocabulary';
 
 /**
@@ -93,7 +93,7 @@ export function organizationsApi(core: ApiCore) {
     /** `opts.signal` cancels the request on the wire (shared query cache / debounced pickers). */
     /** `ids` (comma-joined, ≤ 100) resolves exactly those orgs — for naming
      *  the ids a page shows rather than paging the fleet. */
-    listOrganizations: async (params?: { search?: string; tier?: QuotaTier; ids?: string; offset?: number; limit?: number }, opts?: { signal?: AbortSignal }) => {
+    listOrganizations: async (params?: { search?: string; tier?: PlanTier; ids?: string; offset?: number; limit?: number }, opts?: { signal?: AbortSignal }) => {
       return core.request<ApiResponse<{ organizations: OrganizationListItem[]; pagination: { total: number; offset: number; limit: number; hasMore: boolean } }>>(`/api/organizations${buildQuery(params)}`, { signal: opts?.signal });
     },
 
@@ -133,7 +133,7 @@ export function organizationsApi(core: ApiCore) {
      *  Backend requires step-up because the change affects billing. */
     updateOrganizationTier: async (
       id: string,
-      tier: QuotaTier,
+      tier: PlanTier,
       stepUpToken?: string,
     ) => {
       return core.request<ApiResponse<{ id: string; previousTier?: string; tier: string }>>(
@@ -581,7 +581,7 @@ export function organizationsApi(core: ApiCore) {
     // ============================================
 
     /** GET /organization/:id/idp — the caller's own org IdP config. Gated on the
-     *  `org_settings:write` permission and own-org only; `sso` entitlement enforced
+     *  `org_idp:write` permission and own-org only; `sso` entitlement enforced
      *  server-side. `config` is null when no IdP is configured (a normal 200). */
     getOwnOrgIdpConfig: async (orgId: string, opts?: { signal?: AbortSignal }) => {
       return core.request<ApiResponse<{ config: OrgIdpConfigDto | null }>>(`/api/organization/${orgId}/idp`, { signal: opts?.signal });

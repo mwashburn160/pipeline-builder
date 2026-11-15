@@ -43,7 +43,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 }));
 
 jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@pipeline-builder/pipeline-core', {
-  CoreConstants: { CACHE_TTL_COMPLIANCE_RULES: 60 },
+  CoreConstants: { CACHE_TTL_COMPLIANCE_RULES_SECONDS: 60 },
 }));
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
   // Imported (via the entitlement watermark store) by subscription-service.
@@ -232,6 +232,22 @@ describe('ComplianceRuleService', () => {
     it('false when no such parent rule exists', async () => {
       selectResult = [];
       expect(await svc.isInheritedRule('r-1', 'root-1')).toBe(false);
+    });
+  });
+
+  describe('rule-change scan', () => {
+    type Trigger = { triggerRuleChangeScan(orgId: string, target: string, userId?: string): Promise<void> };
+
+    it('queues a pending scan for a tenant org', async () => {
+      await (svc as unknown as Trigger).triggerRuleChangeScan('org-1', 'plugin', 'u1');
+      expect(dbInsertValues).toHaveBeenCalledWith(expect.objectContaining({ orgId: 'org-1', target: 'plugin', status: 'pending', triggeredBy: 'rule-change' }));
+    });
+
+    it('queues nothing for the system org (its rules bind no entity of its own)', async () => {
+      const { SYSTEM_ORG_ID } = await import('@pipeline-builder/api-core');
+      await (svc as unknown as Trigger).triggerRuleChangeScan(SYSTEM_ORG_ID, 'plugin', 'u1');
+      expect(dbSelect).not.toHaveBeenCalled();
+      expect(dbInsert).not.toHaveBeenCalled();
     });
   });
 

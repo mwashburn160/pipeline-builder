@@ -1,8 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { settledFailureMessage } from '@/lib/constants';
-import { useCallback, useState } from 'react';
+import { formatError, settledFailureMessage } from '@/lib/constants';
+import { useCallback, useRef, useState } from 'react';
 import { useToast } from '@/components/ui/Toast';
 import api from '@/lib/api';
 import { invalidate } from '@/lib/api-cache';
@@ -30,8 +30,14 @@ export function useMemberTeams({ orgId }: UseMemberTeamsOptions) {
   // diffed against it on save to compute adds (bulk) and removes (per team).
   const [selectedTeamIds, setSelectedTeamIds] = useState<Set<string>>(new Set());
 
+  // Only the latest open may publish its roster. Closing one member's modal and
+  // opening another's while the first read is in flight would otherwise show —
+  // and save a diff against — the FIRST member's team memberships.
+  const openGenRef = useRef(0);
+
   const openManageTeams = useCallback(async (m: OrganizationMember) => {
     if (!orgId) return;
+    const gen = ++openGenRef.current;
     setManageTeamsTarget(m);
     setTeamRoster([]);
     setSelectedTeamIds(new Set());
@@ -39,17 +45,21 @@ export function useMemberTeams({ orgId }: UseMemberTeamsOptions) {
     setTeamsLoading(true);
     try {
       const res = await api.getMemberTeams(orgId, m.id);
+      if (gen !== openGenRef.current) return;
       const teams = res.data?.teams ?? [];
       setTeamRoster(teams);
       setSelectedTeamIds(new Set(teams.filter(t => t.isMember).map(t => t.orgId)));
-    } catch {
-      setTeamsError('Failed to load teams');
+    } catch (err) {
+      if (gen === openGenRef.current) setTeamsError(formatError(err, 'Failed to load teams'));
     } finally {
-      setTeamsLoading(false);
+      if (gen === openGenRef.current) setTeamsLoading(false);
     }
   }, [orgId]);
 
-  const closeManageTeams = useCallback(() => setManageTeamsTarget(null), []);
+  const closeManageTeams = useCallback(() => {
+    openGenRef.current += 1;
+    setManageTeamsTarget(null);
+  }, []);
 
   const toggleTeam = (teamId: string) => setSelectedTeamIds(prev => {
     const next = new Set(prev);

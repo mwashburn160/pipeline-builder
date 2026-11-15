@@ -18,14 +18,15 @@
  *    mid-send) is finished here — every 15 minutes, which with the immediate
  * send keeps delivery inside a 15-minute target;
  * - ANONYMOUS SUBMISSIONS: undecided submissions past their 30 days expire
- * (artifacts deleted), and submitter emails are purged 90 days after the
- * decision;
+ * (artifacts deleted), submitter emails are purged 90 days after the
+ * decision, and a magic-link notice (N1) that failed at submit is re-sent with
+ * a fresh link;
  *  - the SEARCH-MISS retention sweep (search-misses.ts);
  * - PUBLIC IMAGE collection (image-gc.ts): long-yanked, unreferenced
  * `public/*` digests are deleted from the registry;
- * - STALLED PUBLISHES (stalled.ts): a submission left in `publishing`, or a
- * request left `approved` but never executed, by a pod that died mid-way is
- * handed back for a moderator.
+ * - STALLED PUBLISHES (stalled.ts): a submission left in `publishing` by a
+ * pod that died mid-way is handed back for a moderator. (An `approved`
+ * request that never executed is the executor's to retry — execution.ts.)
  *
  * FAILURES ARE VISIBLE: each failed step counts
  * `ecosystem_maintenance_step_failed_total{step}` (alerted as
@@ -57,7 +58,7 @@ import { sweepSearchMisses } from './search-misses.js';
 import { notifySlaBreaches } from './sla.js';
 import { recoverStalledPublishes } from './stalled.js';
 import { atomically, publishers, settings } from './store.js';
-import { expireSubmissions, purgeSubmitterEmails } from './submissions.js';
+import { expireSubmissions, purgeSubmitterEmails, resendPendingReceivedNotices } from './submissions.js';
 import { DAY_MS } from './util.js';
 import { planIncludesVerified } from './verified-eligibility.js';
 
@@ -87,7 +88,7 @@ async function verifiedEligibleOrg(orgId: string): Promise<boolean> {
 }
 
 /** One Verified publisher's grace bookkeeping. Returns what happened (for tests/logs). */
-export async function checkVerifiedGrace(p: Publisher, now: Date = new Date()): Promise<'eligible' | 'grace_started' | 'reminded' | 'downgraded' | 'in_grace' | 'restored'> {
+export async function reconcileVerifiedGrace(p: Publisher, now: Date = new Date()): Promise<'eligible' | 'grace_started' | 'reminded' | 'downgraded' | 'in_grace' | 'restored'> {
   const orgId = p.ownerOrgId!;
   if (await verifiedEligibleOrg(orgId)) {
     if (!p.verifiedGraceUntil) return 'eligible';
@@ -135,7 +136,7 @@ export async function checkVerifiedGrace(p: Publisher, now: Date = new Date()): 
 }
 
 /** Tell a publisher (once per episode) that it is over its `listings` limit. */
-export async function checkListingsLimit(p: Publisher): Promise<'ok' | 'over' | 'already_over' | 'back_under' | 'skipped'> {
+export async function reconcileListingsLimitNotice(p: Publisher): Promise<'ok' | 'over' | 'already_over' | 'back_under' | 'skipped'> {
   const orgId = p.ownerOrgId!;
   const quota = await listingsQuota(orgId, p.id);
   // An unreadable quota (the service's fail-open sentinel) is not "unlimited":
@@ -174,6 +175,8 @@ export async function runEcosystemMaintenance(now: Date = new Date(), signal?: A
   publicImagesCollected: number;
   /** Abandoned mid-publish submissions handed back. */
   stalledSubmissionsRecovered: number;
+  /** Submission magic-link notices that failed at submit and were re-sent. */
+  submissionNoticesResent: number;
 }> {
   let failures = 0;
   const tenants = (await publishers.list()).filter((p) => p.ownerOrgId && p.ownerOrgId !== SYSTEM_ORG_ID && !p.suspendedAt);
@@ -181,8 +184,8 @@ export async function runEcosystemMaintenance(now: Date = new Date(), signal?: A
     // The leader lock was lost (another replica took over): stop at once.
     if (signal?.aborted) break;
     try {
-      if (p.tier === 'verified') await checkVerifiedGrace(p, now);
-      await checkListingsLimit(p);
+      if (p.tier === 'verified') await reconcileVerifiedGrace(p, now);
+      await reconcileListingsLimitNotice(p);
     } catch (err) {
       failures++;
       incCounter(MAINTENANCE_STEP_FAILED_COUNTER, { step: 'publisher_upkeep' });
@@ -218,6 +221,7 @@ export async function runEcosystemMaintenance(now: Date = new Date(), signal?: A
     searchMissesPruned: 0,
     publicImagesCollected: 0,
     stalledSubmissionsRecovered: 0,
+    submissionNoticesResent: 0,
   };
   await step('resign', 'Re-sign pass failed', async () => { out.resigned = (await runResignJobs(undefined, signal)).resigned; });
   await step('sla_breach', 'SLA-breach check failed', async () => { out.slaBreachesNotified = await notifySlaBreaches(now); });
@@ -226,6 +230,9 @@ export async function runEcosystemMaintenance(now: Date = new Date(), signal?: A
   // must neither be skipped by an expiry failure nor hide behind one.
   await step('submission_expiry', 'Submission expiry failed', async () => { out.submissionsExpired = await expireSubmissions(now); });
   await step('submitter_email_purge', 'Submitter email purge failed', async () => { out.submitterEmailsPurged = await purgeSubmitterEmails(now); });
+  await step('submission_notice_resend', 'Submission notice re-send failed', async () => {
+    out.submissionNoticesResent = await resendPendingReceivedNotices(now);
+  });
   await step('stalled_publishes', 'Stalled-publish recovery failed', async () => {
     out.stalledSubmissionsRecovered = (await recoverStalledPublishes(now)).submissions;
   });

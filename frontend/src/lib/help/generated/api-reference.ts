@@ -1,6 +1,6 @@
 // GENERATED FROM docs/api-reference.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: f176bfc04aacb9d09ba43edee00dd084e1689bf0c338285dcd09ff8d6255a041
+// SOURCE-SHA256: cc71ce691be919628d84c5fdeffd33406d651336706251ed983a63f14f328670
 // SPDX-License-Identifier: Apache-2.0
 import { Code } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -257,6 +257,11 @@ export const apiReferenceTopic: HelpTopic = {
               "Delete pipeline"
             ],
             [
+              "POST",
+              "/pipelines/bulk/create",
+              "Create up to the bulk cap in one request ({ pipelines: [...] }; ?upsert=true as single create). The status reflects the outcome: 201 every item saved, 207 some failed, 422 none saved. The per-item body { created, updated, failed, items, errors } is in data on 201/207 and in the error envelope's details on 422"
+            ],
+            [
               "GET",
               "/pipelines/providers",
               "List AI providers"
@@ -363,7 +368,7 @@ export const apiReferenceTopic: HelpTopic = {
             [
               "POST",
               "/plugins/lookup",
-              "Find plugin by validated filter body (POST for URL-length safety). The endpoint synth resolves plugins through. Without publisher: own org → parent org's shared plugin → the Official listing pipeline-builder/<name> through the org's install (explicit, else implicit). With publisher: only that publisher's listing, only through an install (403 PLUGIN_NOT_INSTALLED / PLUGIN_BLOCKED_BY_POLICY, 409 PLUGIN_UNAVAILABLE otherwise). A listing's version range is the install's, narrowed by filter.version; yanked listing versions never resolve. Verifies the image signature (and, for a listing, the signed tier and publisher) and returns imageDigest, which synth pins CodeBuild to; 409 IMAGE_VERIFICATION_FAILED otherwise. Answer: { plugin, warnings } — plugin is the record synth needs, without the fields it never reads (readmeMd, readmeHtml, changelog, scanSummary, dockerfile, icon, uploadedIcon; /plugins/find returns them), and carries publisher, publisherTier, listingId, imageRepository, source (org \\",
+              "Find plugin by validated filter body (POST for URL-length safety). The endpoint synth resolves plugins through. Without publisher: own org → parent org's shared plugin → the Official listing pipeline-builder/<name> through the org's install (explicit, else implicit). With publisher: only that publisher's listing, only through an install (403 PLUGIN_NOT_INSTALLED / PLUGIN_BLOCKED_BY_POLICY, 409 PLUGIN_UNAVAILABLE otherwise). A listing's version range is the install's, narrowed by filter.version; yanked listing versions never resolve. Verifies the image signature (and, for a listing, the signed tier and publisher) and returns imageDigest, which synth pins CodeBuild to; 409 IMAGE_VERIFICATION_FAILED otherwise. Answer: { plugin, warnings } — plugin is the resolved record a pipeline build needs, without the fields no build reads (readmeMd, readmeHtml, changelog, scanSummary, dockerfile, icon, uploadedIcon; /plugins/find returns them), and carries publisher, publisherTier, listingId, imageRepository, source (org \\",
               "listing) and install (explicit \\",
               "implicit \\",
               "null); warnings may list PLUGIN_SHADOWS_LISTING, PLUGIN_SECRETS_WITHHELD, LISTING_UNMAINTAINED, PLUGIN_DEPRECATED, PLUGIN_YANKED, PLUGIN_ADVISORY and the vulnerability grades (VULN_KEV, VULN_FLAGGED, VULN_CRITICAL_FIXABLE, VULN_HIGH_FIXABLE, UNSCANNED, SCAN_STALE, COMPLIANCE_VULN_RULE, VULN_ACCEPTED), which synth prints; each warning carries a severity (info \\",
@@ -439,17 +444,17 @@ export const apiReferenceTopic: HelpTopic = {
             [
               "GET",
               "/plugins/queue/failed",
-              "Failed build jobs (org-scoped for non-system admins)"
+              "Failed build jobs (every org's for a system-org plugin_queue:manage holder; otherwise the caller's own org's, needing plugins:write)"
             ],
             [
               "GET",
               "/plugins/queue/dlq",
-              "Dead letter queue jobs (org-scoped for non-system admins)"
+              "Dead letter queue jobs (scoped like /plugins/queue/failed)"
             ],
             [
               "POST",
               "/plugins/queue/dlq/:jobId/replay",
-              "Replay a single DLQ job (admin only, tenant-checked)"
+              "Replay a single DLQ job (scoped like /plugins/queue/failed; another org's job reads as 404)"
             ],
             [
               "DELETE",
@@ -1769,6 +1774,12 @@ export const apiReferenceTopic: HelpTopic = {
               "+ step-up"
             ],
             [
+              "PATCH",
+              "/user/profile",
+              "Update { username?, email? } → { user }. Changing the sign-in email needs a step-up (it is where a password reset is sent) and clears isEmailVerified; the old address is emailed a notice of the change. A username edit, or re-sending the current address, needs neither",
+              "— (auth); + step-up when email changes"
+            ],
+            [
               "POST",
               "/user/change-password",
               "{ currentPassword, newPassword } → { accessKeysRevoked }: ends every session and revokes every access key",
@@ -3006,28 +3017,28 @@ export const apiReferenceTopic: HelpTopic = {
             [
               "GET",
               "/plugins/queue/dlq",
-              "plugins:write",
+              "decided per request",
               "apiCalls",
               "—"
             ],
             [
               "POST",
               "/plugins/queue/dlq/:jobId/replay",
-              "plugins:write",
+              "decided per request",
               "apiCalls",
               "plugin.dlq.replay"
             ],
             [
               "GET",
               "/plugins/queue/failed",
-              "plugins:write",
+              "decided per request",
               "apiCalls",
               "—"
             ],
             [
               "POST",
               "/plugins/queue/failed/:jobId/retry",
-              "plugins:write",
+              "decided per request",
               "apiCalls",
               "plugin.build.retry"
             ],
@@ -3041,7 +3052,7 @@ export const apiReferenceTopic: HelpTopic = {
             [
               "GET",
               "/plugins/queue/triage",
-              "plugins:write",
+              "decided per request",
               "apiCalls",
               "—"
             ],
@@ -3640,7 +3651,7 @@ export const apiReferenceTopic: HelpTopic = {
             [
               "GET",
               "/reports/execution/errors",
-              "Error categorization (top N). Cross-org error TEXT, so platform:read rather than reports:read, and the retention floor does not apply"
+              "Error categorization (top N) across every org — the platform operator's view. Cross-org error TEXT, so the system-org-only orgs:read (plus aal2) rather than reports:read; no includeDescendants, and the retention floor does not apply"
             ],
             [
               "GET",
@@ -3700,7 +3711,7 @@ export const apiReferenceTopic: HelpTopic = {
             [
               "GET",
               "/reports/plugins/build-failures",
-              "Build failure reasons (top N). Cross-org failure TEXT, so platform:read rather than reports:read"
+              "Build failure reasons (top N) across every org — the platform operator's view. Cross-org failure TEXT, so the system-org-only orgs:read (plus aal2) rather than reports:read; no includeDescendants"
             ],
             [
               "GET",

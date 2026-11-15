@@ -56,7 +56,7 @@ export function isProductionEnv(): boolean {
  * production, this THROWS a clear error rather than silently proceeding — a MITM
  * on a "prod with --no-verify-ssl" run would otherwise harvest the very
  * passwords/JWTs these paths send. In non-production it is a no-op, so
- * `--no-verify-ssl` / `PLATFORM_VERIFY_SSL=false` still work against self-signed
+ * `--no-verify-ssl` / `PLATFORM_TLS_VERIFY=false` still work against self-signed
  * dev platforms.
  *
  * @param context - short description of the path being guarded, for the message.

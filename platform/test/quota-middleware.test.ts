@@ -24,7 +24,7 @@ jest.unstable_mockModule('../src/config/index.js', () => mockConfig({
   quota: {
     serviceHost: 'quota.test',
     servicePort: 3000,
-    serviceTimeout: 5000,
+    serviceTimeoutMs: 5000,
   },
 }));
 

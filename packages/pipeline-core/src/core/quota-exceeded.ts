@@ -2,9 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Rendering a `429 QUOTA_EXCEEDED` for a person reading a terminal or a
- * CloudFormation event — shared by the pipeline-manager CLI and the
- * plugin-lookup Lambda so both say the same thing.
+ * Rendering a `429 QUOTA_EXCEEDED` for a person reading a terminal — used by
+ * the pipeline-manager CLI.
  *
  * A quota refusal is NOT a rate limit: waiting a moment changes nothing, the
  * counter only empties when the period resets (or the limit is raised). So the
@@ -19,7 +18,7 @@
 import { QUOTA_TYPE_LABELS, QUOTA_UPGRADE_PATH, type QuotaType } from '@pipeline-builder/api-core/lib/types/common.js';
 
 /** The error `code` api-core's `sendQuotaExceeded` answers with. */
-export const QUOTA_EXCEEDED_CODE = 'QUOTA_EXCEEDED';
+const QUOTA_EXCEEDED_CODE = 'QUOTA_EXCEEDED';
 
 interface QuotaExceededDetails {
   quotaType?: unknown;

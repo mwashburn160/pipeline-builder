@@ -71,11 +71,12 @@ const ORG_NAMESPACE_PREFIX = 'org-';
  * - `registry-meta/*` (the `public/<handle>` → publisher-org records) is
  * management-only: no external identity may pull or push, superadmins included.
  * - `quarantine/<submissionId>` (an anonymous submission's build, from the
- * isolated quarantine buildkitd): push AND pull belong to the plugin SERVICE
- * principal alone (its per-service-key-signed token — the name cannot be
- * forged); every other identity, a superadmin included, gets nothing — an
- * unmoderated image must never be pullable by a tenant pipeline or
- * browsable in the UI.
+ * isolated quarantine buildkitd): PUSH belongs to that submission's own
+ * quarantine build credential (image-registry-minted, one repository only);
+ * PULL to it and to the plugin SERVICE principal (its per-service-key-signed
+ * token — the name cannot be forged). Every other identity, a superadmin
+ * included, gets nothing — an unmoderated image must never be pullable by a
+ * tenant pipeline or browsable in the UI.
  */
 
 /**
@@ -85,25 +86,7 @@ const ORG_NAMESPACE_PREFIX = 'org-';
  */
 export const QUARANTINE_SERVICE_PRINCIPAL = 'plugin';
 
-/**
- * Authorize a single requested scope for the given identity. Returns the
- * subset of actions that are granted (may be empty, in which case the spec
- * permits issuing a token with no `access` entries — the registry will
- * deny the operation).
- *
- * Policy:
- * - **management** (internal only): anything; in-process self-issue
- * - **jwt** (org user / team / service account / api/plugin service token):
- * pull on `public/*` (never push/delete — not even a super-admin); nothing on
- * `registry-meta/*`; pull,push on `quarantine/*` for the plugin SERVICE
- * principal only (nothing for anyone else); pull on `system/*`;
- * pull,push on `org-{orgId}/*`; pull on `org-{parentOrgId}/*` for a team;
- * pull,push on `system/*` ONLY for the system
- * org (which owns that namespace); pull,push on `library/*` for the
- * `deploy-bootstrap` service with `plugins:write` (the base-image push); only
- * super-admins (a platform sysadmin's person token) push on any other namespace
- * (e.g. cross-org)
- */
+/** Per-issuance facts {@link authorizeScope} needs beyond the identity itself. */
 export interface ScopeContext {
   /**
    * The names of the team's PARENT org's `public` plugins (fetched from the
@@ -113,6 +96,27 @@ export interface ScopeContext {
   parentPublicPlugins?: ReadonlySet<string>;
 }
 
+/**
+ * Authorize a single requested scope for the given identity. Returns the
+ * subset of actions that are granted (may be empty, in which case the spec
+ * permits issuing a token with no `access` entries — the registry will
+ * deny the operation).
+ *
+ * Policy:
+ * - **management** (internal only): anything; in-process self-issue
+ * - **quarantine** (a submission's build credential): pull,push on its own
+ * `quarantine/<submissionId>`; pull on `library/*` and `system/*`; nothing else
+ * - **jwt** (org user / team / service account / api/plugin service token):
+ * pull on `public/*` (never push/delete — not even a super-admin); nothing on
+ * `registry-meta/*`; pull on `quarantine/*` for the plugin SERVICE principal
+ * only (nothing for anyone else); pull on `system/*`;
+ * pull (push with plugins:write) on `org-{orgId}/*`; pull on a team's parent
+ * org's PUBLIC plugin repositories; pull,push on `system/*` ONLY for the system
+ * org with plugins:write (it owns that namespace); pull,push on `library/*` for
+ * the `deploy-bootstrap` service with `plugins:write` (the base-image push);
+ * only super-admins (a platform sysadmin's person token) push on any other
+ * namespace (e.g. cross-org)
+ */
 export function authorizeScope(identity: Identity, requested: RequestedScope, ctx: ScopeContext = {}): string[] {
   // Internal management identity bypasses scope-type filtering — it needs
   // both `repository:*` (manifests/blobs) and `registry:catalog:*` access
@@ -323,8 +327,8 @@ function issueRegistryToken( identity: Identity,
  * Lazily-constructed quota service client. Pointed at the platform-wide
  * quota service so push-gate enforcement can read each org's
  * `storageBytes` cap before issuing a token that includes `push` scope.
- * Fail-open semantics on transport errors — matches `checkQuota`
- * middleware in api-server.
+ * The gate fails CLOSED when the cap cannot be verified (see
+ * {@link isStorageOverBudget}).
  */
 const quotaService = createQuotaService();
 
@@ -334,10 +338,11 @@ const quotaService = createQuotaService();
  * token spec, the caller will get the appropriate 403 when they retry the
  * registry call with a token that doesn't grant the operation.
  *
- * any granted `push` action on `org-{orgId}/*` is gated on the
- * org's `storageBytes` quota — if measured usage exceeds the limit, push
- * is stripped from that scope's actions (pull stays so existing images
- * remain reachable). Management identities bypass the gate.
+ * Any granted `push` action on `org-{orgId}/*` is gated on the org's
+ * `storageBytes` quota — if measured usage reaches the enforced limit (nominal
+ * plus the grace band), push is stripped from that scope's actions (pull stays
+ * so existing images remain reachable). Only `jwt` identities are gated. The
+ * weekly blob-GC push freeze strips `push` from EVERY identity's scopes.
  */
 export async function authorizeAndIssue( identity: Identity,
   requestedScopes: RequestedScope[],
@@ -478,7 +483,7 @@ const ACCOUNT_BUDGET = (process.env.QUOTA_STORAGE_ACCOUNT_BUDGET || '').toLowerC
 
 /**
  * Compare an org's measured registry storage against its `storageBytes` quota.
- * Returns true when the push should be DENIED.
+ * The decision's `overBudget` is true when the push should be DENIED.
  *
  * Fails CLOSED (deny) when the cap cannot be verified — quota service
  * unreachable, or the usage scan was incomplete (under-counted). A genuine

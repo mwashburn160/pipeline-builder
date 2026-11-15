@@ -115,10 +115,11 @@ const AGENT_SYSTEM = [
  * for the agent's own reasoning (`withAiCallReservation` — the model's weight in
  * units, or nothing for a BYOK key / impersonation / weight-0 model; kept once the
  * provider has responded, refunded on an abort/error before it did). The
- * delegated generators — `propose_pipeline`/`propose_plugin`/
- * `propose_plugin_from_repo` → pipeline/plugin `/generate` — each reserve their
- * OWN slot (they are separate model invocations), so a turn that drafts a
- * pipeline/plugin draws more than one; `propose_plugin_from_repo` reads its
+ * delegated generators — `propose_pipeline`/`propose_pipeline_from_repo`/
+ * `propose_plugin`/`propose_plugin_from_repo` → the pipeline/plugin
+ * `/generate` routes — each reserve their OWN slot (they are separate model
+ * invocations), so a turn that drafts a pipeline/plugin draws more than one;
+ * `propose_plugin_from_repo` reads its
  * repository analysis from the AI-free `/pipelines/analyze/from-url`, so it
  * draws exactly one beyond the turn. `propose_template` generates in-process
  * and settles its own slot per invocation (see `chargeAiCall`): kept once its
@@ -168,8 +169,8 @@ export function createAgentRoutes(quotaService: QuotaService): Router {
     // catch/abort paths can audit a failed turn too.
     const toolsCalled: string[] = [];
     const proposalKinds: string[] = [];
-    // Design rule 10: field names a propose tool refused because they were off
-    // its allowlist. On the audit event because a turn that produced them is
+    // Field names a propose tool refused because they were off its allowlist
+    // (the injection signal). On the audit event because a turn that produced them is
     // the one worth reconstructing later.
     const refusedFields: string[] = [];
     // AI observability, so on-call can see a provider brownout or a token-spend
@@ -184,13 +185,14 @@ export function createAgentRoutes(quotaService: QuotaService): Router {
     let stepTokens: TurnTokens = NO_TOKENS;
     const turnTokens = (): TurnTokens => (usage ? tokenUsage(usage) : stepTokens);
     let aiSlot: AiCallSlot | undefined;
-    // The turn's generation budget (Q3) and what it drew, for the `done` event.
+    // The turn's generation budget (ASK_MAX_TURN_GENERATIONS) and what it drew,
+    // for the `done` event.
     let generationsClaimed = 0;
     let delegatedGenerations = 0;
     let toolSlotsKept = 0;
     // In-process tool generations (propose_template): each settles its own slot,
     // and its tokens belong on this turn's audit row too.
-    const toolGenerations: { tool: string; slot: AskQuotaDetail['slot']; tokens: AITokenUsage }[] = [];
+    const toolGenerations: { tool: string; slot: AskQuotaDetail['slot']; tokens: AITokenUsage; promptVersion?: string }[] = [];
     // `slotKept`: how the turn's aiCalls slot settled — see askQuotaDetail.
     const auditTurn = (outcome: 'success' | 'failure', slotKept: boolean) =>
       recordAudit({
@@ -272,7 +274,7 @@ export function createAgentRoutes(quotaService: QuotaService): Router {
         // covers the agent's reasoning only), on the turn's model — waived exactly
         // when the turn's is. The handle settles by the same rule as every slot:
         // kept once the tool's provider responded, refunded otherwise.
-        chargeAiCall: async (toolName) => {
+        chargeAiCall: async (toolName, promptVersion) => {
           const reserved = await reserveAiCallSlot({ quotaService, orgId, serviceName: 'ask', logWarn, req, feature: `agent-tool:${toolName}` }, selection);
           if (reserved.status === 'denied') return null;
           const toolSlot = reserved.slot;
@@ -292,7 +294,12 @@ export function createAgentRoutes(quotaService: QuotaService): Router {
               toolSlot.refund();
               const tokens = toolUsage ?? { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0 };
               toolSlot.reportUsage(tokens);
-              toolGenerations.push({ tool: toolName, slot: toolSlot.waived ? 'waived' : contacted ? 'kept' : 'refunded', tokens });
+              toolGenerations.push({
+                tool: toolName,
+                slot: toolSlot.waived ? 'waived' : contacted ? 'kept' : 'refunded',
+                tokens,
+                ...(promptVersion ? { promptVersion } : {}),
+              });
               recordAiTokens(`agent-tool:${toolName}`, { provider: selection.provider, keySource: selection.keySource, tier: req.user?.tier }, tokens);
             },
           };
@@ -310,8 +317,8 @@ export function createAgentRoutes(quotaService: QuotaService): Router {
           delegated: () => { delegatedGenerations++; },
         },
         maxOutputTokens: ASK_MAX_OUTPUT_TOKENS,
-        // Design rule 10: a proposal naming a field outside the tool's
-        // allowlist is the injection signal — a prompt-injected message asking
+        // A proposal naming a field outside the tool's allowlist is the
+        // injection signal — a prompt-injected message asking
         // for a setting the agent may not touch. Counted (so an operator can
         // alert on it) and logged with the field names, never silently dropped.
         onRefusedFields: (toolName, fields) => {

@@ -4,7 +4,7 @@
 /** Plans, subscriptions, add-on bundles, discounts and the usage roll-up they
  *  are billed against. */
 
-import type { BillingInterval, QuotaTier, SubscriptionStatus } from '@pipeline-builder/api-core';
+import type { BillingInterval, PlanTier, SubscriptionStatus } from '@pipeline-builder/api-core';
 
 /**
  * Plan definition from the billing API
@@ -13,7 +13,7 @@ export interface Plan {
   id: string;
   name: string;
   description: string;
-  tier: QuotaTier;
+  tier: PlanTier;
   prices: {
     monthly: number;
     annual: number;
@@ -31,7 +31,7 @@ export interface Subscription {
   orgId: string;
   planId: string;
   planName?: string;
-  tier?: QuotaTier;
+  tier?: PlanTier;
   status: SubscriptionStatus;
   interval: BillingInterval;
   currentPeriodStart: string;
@@ -40,9 +40,10 @@ export interface Subscription {
   /** Purchased add-on bundles (docs/billing-bundles.md). */
   addons?: Array<{ bundleId: string; quantity: number }>;
   /** A standing recurring operator discount attached to this subscription (a
-   *  per-period usage credit). `null`/absent when none. One-time/credit discounts
-   *  aren't stored here — they apply once and show up in Billing History. */
-  recurringDiscount?: { discountId: string; value?: number; unit?: 'dollar' | 'percent'; kind?: string } | null;
+   *  per-period usage credit; `value` is cents for `dollar`, percent-points for
+   *  `percent`). `null`/absent when none. One-time/credit discounts aren't stored
+   *  here — they apply once and show up in Billing History. */
+  recurringDiscount?: { discountId: string; value: number; unit: 'dollar' | 'percent' } | null;
   /**
    * Where the subscription stands in dunning — non-null only while `past_due`
    * with a recorded first failure. Status alone cannot say WHEN access ends: it
@@ -138,7 +139,7 @@ export interface Bundle {
    *  at ≥ minQuantity units, discountPercent comes off the line. Highest wins. */
   volumeTiers?: { minQuantity: number; discountPercent: number }[];
   maxQuantity?: number;
-  availableForTiers: QuotaTier[];
+  availableForTiers: PlanTier[];
   /** Prerequisite bundle ids that must be held first (e.g. Advanced → Standard Compliance). */
   requires?: string[];
   /** Prerequisite feature flags the plan or a held add-on must provide. */
@@ -190,11 +191,11 @@ export interface ComboChange {
  */
 export interface CrossoverVerdict {
   crossover: boolean;
-  tier: QuotaTier;
+  tier: PlanTier;
   interval: BillingInterval;
   /** What the account pays now, per interval: plan + packs, volume discounts applied. */
   currentCents: number;
-  candidateTier: QuotaTier | null;
+  candidateTier: PlanTier | null;
   /** The candidate's plan price plus any add-on the move cannot retire. */
   candidateCents: number;
   /** `currentCents - candidateCents`. Positive ⇒ the move costs less. */
@@ -224,8 +225,8 @@ export interface CrossoverVerdict {
  * invoice carries. Quoting `listCents` alone is the bug F1 exists to fix.
  */
 export interface PlanChangePreview {
-  tier: QuotaTier;
-  fromTier: QuotaTier;
+  tier: PlanTier;
+  fromTier: PlanTier;
   interval: BillingInterval;
   listCents: number;
   discountCents: number;
@@ -264,7 +265,7 @@ export type OfferStatus = 'sent' | 'redeemed' | 'declined' | 'expired' | 'suppre
 export interface AccountOffer {
   id: string;
   offerType: OfferType;
-  targetTier: QuotaTier | null;
+  targetTier: PlanTier | null;
   /**
    * What a `pack`/`compose` offer proposed, so the card can present it as ONE
    * basket (F6) instead of asking the account to assemble the offer itself from
@@ -453,7 +454,7 @@ export interface UsageRollup {
   subscription: {
     planId: string;
     planName: string;
-    tier: QuotaTier;
+    tier: PlanTier;
     interval: BillingInterval;
     priceCents: number;
   } | null;

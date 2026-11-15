@@ -28,9 +28,9 @@ export { BUILD_IMAGE_MANIFEST_ACTION, BUILD_IMAGE_MANIFEST_STAGE, BUILD_IMAGE_ST
 export const STEP_MANIFEST_FILE = 'pb-step-manifest.json';
 
 /**
- * `id` of every synthesized placeholder plugin (PluginLookup `fallback()` /
- * `bootstrap()`) — a record standing in for a lookup that could not resolve at
- * synth. Never a real `plugins` row, so the step manifest never records it.
+ * `id` of the synthesized cold-start synth record (PluginLookup `bootstrap()`),
+ * which stands in for a synth plugin that was not pre-resolved. Never a real
+ * `plugins` row, so the step manifest never records it.
  */
 export const PLACEHOLDER_PLUGIN_ID = '00000000-0000-0000-0000-000000000000';
 
@@ -53,7 +53,7 @@ export interface StepManifestEntry {
   readonly imageDigest: string | null;
   /**
    * The step's label (`pluginStepLabel`: `synth` or `<stage>/<alias ?? name>`) —
-   * what the CLI and the lookup Lambda send as lookup `context.stepKeys`, and the
+   * what the CLI sends as lookup `context.stepKeys`, and the
    * run-time check asks about. Lets the platform join lookup warnings to this
    * manifest row.
    */
@@ -78,12 +78,6 @@ export interface BuildImageManifestEntry extends StepManifestEntry {
   readonly imageRepository: string | null;
   /** How the release was chosen for this pipeline at synth. */
   readonly resolvedVia: ToolchainResolvedVia;
-}
-
-/** Whether a manifest entry is the {@link BuildImageManifestEntry}. */
-export function isBuildImageEntry(entry: StepManifestEntry): entry is BuildImageManifestEntry {
-  return (entry as { kind?: unknown }).kind === 'build-image'
-    || (entry.stageName === BUILD_IMAGE_MANIFEST_STAGE && entry.actionName === BUILD_IMAGE_MANIFEST_ACTION);
 }
 
 /** The plugin fields {@link pluginImageRepository} reads. */

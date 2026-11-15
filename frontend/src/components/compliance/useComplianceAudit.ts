@@ -3,6 +3,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import api from '@/lib/api';
+import { formatError } from '@/lib/constants';
 import type { PaginationState } from '@/components/ui/Pagination';
 import { usePagination } from '@/hooks/usePagination';
 import type { ComplianceAuditEntry } from '@/types/compliance';
@@ -91,8 +92,8 @@ export function useComplianceAudit(): UseComplianceAuditResult {
         } else {
           setError(res.message || 'Failed to load audit log');
         }
-      } catch {
-        if (genRef.current === gen) setError('Failed to load audit log');
+      } catch (err) {
+        if (genRef.current === gen) setError(formatError(err, 'Failed to load audit log'));
       }
     })();
     // Invalidate the in-flight read on unmount too, so a late answer can't

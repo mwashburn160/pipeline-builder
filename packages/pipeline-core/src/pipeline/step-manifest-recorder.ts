@@ -3,7 +3,7 @@
 
 import type { Pipeline } from 'aws-cdk-lib/aws-codepipeline';
 import type { Step } from 'aws-cdk-lib/pipelines';
-import type { LookupToolchain, SynthPlugin } from '../core/plugin-lookup-envelope.js';
+import type { LookupToolchain, ResolvedPlugin } from '../core/plugin-lookup-envelope.js';
 import {
   BUILD_IMAGE_MANIFEST_ACTION, BUILD_IMAGE_MANIFEST_STAGE, BUILD_IMAGE_STEP_KEY, PLACEHOLDER_PLUGIN_ID,
   type BuildImageManifestEntry, type StepManifestEntry,
@@ -25,15 +25,15 @@ function cdkActionKey(stepId: string): string {
 /**
  * Collects (step → resolved plugin) pairs while the stages are built, then
  * reads the finished CodePipeline to emit the step manifest. Only
- * plugins that were really resolved are recorded — the synth-time
- * `fallback()` / `bootstrap()` placeholders name no `plugins` row.
+ * plugins that were really resolved are recorded — the cold-start
+ * `bootstrap()` synth record names no `plugins` row.
  */
 export class StepManifestRecorder {
-  private readonly byActionKey = new Map<string, { plugin: SynthPlugin; stepKey: string }>();
+  private readonly byActionKey = new Map<string, { plugin: ResolvedPlugin; stepKey: string }>();
   private buildImage: BuildImageManifestEntry | null = null;
 
   /** Remember that `step` runs `plugin` under step label `stepKey` (`pluginStepLabel`). Call once per plugin-backed step. */
-  record(step: Step, plugin: SynthPlugin, stepKey: string): void {
+  record(step: Step, plugin: ResolvedPlugin, stepKey: string): void {
     if (plugin.id === PLACEHOLDER_PLUGIN_ID) return;
     this.byActionKey.set(cdkActionKey(step.id), { plugin, stepKey });
   }
@@ -44,9 +44,9 @@ export class StepManifestRecorder {
    * (`toolchain`). Emitted as the non-step `build-image` entry — the synth half
    * of the release is already recorded as the synth step.
    */
-  recordBuildImage(plugin: SynthPlugin, toolchain: LookupToolchain): void {
+  recordBuildImage(plugin: ResolvedPlugin, toolchain: LookupToolchain): void {
     if (plugin.id === PLACEHOLDER_PLUGIN_ID) return;
-    const repository = (plugin as SynthPlugin & { imageRepository?: string | null }).imageRepository ?? null;
+    const repository = (plugin as ResolvedPlugin & { imageRepository?: string | null }).imageRepository ?? null;
     this.buildImage = {
       kind: 'build-image',
       stageName: BUILD_IMAGE_MANIFEST_STAGE,

@@ -81,7 +81,7 @@ describe('reporting settings routes', () => {
   });
 
   // ---------------------------------------------------------------------------
-  // Agent provenance (design rule 6). The Ask panel commits an org-settings
+  // Agent provenance. The Ask panel commits an org-settings
   // proposal through THIS route, with the user's own session, so the audit event
   // must say an AI drafted it — and a client must not be able to write anything
   // else into `details`.

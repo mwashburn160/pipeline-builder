@@ -1,6 +1,6 @@
 // GENERATED FROM docs/aws-deployment.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: e35dd0e68808d28720acd88f5d920f359ebb422b79875dd262c91ce1e772b24d
+// SOURCE-SHA256: cd34bd11e196869bd056433fbf8bd2091865d45c0dc53c8d5af0f347c8396f4e
 // SPDX-License-Identifier: Apache-2.0
 import { Server } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -1749,11 +1749,11 @@ export const deploymentTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "The managed toolchain release is two plugins with one version: pipeline-bootstrap (the CodeBuild runtime for the synth step and for any step whose own image isn't resolved — Node, AWS CLI v2 and the pinned pipeline-manager, AWS CDK CLI, cdk-assets, esbuild and pnpm) and cdk-synth, built FROM it by digest. Both live in deploy/toolchain/, the release's own source root beside the plugin catalog (deploy/plugins/). init-platform.sh builds and uploads them on every install; run the build directly to publish a newer release into a running deployment:"
+          "content": "The managed toolchain release is two plugins with one version: pipeline-bootstrap (the CodeBuild runtime for the synth step and for any step whose own image isn't resolved — Node, AWS CLI v2 and the pinned pipeline-manager, AWS CDK CLI and cdk-assets) and cdk-synth, built FROM it by digest. Both live in deploy/toolchain/, the release's own source root beside the plugin catalog (deploy/plugins/). init-platform.sh builds and uploads them on every install; run the build directly to publish a newer release into a running deployment:"
         },
         {
           "type": "note",
-          "content": "The bootstrap image bakes in aws-cdk + esbuild + pnpm so synth bundles the PluginLookup Lambda locally (no Docker-in-Docker). If you instead run cdk synth / pipeline deploy on your own machine, you need those same tools on PATH — otherwise bundling fails with Could not resolve \"axios\". See Pipeline Manager → local deploy prerequisites."
+          "content": "Synth bundles nothing: every plugin is resolved by the CLI before cdk synth runs, so the bootstrap image needs only the AWS CDK CLI, cdk-assets and pipeline-manager (no Docker-in-Docker). If you instead run cdk synth / pipeline deploy on your own machine, only cdk must be on PATH. See Pipeline Manager → local deploy prerequisites."
         },
         {
           "type": "code",
@@ -1836,7 +1836,7 @@ export const deploymentTopic: HelpTopic = {
         },
         {
           "type": "code",
-          "content": "pipeline-manager auth login --no-verify-ssl\n\nexport PLATFORM_PASSWORD='…'\n\npipeline-manager infra store-token --days 30 --schedule --region us-east-1\n\npipeline-manager infra store-token --scope registry:push --schedule --region us-east-1\n\npipeline-manager infra store-token --scope reporting:ingest --schedule --region us-east-1",
+          "content": "pipeline-manager auth login --no-verify-ssl\n\nexport PLATFORM_PASSWORD='…'\n\npipeline-manager infra store-token --expires-days 30 --schedule --region us-east-1\n\npipeline-manager infra store-token --scope registry:push --schedule --region us-east-1\n\npipeline-manager infra store-token --scope reporting:ingest --schedule --region us-east-1",
           "language": "bash"
         },
         {
@@ -1883,7 +1883,7 @@ export const deploymentTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "The rotation stack is a scheduled Lambda that mints a sibling key on the same account, writes it to the secret, and only then retires its predecessor — in that order, so a failure at any step leaves a working credential behind. It installs nothing at runtime. See Authentication → Self-rotation. (The --with-events provision bundle opts into --schedule automatically, since the event-ingestion Lambda depends on its key.)"
+          "content": "The rotation stack is a scheduled Lambda that mints a sibling key on the same account, writes it to the secret, and only then retires its predecessor — in that order, so a failure at any step leaves a working credential behind. Each key it mints lives --expires-days days (the stack's KeyLifetimeDays parameter, the Lambda's KEY_TTL_DAYS). It installs nothing at runtime. See Authentication → Self-rotation. (The --with-events provision bundle opts into --schedule automatically, since the event-ingestion Lambda depends on its key.)"
         },
         {
           "type": "text",
@@ -2219,7 +2219,7 @@ export const deploymentTopic: HelpTopic = {
             ],
             [
               "GET /api/reports/execution/errors",
-              "Error categorization (top N)",
+              "Error categorization (top N), across every org (operator only)",
               "from, to, limit"
             ]
           ]
@@ -2263,7 +2263,7 @@ export const deploymentTopic: HelpTopic = {
             ],
             [
               "GET /api/reports/plugins/build-failures",
-              "Build failure reasons (top N)",
+              "Build failure reasons (top N), across every org (operator only)",
               "from, to, limit"
             ],
             [

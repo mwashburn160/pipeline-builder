@@ -75,7 +75,9 @@ export {
   DYNAMIC_PRINCIPALS,
   type DynamicPrincipal,
   type RouteTableEntry,
+  type ConditionalGateEntry,
 } from './route-table.js';
+export { gateWhen } from './gate-when.js';
 export {
   armDeferredQuotaCheck,
   runDeferredQuotaCheck,

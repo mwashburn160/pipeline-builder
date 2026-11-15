@@ -2,14 +2,14 @@
 
 📖 **[View documentation](https://mwashburn160.github.io/pipeline-builder/)**
 
-AWS CDK construct library for [Pipeline Builder](https://mwashburn160.github.io/pipeline-builder/): the `PipelineBuilder` construct that assembles plugin specs into a CodePipeline stack, the `PluginLookup` custom resource, pipeline/plugin domain types, and shared configuration.
+AWS CDK construct library for [Pipeline Builder](https://mwashburn160.github.io/pipeline-builder/): the `PipelineBuilder` construct that assembles plugin specs into a CodePipeline stack, `PluginLookup` (the pre-resolved plugin records), pipeline/plugin domain types, and shared configuration.
 
 > Internal workspace package — consumed by other packages via `workspace:*`.
 
 ## Responsibilities
 
 - Provides the CDK constructs that synthesize a CodePipeline stack from plugin specs (`PipelineBuilder`, `StageBuilder`, `PipelineConfiguration`, `ArtifactManager`).
-- Resolves plugin specs at deploy time via the `PluginLookup` custom resource.
+- Hands each step the plugin record `pipeline-manager pipeline synth` resolved (`PluginLookup`); a plugin that was not resolved fails the synth.
 - Hosts the synth-time template engine that parameterizes pipeline config and plugin specs.
 - Owns the pipeline/plugin domain types and the environment-driven application `Config`.
 - Re-exports the `pipeline-data` database layer so consumers depend on a single package for both CDK and DB access.
@@ -23,7 +23,7 @@ AWS CDK construct library for [Pipeline Builder](https://mwashburn160.github.io/
 | `StageBuilder` | Composes pipeline stages from plugin steps |
 | `PipelineConfiguration` | Resolves and merges pipeline config metadata |
 | `ArtifactManager` | Manages build artifacts across stages |
-| `PluginLookup` | Custom resource that resolves plugin specs at deploy time |
+| `PluginLookup` | Hands each step its pre-resolved plugin record; throws for one that was not resolved |
 
 ### Template engine (synth-time)
 | Export | Purpose |

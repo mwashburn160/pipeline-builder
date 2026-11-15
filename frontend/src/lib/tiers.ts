@@ -2,20 +2,20 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Single source of truth for the quota tiers' display metadata (label,
+ * Single source of truth for the plan tiers' display metadata (label,
  * colour classes, sort order) — the pills, badges and the plan cards' accents
  * all read it, so a tier is coloured the same everywhere. Adding a tier here
  * updates every UI surface in one place.
  */
 import type { BadgeColor } from '@/components/ui/Badge';
-import type { QuotaTier } from '@pipeline-builder/api-core';
+import type { PlanTier } from '@pipeline-builder/api-core';
 import type { SeatRemedy } from '@pipeline-builder/api-core/tier-limits';
 
-/** The quota tiers, straight from the backend's own enum — never a local copy,
+/** The plan tiers, straight from the backend's own enum — never a local copy,
  *  which is how `unlimited` kept getting dropped from tier unions around the
  *  app. It is the default when billing is off AND the platform system org's
  *  tier when billing is on, so no surface can treat it as unreachable. */
-export type TierKey = QuotaTier;
+export type TierKey = PlanTier;
 
 export interface TierMeta {
   /** Lowercase enum key as stored by the quota service. */

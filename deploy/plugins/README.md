@@ -223,11 +223,10 @@ The root base tracks **Ubuntu 26.10 (`stonking`)**, an INTERIM release: standard
 
 The managed toolchain release — `deploy/toolchain/pipeline-bootstrap` (built `FROM`
 a digest-pinned `node:26-slim` with AWS CLI v2 + the AWS CDK CLI + cdk-assets +
-esbuild + pnpm + pipeline-manager baked in, `pluginType: BuildImage`) and
+pipeline-manager baked in, `pluginType: BuildImage`) and
 `deploy/toolchain/cdk-synth`, which is `FROM` it by digest — is one release with
 one `version` in both specs. It is the image cold-start synth runs
-`pipeline-manager pipeline synth` on (which shells out to `cdk synth` and
-bundles the PluginLookup Lambda locally via esbuild — hence those tools). See
+`pipeline-manager pipeline synth` on (which shells out to `cdk synth`). See
 [`deploy/toolchain/pipeline-bootstrap/README.md`](../toolchain/pipeline-bootstrap/README.md).
 It lives in its own source root, not in this catalog, because the pair is one
 release, not catalog plugins: the build and load scripts handle it first, outside

@@ -36,7 +36,6 @@ const logger = createLogger('ecosystem-submission-guards');
 
 const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-/** The canonical form of a submitter email, or null when it isn't one. */
 /**
  * One counter for every way the anonymous door refuses, labelled by a CLOSED
  * set of reasons — never by the submitter, hashed or otherwise, which would put
@@ -53,6 +52,7 @@ function countSubmissionRefusal(reason: string): void {
   }
 }
 
+/** The canonical form of a submitter email, or null when it isn't one. */
 export function normalizeEmail(raw: unknown): string | null {
   if (typeof raw !== 'string') return null;
   const email = raw.trim().toLowerCase();

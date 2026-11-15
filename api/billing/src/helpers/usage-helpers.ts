@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { envInt, envStr, getServiceAuthHeader, type BillingInterval, type QuotaTier } from '@pipeline-builder/api-core';
+import { envInt, envStr, getServiceAuthHeader, type BillingInterval, type PlanTier } from '@pipeline-builder/api-core';
 import { fetchQuotaSnapshot, fetchSeatUsage, type QuotaSnapshot } from './downstream-client.js';
 
 /** Per-quota-type usage entry returned by the rollup. */
@@ -45,7 +45,7 @@ export interface UsageRollup {
   subscription: {
     planId: string;
     planName: string;
-    tier: QuotaTier;
+    tier: PlanTier;
     interval: BillingInterval;
     priceCents: number;
   } | null;
@@ -108,7 +108,7 @@ export function buildUsageRollup(
     interval: BillingInterval;
     planId: string;
   } | null,
-  plan: { name: string; tier: QuotaTier; prices: { monthly: number; annual: number } } | null,
+  plan: { name: string; tier: PlanTier; prices: { monthly: number; annual: number } } | null,
   quotaSnapshot: QuotaSnapshot | null,
   now: Date = new Date(),
   seats: SeatUsage | null = null,

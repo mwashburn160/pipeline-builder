@@ -33,7 +33,6 @@
     "@typescript/native": "npm:typescript@7.1.0-beta",
     "aws-cdk-lib": "2.275.0",
     "constructs": "10.8.1",
-    "esbuild": "0.25.12",
     "eslint": "^9",
     "eslint-import-resolver-typescript": "^4.4.5",
     "eslint-plugin-import": "^2.32.0",

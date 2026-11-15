@@ -37,8 +37,9 @@ export class AttachmentService {
    * Single attachment by id. NOT filtered by the caller's org — an attachment's
    * `orgId` is the UPLOADER's org, which differs from the reader's on any
    * cross-org message (org→support, system announcement→org), so a caller-org
-   * filter would make those unreadable. RLS still bounds the row set (own org +
-   * system-org + sysadmin); the REAL authorization is done by the CALLER, which
+   * filter would make those unreadable. RLS still bounds the row set (own org,
+   * system-org, sysadmin, and rows whose parent message is addressed to the
+   * caller's org or broadcast); the REAL authorization is done by the CALLER, which
    * must gate on parent-message visibility (linked) or uploader identity
    * (pending) — see the download route. Returns null when not found / not
    * RLS-visible.

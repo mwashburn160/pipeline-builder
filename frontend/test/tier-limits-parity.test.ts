@@ -36,7 +36,7 @@ describe('the frontend tier-limit fallback projects api-core', () => {
     //
     // Compared against API-CORE's tier set, not the frontend's own
     // `ALL_TIER_KEYS`, because the projection is built by iterating that list and
-    // cast to `Record<QuotaTier, …>` — a tier missing from the frontend's
+    // cast to `Record<PlanTier, …>` — a tier missing from the frontend's
     // `TIER_META` would be missing from the presets, and the cast would say
     // nothing. Checking it against the list it was built from would be vacuous.
     expect(Object.keys(TIER_PRESETS).sort()).toEqual(Object.keys(DEFAULT_TIER_LIMITS).sort());

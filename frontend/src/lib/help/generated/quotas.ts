@@ -1,6 +1,6 @@
 // GENERATED FROM docs/quotas.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: d6e08ef52b8f719ef523c6ad9be41e867b6ab91b438eb06c3f9f99edf45ffb53
+// SOURCE-SHA256: 672234eaeda32b2e70a86f95b61b8847357fc8c8494d036ac89f3370f851fa75
 // SPDX-License-Identifier: Apache-2.0
 import { Gauge } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -296,8 +296,7 @@ export const quotasTopic: HelpTopic = {
           "type": "list",
           "items": [
             "Dashboard: a global notice on every page names the quota and links to the upgrade page, whichever service refused.",
-            "CLI (pipeline-manager): prints API call quota reached (25,000/25,000); resets 2026-11-05. Upgrade: https://<platform>/dashboard/billing and does not suggest retrying. A plain 429 keeps \"rate limit exceeded — wait a moment\". synth, deploy, plugin verify and security-report upload send X-Pipeline-Id, so the ledger attributes their calls to the pipeline.",
-            "Plugin-lookup Lambda: a quota refusal fails the custom resource immediately with that same sentence as the CloudFormation Reason (retrying can't help); a plain 429 is retried, honouring Retry-After up to 10s."
+            "CLI (pipeline-manager): prints API call quota reached (25,000/25,000); resets 2026-11-05. Upgrade: https://<platform>/dashboard/billing and does not suggest retrying. A plain 429 keeps \"rate limit exceeded — wait a moment\". synth, deploy, plugin verify and security-report upload send X-Pipeline-Id, so the ledger attributes their calls to the pipeline."
           ]
         },
         {
@@ -494,7 +493,7 @@ export const quotasTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "A Storage Pack adds 10 GB on any tier, including Developer, and stacks (with a volume discount from four packs). Operators can override a tier with QUOTA_TIER_<TIER>_STORAGE_BYTES or a single org through the quota API."
+          "content": "A Storage Pack adds 10 GB on any tier, including Developer, and stacks (with a volume discount from four packs). Operators can override a tier with PLAN_TIER_<TIER>_STORAGE_BYTES or a single org through the quota API."
         },
         {
           "type": "text",
@@ -656,7 +655,7 @@ export const quotasTopic: HelpTopic = {
           ],
           "rows": [
             [
-              "QUOTA_TIER_<TIER>_API_CALLS, QUOTA_TIER_<TIER>_AUTOMATION_CALLS",
+              "PLAN_TIER_<TIER>_API_CALLS, PLAN_TIER_<TIER>_AUTOMATION_CALLS",
               "Per-tier budgets (Environment variables)"
             ],
             [

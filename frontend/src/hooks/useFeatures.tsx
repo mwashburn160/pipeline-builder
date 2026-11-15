@@ -37,7 +37,7 @@ interface FeaturesContextType {
    *  (`ADMIN_CONSOLES_ENABLED`). Runtime value from `/config`; defaults to true,
    *  which is the default on every target. */
   adminConsolesEnabled: boolean;
-  /** Effective per-tier quota limits from `/config` (reflecting `QUOTA_TIER_*`
+  /** Effective per-tier quota limits from `/config` (reflecting `PLAN_TIER_*`
    *  env overrides), or undefined until/unless the server reports them. */
   tierPresets: ServerTierPresets | undefined;
   /** Which assistant surface this deployment offers (`ASK_UI_MODE`):

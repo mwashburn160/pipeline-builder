@@ -61,10 +61,10 @@ const baseIngestFields = {
   sourceEventId: z.string().min(1).max(128).optional(),
   sourceMessageId: z.string().min(1).max(128).optional(),
   // The compute size a terminal CodeBuild action ran on, read from AWS by the
-  // forwarder in AWS's own spelling (`BUILD_GENERAL1_MEDIUM`). Phase 4's
-  // MEASUREMENT half: duration x this size is the vCPU-minute figure the tier
-  // ladder has to be re-derived from before pipeline execution can be charged
-  // into `cpuCredits` at all. Stored as `detail.computeType` (see foldCompute)
+  // forwarder in AWS's own spelling (`BUILD_GENERAL1_MEDIUM`). MEASURED, NOT
+  // CHARGED: duration x this size is the vCPU-minute figure the tier ladder has
+  // to be re-derived from before pipeline execution can be charged into
+  // `cpuCredits` at all. Stored as `detail.computeType` (see foldCompute)
   // and narrowed to our vocabulary where the credits are computed.
   //
   // A bounded STRING rather than an enum, deliberately: the producer is a
@@ -224,7 +224,7 @@ export function createEventIngestRoutes(sseManager: SSEManager): Router {
         return;
       }
       if (m.kind === 'compute') {
-        // PHASE 4, MEASUREMENT HALF. Nothing here enters a quota counter: the
+        // MEASURED, NOT CHARGED. Nothing here enters a quota counter: the
         // tier ladder was derived without pipeline execution in it, so charging
         // this before re-deriving the ladder would raise every account's
         // consumption with no change in its behaviour — a silent repricing.

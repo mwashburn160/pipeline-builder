@@ -83,6 +83,17 @@ describe('checkAiControls', () => {
     });
   });
 
+  it('an EXPIRED period counts from now, so last period\'s spend cannot lock the account out', async () => {
+    // The counter only rolls on a write, and a budget refusal happens before the
+    // write — so reading back from the stale resetAt refused every call forever.
+    findOne.mockResolvedValue({ aiCallsPerMemberPct: null, aiTokenBudget: 10_000 });
+    aiTokensSince.mockImplementation(async (_root: unknown, since: unknown) => ((since as Date).getTime() < Date.now() - 60_000 ? 10_000 : 0));
+    const expired = { getQuotaStatus: jest.fn<AnyFn>(async () => ({ limit: 100, used: 0, remaining: 100, allowed: true, unlimited: false, resetAt: new Date('2000-01-04T00:00:00Z') })) };
+    const before = Date.now();
+    await expect(checkAiControls(expired as never, 'org-1', 1, USER)).resolves.toBeNull();
+    expect((aiTokensSince.mock.calls[0]![1] as Date).getTime()).toBeGreaterThanOrEqual(before);
+  });
+
   it('caches the settings, and a save invalidates them', async () => {
     findOne.mockResolvedValue({ aiCallsPerMemberPct: null, aiTokenBudget: null });
     await checkAiControls(svc() as never, 'org-1', 1, USER);

@@ -104,7 +104,7 @@ jest.mock('@/lib/api', () => ({
 
 const SYSTEM_ORG = '000000000000000000000001';
 const ok = (data: unknown) => Promise.resolve({ success: true, statusCode: 200, data });
-const versions = { pipelineManager: '3.4.1', awsCdk: '2.200.0', cdkAssets: '3.1.0', esbuild: '0.25.0', pnpm: '10.1.0', node: '22.12.0' };
+const versions = { pipelineManager: '3.4.1', awsCdk: '2.200.0', cdkAssets: '3.1.0', node: '22.12.0' };
 const scan = (critical = 0) => ({ scannedAt: '2026-11-01T00:00:00Z', criticalFixable: critical, highFixable: 0, kev: 0 });
 
 const release = (releaseVersion: string, over: Partial<ToolchainConsoleRelease> = {}): ToolchainConsoleRelease => ({

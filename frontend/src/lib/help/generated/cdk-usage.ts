@@ -1,6 +1,6 @@
 // GENERATED FROM docs/cdk-usage.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 7294aecd940fe0b895a91bb911beb516655b2406e5687cb8e14293f8f91aa7a4
+// SOURCE-SHA256: 0e35e3554d0da563f795a3281f443f27f540ae34054613ad01366ef4e5d7ac7c
 // SPDX-License-Identifier: Apache-2.0
 import { Boxes } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -104,7 +104,7 @@ export const cdkUsageTopic: HelpTopic = {
         },
         {
           "type": "note",
-          "content": "Prerequisite for cdk synth / cdk deploy: synth bundles the PluginLookup Lambda via NodejsFunction (esbuild). Install esbuild + pnpm (the handler's lockfile) on PATH, or CDK falls back to Docker bundling and fails with Could not resolve \"axios\" / \"../config/handler-constants.js\": npm install -g esbuild@0.28.1 pnpm@10.33.0. See Pipeline Manager → local deploy prerequisites."
+          "content": "Prerequisite for cdk synth / cdk deploy: the AWS CDK CLI on PATH. Nothing is bundled at synth, and every plugin must arrive pre-resolved in resolvedPlugins (an unresolved plugin fails the synth). See Pipeline Manager → local deploy prerequisites."
         }
       ]
     },

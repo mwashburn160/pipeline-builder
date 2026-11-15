@@ -41,6 +41,7 @@ import {
 import { incCounter } from '@pipeline-builder/api-server';
 import { renderUntrustedMarkdown } from '@pipeline-builder/api-server/lib/markdown.js';
 import {
+  isUniqueViolation,
   REVIEW_REPORT_CATEGORIES,
   reportingService,
   type PluginListing,
@@ -65,7 +66,7 @@ const logger = createLogger('ecosystem-reviews');
 
 /** Per-org cap on NEW reviews in a rolling day; `REVIEW_ORG_DAILY_LIMIT` overrides. */
 export const REVIEW_ORG_DAILY_LIMIT_DEFAULT = 20;
-/** Distinct open reports that auto-hold a review; `REVIEW_AUTO_HOLD_REPORTS` overrides. */
+/** Distinct open reports (from outside the listing owner's org) that auto-hold a review; `REVIEW_AUTO_HOLD_REPORTS` overrides. */
 export const REVIEW_AUTO_HOLD_REPORTS_DEFAULT = 3;
 /** Burst detection: this many unverified reviews on one listing within the window hold the next ones. */
 export const REVIEW_BURST_THRESHOLD = 5;
@@ -298,20 +299,27 @@ export async function createReview(caller: Caller, handle: string, name: string,
   const verified = await verifiedUse(caller, publisher, listing);
   const hold = await holdFor(listing, { title: input.title ?? null, bodyMd, verifiedUse: verified }, true);
 
-  const review = await reviews.insert({
-    listingId: listing.id,
-    version,
-    rating: input.rating,
-    title: input.title ?? null,
-    bodyMd,
-    bodyHtml: bodyMd ? renderUntrustedMarkdown(bodyMd) : null,
-    authorUserId: caller.userId,
-    authorOrgId: caller.orgId,
-    authorDisplayName: authorDisplayName(caller),
-    verifiedUse: verified,
-    status: hold ? 'held' : 'published',
-    holdReason: hold,
-  });
+  let review: PluginReview;
+  try {
+    review = await reviews.insert({
+      listingId: listing.id,
+      version,
+      rating: input.rating,
+      title: input.title ?? null,
+      bodyMd,
+      bodyHtml: bodyMd ? renderUntrustedMarkdown(bodyMd) : null,
+      authorUserId: caller.userId,
+      authorOrgId: caller.orgId,
+      authorDisplayName: authorDisplayName(caller),
+      verifiedUse: verified,
+      status: hold ? 'held' : 'published',
+      holdReason: hold,
+    });
+  } catch (err) {
+    // A concurrent submit passed the `byAuthor` check too; the unique index decides.
+    if (isUniqueViolation(err)) throw new EcosystemError(ErrorCode.DUPLICATE_ENTRY, 'You already reviewed this plugin — edit your review instead.');
+    throw err;
+  }
   ecosystemAudit({
     action: 'plugin.review.create',
     actor: actorId({ userId: caller.userId }),
@@ -406,7 +414,10 @@ export async function setHelpful(caller: Caller, id: string, helpful: boolean) {
     throw new EcosystemError(ErrorCode.REVIEW_SELF_PROMOTION, 'You can\'t vote on reviews of your own organization\'s plugins.');
   }
   const has = await votes.has(review.id, caller.userId);
-  if (helpful && !has) await votes.add(review.id, caller.userId);
+  if (helpful && !has) {
+    // A concurrent PUT from the same user already cast this vote: that is the outcome asked for.
+    await votes.add(review.id, caller.userId).catch((err) => { if (!isUniqueViolation(err)) throw err; });
+  }
   if (!helpful && has) await votes.remove(review.id, caller.userId);
   const helpfulCount = await votes.count(review.id);
   if (helpfulCount !== review.helpfulCount) await reviews.setHelpfulCount(review.id, helpfulCount);
@@ -438,7 +449,14 @@ export async function reportReview(caller: Caller, id: string, body: unknown) {
   if (await reports.byReporter(review.id, caller.userId)) {
     throw new EcosystemError(ErrorCode.DUPLICATE_ENTRY, 'You already reported this review.');
   }
-  const report = await reports.insert({ reviewId: review.id, reporterUserId: caller.userId, category: input.category, reason: input.reason ?? null });
+  let report: Awaited<ReturnType<typeof reports.insert>>;
+  try {
+    report = await reports.insert({ reviewId: review.id, reporterUserId: caller.userId, reporterOrgId: caller.parentOrgId ?? caller.orgId, category: input.category, reason: input.reason ?? null });
+  } catch (err) {
+    // A concurrent report by the same user passed the check above; the unique index decides.
+    if (isUniqueViolation(err)) throw new EcosystemError(ErrorCode.DUPLICATE_ENTRY, 'You already reported this review.');
+    throw err;
+  }
   const ref = `${publisher.handle}/${listing.name}`;
   // Never the report's text: it can carry exploit details.
   ecosystemAudit({ action: 'plugin.review.report', actor: actorId({ userId: caller.userId }), orgId: caller.orgId, affectedOrgId: publisher.ownerOrgId ?? SYSTEM_ORG_ID, targetType: 'plugin_review', targetId: review.id, details: { listing: ref, category: input.category } });
@@ -447,7 +465,11 @@ export async function reportReview(caller: Caller, id: string, body: unknown) {
   if (input.category === 'security') {
     hold = 'security';
   } else if (review.status === 'published') {
-    const open = (await reports.forReviews([review.id])).filter((r) => r.resolvedAt === null);
+    // The listing owner's own members don't count: otherwise an org could hold
+    // an unfavourable review of its own listing with a handful of reports.
+    const owner = publisher.ownerOrgId?.toLowerCase();
+    const open = (await reports.forReviews([review.id]))
+      .filter((r) => r.resolvedAt === null && (!owner || r.reporterOrgId !== owner));
     if (new Set(open.map((r) => r.reporterUserId)).size >= reviewAutoHoldReports()) hold = 'reports';
   }
   if (hold && review.status === 'published') {

@@ -237,7 +237,10 @@ export function startDlqWorker(quotaService: QuotaService): void {
         totalAttempts,
       });
 
-      const { failureCategory: _, lastError: __, ...cleanData } = job.data;
+      // The slot-wait clock is per RUN: carried over, the retry's first slot
+      // denial would measure from the original run's wait (possibly hours ago)
+      // and fail terminally at once.
+      const { failureCategory: _, lastError: __, slotDelays: _sd, slotWaitStartedAt: _sw, ...cleanData } = job.data;
       const tier = await getOrgTier(quotaService, orgId, getServiceAuthHeader({ serviceName: 'plugin', orgId, role: 'member' }));
 
       // Mark the hand-off BEFORE making it. The re-queued job (fresh data,

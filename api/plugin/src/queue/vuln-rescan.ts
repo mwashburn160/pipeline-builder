@@ -751,7 +751,8 @@ export async function runRescanTick(
  * Build (not start) the leader-locked rescan scheduler, or `null` when
  * `PLUGIN_RESCAN_ENABLED=false`. Env:
  *   PLUGIN_RESCAN_INTERVAL_MS (default 86400000 — 24 h between passes)
- *   PLUGIN_RESCAN_LOCK_TTL_MS (default 21600000 — 6 h; must outlast a pass)
+ *   PLUGIN_RESCAN_LOCK_TTL_MS (default DEFAULT_LEADER_LOCK_TTL_MS — the
+ *     crash-recovery window; the scheduler's heartbeat keeps a long pass's lock)
  *   PLUGIN_RESCAN_STARTUP_DELAY_MS (default 120000)
  */
 export function createVulnRescanScheduler(redis: () => ReturnType<typeof getHealthRedisConnection> = getHealthRedisConnection): Scheduler | null {

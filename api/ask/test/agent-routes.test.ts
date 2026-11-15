@@ -344,7 +344,7 @@ describe('POST /ask/agent/stream — aiCalls refund boundary', () => {
   });
 });
 
-describe('POST /ask/agent/stream — refused-field signal (design rule 10)', () => {
+describe('POST /ask/agent/stream — refused-field signal (the injection signal)', () => {
   it('counts, logs and AUDITS a proposal that named fields outside the allowlist', async () => {
     // A propose tool that refuses fields does so DURING the turn, so drive the
     // callback from the tool-building step the way a real tool would.
@@ -403,8 +403,8 @@ describe('POST /ask/agent/stream — BYOK and in-process tool usage', () => {
 
   it('the template tool\'s tokens land on the TURN\'s audit row and ai_tokens_total', async () => {
     // The tool settles DURING the turn — drive it from the tool-building step.
-    buildAgentTools.mockImplementationOnce(((deps: { chargeAiCall: (t: string) => Promise<{ markConsumed: () => void; settle: (u?: unknown) => void } | null> }) => {
-      void deps.chargeAiCall('propose_template').then((c) => { c!.markConsumed(); c!.settle({ inputTokens: 300, outputTokens: 90, cachedInputTokens: 0 }); });
+    buildAgentTools.mockImplementationOnce(((deps: { chargeAiCall: (t: string, v?: string) => Promise<{ markConsumed: () => void; settle: (u?: unknown) => void } | null> }) => {
+      void deps.chargeAiCall('propose_template', 'ask-template@2').then((c) => { c!.markConsumed(); c!.settle({ inputTokens: 300, outputTokens: 90, cachedInputTokens: 0 }); });
       return {};
     }) as never);
     streamParts = turn(...text('hi'));
@@ -413,7 +413,9 @@ describe('POST /ask/agent/stream — BYOK and in-process tool usage', () => {
       expect.objectContaining({
         action: 'ask.agent.turn',
         details: expect.objectContaining({
-          toolGenerations: [{ tool: 'propose_template', slot: 'kept', tokens: { inputTokens: 300, outputTokens: 90, cachedInputTokens: 0 } }],
+          // The draft's own prompt version rides beside its tokens, so a change in
+          // template quality traces to the prompt that produced it.
+          toolGenerations: [{ tool: 'propose_template', slot: 'kept', tokens: { inputTokens: 300, outputTokens: 90, cachedInputTokens: 0 }, promptVersion: 'ask-template@2' }],
         }),
       }),
       'ask',

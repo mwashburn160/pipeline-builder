@@ -118,7 +118,7 @@ export const drizzleSecurityReportStore: SecurityReportStore = {
          ${c.critical}, ${c.high}, ${c.medium}, ${c.low}, ${c.kev}, ${c.criticalFixable}, ${c.highFixable},
          ${JSON.stringify(input.findings)}::jsonb, ${input.truncated}, ${input.submittedBy}, now())
       ON CONFLICT (pipeline_id, tool, stage) DO UPDATE SET
-        org_id = EXCLUDED.org_id, format = EXCLUDED.format, execution_id = EXCLUDED.execution_id,
+        format = EXCLUDED.format, execution_id = EXCLUDED.execution_id,
         critical_count = EXCLUDED.critical_count, high_count = EXCLUDED.high_count,
         medium_count = EXCLUDED.medium_count, low_count = EXCLUDED.low_count, kev_count = EXCLUDED.kev_count,
         critical_fixable = EXCLUDED.critical_fixable, high_fixable = EXCLUDED.high_fixable,

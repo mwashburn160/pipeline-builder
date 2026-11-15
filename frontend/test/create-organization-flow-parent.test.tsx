@@ -63,7 +63,7 @@ describe('CreateOrganizationFlow — eligible parents', () => {
     // previously pinned ['enterprise','team'] and so failed the moment a new
     // team-capable tier was added, reporting a stale expectation as a bug in the
     // picker. The property under test is "it asks for every eligible tier and
-    // nothing else", not the membership of that list — quota-tier-presets.test.ts
+    // nothing else", not the membership of that list — plan-tier-presets.test.ts
     // is what holds the list itself equal to api-core's.
     openAsTeam();
     fireEvent.focus(screen.getByRole('combobox', { name: 'Parent organization' }));

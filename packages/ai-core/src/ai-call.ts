@@ -61,11 +61,11 @@ export function capOutputTokens(requested?: number): number {
 
 /**
  * Models that REJECT a non-default sampling temperature (400). The current Claude
- * generation — Fable 5.x, Mythos, Opus 5.x / 4.7 / 4.8, Sonnet 5.x — removed sampling
- * parameters; depth is controlled by effort instead. Matched on the model id so a
- * Bedrock profile (`us.anthropic.claude-opus-5-5`) is covered too.
+ * generation — Fable 5.x, Mythos, Opus 5.x / 4.7 / 4.8, Sonnet 5.x, Haiku 5.x — removed
+ * sampling parameters; depth is controlled by effort instead. Matched on the model id
+ * so a Bedrock profile (`us.anthropic.claude-opus-5-5`) is covered too.
  */
-const NO_SAMPLING_MODEL = /claude-(?:fable|mythos|opus|sonnet)-(?:5|4-7|4-8)(?:\D|$)/;
+const NO_SAMPLING_MODEL = /claude-(?:fable|mythos|opus|sonnet|haiku)-(?:5|4-7|4-8)(?:\D|$)/;
 
 /**
  * The temperature to send for `modelId`, or `undefined` where the model refuses one.
@@ -124,7 +124,7 @@ export function aiCallSettings(opts: AICallOptions): AICallSettings {
  * per request (retrieved docs, the user's data) must come after it, in a second
  * system message or the messages. Anthropic caches tools → system → messages, so a
  * breakpoint here also covers a tool-calling agent's tool definitions. Prompts under
- * the model's minimum cacheable length (512 tokens on the current Claude models)
+ * the model's minimum cacheable length (model-dependent, 512–4096 tokens on Claude)
  * simply are not cached — harmless.
  */
 export function cachedSystemPrompt(text: string): SystemModelMessage {

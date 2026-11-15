@@ -71,12 +71,29 @@ export async function sendNotice(
   content: { subject: string; text: string },
   opts: EnqueueOptions = {},
 ): Promise<void> {
-  if (recipients.length === 0) return;
+  await trySendNotice(event, recipients, content, opts);
+}
+
+/**
+ * {@link sendNotice}, reporting whether the notice was handed to the queue
+ * (true, also for an empty recipient list) or failed (false, counted and
+ * logged). For the one notice a caller must retry itself: the submission
+ * magic link, without which a stored submission can never be verified.
+ */
+export async function trySendNotice(
+  event: EcosystemNotificationEventId,
+  recipients: EcosystemRecipientSpec[],
+  content: { subject: string; text: string },
+  opts: EnqueueOptions = {},
+): Promise<boolean> {
+  if (recipients.length === 0) return true;
   try {
     await enqueueEcosystemNotification(event, recipients, { subject: content.subject.slice(0, 500), text: content.text.slice(0, 10_000) }, opts);
+    return true;
   } catch (err) {
     incCounter('ecosystem_notification_failed_total', { event });
     logger.warn('Ecosystem notice not sent', { event, error: errorMessage(err) });
+    return false;
   }
 }
 
@@ -200,9 +217,13 @@ export function notifyPlanEffect(input: { publisherOrgId: string; subject: strin
 
 const submitter = (email: string): EcosystemRecipientSpec => ({ kind: 'address', email });
 
-/** N1: the magic link that verifies the submission (single use, 30 minutes). */
-export function notifySubmissionReceived(input: { email: string; name: string; version: string; verifyUrl: string; statusUrl: string }): Promise<void> {
-  return sendNotice('N1', [submitter(input.email)], {
+/**
+ * N1: the magic link that verifies the submission (single use, 30 minutes).
+ * Resolves false when the notice could not be queued, so the caller can mark
+ * it for the maintenance pass to re-send.
+ */
+export function notifySubmissionReceived(input: { email: string; name: string; version: string; verifyUrl: string; statusUrl: string }): Promise<boolean> {
+  return trySendNotice('N1', [submitter(input.email)], {
     subject: `Confirm your plugin submission: ${input.name} ${input.version}`,
     text: `Someone (hopefully you) submitted the plugin ${input.name} ${input.version} to the public plugin directory with this address.\n\n`
     + `Confirm the submission within 30 minutes: ${input.verifyUrl}\n\n`

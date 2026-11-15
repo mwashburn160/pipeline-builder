@@ -196,7 +196,7 @@ Environment Variables:
   ${ENV_VARS.PLATFORM_TOKEN} Access key or token (overrides the stored session)
   ${ENV_VARS.PLATFORM_BASE_URL} API base URL (optional)
   ${ENV_VARS.CLI_CONFIG_PATH} Config file path (optional)
-  ${ENV_VARS.TLS_REJECT_UNAUTHORIZED} Disable SSL verification if '0'
+  ${ENV_VARS.PLATFORM_TLS_VERIFY} Disable SSL verification if 'false' (refused in production)
   PLATFORM_CA_BUNDLE  PEM of a private CA to trust for the platform (verified, not skipped)
   ${ENV_VARS.DEBUG} Enable debug mode if 'true'
 
@@ -209,7 +209,7 @@ Examples:
   $ ${APP_NAME} pipeline create -f props.json --deploy --profile production
   $ ${APP_NAME} template instantiate -n react-javascript -p react -o acme --input orgId=<uuid> --output props.json
   $ ${APP_NAME} plugin upload --file plugin.zip
-  $ ${APP_NAME} infra store-token --days 30 --region us-east-1
+  $ ${APP_NAME} infra store-token --expires-days 30 --region us-east-1
   $ ${APP_NAME} infra bootstrap --account 123456789012 --region us-east-1
   $ ${APP_NAME} pipeline deploy --id pipe-123 --profile production
 
@@ -268,7 +268,7 @@ function registerTaskNamespaces(): void {
   bootstrap(infra); // infra bootstrap — CDK toolkit stack
   setupEvents(infra); // infra setup-events — EventBridge event ingestion
   redriveEvents(infra); // infra redrive-events — manual DLQ → queue redrive fallback
-  storeToken(infra); // infra store-token — JWT token in Secrets Manager for CDK
+  storeToken(infra); // infra store-token — service-account key in Secrets Manager for CDK
   provision(infra); // infra provision — AI-assisted deploy/teardown of the platform
 
   // audit — operator audits (cron-friendly: exit 1 on findings)

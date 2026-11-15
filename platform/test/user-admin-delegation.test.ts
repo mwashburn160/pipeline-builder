@@ -23,6 +23,7 @@ const mockHasMembership = jest.fn<(...a: unknown[]) => Promise<boolean>>();
 const mockUpdateUserById = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockDeleteUserById = jest.fn<(...a: unknown[]) => Promise<void>>();
 const mockIsAncestorOrg = jest.fn<(...a: unknown[]) => Promise<boolean>>();
+const mockCreateUser = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendError: (r: any, status: number, message: string, code?: string) => r.status(status).json({ success: false, message, code }),
@@ -47,6 +48,7 @@ jest.unstable_mockModule('../src/services/index.js', () => ({
     hasMembershipInOrg: (...a: unknown[]) => mockHasMembership(...a),
     updateUserById: (...a: unknown[]) => mockUpdateUserById(...a),
     deleteUserById: (...a: unknown[]) => mockDeleteUserById(...a),
+    createUser: (...a: unknown[]) => mockCreateUser(...a),
     lookupPrimaryOrgId: async () => 'org-1',
   },
   // Linking stub: user-admin.js loads user-profile.js, which imports it.
@@ -56,7 +58,7 @@ jest.unstable_mockModule('../src/utils/validation.js', () => ({
   adminCreateUserSchema: {}, adminUpdateUserSchema: {}, validateBody: (_s: unknown, body: unknown) => body,
 }));
 
-const { listAllUsers, updateUserById, deleteUserById } = await import('../src/controllers/user-admin.js');
+const { listAllUsers, updateUserById, deleteUserById, createUserByAdmin } = await import('../src/controllers/user-admin.js');
 
 /** A member of org-1 whose custom Role grants `members:manage` — not an admin/owner. */
 const delegate = (over: Record<string, unknown> = {}) => ({
@@ -135,5 +137,27 @@ describe('/users with a members:manage delegate (not an admin/owner)', () => {
     expect(r.status).toHaveBeenCalledWith(200);
     expect(mockHasMembership).not.toHaveBeenCalled();
     expect(mockUpdateUserById.mock.calls[0][2]).toMatchObject({ scopeOrgId: undefined, actor: { isSuperAdmin: true } });
+  });
+});
+
+/**
+ * Creating an account pre-flagged as a platform super-admin IS a superadmin
+ * grant. Its gates (aal2 + a second-factor step-up) are on the ROUTE, and only
+ * for that body (see gate-when.test.ts); the handler just creates.
+ */
+describe('POST /users — the handler', () => {
+  const operator = { sub: 'op', isSuperAdmin: true, permissions: [], principalType: 'user', token_use: 'access', aal: 2 };
+  const body = { username: 'ops2', email: 'ops2@example.com', password: 'Str0ng!Passw0rd' };
+
+  it('creates the super-admin account the route admitted', async () => {
+    mockCreateUser.mockResolvedValue({ id: 'new-1', isSuperAdmin: true });
+    const r = await call(createUserByAdmin, { user: operator, body: { ...body, isSuperAdmin: true } });
+    expect(r.status).toHaveBeenCalledWith(201);
+    expect(mockCreateUser).toHaveBeenCalledWith(expect.objectContaining({ isSuperAdmin: true }));
+  });
+
+  it('still refuses a non-sysadmin, whatever the body', async () => {
+    const r = await call(createUserByAdmin, { user: delegate(), body: { ...body, isSuperAdmin: true } });
+    expect(r.status).toHaveBeenCalledWith(403);
   });
 });

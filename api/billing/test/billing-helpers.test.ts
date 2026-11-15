@@ -62,7 +62,7 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
 }));
 
 jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@pipeline-builder/pipeline-core', {
-  Config: { get: (section: string) => (section === 'server' ? { services: { billingTimeout: 5000 } } : {}) },
+  Config: { get: (section: string) => (section === 'server' ? { services: { billingTimeoutMs: 5000 } } : {}) },
   // api-server's idempotency-middleware reads these at module load.
   CoreConstants: {
     IDEMPOTENCY_CLEANUP_INTERVAL_MS: 60_000,

@@ -55,10 +55,11 @@ describe('infrastructure config loaders', () => {
     });
     expect(loadDatabaseConfig().postgres).toMatchObject({ host: 'postgres', port: 5_432, database: 'pipeline_builder' });
     expect(loadObservabilityConfig().tracing).toEqual({ enabled: false, endpoint: 'http://localhost:4318/v1/traces' });
-    expect(loadComplianceConfig()).toMatchObject({ scanSchedulerIntervalMs: 60_000, systemOrgScansEnabled: false });
+    expect(loadComplianceConfig()).toMatchObject({ scanSchedulerIntervalMs: 60_000 });
+    expect(loadComplianceConfig()).not.toHaveProperty('systemOrgScansEnabled');
     expect(loadDockerConfig()).toMatchObject({ timeoutMs: 900_000, buildkitAddr: 'unix:///run/buildkit/buildkitd.sock' });
     const aws = loadAWSConfig();
-    expect(aws.lambda).toMatchObject({ runtime: 'nodejs26.x', architecture: 'arm64', reservedConcurrentExecutions: undefined });
+    expect(aws).not.toHaveProperty('lambda');
     expect(aws.codeBuild).toEqual({ computeType: 'SMALL' });
   });
 
@@ -68,10 +69,8 @@ describe('infrastructure config loaders', () => {
       DB_PORT: '6432',
       DATABASE: 'pb_test',
       OTEL_TRACING_ENABLED: 'true',
-      SYSTEM_ORG_SCANS_ENABLED: 'true',
+      SCAN_SCHEDULER_INTERVAL_MS: '5000',
       DOCKER_BUILD_TIMEOUT_MS: '1000',
-      LAMBDA_ARCHITECTURE: 'x86_64',
-      LAMBDA_RESERVED_CONCURRENCY: '7',
       CODEBUILD_COMPUTE_TYPE: 'large',
     });
     // `PLUGIN_BUILD_CONCURRENCY` used to be asserted here. It is GONE: it was
@@ -82,10 +81,9 @@ describe('infrastructure config loaders', () => {
     expect(loadPluginBuildConfig().orgBuildSlots.standard).toBe(4);
     expect(loadDatabaseConfig().postgres).toMatchObject({ port: 6432, database: 'pb_test' });
     expect(loadObservabilityConfig().tracing.enabled).toBe(true);
-    expect(loadComplianceConfig().systemOrgScansEnabled).toBe(true);
+    expect(loadComplianceConfig().scanSchedulerIntervalMs).toBe(5000);
     expect(loadDockerConfig().timeoutMs).toBe(1000);
     const aws = loadAWSConfig();
-    expect(aws.lambda).toMatchObject({ architecture: 'x86_64', reservedConcurrentExecutions: 7 });
     expect(aws.codeBuild.computeType).toBe('LARGE');
   });
 });

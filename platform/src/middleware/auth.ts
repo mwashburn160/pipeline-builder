@@ -32,7 +32,7 @@ interface UserLike {
  * Populate the request.user object with user details from the database.
  * Queries UserOrganization for the active org membership to resolve role and org name.
  *
- * Used by the REFRESH path (`isValidRefreshToken`), whose refresh token carries
+ * Used by the REFRESH path (`requireRefreshSession`), whose refresh token carries
  * only `sub`/`tokenVersion` — no role/org/permission claims — so those must be
  * re-derived from the DB. `requireAuth` does not call this: an access token
  * already carries fresh claims (kept current by tokenVersion bumps), so it trusts
@@ -333,8 +333,8 @@ export async function requireAuth(
 
   // Trust the JWT claims verbatim (role/organizationId/organizationName/
   // isSuperAdmin/permissions/tier/features/hierarchy/scope). They were minted
-  // for the org the token was issued against and are only stale if tokenVersion
-  // moved — which we just checked.
+  // for the org the token was issued against and are only stale if the access
+  // version (tokenVersion + claimsVersion) moved — which we just checked.
   req.user = decoded;
   // The apiCalls check the mount armed (middleware/quota.ts `platformApiCallsQuota`)
   // runs now that the caller is verified; a plain next() where none was armed.
@@ -350,11 +350,11 @@ const SESSION_INVALID: SessionRejection = { message: 'Session invalid' };
  * Throws on a database error (the caller answers 503).
  */
 async function userSessionRejection(decoded: AccessTokenPayload): Promise<SessionRejection | undefined> {
-  // The ONLY DB read this path needs: the current tokenVersion, to reject
+  // The ONLY DB read this path needs: the current access version, to reject
   // tokens minted before the last "invalidate all sessions" / role / permission
-  // / membership change (every such change bumps tokenVersion). Everything else
-  // the request needs — role, org, permissions, isSuperAdmin — already rides in
-  // the validated JWT and is kept fresh by that same bump.
+  // / membership change (each bumps tokenVersion or claimsVersion). Everything
+  // else the request needs — role, org, permissions, isSuperAdmin — already
+  // rides in the validated JWT and is kept fresh by that same bump.
   //
   // A token minted for a refresh-session slot (`sid`) also needs that slot to
   // still exist: signing one device out, stopping one machine credential, or a
@@ -506,9 +506,9 @@ export function requireClientType(req: Request, res: Response, next: NextFunctio
  * @returns 401 if refresh token is missing, invalid, or its session is gone
  *
  * @example
- * router.post('/refresh', requireClientType, isValidRefreshToken, refreshHandler);
+ * router.post('/refresh', requireClientType, requireRefreshSession, refreshHandler);
  */
-export async function isValidRefreshToken(
+export async function requireRefreshSession(
   req: Request,
   res: Response,
   next: NextFunction,

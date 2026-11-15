@@ -2,15 +2,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Synth receives plugin records without the fields it never reads. The records
- * travel to the CDK app whole, and a couple of 500-finding scan summaries once
+ * Resolved plugin records come without the fields no pipeline build reads.
+ * They travel to the CDK app whole, and a couple of 500-finding scan summaries once
  * pushed the props past what one environment variable can hold (E2BIG).
  * `unwrapLookup` drops them whatever the platform sent, so an older plugin
  * service that still answers the full record doesn't bring the size back.
  */
 
 import { describe, it, expect } from '@jest/globals';
-import { SYNTH_OMITTED_PLUGIN_FIELDS, toSynthPlugin, unwrapLookup } from '../src/core/plugin-lookup-envelope.js';
+import { RESOLVED_PLUGIN_OMITTED_FIELDS, toResolvedPlugin, unwrapLookup } from '../src/core/plugin-lookup-envelope.js';
 
 const full = {
   id: 'p-1',
@@ -27,17 +27,17 @@ const full = {
   scanSummary: { findings: Array.from({ length: 500 }, (_, i) => ({ id: `CVE-${i}`, severity: 'high' })) },
 };
 
-describe('synth plugin records', () => {
+describe('resolved plugin records', () => {
   it('omits the display and scan fields, keeping everything else', () => {
-    const slim = toSynthPlugin(full);
-    for (const field of SYNTH_OMITTED_PLUGIN_FIELDS) expect(slim).not.toHaveProperty(field);
+    const slim = toResolvedPlugin(full);
+    for (const field of RESOLVED_PLUGIN_OMITTED_FIELDS) expect(slim).not.toHaveProperty(field);
     expect(slim).toEqual({ id: 'p-1', name: 'go', version: '1.0.0', commands: ['go build'], imageDigest: full.imageDigest });
     expect(full).toHaveProperty('scanSummary');
   });
 
   it('unwrapLookup slims a full record from the platform', () => {
     const { plugin } = unwrapLookup({ success: true, data: { plugin: full, warnings: [] } });
-    for (const field of SYNTH_OMITTED_PLUGIN_FIELDS) expect(plugin).not.toHaveProperty(field);
+    for (const field of RESOLVED_PLUGIN_OMITTED_FIELDS) expect(plugin).not.toHaveProperty(field);
     expect(plugin).toMatchObject({ name: 'go', imageDigest: full.imageDigest });
   });
 });

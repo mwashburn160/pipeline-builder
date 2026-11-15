@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Unit tests for AuthService.register + switchActiveOrg.
+ * Unit tests for AuthService.register + resolveSwitchTarget.
  *
  * The transaction body is exercised via a `withMongoTransaction` stub that
  * simply invokes the callback with a fake session — the model layer is fully
@@ -56,7 +56,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   SYSTEM_ORG_SLUG: 'system',
   SYSTEM_ORG_ID: '000000000000000000000001',
   isBillingEnabled: () => billingEnabled,
-  QUOTA_TIERS: {
+  PLAN_TIERS: {
     enterprise: { limits: { plugins: -1, pipelines: -1, apiCalls: -1, aiCalls: -1, seats: -1, storage: -1 } },
     unlimited: { limits: { plugins: -1, pipelines: -1, apiCalls: -1, aiCalls: -1, seats: -1, storage: -1 } },
   },
@@ -515,19 +515,24 @@ describe('AuthService pending-billing marker (paid-signup fail-open)', () => {
   });
 });
 
-describe('AuthService.switchActiveOrg', () => {
+describe('AuthService.resolveSwitchTarget', () => {
   const MEMBER = { role: 'member', via: 'membership', permissionOrgIds: ['org-9'] };
 
-  it('switches (returns user + authority) only after resolving authority in a LIVE org', async () => {
+  it('returns user + authority for a LIVE org — and writes nothing (the controller still has gates to apply)', async () => {
     const userDoc = { _id: 'user-1', isSuperAdmin: true };
     mockResolveOrgAuthority.mockResolvedValue(MEMBER);
     mockOrgFindById.mockReturnValue({ select: () => ({ lean: () => Promise.resolve({ deletedAt: null }) }) });
     mockUserFindById.mockReturnValue({ select: () => Promise.resolve(userDoc) });
 
-    const result = await authService.switchActiveOrg('user-1', 'org-9');
+    const result = await authService.resolveSwitchTarget('user-1', 'org-9');
 
     expect(result).toEqual({ user: userDoc, authority: MEMBER });
     expect(mockResolveOrgAuthority).toHaveBeenCalledWith('user-1', 'org-9');
+    expect(mockUserUpdateOne).not.toHaveBeenCalled();
+  });
+
+  it('setLastActiveOrg records where the next sign-in opens', async () => {
+    await authService.setLastActiveOrg('user-1', 'org-9');
     expect(mockUserUpdateOne).toHaveBeenCalledWith(
       { _id: 'user-1' },
       { $set: { lastActiveOrgId: 'org-9' } },
@@ -537,7 +542,7 @@ describe('AuthService.switchActiveOrg', () => {
   it('returns null and never mutates lastActiveOrgId when the caller holds no authority there', async () => {
     mockResolveOrgAuthority.mockResolvedValue(undefined);
 
-    const result = await authService.switchActiveOrg('user-1', 'org-forbidden');
+    const result = await authService.resolveSwitchTarget('user-1', 'org-forbidden');
 
     expect(result).toBeNull();
     expect(mockUserUpdateOne).not.toHaveBeenCalled();
@@ -551,7 +556,7 @@ describe('AuthService.switchActiveOrg', () => {
     mockResolveOrgAuthority.mockResolvedValue(MEMBER);
     mockOrgFindById.mockReturnValue({ select: () => ({ lean: () => Promise.resolve({ deletedAt: new Date() }) }) });
 
-    const result = await authService.switchActiveOrg('user-1', 'org-dead');
+    const result = await authService.resolveSwitchTarget('user-1', 'org-dead');
 
     expect(result).toBeNull();
     expect(mockUserUpdateOne).not.toHaveBeenCalled();
@@ -565,14 +570,14 @@ describe('AuthService.switchActiveOrg', () => {
  * can open one of its teams without a membership row (and without one being
  * written). Separate accounts still require membership.
  */
-describe('AuthService.switchActiveOrg — membership or inherited admin authority', () => {
+describe('AuthService.resolveSwitchTarget — membership or inherited admin authority', () => {
   it('lets a member switch into a SEPARATE account they belong to', async () => {
     const userDoc = { _id: 'user-1' };
     mockResolveOrgAuthority.mockResolvedValue({ role: 'member', via: 'membership', permissionOrgIds: ['unrelated-org'] });
     mockOrgFindById.mockReturnValue({ select: () => ({ lean: () => Promise.resolve({ deletedAt: null }) }) });
     mockUserFindById.mockReturnValue({ select: () => Promise.resolve(userDoc) });
 
-    await expect(authService.switchActiveOrg('user-1', 'unrelated-org')).resolves.toMatchObject({ user: userDoc });
+    await expect(authService.resolveSwitchTarget('user-1', 'unrelated-org')).resolves.toMatchObject({ user: userDoc });
   });
 
   it('lets a parent admin switch into a child team they are not a member of — writing no membership', async () => {
@@ -582,7 +587,7 @@ describe('AuthService.switchActiveOrg — membership or inherited admin authorit
     mockOrgFindById.mockReturnValue({ select: () => ({ lean: () => Promise.resolve({ deletedAt: null }) }) });
     mockUserFindById.mockReturnValue({ select: () => Promise.resolve(userDoc) });
 
-    await expect(authService.switchActiveOrg('parent-admin', 'child-team')).resolves.toEqual({ user: userDoc, authority: inherited });
+    await expect(authService.resolveSwitchTarget('parent-admin', 'child-team')).resolves.toEqual({ user: userDoc, authority: inherited });
     expect(mockUserOrgCreate).not.toHaveBeenCalled();
   });
 });

@@ -200,7 +200,7 @@ spec:
             matchExpressions:
               - key: app
                 operator: In
-                values: [platform, billing, compliance, pipeline, plugin, quota]
+                values: [platform, billing, compliance, pipeline, plugin, quota, reporting]
       ports:
         - port: 3000
 

@@ -52,7 +52,7 @@
  * which is how all four targets ship — never touches Redis on the request path.
  */
 
-import { createEnvRedisClient, createLogger, createRedisReadyGate, emitCounter, envInt, isReadReplicaConfigured } from '@pipeline-builder/api-core';
+import { createEnvRedisClient, createLogger, emitCounter, envInt, isReadReplicaConfigured } from '@pipeline-builder/api-core';
 // TYPE-ONLY, and that is deliberate: a type import is erased at compile time, so
 // it never touches pipeline-data's `stubModule` at runtime. A VALUE import here
 // turned all 91 suites that stub that package into a 500.
@@ -73,21 +73,13 @@ const ttlSeconds = () => envInt('DB_READ_WRITE_PIN_TTL_SECONDS', 10);
 const key = (orgId: string) => `rw-pin:${orgId}`;
 
 /**
- * The two ioredis calls this needs, plus the three members
- * `createRedisReadyGate` reads.
- *
- * Declared structurally rather than by extending api-core's `ReadyAwareRedis`,
- * which is internal to that package and not part of its public surface. The
- * readiness gate is not optional: the env client has no offline queue, so a
- * command issued before the first connection completes is rejected outright —
- * which would make the FIRST read of every pod fail closed to the primary.
+ * The two ioredis calls this needs. The env client waits (bounded) for its
+ * first connection before every command, so the FIRST read on a pod is not
+ * rejected for racing the connect (which would fail it closed to the primary).
  */
 interface PinRedis {
   exists(key: string): Promise<number>;
   set(key: string, value: string, mode: 'EX', ttl: number): Promise<unknown>;
-  status?: string;
-  once?(event: string, cb: (...args: unknown[]) => void): unknown;
-  off?(event: string, cb: (...args: unknown[]) => void): unknown;
 }
 
 export interface WritePinStore {
@@ -125,15 +117,13 @@ export function getWritePinStore(): WritePinStore {
 export function createEnvRedisWritePinStore(): WritePinStore {
   // undefined = not yet attempted; null = attempted and unavailable.
   let cached: PinRedis | null | undefined;
-  let ready: (() => Promise<void>) | undefined;
   let warned = false;
 
-  async function client(): Promise<PinRedis | null> {
+  function client(): PinRedis | null {
     if (cached === undefined) {
       cached = createEnvRedisClient<PinRedis>('write-pin');
       if (cached) {
         logger.info('Redis write-pin store initialized', { ttlSeconds: ttlSeconds() });
-        ready = createRedisReadyGate(cached);
       } else if (!warned) {
         warned = true;
         // Only worth saying when a replica actually exists: without one every
@@ -141,7 +131,6 @@ export function createEnvRedisWritePinStore(): WritePinStore {
         logger.warn('No Redis configured for the read-after-write pin; every read will use the primary');
       }
     }
-    if (ready) await ready();
     return cached;
   }
 
@@ -149,7 +138,7 @@ export function createEnvRedisWritePinStore(): WritePinStore {
     async isPinned(orgId: string): Promise<boolean> {
       if (!orgId) return true; // no org to key on -> assume written
       try {
-        const redis = await client();
+        const redis = client();
         if (!redis) return true; // fail closed
         return (await redis.exists(key(orgId))) === 1;
       } catch (err) {
@@ -171,7 +160,7 @@ export function createEnvRedisWritePinStore(): WritePinStore {
       // the same scope anyway.
       if (!orgId) return;
       try {
-        const redis = await client();
+        const redis = client();
         if (!redis) return;
         await redis.set(key(orgId), '1', 'EX', ttlSeconds());
       } catch (err) {

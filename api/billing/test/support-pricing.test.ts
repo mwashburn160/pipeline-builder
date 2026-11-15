@@ -41,7 +41,7 @@ import {
   TIER_FEATURES,
   STANDARD_TIERS,
   admitCaseSeverity,
-  type QuotaTier,
+  type PlanTier,
 } from '@pipeline-builder/api-core';
 import { loadBillingConfig } from '../src/config/billing-config.js';
 import type { BundleConfig } from '../src/config/billing-types.js';
@@ -96,7 +96,7 @@ describe('the ladder this guard reads is the one it thinks it is', () => {
     }
     // THE Enterprise trap: `TIER_FEATURES.enterprise` spreads the flag list, so
     // without the exclusion a new support flag becomes a free inclusion.
-    for (const tier of STANDARD_TIERS as readonly QuotaTier[]) {
+    for (const tier of STANDARD_TIERS as readonly PlanTier[]) {
       for (const id of LADDER) expect(TIER_FEATURES[tier]).not.toContain(id);
     }
   });

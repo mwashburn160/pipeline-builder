@@ -80,13 +80,13 @@ function collectPluginRefs(props: Record<string, unknown>): PluginRef[] {
 }
 
 /**
- * Lookup refusals that must STOP the synth rather than fall back to
- * deploy-time resolution: an image whose signature doesn't verify, a listing
- * the org can't use (not installed, blocked by its allow/deny policy, yanked
- * or suspended), and an org plugin that was deleted. Falling back would
- * quietly turn each into an unresolved step that fails at run time instead of
- * now. Vulnerability state is NEVER one of these: it arrives as graded
- * warnings beside a resolved plugin.
+ * Plugin service refusals the synth reports with their own code and wording:
+ * an image whose signature doesn't verify, a listing the org can't use (not
+ * installed, blocked by its allow/deny policy, yanked or suspended), and an
+ * org plugin that was deleted. Every other failed lookup is fatal too, as
+ * `PLUGIN_NOT_FOUND` / `PLUGIN_VERSION_NOT_FOUND` / `PLUGIN_LOOKUP_FAILED`.
+ * Vulnerability state is NEVER a refusal: it arrives as graded warnings beside
+ * a resolved plugin.
  */
 const FATAL_LOOKUP_CODES: readonly string[] = [
   ErrorCode.IMAGE_VERIFICATION_FAILED,
@@ -174,6 +174,22 @@ function pinNotFoundMessage(label: string, pin: string, err?: unknown): string {
   return exactPinNotFoundMessage(label, pin, lookupNotFoundState(err));
 }
 
+/** Why a range / default reference matched nothing. */
+function notFoundMessage(label: string): string {
+  return `Plugin "${label}" was not found: no active version matching the reference is available to your organization. `
+    + 'Check the plugin name, publisher and version, and that it is published (or installed), then re-run the synth.';
+}
+
+/** Why a lookup that never produced an answer (unreachable platform, auth or server error) stopped the synth. */
+function lookupFailedMessage(label: string, err: unknown): string {
+  const status = (err as { response?: { status?: unknown } } | undefined)?.response?.status;
+  const code = serviceErrorCode(err);
+  const cause = [typeof status === 'number' ? `HTTP ${status}` : null, code, serviceMessage(err) ?? errorMessage(err)]
+    .filter((part): part is string => !!part).join(' ');
+  return `Plugin "${label}" could not be resolved: the plugin lookup failed (${cause}). `
+    + 'Check that the platform is reachable and the pipeline\'s credentials are valid, then re-run the synth.';
+}
+
 const SEVERITY_STYLE: Record<LookupWarningSeverity, (s: string) => string> = {
   info: pico.cyan,
   warning: pico.yellow,
@@ -205,20 +221,20 @@ function serviceMessage(err: unknown): string | null {
 }
 
 /**
- * Pre-resolve plugins by calling the same `POST /api/plugins/lookup` endpoint
- * the deploy-time custom resource Lambda uses. Returning the full Plugin
- * record at synth time is what allows the resulting CFN template to ship
- * with real CodeBuild image URIs (`<host>/<ns>/<name>:<version>`) rather than
- * the pipeline's default image that the synth-time token path forces.
+ * Pre-resolve plugins by calling `POST /api/plugins/lookup`. The resolved
+ * record is the only way a step gets its image and commands.
  *
- * Failures are non-fatal: a missing plugin or unreachable API logs a warning
- * and falls through to the deploy-time custom resource path so partial
- * platform outages don't block synth/deploy. The exceptions abort the synth:
- * the {@link FATAL_LOOKUP_CODES} refusals, an exact version pin that does
- * not exist, and ANY failure on a managed toolchain reference (`cdk-synth`),
- * which has no deploy-time fallback. A managed reference sends the
- * pipeline's `toolchain.release` as `releasePin` — the same pin the bootstrap
- * lookup sends — and its resolved release lands in `toolchainSink` by key.
+ * EVERY plugin must resolve, or the synth fails: a step without its record has
+ * no image or commands, and a step that can't run its plugin must go red at
+ * synth, never ship as a placeholder. The refusal codes are the
+ * {@link FATAL_LOOKUP_CODES} answers; `PLUGIN_VERSION_NOT_FOUND` for an exact
+ * pin that does not exist; `PLUGIN_NOT_FOUND` when nothing matches a range /
+ * default reference; `PLUGIN_LOOKUP_FAILED` when the lookup itself failed (the
+ * platform unreachable, an auth or server error); and, for a managed toolchain
+ * reference (`cdk-synth`), `BOOTSTRAP_IMAGE_UNRESOLVED` or the service's code.
+ * A managed reference sends the pipeline's `toolchain.release` as
+ * `releasePin` — the same pin the bootstrap lookup sends — and its resolved
+ * release lands in `toolchainSink` by key.
  *
  * Every reference is looked up before anything is thrown, and ALL fatal
  * refusals are reported together. Stopping at the first meant a pipeline with
@@ -296,16 +312,13 @@ export async function resolvePluginsForProps(
       } else if (pin) {
         refuse('PLUGIN_VERSION_NOT_FOUND', pinNotFoundMessage(label, pin));
       } else {
-        printWarning(`Plugin "${label}" lookup returned no record — falling back to deploy-time resolution`);
+        refuse('PLUGIN_NOT_FOUND', notFoundMessage(label));
       }
     } catch (err) {
       if (managed) {
         refuseManaged(serviceErrorCode(err) ?? ErrorCode.BOOTSTRAP_IMAGE_UNRESOLVED, serviceMessage(err) ?? errorMessage(err));
         return;
       }
-      // A plugin whose image signature doesn't verify, or a listing the org
-      // can't use, is NOT an outage to ride out: falling back would quietly
-      // turn it into an unresolved step. Stop.
       const code = fatalLookupCode(err);
       if (code === ErrorCode.IMAGE_VERIFICATION_FAILED) {
         refuse(code, `Plugin "${label}" image failed signature verification: ${errorMessage(err)}`);
@@ -315,12 +328,12 @@ export async function resolvePluginsForProps(
         refuse(code, `Plugin "${label}" can't be used (${code}): ${serviceMessage(err) ?? errorMessage(err)}`);
         return;
       }
-      if (pin && isNotFound(err)) {
-        refuse('PLUGIN_VERSION_NOT_FOUND', pinNotFoundMessage(label, pin, err));
+      if (isNotFound(err)) {
+        if (pin) refuse('PLUGIN_VERSION_NOT_FOUND', pinNotFoundMessage(label, pin, err));
+        else refuse('PLUGIN_NOT_FOUND', notFoundMessage(label));
         return;
       }
-      const msg = errorMessage(err);
-      printWarning(`Plugin "${label}" pre-resolution failed (${msg}) — falling back to deploy-time resolution`);
+      refuse('PLUGIN_LOOKUP_FAILED', lookupFailedMessage(label, err));
     }
   }));
 

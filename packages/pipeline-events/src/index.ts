@@ -82,46 +82,110 @@ export const handler = async (event: SQSEvent, context?: Pick<Context, 'awsReque
   // and retry ONCE. `orgId` is INTERNAL (token/health keying) — strip it here so
   // it never rides the wire; the ingest resolves org from the pipeline registry,
   // not the body.
-  const payloadEvents = events.map(({ orgId: _orgId, ...rest }) => rest);
-  const post = (token: string) => fetchWithTimeout(`${baseUrl}/api/reports/events`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}`, ...correlationHeaders({ requestId }) },
-    body: JSON.stringify({ events: payloadEvents }),
-  });
-  let res = await post(await getAuthToken());
-  if (res.status === 401 || res.status === 403) {
-    log.warn('Reporting API auth failed; re-reading the stored key and retrying once', { status: res.status });
-    invalidateCredential();
-    res = await post(await getAuthToken());
-  }
+  const carried = resolved.filter((r): r is { record: SQSRecord; parsed: ParsedEvent } => r.parsed !== null);
+  const send = async (batch: readonly ParsedEvent[]): Promise<Response> => {
+    const body = JSON.stringify({ events: batch.map(({ orgId: _orgId, ...rest }) => rest) });
+    const post = (token: string) => fetchWithTimeout(`${baseUrl}/api/reports/events`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}`, ...correlationHeaders({ requestId }) },
+      body,
+    });
+    let res = await post(await getAuthToken());
+    if (res.status === 401 || res.status === 403) {
+      log.warn('Reporting API auth failed; re-reading the stored key and retrying once', { status: res.status });
+      invalidateCredential();
+      res = await post(await getAuthToken());
+    }
+    return res;
+  };
+
+  const res = await send(events);
+  let delivered: ParsedEvent[] = events;
 
   if (!res.ok) {
     const body = await res.text().catch(() => '');
-    log.error(`Reporting API returned ${res.status}`, { body });
-    // The POST is one call for the whole batch, so a failure here means none of
-    // these events landed — every record that carried one must be retried. Records
-    // that parsed to nothing (intentional skips) are NOT returned: retrying them
-    // would loop until they hit the DLQ.
-    return batchResponse([
-      ...failures,
-      ...resolved.filter((r) => r.parsed !== null).map((r) => r.record),
-    ]);
+    if (!isRefusal(res.status)) {
+      log.error(`Reporting API returned ${res.status}`, { body });
+      // A transient failure (5xx, throttling, an auth failure that survived the
+      // re-read) means none of these events landed — every record that carried
+      // one must be retried. Records that parsed to nothing (intentional skips)
+      // are NOT returned: retrying them would loop until they hit the DLQ.
+      return batchResponse([...failures, ...carried.map((r) => r.record)]);
+    }
+    // The ingest REFUSED the batch (validation, too large). That is about the
+    // events, not the moment, so retrying the batch would fail the same way —
+    // one oversized event used to hold every neighbour in the queue until the
+    // whole batch reached the DLQ. Send each event on its own: the good ones
+    // land, a refused one is dropped (logged), a transient failure retries.
+    delivered = [];
+    if (carried.length === 1) {
+      logRefused(carried[0]!, res.status, body);
+    } else {
+      log.warn('Reporting API refused the batch; delivering its events one at a time', { status: res.status, count: carried.length });
+      const outcomes = await Promise.all(carried.map(async (pair) => {
+        try {
+          const one = await send([pair.parsed]);
+          if (one.ok) return 'delivered' as const;
+          const oneBody = await one.text().catch(() => '');
+          if (isRefusal(one.status)) {
+            logRefused(pair, one.status, oneBody);
+            return 'refused' as const;
+          }
+          log.error(`Reporting API returned ${one.status} for one event`, { messageId: pair.record.messageId, body: oneBody });
+        } catch (err) {
+          log.error('Reporting API call failed for one event', { messageId: pair.record.messageId, error: err instanceof Error ? err.message : String(err) });
+        }
+        return 'retry' as const;
+      }));
+      carried.forEach((pair, i) => {
+        if (outcomes[i] === 'delivered') delivered.push(pair.parsed);
+        else if (outcomes[i] === 'retry') failures.push(pair.record);
+      });
+    }
+    if (delivered.length === 0) return batchResponse(failures);
+    log.info(`Ingested ${delivered.length} of ${carried.length} events one at a time`);
+  } else {
+    // The insert already succeeded (2xx). The parsed body is only used for a log
+    // line, so a non-JSON/empty body must not throw and fail the whole batch —
+    // that would trigger an SQS redelivery and re-POST (duplicate) already-inserted
+    // events. The ingest's partial-unique index dedupes, but avoid the churn anyway.
+    const result = await res.json().catch(() => ({})) as Record<string, unknown>;
+    log.info(`Ingested ${events.length} events`, { inserted: result.data });
   }
-
-  // The insert already succeeded (2xx). The parsed body is only used for a log
-  // line, so a non-JSON/empty body must not throw and fail the whole batch —
-  // that would trigger an SQS redelivery and re-POST (duplicate) already-inserted
-  // events. The ingest's partial-unique index dedupes, but avoid the churn anyway.
-  const result = await res.json().catch(() => ({})) as Record<string, unknown>;
-  log.info(`Ingested ${events.length} events`, { inserted: result.data });
 
   // Accumulate delivery-health counters PER RESOLVED ORG, then run the throttled
   // post-success health + self-healing DLQ redrive (best-effort, never fails batch).
-  recordForwarded(events);
+  recordForwarded(delivered);
   await reportHealthAndRedrive(baseUrl, event.Records[0]?.eventSourceARN, requestId);
 
   return batchResponse(failures);
 };
+
+/**
+ * Whether the ingest refused the request's CONTENT (validation, payload too
+ * large) rather than failing for the moment: resending the same events fails
+ * the same way, so they are delivered one by one and a refused one is dropped.
+ */
+function isRefusal(status: number): boolean {
+  return status === 400 || status === 413 || status === 422;
+}
+
+/**
+ * Drop one event the ingest refused on its own. Not returned for redelivery —
+ * it would be refused again on every attempt. Logged as an error with a stable
+ * message (`Reporting ingest refused an event`) so a log metric filter can count
+ * and alarm on it.
+ */
+function logRefused(pair: { record: SQSRecord; parsed: ParsedEvent }, status: number, body: string): void {
+  log.error('Reporting ingest refused an event; dropping it', {
+    messageId: pair.record.messageId,
+    status,
+    body: body.slice(0, 1000),
+    pipelineId: pair.parsed.pipelineId,
+    eventType: pair.parsed.eventType,
+    executionId: pair.parsed.executionId,
+  });
+}
 
 /**
  * The partial-batch response SQS expects. An EMPTY `batchItemFailures` means

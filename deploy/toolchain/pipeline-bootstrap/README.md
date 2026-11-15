@@ -3,7 +3,7 @@
 The CodeBuild runtime image for steps that have no plugin-baked image (the
 cold-start synth path, ShellSteps without a registry image, `metadata_only`
 plugins). It carries Node, the AWS CLI v2, git, and the pinned
-`pipeline-manager`, AWS CDK CLI (`cdk`), `cdk-assets`, `esbuild` and `pnpm`.
+`pipeline-manager`, AWS CDK CLI (`cdk`) and `cdk-assets`.
 `cdk-synth` is built `FROM` this image, so the two always run the same
 toolchain.
 

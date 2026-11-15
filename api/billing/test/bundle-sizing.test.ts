@@ -46,13 +46,13 @@
  */
 
 import { describe, it, expect } from '@jest/globals';
-import { QUOTA_TIERS, VALID_QUOTA_TYPES, STANDARD_TIERS, type QuotaTier } from '@pipeline-builder/api-core';
+import { PLAN_TIERS, VALID_QUOTA_TYPES, STANDARD_TIERS, type PlanTier } from '@pipeline-builder/api-core';
 import { loadBillingConfig } from '../src/config/billing-config.js';
 import type { BundleConfig } from '../src/config/billing-types.js';
 
 const { bundles, plans, comboDiscounts } = loadBillingConfig();
 /** `plans` is a flat array carrying its own `tier`, not a tier-keyed record. */
-const plan = (t: QuotaTier) => {
+const plan = (t: PlanTier) => {
   const found = plans.find((x) => x.tier === t);
   if (!found) throw new Error(`no billing plan for tier '${t}'`);
   return found;
@@ -69,10 +69,10 @@ const DIFFERENTIATORS = ['seat', 'pipeline_pack'] as const;
 const RETENTION = ['retention_pack', 'dora_history_pack'] as const;
 
 /** Cheapest-first, so "a more expensive tier" is just a later index. */
-const LADDER: QuotaTier[] = ['developer', 'pro', 'team', 'business', 'enterprise'];
+const LADDER: PlanTier[] = ['developer', 'pro', 'team', 'business', 'enterprise'];
 
-const cap = (tier: QuotaTier, dim: string): number =>
-  (QUOTA_TIERS[tier].limits as unknown as Record<string, number>)[dim]!;
+const cap = (tier: PlanTier, dim: string): number =>
+  (PLAN_TIERS[tier].limits as unknown as Record<string, number>)[dim]!;
 const grantOf = (b: BundleConfig, dim: string): number => (b.grants as Record<string, number>)[dim] ?? 0;
 
 function byId(id: string): BundleConfig {
@@ -253,7 +253,7 @@ describe('upgrading always beats assembling the next tier out of packs', () => {
    * multi-dimension pack is credited against every dimension it grants so the
    * sum never double-counts.
    */
-  function closeGap(lo: QuotaTier, up: QuotaTier, dim: string, credited: Map<string, number>) {
+  function closeGap(lo: PlanTier, up: PlanTier, dim: string, credited: Map<string, number>) {
     const have = cap(lo, dim) + (credited.get(dim) ?? 0);
     const want = cap(up, dim);
     if (want === -1) return { cents: 0, uncloseable: `${dim} (unlimited above)` };

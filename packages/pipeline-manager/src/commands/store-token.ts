@@ -77,10 +77,12 @@ const SCOPE_CATALOG: Record<string, CatalogEntry> = {
   },
 };
 
+/** The `--scope` values `store-token` accepts (each stored under its own secret leaf). */
+export const STORE_TOKEN_SCOPES: readonly string[] = Object.keys(SCOPE_CATALOG);
+
 /**
  * The account behind the default (no `--scope`) credential: the CodeBuild synth,
- * `pipeline deploy --store-tokens`, the plugin-lookup Lambda and the run-time
- * vulnerability check. It holds the Pipeline Automation Role — pipeline and
+ * `pipeline deploy --store-tokens` and the run-time vulnerability check. It holds the Pipeline Automation Role — pipeline and
  * plugin reads — and nothing more; it is no longer an org admin.
  */
 const PLATFORM_ACCOUNT: CatalogEntry = {
@@ -125,7 +127,7 @@ async function deployRenewSchedule(opts: {
     stack: stackName,
     schedule: opts.fiveFieldCron,
     eventbridge: scheduleExpression,
-    renewDays: opts.days,
+    keyLifetimeDays: opts.days,
   });
 
   // Step 1: infra (Lambda gets placeholder code on first create).
@@ -136,7 +138,7 @@ async function deployRenewSchedule(opts: {
     '--template-file', templatePath,
     '--parameter-overrides',
     `PlatformSecretName=${opts.secretName}`,
-    `RenewDays=${opts.days}`,
+    `KeyLifetimeDays=${opts.days}`,
     `ScheduleExpression=${scheduleExpression}`,
     `NameSuffix=${nameSuffix}`,
     // Recorded for provenance only — the rotator does not install the CLI at
@@ -225,8 +227,8 @@ export function printDryRunPlan(plan: StoreTokenPlan, json: boolean): void {
  * - username/password satisfy CodeBuild's `secretsManagerCredentials` (HTTP
  *   Basic, sent to pipeline-image-registry's /token endpoint, which exchanges
  *   the opaque key like every other service does).
- * - `password` is the canonical field: the plugin-lookup Lambda, the events
- *   Lambda and `--store-tokens` all read it.
+ * - `password` is the canonical field: the events Lambda and `--store-tokens`
+ *   both read it.
  * - keyId / serviceAccountId are what the rotation Lambda needs to retire the
  *   key it replaces.
  */
@@ -324,7 +326,7 @@ export function printStoredKey(r: {
     if (scheduleExpression) {
       printInfo(`Auto-rotation is active (${scheduleExpression}); the secret is replaced before ${provisioned.expiresAt}.`);
     } else {
-      printInfo(`Rotate before ${provisioned.expiresAt} with: pipeline-manager infra store-token --days ${days}`);
+      printInfo(`Rotate before ${provisioned.expiresAt} with: pipeline-manager infra store-token --expires-days ${days}`);
       printInfo('  (or pass --schedule to install a daily auto-rotation stack)');
     }
   }
@@ -335,8 +337,7 @@ export function printStoredKey(r: {
  *
  * Provisions the org's machine identity — a SERVICE ACCOUNT and one `pb_sa_…`
  * key — and stores the key in AWS Secrets Manager for CDK deployments,
- * CodeBuild's registry credentials, the plugin-lookup Lambda and the event
- * ingestion Lambda. Nothing stored is tied to a person's session any
+ * CodeBuild's registry credentials and the event ingestion Lambda. Nothing stored is tied to a person's session any
  * more: the account outlives its creator, takes no seat, and every audit row it
  * produces names the account.
  *
@@ -350,7 +351,7 @@ export function printStoredKey(r: {
  * @example
  * ```bash
  * PLATFORM_PASSWORD=*** pipeline-manager infra store-token --region us-east-1
- * PLATFORM_PASSWORD=*** pipeline-manager infra store-token --days 90 --region us-east-1
+ * PLATFORM_PASSWORD=*** pipeline-manager infra store-token --expires-days 90 --region us-east-1
  * PLATFORM_PASSWORD=*** pipeline-manager infra store-token --schedule --region us-east-1     # + daily rotation
  * PLATFORM_PASSWORD=*** pipeline-manager infra store-token --scope reporting:ingest --schedule
  * PLATFORM_PASSWORD=*** pipeline-manager infra store-token --scope registry:push --schedule
@@ -367,7 +368,7 @@ export function storeToken(program: Command): void {
         .description('Provision an org service-account key (its own machine identity) and store it in AWS Secrets Manager for CDK deployments')
         .option('-u, --identifier <identifier>', 'Username or email (skips PLATFORM_TOKEN requirement)')
         .option('-p, --password <password>', 'Login password — also used for the step-up every key write requires (prefer PLATFORM_PASSWORD)')
-        .option('--days <days>', 'Key lifetime in days (max 365)', '30')
+        .option('--expires-days <days>', 'Key lifetime in days (max 365)', '30')
         .option('--scope <scope>', `Provision a single-purpose credential instead of the platform one. One of: ${Object.keys(SCOPE_CATALOG).join(', ')}`)
         .option('--account <name>', 'Override the service-account name this key is issued on (default: derived from --scope)')
         .option('--dry-run', 'Show what would be provisioned without calling the platform or writing to Secrets Manager', false)),
@@ -385,7 +386,7 @@ export function storeToken(program: Command): void {
         const region = resolveAwsRegion(options.region);
         const aws = { region, profile: options.profile as string | undefined };
 
-        const days = validateNumber(options.days, 'days', 1, 365);
+        const days = validateNumber(options.expiresDays, 'expires-days', 1, 365);
         const expiresInSeconds = days * 24 * 60 * 60;
 
         const scope = options.scope as string | undefined;

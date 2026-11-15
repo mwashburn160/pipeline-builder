@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { DEFAULT_TIER, STANDARD_TIERS, TOKEN_SCOPES, sendError, type QuotaTier } from '@pipeline-builder/api-core';
+import { DEFAULT_TIER, STANDARD_TIERS, TOKEN_SCOPES, sendError, type PlanTier } from '@pipeline-builder/api-core';
 import { ORG_ROLES } from '@pipeline-builder/api-core/wire-vocabulary';
 import type { Response } from 'express';
 import { z } from 'zod';
@@ -133,7 +133,6 @@ export const updateProfileSchema = z.object({
   message: 'At least one field (username or email) is required',
 });
 
-/** Password change request schema. */
 /** POST /auth/password/reset-request — the address to send a reset link to. */
 export const passwordResetRequestSchema = z.object({
   email: z.string().min(3).max(320),
@@ -146,6 +145,7 @@ export const passwordResetSchema = z.object({
   newPassword: passwordSchema,
 }).strict();
 
+/** Password change request schema. */
 export const changePasswordSchema = z.object({
   currentPassword: z.string().min(1),
   newPassword: passwordSchema,
@@ -174,7 +174,9 @@ export const adminCreateUserSchema = z.object({
   password: passwordSchema,
   isSuperAdmin: z.boolean().optional(),
   organizationId: z.string().min(1).optional(),
-  role: z.enum(ORG_ROLES).optional(),
+  // Never `owner`: the org already has one, and ownership only moves via the
+  // transfer route (the same rule PUT /users/:id enforces).
+  role: z.enum(GRANTABLE_ORG_ROLES).optional(),
   // Roles are org-scoped, so any role assignment requires an organizationId
   // (enforced by the refine below + again in the service).
   roleIds: z.array(z.string()).max(50).optional(),
@@ -205,7 +207,7 @@ export const sendInvitationSchema = z.object({
   role: z.enum(GRANTABLE_ORG_ROLES).optional().default('member'),
   /**
    * Roles to assign when the invitation is accepted — the same shape
-   * `updateUserSchema` above has always had, which is the asymmetry this
+   * `adminCreateUserSchema` above has always had, which is the asymmetry this
    * closes: an admin CREATING a user could hand them Roles, an admin INVITING
    * one could not. So every Role template had no onboarding path.
    *
@@ -225,7 +227,7 @@ export const sendInvitationSchema = z.object({
 
 // Organization Schemas
 
-/** Create organization schema (name required, tier defaults to the configured DEFAULT_QUOTA_TIER). */
+/** Create organization schema (name required, tier defaults to the configured DEFAULT_PLAN_TIER). */
 export const createOrganizationSchema = z.object({
   name: z.string().min(2).max(100),
   description: z.string().max(500).optional(),
@@ -233,7 +235,7 @@ export const createOrganizationSchema = z.object({
   // NOT `unlimited` (the uncapped billing-off default), which would be a billing
   // bypass / privilege escalation. When billing is off, an omitted tier still
   // falls through to DEFAULT_TIER (= `unlimited`) via the default below.
-  tier: z.enum([...STANDARD_TIERS] as [QuotaTier, ...QuotaTier[]]).optional().default(DEFAULT_TIER),
+  tier: z.enum([...STANDARD_TIERS] as [PlanTier, ...PlanTier[]]).optional().default(DEFAULT_TIER),
   // Org → team hierarchy: when set, create this org as a team nested under
   // `parentOrgId`. The caller must be an admin/owner of the parent (or an
   // ancestor); the parent must itself be a root org (one level of nesting).

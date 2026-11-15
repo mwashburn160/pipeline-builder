@@ -71,8 +71,8 @@ export default function ScanDetail({ scanId, onBack, readOnly = false }: ScanDet
       const res = await api.getScan(scanId);
       if (res.success && res.data) setScan(res.data.scan);
       else setScanError(res.message || 'Failed to load scan');
-    } catch {
-      setScanError('Failed to load scan');
+    } catch (err) {
+      setScanError(formatError(err, 'Failed to load scan'));
     } finally {
       setScanLoading(false);
     }

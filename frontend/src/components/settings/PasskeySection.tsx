@@ -28,7 +28,7 @@ import type { Passkey } from '@/types';
  * Passkey management — where a person adds, relabels and revokes the WebAuthn
  * credentials they sign in and step up with.
  *
- * It sits in Settings → Security next to "Password", not next to API keys: a
+ * It sits in Security → Factors next to "Password", not next to access keys: a
  * passkey is a SIGN-IN credential for the person, while an access key is a
  * credential for a machine.
  *

@@ -294,21 +294,6 @@ async function initPreviousProvider(): Promise<void> {
 }
 
 /**
- * The base (non-per-org) provider this environment asks for: the KMS-wrapped
- * master when both of its vars are set, otherwise the plaintext env master.
- *
- * Constructs eagerly, so it throws when the env master is required and missing.
- * `initSecretEncryption()` is the boot entry point and deliberately does NOT
- * call this for the env case; use it only where an instance is needed right
- * away — e.g. the per-org fallback, which is already past that check.
- */
-export function createBaseKeyProvider(): KeyProvider {
-  const keyId = process.env.SECRET_ENCRYPTION_KMS_KEY_ID;
-  const ciphertext = process.env.SECRET_ENCRYPTION_KMS_CIPHERTEXT;
-  return keyId && ciphertext ? new KmsKeyProvider({ keyId, ciphertextBase64: ciphertext }) : new EnvKeyProvider();
-}
-
-/**
  * Select, WARM and install the base key provider. Call once at startup, before
  * the service serves traffic.
  *

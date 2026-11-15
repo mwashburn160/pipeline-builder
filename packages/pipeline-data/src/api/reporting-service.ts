@@ -2,9 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createLogger, errorMessage, isoOrNull, scrubAwsIdentifiersFromString } from '@pipeline-builder/api-core';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, sql, type SQL } from 'drizzle-orm';
 import { drizzleRows } from './crud-service.js';
 import { schema } from '../database/drizzle-schema.js';
+import { resultRows } from '../database/pg-result.js';
 import { withTenantTx, runWithTenantContext } from '../database/tenancy.js';
 
 // Extracted for size — see ./reporting/. Everything public is re-exported below
@@ -73,6 +74,44 @@ export type {
 
 
 const logger = createLogger('reporting-service');
+
+/**
+ * The error-categorization SQL, shared by the org-scoped report and the
+ * cross-org operator read so the two cannot drift. `orgClause` is the whole
+ * tenancy condition (`p.org_id = …` / `IN (…)`, or `TRUE` for every org).
+ */
+function errorsQuery(orgClause: SQL, from: string, to: string, limit: number): SQL {
+  return sql`
+        SELECT
+          SUBSTRING(e.error_message FROM 1 FOR 200) AS error_pattern,
+          COUNT(*)::int AS occurrences,
+          COUNT(DISTINCT e.pipeline_id)::int AS affected_pipelines,
+          MAX(e.started_at)::text AS last_seen
+        FROM ${schema.pipelineEvent} e
+        JOIN ${schema.pipeline} p ON p.id = e.pipeline_id
+        WHERE ${orgClause} AND e.status = 'FAILED' AND e.error_message IS NOT NULL
+          AND ${startedAtWindow(from, to)}
+        GROUP BY error_pattern ORDER BY occurrences DESC
+        LIMIT ${limit}
+      `;
+}
+
+/** The plugin build-failure SQL, shared like {@link errorsQuery}. */
+function buildFailuresQuery(orgClause: SQL, from: string, to: string, limit: number): SQL {
+  return sql`
+        SELECT
+          e.detail->>'pluginName' AS plugin_name,
+          e.error_message,
+          COUNT(*)::int AS occurrences,
+          MAX(e.started_at)::text AS last_seen
+        FROM ${schema.pipelineEvent} e
+        WHERE ${orgClause} AND e.event_source = 'plugin-build' AND e.status = 'failed'
+          AND ${startedAtWindow(from, to)}
+        GROUP BY plugin_name, e.error_message
+        ORDER BY occurrences DESC
+        LIMIT ${limit}
+      `;
+}
 
 export class ReportingService {
 
@@ -298,19 +337,22 @@ export class ReportingService {
    * fresh under sysadmin via `runReport`; single-org reads keep the per-org cache.
    */
   async getErrors(orgId: string, from: string, to: string, limit: number = 20, orgIds?: string[]): Promise<ErrorEntry[]> {
-    return report<ErrorEntry>(`errors:${from}:${to}:${limit}`, orgId, orgIds, (pred) => sql`
-        SELECT
-          SUBSTRING(e.error_message FROM 1 FOR 200) AS error_pattern,
-          COUNT(*)::int AS occurrences,
-          COUNT(DISTINCT e.pipeline_id)::int AS affected_pipelines,
-          MAX(e.started_at)::text AS last_seen
-        FROM ${schema.pipelineEvent} e
-        JOIN ${schema.pipeline} p ON p.id = e.pipeline_id
-        WHERE p.org_id ${pred} AND e.status = 'FAILED' AND e.error_message IS NOT NULL
-          AND ${startedAtWindow(from, to)}
-        GROUP BY error_pattern ORDER BY occurrences DESC
-        LIMIT ${limit}
-      `);
+    return report<ErrorEntry>(`errors:${from}:${to}:${limit}`, orgId, orgIds, (pred) =>
+      errorsQuery(sql`p.org_id ${pred}`, from, to, limit));
+  }
+
+  /**
+   * {@link getErrors} across EVERY org — the platform operator's view.
+   *
+   * No org predicate at all, so it runs under sysadmin context (RLS off) and
+   * never through the per-org cache: no single org's ingest could invalidate an
+   * entry that aggregates all of them. The route gate (system-org-only
+   * permission) is the tenancy boundary; this method must never be reached from
+   * a tenant-facing path.
+   */
+  async getPlatformErrors(from: string, to: string, limit: number = 20): Promise<ErrorEntry[]> {
+    return runWithTenantContext({ isSuperAdmin: true }, () => withTenantTx((tx) =>
+      tx.execute(errorsQuery(sql`TRUE`, from, to, limit))).then((r) => resultRows<ErrorEntry>(r)));
   }
 
   /**
@@ -460,19 +502,17 @@ export class ReportingService {
 
   /** Build failures — top error messages. Build activity report — rollup-aware. */
   async getBuildFailures(orgId: string, from: string, to: string, limit: number = 20, orgIds?: string[]): Promise<BuildFailure[]> {
-    return report<BuildFailure>(`build-failures:${from}:${to}:${limit}`, orgId, orgIds, (pred) => sql`
-        SELECT
-          e.detail->>'pluginName' AS plugin_name,
-          e.error_message,
-          COUNT(*)::int AS occurrences,
-          MAX(e.started_at)::text AS last_seen
-        FROM ${schema.pipelineEvent} e
-        WHERE e.org_id ${pred} AND e.event_source = 'plugin-build' AND e.status = 'failed'
-          AND ${startedAtWindow(from, to)}
-        GROUP BY plugin_name, e.error_message
-        ORDER BY occurrences DESC
-        LIMIT ${limit}
-      `);
+    return report<BuildFailure>(`build-failures:${from}:${to}:${limit}`, orgId, orgIds, (pred) =>
+      buildFailuresQuery(sql`e.org_id ${pred}`, from, to, limit));
+  }
+
+  /**
+   * {@link getBuildFailures} across EVERY org — the platform operator's view.
+   * Sysadmin context and uncached, for the reasons on {@link getPlatformErrors}.
+   */
+  async getPlatformBuildFailures(from: string, to: string, limit: number = 20): Promise<BuildFailure[]> {
+    return runWithTenantContext({ isSuperAdmin: true }, () => withTenantTx((tx) =>
+      tx.execute(buildFailuresQuery(sql`TRUE`, from, to, limit))).then((r) => resultRows<BuildFailure>(r)));
   }
 
   // ── Plugin runtime telemetry — see ./reporting/plugin-runtime.ts ──

@@ -3,7 +3,7 @@
 
 import crypto from 'crypto';
 import { promises as dns } from 'dns';
-import { createLogger, SYSTEM_ACTOR_ID, SYSTEM_ORG_ID, TIER_FEATURES, type QuotaTier } from '@pipeline-builder/api-core';
+import { createLogger, SYSTEM_ACTOR_ID, SYSTEM_ORG_ID, TIER_FEATURES, type PlanTier } from '@pipeline-builder/api-core';
 import { ADMIN_ORG_ROLES } from '@pipeline-builder/api-core/wire-vocabulary';
 import { Types, isValidObjectId, type QueryFilter } from 'mongoose';
 import { DOMAIN_TAKEN, DOMAIN_NOT_FOUND, DOMAIN_NOT_VERIFIED, DOMAIN_VERIFY_FAILED, DOMAIN_NOT_ENTITLED, DOMAIN_LIMIT, DOMAIN_PUBLIC, JOIN_NOT_ELIGIBLE, JOIN_SEAT_LIMIT, JOIN_REQUEST_NOT_FOUND, JOIN_REQUESTER_GONE } from './org-domain-errors.js';
@@ -54,7 +54,7 @@ async function isDomainJoinEntitled(orgId: string): Promise<boolean> {
   const { rootOrgId } = await resolveOrgLineage(orgId);
   const root = await Organization.findById(toOrgId(rootOrgId)).select('tier deletedAt').lean();
   if (!root || (root as { deletedAt?: Date | null }).deletedAt) return false;
-  const tier = (root as { tier: QuotaTier }).tier;
+  const tier = (root as { tier: PlanTier }).tier;
   return (TIER_FEATURES[tier] ?? []).includes('sso');
 }
 

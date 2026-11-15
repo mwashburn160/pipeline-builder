@@ -193,6 +193,19 @@ describe('ApiClient', () => {
     expect(r.filename).toBe('Weekly_delivery_2026-W38.pdf');
   });
 
+  it('keeps only the last path segment of the server\'s file name (never writes outside the working directory)', async () => {
+    handler = (_req, _body, res) => {
+      res.writeHead(200, { 'content-type': 'application/pdf', 'content-disposition': 'attachment; filename="../../.ssh/evil.pdf"' });
+      res.end(Buffer.from([1]));
+    };
+    expect((await new ApiClient(config()).getBinary('/x')).filename).toBe('evil.pdf');
+    handler = (_req, _body, res) => {
+      res.writeHead(200, { 'content-type': 'application/pdf', 'content-disposition': 'attachment; filename="a/.."' });
+      res.end(Buffer.from([1]));
+    };
+    expect((await new ApiClient(config()).getBinary('/x')).filename).toBeUndefined();
+  });
+
   it('omits the file name when the server sent no disposition, rather than inventing one', async () => {
     handler = (_req, _body, res) => { res.writeHead(200, { 'content-type': 'application/pdf' }); res.end(Buffer.from([1, 2])); };
     const r = await new ApiClient(config()).getBinary('/x');

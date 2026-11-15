@@ -55,7 +55,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 }));
 
 jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@pipeline-builder/pipeline-core', {
-  CoreConstants: { CACHE_TTL_MESSAGE: 300 },
+  CoreConstants: { CACHE_TTL_MESSAGE_SECONDS: 300 },
 }));
 // Viewer plumbing. Kept as an identity passthrough so the filter-shape
 // assertions below stay exact — what matters is that EVERY predicate is routed

@@ -230,6 +230,23 @@ describe('withLeaderLock — caller shutdown signal', () => {
     expect(fn).not.toHaveBeenCalled();
   });
 
+  it('hands the run an already-aborted signal when the caller aborted DURING acquisition', async () => {
+    const redis = fakeRedis({ acquire: true, getOwner: 'self' });
+    const ac = new AbortController();
+    // Abort lands while the SET is in flight — after the up-front check, before
+    // the listener is attached. A listener added to an aborted signal never fires.
+    const realSet = redis.set;
+    redis.set = jest.fn(async (...args: unknown[]) => {
+      ac.abort();
+      return (realSet as (...a: unknown[]) => Promise<unknown>)(...args);
+    }) as typeof redis.set;
+    let seen: AbortSignal | undefined;
+    const ran = await withLeaderLock(redis as never, 'k', 5000, async ({ signal }) => { seen = signal; }, { signal: ac.signal });
+    expect(ran).toBe(true);
+    expect(seen?.aborted).toBe(true);
+    expect(seen?.reason).toBe('shutdown');
+  });
+
   it('aborts the run signal when the caller aborts mid-run, and releases', async () => {
     const redis = fakeRedis({ acquire: true, getOwner: 'self' });
     const ac = new AbortController();

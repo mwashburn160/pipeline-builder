@@ -33,7 +33,12 @@ import {
   processMarketplaceEvent,
 } from '../helpers/marketplace-notifications.js';
 import { refuseTeamBilling } from '../helpers/root-org-guard.js';
-import { MarketplacePendingRegistration, PENDING_REGISTRATION_TTL_MS } from '../models/marketplace-pending-registration.js';
+import { MANAGEABLE_SUBSCRIPTION_STATUSES } from '../helpers/subscription-status.js';
+import {
+  MarketplacePendingRegistration,
+  PENDING_REGISTRATION_TTL_MS,
+  type MarketplacePendingRegistrationDocument,
+} from '../models/marketplace-pending-registration.js';
 import { Plan } from '../models/plan.js';
 import { Subscription } from '../models/subscription.js';
 import { claimWebhookEvent, markWebhookEventDone, releaseWebhookEvent, webhookEventStatus } from '../models/webhook-dedupe.js';
@@ -41,6 +46,33 @@ import { claimWebhookEvent, markWebhookEventDone, releaseWebhookEvent, webhookEv
 const logger = createLogger('billing-marketplace');
 
 const AUTH_OPTS = { allowOrgHeaderOverride: true } as const;
+
+const LICENSE_BOUND_MESSAGE = 'This AWS Marketplace subscription is already linked to an organization';
+const ORG_SUBSCRIBED_MESSAGE = 'This organization already has an active subscription';
+
+/**
+ * Put a consumed registration back after its claim failed to bind. Best
+ * effort: a failure here is logged, never allowed to mask the claim's own error.
+ */
+async function restorePendingRegistration(pending: MarketplacePendingRegistrationDocument): Promise<void> {
+  try {
+    await MarketplacePendingRegistration.create({
+      _id: pending._id,
+      awsLicenseArn: pending.awsLicenseArn,
+      awsProductCode: pending.awsProductCode,
+      planId: pending.planId,
+      dimension: pending.dimension,
+      interval: pending.interval,
+      ...(pending.entitlementExpiresAt ? { entitlementExpiresAt: pending.entitlementExpiresAt } : {}),
+      expiresAt: pending.expiresAt,
+    });
+  } catch (error) {
+    logger.warn('Failed to restore a marketplace registration after a refused claim', {
+      registrationRef: pending._id,
+      error: errorMessage(error),
+    });
+  }
+}
 
 /**
  * Create the AWS Marketplace integration router.
@@ -238,32 +270,34 @@ export function createMarketplaceRoutes(): Router {
         return sendError(res, 400, 'registrationRef is required', ErrorCode.MISSING_REQUIRED_FIELD);
       }
 
-      // Atomically CONSUME the pending registration up front: findOneAndDelete
-      // guarantees single-use even under concurrent/duplicate claims — exactly
-      // one racer receives the doc, the rest see null → 410. That atomic consume
-      // is what stops two different orgs binding the same license through a
-      // shared ref (the `metadata.awsLicenseArn` index is unique only among
-      // ACTIVE rows). Missing/expired ⇒ the resolve window lapsed
-      // or it was already claimed — re-launch from AWS Marketplace for a fresh token.
-      const pending = await MarketplacePendingRegistration.findOneAndDelete({ _id: registrationRef });
+      // Every refusal is decided BEFORE the registration is consumed: a refused
+      // claim (wrong org, org already subscribed, missing plan) must leave the
+      // ref claimable, or the buyer has to start over from AWS. Read it here;
+      // consume it only once the claim is going to succeed. The TTL reaper runs
+      // about once a minute, so an expired row can still be present — the
+      // `expiresAt` bound is what enforces the window.
+      const live = { _id: registrationRef, expiresAt: { $gt: new Date() } };
+      const pending = await MarketplacePendingRegistration.findOne(live);
       if (!pending) {
         return sendError(res, 410, 'Registration link expired or already used — re-launch from AWS Marketplace', ErrorCode.NOT_FOUND);
       }
 
       // Guard: this AWS customer must not already be bound (e.g. a prior claim on
-      // a different ref). Best-effort pre-check; the create below is also wrapped.
+      // a different ref). The partial unique index on the license is the atomic
+      // backstop for a concurrent claim that passes this check.
       const alreadyBound = await Subscription.findOne({
         'metadata.awsLicenseArn': pending.awsLicenseArn,
         'status': 'active',
       });
       if (alreadyBound) {
-        return sendError(res, 409, 'This AWS Marketplace subscription is already linked to an organization', ErrorCode.CONFLICT);
+        return sendError(res, 409, LICENSE_BOUND_MESSAGE, ErrorCode.CONFLICT);
       }
 
-      // Guard: the caller's org must not already hold an active subscription.
-      const orgActive = await Subscription.findOne({ orgId, status: 'active' });
+      // Guard: the caller's org must not already hold a manageable subscription
+      // (the same set the per-org unique index enforces atomically below).
+      const orgActive = await Subscription.findOne({ orgId, status: { $in: [...MANAGEABLE_SUBSCRIPTION_STATUSES] } });
       if (orgActive) {
-        return sendError(res, 409, 'This organization already has an active subscription', ErrorCode.CONFLICT);
+        return sendError(res, 409, ORG_SUBSCRIBED_MESSAGE, ErrorCode.CONFLICT);
       }
 
       const plan = await Plan.findOne({ _id: pending.planId, isActive: true });
@@ -271,34 +305,45 @@ export function createMarketplaceRoutes(): Router {
         return sendError(res, 500, 'Unable to map marketplace entitlement to a valid plan', ErrorCode.INTERNAL_ERROR);
       }
 
+      // Atomically CONSUME the registration: findOneAndDelete is single-use under
+      // concurrent/duplicate claims of the same ref — exactly one racer receives
+      // the doc, the rest see null → 410.
+      const consumed = await MarketplacePendingRegistration.findOneAndDelete(live);
+      if (!consumed) {
+        return sendError(res, 410, 'Registration link expired or already used — re-launch from AWS Marketplace', ErrorCode.NOT_FOUND);
+      }
+
       const now = new Date();
       let subscription;
       try {
         subscription = await Subscription.create({
           orgId,
-          planId: pending.planId,
+          planId: consumed.planId,
           status: 'active',
-          interval: pending.interval,
+          interval: consumed.interval,
           currentPeriodStart: now,
           // AWS's own term end when the resolve captured it; else cadence-derived.
-          currentPeriodEnd: marketplacePeriodEnd(pending.entitlementExpiresAt, now, pending.interval),
+          currentPeriodEnd: marketplacePeriodEnd(consumed.entitlementExpiresAt, now, consumed.interval),
           cancelAtPeriodEnd: false,
-          externalId: `aws_sub_${pending.awsLicenseArn}`,
-          externalCustomerId: pending.awsLicenseArn,
+          externalId: `aws_sub_${consumed.awsLicenseArn}`,
+          externalCustomerId: consumed.awsLicenseArn,
           metadata: {
             provider: 'aws-marketplace',
-            awsLicenseArn: pending.awsLicenseArn,
-            awsProductCode: pending.awsProductCode,
-            dimension: pending.dimension,
+            awsLicenseArn: consumed.awsLicenseArn,
+            awsProductCode: consumed.awsProductCode,
+            dimension: consumed.dimension,
           },
         });
       } catch (e) {
-        // A concurrent claim for the same org can still slip past the guards and
-        // collide on the unique {orgId,status:active} index — surface the clean
-        // 409 rather than a raw 500. (The ref is already consumed; a genuine
-        // duplicate means the org is subscribed either way.)
+        // The claim did not happen, so the registration goes back: a concurrent
+        // claim that slipped past the guards (different refs for one org or one
+        // license) loses on a unique index here, and the loser's ref must stay
+        // claimable like any other refusal.
+        await restorePendingRegistration(consumed);
         if ((e as { code?: number })?.code === 11000) {
-          return sendError(res, 409, 'This organization already has an active subscription', ErrorCode.CONFLICT);
+          const onLicense = Object.keys((e as { keyPattern?: Record<string, unknown> }).keyPattern ?? {})
+            .includes('metadata.awsLicenseArn');
+          return sendError(res, 409, onLicense ? LICENSE_BOUND_MESSAGE : ORG_SUBSCRIBED_MESSAGE, ErrorCode.CONFLICT);
         }
         throw e;
       }
@@ -308,10 +353,10 @@ export function createMarketplaceRoutes(): Router {
       // never forward (or mis-pass a user id as) a caller credential.
       await syncEntitlements(orgId, plan.tier, '', subscription._id.toString(), subscription.addons ?? []);
       await createBillingEvent(orgId, 'subscription_created', {
-        planId: pending.planId,
+        planId: consumed.planId,
         tier: plan.tier,
         provider: 'aws-marketplace',
-        licenseId: licenseIdOf(pending.awsLicenseArn),
+        licenseId: licenseIdOf(consumed.awsLicenseArn),
       }, subscription._id.toString());
 
       // Mirror the bind to the CENTRAL audit trail like the self-serve create —
@@ -323,15 +368,15 @@ export function createMarketplaceRoutes(): Router {
         actorId: actorId({ userId }),
         orgId,
         targetId: subscription._id.toString(),
-        details: { planId: pending.planId, interval: pending.interval, tier: plan.tier, provider: 'aws-marketplace' },
+        details: { planId: consumed.planId, interval: consumed.interval, tier: plan.tier, provider: 'aws-marketplace' },
       });
 
-      ctx.log('COMPLETED', 'Marketplace subscription claimed', { orgId, planId: pending.planId });
+      ctx.log('COMPLETED', 'Marketplace subscription claimed', { orgId, planId: consumed.planId });
       return sendSuccess(res, 201, {
         subscription: {
           id: subscription._id.toString(),
           orgId,
-          planId: pending.planId,
+          planId: consumed.planId,
           planName: plan.name,
           status: 'active',
         },
@@ -381,8 +426,9 @@ export function createMarketplaceRoutes(): Router {
 
         // Two-phase idempotency guard (crash-durable): SNS retries the same
         // MessageId on transient failures. Take a SHORT-LIVED in-progress claim
-        // before processing — a duplicate/concurrent delivery short-circuits with
-        // 200 (so SNS stops retrying) but skips side-effects. The durable
+        // before processing — a delivery of an already-DONE message short-circuits
+        // with 200 (so SNS stops retrying) and a concurrent one gets 503 (so SNS
+        // retries), both skipping side-effects. The durable
         // done-marker is written only AFTER processing succeeds (below), so a
         // mid-process crash lets the claim expire and SNS's retry re-runs the
         // event instead of it being stranded as "processed" for 30d.
@@ -470,10 +516,12 @@ export function createMarketplaceRoutes(): Router {
         );
       }
 
+      // NEWEST row: an org that canceled and re-claimed keeps the old canceled
+      // row, and an unordered findOne could answer with that stale license.
       const subscription = await Subscription.findOne({
         orgId,
         'metadata.provider': 'aws-marketplace',
-      });
+      }).sort({ createdAt: -1 });
 
       if (!subscription || !subscription.metadata?.awsLicenseArn) {
         return sendError(
@@ -487,8 +535,9 @@ export function createMarketplaceRoutes(): Router {
       const entitlements = await provider.getEntitlements(licenseArn);
 
       ctx.log('COMPLETED', 'Retrieved marketplace entitlements', { orgId, licenseId: licenseIdOf(licenseArn) });
+      // The license ARN is a server-side lookup key only: it embeds an AWS
+      // account id, and no AWS account id ever reaches the browser.
       return sendSuccess(res, 200, {
-        licenseArn,
         entitlements,
         currentPlanId: subscription.planId,
       });

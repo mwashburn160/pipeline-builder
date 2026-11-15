@@ -37,7 +37,7 @@
  */
 
 import { STANDARD_TIERS } from '@pipeline-builder/api-core';
-import type { BillingInterval, QuotaTier, QuotaTierLimits } from '@pipeline-builder/api-core';
+import type { BillingInterval, PlanTier, PlanTierLimits } from '@pipeline-builder/api-core';
 
 import { pruneTierIncludedFeatureAddons } from './addon-prune.js';
 import { priceForInterval, volumeDiscountPct } from './combo-pricing.js';
@@ -52,7 +52,7 @@ export interface AddonHolding {
 
 /** A dimension the candidate tier would REDUCE. Non-empty ⇒ not a crossover. */
 export interface Regression {
-  dimension: keyof QuotaTierLimits;
+  dimension: keyof PlanTierLimits;
   from: number;
   to: number;
 }
@@ -60,12 +60,12 @@ export interface Regression {
 export interface CrossoverVerdict {
   /** Whether a defensible crossover exists. */
   crossover: boolean;
-  tier: QuotaTier;
+  tier: PlanTier;
   interval: BillingInterval;
   /** What the account pays now, per interval: plan + packs, volume discounts applied. */
   currentCents: number;
   /** The tier the account would move to, or null when none dominates for less. */
-  candidateTier: QuotaTier | null;
+  candidateTier: PlanTier | null;
   /** What the candidate costs: its plan price plus any add-on the move cannot retire. */
   candidateCents: number;
   /** `currentCents - candidateCents`. Positive ⇒ the move costs less. */
@@ -147,16 +147,16 @@ export function currentSpendCents(
 /**
  * Every dimension on which `candidate` gives LESS than `current`.
  *
- * Checked across the full `QuotaTierLimits` surface rather than a curated
+ * Checked across the full `PlanTierLimits` surface rather than a curated
  * subset: a dimension nobody thought to list is exactly the one an account
  * silently loses.
  */
 export function regressionsAgainst(
-  current: Record<keyof QuotaTierLimits, number>,
-  candidate: Record<keyof QuotaTierLimits, number>,
+  current: Record<keyof PlanTierLimits, number>,
+  candidate: Record<keyof PlanTierLimits, number>,
 ): Regression[] {
   const out: Regression[] = [];
-  for (const key of Object.keys(current) as (keyof QuotaTierLimits)[]) {
+  for (const key of Object.keys(current) as (keyof PlanTierLimits)[]) {
     if (!dominates(candidate[key] ?? 0, current[key] ?? 0)) {
       out.push({ dimension: key, from: current[key] ?? 0, to: candidate[key] ?? 0 });
     }
@@ -174,10 +174,10 @@ export function regressionsAgainst(
  * the bill.
  */
 function partitionAddons(
-  candidateTier: QuotaTier,
+  candidateTier: PlanTier,
   addons: readonly AddonHolding[],
   bundles: readonly BundleConfig[],
-  currentLimits: Record<keyof QuotaTierLimits, number>,
+  currentLimits: Record<keyof PlanTierLimits, number>,
   currentFeatures: readonly string[],
 ): { retired: string[]; kept: AddonHolding[] } {
   const order = bundles.map((b) => b.id);
@@ -209,7 +209,7 @@ function partitionAddons(
  * purchasable plan.
  */
 export function evaluateCrossover(input: {
-  tier: QuotaTier;
+  tier: PlanTier;
   interval: BillingInterval;
   addons: readonly AddonHolding[];
   plans: readonly BillingPlanConfig[];

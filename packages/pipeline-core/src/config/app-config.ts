@@ -3,7 +3,6 @@
 
 import { envInt, envStr, MAX_PAGE_LIMIT as SHARED_MAX_PAGE_LIMIT, DEFAULT_PAGE_LIMIT as SHARED_DEFAULT_PAGE_LIMIT } from '@pipeline-builder/api-core';
 import type { AppConfig } from './config-types.js';
-import * as HandlerConstants from './handler-constants.js';
 import {
   loadRegistryConfig,
   loadPluginBuildConfig,
@@ -33,15 +32,8 @@ export { RESERVED_TAG_KEYS, RESERVED_TAG_PREFIXES, isReservedTagKey } from '@pip
 export class CoreConstants {
   static readonly NAME_PATTERN = /^[a-z0-9-]+$/;
 
-  // Custom Resource Handler configuration, sourced from the dependency-free `handler-constants.ts` leaf —
-  // the Lambda handler imports that module directly (not this one) so its esbuild bundle never pulls in
-  // aws-cdk-lib via infrastructure-config. The handler's own timeout stays there: nothing else uses it.
   /** Default platform URL fallback when PLATFORM_BASE_URL is not set. */
-  static readonly DEFAULT_PLATFORM_URL = HandlerConstants.DEFAULT_PLATFORM_URL;
-
-  static readonly HANDLER_DEFAULT_BASE_URL = HandlerConstants.HANDLER_DEFAULT_BASE_URL;
-  static readonly HANDLER_MAX_RETRIES = HandlerConstants.HANDLER_MAX_RETRIES;
-  static readonly HANDLER_RETRY_DELAY_MS = HandlerConstants.HANDLER_RETRY_DELAY_MS;
+  static readonly DEFAULT_PLATFORM_URL = 'https://localhost:8443';
 
   // Plugin build queue configuration.
   // NOTE: maxAttempts / backoffDelayMs / workerTimeoutMs are NOT duplicated here —
@@ -104,12 +96,12 @@ export class CoreConstants {
 
 
   // Server-side cache TTLs (seconds)
-  static readonly CACHE_TTL_ENTITY = envInt('CACHE_TTL_ENTITY', 60); // plugin/pipeline findById
-  static readonly CACHE_TTL_MESSAGE = envInt('CACHE_TTL_MESSAGE', 300); // announcements/conversations (5 min)
-  static readonly CACHE_TTL_REPORT_INVENTORY = envInt('CACHE_TTL_REPORT_INVENTORY', 300); // plugin summary/distribution (5 min)
-  static readonly CACHE_TTL_REPORT_TIMESERIES = envInt('CACHE_TTL_REPORT_TIMESERIES', 120); // execution/build metrics (2 min)
-  static readonly CACHE_TTL_COMPLIANCE_RULES = envInt('CACHE_TTL_COMPLIANCE_RULES', 60); // active compliance rules
-  static readonly CACHE_TTL_BILLING_PLANS = envInt('CACHE_TTL_BILLING_PLANS', 14_400); // billing plans (4 hours)
+  static readonly CACHE_TTL_ENTITY_SECONDS = envInt('CACHE_TTL_ENTITY_SECONDS', 60); // plugin/pipeline findById
+  static readonly CACHE_TTL_MESSAGE_SECONDS = envInt('CACHE_TTL_MESSAGE_SECONDS', 300); // announcements/conversations (5 min)
+  static readonly CACHE_TTL_REPORT_INVENTORY_SECONDS = envInt('CACHE_TTL_REPORT_INVENTORY_SECONDS', 300); // plugin summary/distribution (5 min)
+  static readonly CACHE_TTL_REPORT_TIMESERIES_SECONDS = envInt('CACHE_TTL_REPORT_TIMESERIES_SECONDS', 120); // execution/build metrics (2 min)
+  static readonly CACHE_TTL_COMPLIANCE_RULES_SECONDS = envInt('CACHE_TTL_COMPLIANCE_RULES_SECONDS', 60); // active compliance rules
+  static readonly CACHE_TTL_BILLING_PLANS_SECONDS = envInt('CACHE_TTL_BILLING_PLANS_SECONDS', 14_400); // billing plans (4 hours)
 
   // SSE backpressure
   static readonly SSE_BACKPRESSURE_THRESHOLD = envInt('SSE_BACKPRESSURE_THRESHOLD', 10);

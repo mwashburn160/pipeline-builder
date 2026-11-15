@@ -74,10 +74,14 @@ describe('resolvePluginsForProps — lookup response unwrapping', () => {
     expect((resolved['java-corretto-alias'] as { name?: string })?.name).toBe('java-corretto');
   });
 
-  it('does NOT resolve when the record is absent (no record → fall back)', async () => {
+  // An unresolved plugin fails the synth: a step without its record has no
+  // image or commands, and a placeholder step would only fail later.
+  it('is FATAL when the record is absent (PLUGIN_NOT_FOUND)', async () => {
     const client = clientReturning({ success: true, statusCode: 200, data: { plugin: null } });
-    const resolved = await resolvePluginsForProps(client, propsWithPlugin('missing-plugin'));
-    expect(resolved['missing-plugin-alias']).toBeUndefined();
+    const run = resolvePluginsForProps(client, propsWithPlugin('missing-plugin'));
+    await expect(run).rejects.toBeInstanceOf(PluginResolutionError);
+    await expect(run).rejects.toMatchObject({ refusals: [{ plugin: 'missing-plugin', code: 'PLUGIN_NOT_FOUND' }] });
+    await expect(run).rejects.toThrow(/"missing-plugin" was not found/);
   });
 });
 
@@ -113,16 +117,19 @@ describe('resolvePluginsForProps — image signature verification', () => {
       .rejects.toThrow(/"lint" can't be used \(PLUGIN_DELETED\): lint was deleted/);
   });
 
-  // Vulnerability state is reported, never enforced: a vuln code is not in the
-  // fatal list, so it falls back like any other non-refusal answer.
-  it('does NOT abort on a vulnerability code', async () => {
-    const client = clientRejecting(409, { success: false, code: 'PLUGIN_VERSION_VULN_BLOCKED', message: 'old block mode' });
-    await expect(resolvePluginsForProps(client, propsWithPlugin('trivy'))).resolves.toEqual({});
+  // A lookup that produced no answer is no longer ridden out: the synth fails
+  // naming the plugin and the cause.
+  it('is FATAL on an ordinary lookup failure (PLUGIN_LOOKUP_FAILED), naming the cause', async () => {
+    const client = clientRejecting(503, { success: false, code: 'SERVICE_UNAVAILABLE', message: 'down' });
+    const run = resolvePluginsForProps(client, propsWithPlugin('java-corretto'));
+    await expect(run).rejects.toMatchObject({ refusals: [{ plugin: 'java-corretto', code: 'PLUGIN_LOOKUP_FAILED' }] });
+    await expect(run).rejects.toThrow('"java-corretto" could not be resolved: the plugin lookup failed (HTTP 503 SERVICE_UNAVAILABLE down)');
   });
 
-  it('still falls back (non-fatal) on an ordinary lookup failure', async () => {
-    const client = clientRejecting(503, { success: false, code: 'SERVICE_UNAVAILABLE', message: 'down' });
-    await expect(resolvePluginsForProps(client, propsWithPlugin('java-corretto'))).resolves.toEqual({});
+  it('is FATAL when the platform is unreachable', async () => {
+    const client = { post: async () => { throw new Error('connect ECONNREFUSED 10.0.0.1:443'); } } as unknown as ApiClient;
+    await expect(resolvePluginsForProps(client, propsWithPlugin('java-corretto')))
+      .rejects.toMatchObject({ refusals: [{ code: 'PLUGIN_LOOKUP_FAILED', message: expect.stringContaining('ECONNREFUSED') }] });
   });
 });
 
@@ -169,7 +176,7 @@ describe('resolvePluginsForProps — every refusal at once, and missing pins', (
   });
 
   // A version refused by its build's vulnerability gate was never saved; a pin
-  // to it has nothing to fall back to, so the deploy-time lookup would fail too.
+  // to it names a version that cannot exist.
   it('aborts on a 404 for an EXACT version pin', async () => {
     const client = clientByName({ trivy: { status: 404, data: { code: 'NOT_FOUND', message: 'Plugin not found' } } });
     await expect(resolvePluginsForProps(client, steps({ name: 'trivy', filter: { version: '1.2.0' } })))
@@ -182,9 +189,10 @@ describe('resolvePluginsForProps — every refusal at once, and missing pins', (
       .rejects.toThrow(/"trivy" version 1\.2\.0-rc\.1 does not exist/);
   });
 
-  it.each(['^1.2.0', '~1.2', 'latest'])('still falls back on a 404 for a range/latest (%s)', async (version) => {
+  it.each(['^1.2.0', '~1.2', 'latest'])('is FATAL on a 404 for a range/latest (%s) as PLUGIN_NOT_FOUND', async (version) => {
     const client = clientByName({ trivy: { status: 404, data: { code: 'NOT_FOUND', message: 'Plugin not found' } } });
-    await expect(resolvePluginsForProps(client, steps({ name: 'trivy', filter: { version } }))).resolves.toEqual({});
+    await expect(resolvePluginsForProps(client, steps({ name: 'trivy', filter: { version } })))
+      .rejects.toMatchObject({ refusals: [{ plugin: 'trivy', code: 'PLUGIN_NOT_FOUND' }] });
   });
 });
 

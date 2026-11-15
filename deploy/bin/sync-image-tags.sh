@@ -347,8 +347,6 @@ _bs_arg() {
 _tc_pm=$(_bs_arg PIPELINE_MANAGER_VERSION)
 _tc_cdk=$(_bs_arg AWS_CDK_VERSION)
 _tc_assets=$(_bs_arg CDK_ASSETS_VERSION)
-_tc_esbuild=$(_bs_arg ESBUILD_VERSION)
-_tc_pnpm=$(_bs_arg PNPM_VERSION)
 # Node is the base image's version: the tag of the digest-pinned NODE_IMAGE.
 _tc_node=$(sed -nE 's/^ARG NODE_IMAGE=node:([0-9]+\.[0-9]+\.[0-9]+)-.*/\1/p' "$_bootstrap")
 [ -n "$_tc_node" ] || { echo "ERROR: could not read the node version from ARG NODE_IMAGE in $_bootstrap" >&2; exit 1; }
@@ -395,8 +393,6 @@ awk '
   printf '  pipelineManager: "%s"\n' "$_tc_pm"
   printf '  awsCdk: "%s"\n' "$_tc_cdk"
   printf '  cdkAssets: "%s"\n' "$_tc_assets"
-  printf '  esbuild: "%s"\n' "$_tc_esbuild"
-  printf '  pnpm: "%s"\n' "$_tc_pnpm"
   printf '  node: "%s"\n' "$_tc_node"
   printf 'sourceDigest: "%s"\n' "$_src_digest"
 } > "$_bs_dir/plugin-spec.yaml"

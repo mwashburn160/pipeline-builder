@@ -8,7 +8,7 @@
  * account-level entitlements and hierarchy claims.
  */
 
-import { createLogger, type QuotaTier } from '@pipeline-builder/api-core';
+import { createLogger, type PlanTier } from '@pipeline-builder/api-core';
 import type { OrgRole } from '@pipeline-builder/api-core/wire-vocabulary';
 import { type EffectiveMfaPolicy, resolveEffectiveMfaPolicy } from '../../helpers/mfa-policy.js';
 import { resolveOrgAuthority } from '../../helpers/org-authority.js';
@@ -24,7 +24,7 @@ export interface MembershipContext {
   organizationId: string;
   organizationName?: string;
   role: OrgRole;
-  tier?: QuotaTier;
+  tier?: PlanTier;
   /** Org → team hierarchy: direct parent of the active org (omitted for root orgs). */
   parentOrganizationId?: string;
   /** Org → team hierarchy: root of the active org's ancestry chain (omitted for root orgs). */

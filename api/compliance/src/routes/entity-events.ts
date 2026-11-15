@@ -45,8 +45,9 @@ export function createEntityEventRoutes(): Router {
       evaluateEntityEvent(event),
     );
 
-    // An evaluation ERROR must NOT read as success — reply non-2xx so the caller
-    // (BullMQ) retries instead of letting a non-compliant entity slip through.
+    // An evaluation ERROR must NOT read as success — reply non-2xx so the
+    // caller's HTTP client retries (and, past its retries, counts the drop)
+    // instead of letting a non-compliant entity slip through.
     if (result.error) {
       return sendError(res, 500, 'Compliance evaluation failed; retry', ErrorCode.INTERNAL_ERROR);
     }

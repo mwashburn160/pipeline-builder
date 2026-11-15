@@ -29,13 +29,21 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   // Route-table audit declaration — a tagged pass-through, so it shows up in the
   // middleware chain this test inspects without affecting the step-up ordering.
   audited: (..._actions: string[]) => tagged('audited'),
+  // A conditional gate: tagged with the gates it runs, and keeping its
+  // description and predicate so the assertions below can ask WHICH requests
+  // it selects and what the route table will call them.
+  gateWhen: (description: string, when: (req: unknown) => unknown, ...gates: Array<{ __mw?: string }>) => Object.assign(
+    (_req: unknown, _res: unknown, next: () => void) => next(),
+    { __mw: `gateWhen(${gates.map((g) => g.__mw).join(',')})`, description, when },
+  ),
 }));
+type Conditional = { __mw: string; description: string; when: (req: unknown) => unknown };
 jest.unstable_mockModule('../src/middleware/index.js', () => ({ requireAuth: tagged('requireAuth'), requireSystemAdmin: tagged('requireSystemAdmin') }));
 // The routers only need referenceable handlers.
 const HANDLERS = [
   'listAllUsers', 'getUserById', 'createUserByAdmin', 'updateUserById', 'deleteUserById', 'bulkDeleteUsers', 'updateUserFeatures',
   'changePassword', 'createAccessKey', 'deleteUser', 'generateToken', 'getPreferences', 'getUser', 'listAccessKeys', 'listTokenHistory',
-  'listUserOrganizations', 'revokeAllTokens', 'revokeAccessKey', 'updatePreferences', 'updateUser',
+  'listUserOrganizations', 'revokeAllTokens', 'revokeAccessKey', 'updatePreferences', 'updateUser', 'changesOwnEmail',
   'listSessions', 'revokeSession', 'getOwnPasswordPolicy', 'getAccountDeletionPlan', 'exportOwnData',
   // The password-only prompt's own-account writes — none of them step-up gated,
   // which is the property the `/user` assertions below pin.
@@ -116,6 +124,33 @@ describe('step-up route gates', () => {
       expect(mw.indexOf('requireStepUp')).toBeGreaterThan(mw.indexOf('requireAuth'));
     }
     expect(routeChain(organizationRouter, 'get', '/:id/teams/deleted')).not.toContain('requireStepUp');
+  });
+
+  it('PATCH /user/profile step-up gates an email CHANGE only — a username edit stays open', () => {
+    const mw = routeChain(userRouter, 'patch', '/profile');
+    // Not the unconditional gate: most profile edits must not cost a step-up.
+    expect(mw).not.toContain('requireStepUp');
+    expect(mw).toContain('gateWhen(requireStepUp)');
+    expect(mw.indexOf('gateWhen(requireStepUp)')).toBeGreaterThan(mw.indexOf('requireAuth'));
+    const layer = userRouter.stack.find((l: any) => l.route?.path === '/profile' && l.route.methods.patch);
+    const gate = layer.route.stack.map((s: any) => s.handle).find((h: any) => h.__mw === 'gateWhen(requireStepUp)') as Conditional;
+    // The predicate IS the controller's email-change check.
+    expect((gate.when as unknown as { __mw?: string }).__mw).toBe('changesOwnEmail');
+    expect(gate.description).toBe('changes the sign-in email');
+  });
+
+  it('POST /users with isSuperAdmin needs aal2 AND step-up after auth; an ordinary create needs neither', () => {
+    const mw = routeChain(usersRouter, 'post', '/');
+    expect(mw).not.toContain('requireStepUp');
+    expect(mw).toContain('gateWhen(requireAssurance,requireStepUp)');
+    expect(mw.indexOf('gateWhen(requireAssurance,requireStepUp)')).toBeGreaterThan(mw.indexOf('requireAuth'));
+    const layer = usersRouter.stack.find((l: any) => l.route?.path === '/' && l.route.methods.post);
+    const gate = layer.route.stack.map((s: any) => s.handle).find((h: any) => h.__mw?.startsWith('gateWhen')) as Conditional;
+    expect(gate.when({ body: { isSuperAdmin: true } })).toBe(true);
+    expect(gate.when({ body: { isSuperAdmin: false } })).toBe(false);
+    expect(gate.when({ body: { isSuperAdmin: 'true' } })).toBe(false);
+    expect(gate.when({ body: {} })).toBe(false);
+    expect(gate.description).toBe('creates a platform super-admin');
   });
 
   it('POST /user/generate-token is NOT step-up gated (unattended token renewal)', () => {

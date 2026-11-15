@@ -52,7 +52,7 @@ const FOLLOWER = 'ccccccccccccccccccccccc2';
 const OWN_DEFAULT = 'ddddddddddddddddddddddd2';
 const NAMES: Record<string, string> = { [CANARY]: 'Canary', [CANARY_2]: 'Canary Two', [FOLLOWER]: 'Follower', [OWN_DEFAULT]: 'Own' };
 
-const toolchainOf = (v: string) => ({ pipelineManager: `4.4.${v.split('.')[1]}`, awsCdk: `2.11${v.split('.')[1]}0.0`, cdkAssets: '4.8.0', esbuild: '0.28.1', pnpm: '12.14.0', node: '26.13.0' });
+const toolchainOf = (v: string) => ({ pipelineManager: `4.4.${v.split('.')[1]}`, awsCdk: `2.11${v.split('.')[1]}0.0`, cdkAssets: '4.8.0', node: '26.13.0' });
 const digest = () => `sha256:${randomUUID().replace(/-/g, '').padEnd(64, '0')}`;
 
 /** The digests each release's halves were uploaded with. */

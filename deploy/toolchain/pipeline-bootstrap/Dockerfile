@@ -96,20 +96,6 @@ ARG PIPELINE_MANAGER_VERSION="4.5.7"
 # finding inside it — `tar` in this case — cannot be overridden with another
 # `npm install`. Bumping this pin is the only lever.
 ARG AWS_CDK_VERSION="2.1148.1"
-# esbuild — synth bundles the PluginLookup Lambda via `aws-lambda-nodejs`
-# (NodejsFunction). When esbuild isn't detected it falls back to DOCKER
-# bundling, which a slim no-docker CodeBuild image can't do (`spawnSync docker
-# ENOENT`). With esbuild on PATH, aws-cdk-lib bundles the Lambda locally — no
-# docker. Any 0.x satisfies aws-cdk-lib's major-version guard.
-ARG ESBUILD_VERSION="0.28.1"
-# pnpm — the PluginLookup Lambda ships a `pnpm-lock.yaml`, so aws-cdk-lib picks
-# the pnpm package manager for bundling and runs esbuild as `pnpm exec -- esbuild`
-# (esbuild resolves as a global module, so it's treated as a workspace package).
-# No `pnpm install` runs during bundling (the Lambda sets no `nodeModules`), so
-# pnpm is only the bin-runner — but it must be on PATH or bundling dies with
-# `spawnSync pnpm ENOENT`. Pinned to the repo's packageManager (.projenrc.ts
-# pnpmVersion); test/deploy-contracts (toolchain-drift-contract) holds them equal.
-ARG PNPM_VERSION="12.14.0"
 # cdk-assets — publishes a synthesized assembly's file and container assets
 # (what `cdk-assets publish` does in a pipeline's Assets stage). Installed the
 # same way as the CDK CLI and pinned the same way; a bump is a new release.
@@ -123,8 +109,6 @@ ARG CDK_ASSETS_VERSION="4.8.0"
 LABEL org.pipeline-builder.toolchain.pipeline-manager="${PIPELINE_MANAGER_VERSION}" \
       org.pipeline-builder.toolchain.aws-cdk="${AWS_CDK_VERSION}" \
       org.pipeline-builder.toolchain.cdk-assets="${CDK_ASSETS_VERSION}" \
-      org.pipeline-builder.toolchain.esbuild="${ESBUILD_VERSION}" \
-      org.pipeline-builder.toolchain.pnpm="${PNPM_VERSION}" \
       org.pipeline-builder.toolchain.node="${NODE_VERSION}"
 
 RUN set -eux; \
@@ -146,11 +130,9 @@ RUN set -eux; \
     aws --version; \
     # pipeline-manager — the pinned PIPELINE_MANAGER_VERSION above.
     npm config set @pipeline-builder:registry=https://registry.npmjs.org/; \
-    npm install -g "aws-cdk@${AWS_CDK_VERSION}" "cdk-assets@${CDK_ASSETS_VERSION}" "esbuild@${ESBUILD_VERSION}" "pnpm@${PNPM_VERSION}" "@pipeline-builder/pipeline-manager@${PIPELINE_MANAGER_VERSION}"; \
+    npm install -g "aws-cdk@${AWS_CDK_VERSION}" "cdk-assets@${CDK_ASSETS_VERSION}" "@pipeline-builder/pipeline-manager@${PIPELINE_MANAGER_VERSION}"; \
     cdk --version; \
     command -v cdk-assets; \
-    esbuild --version; \
-    pnpm --version; \
     pipeline-manager --version 2>&1 | tail -1
 
 WORKDIR /app

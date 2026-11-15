@@ -17,7 +17,7 @@
  *  - **Severity re-ranking is STAFF ONLY.** The tenant sets severity at open;
  *    if they could also change it afterwards they would unilaterally choose the
  *    response target they are owed, which at $99.99/contact is the whole premium
- *    SKU. This is the governance half of scope C2.
+ *    SKU.
  *  - **Assign is staff only** — `assigned_to` is a system-org actor.
  *  - **Transfer is tenant only** — handing a case to another designated contact
  *    of the same org.
@@ -218,7 +218,7 @@ export function createSupportCaseRoutes(): Router {
     }),
   );
 
-  // --- Severity: staff only (scope C2) --------------------------------------
+  // --- Severity: staff only ------------------------------------------------
   router.patch(
     '/support/:id/severity',
     ...createAuthenticatedWithOrgRoute(),

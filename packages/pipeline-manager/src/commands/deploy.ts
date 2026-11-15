@@ -84,7 +84,7 @@ export function deploy(program: Command): void {
         // validation for ALL outbound TLS, including the AWS SDK.
         relaxTlsForCli(options.verifySsl, printWarning);
 
-        // Local-tool prerequisites (cdk + esbuild/pnpm) are verified up front by
+        // Local-tool prerequisites (cdk) are verified up front by
         // the CLI's preAction hook, so by here they're guaranteed present.
 
         let pipeline: Pipeline;

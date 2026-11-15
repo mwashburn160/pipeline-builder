@@ -6,7 +6,7 @@ import type { BuildSize, QuotaService } from '@pipeline-builder/api-core';
 import { incCounter } from '@pipeline-builder/api-server';
 import type { Job } from 'bullmq';
 
-import type { PluginBuildJobData } from '../helpers/plugin-helpers.js';
+import type { FailureCategory, PluginBuildJobData } from '../helpers/plugin-helpers.js';
 
 const logger = createLogger('build-credits');
 
@@ -98,7 +98,7 @@ export function buildSpendsCredits(data: Pick<PluginBuildJobData, 'orgId' | 'set
  * attempt, so without this condition a job retried to exhaustion charges once per
  * attempt — and `PLUGIN_BUILD_MAX_ATTEMPTS` defaults to 2.
  */
-export function failedBuildIsCharged(category: string | undefined): boolean {
+export function failedBuildIsCharged(category: FailureCategory | undefined): boolean {
   return category === 'permanent';
 }
 
@@ -121,10 +121,12 @@ export async function chargeBuildCredits(
   quotaService: QuotaService,
   job: Job<PluginBuildJobData>,
   outcome: 'success' | 'failed',
+  /** The failure's classification (`classifyFailure`); required for `failed` to charge at all. */
+  category?: FailureCategory,
 ): Promise<void> {
   const orgId = job.data?.orgId;
   if (!orgId || !buildSpendsCredits(job.data)) return;
-  if (outcome === 'failed' && !failedBuildIsCharged(job.data.failureCategory)) return;
+  if (outcome === 'failed' && !failedBuildIsCharged(category)) return;
 
   const buildSize = job.data.buildSize ?? '1x';
   const buildClass = job.data.buildClass ?? 'standard';

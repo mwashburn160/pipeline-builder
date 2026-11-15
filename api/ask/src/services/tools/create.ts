@@ -59,9 +59,10 @@ interface Generated {
 
 /**
  * Version of the in-process template-drafting prompt. Bump on any wording change
- * (recorded alongside the agent prompt version in the turn's audit row).
+ * (recorded on the draft's `toolGenerations` entry in the turn's audit row,
+ * beside the agent's own prompt version).
  */
-export const TEMPLATE_PROMPT_VERSION = 'ask-template@2';
+const TEMPLATE_PROMPT_VERSION = 'ask-template@2';
 
 /** Low temperature: a template is structured config, not prose. */
 const TEMPLATE_TEMPERATURE = 0.2;
@@ -285,10 +286,10 @@ export function createTools(deps: AgentToolDeps): ToolSet {
       inputSchema: z.object({ prompt: z.string().describe('What the template should do') }),
       execute: async ({ prompt }) => {
         // In-process generation pays its own aiCalls slot, and DECLINES rather
-        // than failing when the org is out (design rule 9) or the turn's
-        // generation budget is spent.
+        // than failing when the org is out of quota or the turn's generation
+        // budget is spent.
         if (!generations.claim('propose_template')) return declined('template', GENERATION_BUDGET_SPENT);
-        const charge = await chargeAiCall('propose_template');
+        const charge = await chargeAiCall('propose_template', TEMPLATE_PROMPT_VERSION);
         if (!charge) {
           return declined('template', AI_QUOTA_EXHAUSTED);
         }

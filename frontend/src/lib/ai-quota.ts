@@ -12,7 +12,7 @@
  * and lock the button on an org that is about to use its own key.
  */
 
-import type { QuotaSummary, QuotaTier } from '@/types';
+import type { QuotaSummary, PlanTier } from '@/types';
 
 /** Whose key serves an AI call — mirrors ai-core's `ModelSelection.keySource`. */
 export type AIKeySource = 'platform' | 'org' | 'request';
@@ -39,10 +39,10 @@ export function aiKeySource(ai: { customApiKey: string; currentSource?: string }
  * so the surfaces are usable — the label and a prominent upgrade CTA once they
  * run out are what differ.
  */
-const AI_TRIAL_TIERS: ReadonlySet<QuotaTier> = new Set<QuotaTier>(['developer']);
+const AI_TRIAL_TIERS: ReadonlySet<PlanTier> = new Set<PlanTier>(['developer']);
 
 /** True when `tier`'s AI calls are a trial allowance. */
-export function isAITrialTier(tier: QuotaTier | undefined | null): boolean {
+export function isAITrialTier(tier: PlanTier | undefined | null): boolean {
   return !!tier && AI_TRIAL_TIERS.has(tier);
 }
 

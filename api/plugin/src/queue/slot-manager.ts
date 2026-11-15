@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { BUILD_CLASSES, buildSlotsFor, envInt, createLogger, errorMessage, isSystemOrgId } from '@pipeline-builder/api-core';
-import type { BuildClass, QuotaTier } from '@pipeline-builder/api-core';
+import type { BuildClass, PlanTier } from '@pipeline-builder/api-core';
 import { incCounter } from '@pipeline-builder/api-server';
 
 import { getAllTierQueues, getBuildCfg, getConnectionForDb, getDeadLetterQueue } from './connections.js';
@@ -21,8 +21,8 @@ const logger = createLogger('plugin-build-queue');
 //
 // Tuning:
 //   PLUGIN_MAX_BUILDS_<TIER>_<CLASS> max in-flight builds per org, per class
-//   PLUGIN_ORG_SLOT_DELAY_MS backoff between re-acquisition tries (default 10s)
-//   ORG_SLOT_TTL_SEC defensive expiry so a crashed worker doesn't leak
+//   PLUGIN_ORG_SLOT_DELAY_MS first backoff between re-acquisition tries (default 10s)
+//   PLUGIN_ORG_SLOT_TTL_SECONDS defensive expiry so a crashed worker doesn't leak
 
 /**
  * The per-org cap, read per (tier, class) cell.
@@ -58,7 +58,7 @@ const logger = createLogger('plugin-build-queue');
  * below the baseline. An operator who deliberately wants one tier at a single
  * build keeps that; the baseline only moves the figure nobody set.
  */
-export function maxBuildsPerOrg(tier: QuotaTier, buildClass: BuildClass): number {
+export function maxBuildsPerOrg(tier: PlanTier, buildClass: BuildClass): number {
   return envInt(
     `PLUGIN_MAX_BUILDS_${tier.toUpperCase()}_${buildClass.toUpperCase()}`,
     Math.max(getBuildCfg().orgBuildSlots[buildClass], buildSlotsFor(tier, buildClass)),
@@ -124,7 +124,7 @@ export function orgSlotWaitExempt(orgId: string): boolean {
 }
 
 export const ORG_SLOT_DELAY_MS = envInt('PLUGIN_ORG_SLOT_DELAY_MS', 10000, { min: 1 });
-const ORG_SLOT_TTL_SEC = envInt('PLUGIN_ORG_SLOT_TTL_SEC', 900, { min: 1 });
+const ORG_SLOT_TTL_SECONDS = envInt('PLUGIN_ORG_SLOT_TTL_SECONDS', 900, { min: 1 });
 
 /**
  * How often a RUNNING build refreshes its slot's TTL, derived from the TTL so
@@ -136,20 +136,14 @@ const ORG_SLOT_TTL_SEC = envInt('PLUGIN_ORG_SLOT_TTL_SEC', 900, { min: 1 });
  * duration cap: `EXPIRE` is refreshed on every GRANTED acquire (it used to be
  * refreshed on every attempt, denials included — see ACQUIRE_SLOT_LUA for why
  * that defeated crash recovery), so an org with builds in flight and no further
- * attempts for ORG_SLOT_TTL_SEC lost its counter WHILE those builds ran. The
+ * attempts for ORG_SLOT_TTL_SECONDS lost its counter WHILE those builds ran. The
  * next acquire then started from zero and the per-org cap could be exceeded by
  * however many were in flight, with release afterwards under-counting into the
  * negative clamp. At a 900s TTL that fires for any build over fifteen minutes,
  * which is the ordinary case rather than the exceptional one.
  */
-const ORG_SLOT_HEARTBEAT_MS = Math.max(1_000, Math.floor((ORG_SLOT_TTL_SEC * 1000) / 3));
+const ORG_SLOT_HEARTBEAT_MS = Math.max(1_000, Math.floor((ORG_SLOT_TTL_SECONDS * 1000) / 3));
 
-/**
- * How long a job may wait for a slot before failing TERMINALLY, expressed as a
- * delay budget. A slot delay spends no BullMQ attempt, so this is the only thing
- * standing between a starved job and an endless silent bounce.
- */
-const ORG_SLOT_MAX_WAIT_MS = envInt('PLUGIN_ORG_SLOT_MAX_WAIT_MS', 1_800_000, { min: 1 });
 /**
  * Longest a denied build waits between re-tries. The interval BACKS OFF —
  * `ORG_SLOT_DELAY_MS` doubling up to this — because a fixed 10s poll is pure
@@ -172,14 +166,16 @@ export function orgSlotRetryDelayMs(attempt: number): number {
 }
 
 /**
- * The wait budget, as ELAPSED TIME rather than a count of denials.
+ * How long a job may wait for a slot before failing TERMINALLY
+ * (`PLUGIN_ORG_SLOT_MAX_WAIT_MS`). A slot delay spends no BullMQ attempt, so
+ * this is the only thing standing between a starved job and an endless silent
+ * bounce.
  *
- * It used to be `ORG_SLOT_MAX_WAIT_MS / ORG_SLOT_DELAY_MS` — 180 attempts — which
- * only equals 30 minutes while every interval is exactly 10s. With a backoff the
- * same 180 attempts span hours, so the budget has to measure the clock. It is
- * also what the refusal message always claimed to report.
+ * ELAPSED TIME rather than a count of denials: a count only equals the budget
+ * while every interval is the same, and the retry interval backs off. It is
+ * also what the refusal message reports.
  */
-export const ORG_SLOT_WAIT_BUDGET_MS = ORG_SLOT_MAX_WAIT_MS;
+export const ORG_SLOT_WAIT_BUDGET_MS = envInt('PLUGIN_ORG_SLOT_MAX_WAIT_MS', 1_800_000, { min: 1 });
 
 /**
  * Reconciliation interval for {@link scrubOrgSlots}. Its OWN interval: it used
@@ -213,15 +209,12 @@ const ownerValue = (orgId: string, buildClass: BuildClass) => `${orgId}|${buildC
 
 function parseOwnerValue(value: string): { orgId: string; buildClass: BuildClass } {
   const at = value.lastIndexOf('|');
-  if (at < 0) return { orgId: value, buildClass: 'standard' };
-  const cls = value.slice(at + 1);
-  return {
-    orgId: value.slice(0, at),
-    // An unrecognised suffix is treated as part of the org id rather than
-    // trusted as a class: a bad parse must not decrement a counter that was
-    // never incremented.
-    buildClass: (BUILD_CLASSES as readonly string[]).includes(cls) ? (cls as BuildClass) : 'standard',
-  };
+  const cls = at < 0 ? '' : value.slice(at + 1);
+  // An unrecognised (or missing) suffix is treated as part of the org id rather
+  // than trusted as a class: a bad parse must not decrement a real org's
+  // counter that was never incremented for this owner.
+  if (!(BUILD_CLASSES as readonly string[]).includes(cls)) return { orgId: value, buildClass: 'standard' };
+  return { orgId: value.slice(0, at), buildClass: cls as BuildClass };
 }
 
 /**
@@ -305,7 +298,7 @@ return 1
 export async function refreshOrgSlot(orgId: string, jobId: string, buildClass: BuildClass): Promise<boolean> {
   const redis = getConnectionForDb(0);
   const result = await redis.eval(
-    REFRESH_SLOT_LUA, 2, orgSlotKey(orgId, buildClass), orgSlotOwnersKey, jobId, String(ORG_SLOT_TTL_SEC),
+    REFRESH_SLOT_LUA, 2, orgSlotKey(orgId, buildClass), orgSlotOwnersKey, jobId, String(ORG_SLOT_TTL_SECONDS),
   );
   return result === 1;
 }
@@ -335,7 +328,7 @@ export function startOrgSlotHeartbeat(orgId: string, jobId: string, buildClass: 
  *  (caller should re-enqueue). Records `jobId -> orgId|class` so the scrubber
  *  can reclaim a slot whose job vanished, from the right counter. */
 export async function tryAcquireOrgSlot(
-  orgId: string, jobId: string, tier: QuotaTier, buildClass: BuildClass,
+  orgId: string, jobId: string, tier: PlanTier, buildClass: BuildClass,
 ): Promise<boolean> {
   const redis = getConnectionForDb(0);
   // TWO keys: the class counter and the owner hash — the owner record is written
@@ -343,7 +336,7 @@ export async function tryAcquireOrgSlot(
   const result = await redis.eval(
     ACQUIRE_SLOT_LUA, 2, orgSlotKey(orgId, buildClass), orgSlotOwnersKey,
     String(isSystemOrgId(orgId) ? systemOrgSlotCap() : maxBuildsPerOrg(tier, buildClass)),
-    String(ORG_SLOT_TTL_SEC), jobId, ownerValue(orgId, buildClass),
+    String(ORG_SLOT_TTL_SECONDS), jobId, ownerValue(orgId, buildClass),
   );
   return result === 1;
 }
@@ -353,9 +346,21 @@ export async function tryAcquireOrgSlot(
 export async function releaseOrgSlot(orgId: string, jobId: string, buildClass: BuildClass): Promise<boolean> {
   const redis = getConnectionForDb(0);
   const released = await redis.eval(
-    RELEASE_SLOT_LUA, 2, orgSlotKey(orgId, buildClass), orgSlotOwnersKey, jobId, String(ORG_SLOT_TTL_SEC),
+    RELEASE_SLOT_LUA, 2, orgSlotKey(orgId, buildClass), orgSlotOwnersKey, jobId, String(ORG_SLOT_TTL_SECONDS),
   );
   return released === 1;
+}
+
+/** The live slot state of one (org, class). */
+export interface OrgSlotState {
+  orgId: string;
+  buildClass: BuildClass;
+  /** Owner records — the jobs that actually hold a slot. */
+  held: number;
+  /** The counter the cap is compared against. */
+  counted: number;
+  /** `counted - held`, floored at 0. Positive means leaked capacity. */
+  leaked: number;
 }
 
 /**
@@ -375,17 +380,6 @@ export async function releaseOrgSlot(orgId: string, jobId: string, buildClass: B
  * the owner hash already enumerates every slot, and scanning `pb:org-build:*`
  * would also pick up counters whose owners are gone and report them as live.
  */
-export interface OrgSlotState {
-  orgId: string;
-  buildClass: BuildClass;
-  /** Owner records — the jobs that actually hold a slot. */
-  held: number;
-  /** The counter the cap is compared against. */
-  counted: number;
-  /** `counted - held`, floored at 0. Positive means leaked capacity. */
-  leaked: number;
-}
-
 export async function orgSlotSnapshot(): Promise<OrgSlotState[]> {
   const redis = getConnectionForDb(0);
   const owners = await redis.hgetall(orgSlotOwnersKey);
@@ -413,10 +407,11 @@ export async function orgSlotSnapshot(): Promise<OrgSlotState[]> {
  * The distinction decides whether a denied job's wait counts toward
  * {@link ORG_SLOT_WAIT_BUDGET_MS}. An org at its own cap with every slot backed by a
  * running build is not starving — it is queueing behind its own work, and a slot
- * frees the moment one of those builds finishes. An org whose counter sits at the
- * cap with NO live owners is stuck: the counter leaked (a worker died between
- * INCR and the owner record's TTL) and no amount of waiting will clear it before
- * the scrubber runs, so the deadline is exactly right there.
+ * frees the moment one of those builds finishes. An org whose counter sits ABOVE
+ * its owner records is stuck: the counter leaked (a release under-counted, or
+ * the counter key outlived owners the scrubber already dropped) and no amount
+ * of waiting will clear it before the scrubber or the TTL does, so the deadline
+ * is exactly right there.
  *
  * NOTE on the obvious shortcut: "does the org have builds running" cannot be
  * answered with `counter > 0`. A denial means the INCR exceeded the cap, so the
@@ -451,7 +446,7 @@ export async function scrubOrgSlots(): Promise<void> {
 
     const activeStates = ['active', 'waiting', 'delayed'] as const;
     // Qualify each live job id by its queue name. BullMQ job ids are
-    // per-queue-monotonic, so the four per-tier queues (+ DLQ) mint colliding
+    // per-queue-monotonic, so the per-tier queues (+ DLQ) mint colliding
     // bare ids; a bare-id set would treat a job in one queue as "live" for a
     // same-id owner recorded from another queue, defeating the scrub. The owner
     // hash is keyed `${queueName}:${jobId}` (see the processor), so match that.

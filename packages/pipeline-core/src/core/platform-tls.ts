@@ -10,12 +10,9 @@ import { rootCertificates } from 'tls';
  *
  * `PLATFORM_CA_BUNDLE` holds the PEM text of the CA (chain). Set where
  * `pipeline-manager pipeline synth/deploy` runs, it is (1) trusted by the CLI's
- * own API client, (2) propagated by the synth into every CodeBuild step's
- * environment — so the self-mutating synth's plugin lookup verifies against it
- * — and (3) into the plugin-lookup Lambda's environment. PEM text rather than a
- * path because none of those three share a filesystem.
- *
- * Dependency-free so the plugin-lookup Lambda can bundle it.
+ * own API client, and (2) propagated by the synth into every CodeBuild step's
+ * environment — so the self-mutating synth's plugin lookup verifies against it.
+ * PEM text rather than a path because the two share no filesystem.
  */
 export const PLATFORM_CA_BUNDLE_ENV = 'PLATFORM_CA_BUNDLE';
 
@@ -51,7 +48,7 @@ export function platformCaList(env: NodeJS.ProcessEnv = process.env): string[] |
  * Read at synth time and carried into the pipeline, where `false`:
  *   - appends `--no-verify-ssl` to the self-mutating synth's bootstrap command,
  *   - sets `NODE_TLS_REJECT_UNAUTHORIZED=0` (and this knob) on every CodeBuild
- *     step and on the plugin-lookup Lambda.
+ *     step.
  * The CLI still refuses an unverified connection that carries credentials when
  * `NODE_ENV=production`, so the knob cannot quietly reach a production run.
  *

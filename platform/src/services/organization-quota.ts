@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { isSystemOrgId, createLogger, getServiceAuthHeader, QUOTA_TIERS, TIER_FEATURES, VALID_TIERS, tierAllowsTeams, type QuotaTierLimits } from '@pipeline-builder/api-core';
+import { isSystemOrgId, createLogger, getServiceAuthHeader, PLAN_TIERS, TIER_FEATURES, VALID_TIERS, tierAllowsTeams, type PlanTierLimits } from '@pipeline-builder/api-core';
 import type { ClientSession, Types } from 'mongoose';
 import { SYSTEM_ORG_LIMIT_FORBIDDEN, ORG_SEAT_LIMIT_NOT_ROOT } from './org-errors.js';
 import { config } from '../config/index.js';
@@ -14,7 +14,7 @@ import {
   type QuotaType,
 } from '../middleware/quota.js';
 import { Organization, User, UserOrganization } from '../models/index.js';
-import type { QuotaTier } from '../models/organization.js';
+import type { PlanTier } from '../models/organization.js';
 import { withMongoTransaction } from '../utils/mongo-tx.js';
 
 const logger = createLogger('organization-service');
@@ -27,8 +27,8 @@ const logger = createLogger('organization-service');
 const RETENTION_DIMS = ['eventRetentionDays', 'doraRetentionDays'] as const;
 
 /**
- * The org-doc `quotas` a tier's preset reseeds, from `QUOTA_TIERS[tier].limits`
- * (so every QuotaTierLimits field stays in lockstep) — never the billing-owned
+ * The org-doc `quotas` a tier's preset reseeds, from `PLAN_TIERS[tier].limits`
+ * (so every PlanTierLimits field stays in lockstep) — never the billing-owned
  * {@link RETENTION_DIMS}, which live only on `dora_settings`.
  *
  * `seats` is the one dim a bundle raises DIRECTLY on the org doc (billing's
@@ -40,9 +40,9 @@ const RETENTION_DIMS = ['eventRetentionDays', 'doraRetentionDays'] as const;
  * pushes it through `setSeatLimit`. Every other dim is synced to the quota
  * SERVICE by billing, so reseeding the org-doc copy to the new base is correct.
  */
-export function tierBaseQuotaSet(tier: QuotaTier, currentSeats: number | undefined): QuotaTierLimits {
-  const quotas: QuotaTierLimits = { ...QUOTA_TIERS[tier].limits };
-  for (const dim of RETENTION_DIMS) delete (quotas as Partial<QuotaTierLimits>)[dim];
+export function tierBaseQuotaSet(tier: PlanTier, currentSeats: number | undefined): PlanTierLimits {
+  const quotas: PlanTierLimits = { ...PLAN_TIERS[tier].limits };
+  for (const dim of RETENTION_DIMS) delete (quotas as Partial<PlanTierLimits>)[dim];
   if (typeof currentSeats === 'number' && typeof quotas.seats === 'number') {
     if (currentSeats === -1) quotas.seats = -1;
     else if (quotas.seats !== -1 && currentSeats > quotas.seats) quotas.seats = currentSeats;
@@ -129,17 +129,17 @@ async function bumpActiveMembersClaimsVersion(
  * Whether moving from `prev` to `next` is a tier DOWNGRADE — a strictly lower
  * rank in the developer < pro < team < enterprise order (VALID_TIERS). Pure;
  * shared by setTier + setSeatLimit's billing tier-push so the rank comparison
- * can't drift. Both arguments are `QuotaTier`: `Organization.tier` is a required,
+ * can't drift. Both arguments are `PlanTier`: `Organization.tier` is a required,
  * enum-constrained field with a default, so every org carries a valid tier.
  *
  * LOAD-BEARING INVARIANT: the rank is `VALID_TIERS.indexOf(...)`, and
- * `VALID_TIERS = Object.keys(QUOTA_TIERS)` — so downgrade semantics derive
- * ENTIRELY from the DECLARATION ORDER of `QUOTA_TIERS`' keys (developer < pro <
+ * `VALID_TIERS = Object.keys(PLAN_TIERS)` — so downgrade semantics derive
+ * ENTIRELY from the DECLARATION ORDER of `PLAN_TIERS`' keys (developer < pro <
  * team < enterprise). Reordering those keys silently reorders the tier ranks and
  * flips what counts as a downgrade (and thus which changes invalidate tokens).
- * Keep `QUOTA_TIERS` keys in ascending-tier order.
+ * Keep `PLAN_TIERS` keys in ascending-tier order.
  */
-function isTierDowngrade(prev: QuotaTier, next: QuotaTier): boolean {
+function isTierDowngrade(prev: PlanTier, next: PlanTier): boolean {
   return VALID_TIERS.indexOf(next) < VALID_TIERS.indexOf(prev);
 }
 
@@ -209,7 +209,7 @@ export interface SeatLimitResult {
   seats: number;
   featureDelta?: FeatureDelta;
   /** The root's limits BEFORE this write (absent fields were never set). */
-  previous: { seats?: number; supportContacts?: number; supportPremiumContacts?: number; tier?: QuotaTier };
+  previous: { seats?: number; supportContacts?: number; supportPremiumContacts?: number; tier?: PlanTier };
 }
 
 /**
@@ -234,7 +234,7 @@ export async function setSeatLimit(
   orgId: string,
   seats: number,
   features?: string[],
-  tier?: QuotaTier,
+  tier?: PlanTier,
   supportContacts?: number,
   supportPremiumContacts?: number,
 ): Promise<SeatLimitResult | null> {
@@ -333,7 +333,7 @@ export async function setSeatLimit(
       ...(quotas?.seats !== undefined ? { seats: quotas.seats } : {}),
       ...(quotas?.supportContacts !== undefined ? { supportContacts: quotas.supportContacts } : {}),
       ...(quotas?.supportPremiumContacts !== undefined ? { supportPremiumContacts: quotas.supportPremiumContacts } : {}),
-      ...(current?.tier ? { tier: current.tier as QuotaTier } : {}),
+      ...(current?.tier ? { tier: current.tier as PlanTier } : {}),
     };
     return { rootOrgId, seats, featureDelta, previous };
   });
@@ -352,9 +352,9 @@ export async function setSeatLimit(
  */
 export async function checkTierOvercap(
   orgId: string,
-  newTier: QuotaTier,
+  newTier: PlanTier,
 ): Promise<Array<{ quotaType: string; currentUsage: number; targetCap: number; overage: number }>> {
-  const limits = QUOTA_TIERS[newTier].limits;
+  const limits = PLAN_TIERS[newTier].limits;
   const overages: Array<{ quotaType: string; currentUsage: number; targetCap: number; overage: number }> = [];
 
   // Resolve the account subtree once (shared by the team-stranding + pooled
@@ -446,7 +446,7 @@ export async function checkTierOvercap(
  * operations decoupled because partial failure of the remote quota
  * service shouldn't leave the org-doc tier unchanged.
  */
-export async function setTier(id: string, newTier: QuotaTier): Promise<{ id: string; previousTier: QuotaTier; tier: QuotaTier; featuresRemoved?: string[] } | null> {
+export async function setTier(id: string, newTier: PlanTier): Promise<{ id: string; previousTier: PlanTier; tier: PlanTier; featuresRemoved?: string[] } | null> {
   // The system org's tier is a CONSTANT, not a stored value: `constantTierFor`
   // answers `unlimited` for it without a lookup, so writing one here cannot
   // change what the services read — it only replaces the uncapped quota seeding

@@ -97,8 +97,8 @@ export function loadDatabaseConfig(): DatabaseConfig {
     },
     drizzle: {
       maxPoolSize: envInt('DRIZZLE_MAX_POOL_SIZE', 20),
-      idleTimeoutMillis: envInt('DRIZZLE_IDLE_TIMEOUT_MILLIS', 30_000),
-      connectionTimeoutMillis: envInt('DRIZZLE_CONNECTION_TIMEOUT_MILLIS', 10_000),
+      idleTimeoutMillis: envInt('DRIZZLE_IDLE_TIMEOUT_MS', 30_000),
+      connectionTimeoutMillis: envInt('DRIZZLE_CONNECTION_TIMEOUT_MS', 10_000),
     },
   };
 }
@@ -118,7 +118,6 @@ export function loadObservabilityConfig(): ObservabilityConfig {
 export function loadComplianceConfig(): ComplianceConfig {
   return {
     scanSchedulerIntervalMs: envInt('SCAN_SCHEDULER_INTERVAL_MS', 60_000),
-    systemOrgScansEnabled: envBool('SYSTEM_ORG_SCANS_ENABLED', false),
     // Crash-recovery window, not a run-duration cover: the lock heartbeats.
     scanLockTtlMs: envInt('SCAN_LOCK_TTL_MS', 120_000),
     digestSchedulerIntervalMs: envInt('DIGEST_SCHEDULER_INTERVAL_MS', 3_600_000),
@@ -153,11 +152,6 @@ export function loadDockerConfig(): BuildConfig {
  * Load AWS infrastructure configuration from environment variables.
  *
  * Environment variables:
- * - `LAMBDA_RUNTIME` — Lambda runtime (default: `'nodejs26.x'`, a PUBLIC PREVIEW
- *   runtime; unknown values fall back to it). Set `nodejs24.x` to stay on GA.
- * - `LAMBDA_TIMEOUT` — Lambda timeout in seconds (default: `900`)
- * - `LAMBDA_MEMORY_SIZE` — Lambda memory in MB (default: `512`)
- * - `LAMBDA_ARCHITECTURE` — `'x86_64'` or ARM (default: ARM_64)
  * - `LOG_GROUP_NAME` — CloudWatch log group (default: `'/pipeline-builder/logs'`)
  * - `CODEBUILD_COMPUTE_TYPE` — CodeBuild compute type (default: `'SMALL'`)
  *
@@ -165,16 +159,6 @@ export function loadDockerConfig(): BuildConfig {
  */
 export function loadAWSConfig(): AWSConfig {
   return {
-    lambda: {
-      runtime: envStr('LAMBDA_RUNTIME', 'nodejs26.x'),
-      timeoutSeconds: envInt('LAMBDA_TIMEOUT', 900),
-      memorySize: envInt('LAMBDA_MEMORY_SIZE', 512),
-      architecture: process.env.LAMBDA_ARCHITECTURE === 'x86_64' ? 'x86_64' : 'arm64',
-      reservedConcurrentExecutions: process.env.LAMBDA_RESERVED_CONCURRENCY
-        ? envInt('LAMBDA_RESERVED_CONCURRENCY', 0)
-        : undefined,
-    },
-
     logging: {
       groupName: envStr('LOG_GROUP_NAME', '/pipeline-builder/logs'),
     },

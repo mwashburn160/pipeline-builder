@@ -15,11 +15,11 @@
  *  - the card can render CURRENT → PROPOSED instead of a wall of new JSON;
  *  - the commit payload is exactly `pick(proposed, changedFields)`, so a field
  *    the model slipped in that the card never showed is structurally
- *    unappliable (design rule 3);
+ *    unappliable — the reviewed diff IS the commit payload;
  *  - `current` doubles as the re-read baseline the UI checks before applying,
- *    because none of these tables carries a version column (design rule 7).
+ *    because none of these tables carries a version column.
  *
- * Each tool has its OWN allowlist of editable fields (design rule 1). The plugin
+ * Each tool has its OWN allowlist of editable fields. The plugin
  * one is not written out here at all — it IS `PLUGIN_CATALOG_FIELDS`, the same
  * table `PUT /plugins/:id` accepts, so the agent can never be offered an
  * execution-contract key (commands, env, compute type) that the API would refuse
@@ -161,11 +161,15 @@ export function editTools(deps: AgentToolDeps): ToolSet {
         reason: z.string().max(500).optional().describe('One sentence: what this change does and why'),
       }),
       execute: async ({ id, changes, reason }) => {
+        let currentDoc: Record<string, unknown> = {};
         const proposal = await proposeEdit({
           kind: 'plugin-edit',
           toolName: 'propose_plugin_edit',
           id,
-          read: async () => named(unwrap(await plugin.get(`/plugins/${encodeURIComponent(id)}`)), 'plugin'),
+          read: async () => {
+            currentDoc = named(unwrap(await plugin.get(`/plugins/${encodeURIComponent(id)}`)), 'plugin');
+            return currentDoc;
+          },
           allowed: PLUGIN_EDIT_FIELDS,
           changes: asRecord(changes),
           reason,
@@ -174,10 +178,13 @@ export function editTools(deps: AgentToolDeps): ToolSet {
         });
         if (!('changedFields' in proposal)) return proposal;
         // Catalog fields such as `keywords` and `category` are readable by
-        // compliance rules, so the edited spec is dry-run like any other draft.
+        // compliance rules, so the edited spec is dry-run like any other draft —
+        // the WHOLE spec as it would stand after the edit. `proposal.current`
+        // holds only the changed fields, so judging that alone left every rule
+        // on an untouched field (name, publisher, compute type…) reading absent.
         return {
           ...proposal,
-          compliance: await checkDraft(deps, 'plugin', pluginAttributes({ ...proposal.current, ...proposal.proposed })),
+          compliance: await checkDraft(deps, 'plugin', pluginAttributes({ ...currentDoc, ...proposal.proposed })),
         };
       },
     }),

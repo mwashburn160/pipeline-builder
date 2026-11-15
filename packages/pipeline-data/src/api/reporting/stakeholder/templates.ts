@@ -14,11 +14,11 @@
  * Section ORDER is the reading order. It is deliberate and worth preserving.
  */
 
-import { getSection } from './sections.js';
+import { getReportSection } from './sections.js';
 import type { ReportCadence, ReportTemplate } from '../../../database/schema/reporting-stakeholder.js';
 
 /** A named, ordered section list with the cadence it is designed for. */
-export interface TemplateSpec {
+export interface ReportTemplateSpec {
   id: ReportTemplate;
   /** What a lead picks in the UI. */
   label: string;
@@ -29,7 +29,7 @@ export interface TemplateSpec {
   sections: readonly string[];
 }
 
-export const REPORT_TEMPLATE_SPECS: readonly TemplateSpec[] = [
+export const REPORT_TEMPLATE_SPECS: readonly ReportTemplateSpec[] = [
   {
     id: 'weekly_delivery',
     label: 'Weekly delivery summary',
@@ -99,7 +99,7 @@ export const REPORT_TEMPLATE_SPECS: readonly TemplateSpec[] = [
 ];
 
 /** Look a template up by id. */
-export function getTemplate(id: string): TemplateSpec | undefined {
+export function getReportTemplate(id: string): ReportTemplateSpec | undefined {
   return REPORT_TEMPLATE_SPECS.find((t) => t.id === id);
 }
 
@@ -111,7 +111,7 @@ export function getTemplate(id: string): TemplateSpec | undefined {
 export function assertTemplatesResolve(): void {
   for (const template of REPORT_TEMPLATE_SPECS) {
     for (const id of template.sections) {
-      if (!getSection(id)) {
+      if (!getReportSection(id)) {
         throw new Error(
           `Template "${template.id}" names unknown section "${id}". `
           + 'Register it in sections.ts or remove it from the template.',

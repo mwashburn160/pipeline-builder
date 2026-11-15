@@ -289,18 +289,14 @@ The pipeline definition is synthesized into an AWS CloudFormation template using
 sequenceDiagram
     participant CLI as pipeline-manager
     participant CDK as CDK Constructs
-    participant Lambda as Plugin Lookup<br/>Lambda
     participant API as Platform API
 
-    CLI->>CDK: cdk synth / cdk deploy
+    CLI->>API: POST /api/plugins/lookup (every plugin)
+    API-->>CLI: Plugin config (commands, env, computeType, imageDigest)
+    Note over CLI: Any plugin that does not resolve fails the synth
+    CLI->>CDK: cdk synth / cdk deploy (resolved props)
     CDK->>CDK: PipelineBuilder(props)
-    CDK->>CDK: Create PluginLookup (Custom Resource + Lambda)
-
-    Note over CDK,Lambda: At deploy time (CloudFormation)
-    CDK->>Lambda: Resolve stage plugins
-    Lambda->>API: POST /api/plugins/lookup
-    API-->>Lambda: Plugin config (commands, env, computeType)
-    Lambda-->>CDK: Base64-encoded plugin data
+    CDK->>CDK: PluginLookup hands each step its resolved record
 
     CDK->>CDK: Create CodeBuildStep per stage/step
     CDK->>CDK: Assemble CodePipeline (Source → Synth → Stages)
@@ -311,7 +307,9 @@ sequenceDiagram
 before synth. For a plugin that runs on its own image, the plugin service first runs
 `cosign verify` against the plugin-signing public key and answers **409
 `IMAGE_VERIFICATION_FAILED`** if the signature doesn't verify (or the plugin has no
-signed digest) — which aborts the synth rather than falling back. The synthesized
+signed digest) — which aborts the synth. So does every other plugin that does
+not resolve (not found, not installed, the platform unreachable): a step never
+ships without its plugin. The synthesized
 CodeBuild image is then pinned **by digest** (`<repo>@sha256:…`), never by the
 mutable `name:version` tag.
 

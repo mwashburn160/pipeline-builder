@@ -16,7 +16,7 @@
  */
 
 import { quotaPackUnit } from '@pipeline-builder/api-core/quota-catalog';
-import type { Bundle, BillingInterval, DisplayedQuotaType, QuotaTier } from '@/types';
+import type { Bundle, BillingInterval, DisplayedQuotaType, PlanTier } from '@/types';
 
 export interface QuotaPackOffer {
   bundleId: string;
@@ -47,7 +47,7 @@ export function packForQuota(
   type: DisplayedQuotaType,
   bundles: readonly Bundle[],
   interval: BillingInterval,
-  tier?: QuotaTier,
+  tier?: PlanTier,
 ): QuotaPackOffer | null {
   const unit = quotaPackUnit(type);
   const candidates = bundles.filter((b) => {

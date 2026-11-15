@@ -82,13 +82,15 @@ jest.unstable_mockModule('../src/models/subscription.js', () => ({
 }));
 
 const mockPendingCreate = jest.fn<AnyFn>();
+const mockPendingFindOne = jest.fn<AnyFn>();
 const mockPendingFindOneAndDelete = jest.fn<AnyFn>();
 const mockPendingDeleteMany = jest.fn(async (..._args: unknown[]) => ({ deletedCount: 0 }));
 jest.unstable_mockModule('../src/models/marketplace-pending-registration.js', () => ({
   MarketplacePendingRegistration: {
     create: (...a: unknown[]) => mockPendingCreate(...a),
-    // resolve supersedes prior unclaimed rows; claim atomically consumes.
+    // resolve supersedes prior unclaimed rows; claim reads, then atomically consumes.
     deleteMany: (...a: unknown[]) => mockPendingDeleteMany(...a),
+    findOne: (...a: unknown[]) => mockPendingFindOne(...a),
     findOneAndDelete: (...a: unknown[]) => mockPendingFindOneAndDelete(...a),
   },
   PENDING_REGISTRATION_TTL_MS: 1_800_000,
@@ -258,10 +260,24 @@ describe('POST /marketplace/claim', () => {
     planId: 'team',
     dimension: 'team-dim',
     interval: 'monthly',
+    expiresAt: new Date('2099-01-01T00:00:00.000Z'),
   };
 
-  it('binds the pending registration to the CALLER\'s org and consumes it', async () => {
+  /** The registration is live: the read finds it and the consume wins it. */
+  function livePending(): void {
+    mockPendingFindOne.mockResolvedValue(PENDING);
     mockPendingFindOneAndDelete.mockResolvedValue(PENDING);
+  }
+
+  /** A refused claim must never touch the registration: the buyer retries it. */
+  function expectRegistrationUntouched(): void {
+    expect(mockPendingFindOneAndDelete).not.toHaveBeenCalled();
+    expect(mockPendingCreate).not.toHaveBeenCalled();
+    expect(mockSubscriptionCreate).not.toHaveBeenCalled();
+  }
+
+  it('binds the pending registration to the CALLER\'s org and consumes it', async () => {
+    livePending();
     const req: any = { body: { registrationRef: 'ref-1' }, orgId: 'org-real', userId: 'user-1' };
     const res = mockRes();
     await handler(req, res);
@@ -276,38 +292,94 @@ describe('POST /marketplace/claim', () => {
     // never the caller's user id passed as an Authorization header; the ref is
     // consumed atomically by the findOneAndDelete (single-use even under a race).
     expect(mockSyncEntitlements).toHaveBeenCalledWith('org-real', 'team', '', 'sub-created-1', expect.anything());
-    expect(mockPendingFindOneAndDelete).toHaveBeenCalledWith({ _id: 'ref-1' });
+    expect(mockPendingFindOneAndDelete).toHaveBeenCalledWith({ _id: 'ref-1', expiresAt: { $gt: expect.any(Date) } });
+    expect(mockPendingCreate).not.toHaveBeenCalled();
 
     const [, status] = mockSendSuccess.mock.calls[0];
     expect(status).toBe(201);
   });
 
   it('410s when the registration is missing or expired', async () => {
-    mockPendingFindOneAndDelete.mockResolvedValue(null);
+    mockPendingFindOne.mockResolvedValue(null);
     const req: any = { body: { registrationRef: 'gone' }, orgId: 'org-real', userId: 'user-1' };
     await handler(req, mockRes());
     expect(mockSendError).toHaveBeenCalledWith(expect.anything(), 410, expect.any(String), expect.anything());
-    expect(mockSubscriptionCreate).not.toHaveBeenCalled();
+    // An expired row the TTL reaper hasn't swept yet is still refused.
+    expect(mockPendingFindOne).toHaveBeenCalledWith({ _id: 'gone', expiresAt: { $gt: expect.any(Date) } });
+    expectRegistrationUntouched();
   });
 
-  it('409s when the AWS customer is already bound to another org', async () => {
-    mockPendingFindOneAndDelete.mockResolvedValue(PENDING);
+  it('410s without binding when a concurrent claim consumed the ref after the checks', async () => {
+    mockPendingFindOne.mockResolvedValue(PENDING);
+    mockPendingFindOneAndDelete.mockResolvedValue(null); // the other racer won
+    const req: any = { body: { registrationRef: 'ref-1' }, orgId: 'org-real', userId: 'user-1' };
+    await handler(req, mockRes());
+    expect(mockSendError).toHaveBeenCalledWith(expect.anything(), 410, expect.any(String), expect.anything());
+    expect(mockSubscriptionCreate).not.toHaveBeenCalled();
+    expect(mockSyncEntitlements).not.toHaveBeenCalled();
+  });
+
+  it('409s when the AWS customer is already bound to another org — and leaves the ref claimable', async () => {
+    livePending();
     mockSubscriptionFindOne.mockResolvedValueOnce({ _id: { toString: () => 'x' }, orgId: 'other', status: 'active' });
     const req: any = { body: { registrationRef: 'ref-1' }, orgId: 'org-real', userId: 'user-1' };
     await handler(req, mockRes());
     expect(mockSendError).toHaveBeenCalledWith(expect.anything(), 409, expect.stringContaining('already linked'), expect.anything());
-    expect(mockSubscriptionCreate).not.toHaveBeenCalled();
+    expectRegistrationUntouched();
   });
 
-  it('409s when the caller org already has an active subscription', async () => {
-    mockPendingFindOneAndDelete.mockResolvedValue(PENDING);
+  it('409s when the caller org already has a manageable subscription — and leaves the ref claimable', async () => {
+    livePending();
     mockSubscriptionFindOne
       .mockResolvedValueOnce(null) // not bound elsewhere
       .mockResolvedValueOnce({ _id: { toString: () => 'y' }, orgId: 'org-real', status: 'active' }); // org already active
     const req: any = { body: { registrationRef: 'ref-1' }, orgId: 'org-real', userId: 'user-1' };
     await handler(req, mockRes());
     expect(mockSendError).toHaveBeenCalledWith(expect.anything(), 409, expect.stringContaining('already has an active'), expect.anything());
-    expect(mockSubscriptionCreate).not.toHaveBeenCalled();
+    // The per-org check covers the whole manageable set, matching the unique index.
+    expect(mockSubscriptionFindOne).toHaveBeenLastCalledWith({ orgId: 'org-real', status: { $in: ['active', 'trialing', 'past_due'] } });
+    expectRegistrationUntouched();
+  });
+
+  it('500s on an unmappable plan — and leaves the ref claimable', async () => {
+    livePending();
+    mockPlanFindOne.mockResolvedValue(null);
+    const req: any = { body: { registrationRef: 'ref-1' }, orgId: 'org-real', userId: 'user-1' };
+    await handler(req, mockRes());
+    expect(mockSendError).toHaveBeenCalledWith(expect.anything(), 500, expect.any(String), expect.anything());
+    expectRegistrationUntouched();
+  });
+
+  it('restores the registration when a concurrent claim for the same org wins the unique index', async () => {
+    livePending();
+    mockSubscriptionCreate.mockRejectedValue(Object.assign(new Error('dup'), { code: 11000, keyPattern: { orgId: 1 } }));
+    const req: any = { body: { registrationRef: 'ref-1' }, orgId: 'org-real', userId: 'user-1' };
+    await handler(req, mockRes());
+
+    expect(mockSendError).toHaveBeenCalledWith(expect.anything(), 409, expect.stringContaining('already has an active'), expect.anything());
+    expect(mockPendingCreate).toHaveBeenCalledTimes(1);
+    expect(mockPendingCreate.mock.calls[0][0]).toEqual(expect.objectContaining({
+      _id: 'ref-1', awsLicenseArn: LICENSE, planId: 'team', interval: 'monthly', expiresAt: PENDING.expiresAt,
+    }));
+    expect(mockSyncEntitlements).not.toHaveBeenCalled();
+  });
+
+  it('restores the registration and names the license when another org bound it concurrently', async () => {
+    livePending();
+    mockSubscriptionCreate.mockRejectedValue(Object.assign(new Error('dup'), { code: 11000, keyPattern: { 'metadata.awsLicenseArn': 1 } }));
+    const req: any = { body: { registrationRef: 'ref-1' }, orgId: 'org-real', userId: 'user-1' };
+    await handler(req, mockRes());
+
+    expect(mockSendError).toHaveBeenCalledWith(expect.anything(), 409, expect.stringContaining('already linked'), expect.anything());
+    expect(mockPendingCreate).toHaveBeenCalledTimes(1);
+  });
+
+  it('restores the registration and rethrows on a non-duplicate create failure', async () => {
+    livePending();
+    mockSubscriptionCreate.mockRejectedValue(new Error('mongo down'));
+    const req: any = { body: { registrationRef: 'ref-1' }, orgId: 'org-real', userId: 'user-1' };
+    await expect(handler(req, mockRes())).rejects.toThrow('mongo down');
+    expect(mockPendingCreate).toHaveBeenCalledTimes(1);
   });
 
   it('400s when registrationRef is missing', async () => {

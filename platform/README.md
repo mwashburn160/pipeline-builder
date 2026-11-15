@@ -47,7 +47,7 @@ The route families:
 | `/scim/*` | SCIM 2.0 provisioning |
 | `/admin/*` | Platform-operator surfaces (org IdP, KMS, namespaces, grants, impersonation, summary) |
 | `/internal/*` | Service-to-service routes (service-token auth) |
-| `/config`, `/health`, `/metrics` | Client config, health, Prometheus |
+| `/config`, `/health`, `/ready`, `/metrics`, `/.well-known/jwks.json` | Client config, liveness and readiness probes, Prometheus, the user-token public key set |
 
 ## Configuration
 
@@ -62,8 +62,7 @@ All config is read from environment variables (see `src/config/index.ts`). The E
 | `TOKEN_SIGNING_KMS_KEY_ID` | KMS key **alias** in `kms` mode (`ECC_NIST_P256`, `SIGN_VERIFY`) | — |
 | `SERVICE_SIGNING_KEY_FILE` | Platform's OWN ES256 key for the internal service tokens it mints. Cannot mint a user token | required |
 | `SERVICE_KEY_BUNDLE_FILE` | The public per-service key bundle it verifies peers' tokens with | required |
-| `JWT_EXPIRES_IN` | Access-token TTL (seconds) | `7200` |
-| `JWT_ALGORITHM` | Algorithm of the internal service tokens (user tokens are always ES256) | `HS256` |
+| `JWT_EXPIRES_IN` | Access-token TTL (seconds); `JWT_EXPIRES_IN_<TIER>` overrides it per tier | `900` |
 | `REFRESH_TOKEN_EXPIRES_IN` | Refresh-token TTL (seconds) | `2592000` |
 | `BCRYPT_SALT_ROUNDS` | bcrypt cost factor for password hashing | `12` |
 | `PASSWORD_MIN_LENGTH` | Minimum password length | `8` |
@@ -73,8 +72,8 @@ All config is read from environment variables (see `src/config/index.ts`). The E
 | `AUDIT_RETENTION_DAYS` | Audit-event retention (TTL index) | `90` |
 | `BOOTSTRAP_SUPERADMIN_EMAILS` | Emails granted `isSuperAdmin` at startup | — |
 | `MONGO_MAX_POOL` / `MONGO_MIN_POOL` | Mongoose connection pool bounds | `20` / `2` |
-| `LIMITER_MAX` / `LIMITER_WINDOWMS` | General rate-limit budget and window (ms) | `100` / `900000` |
-| `AUTH_LIMITER_MAX` / `AUTH_LIMITER_WINDOWMS` | Auth-endpoint rate-limit budget and window (ms) | `20` / `900000` |
+| `LIMITER_MAX` / `LIMITER_WINDOW_MS` | General rate-limit budget and window (ms) | `100` / `900000` |
+| `AUTH_LIMITER_MAX` / `AUTH_LIMITER_WINDOW_MS` | Auth-endpoint rate-limit budget and window (ms) | `20` / `900000` |
 | `CORS_ORIGIN` / `CORS_CREDENTIALS` | Allowed origins (comma-separated) and credentials | frontend URL / `true` |
 | `TRUST_PROXY` | Express `trust proxy` hop count | `1` |
 

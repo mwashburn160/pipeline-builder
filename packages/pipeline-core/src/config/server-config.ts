@@ -38,7 +38,7 @@ export function loadServerConfig(): ServerConfig {
     platformUrl: process.env.PLATFORM_BASE_URL || CoreConstants.DEFAULT_PLATFORM_URL,
 
     httpClient: {
-      timeout: envInt('HTTP_CLIENT_TIMEOUT', 5_000),
+      timeout: envInt('HTTP_CLIENT_TIMEOUT_MS', 5_000),
       maxRetries: envInt('HTTP_CLIENT_MAX_RETRIES', 2),
       retryDelayMs: envInt('HTTP_CLIENT_RETRY_DELAY_MS', 200),
     },
@@ -60,7 +60,7 @@ export function loadServerConfig(): ServerConfig {
       ...endpoint('quota', 'quota'),
       ...endpoint('reporting', 'reporting'),
       ...endpoint('ask', 'ask'),
-      billingTimeout: envInt('BILLING_SERVICE_TIMEOUT', 5000, { min: 1 }),
+      billingTimeoutMs: envInt('BILLING_SERVICE_TIMEOUT_MS', 5000, { min: 1 }),
     },
   };
 }
@@ -93,14 +93,14 @@ export function loadAuthConfig(): AuthConfig {
  *
  * Environment variables:
  * - `LIMITER_MAX` — Max requests per window (default: `100`)
- * - `LIMITER_WINDOWMS` — Rate limit window in ms (default: `900000` = 15 minutes)
+ * - `LIMITER_WINDOW_MS` — Rate limit window in ms (default: `900000` = 15 minutes)
  *
  * @returns Rate limit configuration
  */
 export function loadRateLimitConfig(): RateLimitConfig {
   return {
     max: envInt('LIMITER_MAX', 100),
-    windowMs: envInt('LIMITER_WINDOWMS', 900_000),
+    windowMs: envInt('LIMITER_WINDOW_MS', 900_000),
   };
 }
 

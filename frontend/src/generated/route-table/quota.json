@@ -11,6 +11,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 0,
+    "conditionalGates": [],
     "features": [],
     "scopes": [],
     "audit": []
@@ -27,6 +28,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 0,
+    "conditionalGates": [],
     "features": [],
     "scopes": [],
     "audit": []
@@ -51,6 +53,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 0,
+    "conditionalGates": [],
     "features": [],
     "scopes": [],
     "audit": []
@@ -75,6 +78,7 @@
     "stepUp": true,
     "stepUpMethods": [],
     "minAssurance": 2,
+    "conditionalGates": [],
     "features": [],
     "scopes": [],
     "audit": [
@@ -102,6 +106,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 0,
+    "conditionalGates": [],
     "features": [],
     "scopes": [],
     "audit": []
@@ -126,6 +131,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 2,
+    "conditionalGates": [],
     "features": [],
     "scopes": [],
     "audit": [
@@ -153,6 +159,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 0,
+    "conditionalGates": [],
     "features": [],
     "scopes": [],
     "audit": []
@@ -177,6 +184,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 0,
+    "conditionalGates": [],
     "features": [],
     "scopes": [],
     "audit": []
@@ -204,6 +212,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 0,
+    "conditionalGates": [],
     "features": [],
     "scopes": [],
     "audit": []
@@ -231,6 +240,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 0,
+    "conditionalGates": [],
     "features": [],
     "scopes": [],
     "audit": []
@@ -255,6 +265,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 0,
+    "conditionalGates": [],
     "features": [],
     "scopes": [],
     "audit": []
@@ -279,6 +290,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 0,
+    "conditionalGates": [],
     "features": [],
     "scopes": [],
     "audit": [
@@ -299,6 +311,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 0,
+    "conditionalGates": [],
     "features": [],
     "scopes": [],
     "audit": []
@@ -323,6 +336,7 @@
     "stepUp": true,
     "stepUpMethods": [],
     "minAssurance": 2,
+    "conditionalGates": [],
     "features": [],
     "scopes": [],
     "audit": [
@@ -350,6 +364,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 0,
+    "conditionalGates": [],
     "features": [],
     "scopes": [],
     "audit": []
@@ -374,6 +389,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 2,
+    "conditionalGates": [],
     "features": [],
     "scopes": [],
     "audit": [],
@@ -399,6 +415,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 2,
+    "conditionalGates": [],
     "features": [],
     "scopes": [],
     "audit": [],
@@ -418,6 +435,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 0,
+    "conditionalGates": [],
     "features": [],
     "scopes": [],
     "audit": [
@@ -438,6 +456,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 0,
+    "conditionalGates": [],
     "features": [],
     "scopes": [],
     "audit": []
@@ -454,6 +473,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 0,
+    "conditionalGates": [],
     "features": [],
     "scopes": [],
     "audit": []
@@ -470,6 +490,7 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 0,
+    "conditionalGates": [],
     "features": [],
     "scopes": [],
     "audit": []

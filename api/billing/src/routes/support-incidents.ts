@@ -74,6 +74,12 @@ async function accountOrgOr503(res: Response, orgId: string): Promise<string | n
   }
 }
 
+/**
+ * NO `allowOrgHeaderOverride` on any route here, deliberately. The internal and
+ * admin routes name their org in the PATH, and the one account route reads the
+ * caller's OWN balance, so none of them has an active org for a sys-admin's
+ * `x-org-id` to replace.
+ */
 export function createSupportIncidentRoutes(): Router {
   const router: Router = Router();
 

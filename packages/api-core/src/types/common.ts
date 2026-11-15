@@ -3,7 +3,7 @@
 
 import type { Permission } from './permissions.js';
 import { QUOTA_CATALOG } from './quota-catalog.js';
-import type { QuotaTier } from './quota-tiers.js';
+import type { PlanTier } from './plan-tiers.js';
 import type { OrgRole } from './wire-vocabulary.js';
 
 /**
@@ -121,7 +121,7 @@ export type AssuranceLevel = 1 | 2;
  *   `plugins`: checked at publish-request submit and re-checked at approval;
  *   installs never count.
  */
-// NOTE: `seats` is intentionally NOT here. It's a tier limit (QuotaTierLimits)
+// NOTE: `seats` is intentionally NOT here. It's a tier limit (PlanTierLimits)
 // enforced by comparing the org's LIVE member count at invite time — not an
 // incrementing per-period counter like the consumable quotas below.
 export type QuotaType =
@@ -321,8 +321,8 @@ export interface JwtPayload {
    * "Pipeline Builder operator" with "customer tenant" in the data model.
    */
   isSuperAdmin?: boolean;
-  /** Organization's quota tier. */
-  tier?: QuotaTier;
+  /** Organization's plan tier. */
+  tier?: PlanTier;
   /** Resolved feature flags for this user/org */
   features?: string[];
   /**

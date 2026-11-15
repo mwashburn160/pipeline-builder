@@ -16,7 +16,7 @@ const SUBJECT_MAX = 500; // matches the `subject` varchar(500) column
 const CONTENT_MAX = 10000; // sane bound for a notification body (content is TEXT)
 
 /** Services allowed to author system notifications. */
-const NOTIFY_CALLERS = ['platform', 'billing', 'compliance', 'quota'] as const;
+const NOTIFY_CALLERS = ['platform', 'billing', 'compliance', 'quota', 'reporting'] as const;
 
 /**
  * Internal notification route (service-to-service only).
@@ -25,8 +25,9 @@ const NOTIFY_CALLERS = ['platform', 'billing', 'compliance', 'quota'] as const;
  * recipient org's inbox (optionally targeted to one user) and push the SSE ping,
  * WITHOUT a user session. Callers use api-core's `sendSystemNotification`:
  * platform (domain-join, impersonation, SCIM notices), billing (renewal
- * reminders), compliance (the in-app notification channel) and quota (the
- * usage-threshold notifier's "approaching / reached your limit" notices).
+ * reminders), compliance (the in-app notification channel), quota (the
+ * usage-threshold notifier's "approaching / reached your limit" notices) and
+ * reporting (stakeholder-report delivery's in-app notices).
  *
  * Gated by `requireAuth` + `requireInternalService` — a signed service token
  * from one of those callers, never a user session, mirroring the internal
@@ -53,11 +54,18 @@ export function createInternalNotifyRoutes(sseManager: SSEManager): Router {
   const router = Router();
 
   router.post('/internal/notify', requireAuth, requireInternalService({ callers: NOTIFY_CALLERS }), audited('message.notify.internal'), async (req: Request, res: Response) => {
-    const body = (req.body ?? {}) as { recipientOrgId?: string; recipientUserId?: string; subject?: string; content?: string; priority?: string };
-    const recipientUserId = body.recipientUserId;
-    const subject = body.subject?.trim();
-    const content = body.content?.trim();
-    const recipient = body.recipientOrgId?.trim().toLowerCase();
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    // Each field read as a string or not at all: a non-string used to throw on
+    // `.trim()` and answer 500 for what is a caller's 400.
+    const str = (v: unknown): string | undefined => (typeof v === 'string' ? v.trim() : undefined);
+    // An empty user id is "no target", not a target nobody holds — stored as ''
+    // it scoped the notification to a user that does not exist, so no member of
+    // the recipient org could ever see it.
+    const recipientUserId = str(body.recipientUserId) || undefined;
+    const subject = str(body.subject);
+    const content = str(body.content);
+    const recipient = str(body.recipientOrgId)?.toLowerCase();
+    const priority = body.priority;
 
     if (!recipient || !subject || !content) {
       return sendBadRequest(res, 'recipientOrgId, subject and content are required', ErrorCode.MISSING_REQUIRED_FIELD);
@@ -69,7 +77,7 @@ export function createInternalNotifyRoutes(sseManager: SSEManager): Router {
     if (subject.length > SUBJECT_MAX || content.length > CONTENT_MAX) {
       return sendBadRequest(res, 'subject or content exceeds the maximum length', ErrorCode.VALIDATION_ERROR);
     }
-    if (body.priority !== undefined && !(MESSAGE_PRIORITIES as readonly string[]).includes(body.priority)) {
+    if (priority !== undefined && (typeof priority !== 'string' || !(MESSAGE_PRIORITIES as readonly string[]).includes(priority))) {
       return sendBadRequest(res, `priority must be one of: ${MESSAGE_PRIORITIES.join(', ')}`, ErrorCode.VALIDATION_ERROR);
     }
 
@@ -82,7 +90,7 @@ export function createInternalNotifyRoutes(sseManager: SSEManager): Router {
         channel: 'notifications',
         subject,
         content,
-        ...(body.priority ? { priority: body.priority as MessagePriority } : {}),
+        ...(priority ? { priority: priority as MessagePriority } : {}),
         createdBy: SYSTEM_ACTOR_ID,
         updatedBy: SYSTEM_ACTOR_ID,
       };
@@ -115,7 +123,7 @@ export function createInternalNotifyRoutes(sseManager: SSEManager): Router {
         details: {
           caller: serviceNameOf(req.user) ?? 'unknown',
           targeted: !!recipientUserId,
-          priority: body.priority ?? null,
+          priority: priority ?? null,
         },
       });
 

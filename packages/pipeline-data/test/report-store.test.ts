@@ -44,9 +44,9 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 
 const {
   StakeholderReportStore,
-  hashToken,
-  mintToken,
-  MAX_BOUNCES,
+  hashReportToken,
+  mintReportToken,
+  MAX_REPORT_BOUNCES,
   MAX_SHARE_LINK_TTL_DAYS,
   DEFAULT_SHARE_LINK_TTL_DAYS,
 } = await import('../src/api/reporting/stakeholder/store.js');
@@ -112,7 +112,7 @@ const link = (over: Record<string, unknown> = {}) => ({
   id: 'link-1',
   orgId: ORG,
   runId: 'run-1',
-  tokenHash: hashToken('a-token'),
+  tokenHash: hashReportToken('a-token'),
   expiresAt: new Date('2026-10-21T12:00:00.000Z'),
   revokedAt: null,
   revokedBy: null,
@@ -131,6 +131,7 @@ const recipient = (over: Record<string, unknown> = {}) => ({
   displayName: null,
   verifiedAt: NOW,
   verificationTokenHash: null,
+  verificationIssuedAt: null,
   unsubscribedAt: null,
   bounceCount: 0,
   lastBounceAt: null,
@@ -156,14 +157,14 @@ describe('StakeholderReportStore', () => {
 
   describe('tokens', () => {
     it('stores only a hash, and the hash is not reversible to the token', () => {
-      const { token, tokenHash } = mintToken();
+      const { token, tokenHash } = mintReportToken();
       expect(tokenHash).toMatch(/^[0-9a-f]{64}$/);
       expect(tokenHash).not.toContain(token);
-      expect(hashToken(token)).toBe(tokenHash);
+      expect(hashReportToken(token)).toBe(tokenHash);
     });
 
     it('mints a distinct token every time', () => {
-      const tokens = new Set(Array.from({ length: 50 }, () => mintToken().token));
+      const tokens = new Set(Array.from({ length: 50 }, () => mintReportToken().token));
       expect(tokens.size).toBe(50);
     });
   });
@@ -456,7 +457,7 @@ describe('StakeholderReportStore', () => {
       });
       expect(token).toMatch(/^[A-Za-z0-9_-]{20,}$/);
       const values = tx.of('insert')[0].arg('values') as Record<string, unknown>;
-      expect(values.tokenHash).toBe(hashToken(token));
+      expect(values.tokenHash).toBe(hashReportToken(token));
       expect(JSON.stringify(values)).not.toContain(token);
       expect(created.id).toBe('link-1');
     });
@@ -549,12 +550,14 @@ describe('StakeholderReportStore', () => {
     it('normalizes the address and mints a verification token for a non-member', async () => {
       tx.queue([recipient({ verifiedAt: null, verificationTokenHash: 'placeholder' })]);
       const { verificationToken } = await store.upsertRecipient({
-        orgId: ORG, email: '  Manager@Acme.TEST ', createdBy: 'lead',
+        orgId: ORG, email: '  Manager@Acme.TEST ', createdBy: 'lead', now: NOW,
       });
       const values = tx.of('insert')[0].arg('values') as Record<string, unknown>;
       expect(values.email).toBe('manager@acme.test');
       expect(values.verifiedAt).toBeNull();
       expect(typeof values.verificationTokenHash).toBe('string');
+      // The verification window starts with the token.
+      expect(values.verificationIssuedAt).toEqual(NOW);
       // The returned row did not take OUR hash, so no token is handed back — a
       // token the row does not carry would never verify anything.
       expect(verificationToken).toBeUndefined();
@@ -576,7 +579,7 @@ describe('StakeholderReportStore', () => {
       });
       expect(typeof verificationToken).toBe('string');
       const used = (tx.of('insert')[0].arg('values') as { verificationTokenHash: string }).verificationTokenHash;
-      expect(hashToken(verificationToken as string)).toBe(used);
+      expect(hashReportToken(verificationToken as string)).toBe(used);
     });
 
     it('pre-verifies an org member and mints no token', async () => {
@@ -587,6 +590,7 @@ describe('StakeholderReportStore', () => {
       const values = tx.of('insert')[0].arg('values') as Record<string, unknown>;
       expect(values.verifiedAt).toEqual(NOW);
       expect(values.verificationTokenHash).toBeNull();
+      expect(values.verificationIssuedAt).toBeNull();
       expect(verificationToken).toBeUndefined();
     });
 
@@ -619,8 +623,9 @@ describe('StakeholderReportStore', () => {
 
     it('resends a verification only while the address is unverified', async () => {
       tx.queue([recipient({ verifiedAt: null })]);
-      const { token } = await store.resendVerification(ORG, 'rec-1');
-      expect((tx.of('update')[0].arg('set') as Record<string, unknown>).verificationTokenHash).toBe(hashToken(token));
+      const { token } = await store.resendVerification(ORG, 'rec-1', NOW);
+      // A new token, and a fresh window from now.
+      expect(tx.of('update')[0].arg('set')).toEqual({ verificationTokenHash: hashReportToken(token), verificationIssuedAt: NOW });
       expect(tx.of('update')[0].whereSql()).toContain('"verified_at" is null');
 
       tx.reset();
@@ -635,11 +640,13 @@ describe('StakeholderReportStore', () => {
       expect(verified?.id).toBe('rec-1');
       expect(scopes).toEqual([{ isSuperAdmin: true }]);
       const set = tx.of('update')[0].arg('set') as Record<string, unknown>;
-      expect(set).toMatchObject({ verifiedAt: NOW, verificationTokenHash: null });
+      expect(set).toMatchObject({ verifiedAt: NOW, verificationTokenHash: null, verificationIssuedAt: null });
       const where = tx.of('update')[0].whereSql();
       expect(where).toContain('"verified_at" is null');
       expect(where).toContain('"deleted_at" is null');
-      expect(where).toContain('"created_at" >');
+      // The window runs from when THIS token was minted, not from when the row was added.
+      expect(where).toContain('"verification_issued_at" >');
+      expect(where).not.toContain('"created_at"');
     });
 
     it('returns null for a token that matched nothing', async () => {
@@ -679,7 +686,7 @@ describe('StakeholderReportStore', () => {
       ['a removed address', recipient({ deletedAt: NOW }), false, 'removed'],
       ['an unsubscribed address', recipient({ unsubscribedAt: NOW }), false, 'unsubscribed'],
       ['an unverified address', recipient({ verifiedAt: null }), false, 'pending_verification'],
-      ['a bouncing address', recipient({ bounceCount: MAX_BOUNCES }), false, 'bouncing'],
+      ['a bouncing address', recipient({ bounceCount: MAX_REPORT_BOUNCES }), false, 'bouncing'],
     ])('deliverability of %s', (_case, row, deliverable, reason) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       expect(store.deliverability(row as any)).toEqual(reason ? { deliverable, reason } : { deliverable });
@@ -687,7 +694,7 @@ describe('StakeholderReportStore', () => {
 
     it('treats one bounce below the limit as still deliverable', () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      expect(store.deliverability(recipient({ bounceCount: MAX_BOUNCES - 1 }) as any).deliverable).toBe(true);
+      expect(store.deliverability(recipient({ bounceCount: MAX_REPORT_BOUNCES - 1 }) as any).deliverable).toBe(true);
     });
   });
 

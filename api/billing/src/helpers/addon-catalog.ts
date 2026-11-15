@@ -8,7 +8,7 @@
  * commit, and the entitlement/provider sync.
  */
 
-import { FEATURE_METADATA, TIER_FEATURES, isValidFeatureFlag, type QuotaTier, type BillingInterval } from '@pipeline-builder/api-core';
+import { FEATURE_METADATA, TIER_FEATURES, isValidFeatureFlag, type PlanTier, type BillingInterval } from '@pipeline-builder/api-core';
 import { activeComboCredits, comboBasisCents, getComboDiscounts, volumeCredits } from './combo-pricing.js';
 import { supportFloorLine } from './support-floor.js';
 import type { BundleConfig, ComboDiscountConfig } from '../config/billing-types.js';
@@ -31,7 +31,7 @@ export function applyAddon(addons: Addon[], bundleId: string, quantity: number):
 export function resolvePurchasableBundle(
   bundles: readonly BundleConfig[],
   bundleId: string,
-  tier: QuotaTier,
+  tier: PlanTier,
 ): { bundle: BundleConfig } | { error: string } {
   const bundle = bundles.find((b) => b.id === bundleId && b.isActive);
   if (!bundle) return { error: `Unknown bundle "${bundleId}"` };
@@ -59,7 +59,7 @@ function heldBundleIds(addons: readonly Addon[]): Set<string> {
  * (`TIER_FEATURES`) plus every flag a held bundle grants — the same union
  * `syncEntitlements` pushes to the platform.
  */
-function effectiveFeatureSet(tier: QuotaTier, addons: readonly Addon[], bundles: readonly BundleConfig[]): Set<string> {
+function effectiveFeatureSet(tier: PlanTier, addons: readonly Addon[], bundles: readonly BundleConfig[]): Set<string> {
   const held = heldBundleIds(addons);
   const features = new Set<string>(TIER_FEATURES[tier] ?? []);
   for (const b of bundles) {
@@ -101,7 +101,7 @@ export function bundleUnmetRequirement(
   bundle: BundleConfig,
   next: readonly Addon[],
   bundles: readonly BundleConfig[],
-  tier: QuotaTier,
+  tier: PlanTier,
 ): UnmetRequirement | null {
   const requires = bundle.requires ?? [];
   const requiresFeatures = bundle.requiresFeatures ?? [];
@@ -140,7 +140,7 @@ export function bundleRequiresError(
   bundle: BundleConfig,
   next: readonly Addon[],
   bundles: readonly BundleConfig[],
-  tier: QuotaTier,
+  tier: PlanTier,
 ): string | null {
   return bundleUnmetRequirement(bundle, next, bundles, tier)?.message ?? null;
 }
@@ -199,7 +199,7 @@ export function supportLevelConflictError(
 export function cascadeRemoveDependents(
   next: readonly Addon[],
   bundles: readonly BundleConfig[],
-  tier: QuotaTier,
+  tier: PlanTier,
 ): { addons: Addon[]; removed: string[] } {
   const byId = new Map(bundles.map((b) => [b.id, b]));
   let addons: Addon[] = [...next];
@@ -246,7 +246,7 @@ export function priceBreakdown(
   addons: Addon[],
   bundles: readonly BundleConfig[],
   interval: BillingInterval,
-  tier?: QuotaTier,
+  tier?: PlanTier,
   floorOverride?: { seats: number; floorCents: number } | undefined,
 ): { interval: string; items: { label: string; quantity: number; cents: number }[]; totalCents: number } {
   const key = interval === 'annual' ? 'annual' : 'monthly';

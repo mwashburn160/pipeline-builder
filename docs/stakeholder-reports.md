@@ -187,7 +187,7 @@ Adding an address goes through three checks:
 2. **Is the domain allowed?** Anything else is measured against the administrator's allowed-domain list. An **empty list means members only**, not "anyone" — the closed reading is the one that cannot leak a report because somebody forgot to configure something.
 3. **Does it need approval?** When the org requires it, an external address is stored unapproved and nothing is delivered until an administrator approves.
 
-An external address then **confirms by email** before the first delivery, so typing an address is never enough to make a report arrive at it. The confirmation is a POST from an explicit button on `/reports/confirm`, not a GET, because a mail scanner opening every link in an email would otherwise consume the token before the person clicked it.
+An external address then **confirms by email** before the first delivery, so typing an address is never enough to make a report arrive at it. The confirmation is a POST from an explicit button on `/reports/confirm`, not a GET, because a mail scanner opening every link in an email would otherwise consume the token before the person clicked it. A confirmation link is accepted for 7 days from when it was sent; **Resend** mints a new link with a fresh 7 days, and the old one stops working.
 
 The recipient list shows each address's real state — confirmed, awaiting confirmation, unsubscribed, bouncing — because a list that shows an address but not that it has never confirmed is how a report silently reaches nobody. Three bounces stop delivery; one does not, since a single bounce is often an out-of-office reply or a full mailbox.
 

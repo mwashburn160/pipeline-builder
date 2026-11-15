@@ -6,7 +6,7 @@
 -- quota limits (incl. the `seats` limit), and billing plans are NOT stored in
 -- Postgres — they live in MongoDB (quota, billing, and platform services). Seat
 -- enforcement is applied live at invite time against org membership. See
--- packages/api-core/src/types/quota-tiers.ts and mongodb-init.js. This file
+-- packages/api-core/src/types/plan-tiers.ts and mongodb-init.js. This file
 -- carries only the pipeline_builder relational schema (pipelines, plugins, …).
 -- ============================================================================
 
@@ -1772,6 +1772,9 @@ CREATE TABLE IF NOT EXISTS report_recipients (
     -- any address simply by typing it.
     verified_at TIMESTAMPTZ,
     verification_token_hash VARCHAR(64),
+    -- When the CURRENT verification token was minted (first send or a resend):
+    -- the 7-day window runs from here, so a link re-sent after day 7 verifies.
+    verification_issued_at TIMESTAMPTZ,
     unsubscribed_at TIMESTAMPTZ,
     -- The recipient's STABLE unsubscribe nonce, minted once with the row. Stored in the
     -- CLEAR, unlike every other token here: it authorizes one self-limiting action
@@ -2453,6 +2456,9 @@ CREATE TABLE IF NOT EXISTS plugin_review_reports (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     review_id UUID NOT NULL REFERENCES plugin_reviews(id) ON DELETE CASCADE,
     reporter_user_id TEXT NOT NULL,
+    -- The reporter's account (root) org. Reports from the listing owner's own
+    -- org never count toward the auto-hold.
+    reporter_org_id TEXT NOT NULL,
     -- 'security' reports never post publicly: they hold the review and open a
     -- private advisory draft.
     category VARCHAR(20) NOT NULL DEFAULT 'abuse'

@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * TENANT publisher + publish-request routes (docs/plugin-publishing.md
- * ). Everything here is a REQUEST or a RESTRICTION
+ * TENANT publisher + publish-request routes (docs/plugin-publishing.md).
+ * Everything here is a REQUEST or a RESTRICTION
  * of the caller's own reach — nothing a tenant route does admits, expands or
  * decides anything in the ecosystem (the governance test enforces that):
  *
@@ -15,7 +15,7 @@
  *   GET /plugins/publisher/insights plugins:read installs, k-anonymous adoption, health
  *   POST /plugins/publisher/listings/:listingId/pause plugins:publish pause a listing or a version
  *   POST /plugins/publisher/listings/:listingId/deprecate plugins:publish deprecate a listed version (narrows only)
- *   GET /plugins/publisher/advisories publishers:manage own advisories, incl. private drafts
+ *   GET /plugins/publisher/advisories plugins:read own advisories, incl. private drafts
  *   GET /plugins/publisher/incoming-transfers publishers:manage
  *   GET /plugins/publish-requests plugins:read
  *   GET /plugins/publish-requests/draft plugins:publish the request form

@@ -151,7 +151,7 @@ export function mountRoutes(app: Express, { quotaService, sseManager }: PluginRo
   app.use('/plugins', createStorageRoutes());
 
   // -- Queue status routes (MUST be before read routes so `/:id` can't catch "queue").
-  //    Every route owns its gate (requireSystemAdmin for the cross-org operator
+  //    Every route owns its gate (system-org `plugin_queue:manage` for the cross-org operator
   //    views, plugins:write for the org-scoped ones) so nothing leaks onto reads.
   app.use('/plugins/queue', createQueueStatusRoutes(quotaService));
 

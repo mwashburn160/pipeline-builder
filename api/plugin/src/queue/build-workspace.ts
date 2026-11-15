@@ -24,7 +24,7 @@ import { deletePluginArtifact, getPluginArtifactToFile } from '../services/plugi
 
 const logger = createLogger('plugin-build-queue');
 
-export function cleanupContextDir(dir: string): void {
+function cleanupContextDir(dir: string): void {
   if (dir && fs.existsSync(dir)) {
     try {
       fs.rmSync(dir, { recursive: true, force: true });
@@ -99,9 +99,14 @@ function isMissingObjectError(err: unknown): boolean {
  * cleanup) is oblivious to where it came from. Throws
  * {@link BuildContextMissingError} when the context is neither local nor in
  * object storage; a transient storage error propagates as-is (retryable).
+ *
+ * Resolves true when it rehydrated: the caller must then persist the new
+ * `contextDir` on the job ({@link recordRehydratedContext}). The temp-dir
+ * sweep protects only the dirs job data names, so an unrecorded rehydrated
+ * dir is deleted under a build that outlives the sweep age.
  */
-export async function ensureLocalBuildContext(buildRequest: BuildRequest): Promise<void> {
-  if (buildRequest.contextDir && fs.existsSync(buildRequest.contextDir)) return;
+export async function ensureLocalBuildContext(buildRequest: BuildRequest): Promise<boolean> {
+  if (buildRequest.contextDir && fs.existsSync(buildRequest.contextDir)) return false;
   if (!buildRequest.s3Key) {
     throw new BuildContextMissingError(`${buildRequest.contextDir} (no S3 key to restore from)`);
   }
@@ -117,11 +122,40 @@ export async function ensureLocalBuildContext(buildRequest: BuildRequest): Promi
       }
       throw err;
     }
-    await extractZipToDir(zipPath, extractDir);
+    try {
+      await extractZipToDir(zipPath, extractDir);
+    } catch (err) {
+      // A refused or failed extraction leaves whatever it wrote so far; nothing
+      // records this dir, so only the periodic temp-dir sweep would reclaim it.
+      cleanupContextDir(extractDir);
+      throw err;
+    }
   } finally {
     // The downloaded ZIP is only needed for extraction — drop it either way.
     try { fs.rmSync(zipPath, { force: true }); } catch { /* ignore */ }
   }
   buildRequest.contextDir = extractDir;
   logger.info('Rehydrated build context from object storage', { s3Key: buildRequest.s3Key, extractDir });
+  return true;
+}
+
+/**
+ * Persist a rehydrated `contextDir` on the job, where the uploader recorded
+ * the original — the place the temp-dir sweep reads the dirs it must not
+ * delete. Best-effort: a lost write leaves the dir unprotected only for a
+ * build that outlives the sweep age, and failing the build over it would be
+ * worse.
+ */
+export async function recordRehydratedContext(job: {
+  id?: string;
+  data: PluginBuildJobData;
+  updateData: (data: PluginBuildJobData) => Promise<void>;
+}, contextDir: string): Promise<void> {
+  try {
+    await job.updateData({ ...job.data, buildRequest: { ...job.data.buildRequest, contextDir } });
+  } catch (err) {
+    logger.warn('Could not record the rehydrated build context on the job; the temp-dir sweep will not protect it', {
+      jobId: job.id, contextDir, error: errorMessage(err),
+    });
+  }
 }

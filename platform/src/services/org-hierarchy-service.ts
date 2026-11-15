@@ -26,7 +26,7 @@ import {
   expandOrgScopeWith,
   getServiceAuthHeader,
   isAncestorOrgWith,
-  QUOTA_TIERS,
+  PLAN_TIERS,
   SYSTEM_ORG_ID,
   tierAllowsTeams,
   toOrgIdString,
@@ -55,7 +55,7 @@ import { expandOrgScope } from '../helpers/org-hierarchy.js';
 import { toOrgId } from '../helpers/org-id.js';
 import { publishUsersRevocation } from '../helpers/session-revocation.js';
 import { Invitation, Organization, User, UserOrganization } from '../models/index.js';
-import type { QuotaTier } from '../models/organization.js';
+import type { PlanTier } from '../models/organization.js';
 import { withMongoTransaction } from '../utils/mongo-tx.js';
 
 /** Billing-owned retention dims that never live on the org doc (see organization-quota.ts). */
@@ -70,7 +70,7 @@ async function assertNoBillableSubscription(orgId: string): Promise<void> {
   const client = createSafeClient({
     host: config.billing.serviceHost,
     port: config.billing.servicePort,
-    timeout: config.billing.serviceTimeout,
+    timeout: config.billing.serviceTimeoutMs,
   });
   const resp = await client.get(`/billing/subscriptions/by-org/${encodeURIComponent(orgId)}/billable`, {
     headers: {
@@ -95,13 +95,13 @@ export interface DeletedTeam {
 }
 
 /** Locally-unlimited quotas for a team (only the root's pooled cap binds). */
-function teamQuotas(tier: QuotaTier): Record<string, number> {
-  return Object.fromEntries(Object.keys(QUOTA_TIERS[tier].limits).map((k) => [k, -1]));
+function teamQuotas(tier: PlanTier): Record<string, number> {
+  return Object.fromEntries(Object.keys(PLAN_TIERS[tier].limits).map((k) => [k, -1]));
 }
 
 /** A root's own quota preset for `tier`, retention dims stripped. */
-function rootQuotas(tier: QuotaTier): Record<string, number> {
-  const quotas: Record<string, number> = { ...QUOTA_TIERS[tier].limits } as unknown as Record<string, number>;
+function rootQuotas(tier: PlanTier): Record<string, number> {
+  const quotas: Record<string, number> = { ...PLAN_TIERS[tier].limits } as unknown as Record<string, number>;
   for (const dim of RETENTION_DIMS) delete quotas[dim];
   return quotas;
 }
@@ -291,7 +291,7 @@ class OrgHierarchyService {
     orgId: string;
     fromParentOrgId: string | null;
     toParentOrgId: string | null;
-    tier: QuotaTier;
+    tier: PlanTier;
     membersInvalidated: number;
   }> {
     if (isSystemOrgId(orgId) || isSystemOrgId(parentOrgId ?? undefined)) throw new Error(ORG_MOVE_SYSTEM);
@@ -308,7 +308,7 @@ class OrgHierarchyService {
 
     // `tier` is required: `Organization.tier` is an enum field with a default,
     // so a destination row always carries one.
-    type Destination = { tier: QuotaTier; featureEntitlements?: string[]; quotas?: { seats?: number } };
+    type Destination = { tier: PlanTier; featureEntitlements?: string[]; quotas?: { seats?: number } };
 
     // The ONLY check that cannot move inside the transaction: it is a remote
     // HTTP call, and holding a Mongo transaction open across a network timeout
@@ -345,7 +345,7 @@ class OrgHierarchyService {
         target = dest as Destination;
       }
 
-      const newTier: QuotaTier = parentOrgId !== null ? target!.tier : DEFAULT_TIER;
+      const newTier: PlanTier = parentOrgId !== null ? target!.tier : DEFAULT_TIER;
       const set: Record<string, unknown> = parentOrgId !== null
         ? {
           parentOrgId: String(parentOrgId),

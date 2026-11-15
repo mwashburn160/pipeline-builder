@@ -21,7 +21,7 @@ export const pipelineToolchainTopic: HelpTopic = {
         {
           type: 'text',
           content:
-            'Every pipeline synthesizes and self-mutates on a managed toolchain: the CodeBuild build image (`pipeline-bootstrap`, carrying pipeline-manager, the AWS CDK, cdk-assets, Node, pnpm and esbuild) and the `cdk-synth` synth step. The two are published together by the platform as ONE release with its own version, such as `1.4.2`. You never pick their versions separately.',
+            'Every pipeline synthesizes and self-mutates on a managed toolchain: the CodeBuild build image (`pipeline-bootstrap`, carrying pipeline-manager, the AWS CDK, cdk-assets and Node) and the `cdk-synth` synth step. The two are published together by the platform as ONE release with its own version, such as `1.4.2`. You never pick their versions separately.',
         },
         {
           type: 'note',

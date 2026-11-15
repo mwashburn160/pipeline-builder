@@ -51,8 +51,8 @@ import {
 import { rateLimitByOrg, withRoute } from '@pipeline-builder/api-server';
 import {
   stakeholderReportStore,
-  getTemplate,
-  getSection,
+  getReportTemplate,
+  getReportSection,
   REPORT_CADENCES,
   REPORT_SCOPE_KINDS,
   REPORT_TEMPLATES,
@@ -87,7 +87,7 @@ import { nextRunFor } from '../services/report-schedule.js';
 
 
 /** Section ids a definition may carry. Checked against the live registry. */
-const sectionIdSchema = z.string().min(1).max(64).refine((id) => getSection(id) !== undefined, {
+const sectionIdSchema = z.string().min(1).max(64).refine((id) => getReportSection(id) !== undefined, {
   message: 'Unknown report section',
 });
 
@@ -263,7 +263,7 @@ export function createStakeholderReportRoutes(): Router {
     const weekStart = parseWeekStart({ weekStart: body.weekStart ?? policy.defaultWeekStart ?? undefined });
     if (typeof weekStart !== 'string') return sendBadRequest(res, weekStart.error, ErrorCode.VALIDATION_ERROR);
 
-    const sections = body.sections ?? getTemplate(body.template)?.sections;
+    const sections = body.sections ?? getReportTemplate(body.template)?.sections;
     if (!sections || sections.length === 0) {
       return sendBadRequest(res, `Unknown report template "${body.template}"`, ErrorCode.VALIDATION_ERROR);
     }
@@ -354,7 +354,7 @@ export function createStakeholderReportRoutes(): Router {
       // Changing the template resets the section list unless the caller named one
       // — otherwise a "monthly health" report would keep the weekly sections and
       // the template name would be a lie.
-      patch.sections = [...(body.sections ?? getTemplate(body.template)?.sections ?? [])];
+      patch.sections = [...(body.sections ?? getReportTemplate(body.template)?.sections ?? [])];
     } else if (body.sections !== undefined) {
       patch.sections = [...body.sections];
     }

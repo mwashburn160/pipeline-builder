@@ -22,7 +22,6 @@ import { StageBuilder } from './stage-builder.js';
 import { StepManifestRecorder } from './step-manifest-recorder.js';
 import type { StageOptions, SynthOptions } from './step-types.js';
 import { Config, CoreConstants, isReservedTagKey } from '../config/app-config.js';
-import { lambdaArchitecture, lambdaRuntime, lambdaTimeout } from '../config/aws-config-cdk.js';
 import type { RegistryConfig } from '../config/config-types.js';
 import { ArtifactManager } from '../core/artifact-manager.js';
 import { UniqueId } from '../core/id-generator.js';
@@ -43,7 +42,7 @@ import { MetadataKeys, TriggerType } from '../core/pipeline-types.js';
 import type { MetaDataType } from '../core/pipeline-types.js';
 import { PLATFORM_CA_BUNDLE_ENV, PLATFORM_TLS_VERIFY_ENV, platformCaBundle, platformTlsVerify } from '../core/platform-tls.js';
 import { assertPluginContract, contractScopeFromTemplateScope, pluginArtifactAlias, pluginStepLabel } from '../core/plugin-contract.js';
-import type { ResolvedBootstrap, SynthPlugin } from '../core/plugin-lookup-envelope.js';
+import type { ResolvedBootstrap, ResolvedPlugin } from '../core/plugin-lookup-envelope.js';
 import type { RoleConfig } from '../core/role-types.js';
 import { resolveRole } from '../core/role.js';
 import { isRuntimeVulnCheckEnabled, RUNTIME_VULN_CHECK_KEY } from '../core/runtime-check.js';
@@ -186,13 +185,13 @@ export interface BuilderProps {
 
   /**
    * Plugins pre-resolved by `pipeline-manager pipeline synth` from the platform API,
-   * keyed by `alias || name`. When present, `PluginLookup.plugin()` returns
-   * the matching entry directly and skips the custom resource — so the
-   * synthesized CFN template ships with the real CodeBuild image baked in.
+   * keyed by `alias || name`. `PluginLookup.plugin()` returns the matching
+   * entry — so the synthesized CFN template ships with the real CodeBuild image
+   * baked in — and fails the synth for a plugin missing from it.
    * Populated by the CLI before invoking the boilerplate app; CDK consumers
    * who construct PipelineBuilder directly normally leave this unset.
    */
-  readonly resolvedPlugins?: Record<string, SynthPlugin>;
+  readonly resolvedPlugins?: Record<string, ResolvedPlugin>;
 
   /**
    * The toolchain release this pipeline runs on, pinned by the pipeline's own
@@ -294,23 +293,7 @@ export class PipelineBuilder extends Construct {
         organization: this.config.organization,
         project: this.config.project,
       });
-      const pluginLookup = new PluginLookup(
-        this,
-        uniqueId.generate('plugin:lookup'),
-        {
-          organization: this.config.organization,
-          project: this.config.project,
-          platformUrl: serverConfig.platformUrl,
-          uniqueId,
-          orgId: props.orgId,
-          pipelineId: props.pipelineId,
-          runtime: lambdaRuntime(awsConfig.lambda.runtime),
-          timeout: lambdaTimeout(awsConfig.lambda.timeoutSeconds),
-          architecture: lambdaArchitecture(awsConfig.lambda.architecture),
-          reservedConcurrentExecutions: awsConfig.lambda.reservedConcurrentExecutions,
-          resolvedPlugins: props.resolvedPlugins,
-        },
-      );
+      const pluginLookup = new PluginLookup({ resolvedPlugins: props.resolvedPlugins });
 
       // Create source and build step
       const sourceBuilder = new SourceBuilder(this, this.config);

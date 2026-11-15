@@ -16,7 +16,8 @@ import type { ApiCore } from '../src/lib/api/core';
 import { pipelinesApi, PIPELINE_LIST_FIELDS } from '../src/lib/api/domains/pipelines';
 import { messagesApi } from '../src/lib/api/domains/messages';
 import { pluginsApi, PLUGIN_LIST_FIELDS } from '../src/lib/api/domains/plugins';
-import { parseBulkPipelineSpecs } from '../src/components/pipeline/BulkImportPipelinesModal';
+import { bulkResultFromError, parseBulkPipelineSpecs } from '../src/components/pipeline/BulkImportPipelinesModal';
+import { ApiError } from '../src/lib/api/errors';
 
 function fakeCore(responses: unknown[] = []) {
   const calls: string[] = [];
@@ -113,5 +114,20 @@ describe('parseBulkPipelineSpecs', () => {
   it('rejects invalid JSON and empty sets with a message', () => {
     expect(parseBulkPipelineSpecs('{nope')).toEqual({ error: expect.stringMatching(/invalid json/i) });
     expect(parseBulkPipelineSpecs('[]')).toEqual({ error: expect.stringMatching(/non-empty/i) });
+  });
+});
+
+describe('bulkResultFromError', () => {
+  const outcomes = { created: 0, updated: 0, failed: 1, items: [], errors: [{ index: 0, error: 'Quota exceeded: 10/10' }] };
+
+  it('reads the per-item outcomes back from the all-failed 422', () => {
+    const err = new ApiError('No pipeline was saved: all 1 items failed', 422, undefined, outcomes);
+    expect(bulkResultFromError(err)).toEqual(outcomes);
+  });
+
+  it('is null for any other failure, so it still renders as an error', () => {
+    expect(bulkResultFromError(new ApiError('nope', 403, 'FORBIDDEN'))).toBeNull();
+    expect(bulkResultFromError(new ApiError('odd', 422, undefined, { something: 'else' }))).toBeNull();
+    expect(bulkResultFromError(new Error('network'))).toBeNull();
   });
 });

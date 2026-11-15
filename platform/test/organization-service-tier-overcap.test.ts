@@ -31,7 +31,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   decryptSecret: jest.fn<AnyFn>(),
   encryptSecret: jest.fn<AnyFn>(),
   isEncryptedBlob: jest.fn(() => false),
-  QUOTA_TIERS: {
+  PLAN_TIERS: {
     developer: { label: 'Developer', limits: limits(1, 10, 5, 5) },
     pro: { label: 'Pro', limits: limits(3, 100, 50) },
     team: { label: 'Team', limits: limits(10, 500, 200) },

@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendSuccess, getPrimarySupportAlias, getAllSupportAliases, QUOTA_TIERS, VALID_TIERS, type QuotaTier } from '@pipeline-builder/api-core';
+import { sendSuccess, getPrimarySupportAlias, getAllSupportAliases, PLAN_TIERS, VALID_TIERS, type PlanTier } from '@pipeline-builder/api-core';
 import { Router } from 'express';
 import { config } from '../config/index.js';
 
@@ -9,7 +9,7 @@ const router: Router = Router();
 
 /**
  * The EFFECTIVE per-tier preset limits for the four displayed quota dimensions,
- * sourced from api-core `QUOTA_TIERS` so `QUOTA_TIER_*` env overrides are honored.
+ * sourced from api-core `PLAN_TIERS` so `PLAN_TIER_*` env overrides are honored.
  * Served so the quota-admin editor prefills from the deployment's real limits
  * instead of a hardcoded frontend copy that would drift under env overrides. Only
  * the user-facing flow dimensions are exposed (not seats/storage/retention,
@@ -17,7 +17,7 @@ const router: Router = Router();
  * fail-soft fallback if this is absent.
  *
  * `cpuCredits` belongs here for the same reason the rest do: it takes a
- * `QUOTA_TIER_<TIER>_CPU_CREDITS` override like every other dimension, and an
+ * `PLAN_TIER_<TIER>_CPU_CREDITS` override like every other dimension, and an
  * omitted key leaves the editor prefilling a number the deployment does not
  * actually enforce.
  */
@@ -30,10 +30,10 @@ type TierPreset = {
   aiCalls: number;
 };
 
-const tierPresets: Record<QuotaTier, TierPreset> =
+const tierPresets: Record<PlanTier, TierPreset> =
   Object.fromEntries(
-    (VALID_TIERS as readonly QuotaTier[]).map((tier) => {
-      const l = QUOTA_TIERS[tier].limits;
+    (VALID_TIERS as readonly PlanTier[]).map((tier) => {
+      const l = PLAN_TIERS[tier].limits;
       return [tier, {
         plugins: l.plugins,
         pipelines: l.pipelines,
@@ -43,7 +43,7 @@ const tierPresets: Record<QuotaTier, TierPreset> =
         aiCalls: l.aiCalls,
       }];
     }),
-  ) as Record<QuotaTier, TierPreset>;
+  ) as Record<PlanTier, TierPreset>;
 
 /** GET /config - Public endpoint returning service feature flags.
  *  `sendSuccess` uses res.status().json() and never touches Cache-Control,
@@ -77,7 +77,7 @@ router.get('/', (_req, res) => {
     // one prebuilt frontend image serves every target. The schedule fallback is
     // separate and lives on the ask service (GET /ask/availability).
     askUiMode: config.askUiMode,
-    // Effective per-tier quota presets (honors QUOTA_TIER_* env overrides) so the
+    // Effective per-tier quota presets (honors PLAN_TIER_* env overrides) so the
     // quota-admin editor prefills from real limits, not a drifting hardcoded copy.
     tierPresets,
     // The CLI package name + docs link (CLI_NPM_PACKAGE / CLI_NPM_URL) so the

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import crypto from 'crypto';
-import { createLogger, QUOTA_TIERS, SYSTEM_ORG_ID, SYSTEM_ORG_SLUG, type QuotaTier } from '@pipeline-builder/api-core';
+import { createLogger, PLAN_TIERS, SYSTEM_ORG_ID, SYSTEM_ORG_SLUG, type PlanTier } from '@pipeline-builder/api-core';
 import type { ClientSession } from 'mongoose';
 import { DUPLICATE_CREDENTIALS, RESERVED_ORG_NAME, ONBOARDING_USER_NOT_FOUND, ONBOARDING_NO_ORG, ACCOUNT_EMAIL_UNVERIFIED, OAUTH_LINK_REQUIRES_SIGN_IN, SSO_SUPERADMIN_REFUSED } from './auth-errors.js';
 import { seedDefaultRoles } from './roles-service.js';
@@ -43,7 +43,7 @@ const logger = createLogger('auth-service');
  *
  * Single source for both the org row and the register() planId echo.
  */
-function systemOrgTier(): QuotaTier {
+function systemOrgTier(): PlanTier {
   return 'unlimited';
 }
 
@@ -109,7 +109,7 @@ class AuthService {
       orgData.slug = SYSTEM_ORG_SLUG;
       orgData.isSystem = true;
       orgData.tier = systemTier;
-      orgData.quotas = { ...QUOTA_TIERS[systemTier].limits };
+      orgData.quotas = { ...PLAN_TIERS[systemTier].limits };
     }
 
     const [org] = await Organization.create([orgData], { session });
@@ -349,34 +349,41 @@ class AuthService {
   }
 
   /**
-   * Verify the user may work inside the target org and update their
-   * `lastActiveOrgId`. Authority is an active membership there OR admin
-   * authority inherited from an ancestor org (a parent admin opening one of its
-   * teams) — the one rule in helpers/org-authority.ts that token issuance
-   * applies too, so the switch and the token it produces can't disagree.
-   * Nothing is written to the team's roster for inherited authority.
+   * Verify the user may work inside the target org. Authority is an active
+   * membership there OR admin authority inherited from an ancestor org (a parent
+   * admin opening one of its teams) — the one rule in helpers/org-authority.ts
+   * that token issuance applies too, so the switch and the token it produces
+   * can't disagree. Nothing is written to the team's roster for inherited
+   * authority.
+   *
+   * Writes NOTHING: the caller still has gates to apply (`team_access:open` for
+   * an inherited switch, the org's MFA requirement at re-issue), and
+   * `lastActiveOrgId` is where the next sign-in lands — set by
+   * {@link setLastActiveOrg} only once the switch has actually happened.
    *
    * Returns the user (with tokenVersion selected for re-issuing tokens) plus the
    * resolved authority on success, or null when the caller holds none there or
    * the org is soft-deleted.
    */
-  async switchActiveOrg(userId: string, organizationId: string): Promise<{ user: UserDocument; authority: OrgAuthority } | null> {
+  async resolveSwitchTarget(userId: string, organizationId: string): Promise<{ user: UserDocument; authority: OrgAuthority } | null> {
     const authority = await resolveOrgAuthority(userId, organizationId);
     if (!authority) return null;
 
     // Refuse to make a SOFT-DELETED (tombstoned) org the active one — mirrors
     // the token chokepoint (`resolveMembership`), which won't scope a token to a
-    // dying org. Without this the caller could set `lastActiveOrgId` to a
-    // tombstoned org, then every subsequent token issue would fall back off it
-    // (a dangling pointer) instead of the switch simply being rejected here.
+    // dying org.
     const org = await Organization.findById(toOrgId(organizationId)).select('deletedAt').lean();
     if (!org || (org as { deletedAt?: Date | null }).deletedAt) return null;
 
-    await User.updateOne({ _id: userId }, { $set: { lastActiveOrgId: organizationId } });
     // `+isSuperAdmin` — switching orgs reissues a JWT and must preserve
     // the sysadmin claim. Schema marks the field `select: false`.
     const user = await User.findById(userId).select('+tokenVersion +isSuperAdmin');
     return user ? { user, authority } : null;
+  }
+
+  /** Record the org the user's next sign-in opens in — after a completed switch. */
+  async setLastActiveOrg(userId: string, organizationId: string): Promise<void> {
+    await User.updateOne({ _id: userId }, { $set: { lastActiveOrgId: organizationId } });
   }
 
   /**

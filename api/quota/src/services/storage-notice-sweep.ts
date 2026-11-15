@@ -45,7 +45,7 @@ import {
 import { setGauge } from '@pipeline-builder/api-server';
 import { config } from '../config.js';
 import { fetchStorageBytes } from './storage-usage.js';
-import { notifyThresholds } from './threshold-notifier.js';
+import { forgetClaimedNotices, notifyThresholds } from './threshold-notifier.js';
 import { expandOrgScope } from '../helpers/org-hierarchy.js';
 import { defaultLimitFor } from '../helpers/quota-helpers.js';
 import { Organization } from '../models/organization.js';
@@ -235,6 +235,9 @@ export async function sweepStorageNotices(opts: SweepOptions): Promise<StorageSw
         // Under every band: drop this account's claims so a later crossing
         // notifies at once instead of waiting out the reminder window.
         const { deletedCount } = await QuotaNotice.deleteMany({ rootOrgId, quotaType: 'storageBytes' });
+        // The pod-local claim memo too, or the notifier drops the refill's
+        // notice before reaching the (now absent) claim row.
+        forgetClaimedNotices(rootOrgId, 'storageBytes');
         if (deletedCount > 0) {
           result.cleared += 1;
           emitCounter(SWEEP_METRIC, { outcome: 'cleared' });
@@ -246,6 +249,7 @@ export async function sweepStorageNotices(opts: SweepOptions): Promise<StorageSw
       // back to 85% should hear about 100% again if it refills, and should not
       // be re-told "80%" in the meantime (that threshold stays claimed).
       await QuotaNotice.deleteMany({ rootOrgId, quotaType: 'storageBytes', threshold: { $gt: band } });
+      forgetClaimedNotices(rootOrgId, 'storageBytes', band);
 
       await notifyThresholds({
         rootOrgId,

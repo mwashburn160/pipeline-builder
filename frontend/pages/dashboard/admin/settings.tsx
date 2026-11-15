@@ -123,7 +123,7 @@ export default function PlatformSettingsPage() {
     },
     {
       icon: Lock,
-      envVar: 'AUTH_LIMITER_MAX / WINDOWMS',
+      envVar: 'AUTH_LIMITER_MAX / WINDOW_MS',
       label: 'Auth endpoint rate limit',
       currentValue: <code className="text-xs">20 req / 15 min (IP)</code>,
       staticDefault: true,

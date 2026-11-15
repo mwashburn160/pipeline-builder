@@ -11,7 +11,7 @@
  * come from api-core (`getTierLimits`) and the bundle catalog is passed in.
  */
 
-import { getTierLimits, type QuotaTier, type QuotaTierLimits } from '@pipeline-builder/api-core';
+import { getTierLimits, type PlanTier, type PlanTierLimits } from '@pipeline-builder/api-core';
 import type { BundleConfig } from './billing-types.js';
 import { BASELINE_SUPPORT_LEVELS, SUPPORT_LEVELS, isSupportLevel } from './support-levels.js';
 
@@ -45,11 +45,11 @@ function winningBaseline(addons: ReadonlyArray<{ bundleId: string; quantity: num
  * already `-1` (unlimited) stays `-1`. Pure; the catalog is passed in.
  */
 export function effectiveEntitlements(
-  tier: QuotaTier,
+  tier: PlanTier,
   addons: ReadonlyArray<{ bundleId: string; quantity: number }>,
   bundles: readonly BundleConfig[],
-): { limits: Record<keyof QuotaTierLimits, number>; features: string[] } {
-  const limits = { ...getTierLimits(tier) } as Record<keyof QuotaTierLimits, number>;
+): { limits: Record<keyof PlanTierLimits, number>; features: string[] } {
+  const limits = { ...getTierLimits(tier) } as Record<keyof PlanTierLimits, number>;
   const features = new Set<string>();
   const byId = new Map(bundles.map((b) => [b.id, b]));
   // Baseline levels are mutually exclusive: resolve the one that applies BEFORE
@@ -71,7 +71,7 @@ export function effectiveEntitlements(
     for (const [rawField, delta] of Object.entries(bundle.grants)) {
       // `grants` is a Partial map, so a value can be undefined — skip those.
       if (delta === undefined) continue;
-      const field = rawField as keyof QuotaTierLimits; // grants keys ARE quota fields
+      const field = rawField as keyof PlanTierLimits; // grants keys ARE quota fields
       if (limits[field] === -1) continue; // already unlimited
       limits[field] = (limits[field] ?? 0) + delta * effectiveQty;
     }

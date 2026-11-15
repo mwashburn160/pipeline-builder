@@ -16,9 +16,9 @@ Provides the cross-cutting primitives every backend service depends on: JWT auth
 | Export | Purpose |
 | --- | --- |
 | `requireAuth` | JWT authentication middleware (accepts `RequireAuthOptions`, e.g. `allowOrgHeaderOverride` for internal routes) |
-| `requireAdmin`, `requireSystemAdmin` | Role gates (admin/owner; system-org admin/owner) |
+| `requirePermission`, `requireAllPermissions`, `requireSystemAdmin`, `requireInternalService` | Authorization gates (any-of / all-of permissions; the `isSuperAdmin` claim; named internal service callers only) |
 | `requireFeature` | Feature-flag gate |
-| `isSystemOrgId`, `isSystemAdmin`, `isServicePrincipal` | Authorization helpers (`isServicePrincipal` is true when `req.user.sub` starts with `service:`) |
+| `isSystemOrgId`, `isSystemAdmin`, `isServicePrincipal` | Authorization helpers (`isServicePrincipal` is true when the verified token's `principalType` is `'service'`) |
 | `resolveVisibility` | Resolves the sharing rung: `'public'` needs the resource's `:publish` permission (clamped to `'org'` otherwise); an unspecified rung falls back per-entity |
 | `signServiceToken`, `getServiceAuthHeader` | Mint short-lived inter-service JWTs (default TTL 5 min) accepted unmodified by `requireAuth` |
 
@@ -26,7 +26,7 @@ Provides the cross-cutting primitives every backend service depends on: JWT auth
 | Export | Purpose |
 | --- | --- |
 | `sendSuccess`, `sendError`, `sendBadRequest`, `sendInternalError`, `sendQuotaExceeded` | Standardized JSON responses |
-| `sendPaginated`, `sendPaginatedNested`, `parsePaginationParams` | Paginated response helpers |
+| `sendPaginatedNested`, `paginationMeta`, `parsePaginationParams` | Paginated response helpers |
 | `extractDbError`, `errorMessage` | Safe DB-error and error-to-string extraction |
 | `ErrorCode`, `getStatusForErrorCode` | Standard error code enum and HTTP status mapping |
 | `AppError`, `NotFoundError`, `ForbiddenError`, `ValidationError`, `ConflictError` | Typed HTTP error classes |
@@ -34,18 +34,18 @@ Provides the cross-cutting primitives every backend service depends on: JWT auth
 ### Request parsing (`./utils`)
 | Export | Purpose |
 | --- | --- |
-| `getParam`, `getRequiredParam`, `getParams`, `getOrgId`, `getAuthHeader` | Request parameter/header extraction |
-| `parseQueryBoolean`, `parseQueryInt`, `parseQueryString` | Query-string coercion |
+| `getParam` | Request parameter extraction |
+| `parseQueryInt`, `parseQueryString`, `parseQueryIntClamped` | Query-string coercion |
 | `parsePage` | **The** pagination primitive — parses and clamps `?limit=&offset=` against a per-route `{ def, max }` (and an optional `maxOffset`). Use it instead of a hand-rolled `Math.min(Math.max(...))`; route defaults stay per-route but are declared, not re-derived |
 | `envInt`, `envBool`, `envStr` | **The** env readers. Strict (a non-integer `envInt` falls back to the default rather than silently truncating), and every variable read through them must appear in `docs/environment-variables.md` — enforced by `test/env-documented.test.ts` |
-| `getIdentity`, `validateIdentity` | Parsed JWT identity (`RequestIdentity`) helpers |
+| `getIdentity`, `normalizeOrgId` | Request identity (`RequestIdentity`, JWT-authoritative) and the canonical org-id spelling |
 
 ### HTTP client & services (`./services`)
 | Export | Purpose |
 | --- | --- |
 | `InternalHttpClient`, `createSafeClient` | Service-to-service HTTP client (`ServiceConfig`, `RequestOptions`) |
 | `createComplianceClient` / `ComplianceClient` | Typed compliance-service client built on the safe client |
-| `QuotaService`, `createQuotaService`, `QuotaType`, `QuotaCheckResult`, `QuotaTier`, `QUOTA_TIERS`, `getTierLimits` | Quota enforcement client and tier presets |
+| `QuotaService`, `createQuotaService`, `QuotaType`, `QuotaCheckResult`, `PlanTier`, `PLAN_TIERS`, `getTierLimits` | Quota enforcement client and tier presets |
 | `CacheService`, `createCacheService` | In-memory LRU TTL cache with cross-replica invalidation over Redis pub/sub |
 | `safeFetch`, `resolveSafeTarget`, `assertSafeUrl`, `isPrivateAddress` | SSRF guards for user/tenant-supplied URLs. **`safeFetch` is the one to use for an outbound request**: it resolves the host, PINS the vetted IP into the socket (no DNS-rebinding window between check and connect), refuses redirects, and caps body size and wall-clock time. `assertSafeUrl` is VALIDATION ONLY — for rejecting a URL at create/update time; never pair it with a `fetch` |
 | `createWebhookChannel`, `createEmailChannel`, `createChannelRegistry`, `NotificationChannel`, `NotificationMessage`, `ChannelTarget`, `DeliveryResult` | Shared notification-channel contract plus the webhook (SSRF-safe, HMAC-signing) and email transports. Services supply only their own `in-app` transport |
@@ -60,7 +60,7 @@ Provides the cross-cutting primitives every backend service depends on: JWT auth
 | Export | Purpose |
 | --- | --- |
 | `createLogger`, `logger` | Winston structured logger factory and default instance |
-| `AIGenerateBodySchema`, `AIGenerateFromUrlBodySchema`, `PluginCreateSchema`, `PipelineFilterSchema`, `MessageCreateSchema`, plus `PaginationSchema`, `UUIDSchema`, `VisibilitySchema` | Zod request-validation schemas and shared building blocks |
+| `AIGenerateBodySchema`, `AIGenerateFromUrlBodySchema`, `PluginCreateSchema`, `PipelineFilterSchema`, `MessageCreateSchema`, plus `BaseFilterSchema`, `UUIDSchema`, `VisibilitySchema` | Zod request-validation schemas and shared building blocks |
 | `registry`, `generateOpenApiSpec` | Shared schema registry and OpenAPI spec generation |
 
 ### AI provider catalog (`./constants`)
@@ -68,7 +68,7 @@ Provides the cross-cutting primitives every backend service depends on: JWT auth
 | --- | --- |
 | `AI_PROVIDER_CATALOG` | Static provider/model catalog |
 | `AI_PROVIDER_ENV_VARS` | Provider-to-env-var mapping |
-| `getAIProviderModels`, `getAIProviderName` | Lookup helpers for a provider's models/name |
+| `getAIProviderModels`, `AI_PROVIDER_NAMES` | A provider's models; provider display names |
 
 ### Health (`./routes`)
 | Export | Purpose |

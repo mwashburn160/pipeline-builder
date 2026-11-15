@@ -129,8 +129,8 @@ export function floorFrom(
  * Parse a `?from&to` query for a PER-ORG report route, capped AND floored to the
  * org's effective retention window for `kind`. The single entry point the per-org
  * report routes use so the width-cap + `from`-floor can't drift between them.
- * (System-admin cross-org routes deliberately bypass this — they keep the
- * absolute ceiling and no floor.)
+ * (The platform-operator error/failure routes deliberately bypass this — they
+ * keep the absolute ceiling and no floor.)
  */
 export async function parseOrgReportRange(
   query: Record<string, unknown>,

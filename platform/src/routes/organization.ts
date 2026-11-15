@@ -184,10 +184,10 @@ router.get('/:id/descendants', requireAuth, getOrganizationDescendants);
  *  evaluate parent `propagateToChildren` rules. */
 router.get('/:id/parent', requireAuth, getOrganizationParent);
 
-/** PUT /organization/:id - Update organization (sysadmin only).
- *  `requireSystemAdmin` mirrors the controller's own check at the route layer
- *  so org admins/owners are rejected here, not deeper in. Step-up gated like the
- *  sibling sysadmin mutations (`PATCH /:id/tier`, `DELETE /:id`). */
+/** PUT /organization/:id - Update organization (platform operators only).
+ *  The system-org `orgs:manage` gate mirrors the controller's own check at the
+ *  route layer so org admins/owners are rejected here, not deeper in. Step-up
+ *  gated like the sibling platform mutations (`PATCH /:id/tier`, `DELETE /:id`). */
 router.put('/:id', requireAuth, ...requireSystemOrgPermission('orgs:manage'), requireStepUp, audited('org.update'), updateOrganization);
 
 /** PATCH /organization/:id/identity - Self-serve org identity edit (name/slug).
@@ -372,7 +372,7 @@ router.delete('/:id/idp/group-mappings/:mappingId', requireAuth, requirePermissi
 router.get('/:id/members', requireAuth, getOrganizationMembers);
 
 /** GET /organization/:id/members/:userId/exists - Active-membership probe
- *  (service principal / org-admin). Used by the message service to reject a
+ *  (service principal / org reader). Used by the message service to reject a
  *  per-user DM addressed to a non-member. */
 router.get('/:id/members/:userId/exists', requireAuth, checkOrganizationMembership);
 

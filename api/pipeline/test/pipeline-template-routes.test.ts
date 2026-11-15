@@ -231,6 +231,24 @@ describe('PUT /:id', () => {
     expect(svc.update).toHaveBeenLastCalledWith('t-1', expect.objectContaining({ ownerId: 'u-9' }), 'acme', 'user-1');
   });
 
+  // The `(name, org_id)` unique index used to surface a colliding rename as a
+  // 500 from the UPDATE.
+  it('409s a rename onto a name the org already uses, without writing', async () => {
+    svc.findByNameInOrg.mockResolvedValueOnce({ ...template, id: 't-2', name: 'taken' });
+    const dup = res();
+    await update(req({ body: { name: 'taken' } }), dup);
+    expect(dup.status).toHaveBeenCalledWith(409);
+    expect(svc.findByNameInOrg).toHaveBeenCalledWith('taken', 'acme');
+    expect(svc.update).not.toHaveBeenCalled();
+
+    // Keeping its own name is not a collision (and is not looked up).
+    svc.findByNameInOrg.mockClear();
+    const same = res();
+    await update(req({ body: { name: template.name } }), same);
+    expect(same.status).toHaveBeenCalledWith(200);
+    expect(svc.findByNameInOrg).not.toHaveBeenCalled();
+  });
+
   it('refuses undeclared vars, invalid tokens and a bad body; stops on the visibility ladder; 404s', async () => {
     const undeclared = res();
     await update(req({ body: { props: { project: '{{ vars.nope }}' } } }), undeclared);

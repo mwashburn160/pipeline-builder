@@ -1,10 +1,11 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { audited, requireOrgAdminAssurance, requireStepUp, tagRouteGate } from '@pipeline-builder/api-core';
+import { audited, gateWhen, requireOrgAdminAssurance, requireStepUp, tagRouteGate } from '@pipeline-builder/api-core';
 import { Router } from 'express';
 import {
   changePassword,
+  changesOwnEmail,
   createAccessKey,
   declineMfaPrompt,
   deleteUser,
@@ -33,8 +34,12 @@ const router: Router = Router();
 /** GET /user/profile - Get current user's profile */
 router.get('/profile', requireAuth, getUser);
 
-/** PATCH /user/profile - Update current user's profile */
-router.patch('/profile', requireAuth, audited('user.profile.update'), updateUser);
+/** PATCH /user/profile - Update current user's profile.
+ *  CHANGING the sign-in email is step-up gated — it is where a password reset
+ *  is sent, so a hijacked session that could set it silently would own the
+ *  account. A username edit stays ungated, which is why the gate is
+ *  conditional (`gateWhen`): the route table lists it under `conditionalGates`. */
+router.patch('/profile', requireAuth, gateWhen('changes the sign-in email', changesOwnEmail, requireStepUp), audited('user.profile.update'), updateUser);
 
 /** GET /user/export - Download the caller's own data (step-up: bulk personal data). */
 router.get('/export', requireAuth, requireStepUp, audited('user.export'), exportOwnData);

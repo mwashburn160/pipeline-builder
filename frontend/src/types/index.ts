@@ -17,7 +17,7 @@
 // Next bundle.
 export type {
   BillingInterval, Criticality, EntityLink, IdpProtocol, IdpProvider, Lifecycle, MessagePriority,
-  MessageType, OwnerType, QuotaTier, QuotaType, RoleGrant, SamlAttributeMapping, SubscriptionStatus,
+  MessageType, OwnerType, PlanTier, QuotaType, RoleGrant, SamlAttributeMapping, SubscriptionStatus,
   TemplateInput, Visibility,
 } from '@pipeline-builder/api-core';
 

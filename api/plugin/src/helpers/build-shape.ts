@@ -18,7 +18,7 @@ import {
   defaultClassForSize,
   tierAllowsBuildSize,
 } from '@pipeline-builder/api-core';
-import type { BuildClass, BuildSize, QuotaTier } from '@pipeline-builder/api-core';
+import type { BuildClass, BuildSize, PlanTier } from '@pipeline-builder/api-core';
 
 import { buildPoolConfigured, buildPoolEnvVar } from './docker-build.js';
 
@@ -59,7 +59,7 @@ export type BuildShapeOutcome =
  * would block the only urgent-fix slot for double the time.
  */
 export function resolveBuildShape(
-  tier: QuotaTier,
+  tier: PlanTier,
   requested: { buildClass?: BuildClass; buildSize?: BuildSize },
 ): BuildShapeOutcome {
   const buildSize = requested.buildSize ?? '1x';
@@ -70,7 +70,7 @@ export function resolveBuildShape(
   // that came back odd must not turn an upload into a 500. Degrading to the
   // default is also the conservative direction — the smallest allowance, not
   // every size.
-  const gated: QuotaTier = BUILD_TIER_LADDER.includes(tier) ? tier : DEFAULT_TIER;
+  const gated: PlanTier = BUILD_TIER_LADDER.includes(tier) ? tier : DEFAULT_TIER;
 
   if (!tierAllowsBuildSize(gated, buildSize)) {
     const allowed = buildSizesForTier(gated).map((s) => `${buildSizeLabel(s)} (${s})`).join(', ');

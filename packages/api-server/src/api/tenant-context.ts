@@ -32,15 +32,16 @@ setLogContextProvider(() => {
   return { orgId: ctx.orgId || undefined, userId: ctx.userId };
 });
 
+const logger = createLogger('tenant-context');
+
 /**
  * Resolves the RLS tenant scope for a request. The default reads the CALLER's
  * authenticated identity org (`ctx.identity.orgId`, validated by requireOrgId) — never a
- * route param, which names the QUERIED scope, the wrong tenant for RLS. Services with a different request boundary supply their own resolver (e.g. platform
- * sets the scope pre-auth from an unverified JWT peek so unauthenticated endpoints still
- * get a sane default).
+ * route param, which names the QUERIED scope, the wrong tenant for RLS. Services with a
+ * different request boundary supply their own resolver (e.g. platform sets the scope
+ * pre-auth from an unverified JWT peek so unauthenticated endpoints still get a sane
+ * default).
  */
-const logger = createLogger('tenant-context');
-
 export type TenantScopeResolver = (req: Request) => TenantContext;
 
 /** Default resolver: the authenticated identity's org + super-admin flag, plus
@@ -63,8 +64,8 @@ const identityScope: TenantScopeResolver = (req) => ({
  * Runs the rest of the request inside `runWithTenantContext({ orgId, isSuperAdmin })` (an
  * AsyncLocalStorage scope) so every `withTenantTx` query downstream can `SET LOCAL` the
  * Postgres GUCs that RLS policies read. Without this, reads against FORCE-RLS tables (e.g.
- * `plugins`, `pipelines`) run with empty GUCs and silently return no rows — the "set once
- * at the request boundary" bookend the RLS enforcement plan calls for.
+ * `plugins`, `pipelines`) run with empty GUCs and silently return no rows — this is the "set once
+ * at the request boundary" bookend of `withTenantTx`.
  *
  * Default placement is AFTER `requireAuth` + `requireOrgId` (the route factories do this);
  * pass a custom `resolve` for a different boundary. A thrown resolver means tenant identity

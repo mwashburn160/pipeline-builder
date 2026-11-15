@@ -42,7 +42,7 @@ jest.unstable_mockModule('../src/middleware/index.js', () => ({
   requireAuth: tagged('requireAuth'),
   requireInteractiveSession: tagged('requireInteractiveSession'),
   stepUpLimiter: tagged('stepUpLimiter'),
-  isValidRefreshToken: tagged('isValidRefreshToken'),
+  requireRefreshSession: tagged('requireRefreshSession'),
   requireClientType: tagged('requireClientType'),
 }));
 jest.unstable_mockModule('../src/middleware/rate-limiter.js', () => ({

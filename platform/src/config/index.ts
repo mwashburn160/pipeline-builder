@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { envInt, QUOTA_TIERS, type QuotaTier, type QuotaTierLimits, VALID_TIERS, QUOTA_RESET_DAYS } from '@pipeline-builder/api-core';
+import { envInt, PLAN_TIERS, type PlanTier, type PlanTierLimits, VALID_TIERS, QUOTA_RESET_DAYS } from '@pipeline-builder/api-core';
 import { assertWebAuthnConfig, resolveWebAuthnConfig } from './webauthn-validate.js';
 
 const isDev = (process.env.NODE_ENV || 'development') === 'development';
@@ -14,7 +14,7 @@ const DEFAULT_PLATFORM_URL = 'https://localhost:8443';
  * @internal
  */
 /**
- * Per-tier quota reset period, overridable via `QUOTA_TIER_<TIER>_RESET_PERIOD`
+ * Per-tier quota reset period, overridable via `PLAN_TIER_<TIER>_RESET_PERIOD`
  * (a single duration string applied to every quota type). Defaults: `3days`
  * for developer/pro, `30days` for team/enterprise.
  * @internal
@@ -24,12 +24,12 @@ const DEFAULT_PLATFORM_URL = 'https://localhost:8443';
  * Per-tier rate-limit multipliers on `rateLimit.max`, as DATA: the code default
  * for each tier, each overridable via `LIMITER_MULT_<TIER>`.
  *
- * `Record<QuotaTier, number>` rather than a partial map, so adding a tier
+ * `Record<PlanTier, number>` rather than a partial map, so adding a tier
  * without a multiplier is a compile error — which is exactly what the six
  * hand-written `parseFloat(process.env.LIMITER_MULT_*)` lines bought, and all
  * they bought.
  */
-const LIMITER_TIER_MULTIPLIERS: Record<QuotaTier, number> = {
+const LIMITER_TIER_MULTIPLIERS: Record<PlanTier, number> = {
   developer: 1,
   pro: 10,
   team: 25,
@@ -49,12 +49,12 @@ const LIMITER_TIER_MULTIPLIERS: Record<QuotaTier, number> = {
  * does read is still honoured as the number it is, including `0` (the consumer's
  * `|| 1` floors that at the baseline) and a trailing-garbage `10abc` → 10.
  */
-function tierMultipliers(): Record<QuotaTier, number> {
+function tierMultipliers(): Record<PlanTier, number> {
   return Object.fromEntries(VALID_TIERS.map((tier) => {
     const raw = process.env[`LIMITER_MULT_${tier.toUpperCase()}`];
     const n = raw === undefined || raw === '' ? NaN : parseFloat(raw);
     return [tier, Number.isFinite(n) ? n : LIMITER_TIER_MULTIPLIERS[tier]];
-  })) as Record<QuotaTier, number>;
+  })) as Record<PlanTier, number>;
 }
 
 /**
@@ -217,7 +217,7 @@ export const config = {
 
   rateLimit: {
     max: envInt('LIMITER_MAX', 100),
-    windowMs: envInt('LIMITER_WINDOWMS', 900000), // 15 min
+    windowMs: envInt('LIMITER_WINDOW_MS', 900000), // 15 min
     /**
      * Per-tier multipliers on top of `rateLimit.max`. A premium-plan org
      * gets its baseline budget multiplied; free/unauthenticated callers
@@ -228,7 +228,7 @@ export const config = {
     tierMultipliers: tierMultipliers(),
     auth: {
       max: envInt('AUTH_LIMITER_MAX', 20),
-      windowMs: envInt('AUTH_LIMITER_WINDOWMS', 900000), // 15 min
+      windowMs: envInt('AUTH_LIMITER_WINDOW_MS', 900000), // 15 min
     },
     // Observability endpoints (catalog query, range query, log query) hit
     // Prometheus / Loki directly. A noisy operator clicking through panels
@@ -239,7 +239,7 @@ export const config = {
     // loads in a window or legitimate views 429. 120 req / min default.
     observability: {
       max: envInt('OBSERVABILITY_LIMITER_MAX', 120),
-      windowMs: envInt('OBSERVABILITY_LIMITER_WINDOWMS', 60000), // 1 min
+      windowMs: envInt('OBSERVABILITY_LIMITER_WINDOW_MS', 60000), // 1 min
     },
     /**
      * Dedicated bucket for the Alertmanager relay webhook.
@@ -257,7 +257,7 @@ export const config = {
      */
     alertWebhook: {
       max: envInt('ALERT_WEBHOOK_LIMITER_MAX', 3000),
-      windowMs: envInt('ALERT_WEBHOOK_LIMITER_WINDOWMS', 60000), // 1 min
+      windowMs: envInt('ALERT_WEBHOOK_LIMITER_WINDOW_MS', 60000), // 1 min
     },
   },
   /**
@@ -371,7 +371,7 @@ export const config = {
     passwordSaltRounds: envInt('BCRYPT_SALT_ROUNDS', 12),
     jwt: {
       /**
-       * ES256 user-token signing (roadmap #5). `mode: 'kms'` keeps the private
+       * ES256 user-token signing. `mode: 'kms'` keeps the private
        * key inside AWS KMS (asymmetric `ECC_NIST_P256`, sign-only); `mode:
        * 'local'` reads a PEM from disk — a bind mount under compose, a mounted
        * Kubernetes Secret on minikube. Rotation is by `kid`: the *_PREVIOUS
@@ -417,7 +417,7 @@ export const config = {
           // returned as-is (an explicit 0 stays 0) — only "absent" is undefined.
           return [tier, process.env[name]?.trim() ? envInt(name, 0) : undefined];
         }),
-      ) as Record<QuotaTier, number | undefined>,
+      ) as Record<PlanTier, number | undefined>,
     },
     refreshToken: {
       // No secret of its own any more: a refresh token is a user token, so it is
@@ -551,7 +551,7 @@ export const config = {
      */
     loginThrottle: {
       perAccountMax: envInt('LOGIN_ACCOUNT_LIMITER_MAX', 10),
-      perAccountWindowMs: envInt('LOGIN_ACCOUNT_LIMITER_WINDOWMS', 900_000), // 15 min
+      perAccountWindowMs: envInt('LOGIN_ACCOUNT_LIMITER_WINDOW_MS', 900_000), // 15 min
     },
 
     /**
@@ -825,27 +825,27 @@ export const config = {
     // Quota microservice connection
     serviceHost: process.env.QUOTA_SERVICE_HOST || 'quota',
     servicePort: envInt('QUOTA_SERVICE_PORT', 3000),
-    serviceTimeout: envInt('QUOTA_SERVICE_TIMEOUT', 5000), // 5s
+    serviceTimeoutMs: envInt('QUOTA_SERVICE_TIMEOUT_MS', 5000), // 5s
     // The usage-counter period, shared with the quota service (api-core's single
     // definition). A service account's OWN token-exchange budget rolls over on it
     // too, so its window matches every other quota in the deployment.
     resetDays: QUOTA_RESET_DAYS,
-    // Quota tier presets (each tier's limits). Consumed by Organization model
+    // Plan tier presets (each tier's limits). Consumed by Organization model
     // schema defaults.
     // Keyed off `VALID_TIERS`, so `config.quota.tier[tier]` is indexable by every
-    // QuotaTier — including `unlimited`, the billing-disabled default, which a
+    // PlanTier — including `unlimited`, the billing-disabled default, which a
     // hand-written list had to remember to carry. Copies rather than the catalog's
     // own objects: this config is handed to Mongoose as schema defaults.
     tier: Object.fromEntries(
-      VALID_TIERS.map((tier) => [tier, { ...QUOTA_TIERS[tier].limits }]),
-    ) as Record<QuotaTier, QuotaTierLimits>,
+      VALID_TIERS.map((tier) => [tier, { ...PLAN_TIERS[tier].limits }]),
+    ) as Record<PlanTier, PlanTierLimits>,
   },
 
   billing: {
     enabled: (process.env.BILLING_ENABLED || 'true').toLowerCase() !== 'false',
     serviceHost: process.env.BILLING_SERVICE_HOST || 'billing',
     servicePort: envInt('BILLING_SERVICE_PORT', 3000),
-    serviceTimeout: envInt('BILLING_SERVICE_TIMEOUT', 5000), // 5s
+    serviceTimeoutMs: envInt('BILLING_SERVICE_TIMEOUT_MS', 5000), // 5s
     // Paid-signup provisioning: retry the billing subscription POST a couple of
     // times with short backoff before persisting the durable pending marker.
     provisionRetryAttempts: envInt('BILLING_PROVISION_RETRY_ATTEMPTS', 3),
@@ -866,7 +866,7 @@ export const config = {
     enabled: (process.env.COMPLIANCE_ENABLED || 'true').toLowerCase() !== 'false',
     serviceHost: process.env.COMPLIANCE_SERVICE_HOST || 'compliance',
     servicePort: envInt('COMPLIANCE_SERVICE_PORT', 3000),
-    serviceTimeout: envInt('COMPLIANCE_SERVICE_TIMEOUT', 5000), // 5s
+    serviceTimeoutMs: envInt('COMPLIANCE_SERVICE_TIMEOUT_MS', 5000), // 5s
   },
 
   // Message service — used for service-to-service in-app notifications
@@ -876,7 +876,7 @@ export const config = {
     enabled: (process.env.MESSAGE_ENABLED || 'true').toLowerCase() !== 'false',
     serviceHost: process.env.MESSAGE_SERVICE_HOST || 'message',
     servicePort: envInt('MESSAGE_SERVICE_PORT', 3000),
-    serviceTimeout: envInt('MESSAGE_SERVICE_TIMEOUT', 5000), // 5s
+    serviceTimeoutMs: envInt('MESSAGE_SERVICE_TIMEOUT_MS', 5000), // 5s
   },
   // Reached by ONE caller: the org-delete cascade's private-namespace purge
   // (`DELETE /internal/org-namespace/:orgId`). Platform holds no registry
@@ -892,7 +892,7 @@ export const config = {
     // on, and the scheduler re-checks owners anyway.
     serviceHost: process.env.REPORTING_SERVICE_HOST || 'reporting',
     servicePort: envInt('REPORTING_SERVICE_PORT', 3000),
-    serviceTimeout: envInt('REPORTING_SERVICE_TIMEOUT', 5000), // 5s
+    serviceTimeoutMs: envInt('REPORTING_SERVICE_TIMEOUT_MS', 5000), // 5s
   },
 } as const;
 

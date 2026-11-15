@@ -9,7 +9,7 @@
  * change which would drop a count quota below current usage.
  */
 
-import type { QuotaTier, DurableEventBus, EventSubscription } from '@pipeline-builder/api-core';
+import type { PlanTier, DurableEventBus, EventSubscription } from '@pipeline-builder/api-core';
 import { clampRetentionDays, complianceSetsForFeatures, createLogger, errorMessage, TIER_FEATURES, VALID_QUOTA_TYPES } from '@pipeline-builder/api-core';
 import { incCounter } from '@pipeline-builder/api-server';
 import { effectiveEntitlements } from '../config/entitlements.js';
@@ -79,7 +79,7 @@ async function pushEntitlementLeg(opts: {
  */
 export async function syncTierToQuotaService(
   orgId: string,
-  tier: QuotaTier,
+  tier: PlanTier,
   authHeader: string,
   subscriptionId?: string,
   quotas?: Record<string, number>,
@@ -131,7 +131,7 @@ async function pushPlatformLimits(
   features: string[],
   authHeader: string,
   subscriptionId: string | undefined,
-  tier: QuotaTier,
+  tier: PlanTier,
   occurredAt: string,
 ): Promise<boolean> {
   // Push the account `tier` alongside seats/features so a plan DOWNGRADE
@@ -155,7 +155,7 @@ async function pushPlatformLimits(
 /**
  * Push the effective RETENTION entitlement to the reporting service. Retention
  * is NOT a quota-service type (it's absent from `VALID_QUOTA_TYPES`) — it rides
- * `QuotaTierLimits` only to reuse the tier-baseline + bundle-grant math, then
+ * `PlanTierLimits` only to reuse the tier-baseline + bundle-grant math, then
  * syncs to reporting's `dora_settings`. `eventRetentionDays`/`doraRetentionDays`
  * are the EFFECTIVE values (tier base + bundles; `-1` = unlimited). Rides the
  * shared entitlement leg, so reporting authorizes the billing service token
@@ -232,7 +232,7 @@ async function pushReportEntitlementToReporting(
  * alone. Pure.
  */
 export function effectiveFeatureSet(
-  tier: QuotaTier,
+  tier: PlanTier,
   addons: ReadonlyArray<{ bundleId: string; quantity: number }> = [],
 ): string[] {
   const { features } = effectiveEntitlements(tier, addons, getBundleCatalog());
@@ -306,7 +306,7 @@ export interface Overage {
  */
 export async function checkEntitlementOvercap(
   orgId: string,
-  tier: QuotaTier,
+  tier: PlanTier,
   newAddons: ReadonlyArray<{ bundleId: string; quantity: number }>,
   authHeader: string,
 ): Promise<Overage[]> {
@@ -369,7 +369,7 @@ let entitlementSyncBus: DurableEventBus | null = null;
 
 interface EntitlementSyncEvent {
   orgId: string;
-  tier: QuotaTier;
+  tier: PlanTier;
   subscriptionId?: string;
   addons: Array<{ bundleId: string; quantity: number }>;
   /** When the entitlement change happened (ISO). A redelivered retry carries the
@@ -436,7 +436,7 @@ export function startEntitlementSyncConsumer(bus: DurableEventBus): EventSubscri
  */
 export async function currentSubscriptionEntitlement(
   subscription: Pick<SubscriptionDocument, 'status' | 'planId' | 'addons' | 'metadata'>,
-): Promise<{ tier: QuotaTier; addons: Array<{ bundleId: string; quantity: number }> } | null> {
+): Promise<{ tier: PlanTier; addons: Array<{ bundleId: string; quantity: number }> } | null> {
   const entitled = (MANAGEABLE_SUBSCRIPTION_STATUSES as readonly string[]).includes(subscription.status)
     && !isGraceDowngraded(subscription);
   if (!entitled) return { tier: 'developer', addons: [] };
@@ -453,12 +453,14 @@ function subscriptionOccurredAt(subscription: { updatedAt?: Date | null }): stri
 
 /**
  * Sync an account's EFFECTIVE entitlements (tier + add-on bundles) with a
- * FOUR-TARGET fan-out (docs/billing-bundles.md): the tracked quota limits
- * (`VALID_QUOTA_TYPES`) go to the quota service; SEATS go to platform (quota has no `seats`); RETENTION
+ * FIVE-LEG fan-out (docs/billing-bundles.md): the tracked quota limits
+ * (`VALID_QUOTA_TYPES`) go to the quota service; SEATS, support contacts and
+ * purchased features go to platform (quota has no `seats`); RETENTION
  * (event/dora days) goes to reporting (retention isn't a quota type — it rides
- * `QuotaTierLimits` only to reuse the base+bundle math); COMPLIANCE content sets
+ * `PlanTierLimits` only to reuse the base+bundle math); COMPLIANCE content sets
  * (standard/advanced, derived from the effective feature flags) go to the
- * compliance service. All four target the subscription's org (root-scoped).
+ * compliance service; the stakeholder-reports entitlement goes to reporting.
+ * All five target the subscription's org (root-scoped).
  * Returns true only if all legs succeed.
  *
  * The bus-publish-on-failure lives in the {@link syncEntitlements} wrapper, NOT
@@ -467,7 +469,7 @@ function subscriptionOccurredAt(subscription: { updatedAt?: Date | null }): stri
  */
 async function applyEntitlements(
   orgId: string,
-  tier: QuotaTier,
+  tier: PlanTier,
   authHeader: string,
   subscriptionId?: string,
   addons: ReadonlyArray<{ bundleId: string; quantity: number }> = [],
@@ -516,7 +518,8 @@ async function applyEntitlements(
     // at error level AND emit a distinct, aggregatable metric so SRE can alert +
     // reconcile. Each failing leg also wrote its own `billing_events` audit row
     // (reason quota_sync_failed / seat_sync_failed / retention_sync_failed /
-    // compliance_sync_failed) via the shared entitlement leg, so the drift is both
+    // compliance_sync_failed / report_entitlement_sync_failed) via the shared
+    // entitlement leg, so the drift is both
     // metered and auditable without failing the request.
     const leg = [
       !quotaOk ? 'quota' : null,
@@ -537,7 +540,7 @@ async function applyEntitlements(
 /**
  * Sync entitlements on the request/webhook path, with DURABLE retry on failure.
  *
- * Runs the four-leg fan-out inline (so the happy path is synchronous and the
+ * Runs the five-leg fan-out inline (so the happy path is synchronous and the
  * caller's mutation reflects the attempt), and if any leg fails, publishes a
  * retry event to the durable bus — the consumer ({@link startEntitlementSyncConsumer})
  * then re-drives it at-least-once until it succeeds. Best-effort + never throws
@@ -547,7 +550,7 @@ async function applyEntitlements(
  */
 export async function syncEntitlements(
   orgId: string,
-  tier: QuotaTier,
+  tier: PlanTier,
   authHeader: string,
   subscriptionId?: string,
   addons: ReadonlyArray<{ bundleId: string; quantity: number }> = [],

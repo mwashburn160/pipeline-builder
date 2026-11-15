@@ -1,6 +1,6 @@
 // GENERATED FROM docs/architecture-flow.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: c8facc64fce8efa8d3b2018b866db9c91fbec9355bbf8c5466c9465c1ae7fcc0
+// SOURCE-SHA256: fb7fa7fc0213f8ca9165db8a31ee570bcb5c9983745e443f3c3945bb8648bdf1
 // SPDX-License-Identifier: Apache-2.0
 import { Workflow } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -256,12 +256,12 @@ export const architectureFlowTopic: HelpTopic = {
         },
         {
           "type": "code",
-          "content": "sequenceDiagram\n    participant CLI as pipeline-manager\n    participant CDK as CDK Constructs\n    participant Lambda as Plugin Lookup<br/>Lambda\n    participant API as Platform API\n\n    CLI->>CDK: cdk synth / cdk deploy\n    CDK->>CDK: PipelineBuilder(props)\n    CDK->>CDK: Create PluginLookup (Custom Resource + Lambda)\n\n    Note over CDK,Lambda: At deploy time (CloudFormation)\n    CDK->>Lambda: Resolve stage plugins\n    Lambda->>API: POST /api/plugins/lookup\n    API-->>Lambda: Plugin config (commands, env, computeType)\n    Lambda-->>CDK: Base64-encoded plugin data\n\n    CDK->>CDK: Create CodeBuildStep per stage/step\n    CDK->>CDK: Assemble CodePipeline (Source → Synth → Stages)\n    CDK-->>CLI: CloudFormation template",
+          "content": "sequenceDiagram\n    participant CLI as pipeline-manager\n    participant CDK as CDK Constructs\n    participant API as Platform API\n\n    CLI->>API: POST /api/plugins/lookup (every plugin)\n    API-->>CLI: Plugin config (commands, env, computeType, imageDigest)\n    Note over CLI: Any plugin that does not resolve fails the synth\n    CLI->>CDK: cdk synth / cdk deploy (resolved props)\n    CDK->>CDK: PipelineBuilder(props)\n    CDK->>CDK: PluginLookup hands each step its resolved record\n\n    CDK->>CDK: Create CodeBuildStep per stage/step\n    CDK->>CDK: Assemble CodePipeline (Source → Synth → Stages)\n    CDK-->>CLI: CloudFormation template",
           "language": "mermaid"
         },
         {
           "type": "text",
-          "content": "pipeline-manager pre-resolves every plugin through the same POST /api/plugins/lookup before synth. For a plugin that runs on its own image, the plugin service first runs cosign verify against the plugin-signing public key and answers 409 IMAGE_VERIFICATION_FAILED if the signature doesn't verify (or the plugin has no signed digest) — which aborts the synth rather than falling back. The synthesized CodeBuild image is then pinned by digest (<repo>@sha256:…), never by the mutable name:version tag."
+          "content": "pipeline-manager pre-resolves every plugin through the same POST /api/plugins/lookup before synth. For a plugin that runs on its own image, the plugin service first runs cosign verify against the plugin-signing public key and answers 409 IMAGE_VERIFICATION_FAILED if the signature doesn't verify (or the plugin has no signed digest) — which aborts the synth. So does every other plugin that does not resolve (not found, not installed, the platform unreachable): a step never ships without its plugin. The synthesized CodeBuild image is then pinned by digest (<repo>@sha256:…), never by the mutable name:version tag."
         },
         {
           "type": "text",

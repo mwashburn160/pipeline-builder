@@ -42,24 +42,24 @@ beforeEach(() => {
 
 describe('ComplianceDashboard — audit fetch error', () => {
   it('shows an error + retry banner when the audit fetch rejects', async () => {
-    listFetch = () => Promise.reject(new Error('boom'));
+    listFetch = () => Promise.reject(new Error('Audit store unavailable'));
 
     render(<ComplianceDashboard />);
 
-    expect(await screen.findByText(/failed to load audit log/i)).toBeInTheDocument();
+    expect(await screen.findByText(/audit store unavailable/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument();
     expect(screen.queryByText(/no check results recorded yet/i)).not.toBeInTheDocument();
   });
 
   it('clears the banner and refetches on Retry', async () => {
-    listFetch = () => Promise.reject(new Error('boom'));
+    listFetch = () => Promise.reject(new Error('Audit store unavailable'));
     render(<ComplianceDashboard />);
-    await screen.findByText(/failed to load audit log/i);
+    await screen.findByText(/audit store unavailable/i);
 
     listFetch = () => Promise.resolve(okList);
     fireEvent.click(screen.getByRole('button', { name: /retry/i }));
 
-    await waitFor(() => expect(screen.queryByText(/failed to load audit log/i)).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByText(/audit store unavailable/i)).not.toBeInTheDocument());
     expect(screen.getByText(/no check results recorded yet/i)).toBeInTheDocument();
   });
 

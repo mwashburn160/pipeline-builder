@@ -42,11 +42,20 @@ export function extractionLimits(): ExtractionLimits {
   return { maxBytes, maxEntries };
 }
 
-/** Unix file-type bits of st_mode (as zip external attributes carry them). */
 /** One past the permission bits: st_mode % this = permissions, the rest = S_IFMT type. */
 const S_IFMT_UNIT = 0o10000;
 const S_IFREG = 0o100000;
 const S_IFDIR = 0o040000;
+
+/**
+ * Ceiling on one entry whose TEXT is captured into memory (config.yaml,
+ * plugin-spec.yaml, README.md). Every consumer refuses far less — the YAML
+ * parser at `PLUGIN_MAX_YAML_BYTES` (1 MiB), the README at 64 KiB — but they
+ * see the text only after it is fully buffered, so without this bound a
+ * multi-GB `config.yaml` (within the extraction byte cap) was held in the heap
+ * whole before anything looked at its size.
+ */
+const TEXT_ENTRY_MAX_BYTES = 16 * 1024 * 1024;
 
 function describeFileType(type: number): string {
   switch (type) {
@@ -73,6 +82,9 @@ export async function readAndExtractZip(
   const results = new Map<string, string>();
   const wanted = new Set(textEntries);
   const { maxBytes, maxEntries } = limits;
+  // Resolved once so the traversal check compares like with like: a relative
+  // or trailing-slash `extractDir` would otherwise refuse every entry.
+  const root = path.resolve(extractDir);
   let totalBytes = 0;
   let entryCount = 0;
 
@@ -126,10 +138,10 @@ export async function readAndExtractZip(
           ));
         }
 
-        const targetPath = path.join(extractDir, entry.fileName);
+        const targetPath = path.join(root, entry.fileName);
 
         // Prevent path traversal
-        if (!targetPath.startsWith(extractDir + path.sep) && targetPath !== extractDir) {
+        if (!targetPath.startsWith(root + path.sep) && targetPath !== root) {
           return rejectOnce(new ValidationError(`ZIP entry escapes target directory: ${entry.fileName}`));
         }
 
@@ -174,29 +186,33 @@ export async function readAndExtractZip(
               // than the read stream's 'end'.
               writeStream.on('error', rejectOnce);
 
-              if (wanted.has(entry.fileName)) {
-                // Capture text content AND write to disk
-                const chunks: Buffer[] = [];
-                writeStream.on('finish', () => {
-                  results.set(entry.fileName, Buffer.concat(chunks).toString('utf-8'));
-                  zipfile.readEntry();
-                });
-                stream.on('data', (chunk: Buffer) => {
-                  if (!countChunk(chunk)) { stream.destroy(); writeStream.destroy(); return; }
-                  chunks.push(chunk); writeStream.write(chunk);
-                });
-                stream.on('end', () => { writeStream.end(); });
-                stream.on('error', rejectOnce);
-              } else {
-                // Just write to disk (with the same byte accounting)
-                writeStream.on('finish', () => zipfile.readEntry());
-                stream.on('data', (chunk: Buffer) => {
-                  if (!countChunk(chunk)) { stream.destroy(); writeStream.destroy(); return; }
-                  writeStream.write(chunk);
-                });
-                stream.on('end', () => { writeStream.end(); });
-                stream.on('error', rejectOnce);
-              }
+              // Capture text content as well as writing it, for the wanted entries.
+              const chunks: Buffer[] | null = wanted.has(entry.fileName) ? [] : null;
+              let capturedBytes = 0;
+              writeStream.on('finish', () => {
+                if (chunks) results.set(entry.fileName, Buffer.concat(chunks).toString('utf-8'));
+                zipfile.readEntry();
+              });
+              stream.on('data', (chunk: Buffer) => {
+                if (!countChunk(chunk)) { stream.destroy(); writeStream.destroy(); return; }
+                if (chunks) {
+                  capturedBytes += chunk.length;
+                  if (capturedBytes > TEXT_ENTRY_MAX_BYTES) {
+                    stream.destroy(); writeStream.destroy();
+                    rejectOnce(new ValidationError(`ZIP entry ${entry.fileName} exceeds ${TEXT_ENTRY_MAX_BYTES} bytes`));
+                    return;
+                  }
+                  chunks.push(chunk);
+                }
+                // Backpressure: decompression outruns a slow volume, and without
+                // it every unflushed chunk of a multi-GB entry queues in memory.
+                if (!writeStream.write(chunk)) {
+                  stream.pause();
+                  writeStream.once('drain', () => stream.resume());
+                }
+              });
+              stream.on('end', () => { writeStream.end(); });
+              stream.on('error', rejectOnce);
             });
           })
           .catch(rejectOnce);

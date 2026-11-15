@@ -158,6 +158,8 @@ export default function UsersPage() {
 
   // Create-user modal state.
   const [showCreate, setShowCreate] = useState(false);
+  // A super-admin create, held until StepUpModal (second factor only) confirms.
+  const [pendingSuperAdminCreate, setPendingSuperAdminCreate] = useState(false);
   const createForm = useFormState();
   const [newUser, setNewUser] = useState<NewUserState>({ username: '', email: '', password: '', organizationId: '', role: 'member', isSuperAdmin: false });
   // Roles of the currently-selected org (org-scoped; empty until an org is
@@ -217,7 +219,18 @@ export default function UsersPage() {
     if (newUser.username.trim().length < 2) { createForm.setError('Username must be at least 2 characters'); return; }
     if (!newUser.email.trim()) { createForm.setError('Email is required'); return; }
     if (newUser.password.length < 8) { createForm.setError('Password must be at least 8 characters'); return; }
+    // A super-admin account IS a platform-admin grant: the server demands a
+    // second-factor step-up for it, so confirm in StepUpModal first.
+    if (newUser.isSuperAdmin) { setPendingSuperAdminCreate(true); return; }
+    await createUser();
+  };
 
+  const executeSuperAdminCreate = async (stepUpToken: string) => {
+    setPendingSuperAdminCreate(false);
+    await createUser(stepUpToken);
+  };
+
+  const createUser = async (stepUpToken?: string) => {
     await createForm.run(
       () => api.createUser({
         username: newUser.username.trim(),
@@ -227,7 +240,7 @@ export default function UsersPage() {
         ...(newUser.organizationId && { organizationId: newUser.organizationId, role: newUser.role }),
         // Roles are org-scoped — only send them alongside an org.
         ...(newUser.organizationId && selectedRoleIds.size > 0 && { roleIds: Array.from(selectedRoleIds) }),
-      }),
+      }, stepUpToken),
       {
         successMessage: 'User created successfully',
         onSuccess: () => {
@@ -573,6 +586,17 @@ export default function UsersPage() {
           requireStrongFactor
           onConfirmed={confirmGrantChange}
           onClose={() => setPendingGrant(null)}
+        />
+      )}
+
+      {pendingSuperAdminCreate && (
+        <StepUpModal
+          action={`Create ${newUser.email.trim()} as a platform super-admin`}
+          /* Creating a super-admin is a platform-admin grant — the same
+             second-factor-only route rule as grant/revoke below. */
+          requireStrongFactor
+          onConfirmed={executeSuperAdminCreate}
+          onClose={() => setPendingSuperAdminCreate(false)}
         />
       )}
 

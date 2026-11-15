@@ -14,7 +14,7 @@ import {
 } from '@pipeline-builder/api-core/build-catalog';
 import { Card } from '@/components/ui/Card';
 import { TIER_META } from '@/lib/tiers';
-import type { QuotaTier } from '@/types';
+import type { PlanTier } from '@/types';
 
 /**
  * What the org's plan gives it in BUILD CAPACITY, beside the quota cards.
@@ -29,7 +29,7 @@ import type { QuotaTier } from '@/types';
  * can see is a reason to upgrade nobody ever learns, and this is the surface
  * where that ladder is supposed to be legible.
  */
-export function BuildCapacityCard({ tier }: { tier: QuotaTier }) {
+export function BuildCapacityCard({ tier }: { tier: PlanTier }) {
   const slots = buildSlotsByClass(tier);
   const available = buildSizesForTier(tier);
   const locked = BUILD_SIZES.filter((s) => !tierAllowsBuildSize(tier, s));

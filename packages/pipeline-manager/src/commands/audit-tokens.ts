@@ -4,11 +4,13 @@
 import { errorMessage, isOpaqueApiKey } from '@pipeline-builder/api-core';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { Command } from 'commander';
+import { STORE_TOKEN_SCOPES } from './store-token.js';
 import { resolveAwsRegion } from '../utils/aws-env.js';
 import { getSecretValue, listSecrets } from '../utils/aws-secrets.js';
 import { printCommandHeader, withProfileOption, withRegionOption } from '../utils/command-utils.js';
 import { ERROR_CODES, reportError } from '../utils/error-handler.js';
 import { printError, printInfo, printSection, printSuccess, printWarning } from '../utils/output-utils.js';
+import { scopeSecretLeaf } from '../utils/platform-secret.js';
 
 interface TokenAuditEntry {
   secretName: string;
@@ -23,7 +25,7 @@ interface TokenAuditEntry {
 /**
  * Registers the `audit-tokens` command with the CLI program.
  *
- * Scans AWS Secrets Manager for stored platform JWTs (matching the
+ * Scans AWS Secrets Manager for stored service-account keys (matching the
  * `pipeline-builder/<orgId>/platform` naming convention used by `store-token`)
  * and reports which secrets are expired or close to expiring.
  *
@@ -66,11 +68,13 @@ export function auditTokens(program: Command): void {
           printWarning('Secret listing was TRUNCATED (paging cap hit) — results may be INCOMPLETE and an expiring token could be missed. Narrow by --prefix/--region.');
         }
 
-        // Audit every stored machine credential: the full-privilege platform key
-        // (`<prefix>/<orgId>/platform`) and each SCOPED one (`.../reporting-ingest`,
-        // `.../registry-push`, from `store-token --scope …`). All expire and all
-        // are auto-rotated, so a stalled rotation on any of them must surface here.
-        const CREDENTIAL_LEAVES = ['/platform', '/reporting-ingest', '/registry-push'];
+        // Audit every stored machine credential: the platform key
+        // (`<prefix>/<orgId>/platform`) and each SCOPED one `store-token --scope …`
+        // writes (`.../reporting-ingest`, `.../registry-push`,
+        // `.../pipeline-registry-write`). All expire and all are auto-rotated, so
+        // a stalled rotation on any of them must surface here. Derived from
+        // store-token's own scope list so a new scope cannot go unaudited.
+        const CREDENTIAL_LEAVES = ['platform', ...STORE_TOKEN_SCOPES.map(scopeSecretLeaf)].map((leaf) => `/${leaf}`);
         const platformSecrets = secrets.filter((s) => CREDENTIAL_LEAVES.some((leaf) => s.name.endsWith(leaf)));
 
         const entries: TokenAuditEntry[] = [];
@@ -164,7 +168,7 @@ export function auditTokens(program: Command): void {
                   : `expires in ${e.daysUntilExpiry} day${e.daysUntilExpiry === 1 ? '' : 's'}`;
               printWarning(`${e.secretName} — ${label}`);
             }
-            printError(`${atRisk.length} secret${atRisk.length === 1 ? '' : 's'} need rotation. Run \`pipeline-manager infra store-token --days <N>\` (add --scope for a scoped credential) to reissue.`);
+            printError(`${atRisk.length} secret${atRisk.length === 1 ? '' : 's'} need rotation. Run \`pipeline-manager infra store-token --expires-days <N>\` (add --scope for a scoped credential) to reissue.`);
           }
         }
         process.exit(exitCode);

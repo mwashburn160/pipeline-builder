@@ -3,8 +3,8 @@
 
 /**
  * Shared platform-token → secret-name resolution, used by both `store-token`
- * (which WRITES the JWT to Secrets Manager) and `setup-events` (which deploys the
- * Lambda that READS it). Both must agree on the same secret path, so the logic
+ * (which WRITES the service-account key to Secrets Manager) and `setup-events`
+ * (which deploys the Lambda that READS it). Both must agree on the same secret path, so the logic
  * lives here once: derive `{SECRETS_PATH_PREFIX}/{orgId}/platform` from the JWT's
  * organizationId, logging in first if needed to obtain the token.
  */

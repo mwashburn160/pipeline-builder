@@ -131,6 +131,15 @@ Contacting support is self-service — every member who can open the Messages pa
 
 **Support-contact designation is `org_settings:write`, read included** (`platform GET|POST|PATCH|DELETE /organization/:id/support-contacts`). It is an organization setting — which of the org's members speak for it to the support desk — rather than `billing:manage` (payment and plans) or `members:manage` (nothing here changes membership or a role). The READ carries the same capability because it discloses the account's **pooled** allowance and usage, a commercial fact spanning sibling teams the caller may not administer; the own-org list that ordinary members genuinely need is served separately by the message service on `messages:read`.
 
+### Gates that apply to only some requests
+
+Platform's `gateWhen` applies gates to only the requests a predicate selects, and the route table records them under `conditionalGates` with the route's own description of those requests. A row renders each one with its condition (`aal2(when …)`, `step-up(…when …)`), on top of what every request meets. Two routes use it:
+
+- **`platform POST /users`**: a body with `isSuperAdmin: true` IS a platform-admin grant, so it also needs `aal2 + step-up(totp,webauthn)`, the same as `POST /admin/users/:id/grants`. An ordinary account create needs neither.
+- **`platform PATCH /user/profile`**: CHANGING the sign-in email also needs a step-up, because the email is where a password reset is sent. A username edit stays authenticated-only. The conditional gate is what puts this route in the table at all.
+
+Dropping a `gateWhen`, or weakening what it wraps, changes these rows like any other gate. Which requests each predicate selects is pinned in `platform/test/step-up-route-gates.test.ts`, and the gates' behaviour in `platform/test/gate-when.test.ts`.
+
 ## Notation
 
 | Token | Meaning |
@@ -139,7 +148,7 @@ Contacting support is self-service — every member who can open the Messages pa
 | `all(a\|b)` | Caller holds **every** one of these permissions |
 | `+svc` | A service principal also passes, without holding the permission |
 | `sysadmin` | Platform administrator only (`isSuperAdmin`) |
-| `dynamic(who…)` / `dynamic(who…:perm\|perm)` | Authorization the route resolves **per request**, so no static permission id can stand for it (`dynamicAuthz`). The prose rule lives on the route — a paragraph in a table cell stops being reviewable — but the PRINCIPAL KINDS it admits and the permission ids it consults are rendered here, so a rule that quietly starts admitting the superadmin flag, or stops consulting a permission, fails this test. Principal kinds are a closed set (api-core `DYNAMIC_PRINCIPALS`): `superadmin` (the `User.isSuperAdmin` flag), `system-org` (a system-org member holding a named permission), `tenant-admin` (admin/owner of the target's org or an ancestor — several of these rules refuse the flag on purpose), `tenant-member`, `subject` (the user the request is about), `service`, `gateway` (the ingress supplies the fact). Today: `/admin/console-check` (class from the gateway) and `/admin/console-session` (class stated by the caller, which is why it is `system-org`+`superadmin` and NOT `gateway`), plus the six impersonation routes, and `GET /pipelines/registry` (another org via `?orgId=` only for the superadmin flag — the `audit stacks` CLI's cross-org listing) |
+| `dynamic(who…)` / `dynamic(who…:perm\|perm)` | Authorization the route resolves **per request**, so no static permission id can stand for it (`dynamicAuthz`). The prose rule lives on the route — a paragraph in a table cell stops being reviewable — but the PRINCIPAL KINDS it admits and the permission ids it consults are rendered here, so a rule that quietly starts admitting the superadmin flag, or stops consulting a permission, fails this test. Principal kinds are a closed set (api-core `DYNAMIC_PRINCIPALS`): `superadmin` (the `User.isSuperAdmin` flag), `system-org` (a system-org member holding a named permission), `tenant-admin` (admin/owner of the target's org or an ancestor — several of these rules refuse the flag on purpose), `tenant-member`, `subject` (the user the request is about), `service`, `gateway` (the ingress supplies the fact). Today: `/admin/console-check` (class from the gateway) and `/admin/console-session` (class stated by the caller, which is why it is `system-org`+`superadmin` and NOT `gateway`), plus the six impersonation routes, `GET /pipelines/registry` (another org via `?orgId=` only for the superadmin flag — the `audit stacks` CLI's cross-org listing), and the five org-scoped plugin build-queue routes (`/plugins/queue/failed`, `/dlq`, `/triage`, retry, replay: a system-org `plugin_queue:manage` holder with an aal2 session sees every org's jobs, any other `plugins:write` holder only its own org's) |
 | `system-org` | The caller's **active org** must be the system org (`requireSystemOrg`, the plugin-ecosystem governance boundary). Dropping it from a route gated on `plugins:moderate` / `publishers:verify` is a weakening — and fails api-core's `findSystemOrgGuardViolations` too |
 | `service-principal` | Any signed service token |
 | `internal(a,b)` | Peer services only, and only these callers — refuses every user token |
@@ -148,6 +157,7 @@ Contacting support is self-service — every member who can open the Messages pa
 | `aalN` | Authenticator assurance level ≥ N |
 | `aalN(except c)` | …of every caller **except** the named carve-out `c`. Today the only one is `bootstrap-setup`: a fresh install's single administrator, who has no second factor to be MFA-grade with yet, on the setup calls `init-platform.sh` makes. Step-up still applies, the reach stays limited to the bootstrap allowlist, and a live re-read bounds it to `BOOTSTRAP_SETUP_WINDOW_MS` (default 24 h) after the install and to an exception that has not yet closed |
 | `step-up(m,…)` | Recent re-authentication with one of these methods |
+| `aalN(when c)` / `step-up(m,… when c)` | The same, demanded only of the requests `c` describes (`gateWhen`); every other request to the route skips it |
 | `org-admin-assurance` | The org's "administrative actions require MFA" policy applies |
 | `authenticated` | Signed in, nothing more |
 
@@ -348,7 +358,7 @@ Contacting support is self-service — every member who can open the Messages pa
 | message | GET | `/messages/attachments/:id` | `any(messages:read)` |
 | message | GET | `/messages/conversations` | `any(messages:read)` |
 | message | GET | `/messages/deleted` | `any(messages:read)` |
-| message | POST | `/messages/internal/notify` | `service-principal + internal(billing,compliance,platform,quota)` |
+| message | POST | `/messages/internal/notify` | `service-principal + internal(billing,compliance,platform,quota,reporting)` |
 | message | GET | `/messages/internal/offers/frustration/:orgId` | `service-principal + internal(billing)` |
 | message | DELETE | `/messages/internal/org/:orgId/attachments` | `service-principal + internal(platform)` |
 | message | POST | `/messages/notifications/ticket` | `any(messages:read)` |
@@ -538,8 +548,9 @@ Contacting support is self-service — every member who can open the Messages pa
 | platform | PATCH | `/organization/:id/transfer-owner` | `any(org_settings:write) + aal2 + step-up(any)` |
 | platform | PUT | `/organization/ai-config` | `any(org_settings:write) + step-up(any)` |
 | platform | GET | `/organizations` | `system-org + any(orgs:read) + aal2` |
+| platform | PATCH | `/user/profile` | `step-up(any when changes the sign-in email)` |
 | platform | GET | `/users` | `any(members:manage)` |
-| platform | POST | `/users` | `any(members:manage)` |
+| platform | POST | `/users` | `any(members:manage) + aal2(when creates a platform super-admin) + step-up(totp,webauthn when creates a platform super-admin)` |
 | platform | DELETE | `/users/:id` | `any(members:manage) + aal2 + step-up(any)` |
 | platform | GET | `/users/:id` | `any(members:manage)` |
 | platform | PUT | `/users/:id` | `any(members:manage) + aal2 + step-up(any)` |
@@ -659,12 +670,12 @@ Contacting support is self-service — every member who can open the Messages pa
 | plugin | POST | `/plugins/security-notifications/test` | `any(org_settings:write)` |
 | plugin | GET | `/plugins/shadowing` | `any(plugins:read)` |
 | plugin | DELETE | `/plugins/queue/dlq` | `system-org + any(plugin_queue:manage) + aal2` |
-| plugin | GET | `/plugins/queue/dlq` | `any(plugins:write)` |
-| plugin | POST | `/plugins/queue/dlq/:jobId/replay` | `any(plugins:write)` |
-| plugin | GET | `/plugins/queue/failed` | `any(plugins:write)` |
-| plugin | POST | `/plugins/queue/failed/:jobId/retry` | `any(plugins:write)` |
+| plugin | GET | `/plugins/queue/dlq` | `dynamic(superadmin,system-org,tenant-member:plugin_queue:manage|plugins:write)` |
+| plugin | POST | `/plugins/queue/dlq/:jobId/replay` | `dynamic(superadmin,system-org,tenant-member:plugin_queue:manage|plugins:write)` |
+| plugin | GET | `/plugins/queue/failed` | `dynamic(superadmin,system-org,tenant-member:plugin_queue:manage|plugins:write)` |
+| plugin | POST | `/plugins/queue/failed/:jobId/retry` | `dynamic(superadmin,system-org,tenant-member:plugin_queue:manage|plugins:write)` |
 | plugin | GET | `/plugins/queue/status` | `system-org + any(plugin_queue:manage) + aal2` |
-| plugin | GET | `/plugins/queue/triage` | `any(plugins:write)` |
+| plugin | GET | `/plugins/queue/triage` | `dynamic(superadmin,system-org,tenant-member:plugin_queue:manage|plugins:write)` |
 | plugin | POST | `/plugins/toolchain/initial-default` | `service-principal + internal(deploy-bootstrap)` |
 | plugin | GET | `/plugins/toolchain/eligible` | `any(pipelines:read)` |
 | plugin | GET | `/plugins/toolchain/org-default` | `any(pipelines:read)` |

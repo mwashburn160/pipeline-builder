@@ -35,6 +35,13 @@ export interface RunOptions extends BuildStreamOptions {
 export const BUILD_LOG_TAIL_LINES = 25;
 /** Hard cap per streamed/summarized line so a pathological line can't bloat SSE. */
 const BUILD_LOG_MAX_LINE_CHARS = 2000;
+/**
+ * Ceiling on a partial line held while waiting for its newline. Output that
+ * never prints one (a progress bar redrawn with `\r`, binary written to a
+ * tty-less stdout) otherwise grows the pending buffer for as long as the build
+ * runs; past this it is flushed as a line of its own.
+ */
+const BUILD_LOG_MAX_PENDING_CHARS = 64 * 1024;
 /** Ceiling on captured stdout — an SBOM attestation for a large image is a few MB. */
 const MAX_CAPTURED_STDOUT_BYTES = 64 * 1024 * 1024;
 
@@ -123,6 +130,10 @@ export function run(binary: string, args: string[], timeoutMs: number, env?: Nod
       const lines = buffers[stream].split('\n');
       buffers[stream] = lines.pop() ?? '';
       for (const line of lines) if (line) emit(maskSecrets(line), stream);
+      if (buffers[stream].length > BUILD_LOG_MAX_PENDING_CHARS) {
+        emit(maskSecrets(buffers[stream]), stream);
+        buffers[stream] = '';
+      }
     };
     child.stdout.on('data', pipe('stdout'));
     child.stderr.on('data', pipe('stderr'));

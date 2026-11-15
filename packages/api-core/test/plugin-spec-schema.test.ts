@@ -110,7 +110,7 @@ describe('name / version patterns', () => {
 });
 
 describe('BuildImage specs (managed toolchain)', () => {
-  const toolchain = { pipelineManager: '4.4.19', awsCdk: '2.1100.0', cdkAssets: '3.2.0', esbuild: '0.25.0', pnpm: '10.12.1', node: '24.11.0' };
+  const toolchain = { pipelineManager: '4.4.19', awsCdk: '2.1100.0', cdkAssets: '3.2.0', node: '24.11.0' };
   const sourceDigest = 'a'.repeat(64);
   const buildImage = { name: 'pipeline-bootstrap', version: '1.0.0', pluginType: 'BuildImage', description: 'Bootstrap image', category: 'infrastructure', toolchain, sourceDigest };
   const issuesOf = (raw: unknown) => {
@@ -145,6 +145,8 @@ describe('BuildImage specs (managed toolchain)', () => {
     expect(issuesOf({ ...buildImage, toolchain: partial }).join('\n')).toContain('toolchain.node');
     expect(issuesOf({ ...buildImage, toolchain: { ...toolchain, awsCdk: '^2.1100.0' } })).toEqual(['toolchain.awsCdk: must be an exact semver version (e.g. 1.2.3)']);
     expect(issuesOf({ ...buildImage, toolchain: { ...toolchain, extra: '1.0.0' } }).join('\n')).toMatch(/toolchain/);
+    // esbuild and pnpm are no longer part of the toolchain: nothing bundles at synth.
+    expect(issuesOf({ ...buildImage, toolchain: { ...toolchain, esbuild: '0.28.1', pnpm: '12.14.0' } }).join('\n')).toMatch(/toolchain/);
     expect(issuesOf({ ...buildImage, sourceDigest: 'xyz' })).toEqual(['sourceDigest: must be a sha256 hex digest']);
   });
 
@@ -161,7 +163,7 @@ describe('BuildImage specs (managed toolchain)', () => {
 });
 
 describe('toolchainMetadata / toolchainFromMetadata', () => {
-  const toolchain = { pipelineManager: '4.4.20', awsCdk: '2.1148.0', cdkAssets: '4.8.0', esbuild: '0.28.1', pnpm: '12.14.0', node: '26.13.0' };
+  const toolchain = { pipelineManager: '4.4.20', awsCdk: '2.1148.0', cdkAssets: '4.8.0', node: '26.13.0' };
 
   it('round-trips through flat toolchain.<field> keys', () => {
     const meta = toolchainMetadata(toolchain);
@@ -174,7 +176,7 @@ describe('toolchainMetadata / toolchainFromMetadata', () => {
     expect(toolchainFromMetadata(null)).toBeNull();
     expect(toolchainFromMetadata('x')).toBeNull();
     expect(toolchainFromMetadata({})).toBeNull();
-    const { 'toolchain.pnpm': _drop, ...partial } = toolchainMetadata(toolchain);
+    const { 'toolchain.cdkAssets': _drop, ...partial } = toolchainMetadata(toolchain);
     expect(toolchainFromMetadata(partial)).toBeNull();
     expect(toolchainFromMetadata({ ...toolchainMetadata(toolchain), 'toolchain.node': '^26' })).toBeNull();
     expect(toolchainFromMetadata({ ...toolchainMetadata(toolchain), 'toolchain.extra': '1.0.0' })).toBeNull();

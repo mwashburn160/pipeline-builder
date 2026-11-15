@@ -24,8 +24,7 @@ const mockUpdate = jest.fn<AnyFn>();
 const mockFindContractViolations = jest.fn<(...args: any[]) => Promise<any[]>>().mockResolvedValue([]);
 const mockRecordPipelineResolution = jest.fn(async (..._args: unknown[]) => undefined);
 jest.unstable_mockModule('../src/helpers/plugin-contract-check.js', () => ({
-  checkPluginContracts: async (...args: unknown[]) => ({ violations: await mockFindContractViolations(...args.slice(0, 3)), vulnerabilities: [], severity: null }),
-  findPluginContractViolations: (...args: unknown[]) => mockFindContractViolations(...args),
+  checkPluginContracts: async (...args: unknown[]) => ({ violations: await mockFindContractViolations(...args.slice(0, 3)), vulnerabilities: [] }),
   formatContractViolations: (v: unknown[]) => `Pipeline does not meet the contract of ${v.length} plugin step(s)`,
   recordPipelineResolution: (...args: unknown[]) => mockRecordPipelineResolution(...args),
 }));

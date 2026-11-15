@@ -773,14 +773,14 @@ describe('plan-change upkeep (N29)', () => {
     const { acme } = seedPublishers(db, { tenantTier: 'verified' });
     h.quota.getTierStrict.mockResolvedValue('pro');
     const now = new Date('2026-10-01T00:00:00Z');
-    expect(await maintenance.checkVerifiedGrace(acme as any, now)).toBe('grace_started');
+    expect(await maintenance.reconcileVerifiedGrace(acme as any, now)).toBe('grace_started');
     expect(acme.verifiedGraceUntil).toEqual(new Date('2026-10-31T00:00:00Z'));
     expect(h.notify).toHaveBeenCalledWith('N29', expect.anything(), expect.objectContaining({ subject: expect.stringContaining('grace period started') }), {});
-    expect(await maintenance.checkVerifiedGrace(acme as any, new Date('2026-10-05T00:00:00Z'))).toBe('in_grace');
-    expect(await maintenance.checkVerifiedGrace(acme as any, new Date('2026-10-18T00:00:00Z'))).toBe('reminded');
-    expect(await maintenance.checkVerifiedGrace(acme as any, new Date('2026-10-19T00:00:00Z'))).toBe('in_grace');
-    expect(await maintenance.checkVerifiedGrace(acme as any, new Date('2026-10-29T00:00:00Z'))).toBe('reminded');
-    expect(await maintenance.checkVerifiedGrace(acme as any, new Date('2026-11-01T00:00:00Z'))).toBe('downgraded');
+    expect(await maintenance.reconcileVerifiedGrace(acme as any, new Date('2026-10-05T00:00:00Z'))).toBe('in_grace');
+    expect(await maintenance.reconcileVerifiedGrace(acme as any, new Date('2026-10-18T00:00:00Z'))).toBe('reminded');
+    expect(await maintenance.reconcileVerifiedGrace(acme as any, new Date('2026-10-19T00:00:00Z'))).toBe('in_grace');
+    expect(await maintenance.reconcileVerifiedGrace(acme as any, new Date('2026-10-29T00:00:00Z'))).toBe('reminded');
+    expect(await maintenance.reconcileVerifiedGrace(acme as any, new Date('2026-11-01T00:00:00Z'))).toBe('downgraded');
     expect(acme.tier).toBe('community');
     expect(h.audit).toHaveBeenCalledWith(expect.objectContaining({ action: 'publisher.tier.change', details: { from: 'verified', to: 'community', reason: 'plan_downgrade' } }));
     expect((await resign.pendingResignJobs())[0]).toMatchObject({ reason: 'plan_downgrade' });
@@ -788,9 +788,9 @@ describe('plan-change upkeep (N29)', () => {
 
   it('keeps Verified when the plan is eligible again', async () => {
     const { acme } = seedPublishers(db, { tenantTier: 'verified' });
-    expect(await maintenance.checkVerifiedGrace(acme as any)).toBe('eligible');
+    expect(await maintenance.reconcileVerifiedGrace(acme as any)).toBe('eligible');
     acme.verifiedGraceUntil = new Date(Date.now() + 86_400_000);
-    expect(await maintenance.checkVerifiedGrace(acme as any)).toBe('restored');
+    expect(await maintenance.reconcileVerifiedGrace(acme as any)).toBe('restored');
     expect(acme.verifiedGraceUntil).toBeNull();
   });
 
@@ -799,11 +799,11 @@ describe('plan-change upkeep (N29)', () => {
     listed(acme, 'a', '1.0.0');
     listed(acme, 'b', '1.0.0');
     h.setListingsLimit(1);
-    expect(await maintenance.checkListingsLimit(acme as any)).toBe('over');
-    expect(await maintenance.checkListingsLimit(acme as any)).toBe('already_over');
+    expect(await maintenance.reconcileListingsLimitNotice(acme as any)).toBe('over');
+    expect(await maintenance.reconcileListingsLimitNotice(acme as any)).toBe('already_over');
     h.setListingsLimit(5);
-    expect(await maintenance.checkListingsLimit(acme as any)).toBe('back_under');
-    expect(await maintenance.checkListingsLimit(acme as any)).toBe('ok');
+    expect(await maintenance.reconcileListingsLimitNotice(acme as any)).toBe('back_under');
+    expect(await maintenance.reconcileListingsLimitNotice(acme as any)).toBe('ok');
   });
 
   it('never flags or clears the listings limit on an unreadable quota', async () => {
@@ -811,13 +811,13 @@ describe('plan-change upkeep (N29)', () => {
     listed(acme, 'a', '1.0.0');
     listed(acme, 'b', '1.0.0');
     h.quota.check.mockResolvedValueOnce({ allowed: true, limit: -1, used: 0, remaining: -1, resetAt: '', unlimited: true, failOpen: true } as never);
-    expect(await maintenance.checkListingsLimit(acme as any)).toBe('skipped');
+    expect(await maintenance.reconcileListingsLimitNotice(acme as any)).toBe('skipped');
     h.setListingsLimit(1);
-    expect(await maintenance.checkListingsLimit(acme as any)).toBe('over');
+    expect(await maintenance.reconcileListingsLimitNotice(acme as any)).toBe('over');
     h.quota.check.mockResolvedValueOnce({ allowed: true, limit: -1, used: 0, remaining: -1, resetAt: '', unlimited: true, failOpen: true } as never);
     // Still flagged: an outage is not "back under".
-    expect(await maintenance.checkListingsLimit(acme as any)).toBe('skipped');
-    expect(await maintenance.checkListingsLimit(acme as any)).toBe('already_over');
+    expect(await maintenance.reconcileListingsLimitNotice(acme as any)).toBe('skipped');
+    expect(await maintenance.reconcileListingsLimitNotice(acme as any)).toBe('already_over');
   });
 
   it('stops at the next checkpoint when the leader lease is lost', async () => {

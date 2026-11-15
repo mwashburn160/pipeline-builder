@@ -4,7 +4,7 @@
 /** The org and the people in it: membership, roles, preferences, quota and the
  *  invitations that add to it. */
 
-import type { Criticality, EntityLink, Lifecycle, OwnerType, QuotaTier, QuotaType, RoleGrant, TemplateInput, Visibility } from '@pipeline-builder/api-core';
+import type { Criticality, EntityLink, Lifecycle, OwnerType, PlanTier, QuotaType, RoleGrant, TemplateInput, Visibility } from '@pipeline-builder/api-core';
 import type { OrgRole } from '@pipeline-builder/api-core/wire-vocabulary';
 
 /** The current user's preferences for the active organization (`/user/preferences`). */
@@ -46,8 +46,8 @@ export interface UserOrgMembership {
   /** No membership row: the user reaches this team as an admin of its parent
    *  (inherited authority). It isn't on the team's roster and uses no seat. */
   viaAncestor?: boolean;
-  /** Org's quota tier — used to gate tier-gated actions (only team/enterprise roots may parent teams). */
-  tier?: QuotaTier;
+  /** Org's plan tier — used to gate tier-gated actions (only team/enterprise roots may parent teams). */
+  tier?: PlanTier;
   /** Live teams nested under this org (0 for a flat org or a team). Read through
    *  `useOrgHierarchy` — it decides whether hierarchy surfaces render at all. */
   childOrgCount: number;
@@ -176,7 +176,7 @@ export interface OrgQuotaResponse {
   orgId: string;
   name: string;
   slug: string;
-  tier?: QuotaTier;
+  tier?: PlanTier;
   quotas: Record<QuotaType, QuotaSummary>;
   /**
    * Length of the GLOBAL usage period in days (`QUOTA_RESET_DAYS`, default 3).
@@ -300,9 +300,9 @@ export interface Organization {
   description?: string;
   ownerId: string;
   memberCount: number;
-  /** Quota tier. Optional because some list endpoints elide it to keep
+  /** Plan tier. Optional because some list endpoints elide it to keep
    *  payloads small. */
-  tier?: QuotaTier;
+  tier?: PlanTier;
   /** Sysadmin-facing facet flags set by the orgs list endpoint. Absent on
    *  rows returned by other endpoints (e.g. org-detail). */
   kmsConfigured?: boolean;

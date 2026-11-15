@@ -1,6 +1,6 @@
 // GENERATED FROM docs/service-mesh.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: af801a427b26e184661c08a07756ae3f363a18c48c9d12f8b9f6a5aadd678e51
+// SOURCE-SHA256: 4b65de3ed5d5ccd1a07c3566dd809eb0a6a8caa6218a710c529aa94e9cbc803d
 // SPDX-License-Identifier: Apache-2.0
 import { Network } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -411,6 +411,10 @@ export const serviceMeshTopic: HelpTopic = {
         {
           "type": "text",
           "content": "sa/quota is in the message-allow and image-registry-allow policies and the matching NetworkPolicies for these. See API Quotas."
+        },
+        {
+          "type": "text",
+          "content": "Reporting service callers. Stakeholder-report delivery calls two internal routes: platform POST /internal/notify-email, which mails a published report to the addresses that were verified, and message POST /messages/internal/notify (sa/reporting in message-internal-routes), which posts the report to the org's inbox — the channel that cannot be misconfigured, so a report is never delivered nowhere — and tells its lead when a delivery was incomplete. See Stakeholder Reports."
         },
         {
           "type": "text",

@@ -254,16 +254,16 @@ export function report(program: Command): void {
     .command('link')
     .description('Mint an expiring read-only link to a published run. The token is shown ONCE.')
     .requiredOption('-r, --run <id>', 'Published run ID')
-    .option('--days <n>', 'Days until it expires (server default 30, maximum 180)')
+    .option('--expires-days <days>', 'Link lifetime in days (server default 30, maximum 180)')
     .option('--redact-names', 'Replace project and pipeline names in the shared view'))
     .action(async (options) => {
       const executionId = printCommandHeader('Report Link');
       try {
         printSslWarning(options.verifySsl);
         const client = createAuthenticatedClient(options);
-        const days = options.days === undefined ? undefined : Number(options.days);
+        const days = options.expiresDays === undefined ? undefined : Number(options.expiresDays);
         if (days !== undefined && (!Number.isInteger(days) || days < 1)) {
-          throw new Error('--days must be a positive whole number of days');
+          throw new Error('--expires-days must be a positive whole number of days');
         }
         const start = Date.now();
         const data = unwrap<{ url?: string; token?: string; expiresAt: string }>(

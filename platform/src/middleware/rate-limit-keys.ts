@@ -178,7 +178,7 @@ export function verifiedIsSuperAdmin(req: express.Request): boolean {
  * limiter's `skip`).
  *
  * `tier` is narrowed via api-core's `isValidTier` before indexing the
- * `Record<QuotaTier, number>`. No verified token, or an unknown tier, gets the
+ * `Record<PlanTier, number>`. No verified token, or an unknown tier, gets the
  * base 1× budget — so neither a forged `tier: 'unlimited'` nor a renamed tier
  * can raise a limit.
  */

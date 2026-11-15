@@ -15,6 +15,8 @@ import { controllerHelperMock } from './helpers/controller-helper-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 const mockAudit = jest.fn<AnyFn>();
 const mockUpdateProfile = jest.fn<AnyFn>();
+const mockIsEmailChange = jest.fn<AnyFn>();
+const mockSendEmailChanged = jest.fn<AnyFn>();
 const mockChangePassword = jest.fn<AnyFn>();
 const mockFindForTokenIssue = jest.fn<AnyFn>();
 const mockIssueTokens = jest.fn<AnyFn>();
@@ -55,6 +57,7 @@ jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controller
 jest.unstable_mockModule('../src/services/index.js', () => ({
   userProfileService: {
     updateProfile: (...a: unknown[]) => mockUpdateProfile(...a),
+    isEmailChange: (...a: unknown[]) => mockIsEmailChange(...a),
     changePassword: (...a: unknown[]) => mockChangePassword(...a),
     findForTokenIssue: (...a: unknown[]) => mockFindForTokenIssue(...a),
   },
@@ -95,7 +98,11 @@ jest.unstable_mockModule('../src/helpers/password-policy.js', () => ({
   passwordPolicyForPerson: (...a: unknown[]) => mockPasswordPolicyForPerson(...a),
 }));
 
-const { changePassword, updateUser, getOwnPasswordPolicy } = await import('../src/controllers/user-profile.js');
+jest.unstable_mockModule('../src/utils/email.js', () => ({
+  emailService: { sendEmailChanged: (...a: unknown[]) => mockSendEmailChanged(...a) },
+}));
+
+const { changePassword, changesOwnEmail, updateUser, getOwnPasswordPolicy } = await import('../src/controllers/user-profile.js');
 const { generateToken } = await import('../src/controllers/user-credentials.js');
 
 
@@ -109,6 +116,9 @@ function mockRes() {
 beforeEach(() => {
   mockAudit.mockReset();
   mockUpdateProfile.mockReset();
+  mockIsEmailChange.mockReset();
+  mockSendEmailChanged.mockReset();
+  mockSendEmailChanged.mockResolvedValue(true);
   mockChangePassword.mockReset();
   mockFindForTokenIssue.mockReset();
   mockIssueTokens.mockReset();
@@ -139,6 +149,53 @@ describe('updateUser audit', () => {
     const auditDetails = mockAudit.mock.calls[0][2].details;
     expect(JSON.stringify(auditDetails)).not.toContain('secret@private.com');
     expect(auditDetails.fields).toEqual(['email']);
+  });
+});
+
+describe('changesOwnEmail — what PATCH /user/profile step-up gates', () => {
+  it('selects a request whose email differs from the stored one', async () => {
+    mockIsEmailChange.mockResolvedValue(true);
+    await expect(changesOwnEmail({ user: { sub: 'u1' }, body: { email: 'new@example.com' } } as any)).resolves.toBe(true);
+    expect(mockIsEmailChange).toHaveBeenCalledWith('u1', 'new@example.com');
+  });
+
+  it('does not select re-sending the current address', async () => {
+    mockIsEmailChange.mockResolvedValue(false);
+    await expect(changesOwnEmail({ user: { sub: 'u1' }, body: { email: 'same@example.com' } } as any)).resolves.toBe(false);
+  });
+
+  it('does not select a username-only edit, and never consults the database for one', async () => {
+    await expect(changesOwnEmail({ user: { sub: 'u1' }, body: { username: 'renamed' } } as any)).resolves.toBe(false);
+    expect(mockIsEmailChange).not.toHaveBeenCalled();
+  });
+});
+
+describe('updateUser — the old address is told about an email change', () => {
+  const flush = () => new Promise((r) => setImmediate(r));
+
+  it('mails the PREVIOUS address, naming the new one', async () => {
+    mockUpdateProfile.mockResolvedValue({ user: { _id: 'u1', email: 'new@example.com' }, previousEmail: 'old@example.com' });
+    const res = mockRes();
+    await (updateUser as unknown as (req: any, res: any) => Promise<void>)({ user: { sub: 'u1' }, body: { email: 'new@example.com' } }, res);
+    await flush();
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(mockSendEmailChanged).toHaveBeenCalledWith('old@example.com', 'new@example.com');
+  });
+
+  it('sends nothing for an edit that did not change the email', async () => {
+    mockUpdateProfile.mockResolvedValue({ user: { _id: 'u1', email: 'same@example.com' } });
+    await (updateUser as unknown as (req: any, res: any) => Promise<void>)({ user: { sub: 'u1' }, body: { username: 'renamed' } }, mockRes());
+    await flush();
+    expect(mockSendEmailChanged).not.toHaveBeenCalled();
+  });
+
+  it('still answers 200 when the notice fails — the change is already committed', async () => {
+    mockUpdateProfile.mockResolvedValue({ user: { _id: 'u1', email: 'new@example.com' }, previousEmail: 'old@example.com' });
+    mockSendEmailChanged.mockRejectedValue(new Error('smtp down'));
+    const res = mockRes();
+    await (updateUser as unknown as (req: any, res: any) => Promise<void>)({ user: { sub: 'u1' }, body: { email: 'new@example.com' } }, res);
+    await flush();
+    expect(res.status).toHaveBeenCalledWith(200);
   });
 });
 

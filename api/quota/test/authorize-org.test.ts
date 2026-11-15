@@ -23,7 +23,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   getParam: jest.fn((params: Record<string, string>, key: string) => params[key]),
   DEFAULT_TIER: 'developer',
   VALID_QUOTA_TYPES: ['plugins', 'pipelines', 'apiCalls'] as const,
-  QUOTA_TIERS: {},
+  PLAN_TIERS: {},
   VALID_TIERS: [...MOCK_TIER_NAMES],
   isValidTier: jest.fn(),
   getTierLimits: jest.fn(),

@@ -4,13 +4,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import api from '@/lib/api';
 import { useUnmountedRef } from '@/hooks/useUnmountedRef';
-import type { DisplayedQuotaType, QuotaSummary, QuotaTier } from '@/types';
+import type { DisplayedQuotaType, QuotaSummary, PlanTier } from '@/types';
 
 /** One of the caller's own quotas, plus the tier it was read on. */
 export interface OwnQuota {
   summary: QuotaSummary;
   /** The org's tier — a trial allowance and a tier gate both need it. */
-  tier?: QuotaTier;
+  tier?: PlanTier;
 }
 
 /**

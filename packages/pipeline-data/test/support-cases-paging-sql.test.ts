@@ -127,3 +127,32 @@ describe('listOrgCases (tenant list)', () => {
     expect(page.nextCursor).toBeUndefined();
   });
 });
+
+describe('listCasesDueForPage (on-call sweep)', () => {
+  const insertPremium = (n: number, status: string, closed: boolean) => db.query(
+    `INSERT INTO support_cases
+       (id, thread_id, org_id, display_number, level, severity, created_by, updated_by, tenant_contact,
+        status, response_due_at, closed_at)
+     VALUES ($1, $2, $3, $4, 'support_premium', 'high', 'u', 'u', 'u', $5, now() + interval '5 minutes', ${closed ? 'now()' : 'NULL'})`,
+    [uuid(n), uuid(1000 + n), ORG_A, n, status],
+  );
+
+  beforeAll(async () => {
+    await db.query('DELETE FROM support_cases');
+    await insertPremium(21, 'open', false);
+  });
+
+  it('a case closed before any response stops paging, and pages again once reopened', async () => {
+    await insertPremium(22, 'awaiting_support', false);
+    await insertPremium(23, 'closed', true);
+    expect((await svc.listCasesDueForPage(3_600_000)).map((c) => c.id)).toEqual([uuid(21), uuid(22)]);
+
+    // Through the real transition, not a fixture: closing stamps closed_at and
+    // leaves first_response_at NULL — the exact shape that used to page forever.
+    await svc.setCaseStatus(uuid(22), 'resolved', 'staff-1');
+    expect((await svc.listCasesDueForPage(3_600_000)).map((c) => c.id)).toEqual([uuid(21)]);
+
+    await svc.setCaseStatus(uuid(22), 'open', 'staff-1');
+    expect((await svc.listCasesDueForPage(3_600_000)).map((c) => c.id).sort()).toEqual([uuid(21), uuid(22)]);
+  });
+});

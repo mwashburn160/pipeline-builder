@@ -67,16 +67,10 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   isSystemAdmin: jest.fn<AnyFn>(),
   // The cross-org widening (`seesEveryOrg`): system org + plugin_queue:manage.
   isSystemOrgRequest: jest.fn<AnyFn>(),
-  // Every caller here holds plugin_queue:manage; the system-org mock decides.
-  userHasPermission: (_req: unknown, perm: string) => perm === 'plugin_queue:manage',
-  // Functional gate (the default apiCoreMock stub is a pass-through): grants a
-  // superadmin implicitly, else requires one of the named permissions in
-  // `req.user.permissions`. Lets us assert the standardized route gate.
-  requirePermission: (...perms: string[]) => (req: any, res: any, next: () => void) => {
-    const granted: string[] = req.user?.permissions ?? [];
-    if (req.user?.isSuperAdmin || perms.some((p) => granted.includes(p))) return next();
-    return res.status(403).json({ success: false, statusCode: 403, message: 'forbidden' });
-  },
+  // Every caller here holds plugin_queue:manage (the system-org mock decides
+  // whether it widens anything); other permissions come from the fixture.
+  userHasPermission: (req: any, perm: string) => perm === 'plugin_queue:manage'
+    || !!req.user?.isSuperAdmin || (req.user?.permissions ?? []).includes(perm),
   sendSuccess: jest.fn((res: any, status: number, data: any) => {
     res.status(status).json({ success: true, statusCode: status, data });
   }),
@@ -211,7 +205,7 @@ describe('queue-status route', () => {
   // jobs, org admin/owner sees only their own. Without this filter, an org
   // admin could see another tenant's plugin names + error messages.
 
-  // The org-scoped GET endpoints now carry a `requirePermission('plugins:write')`
+  // The org-scoped endpoints carry a `requireQueueAccess` gate
   // middleware ahead of the withRoute handler, so the terminal handler (which
   // holds the tenant-isolation logic) is the LAST layer in the route stack.
   function getRouteHandler(path: string) {
@@ -401,8 +395,70 @@ describe('queue-status route', () => {
       const data = await call('/failed', makeReq('admin', 'org-1', { limit: '1', offset: '0' }));
 
       expect(mockGetJobCounts).not.toHaveBeenCalled();
+      expect(mockGetJobs).toHaveBeenCalledWith(['failed'], 0, 499);
       expect(data.jobs.map((j: any) => j.id)).toEqual(['m1']);
       expect(data.pagination).toEqual({ limit: 1, offset: 0, hasMore: true });
+    });
+
+    /** A BullMQ-like range read over a fixed newest-first list. */
+    const ranged = (rows: any[]) => async (_types: string[], start: number, end: number) => rows.slice(start, end + 1);
+
+    it('a tenant\'s page holds its OWN newest jobs even when other orgs\' failures are newer', async () => {
+      (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(false);
+      (isSystemOrgRequest as jest.Mock<AnyFn>).mockReturnValue(false);
+      // 1200 newer failures from another org, then three of the caller's.
+      const rows = [
+        ...Array.from({ length: 1200 }, (_, i) => job(`x${i}`, 10_000 - i, 'org-X')),
+        job('m1', 30), job('m2', 20), job('m3', 10),
+      ];
+      mockGetJobs.mockImplementation(ranged(rows));
+
+      const data = await call('/failed', makeReq('admin', 'org-1', { limit: '2', offset: '0' }));
+
+      expect(data.jobs.map((j: any) => j.id)).toEqual(['m1', 'm2']);
+      expect(data.pagination).toEqual({ limit: 2, offset: 0, hasMore: true });
+      // Scanned in chunks until the matches were found, not in one unbounded read.
+      expect(mockGetJobs).toHaveBeenCalledWith(['failed'], 0, 499);
+      expect(mockGetJobs).toHaveBeenCalledWith(['failed'], 1000, 1499);
+
+      const next = await call('/failed', makeReq('admin', 'org-1', { limit: '2', offset: '2' }));
+      expect(next.jobs.map((j: any) => j.id)).toEqual(['m3']);
+      expect(next.pagination).toEqual({ limit: 2, offset: 2, hasMore: false });
+    });
+
+    it('a tenant\'s DLQ page is scanned per state set and holds only its own newest jobs', async () => {
+      (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(false);
+      (isSystemOrgRequest as jest.Mock<AnyFn>).mockReturnValue(false);
+      const byState: Record<string, any[]> = {
+        waiting: [...Array.from({ length: 600 }, (_, i) => job(`w${i}`, 9_000 - i, 'org-X')), job('mine-w', 50)],
+        delayed: [],
+        active: [],
+        completed: [job('mine-c', 40)],
+        failed: [job('other-f', 99_999, 'org-X'), job('mine-f', 60)],
+      };
+      mockDlqGetJobs.mockImplementation(async (types: string[], start: number, end: number) =>
+        (byState[types[0]] ?? []).slice(start, end + 1));
+
+      const data = await call('/dlq', makeReq('admin', 'org-1', { limit: '50' }));
+
+      expect(mockDlqGetJobCounts).not.toHaveBeenCalled();
+      for (const state of Object.keys(byState)) expect(mockDlqGetJobs).toHaveBeenCalledWith([state], 0, 499);
+      expect(data.jobs.map((j: any) => j.id)).toEqual(['mine-f', 'mine-w', 'mine-c']);
+      expect(data.pagination).toEqual({ limit: 50, offset: 0, hasMore: false });
+    });
+
+    it('an operator keeps the cross-org view: one read of offset+limit+1 rows, other orgs included', async () => {
+      (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(false);
+      (isSystemOrgRequest as jest.Mock<AnyFn>).mockReturnValue(true);
+      mockGetJobCounts.mockResolvedValue({ failed: 3 });
+      mockGetJobs.mockImplementation(ranged([job('x1', 3, 'org-X'), job('y1', 2, 'org-Y'), job('m1', 1)]));
+
+      const data = await call('/failed', makeReq('owner', '000000000000000000000001', { limit: '2' }));
+
+      expect(mockGetJobs).toHaveBeenCalledTimes(1);
+      expect(mockGetJobs).toHaveBeenCalledWith(['failed'], 0, 2);
+      expect(data.jobs.map((j: any) => j.id)).toEqual(['x1', 'y1']);
+      expect(data.pagination).toEqual({ total: 3, limit: 2, offset: 0, hasMore: true });
     });
 
     it('clamps limit to 200 and bounds the paging depth', async () => {
@@ -436,10 +492,11 @@ describe('queue-status route', () => {
     it('non-system admin sees only their own org\'s DLQ jobs', async () => {
       (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(false);
       (isSystemOrgRequest as jest.Mock<AnyFn>).mockReturnValue(false);
-      mockDlqGetJobs.mockResolvedValue([
+      // A tenant's scan reads each DLQ state set on its own.
+      mockDlqGetJobs.mockImplementation(async (types: string[]) => (types[0] !== 'failed' ? [] : [
         { id: 'd-mine', name: 'mine', data: { orgId: 'org-1', pluginRecord: { name: 'mine' } }, opts: {}, attemptsMade: 1, timestamp: 0, finishedOn: 0 },
         { id: 'd-other', name: 'other', data: { orgId: 'org-X', pluginRecord: { name: 'other' } }, opts: {}, attemptsMade: 1, timestamp: 0, finishedOn: 0 },
-      ]);
+      ]));
 
       const handler = getRouteHandler('/dlq');
       const req = makeReq('admin', 'org-1');
@@ -449,6 +506,89 @@ describe('queue-status route', () => {
 
       const payload = (json.mock.calls[0])?.[0];
       expect(payload.data.jobs.map((j: any) => j.id)).toEqual(['d-mine']);
+    });
+  });
+
+  // The Builds page is gated on plugin_queue:manage, and the Platform Operator
+  // role carries that but not plugins:write — so these routes must admit a
+  // system-org queue operator on its own permission, or every button 403s.
+  describe('system-org queue operator access (plugin_queue:manage, no plugins:write)', () => {
+    const operator = (method: string, extra: Record<string, unknown> = {}) => ({
+      headers: { 'x-org-id': '000000000000000000000001' },
+      query: {},
+      method,
+      originalUrl: '/plugins/queue/x',
+      user: {
+        sub: 'op-1',
+        role: 'member',
+        organizationId: '000000000000000000000001',
+        permissions: ['plugin_queue:manage'],
+        aal: 2,
+        principalType: 'user',
+        token_use: 'access',
+        ...extra,
+      },
+    } as any);
+
+    beforeEach(() => {
+      (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(false);
+      (isSystemOrgRequest as jest.Mock<AnyFn>).mockReturnValue(true);
+    });
+
+    function resFor() {
+      const json = jest.fn<AnyFn>();
+      return { json, res: { status: jest.fn<AnyFn>().mockReturnValue({ json }), json } as any };
+    }
+
+    it.each(['/failed', '/dlq', '/triage'])('GET %s answers 200 with every org\'s jobs', async (path) => {
+      mockGetJobCounts.mockResolvedValue({ failed: 1 });
+      mockDlqGetJobCounts.mockResolvedValue({ failed: 1 });
+      const other = { id: 'j-other', name: 'o', data: { orgId: 'org-OTHER', pluginRecord: { name: 'other' } }, opts: {}, attemptsMade: 1 };
+      mockGetJobs.mockResolvedValue([other]);
+      mockDlqGetJobs.mockResolvedValue([other]);
+      const { json, res } = resFor();
+      await runFullRoute(path, 'GET', operator('GET'), res);
+
+      const payload = (json.mock.calls[0] as any[])[0];
+      expect(payload.statusCode).toBe(200);
+      if (path === '/triage') expect(payload.data.totalFailed).toBe(2);
+      else expect(payload.data.jobs.map((j: any) => j.id)).toEqual(['j-other']);
+    });
+
+    it.each([
+      ['/failed/:jobId/retry', () => mockFindFailedJob, () => mockRetryFailedJob],
+      ['/dlq/:jobId/replay', () => mockDlqGetJob, () => mockReplayDlqJob],
+    ])('POST %s re-runs another org\'s job', async (path, lookup, rerun) => {
+      lookup().mockResolvedValueOnce({ id: '42', data: { orgId: 'org-OTHER', pluginRecord: { name: 'x' } } });
+      rerun().mockResolvedValueOnce('new-1');
+      const { json, res } = resFor();
+      await runFullRoute(path, 'POST', { ...operator('POST'), params: { jobId: '42' } }, res);
+
+      expect((json.mock.calls[0] as any[])[0].statusCode).toBe(200);
+      expect(rerun()).toHaveBeenCalledWith('42', mockQuotaService, expect.objectContaining({ userId: 'op-1' }));
+      expect(mockEmitPluginAudit).toHaveBeenCalledWith(expect.objectContaining({ affectedOrgId: 'org-OTHER' }));
+    });
+
+    it('refuses the cross-org view to a single-factor operator session', async () => {
+      const { json, res } = resFor();
+      await runFullRoute('/failed', 'GET', operator('GET', { aal: 1 }), res);
+
+      expect(mockGetJobs).not.toHaveBeenCalled();
+      expect((json.mock.calls[0] as any[])[0]).toEqual(expect.objectContaining({ success: false }));
+      expect(res.status).toHaveBeenCalledWith(401);
+    });
+
+    it('a tenant holding neither permission is refused 403 and audited', async () => {
+      (isSystemOrgRequest as jest.Mock<AnyFn>).mockReturnValue(false);
+      const req = { ...operator('POST', { organizationId: 'org-1', permissions: ['plugins:read'] }), params: { jobId: '42' } };
+      // plugin_queue:manage is system-org-only: outside the system org it widens
+      // nothing, and plugins:write is what a tenant needs.
+      const { json, res } = resFor();
+      await runFullRoute('/failed/:jobId/retry', 'POST', req, res);
+
+      expect(mockFindFailedJob).toHaveBeenCalledTimes(0);
+      expect(mockRecordAuthzDenial).toHaveBeenCalledWith(expect.anything(), 'plugins:write or system-org plugin_queue:manage');
+      expect((json.mock.calls[0] as any[])[0].statusCode).toBe(403);
     });
   });
 

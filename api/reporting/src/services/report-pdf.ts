@@ -9,16 +9,17 @@
  * processes, it holds its peak heap between requests, and when it wedges every later
  * download fails until someone restarts the pod. So one browser per render, killed
  * afterwards, and the cost — roughly 300ms of launch — is paid by a download a human
- * initiated and waits on. The plan's mitigation for "headless Chromium adds image size
- * and render memory" is exactly this.
+ * initiated and waits on. It is also what bounds the render memory headless Chromium
+ * adds to the pod.
  *
  * CAPPED THREE WAYS, because each cap stops a different failure:
  *  - CONCURRENCY. Chromium's peak is what sizes the pod, so N simultaneous renders is
  *    N times the pod's limit and the OOM killer takes the whole service down — not just
  *    the download. Renders queue instead; a queue that is full refuses rather than grows.
  *  - WALL CLOCK. A render that hangs holds a slot forever and the queue behind it never
- *    drains. The timeout kills the PROCESS, not just the promise: an abandoned Chromium
- *    keeps its memory, so a promise-only timeout would leak the very thing being capped.
+ *    drains. The timeout kills the PROCESS, not just the promise — including one whose
+ *    launch was still in flight — because an abandoned Chromium keeps its memory, so a
+ *    promise-only timeout would leak the very thing being capped.
  *  - HEAP. `--js-flags=--max-old-space-size` bounds what one renderer can claim, so a
  *    pathological document fails its own render instead of the pod.
  *
@@ -33,9 +34,8 @@
  * start. The sandbox exists to contain hostile web content, and there is none here: the
  * only input is a document this service rendered from its own database, with the network
  * off. Handing the pod `SYS_ADMIN` to run the sandbox would trade a contained risk for a
- * real one. (See [[reference-eks-automode-bottlerocket-userns]] for the same constraint
- * biting rootless buildkit, where the answer had to be different because the input there
- * IS untrusted.)
+ * real one. (Rootless buildkit hits the same user-namespace constraint, and there the
+ * answer had to be different because the input IS untrusted.)
  *
  * NOT AVAILABLE IS AN HONEST REFUSAL. A dev machine and a from-source install have no
  * Chromium, and the caller must be able to say "PDF is not available here" rather than
@@ -307,6 +307,12 @@ export async function renderPdf(html: string): Promise<PdfResult | PdfRefusal> {
 
   const started = Date.now();
   let browser: PdfBrowser | null = null;
+  // The launch itself, kept so a deadline that fires WHILE Chromium is still starting
+  // can still reach the browser it eventually returns — see the `finally` below.
+  let launching: Promise<PdfBrowser> | null = null;
+  // Set once this call has answered, so a launch that lands afterwards does not go on
+  // to drive a page nobody is waiting for.
+  let finished = false;
   let timer: NodeJS.Timeout | null = null;
   try {
     const budget = timeoutMs();
@@ -317,7 +323,10 @@ export async function renderPdf(html: string): Promise<PdfResult | PdfRefusal> {
     });
 
     const work = (async (): Promise<Buffer> => {
-      browser = await (launcher ?? defaultLauncher)({ executablePath: chromiumPath(), args: chromiumArgs() });
+      launching = (launcher ?? defaultLauncher)({ executablePath: chromiumPath(), args: chromiumArgs() });
+      const launched = await launching;
+      if (finished) throw new Error('render abandoned after its deadline');
+      browser = launched;
       const page = await browser.newPage();
       // Belt and braces on the network: offline mode, plus aborting anything that still
       // tries. Either alone would do; both mean a future edit to the HTML cannot quietly
@@ -371,8 +380,16 @@ export async function renderPdf(html: string): Promise<PdfResult | PdfRefusal> {
         : 'The report could not be rendered as a PDF.',
     };
   } finally {
+    finished = true;
     if (timer) clearTimeout(timer);
-    if (browser) await destroy(browser);
+    if (browser) {
+      await destroy(browser);
+    } else if (launching) {
+      // The deadline fired before the launch returned. The Chromium it is starting
+      // still arrives, and nothing else holds a reference to it — so it is destroyed
+      // the moment it does, instead of living on outside the concurrency cap.
+      void (launching as Promise<PdfBrowser>).then(destroy, () => undefined);
+    }
     release();
   }
 }

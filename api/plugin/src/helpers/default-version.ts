@@ -3,8 +3,7 @@
 
 /**
  * Which uploaded version becomes a plugin's DEFAULT — the version a pipeline
- * gets when it names the plugin without a version spec (
- * ). One pure rule, applied both by the unlocked upload pre-check
+ * gets when it names the plugin without a version spec. One pure rule, applied both by the unlocked upload pre-check
  * (`assertDeployable`) and under the deploy lock (`deployVersion`), so the two
  * can't disagree.
  *

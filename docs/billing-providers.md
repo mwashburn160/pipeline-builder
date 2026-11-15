@@ -230,7 +230,7 @@ Stripe Dashboard → **Developers → Webhooks → Add endpoint** → enter that
 | `invoice.payment_succeeded` | Marks paid / clears past-due. Its per-invoice effects (billing-ledger actuals, usage-credit draw-down, recurring promotion and discount re-grant, referral credit) always run and are idempotent per invoice / period; only the status and period changes are skipped when the event is older than one already applied, because Stripe delivers events unordered |
 | `invoice.payment_failed` | Moves to past-due (grace period applies). The first failure of a lapse posts one in-app notice naming the date access ends; `GET /billing/subscriptions` carries `dunning: { firstFailedAt, downgradeAt, downgraded, downgradedAt? }` while past-due |
 | `invoice.upcoming` | Drives renewal reminders + recurring-credit re-grant |
-| `charge.refunded` | Reverses the matching subscription |
+| `charge.refunded` | Reverses the matching subscription and the invoice's billing-ledger row. A refund that arrives before its invoice has been ingested is banked and applied when the invoice lands, so the ledger reads the same in either order |
 | `charge.dispute.created` | Reverses on dispute |
 | `invoice.voided` / `invoice.marked_uncollectible` | Reversal handling |
 
@@ -359,7 +359,7 @@ AWS **POSTs** the `x-amzn-marketplace-token` here as a form field after a custom
    POST /billing/marketplace/claim   Body: { "registrationRef": "<ref>" }
    ```
 
-The `/marketplace/register` page handles both: it resolves the token, then either shows a **"Link to my organization"** button (if already signed in) or sends the purchaser through sign-up/sign-in — carrying the `registrationRef` so it's **claimed automatically** when they reach the dashboard. Guards: a `registrationRef` binds **once** (single-use), an AWS customer can't bind to two orgs (**409**), and an org that already has an active subscription is rejected (**409**).
+The `/marketplace/register` page handles both: it resolves the token, then either shows a **"Link to my organization"** button (if already signed in) or sends the purchaser through sign-up/sign-in — carrying the `registrationRef` so it's **claimed automatically** when they reach the dashboard. Guards: a `registrationRef` binds **once** (single-use), an AWS customer can't bind to two orgs (**409**), and an org that already has a subscription is rejected (**409**). Every refusal is decided before the `registrationRef` is spent, so a refused claim leaves it claimable — the purchaser can retry from another org (or after resolving the conflict) within the 30-minute window instead of starting over from AWS. The ref is consumed only once the claim is going to succeed; a concurrent claim that loses the race puts it back.
 
 ### Step 4 — Wire the license events
 
@@ -580,7 +580,7 @@ RENEWAL_REMINDER_DAYS=7
 | `POST /billing/marketplace/resolve` | None (AWS redirect) | Marketplace | Exchange a registration token for a single-use `registrationRef` (banks a pending registration; no subscription yet) |
 | `POST /billing/marketplace/claim` | Auth (`billing:manage`) | Marketplace | Bind a `registrationRef` to the caller's org and create the subscription |
 | `POST /billing/marketplace/sns` | SNS signature + topic | Marketplace | License events (EventBridge → SNS): entitlement changes and cancellations |
-| `GET /billing/marketplace/entitlements` | Auth | Marketplace | Current entitlements for the account |
+| `GET /billing/marketplace/entitlements` | Auth | Marketplace | Current entitlements and plan for the account (`{ entitlements, currentPlanId }`; the license ARN stays server-side) |
 
 The frontend fulfillment page lives at `/marketplace/register` (set this as the AWS Fulfillment URL).
 

@@ -12,7 +12,7 @@ import { Card } from '@/components/ui/Card';
 import { RetryError } from '@/components/ui/RetryError';
 import { FilterSelect } from '@/components/ui/FilterSelect';
 import { formatError, QUOTA_WARNING_THRESHOLD } from '@/lib/constants';
-import type { OrgQuotaResponse, QuotaType, QuotaTier, DisplayedQuotaType, User } from '@/types';
+import type { OrgQuotaResponse, QuotaType, PlanTier, DisplayedQuotaType, User } from '@/types';
 import type { AtRiskDimension } from '@/lib/api/domains/admin';
 import { QUOTA_TYPE_LABEL } from '@/lib/quota-pressure';
 import { formatQuotaValue } from '@/lib/quota-helpers';
@@ -74,11 +74,11 @@ export function QuotasAdmin({
   loading: boolean;
   orgData: OrgQuotaResponse | null;
   loadError: string | null;
-  editTier: QuotaTier;
+  editTier: PlanTier;
   editValues: Record<DisplayedQuotaType, number>;
   /** Effective per-tier presets (server-sourced, env-override-aware). Defaults to
    *  the hardcoded `TIER_PRESETS` fallback when the page hasn't threaded them. */
-  tierPresets?: Record<QuotaTier, TierPreset>;
+  tierPresets?: Record<PlanTier, TierPreset>;
   dirty: boolean;
   saving: boolean;
   platformOrgs: { id: string; name: string; slug?: string }[];
@@ -101,7 +101,7 @@ export function QuotasAdmin({
   handleReset: () => void;
   handleSave: () => void;
   handleEditChange: (key: DisplayedQuotaType, value: number) => void;
-  handleTierChange: (tier: QuotaTier) => void;
+  handleTierChange: (tier: PlanTier) => void;
   /** Re-read the selected org's quotas (the load-error Retry). */
   onRetryOrg: () => void;
   fetchAtRisk: () => void;

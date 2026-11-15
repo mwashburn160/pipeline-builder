@@ -75,9 +75,9 @@ export {
   isBillingEnabled,
   isValidTier,
   getTierLimits,
-  type QuotaTier,
-  type QuotaTierLimits,
-  QUOTA_TIERS,
+  type PlanTier,
+  type PlanTierLimits,
+  PLAN_TIERS,
   VALID_TIERS,
   STANDARD_TIERS,
   TEAM_CAPABLE_TIERS,
@@ -93,7 +93,7 @@ export {
   automationCallsFor,
   quotaGracePct,
   enforcedQuotaLimit,
-} from './quota-tiers.js';
+} from './plan-tiers.js';
 // The build class/size catalog: ids, labels, credit multipliers, tier floors
 // and per-class slot defaults. Dependency-free, so the browser imports it
 // through the `./build-catalog` subpath instead of mirroring it.
@@ -209,6 +209,7 @@ export {
 export {
   publisherTermsVersion,
   publisherHandleProblem,
+  PUBLISHER_HANDLE_PATTERN,
   isOfficialAutoApprovalEnabled,
   isPluginPublishingEnabled,
   isAnonymousSubmissionsEnabled,

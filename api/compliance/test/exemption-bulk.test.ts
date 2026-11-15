@@ -48,7 +48,7 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => {
   const insertChain = {
     values: () => insertChain,
-    onConflictDoNothing: () => insertChain,
+    onConflictDoUpdate: () => insertChain,
     returning: () => Promise.resolve(insertedRowsRef.value),
   };
   const tx = {
@@ -133,9 +133,9 @@ describe('POST /exemptions/bulk', () => {
     expect(payload.data.ids).toEqual(['e1', 'e2']);
   });
 
-  it('reports skipped when a duplicate is deduped away (onConflictDoNothing returns fewer ids)', async () => {
-    // Two rows submitted, but one collides with an existing pending exemption
-    // and is skipped by the service's ON CONFLICT DO NOTHING → one id back.
+  it('reports skipped when a duplicate is deduped away (fewer ids returned)', async () => {
+    // Two rows submitted for the same key: the service drops the repeat before
+    // the insert → one id back.
     insertedRowsRef.value = [{ id: 'e1' }];
     const handler = getHandler();
     const { res, json } = makeRes();

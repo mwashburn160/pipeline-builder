@@ -26,7 +26,7 @@
  *
  * A BOUNCE IS A FACT, NOT A GUESS. The relay reports which addresses the transport
  * refused, and each one increments that recipient's bounce count; at
- * `MAX_BOUNCES` the address stops being tried. Three rather than one, because a
+ * `MAX_REPORT_BOUNCES` the address stops being tried. Three rather than one, because a
  * single bounce is usually a full mailbox or an autoresponder, and dropping a manager
  * off the list for one of those is a silent failure nobody notices for a quarter.
  */
@@ -44,7 +44,7 @@ import {
 } from '@pipeline-builder/api-core';
 import {
   listEnabledAlertDestinations,
-  MAX_BOUNCES,
+  MAX_REPORT_BOUNCES,
   stakeholderReportStore,
   type ReportDefinition,
   type ReportPauseReason,
@@ -267,7 +267,7 @@ export async function deliverPublishedRun(
       // Each refused address is a bounce against that recipient, not a failed run.
       for (const email of result.failed) {
         const count = await stakeholderReportStore.recordBounce(definition.orgId, email);
-        if (count >= MAX_BOUNCES) {
+        if (count >= MAX_REPORT_BOUNCES) {
           outcome.notes.push(`One recipient address has now bounced ${count} times and will be skipped.`);
         }
       }
@@ -366,7 +366,7 @@ export async function deliverAndRecord(
  * In-app to the OWNER plus email to them (when the instance has mail), like the
  * other lead notices. Never throws.
  */
-export async function notifyDeliveryFailed(definition: ReportDefinition, run: ReportRun, outcome: DeliveryOutcome): Promise<void> {
+async function notifyDeliveryFailed(definition: ReportDefinition, run: ReportRun, outcome: DeliveryOutcome): Promise<void> {
   const subject = `${definition.name} — ${run.periodLabel} was not delivered to everyone`;
   const body = [
     `${definition.name} for ${run.periodLabel} is published, but its delivery was incomplete.`,

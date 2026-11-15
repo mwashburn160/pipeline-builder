@@ -67,6 +67,14 @@ function requires(e) {
   if (e.minAssurance >= 2) parts.push('MFA session (aal2)');
   else if (e.minAssurance === 1) parts.push('a person (no service account or access key)');
   if (e.stepUp) parts.push('step-up');
+  // Gates only some requests meet (`gateWhen`), each with the condition.
+  for (const c of e.conditionalGates ?? []) {
+    const gates = [];
+    if (c.minAssurance >= 2) gates.push('MFA session (aal2)');
+    else if (c.minAssurance === 1) gates.push('a person');
+    if (c.stepUp) gates.push(c.stepUpMethods?.length ? `step-up (${c.stepUpMethods.join(' or ')})` : 'step-up');
+    if (gates.length) parts.push(`${gates.join(' + ')} when it ${c.when}`);
+  }
   for (const f of e.features ?? []) parts.push(`feature ${code(f)}`);
   for (const s of e.scopes ?? []) parts.push(`scope ${code(s)}`);
   const note = NOTES[`${e.method} ${e.path}`];

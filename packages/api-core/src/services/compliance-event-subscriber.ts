@@ -24,7 +24,7 @@ const logger = createLogger('compliance-events');
  * @param serviceName - Service identifier baked into the signed JWT's `sub`
  *   (e.g. 'pipeline', 'plugin'). The compliance route is an INTERNAL route: it
  *   admits only those two services' own signed tokens, and no user token.
- *   Defaults to THIS process's identity (`SERVICE_NAME`) — since #14 a service
+ *   Defaults to THIS process's identity (`SERVICE_NAME`) — a service
  *   holds only its own signing key, so a placeholder name would mint a token no
  *   peer could verify.
  */

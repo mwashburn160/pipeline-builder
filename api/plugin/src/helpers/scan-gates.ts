@@ -28,11 +28,6 @@ import {
 
 type VulnFinding = PluginScanFinding;
 
-/** The fixable findings (grype reports a fixed version), in their given order. */
-export function fixableFindings(findings: readonly VulnFinding[]): VulnFinding[] {
-  return findings.filter((f) => f.fixedIn.length > 0);
-}
-
 /** `PLUGIN_ALLOW_UNSCANNED` (default false): persist a version whose build-time scan could not run. */
 export function allowUnscanned(): boolean {
   return envBool('PLUGIN_ALLOW_UNSCANNED', false);
@@ -124,7 +119,7 @@ export function matchedWaiversFor(input: FloorInput): VulnWaiver[] {
  * Criticals, KEV-listed Criticals) and fixable Highs, Criticals and
  * known-exploited first.
  */
-export function topFixable(findings: readonly VulnFinding[]): VulnFinding[] {
+function topFixable(findings: readonly VulnFinding[]): VulnFinding[] {
   const kevGate = pluginVulnGateKev();
   return findings.filter((f) => f.fixedIn.length > 0 || isGatedFinding(f, kevGate)).slice(0, SCAN_FLAG_TOP_FINDINGS);
 }

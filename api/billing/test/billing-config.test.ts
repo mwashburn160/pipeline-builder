@@ -36,9 +36,9 @@ function mkCombo(id: string, bundleIds: string[], overrides: Partial<ComboDiscou
 }
 
 describe('loadBillingConfig', () => {
-  it('provides a plan for every QuotaTier', () => {
+  it('provides a plan for every PlanTier', () => {
     const { plans } = loadBillingConfig();
-    // The plan set is compile-bound to QuotaTier (Record<QuotaTier, …>), so this
+    // The plan set is compile-bound to PlanTier (Record<PlanTier, …>), so this
     // guards the runtime shape: exactly one plan per tier, none missing/extra.
     const tiersWithPlans = plans.map((p) => p.tier).sort();
     expect(tiersWithPlans).toEqual([...VALID_TIERS].sort());

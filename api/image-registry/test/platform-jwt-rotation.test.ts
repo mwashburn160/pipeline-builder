@@ -6,7 +6,7 @@
  * (docs/runbooks/secret-rotation.md).
  *
  * This service verifies platform tokens on the `/token` mint path — the creds
- * customer CodeBuild and the plugin-lookup Lambda read out of Secrets Manager,
+ * customer CodeBuild reads out of Secrets Manager,
  * and the service token `api/plugin` presents for its own image pushes. Two
  * chains meet here, so both rotations are drilled:
  *

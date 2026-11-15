@@ -112,7 +112,7 @@ read as if they had personally pushed every image:
 
 | Secret | Service account | Roles | Key scope | Read by |
 |---|---|---|---|---|
-| `pipeline-builder/{orgId}/platform` | `platform-automation` | org admin | none | CDK synth/deploy (`--store-tokens`), the plugin-lookup Lambda |
+| `pipeline-builder/{orgId}/platform` | `platform-automation` | org admin | none | CDK synth/deploy (`--store-tokens`) |
 | `pipeline-builder/{orgId}/registry-push` | `registry-push` | **none** | `registry:push` | CodeBuild's `secretsManagerCredentials` |
 | `pipeline-builder/{orgId}/reporting-ingest` | `reporting-ingest` | **none** | `reporting:ingest` | the event-ingestion Lambda |
 

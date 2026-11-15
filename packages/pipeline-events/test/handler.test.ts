@@ -528,6 +528,53 @@ describe('pipeline-events handler', () => {
     expect(res.batchItemFailures).toEqual([{ itemIdentifier: 'msg-0' }, { itemIdentifier: 'msg-1' }]);
   });
 
+  describe('a refused event does not poison the batch', () => {
+    /** Ingest that refuses (400) any request carrying the event with this executionId. */
+    function ingestRefusing(badExecutionId: string, otherStatus = 200) {
+      mockFetch.mockImplementation((url: string, opts?: any) => {
+        if (url.includes('/auth/token/exchange')) return exchangeResponse();
+        if (url.endsWith('/api/reports/events')) {
+          const { events } = JSON.parse(opts.body);
+          if (events.some((e: any) => e.executionId === badExecutionId)) {
+            return Promise.resolve({ ok: false, status: 400, text: () => Promise.resolve('detail exceeds 8KB serialized size') });
+          }
+          if (otherStatus !== 200) {
+            return Promise.resolve({ ok: false, status: otherStatus, text: () => Promise.resolve('unavailable') });
+          }
+          return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: { inserted: events.length } }) });
+        }
+        if (url.includes('/api/reports/ingest-health')) return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+        return Promise.resolve({ ok: false, status: 404, text: () => Promise.resolve('Not found') });
+      });
+    }
+    const withExecution = (id: string) => ({ ...MOCK_CODEPIPELINE_EVENT, detail: { ...MOCK_CODEPIPELINE_EVENT.detail, 'execution-id': id } });
+    const ingestBodies = () => mockFetch.mock.calls.filter(isIngestCall).map((c: any[]) => JSON.parse(c[1].body).events.map((e: any) => e.executionId));
+
+    it('delivers the rest and drops the refused event (no retry of anything)', async () => {
+      ingestRefusing('bad');
+      const res = await handler(createSQSEvent([withExecution('good-1'), withExecution('bad'), withExecution('good-2')]));
+      // Nothing comes back: the good events landed, the refused one would be refused forever.
+      expect(res.batchItemFailures).toEqual([]);
+      // One batch POST, then one POST per event.
+      expect(ingestBodies()).toEqual([['good-1', 'bad', 'good-2'], ['good-1'], ['bad'], ['good-2']]);
+      // Only the delivered events count toward delivery health.
+      expect(ingestHealthBody()).toMatchObject({ forwarded: 2 });
+    });
+
+    it('drops a lone refused event without a per-event resend', async () => {
+      ingestRefusing('bad');
+      const res = await handler(createSQSEvent([withExecution('bad')]));
+      expect(res.batchItemFailures).toEqual([]);
+      expect(ingestBodies()).toEqual([['bad']]);
+    });
+
+    it('still retries an event whose single resend fails transiently', async () => {
+      ingestRefusing('bad', 503);
+      const res = await handler(createSQSEvent([withExecution('good-1'), withExecution('bad')]));
+      expect(res.batchItemFailures).toEqual([{ itemIdentifier: 'msg-0' }]);
+    });
+  });
+
   describe('pb.deploys → per-stage environment', () => {
     it('should set environment on a deploy-stage STAGE event listed in pb.deploys', async () => {
       await handler(createSQSEvent([{
@@ -905,6 +952,18 @@ describe('pipeline-events handler', () => {
     const body = lastEventsBody();
     expect(body.events[0].durationMs).toBeUndefined();
     expect(body.events[0].completedAt).toBeUndefined();
+  });
+
+  // A superseded execution and an abandoned action are over: without a
+  // completedAt they read as still running in every report.
+  it.each(['SUPERSEDED', 'ABANDONED'])('treats %s as terminal (completedAt + duration)', async (state) => {
+    await handler(createSQSEvent([{
+      ...MOCK_CODEPIPELINE_EVENT,
+      detail: { ...MOCK_CODEPIPELINE_EVENT.detail, state },
+    }]));
+    const event = lastEventsBody().events[0];
+    expect(event.completedAt).toBe(MOCK_CODEPIPELINE_EVENT.time);
+    expect(event.durationMs).toBeDefined();
   });
 
   it('omits the duration when AWS sent no start-time, instead of reporting 0', async () => {

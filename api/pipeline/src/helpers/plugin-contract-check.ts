@@ -35,7 +35,7 @@
   */
 
 import {
-  assessVersionVulns, createLogger, errorMessage, isManagedToolchainPlugin, MANAGED_TOOLCHAIN, managedRefPinsVersion, managedToolchainRefName, maxSeverity, PluginFilterSchema,
+  assessVersionVulns, createLogger, errorMessage, isManagedToolchainPlugin, MANAGED_TOOLCHAIN, managedRefPinsVersion, managedToolchainRefName, PluginFilterSchema,
   pluginRunsOwnImage, toolchainReleasePin,
   type ManagedToolchainPlugin, type PluginType, type VulnConsumptionPolicy, type VulnSeverity,
 } from '@pipeline-builder/api-core';
@@ -395,11 +395,6 @@ async function gradeSteps(
   }
 }
 
-/** The loudest severity among step warnings, or null. */
-export function loudestSeverity(steps: readonly StepVulnWarnings[]): VulnSeverity | null {
-  return steps.reduce<VulnSeverity | null>((acc, s) => (acc ? maxSeverity(acc, s.severity) : s.severity), null);
-}
-
 function toViolation(path: string, step: string, plugin: ResolvedContractPlugin, issues: ContractIssue[]): StepContractViolation {
   return {
     path,
@@ -414,33 +409,22 @@ function toViolation(path: string, step: string, plugin: ResolvedContractPlugin,
 }
 
 /**
- * Every plugin step of `props` whose resolved plugin's contract the pipeline
- * doesn't meet. Each distinct lookup filter is resolved once. An invalid
- * filter (which the plugin lookup would reject) or an unresolvable reference
- * is skipped — not a contract problem.
- */
-export async function findPluginContractViolations(
-  props: unknown,
-  orgId: string,
-  parentOrgId?: string,
-): Promise<StepContractViolation[]> {
-  return (await checkPluginContracts(props, orgId, parentOrgId)).violations;
-}
-
-/**
- * The save-time check in full: the contract violations (which refuse the save,
- * 400) and every step's vulnerability grade (which never does — the route puts
- * `vulnerabilities` and its loudest `severity` in the save response). Pass the
- * pipeline's id on an UPDATE so its risk acceptances downgrade what they accepted.
+ * The save-time check in full: the violations that refuse the save (400) — an
+ * unmet contract, or a reference that can't resolve (not installed, blocked by
+ * policy, …) — and every resolved step's vulnerability grade, which never does
+ * (plugin-save-check flattens them into the save response's `pluginWarnings`).
+ * Each distinct lookup filter is resolved once; an invalid filter (which the
+ * plugin lookup would reject) is skipped. Pass the pipeline's id on an UPDATE so
+ * its risk acceptances downgrade what they accepted.
  */
 export async function checkPluginContracts(
   props: unknown,
   orgId: string,
   parentOrgId?: string,
   opts: { pipelineId?: string } = {},
-): Promise<{ violations: StepContractViolation[]; vulnerabilities: StepVulnWarnings[]; severity: VulnSeverity | null }> {
+): Promise<{ violations: StepContractViolation[]; vulnerabilities: StepVulnWarnings[] }> {
   const steps = collectPluginSteps(props);
-  if (steps.length === 0) return { violations: [], vulnerabilities: [], severity: null };
+  if (steps.length === 0) return { violations: [], vulnerabilities: [] };
   const scope = pipelineContractScope((props ?? {}) as ContractScopeProps);
   const releasePin = toolchainReleasePin(props);
 
@@ -495,7 +479,7 @@ export async function checkPluginContracts(
     if (issues.length > 0) violations.push(toViolation(step.path, step.label, resolution.plugin, issues));
   }
   const vulnerabilities = await gradeSteps(resolvedSteps, orgId, parentOrgId, opts.pipelineId);
-  return { violations, vulnerabilities, severity: loudestSeverity(vulnerabilities) };
+  return { violations, vulnerabilities };
 }
 
 /** One-line-per-step summary for the 400 message. */

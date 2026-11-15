@@ -116,7 +116,19 @@ export type RouteGate =
    *  (`meterQuotaOnSuccess`), `check` 429s when the type is spent (`checkQuota`).
    *  Recorded so the quota coverage check can see an unmetered user route — and a
    *  route metered TWICE, which double-bills every call. */
-  | { kind: 'quota'; mode: 'meter' | 'check'; quotaType: string };
+  | { kind: 'quota'; mode: 'meter' | 'check'; quotaType: string }
+  /**
+   * Gates that run for only SOME requests to the route (`gateWhen`): `when`
+   * names the requests in words, `gates` is what those requests must meet.
+   * Projected into the entry's `conditionalGates`, never into its top-level
+   * `stepUp` / `minAssurance`, which state what EVERY request must meet.
+   */
+  | { kind: 'conditional'; when: string; gates: readonly ConditionalInnerGate[] };
+
+/** The gate kinds `gateWhen` may wrap — the ones a conditional entry projects. */
+export type ConditionalInnerGate =
+  | { kind: 'stepUp'; methods?: readonly string[] }
+  | { kind: 'assurance'; minAssurance: 1 | 2 };
 
 // Symbol.for, not Symbol(): a test that loads api-core twice (ESM + a
 // requireActual copy) must still see tags set by the other copy.
@@ -259,6 +271,13 @@ export interface RouteTableEntry {
   stepUpMethods: string[];
   /** Highest `minAssurance` any gate in the chain demands; 0 when none does. */
   minAssurance: 0 | 1 | 2;
+  /**
+   * Gates applied to only SOME requests (`gateWhen`), one entry per `gateWhen`
+   * in the chain, in chain order. Each states, in the same shape as the
+   * top-level fields, what the requests it selects must meet — on top of
+   * everything above, which every request meets. Empty when the route has none.
+   */
+  conditionalGates: ConditionalGateEntry[];
   /** Tightest `maxAge` (seconds) any assurance gate in the chain demands. */
   maxAge?: number;
   /**
@@ -293,6 +312,17 @@ export interface RouteTableEntry {
    * the chain has no quota middleware and the route is not exempt.
    */
   quota?: { metered: string[]; checked: string[]; exempt?: true };
+}
+
+/** What the requests a `gateWhen` selects must meet (see `conditionalGates`). */
+export interface ConditionalGateEntry {
+  /** The requests it selects, in words (`'changes the sign-in email'`). */
+  when: string;
+  stepUp: boolean;
+  /** Factors that may earn the step-up, sorted; empty means any factor. */
+  stepUpMethods: string[];
+  /** Highest `minAssurance` the wrapped gates demand; 0 when none does. */
+  minAssurance: 0 | 1 | 2;
 }
 
 interface Candidate { layer: Layer; prefix: string }
@@ -338,6 +368,7 @@ function toEntry(method: string, path: string, gates: RouteGate[]): RouteTableEn
     stepUp: false,
     stepUpMethods: [],
     minAssurance: 0,
+    conditionalGates: [],
     features: [],
     scopes: [],
     audit: [],
@@ -374,6 +405,20 @@ function toEntry(method: string, path: string, gates: RouteGate[]): RouteTableEn
           machines: entry.orgAdminAssurance?.machines === 'refuse' || g.machines === 'refuse' ? 'refuse' : 'allow',
         };
         break;
+      case 'conditional': {
+        const c: ConditionalGateEntry = { when: g.when, stepUp: false, stepUpMethods: [], minAssurance: 0 };
+        for (const inner of g.gates) {
+          if (inner.kind === 'stepUp') {
+            c.stepUp = true;
+            for (const m of inner.methods ?? []) if (!c.stepUpMethods.includes(m)) c.stepUpMethods.push(m);
+          } else if (inner.minAssurance > c.minAssurance) {
+            c.minAssurance = inner.minAssurance;
+          }
+        }
+        c.stepUpMethods.sort();
+        entry.conditionalGates.push(c);
+        break;
+      }
       case 'systemOrg': entry.systemOrg = true; break;
       case 'feature': if (!entry.features.includes(g.feature)) entry.features.push(g.feature); break;
       case 'scope': if (!entry.scopes.includes(g.scope)) entry.scopes.push(g.scope); break;

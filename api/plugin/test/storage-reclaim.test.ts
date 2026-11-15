@@ -144,8 +144,10 @@ describe('pruneVersion', () => {
     eligible();
     const outcome = await pruneVersion('acme', 'org-acme/app', '1.0.0');
     expect(outcome).toEqual({ pruned: true, repo: 'org-acme/app', tag: '1.0.0', freedBytes: 30 * MB, reason: null });
-    expect(del).toHaveBeenCalledWith('/internal/storage-prune/acme', expect.objectContaining({
-      body: { repo: 'org-acme/app', tag: '1.0.0' },
+    // In the query string: InternalHttpClient.delete sends no body, so a body
+    // in the options would reach the registry as nothing at all.
+    expect(del).toHaveBeenCalledWith('/internal/storage-prune/acme?repo=org-acme%2Fapp&tag=1.0.0', expect.not.objectContaining({
+      body: expect.anything(),
     }));
   });
 

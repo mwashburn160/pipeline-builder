@@ -992,7 +992,7 @@ them holds the org Admin Role.
 
 | Account | `store-token` | Authority | Secret leaf | Used by |
 |---|---|---|---|---|
-| `platform-automation` | *(no `--scope`)* | **Pipeline Automation** Role | `platform` | CodeBuild synth, `pipeline deploy --store-tokens`, the plugin-lookup Lambda, the run-time vulnerability check |
+| `platform-automation` | *(no `--scope`)* | **Pipeline Automation** Role | `platform` | CodeBuild synth, `pipeline deploy --store-tokens`, the run-time vulnerability check |
 | `pipeline-register` | `--scope pipeline_registry:write` | **Pipeline Registration** Role | `pipeline-registry-write` | The CodeBuild synth's step-manifest registration |
 | `reporting-ingest` | `--scope reporting:ingest` | **No Role**: the key carries the `reporting:ingest` scope | `reporting-ingest` | The events Lambda, and step security-report uploads |
 | `registry-push` | `--scope registry:push` | **No Role**: the key carries the `registry:push` scope | `registry-push` | CodeBuild image pulls and pushes (`/token`) |
@@ -1003,7 +1003,7 @@ call made with the `platform` key:
 | Permission | The call it serves |
 |---|---|
 | `pipelines:read` | `GET /pipelines/:id`: the synth (and `deploy --store-tokens`) fetching the pipeline it builds |
-| `plugins:read` | `POST /plugins/lookup`: plugin resolution at synth/deploy and in the plugin-lookup Lambda. Also `POST /plugins/runtime-check`: the run-time vulnerability check step |
+| `plugins:read` | `POST /plugins/lookup`: plugin resolution at synth/deploy. Also `POST /plugins/runtime-check`: the run-time vulnerability check step |
 
 Some things are missing from that list on purpose:
 

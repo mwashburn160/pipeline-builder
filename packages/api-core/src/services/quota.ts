@@ -11,7 +11,7 @@ import { getServiceAuthHeader, isServicePrincipal } from '../middleware/service-
 import { SYSTEM_ORG_ID } from '../middleware/system-org.js';
 import type { JwtPayload, PrincipalType, QuotaType, QuotaCheckResult, ServiceConfig } from '../types/common.js';
 import { ErrorCode } from '../types/error-codes.js';
-import { DEFAULT_TIER, isValidTier, type QuotaTier } from '../types/quota-tiers.js';
+import { DEFAULT_TIER, isValidTier, type PlanTier } from '../types/plan-tiers.js';
 import type { AiKeySource } from '../types/wire-vocabulary.js';
 import { envBool, envInt } from '../utils/env.js';
 import { createLogger } from '../utils/logger.js';
@@ -340,13 +340,13 @@ export interface QuotaService {
    */
   reportUsage?(orgId: string, quotaType: QuotaType, authHeader: string, tokens: QuotaTokenUsage, attribution?: QuotaUsageAttribution): Promise<void>;
   /**
-   * Get the org's quota `QuotaTier`. Used by the plugin-build queue partitioning
+   * Get the org's quota `PlanTier`. Used by the plugin-build queue partitioning
    * to route a build to the right per-tier queue. Fail-open returns `DEFAULT_TIER`
    * (`developer` when billing is enabled, `unlimited` when it's disabled); a
    * misclassified org still builds on the default queue, just without the
    * tier-scoped scheduling boost.
    */
-  getTier(orgId: string, authHeader: string, requestId?: string): Promise<QuotaTier>;
+  getTier(orgId: string, authHeader: string, requestId?: string): Promise<PlanTier>;
   /**
    * FAIL-CLOSED twin of {@link getTier}: the org's tier as the quota service
    * CONFIRMED it, or `null` when it could not be confirmed (unreachable, non-ok,
@@ -355,7 +355,7 @@ export interface QuotaService {
    * tier (e.g. a verified-publisher grace sweep) must skip the org on `null`,
    * never act on `DEFAULT_TIER`.
    */
-  getTierStrict(orgId: string, authHeader: string, requestId?: string): Promise<QuotaTier | null>;
+  getTierStrict(orgId: string, authHeader: string, requestId?: string): Promise<PlanTier | null>;
 }
 
 /**
@@ -449,7 +449,7 @@ export function createQuotaService(config: QuotaServiceConfig = {}): QuotaServic
   /** One tier read: the confirmed tier, or why there isn't one. */
   async function readTier(
     orgId: string, authHeader: string, requestId?: string,
-  ): Promise<{ tier: QuotaTier; reason?: undefined; statusCode?: number } | { tier: null; reason: 'unreachable' | 'non-ok' | 'invalid-tier'; statusCode?: number }> {
+  ): Promise<{ tier: PlanTier; reason?: undefined; statusCode?: number } | { tier: null; reason: 'unreachable' | 'non-ok' | 'invalid-tier'; statusCode?: number }> {
     const response = await client.get<{
       success: boolean;
       data?: { quota?: { tier?: string } };
@@ -628,7 +628,7 @@ export function createQuotaService(config: QuotaServiceConfig = {}): QuotaServic
       }
     },
 
-    async getTier(orgId: string, authHeader: string, requestId?: string): Promise<QuotaTier> {
+    async getTier(orgId: string, authHeader: string, requestId?: string): Promise<PlanTier> {
       const known = constantTierFor(orgId);
       if (known) return known;
       const read = await readTier(orgId, authHeader, requestId);
@@ -640,7 +640,7 @@ export function createQuotaService(config: QuotaServiceConfig = {}): QuotaServic
       return DEFAULT_TIER;
     },
 
-    async getTierStrict(orgId: string, authHeader: string, requestId?: string): Promise<QuotaTier | null> {
+    async getTierStrict(orgId: string, authHeader: string, requestId?: string): Promise<PlanTier | null> {
       const known = constantTierFor(orgId);
       if (known) return known;
       const read = await readTier(orgId, authHeader, requestId);
@@ -669,7 +669,7 @@ export function createQuotaService(config: QuotaServiceConfig = {}): QuotaServic
  * fails CLOSED to null, so a sweep that must not guess would skip the
  * platform's own org instead.
  */
-function constantTierFor(orgId: string): QuotaTier | null {
+function constantTierFor(orgId: string): PlanTier | null {
   return orgId.toLowerCase() === SYSTEM_ORG_ID ? 'unlimited' : null;
 }
 

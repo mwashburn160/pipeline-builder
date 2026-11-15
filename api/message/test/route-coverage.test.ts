@@ -105,7 +105,7 @@ const EXCEPTIONS: RouteCoverageException[] = [
  * against the code in both directions.
  */
 const INTERNAL_ROUTES: InternalRouteDeclaration[] = [
-  { method: 'POST', path: '/messages/internal/notify', callers: ['platform', 'billing', 'compliance', 'quota'] },
+  { method: 'POST', path: '/messages/internal/notify', callers: ['platform', 'billing', 'compliance', 'quota', 'reporting'] },
   { method: 'DELETE', path: '/messages/internal/org/:orgId/attachments', callers: ['platform'] },
   // The expansion-offers frustration signal.
   // ONE caller, and it must stay one: the route exists so support-case TEXT does

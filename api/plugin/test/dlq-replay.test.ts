@@ -62,21 +62,15 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   // The cross-org widening (`seesEveryOrg`): system org + plugin_queue:manage.
   isSystemOrgRequest: jest.fn<AnyFn>(),
   // Every caller here holds plugin_queue:manage; the system-org mock decides.
-  userHasPermission: (_req: unknown, perm: string) => perm === 'plugin_queue:manage',
+  // Other permissions come from the fixture's `capabilities`.
+  userHasPermission: (req: any, perm: string) => perm === 'plugin_queue:manage'
+    || (req.user?.capabilities ?? []).includes(perm),
   parseQueryInt: (val: unknown, def: number) => {
     const n = parseInt(String(val), 10);
     return isNaN(n) ? def: n;
   },
   sendSuccess: jest.fn((res: any, status: number, data: any) => res.status(status).json({ success: true, statusCode: status, data })),
   sendError: jest.fn((res: any, status: number, message: string) => res.status(status).json({ success: false, statusCode: status, message })),
-  // Capability-aware gate so the RBAC test drives the real `requirePermission`
-  // wiring on this write route (403 without plugins:write, next() with it).
-  requirePermission: (perm: string) => (req: any, res: any, next: () => void) => {
-    const caps: string[] = req.user?.capabilities ?? [];
-    return caps.includes(perm)
-      ? next()
-      : res.status(403).json({ success: false, statusCode: 403, message: `Missing ${perm}` });
-  },
 }));
 
 jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
@@ -97,7 +91,7 @@ function replayLayer() {
 }
 
 // The actual withRoute handler is the LAST entry in the route stack (the
-// leading `requirePermission('plugins:write')` guard sits before it). Behavioral
+// leading `requireQueueAccess` gate sits before it). Behavioral
 // tests drive the handler directly; the gate is exercised via runReplayStack.
 function getReplayHandler() {
   const stack = replayLayer().route.stack;
@@ -108,9 +102,14 @@ function getReplayHandler() {
 // exercised end-to-end.
 async function runReplayStack(req: any, res: any) {
   const stack = replayLayer().route.stack;
-  let i = 0;
-  const next = async () => { if (i < stack.length) await stack[i++].handle(req, res, next); };
-  await next();
+  // A synchronous gate calls next() without awaiting it, so join the chain.
+  const run = async (i: number): Promise<void> => {
+    if (i >= stack.length) return;
+    let downstream: Promise<void> | undefined;
+    await stack[i].handle(req, res, () => { downstream = run(i + 1); return downstream; });
+    await downstream;
+  };
+  await run(0);
 }
 
 function makeRes() {
@@ -125,8 +124,8 @@ describe('POST /dlq/:jobId/replay', () => {
     replayHelper.mockResolvedValue('new-job-99');
   });
 
-  // RBAC gate (#FIX 2): the replay write is gated by requirePermission('plugins:write'),
-  // NOT the deprecated coarse role label. A caller lacking the capability is
+  // RBAC gate (#FIX 2): the replay write is gated by requireQueueAccess (plugins:write
+  // for a tenant), NOT a coarse role label. A caller lacking the capability is
   // rejected with 403 before the handler runs; a custom (non-admin) role that
   // holds plugins:write is allowed through.
   it('rejects a caller without plugins:write with 403', async () => {

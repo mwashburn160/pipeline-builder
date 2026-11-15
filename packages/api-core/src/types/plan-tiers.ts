@@ -3,7 +3,7 @@
 
 import { envBool, envInt, envNameFragment, envStr } from '../utils/env.js';
 import type { QuotaType } from './common.js';
-import { DEFAULT_TIER_LIMITS, tierLabel, type QuotaTierLimits } from './tier-limits.js';
+import { DEFAULT_TIER_LIMITS, tierLabel, type PlanTierLimits } from './tier-limits.js';
 
 /**
  * The limits shape, the code-default table and the sizing arithmetic live in
@@ -17,20 +17,20 @@ import { DEFAULT_TIER_LIMITS, tierLabel, type QuotaTierLimits } from './tier-lim
 export {
   AUTOMATION_CALLS_SIZING, automationCallsFor, DEFAULT_TIER_LIMITS, SEAT_PACK_TIERS, seatRemedy, TEAM_CAPABLE_TIERS, tierAllowsTeams, tierLabel,
 } from './tier-limits.js';
-export type { QuotaTierLimits, SeatRemedy } from './tier-limits.js';
+export type { PlanTierLimits, SeatRemedy } from './tier-limits.js';
 
-/** Available quota tier identifiers.
+/** Available plan tier identifiers.
  *
  * `unlimited` is a special tier: every quota is `-1` (uncapped) and it includes
  * every feature/add-on bundle. It is the DEFAULT when billing is disabled (no
  * metering/enforcement surface exists, so nothing is capped), and it is NEVER
  * shown or selectable when billing is enabled — see `STANDARD_TIERS`. */
-export type QuotaTier = 'developer' | 'pro' | 'team' | 'business' | 'enterprise' | 'unlimited';
+export type PlanTier = 'developer' | 'pro' | 'team' | 'business' | 'enterprise' | 'unlimited';
 
 /** Full preset for a single tier (label + limits). */
-export interface QuotaTierPreset {
+export interface PlanTierPreset {
   label: string;
-  limits: QuotaTierLimits;
+  limits: PlanTierLimits;
 }
 
 /**
@@ -101,20 +101,20 @@ function tierLimitEnv(name: string, fallback: number): number {
 }
 
 /**
- * Per-tier limits, each overridable via `QUOTA_TIER_<TIER>_<LIMIT>` env vars
- * (e.g. `QUOTA_TIER_PRO_PIPELINES=250`, `QUOTA_TIER_DEVELOPER_STORAGE_BYTES=...`).
+ * Per-tier limits, each overridable via `PLAN_TIER_<TIER>_<LIMIT>` env vars
+ * (e.g. `PLAN_TIER_PRO_PIPELINES=250`, `PLAN_TIER_DEVELOPER_STORAGE_BYTES=...`).
  * Unset/empty → the code default. `-1` = unlimited. Read once at module load —
  * on k8s these flow in via the `app-env` ConfigMap (built from `.env`).
  */
-function tierLimits(tier: QuotaTier): QuotaTierLimits {
+function tierLimits(tier: PlanTier): PlanTierLimits {
   // `unlimited` is uncapped BY DEFINITION: EVERY quota is -1 and it is NOT
-  // env-overridable. Reading QUOTA_TIER_UNLIMITED_* here would let a stray env
+  // env-overridable. Reading PLAN_TIER_UNLIMITED_* here would let a stray env
   // var silently cap the billing-DISABLED default tier — surfacing as a spurious
   // "quota exceeded" on a deploy that meters nothing. Derive -1 for every field
   // from the limits shape so a newly-added quota is uncapped here automatically.
   if (tier === 'unlimited') {
     const uncapped = { ...DEFAULT_TIER_LIMITS.unlimited };
-    for (const k of Object.keys(uncapped) as (keyof QuotaTierLimits)[]) uncapped[k] = -1;
+    for (const k of Object.keys(uncapped) as (keyof PlanTierLimits)[]) uncapped[k] = -1;
     return uncapped;
   }
   const d = DEFAULT_TIER_LIMITS[tier];
@@ -124,11 +124,11 @@ function tierLimits(tier: QuotaTier): QuotaTierLimits {
   // list made that a second edit, in a file where forgetting it yields a knob
   // the docs describe and the code ignores.
   const out = { ...d };
-  for (const field of Object.keys(out) as (keyof QuotaTierLimits)[]) {
+  for (const field of Object.keys(out) as (keyof PlanTierLimits)[]) {
     // The knob names are DERIVED from the field names (`envNameFragment`), which
-    // is why `test/quota-tiers.test.ts` pins the full set of seventeen: a field
+    // is why `test/plan-tiers.test.ts` pins the full set of seventeen: a field
     // rename would otherwise move somebody's configured knob without a word.
-    out[field] = tierLimitEnv(`QUOTA_TIER_${T}_${envNameFragment(field)}`, d[field]);
+    out[field] = tierLimitEnv(`PLAN_TIER_${T}_${envNameFragment(field)}`, d[field]);
   }
   return out;
 }
@@ -137,7 +137,7 @@ function tierLimits(tier: QuotaTier): QuotaTierLimits {
  *  of a *stored* tier — `unlimited` is a valid value even though it's never
  *  offered for sale. Derived from the code-default limits table, which is the one
  *  place a tier cannot be added without being given numbers. */
-export const VALID_TIERS: readonly QuotaTier[] = Object.keys(DEFAULT_TIER_LIMITS) as QuotaTier[];
+export const VALID_TIERS: readonly PlanTier[] = Object.keys(DEFAULT_TIER_LIMITS) as PlanTier[];
 
 /**
  * Every tier's preset, keyed off {@link VALID_TIERS} rather than written out
@@ -146,22 +146,22 @@ export const VALID_TIERS: readonly QuotaTier[] = Object.keys(DEFAULT_TIER_LIMITS
  *
  * The label defaults to {@link tierLabel} of the key ("business" → "Business",
  * "pro_plus" → "Pro Plus"), which is what all six were spelled as by hand, and
- * stays overridable via `QUOTA_TIER_<TIER>_LABEL` for a deployment that wants its
+ * stays overridable via `PLAN_TIER_<TIER>_LABEL` for a deployment that wants its
  * own wording — or for a key the derivation cannot get right, such as an acronym.
  * Display name only: it never affects a limit.
  */
-export const QUOTA_TIERS: Record<QuotaTier, QuotaTierPreset> = Object.fromEntries(
+export const PLAN_TIERS: Record<PlanTier, PlanTierPreset> = Object.fromEntries(
   VALID_TIERS.map((tier) => [tier, {
-    label: envStr(`QUOTA_TIER_${tier.toUpperCase()}_LABEL`, tierLabel(tier)),
+    label: envStr(`PLAN_TIER_${tier.toUpperCase()}_LABEL`, tierLabel(tier)),
     limits: tierLimits(tier),
   }]),
-) as Record<QuotaTier, QuotaTierPreset>;
+) as Record<PlanTier, PlanTierPreset>;
 
 /** The standard, billing-selectable tiers — the ones offered as purchasable plans
  *  and shown in tier pickers. Derived as "every valid tier except `unlimited`",
  *  which is the billing-DISABLED default and is never displayed/selectable when
  *  billing is enabled. Kept DRY off `VALID_TIERS` so adding a tier flows through. */
-export const STANDARD_TIERS: readonly QuotaTier[] = VALID_TIERS.filter((t) => t !== 'unlimited');
+export const STANDARD_TIERS: readonly PlanTier[] = VALID_TIERS.filter((t) => t !== 'unlimited');
 
 /** Whether the billing service is enabled in this deployment (`BILLING_ENABLED`,
  *  opt-out default-on — mirrors the billing/platform configs). With billing OFF
@@ -173,26 +173,26 @@ export function isBillingEnabled(): boolean {
 /**
  * Default tier assigned to new organizations.
  * - Billing DISABLED → `unlimited` (nothing is metered, so everything is uncapped).
- * - Billing ENABLED  → `DEFAULT_QUOTA_TIER` if it's a valid standard tier, else `developer`.
+ * - Billing ENABLED  → `DEFAULT_PLAN_TIER` if it's a valid standard tier, else `developer`.
  */
-export const DEFAULT_TIER: QuotaTier = !isBillingEnabled()
+export const DEFAULT_TIER: PlanTier = !isBillingEnabled()
   ? 'unlimited'
-  : (isValidTier(process.env.DEFAULT_QUOTA_TIER ?? '') && process.env.DEFAULT_QUOTA_TIER !== 'unlimited'
-    ? (process.env.DEFAULT_QUOTA_TIER as QuotaTier)
+  : (isValidTier(process.env.DEFAULT_PLAN_TIER ?? '') && process.env.DEFAULT_PLAN_TIER !== 'unlimited'
+    ? (process.env.DEFAULT_PLAN_TIER as PlanTier)
     : 'developer');
 
-/** Check whether a string is a valid QuotaTier. */
-export function isValidTier(value: string): value is QuotaTier {
-  // Use the explicit tuple, not `value in QUOTA_TIERS`: `in` walks the prototype
+/** Check whether a string is a valid PlanTier. */
+export function isValidTier(value: string): value is PlanTier {
+  // Use the explicit tuple, not `value in PLAN_TIERS`: `in` walks the prototype
   // chain, so inherited Object keys ('toString', 'constructor', …) would return
   // true and then `getTierLimits` would read `.limits` off a function → crash.
-  // `tier` is attacker-influenceable (JWT / request body / DEFAULT_QUOTA_TIER env).
+  // `tier` is attacker-influenceable (JWT / request body / DEFAULT_PLAN_TIER env).
   return (VALID_TIERS as readonly string[]).includes(value);
 }
 
 /** Get the default limits for a given tier (falls back to developer). */
-export function getTierLimits(tier: string): QuotaTierLimits {
-  return isValidTier(tier) ? QUOTA_TIERS[tier].limits: QUOTA_TIERS.developer.limits;
+export function getTierLimits(tier: string): PlanTierLimits {
+  return isValidTier(tier) ? PLAN_TIERS[tier].limits: PLAN_TIERS.developer.limits;
 }
 
 /**

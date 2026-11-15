@@ -154,7 +154,7 @@ function evaluateCrossFieldRule(
     });
 
   if (results.length === 0) {
-    // No evaluatable conditions (all dependency-only, or missing field/operator).
+    // No evaluatable conditions (every one is missing its field or operator).
     // Fail closed: a misconfigured cross-field rule must NOT silently pass
     // (`every` over an empty set is vacuously true → would return null below).
     return {

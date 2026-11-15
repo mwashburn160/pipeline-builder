@@ -7,7 +7,7 @@
  *
  * ONE module instead of six tables. The facts used to live in
  * `wire-vocabulary.ts` (the two id lists and the size multipliers),
- * `quota-tiers.ts` (which tier gets which size, and the per-class slot counts)
+ * `plan-tiers.ts` (which tier gets which size, and the per-class slot counts)
  * and a hand-maintained mirror of all four in `frontend/src/lib/build-shape.ts`
  * — held together by a test that parsed this package's TypeScript SOURCE with
  * regexes to detect drift. This is the same move `quota-catalog.ts` made for the
@@ -30,7 +30,7 @@
  * string to migrate.
  */
 
-import type { QuotaTier } from './quota-tiers.js';
+import type { PlanTier } from './plan-tiers.js';
 
 // ---------------------------------------------------------------------------
 // Scheduling class — WHEN a build starts
@@ -66,7 +66,7 @@ export interface BuildClassMeta {
    * anything — a row where they were equal would make the class pointless to
    * choose.
    */
-  slotsByTier: Readonly<Record<QuotaTier, number>>;
+  slotsByTier: Readonly<Record<PlanTier, number>>;
 }
 
 export const BUILD_CLASS_CATALOG: Readonly<Record<BuildClass, BuildClassMeta>> = {
@@ -116,7 +116,7 @@ export interface BuildSizeMeta {
    * monotonicity STRUCTURAL: a row-per-tier table can express "Team has 4x but
    * Business does not" and needed a test to forbid it. This shape cannot.
    */
-  minTier: QuotaTier | null;
+  minTier: PlanTier | null;
   /**
    * The class this size pairs with unless the caller says otherwise.
    *
@@ -169,9 +169,9 @@ export const BUILD_SIZE_CATALOG: Readonly<Record<BuildSize, BuildSizeMeta>> = {
  * Declared here because a dependency-free module cannot import `VALID_TIERS` (it
  * is derived from the env-reading tier table). `unlimited` sits at the top so
  * the no-billing install gates nothing — a gate there would invent a limit the
- * operator never bought into. Pinned against the `QuotaTier` union by a test.
+ * operator never bought into. Pinned against the `PlanTier` union by a test.
  */
-export const BUILD_TIER_LADDER: readonly QuotaTier[] = [
+export const BUILD_TIER_LADDER: readonly PlanTier[] = [
   'developer', 'pro', 'team', 'business', 'enterprise', 'unlimited',
 ];
 
@@ -207,7 +207,7 @@ export const BUILD_TIER_LADDER: readonly QuotaTier[] = [
  * top: it is not a purchased tier but the absence of billing, which correlates
  * with the smallest hardware — see its own note below.
  */
-export const BUILD_TIER_CONCURRENCY: Readonly<Record<QuotaTier, number>> = {
+export const BUILD_TIER_CONCURRENCY: Readonly<Record<PlanTier, number>> = {
   developer: 1,
   pro: 2,
   team: 2,
@@ -262,7 +262,7 @@ export const BUILD_LADDER_CONCURRENCY_SUM: number =
  * an unrecognised tier, matching `buildSlotsFor` — a bad tier string must not
  * hand out the most generous figure in the table.
  */
-export function buildWorkerConcurrencyFor(tier: QuotaTier): number {
+export function buildWorkerConcurrencyFor(tier: PlanTier): number {
   return BUILD_TIER_CONCURRENCY[tier] ?? BUILD_TIER_CONCURRENCY.developer;
 }
 
@@ -274,7 +274,7 @@ export function buildWorkerConcurrencyFor(tier: QuotaTier): number {
  * (`pro: envInt('…_PRO', tierDefault.team)`) silently takes another tier's
  * default and no type can catch it.
  */
-export function buildConcurrencyEnvVar(tier: QuotaTier): string {
+export function buildConcurrencyEnvVar(tier: PlanTier): string {
   return `PLUGIN_BUILD_CONCURRENCY_${tier.toUpperCase()}`;
 }
 
@@ -327,13 +327,13 @@ export function buildTimeoutFactor(size: string): number {
 }
 
 /** In-flight builds one org on `tier` may hold in `buildClass` (the default). */
-export function buildSlotsFor(tier: QuotaTier, buildClass: BuildClass): number {
+export function buildSlotsFor(tier: PlanTier, buildClass: BuildClass): number {
   const meta = BUILD_CLASS_CATALOG[buildClass] ?? BUILD_CLASS_CATALOG.standard;
   return meta.slotsByTier[tier] ?? meta.slotsByTier.developer;
 }
 
 /** Both classes' slot counts for one tier — the per-tier reading the UI wants. */
-export function buildSlotsByClass(tier: QuotaTier): Readonly<Record<BuildClass, number>> {
+export function buildSlotsByClass(tier: PlanTier): Readonly<Record<BuildClass, number>> {
   return {
     standard: buildSlotsFor(tier, 'standard'),
     flexible: buildSlotsFor(tier, 'flexible'),
@@ -341,7 +341,7 @@ export function buildSlotsByClass(tier: QuotaTier): Readonly<Record<BuildClass, 
 }
 
 /** Whether `tier` may request `size`. */
-export function tierAllowsBuildSize(tier: QuotaTier, size: string): boolean {
+export function tierAllowsBuildSize(tier: PlanTier, size: string): boolean {
   const meta = BUILD_SIZE_CATALOG[size as BuildSize];
   if (!meta) return false;
   if (meta.minTier === null) return true;
@@ -353,6 +353,6 @@ export function tierAllowsBuildSize(tier: QuotaTier, size: string): boolean {
 }
 
 /** Every size `tier` may request, ascending. */
-export function buildSizesForTier(tier: QuotaTier): readonly BuildSize[] {
+export function buildSizesForTier(tier: PlanTier): readonly BuildSize[] {
   return BUILD_SIZES.filter((s) => tierAllowsBuildSize(tier, s));
 }

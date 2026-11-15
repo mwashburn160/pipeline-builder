@@ -16,7 +16,7 @@ import path from 'path';
 import { HEURISTICS_MAX_FILE_BYTES, type HeuristicsInputFile } from '@pipeline-builder/api-core';
 
 /** Files read per package (the extract entry cap bounds it too). */
-export const MAX_PACKAGE_FILES = 2_000;
+const MAX_PACKAGE_FILES = 2_000;
 
 /** Every regular file under `root`, package-relative (POSIX separators), sorted. */
 export async function readPackageFiles(root: string): Promise<HeuristicsInputFile[]> {

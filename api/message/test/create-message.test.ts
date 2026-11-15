@@ -1498,6 +1498,29 @@ describe('POST /messages/support — the incident door', () => {
     expect(res.status).toHaveBeenCalledWith(201);
   });
 
+  it('REFUNDS the incident when the MESSAGE insert fails, before any case step', async () => {
+    // The incident is spent before the message is written, so a failed insert
+    // must give it back too — otherwise the customer loses a concession on a
+    // request that never landed at all.
+    mockFetchEntitlement.mockResolvedValue(NO_SEAT as never);
+    mockConsumeIncident.mockResolvedValue(true);
+    mockCreate.mockRejectedValueOnce(new Error('DB error'));
+    const res = await send();
+    expect(res.status).toHaveBeenCalledWith(500);
+    expect(mockRefundIncident).toHaveBeenCalledWith('org-1');
+    expect(mockOpenCase).not.toHaveBeenCalled();
+  });
+
+  it('does NOT refund a failed MESSAGE insert when no incident was spent', async () => {
+    mockFetchEntitlement.mockResolvedValue({
+      level: 'support_standard', limit: 3, used: 1, ownOrgContacts: 1, canDesignate: true, canOpenCase: true,
+    } as never);
+    mockCreate.mockRejectedValueOnce(new Error('DB error'));
+    const res = await send();
+    expect(res.status).toHaveBeenCalledWith(500);
+    expect(mockRefundIncident).not.toHaveBeenCalled();
+  });
+
   it('does NOT refund when the case was opened against a contact SEAT', async () => {
     mockFetchEntitlement.mockResolvedValue({
       level: 'support_standard', limit: 3, used: 1, ownOrgContacts: 1, canDesignate: true, canOpenCase: true,

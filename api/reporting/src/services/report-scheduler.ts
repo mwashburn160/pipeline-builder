@@ -69,6 +69,7 @@ import { deliverAndRecord, notifyPaused, notifyReadyForReview, notifyRunFailed }
 import { reportIdentity } from './report-identity.js';
 import { composeRun } from './report-runner.js';
 import { nextRunFor, reportSettleHours } from './report-schedule.js';
+import { createRetentionRootResolver } from './reporting-retention.js';
 import { resolveOrgSubtree } from '../helpers/report-helpers.js';
 
 const logger = createLogger('report-scheduler');
@@ -123,14 +124,27 @@ async function checkAuthority(definition: ReportDefinition): Promise<AuthorityVe
   return { action: 'run', features: authority.features };
 }
 
-/** Run `work`, or give up on it after `ms`. */
-async function withTimeout<T>(work: Promise<T>, ms: number, label: string): Promise<T> {
+/**
+ * Run `work`, and after `ms` both stop waiting for it AND abort it.
+ *
+ * Giving up on the promise alone is not a timeout: the run keeps going in the
+ * background and its side effects — publishing, DELIVERY to the recipients, the
+ * lead's notification — land minutes later, after the cycle already logged it as
+ * failed. So `work` receives a signal the timeout aborts, and checks it before
+ * every side effect ({@link runDefinition}); the abort reason is the timeout error.
+ */
+async function withTimeout<T>(work: (signal: AbortSignal) => Promise<T>, ms: number, label: string): Promise<T> {
+  const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([
-      work,
+      work(controller.signal),
       new Promise<never>((_, reject) => {
-        timer = setTimeout(() => reject(new Error(`${label} exceeded ${ms}ms`)), ms);
+        timer = setTimeout(() => {
+          const err = new Error(`${label} exceeded ${ms}ms`);
+          controller.abort(err);
+          reject(err);
+        }, ms);
       }),
     ]);
   } finally {
@@ -151,11 +165,23 @@ async function runDefinition(
   definition: ReportDefinition,
   now: Date,
   authorityFeatures: readonly string[],
+  retentionRootOf: (orgId: string) => Promise<string | null>,
+  signal: AbortSignal,
 ): Promise<void> {
   // The COMPOSE runs on the add-on's own feature, which is what a scheduled report is
   // authorized by; the AI draft below uses the account's real set, because it needs to know
   // about `ai_generation` specifically.
   const features = [REQUIRED_FEATURE];
+  // Retention is billing-synced onto the account ROOT only, so a team's report must be
+  // bounded by its root's window — the same one the on-demand run route reads off the
+  // caller's token. Read against the team's own row it fell back to the env default, and
+  // a team's monthly report was refused as "past your retention horizon" every period
+  // while the same run composed fine by hand. Unresolvable ⇒ throw (runOne logs and
+  // counts it) rather than refuse the period on the wrong, shorter window.
+  const retentionOrgId = await retentionRootOf(definition.orgId);
+  if (!retentionOrgId) {
+    throw new Error('the account root whose retention bounds this report could not be resolved');
+  }
   // STRICT: an unreachable platform throws here (and `runOne` logs and counts it)
   // rather than composing a rollup that silently covers the parent org alone —
   // a report labelled as covering the teams that quietly does not is a wrong
@@ -173,13 +199,18 @@ async function runDefinition(
   );
 
   for (const period of periods) {
+    // A timed-out run stops here and before each side effect below — never after
+    // one has begun, so a report is either delivered whole or not at all.
+    signal.throwIfAborted();
     const result = await composeRun({
       definition,
       periodLabel: period.label,
       features,
       ...(orgIds ? { orgIds } : {}),
+      retentionOrgId,
       now,
     });
+    signal.throwIfAborted();
     if (!result.ok) {
       // A period the data cannot support is not a failure of the schedule — it is a fact
       // about the org's retention, and the lead is told once per period rather than being
@@ -224,7 +255,8 @@ async function runDefinition(
       // something to edit rather than an empty box they have to come back to. Best-effort:
       // `attachExecutiveSummary` never throws, and a report with no draft is still a
       // report — the reason travels with it.
-      // No request signal here: the call is still bounded by AI_REQUEST_TIMEOUT_MS.
+      // No request signal here; the run's timeout signal aborts it, and it is still
+      // bounded by AI_REQUEST_TIMEOUT_MS.
       // No request either, so the aiCalls unit is attributed explicitly — to the
       // OWNER the run is authorized as (their per-member share, when the account
       // set one, is what an automatic draft draws on) and a schedule pseudo-route.
@@ -233,6 +265,7 @@ async function runDefinition(
         orgId: definition.orgId,
         features: authorityFeatures,
         attribution: { principalType: 'user', principalId: definition.ownerId, route: 'schedule:report-summary' },
+        signal,
       }, stakeholderReportStore);
       // The same record the manual (re)draft route writes: the org's numbers went to
       // an AI provider, on whose key, for how many tokens. Actor = the OWNER the run is
@@ -253,6 +286,9 @@ async function runDefinition(
           ...(summary.ai ? { ai: summary.ai } : {}),
         },
       });
+      // The summary attempt is audited above even when the timeout cut it short
+      // (the provider call was made); the lead is only told about a run that finished.
+      signal.throwIfAborted();
       await notifyReadyForReview(definition, result.run);
     }
   }
@@ -275,6 +311,9 @@ async function sweep(run: { signal: AbortSignal }): Promise<void> {
   const due = await stakeholderReportStore.dueDefinitions(now, batch);
   if (due.length === 0) return;
   logger.info('Report definitions due', { count: due.length });
+  // One root resolver per cycle: a root with many teams is walked once, and a hierarchy
+  // change is picked up on the next cycle.
+  const retentionRootOf = createRetentionRootResolver();
 
   // A simple worker pool over the claimed list. `concurrency` bounds how many orgs'
   // composes run at once, which is what keeps one busy cycle from saturating the
@@ -286,14 +325,19 @@ async function sweep(run: { signal: AbortSignal }): Promise<void> {
       const definition = due[cursor];
       cursor += 1;
       if (!definition) return;
-      await runOne(definition, now, runTimeoutMs);
+      await runOne(definition, now, runTimeoutMs, retentionRootOf);
     }
   };
   await Promise.all(Array.from({ length: Math.min(concurrency, due.length) }, worker));
 }
 
 /** Claim, authorize and run ONE definition. Never throws. */
-async function runOne(definition: ReportDefinition, now: Date, timeoutMs: number): Promise<void> {
+async function runOne(
+  definition: ReportDefinition,
+  now: Date,
+  timeoutMs: number,
+  retentionRootOf: (orgId: string) => Promise<string | null>,
+): Promise<void> {
   const seen = definition.nextRunAt;
   if (!seen) return; // the scan filters on it; a null here means the row changed under us
 
@@ -326,7 +370,7 @@ async function runOne(definition: ReportDefinition, now: Date, timeoutMs: number
     }
 
     await runWithTenantContext({ orgId: definition.orgId, isSuperAdmin: false }, () =>
-      withTimeout(runDefinition(definition, now, verdict.features), timeoutMs, `report run ${definition.id}`));
+      withTimeout((signal) => runDefinition(definition, now, verdict.features, retentionRootOf, signal), timeoutMs, `report run ${definition.id}`));
   } catch (err) {
     // The schedule has already been advanced by the claim, so a thrown run costs this
     // period and not the next one. That is deliberate: a definition that fails every

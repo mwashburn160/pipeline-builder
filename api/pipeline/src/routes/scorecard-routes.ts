@@ -187,10 +187,10 @@ async function computeRollup(orgId: string, query: z.infer<typeof RollupQuerySch
 
 /**
  * Per-pipeline maturity scorecard: blends compliance posture (dry-run against the
- * org's rules) with per-pipeline DORA bands into a graded 0–100 score. Both
- * dimensions are computed in-process (DORA via reportingService, compliance via
- * the S2S dry-run) — no extra network hop. Gated on `advanced_reporting`, the
- * same feature that gates DORA itself.
+ * org's rules) with per-pipeline DORA bands and the security signal into a
+ * graded 0–100 score. DORA is computed in-process (reportingService); compliance
+ * is an S2S dry-run against the compliance service (fail-soft). Gated on
+ * `advanced_reporting`, the same feature that gates DORA itself.
  */
 export function createScorecardRoutes(): Router {
   const router: Router = Router();
@@ -202,8 +202,9 @@ export function createScorecardRoutes(): Router {
     const id = getParam(req.params, 'id');
     if (!id) return sendBadRequest(res, 'Pipeline ID is required.', ErrorCode.MISSING_REQUIRED_FIELD);
 
-    // pipelineService.findById is the cached 2-arg override; its access clause
-    // already covers own-org + system/parent public, matching the read route.
+    // pipelineService.findById applies the READ access clause (own org, plus
+    // public rows incl. the system samples). No parentOrgId is passed, so a
+    // team's parent-org public pipelines are not scored here.
     const pipeline = await pipelineService.findById(id, orgId);
     if (!pipeline) return sendEntityNotFound(res, 'Pipeline');
 

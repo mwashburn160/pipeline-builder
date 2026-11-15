@@ -54,7 +54,7 @@ export function vulnFloor(input: {
     logger.warn('PLUGIN_VULN_WAIVERS exempted findings from the floor', {
       plugin: pluginRecord.name, version: pluginRecord.version, waived: waived.length, packages: names.join(', '), trigger,
     });
-    emit('WARN', `${waived.length} fixable Critical finding(s) exempted by PLUGIN_VULN_WAIVERS (${names.join(', ')})`, { waived: waived.length });
+    emit('WARN', `${waived.length} finding(s) exempted by PLUGIN_VULN_WAIVERS (${names.join(', ')})`, { waived: waived.length });
     recordAudit({
       action: 'plugin.vuln.waived',
       actorId: input.userId ?? SYSTEM_ACTOR_ID,

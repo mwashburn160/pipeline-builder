@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import * as os from 'os';
 import * as path from 'path';
 import { errorMessage } from '@pipeline-builder/api-core';
+import { platformTlsVerify } from '@pipeline-builder/pipeline-core';
 import * as yaml from 'yaml';
 import { activePlatform, isSessionUsable, loadSession } from './credential-store.js';
 import { printDebug, printError, printWarning } from './output-utils.js';
@@ -106,30 +107,28 @@ export function getApiConfig(): Omit<Config, 'auth'> {
     printDebug('Using PLATFORM_BASE_URL from environment', { baseUrl: config.api.baseUrl });
   }
 
-  // `NODE_TLS_REJECT_UNAUTHORIZED=0` is how a dev synth's relaxation reaches the
-  // CodeBuild synth (pipeline-core propagates it into every step, and refuses to
-  // set it in production) — honour it like TLS_REJECT_UNAUTHORIZED, under the
-  // same production refusal, so no build has to pass `--no-verify-ssl`.
-  const tlsReject = process.env.TLS_REJECT_UNAUTHORIZED ?? (process.env.NODE_TLS_REJECT_UNAUTHORIZED === '0' ? '0' : undefined);
-  if (tlsReject !== undefined) {
-    const disable = tlsReject === '0';
-    if (disable && isProductionEnv()) {
-      printWarning('Ignoring TLS_REJECT_UNAUTHORIZED=0 in production — SSL verification remains enabled');
+  // `PLATFORM_TLS_VERIFY` (pipeline-core's platform-tls) is the one knob:
+  // `false` turns verification off for a dev platform on a self-signed
+  // certificate. `NODE_TLS_REJECT_UNAUTHORIZED=0` counts as `false` — it is how
+  // a dev synth's relaxation reaches the CodeBuild synth (pipeline-core
+  // propagates it into every step) — so no build has to pass `--no-verify-ssl`.
+  // Both stay refused in production.
+  if (!platformTlsVerify()) {
+    if (isProductionEnv()) {
+      printWarning('Ignoring PLATFORM_TLS_VERIFY=false / NODE_TLS_REJECT_UNAUTHORIZED=0 in production — SSL verification remains enabled');
     } else {
-      config.api.rejectUnauthorized = !disable;
-      if (disable) {
-        printWarning('SSL certificate validation disabled via TLS_REJECT_UNAUTHORIZED=0 / NODE_TLS_REJECT_UNAUTHORIZED=0');
-      }
+      config.api.rejectUnauthorized = false;
+      printWarning('SSL certificate validation disabled via PLATFORM_TLS_VERIFY=false / NODE_TLS_REJECT_UNAUTHORIZED=0');
     }
   }
 
-  if (process.env.UPLOAD_TIMEOUT) {
-    const parsed = parseInt(process.env.UPLOAD_TIMEOUT, 10);
+  if (process.env.UPLOAD_TIMEOUT_MS) {
+    const parsed = parseInt(process.env.UPLOAD_TIMEOUT_MS, 10);
     if (!isNaN(parsed) && parsed > 0) {
       config.api.uploadTimeout = parsed;
-      printDebug('Using UPLOAD_TIMEOUT from environment', { uploadTimeout: `${parsed}ms` });
+      printDebug('Using UPLOAD_TIMEOUT_MS from environment', { uploadTimeout: `${parsed}ms` });
     } else {
-      printWarning('Invalid UPLOAD_TIMEOUT value, using default', { provided: process.env.UPLOAD_TIMEOUT });
+      printWarning('Invalid UPLOAD_TIMEOUT_MS value, using default', { provided: process.env.UPLOAD_TIMEOUT_MS });
     }
   }
 

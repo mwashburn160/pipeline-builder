@@ -79,7 +79,7 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
 
 jest.unstable_mockModule('@pipeline-builder/pipeline-core', async () => {
   const get = (section: string) => {
-    if (section === 'server') return { services: { billingTimeout: 5000 } };
+    if (section === 'server') return { services: { billingTimeoutMs: 5000 } };
     return {};
   };
   return stubModule('@pipeline-builder/pipeline-core', {

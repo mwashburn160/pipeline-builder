@@ -55,7 +55,7 @@ const LIVE_STATUSES = ['sent'] as const;
  * single call, and the outcome history is the only thing that says whether any
  * of this worked. A mistake worth recalling is noticed in hours, not quarters.
  */
-export const MAX_WITHDRAW_WINDOW_MINUTES = 7 * 24 * 60;
+const MAX_WITHDRAW_WINDOW_MINUTES = 7 * 24 * 60;
 
 /** One offer, as the account's own surface renders it. */
 function toOfferResponse(offer: Pick<OfferDocument,

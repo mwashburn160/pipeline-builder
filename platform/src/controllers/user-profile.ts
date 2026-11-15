@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createLogger, ECOSYSTEM_EMAIL_PREFERENCE_FIELD_NAMES, sendError, sendSuccess, resolveUserFeatures } from '@pipeline-builder/api-core';
-import type { QuotaTier } from '@pipeline-builder/api-core';
+import type { PlanTier } from '@pipeline-builder/api-core';
+import type { Request } from 'express';
 import { PASSWORD_MAX_LENGTH } from '../constants/password.js';
 import { audit } from '../helpers/audit.js';
 import { loadFactorUser, resolveAuthFactors } from '../helpers/auth-factors.js';
@@ -37,13 +38,13 @@ export const getUser = withController('Get user profile', async (req, res) => {
   const activeOrgId = req.user!.organizationId || (user as { lastActiveOrgId?: { toString(): string } }).lastActiveOrgId?.toString();
   let activeOrgName: string | null = null;
   let activeOrgRole: string | null = null;
-  let tier: QuotaTier = 'developer';
+  let tier: PlanTier = 'developer';
 
   if (activeOrgId) {
     const activeOrg = orgMap.get(activeOrgId.toString());
     if (activeOrg) {
       activeOrgName = activeOrg.name;
-      tier = (activeOrg.tier as QuotaTier) || 'developer';
+      tier = (activeOrg.tier as PlanTier) || 'developer';
     }
     const activeMembership = memberships.find(m => m.organizationId.toString() === activeOrgId.toString());
     activeOrgRole = activeMembership?.role || null;
@@ -145,15 +146,41 @@ export const getOwnPasswordPolicy = withController('Get password policy', async 
   sendSuccess(res, 200, { minLength: policy.minLength, maxLength: PASSWORD_MAX_LENGTH });
 });
 
-/** PATCH /user/profile — update username and/or email. */
+/**
+ * Whether a `PATCH /user/profile` request CHANGES the sign-in email — the one
+ * edit the route step-up gates (`gateWhen`, routes/user.ts). The email is what
+ * `POST /auth/password/reset-request` mails, so a session that can set it
+ * silently can take the account over; a username edit, or re-sending the
+ * current address, stays ungated.
+ */
+export async function changesOwnEmail(req: Request): Promise<boolean> {
+  const email = (req.body as { email?: unknown } | undefined)?.email;
+  const userId = req.user?.sub;
+  if (typeof email !== 'string' || !userId) return false;
+  return userProfileService.isEmailChange(userId, email);
+}
+
+/**
+ * PATCH /user/profile — update username and/or email. An email change is
+ * step-up gated at the route ({@link changesOwnEmail}) and the OLD address is
+ * told about it.
+ */
 export const updateUser = withController('Update user profile', async (req, res) => {
   const userId = requireAuthUserId(req, res);
   if (!userId) return;
   const body = validateBody(updateProfileSchema, req.body, res);
   if (!body) return;
 
-  const { user, organizationName, activeOrgRole } = await userProfileService.updateProfile(userId, body);
+  const { user, organizationName, activeOrgRole, previousEmail } = await userProfileService.updateProfile(userId, body);
   logger.info('Update user success', { userId });
+  if (previousEmail) {
+    // Best-effort: the change is committed, and a mail failure must not undo it
+    // or fail the response. `send` logs its own failures.
+    const newEmail = (user as { email: string }).email;
+    void import('../utils/email.js')
+      .then(({ emailService }) => emailService.sendEmailChanged(previousEmail, newEmail))
+      .catch((err: unknown) => logger.warn('Email-changed notice failed (non-blocking)', { userId, error: String(err) }));
+  }
   // Capture WHICH fields changed (not the values) so the audit log shows
   // "username/email was updated" without leaking PII into the event details.
   audit(req, 'user.profile.update', {

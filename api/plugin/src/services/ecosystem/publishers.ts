@@ -22,7 +22,7 @@ import {
   publisherTermsVersion,
   SYSTEM_ORG_ID,
 } from '@pipeline-builder/api-core';
-import { OFFICIAL_PUBLISHER_HANDLE, type PluginListing, type Publisher } from '@pipeline-builder/pipeline-data';
+import { isUniqueViolation, OFFICIAL_PUBLISHER_HANDLE, type PluginListing, type Publisher } from '@pipeline-builder/pipeline-data';
 
 import { ecosystemAudit } from './audit.js';
 import { can, ecosystemDeps, EcosystemError, type Caller } from './context.js';
@@ -165,16 +165,24 @@ export async function claimPublisher(caller: Caller, body: Record<string, unknow
   if (refusal) throw new EcosystemError(refusal.code, refusal.message);
 
   const now = new Date();
-  const publisher = await publishers.insert({
-    ownerOrgId: caller.orgId,
-    handle,
-    displayName,
-    description,
-    homepageUrl,
-    tier: 'community',
-    termsVersion: publisherTermsVersion(),
-    termsAcceptedAt: now,
-  });
+  let publisher: Publisher;
+  try {
+    publisher = await publishers.insert({
+      ownerOrgId: caller.orgId,
+      handle,
+      displayName,
+      description,
+      homepageUrl,
+      tier: 'community',
+      termsVersion: publisherTermsVersion(),
+      termsAcceptedAt: now,
+    });
+  } catch (err) {
+    // The checks above read before this write: a concurrent claim of the same
+    // handle, or a second claim by this org, lands on the unique index.
+    if (isUniqueViolation(err)) throw new EcosystemError(ErrorCode.DUPLICATE_ENTRY, `The handle "${handle}" was just taken, or your organization already has a publisher.`);
+    throw err;
+  }
   const base = { actor: actorId({ userId: caller.userId }), orgId: caller.orgId, targetType: 'publisher', targetId: publisher.id };
   ecosystemAudit({ ...base, action: 'publisher.create', details: { handle, tier: 'community' } });
   ecosystemAudit({ ...base, action: 'publisher.terms.accept', details: { termsVersion: publisherTermsVersion() } });

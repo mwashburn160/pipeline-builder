@@ -21,7 +21,7 @@ import { formatError } from '@/lib/constants';
 export const AI_DISABLED_CODE = 'AI_DISABLED';
 
 /** Shown in place of an AI control while the org's AI switch is off. */
-export const AI_DISABLED_MESSAGE = 'AI features are turned off for this organization. An organization administrator can turn them back on in Settings → AI providers.';
+export const AI_DISABLED_MESSAGE = 'AI features are turned off for this organization. An organization administrator can turn them back on in Settings → Organization → AI providers.';
 
 /**
  * The code a 429 carries when the ORG still has AI calls but this MEMBER has

@@ -69,6 +69,9 @@ export default function BillingAdminPage() {
   // working, and an Account Manager stops seeing an empty page.
   const { accessDenied, user, isReady, isAuthenticated, can } = useAuthGuard();
   const canReadSubscriptions = can('subscriptions:read');
+  // Edit and Purge write through `subscriptions:manage`, which the page's own
+  // gate (`billing:operate`) does not imply — offering them without it is a 403.
+  const canManageSubscriptions = can('subscriptions:manage');
   const toast = useToast();
 
   const [notEnabled, setNotEnabled] = useState(false);
@@ -257,12 +260,12 @@ export default function BillingAdminPage() {
       sortValue: (s) => s.currentPeriodEnd ? new Date(s.currentPeriodEnd) : null,
       render: (s) => <RelativeTime value={s.currentPeriodEnd} />,
     },
-    {
+    ...(canManageSubscriptions ? [{
       id: 'actions',
       header: 'Actions',
       headerClassName: 'text-right',
       cellClassName: 'text-right text-sm font-medium',
-      render: (s) => (
+      render: (s: Subscription) => (
         <div className="flex justify-end gap-3">
           <button
             onClick={() => openEdit(s)}
@@ -274,9 +277,9 @@ export default function BillingAdminPage() {
           <button onClick={() => setPurgeSub(s)} className="action-link-danger">Purge</button>
         </div>
       ),
-    },
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- static column config; the row handlers it closes over are stable enough to build once
-  ], []);
+    } as Column<Subscription>] : []),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the row handlers it closes over are stable enough to build once
+  ], [canManageSubscriptions]);
 
   if (accessDenied) return <AccessDenied denial={accessDenied} />;
   if (!isReady || !user) return <LoadingPage />;

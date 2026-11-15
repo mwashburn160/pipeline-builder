@@ -70,23 +70,44 @@ export function buildDigest(orgId: string, entries: PendingDigestEntry[]): Notif
   };
 }
 
+/**
+ * Most parked entries one digest message carries. A flush walks the queue in
+ * pages of this size, one digest per page: loading every parked row at once
+ * held them all in memory, built one unbounded message, and — past Postgres's
+ * 65535 bind parameters — made `markDigestsSent`'s `IN (...)` throw AFTER the
+ * delivery, so the same digest was re-sent on every sweep.
+ */
+export const DIGEST_PAGE_SIZE = 500;
+
+/** Pages one flush may send; a larger backlog drains over the following sweeps. */
+const MAX_DIGEST_PAGES_PER_FLUSH = 20;
+
 /** Flush one org's pending digest (caller ensures it's due). */
-async function flushOrg(orgId: string, preference: ComplianceNotificationPreference | null, now: Date): Promise<void> {
-  const entries = await getPendingDigests(orgId);
-  if (entries.length === 0) return;
+export async function flushOrg(orgId: string, preference: ComplianceNotificationPreference | null, now: Date): Promise<void> {
+  let sent = 0;
+  let drained = false;
+  for (let page = 0; page < MAX_DIGEST_PAGES_PER_FLUSH; page++) {
+    const entries = await getPendingDigests(orgId, DIGEST_PAGE_SIZE);
+    if (entries.length === 0) { drained = true; break; }
 
-  // Only mark the batch `sent` when delivery actually reached a channel — otherwise
-  // a failed webhook/email flips the digest to `sent` and the batched notifications
-  // are lost. On total failure, leave them pending to retry on the next sweep.
-  const delivered = await dispatchImmediate(orgId, preference, buildDigest(orgId, entries));
-  if (!delivered) {
-    logger.warn('Compliance digest delivery failed on all channels — leaving pending for retry', { orgId, count: entries.length });
-    return;
+    // Only mark the page `sent` when EVERY enabled channel delivered it
+    // (`dispatchImmediate`'s contract) — otherwise a failed webhook/email would
+    // lose the batched notifications for that channel. Leave it pending to
+    // retry on the next sweep.
+    const delivered = await dispatchImmediate(orgId, preference, buildDigest(orgId, entries));
+    if (!delivered) {
+      logger.warn('Compliance digest delivery failed on at least one channel — leaving pending for retry', { orgId, count: entries.length });
+      break;
+    }
+    await markDigestsSent(entries.map((e) => e.id));
+    sent += entries.length;
+    if (entries.length < DIGEST_PAGE_SIZE) { drained = true; break; }
   }
-  await markDigestsSent(entries.map((e) => e.id));
-  await touchLastDigestAt(orgId, now);
-
-  logger.info('Compliance digest delivered', { orgId, count: entries.length });
+  if (sent === 0) return;
+  // Only a drained queue starts the next interval; a backlog left by the page
+  // cap (or a failed page) keeps flushing on the following sweeps.
+  if (drained) await touchLastDigestAt(orgId, now);
+  logger.info('Compliance digest delivered', { orgId, count: sent, drained });
 }
 
 /** The actual sweep — flush every org whose digest is due. */

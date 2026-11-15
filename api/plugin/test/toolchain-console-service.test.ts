@@ -51,7 +51,7 @@ const PARENTS: Record<string, string> = { [TEAM]: A };
 const sent: Array<{ event: string; recipients: any[]; subject: string; text: string }> = [];
 const send = jest.fn(async (req: any) => { sent.push(req); return { ok: true } as const; });
 
-const TOOLCHAIN = { pipelineManager: '4.4.20', awsCdk: '2.1148.0', cdkAssets: '4.8.0', esbuild: '0.28.1', pnpm: '12.14.0', node: '26.13.0' };
+const TOOLCHAIN = { pipelineManager: '4.4.20', awsCdk: '2.1148.0', cdkAssets: '4.8.0', node: '26.13.0' };
 const digest = () => `sha256:${randomUUID().replace(/-/g, '').padEnd(64, '0')}`;
 
 async function upload(name: 'pipeline-bootstrap' | 'cdk-synth', version: string) {

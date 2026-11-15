@@ -101,7 +101,7 @@ export function OrgSetupStep({ planTier, onDone, doneLabel = 'Continue to dashbo
           {wantEvents && (
             <div className="space-y-3 pl-1">
               <p className="text-xs text-fg-muted">Run these once per organization. Store the token first — the event ingestion reads it.</p>
-              <HelpCodeBlock content={'pipeline-manager infra store-token --days 30 --schedule --region us-east-1'} language="bash" />
+              <HelpCodeBlock content={'pipeline-manager infra store-token --expires-days 30 --schedule --region us-east-1'} language="bash" />
               <label className="flex items-center gap-2 text-sm cursor-pointer">
                 <Checkbox checked={withDora} onChange={(e) => setWithDora(e.target.checked)} />
                 Include DORA metrics (measured commit→deploy lead time)

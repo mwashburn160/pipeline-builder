@@ -512,7 +512,7 @@ async function sendRenewalReminders(): Promise<void> {
  * item best-effort — a failure there is only local (the customer keeps being
  * billed for the pruned bundle) and, unlike the entitlement leg, had no durable
  * retry. `syncProviderAddons` stamps `metadata.providerAddonSyncPending` on
- * failure (and clears it on the next success), so this pass finds every ACTIVE
+ * failure (and clears it on the next success), so this pass finds every MANAGEABLE
  * marked sub and re-calls `syncProviderAddons` with the sub's CURRENT (already
  * reduced) add-ons — idempotent: it rebuilds the provider's bundle line items
  * from that list, dropping exactly the pruned ones. The marker clear/set happens

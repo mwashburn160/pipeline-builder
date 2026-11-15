@@ -47,7 +47,7 @@ jest.unstable_mockModule('../src/services/declared-resolution-refresh.js', () =>
 const svc = await import('../src/services/toolchain-release-service.js');
 const { pluginService } = await import('../src/services/plugin-service.js');
 
-const TOOLCHAIN = { pipelineManager: '4.4.20', awsCdk: '2.1148.0', cdkAssets: '4.8.0', esbuild: '0.28.1', pnpm: '12.14.0', node: '26.13.0' };
+const TOOLCHAIN = { pipelineManager: '4.4.20', awsCdk: '2.1148.0', cdkAssets: '4.8.0', node: '26.13.0' };
 const ADMIN = { isSystemAdmin: true, canPublish: true };
 const digest = () => `sha256:${randomUUID().replace(/-/g, '').padEnd(64, '0')}`;
 
@@ -165,7 +165,7 @@ describe('setPlatformDefault — the promotion guards, each with its own code', 
   });
 
   it('metadata: a bootstrap without a complete toolchain → TOOLCHAIN_GUARD_METADATA', async () => {
-    const { 'toolchain.pnpm': _pnpm, ...partial } = realApiCore.toolchainMetadata(TOOLCHAIN);
+    const { 'toolchain.cdkAssets': _assets, ...partial } = realApiCore.toolchainMetadata(TOOLCHAIN);
     await release('1.0.0', { bootstrapMetadata: partial });
     await expect(initial('1.0.0')).rejects.toMatchObject({ statusCode: 409, code: 'TOOLCHAIN_GUARD_METADATA' });
   });

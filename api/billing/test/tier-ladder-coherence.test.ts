@@ -28,30 +28,30 @@
  */
 
 import { describe, it, expect } from '@jest/globals';
-import { QUOTA_TIERS, VALID_TIERS, type QuotaTier, type QuotaTierLimits } from '@pipeline-builder/api-core';
+import { PLAN_TIERS, VALID_TIERS, type PlanTier, type PlanTierLimits } from '@pipeline-builder/api-core';
 import { loadBillingConfig } from '../src/config/billing-config.js';
 import type { BundleConfig } from '../src/config/billing-types.js';
 import { volumeDiscountPct } from '../src/helpers/combo-pricing.js';
 
 /** The countable limits a pack could plausibly top up. */
-const DIMS: (keyof QuotaTierLimits)[] = [
+const DIMS: (keyof PlanTierLimits)[] = [
   'seats', 'plugins', 'pipelines', 'apiCalls', 'aiCalls', 'storageBytes', 'listings', 'idpConfigs',
 ];
 
 interface StepResult {
-  from: QuotaTier;
-  to: QuotaTier;
+  from: PlanTier;
+  to: PlanTier;
   upgradeCents: number;
   basketCents: number;
-  unreachable: (keyof QuotaTierLimits)[];
+  unreachable: (keyof PlanTierLimits)[];
 }
 
 /** Cheapest monthly pack spend on `from` that reaches every limit of `to`. */
-function cheapestBasket(from: QuotaTier, to: QuotaTier, bundles: readonly BundleConfig[]): StepResult {
-  const lo = QUOTA_TIERS[from].limits;
-  const hi = QUOTA_TIERS[to].limits;
+function cheapestBasket(from: PlanTier, to: PlanTier, bundles: readonly BundleConfig[]): StepResult {
+  const lo = PLAN_TIERS[from].limits;
+  const hi = PLAN_TIERS[to].limits;
   let basketCents = 0;
-  const unreachable: (keyof QuotaTierLimits)[] = [];
+  const unreachable: (keyof PlanTierLimits)[] = [];
 
   for (const dim of DIMS) {
     const have = lo[dim] ?? 0;
@@ -78,7 +78,7 @@ function cheapestBasket(from: QuotaTier, to: QuotaTier, bundles: readonly Bundle
   }
 
   const plans = loadBillingConfig().plans;
-  const price = (t: QuotaTier) => plans.find((p) => p.tier === t)?.prices.monthly ?? 0;
+  const price = (t: PlanTier) => plans.find((p) => p.tier === t)?.prices.monthly ?? 0;
   return { from, to, upgradeCents: price(to) - price(from), basketCents, unreachable };
 }
 

@@ -560,7 +560,7 @@ short:
   pod restart or an OOM kill, so check those rather than the queue.
 
 **Why the slot TTL is not a build timeout.** The semaphore key carries
-`PLUGIN_ORG_SLOT_TTL_SEC` as a crash-recovery window, and a running build
+`PLUGIN_ORG_SLOT_TTL_SECONDS` as a crash-recovery window, and a running build
 refreshes its own slot at a third of that. Without the heartbeat the TTL doubled
 as a cap on build duration: the counter expired while builds were still running,
 the next acquire started from zero, and the per-org cap could then be exceeded by

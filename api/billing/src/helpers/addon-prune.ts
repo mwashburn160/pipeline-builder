@@ -6,7 +6,7 @@
  * prune, the provider line-item leg (with its durable retry marker), the prune
  * finalizer, and the plan-change side-effect runner.
  */
-import { SYSTEM_ACTOR_ID, createLogger, errorMessage, TIER_FEATURES, type QuotaTier, recordAudit } from '@pipeline-builder/api-core';
+import { SYSTEM_ACTOR_ID, createLogger, errorMessage, TIER_FEATURES, type PlanTier, recordAudit } from '@pipeline-builder/api-core';
 import { incCounter } from '@pipeline-builder/api-server';
 import { cascadeRemoveDependents } from './addon-catalog.js';
 import { billingServiceAuth, createBillingEvent, getBundleCatalog } from './billing-helpers.js';
@@ -57,7 +57,7 @@ export interface PruneResult {
  */
 export function pruneTierIncludedFeatureAddons(
   addons: ReadonlyArray<{ bundleId: string; quantity: number }>,
-  newTier: QuotaTier,
+  newTier: PlanTier,
   catalog: readonly BundleConfig[],
 ): PruneResult {
   const tierFeatures = new Set<string>(TIER_FEATURES[newTier] ?? []);
@@ -190,7 +190,7 @@ export interface AddonPruneContext {
  */
 export function applyTierIncludedAddonPrune(
   subscription: { addons?: Array<{ bundleId: string; quantity: number }> },
-  newTier: QuotaTier,
+  newTier: PlanTier,
   ctx: Pick<AddonPruneContext, 'orgId' | 'subscriptionId' | 'source'>,
 ): PrunedAddon[] {
   const catalog = getBundleCatalog();
@@ -354,7 +354,7 @@ export interface PlanTierChangeOptions {
  */
 export function applyPlanTierChange(
   subscription: PlanTierChangeSubscription,
-  plan: { tier: QuotaTier },
+  plan: { tier: PlanTier },
   opts: PlanTierChangeOptions,
 ): () => Promise<void> {
   const orgId = subscription.orgId;

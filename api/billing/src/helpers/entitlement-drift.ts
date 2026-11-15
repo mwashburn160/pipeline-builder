@@ -125,7 +125,7 @@ async function readEnforcedFeatureEntitlements(orgId: string, auth: string): Pro
  * failure so the drift reconciler treats an unreachable compliance service as a
  * SKIP, never as drift.
  */
-export async function readEnforcedComplianceSets(orgId: string, auth: string): Promise<string[] | null> {
+async function readEnforcedComplianceSets(orgId: string, auth: string): Promise<string[] | null> {
   const body = await getJson<{ data?: { sets?: unknown } }>(
     config.complianceService, `/compliance/entitlements/${encodeURIComponent(orgId)}`, orgId, auth,
   );
@@ -143,7 +143,7 @@ export async function readEnforcedComplianceSets(orgId: string, auth: string): P
  * reporting env default applies). Same service-token handshake as the push leg.
  * Returns `null` on any read failure so the reconciler SKIPS (never false-drifts).
  */
-export async function readEnforcedRetention(
+async function readEnforcedRetention(
   orgId: string,
   auth: string,
 ): Promise<{ eventRetentionDays: number | null; doraRetentionDays: number | null } | null> {
@@ -161,7 +161,7 @@ export async function readEnforcedRetention(
  * (clamped) effective retention billing pushes. A missing override (`null`) is
  * drift — billing always pushes an explicit value for a billed account.
  */
-export function retentionDiffers(
+function retentionDiffers(
   expected: { eventRetentionDays: number; doraRetentionDays: number },
   actual: { eventRetentionDays: number | null; doraRetentionDays: number | null },
 ): boolean {
@@ -174,7 +174,7 @@ export function retentionDiffers(
  * both the compliance content sets and the feature entitlements. `true` when
  * the enforced values differ from what the account is entitled to.
  */
-export function setsDiffer(expected: readonly string[], actual: readonly string[]): boolean {
+function setsDiffer(expected: readonly string[], actual: readonly string[]): boolean {
   const exp = new Set(expected);
   const act = new Set(actual);
   return exp.size !== act.size || [...exp].some((s) => !act.has(s));
@@ -187,7 +187,7 @@ export function setsDiffer(expected: readonly string[], actual: readonly string[
  * must not trigger a false re-sync). `authHeader` may be `''`; a service token is
  * minted for the target org, the same way syncEntitlements does.
  */
-export async function readActualEntitlements(orgId: string, authHeader: string): Promise<ActualEntitlements | null> {
+async function readActualEntitlements(orgId: string, authHeader: string): Promise<ActualEntitlements | null> {
   const auth = authHeader || billingServiceAuth(orgId);
   const [quotaLimits, seats, features, support] = await Promise.all([
     readEnforcedQuotaLimits(orgId, auth),
@@ -212,7 +212,7 @@ export async function readActualEntitlements(orgId: string, authHeader: string):
  * bundle-granted feature flags. Any tracked-limit, seats, or feature-set mismatch
  * is drift. The feature comparison is order-independent (set equality).
  */
-export function computeEntitlementDrift(
+function computeEntitlementDrift(
   expectedLimits: Record<string, number>,
   expectedFeatures: readonly string[],
   actual: ActualEntitlements,
@@ -411,7 +411,7 @@ export async function reconcileEntitlementDrift(): Promise<void> {
       }
 
       // Compliance-set drift is re-driven SURGICALLY: re-push ONLY the entitled
-      // sets (not the full four-target sync) so a compliance-only divergence — or a
+      // sets (not the full five-leg sync) so a compliance-only divergence — or a
       // never-pushed Enterprise cutover — is corrected without touching quota/seats.
       if (setsDiffer(expectedSets, actualSets)) {
         logger.warn('Compliance-set drift detected — re-syncing entitled sets', {

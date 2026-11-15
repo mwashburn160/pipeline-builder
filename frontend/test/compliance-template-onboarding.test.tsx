@@ -29,7 +29,7 @@ beforeEach(() => {
     success: true,
     data: { templates: [{ id: 't1', name: 'Pin images', description: 'd', category: 'security', target: 'plugin', severity: 'error' }] },
   });
-  applyRuleTemplates.mockResolvedValue({ success: true, data: { created: 1, skipped: 0 } });
+  applyRuleTemplates.mockResolvedValue({ success: true, data: { created: 1, skipped: [], ruleIds: ['r1'] } });
 });
 
 async function selectTemplate() {
@@ -53,4 +53,23 @@ it('applies selected templates when writable', async () => {
   fireEvent.click(apply);
   expect(await screen.findByText('Templates applied')).toBeInTheDocument();
   expect(applyRuleTemplates).toHaveBeenCalledWith(['t1']);
+});
+
+it('lists the templates the server could not create, with its reason', async () => {
+  applyRuleTemplates.mockResolvedValue({ success: true, data: { created: 0, skipped: [{ id: 't1', reason: 'A rule named "Pin images" already exists' }], ruleIds: [] } });
+  render(<TemplateOnboarding />);
+  const apply = await selectTemplate();
+  await waitFor(() => expect(apply).toBeEnabled());
+  fireEvent.click(apply);
+  expect(await screen.findByText(/1 not created/)).toBeInTheDocument();
+  expect(screen.getByText('Pin images: A rule named "Pin images" already exists')).toBeInTheDocument();
+});
+
+it('shows the server message when applying fails', async () => {
+  applyRuleTemplates.mockRejectedValue(new Error('Quota exceeded for rules'));
+  render(<TemplateOnboarding />);
+  const apply = await selectTemplate();
+  await waitFor(() => expect(apply).toBeEnabled());
+  fireEvent.click(apply);
+  expect(await screen.findByText('Quota exceeded for rules')).toBeInTheDocument();
 });

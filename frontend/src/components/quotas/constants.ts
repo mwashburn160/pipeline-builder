@@ -4,7 +4,7 @@
 import { quotaLabelPlural } from '@pipeline-builder/api-core/quota-catalog';
 import { DEFAULT_TIER_LIMITS } from '@pipeline-builder/api-core/tier-limits';
 import { ALL_TIER_KEYS, TIER_META, TIER_KEYS as SHARED_TIER_KEYS } from '@/lib/tiers';
-import type { QuotaTier, DisplayedQuotaType } from '@/types';
+import type { PlanTier, DisplayedQuotaType } from '@/types';
 import { DISPLAYED_QUOTA_TYPES } from '@/types';
 
 // ---------------------------------------------------------------------------
@@ -20,13 +20,13 @@ export const QUOTA_KEYS: readonly DisplayedQuotaType[] = DISPLAYED_QUOTA_TYPES;
  */
 export const AT_RISK_THRESHOLDS = [50, 70, 80, 90, 100] as const;
 
-export const TIER_KEYS: QuotaTier[] = [...SHARED_TIER_KEYS];
+export const TIER_KEYS: PlanTier[] = [...SHARED_TIER_KEYS];
 
 // Descriptions stay local — they're page-specific copy for the preset editor and
 // not appropriate for the shared TIER_META catalog, which every tier pill in the
 // app reads. Label and dot color DO come from TIER_META so renames stay in one
 // place, and the numbers come from api-core.
-const TIER_DESCRIPTIONS: Record<QuotaTier, string> = {
+const TIER_DESCRIPTIONS: Record<PlanTier, string> = {
   developer: 'Starter tier',
   pro: 'Production use',
   team: 'Team collaboration',
@@ -50,18 +50,18 @@ const TIER_DESCRIPTIONS: Record<QuotaTier, string> = {
  * no longer expressible.
  *
  * These are the CODE defaults, which is the right fallback: the env-overlaid
- * figures (`QUOTA_TIER_*`) are per-deployment and arrive from `/config`.
+ * figures (`PLAN_TIER_*`) are per-deployment and arrive from `/config`.
  *
  * Developer's 20 aiCalls are a TRIAL allowance: the tier holds `ai_generation`
  * so generation is usable, and the UI labels the allowance as a trial
  * (`isAITrialTier`) with an upgrade CTA once it runs out.
  */
-const TIER_LIMITS: Record<QuotaTier, Record<DisplayedQuotaType, number>> = Object.fromEntries(
+const TIER_LIMITS: Record<PlanTier, Record<DisplayedQuotaType, number>> = Object.fromEntries(
   ALL_TIER_KEYS.map((tier) => [
     tier,
     Object.fromEntries(QUOTA_KEYS.map((key) => [key, DEFAULT_TIER_LIMITS[tier][key]])),
   ]),
-) as Record<QuotaTier, Record<DisplayedQuotaType, number>>;
+) as Record<PlanTier, Record<DisplayedQuotaType, number>>;
 
 export type TierPreset = { label: string; description: string; color: string; limits: Record<DisplayedQuotaType, number> };
 
@@ -70,7 +70,7 @@ export type TierPreset = { label: string; description: string; color: string; li
  * local; only the numeric limits vary by deployment). {@link buildTierPresets}
  * uses this to overlay server-provided limits onto the hardcoded fallback.
  */
-function presetsFromLimits(limits: Record<QuotaTier, Record<DisplayedQuotaType, number>>): Record<QuotaTier, TierPreset> {
+function presetsFromLimits(limits: Record<PlanTier, Record<DisplayedQuotaType, number>>): Record<PlanTier, TierPreset> {
   return Object.fromEntries(
     ALL_TIER_KEYS.map((tier) => [tier, {
       label: TIER_META[tier].label,
@@ -78,7 +78,7 @@ function presetsFromLimits(limits: Record<QuotaTier, Record<DisplayedQuotaType, 
       color: TIER_META[tier].dotClass,
       limits: limits[tier],
     }]),
-  ) as Record<QuotaTier, TierPreset>;
+  ) as Record<PlanTier, TierPreset>;
 }
 
 /**
@@ -86,11 +86,11 @@ function presetsFromLimits(limits: Record<QuotaTier, Record<DisplayedQuotaType, 
  * presets load. Sourced from the local `TIER_LIMITS` mirror of the backend
  * defaults.
  */
-export const TIER_PRESETS: Record<QuotaTier, TierPreset> = presetsFromLimits(TIER_LIMITS);
+export const TIER_PRESETS: Record<PlanTier, TierPreset> = presetsFromLimits(TIER_LIMITS);
 
 /**
  * Merge server-provided effective tier limits (from `/config`'s `tierPresets`,
- * which honors `QUOTA_TIER_*` env overrides) over the hardcoded fallback, and
+ * which honors `PLAN_TIER_*` env overrides) over the hardcoded fallback, and
  * return the full presets. Fail-soft: any tier/field the server omits keeps its
  * hardcoded value, and passing `undefined` (config not loaded / fetch failed)
  * returns the fallback unchanged. This is the drift fix for pkg#9 — the editor
@@ -98,10 +98,10 @@ export const TIER_PRESETS: Record<QuotaTier, TierPreset> = presetsFromLimits(TIE
  * diverges under env overrides.
  */
 export function buildTierPresets(
-  serverPresets?: Partial<Record<QuotaTier, Partial<Record<DisplayedQuotaType, number>>>>,
-): Record<QuotaTier, TierPreset> {
+  serverPresets?: Partial<Record<PlanTier, Partial<Record<DisplayedQuotaType, number>>>>,
+): Record<PlanTier, TierPreset> {
   if (!serverPresets) return TIER_PRESETS;
-  const merged = {} as Record<QuotaTier, Record<DisplayedQuotaType, number>>;
+  const merged = {} as Record<PlanTier, Record<DisplayedQuotaType, number>>;
   for (const tier of ALL_TIER_KEYS) {
     merged[tier] = { ...TIER_LIMITS[tier] };
     const fromServer = serverPresets[tier];

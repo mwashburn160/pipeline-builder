@@ -74,7 +74,7 @@ function defaultQuotaService(): QuotaService {
 
 /**
  * Hard ceiling on the draft. An executive summary that runs past a short paragraph is not
- * one, and the cap doubles as the cost control the plan asks for: a bounded output cannot
+ * one, and the cap doubles as the per-draft cost control: a bounded output cannot
  * turn one report into an unbounded bill.
  */
 export const SUMMARY_MAX_OUTPUT_TOKENS = 400;

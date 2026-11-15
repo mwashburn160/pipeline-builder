@@ -25,8 +25,6 @@ const TOOLCHAIN_LABEL_ARGS: Record<string, string> = {
   'pipeline-manager': 'PIPELINE_MANAGER_VERSION',
   'aws-cdk': 'AWS_CDK_VERSION',
   'cdk-assets': 'CDK_ASSETS_VERSION',
-  'esbuild': 'ESBUILD_VERSION',
-  'pnpm': 'PNPM_VERSION',
   'node': 'NODE_VERSION',
 };
 
@@ -488,8 +486,6 @@ describe('image and tool freshness', () => {
       pipelineManager: arg('PIPELINE_MANAGER_VERSION'),
       awsCdk: arg('AWS_CDK_VERSION'),
       cdkAssets: arg('CDK_ASSETS_VERSION'),
-      esbuild: arg('ESBUILD_VERSION'),
-      pnpm: arg('PNPM_VERSION'),
       node: /^ARG NODE_IMAGE=node:(\d+\.\d+\.\d+)-/m.exec(df)?.[1],
     });
     for (const k of ['commands', 'installCommands', 'metadata']) expect([k, k in spec]).toEqual([k, false]);

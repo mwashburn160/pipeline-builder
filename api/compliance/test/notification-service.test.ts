@@ -134,8 +134,10 @@ describe('digest batching', () => {
 
   it("reads an org's pending entries oldest first, unwrapping the payload", async () => {
     result = [{ id: 'l1', payload: { subject: 'A' } }];
-    await expect(svc.getPendingDigests('o1')).resolves.toEqual([{ id: 'l1', notification: { subject: 'A' } }]);
+    await expect(svc.getPendingDigests('o1', 500)).resolves.toEqual([{ id: 'l1', notification: { subject: 'A' } }]);
     expect(called('orderBy')[0][0]).toBe('log.created_at');
+    // Bounded: one flush must never load (or `inArray` the ids of) every parked row.
+    expect(called('limit')[0][0]).toBe(500);
   });
 
   it('marks entries sent, and no-ops on an empty list', async () => {

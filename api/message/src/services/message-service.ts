@@ -14,16 +14,8 @@ type MessageInsert = typeof schema.message.$inferInsert;
 type MessageUpdate = Partial<Omit<MessageInsert, 'id' | 'createdAt' | 'createdBy'>>;
 
 /** Cache for message reads — announcements/conversations are stable between mutations. */
-const messageCache = createCacheService('message:', CoreConstants.CACHE_TTL_MESSAGE);
+const messageCache = createCacheService('message:', CoreConstants.CACHE_TTL_MESSAGE_SECONDS);
 
-/**
- * Service for managing internal messages between organizations and system org.
- *
- * Supports:
- * - Announcements: System org broadcasts to all orgs
- * - Conversations: Two-way threaded messaging between org and system org
- * - Thread management, read tracking, and unread counts
- */
 /**
  * Optional narrowing for the announcements / conversations tab views — the same
  * filters the mixed `/` inbox honors (see `MessageFilterSchema`), so a tab can
@@ -67,6 +59,15 @@ function inboxFilterFields(f: InboxFilters): Partial<MessageFilter> {
   };
 }
 
+/**
+ * Service for managing internal messages.
+ *
+ * Supports:
+ * - Announcements: system-org broadcasts to every org
+ * - Conversations: two-way threaded messaging between orgs in one account, and
+ *   between any org and the system support desk (system notifications included)
+ * - Thread management, per-org read/hidden state, and unread counts
+ */
 export class MessageService extends CrudService<Message, MessageFilter, MessageInsert, MessageUpdate> {
   protected get schema(): PgTable {
     return schema.message as PgTable;

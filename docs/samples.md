@@ -111,7 +111,7 @@ Or pick the template from the dashboard's golden-path catalog and fill in the in
 - **Platform auth:** `PLATFORM_BASE_URL`, `PLATFORM_TOKEN` (an access key from `pipeline-manager auth pat` or the dashboard), and `PB_ORG_ID` (your org's UUID, passed as the template's `orgId` input).
 - **AWS auth:** each platform's OIDC federation assumes a deploy role whose ARN is stored as a CI secret (`AWS_DEPLOY_ROLE_ARN`), never committed. Each sample notes the one-line swap to static access keys.
 - **Region:** `AWS_REGION` (or `--region`); otherwise resolves `AWS_REGION` → `CDK_DEFAULT_REGION` → `us-east-1`.
-- **Toolchain** (every sample installs it): Node 24+, plus `pipeline-manager`, `aws-cdk`, `esbuild` and `pnpm` on `PATH` — `--deploy` shells out to `cdk deploy`, whose synth uses esbuild and pnpm. The instantiate step needs nothing extra.
+- **Toolchain** (every sample installs it): Node 24+, plus `pipeline-manager` and `aws-cdk` on `PATH` — `--deploy` shells out to `cdk deploy`. The instantiate step needs nothing extra.
 
 ## Pipeline template samples
 

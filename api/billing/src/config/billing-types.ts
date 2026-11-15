@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import type { QuotaTier, QuotaTierLimits } from '@pipeline-builder/api-core';
+import type { PlanTier, PlanTierLimits } from '@pipeline-builder/api-core';
 
 /** Price configuration for a single billing plan (in cents). */
 export interface BillingPlanPrices {
@@ -14,7 +14,7 @@ export interface BillingPlanConfig {
   readonly id: string;
   readonly name: string;
   readonly description: string;
-  readonly tier: QuotaTier;
+  readonly tier: PlanTier;
   readonly prices: BillingPlanPrices;
   readonly features: readonly string[];
   readonly isActive: boolean;
@@ -31,10 +31,10 @@ export interface BundleConfig {
   readonly id: string;
   readonly name: string;
   readonly description: string;
-  /** Per-unit deltas on `QuotaTierLimits` fields, e.g. `{ seats: 5 }`. Keys are
+  /** Per-unit deltas on `PlanTierLimits` fields, e.g. `{ seats: 5 }`. Keys are
    *  constrained to real quota fields so a typo is a compile error (was
    *  `Record<string, number>`, where a misspelled key was silently unenforceable). */
-  readonly grants: Readonly<Partial<Record<keyof QuotaTierLimits, number>>>;
+  readonly grants: Readonly<Partial<Record<keyof PlanTierLimits, number>>>;
   /** Feature flags granted by a feature bundle (e.g. `advanced_reporting`). */
   readonly features?: readonly string[];
   /** Per-unit price (cents). Stripe multiplies by quantity. */
@@ -58,7 +58,7 @@ export interface BundleConfig {
    */
   readonly volumeTiers?: readonly { readonly minQuantity: number; readonly discountPercent: number }[];
   /** Base tiers this bundle is offered to. */
-  readonly availableForTiers: readonly QuotaTier[];
+  readonly availableForTiers: readonly PlanTier[];
   /**
    * Prerequisite bundle ids of which AT LEAST ONE must be held — an OR, where
    * `requires` is an AND.

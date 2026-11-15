@@ -973,13 +973,13 @@ Use `--force` on `init-platform.sh` to rebuild the base images and the non-manag
 The **managed toolchain release** is two plugins with one version:
 `pipeline-bootstrap` (the CodeBuild runtime for the synth step and for any step
 whose own image isn't resolved — Node, AWS CLI v2 and the pinned
-pipeline-manager, AWS CDK CLI, cdk-assets, esbuild and pnpm) and `cdk-synth`,
+pipeline-manager, AWS CDK CLI and cdk-assets) and `cdk-synth`,
 built `FROM` it by digest. Both live in `deploy/toolchain/`, the release's own
 source root beside the plugin catalog (`deploy/plugins/`).
 `init-platform.sh` builds and uploads them on every install; run the build
 directly to publish a newer release into a running deployment:
 
-> The bootstrap image bakes in **aws-cdk + esbuild + pnpm** so synth bundles the PluginLookup Lambda locally (no Docker-in-Docker). If you instead run `cdk synth` / `pipeline deploy` **on your own machine**, you need those same tools on `PATH` — otherwise bundling fails with `Could not resolve "axios"`. See [Pipeline Manager → local deploy prerequisites](pipeline-manager.md#prerequisites-for-local-pipeline-deploys).
+> Synth bundles nothing: every plugin is resolved by the CLI before `cdk synth` runs, so the bootstrap image needs only the AWS CDK CLI, cdk-assets and pipeline-manager (no Docker-in-Docker). If you instead run `cdk synth` / `pipeline deploy` **on your own machine**, only `cdk` must be on `PATH`. See [Pipeline Manager → local deploy prerequisites](pipeline-manager.md#prerequisites-for-local-pipeline-deploys).
 
 ```bash
 cd deploy/bin
@@ -1048,7 +1048,7 @@ pipeline-manager auth login --no-verify-ssl
 export PLATFORM_PASSWORD='…'
 
 # 1. The org's full-privilege automation credential (synth/deploy, plugin lookup)
-pipeline-manager infra store-token --days 30 --schedule --region us-east-1
+pipeline-manager infra store-token --expires-days 30 --schedule --region us-east-1
 
 # 2. The CI registry credential CodeBuild presents as Basic auth (REQUIRED:
 #    synth wires this secret into every build image's pull credentials)
@@ -1083,8 +1083,9 @@ pipeline-manager infra store-token --schedule --cron '0 3 * * *' --region us-eas
 
 The rotation stack is a scheduled Lambda that mints a **sibling** key on the same
 account, writes it to the secret, and only then retires its predecessor — in that
-order, so a failure at any step leaves a working credential behind. It installs
-nothing at runtime. See
+order, so a failure at any step leaves a working credential behind. Each key it
+mints lives `--expires-days` days (the stack's `KeyLifetimeDays` parameter, the
+Lambda's `KEY_TTL_DAYS`). It installs nothing at runtime. See
 [Authentication → Self-rotation](authentication.md#self-rotation--how-an-unattended-machine-replaces-its-own-key).
 (The `--with-events` provision bundle opts into `--schedule` automatically, since
 the event-ingestion Lambda depends on its key.)
@@ -1250,7 +1251,7 @@ All endpoints require authentication and org context. Time range defaults to las
 | `GET /api/reports/execution/stage-failures` | Stage failure heatmap | `from`, `to` |
 | `GET /api/reports/execution/stage-bottlenecks` | Slowest stages per pipeline | `from`, `to` |
 | `GET /api/reports/execution/action-failures` | Action/step failure rate | `from`, `to` |
-| `GET /api/reports/execution/errors` | Error categorization (top N) | `from`, `to`, `limit` |
+| `GET /api/reports/execution/errors` | Error categorization (top N), across every org (operator only) | `from`, `to`, `limit` |
 
 ### Plugin Reports
 
@@ -1261,7 +1262,7 @@ All endpoints require authentication and org context. Time range defaults to las
 | `GET /api/reports/plugins/versions` | Version counts per plugin name | — |
 | `GET /api/reports/plugins/build-success-rate` | Docker build success rate over time | `interval`, `from`, `to` |
 | `GET /api/reports/plugins/build-duration` | Build time per plugin | `from`, `to` |
-| `GET /api/reports/plugins/build-failures` | Build failure reasons (top N) | `from`, `to`, `limit` |
+| `GET /api/reports/plugins/build-failures` | Build failure reasons (top N), across every org (operator only) | `from`, `to`, `limit` |
 | `GET /api/reports/plugins/runtime-success-rate` | Runtime success rate per plugin version (pipeline runs) | `from`, `to`, `name`, `publisher`, `version` |
 | `GET /api/reports/plugins/runtime-duration` | Runtime p50/p95 duration per plugin version | `from`, `to`, `name`, `publisher`, `version` |
 

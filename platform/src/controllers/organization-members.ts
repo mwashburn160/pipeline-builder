@@ -65,8 +65,10 @@ export const getOrganizationMembers = withController('Get members', async (req, 
  * Internal read for the message service's per-user DM validation: it must reject
  * a targeted message addressed to a user who isn't an active member of the
  * recipient org. Returns `{ isMember: boolean }` and nothing else — no roster,
- * no PII. Authz mirrors `getOrganizationParent`: a service principal (the
- * message service's signed token) or an org-admin who can access the org.
+ * no PII. Authz: a service principal (the message service's signed token) or
+ * anyone who may read the org (`canAccessOrg` — a member, an ancestor admin, a
+ * platform admin), the same readers GET /organization/:id/members already
+ * shows the whole roster to.
  */
 export const checkOrganizationMembership = withController('Check membership', async (req, res) => {
   if (!ensureAuthenticated(req, res)) return;
@@ -74,7 +76,7 @@ export const checkOrganizationMembership = withController('Check membership', as
   const id = getParam(req.params, 'id')!;
   const userId = getParam(req.params, 'userId')!;
   if (!isServicePrincipal(req) && !(await canAccessOrg(req, id))) {
-    return forbid(req, res, 'internal-service or org-access', 'Forbidden: service or organization-admin only');
+    return forbid(req, res, 'internal-service or org-access', 'Forbidden: service or organization member only');
   }
 
   const isMember = await orgMembersService.isActiveMember(id, userId);

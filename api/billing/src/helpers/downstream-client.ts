@@ -21,7 +21,7 @@
  */
 
 import { createLogger, createSafeClient, errorMessage } from '@pipeline-builder/api-core';
-import type { QuotaTier } from '@pipeline-builder/api-core';
+import type { PlanTier } from '@pipeline-builder/api-core';
 import { config } from '../config.js';
 import { getBillingTimeout } from './billing-helpers.js';
 
@@ -92,7 +92,7 @@ export interface QuotaSummary {
 
 /** Shape of `data.quota` returned by GET /quotas/:orgId. */
 export interface QuotaSnapshot {
-  tier: QuotaTier;
+  tier: PlanTier;
   /** Keyed by quota type; each value is a full QuotaSummary object. */
   quotas: Record<string, QuotaSummary>;
   name?: string;

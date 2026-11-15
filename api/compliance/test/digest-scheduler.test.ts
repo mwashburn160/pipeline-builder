@@ -17,16 +17,20 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@p
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
   runWithTenantContext: (_c: unknown, fn: () => unknown) => fn(),
 }));;
-jest.unstable_mockModule('../src/helpers/compliance-notifier.js', () => ({ dispatchImmediate: jest.fn() }));
+const dispatchImmediate = jest.fn<(...a: unknown[]) => Promise<boolean>>();
+jest.unstable_mockModule('../src/helpers/compliance-notifier.js', () => ({ dispatchImmediate }));
+const getPendingDigests = jest.fn<(orgId: string, limit: number) => Promise<Array<{ id: string; notification: unknown }>>>();
+const markDigestsSent = jest.fn<(ids: string[]) => Promise<void>>();
+const touchLastDigestAt = jest.fn<(orgId: string, at: Date) => Promise<void>>();
 jest.unstable_mockModule('../src/services/notification-service.js', () => ({
   getNotificationPreference: jest.fn(),
   getOrgsWithPendingDigests: jest.fn(),
-  getPendingDigests: jest.fn(),
-  markDigestsSent: jest.fn(),
-  touchLastDigestAt: jest.fn(),
+  getPendingDigests,
+  markDigestsSent,
+  touchLastDigestAt,
 }));
 
-const { isDigestDue, buildDigest } = await import('../src/helpers/digest-scheduler.js');
+const { isDigestDue, buildDigest, flushOrg, DIGEST_PAGE_SIZE } = await import('../src/helpers/digest-scheduler.js');
 
 const NOW = new Date('2026-06-18T12:00:00Z');
 
@@ -73,5 +77,37 @@ describe('buildDigest', () => {
   it('singularises the subject for a single entry', () => {
     expect(buildDigest('o1', [entry('only', 'normal')] as any).subject).toContain('1 notification');
     expect(buildDigest('o1', [entry('only', 'normal')] as any).subject).not.toContain('notifications');
+  });
+});
+
+describe('flushOrg', () => {
+  /** A queue of `n` parked entries that `markDigestsSent` drains. */
+  function queue(n: number) {
+    let pending = Array.from({ length: n }, (_, i) => ({
+      id: `e${i}`,
+      notification: { recipientOrgId: 'o1', messageType: 'conversation', priority: 'normal', subject: `s${i}`, body: 'b', payload: {} },
+    }));
+    getPendingDigests.mockImplementation(async (_o, limit) => pending.slice(0, limit));
+    markDigestsSent.mockImplementation(async (ids) => { pending = pending.filter((e) => !ids.includes(e.id)); });
+  }
+
+  it('walks a large backlog in bounded pages, one digest each, then starts the next interval', async () => {
+    jest.clearAllMocks();
+    queue(DIGEST_PAGE_SIZE * 2 + 1);
+    dispatchImmediate.mockResolvedValue(true);
+    await flushOrg('o1', null, NOW);
+    expect(getPendingDigests.mock.calls.every(([, limit]) => limit === DIGEST_PAGE_SIZE)).toBe(true);
+    expect(dispatchImmediate).toHaveBeenCalledTimes(3);
+    expect(markDigestsSent.mock.calls.map(([ids]) => ids.length)).toEqual([DIGEST_PAGE_SIZE, DIGEST_PAGE_SIZE, 1]);
+    expect(touchLastDigestAt).toHaveBeenCalledWith('o1', NOW);
+  });
+
+  it('a failed delivery leaves the page pending and does not start the next interval', async () => {
+    jest.clearAllMocks();
+    queue(3);
+    dispatchImmediate.mockResolvedValue(false);
+    await flushOrg('o1', null, NOW);
+    expect(markDigestsSent).not.toHaveBeenCalled();
+    expect(touchLastDigestAt).not.toHaveBeenCalled();
   });
 });

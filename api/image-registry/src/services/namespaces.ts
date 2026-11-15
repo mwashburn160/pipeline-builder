@@ -67,7 +67,7 @@ const PLUGIN_NAME_PATTERN = '[a-z0-9][a-z0-9._-]*';
  * copy (`public/<publisherHandle>/<name>`).
  */
 const PLUGIN_REPO_RE = new RegExp(
-  `^(system|org-[a-z0-9]+|quarantine|public/[a-z0-9]+(?:(?:[._]|__|-+)[a-z0-9]+)*)/${PLUGIN_NAME_PATTERN}$`,
+  `^(system|org-[a-z0-9][a-z0-9-]*|quarantine|public/[a-z0-9]+(?:(?:[._]|__|-+)[a-z0-9]+)*)/${PLUGIN_NAME_PATTERN}$`,
 );
 /** `quarantine/<submissionId>` — one lowercase path component (a submission uuid). */
 const QUARANTINE_REPO_RE = /^quarantine\/[a-z0-9][a-z0-9-]{0,127}$/;

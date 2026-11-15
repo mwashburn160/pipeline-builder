@@ -37,14 +37,7 @@ export function pluginRequiresImage(plugin: { buildType: string; pluginType: str
   return plugin.buildType !== 'metadata_only' && plugin.pluginType !== 'ManualApprovalStep';
 }
 
-/**
- * Shape a Plugin row for HTTP responses: normalize array-typed columns and
- * attach the computed `uri`. Single seam so all read routes return the
- * same shape.
- *
- * Future: a generic `shapeEntity` helper in api-core could replace this once
- * other services need the same pattern.
- */
+/** The columns {@link shapePlugin} reads. */
 interface PluginRow {
   orgId: string;
   name: string;
@@ -54,6 +47,12 @@ interface PluginRow {
   commands?: unknown;
 }
 const PLUGIN_ARRAY_FIELDS = ['keywords', 'installCommands', 'commands'] as const;
+
+/**
+ * Shape a Plugin row for HTTP responses: normalize array-typed columns and
+ * attach the computed `uri`. Single seam so all read routes return the
+ * same shape.
+ */
 export function shapePlugin<P extends PluginRow>(plugin: P): P & { uri?: string } {
   // normalizeArrayFields requires an index signature; the cast is the single
   // type-system seam between Drizzle's strict row types and the helper's
@@ -165,8 +164,9 @@ export interface PluginBuildJobData {
    * Distinct from `totalAttempts` on purpose: a slot delay uses `moveToDelayed`
    * + `DelayedError`, which deliberately does NOT spend a BullMQ attempt, so
    * without a counter of its own a starved job bounces every
-   * `PLUGIN_ORG_SLOT_DELAY_MS` forever — invisible and immortal. Bounded by
-   * `MAX_SLOT_DELAYS`, past which the build fails terminally with a reason.
+   * `PLUGIN_ORG_SLOT_DELAY_MS` forever — invisible and immortal. The wait is
+   * bounded by elapsed time (`slotWaitStartedAt`, `PLUGIN_ORG_SLOT_MAX_WAIT_MS`);
+   * this count drives the retry backoff and the one-time "waiting" notice.
    */
   slotDelays?: number;
   /** When this job FIRST failed to get a slot (epoch ms). The wait budget is
@@ -197,8 +197,8 @@ export interface PluginBuildJobData {
    */
   reservedResetAt?: string;
   /**
-   * Set when the upload asked for a publish request (`publishRequest=true`,
-   * ): once the version is deployed the worker submits a
+   * Set when the upload asked for a publish request (`publishRequest=true`):
+   * once the version is deployed the worker submits a
    * new-listing / new-version request AS this caller (snapshotted at upload).
    */
   publish?: { caller: PublishCaller };
@@ -269,7 +269,7 @@ interface CreateBuildJobParams {
 }
 
 /** A version that declares no contract and ships no documentation. */
-export const EMPTY_DOC_FIELDS: PluginDocFields = {
+const EMPTY_DOC_FIELDS: PluginDocFields = {
   requiredMetadata: [],
   requiredVars: [],
   metadataTypes: {},
