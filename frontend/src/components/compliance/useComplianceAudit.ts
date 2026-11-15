@@ -4,6 +4,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import api from '@/lib/api';
 import { formatError } from '@/lib/constants';
+import { localDayEndIso, localDayStartIso } from '@/lib/local-day';
 import type { PaginationState } from '@/components/ui/Pagination';
 import { usePagination } from '@/hooks/usePagination';
 import type { ComplianceAuditEntry } from '@/types/compliance';
@@ -81,8 +82,10 @@ export function useComplianceAudit(): UseComplianceAuditResult {
         if (target) params.target = target;
         if (result) params.result = result;
         if (action) params.action = action;
-        if (dateFrom) params.dateFrom = dateFrom;
-        if (dateTo) params.dateTo = dateTo;
+        // The inputs hold local `YYYY-MM-DD` days; the API takes ISO instants
+        // (a bare day is a 400), so send the bounds of those days.
+        if (dateFrom) params.dateFrom = localDayStartIso(dateFrom);
+        if (dateTo) params.dateTo = localDayEndIso(dateTo);
         const res = await api.getComplianceAuditLog(params);
         if (genRef.current !== gen) return; // superseded by a newer fetch
         if (res.success && res.data) {

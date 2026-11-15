@@ -15,7 +15,9 @@
  *
  * WHY WARN. An exemption lapsing is a pipeline that passed yesterday and blocks
  * today. One in-app notice per org, `EXPIRY_WARN_DAYS` ahead, listing what is
- * about to lapse, turns that into something somebody can renew in time. Each
+ * about to lapse, gives somebody time to fix the entity. (It cannot be renewed
+ * in place: the (org, rule, entity) unique index holds the approved row, so a
+ * new request for it is refused until it lapses, and reopens it then.) Each
  * exemption is warned once (`expiry_warned_at`), so a skipped tick delays a
  * warning rather than losing it, and a repeated one never re-sends.
  *
@@ -130,7 +132,8 @@ export async function warnExpiringExemptions(now: Date = new Date()): Promise<nu
       priority: 'high',
       subject: `${rows.length} compliance exemption${rows.length === 1 ? '' : 's'} expire${rows.length === 1 ? 's' : ''} soon`,
       body: `These exemptions lapse within ${EXPIRY_WARN_DAYS} days. Once one does, the rule it waives applies again and `
-        + 'can block the entity. Request a new exemption, or fix the entity, before then.\n\n'
+        + 'can block the entity. Fix the entity before then, or request a new exemption once it has lapsed '
+        + '(one still in force cannot be re-requested).\n\n'
         + rows.map(describeRow).join('\n'),
       payload: { event: 'compliance.exemption.expiring', orgId, ids: rows.map((r) => r.id) },
     }, {});

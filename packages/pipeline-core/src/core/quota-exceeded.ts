@@ -11,8 +11,8 @@
  * and the callers never retry it. A 429 WITHOUT this code is an ordinary rate
  * limit (nginx, a per-org burst limiter) and keeps rate-limit wording.
  *
- * Deliberately a dependency-free leaf (the label table is a side-effect-free
- * deep import): the Lambda bundle must not pull the api-core barrel.
+ * A dependency-free leaf: the label table is a side-effect-free deep import,
+ * not the api-core barrel.
  */
 
 import { QUOTA_TYPE_LABELS, QUOTA_UPGRADE_PATH, type QuotaType } from '@pipeline-builder/api-core/lib/types/common.js';

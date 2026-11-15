@@ -961,7 +961,7 @@ Discount codes + usage credits ([docs/billing-discounts.md](billing-discounts.md
 | `BILLING_DISCOUNT_REDEEM_RATE_LIMIT_PER_MIN` | `5` | Per-identity limit on discount redemption attempts |
 | `BILLING_PROMOTIONS_ENABLED` | `true` | Master switch for [promotions](billing-discounts.md#promotions) (rule-driven auto-grant campaigns). Same opt-out default as `BILLING_DISCOUNTS_ENABLED` (on unless set to `false`). Additionally requires `BILLING_DISCOUNTS_ENABLED` (shared usage-credit machinery), so discounts off ⇒ promotions off; the routes 404 and the auto-grant engine no-ops when off |
 | `BILLING_PROMOTION_BACKFILL_INTERVAL_MS` | `3600000` | Backfill-cron cadence (1h). Re-scans eligible-but-ungranted orgs so a transient failure or a late-activated campaign still lands. Leader-locked; idempotent |
-| `BILLING_PROMOTION_CLAWBACK_WINDOW_MS` | `604800000` | Clawback window (7d). A promotion grant is reversed (ledger row pulled, balance reduced, budget released) if the subscription cancels within this window of the grant — defuses signup-grab-churn |
+| `BILLING_PROMOTION_CLAWBACK_WINDOW_MS` | `604800000` | Clawback window (7d). A promotion grant is reversed (ledger row pulled, balance reduced, budget released, the amount debited back from the provider balance) if the subscription cancels within this window of the grant — defuses signup-grab-churn |
 
 `BILLING_DISCOUNT_KEYS` is a secret — provision it via a sealed secret / SSM, never commit a real value. Losing it makes previously issued Mode-B tokens undecodable (already-applied discounts on subscriptions are unaffected).
 
@@ -1040,7 +1040,7 @@ Billing computes the effective window (`tierBase + Σ pack grant`, `-1` = unlimi
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `CODEBUILD_COMPUTE_TYPE` | `SMALL` | `SMALL`, `MEDIUM`, `LARGE`, `X2_LARGE` |
-| `PLATFORM_CA_BUNDLE` | — | PEM text of a private CA the platform's certificate chains to. Trusted (on top of Node's roots) by `pipeline-manager`'s API client, propagated into every CodeBuild step — so the CodeBuild synth verifies TLS instead of disabling it. |
+| `PLATFORM_CA_BUNDLE` | — | PEM text of a private CA the platform's certificate chains to. Trusted (on top of Node's roots) by every `pipeline-manager` call to the platform — the API client, `auth login`, `auth pat`, `logout`, the inline password login and session renewal — and propagated into every CodeBuild step, so the CodeBuild synth verifies TLS instead of disabling it. |
 | `PLATFORM_TLS_VERIFY` | `true` | Whether pipelines verify the platform's TLS certificate. Read at synth time. `false` (a dev platform on a self-signed certificate with no CA to distribute) adds `--no-verify-ssl` to the self-mutating synth and sets `NODE_TLS_REJECT_UNAUTHORIZED=0` on every CodeBuild step; `NODE_TLS_REJECT_UNAUTHORIZED=0` in the synth's environment is treated the same. The one name for this switch: `pipeline-manager` itself and the key-rotation Lambda read it too. Prefer `PLATFORM_CA_BUNDLE`, which keeps verification on. Credentialed unverified calls are still refused when `NODE_ENV=production` (the key-rotation Lambda always runs in production, so it always verifies). |
 | `LOG_GROUP_NAME` | `/pipeline-builder/logs` | CloudWatch log group |
 | `SECRETS_PATH_PREFIX` | `pipeline-builder` | AWS Secrets Manager path prefix |
@@ -1416,7 +1416,8 @@ Lower-level knobs read through api-core's shared env readers (`envInt` / `envBoo
 | `AUTH_VERIFICATION_TOKEN_TTL_MS` | `86400000` | Lifetime of an email-verification link (24h) |
 | `AUTH_PASSWORD_RESET_TOKEN_TTL_MS` | `3600000` | Lifetime of a forgot-password link (1h). Single-use and stored only as a SHA-256; shorter than the verification link because it sets a credential. A reset ends every session and revokes every access key |
 | `SESSION_REVOCATION_TTL_SECONDS` | `3600` | How long a published `tokenVersion` bump is retained in Redis. Must exceed the access-token lifetime or a revocation can lapse before the token it revokes |
-| `AUDIT_RETENTION_DAYS` | `90` | Retention for platform audit events. Drives the Mongo TTL index |
+| `AUDIT_RETENTION_DAYS` | `90` | Retention for platform audit events, enforced by the retention prune (which records each chain's signed watermark before deleting) |
+| `AUDIT_RETENTION_PRUNE_INTERVAL_MS` | `3600000` | How often the audit retention prune runs (min 60000) |
 | `LOG_RETENTION_HOURS` | `720` (30 days) | How long Loki keeps logs, AND how far back a log query may reach — one variable for both, because they were two. `loki-config.yml` expands it into `retention_period` (`-config.expand-env=true`) and platform's log controller clamps queries to it. A clamp narrower than retention hides data that exists; a wider one returns an empty tail that reads as "nothing happened" rather than "nothing is kept", which is why `toolchain-drift-contract` asserts the two defaults match. **Raising it costs object-store space**: chunks and index live in the RustFS `loki` bucket on a 20Gi volume shared with the registry, Thanos blocks and plugin build contexts, so watch `PersistentVolumeFillingUp`. Hours, not days: `h` is the suffix proven to parse in that config, and a config Loki cannot read is a Loki that will not start |
 | `MONGO_MAX_POOL` | `20` | Mongo connection-pool ceiling |
 | `MONGO_MIN_POOL` | `2` | Mongo connection-pool floor |

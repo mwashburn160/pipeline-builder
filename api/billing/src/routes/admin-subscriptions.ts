@@ -3,6 +3,8 @@
 
 import {
   audited,
+  gateWhen,
+  isServicePrincipal,
   requireAuth,
   requirePermission,
   requireSystemOrgPermission,
@@ -81,10 +83,12 @@ function toBillingEventResponse(event: {
  *
  * Registers:
  * - GET /admin/subscriptions      -- list all subscriptions (paginated)
+ * - PUT /admin/subscriptions/:id/support-floor -- negotiated support floor (set / clear)
  * - PUT /admin/subscriptions/:id  -- admin override on a subscription
  * - GET /subscriptions/by-org/:orgId/billable -- org-move guard (sysadmin / service token)
  * - DELETE /subscriptions/by-org/:orgId -- org-cascade hook (sysadmin / service token)
  * - GET /admin/events             -- list billing events (paginated)
+ * - GET /events                   -- the caller's own org's billing events (paginated)
  * @returns Express Router
  */
 export function createAdminSubscriptionRoutes(): Router {
@@ -114,8 +118,6 @@ export function createAdminSubscriptionRoutes(): Router {
       return sendSuccess(res, 200, { subscriptions: result, total, limit, offset });
     }, { requireOrgId: false }),
   );
-
-  // PUT /billing/admin/subscriptions/:id — admin override subscription
 
   /**
    * PUT /billing/admin/subscriptions/:id/support-floor — a NEGOTIATED support
@@ -208,6 +210,7 @@ export function createAdminSubscriptionRoutes(): Router {
     }),
   );
 
+  // PUT /billing/admin/subscriptions/:id — admin override subscription
   router.put(
     '/admin/subscriptions/:id',
     requireAuth(AUTH_OPTS) as RequestHandler,
@@ -458,12 +461,17 @@ export function createAdminSubscriptionRoutes(): Router {
   // + event for the org. Idempotent: missing org → 200 with `deleted: 0`.
   //
   // The platform's org-cascade-service calls this with a service-minted
-  // token; user-initiated org deletes never reach this path (they go
-  // through admin.org.delete on platform, which fires us internally).
+  // token; user-initiated org deletes go through admin.org.delete on
+  // platform, which fires us internally. A system-org USER can also reach it
+  // directly (the billing admin page's "Purge"), and for that caller it is
+  // the most destructive action billing has — so a user must step up, here
+  // on the server, not only in the page's modal. The service cascade has no
+  // person to re-verify and is exempt by the predicate.
   router.delete(
     '/subscriptions/by-org/:orgId',
     requireAuth(AUTH_OPTS) as RequestHandler,
     ...requireSystemOrgPermission('subscriptions:manage'),
+    gateWhen('caller is a user, not a service principal', (req) => !isServicePrincipal(req), requireStepUp as RequestHandler),
     audited('billing.subscription.delete'),
     withRoute(async ({ req, res, userId }) => {
       const targetOrgId = getParam(req.params, 'orgId');

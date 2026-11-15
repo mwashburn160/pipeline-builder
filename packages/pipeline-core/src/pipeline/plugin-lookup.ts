@@ -17,7 +17,8 @@ const log = createLogger('plugin-lookup');
 export interface PluginLookupProps {
   /**
    * Plugins pre-resolved by `pipeline-manager pipeline synth` from the platform API.
-   * Keyed by `alias || name` (matches the lookup's normalize() output). This is
+   * Keyed by `pluginArtifactAlias` (the explicit alias, else
+   * `[<publisher>-]<name>-alias` — the key normalize() computes). This is
    * what makes the name, version, commands, env, etc. available at synth time
    * so the resulting CFN template ships with the real values baked in.
    */
@@ -53,7 +54,8 @@ export class PluginLookup {
     // Pre-resolved by `pipeline-manager pipeline synth` from the platform API:
     // the plugin's name, version, commands, env, etc. are known at synth time,
     // so the resulting CFN template ships with the real CodeBuild image baked in.
-    const cacheKey = props.alias || props.name;
+    // normalize() always sets the alias (pluginArtifactAlias).
+    const cacheKey = props.alias!;
     const preResolved = this._resolvedPlugins?.[cacheKey] as (ResolvedPlugin & { publisher?: string | null }) | undefined;
     // The map is keyed by ALIAS, so check it actually holds THIS plugin. Two
     // steps sharing an alias across different plugins would otherwise get the
@@ -88,7 +90,8 @@ export class PluginLookup {
     // that can't run its plugin must fail at synth — never ship as a placeholder.
     throw new Error(
       `Plugin "${props.publisher ? `${props.publisher}/` : ''}${props.name}"${stepKey ? ` (step ${stepKey})` : ''} was not resolved before synth. `
-      + 'Synthesize through `pipeline-manager pipeline synth`, which resolves every plugin from the platform and fails with the reason when one does not resolve.',
+      + 'Synthesize through `pipeline-manager pipeline synth/deploy --id`, which resolves every plugin from the platform and fails with the reason when one does not resolve; '
+      + 'a CDK app constructing PipelineBuilder directly, or a `--local-spec` deploy, must supply the record in `resolvedPlugins`.',
     );
   }
 
@@ -187,9 +190,10 @@ export class PluginLookup {
   }
 
   /**
-   * Synth plugin with pipeline-manager commands. Cold-start bootstrap for
-   * the synth step when pre-resolution by `pipeline-manager pipeline synth/deploy`
-   * didn't populate `resolvedPlugins` for the synth plugin. Runs on the
+   * Synth plugin with pipeline-manager commands: the synth step of a
+   * PipelineBuilder constructed WITHOUT a pre-resolved synth plugin (a CDK app
+   * building it directly — `pipeline-manager pipeline synth/deploy` always
+   * pre-resolves it, or fails the synth). Runs on the
    * resolved toolchain release's `pipeline-bootstrap` image (the pipeline's
    * `resolvedBootstrap`, pinned by digest) and self-bootstraps the real synth
    * via `pipeline-manager pipeline synth --id ${PIPELINE_ID}`.

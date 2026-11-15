@@ -2,7 +2,7 @@
 
 import { Badge } from '@/components/ui/Badge';
 import { useState, useEffect, useRef } from 'react';
-import { ShieldOff, Check, X, Plus, Clock, Trash2, Upload } from 'lucide-react';
+import { ShieldOff, Check, X, Plus, Clock, Trash2, Upload, CalendarClock } from 'lucide-react';
 import api from '@/lib/api';
 import { Pagination } from '@/components/ui/Pagination';
 import { useToast } from '@/components/ui/Toast';
@@ -24,6 +24,7 @@ import { RULE_TARGET_IDS, RULE_TARGET_LABELS, EXEMPTION_STATUS_IDS, EXEMPTION_ST
 import { parseCsv } from '@/lib/csv';
 import { formatDate } from '@/lib/format';
 import { formatError } from '@/lib/constants';
+import { localDay, localDayEndIso } from '@/lib/local-day';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { StatusPill } from '@/components/ui/StatusPill';
 
@@ -46,6 +47,12 @@ export default function ExemptionManager({ readOnly = false }: ExemptionManagerP
   // incomplete form did nothing at all (a bare `return`) with no explanation.
   const [submitting, setSubmitting] = useState(false);
   const [rejectionReason, setRejectionReason] = useState('');
+  // Extend-expiry form: the exemption being extended, the chosen local day, and
+  // the server's refusal (shown in place so the date can be corrected).
+  const [extendingId, setExtendingId] = useState<string | null>(null);
+  const [extendDay, setExtendDay] = useState('');
+  const [extendError, setExtendError] = useState<string | null>(null);
+  const [extending, setExtending] = useState(false);
   const [bulkResult, setBulkResult] = useState<{ created: number; skipped: number; total: number } | null>(null);
   const [bulkError, setBulkError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -211,6 +218,35 @@ export default function ExemptionManager({ readOnly = false }: ExemptionManagerP
     }
   };
 
+  const openExtend = (id: string) => {
+    setExtendingId(id);
+    setExtendDay('');
+    setExtendError(null);
+  };
+  const closeExtend = () => {
+    setExtendingId(null);
+    setExtendDay('');
+    setExtendError(null);
+  };
+
+  const handleExtend = async (id: string) => {
+    if (!extendDay || extending) return;
+    setExtending(true);
+    setExtendError(null);
+    try {
+      // The END of the chosen day in the viewer's time zone: "valid until the
+      // 30th" covers the 30th.
+      await api.extendExemptionExpiry(id, localDayEndIso(extendDay));
+      closeExtend();
+      toastRef.current.success('Exemption expiry extended');
+      fetchExemptions();
+    } catch (err) {
+      setExtendError(formatError(err, 'Failed to extend the exemption'));
+    } finally {
+      setExtending(false);
+    }
+  };
+
   const openReject = (id: string) => {
     setRejectingId(id);
     setRejectionReason('');
@@ -311,6 +347,9 @@ export default function ExemptionManager({ readOnly = false }: ExemptionManagerP
         <div className="space-y-2">
           {exemptions.map((ex: ComplianceExemption) => {
             const statusColor = EXEMPTION_STATUS_META[ex.status]?.color ?? 'gray';
+            // Only an approved exemption that has an expiry and has not lapsed
+            // can be extended; anything else is a new request.
+            const extendable = ex.status === 'approved' && !!ex.expiresAt && new Date(ex.expiresAt).getTime() > Date.now();
             return (
               <div key={ex.id} className="p-3 rounded-lg border border-default bg-surface">
                 <div className="flex items-center justify-between">
@@ -339,6 +378,11 @@ export default function ExemptionManager({ readOnly = false }: ExemptionManagerP
                           </IconButton>
                         </>
                       )}
+                      {extendable && (
+                        <IconButton onClick={() => openExtend(ex.id)} title="Extend expiry" aria-label="Extend expiry">
+                          <CalendarClock className="h-4 w-4" />
+                        </IconButton>
+                      )}
                       <IconButton tone="danger" onClick={() => del.open({ id: ex.id, label: ex.entityName || ex.entityId })} title="Delete" aria-label="Delete">
                         <Trash2 className="h-4 w-4" />
                       </IconButton>
@@ -348,6 +392,27 @@ export default function ExemptionManager({ readOnly = false }: ExemptionManagerP
                 {ex.status === 'rejected' && ex.rejectionReason && (
                   <div className="mt-2 text-xs text-danger bg-danger-bg rounded px-2 py-1">
                     Rejection reason: {ex.rejectionReason}
+                  </div>
+                )}
+                {!readOnly && extendable && extendingId === ex.id && (
+                  <div className="mt-2 space-y-2">
+                    <div className="flex gap-2 items-center">
+                      <Input
+                        type="date"
+                        aria-label="New expiry date"
+                        value={extendDay}
+                        min={localDay(new Date(ex.expiresAt!))}
+                        onChange={e => setExtendDay(e.target.value)}
+                        className="flex-1"
+                      />
+                      <Button variant="primary" size="xs" onClick={() => void handleExtend(ex.id)} loading={extending} disabled={!extendDay}>
+                        Save expiry
+                      </Button>
+                      <Button variant="secondary" size="xs" onClick={closeExtend}>
+                        Cancel
+                      </Button>
+                    </div>
+                    <ErrorAlert message={extendError} />
                   </div>
                 )}
                 {rejectingId === ex.id && (

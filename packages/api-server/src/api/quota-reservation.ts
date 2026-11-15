@@ -20,16 +20,24 @@ export interface QuotaSlot {
   readonly serviceAuth: string;
   readonly reservation: QuotaReserveResult;
   /**
-   * The reserved resource has been consumed (e.g. the AI provider started
-   * responding). From here on a failure KEEPS the slot — the cost was incurred.
+   * The reserved resource has been consumed. From here on a failure KEEPS the
+   * slot — the cost was incurred.
+   *
+   * For an AI call that moment is when the request is SENT to the provider, not
+   * when it answers: a provider bills the tokens it processed for a call that is
+   * then aborted, times out or errors mid-generation. So an AI caller marks the
+   * slot consumed immediately before it sends, and only a failure BEFORE the send
+   * (model resolution, prompt building, a precondition) is refunded.
    */
   markConsumed(): void;
+  /** True once {@link markConsumed} was called — the slot will be kept. */
+  isConsumed(): boolean;
   /**
    * Give the slot back now. Idempotent: refunds at most once — and a NO-OP once
-   * {@link markConsumed} was called. A paid provider round-trip is never refunded,
-   * whatever path (a client abort, a later failure, an empty answer) asks for it
-   * afterwards; callers no longer need to guard `refund()` with their own
-   * "was the provider contacted" flag.
+   * {@link markConsumed} was called. A sent provider call is never refunded,
+   * whatever path (a client abort, a timeout, a later failure, an empty answer)
+   * asks for it afterwards; callers need no "was the provider contacted" guard
+   * of their own around `refund()`.
    */
   refund(): void;
 }
@@ -69,7 +77,8 @@ export type QuotaSlotReservation =
  * anything. The primitive under {@link withQuotaReservation}, for a caller whose
  * gated work does not fit one callback — e.g. a tool inside an agent turn that
  * settles its own slot. The caller owns settlement: `markConsumed()` once the
- * resource is spent, `refund()` on every path that fails before that.
+ * resource is spent (an AI call: when the request is sent), `refund()` on every
+ * path that fails before that.
  *
  * Denied → `{ status: 'denied' }`, answered on `res` when given.
  */
@@ -93,6 +102,7 @@ export async function reserveQuotaSlot(opts: QuotaReservationOptions): Promise<Q
     serviceAuth,
     reservation,
     markConsumed: () => { consumed = true; },
+    isConsumed: () => consumed,
     refund: () => {
       if (refunded || consumed) return;
       refunded = true;
@@ -116,9 +126,9 @@ export async function runWithSlot<T, S extends QuotaSlot>(
   try {
     return { status: 'done', value: await body(slot) };
   } catch (error) {
-    // `refund()` is itself a no-op once the slot was marked consumed.
-    const errorSaysConsumed = (error as { providerContacted?: unknown } | null)?.providerContacted === true;
-    if (!errorSaysConsumed) slot.refund();
+    // `refund()` is itself a no-op once the slot was marked consumed — the ONE
+    // signal that the resource was spent. Nothing on the error is consulted.
+    slot.refund();
     if (!onError) throw error;
     await onError(error);
     return { status: 'failed', error };
@@ -132,10 +142,10 @@ export async function runWithSlot<T, S extends QuotaSlot>(
  * - Denied → `{ status: 'denied' }` (answered on `res` when given); `body` never runs.
  * - `body` resolves → the slot is kept (unless `body` called `slot.refund()`
  *   BEFORE marking it consumed — a refund after `markConsumed()` is ignored).
- * - `body` throws → refunded unless consumed — marked via `slot.markConsumed()`
- *   or signalled by the error itself carrying `providerContacted === true`
- *   (an AI round-trip that completed but produced nothing usable). The error is
- *   then passed to `onError`, or rethrown when there is none.
+ * - `body` throws → refunded unless `slot.markConsumed()` was called first (an AI
+ *   body calls it as it SENDS the request, so an abort, a timeout or a provider
+ *   error after the send keeps the slot). The error is then passed to `onError`,
+ *   or rethrown when there is none.
  *
  * The reserve and refund authenticate with a minted service token, never the
  * end-user bearer: the quota increment endpoint rejects user principals.

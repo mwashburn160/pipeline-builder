@@ -10,6 +10,7 @@ import { type Config, getApiConfig, getConfigWithOptions } from './config-loader
 import { clearSession, isSessionUsable, loadSession, saveSession, withRefreshLock, type StoredSession } from './credential-store.js';
 import { printError, printInfo, printKeyValue, printSection, printSuccess, printWarning } from './output-utils.js';
 import { requestCorrelationHeaders, setInvocationId } from './request-context.js';
+import { platformHttpsAgent } from './tls.js';
 import { formatDuration, generateExecutionId } from '../config/cli.constants.js';
 
 const { bold, cyan, green, magenta } = pico;
@@ -111,7 +112,11 @@ async function renewSession(baseUrl: string, session: StoredSession): Promise<st
     const response = await axios.post<{ data?: { accessToken?: string; refreshToken?: string; expiresIn?: number } }>(
       `${baseUrl}/api/auth/refresh`,
       { refreshToken: session.refreshToken },
-      { headers: { 'Content-Type': 'application/json', 'X-Pb-Client': 'cli', ...requestCorrelationHeaders() }, timeout: 30_000 },
+      {
+        headers: { 'Content-Type': 'application/json', 'X-Pb-Client': 'cli', ...requestCorrelationHeaders() },
+        timeout: 30_000,
+        httpsAgent: platformHttpsAgent(getApiConfig().api.rejectUnauthorized),
+      },
     );
     renewed = response.data?.data;
   } catch (error) {

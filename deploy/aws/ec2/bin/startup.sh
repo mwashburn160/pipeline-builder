@@ -328,7 +328,7 @@ mkdir -p "$CERT_DIR"
 [ "$(id -u)" = "0" ] && chown root:minikube "$CERT_DIR" 2>/dev/null || true
 
 # JWT signing keypair for image-registry's token-auth endpoint (shared generator), then the
-# registry secrets (token keypair + build-svc Basic-auth creds). No htpasswd/registry-auth-secret
+# registry token-keypair secret. No Basic-auth creds and no htpasswd/registry-auth-secret
 # — the registry uses token auth (REGISTRY_AUTH=token); nothing mounts registry.passwd.
 bash "$BIN_DIR/jwt-keys.sh" "$CERT_DIR"
 # Guarantee the minikube-user reader (pb_create_registry_secrets → mk kubectl)

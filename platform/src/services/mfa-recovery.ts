@@ -361,6 +361,23 @@ export async function approveMfaReset(input: {
   ).lean();
   if (!claimed) throw new Error(await refusalFor(requestId, now));
 
+  // Re-check the target at APPROVAL, not just at request: a request can sit for
+  // up to a day, and the reset acts on the whole ACCOUNT. A member who left (or
+  // was removed from) the org meanwhile is no longer this org's to reset, and
+  // one made a platform admin meanwhile never was — the same two refusals
+  // `requestMfaReset` applies.
+  const [stillMember, target] = await Promise.all([
+    UserOrganization.exists({ userId: claimed.targetUserId, organizationId: claimed.organizationId, isActive: true }),
+    User.findById(claimed.targetUserId).select('+isSuperAdmin').lean(),
+  ]);
+  const refusal = !stillMember || !target
+    ? MFA_RESET_NOT_MEMBER
+    : (target as { isSuperAdmin?: boolean }).isSuperAdmin === true ? MFA_RESET_PLATFORM_ADMIN : undefined;
+  if (refusal) {
+    await MfaResetRequest.updateOne({ _id: requestId }, { $set: { status: 'expired' } });
+    throw new Error(refusal);
+  }
+
   let result: FactorResetResult | null;
   try {
     result = await resetFactors(String(claimed.targetUserId), input.graceHours);

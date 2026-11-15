@@ -187,7 +187,9 @@ export class PipelineService extends CrudService<
     // which carries source tokens and env — was served from cache to everyone
     // else in the org. Super-admins share one bucket: the private rung is lifted
     // for all of them, so their slice is identical.
-    const cacheKey = `${orgId}${parentOrgId ? `:p:${parentOrgId}` : ''}:v:${viewerCacheSegment()}:id:${id}`;
+    // Lower-cased like the lookup itself, so a mixed-case read caches under the
+    // key the by-id invalidation sweeps.
+    const cacheKey = `${orgId}${parentOrgId ? `:p:${parentOrgId}` : ''}:v:${viewerCacheSegment()}:id:${id.toLowerCase()}`;
     return pipelineCache.getOrSet(cacheKey, () => super.findById(id, orgId, parentOrgId));
   }
 
@@ -233,27 +235,26 @@ export class PipelineService extends CrudService<
   private async invalidateAndEmit(eventType: 'created' | 'updated' | 'deleted', id: string, entity: Pipeline, userId: string): Promise<void> {
     await pipelineCache.invalidatePattern(`${entity.orgId}:*`);
     await this.invalidateSharedReadCaches(id);
-    // Carry the owning org's parent (when the mutation ran under a team's tenant
-    // context) so async compliance eval sees the same parent `propagateToChildren`
-    // rules the live path does. Only trust the context parent when its org matches
-    // the entity's — a cross-org mutation must not inherit the caller's parent.
-    const tenant = getTenantContext();
-    const parentOrgId = tenant?.orgId === entity.orgId ? tenant?.parentOrgId : undefined;
     // Project to compliance-safe attributes: the pipeline row's `props` embeds
     // secret VALUES (nested env/buildArgs maps, source tokens) that must never
     // land in Redis / travel to the compliance service. See
     // toComplianceAttributes — keys/structure preserved for rule evaluation,
     // secret values redacted.
     const attributes = toComplianceAttributes(entity) as Record<string, unknown>;
-    entityEvents.emit({ eventType, target: 'pipeline', entityId: id, orgId: entity.orgId, parentOrgId, userId, timestamp: new Date(), attributes });
+    entityEvents.emit({ eventType, target: 'pipeline', entityId: id, orgId: entity.orgId, userId, timestamp: new Date(), attributes });
   }
 
   protected async onAfterCreate(entity: Pipeline, userId: string): Promise<void> {
     await this.invalidateAndEmit('created', entity.id, entity, userId);
   }
 
-  protected async onAfterUpdate(id: string, entity: Pipeline, userId: string): Promise<void> {
-    await this.invalidateAndEmit('updated', id, entity, userId);
+  // The hooks key everything on `entity.id`, never the `id` argument: that is
+  // the caller's string, and `findById`/`update` match a mixed-case uuid, while
+  // the exposure, resolution and cache keys are plain text compared exactly.
+  // Closing a DELETE's exposures by `ABC…` closed nothing.
+
+  protected async onAfterUpdate(_id: string, entity: Pipeline, userId: string): Promise<void> {
+    await this.invalidateAndEmit('updated', entity.id, entity, userId);
   }
 
   /**
@@ -262,9 +263,9 @@ export class PipelineService extends CrudService<
    * — the stack keeps running until it is torn down and deregistered (which
    * closes those).
    */
-  protected async onAfterDelete(id: string, entity: Pipeline, userId: string): Promise<void> {
-    await this.invalidateAndEmit('deleted', id, entity, userId);
-    await closeRemovedExposures(id, 'declared');
+  protected async onAfterDelete(_id: string, entity: Pipeline, userId: string): Promise<void> {
+    await this.invalidateAndEmit('deleted', entity.id, entity, userId);
+    await closeRemovedExposures(entity.id, 'declared');
   }
 
   /**
@@ -302,10 +303,10 @@ export class PipelineService extends CrudService<
    *  re-checks it rather than treating it as gone. Its resolution is recorded
    *  again, which reopens the declared exposures the delete closed (background,
    *  never throws). */
-  protected async onAfterRestore(id: string, entity: Pipeline, userId: string): Promise<void> {
-    await this.invalidateAndEmit('updated', id, entity, userId);
+  protected async onAfterRestore(_id: string, entity: Pipeline, userId: string): Promise<void> {
+    await this.invalidateAndEmit('updated', entity.id, entity, userId);
     const tenant = getTenantContext();
-    void recordPipelineResolution(id, entity.orgId, tenant?.orgId === entity.orgId ? tenant?.parentOrgId : undefined, entity.props);
+    void recordPipelineResolution(entity.id, entity.orgId, tenant?.orgId === entity.orgId ? tenant?.parentOrgId : undefined, entity.props);
   }
 
   /**
@@ -509,11 +510,11 @@ export class PipelineService extends CrudService<
 
   /**
    * Promote a pipeline to its slot's default. The base transaction rewrites
-   * `isDefault` on the promoted row AND on every sibling it demotes, but runs no
-   * lifecycle hook, so a promotion that changed nothing else (PUT `{ isDefault:
-   * true }` alone) left every cached copy reporting the old default for the
-   * rest of the TTL. The org sweep covers the demoted siblings' org-keyed
-   * entries; the promoted row's shared copies are swept by id.
+   * `isDefault` but runs no lifecycle hook, so a promotion that changed nothing
+   * else (PUT `{ isDefault: true }` alone) left every cached copy reporting the
+   * old flag for the rest of the TTL. (The unique index holds one row per
+   * `(project, organization, org)` slot, so there is no sibling to demote; the
+   * org sweep covers the owner's keys, the by-id sweep every other org's.)
    */
   async setDefault(org: string, id: string, userId: string): Promise<Pipeline> {
     const promoted = await super.setDefault(org, id, userId);

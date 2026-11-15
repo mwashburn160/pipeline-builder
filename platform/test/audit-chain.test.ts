@@ -2,9 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
+import { mockConfig } from './helpers/config-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 import type { AuditAction } from '../src/models/audit-event.js';
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
+jest.unstable_mockModule('../src/config/index.js', () => mockConfig({ audit: { retentionDays: 90, retentionPruneIntervalMs: 3_600_000 } }));
 
 // The chain HMAC key is an env/KMS secret (never the DB); pin one for the suite.
 process.env.AUDIT_CHAIN_HMAC_KEY = 'test-audit-chain-hmac-key-0123456789abcdef';
@@ -63,6 +65,23 @@ function dupError(keyPattern: Record<string, number>): Error & { code: number; k
 }
 
 const mockModel = {
+  // The retention prune's per-chain "highest expired seq".
+  aggregate: async (pipeline: Array<{ $match?: { createdAt: { $lt: Date } } }>) => {
+    const cutoff = pipeline[0].$match!.createdAt.$lt;
+    const groups = new Map<string | null, number>();
+    for (const r of store) {
+      if (!(r.createdAt < cutoff)) continue;
+      const k = r.affectedOrgId ?? null;
+      groups.set(k, Math.max(groups.get(k) ?? 0, r.seq as number));
+    }
+    return [...groups].map(([_id, maxSeq]) => ({ _id, maxSeq }));
+  },
+  deleteMany: async (filter: Record<string, unknown> & { seq: { $lte: number } }) => {
+    const { seq, ...rest } = filter;
+    const before = store.length;
+    store = store.filter((r) => !(matches(r, rest) && (r.seq as number) <= seq.$lte));
+    return { deletedCount: before - store.length };
+  },
   create: async (doc: Record<string, unknown>): Promise<Row> => {
     const row0 = doc as Row;
     const key = row0.idempotencyKey as string | undefined;
@@ -121,6 +140,25 @@ const mockHeadModel = {
   },
 };
 
+/** The append-only retention watermarks, unique on (chainKey, seq). */
+interface Checkpoint { chainKey: string; seq: number; hash: string; eventCreatedAt: Date; prunedAt: Date; sig: string }
+let checkpoints: Checkpoint[] = [];
+const mockCheckpointModel = {
+  create: async (doc: Checkpoint) => {
+    if (checkpoints.some((c) => c.chainKey === doc.chainKey && c.seq === doc.seq)) throw dupError({ chainKey: 1, seq: 1 });
+    checkpoints.push({ ...doc });
+    return doc;
+  },
+  findOne: (filter: { chainKey: string; seq?: { $lt: number } }) => {
+    let arr = checkpoints.filter((c) => c.chainKey === filter.chainKey && (!filter.seq || c.seq < filter.seq.$lt));
+    const q = {
+      sort: (spec: { seq: 1 | -1 }) => { arr = [...arr].sort((a, b) => (a.seq - b.seq) * spec.seq); return q; },
+      lean: async () => (arr[0] ? { ...arr[0] } : null),
+    };
+    return q;
+  },
+};
+
 const mockIncCounter = jest.fn<(name: string, labels?: Record<string, string>, value?: number) => void>();
 jest.unstable_mockModule('../src/observability/metrics.js', () => ({
   incCounter: mockIncCounter,
@@ -135,11 +173,22 @@ jest.unstable_mockModule('../src/models/audit-chain-head.js', () => ({
   __esModule: true,
   default: mockHeadModel,
 }));
+jest.unstable_mockModule('../src/models/audit-chain-checkpoint.js', () => ({
+  __esModule: true,
+  default: mockCheckpointModel,
+}));
 
 const { appendAuditEvent, verifyAuditChain, computeAuditHash, GENESIS_CHAIN_KEY, PublishedHeadInvalidError } = await import('../src/helpers/audit-chain.js');
+const { pruneExpiredAuditEvents } = await import('../src/services/audit-retention.js');
+
+/** Age a row past the 90-day retention window. */
+function age(row: { _id: unknown }) {
+  store.find((r) => r._id === String(row._id))!.createdAt = new Date(Date.now() - 100 * 86_400_000);
+}
 
 beforeEach(() => {
   store = [];
+  checkpoints = [];
   idSeq = 0;
   heads = new Map();
   dropHeadAdvances = false;
@@ -275,35 +324,150 @@ describe('verifyAuditChain', () => {
     expect(result.count).toBe(2);
   });
 
-  it('verifies OK when the genesis head has aged out of the TTL window (first surviving prevHash != null)', async () => {
-    // Build a full chain, then delete the CONTIGUOUS HEAD (the oldest row) to
-    // simulate TTL retention pruning. The new first surviving event carries a
-    // NON-null prevHash (it pointed at the pruned genesis). That must be accepted
-    // as the chain anchor — not falsely flagged as a broken/deleted link.
+  it('flags deletion of the OLDEST rows outside retention (no watermark covers them) as head-truncated', async () => {
+    // Deleting the head of the chain by hand used to read exactly like the TTL
+    // having aged it out: the first survivor's prevHash names a row that is gone.
     const genesis = await appendAuditEvent({ action: 'user.login', actorId: 'u1', orgId: 'org-ttl', affectedOrgId: 'org-ttl' });
     const mid = await appendAuditEvent({ action: 'dashboard.update', actorId: 'u1', orgId: 'org-ttl', affectedOrgId: 'org-ttl' });
     await appendAuditEvent({ action: 'user.logout', actorId: 'u1', orgId: 'org-ttl', affectedOrgId: 'org-ttl' });
 
-    // TTL expires the oldest row.
     store = store.filter((r) => r._id !== String(genesis._id));
-    // Sanity: the new head's prevHash is non-null (points at the pruned genesis).
-    expect(store.find((r) => r._id === String(mid._id))!.prevHash).not.toBeNull();
 
-    const result = await verifyAuditChain('org-ttl');
-    expect(result).toEqual({ ok: true, count: 2, unverifiable: 0, lastSeq: 3 });
+    expect(await verifyAuditChain('org-ttl')).toMatchObject({ ok: false, reason: 'head-truncated', brokenAt: mid._id });
   });
 
-  it('still flags a middle-event field tamper even when the head has aged out', async () => {
+  it('still flags a middle-event field tamper after a retention prune', async () => {
     const genesis = await appendAuditEvent({ action: 'user.login', actorId: 'u1', orgId: 'org-ttl2', affectedOrgId: 'org-ttl2' });
     const tampered = await appendAuditEvent({ action: 'dashboard.update', actorId: 'u1', orgId: 'org-ttl2', affectedOrgId: 'org-ttl2' });
     await appendAuditEvent({ action: 'user.logout', actorId: 'u1', orgId: 'org-ttl2', affectedOrgId: 'org-ttl2' });
 
-    store = store.filter((r) => r._id !== String(genesis._id)); // head aged out
-    store.find((r) => r._id === String(tampered._id))!.actorId = 'attacker'; // then tamper a survivor
+    age(genesis);
+    await pruneExpiredAuditEvents();
+    store.find((r) => r._id === String(tampered._id))!.actorId = 'attacker';
 
     const result = await verifyAuditChain('org-ttl2');
-    expect(result.ok).toBe(false);
-    expect(result.brokenAt).toBe(tampered._id);
+    expect(result).toMatchObject({ ok: false, reason: 'hash-mismatch', brokenAt: tampered._id });
+  });
+});
+
+describe('retention watermark (head truncation)', () => {
+  async function chainOf(key: string, n: number) {
+    const rows = [];
+    for (let i = 0; i < n; i++) rows.push(await appendAuditEvent({ action: 'user.login', actorId: 'u1', orgId: key, affectedOrgId: key }));
+    return rows;
+  }
+
+  it('a chain that was never pruned must start at seq 1', async () => {
+    await chainOf('org-w0', 3);
+    expect(await verifyAuditChain('org-w0')).toEqual(intact(3));
+  });
+
+  it('prune → verify OK: the first survivor links to the signed watermark', async () => {
+    const rows = await chainOf('org-w1', 4);
+    age(rows[0]);
+    age(rows[1]);
+
+    const result = await pruneExpiredAuditEvents();
+
+    expect(result).toEqual({ chains: 1, deleted: 2, failed: 0 });
+    expect(store.map((r) => r.seq)).toEqual([3, 4]);
+    expect(checkpoints).toEqual([expect.objectContaining({ chainKey: 'org-w1', seq: 2, hash: rows[1].hash, sig: expect.stringMatching(/^[0-9a-f]{64}$/) })]);
+    expect(await verifyAuditChain('org-w1')).toEqual({ ok: true, count: 2, unverifiable: 0, lastSeq: 4 });
+  });
+
+  it('prunes a contiguous prefix even when a later seq carries an older createdAt (clock skew)', async () => {
+    const rows = await chainOf('org-skew', 3);
+    age(rows[1]); // seq 2 is "old", seq 1 is not
+    await pruneExpiredAuditEvents();
+    expect(store.filter((r) => r.affectedOrgId === 'org-skew').map((r) => r.seq)).toEqual([3]);
+    expect(await verifyAuditChain('org-skew')).toMatchObject({ ok: true, lastSeq: 3 });
+  });
+
+  it('successive prunes keep verifying (the latest watermark below the first survivor is the base)', async () => {
+    const rows = await chainOf('org-w2', 4);
+    age(rows[0]);
+    await pruneExpiredAuditEvents();
+    age(rows[1]);
+    age(rows[2]);
+    await pruneExpiredAuditEvents();
+    expect(checkpoints.map((c) => c.seq)).toEqual([1, 3]);
+    expect(await verifyAuditChain('org-w2')).toMatchObject({ ok: true, count: 1, lastSeq: 4 });
+  });
+
+  it('deleting rows past the watermark (oldest survivors, no new watermark) is head-truncated', async () => {
+    const rows = await chainOf('org-w3', 4);
+    age(rows[0]);
+    await pruneExpiredAuditEvents();
+    store = store.filter((r) => r._id !== String(rows[1]._id));
+    expect(await verifyAuditChain('org-w3')).toMatchObject({ ok: false, reason: 'head-truncated', brokenAt: rows[2]._id });
+  });
+
+  it('a tampered watermark is flagged watermark-invalid', async () => {
+    const rows = await chainOf('org-w4', 3);
+    age(rows[0]);
+    await pruneExpiredAuditEvents();
+    checkpoints[0].seq = 5; // an attacker "explains away" more deleted rows
+    expect(await verifyAuditChain('org-w4')).toMatchObject({ ok: false, reason: 'watermark-invalid' });
+  });
+
+  it('a forged watermark (no key) cannot cover a hand deletion', async () => {
+    const rows = await chainOf('org-w5', 3);
+    store = store.filter((r) => r._id !== String(rows[0]._id));
+    checkpoints.push({ chainKey: 'org-w5', seq: 1, hash: rows[0].hash as string, eventCreatedAt: rows[0].createdAt as Date, prunedAt: new Date(), sig: 'f'.repeat(64) });
+    expect(await verifyAuditChain('org-w5')).toMatchObject({ ok: false, reason: 'watermark-invalid' });
+  });
+
+  it('a watermark from another chain does not verify for this one', async () => {
+    const a = await chainOf('org-wa', 2);
+    age(a[0]);
+    await pruneExpiredAuditEvents();
+    const b = await chainOf('org-wb', 2);
+    store = store.filter((r) => r._id !== String(b[0]._id));
+    checkpoints.push({ ...checkpoints[0], chainKey: 'org-wb' });
+    expect(await verifyAuditChain('org-wb')).toMatchObject({ ok: false, reason: 'watermark-invalid' });
+  });
+
+  it('a prune that recorded its watermark but had not deleted yet still verifies', async () => {
+    const rows = await chainOf('org-w6', 3);
+    const { recordRetentionWatermark } = await import('../src/helpers/audit-chain.js');
+    await recordRetentionWatermark('org-w6', { seq: 2, hash: rows[1].hash as string, createdAt: rows[1].createdAt as Date });
+    expect(await verifyAuditChain('org-w6')).toEqual(intact(3));
+    // …and the row at the watermark must still carry the watermarked hash.
+    store.find((r) => r._id === String(rows[1]._id))!.hash = 'f'.repeat(64);
+    expect((await verifyAuditChain('org-w6')).ok).toBe(false);
+  });
+
+  it('a retried prune re-records the same watermark as a no-op', async () => {
+    const rows = await chainOf('org-w7', 2);
+    const { recordRetentionWatermark } = await import('../src/helpers/audit-chain.js');
+    const last = { seq: 1, hash: rows[0].hash as string, createdAt: rows[0].createdAt as Date };
+    await recordRetentionWatermark('org-w7', last);
+    await expect(recordRetentionWatermark('org-w7', last)).resolves.toBeUndefined();
+    expect(checkpoints).toHaveLength(1);
+  });
+
+  it('a fully pruned chain verifies; one emptied by hand does not', async () => {
+    const rows = await chainOf('org-w8', 2);
+    rows.forEach(age);
+    await pruneExpiredAuditEvents();
+    expect(store.filter((r) => r.affectedOrgId === 'org-w8')).toHaveLength(0);
+    // The head is past retention, so it is not a tail anchor; the watermark covers it.
+    heads.get('org-w8')!.headCreatedAt = new Date(Date.now() - 100 * 86_400_000);
+    expect(await verifyAuditChain('org-w8', { retentionMs: 90 * 86_400_000 })).toMatchObject({ ok: true, count: 0 });
+
+    await chainOf('org-w9', 2);
+    store = store.filter((r) => r.affectedOrgId !== 'org-w9');
+    heads.get('org-w9')!.headCreatedAt = new Date(Date.now() - 100 * 86_400_000);
+    expect(await verifyAuditChain('org-w9', { retentionMs: 90 * 86_400_000 })).toMatchObject({ ok: false, reason: 'head-truncated' });
+  });
+
+  it('prunes the org-less genesis chain under its own key', async () => {
+    const e1 = await appendAuditEvent({ action: 'user.login', actorId: 'u1' });
+    await appendAuditEvent({ action: 'user.login', actorId: 'u1' });
+    age(e1);
+    await pruneExpiredAuditEvents();
+    expect(checkpoints).toEqual([expect.objectContaining({ chainKey: GENESIS_CHAIN_KEY, seq: 1 })]);
+    expect(await verifyAuditChain(GENESIS_CHAIN_KEY)).toMatchObject({ ok: true, count: 1, lastSeq: 2 });
   });
 });
 

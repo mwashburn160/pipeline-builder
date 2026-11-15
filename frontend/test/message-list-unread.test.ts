@@ -27,7 +27,6 @@ function makeMessage(readBy: Record<string, string> = {}): Message {
     // targeting, channels, the visibility ladder).
     recipientUserId: null,
     channel: null,
-    visibility: 'org',
     messageType: 'conversation',
     subject: 's',
     content: 'c',

@@ -6,10 +6,9 @@ import { createLogger, errorMessage, fetchOrgNames, fetchParentOrgId, SYSTEM_ORG
 const logger = createLogger('org-hierarchy-client');
 
 // Platform owns the org → team hierarchy (Mongo); compliance reads a team's
-// direct parent from it. The live validation + entity-event paths get the
-// parent straight off the JWT (`parentOrganizationId`), but scheduled scans run
-// detached from any request, so the executor resolves it over HTTP instead —
-// no parent column on the scan record, no migration.
+// direct parent from it. Live validation takes the parent off a member JWT
+// (`parentOrganizationId`) when present; scans (detached from any request) and
+// entity events (whose payload is not trusted for it) resolve it over HTTP.
 
 /**
  * Resolve an org's direct parent id via platform's internal
@@ -32,7 +31,7 @@ export async function resolveParentOrgId(orgId: string): Promise<string | undefi
       throwOnHttpError: true,
     });
   } catch (err) {
-    logger.error('Failed to resolve parent org for scan; failing scan (inherited rules must not be skipped)', {
+    logger.error('Failed to resolve parent org; failing the evaluation (inherited rules must not be skipped)', {
       orgId,
       error: errorMessage(err),
     });

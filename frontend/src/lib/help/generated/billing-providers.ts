@@ -1,6 +1,6 @@
 // GENERATED FROM docs/billing-providers.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: d5e50786eb23c28a2a7f2b61eb700b0c8d33fb1f7c99197889f3086d6ec4e482
+// SOURCE-SHA256: 76d1457dc58f7b3e061661266e9de377bdffe7a7abca555b2b78ff0b4a3ce516
 // SPDX-License-Identifier: Apache-2.0
 import { CreditCard } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -97,7 +97,9 @@ export const billingProvidersTopic: HelpTopic = {
             "The app creates a Stripe Customer per organization and a Subscription per plan, using Price objects you created in Stripe.",
             "Stripe handles the card, the invoice and the payment.",
             "Every state change — payment succeeded, subscription updated, cancelled — flows back through a signed webhook, which is what keeps the app's entitlements in step.",
-            "Reductions never leave the app: discounts and combo savings are realized as customer-balance credits."
+            "Reductions never leave the app: discounts and combo savings are realized as customer-balance credits.",
+            "A clawed-back promotion credit (a cancel, refund or dispute inside the clawback window) is taken back on both sides: the app's credit mirror, and the Stripe customer balance, as a positive balance transaction for the part of the grant still unused (min(grant, remaining credit)). The debit is queued in the same write that removes the grant and posted under a per-grant idempotency key; a debit Stripe refuses stays queued and the lifecycle reconciler re-posts it, counting billing_promotion_clawback_debit_failed_total on each failure.",
+            "A first invoice.payment_succeeded that arrives before its subscription's local row is bound — an in-app create still saving the Stripe id, or a Checkout subscription whose customer.subscription.created has not provisioned yet — answers 500 so Stripe redelivers once the row exists. An invoice for a subscription that will never have a row is acknowledged and logged."
           ]
         },
         {

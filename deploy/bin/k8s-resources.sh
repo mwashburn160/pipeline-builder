@@ -303,15 +303,13 @@ pb_create_ghcr_secret() {
   echo "  secret ghcr-secret"
 }
 
-# image-registry token-signing keypair secret (<key_file> <crt_file>) + the build-svc Basic-auth
-# creds the proxy uses to reach the underlying registry. (No htpasswd/registry-auth-secret —
-# the registry uses token auth; nothing mounts it.)
+# image-registry token-signing keypair secret (<key_file> <crt_file>). No Basic-auth creds and
+# no htpasswd/registry-auth-secret — the registry uses token auth, and image-registry mints its
+# own scoped tokens for every call it makes to it.
 pb_create_registry_secrets() {
   # http-secret: the registry replicas' shared upload-session signing secret.
   pb_secret registry-token-secret --from-file=jwt-private.pem="$1" --from-file=jwt-public.pem="$2" \
     --from-literal=http-secret="$REGISTRY_HTTP_SECRET"
-  pb_secret image-registry-build-svc-secret \
-    --from-literal=IMAGE_REGISTRY_USERNAME="$IMAGE_REGISTRY_USER" --from-literal=IMAGE_REGISTRY_PASSWORD="$IMAGE_REGISTRY_TOKEN"
 }
 
 # The nginx-config ConfigMap. On the AWS targets it carries two deploy-time

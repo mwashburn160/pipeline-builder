@@ -82,6 +82,13 @@ export function AddonPreviewModal({
               </span>
             </div>
           </div>
+          {addonPreview.cascaded && addonPreview.cascaded.length > 0 && (
+            <div className="rounded-md bg-warning-bg px-3 py-2 text-xs text-warning-strong">
+              Also removes {addonPreview.cascaded.map((id, i) => (
+                <span key={id}>{i > 0 && ', '}<code className="font-mono">{id}</code></span>
+              ))}, which require{addonPreview.cascaded.length === 1 ? 's' : ''} {pendingAddon.name}.
+            </div>
+          )}
           {addonPreview.lostCombos && addonPreview.lostCombos.length > 0 && (
             <div className="rounded-md bg-warning-bg px-3 py-2 text-xs text-warning-strong">
               {addonPreview.lostCombos.map((c) => (

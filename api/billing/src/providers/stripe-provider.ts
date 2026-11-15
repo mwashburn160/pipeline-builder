@@ -51,6 +51,7 @@ export class StripeProvider implements PaymentProvider {
     planId: string,
     interval: BillingInterval,
     idempotencyKey?: string,
+    subscriptionRef?: string,
   ): Promise<ExternalSubscriptionResult> {
     const priceKey = `${planId}_${interval}`;
     const priceId = this.stripeConfig.priceToPlanMap[priceKey];
@@ -67,7 +68,10 @@ export class StripeProvider implements PaymentProvider {
     const subscription = await this.stripe.subscriptions.create({
       customer: customerId,
       items: [{ price: priceId }],
-      metadata: { planId, interval },
+      // `subscriptionRef` names the local row reserved for this sub: the
+      // `customer.subscription.created` webhook can land before that row is
+      // bound to the new id, and uses it to tell "still binding" from unbound.
+      metadata: { planId, interval, ...(subscriptionRef ? { subscriptionRef } : {}) },
       // Stripe Tax, when the deployment has configured it. Must be set per call:
       // the Dashboard toggle does not reach `subscriptions.create`.
       ...(this.stripeConfig.automaticTax ? { automatic_tax: { enabled: true } } : {}),
@@ -347,6 +351,21 @@ export class StripeProvider implements PaymentProvider {
       idempotencyKey ? { idempotencyKey: `${idempotencyKey}-credit` } : undefined,
     );
     logger.info('Stripe usage credit applied', { externalCustomerId, cents });
+    return { ref: { kind: 'balance', ref: txn.id } };
+  }
+
+  /**
+   * Take back clawed-back credit as a POSITIVE customer balance transaction —
+   * the inverse of {@link applyUsageCredit}. Sized by the caller to the credit
+   * still unused, so it removes credit rather than creating a charge.
+   */
+  async debitUsageCredit(externalCustomerId: string, cents: number, idempotencyKey: string): Promise<{ ref?: DiscountRef }> {
+    const txn = await this.stripe.customers.createBalanceTransaction(
+      externalCustomerId,
+      { amount: Math.abs(cents), currency: this.stripeConfig.currency },
+      { idempotencyKey: `${idempotencyKey}-debit` },
+    );
+    logger.info('Stripe usage credit debited', { externalCustomerId, cents });
     return { ref: { kind: 'balance', ref: txn.id } };
   }
 

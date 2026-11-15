@@ -558,6 +558,21 @@ describe('stakeholder report routes', () => {
       expect(mockSendBadRequest.mock.calls[0][1]).toContain('active member');
     });
 
+    it('refuses a ROLLUP definition to a target without reports:rollup — the scheduler would pause it', async () => {
+      store.requireDefinition.mockResolvedValue(definition({ ownerId: 'user-lead', scope: { kind: 'rollup' } }));
+      mockAuthority.mockResolvedValue({ active: true, permissions: ['reports:write'], features: [] });
+      await call('/definitions/:id/transfer', 'post', { params: { id: 'def-1' }, body: { ownerId: 'user-new' } });
+      expect(store.transferOwner).not.toHaveBeenCalled();
+      expect(mockSendBadRequest.mock.calls[0][1]).toContain('rollup');
+    });
+
+    it('moves a ROLLUP definition to a target who holds reports:rollup', async () => {
+      store.requireDefinition.mockResolvedValue(definition({ ownerId: 'user-lead', scope: { kind: 'rollup' } }));
+      mockAuthority.mockResolvedValue({ active: true, permissions: ['reports:write', 'reports:rollup'], features: [] });
+      await call('/definitions/:id/transfer', 'post', { params: { id: 'def-1' }, body: { ownerId: 'user-new' } });
+      expect(store.transferOwner).toHaveBeenCalled();
+    });
+
     it('refuses a target who is no longer active', async () => {
       mockAuthority.mockResolvedValue({ active: false, permissions: [], features: [] });
       await call('/definitions/:id/transfer', 'post', { params: { id: 'def-1' }, body: { ownerId: 'gone' } });
@@ -914,6 +929,19 @@ describe('stakeholder report routes', () => {
       await call('/runs/:id/publish', 'post', { params: { id: 'run-1' } });
       expect(payload().notice).toMatch(/cannot be recalled/);
       expect(payload().notice).toMatch(/does not pull back an email/);
+    });
+  });
+
+  // ── AI summary ────────────────────────────────────────────────────────────
+
+  describe('summary', () => {
+    /** The store refuses the write after publish, but only AFTER the provider call. */
+    it('409s on a published run WITHOUT drafting (no AI call, no aiCalls unit spent)', async () => {
+      store.requireRun.mockResolvedValue(run({ status: 'published', publishedAt: NOW }));
+      await call('/runs/:id/summary', 'post', { params: { id: 'run-1' }, user: { permissions: [], features: ['ai_generation'] } });
+      expect(lastRes.status).toHaveBeenCalledWith(409);
+      expect(store.setRunNotes).not.toHaveBeenCalled();
+      expect(mockRecordAudit).not.toHaveBeenCalled();
     });
   });
 

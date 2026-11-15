@@ -17,6 +17,7 @@ import type { ComplianceRule, ComplianceRuleCreate, ComplianceRuleUpdate, RuleCo
 import { formatError } from '@/lib/constants';
 import type { VALUELESS_RULE_OPERATORS } from '@pipeline-builder/api-core';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { localDay, localDayEndIso, localDayStartIso } from '@/lib/local-day';
 
 /** Exhaustive over the wire vocabulary: a new operator is a compile error here, not an editor that can't show it. */
 const OPERATOR_LABELS: Record<RuleOperator, string> = {
@@ -96,8 +97,9 @@ function ruleToForm(rule?: ComplianceRule): FormState {
     tags: (rule.tags || []).join(', '),
     suppressNotification: rule.suppressNotification,
     propagateToChildren: rule.propagateToChildren ?? false,
-    effectiveFrom: rule.effectiveFrom?.slice(0, 10) || '',
-    effectiveUntil: rule.effectiveUntil?.slice(0, 10) || '',
+    // The date inputs hold LOCAL days; the stored values are ISO instants.
+    effectiveFrom: rule.effectiveFrom ? localDay(new Date(rule.effectiveFrom)) : '',
+    effectiveUntil: rule.effectiveUntil ? localDay(new Date(rule.effectiveUntil)) : '',
     useConditions: hasConditions,
     field: rule.field || '',
     operator: rule.operator || 'eq',
@@ -172,8 +174,10 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
           tags,
           suppressNotification: form.suppressNotification,
           propagateToChildren: form.propagateToChildren,
-          effectiveFrom: form.effectiveFrom || null,
-          effectiveUntil: form.effectiveUntil || null,
+          // The API takes ISO instants (a bare `YYYY-MM-DD` is a 400): the
+          // window runs from the start of its first local day to the end of its last.
+          effectiveFrom: form.effectiveFrom ? localDayStartIso(form.effectiveFrom) : null,
+          effectiveUntil: form.effectiveUntil ? localDayEndIso(form.effectiveUntil) : null,
           conditionMode: form.useConditions ? form.conditionMode : undefined,
           conditions,
           ...(!form.useConditions ? {
@@ -196,8 +200,8 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
           tags,
           suppressNotification: form.suppressNotification,
           propagateToChildren: form.propagateToChildren,
-          effectiveFrom: form.effectiveFrom || undefined,
-          effectiveUntil: form.effectiveUntil || undefined,
+          effectiveFrom: form.effectiveFrom ? localDayStartIso(form.effectiveFrom) : undefined,
+          effectiveUntil: form.effectiveUntil ? localDayEndIso(form.effectiveUntil) : undefined,
           conditionMode: form.useConditions ? form.conditionMode : undefined,
           conditions,
           ...(!form.useConditions ? {

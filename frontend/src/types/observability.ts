@@ -346,11 +346,13 @@ export interface OnCallStatus {
   wouldPage: boolean;
 }
 
-/** `POST /api/observability/oncall-test` — `skipped` means the knob is off. */
+/** `POST /api/observability/oncall-test` — always a 200; `skipped` means the knob is off. */
 export interface OnCallTestResult {
   sent: boolean;
   /** Paging is disabled, so nothing was sent. A 200, and NOT a success. */
   skipped: boolean;
+  /** The provider's HTTP status, when it answered. */
   status?: number;
+  /** Why the provider refused (or could not be reached) when `sent` is false. */
   error?: string;
 }

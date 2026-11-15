@@ -61,8 +61,14 @@ jest.unstable_mockModule('../src/engine/rule-engine.js', () => ({
   evaluateRules: (...args: unknown[]) => mockEvaluateRules(...args),
 }));
 
+const mockLogComplianceCheck = jest.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue(undefined);
 jest.unstable_mockModule('../src/helpers/compliance-check-log.js', () => ({
-  logComplianceCheck: jest.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue(undefined),
+  logComplianceCheck: (...args: unknown[]) => mockLogComplianceCheck(...args),
+}));
+
+const mockResolveParentOrgId = jest.fn<(orgId: string) => Promise<string | undefined>>().mockResolvedValue(undefined);
+jest.unstable_mockModule('../src/helpers/org-hierarchy-client.js', () => ({
+  resolveParentOrgId: (orgId: string) => mockResolveParentOrgId(orgId),
 }));
 
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
@@ -117,7 +123,8 @@ describe('Entity Events Route', () => {
 
   /** A request as `pipeline` — one of the two services this internal route admits. */
   function makeReq(body: Record<string, unknown> = {}, extra: Record<string, unknown> = {}) {
-    return { headers: {}, body, user: { sub: 'service:pipeline', principalType: 'service' }, ...extra };
+    // The token is minted for the event's org, as the subscriber does.
+    return { headers: {}, body, user: { sub: 'service:pipeline', principalType: 'service', organizationId: body.orgId }, ...extra };
   }
 
   const res = {} as never;
@@ -134,6 +141,24 @@ describe('Entity Events Route', () => {
     await runRoute(makeReq({}, { user: { sub: 'service:reporting', principalType: 'service' } }), res);
     expect(sendError).toHaveBeenCalledWith(res, 403, expect.any(String), 'INSUFFICIENT_PERMISSIONS');
     expect(sendBadRequest).not.toHaveBeenCalled();
+  });
+
+  it('refuses a payload orgId that differs from the caller token org (no cross-tenant verdicts)', async () => {
+    await runRoute(makeReq(
+      { entityId: 'id-1', orgId: 'victim-org', target: 'plugin', eventType: 'updated' },
+      { user: { sub: 'service:pipeline', principalType: 'service', organizationId: 'org-1' } },
+    ), res);
+    expect(sendError).toHaveBeenCalledWith(res, 403, expect.any(String), 'INSUFFICIENT_PERMISSIONS');
+    expect(mockFindActiveByOrgAndTarget).not.toHaveBeenCalled();
+  });
+
+  it('accepts a payload orgId that matches the token org case-insensitively', async () => {
+    await runRoute(makeReq(
+      { entityId: 'id-1', orgId: 'Org-1', target: 'plugin', eventType: 'updated' },
+      { user: { sub: 'service:pipeline', principalType: 'service', organizationId: 'org-1' } },
+    ), res);
+    expect(sendError).not.toHaveBeenCalled();
+    expect(mockFindActiveByOrgAndTarget).toHaveBeenCalled();
   });
 
   it('rejects requests with missing required fields', async () => {
@@ -197,20 +222,39 @@ describe('Entity Events Route', () => {
     }));
   });
 
-  it('threads parentOrgId from the payload into rule lookup', async () => {
+  it('resolves the parent server-side and ignores a body parentOrgId', async () => {
     mockFindActiveByOrgAndTarget.mockResolvedValue([{ id: 'rule-1' }]);
     mockEvaluateRules.mockReturnValue({ blocked: false, violations: [], warnings: [], rulesEvaluated: 1 });
+    mockResolveParentOrgId.mockResolvedValueOnce('root-1');
 
     await runRoute(makeReq({
       entityId: 'id-1',
       orgId: 'team-1',
-      parentOrgId: 'root-1',
+      parentOrgId: 'attacker-chosen',
       target: 'plugin',
       eventType: 'updated',
       attributes: { name: 'my-plugin' },
     }), res);
 
+    expect(mockResolveParentOrgId).toHaveBeenCalledWith('team-1');
     expect(mockFindActiveByOrgAndTarget).toHaveBeenCalledWith('team-1', 'plugin', 'root-1');
+  });
+
+  it('audits the verified caller service as the actor, not the body userId', async () => {
+    mockFindActiveByOrgAndTarget.mockResolvedValue([{ id: 'rule-1' }]);
+    mockEvaluateRules.mockReturnValue({ blocked: false, violations: [], warnings: [], rulesEvaluated: 1 });
+
+    await runRoute(makeReq({
+      entityId: 'id-1',
+      orgId: 'org-1',
+      userId: 'someone-else',
+      target: 'plugin',
+      eventType: 'updated',
+    }), res);
+    await new Promise((r) => setImmediate(r));
+
+    expect(mockLogComplianceCheck).toHaveBeenCalled();
+    expect(mockLogComplianceCheck.mock.calls[0][1]).toBe('service:pipeline');
   });
 
   it('evaluates rules for pipeline target', async () => {

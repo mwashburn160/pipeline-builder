@@ -250,29 +250,38 @@ describe('POST /ask/agent/stream', () => {
 
 describe('POST /ask/agent/stream — aiCalls refund boundary', () => {
   /**
-   * The refund must hinge on whether the PROVIDER was actually reached, not
-   * merely on whether we reserved. The old code refunded unconditionally,
-   * including for the `case 'error'` raised from INSIDE `fullStream` — i.e.
-   * strictly after the model round-trip — so a client that provoked mid-stream
-   * provider errors burned tokens without ever consuming quota.
-   *
-   * "Reached" means the SDK emitted 'start-step' (first chunk of the provider's
-   * response). The SDK's own 'start' part precedes any provider call, so keying
-   * on "any part" never refunded a provider failure.
+   * The platform rule: the slot is consumed when the request is SENT to the
+   * provider (just before `streamText`), not when it answers — a provider bills
+   * the tokens it processed for a call that then aborts, times out or errors. So
+   * only a failure BEFORE the send (building the turn's tools, reading the docs
+   * index) refunds; every failure after it keeps the slot.
    */
-  it('REFUNDS when the failure happens BEFORE the provider responds', async () => {
-    // streamText itself throws → nothing ever streamed → we owe nothing.
-    streamText.mockImplementationOnce(() => { throw new Error('model config invalid'); });
+  it('REFUNDS when the turn fails BEFORE the request is sent', async () => {
+    buildAgentTools.mockImplementationOnce(() => { throw new Error('tool wiring failed'); });
     await handler(mockReq({ query: 'help me' }), mockRes());
+    expect(streamText).not.toHaveBeenCalled();
     expect(mockDecrementQuota).toHaveBeenCalledTimes(1);
   });
 
-  it('REFUNDS when the provider call fails before it responds (start → error, no start-step)', async () => {
+  it('KEEPS the slot when the provider call fails after the send, before it responds (start → error, no start-step)', async () => {
     // How ai@7 surfaces a failed doStream (bad key / 5xx / network): its own
-    // 'start' part, then a bare 'error' — the provider never produced a chunk.
+    // 'start' part, then a bare 'error' — the request had already gone out.
     streamParts = [{ type: 'start' }, { type: 'error', error: new Error('401 invalid x-api-key') }];
     await handler(mockReq({ query: 'help me' }), mockRes());
-    expect(mockDecrementQuota).toHaveBeenCalledTimes(1);
+    expect(mockDecrementQuota).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['ABORTED', Object.assign(new Error('This operation was aborted'), { name: 'AbortError' })],
+    ['TIMED OUT', Object.assign(new Error('The operation timed out'), { name: 'TimeoutError' })],
+  ])('KEEPS the slot when the turn is %s after the send', async (_label, error) => {
+    streamParts = [{ type: 'start' }, { type: 'error', error }];
+    await handler(mockReq({ query: 'help me' }), mockRes());
+    expect(mockDecrementQuota).not.toHaveBeenCalled();
+    expect(auditRecord).toHaveBeenCalledWith(
+      expect.objectContaining({ outcome: 'failure', details: expect.objectContaining({ quota: expect.objectContaining({ slot: 'kept' }) }) }),
+      'ask',
+    );
   });
 
   it('does NOT refund when the stream errors AFTER the provider responded', async () => {

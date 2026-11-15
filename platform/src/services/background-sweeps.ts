@@ -85,6 +85,11 @@ export async function sweepDefinitions(): Promise<SweepDefinition[]> {
     run: async () => { await drainLocalAuditSpool(); },
   });
 
+  // Delete audit events past AUDIT_RETENTION_DAYS, watermarking each chain
+  // first so verify can tell retention from deletion of the oldest rows.
+  const { auditRetentionSweep } = await import('./audit-retention.js');
+  defs.push(auditRetentionSweep());
+
   // Publish each audit chain's signed head to write-once object storage (see
   // services/audit-head-export.ts). One exporter per window.
   const { runAuditHeadExportSweep, headExportTarget } = await import('./audit-head-export.js');

@@ -54,30 +54,47 @@ async function fetchParentFromPlatform(orgId: string): Promise<string | undefine
 }
 
 /**
- * Build a per-sweep org → account-ROOT resolver for the retention purge.
- * Retention is a billing entitlement synced onto the root org's `dora_settings`
- * only, so a team's rows must be purged on the ROOT's window. Walks the parent
- * chain via platform (memoized for the sweep, so a root with many teams costs one
- * walk each). Any lookup failure (or a cycle / over-deep chain) resolves to
- * `null`, which makes the sweep SKIP that org this tick — never purge a team's
- * data on the shorter env default because the hierarchy was momentarily unknown.
+ * Build a per-pass org → account-ROOT resolver (one retention sweep, one report
+ * scheduler cycle). Retention is a billing entitlement synced onto the root
+ * org's `dora_settings` only, so a team's rows must be purged — and its reports
+ * bounded — on the ROOT's window. Walks the parent chain via platform.
+ *
+ * Only a RESOLVED root is memoized for the pass, and concurrent lookups for the
+ * same org share one in-flight walk, so a root with many teams costs one walk
+ * however many workers ask at once. A failure is NOT cached: any lookup failure
+ * (or a cycle / over-deep chain) resolves to `null` for that call only, which
+ * makes the caller SKIP the org this time — never purge a team's data on the
+ * shorter env default because the hierarchy was momentarily unknown — and the
+ * next caller in the same pass asks platform again, so one transient error does
+ * not fail every definition of the org for the whole pass.
  */
 export function createRetentionRootResolver(
   fetchParent: (orgId: string) => Promise<string | undefined> = fetchParentFromPlatform,
 ): (orgId: string) => Promise<string | null> {
-  const memo = new Map<string, string | null>();
-  return async (orgId) => {
-    const cached = memo.get(orgId);
-    if (cached !== undefined) return cached;
-    let root: string | null = null;
+  const resolved = new Map<string, string>();
+  const inFlight = new Map<string, Promise<string | null>>();
+  const walk = async (orgId: string): Promise<string | null> => {
     try {
-      root = await resolveRootOrgIdStrict(orgId, fetchParent);
-      if (root === null) logger.warn('Retention root walk hit a cycle or exceeded max depth; skipping org', { orgId });
+      const root = await resolveRootOrgIdStrict(orgId, fetchParent);
+      if (root === null) {
+        logger.warn('Retention root walk hit a cycle or exceeded max depth; skipping org', { orgId });
+        return null;
+      }
+      resolved.set(orgId, root);
+      return root;
     } catch (err) {
-      logger.warn('Retention root resolution failed; org skipped this tick', { orgId, error: errorMessage(err) });
+      logger.warn('Retention root resolution failed; org skipped', { orgId, error: errorMessage(err) });
+      return null;
     }
-    memo.set(orgId, root);
-    return root;
+  };
+  return (orgId) => {
+    const cached = resolved.get(orgId);
+    if (cached !== undefined) return Promise.resolve(cached);
+    const pending = inFlight.get(orgId);
+    if (pending) return pending;
+    const lookup = walk(orgId).finally(() => inFlight.delete(orgId));
+    inFlight.set(orgId, lookup);
+    return lookup;
   };
 }
 

@@ -130,6 +130,8 @@ Changing a report's cadence, timezone or week start **re-derives** its schedule,
 
 **Missed periods are caught up**, oldest first, up to four per definition per cycle (`REPORT_CATCHUP_MAX`). Three weekly reports arriving at once only make sense read downwards. The cap is deliberate: a definition dormant for a year must not produce fifty-two reports, and the oldest of those would be past the retention horizon anyway — which the run refuses with the reason rather than quietly covering less than its label claims.
 
+A team's report is bounded by its **account root's** retention window (retention is synced onto the root only), so the run first walks the team up to its root on the platform service — BEFORE it claims the definition. Claiming advances the run marker the owed periods are counted from, so a lookup that failed after the claim lost those periods; one that fails before it leaves the definition due, and the next cycle retries the same periods (`report_retention_root_unavailable_total` counts it). Within one cycle a resolved root is reused and concurrent lookups for one org share a single walk, but a failure is never cached: one transient platform error costs that definition this cycle, not every definition of the org.
+
 `REPORT_SCHEDULER_ENABLED=false` stops every scheduled run fleet-wide without a redeploy. Definitions stay active and simply do not fire, so flipping it back resumes them.
 
 ### What a scheduled run re-checks

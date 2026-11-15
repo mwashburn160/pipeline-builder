@@ -42,6 +42,7 @@ const ROOTS = ['api', 'frontend', 'packages', 'platform'];
 
 /** Wire shapes declared on BOTH sides, kept identical by this test. */
 const REGISTERED: ReadonlyArray<readonly [string, string, string]> = [
+  ['ActionFailure', 'frontend/src/components/reports/types.ts', 'packages/pipeline-data/src/api/reporting/types.ts'],
   ['Alert', 'frontend/src/types/observability.ts', 'platform/src/observability/alertmanager-client.ts'],
   // Plugin-upgrade apply's per-step change (api/pipeline, not importable).
   ['AppliedUpgrade', 'frontend/src/lib/api/pipeline-security-types.ts', 'api/pipeline/src/helpers/plugin-upgrades.ts'],
@@ -58,6 +59,9 @@ const REGISTERED: ReadonlyArray<readonly [string, string, string]> = [
   ['CrossoverVerdict', 'frontend/src/types/billing.ts', 'api/billing/src/helpers/crossover.ts'],
   // A published report run's delivery record (api/reporting, not importable).
   ['DeliveryOutcome', 'frontend/src/lib/api/domains/stakeholder-reports.ts', 'api/reporting/src/services/report-delivery.ts'],
+  ['ErrorEntry', 'frontend/src/components/reports/types.ts', 'packages/pipeline-data/src/api/reporting/types.ts'],
+  ['StageBottleneck', 'frontend/src/components/reports/types.ts', 'packages/pipeline-data/src/api/reporting/types.ts'],
+  ['StageFailure', 'frontend/src/components/reports/types.ts', 'packages/pipeline-data/src/api/reporting/types.ts'],
   // The past-due lapse window on a subscription response (api/billing, not importable).
   ['SubscriptionDunning', 'frontend/src/types/billing.ts', 'api/billing/src/helpers/subscription-response.ts'],
   ['ComposedSection', 'frontend/src/lib/api/domains/stakeholder-reports.ts', 'packages/pipeline-data/src/api/reporting/stakeholder/compose.ts'],

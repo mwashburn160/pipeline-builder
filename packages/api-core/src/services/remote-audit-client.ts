@@ -158,7 +158,7 @@ type DeliveryResult = { kind: 'delivered' } | { kind: 'retry' } | { kind: 'rejec
 const RETRYABLE_4XX = new Set([408, 429]);
 
 /**
- * Client for POSTing audit events to the platform's `/audit-events` ingest
+ * Client for POSTing audit events to the platform's `/audit/events` ingest
  * endpoint. Mints a fresh service token per call (5 min TTL)  there's no
  * meaningful caching benefit when emissions are sparse.
  */

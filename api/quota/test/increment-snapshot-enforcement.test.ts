@@ -160,6 +160,21 @@ describe('flat org: the increment filter honours the period snapshot', () => {
     expect(result.quota.limit).toBe(-1);
   });
 
+  it('a period opened with NO stored cap snapshots the TIER preset, so a later downgrade cannot strand it', async () => {
+    // The schema carries no `quotas.*` default: an org missing a newly added
+    // quota type is held to its tier preset (100 here). The snapshot captured
+    // the absent field instead — no snapshot at all — so the first stored cap
+    // written mid-period (a downgrade to 10) bound at once.
+    const state = storeOf({ _id: 'o', tier: 'developer', quotas: {}, usage: { plugins: { used: 0, resetAt: expired() } } });
+    expect((await quotaService.incrementUsage('o', 'plugins', 50)).exceeded).toBe(false);
+    expect((state.doc.usage as any).plugins.limitAtPeriodStart).toBe(100);
+
+    (state.doc.quotas as any).plugins = 10;
+    const after = await quotaService.incrementUsage('o', 'plugins', 1);
+    expect(after.exceeded).toBe(false);
+    expect(after.quota).toMatchObject({ limit: 100, used: 51 });
+  });
+
   it('metered admission sizes its partial fit against the effective cap', async () => {
     const state = storeOf({
       _id: 'o',

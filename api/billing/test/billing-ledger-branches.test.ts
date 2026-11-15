@@ -117,12 +117,12 @@ describe('reverseLedgerInvoice', () => {
     expect(incCounter).not.toHaveBeenCalledWith('billing_invoice_reversed_total', expect.anything());
   });
 
-  it('banks a reversal without an amount by clearing any stale banked amount', async () => {
+  it('banks a reversal without an amount as status only, keeping any banked amount', async () => {
     BillingInvoice.findOneAndUpdate.mockResolvedValue(null);
     await ledger.reverseLedgerInvoice('in_x', 'void');
     expect(BillingPendingReversal.updateOne).toHaveBeenCalledWith(
       { _id: 'in_x' },
-      { $set: { status: 'void', expiresAt: expect.any(Date) }, $unset: { amountPaidCents: '' } },
+      { $set: { status: 'void', expiresAt: expect.any(Date) } },
       { upsert: true },
     );
   });

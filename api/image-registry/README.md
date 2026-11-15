@@ -4,7 +4,7 @@ Authentication and management layer in front of a Docker Distribution registry �
 
 ## Responsibilities
 
-- **Token issuance** — implements the Docker Distribution `/token` endpoint. Clients authenticate via Basic auth (a platform-issued token as the password — a USER token verified against platform's published ES256 key set, an internal SERVICE token verified with the shared secret, or an opaque `pb_pat_…` key exchanged at platform — or `docker login` creds forwarded to the platform's `/auth/login`) and receive an RS256-signed JWT scoped to exactly the repositories and actions they may use.
+- **Token issuance** — implements the Docker Distribution `/token` endpoint. Clients authenticate via Basic auth (a platform-issued token as the password — a USER token verified against platform's published ES256 key set, an internal SERVICE token verified against the per-service public key bundle, or an opaque `pb_pat_…` key exchanged at platform — or `docker login` creds forwarded to the platform's `/auth/login`) and receive an RS256-signed JWT scoped to exactly the repositories and actions they may use.
 - **Namespace policy** — any authenticated identity may pull `system/*`, `library/*` and `public/*`; an org may pull its own `org-{orgId}/*` namespace and push there with `plugins:write`; a team may pull its parent org's public plugins; `public/*` is append-only (written only through the internal publication routes), `registry-meta/*` is closed, and `quarantine/*` belongs to the submission's build credential and the plugin service; platform superadmins may push to the remaining namespaces. Enforced when scopes are authorized, so an unauthorized push never gets a usable token.
 - **Storage-quota push gate** — strips `push` scope on an org namespace when the org is over its `storageBytes` quota (plus the grace band). Fails closed when the quota or usage cannot be verified (`QUOTA_STORAGE_FAIL_OPEN=true` reverts that); `pull` is preserved.
 - **Management API** — system-org routes gated by `registry:read` / `registry:write` / `registry:purge` to list repositories, list tags, fetch/delete manifests and repositories, preview small config blobs, and copy/promote tags.
@@ -41,10 +41,8 @@ This service loads its own config (`src/config`) rather than the shared server c
 | `IMAGE_REGISTRY_PORT` | Underlying registry port | `5000` |
 | `IMAGE_REGISTRY_HTTP` | Use `http://` instead of `https://` | `false` |
 | `IMAGE_REGISTRY_INSECURE` | Skip TLS verification (self-signed) | `false` |
-| `IMAGE_REGISTRY_USERNAME` | Service creds for the registry's management API (**required**) | — |
-| `IMAGE_REGISTRY_PASSWORD` | Service creds for the registry's management API (**required**) | — |
 | `REGISTRY_TOKEN_PRIVATE_KEY` | RS256 signing key for issued tokens (**required**) | — |
-| `REGISTRY_TOKEN_CERTIFICATE` | Cert the registry trusts; used to compute the JWT `kid` (**required**) | — |
+| `REGISTRY_TOKEN_CERTIFICATE` | Cert the registry trusts; carried in each token's JWT `x5c` header (**required**) | — |
 | `REGISTRY_TOKEN_ISSUER` | `iss` claim on issued tokens | `platform` |
 | `REGISTRY_TOKEN_SERVICE` | `aud`/`service` value | `pipeline-image-registry` |
 | `REGISTRY_TOKEN_EXPIRES_IN` | Token lifetime (s) | `300` |
@@ -67,6 +65,15 @@ This service loads its own config (`src/config`) rather than the shared server c
 | `REGISTRY_GC_INTERVAL_HOURS` | GC run interval (h) | `24` |
 | `REGISTRY_GC_MAX_AGE_DAYS` | Prune manifests older than this (days) | `30` |
 | `REGISTRY_GC_STARTUP_DELAY_MS` | Delay before the first GC run (ms) | `300000` |
+| `REGISTRY_GC_PROTECTED_TAGS` | Comma-separated floating tags GC never prunes | `latest,stable,main,…` |
+| `REGISTRY_HTTP_TIMEOUT_MS` | Timeout for management calls to the underlying registry (ms) | `30000` |
+| `PLUGIN_SIGNING_MODE` | Plugin-signing key source: `local` (PEM file) or `kms` | `local` |
+| `PLUGIN_SIGNING_KEY_FILE` | EC P-256 PKCS PEM the `local` mode signs with | `/etc/pipeline-builder/plugin-signing/plugin-signing.key` |
+| `PLUGIN_SIGNING_KMS_KEY_ID` | KMS key ALIAS (`alias/<name>`) the `kms` mode signs with | — |
+| `PLUGIN_SIGNING_TIMEOUT_MS` | Upper bound on one cosign invocation (ms) | `120000` |
+| `REGISTRY_SIGN_MAX_CONCURRENT` | Signing operations (and signed-SBOM reads) allowed at once per process; the rest queue | `4` |
+| `REGISTRY_SBOM_MAX_BYTES` | Largest SBOM a signing request may stream | `268435456` |
+| `PUBLIC_VERIFY_CACHE_TTL_MS` | Per-pod cache of verified `public/*` signatures (ms) | `60000` |
 
 ## Development
 

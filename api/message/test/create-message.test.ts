@@ -1418,8 +1418,18 @@ describe('POST /messages/support — the incident door', () => {
     mockConsumeIncident.mockResolvedValue(true);
     mockOpenCase.mockResolvedValue({ id: 'case-1', displayNumber: 1 } as never);
     await send();
-    expect(mockConsumeIncident).toHaveBeenCalledWith('org-1');
+    expect(mockConsumeIncident).toHaveBeenCalledWith('org-1', expect.stringMatching(/^[0-9a-f-]{36}$/));
     expect(mockOpenCase).toHaveBeenCalledWith(expect.objectContaining({ openedWithIncident: true }));
+  });
+
+  it('a fresh idempotency key per submission', async () => {
+    mockFetchEntitlement.mockResolvedValue(NO_SEAT as never);
+    mockConsumeIncident.mockResolvedValue(true);
+    mockOpenCase.mockResolvedValue({ id: 'case-1', displayNumber: 1 } as never);
+    await send();
+    await send();
+    const [[, first], [, second]] = mockConsumeIncident.mock.calls as Array<[string, string]>;
+    expect(first).not.toBe(second);
   });
 
   it('gives the case NO response target, because a concession is not a time promise', async () => {
@@ -1492,7 +1502,9 @@ describe('POST /messages/support — the incident door', () => {
     mockConsumeIncident.mockResolvedValue(true);
     mockOpenCase.mockRejectedValue(new Error('insert failed'));
     const res = await send();
-    expect(mockRefundIncident).toHaveBeenCalledWith('org-1');
+    // Refunded under the SAME key the consume spent with.
+    const [, spentKey] = mockConsumeIncident.mock.calls[0] as [string, string];
+    expect(mockRefundIncident).toHaveBeenCalledWith('org-1', spentKey);
     // And the message still stands — a 500 here would make the tenant file a
     // duplicate of a request we did receive.
     expect(res.status).toHaveBeenCalledWith(201);
@@ -1507,7 +1519,8 @@ describe('POST /messages/support — the incident door', () => {
     mockCreate.mockRejectedValueOnce(new Error('DB error'));
     const res = await send();
     expect(res.status).toHaveBeenCalledWith(500);
-    expect(mockRefundIncident).toHaveBeenCalledWith('org-1');
+    const [, spentKey] = mockConsumeIncident.mock.calls[0] as [string, string];
+    expect(mockRefundIncident).toHaveBeenCalledWith('org-1', spentKey);
     expect(mockOpenCase).not.toHaveBeenCalled();
   });
 

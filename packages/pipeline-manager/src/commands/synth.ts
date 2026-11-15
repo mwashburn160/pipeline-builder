@@ -126,8 +126,8 @@ export function synth(program: Command): void {
         auditLog('synth', { executionId, pipelineId, output: options.output, profile: options.profile });
         printSslWarning(options.verifySsl);
 
-        // Propagate to process.env so CDK constructs (Lambda, CodeBuild) inherit it,
-        // but refuse in production (see relaxTlsForCli) — the flag disables cert
+        // Propagate to process.env so the CDK app (and through it every CodeBuild
+        // step) inherits it, but refuse in production (see relaxTlsForCli) — the flag disables cert
         // validation for ALL outbound TLS, including the AWS SDK.
         relaxTlsForCli(options.verifySsl, printWarning);
 

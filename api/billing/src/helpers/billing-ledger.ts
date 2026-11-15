@@ -81,15 +81,12 @@ export async function reverseLedgerInvoice(
     return row.orgId;
   }
 
-  // No row yet: bank the reversal for the ingest to apply. `$unset` a stale
-  // amount when this reversal carries none, so the bank mirrors exactly what
-  // would have been written to the row.
+  // No row yet: bank the reversal for the ingest to apply. Merged with `$set`
+  // exactly as successive reversals merge onto a row — one that carries no
+  // amount keeps the amount an earlier one banked, as it would on the row.
   await BillingPendingReversal.updateOne(
     { _id: invoiceId },
-    {
-      $set: { status, expiresAt: new Date(Date.now() + PENDING_REVERSAL_TTL_MS), ...(set.amountPaidCents !== undefined ? { amountPaidCents: set.amountPaidCents } : {}) },
-      ...(set.amountPaidCents === undefined ? { $unset: { amountPaidCents: '' } } : {}),
-    },
+    { $set: { ...set, expiresAt: new Date(Date.now() + PENDING_REVERSAL_TTL_MS) } },
     { upsert: true },
   );
 

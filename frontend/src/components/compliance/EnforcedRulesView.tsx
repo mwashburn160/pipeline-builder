@@ -10,6 +10,7 @@ import { FilterSelect } from '@/components/ui/FilterSelect';
 import { RetryError } from '@/components/ui/RetryError';
 import { useFetch } from '@/hooks/useFetch';
 import api from '@/lib/api';
+import { formatError } from '@/lib/constants';
 import type { ComplianceRule, RuleTarget } from '@/types/compliance';
 import { SeverityBadge } from './SeverityBadge';
 import { InheritedBadge } from './InheritedBadge';
@@ -27,8 +28,8 @@ export default function EnforcedRulesView() {
     let res: Awaited<ReturnType<typeof api.getEnforcedRules>>;
     try {
       res = await api.getEnforcedRules(params);
-    } catch {
-      throw new Error('Failed to load enforced rules');
+    } catch (err) {
+      throw new Error(formatError(err, 'Failed to load enforced rules'));
     }
     if (!res.success || !res.data) throw new Error(res.message || 'Failed to load enforced rules');
     return res.data.rules;

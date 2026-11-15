@@ -393,6 +393,31 @@ describe('pipeline-events handler', () => {
     }
   });
 
+  it.each(['CANCELED', 'ABANDONED'])('reads the compute size of a %s CodeBuild action too (it ran)', async (state) => {
+    const { _setFailureReasonLoaderForTests } = await import('../src/failure-reason.js');
+    const cbSend = jest.fn(async () => ({ builds: [{ environment: { computeType: 'BUILD_GENERAL1_MEDIUM' } }] }));
+    _setFailureReasonLoaderForTests((async () => (
+      { CodeBuildClient: class { send = cbSend; }, BatchGetBuildsCommand: class { constructor(public input: unknown) {} } }
+    )) as never);
+    try {
+      await handler(createSQSEvent([{
+        ...MOCK_CODEPIPELINE_EVENT,
+        'detail-type': 'CodePipeline Action Execution State Change',
+        'detail': {
+          ...MOCK_CODEPIPELINE_EVENT.detail,
+          state,
+          'stage': 'Build',
+          'action': 'Build',
+          'type': { provider: 'CodeBuild', category: 'Build' },
+          'execution-result': { 'external-execution-id': 'build-project:0b7e3c2a-1111-2222-3333-444455556666' },
+        },
+      }]));
+      expect(lastEventsBody().events[0].computeType).toBe('BUILD_GENERAL1_MEDIUM');
+    } finally {
+      _setFailureReasonLoaderForTests(undefined);
+    }
+  });
+
   it('forwards the action without a compute size when the read is refused', async () => {
     // Best-effort by design: the ingest then records the action as UNMEASURED
     // rather than as free, which is what keeps the coverage gap visible.
@@ -526,6 +551,20 @@ describe('pipeline-events handler', () => {
     });
     const res = await handler(createSQSEvent([MOCK_CODEPIPELINE_EVENT, MOCK_CODEPIPELINE_EVENT]));
     expect(res.batchItemFailures).toEqual([{ itemIdentifier: 'msg-0' }, { itemIdentifier: 'msg-1' }]);
+  });
+
+  it('returns only the records that carried an event when the reporting call THROWS', async () => {
+    // An unreachable platform / timeout is as transient as a 5xx. Throwing would
+    // redeliver the whole batch, the intentional skip (untagged) included.
+    mockFetch.mockImplementation((url: string) => {
+      if (url.includes('/auth/token/exchange')) return exchangeResponse();
+      return Promise.reject(new Error('ECONNRESET'));
+    });
+    const res = await handler(createSQSEvent([
+      MOCK_CODEPIPELINE_EVENT,
+      { ...MOCK_CODEPIPELINE_EVENT, detail: { ...MOCK_CODEPIPELINE_EVENT.detail, pipeline: 'untagged-pipeline' } },
+    ]));
+    expect(res.batchItemFailures).toEqual([{ itemIdentifier: 'msg-0' }]);
   });
 
   describe('a refused event does not poison the batch', () => {

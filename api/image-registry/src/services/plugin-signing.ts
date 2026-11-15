@@ -32,16 +32,14 @@ import {
   mintRepositoryPullToken,
   mintRepositoryPushToken,
 } from './registry-client.js';
-import { config } from '../config/index.js';
 import { withSigningSlot } from './signing-gate.js';
+import { config } from '../config/index.js';
 
 const logger = createLogger('plugin-signing');
 
 const MAX_STDERR_BYTES = 1024 * 1024;
 /** `verify-attestation` prints the whole signed SBOM (base64, in a DSSE envelope). */
 const MAX_STDOUT_BYTES = 96 * 1024 * 1024;
-
-/** SPDX predicate type cosign records for `--type spdxjson`. */
 
 /**
  * cosign v3 changed three signing defaults; all three have to be pinned back or
@@ -235,9 +233,8 @@ export interface SignPluginImageParams {
   repository: string;
   /** The pushed digest to sign (`sha256:…`). */
   digest: string;
-  /** SPDX JSON SBOM of that digest, attached as a signed attestation. */
   /**
-   * PATH to the SPDX document cosign attests from.
+   * PATH to the SPDX JSON SBOM of that digest, attached as a signed attestation.
    *
    * A path, not a parsed object: the document's only destination is
    * `--predicate <file>`, so taking an object meant the caller parsed it and
@@ -300,7 +297,7 @@ async function dropSignature(repository: string, digest: string): Promise<void> 
 }
 
 /**
- * Sign `repository@digest` and attach `sbom` as a signed SPDX attestation.
+ * Sign `repository@digest` and attach the SBOM at `sbomPath` as a signed SPDX attestation.
  * The caller has already confirmed the manifest exists in the repository.
  *
  * In the public namespace the signature is REPLACED rather than appended
@@ -312,18 +309,11 @@ export async function signPluginImage({ repository, digest, sbomPath, annotation
 
   const key = await signingKey();
   const ref = refOf(repository, digest);
-  // The caller's file IS the predicate: nothing is copied, re-serialized, or
-  // staged in a scratch dir of our own. It is also the CALLER's to remove — both
-  // call sites do so in a `finally` — because deleting a file we were handed
-  // would be a surprise, and the caller is the one that knows whether it is a
-  // throwaway upload or a document it still needs.
-  const predicate = sbomPath;
   const isPublic = isPublicRepository(repository);
 
-  // No try/finally: there is nothing of OURS to clean up. The predicate is the
-  // caller's file and the credentials are removed by `withCredential` per step —
-  // a scratch dir created and deleted here held nothing once the SBOM stopped
-  // being re-serialized into it.
+  // The caller's file IS the predicate (nothing copied or re-serialized), and
+  // it stays the caller's to remove; credentials are removed per step by
+  // `withCredential`.
   if (isPublic) await dropSignature(repository, digest);
   // Inside the gate: the `attest` step hands cosign the whole SBOM, and it is
   // the concurrency of THAT which decides whether this process survives a build
@@ -333,7 +323,7 @@ export async function signPluginImage({ repository, digest, sbomPath, annotation
     // timeout, and a registry token only lives a few minutes.
     for (const args of [
       ['sign', '--key', key.key, ...annotationArgs(annotations), ...COSIGN_SIGN_FLAGS, '--yes', ...registryFlags(), ref],
-      ['attest', '--key', key.key, '--type', 'spdxjson', '--predicate', predicate,
+      ['attest', '--key', key.key, '--type', 'spdxjson', '--predicate', sbomPath,
         ...(isPublic ? ['--replace'] : []), ...COSIGN_SIGN_FLAGS, '--yes', ...registryFlags(), ref],
     ]) {
       await withCredential(repository, 'push', (env) => cosign(args, { ...env, ...key.env }));
@@ -370,14 +360,19 @@ export async function resignPublicImage(repository: string, digest: string, anno
 export async function readSignedSbom(repository: string, digest: string): Promise<Record<string, unknown>> {
   assertSignable(repository, digest);
   const key = verificationKeyRef();
-  const out = await withCredential(repository, 'pull', (env) => cosign(
-    ['verify-attestation', '--key', key, '--type', 'spdxjson', ...COSIGN_VERIFY_FLAGS, ...registryFlags(), refOf(repository, digest)],
-    env,
-    { captureStdout: true },
-  ));
-  const predicate = extractSpdxPredicate(out);
-  if (!predicate) throw new CosignRejectedError(`No SPDX SBOM attestation verifies for ${repository}@${digest}`);
-  return predicate;
+  // Inside the signing gate: the whole signed SBOM comes back through cosign's
+  // stdout (base64 in a DSSE envelope) and is parsed here — heavier on this
+  // process's heap than the `attest` the gate was built for.
+  return withSigningSlot('sbom-read', async () => {
+    const out = await withCredential(repository, 'pull', (env) => cosign(
+      ['verify-attestation', '--key', key, '--type', 'spdxjson', ...COSIGN_VERIFY_FLAGS, ...registryFlags(), refOf(repository, digest)],
+      env,
+      { captureStdout: true },
+    ));
+    const predicate = extractSpdxPredicate(out);
+    if (!predicate) throw new CosignRejectedError(`No SPDX SBOM attestation verifies for ${repository}@${digest}`);
+    return predicate;
+  });
 }
 
 /**

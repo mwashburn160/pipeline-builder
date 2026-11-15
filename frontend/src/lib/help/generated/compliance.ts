@@ -1,6 +1,6 @@
 // GENERATED FROM docs/compliance.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 152ed5f968050b4dc0ef13af8c20abf165971016dedf27966e683d81549c6a84
+// SOURCE-SHA256: 541dca8e357d7559761dda38fc4641094583bdaa5ef75da2fe740665bb7dd254
 // SPDX-License-Identifier: Apache-2.0
 import { ShieldCheck } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -461,6 +461,11 @@ export const complianceTopic: HelpTopic = {
               "Approve or reject an exemption"
             ],
             [
+              "PUT",
+              "/compliance/exemptions/:id/expiry",
+              "Extend an approved exemption's expiresAt before it lapses"
+            ],
+            [
               "DELETE",
               "/compliance/exemptions/:id",
               "Revoke an exemption"
@@ -469,7 +474,7 @@ export const complianceTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "An approved exemption with an expiresAt stops applying the moment it passes. A daily sweep then records that: the row moves to expired (audited as compliance.exemption.expire), so the Expired filter and the status badge say what enforcement already does. COMPLIANCE_EXEMPTION_EXPIRY_WARN_DAYS (default 7) before it lapses, the org gets one in-app notice listing what is about to expire."
+          "content": "A request whose expiresAt is already past is refused (400). An approved exemption with an expiresAt stops applying the moment it passes. A daily sweep then records that: the row moves to expired (audited as compliance.exemption.expire), so the Expired filter and the status badge say what enforcement already does. COMPLIANCE_EXEMPTION_EXPIRY_WARN_DAYS (default 7) before it lapses, the org gets one in-app notice listing what is about to expire. To renew one before it lapses, extend it: PUT /compliance/exemptions/:id/expiry with { expiresAt } (in the future and later than the current expiry) — compliance:write, and like approval the requester cannot extend their own. It is audited as compliance.exemption.approve with details.extension: true and previousExpiresAt, and re-arms the lapse notice. A lapsed exemption cannot be extended; request it again."
         },
         {
           "type": "text",

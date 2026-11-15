@@ -228,7 +228,7 @@ export class CacheService {
    * concurrent cold callers onto a single `factory()` invocation (single-flight
    * / stampede protection); entries are cleared once the promise settles.
    */
-  private inflight = new Map<string, Promise<unknown>>();
+  private inflight = new Map<string, { generation: number; promise: Promise<unknown> }>();
   private readonly prefix: string;
   private readonly defaultTtlMs: number;
   private readonly maxEntries: number;
@@ -410,8 +410,12 @@ export class CacheService {
     // coalesced callers, so one caller mutating its "independent" result would
     // corrupt what the others read — the exact footgun get()'s clone-on-read
     // prevents.
-    const existing = this.inflight.get(fk) as Promise<T> | undefined;
-    if (existing) return cloneValue(await existing);
+    //
+    // Only a flight started since the LAST invalidation is joined: one begun
+    // before it may have read the pre-write value, so a caller arriving after a
+    // write-then-`del` starts its own flight instead of being handed stale data.
+    const existing = this.inflight.get(fk);
+    if (existing && existing.generation === this.generation) return cloneValue(await (existing.promise as Promise<T>));
 
     const generationAtStart = this.generation;
     const flight = (async () => {
@@ -421,11 +425,12 @@ export class CacheService {
       if (this.generation === generationAtStart) await this.set(key, value, ttlSeconds);
       return value;
     })();
-    this.inflight.set(fk, flight);
+    this.inflight.set(fk, { generation: generationAtStart, promise: flight });
     try {
       return cloneValue(await flight);
     } finally {
-      this.inflight.delete(fk);
+      // A newer flight may have replaced this one — leave it in place.
+      if (this.inflight.get(fk)?.promise === flight) this.inflight.delete(fk);
     }
   }
 

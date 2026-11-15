@@ -7,6 +7,7 @@ import {
   StopPipelineExecutionCommand,
 } from '@aws-sdk/client-codepipeline';
 import { scrubAwsIdentifiersFromString } from '@pipeline-builder/api-core';
+import { z } from 'zod';
 import { pipelineRegistryService } from './pipeline-registry-service.js';
 import { pipelineService } from './pipeline-service.js';
 
@@ -50,6 +51,8 @@ function awsErrorMessage(err: unknown): string | undefined {
   return undefined;
 }
 
+const PIPELINE_ID = z.string().uuid();
+
 class PipelineExecutionService {
   // Per-region client cache — CodePipelineClient is thread-safe and reusable, so
   // one client per region is cheaper than constructing per call.
@@ -68,6 +71,9 @@ class PipelineExecutionService {
 
   /** Resolve the registry row → CodePipeline client for the caller's org. */
   private async resolve(pipelineId: string, orgId: string) {
+    // The pipeline id is a uuid column: a malformed one names no pipeline, so it
+    // is "not registered" (404) rather than a Postgres cast error (500).
+    if (!PIPELINE_ID.safeParse(pipelineId).success) throw new PipelineExecutionError(PE_PIPELINE_NOT_REGISTERED);
     const row = await pipelineRegistryService.findByPipelineId(pipelineId, orgId);
     if (!row) throw new PipelineExecutionError(PE_PIPELINE_NOT_REGISTERED);
     // The registry is a DEPLOYMENT INDEX, not an authorization surface: its only

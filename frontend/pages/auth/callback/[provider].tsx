@@ -133,13 +133,6 @@ export default function OAuthCallbackPage() {
 
       try {
         if (effective?.kind === 'invite' && effective.inviteToken) {
-          // Invite-accept is Google-only on the backend — validate rather than
-          // assert `as 'google'`, so a non-google provider fails clearly instead
-          // of being silently mislabelled. (Narrows `provider` to 'google' below.)
-          if (provider !== 'google') {
-            setError('Invitations can only be accepted with Google sign-in.');
-            return;
-          }
           // First-time OAuth invite accept — verified server-side. Returns no
           // session tokens, so afterwards we kick off a normal OAuth login to
           // establish the session (the invitee is now a returning user).

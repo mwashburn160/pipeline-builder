@@ -531,4 +531,18 @@ describe('PipelineService soft delete / restore exposure lifecycle', () => {
     await svc.onAfterRestore('p1', entity, 'user-1');
     expect(mockRecordResolution).toHaveBeenCalledWith('p1', 'org-1', undefined, entity.props);
   });
+
+  // The exposure / resolution keys are plain text compared exactly: a DELETE or
+  // restore addressed by a mixed-case id must still act on the row's own id.
+  it('keys the hooks on the row\'s own id, not the caller\'s id string', async () => {
+    mockCloseExposures.mockClear();
+    mockRecordResolution.mockClear();
+    const svc = new PipelineService() as any;
+    svc.invalidateAndEmit = jest.fn(async () => undefined);
+    await svc.onAfterDelete('P1', entity, 'user-1');
+    expect(mockCloseExposures).toHaveBeenCalledWith('p1', 'removed', { source: 'declared' });
+    expect(svc.invalidateAndEmit).toHaveBeenCalledWith('deleted', 'p1', entity, 'user-1');
+    await svc.onAfterRestore('P1', entity, 'user-1');
+    expect(mockRecordResolution).toHaveBeenCalledWith('p1', 'org-1', undefined, entity.props);
+  });
 });

@@ -166,6 +166,19 @@ describe('POST /plugin-upgrades/apply', () => {
     expect(data.releases).toEqual([expect.objectContaining({ version: '1.2.0', removable: true })]);
   });
 
+  // The resolution rows and the trigger window key on the id STRING: a
+  // mixed-case id recorded a second resolution and left the old one holding
+  // the moved-off version.
+  it('lower-cases ids before the dedupe, so one pipeline is applied once under its canonical id', async () => {
+    const mixed = 'ABCDEF01-2345-4678-89AB-CDEF01234567';
+    const r = res();
+    await apply({ body: { pipelineIds: [mixed, mixed.toLowerCase()], redeploy: true }, user: {} }, r);
+    expect(dataOf(r).results).toEqual([expect.objectContaining({ pipelineId: mixed.toLowerCase(), status: 'upgraded' })]);
+    expect(mockUpdate).toHaveBeenCalledTimes(1);
+    expect(mockRecordResolution).toHaveBeenCalledWith(mixed.toLowerCase(), 'acme', undefined, { stages: ['new'] });
+    expect(mockClaim).toHaveBeenCalledWith('acme', mixed.toLowerCase());
+  });
+
   it('reports each refusal per pipeline and leaves the others to land', async () => {
     mockFindById.mockImplementation(async (id: string) => (id === P3 ? null : { id, orgId: 'acme', props: {} }));
     mockValidate.mockImplementation(async (_b: unknown, _o: unknown, _p: unknown, id: string) => (id === P1

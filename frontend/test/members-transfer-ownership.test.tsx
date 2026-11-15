@@ -53,7 +53,7 @@ jest.mock('@/lib/api', () => {
 
 const BEE: OrganizationMember = {
   id: 'u2', username: 'bee', email: 'bee@acme.test', role: 'member',
-  isOwner: false, isActive: true, isEmailVerified: true, createdAt: '2026-01-01T00:00:00Z',
+  isOwner: false, isActive: true, isEmailVerified: true, joinedAt: '2026-01-01T00:00:00Z', createdAt: '2026-01-01T00:00:00Z',
 };
 
 beforeEach(() => {

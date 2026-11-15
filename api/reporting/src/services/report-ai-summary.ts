@@ -406,9 +406,10 @@ export async function draftExecutiveSummary(opts: DraftSummaryOptions): Promise<
   // The selection that served (a platform failover can change it).
   let served: ResolvedModelSelection = selection;
 
-  // KEEP-ON-CONTACT, the same rule as the Ask assistant: once the provider has
-  // answered, the call cost money whatever the answer was — empty, ungrounded or
-  // fine — so the slot is kept. Only a call that never got an answer is refunded.
+  // CONSUMED AT SEND, the platform rule for every AI call: once the request has
+  // gone to the provider it costs money whatever happens next — an empty,
+  // ungrounded or fine answer, an abort, a timeout, a provider error — so the slot
+  // is kept. Only a failure before the send is refunded.
   let usage: LanguageModelUsage | undefined;
   const usageBlock = (kept: boolean): { ai: AIUsageAuditDetails } => ({
     ai: aiUsageAuditDetails(served, { usage, quotaSlot: kept ? 'kept' : 'refunded', promptVersion: SUMMARY_PROMPT_VERSION }),
@@ -429,6 +430,8 @@ export async function draftExecutiveSummary(opts: DraftSummaryOptions): Promise<
     const generate = opts.generate ?? generateText;
     const { value: result } = await runWithFailover(selection, (sel) => {
       served = sel;
+      // The request is sent by the call below: the slot is spent from here on.
+      slot.markConsumed();
       return generate({
         model: sel.model,
         system: cachedSystemPrompt(SYSTEM_PROMPT),
@@ -441,17 +444,15 @@ export async function draftExecutiveSummary(opts: DraftSummaryOptions): Promise<
         ...aiCallSettings({ selection: sel, signal: opts.signal, maxOutputTokens: SUMMARY_MAX_OUTPUT_TOKENS, temperature: SUMMARY_TEMPERATURE }),
       });
     });
-    slot.markConsumed();
     usage = (result as { totalUsage?: LanguageModelUsage; usage?: LanguageModelUsage }).totalUsage
       ?? (result as { usage?: LanguageModelUsage }).usage;
     draft = (result.text ?? '').trim();
   } catch (err) {
-    const contacted = (err as { providerContacted?: unknown } | null)?.providerContacted === true;
-    if (contacted) slot.markConsumed();
-    else slot.refund();
+    // A no-op once the request was sent (QuotaSlot.refund).
+    slot.refund();
     recordTokens();
     logger.warn('AI summary generation failed', { orgId, error: errorMessage(err) });
-    return unavailable(err, usageBlock(contacted));
+    return unavailable(err, usageBlock(slot.isConsumed()));
   }
   recordTokens();
 

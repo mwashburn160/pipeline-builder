@@ -110,10 +110,10 @@ export function buildMemberColumns({
     {
       id: 'joined',
       header: 'Joined',
-      sortValue: (m) => m.createdAt,
+      sortValue: (m) => m.joinedAt,
       render: (m) => (
         <span className="text-sm text-fg-muted">
-          <RelativeTime value={m.createdAt} />
+          <RelativeTime value={m.joinedAt} />
         </span>
       ),
     },

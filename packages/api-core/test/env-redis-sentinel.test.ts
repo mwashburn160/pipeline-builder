@@ -163,14 +163,4 @@ describe('createEnvRedisClient readiness gate', () => {
       gated.disconnect();
     });
   });
-
-  it('can be turned off', async () => {
-    await withUrl(async () => {
-      const raw = createEnvRedisClient<Client>('gate-test', { readyGate: false })!;
-      const t0 = Date.now();
-      await expect(raw.get('k')).rejects.toBeDefined();
-      expect(Date.now() - t0).toBeLessThan(100);
-      raw.disconnect();
-    });
-  });
 });

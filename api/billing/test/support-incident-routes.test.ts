@@ -45,9 +45,10 @@ jest.unstable_mockModule('../src/helpers/root-org-guard.js', () => ({ resolveAcc
 
 const mockGrant = jest.fn<(...a: unknown[]) => Promise<number | null>>();
 const mockConsume = jest.fn<(...a: unknown[]) => Promise<boolean>>();
-const mockRefund = jest.fn<(...a: unknown[]) => Promise<number | null>>();
+const mockRefund = jest.fn<(...a: unknown[]) => Promise<{ refunded: boolean; balance: number | null }>>();
 const mockRemaining = jest.fn<(...a: unknown[]) => Promise<number>>();
 jest.unstable_mockModule('../src/helpers/support-incidents.js', () => ({
+  INCIDENT_KEY_PATTERN: /^[A-Za-z0-9_-]{8,128}$/,
   MAX_INCIDENT_GRANT: 100,
   grantSupportIncidents: mockGrant,
   consumeSupportIncident: mockConsume,
@@ -71,6 +72,8 @@ const call = (h: Function, req: any) => h({ params: {}, query: {}, body: {}, use
 const CONSUME = '/internal/support-incidents/:orgId/consume';
 const REFUND = '/internal/support-incidents/:orgId/refund';
 const GRANT = '/admin/orgs/:orgId/support-incidents';
+const KEY = 'submission-0001';
+const keyed = { body: { idempotencyKey: KEY } };
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -99,20 +102,20 @@ describe('POST consume (message only)', () => {
   it("spends the ROOT's incident for a case opened from a team", async () => {
     mockConsume.mockResolvedValueOnce(true);
     mockRemaining.mockResolvedValueOnce(0);
-    await call(handler('post', CONSUME), { params: { orgId: 'TEAM-1'.toLowerCase() } });
-    expect(mockConsume).toHaveBeenCalledWith('root-1', 'service:message');
+    await call(handler('post', CONSUME), { ...keyed, params: { orgId: 'TEAM-1'.toLowerCase() } });
+    expect(mockConsume).toHaveBeenCalledWith('root-1', KEY, 'service:message');
     expect(mockSendSuccess).toHaveBeenCalledWith({}, 200, { consumed: true, remaining: 0 });
   });
 
   it('answers consumed:false (200, not an error) when the account has none', async () => {
     mockConsume.mockResolvedValueOnce(false);
-    await call(handler('post', CONSUME), { params: { orgId: 'root-1' } });
+    await call(handler('post', CONSUME), { ...keyed, params: { orgId: 'root-1' } });
     expect(mockSendSuccess).toHaveBeenCalledWith({}, 200, { consumed: false, remaining: 2 });
   });
 
   it('fails CLOSED with 503 when the root lookup fails — nothing is spent', async () => {
     mockResolveRoot.mockRejectedValueOnce(new Error('cycle'));
-    await call(handler('post', CONSUME), { params: { orgId: 'team-1' } });
+    await call(handler('post', CONSUME), { ...keyed, params: { orgId: 'team-1' } });
     expect(mockSendError).toHaveBeenCalledWith({}, 503, expect.any(String), 'SERVICE_UNAVAILABLE');
     expect(mockConsume).not.toHaveBeenCalled();
   });
@@ -121,14 +124,32 @@ describe('POST consume (message only)', () => {
     await call(handler('post', CONSUME), { params: { orgId: '' } });
     expect(mockSendError).toHaveBeenCalledWith({}, 400, 'orgId is required', 'MISSING_REQUIRED_FIELD');
   });
+
+  it.each([undefined, 42, 'short', 'has spaces in it', 'x'.repeat(129)])('400s — and spends nothing — on idempotencyKey %p', async (idempotencyKey) => {
+    await call(handler('post', CONSUME), { body: { idempotencyKey }, params: { orgId: 'root-1' } });
+    expect(mockSendError).toHaveBeenCalledWith({}, 400, expect.stringMatching(/idempotencyKey/), 'VALIDATION_ERROR');
+    expect(mockConsume).not.toHaveBeenCalled();
+  });
 });
 
 describe('POST refund (message only)', () => {
   it('gives the incident back to the root', async () => {
-    mockRefund.mockResolvedValueOnce(3);
-    await call(handler('post', REFUND), { params: { orgId: 'team-1' } });
-    expect(mockRefund).toHaveBeenCalledWith('root-1', 'service:message');
-    expect(mockSendSuccess).toHaveBeenCalledWith({}, 200, { balance: 3 });
+    mockRefund.mockResolvedValueOnce({ refunded: true, balance: 3 });
+    await call(handler('post', REFUND), { ...keyed, params: { orgId: 'team-1' } });
+    expect(mockRefund).toHaveBeenCalledWith('root-1', KEY, 'service:message');
+    expect(mockSendSuccess).toHaveBeenCalledWith({}, 200, { refunded: true, balance: 3 });
+  });
+
+  it('answers refunded:false (200) for a key that was never spent', async () => {
+    mockRefund.mockResolvedValueOnce({ refunded: false, balance: 2 });
+    await call(handler('post', REFUND), { ...keyed, params: { orgId: 'root-1' } });
+    expect(mockSendSuccess).toHaveBeenCalledWith({}, 200, { refunded: false, balance: 2 });
+  });
+
+  it('400s without an idempotencyKey — nothing is refunded', async () => {
+    await call(handler('post', REFUND), { params: { orgId: 'root-1' } });
+    expect(mockSendError).toHaveBeenCalledWith({}, 400, expect.stringMatching(/idempotencyKey/), 'VALIDATION_ERROR');
+    expect(mockRefund).not.toHaveBeenCalled();
   });
 
   it('400s on a missing orgId', async () => {

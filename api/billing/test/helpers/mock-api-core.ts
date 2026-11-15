@@ -95,6 +95,14 @@ const billingDefaults = (): Record<string, unknown> => ({
   // with real 403-unless-permitted semantics.
   requirePermission: () => passThroughMiddleware,
   requirePermissionOrService: () => passThroughMiddleware,
+  // A pass-through step-up that still carries its route-table tag: the real
+  // `gateWhen` refuses (at router build) to wrap a gate the table cannot see,
+  // so the shared base's untagged stub would fail every suite that loads a
+  // router wrapping step-up conditionally.
+  requireStepUp: (actualApiCore.tagRouteGate as <T extends object>(fn: T, ...g: unknown[]) => T)(
+    (_req: unknown, _res: unknown, next: () => void) => next(),
+    { kind: 'stepUp' },
+  ),
   // Service-to-service auth header minted for the quota/platform entitlement sync.
   getServiceAuthHeader: (_opts?: unknown) => 'Bearer test-service-token',
   // Query-param + error helpers the route modules import at load time.

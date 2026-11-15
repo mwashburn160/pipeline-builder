@@ -114,8 +114,9 @@ function waiverFor(opts: AiCallReservationOptions, selection: AiCallSelection, w
 /**
  * Reserve the `aiCalls` slot for ONE AI call on an already-resolved model —
  * or waive it — and return the handle; the caller settles it (`markConsumed()`
- * on the provider's first response, `refund()` on a pre-contact failure,
- * `reportUsage()` once settled). The primitive under
+ * as the request is SENT to the provider, `refund()` on a failure before the
+ * send, `reportUsage()` once settled). An abort, a timeout or an error after the
+ * send keeps the slot: the provider already billed the tokens it processed. The primitive under
  * {@link withAiCallReservation}, for work that does not fit one callback (an
  * agent tool's in-process generation, a scheduled report summary).
  *
@@ -144,6 +145,7 @@ export async function reserveAiCallSlot(
       serviceAuth: getServiceAuthHeader({ serviceName: opts.serviceName ?? serviceIdentity(), orgId: opts.orgId, role: 'member' }),
       reservation: waivedReservation(),
       markConsumed: () => undefined,
+      isConsumed: () => false,
       refund: () => undefined,
     };
   } else {
@@ -161,6 +163,7 @@ export async function reserveAiCallSlot(
     ...(waived ? { waived } : {}),
     attribution,
     markConsumed: () => { consumed = true; base.markConsumed(); },
+    isConsumed: () => consumed,
     refund: () => base.refund(),
     reportUsage: (tokens) => {
       if (reported) return;
@@ -178,8 +181,9 @@ export async function reserveAiCallSlot(
 
 /**
  * Resolve the model, reserve (or waive) its `aiCalls` slot, run `body`, and
- * settle by the {@link withQuotaReservation} rule — keep once consumed, refund
- * when the body fails first.
+ * settle by the {@link withQuotaReservation} rule — keep once consumed (the body
+ * calls `slot.markConsumed()` as it sends the request), refund when the body
+ * fails before that.
  *
  * `resolve` runs BEFORE any reservation (its result decides the charge — see
  * {@link reserveAiCallSlot}); a resolution failure (AI switched off, an

@@ -65,26 +65,13 @@ function encodeRepoName(name: string): string {
 }
 
 /**
- * Pre-configured client for talking to the underlying Docker registry's
- * v2 HTTP API. Authenticates with the service-account credentials in
- * config (these never leave this service — customers don't see them).
- *
- * The registry will respond with 401 + Bearer challenge for token-auth
- * mode, but our service uses the registry's catalog/manifest/blob v2 API
- * for management ops only — and for those, we follow the same flow
- * customers do: we construct a `management` identity in-process and mint
- * a token via `token-service`, and use it here.
- *
- * For simplicity, the management endpoints use a self-issued token that
- * carries `*` actions on all repos.
+ * The TLS agent every registry call shares. The registry answers 401 + Bearer
+ * challenge (token-auth mode), so management calls follow the same flow
+ * customers do: a `management` identity is constructed in-process and a token
+ * minted via `token-service`, scoped to exactly the repository + actions the
+ * call needs (see {@link authedClient}).
  */
-const client: AxiosInstance = axios.create({
-  baseURL,
-  timeout: REGISTRY_HTTP_TIMEOUT_MS,
-  // Self-signed registry support — same flag the existing api/plugin docker
-  // strategies use (`IMAGE_REGISTRY_INSECURE`).
-  httpsAgent: new Agent({ rejectUnauthorized: !config.registry.insecure }),
-});
+const registryHttpsAgent = new Agent({ rejectUnauthorized: !config.registry.insecure });
 
 /**
  * Stable cache key for a scope set. Sorting actions (and the scopes
@@ -176,7 +163,7 @@ async function authedClient(scopes: RegistryScope[] = []): Promise<AxiosInstance
   const instance = axios.create({
     baseURL,
     timeout: REGISTRY_HTTP_TIMEOUT_MS,
-    httpsAgent: client.defaults.httpsAgent,
+    httpsAgent: registryHttpsAgent,
     headers: { Authorization: `Bearer ${token}` },
   });
   authedClientCache.set(key, instance, tokenReuseWindowMs());

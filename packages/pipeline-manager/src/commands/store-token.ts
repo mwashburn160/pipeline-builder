@@ -20,7 +20,7 @@ import { createAuthenticatedClientAsync, printCommandHeader, printSslWarning, wi
 import { toEventBridgeCron } from '../utils/cron.js';
 import { ERROR_CODES, handleError } from '../utils/error-handler.js';
 import { printInfo, printKeyValue, printSection, printSuccess, printWarning } from '../utils/output-utils.js';
-import { ensurePlatformToken, scopeSecretLeaf, secretNameForOrg } from '../utils/platform-secret.js';
+import { ensurePlatformToken, scopeSecretLeaf, secretNameForOrg, siblingSecretName } from '../utils/platform-secret.js';
 import { provisionServiceAccountKey, revokeServiceAccountKey, type ProvisionedKey } from '../utils/service-account.js';
 
 // ESM has no __dirname; derive it from this module's URL.
@@ -400,6 +400,31 @@ export function storeToken(program: Command): void {
         const accountName = (options.account as string | undefined) ?? identity.account;
         const role = roleFor(identity);
         const keyScope = identity.keyScope;
+        const secretLeaf = scope ? scopeSecretLeaf(scope) : 'platform';
+        // An explicit PLATFORM_SECRET_NAME (the escape hatch for hand-managed
+        // paths) names the PLATFORM secret — the one this command tells the
+        // operator to export — so a scoped key goes to its sibling, never into
+        // it. Otherwise the path is derived from the org the platform reports,
+        // which works with an opaque access key as PLATFORM_TOKEN (a key carries
+        // no org claim to decode).
+        const explicitSecretName = process.env.PLATFORM_SECRET_NAME;
+        const secretNameFor = (orgId: string): string => (explicitSecretName
+          ? siblingSecretName(explicitSecretName, secretLeaf)
+          : secretNameForOrg(orgId, secretLeaf));
+
+        if (options.dryRun) {
+          // Dry run stays entirely OFFLINE — no login, no account, no key, no
+          // secret: it only reports what it would do.
+          printDryRunPlan({
+            serviceAccount: accountName,
+            roles: role ? SEED_BUNDLES[role].name : 'none (scoped key, least privilege)',
+            scope: keyScope ?? '(none — the account\'s Role is its authority)',
+            secretName: secretNameFor('<orgId>'),
+            region,
+            expiresInDays: days,
+          }, !!options.json);
+          return;
+        }
 
         // Step 0: log in first when creds are available and no PLATFORM_TOKEN is
         // set (shared with setup-events). Creds come from --identifier/--password
@@ -412,7 +437,7 @@ export function storeToken(program: Command): void {
         // required even when PLATFORM_TOKEN is already set. Say that plainly
         // rather than failing three calls later with a 403.
         const password = (options.password as string | undefined) || process.env.PLATFORM_PASSWORD;
-        if (!password && !options.dryRun) {
+        if (!password) {
           throw new Error(
             'A password is required: creating a service account and issuing its key are both step-up gated. '
             + 'Set PLATFORM_PASSWORD (preferred) or pass --password.',
@@ -422,20 +447,6 @@ export function storeToken(program: Command): void {
         printSection('Provision Service-Account Key');
 
         const client = await createAuthenticatedClientAsync(options);
-
-        if (options.dryRun) {
-          // Dry run stays entirely OFFLINE — it must not create an account or
-          // burn a key just to show what it would do.
-          printDryRunPlan({
-            serviceAccount: accountName,
-            roles: role ? SEED_BUNDLES[role].name : 'none (scoped key, least privilege)',
-            scope: keyScope ?? '(none — the account\'s Role is its authority)',
-            secretName: process.env.PLATFORM_SECRET_NAME || `${secretNameForOrg('<orgId>', scope ? scopeSecretLeaf(scope) : 'platform')}`,
-            region,
-            expiresInDays: days,
-          }, !!options.json);
-          return;
-        }
 
         const keyName = `${accountName}-${new Date().toISOString().slice(0, 10)}`;
         const provisioned = await provisionServiceAccountKey({
@@ -451,12 +462,7 @@ export function storeToken(program: Command): void {
 
         printSuccess(`Key issued on service account '${accountName}' (expires ${provisioned.expiresAt})`);
 
-        // An explicit PLATFORM_SECRET_NAME still wins (the escape hatch for
-        // hand-managed paths); otherwise derive it from the org the platform
-        // reported, which works with an opaque access key as PLATFORM_TOKEN —
-        // a key carries no org claim to decode.
-        const secretName = process.env.PLATFORM_SECRET_NAME
-          || secretNameForOrg(provisioned.organizationId, scope ? scopeSecretLeaf(scope) : 'platform');
+        const secretName = secretNameFor(provisioned.organizationId);
 
         auditLog('store-token', {
           executionId,
@@ -522,7 +528,9 @@ export function storeToken(program: Command): void {
           context: {
             command: 'store-token',
             executionId,
-            secretName: process.env.PLATFORM_SECRET_NAME || '(derived from the org)',
+            secretName: process.env.PLATFORM_SECRET_NAME
+              ? siblingSecretName(process.env.PLATFORM_SECRET_NAME, options.scope ? scopeSecretLeaf(String(options.scope)) : 'platform')
+              : '(derived from the org)',
           },
         });
       }

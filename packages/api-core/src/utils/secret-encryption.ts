@@ -39,6 +39,7 @@
  */
 
 import { createCipheriv, createDecipheriv, hkdfSync, randomBytes } from 'crypto';
+import { normalizeOrgId } from './identity.js';
 
 /** On-disk shape of an encrypted secret. JSON-serializable. */
 export interface EncryptedBlob {
@@ -110,6 +111,24 @@ export class EnvKeyProvider implements KeyProvider {
 }
 
 /**
+ * KMS-decrypt a base64 ciphertext into a 32-byte key. Shared by both KMS key
+ * providers (single-master + per-org). `@aws-sdk/client-kms` is
+ * dynamically imported so EnvKeyProvider-only envs never load the SDK.
+ */
+async function kmsDecrypt32(keyId: string, ciphertextB64: string, region?: string, endpoint?: string): Promise<Buffer> {
+  const { KMSClient, DecryptCommand } = await import('@aws-sdk/client-kms');
+  const client = new KMSClient({ region, ...(endpoint ? { endpoint } : {}) });
+  const resp = await client.send(new DecryptCommand({
+    KeyId: keyId,
+    CiphertextBlob: Buffer.from(ciphertextB64, 'base64'),
+  }));
+  if (!resp.Plaintext) throw new Error(`KMS Decrypt returned an empty Plaintext for key ${keyId}`);
+  const buf = Buffer.from(resp.Plaintext);
+  if (buf.length !== 32) throw new Error(`KMS Decrypt returned ${buf.length}-byte key for ${keyId}; expected 32`);
+  return buf;
+}
+
+/**
  *  AWS-KMS-backed KeyProvider.
  *
  * Trade-off picked: store ONE master key encrypted under a KMS CMK; on
@@ -128,7 +147,7 @@ export class EnvKeyProvider implements KeyProvider {
  * Operator setup:
  *   1. Create a KMS CMK whose key policy allows the service role `kms:Decrypt`.
  *      On the AWS targets `bin/setup.sh` / `template.yaml` grant that to the
- *      platform and plugin task roles when these vars are set.
+ *      platform and plugin IAM roles when these vars are set.
  *   2. Generate a 32-byte master:  head -c 32 /dev/urandom | base64
  *   3. Wrap it:  aws kms encrypt --key-id <KEY_ID> --plaintext <base64-from-2> \
  *                  --output text --query CiphertextBlob
@@ -149,24 +168,6 @@ export class EnvKeyProvider implements KeyProvider {
  * The AWS SDK is imported lazily, so installs that stay on `EnvKeyProvider`
  * never pay its cold-start cost.
  */
-/**
- * KMS-decrypt a base64 ciphertext into a 32-byte key. Shared by both KMS key
- * providers (single-master + per-org). `@aws-sdk/client-kms` is
- * dynamically imported so EnvKeyProvider-only envs never load the SDK.
- */
-async function kmsDecrypt32(keyId: string, ciphertextB64: string, region?: string, endpoint?: string): Promise<Buffer> {
-  const { KMSClient, DecryptCommand } = await import('@aws-sdk/client-kms');
-  const client = new KMSClient({ region, ...(endpoint ? { endpoint } : {}) });
-  const resp = await client.send(new DecryptCommand({
-    KeyId: keyId,
-    CiphertextBlob: Buffer.from(ciphertextB64, 'base64'),
-  }));
-  if (!resp.Plaintext) throw new Error(`KMS Decrypt returned an empty Plaintext for key ${keyId}`);
-  const buf = Buffer.from(resp.Plaintext);
-  if (buf.length !== 32) throw new Error(`KMS Decrypt returned ${buf.length}-byte key for ${keyId}; expected 32`);
-  return buf;
-}
-
 export class KmsKeyProvider implements KeyProvider {
   private masterKeyCache: Buffer | null = null;
   private readonly keyId: string;
@@ -246,7 +247,7 @@ export function getDefaultKeyProvider(): KeyProvider {
  * or null when that env is unset. `undefined` = not yet resolved. While a
  * master-key rotation is in progress, `decryptSecret` retries a failed decrypt
  * under this key, so rows written under the old master stay readable until the
- * re-encryption tool (platform `scripts/reencrypt-secrets.js`) has rewritten
+ * re-encryption tool (platform's `reencrypt-secrets` script) has rewritten
  * them under the new one. Encryption NEVER uses it.
  */
 let previousProvider: KeyProvider | null | undefined;
@@ -504,6 +505,7 @@ export class PerOrgKmsKeyProvider implements KeyProvider {
   /** Evict a cached per-org master. Use after a key rotation so the next
    *  touch re-fetches the new wrapped master from the resolver. */
   evict(orgId: string): void {
+    orgId = keyScope(orgId);
     this.masters.delete(orgId);
     this.configs.delete(orgId);
     // Also forget a NEGATIVE resolution, or an org that gains a per-org config
@@ -525,6 +527,18 @@ async function deriveKeyFor(provider: KeyProvider, orgId: string): Promise<Buffe
 }
 
 /**
+ * The scope a secret's key is derived for: the org id trimmed and lower-cased.
+ * It is the HKDF salt, so `ABC…` and `abc…` would otherwise derive different
+ * keys and a secret written under one casing could not be read under the
+ * other. Normalised here, the single entry point, so no caller can get it
+ * wrong. Every scope in use (ObjectId hex, the system org, `user:<id>`,
+ * `saml-sp-keys`) was already lower-case, so existing blobs are unaffected.
+ */
+function keyScope(orgId: string): string {
+  return normalizeOrgId(orgId) ?? orgId;
+}
+
+/**
  * Encrypt a plaintext string for storage. Returns an `EncryptedBlob` that
  * can be JSON-serialized into the underlying column / Mongo document.
  *
@@ -538,9 +552,10 @@ export async function encryptSecret( plaintext: string,
   if (!plaintext) {
     throw new Error('Refusing to encrypt empty string; caller should store null instead');
   }
+  const scope = keyScope(orgId);
   // Resolve (and warm) the org BEFORE reading `kidFor` below, so a per-org KMS
   // blob is always stamped with the key it was actually encrypted under.
-  const key = await deriveKeyFor(provider, orgId);
+  const key = await deriveKeyFor(provider, scope);
   const iv = randomBytes(12);
   const cipher = createCipheriv('aes-256-gcm', key, iv);
   const enc = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
@@ -549,7 +564,7 @@ export async function encryptSecret( plaintext: string,
   // decrypt path can refuse to operate if the operator later swaps in a
   // different per-org config (a misconfigured swap shouldn't silently
   // accept a stale blob it can't verify against the right CMK).
-  const kid = provider.kidFor?.(orgId);
+  const kid = provider.kidFor?.(scope);
   return {
     alg: 'aes-256-gcm-v1',
     iv: iv.toString('base64'),
@@ -579,14 +594,15 @@ export async function decryptSecret( blob: EncryptedBlob,
   if (blob.alg !== 'aes-256-gcm-v1') {
     throw new Error(`Unsupported encryption alg: ${blob.alg}`);
   }
+  const scope = keyScope(orgId);
   // Warm first: `kidFor` and `deriveKey` below must both speak for the org's
   // real config, or the mismatch guard silently no-ops.
-  const key = await deriveKeyFor(provider, orgId);
+  const key = await deriveKeyFor(provider, scope);
   // If both the provider AND the blob report a kid, they must match.
   // Mismatch usually means an operator rotated/replaced an org's KMS
   // config and is now reading a blob encrypted under the OLD key —
   // failing loud here beats letting AES-GCM throw an opaque auth-tag error.
-  const providerKid = provider.kidFor?.(orgId);
+  const providerKid = provider.kidFor?.(scope);
   if (providerKid !== undefined && blob.kid !== undefined && providerKid !== blob.kid) {
     throw new Error(`KMS key id mismatch: blob was encrypted under ${blob.kid}, current provider uses ${providerKid} for org ${orgId}`);
   }
@@ -600,7 +616,7 @@ export async function decryptSecret( blob: EncryptedBlob,
     // wrong-org blob still fails loud exactly as before.
     if (previous && blob.kid === undefined) {
       try {
-        return decryptWithKey(blob, await deriveKeyFor(previous, orgId));
+        return decryptWithKey(blob, await deriveKeyFor(previous, scope));
       } catch { /* fall through to the primary error */ }
     }
     throw err;
@@ -614,9 +630,13 @@ function decryptWithKey(blob: EncryptedBlob, key: Buffer): string {
   // Split off the 16-byte auth tag appended in encryptSecret. Any tampering
   //  to either the ciphertext OR the tag  causes the next `final()` to
   // throw with "Unsupported state or unable to authenticate data".
+  // `authTagLength` pins the tag at 16 bytes: without it GCM accepts a tag as
+  // short as 4 bytes, and a ciphertext field under 16 bytes would make the
+  // `subarray` below hand it exactly such a truncated (forgeable) tag.
+  if (all.length < 16) throw new Error('Encrypted secret is truncated (no authentication tag)');
   const tag = all.subarray(all.length - 16);
   const enc = all.subarray(0, all.length - 16);
-  const decipher = createDecipheriv('aes-256-gcm', key, iv);
+  const decipher = createDecipheriv('aes-256-gcm', key, iv, { authTagLength: 16 });
   decipher.setAuthTag(tag);
   const dec = Buffer.concat([decipher.update(enc), decipher.final()]);
   return dec.toString('utf8');

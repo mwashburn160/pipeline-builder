@@ -16,7 +16,7 @@ import { reconcileDiscountsOnInvoice } from './discount-helpers.js';
 import { syncEntitlements } from './entitlement-sync.js';
 import { grantRecurringPromotions, qualifyReferral } from './promotion-engine.js';
 import { findSubscriptionByStripeId, invoiceSubscriptionId, type StripeEventMeta } from './stripe-helpers.js';
-import { acceptStripeEvent, grantOnBecomingEntitled } from './stripe-subscription-handlers.js';
+import { acceptStripeEvent, awaitsLocalRow, grantOnBecomingEntitled } from './stripe-subscription-handlers.js';
 import { MANAGEABLE_SUBSCRIPTION_STATUSES } from './subscription-status.js';
 import { config } from '../config.js';
 import { Plan, type PlanDocument } from '../models/plan.js';
@@ -54,6 +54,17 @@ export async function handleInvoiceUpcoming(invoice: Stripe.Invoice): Promise<vo
 }
 
 /**
+ * The subscription metadata an invoice carries: the snapshot Stripe stamps on
+ * `parent.subscription_details`, else the expanded subscription's own.
+ */
+function invoiceSubscriptionMetadata(invoice: Stripe.Invoice): Stripe.Metadata | null {
+  const details = invoice.parent?.subscription_details;
+  if (details?.metadata) return details.metadata;
+  const sub = details?.subscription;
+  return sub && typeof sub === 'object' ? sub.metadata : null;
+}
+
+/**
  * Handle successful invoice payment from Stripe.
  * Confirms the subscription is active, resets grace period state, and updates the billing period.
  */
@@ -66,6 +77,15 @@ export async function handlePaymentSucceeded(invoice: Stripe.Invoice, event: Str
 
   const subscription = await findSubscriptionByStripeId(stripeSubscriptionId);
   if (!subscription) {
+    // A first invoice can settle BEFORE its row exists: inside an in-app
+    // create's bind (row reserved, Stripe id not saved yet), or before a
+    // Checkout sub's `.created` provisioned it. Answering 200 there dropped the
+    // payment for good — nothing else re-applies the period, the settle or the
+    // ledger row. Throw so the webhook 500s and Stripe redelivers once the row
+    // is bound. A sub that will never have a row keeps the warn-and-ack below.
+    if (await awaitsLocalRow(invoiceSubscriptionMetadata(invoice), event)) {
+      throw new Error(`Stripe subscription ${stripeSubscriptionId} has no local row yet (still binding); retry`);
+    }
     logger.warn('No subscription found for successful payment', { stripeSubscriptionId });
     return;
   }

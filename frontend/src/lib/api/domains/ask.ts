@@ -3,6 +3,7 @@
 
 import type { ApiCore } from '../core';
 import type { ApiResponse } from '@/types';
+import { boundAskHistory } from '@/lib/ask-history';
 
 /** A documentation source the "Ask" answer was grounded in. */
 export interface AskSource {
@@ -101,7 +102,7 @@ export function askApi(core: ApiCore) {
         ...(opts.provider ? { provider: opts.provider } : {}),
         ...(opts.model ? { model: opts.model } : {}),
         ...(opts.apiKey ? { apiKey: opts.apiKey } : {}),
-        ...(opts.history ? { history: opts.history } : {}),
+        ...(opts.history ? { history: boundAskHistory(opts.history) } : {}),
         ...(opts.repoToken ? { repoToken: opts.repoToken } : {}),
       });
     },

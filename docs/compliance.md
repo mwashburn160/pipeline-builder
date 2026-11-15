@@ -169,9 +169,10 @@ Exemptions waive a specific rule for a specific entity, with an approval workflo
 | `POST` | `/compliance/exemptions` | Request an exemption for a rule + entity |
 | `POST` | `/compliance/exemptions/bulk` | Request exemptions for multiple entities |
 | `PUT` | `/compliance/exemptions/:id/review` | Approve or reject an exemption |
+| `PUT` | `/compliance/exemptions/:id/expiry` | Extend an approved exemption's `expiresAt` before it lapses |
 | `DELETE` | `/compliance/exemptions/:id` | Revoke an exemption |
 
-An approved exemption with an `expiresAt` stops applying the moment it passes. A daily sweep then records that: the row moves to `expired` (audited as `compliance.exemption.expire`), so the Expired filter and the status badge say what enforcement already does. `COMPLIANCE_EXEMPTION_EXPIRY_WARN_DAYS` (default 7) before it lapses, the org gets one in-app notice listing what is about to expire.
+A request whose `expiresAt` is already past is refused (400). An approved exemption with an `expiresAt` stops applying the moment it passes. A daily sweep then records that: the row moves to `expired` (audited as `compliance.exemption.expire`), so the Expired filter and the status badge say what enforcement already does. `COMPLIANCE_EXEMPTION_EXPIRY_WARN_DAYS` (default 7) before it lapses, the org gets one in-app notice listing what is about to expire. To renew one before it lapses, extend it: `PUT /compliance/exemptions/:id/expiry` with `{ expiresAt }` (in the future and later than the current expiry) — `compliance:write`, and like approval the requester cannot extend their own. It is audited as `compliance.exemption.approve` with `details.extension: true` and `previousExpiresAt`, and re-arms the lapse notice. A lapsed exemption cannot be extended; request it again.
 
 ### Templates & Audit
 

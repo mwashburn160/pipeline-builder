@@ -19,6 +19,20 @@
  *  - `current` doubles as the re-read baseline the UI checks before applying,
  *    because none of these tables carries a version column.
  *
+ * SECRETS. The model never sees a secret value: every tool result reaches it
+ * through `redactForModel`, so the `props` it hands back carry `[REDACTED:<tag>]`
+ * placeholders where the secrets were. Before anything is diffed, the edit
+ * restores the real values from its own re-read (`restoreSecrets`), so applying
+ * the draft never writes a placeholder over a real secret. Then the safer rule:
+ *
+ *  - a placeholder that matches no current secret DECLINES the edit (it cannot
+ *    be restored, and must never be persisted);
+ *  - a model-written value where a DIFFERENT secret already lives DECLINES the
+ *    edit — the assistant cannot change a secret; the user does that in the
+ *    editor, where they can see what they are replacing;
+ *  - a model-written value at a secret position that held nothing (a new env
+ *    entry) is drafted, and listed in `addedSecrets` for the reviewer.
+ *
  * Each tool has its OWN allowlist of editable fields. The plugin
  * one is not written out here at all — it IS `PLUGIN_CATALOG_FIELDS`, the same
  * table `PUT /plugins/:id` accepts, so the agent can never be offered an
@@ -36,6 +50,7 @@ import { z } from 'zod';
 import { checkDraft, pipelineAttributes, pluginAttributes } from './compliance.js';
 import type { CommitTarget, DeclinedProposal, EditProposal } from '../proposals.js';
 import { ASK_PROVENANCE, declined } from '../proposals.js';
+import { restoreSecrets } from '../secret-redaction.js';
 import type { AgentToolDeps } from '../tool-deps.js';
 import { ResourceId } from '../tool-deps.js';
 import { asRecord, buildDiff, settle, unwrap } from '../tool-helpers.js';
@@ -90,8 +105,24 @@ export function editTools(deps: AgentToolDeps): ToolSet {
     const read = await settle(opts.read);
     if (!read.ok) return declined(opts.kind, `Could not read the current ${opts.kind.replace('-edit', '')}: ${read.reason}`);
     const current = read.value;
+    const noun = opts.kind.replace('-edit', '');
 
-    const diff = buildDiff(current, opts.changes, opts.allowed);
+    // Put the real secrets back where the model left placeholders — before the
+    // diff, so an untouched secret is not a change and a placeholder is never
+    // proposed (let alone applied) in its place.
+    const secrets = restoreSecrets(opts.changes, current);
+    if (secrets.unknownPlaceholders.length > 0) {
+      return declined(opts.kind,
+        `The change carries a redacted secret value that matches nothing in the current ${noun} (${secrets.unknownPlaceholders.join(', ')}). `
+        + `Secret values are never shown to the assistant: keep each [REDACTED:…] placeholder exactly as the ${noun} was read, or read it again first.`);
+    }
+    if (secrets.overwrittenSecrets.length > 0) {
+      return declined(opts.kind,
+        `Secret values cannot be changed through the assistant (${secrets.overwrittenSecrets.join(', ')}). `
+        + `Leave each [REDACTED:…] placeholder as it was read; the user changes a secret in the ${noun} editor.`);
+    }
+
+    const diff = buildDiff(current, secrets.value as Record<string, unknown>, opts.allowed);
     if (diff.refusedFields.length > 0) onRefusedFields(opts.toolName, diff.refusedFields);
 
     if (diff.changedFields.length === 0) {
@@ -112,6 +143,7 @@ export function editTools(deps: AgentToolDeps): ToolSet {
       commit: opts.commit,
       description: opts.reason,
       refusedFields: diff.refusedFields,
+      ...(secrets.addedSecrets.length > 0 ? { addedSecrets: secrets.addedSecrets } : {}),
       provenance: ASK_PROVENANCE,
     };
   }
@@ -122,8 +154,9 @@ export function editTools(deps: AgentToolDeps): ToolSet {
         'Propose a CHANGE to an existing pipeline — add a stage, change a step, rename it, adjust its '
         + 'description or keywords. Read it with inspect_pipeline FIRST, then pass only the fields you are '
         + 'changing, each with its COMPLETE new value (a changed `props` must be the whole props document, not '
-        + 'a fragment). Returns a reviewable before/after diff; nothing is changed until the user applies it. '
-        + `Editable fields: ${PIPELINE_EDIT_FIELDS.join(', ')}.`,
+        + 'a fragment). Secret values read as [REDACTED:…] placeholders: keep each one exactly as read — they '
+        + 'are restored on apply, and a secret cannot be changed here. Returns a reviewable before/after diff; '
+        + `nothing is changed until the user applies it. Editable fields: ${PIPELINE_EDIT_FIELDS.join(', ')}.`,
       inputSchema: z.object({
         id: ResourceId.describe('The pipeline id'),
         changes: ChangesSchema,

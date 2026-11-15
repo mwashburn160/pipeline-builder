@@ -33,7 +33,7 @@ import { Router } from 'express';
 
 import { requireAskAccess } from '../authz.js';
 import { AskBodySchema } from '../request-schema.js';
-import { askQuotaDetail, errorSaysProviderContacted, servedByOf, type AskQuotaDetail } from './ask.js';
+import { askQuotaDetail, servedByOf, type AskQuotaDetail } from './ask.js';
 import { buildAgentTools } from '../services/agent-tools.js';
 import { addTokens, NO_TOKENS, recordAi, recordAiTokens, type TurnTokens } from '../services/ai-metrics.js';
 import { getDocsIndex } from '../services/docs-index.js';
@@ -123,7 +123,7 @@ const AGENT_SYSTEM = [
  * repository analysis from the AI-free `/pipelines/analyze/from-url`, so it
  * draws exactly one beyond the turn. `propose_template` generates in-process
  * and settles its own slot per invocation (see `chargeAiCall`): kept once its
- * provider responded, refunded otherwise, its tokens on this turn's audit row.
+ * request was sent, refunded otherwise, its tokens on this turn's audit row.
  * Every model call is capped at ASK_MAX_OUTPUT_TOKENS, and one turn may START at
  * most ASK_MAX_TURN_GENERATIONS charged generations (`generations`): the step
  * bound alone does not cap them, because one step can call several tools.
@@ -154,15 +154,14 @@ export function createAgentRoutes(quotaService: QuotaService): Router {
     }
     const { query, provider, model, apiKey, history, repoToken } = parsed.value;
 
-    // Service-minted header for the quota reserve/refund (the quota /increment
-    // endpoint rejects user principals) — distinct from the user token above.
-    // The provider actually RESPONDED once the SDK emits a 'start-step' part.
-    // The ai SDK emits 'start' synchronously before any provider call, and
-    // 'start-step' only on the first chunk of the provider's response stream; a
-    // provider failure before that (bad key, 5xx, network) surfaces as a bare
-    // 'error' part with no 'start-step'. Keep the slot once contacted (its $ cost
-    // was incurred); refund otherwise.
-    let providerContacted = false;
+    // The provider actually RESPONDED once the SDK emits a 'start-step' part (the
+    // ai SDK emits 'start' synchronously before any provider call, and
+    // 'start-step' only on the first chunk of the provider's response stream).
+    // That gates FAILOVER only. The turn's slot is consumed earlier, when the
+    // request is SENT (just before `streamText`): an abort, a timeout or a
+    // provider error after the send keeps it, because the provider bills what it
+    // processed; only a failure before the send is refunded.
+    let providerResponded = false;
 
     // Audit trail (safe metadata only — never the raw query text): what tools the
     // agent used, which drafts it proposed, and the outcome. Declared out here so the
@@ -267,13 +266,16 @@ export function createAgentRoutes(quotaService: QuotaService): Router {
         // Delegated generators get the RESOLVED provider/model (they require both),
         // plus the caller's own key out-of-band — never in the model's context.
         defaults: { provider: selection.provider, model: selection.modelId, apiKey, repoToken },
-        // Authenticated org — injected into tenant-scoping tool inputs so the
-        // model can't target another tenant (prompt-injection defense).
+        // The authenticated org, for tool inputs that name it — so a draft never
+        // carries a model-chosen org. Tenancy is enforced downstream by the
+        // caller's forwarded token, not by this value.
         orgId,
+        // Its display name (verified token), for naming a drafted pipeline.
+        ...(req.user?.organizationName ? { orgName: req.user.organizationName } : {}),
         // An in-process generating tool pays its OWN aiCalls slot (the turn's slot
         // covers the agent's reasoning only), on the turn's model — waived exactly
         // when the turn's is. The handle settles by the same rule as every slot:
-        // kept once the tool's provider responded, refunded otherwise.
+        // kept once the tool's request was sent, refunded otherwise.
         chargeAiCall: async (toolName, promptVersion) => {
           const reserved = await reserveAiCallSlot({ quotaService, orgId, serviceName: 'ask', logWarn, req, feature: `agent-tool:${toolName}` }, selection);
           if (reserved.status === 'denied') return null;
@@ -290,7 +292,7 @@ export function createAgentRoutes(quotaService: QuotaService): Router {
             settle: (toolUsage) => {
               if (settled) return;
               settled = true;
-              // A no-op once the provider responded (QuotaSlot.refund).
+              // A no-op once the request was sent (QuotaSlot.refund).
               toolSlot.refund();
               const tokens = toolUsage ?? { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0 };
               toolSlot.reportUsage(tokens);
@@ -342,6 +344,8 @@ export function createAgentRoutes(quotaService: QuotaService): Router {
           served = sel;
           // One event per attempt, so a failover is visible on the trace.
           span.addEvent('model-attempt', { provider: sel.provider, model: sel.modelId });
+          // The request is sent by `streamText`: the slot is spent from here on.
+          slot.markConsumed();
           const stream = streamText({
             model: sel.model,
             // Static instructions, marked cacheable — with the tool definitions
@@ -357,7 +361,7 @@ export function createAgentRoutes(quotaService: QuotaService): Router {
           });
 
           for await (const part of stream.fullStream) {
-            if (part.type === 'start-step') { providerContacted = true; slot.markConsumed(); }
+            if (part.type === 'start-step') providerResponded = true;
             if (part.type === 'finish-step') stepTokens = addTokens(stepTokens, tokenUsage(part.usage));
             if (part.type === 'finish') usage = part.totalUsage;
             if (abortSignal.aborted) break;
@@ -392,7 +396,7 @@ export function createAgentRoutes(quotaService: QuotaService): Router {
                 break;
             }
           }
-        }, { contacted: () => providerContacted, onFailover: (from, to) => ctx.log('WARN', 'Ask agent turn failed over', { from, to }) });
+        }, { contacted: () => providerResponded, onFailover: (from, to) => ctx.log('WARN', 'Ask agent turn failed over', { from, to }) });
       }, { 'pb.provider': selection.provider });
 
       if (!abortSignal.aborted) {
@@ -411,11 +415,11 @@ export function createAgentRoutes(quotaService: QuotaService): Router {
         recordAi('agent', { provider: served?.provider, model: served?.modelId }, 'success', startedAt);
         auditTurn('success', true);
       } else {
-        // A no-op once the provider responded: an abort after its first response
-        // chunk still cost us the call (QuotaSlot.refund never gives that back).
+        // A no-op once the request was sent: an abort after the send still cost
+        // us the call (QuotaSlot.refund never gives that back).
         slot.refund();
         recordAi('agent', { provider: served?.provider, model: served?.modelId }, 'aborted', startedAt);
-        auditTurn('failure', providerContacted); // client aborted mid-turn
+        auditTurn('failure', slot.isConsumed()); // client aborted mid-turn
       }
       // Token accounting: the stream's own 'finish' total, or — on an abort —
       // the sum of the steps that completed.
@@ -428,7 +432,7 @@ export function createAgentRoutes(quotaService: QuotaService): Router {
       recordAiTokens('agent', { provider: served?.provider, keySource: served?.keySource, tier: req.user?.tier }, turnTokens());
       aiSlot?.reportUsage(turnTokens());
       recordAi('agent', { provider: served?.provider, model: served?.modelId }, 'error', startedAt);
-      auditTurn('failure', providerContacted || errorSaysProviderContacted(error));
+      auditTurn('failure', aiSlot?.isConsumed() ?? false);
       sendAskFailure(res, error, 'The assistant failed to respond', served?.provider);
     });
   }));

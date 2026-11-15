@@ -15,7 +15,7 @@ import { applyAwsProfile, resolveAwsRegion } from '../utils/aws-env.js';
 import { printCommandHeader, withProfileOption, withRegionOption } from '../utils/command-utils.js';
 import { ERROR_CODES, handleError } from '../utils/error-handler.js';
 import { printError, printInfo, printKeyValue, printSection, printSuccess } from '../utils/output-utils.js';
-import { resolvePlatformSecretName } from '../utils/platform-secret.js';
+import { resolvePlatformSecretName, scopeSecretLeaf, siblingSecretName } from '../utils/platform-secret.js';
 
 // ESM has no __dirname; derive it from this module's URL.
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -75,7 +75,7 @@ export function setupEvents(program: Command): void {
         // it with `store-token --scope reporting:ingest`.
         let secretName = await resolvePlatformSecretName(options);
         if (options.scopedIngest) {
-          secretName = secretName.replace(/\/platform$/, '/reporting-ingest');
+          secretName = siblingSecretName(secretName, scopeSecretLeaf('reporting:ingest'));
         }
 
         // Recorded before the deploy (as store-token does before its write): the

@@ -132,6 +132,12 @@ jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({
   getBillingTimeout: () => 5000,
 }));
 
+// Re-driven by the pending provider credit-debit reconciler.
+const mockRetryPendingCreditDebits = jest.fn<(...args: unknown[]) => Promise<number>>().mockResolvedValue(0);
+jest.unstable_mockModule('../src/helpers/credit-debits.js', () => ({
+  retryPendingCreditDebits: (...args: unknown[]) => mockRetryPendingCreditDebits(...args),
+}));
+
 // Re-driven by the provider add-on sync reconciler.
 jest.unstable_mockModule('../src/helpers/addon-prune.js', () => ({
   syncProviderAddons: (...args: unknown[]) => mockSyncProviderAddons(...args),
@@ -775,6 +781,31 @@ describe('Subscription Lifecycle Checker', () => {
       await new Promise(resolve => setTimeout(resolve, 100));
 
       expect(mockSyncProviderAddons).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('pending provider credit-debit reconciliation', () => {
+    it('re-posts the queued debits of every subscription that still owes one, whatever its status', async () => {
+      const owing = { _id: { toString: () => 'sub-c' }, orgId: 'org-c', status: 'canceled', pendingCreditDebits: [{ key: 'k1', cents: 500 }] };
+      mockFind.mockImplementation(async (q: any) => (q?.['pendingCreditDebits.0'] ? [owing] : []));
+
+      startSubscriptionLifecycleChecker();
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      expect(mockFind).toHaveBeenCalledWith({ 'pendingCreditDebits.0': { $exists: true } });
+      expect(mockRetryPendingCreditDebits).toHaveBeenCalledWith(owing);
+    });
+
+    it('a failing row does not abort the pass', async () => {
+      const a = { _id: { toString: () => 'a' }, orgId: 'org-a', pendingCreditDebits: [{ key: 'ka', cents: 1 }] };
+      const b = { _id: { toString: () => 'b' }, orgId: 'org-b', pendingCreditDebits: [{ key: 'kb', cents: 1 }] };
+      mockFind.mockImplementation(async (q: any) => (q?.['pendingCreditDebits.0'] ? [a, b] : []));
+      mockRetryPendingCreditDebits.mockRejectedValueOnce(new Error('boom'));
+
+      startSubscriptionLifecycleChecker();
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      expect(mockRetryPendingCreditDebits).toHaveBeenCalledWith(b);
     });
   });
 

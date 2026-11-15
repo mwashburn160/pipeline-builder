@@ -10,7 +10,9 @@
  *     remediation tools in particular never POST to the approval queues they
  *     propose into;
  *  2. a model-supplied org (however it is spelled) is ignored in favour of the
- *     AUTHENTICATED one from `AgentToolDeps`.
+ *     AUTHENTICATED one from `AgentToolDeps` — so a draft never carries a
+ *     model-chosen org. (Tenancy itself is enforced downstream: every forwarded
+ *     call rides the caller's own token.)
  *
  * Plus, per tool: the shape it returns (the contract with the Ask panel), the
  * allowlist it enforces, and the facts it deliberately does NOT put into the
@@ -186,9 +188,9 @@ describe('diagnosis — inspect_pipeline_run', () => {
         return {
           data: {
             executions: [
-              { executionId: 'e1', status: 'failed', failingStage: 'Test', failingAction: 'unit', durationMs: 10 },
-              { executionId: 'e2', status: 'failed', failingStage: 'Test', failingAction: 'lint' },
-              { executionId: 'e3', status: 'succeeded' },
+              { execution_id: 'e1', status: 'failed', failing_stage: 'Test', failing_action: 'unit', duration_ms: 10 },
+              { execution_id: 'e2', status: 'failed', failing_stage: 'Test', failing_action: 'unit' },
+              { execution_id: 'e3', status: 'succeeded' },
             ],
           },
         };
@@ -198,14 +200,15 @@ describe('diagnosis — inspect_pipeline_run', () => {
     });
     const out = await call('inspect_pipeline_run', { pipelineId: 'p1' });
     expect(reporting.get).toHaveBeenCalledWith('/reports/execution/list?pipelineId=p1&limit=10');
-    expect(out.summary).toEqual({ read: 3, failed: 2, mostCommonFailingStage: 'Test', mostCommonFailingAction: expect.any(String) });
+    expect(out.summary).toEqual({ read: 3, failed: 2, mostCommonFailingStage: 'Test', mostCommonFailingAction: 'unit' });
+    expect(out.executions).toEqual(expect.arrayContaining([expect.objectContaining({ executionId: 'e1', failingStage: 'Test', durationMs: 10 })]));
     expect(postedPaths()).toEqual([]);
   });
 
   it('narrows to one execution when the user named it', async () => {
-    reporting.get.mockResolvedValue({ data: { executions: [{ executionId: 'e1', status: 'failed' }, { executionId: 'e2', status: 'failed' }] } });
+    reporting.get.mockResolvedValue({ data: { executions: [{ execution_id: 'e1', status: 'failed' }, { execution_id: 'e2', status: 'failed' }] } });
     const out = await call('inspect_pipeline_run', { pipelineId: 'p1', executionId: 'e2' });
-    expect(out.executions).toHaveLength(1);
+    expect(out.executions).toEqual([expect.objectContaining({ executionId: 'e2' })]);
   });
 
   it('reports the history as unavailable instead of failing the turn', async () => {
@@ -599,17 +602,33 @@ describe('create proposals', () => {
     expect(plugin.post).not.toHaveBeenCalled();
   });
 
-  it('propose_pipeline_from_template injects the AUTHENTICATED org, not a model-supplied one', async () => {
-    pipeline.post.mockResolvedValue({ data: { props: { project: 'p', organization: 'o', synth: {} }, description: 'from template' } });
-    const out = await call('propose_pipeline_from_template', {
+  it('propose_pipeline_from_template names the pipeline after the org\'s display NAME, never its id or a model-supplied org', async () => {
+    pipeline.post.mockResolvedValue({ data: { props: { project: 'p', organization: 'acme-corp', synth: {} }, description: 'from template' } });
+    const out = await makeTools({ orgName: 'Acme Corp!' }).propose_pipeline_from_template.execute({
       templateId: 't1', project: 'p', organization: 'attacker-org', inputs: { region: 'us-east-1' },
-    });
+    }, {});
+    // `organization` is the stack-name segment (`{project}-{organization}`), not the
+    // tenant id: tenancy rides the caller's forwarded token.
     expect(pipeline.post).toHaveBeenCalledWith('/pipeline-templates/t1/instantiate', {
-      project: 'p', organization: 'o', inputs: { region: 'us-east-1' },
+      project: 'p', organization: 'acme-corp', inputs: { region: 'us-east-1' },
     });
     expect(out).toMatchObject({ kind: 'pipeline', description: 'from template' });
     expect(postedPaths()).not.toContain('/pipelines');
   });
+
+  it('propose_pipeline_from_template falls back to the project slug when the token carries no org name', async () => {
+    pipeline.post.mockResolvedValue({ data: { props: { project: 'My App', synth: {} } } });
+    await call('propose_pipeline_from_template', { templateId: 't1', project: 'My App' });
+    expect(pipeline.post).toHaveBeenCalledWith('/pipeline-templates/t1/instantiate', { project: 'My App', organization: 'my-app' });
+  });
+
+  it('never uses the org id as the organization segment, even when the token\'s name IS the id', async () => {
+    pipeline.post.mockResolvedValue({ data: { props: {} } });
+    await makeTools({ orgId: '0f8fad5b-d9cb-469f-a165-70867728950e', orgName: '0f8fad5b-d9cb-469f-a165-70867728950e' })
+      .propose_pipeline_from_template.execute({ templateId: 't1', project: 'svc' }, {});
+    expect(pipeline.post).toHaveBeenCalledWith('/pipeline-templates/t1/instantiate', { project: 'svc', organization: 'svc' });
+  });
+
   it('a delegated generation runs with the GENERATION timeout and is counted for the turn', async () => {
     pipeline.post.mockResolvedValue({ data: { props: { project: 'p' } } });
     await call('propose_pipeline', { prompt: 'ci' });
@@ -664,18 +683,34 @@ describe('propose_template — in-process generation, validated like the create 
     expect(chargeAiCall).toHaveBeenCalledWith('propose_template', 'ask-template@2');
     expect(mockStreamText).toHaveBeenCalledWith(expect.objectContaining({ maxOutputTokens: 512, model: { id: 'm' } }));
     expect(out).toMatchObject({ kind: 'template', validation: { valid: true, problems: [], declaredInputs: ['NAME'], referencedVariables: ['NAME'] } });
-    // Provider contact marks the slot consumed; the settle carries the tokens.
+    // The send marks the slot consumed; the settle carries the tokens.
     expect(charge.markConsumed).toHaveBeenCalledTimes(1);
     expect(charge.settle).toHaveBeenCalledWith({ inputTokens: 100, outputTokens: 20, cachedInputTokens: 0 });
     expect(pipeline.post).not.toHaveBeenCalled();
   });
 
-  it('a provider failure BEFORE any response settles WITHOUT consuming (the slot is refunded)', async () => {
+  it('marks the slot consumed as the request is SENT — before the provider is called', async () => {
+    templateStream({ name: 't', props: {}, inputs: [] });
+    await call('propose_template', { prompt: 'x' });
+    expect(charge.markConsumed.mock.invocationCallOrder[0]).toBeLessThan(mockStreamText.mock.invocationCallOrder[0] ?? 0);
+  });
+
+  it('a provider failure after the send, before any response, KEEPS the slot (consumed), still settled', async () => {
     templateStream(undefined, { respond: false, error: new Error('503 overloaded') });
     await expect(call('propose_template', { prompt: 'x' })).rejects.toThrow('503 overloaded');
-    expect(charge.markConsumed).not.toHaveBeenCalled();
+    expect(charge.markConsumed).toHaveBeenCalledTimes(1);
     expect(charge.settle).toHaveBeenCalledTimes(1);
     expect(charge.settle).toHaveBeenCalledWith(undefined);
+  });
+
+  it.each([
+    ['an abort', Object.assign(new Error('aborted'), { name: 'AbortError' })],
+    ['a timeout', Object.assign(new Error('timed out'), { name: 'TimeoutError' })],
+  ])('%s after the send, before any response, keeps the slot (consumed)', async (_label, error) => {
+    templateStream(undefined, { respond: false, error });
+    await expect(call('propose_template', { prompt: 'x' })).rejects.toThrow(error.message);
+    expect(charge.markConsumed).toHaveBeenCalledTimes(1);
+    expect(charge.settle).toHaveBeenCalledTimes(1);
   });
 
   it('an abort AFTER the provider responded keeps the slot (consumed), still settled', async () => {
@@ -789,6 +824,112 @@ describe('edit — propose_pipeline_edit', () => {
     pipeline.get.mockRejectedValue(new Error('GET /pipelines/p1 -> 404'));
     const out = await call('propose_pipeline_edit', { id: 'p1', changes: { pipelineName: 'x' } });
     expect(out).toMatchObject({ kind: 'pipeline-edit', error: expect.stringContaining('404') });
+  });
+});
+
+describe('secrets never reach the model, and an edit never persists a placeholder', () => {
+  const SECRET_TOKEN = 'ghp_realSourceToken0123456789abcdef';
+  const SECRET_ENV = 's3cr3t-deploy-key';
+  const stored = () => ({
+    id: 'p1',
+    pipelineName: 'api',
+    props: {
+      project: 'p',
+      synth: { source: { type: 'github', options: { repo: 'o/r', token: SECRET_TOKEN } }, env: { DEPLOY_KEY: SECRET_ENV, EMPTY: '' } },
+      stages: [{ stageName: 'build', steps: [{ plugin: { name: 'node' }, env: { NPM_TOKEN: 'npm_tok_value' } }] }],
+    },
+  });
+  type ModelOutput = { type: string; value: unknown };
+  const toModel = (name: string, output: unknown): ModelOutput =>
+    (makeTools()[name] as unknown as { toModelOutput: (o: { toolCallId: string; input: unknown; output: unknown }) => ModelOutput })
+      .toModelOutput({ toolCallId: 'c1', input: {}, output });
+  /** What the model read back from inspect_pipeline — the only props it ever has to edit from. */
+  const modelView = async (): Promise<Record<string, any>> => {
+    pipeline.get.mockResolvedValue({ data: stored() });
+    const raw = await call('inspect_pipeline', { id: 'p1' });
+    return (toModel('inspect_pipeline', raw).value as { pipeline: Record<string, any> }).pipeline;
+  };
+
+  it('every tool projects its result through the redaction before the model sees it', () => {
+    for (const [name, t] of Object.entries(makeTools())) {
+      expect([name, typeof (t as { toModelOutput?: unknown }).toModelOutput]).toEqual([name, 'function']);
+    }
+  });
+
+  it('inspect_pipeline: no secret VALUE in what is sent to the model; keys and structure kept', async () => {
+    pipeline.get.mockResolvedValue({ data: stored() });
+    const raw = await call('inspect_pipeline', { id: 'p1' });
+    const sent = JSON.stringify(toModel('inspect_pipeline', raw));
+    for (const secret of [SECRET_TOKEN, SECRET_ENV, 'npm_tok_value']) expect(sent).not.toContain(secret);
+    expect(sent).toMatch(/"DEPLOY_KEY":"\[REDACTED:[0-9a-f]{12}\]"/);
+    expect(sent).toMatch(/"token":"\[REDACTED:[0-9a-f]{12}\]"/);
+    // An unset value is not hidden — "is it set?" is part of a diagnosis.
+    expect(sent).toContain('"EMPTY":""');
+    // The panel's copy (the raw result) is untouched.
+    expect(JSON.stringify(raw)).toContain(SECRET_TOKEN);
+  });
+
+  it('round-trip: an edit made from the redacted view RESTORES every secret and carries no placeholder', async () => {
+    const view = await modelView();
+    // The model adds a test stage — moving nothing, but re-sending the whole props
+    // document with the placeholders it was shown.
+    const props = { ...view.props, stages: [...view.props.stages, { stageName: 'test', steps: [{ plugin: { name: 'jest' } }] }] };
+    pipeline.get.mockResolvedValue({ data: stored() });
+    const out = await call('propose_pipeline_edit', { id: 'p1', changes: { props } });
+
+    expect(out.changedFields).toEqual(['props']);
+    const proposed = JSON.stringify(out.proposed);
+    expect(proposed).not.toContain('[REDACTED');
+    expect(proposed).toContain(SECRET_TOKEN);
+    expect(proposed).toContain(SECRET_ENV);
+    expect(proposed).toContain('npm_tok_value');
+    // The secrets are not part of the diff — only the new stage is.
+    expect(out.changedPaths).toEqual(['props.stages[1]']);
+    expect(out).not.toHaveProperty('addedSecrets');
+    // ...and the model's copy of the proposal hides them again.
+    const sent = JSON.stringify(toModel('propose_pipeline_edit', out));
+    for (const secret of [SECRET_TOKEN, SECRET_ENV, 'npm_tok_value']) expect(sent).not.toContain(secret);
+  });
+
+  it('restores a secret by its tag even when the model MOVED the step that carries it', async () => {
+    const view = await modelView();
+    const props = { ...view.props, stages: [{ stageName: 'lint', steps: [] }, ...view.props.stages] };
+    pipeline.get.mockResolvedValue({ data: stored() });
+    const out = await call('propose_pipeline_edit', { id: 'p1', changes: { props } });
+    expect((out.proposed as any).props.stages[1].steps[0].env).toEqual({ NPM_TOKEN: 'npm_tok_value' });
+  });
+
+  it('DECLINES a placeholder that matches no current secret — it is never proposed, so never persisted', async () => {
+    const view = await modelView();
+    const props = { ...view.props, synth: { ...view.props.synth, env: { DEPLOY_KEY: '[REDACTED:0123456789ab]' } } };
+    pipeline.get.mockResolvedValue({ data: stored() });
+    const out = await call('propose_pipeline_edit', { id: 'p1', changes: { props } });
+    expect(out).toMatchObject({ kind: 'pipeline-edit', error: expect.stringContaining('props.synth.env.DEPLOY_KEY') });
+    expect(out).not.toHaveProperty('proposed');
+  });
+
+  it('DECLINES a bare [REDACTED] marker too', async () => {
+    pipeline.get.mockResolvedValue({ data: stored() });
+    const out = await call('propose_pipeline_edit', { id: 'p1', changes: { props: { ...stored().props, synth: { env: { DEPLOY_KEY: '[REDACTED]' } } } } });
+    expect(out).toMatchObject({ error: expect.stringContaining('matches nothing') });
+  });
+
+  it('REFUSES a model that tries to SET a new value for an existing secret', async () => {
+    const view = await modelView();
+    const props = { ...view.props, synth: { ...view.props.synth, env: { ...view.props.synth.env, DEPLOY_KEY: 'attacker-chosen' } } };
+    pipeline.get.mockResolvedValue({ data: stored() });
+    const out = await call('propose_pipeline_edit', { id: 'p1', changes: { props } });
+    expect(out).toMatchObject({ kind: 'pipeline-edit', error: expect.stringContaining('cannot be changed through the assistant') });
+    expect(JSON.stringify(out)).not.toContain('attacker-chosen');
+  });
+
+  it('drafts a NEW secret-position value, flagged for the reviewer', async () => {
+    const view = await modelView();
+    const props = { ...view.props, synth: { ...view.props.synth, env: { ...view.props.synth.env, NODE_ENV: 'production' } } };
+    pipeline.get.mockResolvedValue({ data: stored() });
+    const out = await call('propose_pipeline_edit', { id: 'p1', changes: { props } });
+    expect(out.addedSecrets).toEqual(['props.synth.env.NODE_ENV']);
+    expect((out.proposed as any).props.synth.env).toEqual({ DEPLOY_KEY: SECRET_ENV, EMPTY: '', NODE_ENV: 'production' });
   });
 });
 

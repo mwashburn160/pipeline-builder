@@ -53,8 +53,15 @@ const apiMock = {
   updatePromotion: jest.fn<AnyFn>(),
   getPlans: jest.fn<AnyFn>(),
   getAdminBillingSummary: jest.fn<AnyFn>(),
+  deleteSubscriptionByOrg: jest.fn<AnyFn>(),
 };
-jest.mock('@/components/admin/StepUpModal', () => ({ __esModule: true, StepUpModal: () => null }));
+// Confirms on click with a fixed step-up token, so a test can assert the token
+// reaches the API call the modal guards.
+jest.mock('@/components/admin/StepUpModal', () => ({
+  __esModule: true,
+  StepUpModal: ({ onConfirmed }: { onConfirmed: (token: string) => void }) =>
+    require('react').createElement('button', { onClick: () => onConfirmed('step-up-tok') }, 'Confirm step-up'),
+}));
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   get default() { return apiMock; },
@@ -140,5 +147,21 @@ describe('BillingAdminPage finance summary', () => {
     await waitFor(() => expect(apiMock.getAdminBillingSummary).toHaveBeenLastCalledWith(
       expect.objectContaining({ from: new Date('2026-01-01').toISOString() }), expect.anything(),
     ));
+  });
+});
+
+describe('BillingAdminPage purge', () => {
+  it('forwards the step-up token the modal obtained — the server verifies it', async () => {
+    apiMock.getAdminBillingSummary.mockResolvedValue({ success: true, data: null });
+    apiMock.deleteSubscriptionByOrg.mockResolvedValue({ success: true, data: { deleted: 1, events: 2 } });
+    listPage.data = [{ id: 's1', orgId: 'org-9', planId: 'pro', status: 'active', interval: 'monthly', cancelAtPeriodEnd: false }];
+    try {
+      render(<BillingAdminPage />);
+      fireEvent.click(await screen.findByRole('button', { name: 'Purge' }));
+      fireEvent.click(await screen.findByRole('button', { name: 'Confirm step-up' }));
+      await waitFor(() => expect(apiMock.deleteSubscriptionByOrg).toHaveBeenCalledWith('org-9', 'step-up-tok'));
+    } finally {
+      listPage.data = [];
+    }
   });
 });

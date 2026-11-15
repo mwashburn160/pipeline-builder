@@ -49,10 +49,12 @@ export function validateBody<T>(
 /**
  * Relaxed email rule: requires local@domain but does NOT require a TLD, so both
  * "user@internal" and "user@internal.com" are accepted. The pattern itself lives
- * in `utils/email.ts` — a dependency-free module — so a caller that only needs
- * to check an address doesn't pull this file's model graph in behind it.
+ * in `utils/email-address.ts` — a dependency-free module — so a caller that
+ * only needs to check an address doesn't pull this file's model graph in behind
+ * it. Bounded at 320 characters (the reset-request schema's bound): the pattern
+ * alone admitted a stored sign-in address of any size.
  */
-export const emailSchema = z.string().regex(EMAIL_PATTERN, 'Invalid email address');
+export const emailSchema = z.string().max(320).regex(EMAIL_PATTERN, 'Invalid email address');
 
 /**
  * Password schema: enforces minimum length and every rule in `PASSWORD_RULES`

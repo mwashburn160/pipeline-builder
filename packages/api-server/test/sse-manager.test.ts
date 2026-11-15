@@ -119,6 +119,13 @@ describe('SSEManager', () => {
       expect(manager.getClientCount('req-1')).toBe(3);
     });
 
+    it('counts one org once, whatever casing its id arrives in', () => {
+      manager.addClient('req-a', mockSseRes(), 'ORG-1');
+      manager.addClient('req-b', mockSseRes(), ' org-1 ');
+      expect(manager.getOrgClientCount('org-1')).toBe(2);
+      expect(manager.getOrgClientCount('ORG-1')).toBe(2);
+    });
+
     it('should handle different request IDs independently', () => {
       manager.addClient('req-1', mockSseRes());
       manager.addClient('req-2', mockSseRes());

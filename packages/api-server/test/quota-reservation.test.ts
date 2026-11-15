@@ -59,12 +59,51 @@ describe('withQuotaReservation', () => {
     expect(mockDecrementQuota.mock.calls[0]![6]).toBe(GRANTED.quota.resetAt);
   });
 
-  it('keeps the slot when consumed (marked, or signalled by the error)', async () => {
+  it('keeps the slot once consumed, whatever fails afterwards', async () => {
     const onError = jest.fn<(e: unknown) => void>();
     await withQuotaReservation(opts(), async (slot) => { slot.markConsumed(); throw new Error('late'); }, onError);
-    await withQuotaReservation(opts(), async () => { throw Object.assign(new Error('empty'), { providerContacted: true }); }, onError);
     expect(mockDecrementQuota).not.toHaveBeenCalled();
-    expect(onError).toHaveBeenCalledTimes(2);
+    expect(onError).toHaveBeenCalledTimes(1);
+  });
+
+  it('consumption is ONLY markConsumed(): nothing on the error is consulted', async () => {
+    // An error claiming the provider was contacted does not keep an unconsumed
+    // slot — the caller marks consumption when it SENDS, or it was not spent.
+    await withQuotaReservation(opts(), async () => { throw Object.assign(new Error('empty'), { providerContacted: true }); }, jest.fn<(e: unknown) => void>());
+    expect(mockDecrementQuota).toHaveBeenCalledTimes(1);
+  });
+
+  it('isConsumed() reports the settled state', async () => {
+    await withQuotaReservation(opts(), async (slot) => {
+      expect(slot.isConsumed()).toBe(false);
+      slot.markConsumed();
+      expect(slot.isConsumed()).toBe(true);
+    });
+  });
+
+  describe('the AI-call rule: consumed at SEND', () => {
+    /** A body that sends to a "provider" and then fails the given way. */
+    const sendThen = (fail: () => never) => async (slot: { markConsumed: () => void }) => {
+      slot.markConsumed(); // the request is sent
+      fail();
+    };
+
+    it('a failure BEFORE the send refunds', async () => {
+      await withQuotaReservation(opts(), async () => { throw new Error('model resolution failed'); }, jest.fn<(e: unknown) => void>());
+      expect(mockDecrementQuota).toHaveBeenCalledTimes(1);
+    });
+
+    it('an ABORT after the send does not refund', async () => {
+      const abort = Object.assign(new Error('This operation was aborted'), { name: 'AbortError' });
+      await withQuotaReservation(opts(), sendThen(() => { throw abort; }), jest.fn<(e: unknown) => void>());
+      expect(mockDecrementQuota).not.toHaveBeenCalled();
+    });
+
+    it('a TIMEOUT after the send does not refund', async () => {
+      const timeout = Object.assign(new Error('The operation timed out'), { name: 'TimeoutError' });
+      await withQuotaReservation(opts(), sendThen(() => { throw timeout; }), jest.fn<(e: unknown) => void>());
+      expect(mockDecrementQuota).not.toHaveBeenCalled();
+    });
   });
 
   it('routes a failure to onError instead of rethrowing', async () => {
@@ -75,8 +114,8 @@ describe('withQuotaReservation', () => {
   });
 
   it('an explicit refund after markConsumed is a no-op — a paid call is never given back', async () => {
-    // The abort-after-the-provider-responded path: the caller asks for a refund,
-    // but the provider round-trip already happened.
+    // The abort-after-the-send path: the caller asks for a refund, but the
+    // request already reached the provider.
     await withQuotaReservation(opts(), async (slot) => { slot.markConsumed(); slot.refund(); });
     await withQuotaReservation(opts(), async (slot) => { slot.markConsumed(); slot.refund(); throw new Error('late'); }, jest.fn<(e: unknown) => void>());
     expect(mockDecrementQuota).not.toHaveBeenCalled();

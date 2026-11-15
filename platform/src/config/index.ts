@@ -796,8 +796,12 @@ export const config = {
     rotaIntervalMs: envInt('ONCALL_ROTA_INTERVAL_MS', 900_000, { min: 60_000 }),
   },
   audit: {
-    // How many days to retain audit events. Read by the AuditEvent TTL index.
+    // How many days to retain audit events. Enforced by the retention prune
+    // (services/audit-retention.ts), which watermarks each chain before deleting.
     retentionDays: envInt('AUDIT_RETENTION_DAYS', 90),
+    // How often the retention prune runs. Hourly: an event outlives the window
+    // by at most this long.
+    retentionPruneIntervalMs: envInt('AUDIT_RETENTION_PRUNE_INTERVAL_MS', 3_600_000, { min: 60_000 }),
     // Platform-local audit() writes that fail are spooled (Redis) and
     // re-appended on this interval instead of being dropped.
     spoolDrainIntervalMs: envInt('AUDIT_SPOOL_DRAIN_INTERVAL_MS', 30_000),

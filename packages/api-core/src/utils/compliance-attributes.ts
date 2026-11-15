@@ -44,26 +44,45 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
   return proto === Object.prototype || proto === null;
 }
 
+/** A JSON path from the document root: object keys and array indices. */
+export type SecretValuePath = ReadonlyArray<string | number>;
+
+/**
+ * Walk `value` and replace every secret VALUE with `replace(secret, path)`,
+ * leaving keys, structure and non-secret fields as they are. The ONE definition
+ * of "where a secret lives in an entity" — each value of a secret map (`env`,
+ * `buildArgs`, at any depth), and any string under a secret-named key (token,
+ * secret, password, credential, …) — shared by every projection that must not
+ * leak one: the compliance attributes below, and the Ask assistant's model
+ * context, which needs a placeholder it can restore.
+ *
+ * Only plain objects and arrays are traversed; everything else passes through.
+ */
+export function mapSecretValues(value: unknown, replace: (secret: unknown, path: SecretValuePath) => unknown): unknown {
+  const walk = (v: unknown, path: Array<string | number>): unknown => {
+    if (Array.isArray(v)) return v.map((item, i) => walk(item, [...path, i]));
+    if (!isPlainObject(v)) return v; // primitives, Date, null — untouched
+    const out: Record<string, unknown> = {};
+    for (const [k, child] of Object.entries(v)) {
+      if (SECRET_MAP_KEYS.has(k) && isPlainObject(child)) {
+        // Preserve keys (compliance reads $keys/$count/presence), redact values.
+        out[k] = Object.fromEntries(Object.entries(child).map(([mk, mv]) => [mk, replace(mv, [...path, k, mk])]));
+      } else if (isSecretScalarKey(k) && typeof child === 'string') {
+        out[k] = replace(child, [...path, k]);
+      } else {
+        out[k] = walk(child, [...path, k]);
+      }
+    }
+    return out;
+  };
+  return walk(value, []);
+}
+
 /**
  * Project an entity into the compliance-event `attributes`, redacting secret
  * VALUES while preserving everything the compliance engine actually evaluates.
  * Recurses so nested secrets (deep inside a pipeline's `props`) are covered too.
  */
 export function toComplianceAttributes(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(toComplianceAttributes);
-  if (isPlainObject(value)) {
-    const out: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(value)) {
-      if (SECRET_MAP_KEYS.has(k) && isPlainObject(v)) {
-        // Preserve keys (compliance reads $keys/$count/presence), redact values.
-        out[k] = Object.fromEntries(Object.keys(v).map((mk) => [mk, REDACTED]));
-      } else if (isSecretScalarKey(k) && typeof v === 'string') {
-        out[k] = REDACTED;
-      } else {
-        out[k] = toComplianceAttributes(v);
-      }
-    }
-    return out;
-  }
-  return value; // primitives, Date, null — untouched
+  return mapSecretValues(value, () => REDACTED);
 }

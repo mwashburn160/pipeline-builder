@@ -8,13 +8,13 @@
  * account-level entitlements and hierarchy claims.
  */
 
-import { createLogger, type PlanTier } from '@pipeline-builder/api-core';
+import { createLogger, hasPermission, type PlanTier } from '@pipeline-builder/api-core';
 import type { OrgRole } from '@pipeline-builder/api-core/wire-vocabulary';
 import { type EffectiveMfaPolicy, resolveEffectiveMfaPolicy } from '../../helpers/mfa-policy.js';
 import { resolveOrgAuthority } from '../../helpers/org-authority.js';
 import { resolveOrgLineage } from '../../helpers/org-hierarchy.js';
 import { toOrgId } from '../../helpers/org-id.js';
-import { Organization, UserOrganization } from '../../models/index.js';
+import { Organization, User, UserOrganization } from '../../models/index.js';
 import { rolePermissionsFor } from '../role-permissions.js';
 
 const logger = createLogger('token');
@@ -88,6 +88,41 @@ export async function resolveOrgMembership(userId: string, orgId: string): Promi
     ...(mfa?.adminActionsRequireMfa ? { adminActionsRequireMfa: true } : {}),
     ...(await accountContext(orgId, org)),
   };
+}
+
+/**
+ * The org a NEW session (sign-in, a stored credential) opens in, given the org
+ * it would pin (`requested`, usually `lastActiveOrgId`).
+ *
+ * Entering a team through INHERITED authority — an ancestor's admin with no
+ * membership row in the team — needs `team_access:open` in that ancestor, and
+ * switch-org checks it at the moment of entering. Sign-in pins
+ * `lastActiveOrgId` without switching, so without this an admin who once
+ * entered a team kept landing there on every later sign-in after the permission
+ * was withdrawn. When the requested org is reached only that way and the
+ * ancestor's Roles no longer grant it, the session opens in the ancestor org
+ * instead, and `lastActiveOrgId` is moved there so the refusal sticks.
+ *
+ * Renewing an EXISTING session is not re-gated (the act of entering was
+ * checked when it happened); only opening a new one is.
+ */
+export async function signInLandingOrg(
+  user: { _id: unknown; isSuperAdmin?: boolean; lastActiveOrgId?: unknown },
+  requested: string,
+): Promise<string> {
+  const userId = String(user._id);
+  const authority = await resolveOrgAuthority(userId, requested);
+  if (authority?.via !== 'ancestor' || !authority.inheritedFromOrgId) return requested;
+  const ancestorPermissions = await rolePermissionsFor(userId, [authority.inheritedFromOrgId]);
+  if (hasPermission(ancestorPermissions, 'team_access:open', user.isSuperAdmin)) return requested;
+  const landing = authority.inheritedFromOrgId;
+  logger.info('Sign-in refused an inherited team without team_access:open; opening the ancestor org', {
+    userId, requestedOrgId: requested, landingOrgId: landing,
+  });
+  if (user.lastActiveOrgId != null && String(user.lastActiveOrgId) === requested) {
+    await User.updateOne({ _id: userId }, { $set: { lastActiveOrgId: landing } });
+  }
+  return landing;
 }
 
 /**

@@ -24,6 +24,7 @@ import { buildGroundingContext, tool } from '@pipeline-builder/ai-core';
 import type { ToolSet } from '@pipeline-builder/ai-core';
 import { z } from 'zod';
 
+import { redactForModel } from './secret-redaction.js';
 import type { AgentToolDeps } from './tool-deps.js';
 import { complianceTools } from './tools/compliance.js';
 import { createTools } from './tools/create.js';
@@ -94,9 +95,36 @@ function withAppliability(tools: ToolSet, holds: (p: Permission) => boolean): To
   return out;
 }
 
+/**
+ * What the MODEL sees of every tool result: the result with each secret value
+ * replaced by a `[REDACTED:<tag>]` placeholder (`redactForModel`).
+ *
+ * Wrapped once here, for every tool, rather than remembered per tool: an
+ * `inspect_pipeline` returns the whole pipeline — env values, a source token —
+ * and so do a template read and a drafted edit's before/after. The stream part
+ * the Ask panel renders is the UNREDACTED result (`toModelOutput` changes only
+ * the model's copy), so a reviewable diff still shows real values, and the edit
+ * tools restore the real values behind any placeholder the model hands back.
+ */
+function withModelRedaction(tools: ToolSet): ToolSet {
+  const out: ToolSet = {};
+  for (const [name, t] of Object.entries(tools)) {
+    out[name] = {
+      ...t,
+      toModelOutput: ({ output }: { output: unknown }) => {
+        const redacted = redactForModel(output);
+        return typeof redacted === 'string'
+          ? { type: 'text' as const, value: redacted }
+          : { type: 'json' as const, value: redacted === undefined ? null : JSON.parse(JSON.stringify(redacted)) };
+      },
+    } as ToolSet[string];
+  }
+  return out;
+}
+
 /** Build the agent's tools. Every tool acts as the calling user (token-forwarded). */
 export function buildAgentTools(deps: AgentToolDeps): ToolSet {
-  return withAppliability({
+  return withModelRedaction(withAppliability({
     answer_how_to: tool({
       description:
         'Look up platform documentation to answer a how-to or functionality question. '
@@ -123,5 +151,5 @@ export function buildAgentTools(deps: AgentToolDeps): ToolSet {
     ...remediationTools(deps),
     // Org settings, behind the shared allowlist.
     ...orgSettingsTools(deps),
-  }, deps.holdsPermission);
+  }, deps.holdsPermission));
 }

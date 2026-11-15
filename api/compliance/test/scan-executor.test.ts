@@ -68,12 +68,14 @@ const mockLogComplianceCheck = jest.fn<(...args: unknown[]) => Promise<unknown>>
 const mockNotifyComplianceBlock = jest.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue(undefined);
 const mockNotifyComplianceWarnings = jest.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue(undefined);
 
-jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
+const mockRecordAudit = jest.fn();
+const mockIncCounter = jest.fn();
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({ recordAudit: mockRecordAudit }));
 
 // scan-executor imports incCounter from api-server; stub it so the real
 // api-server module (and its api-core named imports) isn't linked in.
 jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
-  incCounter: () => undefined,
+  incCounter: (...args: unknown[]) => mockIncCounter(...args),
 }));
 
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
@@ -141,6 +143,8 @@ describe('executeScan', () => {
     mockNotifyComplianceWarnings.mockClear();
     mockResolveParentOrgId.mockReset();
     mockResolveParentOrgId.mockResolvedValue(undefined);
+    mockRecordAudit.mockClear();
+    mockIncCounter.mockClear();
   });
 
   it('exits early when scan does not exist', async () => {
@@ -167,6 +171,33 @@ describe('executeScan', () => {
     await executeScan('scan-1');
     expect(dbUpdate).toHaveBeenCalled();
     expect(mockFindActiveByOrgAndTarget).not.toHaveBeenCalled();
+  });
+
+  it('gives a system-org scan a terminal outcome and an audit row', async () => {
+    updateReturning = [
+      [{ id: 'scan-1', status: 'running', orgId: '000000000000000000000001', target: 'plugin', userId: 'u', triggeredBy: 'manual' }],
+      [{ id: 'scan-1' }],
+    ];
+    await executeScan('scan-1');
+    expect(mockIncCounter).toHaveBeenCalledWith('compliance_scans_total', { outcome: 'started' });
+    expect(mockIncCounter).toHaveBeenCalledWith('compliance_scans_total', { outcome: 'skipped_system_org' });
+    expect(updateSets).toContainEqual(expect.objectContaining({ status: 'completed', totalEntities: 0 }));
+    expect(mockRecordAudit).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'compliance.scan.complete',
+      targetId: 'scan-1',
+      outcome: 'success',
+      details: expect.objectContaining({ status: 'completed', skipped: 'system_org' }),
+    }));
+  });
+
+  it('a system-org scan cancelled before it is closed records cancelled, not an audit row', async () => {
+    updateReturning = [
+      [{ id: 'scan-1', status: 'running', orgId: '000000000000000000000001', target: 'plugin', userId: 'u', triggeredBy: 'manual' }],
+      [],
+    ];
+    await executeScan('scan-1');
+    expect(mockIncCounter).toHaveBeenCalledWith('compliance_scans_total', { outcome: 'cancelled' });
+    expect(mockRecordAudit).not.toHaveBeenCalled();
   });
 
   it('completes scan with no rules (counts as all-pass)', async () => {

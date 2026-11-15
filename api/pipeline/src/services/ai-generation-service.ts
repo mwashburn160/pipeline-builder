@@ -18,15 +18,11 @@ import type { PluginSummary } from './plugin-catalog.js';
 const logger = createLogger('ai-generation');
 
 /**
- * The provider round-trip completed but produced no usable output. Distinct from
- * pre-provider failures (model resolution, connectivity) so callers can apply the
- * keep-on-provider-contact quota policy: the external $ cost was already incurred,
- * so the reserved `aiCalls` slot is NOT refunded (matching the streaming path,
- * which keeps the slot once the provider was contacted).
+ * The provider round-trip completed but produced no usable output. The reserved
+ * `aiCalls` slot is kept — it was consumed when the request was sent
+ * (`GenerationRun`) — so this is only the error the route answers with.
  */
 export class AIEmptyOutputError extends Error {
-  /** Marker: the AI provider WAS contacted before this failure. */
-  readonly providerContacted = true;
   constructor(message = 'AI did not produce a pipeline configuration') {
     super(message);
     this.name = 'AIEmptyOutputError';
@@ -65,9 +61,9 @@ export interface GenerationCall {
   /** The request's own signal (client disconnect); the per-call timeout is added to it. */
   signal?: AbortSignal;
   /**
-   * Called once, on the provider's FIRST response chunk — the moment the call is
-   * paid for. The route marks the `aiCalls` slot consumed here, so a later abort
-   * or failure keeps the slot and a failure before it refunds.
+   * Called once, on the provider's FIRST response chunk. Gates platform failover
+   * only (an attempt that already streamed output is never re-run elsewhere); the
+   * `aiCalls` slot was already consumed when the request was sent.
    */
   onProviderResponse?: () => void;
 }
@@ -374,22 +370,21 @@ function withTotal(usage: AITokenUsage): GenerationUsage {
 
 /**
  * Generate a pipeline config in one response (the JSON routes). Built on the
- * stream rather than a one-shot `generateText`, which gives no signal that the
- * provider was reached: a provider that responded and THEN failed (a mid-body
- * error, a client abort) looked "never contacted" and was refunded for free.
+ * stream rather than a one-shot `generateText`, so the JSON and SSE routes share
+ * the same post-generation guarantees and the same first-response signal that
+ * gates failover.
  *
  * @throws AIEmptyOutputError when the provider responded but produced no config
  */
 export async function generatePipelineConfig(request: GenerationRequest, call: GenerationCall): Promise<GenerationResult> {
   const stream = streamPipelineConfig(request, call);
   for await (const _partial of stream.partialOutputStream) {
-    // Drained only for the provider-contact signal and error surfacing.
+    // Drained only for the first-response signal and error surfacing.
   }
   const final = await stream.final;
   if (!final) {
     // Provider round-trip completed but returned nothing usable — the slot was
-    // already marked consumed on the first chunk; the marker covers a provider
-    // that answered with no chunk at all.
+    // already consumed when the request was sent, so this keeps it.
     throw new AIEmptyOutputError();
   }
   const usage = await stream.usage;

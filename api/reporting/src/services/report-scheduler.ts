@@ -165,23 +165,13 @@ async function runDefinition(
   definition: ReportDefinition,
   now: Date,
   authorityFeatures: readonly string[],
-  retentionRootOf: (orgId: string) => Promise<string | null>,
+  retentionOrgId: string,
   signal: AbortSignal,
 ): Promise<void> {
   // The COMPOSE runs on the add-on's own feature, which is what a scheduled report is
   // authorized by; the AI draft below uses the account's real set, because it needs to know
   // about `ai_generation` specifically.
   const features = [REQUIRED_FEATURE];
-  // Retention is billing-synced onto the account ROOT only, so a team's report must be
-  // bounded by its root's window — the same one the on-demand run route reads off the
-  // caller's token. Read against the team's own row it fell back to the env default, and
-  // a team's monthly report was refused as "past your retention horizon" every period
-  // while the same run composed fine by hand. Unresolvable ⇒ throw (runOne logs and
-  // counts it) rather than refuse the period on the wrong, shorter window.
-  const retentionOrgId = await retentionRootOf(definition.orgId);
-  if (!retentionOrgId) {
-    throw new Error('the account root whose retention bounds this report could not be resolved');
-  }
   // STRICT: an unreachable platform throws here (and `runOne` logs and counts it)
   // rather than composing a rollup that silently covers the parent org alone —
   // a report labelled as covering the teams that quietly does not is a wrong
@@ -342,7 +332,25 @@ async function runOne(
   if (!seen) return; // the scan filters on it; a null here means the row changed under us
 
   try {
-    // Claim FIRST, before any expensive work: the whole point is that a second sweep
+    // Retention is billing-synced onto the account ROOT only, so a team's report must be
+    // bounded by its root's window — the same one the on-demand run route reads off the
+    // caller's token. Read against the team's own row it fell back to the env default, and
+    // a team's monthly report was refused as "past your retention horizon" every period
+    // while the same run composed fine by hand.
+    //
+    // Resolved BEFORE the claim, because the claim advances `lastRunAt` and the periods a
+    // run owes are counted from it: a lookup that failed after the claim lost those periods
+    // for good. Unresolvable ⇒ the definition is left unclaimed and still due, so the next
+    // cycle retries the same periods. The lookup is a side-effect-free read (memoized per
+    // cycle on success), so taking it ahead of the claim opens no duplicate-delivery window.
+    const retentionOrgId = await retentionRootOf(definition.orgId);
+    if (!retentionOrgId) {
+      logger.warn('Account root unresolvable; leaving the definition due for the next cycle', { definitionId: definition.id });
+      emitCounter('report_retention_root_unavailable_total', { orgId: definition.orgId });
+      return;
+    }
+
+    // Claim before any expensive work: the whole point is that a second sweep
     // finds the row already advanced and skips it, and a claim taken after the compose
     // would leave a window wide enough to duplicate a delivery.
     const claimed = await stakeholderReportStore.claimDefinition(
@@ -370,7 +378,7 @@ async function runOne(
     }
 
     await runWithTenantContext({ orgId: definition.orgId, isSuperAdmin: false }, () =>
-      withTimeout((signal) => runDefinition(definition, now, verdict.features, retentionRootOf, signal), timeoutMs, `report run ${definition.id}`));
+      withTimeout((signal) => runDefinition(definition, now, verdict.features, retentionOrgId, signal), timeoutMs, `report run ${definition.id}`));
   } catch (err) {
     // The schedule has already been advanced by the claim, so a thrown run costs this
     // period and not the next one. That is deliberate: a definition that fails every

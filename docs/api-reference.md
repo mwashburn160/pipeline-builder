@@ -273,7 +273,7 @@ Every route: active org = the system org, `plugins:moderate` and/or `publishers:
 
 ### Ask Service
 
-The docs-grounded assistant (how-to answers) and its agent (read tools plus reviewable drafts). Every route needs one of `pipelines:read`, `plugins:read` or `templates:read`; the answering routes also need the `ai_generation` feature and AI enabled for the org. Requests are rate limited per org (`ASK_RATE_LIMIT_PER_MIN`, default 30 a minute) and each costs one `apiCalls`. Each answer also reserves an `aiCalls` slot (the model's weight; nothing when the caller's or org's own key pays): kept once the provider responded, refunded when it was never reached.
+The docs-grounded assistant (how-to answers) and its agent (read tools plus reviewable drafts). Every route needs one of `pipelines:read`, `plugins:read` or `templates:read`; the answering routes also need the `ai_generation` feature and AI enabled for the org. Requests are rate limited per org (`ASK_RATE_LIMIT_PER_MIN`, default 30 a minute) and each costs one `apiCalls`. Each answer also reserves an `aiCalls` slot (the model's weight; nothing when the caller's or org's own key pays): kept once the request is sent to the provider (an abort, timeout or provider error afterwards does not refund), refunded only when the call failed before the send.
 
 The three answering routes take one body: `{ query (1–6000 chars), provider?, model?, apiKey?, history?: [{ role: 'user' | 'assistant', content (≤ 8000) }] (≤ 20 entries, ≤ 32000 chars in all), repoToken? (agent only, ≤ 500; handed to the repository tools, never shown to the model) }`.
 
@@ -294,6 +294,7 @@ The three answering routes take one body: `{ query (1–6000 chars), provider?, 
 | `POST` | `/compliance/exemptions` | Request an exemption |
 | `POST` | `/compliance/exemptions/bulk` | Bulk-create up to 500 exemptions in one call |
 | `PUT` | `/compliance/exemptions/:id/review` | Approve/reject an exemption (requester cannot self-approve) |
+| `PUT` | `/compliance/exemptions/:id/expiry` | Extend an approved, unlapsed exemption: `{ expiresAt }` later than the current one (requester cannot extend their own) |
 | `POST` | `/compliance/scan-schedules` | Create a cron-driven scan schedule (cron validated at insert time) |
 | `POST` | `/compliance/validate/{plugin\|pipeline}` | Live compliance check (5s timeout, fail-closed) |
 | `POST` | `/compliance/validate/{plugin\|pipeline}/dry-run` | Same evaluation, no audit/notify side-effects |

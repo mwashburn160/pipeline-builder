@@ -1,6 +1,6 @@
 // GENERATED FROM docs/api-reference.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: cc71ce691be919628d84c5fdeffd33406d651336706251ed983a63f14f328670
+// SOURCE-SHA256: 40337598be71b8e173508cc4e96eb8b11947483201393d95826e67bd694209aa
 // SPDX-License-Identifier: Apache-2.0
 import { Code } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -939,7 +939,7 @@ export const apiReferenceTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "The docs-grounded assistant (how-to answers) and its agent (read tools plus reviewable drafts). Every route needs one of pipelines:read, plugins:read or templates:read; the answering routes also need the ai_generation feature and AI enabled for the org. Requests are rate limited per org (ASK_RATE_LIMIT_PER_MIN, default 30 a minute) and each costs one apiCalls. Each answer also reserves an aiCalls slot (the model's weight; nothing when the caller's or org's own key pays): kept once the provider responded, refunded when it was never reached."
+          "content": "The docs-grounded assistant (how-to answers) and its agent (read tools plus reviewable drafts). Every route needs one of pipelines:read, plugins:read or templates:read; the answering routes also need the ai_generation feature and AI enabled for the org. Requests are rate limited per org (ASK_RATE_LIMIT_PER_MIN, default 30 a minute) and each costs one apiCalls. Each answer also reserves an aiCalls slot (the model's weight; nothing when the caller's or org's own key pays): kept once the request is sent to the provider (an abort, timeout or provider error afterwards does not refund), refunded only when the call failed before the send."
         },
         {
           "type": "text",
@@ -1020,6 +1020,11 @@ export const apiReferenceTopic: HelpTopic = {
               "PUT",
               "/compliance/exemptions/:id/review",
               "Approve/reject an exemption (requester cannot self-approve)"
+            ],
+            [
+              "PUT",
+              "/compliance/exemptions/:id/expiry",
+              "Extend an approved, unlapsed exemption: { expiresAt } later than the current one (requester cannot extend their own)"
             ],
             [
               "POST",

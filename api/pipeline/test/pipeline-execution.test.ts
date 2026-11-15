@@ -37,6 +37,11 @@ jest.unstable_mockModule('@aws-sdk/client-codepipeline', () => ({
   StopPipelineExecutionCommand,
 }));
 
+// Pipeline ids are uuid columns — fixtures use real uuids.
+const PIPE_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+const OTHER_PIPE_ID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+const PRIVATE_PIPE_ID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+
 // -- Registry lookup mock: the org-scoped pipelineId → {name, region} resolve.
 const mockFindByPipelineId = jest.fn<(pipelineId: string, orgId: string) => Promise<unknown>>();
 jest.unstable_mockModule('../src/services/pipeline-registry-service.js', () => ({
@@ -140,7 +145,7 @@ describe('pipeline execution write routes', () => {
   it('trigger: happy path returns 202 with the new executionId and builds the command with the registry name', async () => {
     mockSend.mockResolvedValue({ pipelineExecutionId: 'exec-123' });
     const res = { status: jest.fn<AnyFn>().mockReturnThis(), json: jest.fn<AnyFn>() };
-    await triggerHandler()({ params: { pipelineId: 'p-1' } }, res);
+    await triggerHandler()({ params: { pipelineId: PIPE_ID } }, res);
 
     expect(mockSend).toHaveBeenCalledTimes(1);
     const cmd = mockSend.mock.calls[0][0] as StartPipelineExecutionCommand;
@@ -152,15 +157,23 @@ describe('pipeline execution write routes', () => {
   it('trigger: claims the idempotency window keyed on (orgId, pipelineId)', async () => {
     mockSend.mockResolvedValue({ pipelineExecutionId: 'exec-123' });
     const res = { status: jest.fn<AnyFn>().mockReturnThis(), json: jest.fn<AnyFn>() };
-    await triggerHandler()({ params: { pipelineId: 'p-1' } }, res);
+    await triggerHandler()({ params: { pipelineId: PIPE_ID } }, res);
 
-    expect(mockClaim).toHaveBeenCalledWith('acme', 'p-1');
+    expect(mockClaim).toHaveBeenCalledWith('acme', PIPE_ID);
+  });
+
+  it('trigger: a mixed-case id claims the same window as its lower-cased form', async () => {
+    mockSend.mockResolvedValue({ pipelineExecutionId: 'exec-123' });
+    const res = { status: jest.fn<AnyFn>().mockReturnThis(), json: jest.fn<AnyFn>() };
+    await triggerHandler()({ params: { pipelineId: PIPE_ID.toUpperCase() } }, res);
+
+    expect(mockClaim).toHaveBeenCalledWith('acme', PIPE_ID);
   });
 
   it('trigger: duplicate submit inside the window → 409, NO AWS call, a failure audit', async () => {
     mockClaim.mockResolvedValue(null); // window already claimed by a prior trigger
     const res = { status: jest.fn<AnyFn>().mockReturnThis(), json: jest.fn<AnyFn>() };
-    await triggerHandler()({ params: { pipelineId: 'p-1' } }, res);
+    await triggerHandler()({ params: { pipelineId: PIPE_ID } }, res);
 
     expect(sendError).toHaveBeenCalledWith(res, 409, expect.stringMatching(/just triggered/), expect.any(String));
     expect(mockSend).not.toHaveBeenCalled();
@@ -169,14 +182,14 @@ describe('pipeline execution write routes', () => {
       action: 'pipeline.execution.start',
       outcome: 'failure',
       targetType: 'pipeline_execution',
-      details: { pipelineId: 'p-1', reason: 'duplicate_suppressed' },
+      details: { pipelineId: PIPE_ID, reason: 'duplicate_suppressed' },
     }));
   });
 
   it('trigger: emits an attributed pipeline.execution.start audit event on success', async () => {
     mockSend.mockResolvedValue({ pipelineExecutionId: 'exec-123' });
     const res = { status: jest.fn<AnyFn>().mockReturnThis(), json: jest.fn<AnyFn>() };
-    await triggerHandler()({ params: { pipelineId: 'p-1' } }, res);
+    await triggerHandler()({ params: { pipelineId: PIPE_ID } }, res);
 
     expect(mockEmitPipelineAudit).toHaveBeenCalledTimes(1);
     expect(mockEmitPipelineAudit).toHaveBeenCalledWith(
@@ -187,7 +200,7 @@ describe('pipeline execution write routes', () => {
         // The execution is the target; its pipeline rides in details.
         targetType: 'pipeline_execution',
         targetId: 'exec-123',
-        details: expect.objectContaining({ pipelineId: 'p-1' }),
+        details: expect.objectContaining({ pipelineId: PIPE_ID }),
       }),
     );
   });
@@ -195,7 +208,7 @@ describe('pipeline execution write routes', () => {
   it('trigger: audits a failed AWS start as a failure, without the AWS message', async () => {
     mockSend.mockRejectedValue(awsError('ThrottlingException', 'Rate exceeded'));
     const res = { status: jest.fn<AnyFn>().mockReturnThis(), json: jest.fn<AnyFn>() };
-    await triggerHandler()({ params: { pipelineId: 'p-1' } }, res);
+    await triggerHandler()({ params: { pipelineId: PIPE_ID } }, res);
 
     expect(mockEmitPipelineAudit).toHaveBeenCalledTimes(1);
     const event = mockEmitPipelineAudit.mock.calls[0][0] as { targetId?: string };
@@ -203,7 +216,7 @@ describe('pipeline execution write routes', () => {
       action: 'pipeline.execution.start',
       outcome: 'failure',
       targetType: 'pipeline_execution',
-      details: { pipelineId: 'p-1', reason: 'aws_error' },
+      details: { pipelineId: PIPE_ID, reason: 'aws_error' },
     });
     expect(event.targetId).toBeUndefined();
   });
@@ -211,8 +224,17 @@ describe('pipeline execution write routes', () => {
   it('trigger: unregistered / wrong-org pipeline → 404 and no AWS call', async () => {
     mockFindByPipelineId.mockResolvedValue(null);
     const res = { status: jest.fn<AnyFn>().mockReturnThis(), json: jest.fn<AnyFn>() };
-    await triggerHandler()({ params: { pipelineId: 'p-other' } }, res);
+    await triggerHandler()({ params: { pipelineId: OTHER_PIPE_ID } }, res);
 
+    expect(mockSend).not.toHaveBeenCalled();
+    expect(sendError).toHaveBeenCalledWith(res, 404, expect.stringMatching(/not deployed\/registered/), expect.any(String));
+  });
+
+  it('trigger: a non-uuid pipeline id → 404 without touching the registry or AWS', async () => {
+    const res = { status: jest.fn<AnyFn>().mockReturnThis(), json: jest.fn<AnyFn>() };
+    await triggerHandler()({ params: { pipelineId: 'not-a-uuid' } }, res);
+
+    expect(mockFindByPipelineId).not.toHaveBeenCalled();
     expect(mockSend).not.toHaveBeenCalled();
     expect(sendError).toHaveBeenCalledWith(res, 404, expect.stringMatching(/not deployed\/registered/), expect.any(String));
   });
@@ -225,7 +247,7 @@ describe('pipeline execution write routes', () => {
     // which ids exist.
     mockPipelineFindById.mockResolvedValue(null);
     const res = { status: jest.fn<AnyFn>().mockReturnThis(), json: jest.fn<AnyFn>() };
-    await triggerHandler()({ params: { pipelineId: 'p-private' } }, res);
+    await triggerHandler()({ params: { pipelineId: PRIVATE_PIPE_ID } }, res);
 
     expect(mockSend).not.toHaveBeenCalled();
     expect(sendError).toHaveBeenCalledWith(res, 404, expect.stringMatching(/not deployed\/registered/), expect.any(String));
@@ -234,7 +256,7 @@ describe('pipeline execution write routes', () => {
   it('trigger: AWS PipelineNotFoundException (stale registry) → 404', async () => {
     mockSend.mockRejectedValue(awsError('PipelineNotFoundException'));
     const res = { status: jest.fn<AnyFn>().mockReturnThis(), json: jest.fn<AnyFn>() };
-    await triggerHandler()({ params: { pipelineId: 'p-1' } }, res);
+    await triggerHandler()({ params: { pipelineId: PIPE_ID } }, res);
 
     expect(sendError).toHaveBeenCalledWith(res, 404, expect.stringMatching(/not found in AWS/), expect.any(String));
   });
@@ -242,7 +264,7 @@ describe('pipeline execution write routes', () => {
   it('trigger: keeps the window after an AWS error / timeout (the run may have started)', async () => {
     mockSend.mockRejectedValue(awsError('TimeoutError', 'socket timed out'));
     const res = { status: jest.fn<AnyFn>().mockReturnThis(), json: jest.fn<AnyFn>() };
-    await triggerHandler()({ params: { pipelineId: 'p-1' } }, res);
+    await triggerHandler()({ params: { pipelineId: PIPE_ID } }, res);
     expect(sendError).toHaveBeenCalledWith(res, 502, 'Upstream AWS error', expect.any(String), expect.anything());
     expect(mockRelease).not.toHaveBeenCalled();
   });
@@ -250,14 +272,14 @@ describe('pipeline execution write routes', () => {
   it('trigger: releases ITS OWN claim when the run definitely did not start (not found)', async () => {
     mockSend.mockRejectedValue(awsError('PipelineNotFoundException'));
     const res = { status: jest.fn<AnyFn>().mockReturnThis(), json: jest.fn<AnyFn>() };
-    await triggerHandler()({ params: { pipelineId: 'p-1' } }, res);
-    expect(mockRelease).toHaveBeenCalledWith('acme', 'p-1', { token: 'tok-1' });
+    await triggerHandler()({ params: { pipelineId: PIPE_ID } }, res);
+    expect(mockRelease).toHaveBeenCalledWith('acme', PIPE_ID, { token: 'tok-1' });
   });
 
   it('trigger: generic AWS error → 502 with sanitized detail only', async () => {
     mockSend.mockRejectedValue(awsError('ThrottlingException', 'Rate exceeded'));
     const res = { status: jest.fn<AnyFn>().mockReturnThis(), json: jest.fn<AnyFn>() };
-    await triggerHandler()({ params: { pipelineId: 'p-1' } }, res);
+    await triggerHandler()({ params: { pipelineId: PIPE_ID } }, res);
 
     expect(sendError).toHaveBeenCalledWith(
       res, 502, 'Upstream AWS error', expect.any(String),
@@ -272,7 +294,7 @@ describe('pipeline execution write routes', () => {
       'User: arn:aws:sts::123456789012:assumed-role/pipeline-role is not authorized to perform codepipeline:StartPipelineExecution',
     ));
     const res = { status: jest.fn<AnyFn>().mockReturnThis(), json: jest.fn<AnyFn>() };
-    await triggerHandler()({ params: { pipelineId: 'p-1' } }, res);
+    await triggerHandler()({ params: { pipelineId: PIPE_ID } }, res);
 
     // 502 response body must carry the scrubbed message — no 12-digit account id.
     const errCall = (sendError as jest.Mock<AnyFn>).mock.calls.find((c: any[]) => c[1] === 502);
@@ -299,7 +321,7 @@ describe('pipeline execution write routes', () => {
   it('stop: happy path returns 200 and builds the stop command with name + executionId + reason', async () => {
     mockSend.mockResolvedValue({});
     const res = { status: jest.fn<AnyFn>().mockReturnThis(), json: jest.fn<AnyFn>() };
-    await stopHandler()({ params: { pipelineId: 'p-1', executionId: 'exec-9' }, body: { reason: 'stop it' } }, res);
+    await stopHandler()({ params: { pipelineId: PIPE_ID, executionId: 'exec-9' }, body: { reason: 'stop it' } }, res);
 
     expect(mockSend).toHaveBeenCalledTimes(1);
     const cmd = mockSend.mock.calls[0][0] as StopPipelineExecutionCommand;
@@ -313,7 +335,7 @@ describe('pipeline execution write routes', () => {
   it('stop: emits an attributed pipeline.execution.cancel audit event on success', async () => {
     mockSend.mockResolvedValue({});
     const res = { status: jest.fn<AnyFn>().mockReturnThis(), json: jest.fn<AnyFn>() };
-    await stopHandler()({ params: { pipelineId: 'p-1', executionId: 'exec-9' }, body: { reason: 'stop it' } }, res);
+    await stopHandler()({ params: { pipelineId: PIPE_ID, executionId: 'exec-9' }, body: { reason: 'stop it' } }, res);
 
     expect(mockEmitPipelineAudit).toHaveBeenCalledTimes(1);
     expect(mockEmitPipelineAudit).toHaveBeenCalledWith(
@@ -323,7 +345,7 @@ describe('pipeline execution write routes', () => {
         orgId: 'acme',
         targetType: 'pipeline_execution',
         targetId: 'exec-9',
-        details: expect.objectContaining({ pipelineId: 'p-1' }),
+        details: expect.objectContaining({ pipelineId: PIPE_ID }),
       }),
     );
   });
@@ -331,7 +353,7 @@ describe('pipeline execution write routes', () => {
   it('stop: audits a not-stoppable execution as a failed cancel', async () => {
     mockSend.mockRejectedValue(awsError('PipelineExecutionNotStoppableException'));
     const res = { status: jest.fn<AnyFn>().mockReturnThis(), json: jest.fn<AnyFn>() };
-    await stopHandler()({ params: { pipelineId: 'p-1', executionId: 'exec-9' }, body: {} }, res);
+    await stopHandler()({ params: { pipelineId: PIPE_ID, executionId: 'exec-9' }, body: {} }, res);
 
     expect(mockEmitPipelineAudit).toHaveBeenCalledTimes(1);
     expect(mockEmitPipelineAudit).toHaveBeenCalledWith(expect.objectContaining({
@@ -339,19 +361,19 @@ describe('pipeline execution write routes', () => {
       outcome: 'failure',
       targetType: 'pipeline_execution',
       targetId: 'exec-9',
-      details: { pipelineId: 'p-1', reason: 'not_stoppable' },
+      details: { pipelineId: PIPE_ID, reason: 'not_stoppable' },
     }));
   });
 
   it('stop: counts a stop that did not happen as outcome stop_failed (and a real stop as stopped)', async () => {
     mockSend.mockRejectedValueOnce(awsError('PipelineExecutionNotStoppableException'));
     const res = { status: jest.fn<AnyFn>().mockReturnThis(), json: jest.fn<AnyFn>() };
-    await stopHandler()({ params: { pipelineId: 'p-1', executionId: 'exec-9' }, body: {} }, res);
+    await stopHandler()({ params: { pipelineId: PIPE_ID, executionId: 'exec-9' }, body: {} }, res);
     expect(mockIncCounter).toHaveBeenCalledWith('pipeline_executions_total', { outcome: 'stop_failed', org_id: 'acme' });
 
     mockIncCounter.mockClear();
     mockSend.mockResolvedValueOnce({});
-    await stopHandler()({ params: { pipelineId: 'p-1', executionId: 'exec-9' }, body: {} }, res);
+    await stopHandler()({ params: { pipelineId: PIPE_ID, executionId: 'exec-9' }, body: {} }, res);
     expect(mockIncCounter).toHaveBeenCalledWith('pipeline_executions_total', { outcome: 'stopped', org_id: 'acme' });
     expect(mockIncCounter).not.toHaveBeenCalledWith('pipeline_executions_total', expect.objectContaining({ outcome: 'stop_failed' }));
   });
@@ -359,7 +381,7 @@ describe('pipeline execution write routes', () => {
   it('stop: PipelineExecutionNotStoppableException → 409', async () => {
     mockSend.mockRejectedValue(awsError('PipelineExecutionNotStoppableException'));
     const res = { status: jest.fn<AnyFn>().mockReturnThis(), json: jest.fn<AnyFn>() };
-    await stopHandler()({ params: { pipelineId: 'p-1', executionId: 'exec-9' }, body: {} }, res);
+    await stopHandler()({ params: { pipelineId: PIPE_ID, executionId: 'exec-9' }, body: {} }, res);
 
     expect(sendError).toHaveBeenCalledWith(res, 409, expect.stringMatching(/stoppable/), expect.any(String));
   });
@@ -367,8 +389,17 @@ describe('pipeline execution write routes', () => {
   it('stop: unregistered / wrong-org pipeline → 404 and no AWS call', async () => {
     mockFindByPipelineId.mockResolvedValue(null);
     const res = { status: jest.fn<AnyFn>().mockReturnThis(), json: jest.fn<AnyFn>() };
-    await stopHandler()({ params: { pipelineId: 'p-other', executionId: 'exec-9' }, body: {} }, res);
+    await stopHandler()({ params: { pipelineId: OTHER_PIPE_ID, executionId: 'exec-9' }, body: {} }, res);
 
+    expect(mockSend).not.toHaveBeenCalled();
+    expect(sendError).toHaveBeenCalledWith(res, 404, expect.stringMatching(/not deployed\/registered/), expect.any(String));
+  });
+
+  it('stop: a non-uuid pipeline id → 404 without touching the registry or AWS', async () => {
+    const res = { status: jest.fn<AnyFn>().mockReturnThis(), json: jest.fn<AnyFn>() };
+    await stopHandler()({ params: { pipelineId: 'p-1', executionId: 'exec-9' }, body: {} }, res);
+
+    expect(mockFindByPipelineId).not.toHaveBeenCalled();
     expect(mockSend).not.toHaveBeenCalled();
     expect(sendError).toHaveBeenCalledWith(res, 404, expect.stringMatching(/not deployed\/registered/), expect.any(String));
   });
@@ -378,7 +409,7 @@ describe('pipeline execution write routes', () => {
     // cancelling a colleague's private run is as much a write as starting one.
     mockPipelineFindById.mockResolvedValue(null);
     const res = { status: jest.fn<AnyFn>().mockReturnThis(), json: jest.fn<AnyFn>() };
-    await stopHandler()({ params: { pipelineId: 'p-private', executionId: 'exec-9' }, body: {} }, res);
+    await stopHandler()({ params: { pipelineId: PRIVATE_PIPE_ID, executionId: 'exec-9' }, body: {} }, res);
 
     expect(mockSend).not.toHaveBeenCalled();
     expect(sendError).toHaveBeenCalledWith(res, 404, expect.stringMatching(/not deployed\/registered/), expect.any(String));

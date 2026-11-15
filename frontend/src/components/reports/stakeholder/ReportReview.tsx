@@ -21,6 +21,8 @@ import { useFetch } from '@/hooks/useFetch';
 import { useFormState } from '@/hooks/useFormState';
 import api from '@/lib/api';
 import { formatAIError } from '@/lib/ai-errors';
+import { ApiError } from '@/lib/api/errors';
+import { formatError } from '@/lib/constants';
 import { aiQuotaBlocked, type AIKeySource } from '@/lib/ai-quota';
 import { triggerBlobDownload } from '@/lib/download';
 import { DeliveryStatus } from './DeliveryStatus';
@@ -118,8 +120,10 @@ function ShareLinks({ runId, published, canShare, readOnly, externalSharing }: {
   const form = useFormState();
   const [ttlDays, setTtlDays] = useState(30);
   const [redact, setRedact] = useState(false);
-  /** The one and only time the raw token is readable. Cleared on the next mint. */
-  const [minted, setMinted] = useState<{ token: string; notice: string } | null>(null);
+  /** The one and only time the link (and its raw token) is readable. Cleared on
+   *  the next mint. The full URL is what gets copied: a bare token is not
+   *  something a recipient can open. */
+  const [minted, setMinted] = useState<{ url: string; notice: string } | null>(null);
 
   const mint = async () => {
     setMinted(null);
@@ -131,7 +135,7 @@ function ShareLinks({ runId, published, canShare, readOnly, externalSharing }: {
       },
       {
         onSuccess: (result) => {
-          setMinted({ token: result.token, notice: result.notice });
+          setMinted({ url: result.url, notice: result.notice });
           void refetch();
         },
       },
@@ -192,8 +196,8 @@ function ShareLinks({ runId, published, canShare, readOnly, externalSharing }: {
             <div className="mt-2 space-y-2">
               <InfoAlert message={minted.notice} />
               <div className="flex items-center gap-2">
-                <code className="break-all text-xs">{minted.token}</code>
-                <CopyButton text={minted.token} />
+                <code className="break-all text-xs">{minted.url}</code>
+                <CopyButton text={minted.url} />
               </div>
             </div>
           )}
@@ -321,6 +325,13 @@ export function ReportReview({ run, canAuthor, canShare, externalSharing, readOn
         setDraftNotice(data.message);
       }
     } catch (err) {
+      if (err instanceof ApiError && err.statusCode === 409) {
+        // Published since this view loaded: the server says why it refused.
+        // Re-read the run so its published state hides the button.
+        setDraftNotice(formatError(err, 'This report has already been published.'));
+        onChanged();
+        return;
+      }
       setDraftNotice(formatAIError(err, 'Could not draft the summary. Write it yourself, or try again.'));
     } finally {
       setDrafting(false);

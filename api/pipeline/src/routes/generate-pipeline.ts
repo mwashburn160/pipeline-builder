@@ -87,8 +87,8 @@ async function streamPartials(stream: AsyncIterable<unknown>, sse: SseStream, re
  * Stream the provider's partials and then, unless the client left first, the
  * final `done` event. `completed: false` means the client aborted before the
  * final output. The `aiCalls` slot needs no handling here: it was marked
- * consumed on the provider's first chunk (`onProviderResponse`), so it is kept
- * once the provider responded and refunded by the reservation helper otherwise.
+ * consumed when the request was sent (`GenerationRun`), so it is kept from then
+ * on and refunded by the reservation helper only on a failure before the send.
  * `props` is null when the provider produced no final object.
  */
 async function streamGeneration(
@@ -171,8 +171,8 @@ function tierOf(req: Request): string | undefined {
  *    platform-key failover (`fallbackProviders`, else the platform chain);
  *  - resolves that model BEFORE reserving, then consumes its `aiCalls` slot
  *    ({@link withAiCallReservation}: the model's weight in units, or nothing for
- *    a BYOK key / impersonation session / weight-0 model), KEPT once the provider
- *    responded and refunded only when it was never reached;
+ *    a BYOK key / impersonation session / weight-0 model), KEPT once the request
+ *    is sent to the provider and refunded only on a failure before the send;
  *  - is bounded by the shared per-call policy (timeout + the client's disconnect,
  *    output cap, retries) and recorded as one `pipeline.ai.generate` audit row.
  *
@@ -289,8 +289,8 @@ export function createGeneratePipelineRoutes(quotaService: QuotaService): Router
           run.succeed(outcome.usage, { stageCount: stageCount(outcome.props), emptyOutput: outcome.props === null });
           sse.done();
         } else {
-          // The client left before the final output: refund — a no-op when the
-          // provider already responded (the slot was marked consumed).
+          // The client left before the final output: refund — a no-op once the
+          // request was sent (GenerationRun marked the slot consumed).
           slot.refund();
           run.fail({ aborted: true });
         }
@@ -512,8 +512,8 @@ export function createGeneratePipelineRoutes(quotaService: QuotaService): Router
           });
           sse.done();
         } else {
-          // The client left before the final output: refund — a no-op when the
-          // provider already responded (the slot was marked consumed).
+          // The client left before the final output: refund — a no-op once the
+          // request was sent (GenerationRun marked the slot consumed).
           slot.refund();
           run.fail({ aborted: true });
         }

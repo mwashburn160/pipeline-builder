@@ -20,6 +20,7 @@ import { SCAN_STATUS_CONFIG as STATUS_CONFIG, resultStyle } from '@/lib/complian
 import { formatDateTime, formatTime } from '@/lib/format';
 import { formatError } from '@/lib/constants';
 import { LoadingSpinner } from '@/components/ui/Loading';
+import { localDayEndIso } from '@/lib/local-day';
 
 /** The subset of an audit row needed to pre-fill an exemption request. */
 interface ExemptTarget {
@@ -151,7 +152,9 @@ export default function ScanDetail({ scanId, onBack, readOnly = false }: ScanDet
         entityId: exemptTarget.entityId,
         entityName: exemptTarget.entityName || undefined,
         reason: exemptForm.reason.trim(),
-        expiresAt: exemptForm.expiresAt || undefined,
+        // A local `YYYY-MM-DD` day; the API takes an ISO instant (a bare day is
+        // a 400). The exemption holds through the end of the chosen day.
+        expiresAt: exemptForm.expiresAt ? localDayEndIso(exemptForm.expiresAt) : undefined,
       });
       if (res.success) {
         toast.success('Exemption requested');

@@ -15,6 +15,8 @@ const BREAK_TEXT: Record<AuditChainBreak, string> = {
   'sequence-gap': 'an event was deleted',
   'head-mismatch': 'the chain diverges from its published head',
   'tail-truncated': 'the newest events were deleted (chain no longer reaches its head)',
+  'head-truncated': 'the oldest events were deleted outside the retention window',
+  'watermark-invalid': 'a retention watermark failed its signature check or belongs to another chain',
   'published-head-invalid': 'the published chain head failed its signature check',
 };
 

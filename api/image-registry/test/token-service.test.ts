@@ -62,8 +62,6 @@ rzOZmOFBeXYrkwSUTtzfL8JfllcmQ3g3sY/lSk9yazPaqKpBTYspjB07/iMXbWdN
 const publicKeyPem = createPublicKey(certPem).export({ format: 'pem', type: 'spki' }).toString();
 
 process.env.IMAGE_REGISTRY_HOST = 'localhost';
-process.env.IMAGE_REGISTRY_USERNAME = 'test-svc';
-process.env.IMAGE_REGISTRY_PASSWORD = 'test-pw';
 process.env.REGISTRY_TOKEN_PRIVATE_KEY = privateKeyPem;
 process.env.REGISTRY_TOKEN_CERTIFICATE = certPem;
 process.env.REGISTRY_TOKEN_ISSUER = 'test-platform';

@@ -54,13 +54,20 @@ export interface AgentToolDeps {
    */
   abortSignal?: AbortSignal;
   /**
-   * The AUTHENTICATED caller's org id. Injected into tenant-scoping tool inputs
-   * (e.g. template instantiation, org settings) so the MODEL can never choose
-   * which org a call targets — closing a prompt-injection path where a crafted
-   * message could name another tenant's org. The model only ever supplies
-   * non-authority fields.
+   * The AUTHENTICATED caller's org id, for the tool inputs that name the caller's
+   * org (org settings, compliance attributes). Tenancy itself is never decided
+   * here: every forwarded call rides the caller's own token, and the owning
+   * service scopes it to the token's org whatever a body says. Injecting the id
+   * keeps the model from even proposing a different org on a draft.
    */
   orgId: string;
+  /**
+   * The authenticated org's display NAME (the verified token's
+   * `organizationName`), when the token carries one. Used only to NAME things —
+   * the `organization` segment of a drafted pipeline's stack name — never to
+   * scope a call.
+   */
+  orgName?: string;
   /**
    * Reserve one `aiCalls` slot for a generation this service runs IN-PROCESS on
    * the model's behalf. The turn's own slot pays for the agent's reasoning; an
@@ -114,12 +121,12 @@ export interface TurnGenerations {
 
 /**
  * The slot an in-process tool generation holds. The tool MUST `settle()` it on
- * every path (success, failure, abort) — that is where an uncontacted slot is
- * refunded and the call's tokens are reported (usage ledger, `ai_tokens_total`,
+ * every path (success, failure, abort) — that is where a slot whose request was
+ * never sent is refunded and the call's tokens are reported (usage ledger, `ai_tokens_total`,
  * the turn's audit row).
  */
 export interface AiToolCharge {
-  /** The provider started responding: the call is paid for from here on. */
+  /** The request is being SENT to the provider: the call is paid for from here on. */
   markConsumed(): void;
   /** Settle once: refund unless consumed, and record the tokens the provider reported. */
   settle(usage: { inputTokens: number; outputTokens: number; cachedInputTokens: number } | undefined): void;

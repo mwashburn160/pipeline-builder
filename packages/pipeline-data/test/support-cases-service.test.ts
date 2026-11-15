@@ -457,9 +457,18 @@ describe('bulk ownership', () => {
     tx.queue([{ id: 'c1' }]);
     await svc.closeCases(['c1'], 'staff-1');
     const s = set()!;
-    expect(s).toMatchObject({ status: 'closed', closedBy: 'staff-1', awaitingSince: null });
-    expect(s.closedAt).toBeInstanceOf(Date);
+    expect(s).toMatchObject({ status: 'closed', awaitingSince: null });
     expect(renderSql(s.awaitingTotalSeconds)).toMatch(/coalesce/i);
+  });
+
+  it('closeCases keeps a RESOLVED case\'s own closedAt / closedBy', async () => {
+    // `setCaseStatus` already stamped them on resolve; the bulk close must not
+    // move when (or by whom) the case finished.
+    tx.queue([{ id: 'c1' }]);
+    await svc.closeCases(['c1'], 'staff-1');
+    const s = set()!;
+    expect(renderSql(s.closedAt)).toMatch(/coalesce\(.*closed_at/i);
+    expect(renderSql(s.closedBy)).toMatch(/coalesce\(.*closed_by/i);
   });
 
   it('closeCases SKIPS already-closed cases rather than re-stamping them', async () => {

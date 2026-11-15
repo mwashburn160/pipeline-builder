@@ -32,6 +32,7 @@ const getOwnQuotas = jest.fn<AnyFn>();
 const getAIProviders = jest.fn<AnyFn>();
 const getAskProviders = jest.fn<AnyFn>();
 const getOrgAIConfig = jest.fn<AnyFn>();
+const draftReportSummary = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: {
@@ -39,6 +40,7 @@ jest.mock('@/lib/api', () => ({
     getAIProviders: (...a: unknown[]) => getAIProviders(...a),
     getAskProviders: (...a: unknown[]) => getAskProviders(...a),
     getOrgAIConfig: (...a: unknown[]) => getOrgAIConfig(...a),
+    draftReportSummary: (...a: unknown[]) => draftReportSummary(...a),
     getAskAvailability: async () => ({ success: true, data: { available: true } }),
   },
 }));
@@ -248,5 +250,25 @@ describe('ReportReview "Draft with AI"', () => {
     getOwnQuotas.mockResolvedValue(quotaResponse(summary()));
     renderReview();
     expect(await screen.findByText(/187 AI calls left/)).toBeInTheDocument();
+  });
+
+  it('shows the server\'s reason when the run was published meanwhile (409), and re-reads the run', async () => {
+    getOrgAIConfig.mockResolvedValue({ data: { providers: {}, aiEnabled: true } });
+    getOwnQuotas.mockResolvedValue(quotaResponse(summary()));
+    draftReportSummary.mockRejectedValue(new ApiError('This report has already been published. Regenerate it to produce a new version, then draft its summary.', 409, 'CONFLICT'));
+    const onChanged = jest.fn<AnyFn>();
+    render(<ReportReview run={run} canAuthor canShare={false} externalSharing={false} onChanged={onChanged} />);
+    fireEvent.click(await screen.findByTestId('draft-summary-ai'));
+    expect(await screen.findByText(/already been published\. Regenerate it/)).toBeInTheDocument();
+    expect(onChanged).toHaveBeenCalled();
+  });
+
+  it('offers no draft button on a published run', async () => {
+    getOrgAIConfig.mockResolvedValue({ data: { providers: {}, aiEnabled: true } });
+    getOwnQuotas.mockResolvedValue(quotaResponse(summary()));
+    const published = { ...(run as object), status: 'published' } as never;
+    render(<ReportReview run={published} canAuthor canShare={false} externalSharing={false} onChanged={jest.fn<AnyFn>()} />);
+    await waitFor(() => expect(getOrgAIConfig).toHaveBeenCalled());
+    expect(screen.queryByTestId('draft-summary-ai')).toBeNull();
   });
 });

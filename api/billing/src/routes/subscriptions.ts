@@ -226,7 +226,7 @@ export function createSubscriptionRoutes(): Router {
     try {
       const provider = getPaymentProvider();
       const customerId = await provider.createCustomer(orgId, customerEmail, `cust_${idempotencyKey}`);
-      const externalResult = await provider.createSubscription(customerId, planId, interval, `sub_${idempotencyKey}`);
+      const externalResult = await provider.createSubscription(customerId, planId, interval, `sub_${idempotencyKey}`, idempotencyKey);
       subscription.externalId = externalResult.externalId;
       subscription.externalCustomerId = externalResult.externalCustomerId;
       // Reconcile the local status to the provider's REAL state. The row was

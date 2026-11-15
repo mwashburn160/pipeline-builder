@@ -98,7 +98,7 @@ export function organizationsApi(core: ApiCore) {
     },
 
     deleteOrganization: async (id: string, stepUpToken?: string) => {
-      return core.request<ApiResponse<{ message: string }>>(`/api/organization/${id}`, {
+      return core.request<ApiResponse<{ deletedAt: string; purgeAfter: string; snapshotId: string }>>(`/api/organization/${id}`, {
         method: 'DELETE',
         headers: core.stepUpHeader(stepUpToken),
       });
@@ -110,7 +110,7 @@ export function organizationsApi(core: ApiCore) {
      *  of the org / a managing parent (controller `canAdministerOrg`). 404 if the
      *  org was already purged or was never deleted. */
     restoreOrganization: async (id: string, stepUpToken?: string) => {
-      return core.request<ApiResponse<{ organization: Organization }>>(`/api/organization/${id}/restore`, {
+      return core.request<ApiResponse<{ organization: { id: string; name: string; membersInvalidated: number } }>>(`/api/organization/${id}/restore`, {
         method: 'POST',
         headers: core.stepUpHeader(stepUpToken),
       });
@@ -227,7 +227,7 @@ export function organizationsApi(core: ApiCore) {
     },
 
     addMemberToOrganization: async (orgId: string, data: { userId?: string; email?: string }) => {
-      return core.request<ApiResponse<OrganizationMember>>(`/api/organization/${orgId}/members`, {
+      return core.request<ApiResponse<undefined>>(`/api/organization/${orgId}/members`, {
         method: 'POST',
         body: JSON.stringify(data),
       });
@@ -492,7 +492,11 @@ export function organizationsApi(core: ApiCore) {
     // ============================================
     // Invitation endpoints
     // ============================================
-    listInvitations: async (params?: { status?: string; invitationType?: string; role?: 'admin' | 'member'; search?: string; offset?: number; limit?: number }, opts?: { signal?: AbortSignal }) => {
+    listInvitations: async (params?: {
+      status?: string; invitationType?: string; role?: 'admin' | 'member'; search?: string; offset?: number; limit?: number;
+      /** A team in the active org's subtree, to list THAT team's invitations. */
+      targetOrgId?: string;
+    }, opts?: { signal?: AbortSignal }) => {
       return core.request<ApiResponse<{ invitations: Invitation[]; pagination?: { total: number; offset: number; limit: number; hasMore: boolean } }>>(`/api/invitation${buildQuery(params)}`, { signal: opts?.signal });
     },
 
@@ -511,7 +515,9 @@ export function organizationsApi(core: ApiCore) {
         invitationType?: string;
         allowedOAuthProviders?: string[];
         canAcceptViaEmail: boolean;
-        canAcceptViaGoogle: boolean;
+        /** Enabled sign-in providers this invitation can be accepted with; empty
+         *  for an email-only (or no longer valid) invitation. */
+        acceptProviders: string[];
       } }>>(`/api/invitation/${encodeURIComponent(token)}`);
     },
 
@@ -530,7 +536,7 @@ export function organizationsApi(core: ApiCore) {
      *  the user if needed. Requires the OAuth authorization `code` + `state` obtained
      *  from the provider redirect (the identity is verified server-side) — NOT a
      *  client-supplied profile. Reachable only after completing the OAuth dance. */
-    acceptInvitationOAuth: async (data: { token: string; oauthProvider: 'google'; code: string; state: string }) => {
+    acceptInvitationOAuth: async (data: { token: string; oauthProvider: string; code: string; state: string }) => {
       return core.request<ApiResponse<undefined>>('/api/invitation/accept-oauth', {
         method: 'POST',
         body: JSON.stringify(data),
@@ -559,8 +565,11 @@ export function organizationsApi(core: ApiCore) {
       });
     },
 
+    /** POST /invitation/:id/resend — renews the expiry and re-mails the link.
+     *  `delivery: 'not-configured'` is a 200 too: the invitation was renewed but
+     *  NO email went out (a refused transport is the 500). */
     resendInvitation: async (invitationId: string) => {
-      return core.request<ApiResponse<{ invitation: Invitation }>>(`/api/invitation/${invitationId}/resend`, {
+      return core.request<ApiResponse<{ expiresAt: string; delivery: InvitationDelivery }>>(`/api/invitation/${invitationId}/resend`, {
         method: 'POST',
       });
     },

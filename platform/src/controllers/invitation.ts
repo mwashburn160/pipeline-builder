@@ -13,7 +13,7 @@ import { pooledSeatUsage } from '../helpers/seats.js';
 import { auditService, invitationService } from '../services/index.js';
 import { INVITATION_ACCEPT_ERRORS, INV_ADMIN_REQUIRES_ADMIN, INV_ALREADY_MEMBER, INV_ALREADY_SENT, INV_EMAIL_MISMATCH, INV_INVITER_NOT_FOUND, INV_MAX_REACHED, INV_NOT_FOUND, INV_NOT_PENDING, INV_ORG_NOT_FOUND, INV_SEAT_LIMIT, INV_UNAUTHORIZED } from '../services/invitation-errors.js';
 import type { InvitationDelivery } from '../services/invitation-service.js';
-import { verifyOAuthCode, OAUTH_ERROR_MAP } from '../services/oauth-providers.js';
+import { enabledOAuthProviders, verifyOAuthCode, OAUTH_ERROR_MAP } from '../services/oauth-providers.js';
 import { RL_ASSIGN_EXCEEDS_CEILING, RL_ROLE_NOT_FOUND, RL_SUPERADMIN_ROLE_NOT_INVITABLE, RL_SYSTEM_ORG_ROLE_REQUIRES_SUPERADMIN } from '../services/roles-errors.js';
 import { partitionAssignableRoles } from '../services/roles-service.js';
 import { isOAuthProviderName, type OAuthProviderName } from '../types/oauth-provider.js';
@@ -293,7 +293,11 @@ export const acceptInvitation = withController('Accept invitation', async (req, 
 export const acceptInvitationViaOAuth = withController('Accept invitation via OAuth', async (req, res) => {
   const { token, oauthProvider, code, state } = req.body ?? {};
   if (!token) return sendError(res, 400, 'Invitation token is required');
-  if (!oauthProvider || !['google'].includes(oauthProvider)) {
+  // Any wired provider: an invitation may restrict acceptance to any of them
+  // (`allowedOAuthProviders`), and a google-only check here left an invitation
+  // restricted to another provider with no path for a NEW invitee to accept it.
+  // `verifyOAuthCode` refuses a provider that is not enabled.
+  if (typeof oauthProvider !== 'string' || !isOAuthProviderName(oauthProvider)) {
     return sendError(res, 400, 'Valid OAuth provider is required');
   }
   if (typeof code !== 'string' || !code || typeof state !== 'string' || !state) {
@@ -303,7 +307,7 @@ export const acceptInvitationViaOAuth = withController('Accept invitation via OA
   // Exchange the code with the provider and use the VERIFIED identity — never
   // trust a client-supplied profile.
   const verified = await verifyOAuthCode(oauthProvider, code, state, req);
-  const accepted = await invitationService.acceptViaOAuth(token, oauthProvider as OAuthProviderName, verified);
+  const accepted = await invitationService.acceptViaOAuth(token, oauthProvider, verified);
 
   // Public route: there is no `req.user`, so `audit(req, ...)` would file the
   // membership grant under an anonymous actor. Attribute it to the user resolved
@@ -354,17 +358,26 @@ export const getInvitation = withController('Get invitation', async (req, res) =
       invitationType: invitation.invitationType,
       allowedOAuthProviders: invitation.allowedOAuthProviders,
       canAcceptViaEmail: invitation.canAcceptViaEmail(),
-      canAcceptViaGoogle: invitation.canAcceptViaOAuth('google'),
+      // Every provider this person can actually accept with: configured in this
+      // deployment AND allowed by the invitation. Empty for an email-only (or
+      // no longer valid) invitation.
+      acceptProviders: enabledOAuthProviders().filter((p) => invitation.canAcceptViaOAuth(p)),
     },
   });
 });
 
-/** GET /invitation — invitations for the current org. */
+/**
+ * GET /invitation — invitations for the current org, or (`?targetOrgId=`) for
+ * one of its teams: the same reach `POST /invitation/send` has, so an
+ * invitation sent into a team can be found again to revoke or re-send.
+ */
 export const listInvitations = withController('List invitations', async (req, res) => {
-  const orgId = requireOrgMembership(req, res);
-  if (!orgId) return;
+  const actorOrgId = requireOrgMembership(req, res);
+  if (!actorOrgId) return;
 
-  const { status, invitationType, role, search } = req.query;
+  const { status, invitationType, role, search, targetOrgId } = req.query;
+  const orgId = await resolveInviteTarget(req, actorOrgId, typeof targetOrgId === 'string' && targetOrgId ? targetOrgId : undefined, res);
+  if (!orgId) return;
   const { offset, limit: limitNum } = listPage(req.query);
 
   const { invitations, total } = await invitationService.listForOrg(orgId, {
@@ -415,7 +428,7 @@ export const resendInvitation = withController('Resend invitation', async (req, 
   if (!orgId) return;
   const { invitationId } = req.params;
 
-  const { expiresAt, delivery, email, role } = await invitationService.resend(
+  const { expiresAt, delivery, email, role, organizationId } = await invitationService.resend(
     invitationId as string, orgId, req.user!.sub, invitationManager(req),
   );
 
@@ -429,7 +442,8 @@ export const resendInvitation = withController('Resend invitation', async (req, 
   audit(req, 'invitation.resend', {
     targetType: 'invitation',
     targetId: invitationId as string,
-    affectedOrgId: orgId,
+    // The org the invitation joins — with a team invitation, not the actor's own.
+    affectedOrgId: organizationId,
     details: { email, role },
   });
 
@@ -439,4 +453,7 @@ export const resendInvitation = withController('Resend invitation', async (req, 
   [INV_NOT_FOUND]: { status: 404, message: 'Pending invitation not found' },
   [INV_UNAUTHORIZED]: { status: 403, message: 'You are not authorized to resend invitations' },
   [INV_INVITER_NOT_FOUND]: { status: 404, message: 'Inviter not found' },
+  // Re-arming a LAPSED invitation re-reserves a seat; with none free this was
+  // an unmapped sentinel, i.e. a 500.
+  [INV_SEAT_LIMIT]: { status: 409, message: 'No seat available — free a seat to re-send this invitation' },
 });

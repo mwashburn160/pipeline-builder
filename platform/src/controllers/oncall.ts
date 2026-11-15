@@ -377,6 +377,7 @@ export const oncallTest = withController('On-call test page', async (req, res) =
     orgId: SYSTEM_ORG_ID,
     targetType: 'oncall_page',
     targetId: 'test',
+    outcome: result.ok ? 'success' : 'failure',
     details: {
       sent: result.ok && !result.skipped,
       skipped: result.skipped === true,
@@ -384,9 +385,11 @@ export const oncallTest = withController('On-call test page', async (req, res) =
     },
   });
 
-  // `skipped` is the knob being off, which is a successful answer to "what
-  // happens today" rather than a failure to report.
-  sendSuccess(res, result.ok ? 200 : 502, {
+  // Always 200: the request worked, and the body is the answer — `sent`,
+  // `skipped` (the knob is off, a successful answer to "what happens today")
+  // and, when the provider refused or was unreachable, `error`. A 502 made the
+  // client throw and drop the very body that says why the page did not go out.
+  sendSuccess(res, 200, {
     sent: result.ok && !result.skipped,
     skipped: result.skipped === true,
     status: result.status,

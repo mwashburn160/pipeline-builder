@@ -155,11 +155,17 @@ async function commitAddonChange(args: {
 }
 
 /**
- * Add-on bundle management routes (root-org billing; behind
- * `BILLING_BUNDLES_ENABLED`). See docs/billing-bundles.md.
+ * Add-on bundle management routes (root-org billing; the bundle routes are
+ * behind `BILLING_BUNDLES_ENABLED`). See docs/billing-bundles.md.
  *
+ * - GET    /charges                           — the standing bill, itemized
+ * - GET    /crossover                         — does pack spend argue for a tier move
+ * - GET    /plan-preview                      — a plan change's cost, discount included
+ * - GET    /bundles                           — the catalog offered to the account's tier
+ * - POST   /portal                            — hosted payment-method session
  * - POST   /subscriptions/:id/addons/preview  — dry-run effective limits + price
  * - POST   /subscriptions/:id/addons          — add/set a bundle quantity
+ * - POST   /subscriptions/:id/addons/basket   — add several bundles as one change
  * - DELETE /subscriptions/:id/addons/:bundleId — remove a bundle
  */
 export function createAddonRoutes(): Router {
@@ -227,7 +233,6 @@ export function createAddonRoutes(): Router {
     });
   }));
 
-  // GET /billing/bundles — the add-on catalog filtered to the account's tier
   /**
    * GET /billing/crossover — does this account's pack spend already argue for a
    * tier move?
@@ -329,6 +334,7 @@ export function createAddonRoutes(): Router {
     });
   }));
 
+  // GET /billing/bundles — the add-on catalog filtered to the account's tier
   router.get('/bundles', requireAuth(AUTH_OPTS) as RequestHandler, requirePermission('billing:read') as RequestHandler, withRoute(async ({ res, orgId }) => {
     if (!bundlesEnabled()) return sendSuccess(res, 200, { bundles: [], selfService: false, comboDiscounts: [] });
     const loaded = await loadSubAndPlan(orgId);
@@ -581,6 +587,9 @@ export function createAddonRoutes(): Router {
     const bundles = getBundleCatalog();
     const current = (subscription.addons ?? []) as Addon[];
     let next = current;
+    // The quantity each item will actually HOLD (a boolean bundle is always 1),
+    // which is what the payment gate below must compare against.
+    const appliedQty = new Map<string, number>();
     for (const item of items) {
       const resolved = resolvePurchasableBundle(bundles, item.bundleId, plan.tier);
       if ('error' in resolved) return sendError(res, 400, resolved.error, ErrorCode.VALIDATION_ERROR);
@@ -588,6 +597,7 @@ export function createAddonRoutes(): Router {
       const qty = bundle.stackable ? Math.max(1, Math.trunc(item.quantity)) : 1;
       const capError = bundleQuantityCapError(bundle, qty);
       if (capError) return sendError(res, 400, capError, ErrorCode.VALIDATION_ERROR);
+      appliedQty.set(item.bundleId, qty);
       next = applyAddon(next, item.bundleId, qty);
     }
 
@@ -614,7 +624,7 @@ export function createAddonRoutes(): Router {
     };
     const increases = items.some((i) => {
       const held = current.find((a) => a.bundleId === i.bundleId)?.quantity ?? 0;
-      return i.quantity > held && priceOf(i.bundleId) > 0;
+      return (appliedQty.get(i.bundleId) ?? 0) > held && priceOf(i.bundleId) > 0;
     });
     if (increases) {
       const provider = getPaymentProvider();

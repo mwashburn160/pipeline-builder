@@ -114,6 +114,7 @@ describe('StubPaymentProvider', () => {
   it('realizes usage credits via balance and applyUsageCredit is a no-op', async () => {
     expect(provider.usageCreditSupport).toBe('balance');
     await expect(provider.applyUsageCredit('cus_1', 1000)).resolves.toEqual({});
+    await expect(provider.debitUsageCredit('cus_1', 1000)).resolves.toEqual({});
   });
 });
 
@@ -508,6 +509,15 @@ describe('StripeProvider', () => {
     });
   });
 
+  describe('debitUsageCredit', () => {
+    it('posts a POSITIVE customer balance transaction under the debit idempotency key', async () => {
+      mockStripeBalanceTxnCreate.mockResolvedValue({ id: 'cbtxn_d' });
+      const res = await provider.debitUsageCredit('cus_1', 1200, 'promo-clawback-k-1');
+      expect(mockStripeBalanceTxnCreate).toHaveBeenCalledWith('cus_1', { amount: 1200, currency: 'usd' }, { idempotencyKey: 'promo-clawback-k-1-debit' });
+      expect(res).toEqual({ ref: { kind: 'balance', ref: 'cbtxn_d' } });
+    });
+  });
+
   describe('createCustomer', () => {
     it('creates a Stripe customer and returns the ID', async () => {
       mockStripeCustomersCreate.mockResolvedValue({ id: 'cus_stripe_123' });
@@ -583,6 +593,17 @@ describe('StripeProvider', () => {
         items: [{ price: 'price_pro_mo' }],
         metadata: { planId: 'pro', interval: 'monthly' },
       }, { idempotencyKey: 'sub_key_1' });
+    });
+
+    it('stamps the reserved local row id as subscriptionRef when supplied', async () => {
+      mockStripeSubscriptionsCreate.mockResolvedValue({ id: 'sub_stripe_792', status: 'active' });
+
+      await provider.createSubscription('cus_123', 'pro', 'monthly', 'sub_key_2', 'row-1');
+      expect(mockStripeSubscriptionsCreate).toHaveBeenCalledWith({
+        customer: 'cus_123',
+        items: [{ price: 'price_pro_mo' }],
+        metadata: { planId: 'pro', interval: 'monthly', subscriptionRef: 'row-1' },
+      }, { idempotencyKey: 'sub_key_2' });
     });
 
     it('throws when no price ID configured for plan/interval', async () => {

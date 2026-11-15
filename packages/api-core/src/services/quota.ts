@@ -478,9 +478,9 @@ export function createQuotaService(config: QuotaServiceConfig = {}): QuotaServic
         return createFailOpenResult();
       }
 
-      if (response.statusCode !== 200 || !response.body.success || !response.body.data?.status) {
+      if (response.statusCode !== 200 || !response.body?.success || !response.body.data?.status) {
         logger.warn('QUOTA_FAIL_OPEN: Quota check returned non-ok, allowing request', {
-          orgId, quotaType, statusCode: response.statusCode, message: response.body.message,
+          orgId, quotaType, statusCode: response.statusCode, message: response.body?.message,
         });
         emitCounter('quota_fail_open_total', { operation: 'check', reason: 'non-ok', quotaType });
         return createFailOpenResult();
@@ -552,22 +552,24 @@ export function createQuotaService(config: QuotaServiceConfig = {}): QuotaServic
 
       if (!response) return unconfirmedReserve(orgId, quotaType, 'unreachable');
 
+      // A JSON `null` body parses to null; read it through one guarded alias.
+      const body = response.body ?? {};
       if (response.statusCode === 429) {
-        const q = response.body.details?.quota;
+        const q = body.details?.quota;
         // An optional org AI control (per-member share, token budget) refused the
         // slot: a genuine, final denial — relayed with its own code and message.
-        if (response.body.code && AI_LIMIT_CODES.has(response.body.code)) {
+        if (body.code && AI_LIMIT_CODES.has(body.code)) {
           return {
             exceeded: true,
-            code: response.body.code as AiLimitCode,
-            ...(response.body.message ? { message: response.body.message } : {}),
+            code: body.code as AiLimitCode,
+            ...(body.message ? { message: body.message } : {}),
             quota: q ?? { type: quotaType, limit: 0, used: 0, remaining: 0 },
           };
         }
         // Only a GENUINE quota-exceeded 429 means "over quota". A generic 429 —
         // an intervening gateway or rate limiter — did not confirm anything, so
         // it goes through the same unconfirmed-reservation policy as an outage.
-        if (response.body.code === ErrorCode.QUOTA_EXCEEDED || q) {
+        if (body.code === ErrorCode.QUOTA_EXCEEDED || q) {
           return {
             exceeded: true,
             quota: q ?? { type: quotaType, limit: 0, used: 0, remaining: 0 },
@@ -576,11 +578,11 @@ export function createQuotaService(config: QuotaServiceConfig = {}): QuotaServic
         return unconfirmedReserve(orgId, quotaType, 'transient-429', response.statusCode);
       }
 
-      if (response.statusCode !== 200 || !response.body.success) {
+      if (response.statusCode !== 200 || !body.success) {
         return unconfirmedReserve(orgId, quotaType, 'non-ok', response.statusCode);
       }
 
-      const q = response.body.data?.quota;
+      const q = body.data?.quota;
       return {
         exceeded: false,
         quota: q ?? { type: quotaType, limit: -1, used: 0, remaining: -1 },

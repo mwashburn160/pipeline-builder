@@ -97,20 +97,6 @@ export async function resolveRedeemable(code: string): Promise<DiscountDocument 
   return Discount.findOne({ alias: code.toUpperCase(), isActive: true });
 }
 
-/**
- * Resolve a `percent`/`dollar` usage credit to cents against a base amount.
- *
- * A `dollar` credit is taken at face value — an operator who authored "$50 off"
- * means $50, and snapping it would quietly pay out $49.99 or $50.99.
- *
- * A `percent` credit is derived from the NET instead of rounded on its own: 15%
- * of $79 is $11.85, and rounding the credit leaves $67.15 on the invoice. This
- * snaps what is still CHARGED up to a whole dollar or .99 and takes the credit as
- * the remainder, so the customer sees $67.99 against a credit of $11.01 that
- * reconciles exactly against the line above it — and the odd cents land in the
- * vendor's favour rather than against.
- */
-
 export interface DiscountBreakdown {
   interval: BillingInterval;
   items: { label: string; cents: number }[];
@@ -233,8 +219,8 @@ export type ApplyResult =
  * entitlements/quota.
  *
  * Ordering: validate → RESERVE (atomic `$inc` under the `maxRedemptions` guard,
- * so concurrent redemptions can't exceed the cap) → provider push (Stripe
- * coupon / usage-credit balance, idempotency-keyed) → mutate the subscription.
+ * so concurrent redemptions can't exceed the cap) → provider push (usage-credit
+ * balance, idempotency-keyed) → mutate the subscription.
  * Any failure after the reserve COMPENSATES it (`$inc -1`) so a redemption is
  * never burned by a downstream error.
  */
@@ -255,7 +241,7 @@ export async function applyDiscountToOrg(
   // live composition rather than stored, so adding or dropping an add-on moves
   // the answer with no separate trigger.
   const intervalPrice = priceForInterval(plan.prices, subscription.interval);
-  const proposed = creditCents(
+  const cents = creditCents(
     discount,
     discountBaseCents(discount, intervalPrice, subscription.addons ?? [], getBundleCatalog(), subscription.interval),
   );
@@ -266,7 +252,7 @@ export async function applyDiscountToOrg(
     + await standingRecurringPromotionCents(subscription);
   const breach = discountFloorBreach(
     { planPriceCents: intervalPrice, addons: subscription.addons ?? [], interval: subscription.interval, bundles: getBundleCatalog(), standingExtraCents },
-    proposed,
+    cents,
     discount.kind,
   );
   if (breach) {
@@ -317,13 +303,6 @@ export async function applyDiscountToOrg(
     return { ok: false, status: 409, error: 'This discount is no longer available', code: 'DISCOUNT_EXHAUSTED' };
   }
 
-  const base = discountBaseCents(
-    discount, priceForInterval(plan.prices, subscription.interval),
-    subscription.addons ?? [], getBundleCatalog(), subscription.interval,
-  );
-  const cents = creditCents(discount, base);
-  // Hoisted so `finally` can tell a BANKED redemption from a failed one: the
-  // post-commit bookkeeping must run outside the rollback scope (see below).
   // CAMPAIGN BUDGET. Claimed after the redemption reserve because it needs
   // `cents`, and atomically under its own guard so concurrent redemptions cannot
   // both overshoot it. Released by `settleFailure` on every later failure, next
@@ -481,7 +460,8 @@ async function grantUsageCredit(subscription: SubscriptionDocument, discountId: 
 
 /** Invoice fields the discount reconciler reads (Stripe is source of truth). */
 export interface InvoiceLike {
-  /** Invoice id — seeds the per-period idempotency key for a recurring re-grant. */
+  /** Invoice id. Not what the re-grant is keyed on — that is the calendar
+   *  period, so several invoices in one period share one grant. */
   id?: string;
   /** Customer balance AFTER this invoice, in cents — NEGATIVE = credit remaining. */
   ending_balance?: number | null;
@@ -497,8 +477,9 @@ export interface InvoiceLike {
  * balance down from the customer's ending balance (emitting `credit_exhausted`
  * at zero), then RE-GRANTS a `recurring` discount's credit for the upcoming
  * period (resolved fresh from the current plan price, so a percent discount
- * tracks plan changes). Mutates `subscription` in place; the caller saves. No-op
- * for a subscription that carries no discounts.
+ * tracks plan changes). Every write is atomic — `subscription` is not mutated,
+ * so the caller's own save can't clobber a concurrent credit write. No-op for a
+ * subscription that carries no discounts.
  */
 export async function reconcileDiscountsOnInvoice(subscription: SubscriptionDocument, invoice: InvoiceLike): Promise<void> {
   const orgId = subscription.orgId;
@@ -546,11 +527,13 @@ export async function reconcileDiscountsOnInvoice(subscription: SubscriptionDocu
  * percent tracks plan changes) and any active combo credits (derived from the live
  * add-on composition). Idempotent per `periodKey` on `(discountId, dedupeKey)`.
  * A revoked/expired recurring rule is stopped (emitting `discount_expired`) so it
- * can't leak credits. Mutates `subscription` in place; the caller saves.
+ * can't leak credits. `atomic` (the Stripe webhook) persists each grant with a
+ * guarded write; otherwise `subscription` is mutated in place and the caller saves.
  *
- * Shared realization for both providers: the Stripe invoice reconciler passes the
- * invoice id, the Marketplace metering cycle passes a calendar period key
- * (`YYYY` / `YYYY-MM`) since Marketplace has no invoices to drive it.
+ * Shared realization for both providers: both pass a calendar period key
+ * (`billingPeriodKey`) — the Stripe invoice reconciler so several invoices in
+ * one period share one grant, the Marketplace metering cycle because it has no
+ * invoices to drive it.
  */
 export async function grantPeriodicCredits(subscription: SubscriptionDocument, periodKey: string, opts: { atomic?: boolean } = {}): Promise<void> {
   // Symmetric across providers: when the discount surface is off, neither Stripe

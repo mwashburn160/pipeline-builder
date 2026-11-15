@@ -170,6 +170,11 @@ describe('safeFetch', () => {
       opts.lookup('example.com', {}, (_e: unknown, address: string) => resolve(address));
     });
     expect(pinned).toBe('93.184.216.34');
+    // Node's default Happy-Eyeballs connect asks for `all` and reads an array.
+    const pinnedAll = await new Promise<unknown>((resolve) => {
+      opts.lookup('example.com', { all: true }, (_e: unknown, addresses: unknown) => resolve(addresses));
+    });
+    expect(pinnedAll).toEqual([{ address: '93.184.216.34', family: 4 }]);
   });
 
   it('reports a 3xx as a refused redirect, never following it', async () => {

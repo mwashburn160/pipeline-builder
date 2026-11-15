@@ -31,6 +31,7 @@ import { createLogger, emitCounter, errorMessage, type BillingInterval } from '@
 import { config } from '../config.js';
 import { createBillingEvent, getBundleCatalog } from './billing-helpers.js';
 import { releaseCampaignBudget, reserveCampaignBudget } from './campaign.js';
+import { postPendingCreditDebit } from './credit-debits.js';
 import { discountFloorBreach, recurringDiscountStandingCents } from './credit-floor.js';
 import { compactInMemoryLedger, creditLedgerEntry } from './credit-ledger-compaction.js';
 import { aggregateLedgerSpend, type LedgerSpend } from './ledger-spend.js';
@@ -450,10 +451,36 @@ export async function reconcilePromotionSpend(
 }
 
 /**
+ * The provider idempotency key for taking back ONE grant: its ledger dedupeKey
+ * plus the moment it was applied. The dedupeKey alone is not enough — a
+ * clawed-back one-time grant frees its dedupeKey, so the same promotion can
+ * grant again, and a second clawback on the bare key would be answered from the
+ * first one's idempotency record and debit nothing.
+ */
+function clawbackDebitKey(row: { dedupeKey?: string; discountId: string; appliedAt: Date }): string {
+  return `promo-clawback-${row.dedupeKey ?? row.discountId}-${new Date(row.appliedAt).getTime()}`;
+}
+
+/**
  * Reverse promotion grants applied to a subscription within the clawback window —
- * called on cancellation to defuse signup-grab-churn. Removes the ledger row,
- * reduces the balance (clamped ≥ 0 — a partially-consumed credit isn't over-clawed),
- * and RELEASES the budget reservation. Emits `promotion_clawback`.
+ * called on cancellation to defuse signup-grab-churn, and on a refund/dispute.
+ * Removes the ledger row, reduces the balance, and RELEASES the budget
+ * reservations (the promotion's and its campaign's). Emits `promotion_clawback`.
+ *
+ * WHAT IS TAKEN BACK. Only the UNUSED part of the grant: `min(grant cents,
+ * current credit balance)`. The mirror does not track consumption per grant —
+ * invoices draw down one pooled balance — so the remaining balance is the most
+ * of any one grant that can still be unused; credit an invoice already consumed
+ * is not clawed (it is never over-clawed into a charge).
+ *
+ * BOTH SIDES OF THE CREDIT. The grant was posted to the provider balance
+ * (`applyUsageCredit`) as well as the local mirror, so reducing only the mirror
+ * left the credit at the provider, which applied it to the next invoice of a
+ * still-active subscription anyway. The same atomic write that pulls the grant
+ * queues the matching provider debit (`pendingCreditDebits`), which is then
+ * posted under a per-grant idempotency key; a failed post stays queued for the
+ * lifecycle reconciler (`retryPendingCreditDebits`), so a retried clawback never debits twice and a failed
+ * one is never lost.
  */
 export async function clawbackRecentPromotions(subscription: SubscriptionDocument, actorId?: string): Promise<number> {
   if (!promotionsEnabled()) return 0;
@@ -469,13 +496,23 @@ export async function clawbackRecentPromotions(subscription: SubscriptionDocumen
     // Guard the pull on the row STILL being present, so a retried/concurrent
     // cancel that already clawed this back can't drive spentCents/grantsCount
     // negative (a second release with the row gone).
+    const debit = reduce > 0 ? { key: clawbackDebitKey(row), cents: reduce, createdAt: new Date() } : null;
     const pull = await Subscription.updateOne(
       { '_id': subscription._id, 'creditLedger.dedupeKey': row.dedupeKey },
-      { $pull: { creditLedger: { dedupeKey: row.dedupeKey } }, $inc: { creditBalanceCents: -reduce } },
+      {
+        $pull: { creditLedger: { dedupeKey: row.dedupeKey } },
+        $inc: { creditBalanceCents: -reduce },
+        ...(debit ? { $push: { pendingCreditDebits: debit } } : {}),
+      },
     );
     if (pull.modifiedCount !== 1) continue; // already reversed — don't double-release
     subscription.creditBalanceCents = Math.max(0, balance - reduce);
+    if (debit) await postPendingCreditDebit(subscription, debit, 'clawback');
     await Promotion.updateOne({ _id: promoId }, { $inc: { spentCents: -row.cents, grantsCount: -1 } });
+    // The grant reserved its campaign's shared budget too (reserveAndGrant), and
+    // nothing re-derives a campaign's counters from the ledger — so without this
+    // a clawed-back grant kept consuming the campaign budget for good.
+    if (row.campaign) await releaseCampaignBudget(row.campaign, row.cents);
     await createBillingEvent(subscription.orgId, 'promotion_clawback', { promotionId: promoId, cents: row.cents, reducedCents: reduce }, subscription._id.toString(), actorId);
     emitCounter('billing_promotion_clawback_total');
     count += 1;

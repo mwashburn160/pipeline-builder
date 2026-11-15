@@ -56,4 +56,9 @@ export class StubPaymentProvider implements PaymentProvider {
     logger.debug('Stub: applyUsageCredit', { externalCustomerId, cents });
     return {};
   }
+
+  async debitUsageCredit(externalCustomerId: string, cents: number): Promise<{ ref?: DiscountRef }> {
+    logger.debug('Stub: debitUsageCredit', { externalCustomerId, cents });
+    return {};
+  }
 }

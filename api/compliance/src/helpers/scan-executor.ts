@@ -151,23 +151,33 @@ async function executeScanInternal(scanId: string): Promise<void> {
   // only; orgId is deliberately omitted to keep label cardinality bounded.
   incCounter('compliance_scans_total', { outcome: 'started' });
 
+  const isDryRun = scan.triggeredBy === 'rule-dry-run';
+
   // System org is exempt from all compliance scans.
   // Use the same case-insensitive comparison style used in DB queries.
   if ((scan.orgId ?? '').toLowerCase() === SYSTEM_ORG_ID) {
     logger.info('Skipping scan for system org (exempt)', { scanId });
-    await withTenantTx(async (tx) => tx.update(schema.complianceScan)
-      .set({ status: 'completed', completedAt: new Date(), passCount: 0, warnCount: 0, blockCount: 0, processedEntities: 0, totalEntities: 0 })
-      .where(eq(schema.complianceScan.id, scanId)));
+    const completed = await updateRunningScan(scanId, {
+      status: 'completed', completedAt: new Date(), passCount: 0, warnCount: 0, blockCount: 0, processedEntities: 0, totalEntities: 0,
+    });
+    if (!completed) {
+      incCounter('compliance_scans_total', { outcome: 'cancelled' });
+      return;
+    }
+    // Every `started` gets a terminal outcome and an audit row, so a claimed
+    // scan never vanishes from the metric or the trail.
+    incCounter('compliance_scans_total', { outcome: 'skipped_system_org' });
+    auditScanOutcome(scan, 'success', {
+      status: 'completed', skipped: 'system_org', totalEntities: 0, processedEntities: 0, passCount: 0, warnCount: 0, blockCount: 0, isDryRun,
+    });
     return;
   }
-
-  const isDryRun = scan.triggeredBy === 'rule-dry-run';
 
   try {
     // Resolve the org's parent once for the whole scan so rule lookup includes
     // the parent's `propagateToChildren` rules — matching the live validation
-    // and entity-event paths (which read it off the request JWT). Scans are
-    // detached from any request, so this is an internal platform lookup.
+    // and entity-event paths. Scans are detached from any request, so this is
+    // an internal platform lookup.
     // Fail-CLOSED: a resolve FAILURE throws here (caught below → scan marked
     // `failed`) rather than degrading to own-rules-only, which would skip a
     // team's inherited blocking rules and stamp a false-pass. A genuine root

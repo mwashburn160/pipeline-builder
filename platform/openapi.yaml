@@ -689,6 +689,10 @@ paths:
           in: query
           schema: { type: string }
           description: Case-insensitive email substring
+        - name: targetOrgId
+          in: query
+          schema: { type: string }
+          description: List a TEAM of the caller's organization instead of the organization itself (the same reach as `targetOrgId` on POST /invitation/send).
         - $ref: '#/components/parameters/offset'
         - $ref: '#/components/parameters/limit'
       responses:
@@ -805,8 +809,8 @@ paths:
                 token: { type: string }
                 oauthProvider:
                   type: string
-                  enum: [google]
-                  description: Only Google is accepted on this public route; other providers accept through POST /invitation/accept with a linked identity.
+                  enum: [google, github, facebook, microsoft, gitlab, linkedin]
+                  description: The provider the code came from; it must be enabled and allowed by the invitation.
                 code:
                   type: string
                   description: OAuth authorization code from the provider redirect (server-side exchanged; the caller never supplies the profile).
@@ -906,6 +910,7 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
 
   # ---------------------------------------------------------------------------
   # Admin
@@ -1320,7 +1325,10 @@ components:
           type: array
           items: { type: string }
         canAcceptViaEmail: { type: boolean }
-        canAcceptViaGoogle: { type: boolean }
+        acceptProviders:
+          type: array
+          description: OAuth providers this invitation can be accepted with — enabled in this deployment and allowed by the invitation (empty when email-only or no longer valid).
+          items: { type: string, enum: [google, github, facebook, microsoft, gitlab, linkedin] }
 
     HealthCheckResponse:
       type: object

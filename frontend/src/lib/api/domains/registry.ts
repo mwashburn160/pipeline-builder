@@ -139,6 +139,10 @@ export function registryApi(core: ApiCore) {
         reposScanned: number;
         candidates: number;
         deleted: number;
+        /** cosign `.sig`/`.att` companions removed (in a dry run, the number a real run would). */
+        companionsDeleted: number;
+        /** Repositories whose sweep failed — the run still answers 200. */
+        failedRepos: number;
         perRepo: Array<{ repo: string; scanned: number; deleted: number }>;
       }>>('/api/admin/gc', {
         method: 'POST',

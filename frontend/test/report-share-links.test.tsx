@@ -39,7 +39,7 @@ const link = { id: 'l1', expiresAt: '2099-01-01T00:00:00Z', revokedAt: null, vie
 beforeEach(() => {
   jest.clearAllMocks();
   listReportShareLinks.mockResolvedValue({ success: true, data: { links: [link] } });
-  createReportShareLink.mockResolvedValue({ success: true, data: { token: 'tok-for-A', notice: 'Shown once.' } });
+  createReportShareLink.mockResolvedValue({ success: true, data: { token: 'tok-for-A', url: 'https://pb.example/reports/shared?token=tok-for-A', notice: 'Shown once.' } });
   revokeReportShareLink.mockResolvedValue({ success: true });
 });
 
@@ -63,12 +63,12 @@ describe('ShareLinks', () => {
     await waitFor(() => expect(listReportShareLinks).toHaveBeenCalledTimes(2));
   });
 
-  it('drops the minted token when the review moves to another run', async () => {
+  it('shows the full share URL (not a bare token), and drops it when the review moves to another run', async () => {
     const { rerender } = render(review('A'));
     fireEvent.click(await screen.findByRole('button', { name: 'Create link' }));
-    expect(await screen.findByText('tok-for-A')).toBeInTheDocument();
+    expect(await screen.findByText('https://pb.example/reports/shared?token=tok-for-A')).toBeInTheDocument();
     rerender(review('B'));
     await waitFor(() => expect(listReportShareLinks).toHaveBeenLastCalledWith('B', expect.anything()));
-    expect(screen.queryByText('tok-for-A')).not.toBeInTheDocument();
+    expect(screen.queryByText('https://pb.example/reports/shared?token=tok-for-A')).not.toBeInTheDocument();
   });
 });

@@ -30,6 +30,8 @@ import {
   CE_NOT_FOUND,
   CE_SELF_APPROVE,
   CE_ALREADY_EXISTS,
+  CE_NOT_EXTENDABLE,
+  CE_EXPIRY_NOT_LATER,
 } from '../services/compliance-exemption-service.js';
 
 /** Exemption CRUD routes. */
@@ -40,7 +42,15 @@ const ExemptionCreateSchema = z.object({
   entityId: z.string().uuid(),
   entityName: z.string().max(255).optional(),
   reason: z.string().min(1).max(2000),
-  expiresAt: z.string().datetime().optional(),
+  // A request that would lapse before anyone could approve it is a mistake,
+  // not a waiver — refuse it rather than file a row the sweep closes at once.
+  expiresAt: z.string().datetime()
+    .refine((v) => Date.parse(v) > Date.now(), { message: 'expiresAt must be in the future' })
+    .optional(),
+});
+
+const ExemptionExtendSchema = z.object({
+  expiresAt: z.string().datetime(),
 });
 
 const ExemptionReviewSchema = z.object({
@@ -84,7 +94,7 @@ export function createExemptionRoutes(): Router {
   // POST /bulk — bulk-create exemptions in one request (up to 500).
   // Deduped on the (org_id, rule_id, entity_id) unique index in the service: a
   // double-submit (or a batch repeating an entity) skips the rows colliding with
-  // a live request instead of erroring, while a rejected/expired request for the
+  // a live request instead of erroring, while a rejected/expired/lapsed request for the
   // same entity is reopened as pending. `skipped = requested - created` reports
   // the difference.
   router.post('/bulk', requireComplianceRead, audited('compliance.exemption.request'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
@@ -120,7 +130,7 @@ export function createExemptionRoutes(): Router {
   // POST / — request a new exemption. Deduped on (org, rule, entity) at the DB
   // level (same unique index as POST /bulk): a triple with a live (pending or
   // approved) request returns a clean 409 instead of the raw unique-violation
-  // 500; a rejected or expired one is reopened as this new request.
+  // 500; a rejected, expired or lapsed one is reopened as this new request.
   // `proposable`: this row is decided by someone ELSE holding `compliance:write`
   // (PUT /:id/review below), and that approver is the one reader who cannot
   // otherwise tell the request was drafted by the Ask agent.
@@ -220,6 +230,75 @@ export function createExemptionRoutes(): Router {
         return sendBadRequest(
           res,
           'Cannot approve an exemption you requested. Another reviewer must approve.',
+          ErrorCode.INSUFFICIENT_PERMISSIONS,
+        );
+      }
+      throw err;
+    }
+  }));
+
+  // PUT /:id/expiry — extend an approved exemption before it lapses. The
+  // (org, rule, entity) unique index holds the approved row, so a renewal
+  // cannot be filed as a new request; this is the renewal. It approves a longer
+  // waiver, so it carries approval's gate, its two-person rule (the requester
+  // cannot extend their own) and its audit action, marked `extension`.
+  router.put('/:id/expiry', requirePermission('compliance:write'), audited('compliance.exemption.approve'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
+    const id = getParam(req.params, 'id');
+    if (!id) return sendBadRequest(res, 'Exemption ID is required', ErrorCode.MISSING_REQUIRED_FIELD);
+
+    const validation = validateBody(req, ExemptionExtendSchema);
+    if (!validation.ok) {
+      return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
+    }
+
+    try {
+      const { exemption, previousExpiresAt } = await complianceExemptionService.extendExpiry(
+        id, orgId, userId, new Date(validation.value.expiresAt),
+      );
+      ctx.log('COMPLETED', 'Extended exemption expiry', { id });
+      recordAudit({
+        action: 'compliance.exemption.approve',
+        actorId: actorId({ userId }),
+        orgId,
+        targetType: 'exemption',
+        targetId: id,
+        details: {
+          extension: true,
+          ruleId: exemption.ruleId,
+          entityType: exemption.entityType,
+          entityId: exemption.entityId,
+          requester: exemption.createdBy,
+          previousExpiresAt: previousExpiresAt.toISOString(),
+          expiresAt: exemption.expiresAt ? exemption.expiresAt.toISOString() : null,
+        },
+      });
+      return sendSuccess(res, 200, { exemption });
+    } catch (err) {
+      const code = errorMessage(err);
+      if (code === CE_NOT_FOUND) return sendEntityNotFound(res, 'Exemption');
+      if (code === CE_NOT_EXTENDABLE) {
+        return sendError(
+          res, 409,
+          'Only an approved exemption that has not lapsed and has an expiry can be extended. Request a new exemption instead.',
+          ErrorCode.CONFLICT,
+        );
+      }
+      if (code === CE_EXPIRY_NOT_LATER) {
+        return sendBadRequest(res, 'expiresAt must be in the future and later than the current expiry', ErrorCode.VALIDATION_ERROR);
+      }
+      if (code === CE_SELF_APPROVE) {
+        recordAudit({
+          action: 'compliance.exemption.approve',
+          actorId: actorId({ userId }),
+          orgId,
+          targetType: 'exemption',
+          targetId: id,
+          outcome: 'failure',
+          details: { extension: true, refusal: 'CE_SELF_APPROVE' },
+        });
+        return sendBadRequest(
+          res,
+          'Cannot extend an exemption you requested. Another reviewer must extend it.',
           ErrorCode.INSUFFICIENT_PERMISSIONS,
         );
       }

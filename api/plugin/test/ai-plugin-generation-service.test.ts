@@ -299,13 +299,13 @@ describe('ai-plugin-generation-service', () => {
       expect(call.prompt).toBe('Create a Node.js build plugin');
     });
 
-    it('throws a typed AIEmptyOutputError (provider WAS contacted) when AI returns null output', async () => {
+    it('throws a typed AIEmptyOutputError when AI returns null output', async () => {
       streamReturning(null);
 
-      // Typed so the route keeps the aiCalls slot (keep-on-provider-contact).
+      // The route answers with it; the slot was already consumed at send.
       const err = await generatePluginConfig(baseRequest, CALL).catch((e: unknown) => e);
       expect(err).toBeInstanceOf(AIEmptyOutputError);
-      expect(err).toMatchObject({ message: 'AI did not produce a plugin configuration', providerContacted: true });
+      expect(err).toMatchObject({ message: 'AI did not produce a plugin configuration' });
     });
 
     it('handles optional fields (description, primaryOutputDirectory, env)', async () => {

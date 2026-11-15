@@ -1,6 +1,6 @@
 // GENERATED FROM docs/billing-discounts.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: ed404747d5eaaf39075a6797cfb3356cb7017845d8e678dc2e4757abda7642da
+// SOURCE-SHA256: c8e122e89b0fa7276731475f80516cf9f220042713a8e591424d0996c0df7994
 // SPDX-License-Identifier: Apache-2.0
 import { BadgePercent } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -581,7 +581,7 @@ export const billingDiscountsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "A grant is reversed — ledger row pulled, balance reduced, budget released, promotion_clawback emitted — if the subscription cancels within the clawback window (BILLING_PROMOTION_CLAWBACK_WINDOW_MS, default 7 days). This defuses signup-grab-churn."
+          "content": "A grant is reversed — ledger row pulled, balance reduced, promotion and campaign budget released, the same amount debited back from the customer's payment-provider balance, promotion_clawback emitted — if the subscription cancels within the clawback window (BILLING_PROMOTION_CLAWBACK_WINDOW_MS, default 7 days). This defuses signup-grab-churn. The provider debit is queued on the subscription in the same write as the reversal and re-posted with the same idempotency key until the provider accepts it (alert BillingClawbackDebitFailing), so the credit can't stay spendable at the provider."
         },
         {
           "type": "text",

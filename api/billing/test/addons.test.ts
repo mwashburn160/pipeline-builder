@@ -975,3 +975,26 @@ describe('GET /charges', () => {
     expect((await charges()).priceBreakdown).toBeNull();
   });
 });
+
+describe('POST /subscriptions/:id/addons/basket — payment gate', () => {
+  const handler = getHandler('post', '/subscriptions/:id/addons/basket');
+
+  it('needs no card when a held boolean bundle is re-listed with quantity > 1 (it still holds 1)', async () => {
+    // compliance_standard is non-stackable: any quantity applies as 1, so the
+    // basket costs nothing more than what is held today.
+    withActiveSub(makeSubscription({ addons: [{ bundleId: 'compliance_standard', quantity: 1 }] }));
+    mockHasPaymentMethod.mockResolvedValue(false);
+    await handler(mockReq({ body: { items: [{ bundleId: 'compliance_standard', quantity: 3 }] } }), mockRes());
+    expect(mockHasPaymentMethod).not.toHaveBeenCalled();
+    expect(mockSendError).not.toHaveBeenCalledWith(expect.anything(), 402, expect.any(String), expect.anything());
+    expect(mockSubscriptionFindOneAndUpdate).toHaveBeenCalled();
+  });
+
+  it('still 402s a real paid increase with no card on file', async () => {
+    withActiveSub();
+    mockHasPaymentMethod.mockResolvedValue(false);
+    await handler(mockReq({ body: { items: [{ bundleId: 'seat_pack', quantity: 2 }] } }), mockRes());
+    expect(mockSendError).toHaveBeenCalledWith(expect.anything(), 402, expect.any(String), 'PAYMENT_METHOD_REQUIRED');
+    expect(mockSubscriptionFindOneAndUpdate).not.toHaveBeenCalled();
+  });
+});

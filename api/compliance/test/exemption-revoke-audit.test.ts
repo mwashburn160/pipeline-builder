@@ -44,6 +44,8 @@ jest.unstable_mockModule('../src/services/compliance-exemption-service.js', () =
   CE_NOT_FOUND: 'CE_NOT_FOUND',
   CE_SELF_APPROVE: 'CE_SELF_APPROVE',
   CE_ALREADY_EXISTS: 'CE_ALREADY_EXISTS',
+  CE_NOT_EXTENDABLE: 'CE_NOT_EXTENDABLE',
+  CE_EXPIRY_NOT_LATER: 'CE_EXPIRY_NOT_LATER',
 }));
 
 const { createExemptionRoutes } = await import('../src/routes/exemptions.js');

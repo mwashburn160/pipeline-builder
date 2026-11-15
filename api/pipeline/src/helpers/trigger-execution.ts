@@ -31,7 +31,10 @@ export type WindowedTrigger =
  * duplicate run.
  */
 export async function triggerExecutionInWindow(pipelineId: string, orgId: string): Promise<WindowedTrigger> {
-  const claim = await executionIdempotency.claim(orgId, pipelineId);
+  // The window keys on the id string while the lookups behind the start are
+  // case-insensitive (a uuid): `ABC…` and `abc…` are one pipeline, one window.
+  const windowId = pipelineId.toLowerCase();
+  const claim = await executionIdempotency.claim(orgId, windowId);
   if (!claim) return { status: 'duplicate' };
   try {
     const { executionId } = await pipelineExecutionService.triggerExecution(pipelineId, orgId);
@@ -39,7 +42,7 @@ export async function triggerExecutionInWindow(pipelineId: string, orgId: string
   } catch (err) {
     const code = errorMessage(err);
     if (code === PE_PIPELINE_NOT_REGISTERED || code === PE_AWS_PIPELINE_NOT_FOUND) {
-      await executionIdempotency.release(orgId, pipelineId, claim);
+      await executionIdempotency.release(orgId, windowId, claim);
     }
     throw err;
   }

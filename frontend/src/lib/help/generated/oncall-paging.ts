@@ -1,6 +1,6 @@
 // GENERATED FROM docs/oncall-paging.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: de34947bf185e41d7e74a88876a68473420225a5c77972e14049c6ddd6e426b6
+// SOURCE-SHA256: 0cdc58a034b164da77b8371a4cff2e579d010a5e8b24e4113827177b75d85954
 // SPDX-License-Identifier: Apache-2.0
 import { BellRing } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -283,7 +283,7 @@ export const oncallPagingTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "oncall:manage is a system-org-only permission in no built-in Role, so Super Admins are its only holders. It reads the posture (GET /observability/oncall-status, booleans only — never a credential, since reading a routing key back would turn a read permission into a credential grant) and sends a test page (POST /observability/oncall-test, audited because it rings a phone, keyed test:<timestamp> so it can never collapse onto or resolve a real incident)."
+          "content": "oncall:manage is a system-org-only permission in no built-in Role, so Super Admins are its only holders. It reads the posture (GET /observability/oncall-status, booleans only — never a credential, since reading a routing key back would turn a read permission into a credential grant) and sends a test page (POST /observability/oncall-test, audited because it rings a phone, keyed test:<timestamp> so it can never collapse onto or resolve a real incident). The test page always answers 200 with { sent, skipped, status?, error? }: sent: false with the provider's error when the provider refused or was unreachable, skipped: true when paging is off."
         },
         {
           "type": "text",

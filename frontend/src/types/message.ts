@@ -3,7 +3,7 @@
 
 /** The in-app message model: a thread's messages and their attachments. */
 
-import type { MessagePriority, MessageType, Visibility } from '@pipeline-builder/api-core';
+import type { MessagePriority, MessageType } from '@pipeline-builder/api-core';
 
 /** Attachment metadata (the blob is fetched separately, auth-gated). */
 /**
@@ -144,7 +144,6 @@ export interface Message {
   updatedAt: string;
   /** Set when the author edited the content after sending (drives the "edited" hint). */
   editedAt?: string | null;
-  visibility: Visibility;
   isDefault: boolean;
   isActive: boolean;
   deletedAt?: string;

@@ -243,7 +243,7 @@ A **backfill cron** (`BILLING_PROMOTION_BACKFILL_INTERVAL_MS`, leader-locked) pe
 
 ### Clawback
 
-A grant is reversed — ledger row pulled, balance reduced, budget released, `promotion_clawback` emitted — if the subscription **cancels within the clawback window** (`BILLING_PROMOTION_CLAWBACK_WINDOW_MS`, default 7 days). This defuses signup-grab-churn.
+A grant is reversed — ledger row pulled, balance reduced, promotion and campaign budget released, the same amount debited back from the customer's payment-provider balance, `promotion_clawback` emitted — if the subscription **cancels within the clawback window** (`BILLING_PROMOTION_CLAWBACK_WINDOW_MS`, default 7 days). This defuses signup-grab-churn. The provider debit is queued on the subscription in the same write as the reversal and re-posted with the same idempotency key until the provider accepts it (alert `BillingClawbackDebitFailing`), so the credit can't stay spendable at the provider.
 
 **Revoking** a promotion (`isActive: false`, or `DELETE`) stops future auto-grants; credits granted earlier and outside the clawback window stay.
 

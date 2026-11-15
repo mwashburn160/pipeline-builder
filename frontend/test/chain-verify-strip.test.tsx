@@ -70,3 +70,14 @@ it('names the offending event for a row-level break', async () => {
 
   expect(screen.getByText(/an event was altered \(at evt-9\)/)).toBeInTheDocument();
 });
+
+it.each([
+  ['head-truncated', /TAMPER DETECTED — the oldest events were deleted outside the retention window/],
+  ['watermark-invalid', /TAMPER DETECTED — a retention watermark failed its signature check or belongs to another chain/],
+])('names a %s break in plain words', async (reason, text) => {
+  verifyAuditChain.mockResolvedValueOnce({ success: true, data: { ok: false, reason, count: 5 } });
+  render(<ChainVerifyStrip orgId="org-a" renderOrgRef={(id) => id} />);
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: /verify integrity/i })); });
+
+  expect(screen.getByText(text)).toBeInTheDocument();
+});

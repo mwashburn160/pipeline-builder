@@ -443,8 +443,10 @@ export async function closeCases(caseIds: readonly string[], actorId: string): P
     .update(schema.supportCase)
     .set({
       status: 'closed',
-      closedAt: now,
-      closedBy: actorId,
+      // A RESOLVED case was already stamped closed by `setCaseStatus`; keep
+      // that instant and actor rather than moving them to this bulk action.
+      closedAt: sql`COALESCE(${schema.supportCase.closedAt}, ${now.toISOString()}::timestamptz)`,
+      closedBy: sql`COALESCE(${schema.supportCase.closedBy}, ${actorId})`,
       updatedBy: actorId,
       updatedAt: now,
       awaitingSince: null,
@@ -454,7 +456,8 @@ export async function closeCases(caseIds: readonly string[], actorId: string): P
       inArray(schema.supportCase.id, [...caseIds]),
       isNull(schema.supportCase.deletedAt),
       // Already-closed cases are skipped rather than re-stamped, so a bulk
-      // close over a selection that includes one does not move its closedAt.
+      // close over a selection that includes one does not move its closedAt
+      // (and a resolved one keeps its own, above).
       sql`${schema.supportCase.status} <> 'closed'`,
     ))
     .returning({ id: schema.supportCase.id }));

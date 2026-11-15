@@ -1,6 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { randomUUID } from 'node:crypto';
 import {
   SYSTEM_ORG_ID,
   sendError,
@@ -365,7 +366,10 @@ export function createCreateMessageRoutes(sseManager: SSEManager): Router {
      * billing is unreachable opens a case the customer was never entitled to.
      * The MESSAGE lands either way; only the case is withheld.
      */
-    const byIncident = !bySeat && Boolean(entitlement) && await consumeSupportIncident(orgId);
+    // One idempotency key per submission: a consume re-sent after a lost reply,
+    // and any refund of it, name the same spend.
+    const incidentKey = randomUUID();
+    const byIncident = !bySeat && Boolean(entitlement) && await consumeSupportIncident(orgId, incidentKey);
     const opening = bySeat || byIncident;
 
     /**
@@ -597,7 +601,7 @@ export function createCreateMessageRoutes(sseManager: SSEManager): Router {
               // so the refund is attempted before the response, and itself
               // never-throwing, because failing the send to report a failed refund
               // turns one problem into two.
-              if (byIncident) await refundSupportIncident(orgId);
+              if (byIncident) await refundSupportIncident(orgId, incidentKey);
             }
           } else if (entitlement && !entitlement.canOpenCase) {
             // Entitlement was READ and says no: the org has no designated contact in
@@ -623,7 +627,7 @@ export function createCreateMessageRoutes(sseManager: SSEManager): Router {
           : 'Message created successfully',
       });
     } catch (err) {
-      if (byIncident && !caseStepReached) await refundSupportIncident(orgId);
+      if (byIncident && !caseStepReached) await refundSupportIncident(orgId, incidentKey);
       throw err;
     }
   }));

@@ -27,10 +27,13 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@p
 
 const mockFindOneAndUpdate = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockFindOne = jest.fn<(...a: unknown[]) => unknown>();
+const mockUpdateOne = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 jest.unstable_mockModule('../src/models/subscription.js', () => ({
+  SUPPORT_INCIDENT_SPEND_HISTORY: 200,
   Subscription: {
     findOneAndUpdate: (...a: unknown[]) => mockFindOneAndUpdate(...a),
     findOne: (...a: unknown[]) => mockFindOne(...a),
+    updateOne: (...a: unknown[]) => mockUpdateOne(...a),
   },
 }));
 
@@ -42,6 +45,7 @@ const {
 beforeEach(() => {
   mockFindOneAndUpdate.mockReset();
   mockFindOne.mockReset();
+  mockUpdateOne.mockReset();
 });
 
 describe('grantSupportIncidents', () => {
@@ -74,44 +78,102 @@ describe('grantSupportIncidents', () => {
   });
 });
 
-describe('consumeSupportIncident', () => {
-  it('guards the balance IN THE FILTER so a race cannot double-spend', async () => {
-    mockFindOneAndUpdate.mockResolvedValue({ supportIncidentBalance: 0 });
-    await expect(consumeSupportIncident('org-1')).resolves.toBe(true);
+/* eslint-disable @typescript-eslint/no-explicit-any */
+const KEY = 'submission-0001';
+const lean = (v: unknown) => ({ lean: () => Promise.resolve(v) });
 
-    const [filter, update] = mockFindOneAndUpdate.mock.calls[0] as [Record<string, unknown>, Record<string, unknown>];
+describe('consumeSupportIncident', () => {
+  it('guards the balance AND the key IN THE FILTER, recording the spend in the same write', async () => {
+    mockFindOneAndUpdate.mockResolvedValue({ supportIncidentBalance: 0 });
+    await expect(consumeSupportIncident('org-1', KEY)).resolves.toBe(true);
+
+    const [filter, update] = mockFindOneAndUpdate.mock.calls[0] as [Record<string, unknown>, Record<string, any>];
     // THE assertion: the >= 1 precondition is part of the atomic operation, not
     // a prior read. Without it, two concurrent opens on a balance of 1 both win.
-    expect(filter).toMatchObject({ orgId: 'org-1', supportIncidentBalance: { $gte: 1 } });
-    expect(update).toEqual({ $inc: { supportIncidentBalance: -1 } });
+    // The key guard rides the same filter, so a duplicate of one key spends once.
+    expect(filter).toMatchObject({
+      'orgId': 'org-1',
+      'supportIncidentBalance': { $gte: 1 },
+      'supportIncidentSpends.key': { $ne: KEY },
+    });
+    expect(update.$inc).toEqual({ supportIncidentBalance: -1 });
+    expect(update.$push.supportIncidentSpends.$each).toEqual([
+      { key: KEY, consumed: true, refunded: false, at: expect.any(Date) },
+    ]);
+    // Bounded history — the array cannot grow without limit.
+    expect(update.$push.supportIncidentSpends.$slice).toBeLessThan(0);
   });
 
-  it('is false — not an exception — when the org has none', async () => {
+  it('a REPEATED key answers its original outcome and spends nothing', async () => {
+    mockFindOneAndUpdate.mockResolvedValue(null); // key guard refused the spend
+    mockFindOne.mockReturnValue(lean({ supportIncidentSpends: [{ key: KEY, consumed: true }] }));
+    await expect(consumeSupportIncident('org-1', KEY)).resolves.toBe(true);
+    expect(mockUpdateOne).not.toHaveBeenCalled();
+  });
+
+  it('is false — not an exception — when the org has none, and records that outcome under the key', async () => {
     // The caller turns this into "you have no support entitlement", so a
     // missing balance is an ordinary answer rather than an error path.
     mockFindOneAndUpdate.mockResolvedValue(null);
-    await expect(consumeSupportIncident('org-1')).resolves.toBe(false);
+    mockFindOne.mockReturnValue(lean(null));
+    mockUpdateOne.mockResolvedValue({ matchedCount: 1 });
+    await expect(consumeSupportIncident('org-1', KEY)).resolves.toBe(false);
+    const [filter, update] = mockUpdateOne.mock.calls[0] as [Record<string, unknown>, Record<string, any>];
+    expect(filter).toMatchObject({ 'supportIncidentSpends.key': { $ne: KEY } });
+    expect(update.$push.supportIncidentSpends.$each[0]).toMatchObject({ key: KEY, consumed: false });
+  });
+
+  it('reads the winner when a concurrent duplicate of the key recorded first', async () => {
+    mockFindOneAndUpdate.mockResolvedValue(null);
+    mockFindOne
+      .mockReturnValueOnce(lean(null))
+      .mockReturnValueOnce(lean({ supportIncidentSpends: [{ key: KEY, consumed: true }] }));
+    mockUpdateOne.mockResolvedValue({ matchedCount: 0 });
+    await expect(consumeSupportIncident('org-1', KEY)).resolves.toBe(true);
+  });
+
+  it('is false with no manageable subscription at all', async () => {
+    mockFindOneAndUpdate.mockResolvedValue(null);
+    mockFindOne.mockReturnValue(lean(null));
+    mockUpdateOne.mockResolvedValue({ matchedCount: 0 });
+    await expect(consumeSupportIncident('ghost', KEY)).resolves.toBe(false);
   });
 
   it('spends exactly one, never a variable amount', async () => {
     mockFindOneAndUpdate.mockResolvedValue({ supportIncidentBalance: 4 });
-    await consumeSupportIncident('org-1');
+    await consumeSupportIncident('org-1', KEY);
     const [, update] = mockFindOneAndUpdate.mock.calls[0] as [unknown, { $inc: { supportIncidentBalance: number } }];
     expect(update.$inc.supportIncidentBalance).toBe(-1);
   });
 });
 
 describe('refundSupportIncident', () => {
-  it('is a distinct operation from a grant, so the two stay separately auditable', async () => {
+  it('gives back only a spend that HAPPENED under the key, flagging it refunded in the same write', async () => {
     mockFindOneAndUpdate.mockResolvedValue({ supportIncidentBalance: 2 });
-    await expect(refundSupportIncident('org-1')).resolves.toBe(2);
-    const [, update] = mockFindOneAndUpdate.mock.calls[0] as [unknown, Record<string, unknown>];
-    expect(update).toEqual({ $inc: { supportIncidentBalance: 1 } });
+    await expect(refundSupportIncident('org-1', KEY)).resolves.toEqual({ refunded: true, balance: 2 });
+    const [filter, update] = mockFindOneAndUpdate.mock.calls[0] as [Record<string, unknown>, Record<string, unknown>];
+    expect(filter).toMatchObject({
+      supportIncidentSpends: { $elemMatch: { key: KEY, consumed: true, refunded: { $ne: true } } },
+    });
+    // Distinct from a grant ($inc alone), so the two stay separately auditable.
+    expect(update).toEqual({ $inc: { supportIncidentBalance: 1 }, $set: { 'supportIncidentSpends.$.refunded': true } });
   });
 
-  it('returns null with no manageable subscription', async () => {
+  it('is a no-op for a key never spent — and burns the key so a late consume cannot spend', async () => {
     mockFindOneAndUpdate.mockResolvedValue(null);
-    await expect(refundSupportIncident('ghost')).resolves.toBeNull();
+    mockUpdateOne.mockResolvedValue({ matchedCount: 1 });
+    mockFindOne.mockReturnValue(lean({ supportIncidentBalance: 3 }));
+    await expect(refundSupportIncident('org-1', KEY)).resolves.toEqual({ refunded: false, balance: 3 });
+    const [filter, update] = mockUpdateOne.mock.calls[0] as [Record<string, unknown>, Record<string, any>];
+    expect(filter).toMatchObject({ 'supportIncidentSpends.key': { $ne: KEY } });
+    expect(update.$push.supportIncidentSpends.$each[0]).toMatchObject({ key: KEY, consumed: false });
+  });
+
+  it('reports a null balance with no manageable subscription', async () => {
+    mockFindOneAndUpdate.mockResolvedValue(null);
+    mockUpdateOne.mockResolvedValue({ matchedCount: 0 });
+    mockFindOne.mockReturnValue(lean(null));
+    await expect(refundSupportIncident('ghost', KEY)).resolves.toEqual({ refunded: false, balance: null });
   });
 });
 

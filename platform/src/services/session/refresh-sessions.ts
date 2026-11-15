@@ -11,7 +11,7 @@ import crypto from 'crypto';
 import { createLogger, type TokenScope } from '@pipeline-builder/api-core';
 import type { Types } from 'mongoose';
 import { accessTokenTtlSeconds, createAccessTokenPayload, enforceOrgAssurance, type SessionAuth } from './access-tokens.js';
-import { resolveMembership, type MembershipContext } from './membership-context.js';
+import { resolveMembership, signInLandingOrg, type MembershipContext } from './membership-context.js';
 import { config } from '../../config/index.js';
 import type { RefreshSessionKind } from '../../constants/vocabulary.js';
 import type { ClientInfo } from '../../helpers/client-info.js';
@@ -107,18 +107,32 @@ interface MintOptions {
   scope?: TokenScope;
   mfaEnrollmentPending?: boolean;
   permissions?: readonly string[];
+  /**
+   * True when the pair opens a NEW slot (sign-in, a stored credential): the
+   * requested org is then re-checked for inherited team entry
+   * ({@link signInLandingOrg}). A renewal keeps the org its session entered.
+   */
+  opensSession?: boolean;
 }
 
 async function mintTokens(
   user: UserDocument,
-  { sessionId, activeOrgId, auth: sessionAuth, slotExpiresAt, scope, mfaEnrollmentPending, permissions }: MintOptions,
+  { sessionId, activeOrgId, auth: sessionAuth, slotExpiresAt, scope, mfaEnrollmentPending, permissions, opensSession }: MintOptions,
 ): Promise<MintedTokens> {
   let membership: MembershipContext | undefined;
   try {
-    membership = await resolveMembership(
-      user._id.toString(),
-      activeOrgId || user.lastActiveOrgId?.toString(),
-    );
+    let pinned = activeOrgId || user.lastActiveOrgId?.toString();
+    if (opensSession && pinned) {
+      try {
+        pinned = await signInLandingOrg(user, pinned);
+      } catch (error) {
+        // Fail closed: an unanswerable check pins nothing, so the session opens
+        // in the user's earliest direct membership rather than the team.
+        logger.warn('Inherited team-entry check failed; not pinning the requested org', { error });
+        pinned = undefined;
+      }
+    }
+    membership = await resolveMembership(user._id.toString(), pinned);
   } catch (error) {
     logger.warn('Failed to resolve membership for token', { error });
   }
@@ -232,6 +246,7 @@ export async function issueTokens(user: UserDocument, activeOrgId: string | unde
   const { tokens, refreshHash, historyEntry } = await mintTokens(user, {
     sessionId,
     activeOrgId,
+    opensSession: true,
     auth: session.auth,
     slotExpiresAt,
     scope: session.scope,

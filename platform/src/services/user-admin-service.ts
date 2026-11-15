@@ -318,7 +318,7 @@ class UserAdminService {
     // role updated but the seat-capped org assignment then throws) would leave
     // the user record inconsistent otherwise.
     const updatedUser = await withMongoTransaction(async (session) => {
-      const user = await User.findById(id).select('+password +tokenVersion').session(session);
+      const user = await User.findById(id).select('+password +tokenVersion +emailVerificationToken +emailVerificationExpires').session(session);
       if (!user) throw new Error(UA_USER_NOT_FOUND);
 
       if (body.username !== undefined) {
@@ -339,6 +339,10 @@ class UserAdminService {
         if (exists) throw new Error(UA_EMAIL_TAKEN);
         user.email = body.email.trim().toLowerCase();
         user.isEmailVerified = false;
+        // A verification link mailed to the OLD address must not verify the new
+        // one (see user-profile-service.updateProfile).
+        user.emailVerificationToken = undefined;
+        user.emailVerificationExpires = undefined;
         changes.push('email');
       }
 

@@ -343,9 +343,10 @@ export function observabilityApi(core: ApiCore) {
 
     /** Send a REAL test page, so "does paging work" can be proven rather than
      *  inferred — otherwise the only way to learn it is broken is an incident
-     *  nobody heard about. Resolves `{ skipped: true }` on a 200 when paging is
-     *  disabled, which is a truthful answer and NOT a success: the caller must
-     *  not report a page that never left. */
+     *  nobody heard about. Always a 200 whose body is the answer: `sent`, or
+     *  `skipped` when paging is disabled (truthful, and NOT a success: the caller
+     *  must not report a page that never left), or `sent: false` with the
+     *  provider's `error` (and `status` when it answered). */
     oncallTest: async () => {
       return core.request<ApiResponse<import('@/types/observability').OnCallTestResult>>(
         '/api/observability/oncall-test',

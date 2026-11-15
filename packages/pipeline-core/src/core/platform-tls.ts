@@ -9,9 +9,10 @@ import { rootCertificates } from 'tls';
  * turning verification off.
  *
  * `PLATFORM_CA_BUNDLE` holds the PEM text of the CA (chain). Set where
- * `pipeline-manager pipeline synth/deploy` runs, it is (1) trusted by the CLI's
- * own API client, and (2) propagated by the synth into every CodeBuild step's
- * environment — so the self-mutating synth's plugin lookup verifies against it.
+ * `pipeline-manager pipeline synth/deploy` runs, it is (1) trusted by every CLI
+ * call to the platform (API client, sign-in, session renewal), and (2)
+ * propagated by the synth into every CodeBuild step's environment — so the
+ * self-mutating synth's plugin lookup verifies against it.
  * PEM text rather than a path because the two share no filesystem.
  */
 export const PLATFORM_CA_BUNDLE_ENV = 'PLATFORM_CA_BUNDLE';

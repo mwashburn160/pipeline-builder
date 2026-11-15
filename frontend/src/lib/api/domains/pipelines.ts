@@ -163,10 +163,17 @@ export function pipelinesApi(core: ApiCore) {
      * `details` carry `pipelineId` and the `normalized` pair that collided —
      * `opts.upsert` re-sends it as an explicit overwrite, which is how the UI
      * confirms before replacing a live pipeline's props. Responds 200 with
-     * `inserted: false` when it overwrote, 201 when it created.
+     * `inserted: false` when it overwrote, 201 when it created. `pipeline` is the
+     * saved row's identity, not the full record; `warnings` are why the DORA
+     * deploy attribution this config produces may be wrong.
      */
     createPipeline: async (data: CreatePipelineData, opts?: ProposedByOptions & { upsert?: boolean }) => {
-      return core.request<ApiResponse<{ pipeline: Pipeline; inserted?: boolean; warning?: string; pluginWarnings?: PipelinePluginWarning[] }>>(
+      return core.request<ApiResponse<{
+        pipeline: Pick<Pipeline, 'id' | 'project' | 'organization' | 'pipelineName' | 'visibility' | 'isDefault' | 'isActive' | 'createdAt' | 'createdBy'>;
+        inserted?: boolean;
+        warnings?: string[];
+        pluginWarnings?: PipelinePluginWarning[];
+      }>>(
         opts?.upsert ? '/api/pipelines?upsert=true' : '/api/pipelines', {
           method: 'POST',
           body: JSON.stringify(data),
@@ -213,7 +220,7 @@ export function pipelinesApi(core: ApiCore) {
     },
 
     deletePipeline: async (id: string) => {
-      return core.request<ApiResponse<{ message: string }>>(`/api/pipelines/${id}`, {
+      return core.request<ApiResponse<undefined>>(`/api/pipelines/${id}`, {
         method: 'DELETE',
       });
     },
@@ -243,6 +250,8 @@ export function pipelinesApi(core: ApiCore) {
       });
     },
 
+    /** `deleted` counts the rows actually removed — an id that didn't match (gone,
+     *  another org's) is dropped silently, so it can be below `ids.length`. */
     bulkDeletePipelines: async (ids: string[]) => {
       return core.request<ApiResponse<{ deleted: number; ids: string[] }>>('/api/pipelines/bulk/delete', {
         method: 'POST',
@@ -250,8 +259,11 @@ export function pipelinesApi(core: ApiCore) {
       });
     },
 
+    /** A 200 even when rows failed: `failed`/`errors` (index into `ids`) name the
+     *  rows a compliance block or outage refused, and an unmatched id is simply
+     *  not counted in `updated`. */
     bulkUpdatePipelines: async (ids: string[], data: Record<string, unknown>) => {
-      return core.request<ApiResponse<{ updated: number; failed?: number; pluginWarnings?: PipelinePluginWarning[] }>>('/api/pipelines/bulk/update', {
+      return core.request<ApiResponse<{ updated: number; failed: number; errors: Array<{ index: number; error: string }>; pluginWarnings?: PipelinePluginWarning[] }>>('/api/pipelines/bulk/update', {
         method: 'PUT',
         body: JSON.stringify({ ids, data }),
       });

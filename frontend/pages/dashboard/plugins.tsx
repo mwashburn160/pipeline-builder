@@ -316,9 +316,16 @@ export default function PluginsPage() {
       const skipped = res.data?.skipped ?? [];
       if (deleted > 0) toast.success(`${deleted} plugin${deleted > 1 ? 's' : ''} deleted`);
       if (skipped.length > 0) {
-        const inUseCount = skipped.filter((s) => s.reason === 'in_use').length;
-        toast.warning(`${skipped.length} not deleted${inUseCount > 0 ? ` — ${inUseCount} still used by pipelines (delete each on its own to see which, then upgrade them)` : ''}`
-          + `${skipped.length - inUseCount > 0 ? `; ${skipped.length - inUseCount} published or under a publish request` : ''}.`, 12000);
+        const count = (reason: string) => skipped.filter((s) => s.reason === reason).length;
+        const inUseCount = count('in_use');
+        const toolchain = count('managed_toolchain');
+        const published = skipped.length - inUseCount - toolchain;
+        const why = [
+          inUseCount > 0 && `${inUseCount} still used by pipelines (delete each on its own to see which, then upgrade them)`,
+          published > 0 && `${published} published or under a publish request`,
+          toolchain > 0 && `${toolchain} managed toolchain${toolchain === 1 ? '' : 's'} (use the Toolchain console)`,
+        ].filter(Boolean).join('; ');
+        toast.warning(`${skipped.length} not deleted — ${why}.`, 12000);
       }
     } catch (err) {
       list.setError(formatError(err, 'Failed to delete plugins'));
@@ -331,11 +338,24 @@ export default function PluginsPage() {
     if (selectedIds.size === 0) return;
     setBulkLoading(true);
     try {
-      const count = selectedIds.size;
-      await api.bulkUpdatePlugins(Array.from(selectedIds), { isActive });
+      const res = await api.bulkUpdatePlugins(Array.from(selectedIds), { isActive });
       clearSelection();
       afterWrite();
-      toast.success(`${count} plugin${count > 1 ? 's' : ''} ${isActive ? 'activated' : 'deactivated'}`);
+      // The server skips frozen/listed versions and managed toolchains rather
+      // than failing the batch: report what it actually changed.
+      const count = res.data?.updated ?? 0;
+      const skipped = res.data?.skipped ?? [];
+      const verb = isActive ? 'activated' : 'deactivated';
+      if (count > 0) toast.success(`${count} plugin${count === 1 ? '' : 's'} ${verb}`);
+      if (skipped.length > 0) {
+        const toolchain = skipped.filter((s) => s.reason === 'managed_toolchain').length;
+        const frozen = skipped.length - toolchain;
+        const why = [
+          frozen > 0 && `${frozen} published or under a publish request`,
+          toolchain > 0 && `${toolchain} managed toolchain${toolchain === 1 ? '' : 's'} (use the Toolchain console)`,
+        ].filter(Boolean).join('; ');
+        toast.warning(`${skipped.length} not ${verb} — ${why}.`, 12000);
+      }
     } catch (err) {
       list.setError(formatError(err, `Failed to ${isActive ? 'activate' : 'deactivate'} plugins`));
     } finally {

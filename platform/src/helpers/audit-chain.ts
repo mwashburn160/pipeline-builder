@@ -2,11 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createHmac, randomUUID } from 'crypto';
-import { createLogger, scrubAwsIdentifiers, errorMessage, stableStringify } from '@pipeline-builder/api-core';
-import { incCounter } from '../observability/metrics.js';
+import { createLogger, scrubAwsIdentifiers, errorMessage, safeEqual, stableStringify } from '@pipeline-builder/api-core';
 import { requireAuditChainHmacKey } from '../config/audit-chain-key.js';
+import AuditChainCheckpoint, { type AuditChainCheckpointDoc } from '../models/audit-chain-checkpoint.js';
 import AuditChainHead from '../models/audit-chain-head.js';
 import AuditEvent, { type AuditEventDocument, type StoredAuditEvent } from '../models/audit-event.js';
+import { incCounter } from '../observability/metrics.js';
 import type { AuditCreateInput } from '../services/audit-service.js';
 
 const logger = createLogger('audit-chain');
@@ -40,6 +41,13 @@ const logger = createLogger('audit-chain');
  *   (`services/audit-head-export.ts`) periodically publishes each head, signed
  *   with the same key, to WRITE-ONCE object storage; {@link verifyAuditChain}
  *   checks the chain still reaches that published head.
+ * - Head truncation (deleting the OLDEST rows) would otherwise look exactly
+ *   like retention. Retention is therefore not a Mongo TTL: the prune
+ *   (`services/audit-retention.ts`) first records a signed, append-only
+ *   WATERMARK per chain (`audit_chain_checkpoints`: the last pruned `seq` and
+ *   its `hash`), then deletes up to it. Verify requires the first surviving
+ *   event to link to the watermark below it — or to be seq 1 when the chain
+ *   was never pruned.
  *
  * Best-effort by contract: tamper-evidence is a DETECTION aid, not a write
  * gate. A digest failure writes a sentinel hash instead of dropping the event,
@@ -112,7 +120,7 @@ function chainKeyMaterial(): string {
 }
 
 /** HMAC-SHA256 with the chain key over a domain-separated message. */
-export function auditHmac(domain: 'event' | 'head', message: string): string {
+export function auditHmac(domain: 'event' | 'head' | 'checkpoint', message: string): string {
   return createHmac('sha256', chainKeyMaterial()).update(`pb-audit-${domain}-v1\n`).update(message).digest('hex');
 }
 
@@ -153,7 +161,7 @@ export function computeAuditHash(f: AuditHashFields): string {
  * chain is `{ affectedOrgId }`; the genesis chain is the rows with no
  * `affectedOrgId` (`{ affectedOrgId: null }` also matches a missing field).
  */
-function chainFilter(chainKey: string): Record<string, unknown> {
+export function chainFilter(chainKey: string): Record<string, unknown> {
   return chainKey === GENESIS_CHAIN_KEY ? { affectedOrgId: null } : { affectedOrgId: chainKey };
 }
 
@@ -353,6 +361,57 @@ export async function appendAuditEvent(input: AuditCreateInput): Promise<StoredA
   });
 }
 
+/** Wire format version of a retention watermark's signed payload. */
+const CHECKPOINT_FORMAT_VERSION = 1;
+
+/** The fields a retention watermark's signature covers. */
+export type CheckpointFields = Pick<AuditChainCheckpointDoc, 'chainKey' | 'seq' | 'hash' | 'eventCreatedAt'>;
+
+/** Sign a retention watermark with the chain key (domain `checkpoint`). */
+export function signCheckpoint(f: CheckpointFields): string {
+  return auditHmac('checkpoint', stableStringify({
+    v: CHECKPOINT_FORMAT_VERSION,
+    chainKey: f.chainKey,
+    seq: f.seq,
+    hash: f.hash,
+    eventCreatedAt: new Date(f.eventCreatedAt).toISOString(),
+  }));
+}
+
+/** Whether a stored watermark's signature verifies (and it is for this chain). */
+function checkpointValid(cp: AuditChainCheckpointDoc, chainKey: string): boolean {
+  return cp.chainKey === chainKey
+    && typeof cp.sig === 'string'
+    && typeof cp.seq === 'number'
+    && typeof cp.hash === 'string'
+    && safeEqual(signCheckpoint(cp), cp.sig);
+}
+
+/**
+ * Record a chain's retention watermark — the last event a prune is about to
+ * delete — BEFORE deleting it. Append-only: a duplicate `(chainKey, seq)` (a
+ * retried prune) is the same watermark already recorded and is not an error.
+ */
+export async function recordRetentionWatermark(
+  chainKey: string,
+  last: { seq: number; hash: string; createdAt: Date },
+  prunedAt: Date = new Date(),
+): Promise<void> {
+  const fields: CheckpointFields = { chainKey, seq: last.seq, hash: last.hash, eventCreatedAt: new Date(last.createdAt) };
+  try {
+    await AuditChainCheckpoint.create({ ...fields, prunedAt, sig: signCheckpoint(fields) });
+  } catch (err) {
+    if ((err as DupKeyError)?.code === 11000) return;
+    throw err;
+  }
+}
+
+/** The chain's highest watermark strictly below `seq` (any watermark when omitted). */
+async function watermarkBelow(chainKey: string, seq?: number): Promise<AuditChainCheckpointDoc | null> {
+  const filter: Record<string, unknown> = seq === undefined ? { chainKey } : { chainKey, seq: { $lt: seq } };
+  return AuditChainCheckpoint.findOne(filter).sort({ seq: -1 }).lean<AuditChainCheckpointDoc>();
+}
+
 /** Cursor batch size for {@link verifyAuditChain}'s streamed walk. */
 const VERIFY_BATCH_SIZE = 500;
 
@@ -363,6 +422,8 @@ export type AuditChainBreak =
   | 'sequence-gap'
   | 'head-mismatch'
   | 'tail-truncated'
+  | 'head-truncated'
+  | 'watermark-invalid'
   | 'published-head-invalid';
 
 /** State of the chain's published (write-once) head, when an export target is configured. */
@@ -378,10 +439,10 @@ export interface PublishedHeadCheck {
 /** Result of a chain verification walk. */
 export interface AuditChainVerifyResult {
   /** True when every surviving event's hash recomputes, every non-first event
-   *  links to its predecessor with the next sequence number, and the chain
-   *  still reaches its in-DB head and its published head. Deletion of a
-   *  contiguous run of the OLDEST rows is indistinguishable from TTL pruning and
-   *  is therefore NOT flagged. */
+   *  links to its predecessor with the next sequence number, the FIRST
+   *  surviving event links to the chain's signed retention watermark (or is
+   *  seq 1 when nothing was ever pruned), and the chain still reaches its in-DB
+   *  head and its published head. */
   ok: boolean;
   /** `_id` of the first event that failed (hash / link / sequence). */
   brokenAt?: string;
@@ -413,7 +474,7 @@ export interface VerifyOptions {
    *  the object exists but its signature doesn't verify. Omit when no export
    *  target is configured. */
   fetchPublishedHead?: (chainKey: string) => Promise<PublishedHead | null>;
-  /** Audit TTL in ms — a head older than this may have legitimately aged out. */
+  /** Audit retention in ms — a head older than this may have legitimately been pruned. */
   retentionMs: number;
   /** Export interval in ms (for the staleness hint). */
   exportIntervalMs?: number;
@@ -431,11 +492,18 @@ export class PublishedHeadInvalidError extends Error {
 /**
  * Walk a chain in SEQUENCE order and verify tamper-evidence.
  *
- * Row level: the first surviving event is the anchor (its predecessors may
- * have aged out under the TTL). Every later event must carry `seq = prev + 1`
- * and `prevHash = prev.hash`, and every event's HMAC must recompute. This
- * catches field tampering, reordering/renumbering, and deleting any row that
- * has a surviving successor.
+ * Head level: the first surviving event must follow the highest retention
+ * watermark below it (`seq = watermark.seq + 1`, `prevHash = watermark.hash`),
+ * or be seq 1 with a null `prevHash` when there is none. Every watermark's
+ * signature must verify (`watermark-invalid`). Rows deleted from the head
+ * outside the prune are `head-truncated`. A watermark at or past the first
+ * survivor (a prune that recorded it but had not finished deleting) is an
+ * anchor the walk must reach with the same hash.
+ *
+ * Row level: every later event must carry `seq = prev + 1` and
+ * `prevHash = prev.hash`, and every event's HMAC must recompute. This catches
+ * field tampering, reordering/renumbering, and deleting any row that has a
+ * surviving successor.
  *
  * Tail level: the walk must reach (a) the in-DB head doc and (b) the published
  * write-once head — unless that head event is older than the retention window
@@ -466,17 +534,24 @@ export async function verifyAuditChain(chainKey: string, opts: VerifyOptions = {
     }
   }
   const dbHead = await AuditChainHead.findById(chainKey).select('seq hash headCreatedAt').lean();
+  const latestWatermark = await watermarkBelow(chainKey);
+  const watermarkInvalid = (): AuditChainVerifyResult =>
+    ({ ok: false, reason: 'watermark-invalid', count: 0, unverifiable: 0, lastSeq: 0, ...(publishedCheck ? { publishedHead: publishedCheck } : {}) });
+  if (latestWatermark && !checkpointValid(latestWatermark, chainKey)) return watermarkInvalid();
 
   // Heads to reach: seq → expected hash, only while the head event is inside
-  // the retention window (older ones may have been TTL-pruned legitimately).
+  // the retention window (older ones may have been pruned legitimately).
   const withinRetention = (createdAt: Date | string): boolean =>
     now.getTime() - new Date(createdAt).getTime() < opts.retentionMs;
-  const anchors: Array<{ seq: number; hash: string; source: 'db' | 'published' }> = [];
+  const anchors: Array<{ seq: number; hash: string; source: 'db' | 'published' | 'watermark' }> = [];
   if (dbHead && withinRetention(dbHead.headCreatedAt)) anchors.push({ seq: dbHead.seq, hash: dbHead.hash, source: 'db' });
   if (published) {
     if (withinRetention(published.headCreatedAt)) anchors.push({ seq: published.seq, hash: published.hash, source: 'published' });
     else publishedCheck = { ...publishedCheck!, status: 'expired' };
   }
+  // Enforced only when it is at/past the first survivor (see the doc comment);
+  // the post-walk loop skips an anchor below it.
+  if (latestWatermark) anchors.push({ seq: latestWatermark.seq, hash: latestWatermark.hash, source: 'watermark' });
 
   // STREAMED, not materialized: O(1) memory regardless of chain length.
   const cursor = AuditEvent.find(chainFilter(chainKey))
@@ -500,8 +575,14 @@ export async function verifyAuditChain(chainKey: string, opts: VerifyOptions = {
       const seq = raw.seq as number;
       const storedPrev = (raw.prevHash ?? null) as string | null;
       if (firstSeq === null) {
-        // Anchor: accept the first survivor's own link (genesis or TTL-pruned head).
+        // The first survivor must follow the watermark below it, or be genesis.
         firstSeq = seq;
+        const base = latestWatermark && latestWatermark.seq < seq ? latestWatermark : await watermarkBelow(chainKey, seq);
+        if (base && !checkpointValid(base, chainKey)) return { ...watermarkInvalid(), count, lastSeq: prevSeq };
+        const followsBase = base
+          ? seq === base.seq + 1 && storedPrev === base.hash
+          : seq === 1 && storedPrev === GENESIS_PREV_HASH;
+        if (!followsBase) return fail(raw, 'head-truncated');
       } else {
         if (seq !== prevSeq + 1) return fail(raw, 'sequence-gap');
         if (storedPrev !== expectedPrev) return fail(raw, 'broken-link');
@@ -541,6 +622,8 @@ export async function verifyAuditChain(chainKey: string, opts: VerifyOptions = {
   }
 
   for (const a of anchors) {
+    // A watermark is only an anchor while the rows it covers still survive.
+    if (a.source === 'watermark' && (firstSeq === null || a.seq < firstSeq)) continue;
     if (firstSeq !== null && a.seq < firstSeq) {
       // The anchored event itself aged out ahead of its retention estimate
       // (e.g. a lowered AUDIT_RETENTION_DAYS); everything after it survives.
@@ -554,6 +637,12 @@ export async function verifyAuditChain(chainKey: string, opts: VerifyOptions = {
     if (got !== a.hash) {
       return { ok: false, reason: 'head-mismatch', count, unverifiable, lastSeq: prevSeq, ...(publishedCheck ? { publishedHead: publishedCheck } : {}) };
     }
+  }
+
+  // Nothing survives, yet the head names events past the last watermark: they
+  // were deleted, not pruned (the prune watermarks everything it deletes).
+  if (firstSeq === null && dbHead && dbHead.seq > (latestWatermark?.seq ?? 0)) {
+    return { ok: false, reason: 'head-truncated', count, unverifiable, lastSeq: prevSeq, ...(publishedCheck ? { publishedHead: publishedCheck } : {}) };
   }
 
   if (publishedCheck?.status === 'matched' && published && opts.exportIntervalMs) {

@@ -89,7 +89,7 @@ export const handler = async (event: SQSEvent, context?: Pick<Context, 'awsReque
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}`, ...correlationHeaders({ requestId }) },
       body,
-    });
+    }).catch((err: unknown) => { throw new IngestUnreachableError(err); });
     let res = await post(await getAuthToken());
     if (res.status === 401 || res.status === 403) {
       log.warn('Reporting API auth failed; re-reading the stored key and retrying once', { status: res.status });
@@ -99,7 +99,19 @@ export const handler = async (event: SQSEvent, context?: Pick<Context, 'awsReque
     return res;
   };
 
-  const res = await send(events);
+  let res: Response;
+  try {
+    res = await send(events);
+  } catch (err) {
+    // The ingest POST itself failed (unreachable, timed out): as transient as a
+    // 5xx, and handled the same way — the records that carried an event retry,
+    // the intentional skips do not. Throwing would redeliver the WHOLE batch,
+    // skips included, until they reached the DLQ. A credential failure is NOT
+    // this: it still fails the invocation (fail closed, visible as an error).
+    if (!(err instanceof IngestUnreachableError)) throw err;
+    log.error('Reporting API call failed', { error: err.message });
+    return batchResponse([...failures, ...carried.map((r) => r.record)]);
+  }
   let delivered: ParsedEvent[] = events;
 
   if (!res.ok) {
@@ -160,6 +172,14 @@ export const handler = async (event: SQSEvent, context?: Pick<Context, 'awsReque
 
   return batchResponse(failures);
 };
+
+/** The ingest POST threw (network failure, timeout) — never an auth or exchange failure. */
+class IngestUnreachableError extends Error {
+  constructor(cause: unknown) {
+    super(cause instanceof Error ? cause.message : String(cause));
+    this.name = 'IngestUnreachableError';
+  }
+}
 
 /**
  * Whether the ingest refused the request's CONTENT (validation, payload too

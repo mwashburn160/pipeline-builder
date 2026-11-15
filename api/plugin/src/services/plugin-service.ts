@@ -10,7 +10,7 @@ import {
 } from '@pipeline-builder/api-core';
 import { CoreConstants, ComputeType, PluginType, pluginImageRepository } from '@pipeline-builder/pipeline-core';
 import {
-  CrudService, buildPluginConditions, distinctPipelines, executeRows, findVersionReferences, getTenantContext, parseSemver, pluginResolutionOrderBy,
+  CrudService, buildPluginConditions, distinctPipelines, executeRows, findVersionReferences, parseSemver, pluginResolutionOrderBy,
   refreshLatestForPlugin, runWithTenantContext, satisfiesVersionSpec, schema, semverOrderBy, versionReferencedPredicate, viewerCacheSegment, withTenantTx,
   withViewerContext, type PluginFilter,
 } from '@pipeline-builder/pipeline-data';
@@ -109,7 +109,6 @@ function managedVersionImmutable(name: string, version: string): ConflictError {
   );
 }
 
-/** Plugin CRUD service with multi-tenant access control. */
 /**
  * Serialize every default-changing write to one (org, name) — deploys,
  * promotions, next-default promotion — on a transaction-scoped advisory lock,
@@ -119,6 +118,7 @@ async function lockPluginName(tx: TenantTx, orgId: string, name: string): Promis
   await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${orgId} || ':' || ${name}))`);
 }
 
+/** Plugin CRUD service with multi-tenant access control. */
 export class PluginService extends CrudService<
   Plugin,
   PluginFilter,
@@ -222,18 +222,12 @@ export class PluginService extends CrudService<
     } catch (err) {
       logger.debug(`Cache invalidation failed after plugin ${eventType}`, { orgId: entity.orgId, error: errorMessage(err) });
     }
-    // Carry the owning org's parent (when the mutation ran under a team's tenant
-    // context) so async compliance eval sees the same parent `propagateToChildren`
-    // rules the live path does. Only trust the context parent when its org matches
-    // the entity's — a cross-org mutation must not inherit the caller's parent.
-    const tenant = getTenantContext();
-    const parentOrgId = tenant?.orgId === entity.orgId ? tenant?.parentOrgId : undefined;
     // Project to compliance-safe attributes: the plugin row's `env`/`buildArgs`
     // maps hold secret VALUES that must never land in Redis / travel to the
     // compliance service. See toComplianceAttributes — keys are preserved for
     // rule evaluation, values are redacted.
     const attributes = toComplianceAttributes(entity) as Record<string, unknown>;
-    entityEvents.emit({ eventType, target: 'plugin', entityId: id, orgId: entity.orgId, parentOrgId, userId, timestamp: new Date(), attributes });
+    entityEvents.emit({ eventType, target: 'plugin', entityId: id, orgId: entity.orgId, userId, timestamp: new Date(), attributes });
   }
 
   protected async onAfterCreate(entity: Plugin, userId: string): Promise<void> {
@@ -561,10 +555,12 @@ export class PluginService extends CrudService<
    * Delete a version (soft), with the safety rules:
    * - FROZEN (a pending publish request references it): never deletable
    *   (409 PLUGIN_VERSION_FROZEN) — the request pins this exact version.
-   * - IN USE by the org's pipelines, or LISTED (a listing version was published
-   *   from it): refused with 409 PLUGIN_VERSION_IN_USE unless `force` — the route
-   *   pairs `force` with a step-up. A listing keeps serving its own
-   *   `public/*` copy, so deleting the org's source row doesn't break installs.
+   * - IN USE (any pipeline references it): refused with 409
+   *   PLUGIN_VERSION_IN_USE, with or without `force`.
+   * - LISTED (a listing version was published from it): refused with 409
+   *   PLUGIN_VERSION_IN_USE unless `force` — the route pairs `force` with a
+   *   step-up. A listing keeps serving its own `public/*` copy, so deleting the
+   *   org's source row doesn't break installs.
    * Deleting the default promotes the next one ({@link promoteNextDefault}).
    * The row's quota snapshot is cleared on the tombstone so the slot is refunded
    * at most once (the route refunds `existing.quotaResetAt`). Returns the deleted

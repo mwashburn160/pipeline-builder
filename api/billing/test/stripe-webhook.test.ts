@@ -146,8 +146,9 @@ jest.unstable_mockModule('../src/models/plan.js', () => ({
 // Mock Subscription model
 const mockSubscriptionCreate = jest.fn<(...args: unknown[]) => Promise<unknown>>();
 const mockSubscriptionFindOne = jest.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue(null);
+const mockSubscriptionFindById = jest.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue(null);
 jest.unstable_mockModule('../src/models/subscription.js', () => ({
-  Subscription: { findOne: (...a: unknown[]) => mockSubscriptionFindOne(...a), create: (...args: unknown[]) => mockSubscriptionCreate(...args), countDocuments: jest.fn<(...a: unknown[]) => Promise<number>>().mockResolvedValue(1) },
+  Subscription: { findOne: (...a: unknown[]) => mockSubscriptionFindOne(...a), findById: (...a: unknown[]) => mockSubscriptionFindById(...a), create: (...args: unknown[]) => mockSubscriptionCreate(...args), countDocuments: jest.fn<(...a: unknown[]) => Promise<number>>().mockResolvedValue(1) },
 }));
 
 // Mock provider factory
@@ -181,7 +182,7 @@ jest.unstable_mockModule('../src/helpers/signup-promotions.js', () => ({
   runSignupPromotions: (...a: unknown[]) => mockRunSignupPromotions(...a),
 }));
 
-const { planFromStripePrice, handleSubscriptionUpdated, handleSubscriptionCreated, handleSubscriptionDeleted } = await import('../src/helpers/stripe-subscription-handlers.js');
+const { planFromStripePrice, handleSubscriptionUpdated, handleSubscriptionCreated, handleSubscriptionDeleted, awaitsLocalRow } = await import('../src/helpers/stripe-subscription-handlers.js');
 
 /** Event envelope the webhook route passes every lifecycle handler. */
 const EVT = { id: 'evt_1', created: 1767225600 };
@@ -461,6 +462,44 @@ describe('handleSubscriptionCreated (checkout provisioning)', () => {
     expect(mockSubscriptionCreate).not.toHaveBeenCalled();
   });
 
+  describe('an in-app create whose .created lands before the bind', () => {
+    // POST /subscriptions reserves a row (externalId null), calls Stripe, then
+    // saves the sub id. Its Stripe sub carries no orgId — only subscriptionRef.
+    const REF = '507f1f77bcf86cd799439011';
+    const inApp = () => created({ planId: 'team', interval: 'monthly', subscriptionRef: REF });
+
+    it('throws for a redelivery instead of raising the unbound alarm', async () => {
+      mockSubscriptionFindById.mockResolvedValueOnce({ externalId: null, createdAt: new Date() });
+      await expect(handleSubscriptionCreated(inApp(), EVT)).rejects.toThrow(/still being bound/);
+      expect(mockIncCounter).not.toHaveBeenCalledWith('billing_unbound_stripe_subscription_total', expect.anything());
+      expect(mockCreateBillingEvent).not.toHaveBeenCalled();
+    });
+
+    it('alarms when the reserved row is gone (the create rolled back after Stripe made the sub)', async () => {
+      mockSubscriptionFindById.mockResolvedValueOnce(null);
+      await handleSubscriptionCreated(inApp(), EVT);
+      expect(mockIncCounter).toHaveBeenCalledWith('billing_unbound_stripe_subscription_total', { reason: 'no_org_metadata' });
+    });
+
+    it('alarms when the reserved row never bound inside the bind window', async () => {
+      mockSubscriptionFindById.mockResolvedValueOnce({ externalId: null, createdAt: new Date(Date.now() - 60 * 60 * 1000) });
+      await handleSubscriptionCreated(inApp(), EVT);
+      expect(mockIncCounter).toHaveBeenCalledWith('billing_unbound_stripe_subscription_total', { reason: 'no_org_metadata' });
+    });
+
+    it('alarms when the reserved row is bound to a DIFFERENT Stripe sub', async () => {
+      mockSubscriptionFindById.mockResolvedValueOnce({ externalId: 'sub_OTHER', createdAt: new Date() });
+      await handleSubscriptionCreated(inApp(), EVT);
+      expect(mockIncCounter).toHaveBeenCalledWith('billing_unbound_stripe_subscription_total', { reason: 'no_org_metadata' });
+    });
+
+    it('a dashboard create with no subscriptionRef alarms without a lookup', async () => {
+      await handleSubscriptionCreated(created({}), EVT);
+      expect(mockSubscriptionFindById).not.toHaveBeenCalled();
+      expect(mockIncCounter).toHaveBeenCalledWith('billing_unbound_stripe_subscription_total', { reason: 'no_org_metadata' });
+    });
+  });
+
   it('cancels a DUPLICATE incoming sub when the org already has a manageable one bound elsewhere', async () => {
     // No local row for THIS externalId, but the org already has a manageable sub
     // bound to a DIFFERENT Stripe sub (two checkouts completed) → cancel the
@@ -469,6 +508,45 @@ describe('handleSubscriptionCreated (checkout provisioning)', () => {
     await handleSubscriptionCreated(created({ orgId: 'org-9', planId: 'team', interval: 'monthly' }), EVT);
     expect(mockCancelSubscriptionNow).toHaveBeenCalledWith('sub_ext');
     expect(mockSubscriptionCreate).not.toHaveBeenCalled();
+  });
+});
+
+// ============================================
+// awaitsLocalRow — whether an event that needs the row should wait for it
+// ============================================
+
+describe('awaitsLocalRow', () => {
+  beforeEach(() => { jest.clearAllMocks(); });
+
+  const REF = '507f1f77bcf86cd799439011';
+  const now = () => ({ id: 'evt_now', created: Math.floor(Date.now() / 1000) });
+
+  it('waits for an in-app create whose reserved row is still unbound', async () => {
+    mockSubscriptionFindById.mockResolvedValueOnce({ externalId: null, createdAt: new Date() });
+    await expect(awaitsLocalRow({ subscriptionRef: REF }, EVT)).resolves.toBe(true);
+  });
+
+  it('does not wait once the reserved row is gone or past the bind window', async () => {
+    mockSubscriptionFindById.mockResolvedValueOnce(null);
+    await expect(awaitsLocalRow({ subscriptionRef: REF }, EVT)).resolves.toBe(false);
+    mockSubscriptionFindById.mockResolvedValueOnce({ externalId: null, createdAt: new Date(Date.now() - 60 * 60 * 1000) });
+    await expect(awaitsLocalRow({ subscriptionRef: REF }, EVT)).resolves.toBe(false);
+  });
+
+  it('waits for a Checkout sub whose provisioning has not landed, inside the provision window', async () => {
+    await expect(awaitsLocalRow({ orgId: 'org-9', planId: 'team' }, now())).resolves.toBe(true);
+  });
+
+  it('stops waiting for a Checkout sub once the event is older than the provision window', async () => {
+    const old = { id: 'evt_old', created: Math.floor((Date.now() - 2 * 60 * 60 * 1000) / 1000) };
+    await expect(awaitsLocalRow({ orgId: 'org-9', planId: 'team' }, old)).resolves.toBe(false);
+  });
+
+  it('never waits for a truly unknown sub (no ref, no Checkout stamp)', async () => {
+    await expect(awaitsLocalRow({}, now())).resolves.toBe(false);
+    await expect(awaitsLocalRow(null, now())).resolves.toBe(false);
+    await expect(awaitsLocalRow({ orgId: 'org-9' }, now())).resolves.toBe(false);
+    expect(mockSubscriptionFindById).not.toHaveBeenCalled();
   });
 });
 

@@ -40,7 +40,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@p
   runWithTenantContext: (ctx: unknown, fn: () => unknown) => { tenantScopes.push(ctx); return fn(); },
 }));
 
-const { sendSuccess, sendError, sendBadRequest } = await import('@pipeline-builder/api-core');
+const { sendSuccess, sendError, sendBadRequest, recordAudit } = await import('@pipeline-builder/api-core');
 const { createRetentionSyncRoutes } = await import('../src/routes/retention-sync.js');
 
 // The billing service token identity (getServiceAuthHeader({ serviceName:'billing' })
@@ -111,6 +111,27 @@ describe('PUT /reports/retention-sync/:orgId', () => {
     expect(mockSetReportingSettings).not.toHaveBeenCalled();
   });
 
+  it('400s without an org id and does not touch settings', async () => {
+    await run({ eventRetentionDays: 30, doraRetentionDays: 30 }, billingPrincipal, '');
+
+    expect(sendBadRequest).toHaveBeenCalled();
+    expect(mockGetIncidentSettings).not.toHaveBeenCalled();
+    expect(mockSetReportingSettings).not.toHaveBeenCalled();
+  });
+
+  it('records billing\'s occurredAt on the audit row only when it is a real ISO instant', async () => {
+    mockSetReportingSettings.mockResolvedValue();
+    const detailsOf = () => ((recordAudit as unknown as jest.Mock).mock.calls.at(-1)![0] as { details: Record<string, unknown> }).details;
+
+    await run({ eventRetentionDays: 30, doraRetentionDays: 30, occurredAt: '2026-11-15T10:00:00Z' }, billingPrincipal);
+    expect(detailsOf()).toMatchObject({ billingOccurredAt: '2026-11-15T10:00:00.000Z', before: { eventRetentionDays: 30, doraRetentionDays: null } });
+
+    for (const occurredAt of ['not a date', 12345, 'x'.repeat(41)]) {
+      await run({ eventRetentionDays: 30, doraRetentionDays: 30, occurredAt }, billingPrincipal);
+      expect(detailsOf()).not.toHaveProperty('billingOccurredAt');
+    }
+  });
+
   it('rejects a non-service caller (plain org user) with 403', async () => {
     await run({ eventRetentionDays: 90, doraRetentionDays: 365 },
       { sub: 'user-1', role: 'owner', permissions: ['reports:read', 'org_settings:write'] });
@@ -156,6 +177,12 @@ describe('GET /reports/retention-sync/:orgId (billing drift read)', () => {
     expect(mockGetIncidentSettings).toHaveBeenCalledWith('root-1');
     expect(tenantScopes).toEqual([{ orgId: 'root-1', isSuperAdmin: false }]);
     expect(sendSuccess).toHaveBeenCalledWith(expect.anything(), 200, { orgId: 'root-1', eventRetentionDays: 120, doraRetentionDays: null });
+  });
+
+  it('400s without an org id and reads nothing', async () => {
+    await runGet(billingPrincipal, '');
+    expect(sendBadRequest).toHaveBeenCalled();
+    expect(mockGetIncidentSettings).not.toHaveBeenCalled();
   });
 
   it('refuses any caller other than billing', async () => {

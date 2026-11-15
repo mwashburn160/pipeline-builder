@@ -13,6 +13,7 @@
 
 import { createLogger } from '@pipeline-builder/api-core';
 import { incCounter } from '@pipeline-builder/api-server';
+import { isValidObjectId } from 'mongoose';
 import type Stripe from 'stripe';
 import { applyPlanTierChange, applyTierIncludedAddonPrune } from './addon-prune.js';
 import type { PrunedAddon } from './addon-prune.js';
@@ -92,6 +93,8 @@ async function liveStripeSubscription(payload: Stripe.Subscription): Promise<Str
  *   `subscription_data.metadata`) → **provision** the local row + grant
  *   entitlements. This is what makes Stripe self-serve actually reach an active,
  *   entitled subscription.
+ * - No `orgId`, but an in-app create's reserved row is still being bound
+ *   (`subscriptionRef` metadata) → throw so Stripe redelivers after the bind.
  * - `orgId` but no `planId` (a bare dashboard create) → can't resolve the plan;
  *   log + meter for operator follow-up. No `orgId` → unbound; meter + event.
  */
@@ -102,6 +105,15 @@ export async function handleSubscriptionCreated(stripeSubscription: Stripe.Subsc
     return handleSubscriptionUpdated(stripeSubscription, event);
   }
   const orgId = (stripeSubscription.metadata?.orgId || '').trim();
+  if (!orgId && await isStillBinding(stripeSubscription.metadata)) {
+    // An in-app create (POST /subscriptions) reserves its local row, then calls
+    // Stripe, then saves the new sub id onto the row. This event can land in
+    // between: it is not unbound, it is mid-bind. Throw so the webhook 500s and
+    // Stripe redelivers — by then the row is bound and the redelivery takes the
+    // update path above. A create that rolled back (row gone) or never bound
+    // (row stale) falls through to the unbound alarm on that redelivery.
+    throw new Error(`Stripe subscription ${externalId} is still being bound to its local row; retry`);
+  }
   if (!orgId) {
     logger.warn('Stripe subscription created without orgId metadata — cannot auto-provision', { externalId });
     // Alertable: a Stripe sub exists that backs no org. Without a metric this is
@@ -191,6 +203,57 @@ export async function handleSubscriptionCreated(stripeSubscription: Stripe.Subsc
   }
   await createBillingEvent(orgId, 'subscription_created', { planId, interval, tier: plan.tier, via: 'checkout' }, subscription._id.toString());
   logger.info('Provisioned Stripe subscription from checkout', { orgId, externalId, planId, status });
+}
+
+/**
+ * How long an in-app create may take between reserving its row and binding the
+ * Stripe sub id to it. Two provider calls; anything older is a create that
+ * failed without rolling back, and its sub really is unbound.
+ */
+const BIND_WINDOW_MS = 10 * 60 * 1000;
+
+/**
+ * How long a Checkout-stamped sub (`orgId` + `planId` metadata) may go without
+ * its local row before an event that needs the row stops waiting for it. The
+ * row is provisioned by `customer.subscription.created`, which Stripe does not
+ * order against `invoice.*`; an hour spans Stripe's first redeliveries of a
+ * `.created` that itself failed, and anything older is a provision that is not
+ * coming.
+ */
+const PROVISION_WINDOW_MS = 60 * 60 * 1000;
+
+/**
+ * Is this Stripe sub (given its metadata) an in-app create whose reserved local
+ * row exists but has not been bound to the sub yet? Identified by the
+ * `subscriptionRef` the in-app create stamps (the reserved row's id) — a
+ * dashboard/API create has none, so it can never be mistaken for one.
+ */
+async function isStillBinding(metadata: Stripe.Metadata | null | undefined): Promise<boolean> {
+  const ref = (metadata?.subscriptionRef || '').trim();
+  if (!ref || !isValidObjectId(ref)) return false;
+  const reserved = await Subscription.findById(ref);
+  if (!reserved || reserved.externalId) return false;
+  return Date.now() - new Date(reserved.createdAt).getTime() < BIND_WINDOW_MS;
+}
+
+/**
+ * Will a local row for this Stripe sub (given its metadata) exist shortly? True
+ * for an in-app create still inside its bind ({@link isStillBinding}), and for a
+ * Checkout sub (`orgId` + `planId` stamped) whose provisioning `.created` has
+ * not landed yet while `event` is inside {@link PROVISION_WINDOW_MS}.
+ *
+ * For handlers of events that NEED the row and arrive unordered against the
+ * bind — the caller throws on true so Stripe redelivers once the row exists,
+ * instead of answering 200 and dropping the event for good. A sub that matches
+ * neither is truly unknown and keeps the caller's own handling.
+ */
+export async function awaitsLocalRow(
+  metadata: Stripe.Metadata | null | undefined,
+  event: StripeEventMeta,
+): Promise<boolean> {
+  if (await isStillBinding(metadata)) return true;
+  const stamped = Boolean((metadata?.orgId || '').trim() && (metadata?.planId || '').trim());
+  return stamped && Date.now() - event.created * 1000 < PROVISION_WINDOW_MS;
 }
 
 /** Cancel a DUPLICATE Stripe subscription immediately (best-effort) + alert, so a

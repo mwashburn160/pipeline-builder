@@ -6,7 +6,7 @@ import axios from 'axios';
 import { ERROR_CODES } from './error-handler.js';
 import { printDebug, printError, printSuccess } from './output-utils.js';
 import { requestCorrelationHeaders } from './request-context.js';
-import { isProductionEnv } from './tls.js';
+import { isProductionEnv, platformHttpsAgent } from './tls.js';
 
 /**
  * Session payload as a NON-BROWSER client receives it: the refresh token rides
@@ -48,7 +48,7 @@ export function assertCredentialTlsAllowed(verifySsl: boolean | undefined): void
  * outside production, enforced by {@link assertCredentialTlsAllowed}).
  */
 export function credentialHttpsAgent(verifySsl: boolean | undefined): https.Agent {
-  return new https.Agent({ rejectUnauthorized: verifySsl ?? true });
+  return platformHttpsAgent(verifySsl);
 }
 
 /**

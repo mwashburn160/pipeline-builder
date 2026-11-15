@@ -30,7 +30,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 jest.unstable_mockModule('../src/config/index.js', () => mockConfig({ email: { enabled: false } }));
 
 jest.unstable_mockModule('../src/services/oauth-providers.js', () => ({
-  verifyOAuthCode: jest.fn(), OAUTH_ERROR_MAP: {},
+  verifyOAuthCode: jest.fn(), OAUTH_ERROR_MAP: {}, enabledOAuthProviders: () => [],
 }));
 
 jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: (...a: unknown[]) => mockAudit(...a) }));
@@ -341,7 +341,8 @@ describe('invitation controller — audit emissions', () => {
   });
 
   it('resend → invitation.resend with email + role', async () => {
-    mockResend.mockResolvedValue({ expiresAt: new Date(), emailSent: true, email: 're@x.io', role: 'member' });
+    // A team invitation: the org it joins, not the actor's, is the affected one.
+    mockResend.mockResolvedValue({ expiresAt: new Date(), delivery: 'sent', email: 're@x.io', role: 'member', organizationId: 'team-1' });
 
     const res = makeRes();
     await (resendInvitation as any)({ user: ACTOR, params: { invitationId: 'inv-3' } }, res);
@@ -349,7 +350,7 @@ describe('invitation controller — audit emissions', () => {
     expect(mockAudit).toHaveBeenCalledWith(expect.anything(), 'invitation.resend', expect.objectContaining({
       targetType: 'invitation',
       targetId: 'inv-3',
-      affectedOrgId: 'org-actor',
+      affectedOrgId: 'team-1',
       details: { email: 're@x.io', role: 'member' },
     }));
   });

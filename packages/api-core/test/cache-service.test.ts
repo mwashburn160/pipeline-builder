@@ -220,6 +220,19 @@ describe('CacheService (in-memory)', () => {
       await expect(cache.getOrSet('f', failing)).rejects.toThrow('boom');
       expect(calls).toBe(2);
     });
+
+    it('a caller arriving after an invalidation does not join the flight that predates it', async () => {
+      let releaseOld!: (v: string) => void;
+      const stale = cache.getOrSet('k', () => new Promise<string>((r) => { releaseOld = r; }));
+      await new Promise((r) => setImmediate(r)); // the first flight is now registered
+      await cache.del('k'); // a write landed while the first read was in flight
+      const fresh = cache.getOrSet('k', async () => 'after-write');
+      await expect(fresh).resolves.toBe('after-write');
+      releaseOld('before-write');
+      await expect(stale).resolves.toBe('before-write');
+      // The newer flight's value is what is cached, not the stale one.
+      expect(await cache.get('k')).toBe('after-write');
+    });
   });
 
   describe('mutation isolation', () => {

@@ -74,7 +74,8 @@ jest.unstable_mockModule('../src/config.js', () => ({
 // subscription handlers; stub them so this suite drives only the invoice logic.
 const acceptStripeEvent = jest.fn<(...a: unknown[]) => Promise<boolean>>(async () => true);
 const grantOnBecomingEntitled = jest.fn<(...a: unknown[]) => Promise<void>>(async () => undefined);
-jest.unstable_mockModule('../src/helpers/stripe-subscription-handlers.js', () => ({ acceptStripeEvent, grantOnBecomingEntitled }));
+const awaitsLocalRow = jest.fn<(...a: unknown[]) => Promise<boolean>>(async () => false);
+jest.unstable_mockModule('../src/helpers/stripe-subscription-handlers.js', () => ({ acceptStripeEvent, awaitsLocalRow, grantOnBecomingEntitled }));
 
 /** Event envelope the webhook route passes every lifecycle handler. */
 const EVT = { id: 'evt_1', created: 1767225600 };
@@ -343,6 +344,30 @@ describe('handlePaymentSucceeded', () => {
 
     expect(createBillingEvent).not.toHaveBeenCalled();
     expect(ingestStripeInvoice).not.toHaveBeenCalled();
+  });
+
+  it('THROWS so Stripe redelivers when the row is still binding (a first invoice settled before the bind)', async () => {
+    findSubscriptionByStripeId.mockResolvedValue(null);
+    awaitsLocalRow.mockResolvedValueOnce(true);
+    const metadata = { subscriptionRef: '507f1f77bcf86cd799439011' };
+
+    await expect(handlePaymentSucceeded(makeInvoice({
+      parent: { subscription_details: { subscription: 'sub_stripe_1', metadata } },
+    }), EVT)).rejects.toThrow(/still binding/);
+
+    expect(awaitsLocalRow).toHaveBeenCalledWith(metadata, EVT);
+    expect(ingestStripeInvoice).not.toHaveBeenCalled();
+  });
+
+  it('reads the metadata off an EXPANDED subscription when the snapshot is absent', async () => {
+    findSubscriptionByStripeId.mockResolvedValue(null);
+    const metadata = { orgId: 'org-9', planId: 'team' };
+
+    await handlePaymentSucceeded(makeInvoice({
+      parent: { subscription_details: { subscription: { id: 'sub_stripe_1', metadata } } },
+    }), EVT);
+
+    expect(awaitsLocalRow).toHaveBeenCalledWith(metadata, EVT);
   });
 });
 

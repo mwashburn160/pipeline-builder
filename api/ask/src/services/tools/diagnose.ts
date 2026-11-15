@@ -73,15 +73,16 @@ export function diagnoseTools(deps: AgentToolDeps): ToolSet {
         if (!runs.ok) return { pipelineId, unavailable: runs.reason };
 
         let executions = asArray(runs.value?.executions).map((e) => {
+          // The executions report's wire is snake_case (raw report columns).
           const r = asRecord(e);
           return {
-            executionId: r.executionId,
+            executionId: r.execution_id,
             status: r.status,
-            startedAt: r.startedAt,
-            endedAt: r.endedAt,
-            durationMs: r.durationMs,
-            failingStage: r.failingStage ?? null,
-            failingAction: r.failingAction ?? null,
+            startedAt: r.started_at,
+            endedAt: r.ended_at,
+            durationMs: r.duration_ms,
+            failingStage: r.failing_stage ?? null,
+            failingAction: r.failing_action ?? null,
           };
         });
         if (executionId) executions = executions.filter((e) => e.executionId === executionId);
@@ -423,8 +424,13 @@ export function diagnoseTools(deps: AgentToolDeps): ToolSet {
       },
     }),
 
+    // The whole pipeline, `props` included. Its secret VALUES (env, buildArgs, a
+    // source token) never reach the model: every tool result is redacted to
+    // `[REDACTED:<tag>]` placeholders on its way back (`withModelRedaction`), and
+    // the edit tools restore the real values behind them.
     inspect_pipeline: tool({
-      description: 'Fetch one pipeline by id to inspect its configuration before answering or proposing changes.',
+      description: 'Fetch one pipeline by id to inspect its configuration before answering or proposing changes. '
+        + 'Secret values come back as [REDACTED:…] placeholders; when proposing an edit, leave each one exactly as it is.',
       inputSchema: z.object({ id: ResourceId.describe('The pipeline id') }),
       execute: async ({ id }) => {
         const res = (await pipeline.get(`/pipelines/${encodeURIComponent(id)}`)) as { data?: unknown };

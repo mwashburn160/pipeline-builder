@@ -420,11 +420,23 @@ describe('refund vs invoice arrival order', () => {
     expect(store.get('in_multi')).toMatchObject({ status: 'refunded', amountPaidCents: 900 });
   });
 
-  it('a banked reversal without an amount leaves the ingested amount paid', async () => {
-    await reverseLedgerInvoice('in_void', 'refunded', 100);
-    await reverseLedgerInvoice('in_void', 'void'); // supersedes, and carries no amount
+  it('an amount-less reversal after an amount-carrying one lands the same in either order', async () => {
+    // Invoice first: the second reversal sets only the status, so the row keeps
+    // the first one's net amount.
     await ingestStripeInvoice('org-1', invoice({ id: 'in_void', amount_paid: 2900 }));
-    expect(store.get('in_void')).toMatchObject({ status: 'void', amountPaidCents: 2900 });
+    await reverseLedgerInvoice('in_void', 'refunded', 100);
+    await reverseLedgerInvoice('in_void', 'void');
+    const invoiceFirst = { ...store.get('in_void') };
+    expect(invoiceFirst).toMatchObject({ status: 'void', amountPaidCents: 100 });
+
+    store.clear();
+    bank.clear();
+
+    // Both reversals banked first: the bank must merge them the same way.
+    await reverseLedgerInvoice('in_void', 'refunded', 100);
+    await reverseLedgerInvoice('in_void', 'void');
+    await ingestStripeInvoice('org-1', invoice({ id: 'in_void', amount_paid: 2900 }));
+    expect(store.get('in_void')).toEqual(invoiceFirst);
   });
 });
 

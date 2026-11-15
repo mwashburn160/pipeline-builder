@@ -116,7 +116,8 @@ export function createSecurityReportRoutes(): Router {
       if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
       const body = validation.value;
 
-      if (!(await findOwnPipeline(id, orgId))) return sendEntityNotFound(res, 'Pipeline');
+      const pipeline = await findOwnPipeline(id, orgId);
+      if (!pipeline) return sendEntityNotFound(res, 'Pipeline');
 
       let normalized;
       try {
@@ -127,7 +128,10 @@ export function createSecurityReportRoutes(): Router {
 
       const stored = await securityReportStore().put({
         orgId,
-        pipelineId: id,
+        // The row's own id, never the path segment: `findById` matches a
+        // mixed-case id, but `pipeline_id` here is plain text, so the raw segment
+        // would key a second slot that every read (and the purge) misses.
+        pipelineId: pipeline.id,
         tool: body.tool.toLowerCase(),
         format: body.format,
         stage: body.stage ?? '',
@@ -137,14 +141,14 @@ export function createSecurityReportRoutes(): Router {
         truncated: normalized.truncated,
         submittedBy: actorId({ userId }),
       });
-      ctx.log('COMPLETED', 'Stored security report', { id, tool: stored.tool, stage: stored.stage, ...normalized.counts });
+      ctx.log('COMPLETED', 'Stored security report', { id: pipeline.id, tool: stored.tool, stage: stored.stage, ...normalized.counts });
 
       recordAudit({
         action: 'pipeline.security_report.upload',
         actorId: actorId({ userId }),
         orgId,
         targetType: 'pipeline',
-        targetId: id,
+        targetId: pipeline.id,
         details: {
           reportId: stored.id,
           tool: stored.tool,
@@ -166,10 +170,10 @@ export function createSecurityReportRoutes(): Router {
       const pipeline = await pipelineService.findById(id, orgId);
       if (!pipeline) return sendEntityNotFound(res, 'Pipeline');
 
-      const reports = await securityReportStore().latest(orgId, [id]);
+      const reports = await securityReportStore().latest(orgId, [pipeline.id]);
       const { counts, latestAt } = summarizeReports(reports);
-      ctx.log('COMPLETED', 'Listed security reports', { id, reports: reports.length });
-      return sendSuccess(res, 200, { pipelineId: id, reports, counts, latestAt: latestAt?.toISOString() ?? null });
+      ctx.log('COMPLETED', 'Listed security reports', { id: pipeline.id, reports: reports.length });
+      return sendSuccess(res, 200, { pipelineId: pipeline.id, reports, counts, latestAt: latestAt?.toISOString() ?? null });
     }));
 
   router.delete('/:id/security-reports',
@@ -179,21 +183,22 @@ export function createSecurityReportRoutes(): Router {
       if (!id) return sendBadRequest(res, 'Pipeline id is required.', ErrorCode.MISSING_REQUIRED_FIELD);
       const slot = SlotSchema.safeParse(req.query);
       if (!slot.success) return sendBadRequest(res, slot.error.issues.map((i) => i.message).join('; '), ErrorCode.VALIDATION_ERROR);
-      if (!(await findOwnPipeline(id, orgId))) return sendEntityNotFound(res, 'Pipeline');
+      const pipeline = await findOwnPipeline(id, orgId);
+      if (!pipeline) return sendEntityNotFound(res, 'Pipeline');
 
       // Upload stores the tool lower-cased and an absent stage as ''.
       const tool = slot.data.tool.toLowerCase();
       const stage = slot.data.stage ?? '';
-      const removed = await securityReportStore().remove(orgId, id, tool, stage);
+      const removed = await securityReportStore().remove(orgId, pipeline.id, tool, stage);
       if (!removed) return sendEntityNotFound(res, 'Security report');
-      ctx.log('COMPLETED', 'Removed security report', { id, tool, stage });
+      ctx.log('COMPLETED', 'Removed security report', { id: pipeline.id, tool, stage });
 
       recordAudit({
         action: 'pipeline.security_report.delete',
         actorId: actorId({ userId }),
         orgId,
         targetType: 'pipeline',
-        targetId: id,
+        targetId: pipeline.id,
         details: {
           reportId: removed.id,
           tool,
@@ -203,7 +208,7 @@ export function createSecurityReportRoutes(): Router {
         },
       });
 
-      return sendSuccess(res, 200, { pipelineId: id, tool, stage, removed: removed.id });
+      return sendSuccess(res, 200, { pipelineId: pipeline.id, tool, stage, removed: removed.id });
     }));
 
   return router;

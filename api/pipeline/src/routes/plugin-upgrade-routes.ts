@@ -122,9 +122,11 @@ export function createPluginUpgradeRoutes(): Router {
 
       const widen = req.query.widen === 'true';
       const upgrades = await previewPluginUpgrades(pipeline.props, orgId, req.user?.parentOrganizationId);
-      const releases = await versionReleases(previewMoves(upgrades, widen), new Set([id]));
-      ctx.log('COMPLETED', 'Previewed plugin upgrades', { id, steps: upgrades.length });
-      return sendSuccess(res, 200, { pipelineId: id, upgrades, releases });
+      // The row's own id: the references carry it lower-cased, so a mixed-case
+      // path segment would fail to exclude this pipeline's own declared use.
+      const releases = await versionReleases(previewMoves(upgrades, widen), new Set([pipeline.id]));
+      ctx.log('COMPLETED', 'Previewed plugin upgrades', { id: pipeline.id, steps: upgrades.length });
+      return sendSuccess(res, 200, { pipelineId: pipeline.id, upgrades, releases });
     }));
 
   router.post('/plugin-upgrades/apply',
@@ -140,7 +142,11 @@ export function createPluginUpgradeRoutes(): Router {
       // One id shared by every per-pipeline audit event of this apply, so a
       // reviewer can regroup the fan-out (each event names its own pipeline).
       const batchId = randomUUID();
-      for (const id of [...new Set(pipelineIds)]) {
+      // Lower-cased before the dedupe: a uuid is case-insensitive to the lookup,
+      // but the resolution rows and the duplicate window key on the string, so a
+      // mixed-case id would record a second resolution (leaving the old one to
+      // hold the moved-off version) and open its own trigger window.
+      for (const id of [...new Set(pipelineIds.map((p) => p.toLowerCase()))]) {
         try {
           const existing = await pipelineService.findById(id, orgId) as Pipeline | null;
           if (!existing) { results.push({ pipelineId: id, status: 'failed', error: 'Pipeline not found' }); continue; }

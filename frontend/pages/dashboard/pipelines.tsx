@@ -212,6 +212,9 @@ export default function PipelinesPage() {
           // Severity-graded plugin warnings never block the save; say them anyway.
           const pw = pluginWarningsToast(result.data?.pluginWarnings);
           if (pw) toast.toast(pw.type, pw.message, 12000);
+          // Why this config's DORA deploy attribution may be wrong — told now,
+          // not discovered later in a report that credits the wrong stage.
+          for (const w of result.data?.warnings ?? []) toast.warning(w, 12000);
           setSlotConflict(null);
           setTimeout(() => { setShowCreateModal(false); setCreateSuccess(null); }, 2000);
         },
@@ -251,12 +254,14 @@ export default function PipelinesPage() {
     if (selectedIds.size === 0) return;
     setBulkLoading(true);
     try {
-      const count = selectedIds.size;
-      await api.bulkDeletePipelines(Array.from(selectedIds));
+      const res = await api.bulkDeletePipelines(Array.from(selectedIds));
+      // The server's count, not the selection's: an id that no longer matched
+      // is skipped, not deleted.
+      const count = res.data?.deleted ?? 0;
       clearSelection();
       setShowBulkDelete(false);
       afterWrite();
-      toast.success(`${count} pipeline${count > 1 ? 's' : ''} deleted`);
+      toast.success(`${count} pipeline${count === 1 ? '' : 's'} deleted`);
     } catch (err) {
       list.setError(formatError(err, 'Failed to delete pipelines'));
     } finally {
@@ -268,11 +273,20 @@ export default function PipelinesPage() {
     if (selectedIds.size === 0) return;
     setBulkLoading(true);
     try {
-      const count = selectedIds.size;
       const res = await api.bulkUpdatePipelines(Array.from(selectedIds), { isActive });
+      // A 200 can still carry refused rows (a compliance block, the compliance
+      // service down): report what the server actually changed, and why the
+      // rest did not.
+      const count = res.data?.updated ?? 0;
+      const failures = res.data?.errors ?? [];
       clearSelection();
       afterWrite();
-      toast.success(`${count} pipeline${count > 1 ? 's' : ''} ${isActive ? 'activated' : 'deactivated'}`);
+      const verb = isActive ? 'activated' : 'deactivated';
+      if (failures.length === 0) {
+        toast.success(`${count} pipeline${count === 1 ? '' : 's'} ${verb}`);
+      } else {
+        toast.error(`${count} ${verb}, ${failures.length} failed: ${failures[0].error}${failures.length > 1 ? ` (+${failures.length - 1} more)` : ''}`, 12000);
+      }
       const pw = pluginWarningsToast(res.data?.pluginWarnings);
       if (pw) toast.toast(pw.type, pw.message, 12000);
     } catch (err) {

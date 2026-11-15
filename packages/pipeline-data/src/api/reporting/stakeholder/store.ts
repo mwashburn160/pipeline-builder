@@ -14,8 +14,10 @@
  *    N+1 and points the old row at it (`supersededBy`); nothing overwrites a
  *    snapshot a manager has already read.
  *  - A SHARE LINK IS RESOLVED WITHOUT A TENANT. The reader has no account, so the
- *    lookup by token hash is the one read here that deliberately runs as sysadmin
- *    — see {@link resolveShareLink} for why that is the narrowest safe shape.
+ *    lookup by token hash runs as sysadmin — see {@link resolveShareLink} for why
+ *    that is the narrowest safe shape. The other sysadmin paths have the same
+ *    reason (no tenant to scope by): recipient verification and unsubscribe by
+ *    token, and the scheduler's cross-org due scan, claim and pause.
  *  - A RECIPIENT IS UPSERTED, NEVER RE-CREATED. Re-adding an address must keep its
  *    verification and unsubscribe state, or an unsubscribe could be undone by
  *    deleting and re-adding the row.
@@ -73,7 +75,12 @@ export const RECIPIENT_VERIFICATION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
  */
 export const MAX_REPORT_BOUNCES = 3;
 
-/** SHA-256 hex of a report token (share link, verification, unsubscribe). The only form any of them is ever stored in. */
+/**
+ * SHA-256 hex of a report token — the only form share-link and verification
+ * tokens are stored in. The UNSUBSCRIBE token is the exception: it is stored
+ * raw (`unsubscribe_token`), because every later report email must embed the
+ * same link and a hash cannot be turned back into it.
+ */
 export function hashReportToken(token: string): string {
   return createHash('sha256').update(token, 'utf8').digest('hex');
 }
@@ -569,8 +576,7 @@ export class StakeholderReportStore {
    * Resolve a share token to its link and run, for the UNAUTHENTICATED public
    * route.
    *
-   * This is the one read in this module that runs as sysadmin, and the reason is
-   * structural: the reader holds a token and nothing else — no account, no org,
+   * It runs as sysadmin, and the reason is structural: the reader holds a token and nothing else — no account, no org,
    * no JWT — so there is no tenant context for RLS to scope by, and the org can
    * only be learned FROM the row. The escalation is kept as narrow as the problem:
    *
@@ -1173,8 +1179,7 @@ export class StakeholderReportStore {
    * Definitions whose next run is due, across every org.
    *
    * Runs as SYSADMIN, because the scheduler has no tenant: it is looking for work
-   * in orgs it has not been told about. This is the one read here that crosses org
-   * boundaries, and it is kept to the narrowest possible shape — the rows needed to
+   * in orgs it has not been told about. It is kept to the narrowest possible shape — the rows needed to
    * claim and execute, ordered oldest-due first so a backlog drains in order rather
    * than starving whichever org sorts last by id.
    *

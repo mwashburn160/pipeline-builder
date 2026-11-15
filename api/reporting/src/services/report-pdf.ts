@@ -387,7 +387,8 @@ export async function renderPdf(html: string): Promise<PdfResult | PdfRefusal> {
     } else if (launching) {
       // The deadline fired before the launch returned. The Chromium it is starting
       // still arrives, and nothing else holds a reference to it — so it is destroyed
-      // the moment it does, instead of living on outside the concurrency cap.
+      // the moment it does, instead of living on unowned. (The slot is released now,
+      // so until it lands it runs outside the concurrency cap.)
       void (launching as Promise<PdfBrowser>).then(destroy, () => undefined);
     }
     release();

@@ -15,7 +15,7 @@
  */
 
 import crypto from 'crypto';
-import { createLogger, sendError, sendSuccess } from '@pipeline-builder/api-core';
+import { createLogger, normalizeOrgId, sendError, sendSuccess } from '@pipeline-builder/api-core';
 import type { Request, Response } from 'express';
 import { audit } from './audit.js';
 import { hasVerifiedDomain, unverifiedDomains } from './sso-enforcement.js';
@@ -126,13 +126,24 @@ function retargetsIdp(existing: OrgIdpConfigDto, incoming: Record<string, unknow
 /** Read one org's config. A missing config is a NORMAL state (most orgs never
  *  set one up), so this is 200 with `config: null` rather than 404 — a 404
  *  spammed the console on every org-detail load and forced callers to swallow it. */
+/**
+ * An org id from a route parameter, in canonical form. It keys the config
+ * lookup and the audit trail, and the IdP client secret is encrypted for it,
+ * so the admin and self-service surfaces must never spell one org two ways.
+ */
+function canonicalOrg(orgId: string): string {
+  return normalizeOrgId(orgId) ?? '';
+}
+
 export async function readOrgIdp(res: Response, orgId: string): Promise<void> {
+  orgId = canonicalOrg(orgId);
   const config = await orgIdpService.findByOrg(orgId);
   sendSuccess(res, 200, { config: config ?? null });
 }
 
 /** Upsert an org's IdP config from a FULL body. */
 export async function upsertOrgIdp(req: Request, res: Response, orgId: string, surface: IdpSurface): Promise<void> {
+  orgId = canonicalOrg(orgId);
   // The URL parameter is canonical — a caller can't point the write at another
   // org via the body.
   const body: Record<string, unknown> = { ...(req.body as Record<string, unknown> ?? {}), orgId };
@@ -182,6 +193,7 @@ export async function upsertOrgIdp(req: Request, res: Response, orgId: string, s
 
 /** Partially update an org's IdP config. */
 export async function patchOrgIdp(req: Request, res: Response, orgId: string, surface: IdpSurface): Promise<void> {
+  orgId = canonicalOrg(orgId);
   const parsed = validateBody(orgIdpPatchSchema, req.body, res);
   if (!parsed) return;
   if (!(await assertDomainsVerified(res, orgId, parsed.allowedEmailDomains))) return;
@@ -231,6 +243,7 @@ export async function patchOrgIdp(req: Request, res: Response, orgId: string, su
 
 /** Hard-remove an org's IdP config and give back its quota slot. */
 export async function deleteOrgIdp(req: Request, res: Response, orgId: string, surface: IdpSurface): Promise<void> {
+  orgId = canonicalOrg(orgId);
   const ok = await orgIdpService.delete(orgId);
   if (!ok) {
     sendError(res, 404, 'IdP config not found for org');

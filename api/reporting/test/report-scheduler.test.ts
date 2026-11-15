@@ -6,9 +6,11 @@
  *
  * A scheduled run has no caller, and every test here is about one of the consequences:
  *
- *  - THE CLAIM COMES FIRST. A claim taken after the compose would leave a window wide
- *    enough for a second sweep to compose and DELIVER the same report, which is the
- *    failure a manager notices.
+ *  - THE CLAIM COMES FIRST — before any work with a side effect. A claim taken after the
+ *    compose would leave a window wide enough for a second sweep to compose and DELIVER
+ *    the same report, which is the failure a manager notices. The one read ahead of it is
+ *    the account-root lookup: the claim advances `lastRunAt`, so a lookup that failed
+ *    after it lost the owed periods, while one that fails before it leaves them due.
  *  - A LOST CLAIM IS SILENT AND HARMLESS. The loser must do nothing at all, not retry.
  *  - AUTHORITY IS RE-CHECKED PER RUN, and the three revoked answers PAUSE with the
  *    reason while an UNREADABLE answer only skips. That third case is the one worth a
@@ -40,11 +42,13 @@ const mockReadyForReview = jest.fn<AnyFn>();
 const mockRunFailed = jest.fn<AnyFn>();
 const mockPaused = jest.fn<AnyFn>();
 const mockRollup = jest.fn<AnyFn>();
+const mockEmit = jest.fn<AnyFn>();
 
 /** Every scheduler the suite built, so each test can stop what it started. */
 const built: Array<{ start: () => void; stop: () => void }> = [];
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
+  emitCounter: (...a: unknown[]) => mockEmit(...a),
   createScheduler: (opts: Record<string, unknown>) => {
     const s = {
       start: () => undefined,
@@ -341,6 +345,36 @@ describe('running a definition', () => {
     // Not a refusal on the (shorter) wrong window, and not a lead notice claiming one.
     expect(mockComposeRun).not.toHaveBeenCalled();
     expect(mockRunFailed).not.toHaveBeenCalled();
+  });
+
+  it('leaves an unresolvable definition UNCLAIMED, so its periods are retried next cycle', async () => {
+    // The claim advances lastRunAt, which is what the owed periods are counted from: a
+    // lookup failure after it lost those periods for good.
+    mockRetentionRoot.mockResolvedValueOnce(null);
+    store.dueDefinitions.mockResolvedValue([definition()]);
+    await cycle();
+    expect(store.claimDefinition).not.toHaveBeenCalled();
+    expect(mockAuthority).not.toHaveBeenCalled();
+    expect(mockEmit).toHaveBeenCalledWith('report_retention_root_unavailable_total', { orgId: 'acme' });
+
+    // The next cycle (platform back) claims it and runs the same periods.
+    await cycle();
+    expect(store.claimDefinition).toHaveBeenCalledTimes(1);
+    expect(mockComposeRun).toHaveBeenCalledTimes(1);
+  });
+
+  it('resolves the root BEFORE claiming', async () => {
+    store.dueDefinitions.mockResolvedValue([definition()]);
+    await cycle();
+    expect(mockRetentionRoot.mock.invocationCallOrder[0]).toBeLessThan(store.claimDefinition.mock.invocationCallOrder[0] ?? 0);
+  });
+
+  it('one failed lookup costs only that definition, not every definition of the org', async () => {
+    mockRetentionRoot.mockResolvedValueOnce(null);
+    store.dueDefinitions.mockResolvedValue([definition({ id: 'def-1' }), definition({ id: 'def-2' })]);
+    await cycle();
+    expect(store.claimDefinition).toHaveBeenCalledTimes(1);
+    expect(store.claimDefinition.mock.calls[0]?.[0]).toBe('def-2');
   });
 
   it('resolves the rollup only for a rollup-scoped definition', async () => {

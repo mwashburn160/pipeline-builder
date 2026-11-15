@@ -305,6 +305,7 @@ export function stakeholderReportsApi(core: ApiCore) {
      * Draft the executive summary with AI (`reports:write`). A REFUSAL is a 200
      * with the reason — over quota, AI turned off (`ai_disabled`), a draft that
      * cited a number not in the report — and the lead writes it themselves.
+     * An already-published run is a 409 CONFLICT, refused before any AI call.
      */
     draftReportSummary: async (id: string) =>
       core.request<ApiResponse<
@@ -335,9 +336,10 @@ export function stakeholderReportsApi(core: ApiCore) {
       core.request<ApiResponse<{ links: ReportShareLink[] }>>(
         `${BASE}/runs/${encodeURIComponent(runId)}/links`, { signal: opts?.signal }),
 
-    /** The response carries the raw token ONCE. It is never readable again. */
+    /** The response carries the raw token ONCE — and `url`, the full shareable
+     *  `/reports/shared?token=…` link built from it. Neither is readable again. */
     createReportShareLink: async (runId: string, body: { ttlDays?: number; redactNames?: boolean } = {}) =>
-      core.request<ApiResponse<{ link: ReportShareLink; token: string; notice: string }>>(
+      core.request<ApiResponse<{ link: ReportShareLink; token: string; url: string; notice: string }>>(
         `${BASE}/runs/${encodeURIComponent(runId)}/links`,
         { method: 'POST', body: JSON.stringify(body) },
       ),

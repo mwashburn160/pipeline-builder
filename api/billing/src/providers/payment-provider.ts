@@ -63,12 +63,15 @@ export interface PaymentProvider {
   createCustomer(orgId: string, email?: string, idempotencyKey?: string): Promise<string>;
 
   /** Create a subscription in the external payment system. `idempotencyKey`,
-   *  when supported, dedupes a retried create at the provider. */
+   *  when supported, dedupes a retried create at the provider. `subscriptionRef`
+   *  is the id of the local row reserved for it, stamped on the provider object
+   *  so a lifecycle webhook that lands before the row is bound can find it. */
   createSubscription(
     customerId: string,
     planId: string,
     interval: BillingInterval,
     idempotencyKey?: string,
+    subscriptionRef?: string,
   ): Promise<ExternalSubscriptionResult>;
 
   /** Cancel a subscription in the external payment system. */
@@ -126,6 +129,17 @@ export interface PaymentProvider {
    * clearing its standing rule locally.
    */
   applyUsageCredit?(externalCustomerId: string, cents: number, idempotencyKey?: string): Promise<{ ref?: DiscountRef }>;
+
+  /**
+   * Take back `cents` of previously-applied usage credit from the customer's
+   * provider balance (Stripe → a POSITIVE customer balance transaction). The
+   * reverse of {@link applyUsageCredit}, used when a granted credit is clawed
+   * back: reducing only the local mirror left the credit on the provider
+   * balance, where it paid down the next invoice anyway. `idempotencyKey` is
+   * required — a retried debit must never take the credit back twice. Present
+   * exactly when {@link applyUsageCredit} is.
+   */
+  debitUsageCredit?(externalCustomerId: string, cents: number, idempotencyKey: string): Promise<{ ref?: DiscountRef }>;
 
   /** How this provider realizes a usage credit. Absent = none. */
   readonly usageCreditSupport?: UsageCreditSupport;

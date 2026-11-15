@@ -21,6 +21,16 @@ const mockSendBadRequest = jest.fn<AnyFn>();
 const mockValidateBody = jest.fn<AnyFn>();
 const mockIsSystemAdmin = jest.fn<AnyFn>();
 const mockRequireAuth = jest.fn((_opts?: any) => (_req: any, _res: any, next: () => void) => next());
+// A step-up stand-in with the real gate's route-table tag (`gateWhen` refuses an
+// untagged gate): passes a request carrying a step-up token, refuses one
+// without — the real token verification is api-core's own suite.
+const { tagRouteGate } = await import('@pipeline-builder/api-core/lib/middleware/route-table.js');
+const stepUpStandIn = tagRouteGate(
+  (req: any, res: any, next: () => void) => (req.headers?.['x-step-up-token'] === 'valid-step-up'
+    ? next()
+    : res.status(401).json({ code: 'STEP_UP_REQUIRED' })),
+  { kind: 'stepUp' },
+);
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   recordAudit: mockAuditRecord,
@@ -29,6 +39,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendBadRequest: mockSendBadRequest,
   requireAuth: mockRequireAuth,
   isSystemAdmin: mockIsSystemAdmin,
+  requireStepUp: stepUpStandIn,
   requireSystemAdmin: (_req: any, _res: any, next: () => void) => next(),
   getParam: jest.fn((params: Record<string, string>, key: string) => params[key]),
   getServiceAuthHeader: jest.fn(() => 'Bearer service-token'),
@@ -854,6 +865,48 @@ describe('DELETE /subscriptions/by-org/:orgId (cascade)', () => {
     // returns 200 (not 500).
     expect(mockSubscriptionDeleteMany).toHaveBeenCalledWith({ orgId: 'org-9' });
     expect(mockSendSuccess).toHaveBeenCalledWith(res, 200, expect.objectContaining({ deleted: 1 }));
+  });
+});
+
+describe('DELETE /subscriptions/by-org/:orgId — server-side step-up for USER callers', () => {
+  /** The route's conditional step-up layer, run alone. */
+  const stepUpLayer = (): ((req: any, res: any, next: (err?: unknown) => void) => void) => {
+    const layer = (router as any).stack.find((l: any) => l.route?.path === '/subscriptions/by-org/:orgId' && l.route?.methods?.delete);
+    const gate = layer.route.stack.find((l: any) => l.handle.name === 'gateWhenRoute');
+    if (!gate) throw new Error('DELETE /subscriptions/by-org/:orgId carries no conditional step-up');
+    return gate.handle;
+  };
+  const run = async (req: any) => {
+    const res = mockRes();
+    const next = jest.fn<AnyFn>();
+    stepUpLayer()(req, res, next);
+    await new Promise((r) => setImmediate(r));
+    return { res, next };
+  };
+
+  it('refuses a USER without a step-up token', async () => {
+    const { res, next } = await run(mockReq({ params: { orgId: 'org-9' }, user: { organizationId: 'sys-org', sub: 'sysadmin-1' } }));
+    expect(next).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(401);
+  });
+
+  it('admits a USER who stepped up', async () => {
+    const { res, next } = await run(mockReq({
+      params: { orgId: 'org-9' },
+      headers: { 'authorization': 'Bearer tok', 'x-step-up-token': 'valid-step-up' },
+      user: { organizationId: 'sys-org', sub: 'sysadmin-1' },
+    }));
+    expect(next).toHaveBeenCalledWith();
+    expect(res.status).not.toHaveBeenCalled();
+  });
+
+  it('leaves the org-cascade SERVICE token unaffected (no person to re-verify)', async () => {
+    const { res, next } = await run(mockReq({
+      params: { orgId: 'org-9' },
+      user: { organizationId: 'sys-org', sub: 'service:platform', principalType: 'service' },
+    }));
+    expect(next).toHaveBeenCalledWith();
+    expect(res.status).not.toHaveBeenCalled();
   });
 });
 

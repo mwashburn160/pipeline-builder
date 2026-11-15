@@ -376,9 +376,11 @@ export function authApi(core: ApiCore) {
 
     /** POST /user/change-password. Step-up gated server-side (changing the
      *  password of a left-open session is exactly the takeover step-up exists to
-     *  stop), so the UI confirms in a StepUpModal and forwards its token. */
+     *  stop), so the UI confirms in a StepUpModal and forwards its token. It ends
+     *  every session (this tab's too — no token is re-issued) and revokes the
+     *  person's access keys, reporting how many in `accessKeysRevoked`. */
     changePassword: async (currentPassword: string, newPassword: string, stepUpToken?: string) => {
-      return core.request<ApiResponse<{ message: string }>>('/api/user/change-password', {
+      return core.request<ApiResponse<{ accessKeysRevoked: number }>>('/api/user/change-password', {
         method: 'POST',
         headers: core.stepUpHeader(stepUpToken),
         body: JSON.stringify({ currentPassword, newPassword }),
@@ -399,13 +401,16 @@ export function authApi(core: ApiCore) {
     },
 
     /** GET /user/export — the caller's own data as one JSON document (step-up
-     *  gated: a bulk read of personal data). Resolves with the raw JSON text. */
+     *  gated: a bulk read of personal data). The server answers in the standard
+     *  envelope, so the export itself is `data`; resolves with it as pretty JSON
+     *  text, ready to save. */
     exportOwnData: async (stepUpToken?: string): Promise<string> => {
-      return core.requestText('/api/user/export', {
+      const res = await core.request<ApiResponse<Record<string, unknown>>>('/api/user/export', {
         headers: core.stepUpHeader(stepUpToken),
         timeoutMs: null,
         errorMessage: 'Failed to export your data',
       });
+      return JSON.stringify(res.data ?? {}, null, 2);
     },
 
     /** DELETE /user/account. An org the caller is the ONLY member of is deleted

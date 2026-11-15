@@ -432,11 +432,10 @@ async function scanRepositories(
           const { body } = await getManifest(repo, tag);
           const digests = new Set<string>();
           collectBlobDigests(body, digests);
-          // Multi-arch index: collectBlobDigests only added the child MANIFEST
-          // digests (the index JSON blobs). Fetch each child and collect its
-          // config+layer blobs too — otherwise a multi-arch image's actual layer
-          // bytes go UNCOUNTED and the storage push-gate (isStorageOverBudget)
-          // is bypassable. A failed child fetch marks the rollup incomplete
+          // Multi-arch index: fetch each child and collect its config+layer
+          // blobs — otherwise a multi-arch image's actual layer bytes go
+          // UNCOUNTED and the storage push-gate (isStorageOverBudget) is
+          // bypassable. A failed child fetch marks the rollup incomplete
           // (fail-closed) but doesn't abort the remaining children.
           for (const childDigest of indexChildDigests(body)) {
             try {
@@ -545,37 +544,28 @@ export function invalidateOrgStorageCache(orgId: string): void {
 }
 
 /**
- * Walk a manifest body and add every referenced blob digest to `out`.
- * Handles both single-arch (image manifest) and multi-arch (index) layouts.
- * Index children's blobs are NOT recursed into — the registry's blob
- * store is global, so a layer referenced by a child manifest is counted
- * regardless of which child references it.
+ * Add the config + layer blob digests of an image manifest to `out`. An index
+ * contributes nothing here: its children are MANIFESTS, which the registry
+ * links under the repository's manifest revisions, not its layers — a blob
+ * HEAD for one answers 404 in every repository, which made every multi-arch
+ * rollup (every BuildKit image with provenance) `incomplete`. The caller
+ * fetches each child (see {@link indexChildDigests}) and collects ITS blobs.
+ * Manifest JSON itself is not counted, single-arch or index.
  */
 function collectBlobDigests(body: unknown, out: Set<string>): void {
   if (typeof body !== 'object' || body === null) return;
   const b = body as Record<string, unknown>;
-
-  // Single-arch image manifest: { config: {digest}, layers: [{digest}, ...] }
   const configDigest = (b.config as { digest?: string } | undefined)?.digest;
   if (configDigest) out.add(configDigest);
   const layers = b.layers as Array<{ digest: string }> | undefined;
   if (Array.isArray(layers)) {
     for (const l of layers) if (l.digest) out.add(l.digest);
   }
-
-  // Multi-arch index: { manifests: [{digest}, ...] }
-  // Child manifests are themselves blobs (digest-addressable) so include
-  // them in the count — the bytes-on-disk include the manifest JSON. Their
-  // OWN config+layer blobs are collected by recursing (see indexChildDigests).
-  const indexChildren = b.manifests as Array<{ digest: string }> | undefined;
-  if (Array.isArray(indexChildren)) {
-    for (const c of indexChildren) if (c.digest) out.add(c.digest);
-  }
 }
 
 /** Child manifest digests referenced by a multi-arch index (`manifests[].digest`);
- *  empty for a single-arch image. The caller fetches each and recurses so the
- *  per-architecture config+layer blobs are counted, not just the index JSON. */
+ *  empty for a single-arch image. The caller fetches each so the
+ *  per-architecture config+layer blobs are counted. */
 function indexChildDigests(body: unknown): string[] {
   if (typeof body !== 'object' || body === null) return [];
   const children = (body as Record<string, unknown>).manifests as Array<{ digest?: string }> | undefined;

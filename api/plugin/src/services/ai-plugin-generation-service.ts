@@ -24,14 +24,12 @@ export { getAvailableProviders, getProviderModels };
 const logger = createLogger('ai-plugin-generation');
 
 /**
- * The provider round-trip COMPLETED but returned no usable plugin config. Typed
- * so the route can apply the keep-on-provider-contact quota rule: the external
- * cost was incurred, so the reserved `aiCalls` slot is kept (mirrors pipeline's
- * `AIEmptyOutputError`).
+ * The provider round-trip COMPLETED but returned no usable plugin config. The
+ * reserved `aiCalls` slot is kept — it was consumed when the request was sent
+ * (`GenerationRun`) — so this is only the error the route answers with (mirrors
+ * pipeline's `AIEmptyOutputError`).
  */
 export class AIEmptyOutputError extends Error {
-  /** Marker: the AI provider WAS contacted before this failure. */
-  readonly providerContacted = true;
   constructor(message = 'AI did not produce a plugin configuration') {
     super(message);
     this.name = 'AIEmptyOutputError';
@@ -66,8 +64,9 @@ export interface PluginGenerationCall {
   /** The request's own signal (client disconnect); the per-call timeout is added to it. */
   signal?: AbortSignal;
   /**
-   * Called once, on the provider's FIRST response chunk — the moment the call is
-   * paid for. The route marks the `aiCalls` slot consumed here.
+   * Called once, on the provider's FIRST response chunk. Gates platform failover
+   * only (an attempt that already streamed output is never re-run elsewhere); the
+   * `aiCalls` slot was already consumed when the request was sent.
    */
   onProviderResponse?: () => void;
 }
@@ -372,9 +371,9 @@ export function streamPluginConfig(request: PluginGenerationRequest, call: Plugi
 
 /**
  * Generate a plugin configuration from a natural language description (the JSON
- * route). Built on the stream rather than a one-shot `generateText`, which gives
- * no signal that the provider was reached — so a provider that responded and
- * THEN failed would be refunded for free. The generated Dockerfile is checked
+ * route). Built on the stream rather than a one-shot `generateText`, so the JSON
+ * and SSE routes share one path and the same first-response signal that gates
+ * failover. The generated Dockerfile is checked
  * against the catalog's rules; violations are returned in `dockerfileViolations`.
  *
  * @throws AIEmptyOutputError if the provider responded but produced no config
@@ -385,7 +384,7 @@ export async function generatePluginConfig(
 ): Promise<PluginGenerationResult & GenerationProvenance> {
   const stream = streamPluginConfig(request, call);
   for await (const _partial of stream.partialOutputStream) {
-    // Drained only for the provider-contact signal and error surfacing.
+    // Drained only for the first-response signal and error surfacing.
   }
   const result = await stream.final;
   if (!result) {

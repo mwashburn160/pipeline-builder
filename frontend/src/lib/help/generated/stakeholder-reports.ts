@@ -1,6 +1,6 @@
 // GENERATED FROM docs/stakeholder-reports.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 4d36d24f902089f9c6e78e4eaf3d5d8998888d2f2308f576d9bfa535c2e744cd
+// SOURCE-SHA256: 57f356b871bd673a5d8cc9e42389960f12d3ef79d8712390a59d1725e52c4dec
 // SPDX-License-Identifier: Apache-2.0
 import { FileText } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -302,6 +302,10 @@ export const stakeholderReportsTopic: HelpTopic = {
         {
           "type": "text",
           "content": "Missed periods are caught up, oldest first, up to four per definition per cycle (REPORT_CATCHUP_MAX). Three weekly reports arriving at once only make sense read downwards. The cap is deliberate: a definition dormant for a year must not produce fifty-two reports, and the oldest of those would be past the retention horizon anyway — which the run refuses with the reason rather than quietly covering less than its label claims."
+        },
+        {
+          "type": "text",
+          "content": "A team's report is bounded by its account root's retention window (retention is synced onto the root only), so the run first walks the team up to its root on the platform service — BEFORE it claims the definition. Claiming advances the run marker the owed periods are counted from, so a lookup that failed after the claim lost those periods; one that fails before it leaves the definition due, and the next cycle retries the same periods (report_retention_root_unavailable_total counts it). Within one cycle a resolved root is reused and concurrent lookups for one org share a single walk, but a failure is never cached: one transient platform error costs that definition this cycle, not every definition of the org."
         },
         {
           "type": "text",

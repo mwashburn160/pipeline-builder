@@ -5,6 +5,7 @@ import { TextEmptyState } from '@/components/ui/EmptyState';
 import { RetryError } from '@/components/ui/RetryError';
 import { useFetch } from '@/hooks/useFetch';
 import api from '@/lib/api';
+import { formatError } from '@/lib/constants';
 import type { ComplianceRuleHistoryEntry } from '@/types/compliance';
 import { formatDateTime } from '@/lib/format';
 import { LoadingSpinner } from '@/components/ui/Loading';
@@ -32,8 +33,8 @@ export default function RuleHistory({ ruleId, ruleName, onBack }: RuleHistoryPro
     let res: Awaited<ReturnType<typeof api.getComplianceRuleHistory>>;
     try {
       res = await api.getComplianceRuleHistory(ruleId);
-    } catch {
-      throw new Error('Failed to load rule history');
+    } catch (err) {
+      throw new Error(formatError(err, 'Failed to load rule history'));
     }
     if (!res.success || !res.data) throw new Error(res.message || 'Failed to load rule history');
     return res.data.history;

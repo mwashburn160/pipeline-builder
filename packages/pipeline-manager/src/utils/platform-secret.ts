@@ -16,7 +16,7 @@ import { decodeTokenPayload } from './auth-guard.js';
 import { getApiConfig } from './config-loader.js';
 import { printInfo, printSection, printSuccess, printWarning } from './output-utils.js';
 import { requestCorrelationHeaders } from './request-context.js';
-import { assertSslDisableAllowed } from './tls.js';
+import { assertSslDisableAllowed, platformHttpsAgent } from './tls.js';
 
 /** Login/secret options shared across the platform-secret helpers. */
 export interface PlatformSecretOptions {
@@ -43,6 +43,21 @@ export interface PlatformSecretOptions {
  */
 export function secretNameForOrg(orgId: string, leaf: string = 'platform'): string {
   return `${CoreConstants.SECRETS_PATH_PREFIX}/${orgId}/${leaf}`;
+}
+
+/**
+ * The secret a credential with path leaf `leaf` lives at, given the PLATFORM
+ * credential's secret name: that name itself for `platform`, else its sibling
+ * `…/<leaf>`. `PLATFORM_SECRET_NAME` names the platform secret (synth reads it
+ * with `--store-tokens`), so a scoped credential must never be written to — or
+ * read from — that name itself: the platform secret would then hold a key that
+ * carries one scope and can do nothing else.
+ */
+export function siblingSecretName(platformSecretName: string, leaf: string): string {
+  if (leaf === 'platform') return platformSecretName;
+  return platformSecretName.includes('/')
+    ? platformSecretName.replace(/[^/]*$/, leaf)
+    : `${platformSecretName}-${leaf}`;
 }
 
 /** A capability scope as a secret-path leaf: `reporting:ingest` → `reporting-ingest`. */
@@ -108,9 +123,7 @@ export async function ensurePlatformToken(options: PlatformSecretOptions): Promi
     { identifier: loginIdentifier, password: loginPassword },
     {
       headers: requestCorrelationHeaders(),
-      httpsAgent: rejectUnauthorized === false
-        ? new (await import('https')).Agent({ rejectUnauthorized: false })
-        : undefined,
+      httpsAgent: platformHttpsAgent(rejectUnauthorized),
     },
   );
   const loginData = loginResponse.data?.data ?? loginResponse.data;

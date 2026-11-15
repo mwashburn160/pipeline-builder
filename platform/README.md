@@ -9,7 +9,7 @@ The identity, authentication, and organization service at the center of the plat
 - **Organizations** — multi-tenant containers for pipelines, plugins, and quotas; org-to-team hierarchy (descendants/subtree), tier and quota management, GDPR export, and cascading deletion.
 - **RBAC / roles & write-access enforcement** — the coarse per-org label (`owner` | `admin` | `member`) is *derived* from a user's Roles and resolved from the `UserOrganization` junction (it governs ownership, seat accounting, and `isAdmin`, not permissions), plus platform `superadmin`, and a read-only impersonation gate that blocks state-changing requests.
 - **Roles & memberships** — first-class Roles (e.g. Admin, Member, the system org's Super Admin) that carry explicit `resource:action` permissions; a user's effective permissions are the union of their assigned Roles, and Role membership still drives the derived, cached `UserOrganization.role` label.
-- **Audit events** — tamper-resistant, org-scoped audit log (TTL-retained in MongoDB) with an internal service-token ingest endpoint for non-platform emitters.
+- **Audit events** — tamper-resistant, org-scoped audit log (retention-pruned in MongoDB, with signed per-chain retention watermarks) with an internal service-token ingest endpoint for non-platform emitters.
 - **Email delivery** — owns the SMTP/SES transport (invitations, verification, password resets, failing-alert-destination notices) and exposes an internal service-token endpoint (`POST /internal/notify-email`) so other services (e.g. compliance) can email an org's users without their own mail stack; resolves recipients (`targetUsers`, or all org admins) from the user directory.
 
 ## Endpoints
@@ -69,7 +69,8 @@ All config is read from environment variables (see `src/config/index.ts`). The E
 | `AUTH_VERIFICATION_TOKEN_TTL_MS` | Email-verification link lifetime (ms) | `86400000` |
 | `AUTH_PASSWORD_RESET_TOKEN_TTL_MS` | Forgot-password link lifetime (ms) | `3600000` |
 | `SECRET_ENCRYPTION_KEY` | At-rest encryption key for provider/IdP secrets (required in prod) | dev fallback |
-| `AUDIT_RETENTION_DAYS` | Audit-event retention (TTL index) | `90` |
+| `AUDIT_RETENTION_DAYS` | Audit-event retention (enforced by the watermarking retention prune) | `90` |
+| `AUDIT_RETENTION_PRUNE_INTERVAL_MS` | How often the audit retention prune runs | `3600000` |
 | `BOOTSTRAP_SUPERADMIN_EMAILS` | Emails granted `isSuperAdmin` at startup | — |
 | `MONGO_MAX_POOL` / `MONGO_MIN_POOL` | Mongoose connection pool bounds | `20` / `2` |
 | `LIMITER_MAX` / `LIMITER_WINDOW_MS` | General rate-limit budget and window (ms) | `100` / `900000` |

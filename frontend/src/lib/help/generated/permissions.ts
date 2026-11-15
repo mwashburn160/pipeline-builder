@@ -1,6 +1,6 @@
 // GENERATED FROM docs/permissions.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: bad5002052ea71da6506f6f5458cfb1a17dc5bb75ecdd23e668415a9ece271d8
+// SOURCE-SHA256: 87d3debfe0b18fbe3f573b63c4e30777370060f5617b2fa76e97bd5543661b6b
 // SPDX-License-Identifier: Apache-2.0
 import { UserCog } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -1094,7 +1094,7 @@ export const permissionsTopic: HelpTopic = {
             [
               "team_access:open",
               "Org-assignable, in the admin and owner bundles.",
-              "An admin/owner of an ancestor org reaching into its own subtree: entering a team it is not a member of (POST /auth/switch-org), and opening a session for one of that team's users."
+              "An admin/owner of an ancestor org reaching into its own subtree: entering a team it is not a member of (POST /auth/switch-org, and again at every sign-in that would resume in such a team — without it the session opens in the ancestor org and that becomes the last active org), and opening a session for one of that team's users."
             ],
             [
               "impersonation:approve",

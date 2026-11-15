@@ -73,7 +73,8 @@ function tierOf(req: Request): string | undefined {
  *    {@link withAiCallReservation} (a service-minted token — the quota
  *    `/increment` endpoint rejects user principals): the model's weight in units,
  *    or nothing for a BYOK key / impersonation session / weight-0 model. KEPT
- *    once the provider responded and refunded only when it was never reached;
+ *    once the request is sent to the provider (an abort, timeout or provider
+ *    error afterwards does not refund), refunded only on a failure before the send;
  *  - is bounded by the shared per-call policy (timeout + the client's disconnect,
  *    output cap, retries) and recorded as one `plugin.ai.generate` audit row.
  *
@@ -182,15 +183,15 @@ export function createGeneratePluginRoutes(quotaService: QuotaService): Router {
         return { completed: true as const, usage, empty: !final };
       });
 
-      // The slot needs no handling here: it was marked consumed on the provider's
-      // first chunk, so a COMPLETED stream keeps it even when the final output is
-      // empty/unparseable, and an abort refunds it only if the provider never responded.
+      // The slot needs no handling here: it was marked consumed when the request
+      // was sent, so a COMPLETED stream keeps it even when the final output is
+      // empty/unparseable, and so does an abort after the send.
       if (outcome.completed) {
         run.succeed(outcome.usage, { emptyOutput: outcome.empty });
         sse.done();
       } else {
-        // The client left before the final output: refund — a no-op when the
-        // provider already responded (the slot was marked consumed).
+        // The client left before the final output: refund — a no-op once the
+        // request was sent (GenerationRun marked the slot consumed).
         slot.refund();
         run.fail({ aborted: true });
       }

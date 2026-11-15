@@ -12,7 +12,7 @@
  * easier to audit as one unit than interleaved with connection bookkeeping.
  */
 
-import { createLogger, createMemorySseTicketStore, envSseTicketCaps, SSE_TICKET_TTL_MS, type SseTicketStore, errorMessage } from '@pipeline-builder/api-core';
+import { createLogger, createMemorySseTicketStore, envSseTicketCaps, normalizeOrgId, SSE_TICKET_TTL_MS, type SseTicketStore, errorMessage } from '@pipeline-builder/api-core';
 import { incCounter } from '../api/metrics.js';
 
 const logger = createLogger('sse-tickets');
@@ -52,15 +52,15 @@ export function normalizeRequestId(requestId: string): string {
 }
 
 /**
- * Canonical form of an orgId for ownership equality checks: trimmed and
- * lowercased. The stream PRODUCER (bindStreamOwner) and the ticket-minting
- * CONSUMER (createTicket) run in different services, so a casing / whitespace
- * drift between how each renders the same org would otherwise make the owner
- * comparison in {@link SseTicketBroker.createTicket} false-`forbidden` the real
- * owner. Normalizing both sides — mirroring {@link normalizeRequestId} — closes that.
+ * Canonical form of an orgId for ownership equality checks (api-core's
+ * `normalizeOrgId`, the single spelling rule). The stream PRODUCER
+ * (bindStreamOwner) and the ticket-minting CONSUMER (createTicket) run in
+ * different services, so a casing / whitespace drift between how each renders
+ * the same org would otherwise make the owner comparison in
+ * {@link SseTicketBroker.createTicket} false-`forbidden` the real owner.
  */
-export function normalizeOrgId(orgId: string): string {
-  return orgId.trim().toLowerCase();
+function canonicalOrgId(orgId: string): string {
+  return normalizeOrgId(orgId) ?? '';
 }
 
 export class SseTicketBroker {
@@ -104,10 +104,10 @@ export class SseTicketBroker {
    * a ticket for a guessed requestId.
    *
    * @param requestId - The stream subject (format-validated by the caller).
-   * @param orgId - The owning org (normalized internally via normalizeOrgId).
+   * @param orgId - The owning org (normalized internally via canonicalOrgId).
    */
   async bindStreamOwner(requestId: string, orgId: string): Promise<void> {
-    await this.store.bindOwner(normalizeRequestId(requestId), normalizeOrgId(orgId), this.ownerTtlMs);
+    await this.store.bindOwner(normalizeRequestId(requestId), canonicalOrgId(orgId), this.ownerTtlMs);
   }
 
   /**
@@ -121,14 +121,14 @@ export class SseTicketBroker {
    * ORG-OWNERSHIP: if a stream owner has been bound for this subject (via
    * {@link bindStreamOwner}) and it is a DIFFERENT org, minting is refused
    * (`reason: 'forbidden'`) — an org cannot mint a ticket for another org's
-   * stream even if it guesses the requestId. When no owner is bound (producer
-   * wiring not yet present), minting falls back to binding the ticket to the
-   * caller's own org, preserving current behavior.
+   * stream even if it guesses the requestId. When no owner is bound (the
+   * producer's best-effort bind failed or its TTL lapsed, or the subject is an
+   * org-keyed channel), minting binds the ticket to the caller's own org.
    *
    * Bounded by the ticket store's live-ticket caps (total and per org). An
    * ownership lookup the store can't answer is refused as `capacity`.
    *
-   * @param orgId - Owning org (normalized internally via normalizeOrgId).
+   * @param orgId - Owning org (normalized internally via canonicalOrgId).
    * @param requestId - The build-log stream subject this ticket authorizes.
    *   The caller must have format-validated it (see `SSE_REQUEST_ID_RE`).
    * @returns `{ ok: true, ticket }` on success, or `{ ok: false, reason }`
@@ -140,7 +140,7 @@ export class SseTicketBroker {
     // sides are org-normalized so a producer/consumer casing drift can't
     // false-`forbidden` the real owner (mirrors requestId normalization).
     const normalized = normalizeRequestId(requestId);
-    const normalizedOrg = normalizeOrgId(orgId);
+    const normalizedOrg = canonicalOrgId(orgId);
     let owner: string | null;
     try {
       owner = await this.store.getOwner(normalized);

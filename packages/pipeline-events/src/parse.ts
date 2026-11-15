@@ -222,11 +222,12 @@ export async function parseRecord(record: SQSRecord): Promise<ParsedEvent | null
     : undefined;
 
   // The compute size this action ran on, for the reporting service's
-  // vCPU-minute figure. Only on a TERMINAL CodeBuild action: an in-progress
-  // event has no duration to pair it with, so reading it there would spend an
-  // AWS call to learn nothing. Best-effort — null forwards without the field.
+  // vCPU-minute figure. Only on a TERMINAL CodeBuild action (a CANCELED or
+  // ABANDONED one ran too): an in-progress event has no duration to pair it
+  // with, so reading it there would spend an AWS call to learn nothing.
+  // Best-effort — null forwards without the field.
   let computeType: string | undefined;
-  if (eventType === 'ACTION' && ['SUCCEEDED', 'FAILED', 'STOPPED'].includes(state)) {
+  if (eventType === 'ACTION' && TERMINAL_STATES.has(state)) {
     const cbId = codeBuildIdOf(detail);
     computeType = (cbId ? await readBuildCompute(event.region, cbId) : null) ?? undefined;
   }

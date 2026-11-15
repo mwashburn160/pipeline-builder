@@ -36,7 +36,7 @@ export interface GenerationRunInit {
  * One AI pipeline generation, start to settle: resolves the model for the org
  * (caller key > org key > platform key, honouring the org's AI switch), runs the
  * call under platform failover, marks the `aiCalls` slot consumed the moment the
- * provider responds, and on settle emits the metrics and the
+ * request is SENT to the provider, and on settle emits the metrics and the
  * `pipeline.ai.generate` audit row.
  *
  * The metrics and the audit row name the provider and model that ANSWERED (after
@@ -47,8 +47,18 @@ export interface GenerationRunInit {
 export class GenerationRun {
   /** The selection that served (or was serving) the call; undefined before resolution. */
   served?: ResolvedModelSelection;
-  /** True once the provider responded — the slot is consumed from then on. */
-  contacted = false;
+  /**
+   * True once a request was SENT to the provider — the slot is consumed from then
+   * on: an abort, a timeout or an error after the send never refunds it, because
+   * the provider bills the tokens it already processed. Only a failure BEFORE the
+   * send (model resolution, a reservation, repository analysis) refunds.
+   */
+  sent = false;
+  /**
+   * True once the provider RESPONDED (its first chunk). Gates failover only: an
+   * attempt that already streamed output to the client is never re-run elsewhere.
+   */
+  responded = false;
   private slot?: AiCallSlot;
   private readonly startedAt = Date.now();
 
@@ -77,24 +87,33 @@ export class GenerationRun {
     return this;
   }
 
-  /** Pass as `onProviderResponse`: the call is paid for from here on. */
+  /** Pass as `onProviderResponse`: the provider answered, so failover is off from here on. */
   readonly markResponded = (): void => {
-    this.contacted = true;
-    this.slot?.markConsumed();
+    this.responded = true;
   };
+
+  /** The request goes to the provider: the slot is paid for from here on. */
+  private markSent(): void {
+    this.sent = true;
+    this.slot?.markConsumed();
+  }
 
   /**
    * Run `attempt` on the model {@link resolve} picked, failing over to the next
    * platform provider when a PLATFORM-key attempt fails retryably before the
    * provider responded (a BYO or org-key call is never re-run on someone else's key).
+   *
+   * Each attempt marks the slot consumed BEFORE it starts: `attempt` is what sends
+   * the request, so everything after this point is spent provider capacity.
    */
   async run<T>(request: GenerationModelRequest, attempt: (selection: ResolvedModelSelection) => Promise<T>): Promise<T> {
     const selection = this.served ?? await this.resolve(request);
     const { value } = await runWithFailover(selection, async (sel) => {
       this.served = sel;
+      this.markSent();
       return attempt(sel);
     }, {
-      contacted: () => this.contacted,
+      contacted: () => this.responded,
       ...(request.fallbackProviders?.length ? { chain: [...request.fallbackProviders] } : {}),
       onFailover: (from, to, error) => {
         this.init.log('WARN', 'AI pipeline generation failed over', { from, to, error: errorMessage(error) });
@@ -111,20 +130,18 @@ export class GenerationRun {
 
   /**
    * Settle a generation that did not: a failure, or a client that left before the
-   * final output (`aborted`). The slot outcome is read from `contacted`.
+   * final output (`aborted`). The slot outcome is read from {@link sent}.
    */
   fail(extra: { aborted?: boolean; analysisFailed?: boolean; error?: unknown; usage?: AITokenUsage } = {}): void {
     const { error, usage, ...rest } = extra;
-    // An AIEmptyOutputError says the provider answered (with nothing usable): the slot was kept.
-    const errorSaysContacted = (error as { providerContacted?: unknown } | null | undefined)?.providerContacted === true;
     this.settle('failure', usage, {
       ...rest,
       ...(error !== undefined ? { errorCode: errorCodeOf(error) } : {}),
-    }, errorSaysContacted);
+    });
   }
 
-  private settle(outcome: 'success' | 'failure', usage: AITokenUsage | undefined, extra: Record<string, unknown>, errorSaysContacted = false): void {
-    const kept = outcome === 'success' || this.contacted || errorSaysContacted;
+  private settle(outcome: 'success' | 'failure', usage: AITokenUsage | undefined, extra: Record<string, unknown>): void {
+    const kept = outcome === 'success' || this.sent;
     const served = this.served;
     const provider = served?.provider ?? 'unresolved';
     const model = served?.modelId ?? 'unresolved';

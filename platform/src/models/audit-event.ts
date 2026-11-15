@@ -3,7 +3,6 @@
 
 import { REMOTE_AUDIT_ACTIONS } from '@pipeline-builder/api-core';
 import { Schema, model, type HydratedDocument, type Types } from 'mongoose';
-import { config } from '../config/index.js';
 import { PLATFORM_AUDIT_ACTIONS } from '../constants/audit-actions.js';
 import { AUDIT_OUTCOMES, type AuditOutcome } from '../constants/vocabulary.js';
 
@@ -171,12 +170,12 @@ auditEventSchema.index(
 // can never fork. Also the verify walk's ordering index (ascending seq).
 auditEventSchema.index({ affectedOrgId: 1, seq: 1 }, { unique: true });
 
-// TTL index — auto-delete events after `config.audit.retentionDays` days
-// (default 90, overridable via AUDIT_RETENTION_DAYS at boot). Reading from
-// `config` keeps the env-parse in one place.
-auditEventSchema.index(
-  { createdAt: 1 },
-  { expireAfterSeconds: config.audit.retentionDays * 86400 },
-);
+// Retention index — NOT a TTL. Events older than `config.audit.retentionDays`
+// are deleted by the retention prune (`services/audit-retention.ts`), which
+// records each chain's watermark before it deletes; a Mongo TTL deletes with no
+// hook, and verify could then not tell retention from someone deleting the
+// oldest rows. Same name as the former TTL index, so the boot index reconcile
+// rebuilds an existing database's TTL index as this plain one.
+auditEventSchema.index({ createdAt: 1 });
 
 export default model<AuditEventData>('AuditEvent', auditEventSchema);

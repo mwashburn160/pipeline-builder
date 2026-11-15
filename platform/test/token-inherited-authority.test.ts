@@ -84,7 +84,9 @@ beforeEach(() => {
 describe('issueTokens — admin authority inherited from a parent org', () => {
   it('scopes a parent admin into a team with NO membership row, as admin, with the parent Roles\' permissions', async () => {
     memberships = [{ userId: 'boss', organizationId: 'root', role: 'owner', isActive: true, joinedAt: joined }];
-    rolePerms.set('boss|root', ['org_settings:write', 'members:manage']);
+    // A NEW session entering a team through inherited authority needs
+    // `team_access:open` in the parent — the same gate switch-org applies.
+    rolePerms.set('boss|root', ['org_settings:write', 'members:manage', 'team_access:open']);
 
     const { accessToken } = await issueTokens(user('boss'), 'team', login);
     const c = claims(accessToken);
@@ -97,6 +99,16 @@ describe('issueTokens — admin authority inherited from a parent org', () => {
     expect(c.permissions).toEqual(expect.arrayContaining(['org_settings:write', 'members:manage']));
     expect(c.parentOrganizationId).toBe('root');
     expect(c.rootOrganizationId).toBe('root');
+  });
+
+  it('opens a new session in the parent instead when the parent no longer grants team_access:open', async () => {
+    memberships = [{ userId: 'boss', organizationId: 'root', role: 'owner', isActive: true, joinedAt: joined }];
+    rolePerms.set('boss|root', ['org_settings:write']);
+
+    const c = claims((await issueTokens(user('boss'), 'team', login)).accessToken);
+
+    expect(c.organizationId).toBe('root');
+    expect(c.role).toBe('owner');
   });
 
   it('does not let a plain member of the parent into the team — falls back to their own org', async () => {
@@ -114,7 +126,7 @@ describe('issueTokens — admin authority inherited from a parent org', () => {
       { userId: 'boss', organizationId: 'root', role: 'admin', isActive: true, joinedAt: joined },
       { userId: 'boss', organizationId: 'team', role: 'member', isActive: true, joinedAt: joined },
     ];
-    rolePerms.set('boss|root', ['org_settings:write']);
+    rolePerms.set('boss|root', ['org_settings:write', 'team_access:open']);
     rolePerms.set('boss|team', ['pipelines:read']);
 
     const c = claims((await issueTokens(user('boss'), 'team', login)).accessToken);

@@ -154,7 +154,8 @@ function unsubscribeUrl(recipient: ReportRecipient): string | undefined {
  * and it lives in the product behind the org's own access control; an email that
  * reproduced its numbers would be a second copy that can disagree with the first, and
  * it would put org data in a mailbox the org does not control. So the mail carries the
- * headline, the period, and a link.
+ * headline, the period, a link, and the lead's own notes (the context they reviewed it
+ * to add).
  */
 function emailBody(definition: ReportDefinition, run: ReportRun, headline: string | null): string {
   const lines = [
@@ -191,6 +192,11 @@ export async function deliverPublishedRun(
   definition: ReportDefinition,
   run: ReportRun,
   previous: DeliveryOutcome | null = null,
+  /**
+   * Receives the outcome as it is built (mutated in place), so a caller whose
+   * delivery THROWS part-way still knows who already has the report.
+   */
+  progress?: { outcome?: DeliveryOutcome },
 ): Promise<DeliveryOutcome> {
   const already = {
     recipientIds: new Set(previous?.delivered.recipientIds ?? []),
@@ -208,6 +214,7 @@ export async function deliverPublishedRun(
     delivered: { recipientIds: [...already.recipientIds], destinationIds: [...already.destinationIds] },
     notes: [],
   };
+  if (progress) progress.outcome = outcome;
   const headline = headlineOf(run);
   const subject = `${definition.name} — ${run.periodLabel}`;
 
@@ -316,6 +323,7 @@ export async function deliverAndRecord(
   previous: DeliveryOutcome | null = null,
 ): Promise<DeliveryOutcome> {
   const startedAt = new Date().toISOString();
+  const progress: { outcome?: DeliveryOutcome } = {};
   try {
     await stakeholderReportStore.recordDelivery(definition.orgId, run.id, {
       ...(previous ?? {
@@ -331,15 +339,19 @@ export async function deliverAndRecord(
       attempts: (previous?.attempts ?? 0) + 1,
       attemptedAt: startedAt,
     } satisfies DeliveryOutcome as unknown as Record<string, unknown>);
-    const outcome = await deliverPublishedRun(definition, run, previous);
+    const outcome = await deliverPublishedRun(definition, run, previous, progress);
     await stakeholderReportStore.recordDelivery(definition.orgId, run.id, outcome as unknown as Record<string, unknown>);
     if (outcome.state === 'failed') await notifyDeliveryFailed(definition, run, outcome);
     return outcome;
   } catch (err) {
     logger.warn('Report delivery failed', { orgId: definition.orgId, runId: run.id, error: errorMessage(err) });
     emitCounter('report_delivery_failed_total', { orgId: definition.orgId, channel: 'publish' });
+    // Built on what THIS attempt already did when it got that far: an in-app notice
+    // posted or an email sent before the throw is recorded as delivered, so the
+    // redelivery the lead is told to run skips them instead of sending them twice.
+    const partial = progress.outcome;
     const failed: DeliveryOutcome = {
-      ...(previous ?? {
+      ...(partial ?? previous ?? {
         inApp: 0,
         email: { sent: 0, failed: 0, skipped: 0 },
         destinations: { delivered: 0, failed: 0 },
@@ -350,7 +362,10 @@ export async function deliverAndRecord(
       state: 'failed',
       attempts: (previous?.attempts ?? 0) + 1,
       attemptedAt: startedAt,
-      notes: [`Delivery stopped before it finished: ${errorMessage(err)}. Redeliver to reach whoever it missed.`],
+      notes: [
+        `Delivery stopped before it finished: ${errorMessage(err)}. Redeliver to reach whoever it missed.`,
+        ...(partial?.notes ?? []),
+      ],
     };
     // Best-effort: if the store is what failed, this fails too and the log + counter
     // are all that is left — but the lead is still told.

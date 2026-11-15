@@ -48,6 +48,24 @@ describe('encryptSecret / decryptSecret', () => {
     await expect(decryptSecret(blob, 'org-other')).rejects.toThrow();
   });
 
+  it('derives the same key whatever the casing or padding of the org id', async () => {
+    // The org id is the HKDF salt; a route that passed an un-normalised id
+    // (an admin URL with upper-case hex) used to write a secret that the
+    // lower-case read path could never open.
+    const upper = await encryptSecret('sso-client-secret', '  65A1B2C3D4E5F6A7B8C9D0E1  ');
+    expect(await decryptSecret(upper, '65a1b2c3d4e5f6a7b8c9d0e1')).toBe('sso-client-secret');
+    const lower = await encryptSecret('sso-client-secret', '65a1b2c3d4e5f6a7b8c9d0e1');
+    expect(await decryptSecret(lower, '65A1B2C3D4E5F6A7B8C9D0E1')).toBe('sso-client-secret');
+  });
+
+  it('still opens a blob written under an already lower-case scope (no re-encryption needed)', async () => {
+    const provider = new EnvKeyProvider();
+    for (const scope of ['65a1b2c3d4e5f6a7b8c9d0e1', '000000000000000000000001', 'user:65a1b2c3d4e5f6a7b8c9d0e1', 'saml-sp-keys']) {
+      const blob = await encryptSecret('x', scope, provider);
+      expect(await decryptSecret(blob, scope, provider, null)).toBe('x');
+    }
+  });
+
   it('refuses to encrypt an empty string', async () => {
     await expect(encryptSecret('', 'org-acme')).rejects.toThrow(/empty string/i);
   });

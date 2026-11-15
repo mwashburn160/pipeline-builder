@@ -1,6 +1,6 @@
 // GENERATED FROM docs/environment-variables.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: f65bc7909f0d055b7c0006fe156e620048bd53341cf00f2eaaade50fa7e47db9
+// SOURCE-SHA256: 2256f63f0e0f496144f7f6ae6109a76f3ff32caacbf91f52f8bbcde756999850
 // SPDX-License-Identifier: Apache-2.0
 import { FileCode } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -3162,7 +3162,7 @@ export const envVariablesTopic: HelpTopic = {
             [
               "BILLING_PROMOTION_CLAWBACK_WINDOW_MS",
               "604800000",
-              "Clawback window (7d). A promotion grant is reversed (ledger row pulled, balance reduced, budget released) if the subscription cancels within this window of the grant — defuses signup-grab-churn"
+              "Clawback window (7d). A promotion grant is reversed (ledger row pulled, balance reduced, budget released, the amount debited back from the provider balance) if the subscription cancels within this window of the grant — defuses signup-grab-churn"
             ]
           ]
         },
@@ -3467,7 +3467,7 @@ export const envVariablesTopic: HelpTopic = {
             [
               "PLATFORM_CA_BUNDLE",
               "—",
-              "PEM text of a private CA the platform's certificate chains to. Trusted (on top of Node's roots) by pipeline-manager's API client, propagated into every CodeBuild step — so the CodeBuild synth verifies TLS instead of disabling it."
+              "PEM text of a private CA the platform's certificate chains to. Trusted (on top of Node's roots) by every pipeline-manager call to the platform — the API client, auth login, auth pat, logout, the inline password login and session renewal — and propagated into every CodeBuild step, so the CodeBuild synth verifies TLS instead of disabling it."
             ],
             [
               "PLATFORM_TLS_VERIFY",
@@ -4620,7 +4620,12 @@ export const envVariablesTopic: HelpTopic = {
             [
               "AUDIT_RETENTION_DAYS",
               "90",
-              "Retention for platform audit events. Drives the Mongo TTL index"
+              "Retention for platform audit events, enforced by the retention prune (which records each chain's signed watermark before deleting)"
+            ],
+            [
+              "AUDIT_RETENTION_PRUNE_INTERVAL_MS",
+              "3600000",
+              "How often the audit retention prune runs (min 60000)"
             ],
             [
               "LOG_RETENTION_HOURS",

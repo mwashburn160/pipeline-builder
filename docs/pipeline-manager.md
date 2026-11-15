@@ -155,6 +155,12 @@ The file's platform host becomes the registry pull host (unless
 `IMAGE_REGISTRY_PULL_HOST` is set). A pipeline that pins `toolchain.release` must
 be given that release's export.
 
+Only the managed `cdk-synth` comes from `--toolchain-file`. A local-spec deploy
+looks up no other plugin, and every plugin must resolve before synth, so each
+stage plugin (and a synth plugin other than `cdk-synth`) must already be in the
+spec's `resolvedPlugins`, keyed by its alias. A plugin that isn't there fails the
+synth naming the plugin and the step.
+
 ## Configuration
 
 1. **Install the CLI** — see [Install](#install).
@@ -352,7 +358,7 @@ Run `pipeline-manager <command> --help` for the full flag reference on any comma
 | `auth login` | Sign in through your **browser** using the OAuth 2.0 device authorization grant (RFC 8628): the CLI prints a short code, you approve it in the browser (where SSO and step-up already apply), and the session is stored in `~/.pipeline-manager/credentials.json`. `--org <orgId>` switches organization afterwards; `--no-browser` prints the URL instead of opening it. `--token` prints the access token and nothing else, for `export PLATFORM_TOKEN=$(pipeline-manager auth login --token)` — everything else, including the approval code, goes to stderr so the capture stays clean. There is **no password flag and no way to pass a refresh token** |
 | `auth logout` | Sign this device out: revoke the stored session on the platform (`POST /api/auth/logout`, renewing an expired access token first) and delete it from `~/.pipeline-manager/credentials.json`. The local copy is always removed; when the platform can't be reached the command says so, and the device is then revoked from **Settings → Sessions and devices**. `PLATFORM_TOKEN` and access keys are untouched |
 | `auth pat` | Create a named access key (`pb_pat_…`) for CI. Uses the same browser sign-in, and the approval doubles as the step-up the platform requires to create a key — so no password is typed here either. The key is printed **once** |
-| `infra store-token` | Provision the org's machine identity — a **service account** plus one `pb_sa_…` key — and store the key in AWS Secrets Manager (read by CodeBuild's registry credentials, the events Lambda and `--store-tokens`). Add `--schedule` to also deploy a daily **key-rotation** stack (rotate → store → revoke) so the key never lapses. Re-run per scope (`--scope reporting:ingest`, `--scope registry:push`) — each is its own least-privilege account. Needs `PLATFORM_PASSWORD`: both writes are step-up gated |
+| `infra store-token` | Provision the org's machine identity — a **service account** plus one `pb_sa_…` key — and store the key in AWS Secrets Manager (read by CodeBuild's registry credentials, the events Lambda and `--store-tokens`). Add `--schedule` to also deploy a daily **key-rotation** stack (rotate → store → revoke) so the key never lapses. Re-run per scope (`--scope reporting:ingest`, `--scope registry:push`) — each is its own least-privilege account. With `PLATFORM_SECRET_NAME` set, the platform key is written to exactly that name and a `--scope` key to its sibling (`…/registry-push`, `…/reporting-ingest`), so running every scope in one shell never overwrites the platform secret. `--dry-run` prints the plan without signing in or calling the platform. Needs `PLATFORM_PASSWORD`: both writes are step-up gated |
 | `infra setup-events` | Deploy the EventBridge → SQS → Lambda stack that streams CodePipeline events into the platform's reporting service. Add **`--with-dora`** to also resolve source commit timestamps in-account for **measured** commit→deploy lead time — off by default (**why:** it adds an SCM call + a `github-token`-secret read per deploy event, so only worthwhile for orgs on the `advanced_reporting` add-on; the other DORA metrics work without it and lead time simply reports `unknown`). Re-run to toggle. |
 | `infra redrive-events` | Manual fallback for the events Lambda's self-healing redrive: move dead-lettered CodePipeline events from `pipeline-builder-events-dlq` back onto the ingestion queue via SQS `StartMessageMoveTask`. Skips the move when the DLQ is empty or a move task is already running; idempotent ingest prevents double-counting |
 
@@ -441,6 +447,8 @@ The CLI resolves its settings from these layers, lowest to highest precedence:
 4. **The platform `auth login` signed in to** (base URL only) — so `auth login --url X` is followed by commands that talk to X, where its session is stored. `auth login`, `auth logout` and `auth pat` default `--url` to the resolved base URL too.
 
 Environment variables (`PLATFORM_BASE_URL`, …) override the resolved config.
+
+A config file's `api.rejectUnauthorized: false` turns TLS verification off for a dev platform, like `PLATFORM_TLS_VERIFY=false`, and is ignored the same way under `NODE_ENV=production` (with a warning; verification stays on).
 
 **How commands authenticate**, in priority order:
 

@@ -57,6 +57,14 @@ export default function InvitationsPage() {
     return (await api.getOrganizationSeatUsage(user.organizationId, { signal })).data ?? null;
   }, [user?.organizationId, canManageInvitations]);
   const seatUsage: AccountSeatUsage | null = seatQ.data ?? null;
+
+  // The org's teams (its whole subtree), so a team's invitations can be listed
+  // and revoked / re-sent from here. Read only when the org has teams.
+  const teamsQ = useFetch(async (signal) => {
+    if (!user?.organizationId || !canManageInvitations || !hasChildOrgs) return [];
+    return (await api.getOrganizationTeams(user.organizationId, { signal })).data?.teams ?? [];
+  }, [user?.organizationId, canManageInvitations, hasChildOrgs]);
+  const teams = teamsQ.data ?? [];
   const atCapacity = seatsAtCapacity(seatUsage);
   const seatRemedyText = seatRemedyLabel(seatRemedy(seatUsage?.tier));
 
@@ -66,9 +74,12 @@ export default function InvitationsPage() {
       { key: 'status', type: 'select', defaultValue: 'all' },
       { key: 'invitationType', type: 'select', defaultValue: 'all' },
       { key: 'role', type: 'select', defaultValue: 'all' },
+      // '' = the active org itself; otherwise a team id in its subtree.
+      { key: 'team', type: 'select', defaultValue: '' },
     ],
     fetcher: async (params) => {
       const response = await api.listInvitations({
+        ...(params.team && { targetOrgId: params.team }),
         ...(params.search && { search: params.search }),
         ...(params.status && params.status !== 'all' && { status: params.status }),
         ...(params.invitationType && params.invitationType !== 'all' && { invitationType: params.invitationType }),
@@ -254,8 +265,12 @@ export default function InvitationsPage() {
   const handleResend = useCallback(async (invitation: InvitationListItem) => {
     setResendLoadingId(invitation.id);
     try {
-      await api.resendInvitation(invitation.id);
-      toast.success(`Invitation to ${invitation.email} resent`);
+      const res = await api.resendInvitation(invitation.id);
+      if (res.data?.delivery === 'not-configured') {
+        toast.warning(`Invitation to ${invitation.email} renewed, but no email was sent — this deployment has no mail transport`);
+      } else {
+        toast.success(`Invitation to ${invitation.email} resent`);
+      }
       refreshList();
     } catch (err) {
       setListError(formatError(err, 'Failed to resend invitation'));
@@ -352,6 +367,16 @@ export default function InvitationsPage() {
             <option value="member">Member</option>
             <option value="admin">Admin</option>
           </FilterSelect>
+          {hasChildOrgs && (
+            <FilterSelect
+              value={list.filters.team}
+              onChange={(e) => list.updateFilter('team', e.target.value)}
+              aria-label="Filter by team"
+            >
+              <option value="">This organization</option>
+              {teams.map((t) => <option key={t.orgId} value={t.orgId}>{t.orgName}</option>)}
+            </FilterSelect>
+          )}
         </div>
       </div>
 

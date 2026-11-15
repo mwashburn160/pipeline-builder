@@ -499,10 +499,9 @@ export const switchOrg = withController('Switch org', async (req, res) => {
   if (!tokens) return sendError(res, 401, 'Session invalid');
   // Only now, with every gate passed and the session re-issued, does the
   // destination become where the next sign-in lands. Written earlier, a REFUSED
-  // switch still moved it: sign-in trusts `lastActiveOrgId` and does not ask for
-  // `team_access:open`, so the next login opened the very team just refused —
-  // and an org whose MFA requirement refused the switch became the org every
-  // later password sign-in was scoped to.
+  // switch still moved it: an org whose MFA requirement refused the switch
+  // became the org every later password sign-in was scoped to. (Sign-in itself
+  // re-checks `team_access:open` for an inherited team — `signInLandingOrg`.)
   await authService.setLastActiveOrg(userId, organizationId);
 
   // Record which org the actor pivoted their session INTO. `affectedOrgId` is

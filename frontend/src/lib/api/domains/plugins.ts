@@ -335,8 +335,10 @@ export function pluginsApi(core: ApiCore) {
       });
     },
 
+    /** `promotedDefault` names the version that became the default when the
+     *  deleted one was it. */
     deletePlugin: async (id: string) => {
-      return core.request<ApiResponse<{ message: string }>>(`/api/plugins/${id}`, {
+      return core.request<ApiResponse<{ promotedDefault?: { id: string; version: string } }>>(`/api/plugins/${id}`, {
         method: 'DELETE',
       });
     },
@@ -367,14 +369,14 @@ export function pluginsApi(core: ApiCore) {
     },
 
     bulkDeletePlugins: async (ids: string[]) => {
-      return core.request<ApiResponse<{ deleted: number; ids: string[]; skipped?: Array<{ id: string; reason: 'frozen' | 'listed' | 'in_use' }> }>>('/api/plugins/bulk/delete', {
+      return core.request<ApiResponse<{ deleted: number; ids: string[]; skipped?: Array<{ id: string; reason: 'frozen' | 'listed' | 'in_use' | 'managed_toolchain' }> }>>('/api/plugins/bulk/delete', {
         method: 'POST',
         body: JSON.stringify({ ids }),
       });
     },
 
     bulkUpdatePlugins: async (ids: string[], data: Record<string, unknown>) => {
-      return core.request<ApiResponse<{ updated: number; skipped?: Array<{ id: string; reason: 'frozen' | 'listed'; statusCode: 409; code: string }> }>>('/api/plugins/bulk/update', {
+      return core.request<ApiResponse<{ updated: number; skipped?: Array<{ id: string; reason: 'frozen' | 'listed' | 'managed_toolchain'; statusCode: 400 | 409; code: string }> }>>('/api/plugins/bulk/update', {
         method: 'PUT',
         body: JSON.stringify({ ids, data }),
       });

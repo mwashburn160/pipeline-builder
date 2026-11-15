@@ -1,8 +1,9 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { SYSTEM_ACTOR_ID, createLogger, errorMessage, RULE_TARGETS, type RuleTarget } from '@pipeline-builder/api-core';
+import { createLogger, errorMessage, RULE_TARGETS, type RuleTarget } from '@pipeline-builder/api-core';
 import { logComplianceCheck } from './compliance-check-log.js';
+import { resolveParentOrgId } from './org-hierarchy-client.js';
 import { asNonBlockingVulnRules, rulesReadStepFacts, withPipelineStepFacts } from './pipeline-step-facts.js';
 import { withPluginImageFacts } from './plugin-image-attributes.js';
 import { evaluateRules } from '../engine/rule-engine.js';
@@ -23,12 +24,14 @@ function ruleTargetOf(target: string): RuleTarget | undefined {
 interface EntityEventInput {
   entityId: string;
   orgId: string;
-  /** Owning org's parent (present only when `orgId` is a team). Lets rule lookup
-   *  include parent `propagateToChildren` rules, matching live validation. */
-  parentOrgId?: string;
   target: string;
   eventType: string;
-  userId?: string;
+  /** The audit actor: the VERIFIED caller identity (the producing service's
+   *  token subject), never a body-supplied user. */
+  actorId: string;
+  /** The user the producing service says performed the mutation. Unverified —
+   *  a log detail only, never the audit actor. */
+  requestedBy?: string;
   attributes?: Record<string, unknown>;
 }
 
@@ -54,7 +57,12 @@ export async function evaluateEntityEvent(event: EntityEventInput): Promise<Eval
   }
 
   try {
-    const rules = await complianceRuleService.findActiveByOrgAndTarget(event.orgId, ruleTarget, event.parentOrgId);
+    // The owning org's parent, resolved from the org hierarchy rather than
+    // taken from the payload: it decides whether a parent's
+    // `propagateToChildren` rules apply, so a body value could drop them.
+    // A lookup failure throws (fail-closed) and the caller retries.
+    const parentOrgId = await resolveParentOrgId(event.orgId);
+    const rules = await complianceRuleService.findActiveByOrgAndTarget(event.orgId, ruleTarget, parentOrgId);
     if (rules.length === 0) {
       return { evaluated: false, reason: 'no active rules' };
     }
@@ -74,14 +82,14 @@ export async function evaluateEntityEvent(event: EntityEventInput): Promise<Eval
     const { attributes, deferredFields } = ruleTarget === 'plugin'
       ? withPluginImageFacts(event.attributes || {})
       : rulesReadStepFacts(rules)
-        ? await withPipelineStepFacts(event.attributes || {}, event.orgId, event.parentOrgId)
+        ? await withPipelineStepFacts(event.attributes || {}, event.orgId, parentOrgId)
         : { attributes: event.attributes || {}, deferredFields: [] };
     // Vulnerability state never blocks a pipeline: rules on it are enforced as warnings.
     const result = evaluateRules(ruleTarget === 'pipeline' ? asNonBlockingVulnRules(rules) : rules, attributes, exemptions, deferredFields);
 
     logComplianceCheck(
       event.orgId,
-      event.userId || SYSTEM_ACTOR_ID,
+      event.actorId,
       ruleTarget,
       event.eventType,
       event.entityId,
@@ -94,6 +102,7 @@ export async function evaluateEntityEvent(event: EntityEventInput): Promise<Eval
         target: ruleTarget,
         entityId: event.entityId,
         eventType: event.eventType,
+        requestedBy: event.requestedBy,
         blocked: result.blocked,
         violations: result.violations.length,
         warnings: result.warnings.length,

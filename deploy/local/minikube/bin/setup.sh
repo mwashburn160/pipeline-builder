@@ -410,7 +410,7 @@ pb_kube_apply create secret tls nginx-tls-secret --cert="$CERT_DIR/nginx-tls.crt
 pb_kube_apply create configmap dev-ca --from-file=dev-ca.crt="$CERT_DIR/dev-ca.crt" -n "$NAMESPACE"
 
 # JWT signing keypair for image-registry's token-auth endpoint (shared generator),
-# then the registry secrets (token keypair + build-svc Basic-auth creds).
+# then the registry token-keypair secret.
 bash "$BIN_DIR/jwt-keys.sh" "$CERT_DIR"
 pb_create_registry_secrets "$CERT_DIR/image-registry-jwt.key" "$CERT_DIR/image-registry-jwt.crt"
 

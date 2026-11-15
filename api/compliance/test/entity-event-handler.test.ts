@@ -37,7 +37,17 @@ jest.unstable_mockModule('../src/helpers/compliance-check-log.js', () => ({
   logComplianceCheck: (...args: unknown[]) => mockLogComplianceCheck(...args),
 }));
 
-const { evaluateEntityEvent } = await import('../src/helpers/entity-event-handler.js');
+const mockResolveParentOrgId = jest.fn<(orgId: string) => Promise<string | undefined>>();
+jest.unstable_mockModule('../src/helpers/org-hierarchy-client.js', () => ({
+  resolveParentOrgId: (orgId: string) => mockResolveParentOrgId(orgId),
+}));
+
+const { evaluateEntityEvent: evaluate } = await import('../src/helpers/entity-event-handler.js');
+
+type EventInput = Parameters<typeof evaluate>[0];
+/** Every event arrives with the route's verified caller as its actor. */
+const evaluateEntityEvent = (e: Omit<EventInput, 'actorId'> & { actorId?: string }) =>
+  evaluate({ actorId: 'service:pipeline', ...e });
 
 describe('evaluateEntityEvent', () => {
   beforeEach(() => {
@@ -45,6 +55,8 @@ describe('evaluateEntityEvent', () => {
     mockGetActiveExemptionsForEntity.mockReset();
     mockEvaluateRules.mockReset();
     mockLogComplianceCheck.mockClear();
+    mockResolveParentOrgId.mockReset();
+    mockResolveParentOrgId.mockResolvedValue(undefined);
     mockGetActiveExemptionsForEntity.mockResolvedValue([]);
     mockEvaluateRules.mockReturnValue({
       blocked: false,
@@ -113,20 +125,30 @@ describe('evaluateEntityEvent', () => {
     expect(result.warnings).toBe(0);
   });
 
-  it('forwards parentOrgId so parent propagateToChildren rules are included', async () => {
+  it('resolves the parent server-side so parent propagateToChildren rules are included', async () => {
     mockFindActiveByOrgAndTarget.mockResolvedValue([{ id: 'r1' }]);
     mockEvaluateRules.mockReturnValue({ blocked: false, violations: [], warnings: [], rulesEvaluated: 1 });
+    mockResolveParentOrgId.mockResolvedValue('root-1');
 
     await evaluateEntityEvent({
       entityId: 'e1',
       orgId: 'team-1',
-      parentOrgId: 'root-1',
       target: 'plugin',
       eventType: 'updated',
       attributes: { name: 'p' },
     });
 
+    expect(mockResolveParentOrgId).toHaveBeenCalledWith('team-1');
     expect(mockFindActiveByOrgAndTarget).toHaveBeenCalledWith('team-1', 'plugin', 'root-1');
+  });
+
+  it('fails closed when the parent lookup fails (inherited rules must not be skipped)', async () => {
+    mockResolveParentOrgId.mockRejectedValue(new Error('platform down'));
+
+    const result = await evaluateEntityEvent({ entityId: 'e1', orgId: 'team-1', target: 'plugin', eventType: 'updated' });
+
+    expect(result).toEqual({ evaluated: false, reason: 'evaluation error', error: true });
+    expect(mockFindActiveByOrgAndTarget).not.toHaveBeenCalled();
   });
 
   it('returns blocked=true with violation count', async () => {
@@ -193,7 +215,8 @@ describe('evaluateEntityEvent', () => {
       orgId: 'org-1',
       target: 'plugin',
       eventType: 'created',
-      userId: 'user-x',
+      actorId: 'service:plugin',
+      requestedBy: 'user-x',
     });
 
     // Audit logger is fire-and-forget — give the microtask queue a tick
@@ -201,27 +224,11 @@ describe('evaluateEntityEvent', () => {
     expect(mockLogComplianceCheck).toHaveBeenCalled();
     const args = mockLogComplianceCheck.mock.calls[0];
     expect(args[0]).toBe('org-1');
-    expect(args[1]).toBe('user-x');
+    // The verified caller is the actor — never the producer-supplied user.
+    expect(args[1]).toBe('service:plugin');
     expect(args[2]).toBe('plugin');
     expect(args[3]).toBe('created');
     expect(args[4]).toBe('e1');
-  });
-
-  it('defaults userId to "system" when missing', async () => {
-    mockFindActiveByOrgAndTarget.mockResolvedValue([{ id: 'r1' }]);
-    mockEvaluateRules.mockReturnValue({
-      blocked: false, violations: [], warnings: [], rulesEvaluated: 1,
-    });
-
-    await evaluateEntityEvent({
-      entityId: 'e1',
-      orgId: 'org-1',
-      target: 'pipeline',
-      eventType: 'updated',
-    });
-
-    await new Promise((r) => setImmediate(r));
-    expect(mockLogComplianceCheck.mock.calls[0][1]).toBe('system');
   });
 
   it('fetches and forwards approved exemptions to the rule engine', async () => {

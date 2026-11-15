@@ -19,11 +19,13 @@ type AllocationRow = BillingAllocation['rows'][number];
 /** Invoices are a card-height grid of periods, so 24 (not the shared default). */
 const INVOICE_PAGE_SIZE = 24;
 
-const STATUS_COLOR: Record<string, string> = {
+const STATUS_COLOR: Record<BillingInvoiceRow['status'], string> = {
   paid: 'text-success',
   open: 'text-warning',
   void: 'text-fg-muted',
   uncollectible: 'text-danger',
+  refunded: 'text-fg-muted',
+  disputed: 'text-danger',
 };
 
 const INVOICE_COLUMNS: Column<BillingInvoiceRow>[] = [

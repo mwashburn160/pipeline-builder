@@ -381,6 +381,9 @@ describe('POST /subscriptions', () => {
     expect(mockSyncTierToQuotaService).toHaveBeenCalledWith('org-1', 'pro', 'Bearer service-token', 'sub-1');
     // 5th arg = actorId, the acting user (req.user.sub).
     expect(mockCreateBillingEvent).toHaveBeenCalledWith('org-1', 'subscription_created', expect.any(Object), expect.any(String), 'user-1');
+    // The reserved row's id rides on the provider sub, so a `.created` webhook
+    // that beats the bind is recognised as mid-bind rather than unbound.
+    expect(mockCreateSubscription).toHaveBeenCalledWith('ext-cust-1', 'pro', 'monthly', 'sub_sub-1', 'sub-1');
   });
 
   it('grants entitlements when the provider reports a trialing subscription', async () => {

@@ -180,6 +180,10 @@ async function performExchange(key: string, hash: string, clientVersion?: string
   }
 
   if (status === 401 || status === 403 || status === 400 || status === 404) {
+    // Delete before set: `Map.set` on an existing key keeps its ORIGINAL
+    // insertion slot, so a re-written entry would still look oldest to
+    // `evictIfFull` and be the first dropped.
+    rejectionCache.delete(hash);
     rejectionCache.set(hash, Date.now() + NEGATIVE_TTL_MS);
     tokenCache.delete(hash);
     evictIfFull(rejectionCache, (until) => until);
@@ -206,6 +210,9 @@ async function performExchange(key: string, hash: string, clientVersion?: string
     expiresAt: now + ttlSeconds * 1000,
     refreshAt: jitteredRefreshAt(now, ttlSeconds),
   };
+  // Delete before set, so a refreshed (i.e. in-use) key moves to the back of
+  // the eviction order instead of keeping its first-exchange slot at the front.
+  tokenCache.delete(hash);
   tokenCache.set(hash, entry);
   rejectionCache.delete(hash);
   evictIfFull(tokenCache, (e) => e.expiresAt);

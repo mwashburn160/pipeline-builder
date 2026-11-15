@@ -71,6 +71,17 @@ export interface SubscriptionDocument extends Document {
    */
   supportIncidentBalance: number;
   /**
+   * The recent incident spends, keyed by the CALLER's idempotency key — what
+   * makes a consume safe to retry. The message service generates one key per
+   * support submission; a consume whose reply was lost (a timeout) is re-sent
+   * with the same key and answered from here with its ORIGINAL outcome instead
+   * of spending a second incident, and a refund names the key so it can give
+   * back only a spend that happened, once. Bounded to the newest
+   * {@link SUPPORT_INCIDENT_SPEND_HISTORY} entries: a key is only ever retried
+   * within seconds of its first use.
+   */
+  supportIncidentSpends: Array<{ key: string; consumed: boolean; refunded: boolean; at: Date }>;
+  /**
    * A NEGOTIATED support size floor, replacing the computed ramp.
    *
    * Above a few hundred seats every deal is negotiated, and a formula that
@@ -102,6 +113,16 @@ export interface SubscriptionDocument extends Document {
    *  promotion-spend reconcile stays exact while the array stays bounded. Absent
    *  on ordinary rows (counted as 1). */
   creditLedger: Array<{ discountId: string; cents: number; appliedAt: Date; fulfillmentRef?: { kind: string; ref: string }; dedupeKey?: string; grantCount?: number; campaign?: string }>;
+  /**
+   * Provider balance DEBITS owed back after a promotion clawback — the outbox
+   * that makes a clawback reach the provider. The local `$pull` of the grant and
+   * the push of its debit here are ONE write, so a crash or a failed provider
+   * call between them cannot leave the credit spendable at the provider while
+   * the local mirror says it is gone. An entry is removed only once the provider
+   * accepted the debit; until then the lifecycle reconciler re-drives it with
+   * the same `key`, which is the provider idempotency key.
+   */
+  pendingCreditDebits: Array<{ key: string; cents: number; createdAt: Date }>;
   /** `created` of the newest Stripe lifecycle event applied to this row
    *  (customer.subscription.* + invoice.payment_*). Stripe does not deliver in
    *  order, so an event older than this watermark is skipped — see
@@ -116,6 +137,9 @@ export interface SubscriptionDocument extends Document {
   createdAt: Date;
   updatedAt: Date;
 }
+
+/** How many recent incident spends a subscription keeps for idempotent replay. */
+export const SUPPORT_INCIDENT_SPEND_HISTORY = 200;
 
 // Schema
 
@@ -156,6 +180,16 @@ const subscriptionSchema = new Schema<SubscriptionDocument>(
     },
     creditBalanceCents: { type: Number, default: 0, min: 0 },
     supportIncidentBalance: { type: Number, default: 0, min: 0 },
+    supportIncidentSpends: {
+      type: [{
+        _id: false,
+        key: { type: String, required: true },
+        consumed: { type: Boolean, required: true },
+        refunded: { type: Boolean, default: false },
+        at: { type: Date, required: true },
+      }],
+      default: [],
+    },
     // Absent by default — the ramp applies. `seats` is the count the price was
     // agreed AT, not a cap: it is what lets a grown account be flagged stale.
     supportFloorOverride: {
@@ -194,6 +228,15 @@ const subscriptionSchema = new Schema<SubscriptionDocument>(
         // records. Same strict-mode rule as the two fields above: absent from
         // the schema, Mongoose strips it and campaign spend silently reads 0.
         campaign: { type: String, default: undefined },
+      }],
+      default: [],
+    },
+    pendingCreditDebits: {
+      type: [{
+        _id: false,
+        key: { type: String, required: true },
+        cents: { type: Number, required: true, min: 1 },
+        createdAt: { type: Date, required: true },
       }],
       default: [],
     },

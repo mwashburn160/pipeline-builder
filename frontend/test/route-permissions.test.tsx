@@ -1125,6 +1125,29 @@ const CONTROLS: Control[] = [
     },
   },
   {
+    control: 'Extend an approved compliance exemption\'s expiry',
+    file: 'pages/dashboard/compliance.tsx',
+    gateFiles: ['src/components/compliance/ComplianceDashboard.tsx', 'src/components/compliance/ExemptionManager.tsx'],
+    permissions: ['compliance:write'],
+    routes: ['compliance PUT /compliance/exemptions/:id/expiry'],
+    behaviour: {
+      // The page passes `readOnly={!canManage}` (canManage = can('compliance:write'))
+      // to the Exemptions tab, which hides "Extend expiry" read-only.
+      mount: page('../pages/dashboard/compliance'),
+      router: { query: { view: 'exemptions' }, pathname: '/dashboard/compliance' },
+      api: {
+        getExemptions: {
+          exemptions: [{
+            id: 'ex1', entityType: 'plugin', entityId: 'p1', reason: 'vendor fix pending', status: 'approved',
+            expiresAt: '2099-01-01T00:00:00Z', createdBy: 'u2', createdAt: '2026-01-01T00:00:00Z',
+          }],
+          pagination: { ...EMPTY_PAGE, total: 1 },
+        },
+      },
+      find: button(/^extend expiry$/i),
+    },
+  },
+  {
     control: 'Cancel a running compliance scan',
     file: 'pages/dashboard/compliance.tsx',
     gateFiles: ['src/components/compliance/ComplianceDashboard.tsx', 'src/components/compliance/ScanDetail.tsx'],
@@ -2990,7 +3013,7 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
     'POST /billing/admin/promotions/:id/activate', 'POST /billing/admin/promotions/:id/grant',
     'POST /billing/admin/promotions/:id/preview',
   ], { category: 'sysadmin-console', why: 'Promotions console (pages/dashboard/promotions.tsx): New promotion, Activate/Revoke, grant-to-existing-base, manual grant, preview reach.' }),
-  'billing DELETE /billing/subscriptions/by-org/:orgId': { category: 'sysadmin-console', why: '"Purge" row action on pages/dashboard/admin/billing.tsx, behind a typed-action confirm.' },
+  'billing DELETE /billing/subscriptions/by-org/:orgId': { category: 'sysadmin-console', why: '"Purge" row action on pages/dashboard/admin/billing.tsx, behind a StepUpModal whose token it forwards — the route steps up user callers (conditionalGates on the table; pinned in CONDITIONAL_STEP_UP_CONTROLS).' },
   'billing PUT /billing/admin/subscriptions/:id': { category: 'sysadmin-console', why: 'Billing-admin page — fleet-wide subscription edit; subscriptions:manage + system-org + aal2 + step-up.' },
   'message PATCH /messages/support/:id/satisfaction': {
     category: 'same-control',
@@ -3866,6 +3889,7 @@ describe('MFA refusals are handled app-wide', () => {
  * for as one, or the user meets a password prompt the server then refuses.
  */
 const CONDITIONAL_STEP_UP_CONTROLS: Record<string, { file: string; when: string }> = {
+  'billing DELETE /billing/subscriptions/by-org/:orgId': { file: 'pages/dashboard/admin/billing.tsx', when: 'caller is a user, not a service principal' },
   'platform PATCH /user/profile': { file: 'pages/dashboard/settings.tsx', when: 'changes the sign-in email' },
   'platform POST /users': { file: 'pages/dashboard/users.tsx', when: 'creates a platform super-admin' },
 };

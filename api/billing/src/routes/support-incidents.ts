@@ -41,9 +41,10 @@ import {
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
-import type { RequestHandler, Response } from 'express';
+import type { Request, RequestHandler, Response } from 'express';
 import { resolveAccountRootOrgId } from '../helpers/root-org-guard.js';
 import {
+  INCIDENT_KEY_PATTERN,
   MAX_INCIDENT_GRANT,
   consumeSupportIncident,
   grantSupportIncidents,
@@ -72,6 +73,21 @@ async function accountOrgOr503(res: Response, orgId: string): Promise<string | n
     sendError(res, 503, 'Could not resolve the organization\'s account; try again', ErrorCode.SERVICE_UNAVAILABLE);
     return null;
   }
+}
+
+/**
+ * The caller's idempotency key from the body, or null after answering 400. The
+ * consume and refund both REQUIRE one: without it a consume whose reply was
+ * lost cannot be safely re-sent, and a refund cannot tell a spend that happened
+ * from one that did not.
+ */
+function incidentKeyOr400(req: Request, res: Response): string | null {
+  const key = (req.body as { idempotencyKey?: unknown } | undefined)?.idempotencyKey;
+  if (typeof key !== 'string' || !INCIDENT_KEY_PATTERN.test(key)) {
+    sendBadRequest(res, 'idempotencyKey must be 8-128 characters of [A-Za-z0-9_-]', ErrorCode.VALIDATION_ERROR);
+    return null;
+  }
+  return key;
 }
 
 /**
@@ -107,9 +123,11 @@ export function createSupportIncidentRoutes(): Router {
   );
 
   /**
-   * POST /billing/internal/support-incidents/:orgId/consume
+   * POST /billing/internal/support-incidents/:orgId/consume  `{ idempotencyKey }`
    *
-   * Spend exactly one incident, atomically. `{ consumed, remaining }`.
+   * Spend exactly one incident, atomically. `{ consumed, remaining }`. A
+   * repeated `idempotencyKey` answers with that key's ORIGINAL outcome and
+   * spends nothing, so the caller can re-send a consume whose reply it lost.
    *
    * NAMED-CALLER gated to `message`, matching the shape platform uses for its
    * own internal reads: this is a write that costs the customer something, so
@@ -127,9 +145,11 @@ export function createSupportIncidentRoutes(): Router {
     withRoute(async ({ req, res }) => {
       const orgId = (getParam(req.params, 'orgId') ?? '').toLowerCase();
       if (!orgId) return sendBadRequest(res, 'orgId is required', ErrorCode.MISSING_REQUIRED_FIELD);
+      const key = incidentKeyOr400(req, res);
+      if (!key) return;
       const accountOrgId = await accountOrgOr503(res, orgId);
       if (!accountOrgId) return;
-      const consumed = await consumeSupportIncident(accountOrgId, 'service:message');
+      const consumed = await consumeSupportIncident(accountOrgId, key, 'service:message');
       const remaining = await supportIncidentsRemaining(accountOrgId);
       if (consumed) logger.info('Support incident consumed', { orgId, accountOrgId, remaining });
       return sendSuccess(res, 200, { consumed, remaining });
@@ -137,11 +157,14 @@ export function createSupportIncidentRoutes(): Router {
   );
 
   /**
-   * POST /billing/internal/support-incidents/:orgId/refund
+   * POST /billing/internal/support-incidents/:orgId/refund  `{ idempotencyKey }`
    *
-   * Give one back. Called when a case insert failed AFTER the incident was
-   * spent — without it a customer loses a concession to our own bug, which is
-   * the worst possible way to spend one.
+   * Give back the incident spent under `idempotencyKey`. Called when a case
+   * insert failed AFTER the incident was spent — without it a customer loses a
+   * concession to our own bug, which is the worst possible way to spend one —
+   * and when the caller could not learn whether its consume landed. Refunds
+   * only a spend that happened, once: `{ refunded, balance }`, where
+   * `refunded: false` is the no-op for a key never spent (or already refunded).
    */
   router.post(
     '/internal/support-incidents/:orgId/refund',
@@ -150,11 +173,13 @@ export function createSupportIncidentRoutes(): Router {
     withRoute(async ({ req, res }) => {
       const orgId = (getParam(req.params, 'orgId') ?? '').toLowerCase();
       if (!orgId) return sendBadRequest(res, 'orgId is required', ErrorCode.MISSING_REQUIRED_FIELD);
+      const key = incidentKeyOr400(req, res);
+      if (!key) return;
       const accountOrgId = await accountOrgOr503(res, orgId);
       if (!accountOrgId) return;
-      const balance = await refundSupportIncident(accountOrgId, 'service:message');
-      logger.warn('Support incident refunded after a failed case open', { orgId, accountOrgId, balance });
-      return sendSuccess(res, 200, { balance });
+      const { refunded, balance } = await refundSupportIncident(accountOrgId, key, 'service:message');
+      if (refunded) logger.warn('Support incident refunded after a failed case open', { orgId, accountOrgId, balance });
+      return sendSuccess(res, 200, { refunded, balance });
     }),
   );
 

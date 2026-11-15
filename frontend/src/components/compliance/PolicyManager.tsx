@@ -23,7 +23,7 @@ interface PolicyManagerProps {
   readOnly?: boolean;
 }
 
-type PolicyCreate = { name: string; description?: string; version?: string; ruleNames?: string[] };
+type PolicyCreate = { name: string; description?: string; version?: string; rules?: string[] };
 type PolicyUpdate = { name?: string; description?: string; version?: string; isActive?: boolean };
 type PolicyParams = { name?: string; limit?: number; offset?: number };
 

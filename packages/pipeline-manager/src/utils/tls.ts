@@ -2,6 +2,20 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import https from 'https';
+import { platformCaList } from '@pipeline-builder/pipeline-core';
+
+/**
+ * The https.Agent for a call to the platform: Node's roots plus a private CA
+ * from `PLATFORM_CA_BUNDLE` when one is set (pipeline-core platform-tls), and
+ * verification off only when `rejectUnauthorized` is explicitly `false`. Every
+ * platform call goes through it — the API client, the credential commands,
+ * the inline login and the session renewal — so a private-CA platform is
+ * trusted by all of them, not only the API client.
+ */
+export function platformHttpsAgent(rejectUnauthorized: boolean | undefined): https.Agent {
+  const ca = platformCaList();
+  return new https.Agent({ rejectUnauthorized: rejectUnauthorized ?? true, ...(ca && { ca }) });
+}
 
 /**
  * Hosts that legitimately front a self-signed certificate — local dev stacks and
@@ -74,8 +88,8 @@ export function assertSslDisableAllowed(context?: string): void {
 
 /**
  * Apply the `--no-verify-ssl` relaxation as a process-wide env flag
- * (`NODE_TLS_REJECT_UNAUTHORIZED=0`) so spawned CDK subprocesses (Lambda,
- * CodeBuild synth) inherit it — but REFUSE in production, mirroring the guard in
+ * (`NODE_TLS_REJECT_UNAUTHORIZED=0`) so the spawned CDK app inherits it (and
+ * pipeline-core carries it into every CodeBuild step) — but REFUSE in production, mirroring the guard in
  * config-loader. That flag disables certificate validation for ALL outbound TLS
  * (including the AWS SDK), so it must never be silently enabled for a prod
  * deploy/synth.

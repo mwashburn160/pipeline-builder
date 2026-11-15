@@ -147,9 +147,16 @@ export function OnCallPagingPanel({ canManage }: { canManage: boolean }) {
       const result = (await api.oncallTest()).data;
       // `skipped` is a 200 and NOT a success — paging is off, so nothing left
       // the building. Reporting it green is the one lie this panel must not tell.
-      if (result?.skipped) toast.info('Paging is disabled — nothing was sent');
-      else if (result?.sent) toast.success('Test page accepted by the provider (not proof a phone rang)');
-      else toast.error(result?.error ?? 'The provider did not accept the test page');
+      if (result?.skipped) {
+        toast.info('Paging is disabled — nothing was sent');
+      } else if (result?.sent) {
+        toast.success('Test page accepted by the provider (not proof a phone rang)');
+      } else {
+        // Always a 200: the body carries the provider's refusal, and its HTTP
+        // status when it answered at all.
+        const reason = result?.error ?? 'The provider did not accept the test page';
+        toast.error(result?.status !== undefined ? `${reason} (HTTP ${result.status})` : reason);
+      }
     } catch (err) {
       toast.error(formatError(err, 'Could not send a test page'));
     } finally {

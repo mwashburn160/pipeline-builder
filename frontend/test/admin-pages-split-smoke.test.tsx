@@ -112,7 +112,7 @@ describe('RegistryPage — extracted modals', () => {
   });
 
   it('runs a dry-run GC from the GC modal without refreshing the repo list', async () => {
-    apiMock.runRegistryGc.mockResolvedValue({ success: true, data: { candidates: 3, deleted: 0, reposScanned: 2 } });
+    apiMock.runRegistryGc.mockResolvedValue({ success: true, data: { candidates: 3, deleted: 0, reposScanned: 2, companionsDeleted: 0, failedRepos: 0, perRepo: [] } });
     render(<RegistryPage />);
 
     fireEvent.click(screen.getByRole('button', { name: /Run GC/ }));

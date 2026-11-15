@@ -10,7 +10,7 @@ import { Schema, model } from 'mongoose';
  * - It is the append path's tail pointer: the next event gets `seq + 1` and
  *   `prevHash = hash`, so ordering never depends on wall-clock `createdAt`
  *   (which skews across replicas).
- * - It has NO TTL (contrast `audit_events`): the sequence keeps counting and the
+ * - It has NO retention (contrast `audit_events`): the sequence keeps counting and the
  *   chain keeps linking even after every event has aged out, instead of
  *   silently restarting at a fresh genesis.
  * - `exportedSeq` records the last head published to write-once storage by the
@@ -23,7 +23,7 @@ export interface AuditChainHeadDoc {
   seq: number;
   hash: string;
   /** `createdAt` of the head event — lets verify tell a head that has aged out
-   *  of the audit TTL window from a truncated one. */
+   *  of the audit retention window from a truncated one. */
   headCreatedAt: Date;
   exportedSeq?: number;
   updatedAt?: Date;

@@ -150,6 +150,25 @@ describe('security report routes', () => {
     expect(store.rows).toHaveLength(0);
   });
 
+  // `findById` matches a mixed-case id, but `pipeline_id` is plain text: the
+  // raw path segment would key a second slot the reads, scorecard and purge miss.
+  it('keys every write and read on the row\'s own id, not the path segment', async () => {
+    const canonical = '0b6f6a3e-1c2d-4e5f-8a9b-0c1d2e3f4a5b';
+    mockFindById.mockResolvedValue({ id: canonical, orgId: 'acme' });
+    const upper = canonical.toUpperCase();
+    await handler('post')({ params: { id: upper }, user: scoped, body: { tool: 'grype', format: 'grype-json', report: grype } }, res());
+    expect(store.rows).toEqual([expect.objectContaining({ pipelineId: canonical })]);
+
+    const read = res();
+    await handler('get')({ params: { id: upper }, user: { sub: 'u-1', permissions: ['pipelines:read'] } }, read);
+    expect(read.json.mock.calls[0][0].data).toEqual(expect.objectContaining({ pipelineId: canonical, reports: [expect.anything()] }));
+
+    const del = res();
+    await handler('delete')({ params: { id: upper }, query: { tool: 'grype' }, user: { sub: 'u-1', permissions: ['pipelines:write'] } }, del);
+    expect(del.status).toHaveBeenCalledWith(200);
+    expect(store.rows).toHaveLength(0);
+  });
+
   // The read ladder also returns other orgs' PUBLIC pipelines: a report slot is
   // keyed by (pipeline, tool, stage) alone, so a write must not land on one.
   it('404s an upload and a delete for a readable pipeline another org owns', async () => {

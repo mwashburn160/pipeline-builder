@@ -287,7 +287,7 @@ export function reportingApi(core: ApiCore) {
       executionId: string,
       body: { outcome: 'failed' | 'restored'; at: string; environment: string },
     ) => {
-      return core.request<ApiResponse<{ message: string }>>(
+      return core.request<ApiResponse<{ executionId: string; outcome: 'failed' | 'restored' }>>(
         `/api/reports/deployments/${encodeURIComponent(executionId)}/outcome`,
         { method: 'POST', body: JSON.stringify(body) },
       );

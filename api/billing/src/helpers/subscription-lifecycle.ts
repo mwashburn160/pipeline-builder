@@ -7,6 +7,7 @@ import { runWithTenantContext } from '@pipeline-builder/pipeline-data';
 import { config } from '../config.js';
 import { syncProviderAddons } from './addon-prune.js';
 import { billingServiceAuth, createBillingEvent } from './billing-helpers.js';
+import { retryPendingCreditDebits } from './credit-debits.js';
 import { reconcileEntitlementDrift } from './entitlement-drift.js';
 import { syncEntitlements } from './entitlement-sync.js';
 import { MANAGEABLE_SUBSCRIPTION_STATUSES } from './subscription-status.js';
@@ -61,6 +62,7 @@ async function runLifecycleCheck(): Promise<void> {
   // (startEntitlementSyncConsumer), not here; only the SILENT-drift pass
   // (out-of-band edits, which have no triggering event) runs below.
   await reconcileFailedProviderAddonSyncs();
+  await reconcilePendingCreditDebits();
   // Runs LAST: the low-frequency, bounded silent-drift pass. Kept at the end so
   // it doesn't disturb the earlier legs' sequential-mock ordering in tests.
   await reconcileEntitlementDrift();
@@ -554,6 +556,31 @@ async function reconcileFailedProviderAddonSyncs(): Promise<void> {
         error: errorMessage(err),
       });
     }
+  }
+}
+
+// ── 4c. Pending Provider Credit Debits ────────────────────
+
+/**
+ * Re-post provider balance debits a promotion clawback queued but could not
+ * deliver (a transient provider failure). Without this the clawback reached
+ * only the local mirror and the provider kept the credit, applying it to the
+ * next invoice. ANY status, not just manageable: a cancelled customer's
+ * provider balance still pays down the invoices of a later resubscribe on the
+ * same customer. Self-clearing — a debit leaves the queue only once posted.
+ */
+async function reconcilePendingCreditDebits(): Promise<void> {
+  const pending = await Subscription.find({ 'pendingCreditDebits.0': { $exists: true } });
+  if (pending.length === 0) return;
+  logger.info('Re-posting pending provider credit debits', { count: pending.length });
+  for (const subscription of pending) {
+    // retryPendingCreditDebits never throws (each failure is logged, counted
+    // and kept queued); the guard keeps one row from aborting the pass anyway.
+    await retryPendingCreditDebits(subscription).catch((err: unknown) => {
+      logger.error('Error re-posting pending credit debits', {
+        orgId: subscription.orgId, subscriptionId: subscription._id.toString(), error: errorMessage(err),
+      });
+    });
   }
 }
 

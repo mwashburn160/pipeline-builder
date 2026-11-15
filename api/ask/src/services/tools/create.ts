@@ -72,8 +72,25 @@ export const GENERATION_BUDGET_SPENT =
   `This reply has already started its limit of ${ASK_MAX_TURN_GENERATIONS} AI drafts. `
   + 'Finish with the drafts you have; the user can ask for more in a new message.';
 
+/** Lowercase, hyphen-separated, length-capped — the shape a stack-name segment takes. */
+function slugSegment(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 63).replace(/-+$/, '');
+}
+
+/**
+ * The `organization` a drafted pipeline gets. It is the free-text NAMING segment
+ * of the pipeline (stack name `{project}-{organization}`), not the tenant id —
+ * tenancy comes from the caller's token — so it is a slug of the org's display
+ * name, falling back to the project's own slug when the token carries no name
+ * (or a name that is just the org id). Never the org UUID.
+ */
+export function pipelineOrganizationSegment(orgName: string | undefined, orgId: string, project: string): string {
+  const fromName = orgName && orgName !== orgId ? slugSegment(orgName) : '';
+  return fromName || slugSegment(project) || 'org';
+}
+
 export function createTools(deps: AgentToolDeps): ToolSet {
-  const { pipeline, plugin, selection, defaults, orgId, chargeAiCall, maxOutputTokens, abortSignal, generations } = deps;
+  const { pipeline, plugin, selection, defaults, orgId, orgName, chargeAiCall, maxOutputTokens, abortSignal, generations } = deps;
 
   /**
    * Run one DELEGATED generation (a peer's `/generate` route, which reserves its
@@ -117,20 +134,23 @@ export function createTools(deps: AgentToolDeps): ToolSet {
   };
 
   /**
-   * Draft a template on the turn's model. Streamed (not a one-shot
-   * `generateObject`) for the provider-contact signal: the first chunk marks the
-   * slot consumed, so a provider that responded and THEN failed keeps it, and
-   * one that never answered is refunded. Bounded by the turn's abort signal AND
-   * the AI request timeout; fails over on the platform chain before any response.
+   * Draft a template on the turn's model. `onSend` marks the slot consumed just
+   * before each attempt sends its request, so an abort, a timeout or a provider
+   * error after the send keeps it — the provider billed what it processed — and
+   * only a failure before the send is refunded. Streamed (not a one-shot
+   * `generateObject`) for the first-response signal that gates failover: the
+   * platform chain is tried only before the provider answered. Bounded by the
+   * turn's abort signal AND the AI request timeout.
    */
   const draftTemplate = async (
     prompt: string,
-    onProviderResponse: () => void,
+    onSend: () => void,
     onUsage: (usage: AITokenUsage) => void,
   ): Promise<z.infer<typeof TemplateSchema> | undefined> => {
-    let contacted = false;
+    let responded = false;
     const { value } = await runWithFailover(selection, async (sel) => {
       let failure: unknown;
+      onSend();
       const result = streamText({
         model: sel.model,
         ...aiCallSettings({ selection: sel, signal: abortSignal, maxOutputTokens, temperature: TEMPLATE_TEMPERATURE }),
@@ -138,20 +158,16 @@ export function createTools(deps: AgentToolDeps): ToolSet {
         prompt:
           `Create a reusable Pipeline Builder template for: ${prompt}\n`
           + 'Parameterize values with {{ vars.NAME }} and declare each one in "inputs". Keep it minimal and valid.',
-        onChunk: () => {
-          if (contacted) return;
-          contacted = true;
-          onProviderResponse();
-        },
+        onChunk: () => { responded = true; },
         onError: ({ error }) => { failure = error; },
       });
       for await (const _partial of result.partialOutputStream) {
-        // Drained only for the provider-contact signal and error surfacing.
+        // Drained only for the first-response signal and error surfacing.
       }
       if (failure !== undefined) throw failure;
       onUsage(tokenUsage(await Promise.resolve(result.totalUsage).catch(() => undefined)));
       return (await Promise.resolve(result.output).catch(() => undefined)) ?? undefined;
-    }, { contacted: () => contacted });
+    }, { contacted: () => responded });
     return value;
   };
 
@@ -298,7 +314,7 @@ export function createTools(deps: AgentToolDeps): ToolSet {
         try {
           object = await draftTemplate(prompt, charge.markConsumed, (u) => { usage = u; });
         } finally {
-          // Every path settles: an uncontacted slot is refunded, the tokens recorded.
+          // Every path settles: a slot whose request was never sent is refunded, the tokens recorded.
           charge.settle(usage);
         }
         if (!object) {
@@ -341,9 +357,10 @@ export function createTools(deps: AgentToolDeps): ToolSet {
       inputSchema: z.object({
         templateId: ResourceId.describe('The template id (from list_templates)'),
         project: z.string().describe('Project identifier for the new pipeline'),
-        // NOTE: `organization` is deliberately NOT a model-supplied input — it is
-        // injected from the authenticated caller's org below, so a prompt-injected
-        // message can't retarget the instantiation at another tenant's org.
+        // NOTE: `organization` is deliberately NOT a model-supplied input. It only
+        // NAMES the pipeline (stack `{project}-{organization}`) — the instantiate
+        // call rides the caller's token, so tenancy is never at stake — and is
+        // derived below from the caller's org so drafts are named consistently.
         pipelineName: z.string().optional(),
         inputs: z
           .record(z.string(), z.union([z.string(), z.number(), z.boolean()]))
@@ -351,8 +368,8 @@ export function createTools(deps: AgentToolDeps): ToolSet {
           .describe("Values for the template's declared input variables, keyed by input name"),
       }),
       execute: async ({ templateId, project, pipelineName, inputs }) => {
-        // organization is the authenticated caller's org — never model-chosen.
-        const body: Record<string, unknown> = { project, organization: orgId };
+        // The org's display-name slug (else the project's) — never the org UUID.
+        const body: Record<string, unknown> = { project, organization: pipelineOrganizationSegment(orgName, orgId, project) };
         if (pipelineName) body.pipelineName = pipelineName;
         if (inputs) body.inputs = inputs;
         const data = unwrap<Generated>(await pipeline.post(`/pipeline-templates/${encodeURIComponent(templateId)}/instantiate`, body)) ?? {};

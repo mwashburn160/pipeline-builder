@@ -298,8 +298,8 @@ export function resolvePluginImage(scope: Construct | undefined, plugin: Resolve
   // This is the REGISTRY-ONLY credential, not the org's full-privilege
   // platform one: its exchanged token carries the single `registry:push` scope
   // and no API permissions at all, so a CodeBuild job that leaks it can move
-  // images inside this org's namespace and nothing else. The plugin-lookup
-  // Lambda keeps reading `.../platform` — it calls the ordinary API, which no
+  // images inside this org's namespace and nothing else. The self-mutating
+  // synth keeps reading `.../platform` — it calls the ordinary API, which no
   // single scope covers.
   // Provision it with: pipeline-manager infra store-token --scope registry:push
   const stack = Stack.of(scope);

@@ -6,7 +6,7 @@
 # ============================================================================
 api:
   # Base URL for the API
-  # Can be overridden with PLATFORM_URL environment variable
+  # Can be overridden with the PLATFORM_BASE_URL environment variable
   baseUrl: https://localhost:8443
   
   # Request timeout in milliseconds
@@ -42,11 +42,10 @@ api:
 # ============================================================================
 # AUTHENTICATION
 # ============================================================================
-# Authentication is handled via environment variable ONLY.
-# DO NOT include auth configuration in this file.
-#
-# Set your token with:
-#   export PLATFORM_TOKEN='your-token-here'
+# Authentication never comes from this file (an `auth:` section is ignored).
+# Sign in with `pipeline-manager auth login` (the session is stored per
+# platform), or set an access key for unattended use:
+#   export PLATFORM_TOKEN='your-access-key'
 #
 # The token should NEVER be committed to version control.
 # ============================================================================
@@ -56,18 +55,21 @@ api:
 # ============================================================================
 # The following environment variables are used by the CLI:
 #
-# REQUIRED:
-#   PLATFORM_TOKEN              - Authentication token for API access
-#                                 Example: export PLATFORM_TOKEN='eyJhbG...'
-#
 # OPTIONAL:
-#   PLATFORM_URL                - Override api.baseUrl
-#                                 Example: export PLATFORM_URL='https://api.example.com'
+#   PLATFORM_TOKEN              - Access key for API access; wins over the
+#                                 stored `auth login` session
+#
+#   PLATFORM_BASE_URL           - Override api.baseUrl
+#                                 Example: export PLATFORM_BASE_URL='https://api.example.com'
 #
 #   CLI_CONFIG_PATH             - Path to this config file
 #                                 Example: export CLI_CONFIG_PATH='/path/to/config.yml'
 #
 #   PLATFORM_TLS_VERIFY         - Set to 'false' to disable cert validation (refused in production)
 #                                 Example: export PLATFORM_TLS_VERIFY='false'
+#
+#   PLATFORM_CA_BUNDLE          - PEM text of a private CA to trust (keeps verification on)
+#
+#   UPLOAD_TIMEOUT_MS           - Plugin upload timeout in milliseconds
 #
 # ============================================================================

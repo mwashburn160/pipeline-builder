@@ -45,6 +45,8 @@ export type AuditChainBreak =
   | 'sequence-gap'
   | 'head-mismatch'
   | 'tail-truncated'
+  | 'head-truncated'
+  | 'watermark-invalid'
   | 'published-head-invalid';
 
 /** Result of a hash-chain tamper-verify (`GET /api/audit/verify`). */

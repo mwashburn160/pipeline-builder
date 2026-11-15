@@ -11,6 +11,7 @@
  */
 
 import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
@@ -76,8 +77,10 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   handleAIError: jest.fn((res: any, err: unknown) => res.status(502).json({ message: err instanceof Error ? err.message : String(err) })),
 }));
 
+/** The docs index — read AFTER the reservation and BEFORE the send, so its failure is the pre-send case. */
+const mockGetDocsIndex = jest.fn<AnyFn>(async () => ({ search: () => [], size: 3 }));
 jest.unstable_mockModule('../src/services/docs-index.js', () => ({
-  getDocsIndex: jest.fn(async () => ({ search: () => [], size: 3 })),
+  getDocsIndex: (...a: unknown[]) => mockGetDocsIndex(...a),
 }));
 
 const auditRecord = jest.fn();
@@ -154,8 +157,14 @@ function answersWith({ text, sources }: { text: string; sources: unknown[] }) {
 }
 
 /** The provider call fails before it ever responded (bad key, 5xx, network). */
+/** The request was sent, and the provider failed before it produced anything. */
 function failsBeforeProvider(err: Error) {
   mockStreamHowTo.mockReturnValue({ sources: [], events: (async function* () { throw err; })() });
+}
+
+/** The turn fails BEFORE the request is sent (the docs index read after the reservation). */
+function failsBeforeSend(err: Error) {
+  mockGetDocsIndex.mockRejectedValueOnce(err);
 }
 
 // -- Tests --------------------------------------------------------------------
@@ -252,8 +261,8 @@ describe('POST /ask', () => {
     );
   });
 
-  it('records a REFUNDED slot when the provider was never reached', async () => {
-    failsBeforeProvider(new Error('LLM down'));
+  it('records a REFUNDED slot when the turn failed before the request was sent', async () => {
+    failsBeforeSend(new Error('docs index unavailable'));
     await handler(mockReq({ query: 'anything here' }), mockRes());
     expect(auditRecord).toHaveBeenCalledWith(
       expect.objectContaining({ outcome: 'failure', details: expect.objectContaining({ quota: expect.objectContaining({ slot: 'refunded' }) }) }),
@@ -311,13 +320,33 @@ describe('POST /ask', () => {
     expect(mockStreamHowTo).toHaveBeenCalledWith(expect.objectContaining({ maxOutputTokens: expect.any(Number) }));
   });
 
-  it('refunds the slot when answering throws', async () => {
-    failsBeforeProvider(new Error('LLM down'));
+  it('refunds the slot when the turn fails before the send', async () => {
+    failsBeforeSend(new Error('docs index unavailable'));
     await handler(mockReq({ query: 'how do I deploy', provider: 'anthropic', model: 'claude-sonnet-5' }), mockRes());
+    expect(mockStreamHowTo).not.toHaveBeenCalled();
     expect(mockDecrementQuota).toHaveBeenCalledWith(
       mockQuotaService, 'org-1', 'aiCalls', SERVICE_TOKEN, expect.any(Function), 1, '2026-09-01T00:00:00Z',
       expect.objectContaining({ feature: 'ask', model: 'claude-sonnet-5-5', keySource: 'platform' }),
     );
+  });
+
+  it('KEEPS the slot when the provider fails after the send, before it responds', async () => {
+    failsBeforeProvider(new Error('LLM down'));
+    await handler(mockReq({ query: 'how do I deploy' }), mockRes());
+    expect(mockDecrementQuota).not.toHaveBeenCalled();
+    expect(auditRecord).toHaveBeenCalledWith(
+      expect.objectContaining({ outcome: 'failure', details: expect.objectContaining({ quota: expect.objectContaining({ slot: 'kept' }) }) }),
+      'ask',
+    );
+  });
+
+  it.each([
+    ['ABORTED', Object.assign(new Error('This operation was aborted'), { name: 'AbortError' })],
+    ['TIMED OUT', Object.assign(new Error('The operation timed out'), { name: 'TimeoutError' })],
+  ])('KEEPS the slot when the call is %s after the send', async (_label, error) => {
+    failsBeforeProvider(error);
+    await handler(mockReq({ query: 'how do I deploy' }), mockRes());
+    expect(mockDecrementQuota).not.toHaveBeenCalled();
   });
 });
 
@@ -347,7 +376,7 @@ describe('POST /ask/stream', () => {
     expect(res.end).toHaveBeenCalled();
   });
 
-  it('refunds + reports an error when the provider fails before it responds', async () => {
+  it('keeps the slot + reports an error when the provider fails after the send, before it responds', async () => {
     mockStreamHowTo.mockReturnValue({
       sources: [],
       events: (async function* () { throw new Error('invalid api key'); })(),
@@ -357,8 +386,21 @@ describe('POST /ask/stream', () => {
 
     const frames = res.write.mock.calls.map((c: any[]) => String(c[0]));
     expect(frames.some((f: string) => f.includes('[DONE]'))).toBe(false);
-    expect(mockDecrementQuota).toHaveBeenCalledTimes(1);
+    expect(mockDecrementQuota).not.toHaveBeenCalled();
     expect(auditRecord).toHaveBeenCalledWith(expect.objectContaining({ action: 'ask.query', outcome: 'failure' }), 'ask');
+  });
+
+  it('refunds when the stream turn fails BEFORE the send', async () => {
+    failsBeforeSend(new Error('docs index unavailable'));
+    await handler(mockReq({ query: 'wire alertmanager for incidents' }), mockRes());
+    expect(mockStreamHowTo).not.toHaveBeenCalled();
+    expect(mockDecrementQuota).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the slot when the stream call TIMES OUT after the send', async () => {
+    failsBeforeProvider(Object.assign(new Error('The operation timed out'), { name: 'TimeoutError' }));
+    await handler(mockReq({ query: 'wire alertmanager for incidents' }), mockRes());
+    expect(mockDecrementQuota).not.toHaveBeenCalled();
   });
 
   it('keeps the slot when the stream fails AFTER the first token', async () => {

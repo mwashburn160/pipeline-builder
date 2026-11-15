@@ -420,9 +420,10 @@ export function createStakeholderReportRoutes(): Router {
    *
    * A privilege move, not a metadata edit: a scheduled run is authorized as the
    * OWNER, so this changes whose access the numbers are computed with. The new
-   * owner must be an active member who holds `reports:write` — checked against
-   * platform, not inferred — so a definition cannot be parked on an account that
-   * would never pass the scheduler's own re-check.
+   * owner must be an active member who holds `reports:write` (and `reports:rollup`
+   * when the definition rolls up its teams) — checked against platform, not
+   * inferred — so a definition cannot be parked on an account that would never
+   * pass the scheduler's own re-check.
    */
   router.post('/definitions/:id/transfer', requirePermission('reports:write'), audited('reporting.report.ownership.transfer'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const id = getParam(req.params, 'id') ?? '';
@@ -438,6 +439,16 @@ export function createStakeholderReportRoutes(): Router {
       return sendBadRequest(
         res,
         'That user cannot own a report in this organization — they need to be an active member with permission to author reports.',
+        ErrorCode.VALIDATION_ERROR,
+      );
+    }
+    // A ROLLUP definition's scheduled run also needs the owner to hold
+    // `reports:rollup` — without this check the transfer succeeded and the very
+    // next run paused the definition as `permission_lost`.
+    if (previous.scope.kind === 'rollup' && !authority.permissions.includes('reports:rollup')) {
+      return sendBadRequest(
+        res,
+        'That user cannot own a rollup report — they need the "Roll up team reports" permission.',
         ErrorCode.VALIDATION_ERROR,
       );
     }
@@ -616,8 +627,9 @@ export function createStakeholderReportRoutes(): Router {
    * `POST /runs/:id/summary` — (re)draft the executive summary for an unpublished run.
    *
    * `reports:write`, because writing the summary IS the authoring act and this is a
-   * shortcut to a first version of it. Refused after publish by the store, which is the
-   * right boundary: rewriting a published summary would change what a recipient read.
+   * shortcut to a first version of it. Refused (409) after publish, before any AI call,
+   * which is the right boundary: rewriting a published summary would change what a
+   * recipient read.
    *
    * A REFUSAL IS A 200 WITH THE REASON, not an error. "You are over your AI quota" and
    * "the draft mentioned a number that isn't in this report" are both normal outcomes the
@@ -632,6 +644,17 @@ export function createStakeholderReportRoutes(): Router {
       const run = await stakeholderReportStore.requireRun(orgId, getParam(req.params, 'id') ?? '');
       if (!run.snapshot) {
         return sendBadRequest(res, 'This run has no snapshot to summarize yet.', ErrorCode.VALIDATION_ERROR);
+      }
+      // Refused BEFORE drafting. The store refuses the write on a published run
+      // too, but only after the provider call — which spent an aiCalls unit and
+      // the tokens on a draft that could never be saved.
+      if (run.status === 'published') {
+        return sendError(
+          res,
+          409,
+          'This report has already been published. Regenerate it to produce a new version, then draft its summary.',
+          ErrorCode.CONFLICT,
+        );
       }
       const result = await attachExecutiveSummary(run, {
         snapshot: run.snapshot as never,

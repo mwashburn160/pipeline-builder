@@ -92,6 +92,7 @@ interface DecrementOptions {
 function resetIfExpiredStage(quotaType: QuotaType, amount: number, resetDays: number): Record<string, unknown> {
   const usagePath = `usage.${quotaType}`;
   const expired = { $lte: [`$${usagePath}.resetAt`, '$$NOW'] };
+  const limitNow = currentLimitExpr(quotaType);
   return {
     $set: {
       [`${usagePath}.used`]: {
@@ -111,16 +112,28 @@ function resetIfExpiredStage(quotaType: QuotaType, amount: number, resetDays: nu
       // mid-period downgrade stranding an account over a cap it already spent
       // against (a month-long refusal for `cpuCredits`, which rolls monthly).
       // Mid-period the snapshot is left alone: an UPGRADE still lands
-      // immediately because the max picks the larger.
+      // immediately because the max picks the larger. The cap captured is the
+      // one the filter enforced — the TIER preset when no limit is stored, not
+      // the absent field, which left no snapshot and let a mid-period downgrade
+      // strand the account.
       [`${usagePath}.limitAtPeriodStart`]: {
         $cond: {
           if: expired,
-          then: `$quotas.${quotaType}`,
-          else: { $ifNull: [`$${usagePath}.limitAtPeriodStart`, `$quotas.${quotaType}`] },
+          then: limitNow,
+          else: { $ifNull: [`$${usagePath}.limitAtPeriodStart`, limitNow] },
         },
       },
     },
   };
+}
+
+/**
+ * The org's current limit as the increment filters read it: the stored cap, or
+ * its TIER preset when none is stored ({@link defaultLimitExpr}). The one
+ * spelling every filter and snapshot capture uses.
+ */
+function currentLimitExpr(quotaType: QuotaType): unknown {
+  return { $ifNull: [`$quotas.${quotaType}`, defaultLimitExpr(quotaType)] };
 }
 
 /**
@@ -168,6 +181,7 @@ function poolIncrementStage(quotaType: QuotaType, amount: number, resetDays: num
   const expired = { $lte: [`$${pool}.resetAt`, '$$NOW'] };
   const ownLive = { $gt: [`$${own}.resetAt`, '$$NOW'] };
   const nextReset = { $dateAdd: { startDate: '$$NOW', unit: 'day', amount: resetDays } };
+  const limitNow = currentLimitExpr(quotaType);
   return {
     $set: {
       [`${pool}.used`]: {
@@ -192,8 +206,8 @@ function poolIncrementStage(quotaType: QuotaType, amount: number, resetDays: num
       [`${pool}.limitAtPeriodStart`]: {
         $cond: {
           if: { $and: [started, { $not: expired }] },
-          then: { $ifNull: [`$${pool}.limitAtPeriodStart`, `$quotas.${quotaType}`] },
-          else: `$quotas.${quotaType}`,
+          then: { $ifNull: [`$${pool}.limitAtPeriodStart`, limitNow] },
+          else: limitNow,
         },
       },
     },
@@ -212,7 +226,7 @@ function poolIncrementStage(quotaType: QuotaType, amount: number, resetDays: num
 function poolFitsExpr(quotaType: QuotaType, amount: number): Record<string, unknown> {
   const pool = `poolUsage.${quotaType}`;
   const own = `usage.${quotaType}`;
-  const limitExpr = { $ifNull: [`$quotas.${quotaType}`, defaultLimitExpr(quotaType)] };
+  const limitExpr = currentLimitExpr(quotaType);
   const freshCap = enforcedLimitExpr(quotaType, limitExpr);
   const started = { $eq: [{ $type: `$${pool}.resetAt` }, 'date'] };
   const live = { $and: [started, { $gt: [`$${pool}.resetAt`, '$$NOW'] }] };
@@ -599,9 +613,11 @@ export class QuotaService {
     for (const k of types) {
       const resetDate = nextQuotaResetDate(periodDaysFor(k));
       // A reset starts a NEW period, so the snapshot is the cap as it stands now
-      // — otherwise an operator reset would carry a stale ceiling forward.
-      org.usage[k] = { used: 0, resetAt: new Date(resetDate), limitAtPeriodStart: org.quotas[k] };
-      if (org.poolUsage?.[k]?.resetAt) org.poolUsage[k] = { used: 0, resetAt: new Date(resetDate) };
+      // — otherwise an operator reset would carry a stale ceiling forward. The
+      // tier preset when no cap is stored, as every other reader resolves it.
+      const limitNow = org.quotas[k] ?? defaultLimitFor(org.tier, k);
+      org.usage[k] = { used: 0, resetAt: new Date(resetDate), limitAtPeriodStart: limitNow };
+      if (org.poolUsage?.[k]?.resetAt) org.poolUsage[k] = { used: 0, resetAt: new Date(resetDate), limitAtPeriodStart: limitNow };
     }
 
     await org.save();
@@ -656,11 +672,11 @@ export class QuotaService {
     // is set by the server, not a captured `new Date()` from the API node.
     const usagePath = `usage.${quotaType}`;
     const resetDays = periodDaysFor(quotaType);
-    // Coalesce a MISSING stored limit to the org's TIER preset — Mongoose
-    // `default:` only fires on insert, so a newly-added quota type on an
+    // Coalesce a MISSING stored limit to the org's TIER preset — the schema
+    // has no `quotas.*` default, so a newly-added quota type on an
     // un-backfilled org doc would otherwise match no branch and hard-429 (the
     // read + pooled paths apply the same default).
-    const limitExpr = { $ifNull: [`$quotas.${quotaType}`, defaultLimitExpr(quotaType)] };
+    const limitExpr = currentLimitExpr(quotaType);
     // The cap a FRESH period's fit is measured against: the current limit, or
     // for a banded type the soft band above it (api-core `enforcedQuotaLimit`).
     // A live period binds on `liveFitsExpr` instead (the snapshot honoured).

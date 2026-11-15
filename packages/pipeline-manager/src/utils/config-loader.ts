@@ -91,6 +91,14 @@ export function getApiConfig(): Omit<Config, 'auth'> {
   let config = loadConfigFile(USER_CONFIG_PATH, { api: { ...defaultConfig.api } });
   config = loadConfigFile(projectConfigPath, config);
 
+  // A config file's `api.rejectUnauthorized: false` is refused in production
+  // exactly like the env-var relaxation below — otherwise a stray dev config.yml
+  // silently disables verification for a production run.
+  if (config.api.rejectUnauthorized === false && isProductionEnv()) {
+    config.api.rejectUnauthorized = true;
+    printWarning('Ignoring api.rejectUnauthorized: false from the config file in production — SSL verification remains enabled');
+  }
+
   // Layer 4: the platform the last `auth login` signed in to. `auth login --url X`
   // stores its session under X, so the commands after it must talk to X — had the
   // config files won here, every command would look for the session under a

@@ -141,4 +141,14 @@ describe('reserveAiCallSlot (a slot the caller settles)', () => {
     kept.slot.refund();
     expect(mockDecrementQuota).toHaveBeenCalledTimes(1);
   });
+
+  it('isConsumed() follows markConsumed(), on a reserved and on a waived slot alike', async () => {
+    for (const selection of [PLATFORM, { ...PLATFORM, keySource: 'org' as const }]) {
+      const r = await reserveAiCallSlot(opts(), selection);
+      if (r.status !== 'reserved') throw new Error('expected a slot');
+      expect(r.slot.isConsumed()).toBe(false);
+      r.slot.markConsumed();
+      expect(r.slot.isConsumed()).toBe(true);
+    }
+  });
 });

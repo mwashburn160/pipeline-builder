@@ -80,6 +80,9 @@ export interface OrganizationMember {
   isOwner: boolean;
   isActive: boolean;
   isEmailVerified: boolean;
+  /** When this person joined THIS org (the membership), what the Joined column shows. */
+  joinedAt: string;
+  /** When the user ACCOUNT was created — not the membership. */
   createdAt: string;
   updatedAt?: string;
   /** The permission Roles this member holds (id + name), embedded in the roster
@@ -363,7 +366,6 @@ export interface Invitation {
   invitedBy: string;
   inviterName: string;
   organizationId: string;
-  organizationName: string;
   expiresAt: string;
   createdAt: string;
 }

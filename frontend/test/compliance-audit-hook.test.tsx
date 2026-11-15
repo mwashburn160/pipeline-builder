@@ -53,6 +53,16 @@ describe('useComplianceAudit', () => {
     expect(result.current.filtersActive).toBe(true);
   });
 
+  it('sends the date filters as ISO instants bounding the local days (a bare day is a 400)', async () => {
+    const { result } = renderHook(() => useComplianceAudit());
+    await waitFor(() => expect(result.current.entries).toHaveLength(1));
+    act(() => { result.current.setDateFrom('2026-03-01'); result.current.setDateTo('2026-03-02'); });
+    await waitFor(() => expect(getComplianceAuditLog).toHaveBeenLastCalledWith(expect.objectContaining({
+      dateFrom: new Date(2026, 2, 1).toISOString(),
+      dateTo: new Date(2026, 2, 2, 23, 59, 59, 999).toISOString(),
+    })));
+  });
+
   it('reports filtersActive only while a filter narrows the log', async () => {
     const { result } = renderHook(() => useComplianceAudit());
     await waitFor(() => expect(result.current.entries).toHaveLength(1));

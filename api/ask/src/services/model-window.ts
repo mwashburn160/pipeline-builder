@@ -21,13 +21,15 @@
  * when a provider cannot be RESOLVED, never when a resolved one is unreachable
  * (and the Ask routes pass none).
  *
- * Deliberately narrow. A notice is produced only when all three hold:
- *   1. a schedule is actually configured (`ASK_SCHEDULE_ENABLED=true`),
- *   2. the failing provider is the self-hosted one — a cloud provider's
+ * Deliberately narrow. A notice is produced only when both hold:
+ *   1. the failing provider is the self-hosted one — a cloud provider's
  *      outage has nothing to do with this window, and blaming the schedule for
  *      an Anthropic 529 would be a lie,
- *   3. the error looks like a CONNECTION failure. A 404 for a model the server
+ *   2. the error looks like a CONNECTION failure. A 404 for a model the server
  *      has not pulled, or a context-length refusal, must keep its own message.
+ * Whether a schedule is configured (`ASK_SCHEDULE_ENABLED=true`) decides only
+ * how much the notice can say: with one it names the window and when the model
+ * returns; without one it says the model is not responding and stops there.
  *
  * It never claims to know more than it does: an unparseable cron (a step or
  * list in the minute/hour field, a window crossing midnight) yields the

@@ -393,7 +393,7 @@ export class ReportingService {
         FROM ${schema.plugin}
         WHERE ${schema.plugin.orgId} = ${orgId}
       `));
-      return (drizzleRows<PluginSummary>(rows.rows)[0] || { total: 0, active: 0, inactive: 0, public: 0, org: 0, private: 0, uniqueNames: 0 });
+      return (drizzleRows<PluginSummary>(rows.rows)[0] || { total: 0, active: 0, inactive: 0, public: 0, org: 0, private: 0, unique_names: 0 });
     });
   }
 
@@ -452,14 +452,13 @@ export class ReportingService {
    *
    * STATUS CASING NOTE: This query filters by `event_source = 'plugin-build'`
    * and uses lowercase status values (`'completed'`, `'failed'`), while
-   * `getSuccessRate` (1.2) filters by `event_type = 'PIPELINE'` with
+   * `getSuccessRate` filters by `event_type = 'PIPELINE'` with
    * uppercase AWS-style statuses (`'SUCCEEDED'`, `'FAILED'`, `'CANCELED'`).
    * The casing drift is intentional and tracks the producer:
    *   - `plugin-build` events come from our own build pipeline (lowercase)
    *   - `PIPELINE` events come from AWS CodePipeline (uppercase)
-   * The ingest Zod schema at api/reporting/src/routes/event-ingest.ts
-   * SHOULD enum these per-eventSource so we catch drift at ingest rather
-   * than silently producing zero rows here. See findings N71.
+   * The reporting ingest enforces each source's status enum, so a drifted
+   * status is refused at ingest rather than silently producing zero rows here.
    */
   async getBuildSuccessRate(
     orgId: string, interval: string, from: string, to: string, orgIds?: string[],

@@ -9,8 +9,8 @@
  *
  * `createEnvRedisClient` closes that by waiting (bounded) for readiness before
  * every command (its own behaviour is pinned in env-redis-sentinel.test.ts).
- * What this suite pins is that the request-path accessors keep that gate ON:
- * they build their client with the default options, never `readyGate: false`.
+ * What this suite pins is that the request-path accessors build their client
+ * THROUGH it, never by hand.
  */
 import { jest, describe, it, expect } from '@jest/globals';
 
@@ -34,10 +34,7 @@ jest.unstable_mockModule('../src/services/env-redis.js', () => ({
 const { consumeStepUpJti } = await import('../src/middleware/step-up.js');
 const { createEnvRedisTokenRevocationStore } = await import('../src/services/token-revocation.js');
 
-const gateKeptOn = (label: string): boolean => {
-  const call = calls.find((c) => c.label === label);
-  return !!call && (call.opts as { readyGate?: boolean } | undefined)?.readyGate !== false;
-};
+const gateKeptOn = (label: string): boolean => calls.some((c) => c.label === label);
 
 describe('lazy env Redis accessors keep the readiness gate on', () => {
   it('step-up jti consume', async () => {

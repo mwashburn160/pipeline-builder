@@ -23,6 +23,9 @@ const execFileSync = jest.fn(() => { throw new Error('deploy stubbed'); });
 jest.unstable_mockModule('child_process', () => ({ execFileSync }));
 jest.unstable_mockModule('../src/utils/platform-secret.js', () => ({
   resolvePlatformSecretName: jest.fn(async () => 'pipeline-builder/org-1/platform'),
+  // Inline (an `await import` of the real module inside this factory deadlocks).
+  scopeSecretLeaf: (scope: string) => scope.replace(/[^a-z0-9]+/gi, '-'),
+  siblingSecretName: (name: string, leaf: string) => (leaf === 'platform' ? name : name.replace(/[^/]*$/, leaf)),
 }));
 
 const { setupEvents } = await import('../src/commands/setup-events.js');

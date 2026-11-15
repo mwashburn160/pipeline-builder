@@ -275,7 +275,7 @@ export function adminApi(core: ApiCore) {
 
     /** Deletes the whole account (platform admins only); requires a fresh password check. */
     deleteUserById: async (id: string, stepUpToken: string) => {
-      return core.request<ApiResponse<{ message: string }>>(`/api/users/${id}`, {
+      return core.request<ApiResponse<undefined>>(`/api/users/${id}`, {
         method: 'DELETE',
         headers: core.stepUpHeader(stepUpToken),
       });

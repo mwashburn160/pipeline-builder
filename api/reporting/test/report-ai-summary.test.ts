@@ -26,6 +26,8 @@ const mockReserve = jest.fn<AnyFn>();
 const mockReportUsage = jest.fn<AnyFn>(async () => undefined);
 const mockDecrement = jest.fn<AnyFn>();
 const mockGenerate = jest.fn<AnyFn>();
+/** The failover runner: one attempt by default; a test makes it fail BEFORE the attempt (pre-send). */
+const mockFailover = jest.fn(async (sel: unknown, attempt: (s: unknown) => Promise<unknown>) => ({ value: await attempt(sel), selection: sel, failedOver: [] }));
 
 const mockAssertEnabled = jest.fn<AnyFn>();
 const mockSelect = jest.fn<AnyFn>();
@@ -61,7 +63,7 @@ jest.unstable_mockModule('@pipeline-builder/ai-core', () => stubModule('@pipelin
     outputTokens: u?.outputTokens ?? 0,
     cachedInputTokens: u?.inputTokenDetails?.cacheReadTokens ?? 0,
   }),
-  runWithFailover: async (sel: unknown, attempt: (s: unknown) => Promise<unknown>) => ({ value: await attempt(sel), selection: sel, failedOver: [] }),
+  runWithFailover: (...a: unknown[]) => mockFailover(...(a as [unknown, (s: unknown) => Promise<unknown>])),
   aiUsageAuditDetails: (sel: { provider: string; modelId: string; keySource: string }, extra: { quotaSlot?: string; promptVersion?: string; usage?: { inputTokens?: number; outputTokens?: number } }) => ({
     provider: sel.provider,
     model: sel.modelId,
@@ -305,28 +307,41 @@ describe('quota', () => {
     expect(await draftExecutiveSummary(opts())).toMatchObject({ ok: false, reason: 'quota_unavailable' });
   });
 
-  it('ROLLS BACK the reservation when the provider fails', async () => {
+  it('KEEPS the slot when the provider fails AFTER the request was sent', async () => {
+    // Consumed at send: the provider may already have billed the tokens it processed.
     mockGenerate.mockRejectedValue(new Error('provider 503'));
     const result = await draftExecutiveSummary(opts());
-    expect(result).toMatchObject({ ok: false, reason: 'unavailable' });
-    // No generation happened, so the org must not be charged for one.
-    expect(mockDecrement).toHaveBeenCalled();
+    expect(result).toMatchObject({ ok: false, reason: 'unavailable', ai: { quotaSlot: 'kept' } });
+    expect(mockDecrement).not.toHaveBeenCalled();
   });
 
   it('KEEPS the slot for an empty response — the provider answered, so the call was paid for', async () => {
-    // Keep-on-contact, the Ask assistant's rule: refunding an answered-but-empty call
+    // Consumed at send, the platform rule: refunding an answered-but-empty call
     // would let a model that returns nothing generate for free.
     mockGenerate.mockResolvedValue({ text: '   ' });
     expect(await draftExecutiveSummary(opts())).toMatchObject({ ok: false, reason: 'unavailable', ai: { quotaSlot: 'kept' } });
     expect(mockDecrement).not.toHaveBeenCalled();
   });
 
-  it('refunds, and says so on the usage block, when the provider never answered', async () => {
-    mockGenerate.mockRejectedValue(Object.assign(new Error('socket hang up'), { code: 'ECONNRESET' }));
+  it('refunds, and says so on the usage block, when the call fails BEFORE the request is sent', async () => {
+    mockFailover.mockImplementationOnce(async () => { throw Object.assign(new Error('socket hang up'), { code: 'ECONNRESET' }); });
     const result = await draftExecutiveSummary(opts());
+    expect(mockGenerate).not.toHaveBeenCalled();
     expect(result).toMatchObject({ ok: false, reason: 'unavailable', ai: { quotaSlot: 'refunded' } });
     expect((result as { message: string }).message).not.toContain('socket hang up');
     expect(mockDecrement).toHaveBeenCalledTimes(1);
+  });
+
+  it('KEEPS the slot when the call is ABORTED after the send', async () => {
+    mockGenerate.mockRejectedValue(Object.assign(new Error('This operation was aborted'), { name: 'AbortError' }));
+    expect(await draftExecutiveSummary(opts())).toMatchObject({ ok: false, reason: 'unavailable', ai: { quotaSlot: 'kept' } });
+    expect(mockDecrement).not.toHaveBeenCalled();
+  });
+
+  it('KEEPS the slot when the call TIMES OUT after the send', async () => {
+    mockGenerate.mockRejectedValue(Object.assign(new Error('The operation timed out'), { name: 'TimeoutError' }));
+    expect(await draftExecutiveSummary(opts())).toMatchObject({ ok: false, reason: 'unavailable', ai: { quotaSlot: 'kept' } });
+    expect(mockDecrement).not.toHaveBeenCalled();
   });
 });
 
@@ -402,12 +417,6 @@ describe('org AI posture, cancellation and accounting', () => {
     mockReserve.mockClear();
     await draftExecutiveSummary(opts({ req: { ...req, user: { ...req.user, impersonatorId: 'staff-1' } } }));
     expect(mockReserve).not.toHaveBeenCalled();
-  });
-
-  it('KEEPS the slot when the failure itself says the provider answered', async () => {
-    mockGenerate.mockRejectedValue(Object.assign(new Error('empty'), { providerContacted: true }));
-    expect(await draftExecutiveSummary(opts())).toMatchObject({ ok: false, reason: 'unavailable', ai: { quotaSlot: 'kept' } });
-    expect(mockDecrement).not.toHaveBeenCalled();
   });
 
   it('a plain over-quota refusal keeps the generic manual-fallback message', async () => {

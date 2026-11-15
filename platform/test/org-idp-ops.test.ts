@@ -147,6 +147,16 @@ describe.each(['admin', 'self-service'] as const)('upsertOrgIdp — %s surface',
     expect((upsert.mock.calls[0][1] as { orgId?: string }).orgId).toBe('org-1');
   });
 
+  it('canonicalises the URL org, so the secret is encrypted for the id the read path uses', async () => {
+    findByOrg.mockResolvedValue(EXISTING);
+    getLoginConfig.mockResolvedValue({ clientSecret: 's' });
+
+    await upsertOrgIdp(mockReq({ ...EDIT_BODY }), mockRes(), '  ORG-1  ', surface);
+
+    expect(findByOrg).toHaveBeenCalledWith('org-1');
+    expect((upsert.mock.calls[0][1] as { orgId?: string }).orgId).toBe('org-1');
+  });
+
   it('reserves a quota slot only on a fresh insert', async () => {
     findByOrg.mockResolvedValue(EXISTING);
     getLoginConfig.mockResolvedValue({ clientSecret: 's' });

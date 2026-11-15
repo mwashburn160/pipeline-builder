@@ -203,13 +203,14 @@ export default function BillingAdminPage() {
   // Fleet-level destructive op (cancels every subscription at the provider +
   // deletes all rows/events) → gated behind a step-up password re-verify rather
   // than a plain two-button confirm. `purgeSub` holds the target while the
-  // StepUpModal is open; the actual purge runs only after step-up succeeds.
+  // StepUpModal is open; the purge runs only after step-up succeeds, and sends
+  // the modal's token — the endpoint verifies it for a user caller.
   const [purgeSub, setPurgeSub] = useState<Subscription | null>(null);
 
-  const handlePurge = async () => {
+  const handlePurge = async (stepUpToken: string) => {
     if (!purgeSub) return;
     try {
-      const res = await api.deleteSubscriptionByOrg(purgeSub.orgId);
+      const res = await api.deleteSubscriptionByOrg(purgeSub.orgId, stepUpToken);
       if (!res.success) throw new Error(res.message || 'Purge failed');
       toast.success(`Purged ${res.data?.deleted ?? 0} subscription(s) and ${res.data?.events ?? 0} event(s)`);
       list.refresh();
@@ -478,8 +479,8 @@ export default function BillingAdminPage() {
       )}
 
       {/* Purge confirm — step-up gated (fleet-level destructive). The purge runs
-          from onConfirmed after the password re-verify; the endpoint doesn't
-          require the token itself, so it's used purely as the confirmation gate. */}
+          from onConfirmed after the re-verify and forwards the step-up token,
+          which the endpoint requires of a user caller. */}
       {purgeSub && (
         <StepUpModal
           action={`Purge all subscriptions and billing events for ${purgeSub.orgId} (cancels every subscription at the provider — cannot be undone)`}

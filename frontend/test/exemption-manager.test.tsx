@@ -12,6 +12,8 @@ import { describe, it, expect, jest, beforeEach } from '@jest/globals';
 import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { pageToast } from './helpers/pageMocks';
+import { ApiError } from '@/lib/api/errors';
+import { localDayEndIso } from '@/lib/local-day';
 
 jest.mock('@/components/ui/Toast', () => require('./helpers/pageMocks').toastModule());
 
@@ -20,6 +22,7 @@ const createExemption = jest.fn<AnyFn>();
 const reviewExemption = jest.fn<AnyFn>();
 const deleteExemption = jest.fn<AnyFn>();
 const bulkCreateExemptions = jest.fn<AnyFn>();
+const extendExemptionExpiry = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: {
@@ -28,6 +31,7 @@ jest.mock('@/lib/api', () => ({
     reviewExemption: (...a: unknown[]) => reviewExemption(...a),
     deleteExemption: (...a: unknown[]) => deleteExemption(...a),
     bulkCreateExemptions: (...a: unknown[]) => bulkCreateExemptions(...a),
+    extendExemptionExpiry: (...a: unknown[]) => extendExemptionExpiry(...a),
   },
 }));
 
@@ -167,5 +171,56 @@ describe('ExemptionManager', () => {
       { ruleId: 'r2', entityType: 'plugin', entityId: 'p2', entityName: 'Lint', reason: 'because', expiresAt: undefined },
     ]));
     expect(await screen.findByText(/Imported/)).toHaveTextContent('Imported 2 exemptions');
+  });
+  describe('extend expiry', () => {
+    const FUTURE = new Date(Date.now() + 7 * 86_400_000).toISOString();
+    const approved = (over: Record<string, unknown> = {}) => exemption({ status: 'approved', expiresAt: FUTURE, ...over });
+
+    it('offers Extend expiry only on an approved, unlapsed exemption that has an expiry', async () => {
+      getExemptions.mockResolvedValue(page([
+        approved({ id: 'a', entityName: 'live' }),
+        approved({ id: 'b', entityName: 'lapsed', expiresAt: '2020-01-01T00:00:00Z' }),
+        approved({ id: 'c', entityName: 'open-ended', expiresAt: undefined }),
+        exemption({ id: 'd', entityName: 'pending-one', expiresAt: FUTURE }),
+      ]));
+      render(<ExemptionManager />);
+      await screen.findByText('live');
+      expect(screen.getAllByRole('button', { name: 'Extend expiry' })).toHaveLength(1);
+    });
+
+    it('is hidden read-only', async () => {
+      getExemptions.mockResolvedValue(page([approved()]));
+      render(<ExemptionManager readOnly />);
+      await screen.findByText('trivy-scan');
+      expect(screen.queryByRole('button', { name: 'Extend expiry' })).not.toBeInTheDocument();
+    });
+
+    it('sends the END of the chosen local day and refreshes', async () => {
+      getExemptions.mockResolvedValue(page([approved()]));
+      extendExemptionExpiry.mockResolvedValue({ success: true, data: { exemption: approved() } });
+      render(<ExemptionManager />);
+      await screen.findByText('trivy-scan');
+      fireEvent.click(screen.getByRole('button', { name: 'Extend expiry' }));
+      const save = screen.getByRole('button', { name: 'Save expiry' });
+      expect(save).toBeDisabled();
+      fireEvent.change(screen.getByLabelText('New expiry date'), { target: { value: '2099-06-30' } });
+      fireEvent.click(save);
+      await waitFor(() => expect(extendExemptionExpiry).toHaveBeenCalledWith('ex1', localDayEndIso('2099-06-30')));
+      expect(pageToast.success).toHaveBeenCalledWith('Exemption expiry extended');
+      await waitFor(() => expect(getExemptions).toHaveBeenCalledTimes(2));
+      expect(screen.queryByLabelText('New expiry date')).not.toBeInTheDocument();
+    });
+
+    it("shows the server's refusal in place and keeps the form open", async () => {
+      getExemptions.mockResolvedValue(page([approved()]));
+      extendExemptionExpiry.mockRejectedValue(new ApiError('You cannot extend an exemption you requested', 400, 'INSUFFICIENT_PERMISSIONS'));
+      render(<ExemptionManager />);
+      await screen.findByText('trivy-scan');
+      fireEvent.click(screen.getByRole('button', { name: 'Extend expiry' }));
+      fireEvent.change(screen.getByLabelText('New expiry date'), { target: { value: '2099-06-30' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Save expiry' }));
+      expect(await screen.findByText(/cannot extend an exemption you requested/)).toBeInTheDocument();
+      expect(screen.getByLabelText('New expiry date')).toBeInTheDocument();
+    });
   });
 });

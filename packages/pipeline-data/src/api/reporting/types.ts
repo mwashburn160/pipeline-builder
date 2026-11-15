@@ -11,17 +11,23 @@
 
 import type { WeekStart } from '@pipeline-builder/api-core';
 
+/*
+ * The raw-SQL report rows below are typed EXACTLY as the queries return them —
+ * snake_case column aliases, no camel-casing layer — because that is the wire
+ * shape the reports routes forward and the frontend reads.
+ */
+
 export interface ExecutionCount {
   id: string;
   project: string;
   organization: string;
-  pipelineName: string | null;
+  pipeline_name: string | null;
   total: number;
   succeeded: number;
   failed: number;
   canceled: number;
-  firstExecution: string | null;
-  lastExecution: string | null;
+  first_execution: string | null;
+  last_execution: string | null;
 }
 
 export interface TimeSeriesEntry {
@@ -29,61 +35,61 @@ export interface TimeSeriesEntry {
   succeeded: number;
   failed: number;
   canceled: number;
-  successPct: number;
+  success_pct: number;
 }
 
 export interface DurationStats {
   id: string;
   project: string;
-  pipelineName: string | null;
-  avgMs: number;
-  minMs: number;
-  maxMs: number;
-  p95Ms: number;
+  pipeline_name: string | null;
+  avg_ms: number;
+  min_ms: number;
+  max_ms: number;
+  p95_ms: number;
   executions: number;
 }
 
 export interface PipelineExecution {
-  executionId: string;
+  execution_id: string;
   /** Rolled-up terminal status: succeeded | failed | canceled | in-progress. */
   status: string;
-  startedAt: string | null;
-  endedAt: string | null;
-  durationMs: number | null;
+  started_at: string | null;
+  ended_at: string | null;
+  duration_ms: number | null;
   /** First failing stage/action for the execution (null when it didn't fail). */
-  failingStage: string | null;
-  failingAction: string | null;
+  failing_stage: string | null;
+  failing_action: string | null;
   /** The first failure detail an event of the execution carried (`detail.failure`), or null. */
   failure: unknown | null;
 }
 
 export interface StageFailure {
-  stageName: string;
+  stage_name: string;
   failures: number;
   total: number;
-  failurePct: number;
+  failure_pct: number;
 }
 
 export interface StageBottleneck {
   id: string;
-  pipelineName: string | null;
-  stageName: string;
-  avgMs: number;
-  maxMs: number;
+  pipeline_name: string | null;
+  stage_name: string;
+  avg_ms: number;
+  max_ms: number;
 }
 
 export interface ActionFailure {
-  actionName: string;
+  action_name: string;
   failures: number;
   total: number;
-  failurePct: number;
+  failure_pct: number;
 }
 
 export interface ErrorEntry {
-  errorPattern: string;
+  error_pattern: string;
   occurrences: number;
-  affectedPipelines: number;
-  lastSeen: string;
+  affected_pipelines: number;
+  last_seen: string;
 }
 
 export interface PluginSummary {
@@ -94,33 +100,34 @@ export interface PluginSummary {
   public: number;
   org: number;
   private: number;
-  uniqueNames: number;
+  unique_names: number;
 }
 
 export interface TypeComputeDistribution {
-  pluginType: string;
-  computeType: string;
+  plugin_type: string;
+  compute_type: string;
   count: number;
 }
 
 export interface VersionCount {
   name: string;
-  versionCount: number;
-  latestVersion: string;
-  hasDefault: boolean;
+  version_count: number;
+  latest_version: string;
+  has_default: boolean;
 }
 
 export interface BuildTimeSeriesEntry {
   period: string;
   succeeded: number;
   failed: number;
-  successPct: number;
+  success_pct: number;
 }
 
 export interface BuildDuration {
-  pluginName: string;
-  avgMs: number;
-  maxMs: number;
+  /** `detail.pluginName` of the build event; null when the event carried none. */
+  plugin_name: string | null;
+  avg_ms: number;
+  max_ms: number;
   builds: number;
 }
 
@@ -159,10 +166,10 @@ export interface PluginRuntimeAggregate {
 }
 
 export interface BuildFailure {
-  pluginName: string;
-  errorMessage: string;
+  plugin_name: string | null;
+  error_message: string | null;
   occurrences: number;
-  lastSeen: string;
+  last_seen: string;
 }
 
 /**

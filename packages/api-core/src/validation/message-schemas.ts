@@ -150,7 +150,6 @@ export function isAllowedAttachmentType(mimetype: string, filename: string): boo
   return MESSAGE_ATTACHMENT_ALLOWED_EXT.has(filename.slice(dot).toLowerCase());
 }
 
-/** Attachment metadata DTO returned to clients (never exposes the storage key). */
 /**
  * Attachment ids to link to a message. Each is the id returned by a prior
  * POST /messages/attachments upload; the create route links only ids that belong
@@ -210,9 +209,9 @@ export const MESSAGE_BULK_MAX_IDS = 200;
  */
 export const MessageHideSchema = z.object({
   ids: z.array(z.string().uuid()).min(1).max(MESSAGE_BULK_MAX_IDS).optional(),
-  messageType: z.enum(['announcement', 'conversation']).optional(),
+  messageType: MessageTypeSchema.optional(),
   isRead: z.boolean().optional(),
-  priority: z.enum(['normal', 'high', 'urgent']).optional(),
+  priority: MessagePrioritySchema.optional(),
   channel: z.string().max(64).optional(),
   sentBy: MessageSentBySchema.optional(),
   ...MessagePartyFilterFields,

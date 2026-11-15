@@ -208,10 +208,8 @@ jest.unstable_mockModule('../src/services/git-analysis-service.js', () => ({
 
 const mockGeneratePipelineConfig = jest.fn<(...args: any[]) => any>();
 
-/** Mirrors the real service's provider-contacted sentinel — the route branches on
- *  `instanceof AIEmptyOutputError` to KEEP (not refund) the aiCalls slot. */
+/** Mirrors the real service's empty-output error (the slot is kept: it was consumed at send). */
 class AIEmptyOutputError extends Error {
-  readonly providerContacted = true;
   constructor(message = 'AI did not produce a pipeline configuration') {
     super(message);
     this.name = 'AIEmptyOutputError';
@@ -228,8 +226,9 @@ jest.unstable_mockModule('@pipeline-builder/ai-core', () => stubModule('@pipelin
   runWithFailover: async (selection: unknown, attempt: (s: unknown) => Promise<unknown>) => ({ value: await attempt(selection), selection, failedOver: [] }),
   aiUsageAuditDetails: (sel: any, extra: any) => ({ provider: sel.provider, model: sel.modelId, keySource: sel.keySource, quotaSlot: extra.quotaSlot, promptVersion: extra.promptVersion, tokens: extra.usage }),
 }));
+const mockGetFilteredPlugins = jest.fn<(...args: any[]) => any>(async () => []);
 jest.unstable_mockModule('../src/services/plugin-catalog.js', () => ({
-  getFilteredPlugins: jest.fn<(...args: any[]) => any>().mockResolvedValue([]),
+  getFilteredPlugins: (...a: unknown[]) => mockGetFilteredPlugins(...a),
 }));
 jest.unstable_mockModule('../src/services/ai-generation-service.js', () => ({
   streamPipelineConfig: mockStreamPipelineConfig,
@@ -698,7 +697,7 @@ describe('POST /generate/from-url/stream', () => {
     });
   });
 
-  // Client abort: the slot follows provider contact, not the abort
+  // Client abort: the slot follows the SEND, not the abort
 
   /** A request whose 'close' listener the test can fire mid-stream. */
   function closableReq() {
@@ -707,7 +706,8 @@ describe('POST /generate/from-url/stream', () => {
     return { req, close: () => close() };
   }
 
-  it('refunds the slot when the client leaves BEFORE the provider responded, and audits the abort', async () => {
+  it('KEEPS the slot when the client leaves after the request was SENT, even before the provider responded, and audits the abort', async () => {
+    // Consumed at send: the provider bills the tokens it processed for an aborted call.
     const { req, close } = closableReq();
     mockStreamPipelineConfig.mockImplementation(() => ({
       ...createMockStreamResult([]),
@@ -716,10 +716,10 @@ describe('POST /generate/from-url/stream', () => {
 
     await handler(req, mockSseRes());
 
-    expect(mockDecrementQuota).toHaveBeenCalledTimes(1);
+    expect(mockDecrementQuota).not.toHaveBeenCalled();
     expect(auditRows()[0]).toEqual(expect.objectContaining({
       outcome: 'failure',
-      details: expect.objectContaining({ aborted: true, quota: expect.objectContaining({ slot: 'refunded' }) }),
+      details: expect.objectContaining({ aborted: true, quota: expect.objectContaining({ slot: 'kept' }) }),
     }));
   });
 
@@ -841,10 +841,11 @@ describe('POST /generate/from-url/stream', () => {
       'Failed to generate pipeline from URL',
       { details: 'Unexpected internal error' },
     );
-    // A failed generation is audited too, with the slot refunded (provider never responded).
+    // A failed generation is audited too. The failure came from the attempt — the
+    // send — so the slot is kept.
     expect(auditRows()).toEqual([expect.objectContaining({
       outcome: 'failure',
-      details: expect.objectContaining({ errorCode: 'Error', quota: expect.objectContaining({ slot: 'refunded' }) }),
+      details: expect.objectContaining({ errorCode: 'Error', quota: expect.objectContaining({ slot: 'kept' }) }),
     })]);
   });
 
@@ -1072,11 +1073,10 @@ describe('POST /generate/from-url/stream', () => {
   });
 });
 
-// The aiCalls refund policy is keep-on-provider-contact for the
-// NON-streaming /generate route (the streaming path already keeps the slot once
-// the provider was contacted). An empty/unparseable output AFTER a completed
-// provider round-trip (AIEmptyOutputError) must NOT refund; a pre-provider
-// failure (model resolution, connectivity) must refund.
+// The aiCalls refund policy for the NON-streaming /generate route is the
+// platform's: consumed at SEND. An empty/unparseable output (AIEmptyOutputError),
+// a provider error, an abort or a timeout after the request was sent must NOT
+// refund; a failure before the send (the plugin catalog read) must refund.
 describe('POST /generate (aiCalls refund policy)', () => {
   const handler = getHandler('post', '/generate');
 
@@ -1096,19 +1096,30 @@ describe('POST /generate (aiCalls refund policy)', () => {
     const res = mockSseRes();
     await handler(req, res);
 
-    // Provider was contacted → no refund (matches the streaming path).
+    // The request was sent → no refund (matches the streaming path).
     expect(mockDecrementQuota).not.toHaveBeenCalled();
   });
 
-  it('REFUNDS the reserved aiCalls slot on a pre-provider failure (model resolution / connectivity)', async () => {
-    mockGeneratePipelineConfig.mockRejectedValue(new Error('AI provider "anthropic" is not configured'));
+  it('REFUNDS the reserved aiCalls slot on a failure BEFORE the send', async () => {
+    mockGetFilteredPlugins.mockRejectedValueOnce(new Error('plugin catalog unavailable'));
 
-    const req = mockReq({ body: {} });
-    const res = mockSseRes();
-    await handler(req, res);
+    await handler(mockReq({ body: {} }), mockSseRes());
 
-    // Provider never produced a round-trip → slot returned.
+    expect(mockGeneratePipelineConfig).not.toHaveBeenCalled();
     expect(mockDecrementQuota).toHaveBeenCalledTimes(1);
+    expect(auditRows()[0].details.quota.slot).toBe('refunded');
+  });
+
+  it.each([
+    ['ABORTED', Object.assign(new Error('This operation was aborted'), { name: 'AbortError' })],
+    ['TIMED OUT', Object.assign(new Error('The operation timed out'), { name: 'TimeoutError' })],
+  ])('KEEPS the slot when the call is %s after the send', async (_label, error) => {
+    mockGeneratePipelineConfig.mockRejectedValue(error);
+
+    await handler(mockReq({ body: {} }), mockSseRes());
+
+    expect(mockDecrementQuota).not.toHaveBeenCalled();
+    expect(auditRows()[0].details.quota.slot).toBe('kept');
   });
 
   it('does not refund on a successful generation', async () => {
@@ -1130,7 +1141,7 @@ describe('POST /generate (aiCalls refund policy)', () => {
     expect(auditRows()).toEqual([expect.objectContaining({ outcome: 'success', details: expect.objectContaining({ route: 'generate', promptLength: 16 }) })]);
   });
 
-  it('marks the slot consumed when the provider responds, so a later failure keeps it', async () => {
+  it('keeps the slot when the provider responded and then failed', async () => {
     mockGeneratePipelineConfig.mockImplementation(async (_request: unknown, call: { onProviderResponse: () => void }) => {
       call.onProviderResponse();
       throw new Error('stream broke mid-body');

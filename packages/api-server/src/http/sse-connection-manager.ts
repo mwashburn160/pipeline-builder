@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { randomBytes } from 'node:crypto';
-import { createLogger, writeSseHeaders, type SseTicketStore, errorMessage, envInt } from '@pipeline-builder/api-core';
+import { createLogger, writeSseHeaders, type SseTicketStore, errorMessage, envInt, normalizeOrgId } from '@pipeline-builder/api-core';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import type { Response } from 'express';
 import { v7 as uuid } from 'uuid';
@@ -251,7 +251,7 @@ export class SSEManager {
 
   /** Current open-stream count for an org (0 if unseen). */
   getOrgClientCount(orgId: string): number {
-    return this.orgClientCounts.get(orgId) ?? 0;
+    return this.orgClientCounts.get(normalizeOrgId(orgId) ?? '') ?? 0;
   }
 
   /**
@@ -286,14 +286,17 @@ export class SSEManager {
    *
    * @param requestId - Unique request ID
    * @param res - Express Response object
-   * @param orgId - Authenticated org id (optional). When set, enforces the
+   * @param rawOrgId - Authenticated org id (optional). When set, enforces the
    *   per-org cap and the counter is decremented on disconnect/cleanup.
    * @param maxClientsForSubject - Per-subject cap override (default
    *   `maxClientsPerRequest`). An org-keyed channel's subject IS the org, so it
    *   must not inherit the small per-build-request cap — see {@link addOrgClient}.
    * @returns true if client was added, false if rejected (limit reached)
    */
-  addClient(requestId: string, res: Response, orgId?: string, maxClientsForSubject: number = this.maxClientsPerRequest): boolean {
+  addClient(requestId: string, res: Response, rawOrgId?: string, maxClientsForSubject: number = this.maxClientsPerRequest): boolean {
+    // The per-org cap is keyed by the canonical id, so two spellings of one
+    // org can't each get a full allowance.
+    const orgId = normalizeOrgId(rawOrgId);
     // Normalize the map key: the subject id is allowed in two forms (dashed
     // api-server uuid vs undashed nginx $request_id), and a producer/consumer that
     // render it differently would otherwise key different Map entries — the client
@@ -660,7 +663,7 @@ export class SSEManager {
       // Same for the per-org cap — better to send 429 than open the stream and
       // immediately close it. The ticket guarantees a verified org id, so the
       // per-org ceiling is always enforced for the /logs stream.
-      if ((this.orgClientCounts.get(orgId) ?? 0) >= this.maxClientsPerOrg) {
+      if (this.getOrgClientCount(orgId) >= this.maxClientsPerOrg) {
         logger.warn(`Per-org SSE client cap reached for ${orgId} (max: ${this.maxClientsPerOrg})`);
         res.status(429).end('Too many SSE connections for this organization');
         return;

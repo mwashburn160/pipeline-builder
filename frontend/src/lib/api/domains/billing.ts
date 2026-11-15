@@ -447,7 +447,7 @@ export function billingApi(core: ApiCore) {
 
     /** Stop a standing recurring discount (already-granted credit persists) (billing:manage). */
     removeSubscriptionDiscount: async (subscriptionId: string, discountId: string) => {
-      return core.request<ApiResponse<{ discountId: string }>>(`/api/billing/subscriptions/${subscriptionId}/discounts/${discountId}`, {
+      return core.request<ApiResponse<{ removed: string }>>(`/api/billing/subscriptions/${subscriptionId}/discounts/${discountId}`, {
         method: 'DELETE',
       });
     },
@@ -638,9 +638,13 @@ export function billingApi(core: ApiCore) {
       return core.request<ApiResponse<AdminBillingSummary>>(`/api/billing/admin/summary${buildQuery(params)}`, { signal: opts?.signal });
     },
 
-    /** Purge every subscription + billing event for an org (cascade hook; destructive). */
-    deleteSubscriptionByOrg: async (orgId: string) => {
-      return core.request<ApiResponse<{ deleted: number; events: number }>>(`/api/billing/subscriptions/by-org/${orgId}`, { method: 'DELETE' });
+    /** Purge every subscription + billing event for an org (cascade hook; destructive).
+     *  Step-up gated for a user caller: confirm in a `StepUpModal` first and forward its token. */
+    deleteSubscriptionByOrg: async (orgId: string, stepUpToken: string) => {
+      return core.request<ApiResponse<{ deleted: number; events: number }>>(`/api/billing/subscriptions/by-org/${orgId}`, {
+        method: 'DELETE',
+        headers: core.stepUpHeader(stepUpToken),
+      });
     },
 
     // ============================================
@@ -701,7 +705,8 @@ export interface BillingSummary {
 export interface BillingInvoiceRow {
   periodStart: string; periodEnd: string;
   grossCents: number; discountCents: number; creditCents: number; taxCents: number; netCents: number; amountPaidCents: number;
-  status: 'paid' | 'open' | 'void' | 'uncollectible';
+  /** `refunded`/`disputed` are reversals set from charge webhooks. */
+  status: 'paid' | 'open' | 'void' | 'uncollectible' | 'refunded' | 'disputed';
 }
 
 export interface BillingAllocation {

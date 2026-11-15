@@ -1,6 +1,6 @@
 // GENERATED FROM docs/audit-events.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 42e6c864ca17502f6673bd11d0ad4e6a4cc169797fd6eab6c5f202809077acb6
+// SOURCE-SHA256: 28069ff4583f281bc89cf27bc18210bee01b9fbbf7eb45aaf92e2b708415c581
 // SPDX-License-Identifier: Apache-2.0
 import { ScrollText } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -137,7 +137,11 @@ export const auditEventsTopic: HelpTopic = {
             ],
             [
               "AUDIT_RETENTION_DAYS",
-              "TTL on stored events, default 90"
+              "retention of stored events, default 90"
+            ],
+            [
+              "AUDIT_RETENTION_PRUNE_INTERVAL_MS",
+              "how often the retention prune runs, default 3600000 (1 h)"
             ],
             [
               "AUDIT_HEAD_EXPORT_S3_ENDPOINT",
@@ -187,7 +191,7 @@ export const auditEventsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Records auto-expire via a MongoDB TTL index after config.audit.retentionDays days."
+          "content": "Records are deleted after config.audit.retentionDays days by an hourly, leader-locked retention prune (not a Mongo TTL — see Retention watermarks below)."
         }
       ]
     },
@@ -237,17 +241,17 @@ export const auditEventsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "chain in seq order and returns { ok, brokenAt?, reason?, count, lastSeq, unverifiable, publishedHead? }. reason is one of hash-mismatch (a field was edited), broken-link / sequence-gap (a row was deleted or re-ordered), tail-truncated (the chain no longer reaches its in-DB or published head), head-mismatch (the row at the published seq has a different hash), or published-head-invalid (the stored head's signature fails). publishedHead reports matched / absent / expired / pruned / unavailable, and stale: true when the newest events aren't externally anchored yet. The dashboard Audit page surfaces this as a Verify integrity action."
+          "content": "chain in seq order and returns { ok, brokenAt?, reason?, count, lastSeq, unverifiable, publishedHead? }. reason is one of hash-mismatch (a field was edited), broken-link / sequence-gap (a row was deleted or re-ordered), tail-truncated (the chain no longer reaches its in-DB or published head), head-truncated (the oldest rows were deleted outside the retention prune: the first survivor does not follow the chain's retention watermark, or is not seq 1 when the chain was never pruned), watermark-invalid (a retention watermark's signature fails), head-mismatch (the row at the published seq has a different hash), or published-head-invalid (the stored head's signature fails). publishedHead reports matched / absent / expired / pruned / unavailable, and stale: true when the newest events aren't externally anchored yet. The dashboard Audit page surfaces this as a Verify integrity action."
         },
         {
           "type": "list",
           "items": [
-            "Retention-aware — verify anchors on the first surviving event, so an org"
+            "Retention watermarks — retention is a prune, not a TTL, so it can leave"
           ]
         },
         {
           "type": "text",
-          "content": "older than the retention window (whose oldest rows have aged out under the TTL) does not false-alarm, and a head older than the retention window is not required to still exist. Truncation of the oldest contiguous prefix is indistinguishable from normal TTL pruning."
+          "content": "evidence. Per chain it deletes a contiguous prefix (everything up to the highest seq past the cutoff), and before deleting it appends a watermark to audit_chain_checkpoints — { chainKey, seq, hash, eventCreatedAt } of the last pruned event, HMAC-signed with the chain key; append-only, no TTL. Verify requires the first surviving event to follow the highest watermark below it (seq = watermark.seq + 1, prevHash = watermark.hash), or to be seq 1 when nothing was ever pruned — so an org older than the retention window does not false-alarm, while deleting its oldest rows by hand reads head-truncated. A head older than the retention window is not required to still exist. An existing database's former TTL index on createdAt is rebuilt as a plain index by the boot index reconcile."
         },
         {
           "type": "list",
@@ -681,7 +685,7 @@ export const auditEventsTopic: HelpTopic = {
             ],
             [
               "Compliance",
-              "compliance.exemption.approve, compliance.exemption.revoke, compliance.rule.toggle, compliance.rule.create/update/delete/restore/purge, compliance.policy.create/update/delete/restore/purge, compliance.scan-schedule.create/update/delete, compliance.template.apply, compliance.scan.create, compliance.scan.cancel, compliance.notification-preference.update (changed field names + webhook host only — never the destination secret). compliance.exemption.request (filed, single or bulk — metadata only, never the reason) and compliance.exemption.reject; compliance.exemption.expire — the daily expiry sweep moved approved exemptions past expiresAt to expired, once per org per tick (system actor, details.trigger: 'expiry', count, ids); compliance.exemption.approve carries ruleId, entityType, entityId, requester and expiresAt, and is recorded with outcome failure (details.refusal: CE_SELF_APPROVE) when a requester tries to approve their own. Rule, policy and scan-schedule updates carry details.changes — before → after of the enforcement-bearing fields. The retention sweep's hard-deletes record compliance.rule.purge / compliance.policy.purge, once per tick (system actor, details.trigger: 'retention', runId, count). A scheduled scan writes compliance.scan.create (details.triggeredBy: 'scheduled', scheduleId); every scan's end writes compliance.scan.complete (success with pass/warn/block counts, or failure). compliance.subscription.auto-subscribe — platform onboarding subscribed a new org to the published rules (inactive; details.subscribed)"
+              "compliance.exemption.approve, compliance.exemption.revoke, compliance.rule.toggle, compliance.rule.create/update/delete/restore/purge, compliance.policy.create/update/delete/restore/purge, compliance.scan-schedule.create/update/delete, compliance.template.apply, compliance.scan.create, compliance.scan.cancel, compliance.notification-preference.update (changed field names + webhook host only — never the destination secret). compliance.exemption.request (filed, single or bulk — metadata only, never the reason) and compliance.exemption.reject; compliance.exemption.expire — the daily expiry sweep moved approved exemptions past expiresAt to expired, once per org per tick (system actor, details.trigger: 'expiry', count, ids); compliance.exemption.approve carries ruleId, entityType, entityId, requester and expiresAt, and is recorded with outcome failure (details.refusal: CE_SELF_APPROVE) when a requester tries to approve their own. Extending an approved exemption's expiry (PUT /compliance/exemptions/:id/expiry) is recorded as the same action with details.extension: true and previousExpiresAt. Rule, policy and scan-schedule updates carry details.changes — before → after of the enforcement-bearing fields. The retention sweep's hard-deletes record compliance.rule.purge / compliance.policy.purge, once per tick (system actor, details.trigger: 'retention', runId, count). A scheduled scan writes compliance.scan.create (details.triggeredBy: 'scheduled', scheduleId); every scan's end writes compliance.scan.complete (success with pass/warn/block counts, or failure). compliance.subscription.auto-subscribe — platform onboarding subscribed a new org to the published rules (inactive; details.subscribed)"
             ],
             [
               "Image registry",
@@ -705,11 +709,11 @@ export const auditEventsTopic: HelpTopic = {
             ],
             [
               "Ask (assistant)",
-              "ask.query (read-only how-to turn), ask.agent.turn (tool-calling turn) — one per turn on POST /ask, /ask/stream, /ask/agent/stream respectively; both carry an outcome (success/failure, incl. client-abort) and details with SAFE METADATA ONLY (tools used, proposal kinds, source count, query length, the RESOLVED provider and model, and quota — the aiCalls slot the turn reserved: slot = kept once the provider responded or refunded when it was never reached, plus the reservation's used/limit) — never the raw query text. Confirmed drafts commit through the normal create routes, so the resource itself is audited as pipeline.create / pipeline_template.create / plugin.deploy. ask.feedback records a reader's verdict on an answer (details.rating = up/down) together with the DOC IDS it cited (details.sources, e.g. authentication.md) — the doc is what gets corrected, and unlike the question it is not the user's own words. A help search that found nothing is counted in the help_search_miss_total metric only, never here: the search text would be the one actionable field and it is user-entered"
+              "ask.query (read-only how-to turn), ask.agent.turn (tool-calling turn) — one per turn on POST /ask, /ask/stream, /ask/agent/stream respectively; both carry an outcome (success/failure, incl. client-abort) and details with SAFE METADATA ONLY (tools used, proposal kinds, source count, query length, the RESOLVED provider and model, and quota — the aiCalls slot the turn reserved: slot = kept once the request was sent to the provider or refunded when the turn failed before the send, plus the reservation's used/limit) — never the raw query text. Confirmed drafts commit through the normal create routes, so the resource itself is audited as pipeline.create / pipeline_template.create / plugin.deploy. ask.feedback records a reader's verdict on an answer (details.rating = up/down) together with the DOC IDS it cited (details.sources, e.g. authentication.md) — the doc is what gets corrected, and unlike the question it is not the user's own words. A help search that found nothing is counted in the help_search_miss_total metric only, never here: the search text would be the one actionable field and it is user-entered"
             ],
             [
               "AI generation",
-              "pipeline.ai.generate (POST /pipelines/generate, /generate/stream, /generate/from-url, /generate/from-url/stream), plugin.ai.generate (POST /plugins/generate, /generate/stream) — one row per generation, with an outcome (success, or failure incl. client abort — details.aborted — and a repository analysis that failed before any AI call — details.analysisFailed) and details with SAFE METADATA ONLY: route, the prompt length, errorCode on a failure, and ai — the provider and model that ANSWERED (after org-key selection and any platform failover; fallbackFrom names the provider first resolved), keySource (request = the caller's own key, org = the organization's configured key, platform), tokens (input/output/cached input), the promptVersion and quotaSlot (kept once the provider responded, refunded when it was never reached) — plus quota, the reservation's used/limit. Absent ai means the run failed before a provider was chosen (AI turned off, nothing configured). Never the prompt, the generated config or a key. A generated draft is only a draft: what the user then saves is audited as pipeline.create / plugin.deploy, and placeholder plugins a from-URL generation proposed are created only when the user confirms them (POST /pipelines/generate/missing-plugins, each recorded as plugin.deploy by the plugin service)"
+              "pipeline.ai.generate (POST /pipelines/generate, /generate/stream, /generate/from-url, /generate/from-url/stream), plugin.ai.generate (POST /plugins/generate, /generate/stream) — one row per generation, with an outcome (success, or failure incl. client abort — details.aborted — and a repository analysis that failed before any AI call — details.analysisFailed) and details with SAFE METADATA ONLY: route, the prompt length, errorCode on a failure, and ai — the provider and model that ANSWERED (after org-key selection and any platform failover; fallbackFrom names the provider first resolved), keySource (request = the caller's own key, org = the organization's configured key, platform), tokens (input/output/cached input), the promptVersion and quotaSlot (kept once the request was sent to the provider — including an abort, timeout or provider error after the send — refunded when the run failed before the send) — plus quota, the reservation's used/limit. Absent ai means the run failed before a provider was chosen (AI turned off, nothing configured). Never the prompt, the generated config or a key. A generated draft is only a draft: what the user then saves is audited as pipeline.create / plugin.deploy, and placeholder plugins a from-URL generation proposed are created only when the user confirms them (POST /pipelines/generate/missing-plugins, each recorded as plugin.deploy by the plugin service)"
             ],
             [
               "Plugin ecosystem: publishers",

@@ -17,6 +17,7 @@ const mockGetAverageDuration = jest.fn<AnyFn>();
 const mockGetStageFailures = jest.fn<AnyFn>();
 const mockGetStageBottlenecks = jest.fn<AnyFn>();
 const mockGetActionFailures = jest.fn<AnyFn>();
+const mockGetReportEnvironments = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockGetPlatformErrors = jest.fn<AnyFn>();
 const mockGetDoraMetrics = jest.fn<AnyFn>();
 const mockGetDoraTrend = jest.fn<AnyFn>();
@@ -100,6 +101,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@p
     getStageFailures: mockGetStageFailures,
     getStageBottlenecks: mockGetStageBottlenecks,
     getActionFailures: mockGetActionFailures,
+    getReportEnvironments: mockGetReportEnvironments,
     getPlatformErrors: mockGetPlatformErrors,
     getDoraMetrics: mockGetDoraMetrics,
     getDoraTrend: mockGetDoraTrend,
@@ -278,6 +280,31 @@ describe('Execution Report Routes', () => {
 
       expect(mockGetStageFailures).toHaveBeenCalled();
       expect(sendSuccess).toHaveBeenCalled();
+    });
+  });
+
+  // The remaining single-query routes share one shape: resolve the report
+  // scope (range + rollup), refuse a bad range with 400 before querying, then
+  // answer the one service call under its own response key.
+  describe.each([
+    ['/duration', mockGetAverageDuration, 'pipelines'],
+    ['/stage-failures', mockGetStageFailures, 'stages'],
+    ['/stage-bottlenecks', mockGetStageBottlenecks, 'stages'],
+    ['/action-failures', mockGetActionFailures, 'actions'],
+    ['/environments', mockGetReportEnvironments, 'environments'],
+  ] as const)('GET %s', (path, query, key) => {
+    it('answers the service rows under its key', async () => {
+      query.mockResolvedValue([{ row: 1 }]);
+      await getHandler(path)({ query: {} }, {});
+      expect(query).toHaveBeenCalled();
+      expect(sendSuccess).toHaveBeenCalledWith(expect.anything(), 200, { [key]: [{ row: 1 }] });
+    });
+
+    it('400s on a bad date range and does not query', async () => {
+      (parseDateRange as jest.Mock<AnyFn>).mockReturnValueOnce({ error: 'Date range exceeds maximum of 365 days' });
+      await getHandler(path)({ query: { from: 'x', to: 'y' } }, {});
+      expect(sendBadRequest).toHaveBeenCalled();
+      expect(query).not.toHaveBeenCalled();
     });
   });
 

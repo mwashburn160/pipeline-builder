@@ -42,6 +42,7 @@ jest.unstable_mockModule('../src/services/audit-head-export.js', () => ({
   exportAuditChainHeads: jest.fn(async () => undefined),
   headExportTarget: () => headTarget,
 }));
+jest.unstable_mockModule('../src/services/audit-retention.js', () => ({ auditRetentionSweep: def('audit-retention-prune') }));
 jest.unstable_mockModule('../src/services/billing-provision.js', () => ({ reconcilePendingBillingSubscriptions: jest.fn(async () => undefined) }));
 const mockReverify = jest.fn<AnyFn>(async () => ({ checked: 1, unverified: 0 }));
 jest.unstable_mockModule('../src/services/org-domain-service.js', () => ({ orgDomainService: { reverifyStaleDomains: mockReverify } }));
@@ -70,7 +71,7 @@ beforeEach(() => {
 describe('sweepDefinitions', () => {
   it('lists every sweep when everything is configured', async () => {
     expect((await sweepDefinitions()).map((d) => d.name)).toEqual([
-      'audit-local-spool-drain', 'audit-head-export', 'billing-reconcile', 'domain-reverify',
+      'audit-local-spool-drain', 'audit-retention-prune', 'audit-head-export', 'billing-reconcile', 'domain-reverify',
       'invitation-reaper', 'impersonation-reaper', 'org-purge-sweep', 'soft-delete-purge', 'alert-delivery-health',
     ]);
   });
@@ -106,7 +107,7 @@ describe('buildSweep', () => {
 describe('registerBackgroundSweeps', () => {
   it('starts every applicable sweep and returns them for shutdown', async () => {
     const started = await registerBackgroundSweeps();
-    expect(started).toHaveLength(9);
+    expect(started).toHaveLength(10);
     for (const s of started) expect((s as unknown as { start: jest.Mock }).start).toHaveBeenCalledTimes(1);
   });
 
@@ -114,7 +115,7 @@ describe('registerBackgroundSweeps', () => {
     softDeleteScheduler = null;
     failBuild = 'org-purge-sweep';
     const started = await registerBackgroundSweeps();
-    expect(started).toHaveLength(7);
+    expect(started).toHaveLength(8);
     expect(lockedCalls.map((c) => c.name)).toContain('impersonation-reaper');
   });
 });

@@ -151,6 +151,14 @@ export interface EditProposal extends ProposalBase {
   compliance?: ComplianceNote;
   /** Template edits only: the merged document's template-engine verdict. */
   validation?: TemplateDraftValidation;
+  /**
+   * Secret positions (`props.stages[0].steps[1].env.API_KEY`) the edit gives a
+   * value the ASSISTANT wrote, where the entity held none. Set only when
+   * non-empty, so the card can call them out: the reviewer is the one who
+   * vouches for a model-authored secret. (Overwriting an existing secret is
+   * refused outright — see the edit tools.)
+   */
+  addedSecrets?: string[];
 }
 
 /**

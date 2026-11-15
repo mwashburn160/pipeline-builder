@@ -100,6 +100,14 @@ describe('quota.reserve', () => {
     expect(result.unavailable).toBeUndefined();
   });
 
+  it('treats a JSON `null` body as unconfirmed instead of throwing', async () => {
+    const quotaService = await loadQuotaService();
+    mockPost.mockResolvedValue(httpResponse(200, null));
+    await expect(quotaService.reserve('org1', 'pipelines', AUTH)).resolves.toMatchObject({ exceeded: true, unavailable: true });
+    mockPost.mockResolvedValue(httpResponse(429, null));
+    await expect(quotaService.reserve('org1', 'pipelines', AUTH)).resolves.toMatchObject({ exceeded: true, unavailable: true });
+  });
+
   it('FAILS CLOSED on an errored-but-reachable response (HTTP 500) by default', async () => {
     // Reachable-but-erroring quota service is often an OVERLOADED one; failing
     // open here would pile unmetered expensive work onto it. Default = deny.
@@ -198,6 +206,15 @@ describe('quota.check', () => {
 
     expect(result).toEqual(status);
     expect(mockGet).toHaveBeenCalledWith('/quotas/org1/apiCalls', expect.any(Object));
+  });
+
+  it('FAILS OPEN (allowed) on a JSON `null` body instead of throwing', async () => {
+    // `JSON.parse('null')` is null — reading `.success` off it used to throw out
+    // of a path whose whole contract is "never block on the quota service".
+    const quotaService = await loadQuotaService();
+    mockGet.mockResolvedValue(httpResponse(200, null));
+    const result = await quotaService.check('org1', 'apiCalls', AUTH);
+    expect(result.failOpen).toBe(true);
   });
 
   it('FAILS OPEN (allowed) when the service is unreachable (null response)', async () => {

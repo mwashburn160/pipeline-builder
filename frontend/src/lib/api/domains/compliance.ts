@@ -122,8 +122,9 @@ export function complianceApi(core: ApiCore) {
       return core.request<ApiResponse<{ policies: CompliancePolicy[]; pagination?: { total: number; limit: number; offset: number; hasMore: boolean } }>>(`/api/compliance/policies${buildQuery(params)}`);
     },
 
-    /** Create a compliance policy */
-    createCompliancePolicy: async (data: { name: string; description?: string; version?: string; ruleNames?: string[] }) => {
+    /** Create a compliance policy. `rules` names the rules to link to it (the
+     *  server's field; anything else is stripped). */
+    createCompliancePolicy: async (data: { name: string; description?: string; version?: string; rules?: string[] }) => {
       return core.request<ApiResponse<{ policy: CompliancePolicy }>>('/api/compliance/policies', {
         method: 'POST',
         body: JSON.stringify(data),
@@ -306,6 +307,16 @@ export function complianceApi(core: ApiCore) {
       return core.request<ApiResponse<{ exemption: ComplianceExemption }>>(`/api/compliance/exemptions/${id}/review`, {
         method: 'PUT',
         body: JSON.stringify({ status, rejectionReason }),
+      });
+    },
+
+    /** Extend an APPROVED exemption's expiry before it lapses (`compliance:write`).
+     *  `expiresAt` is an ISO instant later than both now and the current expiry.
+     *  The requester cannot extend their own (approval's two-person rule). */
+    extendExemptionExpiry: async (id: string, expiresAt: string) => {
+      return core.request<ApiResponse<{ exemption: ComplianceExemption }>>(`/api/compliance/exemptions/${encodeURIComponent(id)}/expiry`, {
+        method: 'PUT',
+        body: JSON.stringify({ expiresAt }),
       });
     },
 

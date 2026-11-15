@@ -32,6 +32,7 @@ jest.unstable_mockModule('../src/utils/validation.js', () => ({ validateBody: je
 
 jest.unstable_mockModule('../src/services/oauth-providers.js', () => ({
   verifyOAuthCode: (...a: unknown[]) => mockVerifyOAuthCode(...a),
+  enabledOAuthProviders: () => [],
   OAUTH_ERROR_MAP: {
     OAUTH_UNSUPPORTED_PROVIDER: { status: 400, message: 'Unsupported OAuth provider' },
     OAUTH_INVALID_STATE: { status: 403, message: 'Invalid or expired OAuth state' },
@@ -77,11 +78,18 @@ describe('acceptInvitationViaOAuth (server-side verification)', () => {
     expect(mockAcceptViaOAuth).not.toHaveBeenCalled();
   });
 
-  it('rejects (400) an unsupported provider', async () => {
+  it('rejects (400) a name that is not a wired provider', async () => {
     const res = makeRes();
-    await acceptInvitationViaOAuth({ body: { token: 't', oauthProvider: 'facebook', code: 'c', state: 's' } } as any, res);
+    await acceptInvitationViaOAuth({ body: { token: 't', oauthProvider: 'myspace', code: 'c', state: 's' } } as any, res);
     expect(res.status).toHaveBeenCalledWith(400);
     expect(mockVerifyOAuthCode).not.toHaveBeenCalled();
+  });
+
+  it('accepts any wired provider an invitation may be restricted to, not only Google', async () => {
+    mockVerifyOAuthCode.mockResolvedValue({ id: 'gh-1', email: 'invitee@x.com' });
+    const res = makeRes();
+    await acceptInvitationViaOAuth({ body: { token: 'tok', oauthProvider: 'github', code: 'c', state: 's' } } as any, res);
+    expect(mockVerifyOAuthCode).toHaveBeenCalledWith('github', 'c', 's', expect.anything());
   });
 
   it('exchanges code+state and passes the SERVER-VERIFIED identity to the service', async () => {

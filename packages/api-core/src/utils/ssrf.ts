@@ -277,8 +277,16 @@ export async function safeFetch(rawUrl: string, opts: SafeFetchOptions = {}): Pr
       ...(body ? { 'Content-Length': String(body.byteLength) } : {}),
     },
     // Pin the vetted IP: net.connect uses this instead of re-resolving the host.
-    lookup: ((_hostname: string, _lookupOpts: unknown, cb: (err: Error | null, address: string, family: number) => void) => {
-      cb(null, pin.address, pin.family);
+    // Node's default `autoSelectFamily` (Happy Eyeballs) calls the lookup with
+    // `{ all: true }` and reads an ARRAY of addresses — answering it with the
+    // single-address form fails every hostname URL with ERR_INVALID_IP_ADDRESS.
+    lookup: ((
+      _hostname: string,
+      lookupOpts: { all?: boolean } | undefined,
+      cb: (err: Error | null, address: string | Array<{ address: string; family: number }>, family?: number) => void,
+    ) => {
+      if (lookupOpts?.all) cb(null, [{ address: pin.address, family: pin.family }]);
+      else cb(null, pin.address, pin.family);
     }) as unknown as RequestOptions['lookup'],
   };
 

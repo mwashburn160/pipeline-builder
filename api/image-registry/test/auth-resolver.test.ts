@@ -20,8 +20,6 @@ const privateKeyPem = privateKey.export({ format: 'pem', type: 'pkcs8' }).toStri
 const publicKeyPem = publicKey.export({ format: 'pem', type: 'spki' }).toString();
 
 process.env.IMAGE_REGISTRY_HOST = 'localhost';
-process.env.IMAGE_REGISTRY_USERNAME = 'svc';
-process.env.IMAGE_REGISTRY_PASSWORD = 'pw';
 process.env.REGISTRY_TOKEN_PRIVATE_KEY = privateKeyPem;
 process.env.REGISTRY_TOKEN_CERTIFICATE = publicKeyPem;
 // The platform-user (`docker login`) path always posts to the in-cluster

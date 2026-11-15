@@ -173,9 +173,11 @@ export function createRedisClient<T = unknown>(
  *
  * Commands fail fast (`maxRetriesPerRequest: 1`, no offline queue) because the
  * request-path callers are best-effort or fail closed on their own terms — a
- * request must not hang behind a Redis outage. That includes the moments before
- * the first connection completes: a background caller that runs at startup must
- * either tolerate a rejected command or wait with {@link whenRedisReady}.
+ * request must not hang behind a Redis outage. The moments before the first
+ * connection completes are covered by a readiness gate on every command (see
+ * {@link createRedisReadyGate}; `readyTimeoutMs` bounds the wait, default
+ * {@link REQUEST_PATH_REDIS_READY_TIMEOUT_MS}): a command waits for the
+ * connection, then runs and fails fast if Redis is still down.
  *
  * Throws {@link RedisConfigError} for a bad configuration, and if Redis is
  * configured but `ioredis` can't be loaded — both are deployment errors that
@@ -183,15 +185,13 @@ export function createRedisClient<T = unknown>(
  */
 export function createEnvRedisClient<T = unknown>(
   label: string,
-  opts: { readyGate?: boolean; readyTimeoutMs?: number } = {},
+  opts: { readyTimeoutMs?: number } = {},
 ): T | null {
   const conn = resolveRedisConnection();
   if (!conn) return null;
   const inst = createRedisClient<T>(conn, label, { maxRetriesPerRequest: 1, enableOfflineQueue: false });
   logger.info(`Redis ${label} client created`, describeRedisConnection(conn));
-  return opts.readyGate === false
-    ? inst
-    : withReadyGate(inst as T & ReadyAwareRedis, createRedisReadyGate(inst as ReadyAwareRedis, opts.readyTimeoutMs));
+  return withReadyGate(inst as T & ReadyAwareRedis, createRedisReadyGate(inst as ReadyAwareRedis, opts.readyTimeoutMs));
 }
 
 /** Client methods that are synchronous, manage the connection itself, or build

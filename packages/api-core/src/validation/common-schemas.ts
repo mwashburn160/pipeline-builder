@@ -22,7 +22,9 @@ export const OwnerTypeSchema = z.enum(OWNER_TYPES);
 
 export const EntityLinkSchema = z.object({
   title: z.string().min(1).max(120),
-  url: z.string().url().max(2048),
+  // `z.string().url()` accepts ANY scheme — `javascript:` and `data:` included —
+  // and these links are handed back to every client that renders the entity.
+  url: z.string().url().max(2048).refine((v) => /^https?:\/\//i.test(v), { message: 'Link URL must use http or https' }),
   icon: z.string().max(40).optional(),
 });
 

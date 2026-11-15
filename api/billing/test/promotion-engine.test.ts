@@ -46,8 +46,9 @@ jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({
 // ── Provider (swappable per test) ────────────────────────────────────
 let providerSupport: 'none' | 'balance' | 'metered' = 'balance';
 const mockApplyUsageCredit = jest.fn(async () => ({ ref: { kind: 'stub', ref: 'r1' } }));
+const mockDebitUsageCredit = jest.fn(async (..._a: unknown[]) => ({ ref: { kind: 'stub', ref: 'd1' } }));
 jest.unstable_mockModule('../src/providers/provider-factory.js', () => ({
-  getPaymentProvider: () => ({ usageCreditSupport: providerSupport, applyUsageCredit: mockApplyUsageCredit }),
+  getPaymentProvider: () => ({ usageCreditSupport: providerSupport, applyUsageCredit: mockApplyUsageCredit, debitUsageCredit: mockDebitUsageCredit }),
 }));
 
 // A promotion now reserves from its CAMPAIGN's shared budget as well as its own,
@@ -127,6 +128,7 @@ jest.unstable_mockModule('../src/models/subscription.js', () => ({
 }));
 
 const { grantPromotionToOrg, clawbackRecentPromotions, processReferralSignup, qualifyReferral, standingRecurringPromotionCents, grantRecurringPromotions } = await import('../src/helpers/promotion-engine.js');
+const { retryPendingCreditDebits } = await import('../src/helpers/credit-debits.js');
 
 const ORG = 'org_1';
 const CTX = { tier: 'pro', interval: 'monthly' as const, planPriceCents: 4900 };
@@ -272,24 +274,103 @@ describe('grantPromotionToOrg', () => {
 describe('clawbackRecentPromotions', () => {
   it('reverses a recent grant: pulls the ledger row, reduces balance, releases budget', async () => {
     promo.spentCents = 5000; promo.grantsCount = 1;
+    const appliedAt = new Date();
     const sub = {
       _id: 'sub_1',
       orgId: ORG,
+      externalCustomerId: 'cus_1',
       creditBalanceCents: 5000,
-      creditLedger: [{ discountId: 'promo:promo_1', cents: 5000, appliedAt: new Date(), dedupeKey: 'promo:promo_1:org_1' }],
+      creditLedger: [{ discountId: 'promo:promo_1', cents: 5000, appliedAt, dedupeKey: 'promo:promo_1:org_1' }],
     };
     const count = await clawbackRecentPromotions(sub as any);
     expect(count).toBe(1);
     expect(sub.creditBalanceCents).toBe(0);
+    const key = `promo-clawback-promo:promo_1:org_1-${appliedAt.getTime()}`;
     // Ledger $pull + balance $inc -reduce on the subscription, guarded on the row
-    // still being present (so a retried cancel can't double-release).
+    // still being present (so a retried cancel can't double-release) — and the
+    // provider debit queued in the SAME write.
     expect(mockSubUpdateOne).toHaveBeenCalledWith(
       { '_id': 'sub_1', 'creditLedger.dedupeKey': 'promo:promo_1:org_1' },
-      { $pull: { creditLedger: { dedupeKey: 'promo:promo_1:org_1' } }, $inc: { creditBalanceCents: -5000 } },
+      {
+        $pull: { creditLedger: { dedupeKey: 'promo:promo_1:org_1' } },
+        $inc: { creditBalanceCents: -5000 },
+        $push: { pendingCreditDebits: { key, cents: 5000, createdAt: expect.any(Date) } },
+      },
     );
+    // The unused credit is taken back from the PROVIDER balance too, under a
+    // per-grant idempotency key, and the queued debit then cleared.
+    expect(mockDebitUsageCredit).toHaveBeenCalledWith('cus_1', 5000, key);
+    expect(mockSubUpdateOne).toHaveBeenCalledWith({ _id: 'sub_1' }, { $pull: { pendingCreditDebits: { key } } });
     // …and the budget reservation released on the promotion.
     expect(mockPromoUpdateOne).toHaveBeenCalledWith({ _id: 'promo_1' }, { $inc: { spentCents: -5000, grantsCount: -1 } });
     expect(mockCreateBillingEvent).toHaveBeenCalledTimes(1);
+  });
+
+  it('releases the CAMPAIGN budget the clawed-back grant reserved', async () => {
+    campaignStore.set('spring', { _id: 'spring', isActive: true, spentCents: 5000, grantsCount: 1, budgetCents: 5000 });
+    const sub = {
+      _id: 'sub_1',
+      orgId: ORG,
+      creditBalanceCents: 5000,
+      creditLedger: [{ discountId: 'promo:promo_1', cents: 5000, appliedAt: new Date(), dedupeKey: 'promo:promo_1:org_1', campaign: 'spring' }],
+    };
+    expect(await clawbackRecentPromotions(sub as any)).toBe(1);
+    expect(campaignStore.get('spring')).toMatchObject({ spentCents: 0, grantsCount: 0 });
+    campaignStore.delete('spring');
+  });
+
+  it('debits only the UNUSED part: min(grant, remaining balance) when invoices consumed some', async () => {
+    const sub = {
+      _id: 'sub_1',
+      orgId: ORG,
+      externalCustomerId: 'cus_1',
+      creditBalanceCents: 1200,
+      creditLedger: [{ discountId: 'promo:promo_1', cents: 5000, appliedAt: new Date(), dedupeKey: 'promo:promo_1:org_1' }],
+    };
+    await clawbackRecentPromotions(sub as any);
+    expect(mockDebitUsageCredit).toHaveBeenCalledWith('cus_1', 1200, expect.stringMatching(/^promo-clawback-/));
+  });
+
+  it('queues no provider debit when the credit is fully consumed', async () => {
+    const sub = {
+      _id: 'sub_1',
+      orgId: ORG,
+      externalCustomerId: 'cus_1',
+      creditBalanceCents: 0,
+      creditLedger: [{ discountId: 'promo:promo_1', cents: 5000, appliedAt: new Date(), dedupeKey: 'promo:promo_1:org_1' }],
+    };
+    expect(await clawbackRecentPromotions(sub as any)).toBe(1);
+    expect(mockDebitUsageCredit).not.toHaveBeenCalled();
+    const [, update] = mockSubUpdateOne.mock.calls[0] as [unknown, Record<string, unknown>];
+    expect(update.$push).toBeUndefined();
+  });
+
+  it('keeps the debit queued (and counts it) when the provider refuses — the clawback still lands', async () => {
+    mockDebitUsageCredit.mockRejectedValueOnce(new Error('stripe down'));
+    const sub = {
+      _id: 'sub_1',
+      orgId: ORG,
+      externalCustomerId: 'cus_1',
+      creditBalanceCents: 5000,
+      creditLedger: [{ discountId: 'promo:promo_1', cents: 5000, appliedAt: new Date(), dedupeKey: 'promo:promo_1:org_1' }],
+    };
+    expect(await clawbackRecentPromotions(sub as any)).toBe(1);
+    // Only the clawback write itself — no outbox clear.
+    expect(mockSubUpdateOne).toHaveBeenCalledTimes(1);
+    expect(mockPromoUpdateOne).toHaveBeenCalled();
+  });
+
+  it('a retried clawback whose row is already gone debits nothing twice', async () => {
+    mockSubUpdateOne.mockResolvedValueOnce({ acknowledged: true, modifiedCount: 0 });
+    const sub = {
+      _id: 'sub_1',
+      orgId: ORG,
+      externalCustomerId: 'cus_1',
+      creditBalanceCents: 5000,
+      creditLedger: [{ discountId: 'promo:promo_1', cents: 5000, appliedAt: new Date(), dedupeKey: 'promo:promo_1:org_1' }],
+    };
+    expect(await clawbackRecentPromotions(sub as any)).toBe(0);
+    expect(mockDebitUsageCredit).not.toHaveBeenCalled();
   });
 
   it('does not claw back grants older than the clawback window', async () => {
@@ -314,6 +395,29 @@ describe('clawbackRecentPromotions', () => {
     };
     const count = await clawbackRecentPromotions(sub as any);
     expect(count).toBe(0);
+  });
+});
+
+describe('retryPendingCreditDebits', () => {
+  it('re-posts each queued debit under its ORIGINAL key and clears the ones that land', async () => {
+    mockDebitUsageCredit.mockRejectedValueOnce(new Error('still down'));
+    const sub = {
+      _id: 'sub_1',
+      orgId: ORG,
+      externalCustomerId: 'cus_1',
+      pendingCreditDebits: [{ key: 'k1', cents: 100, createdAt: new Date() }, { key: 'k2', cents: 200, createdAt: new Date() }],
+    };
+    await expect(retryPendingCreditDebits(sub as any)).resolves.toBe(1);
+    expect(mockDebitUsageCredit).toHaveBeenNthCalledWith(1, 'cus_1', 100, 'k1');
+    expect(mockDebitUsageCredit).toHaveBeenNthCalledWith(2, 'cus_1', 200, 'k2');
+    expect(mockSubUpdateOne).toHaveBeenCalledTimes(1);
+    expect(mockSubUpdateOne).toHaveBeenCalledWith({ _id: 'sub_1' }, { $pull: { pendingCreditDebits: { key: 'k2' } } });
+  });
+
+  it('settles locally when there is no provider customer to debit', async () => {
+    const sub = { _id: 'sub_1', orgId: ORG, externalCustomerId: null, pendingCreditDebits: [{ key: 'k1', cents: 100, createdAt: new Date() }] };
+    await expect(retryPendingCreditDebits(sub as any)).resolves.toBe(1);
+    expect(mockDebitUsageCredit).not.toHaveBeenCalled();
   });
 });
 

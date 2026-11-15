@@ -371,6 +371,22 @@ describe('deliverAndRecord', () => {
     expect(mockRecordDelivery.mock.calls.at(-1)?.[2]).toMatchObject({ state: 'failed' });
     expect(mockSystemNotification).toHaveBeenCalledWith(expect.objectContaining({ recipientUserId: 'user-lead' }));
   });
+
+  /**
+   * A crash AFTER some channels landed keeps what they did. Recording the failure
+   * from the previous attempt alone said nobody had it, so the redelivery the lead
+   * is told to run re-posted the in-app notice and re-mailed every recipient.
+   */
+  it('a crash after the email went out still records who HAS it, so a redelivery skips them', async () => {
+    mockDestinations.mockRejectedValue(new Error('db down'));
+    const outcome = await delivery.deliverAndRecord(definition(), run());
+    expect(outcome.state).toBe('failed');
+    expect(outcome.inApp).toBe(1);
+    expect(outcome.delivered.recipientIds).toEqual(['rec-1']);
+    expect(outcome.email.sent).toBe(1);
+    expect(outcome.notes[0]).toContain('Delivery stopped before it finished: db down');
+    expect(mockRecordDelivery.mock.calls.at(-1)?.[2]).toMatchObject({ state: 'failed', inApp: 1, delivered: { recipientIds: ['rec-1'] } });
+  });
 });
 
 describe('deliveryIncomplete / recordedDelivery', () => {

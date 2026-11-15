@@ -215,6 +215,21 @@ describe('config.loader', () => {
       expect(getConfig().api.rejectUnauthorized).not.toBe(false);
     });
 
+    it('honours a config-file api.rejectUnauthorized: false outside production only', () => {
+      process.env.PLATFORM_TOKEN = 'tok';
+      mockExistsSync.mockReturnValue(true);
+      mockReadFileSync.mockReturnValue('');
+      mockYamlParse.mockReturnValue({ api: { rejectUnauthorized: false } });
+      expect(getConfig().api.rejectUnauthorized).toBe(false);
+
+      process.env.NODE_ENV = 'production';
+      const sinks = [console.log, console.warn, console.error] as unknown as jest.Mock[];
+      sinks.forEach((m) => m.mockClear());
+      expect(getConfig().api.rejectUnauthorized).toBe(true);
+      expect(getApiConfig().api.rejectUnauthorized).toBe(true);
+      expect(sinks.flatMap((m) => m.mock.calls.flat()).join(' ')).toMatch(/Ignoring api\.rejectUnauthorized: false.*production/);
+    });
+
     // The dev relaxation reaches the CodeBuild synth as NODE_TLS_REJECT_UNAUTHORIZED
     // (pipeline-core propagates it), so no build passes --no-verify-ssl.
     it('honours NODE_TLS_REJECT_UNAUTHORIZED=0 outside production only', () => {

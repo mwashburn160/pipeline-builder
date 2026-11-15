@@ -186,8 +186,8 @@ export function lookupNotFoundState(errOrBody: unknown): LookupNotFoundState | n
 }
 
 /**
- * The message for an exact version pin that did not resolve. Shared by the
- * CLI's pre-resolution and the deploy-time Lambda's CloudFormation reason.
+ * The message for an exact version pin that did not resolve (the CLI's
+ * pre-resolution refusal).
  */
 export function exactPinNotFoundMessage(label: string, pin: string, state: LookupNotFoundState | null): string {
   switch (state) {

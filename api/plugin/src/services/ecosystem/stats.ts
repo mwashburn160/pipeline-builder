@@ -69,7 +69,7 @@ export function bayesianRating(rated: ReadonlyArray<Pick<PluginReview, 'rating' 
   return Math.round((total / weight) * 1000) / 1000;
 }
 
-/** `major.minor` of the listing's two newest minor lines (stable versions preferred). */
+/** `major.minor` of the listing's two newest minor lines (a prerelease's line counts like any other). */
 export function recentMinorLines(listingVersions: readonly string[]): Set<string> {
   const lines: string[] = [];
   const sorted = [...listingVersions].filter((v) => parseSemver(v)).sort((a, b) => compareSemver(b, a));

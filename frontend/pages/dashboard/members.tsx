@@ -244,8 +244,9 @@ export default function MembersPage() {
       }
       toast.success(`${member.username} ${member.isActive ? 'deactivated' : 'activated'}`);
       refreshRoster();
-    } catch {
-      list.setError(`Failed to ${member.isActive ? 'deactivate' : 'activate'} member`);
+    } catch (err) {
+      // The server's reason (e.g. the owner cannot be deactivated) beats a generic line.
+      list.setError(formatError(err, `Failed to ${member.isActive ? 'deactivate' : 'activate'} member`));
     }
   };
 

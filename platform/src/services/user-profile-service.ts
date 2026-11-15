@@ -325,7 +325,8 @@ class UserProfileService {
 
   /**
    * Update username and/or email on the user record. An email CHANGE clears
-   * `isEmailVerified` so the user re-verifies, and `previousEmail` names the old
+   * `isEmailVerified` (and any outstanding verification link, which was mailed
+   * to the old address) so the user re-verifies, and `previousEmail` names the old
    * address so the caller can tell its owner; re-sending the current address is
    * not a change and touches nothing. Throws PROFILE_EMAIL_TAKEN when the new
    * email is already in use, PROFILE_USER_NOT_FOUND when the user is gone.
@@ -355,7 +356,14 @@ class UserProfileService {
 
     const updated = await User.findByIdAndUpdate(
       userId,
-      { $set: updates },
+      {
+        $set: updates,
+        // A verification link already mailed proves control of the OLD address
+        // only. Left in place it verified the NEW one: request a link to an
+        // address you own, change the email to `someone@bigcorp.com`, click —
+        // and domain-based join (which trusts `isEmailVerified` alone) let you in.
+        ...(updates.email ? { $unset: { emailVerificationToken: '', emailVerificationExpires: '' } } : {}),
+      },
       { returnDocument: 'after', runValidators: true },
     ).lean();
     if (!updated) throw new Error(PROFILE_USER_NOT_FOUND);

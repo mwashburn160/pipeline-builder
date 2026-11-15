@@ -107,8 +107,8 @@ function usageBlock(served: ResolvedModelSelection | undefined, usage: LanguageM
 
 /**
  * The `aiCalls` slot a turn reserved, as the audit trail records it. `slot` is how
- * it SETTLED — `kept` once the provider responded (the cost was incurred), else
- * `refunded` — and `used`/`limit` are the reservation's view of the period, so a
+ * it SETTLED — `kept` once the request was sent to the provider (the cost was
+ * incurred), else `refunded` — and `used`/`limit` are the reservation's view of the period, so a
  * quota dispute can be answered from the trail rather than from the counter's
  * current value. Exported for the agent route, which records the same shape.
  */
@@ -134,11 +134,6 @@ export function askQuotaDetail(slot: Pick<AiCallSlot, 'reservation' | 'waived' |
   };
 }
 
-/** True when a failure itself says the provider was reached (see withQuotaReservation). */
-export function errorSaysProviderContacted(error: unknown): boolean {
-  return (error as { providerContacted?: unknown } | null)?.providerContacted === true;
-}
-
 
 /**
  * Read-only "Ask" agent routes: grounded how-to answers over the docs corpus.
@@ -148,10 +143,10 @@ export function errorSaysProviderContacted(error: unknown): boolean {
  * `aiCalls` slot (`withAiCallReservation`, via a service-minted auth header — the
  * quota `/increment` endpoint rejects user principals): the model's weight in
  * units, or NOTHING for a BYOK key / impersonation session / weight-0 model. The
- * slot is KEPT once the provider has responded (its $ cost was incurred — even if
- * the client then aborts or a later step fails) and REFUNDED only when the provider
- * was never reached; the turn's tokens are reported to the usage ledger either
- * way. No writes — nothing is mutated here.
+ * slot is CONSUMED the moment the request is sent to the provider (the provider
+ * bills what it processed — even if the client then aborts, the call times out or
+ * the provider errors) and REFUNDED only on a failure before the send; the turn's
+ * tokens are reported to the usage ledger either way. No writes — nothing is mutated here.
  *
  * @param quotaService - Shared quota service
  * @returns Express Router with the ask endpoints
@@ -267,14 +262,9 @@ export function createAskRoutes(quotaService: QuotaService): Router {
     let served: ResolvedModelSelection | undefined;
     let usage: LanguageModelUsage | undefined;
     let aiSlot: AiCallSlot | undefined;
-    let providerContacted = false;
+    // The provider RESPONDED: gates failover only (the slot is consumed at send).
+    let providerResponded = false;
     const clientGone = clientAbortSignal(res);
-    // The provider STARTED responding (a paid call) marks the slot consumed — the
-    // same `provider-responded` signal the stream path uses. The answer is
-    // collected from the stream rather than a one-shot generate, because a
-    // one-shot call gives no such signal: a provider that responded and THEN
-    // failed (mid-body error, client abort) looked "never contacted" and was
-    // refunded for free.
     // The model is resolved BEFORE the reservation: it decides the charge (a
     // BYOK key reserves nothing, a weighted model reserves its weight).
     await withAiCallReservation({
@@ -295,6 +285,8 @@ export function createAskRoutes(quotaService: QuotaService): Router {
       // retried on the next platform provider; a BYO/org-key turn never is.
       const { value: result } = await runWithFailover(selection, async (sel) => {
         served = sel;
+        // The request is sent below: the slot is spent from here on.
+        slot.markConsumed();
         const { sources, events } = streamHowTo({
           model: sel.model,
           query,
@@ -305,8 +297,7 @@ export function createAskRoutes(quotaService: QuotaService): Router {
         let text = '';
         for await (const event of events) {
           if (event.type === 'provider-responded') {
-            providerContacted = true;
-            slot.markConsumed();
+            providerResponded = true;
           } else if (event.type === 'usage') {
             usage = event.usage;
           } else {
@@ -314,7 +305,7 @@ export function createAskRoutes(quotaService: QuotaService): Router {
           }
         }
         return { text, sources };
-      }, { contacted: () => providerContacted, onFailover: (from, to) => ctx.log('WARN', 'Ask how-to failed over', { from, to }) });
+      }, { contacted: () => providerResponded, onFailover: (from, to) => ctx.log('WARN', 'Ask how-to failed over', { from, to }) });
       ctx.log('COMPLETED', 'Ask how-to answered', { sources: result.sources.length });
       recordAi('howto', { provider: served.provider, model: served.modelId }, 'success', startedAt);
       recordAiTokens('howto', { provider: served.provider, keySource: served.keySource, tier: req.user?.tier }, tokenUsage(usage));
@@ -330,7 +321,7 @@ export function createAskRoutes(quotaService: QuotaService): Router {
       sendSuccess(res, 200, result);
     }, (error) => {
       logger.error('Ask how-to failed', { requestId: ctx.requestId, error: errorMessage(error) });
-      const kept = providerContacted || errorSaysProviderContacted(error);
+      const kept = aiSlot?.isConsumed() ?? false;
       recordAi('howto', { provider: served?.provider, model: served?.modelId }, 'error', startedAt);
       // A failed turn still paid for whatever the provider reported before it
       // failed — counted exactly as the stream route counts it.
@@ -356,9 +347,9 @@ export function createAskRoutes(quotaService: QuotaService): Router {
     let served: ResolvedModelSelection | undefined;
     let usage: LanguageModelUsage | undefined;
     let aiSlot: AiCallSlot | undefined;
-    // Once the provider has started responding (a paid call) a later failure or
-    // abort keeps the slot; a failure before that refunds it.
-    let providerContacted = false;
+    // The provider RESPONDED: gates failover only. The slot is consumed at SEND, so
+    // a later failure, timeout or abort keeps it; a failure before the send refunds.
+    let providerResponded = false;
     // Resolved BEFORE the reservation (it decides the charge) and before the
     // stream opens, so an AI-off org, an unloadable org key or a missing
     // configuration is an ordinary HTTP error rather than an SSE frame.
@@ -381,6 +372,8 @@ export function createAskRoutes(quotaService: QuotaService): Router {
       let sourcesSent = false;
       await runWithFailover(selection, async (sel) => {
         served = sel;
+        // The request is sent below: the slot is spent from here on.
+        slot.markConsumed();
         const { sources, events } = streamHowTo({
           model: sel.model,
           query,
@@ -397,8 +390,7 @@ export function createAskRoutes(quotaService: QuotaService): Router {
         // A provider error throws out of `events` into the error handler below.
         for await (const event of events) {
           if (event.type === 'provider-responded') {
-            providerContacted = true;
-            slot.markConsumed();
+            providerResponded = true;
             continue;
           }
           if (event.type === 'usage') { usage = event.usage; continue; }
@@ -406,7 +398,7 @@ export function createAskRoutes(quotaService: QuotaService): Router {
           sse.send({ type: 'token', data: event.text });
         }
         return sources.length;
-      }, { contacted: () => providerContacted, onFailover: (from, to) => ctx.log('WARN', 'Ask how-to stream failed over', { from, to }) });
+      }, { contacted: () => providerResponded, onFailover: (from, to) => ctx.log('WARN', 'Ask how-to stream failed over', { from, to }) });
 
       const labels = { provider: served.provider, model: served.modelId };
       if (!sse.aborted()) {
@@ -423,15 +415,15 @@ export function createAskRoutes(quotaService: QuotaService): Router {
           ai: usageBlock(served, usage, true),
         });
       } else {
-        // A no-op once the provider responded: a paid call is never refunded.
+        // A no-op once the request was sent: a sent call is never refunded.
         slot.refund();
         recordAi('howto-stream', labels, 'aborted', startedAt);
         auditAskQuery(userId, orgId, {
           queryLength: query.length,
           streamed: true,
           outcome: 'failure',
-          quota: askQuotaDetail(slot, providerContacted),
-          ai: usageBlock(served, usage, providerContacted),
+          quota: askQuotaDetail(slot, slot.isConsumed()),
+          ai: usageBlock(served, usage, slot.isConsumed()),
         });
       }
       recordAiTokens('howto-stream', { provider: served.provider, keySource: served.keySource, tier: req.user?.tier }, tokenUsage(usage));
@@ -439,7 +431,7 @@ export function createAskRoutes(quotaService: QuotaService): Router {
       res.end();
     }, (error) => {
       logger.error('Ask how-to stream failed', { requestId: ctx.requestId, error: errorMessage(error) });
-      const kept = providerContacted || errorSaysProviderContacted(error);
+      const kept = aiSlot?.isConsumed() ?? false;
       recordAi('howto-stream', { provider: served?.provider, model: served?.modelId }, 'error', startedAt);
       // Whatever the provider reported before failing (a how-to answer is ONE
       // step, so there is no per-step usage to sum — a call cut off mid-stream

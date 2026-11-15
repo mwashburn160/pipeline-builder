@@ -58,10 +58,11 @@ describe('computeStorageUsage — multi-arch recursion', () => {
 
     const usage = await computeStorageUsage('org', { force: true });
 
-    // Unique blobs: child1, child2 (index JSON blobs) + cfg1, cfg2, layerShared = 5.
-    // Pre-fix this was only 2 (the child manifest digests) → 200 bytes, a bypass.
-    expect(usage.blobs).toBe(5);
-    expect(usage.bytes).toBe(500);
+    // Unique blobs: cfg1, cfg2, layerShared = 3. The child manifests are not
+    // blobs (a registry blob HEAD for one 404s in every repository).
+    expect(usage.blobs).toBe(3);
+    expect(usage.bytes).toBe(300);
+    expect(headBlob).not.toHaveBeenCalledWith('org/app', 'sha256:child1');
     expect(usage.incomplete).toBe(false);
     // The recursion actually fetched each child manifest.
     expect(getManifest).toHaveBeenCalledWith('org/app', 'sha256:child1');

@@ -403,6 +403,9 @@ export interface AddonResult {
   effectiveLimits: Record<string, number>;
   priceBreakdown: AddonPriceBreakdown;
   subscription?: Subscription;
+  /** Bundle ids a removal takes out WITH it — add-ons that require the one being
+   *  removed (removing Standard Compliance drops Advanced). Preview only. */
+  cascaded?: string[];
   /** Combo discounts this change would end / unlock (drives the removal warning). */
   lostCombos?: ComboChange[];
   gainedCombos?: ComboChange[];

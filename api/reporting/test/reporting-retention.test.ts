@@ -114,6 +114,46 @@ describe('createRetentionRootResolver (team rows follow the ROOT\'s retention)',
     expect(await resolve('team-1')).toBeNull();
   });
 
+  it('does NOT cache a failure: the next lookup in the same pass asks platform again', async () => {
+    const { createRetentionRootResolver } = await import('../src/services/reporting-retention.js');
+    const fetchParent = jest.fn<(id: string) => Promise<string | undefined>>()
+      .mockRejectedValueOnce(new Error('platform blip'))
+      .mockResolvedValue(undefined);
+    const resolve = createRetentionRootResolver(fetchParent);
+    expect(await resolve('acme')).toBeNull();
+    expect(await resolve('acme')).toBe('acme');
+    // ...and the success IS cached.
+    expect(await resolve('acme')).toBe('acme');
+    expect(fetchParent).toHaveBeenCalledTimes(2);
+  });
+
+  it('shares ONE in-flight walk between concurrent lookups for the same org', async () => {
+    const { createRetentionRootResolver } = await import('../src/services/reporting-retention.js');
+    let release!: (v: string | undefined) => void;
+    const parent = new Promise<string | undefined>((r) => { release = r; });
+    const fetchParent = jest.fn(() => parent);
+    const resolve = createRetentionRootResolver(fetchParent);
+    const both = Promise.all([resolve('acme'), resolve('acme')]);
+    release(undefined);
+    expect(await both).toEqual(['acme', 'acme']);
+    expect(fetchParent).toHaveBeenCalledTimes(1);
+  });
+
+  it('a concurrent lookup sharing a FAILED walk fails with it, and a later one retries', async () => {
+    const { createRetentionRootResolver } = await import('../src/services/reporting-retention.js');
+    let fail!: (e: Error) => void;
+    const parent = new Promise<string | undefined>((_, reject) => { fail = reject; });
+    const fetchParent = jest.fn<(id: string) => Promise<string | undefined>>()
+      .mockImplementationOnce(() => parent)
+      .mockResolvedValue(undefined);
+    const resolve = createRetentionRootResolver(fetchParent);
+    const both = Promise.all([resolve('acme'), resolve('acme')]);
+    fail(new Error('platform blip'));
+    expect(await both).toEqual([null, null]);
+    expect(await resolve('acme')).toBe('acme');
+    expect(fetchParent).toHaveBeenCalledTimes(2);
+  });
+
   it('treats a cycle as unresolvable (null)', async () => {
     const { createRetentionRootResolver } = await import('../src/services/reporting-retention.js');
     const resolve = createRetentionRootResolver(async (id) => (id === 'a' ? 'b' : 'a'));

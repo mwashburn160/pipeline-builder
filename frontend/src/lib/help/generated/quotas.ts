@@ -1,6 +1,6 @@
 // GENERATED FROM docs/quotas.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 672234eaeda32b2e70a86f95b61b8847357fc8c8494d036ac89f3370f851fa75
+// SOURCE-SHA256: 815e4cb259683974df4d9a53a28bffafeff1ef03aea0116dc828a3ca21b729fb
 // SPDX-License-Identifier: Apache-2.0
 import { Gauge } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -580,13 +580,13 @@ export const quotasTopic: HelpTopic = {
             "BYOK — keySource org or request: the customer pays the provider. The route's ordinary apiCalls is still charged.",
             "Impersonation — a sysadmin impersonation session (impersonatorId), mirroring the apiCalls exemption.",
             "Weight 0 — the model's AI_MODEL_WEIGHTS weight is 0. By default that is the self-hosted OpenAI-compatible provider (ask-model), which runs on hardware the operator already pays for.",
-            "Otherwise reserves the model's weight in units — 1 unless AI_MODEL_WEIGHTS says otherwise — attributed to the route, principal, feature, model and key source. The slot is kept once the provider responded and refunded (with the same attribution) when it never did.",
+            "Otherwise reserves the model's weight in units — 1 unless AI_MODEL_WEIGHTS says otherwise — attributed to the route, principal, feature, model and key source. The slot is consumed the moment the request is sent to the provider — an abort, a timeout or a provider error after the send keeps it, because the provider bills the tokens it processed — and refunded (with the same attribution) only when the call failed before the send.",
             "Reports the tokens after the call (slot.reportUsage): a zero-unit report write on the quota service's internal increment route that adds tokensIn / tokensOut to the call's hourly bucket. A lost report is counted on quota_usage_report_failures_total; enforcement is unaffected."
           ]
         },
         {
           "type": "text",
-          "content": "What each surface costs. One Ask turn: one unit for the agent's reasoning, plus one per delegated generation it drafts (propose_pipeline, propose_plugin, propose_*_from_repo — each a separate model call) and one per in-process propose_template (its own slot, settled by the same keep-on-contact rule, its tokens on the turn's ask.agent.turn audit row as toolGenerations). propose_plugin_from_repo reads its repository analysis from the AI-free POST /pipelines/analyze/from-url (apiCalls only), so it costs one unit beyond the turn, not two. A scheduled report summary is attributed to the definition's owner (principalId, route schedule:report-summary) and draws on that owner's per-member share when one is set; a manual (re)draft is attributed to the request."
+          "content": "What each surface costs. One Ask turn: one unit for the agent's reasoning, plus one per delegated generation it drafts (propose_pipeline, propose_plugin, propose_*_from_repo — each a separate model call) and one per in-process propose_template (its own slot, settled by the same consumed-at-send rule, its tokens on the turn's ask.agent.turn audit row as toolGenerations). propose_plugin_from_repo reads its repository analysis from the AI-free POST /pipelines/analyze/from-url (apiCalls only), so it costs one unit beyond the turn, not two. A scheduled report summary is attributed to the definition's owner (principalId, route schedule:report-summary) and draws on that owner's per-member share when one is set; a manual (re)draft is attributed to the request."
         },
         {
           "type": "text",

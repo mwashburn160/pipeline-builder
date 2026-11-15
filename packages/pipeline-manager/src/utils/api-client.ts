@@ -1,8 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import https from 'https';
-import { describeQuotaExceeded, platformCaList } from '@pipeline-builder/pipeline-core';
+import { describeQuotaExceeded } from '@pipeline-builder/pipeline-core';
 import axios, { type AxiosInstance, AxiosError } from 'axios';
 import FormData from 'form-data';
 import { decodeTokenPayload } from './auth-guard.js';
@@ -10,6 +9,7 @@ import { type Config } from './config-loader.js';
 import { NetworkError } from './error-handler.js';
 import { printDebug, printError, printWarning } from './output-utils.js';
 import { requestCorrelationHeaders } from './request-context.js';
+import { platformHttpsAgent } from './tls.js';
 import { TIMEOUTS } from '../config/cli.constants.js';
 import { ApiError } from '../types/index.js';
 
@@ -32,11 +32,7 @@ export class ApiClient {
 
     // A private-CA platform (PLATFORM_CA_BUNDLE) is trusted on top of Node's
     // roots — verified, not skipped. See pipeline-core core/platform-tls.ts.
-    const ca = platformCaList();
-    const httpsAgent = new https.Agent({
-      rejectUnauthorized: config.api.rejectUnauthorized ?? true,
-      ...(ca && { ca }),
-    });
+    const httpsAgent = platformHttpsAgent(config.api.rejectUnauthorized);
 
     if (config.api.rejectUnauthorized === false) {
       printWarning('Certificate validation is disabled');

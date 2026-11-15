@@ -968,6 +968,17 @@ groups:
           summary: "AWS Marketplace registration is failing (result={{ $labels.result }})"
           description: "{{ $value | humanize }} registration attempt(s) in the last hour ended in `{{ $labels.result }}` — a customer who has ALREADY PAID could not finish signing up, and the registration token is single-use and short-lived, so they must restart from AWS. no-token = something reached the resolve route without a token, which usually means the listing's fulfillment URL is not https://<domain>/marketplace/register. not-configured = BILLING_PROVIDER / AWS_MARKETPLACE_PRODUCT_CODE are unset on this deploy. unknown-plan = AWS_MARKETPLACE_DIMENSION_MAP points at a plan id that does not exist or is inactive. error = the AWS call or the database failed; see the billing logs."
 
+      - alert: BillingClawbackDebitFailing
+        expr: sum by (source) (rate(billing_promotion_clawback_debit_failed_total[15m])) > 0
+        for: 30m
+        labels:
+          severity: warning
+          component: billing
+          tenancy: platform
+        annotations:
+          summary: "Clawed-back promotion credit is not being debited at the payment provider ({{ $labels.source }})"
+          description: "A promotion clawback reduced the local credit balance but the matching debit of the customer's provider balance has kept failing for 30 minutes. Until it lands, the provider still applies that credit to the next invoice. Debits stay queued on the subscription and are re-posted with the same idempotency key by the subscription lifecycle; check billing's logs and the provider's status."
+
       - alert: BillingStripeLivemodeMismatch
         expr: sum by (event_mode) (increase(billing_stripe_livemode_mismatch_total[1h])) > 0
         for: 0m

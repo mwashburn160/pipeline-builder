@@ -10,6 +10,8 @@ import { config } from '../config/index.js';
 import { isAdminOrgRole } from '@pipeline-builder/api-core/wire-vocabulary';
 import { GRANTABLE_ORG_ROLES } from '../constants/member-roles.js';
 import { INVITATION_STATUSES, INVITATION_TYPES, type InvitationStatus } from '../constants/vocabulary.js';
+import { resolveOrgAuthority } from '../helpers/org-authority.js';
+import { isAncestorOrg } from '../helpers/org-hierarchy.js';
 import { toOrgId } from '../helpers/org-id.js';
 import { seatCapacityAvailable, seatCapacityStillWithinCap, withSeatGuard } from '../helpers/seats.js';
 import { Invitation, type InvitationDocument, Organization, type OrganizationDocument, Role, User, type UserDocument, UserOrganization } from '../models/index.js';
@@ -199,23 +201,31 @@ class InvitationService {
   }
 
   /**
-   * Is the INVITER still an admin/owner of the org, read fresh?
+   * The INVITER's authority in the org right now, as the Role-assignment
+   * ceiling at acceptance needs it: the admin label and the permission bundle.
    *
-   * The coarse half of the Role-assignment ceiling. Read from
-   * `UserOrganization` rather than taken from a token claim, because the only
-   * token in scope at acceptance belongs to the INVITEE — and a claim captured
-   * when the invitation was written would be exactly the stale authority this
+   * Read fresh rather than taken from a token claim, because the only token in
+   * scope at acceptance belongs to the INVITEE — and a claim captured when the
+   * invitation was written would be exactly the stale authority this
    * re-validation exists to catch.
+   *
+   * Resolved through `resolveOrgAuthority`, so a parent-org admin who invited
+   * into one of its TEAMS (no membership row there) keeps the authority the
+   * send was checked against. Reading the team's own membership row alone
+   * found nothing for them, so every Role a team invitation named was dropped
+   * at acceptance.
    */
-  private async inviterIsOrgAdminNow(
+  private async inviterAuthorityNow(
     inviterId: mongoose.Types.ObjectId,
     organizationId: mongoose.Types.ObjectId,
     session: mongoose.ClientSession,
-  ): Promise<boolean> {
-    const membership = await UserOrganization.findOne({
-      userId: inviterId, organizationId, isActive: true,
-    }).session(session);
-    return isAdminOrgRole(membership?.role);
+  ): Promise<{ isOrgAdmin: boolean; permissions: string[] }> {
+    const authority = await resolveOrgAuthority(String(inviterId), String(organizationId));
+    if (!authority) return { isOrgAdmin: false, permissions: [] };
+    return {
+      isOrgAdmin: isAdminOrgRole(authority.role),
+      permissions: await rolePermissionsFor(String(inviterId), authority.permissionOrgIds, session),
+    };
   }
 
   /** Common acceptance bookkeeping: create membership, set lastActiveOrgId, mark accepted, notify inviter. */
@@ -262,10 +272,9 @@ class InvitationService {
         invitedRoleIds,
         {
           isSuperAdmin: (inviter as { isSuperAdmin?: boolean } | null)?.isSuperAdmin === true,
-          // Resolved from the inviter's CURRENT Roles in this org, not from a
-          // claim captured when the invitation was written.
-          isOrgAdmin: await this.inviterIsOrgAdminNow(invitation.invitedBy, org._id as mongoose.Types.ObjectId, session),
-          permissions: await rolePermissionsFor(String(invitation.invitedBy), [String(org._id)], session),
+          // Resolved from the inviter's CURRENT authority in this org, not from
+          // a claim captured when the invitation was written.
+          ...await this.inviterAuthorityNow(invitation.invitedBy, org._id as mongoose.Types.ObjectId, session),
         },
         session,
       );
@@ -790,15 +799,37 @@ class InvitationService {
   }
 
   /**
-   * Revoke a pending invitation. Verifies the caller is the org owner or
-   * a system admin. Throws INV_NOT_FOUND / INV_NOT_PENDING / INV_UNAUTHORIZED.
+   * The invitation `invitationId` if the caller's org may manage it: one in
+   * `actorOrgId` itself or in one of its teams — the same reach
+   * `POST /invitation/send` grants with `targetOrgId`. Scoped to the actor's
+   * own org alone, an invitation an admin sent into a team could be neither
+   * revoked nor re-sent by them. Anything else reads as not found.
+   */
+  private async findManageable(
+    invitationId: string,
+    actorOrgId: string,
+    extra: Record<string, unknown> = {},
+  ): Promise<InvitationDocument> {
+    if (!mongoose.isValidObjectId(invitationId)) throw new Error(INV_NOT_FOUND);
+    const invitation = await Invitation.findOne({ _id: invitationId, ...extra });
+    if (!invitation) throw new Error(INV_NOT_FOUND);
+    const invitationOrgId = String(invitation.organizationId);
+    if (invitationOrgId !== String(toOrgId(actorOrgId)) && !(await isAncestorOrg(actorOrgId, invitationOrgId))) {
+      throw new Error(INV_NOT_FOUND);
+    }
+    return invitation;
+  }
+
+  /**
+   * Revoke a pending invitation in the caller's org or one of its teams.
+   * Verifies the caller is that org's owner or may manage invitations. Throws
+   * INV_NOT_FOUND / INV_NOT_PENDING / INV_UNAUTHORIZED.
    */
   async revoke(invitationId: string, orgId: string, userId: string, canManage: boolean): Promise<InvitationAuditInfo> {
-    const invitation = await Invitation.findOne({ _id: invitationId, organizationId: toOrgId(orgId) });
-    if (!invitation) throw new Error(INV_NOT_FOUND);
+    const invitation = await this.findManageable(invitationId, orgId);
     if (invitation.status !== 'pending') throw new Error(INV_NOT_PENDING);
 
-    const org = await Organization.findById(toOrgId(orgId));
+    const org = await Organization.findById(invitation.organizationId);
     if (!org || (org.owner.toString() !== userId && !canManage)) {
       throw new Error(INV_UNAUTHORIZED);
     }
@@ -815,18 +846,16 @@ class InvitationService {
   }
 
   /**
-   * Re-send an invitation email and reset its expiry. Verifies caller
-   * authz against the org. Returns the new expiry + whether the email
-   * actually sent (false → caller can decide to surface a 500 if email
-   * is required).
+   * Re-send an invitation email and reset its expiry — one in the caller's org
+   * or one of its teams. Verifies caller authz against the invitation's org.
+   * Returns the new expiry, the org it belongs to, and what became of the email
+   * (the caller surfaces a 500 for a transport that refused).
    */
-  async resend(invitationId: string, orgId: string, userId: string, canManage: boolean): Promise<{ expiresAt: Date; delivery: InvitationDelivery; email: string; role: string }> {
-    const invitation = await Invitation.findOne({
-      _id: invitationId, organizationId: toOrgId(orgId), status: 'pending',
-    });
-    if (!invitation) throw new Error(INV_NOT_FOUND);
+  async resend(invitationId: string, orgId: string, userId: string, canManage: boolean): Promise<{ expiresAt: Date; delivery: InvitationDelivery; email: string; role: string; organizationId: string }> {
+    const invitation = await this.findManageable(invitationId, orgId, { status: 'pending' });
+    const invitationOrgId = String(invitation.organizationId);
 
-    const org = await Organization.findById(toOrgId(orgId));
+    const org = await Organization.findById(invitation.organizationId);
     if (!org || (org.owner.toString() !== userId && !canManage)) {
       throw new Error(INV_UNAUTHORIZED);
     }
@@ -838,7 +867,7 @@ class InvitationService {
     // usage (`seats.ts` guards `expiresAt > now`); re-arming it re-reserves a seat,
     // so re-check capacity against the (possibly billing-reduced) cap first. A
     // still-live invite already holds its seat — no re-check needed.
-    if (invitation.expiresAt.getTime() < Date.now() && !(await seatCapacityAvailable(orgId, 1))) {
+    if (invitation.expiresAt.getTime() < Date.now() && !(await seatCapacityAvailable(invitationOrgId, 1))) {
       throw new Error(INV_SEAT_LIMIT);
     }
 
@@ -856,7 +885,7 @@ class InvitationService {
       allowedOAuthProviders: invitation.allowedOAuthProviders,
     });
 
-    return { expiresAt: invitation.expiresAt, delivery: deliveryOf(emailSent), email: invitation.email, role: invitation.role };
+    return { expiresAt: invitation.expiresAt, delivery: deliveryOf(emailSent), email: invitation.email, role: invitation.role, organizationId: invitationOrgId };
   }
 }
 

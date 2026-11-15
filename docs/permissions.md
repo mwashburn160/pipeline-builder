@@ -657,7 +657,7 @@ involved and each decision belongs to a different one of them:
 | Permission | Who holds it | What it allows |
 |---|---|---|
 | `impersonation:open` | **System-org-only.** The **Support Lead** Role, and a Super Admin implicitly. | Open a session for any user, cross-tenant — still subject to that organization's consent policy. |
-| `team_access:open` | **Org-assignable**, in the **admin** and **owner** bundles. | An admin/owner of an **ancestor org** reaching into its own subtree: **entering** a team it is not a member of (`POST /auth/switch-org`), and opening a session for one of that team's users. |
+| `team_access:open` | **Org-assignable**, in the **admin** and **owner** bundles. | An admin/owner of an **ancestor org** reaching into its own subtree: **entering** a team it is not a member of (`POST /auth/switch-org`, and again at every sign-in that would resume in such a team — without it the session opens in the ancestor org and that becomes the last active org), and opening a session for one of that team's users. |
 | `impersonation:approve` | **Org-assignable**, in the **admin** and **owner** bundles. | Answer a consent request **on the organization's behalf**. The *named* approver decides their own request regardless — they were asked personally. |
 
 Each is checked alongside an authority test, not instead of one, and the second

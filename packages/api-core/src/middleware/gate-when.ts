@@ -49,9 +49,18 @@ export function gateWhen(
   });
   return tagRouteGate(
     function gateWhenRoute(req: Request, res: Response, next: NextFunction): void {
+      // A gate that throws or rejects reaches the error handler, as Express 5
+      // does for a gate mounted directly — discarding its promise would leave
+      // the request hanging with an unhandled rejection.
       const run = (i: number): void => {
         if (i === gates.length) return next();
-        void gates[i](req, res, (err?: unknown) => (err ? next(err) : run(i + 1)));
+        let result: unknown;
+        try {
+          result = gates[i](req, res, (err?: unknown) => (err ? next(err) : run(i + 1)));
+        } catch (err) {
+          return next(err);
+        }
+        if (result instanceof Promise) result.catch(next);
       };
       Promise.resolve()
         .then(() => when(req))

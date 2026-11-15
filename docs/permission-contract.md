@@ -133,12 +133,13 @@ Contacting support is self-service — every member who can open the Messages pa
 
 ### Gates that apply to only some requests
 
-Platform's `gateWhen` applies gates to only the requests a predicate selects, and the route table records them under `conditionalGates` with the route's own description of those requests. A row renders each one with its condition (`aal2(when …)`, `step-up(…when …)`), on top of what every request meets. Two routes use it:
+`gateWhen` applies gates to only the requests a predicate selects, and the route table records them under `conditionalGates` with the route's own description of those requests. A row renders each one with its condition (`aal2(when …)`, `step-up(…when …)`), on top of what every request meets. Three routes use it:
 
 - **`platform POST /users`**: a body with `isSuperAdmin: true` IS a platform-admin grant, so it also needs `aal2 + step-up(totp,webauthn)`, the same as `POST /admin/users/:id/grants`. An ordinary account create needs neither.
 - **`platform PATCH /user/profile`**: CHANGING the sign-in email also needs a step-up, because the email is where a password reset is sent. A username edit stays authenticated-only. The conditional gate is what puts this route in the table at all.
+- **`billing DELETE /billing/subscriptions/by-org/:orgId`**: the billing admin page's "Purge" deletes every subscription and billing event of an org, so a system-org USER must step up on the server, not only in the page's modal. The platform org-cascade calls the same route with a service token, which has no person to re-verify, so the gate selects user callers only.
 
-Dropping a `gateWhen`, or weakening what it wraps, changes these rows like any other gate. Which requests each predicate selects is pinned in `platform/test/step-up-route-gates.test.ts`, and the gates' behaviour in `platform/test/gate-when.test.ts`.
+Dropping a `gateWhen`, or weakening what it wraps, changes these rows like any other gate. Which requests each predicate selects is pinned in `platform/test/step-up-route-gates.test.ts` (platform) and `api/billing/test/admin-subscriptions.test.ts` (billing), and the gates' behaviour in `platform/test/gate-when.test.ts`.
 
 ## Notation
 
@@ -230,7 +231,7 @@ Dropping a `gateWhen`, or weakening what it wraps, changes these rows like any o
 | billing | DELETE | `/billing/subscriptions/:id/discounts/:discountId` | `any(billing:manage) + org-admin-assurance` |
 | billing | POST | `/billing/subscriptions/:id/discounts/preview` | `any(billing:read)` |
 | billing | POST | `/billing/subscriptions/:id/reactivate` | `any(billing:manage) + org-admin-assurance` |
-| billing | DELETE | `/billing/subscriptions/by-org/:orgId` | `system-org + any(subscriptions:manage) + aal2` |
+| billing | DELETE | `/billing/subscriptions/by-org/:orgId` | `system-org + any(subscriptions:manage) + aal2 + step-up(any when caller is a user, not a service principal)` |
 | billing | GET | `/billing/subscriptions/by-org/:orgId/billable` | `system-org + any(subscriptions:read) + aal2` |
 | billing | POST | `/billing/subscriptions/checkout` | `any(billing:manage) + org-admin-assurance` |
 | billing | GET | `/billing/summary` | `any(billing:read)` |
@@ -244,6 +245,7 @@ Dropping a `gateWhen`, or weakening what it wraps, changes these rows like any o
 | compliance | GET | `/compliance/exemptions` | `any(compliance:read)` |
 | compliance | POST | `/compliance/exemptions` | `any(compliance:read)` |
 | compliance | DELETE | `/compliance/exemptions/:id` | `any(compliance:write)` |
+| compliance | PUT | `/compliance/exemptions/:id/expiry` | `any(compliance:write)` |
 | compliance | PUT | `/compliance/exemptions/:id/review` | `any(compliance:write)` |
 | compliance | POST | `/compliance/exemptions/bulk` | `any(compliance:read)` |
 | compliance | GET | `/compliance/notification-preferences` | `any(compliance:read)` |

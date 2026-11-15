@@ -533,7 +533,7 @@ export function messagesApi(core: ApiCore) {
 
     /** Delete a message (soft delete) */
     deleteMessage: async (id: string) => {
-      return core.request<ApiResponse<{ message: string }>>(`/api/messages/${id}`, {
+      return core.request<ApiResponse<undefined>>(`/api/messages/${id}`, {
         method: 'DELETE',
       });
     },

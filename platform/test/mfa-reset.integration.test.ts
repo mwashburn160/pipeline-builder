@@ -170,6 +170,20 @@ suite('MFA reset + admin-actions policy (real Mongo replica set)', () => {
       expect(await m.WebAuthnCredential.countDocuments({ userId: member })).toBe(1);
     });
 
+    it('re-checks the target at approval: a member who left, or a new platform admin, is not reset', async () => {
+      const left = await recovery.requestMfaReset({ organizationId: teamId, targetUserId: member, requester: requester(), reason: 'Lost phone and laptop' });
+      await m.UserOrganization.deleteOne({ userId: member, organizationId: teamId });
+      await expect(recovery.approveMfaReset({ requestId: left.id, approver: approver() })).rejects.toThrow(recovery.MFA_RESET_NOT_MEMBER);
+      expect((await m.MfaResetRequest.findById(left.id).lean()).status).toBe('expired');
+      expect(await m.WebAuthnCredential.countDocuments({ userId: member })).toBe(1);
+
+      await m.UserOrganization.create({ userId: member, organizationId: teamId, role: 'member' });
+      const promoted = await recovery.requestMfaReset({ organizationId: teamId, targetUserId: member, requester: requester(), reason: 'Lost phone and laptop' });
+      await m.User.updateOne({ _id: member }, { $set: { isSuperAdmin: true } });
+      await expect(recovery.approveMfaReset({ requestId: promoted.id, approver: approver() })).rejects.toThrow(recovery.MFA_RESET_PLATFORM_ADMIN);
+      expect(await m.WebAuthnCredential.countDocuments({ userId: member })).toBe(1);
+    });
+
     it('allows only one PENDING request per member, but a new one after expiry', async () => {
       const first = await recovery.requestMfaReset({ organizationId: teamId, targetUserId: member, requester: requester(), reason: 'Lost phone and laptop' });
       await expect(recovery.requestMfaReset({ organizationId: teamId, targetUserId: member, requester: approver(), reason: 'Lost phone again' }))

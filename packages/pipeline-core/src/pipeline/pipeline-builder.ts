@@ -185,7 +185,7 @@ export interface BuilderProps {
 
   /**
    * Plugins pre-resolved by `pipeline-manager pipeline synth` from the platform API,
-   * keyed by `alias || name`. `PluginLookup.plugin()` returns the matching
+   * keyed by `pluginArtifactAlias`. `PluginLookup.plugin()` returns the matching
    * entry — so the synthesized CFN template ships with the real CodeBuild image
    * baked in — and fails the synth for a plugin missing from it.
    * Populated by the CLI before invoking the boilerplate app; CDK consumers
@@ -305,8 +305,9 @@ export class PipelineBuilder extends Construct {
       //      real commands baked into the template.
       //   2. Otherwise → `bootstrap()`: cold-start `pipeline-manager pipeline synth`
       //      on the resolved toolchain release's pipeline-bootstrap image
-      //      (`resolvedBootstrap`). Used when the synth plugin wasn't
-      //      pre-resolved (a non-managed synth plugin whose lookup missed).
+      //      (`resolvedBootstrap`). Reached only by a CDK app constructing
+      //      PipelineBuilder directly: the CLI fails the synth when the synth
+      //      plugin does not resolve.
       //
       // pluginLookup.plugin() reads `resolvedPlugins` internally and returns
       // the cached entry when present — so calling it always wins over
@@ -505,9 +506,8 @@ export class PipelineBuilder extends Construct {
       // AccessDeniedException on GetSecretValue, and the pipeline role has to be
       // patched by hand in each account.
       //
-      // Scoped to this org's platform secret and mirroring the plugin-lookup
-      // Lambda's grant (pipeline/plugin-lookup.ts), including the `-*` suffix —
-      // Secrets Manager appends six random characters to every ARN.
+      // Scoped to this org's platform secret, with the `-*` suffix — Secrets
+      // Manager appends six random characters to every ARN.
       if (platformSecretName) {
         this.pipeline.synthProject.addToRolePolicy(new PolicyStatement({
           effect: Effect.ALLOW,

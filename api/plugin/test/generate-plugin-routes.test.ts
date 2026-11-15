@@ -47,7 +47,7 @@ const generated = (over: Record<string, unknown> = {}) => ({
   config: { name: 'x' }, dockerfile: 'FROM node', dockerfileViolations: [], usage: USAGE, servedBy: SERVED_BY, promptVersion: 'plugin-generate@test', ...over,
 });
 /**
- * A streamed generation: `partials` (the provider's first one marks contact, as
+ * A streamed generation: `partials` (each reports the provider's response, as
  * the real service's onChunk does), then `final` — or a mid-stream `error`.
  */
 function streamed(final: Record<string, unknown> | null, opts: { partials?: unknown[]; error?: Error } = {}) {
@@ -67,9 +67,7 @@ function streamed(final: Record<string, unknown> | null, opts: { partials?: unkn
 }
 
 /** Stand-in for the service's typed "provider answered, output empty" error. */
-class MockAIEmptyOutputError extends Error {
-  readonly providerContacted = true;
-}
+class MockAIEmptyOutputError extends Error {}
 
 const mockDockerfileViolations = (dockerfile: string) =>
   (dockerfile.includes('USER 1000:1000') ? [] : ['Dockerfile: the final stage sets no USER']);
@@ -192,19 +190,20 @@ describe('POST /generate — quota reserve auth', () => {
     );
   });
 
-  it('rolls back with the service header when generation throws', async () => {
-    mockGeneratePluginConfig.mockRejectedValue(new Error('LLM down'));
+  it('rolls back with the service header when the work BEFORE the send throws', async () => {
+    mockFindSimilarPlugins.mockRejectedValueOnce(new Error('catalog down'));
 
     await handler(mockReq(), mockRes());
 
+    expect(mockGeneratePluginConfig).not.toHaveBeenCalled();
     expect(mockDecrementQuota).toHaveBeenCalledWith(
       mockQuotaService, 'org-1', 'aiCalls', SERVICE_TOKEN, expect.any(Function), 1, '2026-08-01T00:00:00Z',
       expect.objectContaining({ feature: 'plugin-generate' }),
     );
   });
 
-  // Keep-on-provider-contact (pipeline's rule): the provider round-trip completed
-  // and its cost was incurred, so an empty output KEEPS the slot.
+  // Consumed at send (the platform rule): the request reached the provider and
+  // its cost was incurred, so an empty output KEEPS the slot.
   it('keeps the aiCalls slot when the provider answered with empty output', async () => {
     mockGeneratePluginConfig.mockRejectedValue(new MockAIEmptyOutputError('AI did not produce a plugin configuration'));
 
@@ -323,32 +322,43 @@ describe('POST /generate/stream — quota reserve auth', () => {
     expect(mockDecrementQuota).not.toHaveBeenCalled();
   });
 
-  // … while a failure before the provider was ever reached refunds it.
-  it('refunds the aiCalls slot when the stream fails BEFORE the provider responded', async () => {
+  // … while a failure before the request was sent refunds it.
+  it('refunds the aiCalls slot when the stream route fails BEFORE the send', async () => {
     (initSSEStream as jest.Mock<AnyFn>).mockImplementation(sseFor(false) as AnyFn);
-    mockStreamPluginConfig.mockImplementation(() => { throw new Error('unknown model'); });
+    mockFindSimilarPlugins.mockRejectedValueOnce(new Error('catalog down'));
 
     await handler(mockReq(), mockRes());
 
+    expect(mockStreamPluginConfig).not.toHaveBeenCalled();
     expect(mockDecrementQuota).toHaveBeenCalledWith(
       mockQuotaService, 'org-1', 'aiCalls', SERVICE_TOKEN, expect.any(Function), 1, '2026-08-01T00:00:00Z',
       expect.objectContaining({ feature: 'plugin-generate' }),
     );
   });
 
-  // The ABORT (client disconnect) refund path stays intact — the caller never
-  // consumed the output, so the reserved slot is returned.
-  it('refunds the aiCalls slot when the stream is aborted before completion', async () => {
+  // A client disconnect AFTER the send keeps the slot: the provider bills the
+  // tokens it processed whether or not the caller read the output.
+  it('KEEPS the aiCalls slot when the stream is aborted after the send, before completion', async () => {
     (initSSEStream as jest.Mock<AnyFn>).mockImplementation(sseFor(true) as AnyFn);
     mockStreamPluginConfig.mockImplementation(streamed({ dockerfile: 'FROM node', name: 'x' }));
 
     await handler(mockReq(), mockRes());
 
-    expect(mockDecrementQuota).toHaveBeenCalledWith(
-      mockQuotaService, 'org-1', 'aiCalls', SERVICE_TOKEN, expect.any(Function), 1, '2026-08-01T00:00:00Z',
-      expect.objectContaining({ feature: 'plugin-generate' }),
-    );
-    expect(auditRows()[0]).toEqual(expect.objectContaining({ outcome: 'failure', details: expect.objectContaining({ aborted: true, route: 'generate-stream' }) }));
+    expect(mockDecrementQuota).not.toHaveBeenCalled();
+    expect(auditRows()[0]).toEqual(expect.objectContaining({
+      outcome: 'failure',
+      details: expect.objectContaining({ aborted: true, route: 'generate-stream', quota: expect.objectContaining({ slot: 'kept' }) }),
+    }));
+  });
+
+  it('KEEPS the aiCalls slot when the call TIMES OUT after the send', async () => {
+    mockGeneratePluginConfig.mockRejectedValue(Object.assign(new Error('The operation timed out'), { name: 'TimeoutError' }));
+    const json = getHandler('post', '/generate');
+
+    await json(mockReq(), mockRes());
+
+    expect(mockDecrementQuota).not.toHaveBeenCalled();
+    expect(auditRows()[0].details.quota.slot).toBe('kept');
   });
 });
 

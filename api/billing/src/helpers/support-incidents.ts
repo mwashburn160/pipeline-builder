@@ -40,7 +40,7 @@
 
 import { createLogger } from '@pipeline-builder/api-core';
 import { MANAGEABLE_SUBSCRIPTION_STATUSES } from './subscription-status.js';
-import { Subscription } from '../models/subscription.js';
+import { SUPPORT_INCIDENT_SPEND_HISTORY, Subscription } from '../models/subscription.js';
 
 const logger = createLogger('support-incidents');
 
@@ -75,50 +75,116 @@ export async function grantSupportIncidents(
   return updated.supportIncidentBalance;
 }
 
+/** A consume/refund caller key: opaque, bounded, header-safe. */
+export const INCIDENT_KEY_PATTERN = /^[A-Za-z0-9_-]{8,128}$/;
+
+const MANAGEABLE = { $in: [...MANAGEABLE_SUBSCRIPTION_STATUSES] };
+
+/** Append one spend record, keeping only the newest history window. */
+function pushSpend(key: string, consumed: boolean): Record<string, unknown> {
+  return {
+    supportIncidentSpends: {
+      $each: [{ key, consumed, refunded: false, at: new Date() }],
+      $slice: -SUPPORT_INCIDENT_SPEND_HISTORY,
+    },
+  };
+}
+
+/** The recorded outcome of `key` on the org's manageable subscription, if any. */
+async function recordedSpend(orgId: string, key: string): Promise<{ consumed: boolean } | null> {
+  const sub = await Subscription.findOne(
+    { orgId, 'status': MANAGEABLE, 'supportIncidentSpends.key': key },
+    { 'supportIncidentSpends.$': 1 },
+  ).lean<{ supportIncidentSpends?: Array<{ consumed: boolean }> }>();
+  const spend = sub?.supportIncidentSpends?.[0];
+  return spend ? { consumed: spend.consumed } : null;
+}
+
 /**
- * Spend exactly one incident. Returns `true` when one was spent, `false` when
- * the org had none — the caller refuses the case open in that case.
+ * Spend exactly one incident under the caller's idempotency `key`. Returns
+ * `true` when one was spent, `false` when the org had none — the caller refuses
+ * the case open in that case. A REPEATED key returns the key's original outcome
+ * and spends nothing: the caller re-sends a consume whose reply it never got,
+ * and a second spend there would charge one support case twice.
  *
  * The `$gte: 1` guard lives in the QUERY, not in a prior read: a filtered
  * `findOneAndUpdate` is a single atomic operation, so two concurrent case opens
  * against a balance of 1 cannot both succeed. Reading the balance and then
  * decrementing would let both through, which is a free support case per race.
- * The schema's `min: 0` is a backstop, not the mechanism — it would only ever
- * reject a write that this guard should already have prevented.
+ * The key guard rides the same filter and the spend record the same write, so a
+ * concurrent duplicate of one key also spends at most once. The schema's
+ * `min: 0` is a backstop, not the mechanism.
  */
-export async function consumeSupportIncident(orgId: string, actorId?: string): Promise<boolean> {
+export async function consumeSupportIncident(orgId: string, key: string, actorId?: string): Promise<boolean> {
   const updated = await Subscription.findOneAndUpdate(
     {
       orgId,
-      status: { $in: [...MANAGEABLE_SUBSCRIPTION_STATUSES] },
-      supportIncidentBalance: { $gte: 1 },
+      'status': MANAGEABLE,
+      'supportIncidentBalance': { $gte: 1 },
+      'supportIncidentSpends.key': { $ne: key },
     },
-    { $inc: { supportIncidentBalance: -1 } },
+    { $inc: { supportIncidentBalance: -1 }, $push: pushSpend(key, true) },
     { new: true },
   );
-  if (!updated) return false;
-  logger.info('Support incident consumed', { orgId, remaining: updated.supportIncidentBalance, actorId });
-  return true;
+  if (updated) {
+    logger.info('Support incident consumed', { orgId, remaining: updated.supportIncidentBalance, actorId });
+    return true;
+  }
+
+  // Not spent: either the key was seen before (answer as it was answered), or
+  // the org has none. Record the "none" outcome under the key too, so a retry
+  // that lands after a later grant still answers what the first call did.
+  const prior = await recordedSpend(orgId, key);
+  if (prior) return prior.consumed;
+  const recorded = await Subscription.updateOne(
+    { orgId, 'status': MANAGEABLE, 'supportIncidentSpends.key': { $ne: key } },
+    { $push: pushSpend(key, false) },
+  );
+  if (recorded.matchedCount === 1) return false;
+  // Lost a race to a concurrent duplicate of this key (read ITS outcome), or
+  // there is no manageable subscription (nothing could be spent).
+  return (await recordedSpend(orgId, key))?.consumed ?? false;
 }
 
 /**
- * Give one incident back, for a case that was never actually worked — a
- * duplicate, or one closed as "not a support issue".
+ * Give back the incident spent under `key`, for a case that never opened — the
+ * case insert failed, or the caller could not learn whether its consume landed.
+ *
+ * Only a spend that HAPPENED is refunded, and only once: the refunded flag is
+ * set in the same filtered write that restores the balance. A key never spent
+ * is a no-op — and is recorded as not consumed, so a consume with that key
+ * still in flight cannot spend after its own refund was decided.
  *
  * Separate from `grantSupportIncidents` on purpose: a refund and a concession
  * are different events and want different audit actions, even though the
  * arithmetic is identical. Collapsing them would make "how many incidents did
  * we give away" unanswerable.
  */
-export async function refundSupportIncident(orgId: string, actorId?: string): Promise<number | null> {
+export async function refundSupportIncident(
+  orgId: string,
+  key: string,
+  actorId?: string,
+): Promise<{ refunded: boolean; balance: number | null }> {
   const updated = await Subscription.findOneAndUpdate(
-    { orgId, status: { $in: [...MANAGEABLE_SUBSCRIPTION_STATUSES] } },
-    { $inc: { supportIncidentBalance: 1 } },
+    {
+      orgId,
+      status: MANAGEABLE,
+      supportIncidentSpends: { $elemMatch: { key, consumed: true, refunded: { $ne: true } } },
+    },
+    { $inc: { supportIncidentBalance: 1 }, $set: { 'supportIncidentSpends.$.refunded': true } },
     { new: true },
   );
-  if (!updated) return null;
-  logger.info('Support incident refunded', { orgId, balance: updated.supportIncidentBalance, actorId });
-  return updated.supportIncidentBalance;
+  if (updated) {
+    logger.info('Support incident refunded', { orgId, balance: updated.supportIncidentBalance, actorId });
+    return { refunded: true, balance: updated.supportIncidentBalance };
+  }
+  await Subscription.updateOne(
+    { orgId, 'status': MANAGEABLE, 'supportIncidentSpends.key': { $ne: key } },
+    { $push: pushSpend(key, false) },
+  );
+  const sub = await Subscription.findOne({ orgId, status: MANAGEABLE }, { supportIncidentBalance: 1 })
+    .lean<{ supportIncidentBalance?: number }>();
+  return { refunded: false, balance: sub ? (sub.supportIncidentBalance ?? 0) : null };
 }
 
 /** The org's remaining incidents; 0 when it has no manageable subscription. */

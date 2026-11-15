@@ -8,7 +8,8 @@ import { ModalFooter } from '@/components/ui/ModalFooter';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { Input } from '@/components/ui/Input';
 import { Checkbox } from '@/components/ui/Checkbox';
-import { api, ApiError } from '@/lib/api';
+import { api } from '@/lib/api';
+import { formatError } from '@/lib/constants';
 
 interface RegistryGcModalProps {
   /** Whether the GC form modal is shown. Kept mounted so the prefix survives close/reopen. */
@@ -41,11 +42,14 @@ export function RegistryGcModal({ open, onClose, onRealRunComplete }: RegistryGc
       const res = await api.runRegistryGc({ prefix, dryRun: gcDryRun });
       const r = res.data;
       if (r) {
-        toast.success(
-          gcDryRun
-            ? `Dry-run: ${r.candidates} candidate${r.candidates === 1 ? '' : 's'} across ${r.reposScanned} repo${r.reposScanned === 1 ? '' : 's'} (nothing deleted)`
-            : `GC complete: deleted ${r.deleted} of ${r.candidates} candidate${r.candidates === 1 ? '' : 's'} across ${r.reposScanned} repo${r.reposScanned === 1 ? '' : 's'}`,
-        );
+        const repos = `${r.reposScanned} repo${r.reposScanned === 1 ? '' : 's'}`;
+        const companions = r.companionsDeleted > 0 ? ` and ${r.companionsDeleted} signature/attestation companion${r.companionsDeleted === 1 ? '' : 's'}` : '';
+        const summary = gcDryRun
+          ? `Dry-run: ${r.candidates} candidate${r.candidates === 1 ? '' : 's'}${companions} across ${repos} (nothing deleted)`
+          : `GC: deleted ${r.deleted} of ${r.candidates} candidate${r.candidates === 1 ? '' : 's'}${companions} across ${repos}`;
+        // A repo whose sweep failed still answers 200 — never call that complete.
+        if (r.failedRepos > 0) toast.warning(`${summary}; ${r.failedRepos} repo${r.failedRepos === 1 ? '' : 's'} failed (see the registry logs)`, 12000);
+        else toast.success(summary);
       }
       // Close + refresh the repo list only after a real run may have emptied repos.
       if (!gcDryRun) {
@@ -53,7 +57,7 @@ export function RegistryGcModal({ open, onClose, onRealRunComplete }: RegistryGc
         onRealRunComplete();
       }
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : 'Registry GC failed');
+      toast.error(formatError(err, 'Registry GC failed'));
     } finally {
       setGcRunning(false);
     }

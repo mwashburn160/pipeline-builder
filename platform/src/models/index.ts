@@ -39,6 +39,8 @@ export { default as AuditEvent } from './audit-event.js';
 export type { AuditEventDocument, AuditEventData, AuditAction } from './audit-event.js';
 export { default as AuditChainHead } from './audit-chain-head.js';
 export type { AuditChainHeadDoc } from './audit-chain-head.js';
+export { default as AuditChainCheckpoint } from './audit-chain-checkpoint.js';
+export type { AuditChainCheckpointDoc } from './audit-chain-checkpoint.js';
 export { default as ArchivedAuditEvent } from './archived-audit-events.js';
 export type { ArchivedAuditEventDocument, ArchivedAuditEventData } from './archived-audit-events.js';
 export { default as OrgIdpConfig } from './org-idp-config.js';

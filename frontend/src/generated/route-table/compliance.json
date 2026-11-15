@@ -221,6 +221,41 @@
   },
   {
     "method": "PUT",
+    "path": "/compliance/exemptions/:id/expiry",
+    "auth": true,
+    "permissions": [
+      {
+        "mode": "any",
+        "permissions": [
+          "compliance:write"
+        ],
+        "allowService": false
+      }
+    ],
+    "systemAdmin": false,
+    "servicePrincipal": false,
+    "dynamicAuthz": [],
+    "internalCallers": [],
+    "stepUp": false,
+    "stepUpMethods": [],
+    "minAssurance": 0,
+    "conditionalGates": [],
+    "features": [],
+    "scopes": [],
+    "audit": [
+      "compliance.exemption.approve"
+    ],
+    "quota": {
+      "metered": [
+        "apiCalls"
+      ],
+      "checked": [
+        "apiCalls"
+      ]
+    }
+  },
+  {
+    "method": "PUT",
     "path": "/compliance/exemptions/:id/review",
     "auth": true,
     "permissions": [

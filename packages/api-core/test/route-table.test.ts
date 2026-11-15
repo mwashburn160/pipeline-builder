@@ -373,3 +373,24 @@ describe('quota coverage', () => {
   });
 });
 
+
+describe('gateWhen runtime', () => {
+  it('hands a gate that REJECTS to the error handler instead of hanging the request', async () => {
+    const failing = tagRouteGate(async () => { throw new Error('gate exploded'); }, { kind: 'stepUp' });
+    const mw = gateWhen('always', () => true, failing);
+    const err = await new Promise<unknown>((resolve) => {
+      mw({} as never, {} as never, (e?: unknown) => resolve(e));
+    });
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).message).toBe('gate exploded');
+  });
+
+  it('hands a gate that THROWS synchronously to the error handler', async () => {
+    const failing = tagRouteGate(() => { throw new Error('sync boom'); }, { kind: 'stepUp' });
+    const mw = gateWhen('always', () => true, failing);
+    const err = await new Promise<unknown>((resolve) => {
+      mw({} as never, {} as never, (e?: unknown) => resolve(e));
+    });
+    expect((err as Error).message).toBe('sync boom');
+  });
+});

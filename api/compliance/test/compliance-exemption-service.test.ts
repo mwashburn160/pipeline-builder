@@ -53,7 +53,7 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@p
   buildComplianceExemptionConditions: (f: unknown, o: string) => buildComplianceExemptionConditions(f, o),
 }));
 
-const { complianceExemptionService, CE_NOT_FOUND, CE_SELF_APPROVE, CE_ALREADY_EXISTS, EXEMPTION_LOOKUP_CHUNK } =
+const { complianceExemptionService, CE_NOT_FOUND, CE_SELF_APPROVE, CE_ALREADY_EXISTS, CE_NOT_EXTENDABLE, CE_EXPIRY_NOT_LATER, EXEMPTION_LOOKUP_CHUNK } =
   await import('../src/services/compliance-exemption-service.js');
 
 describe('ComplianceExemptionService', () => {
@@ -153,6 +153,69 @@ describe('ComplianceExemptionService', () => {
     });
   });
 
+  describe('extendExpiry', () => {
+    const day = 24 * 60 * 60 * 1000;
+    const current = () => new Date(Date.now() + 2 * day);
+    const later = () => new Date(Date.now() + 30 * day);
+
+    it('extends an approved, in-force exemption and re-arms the lapse warning', async () => {
+      const cur = current();
+      selectResults = [[{ createdBy: 'requester', status: 'approved', expiresAt: cur }]];
+      const next = later();
+      returningResults = [[{ id: 'ex-1', status: 'approved', expiresAt: next }]];
+      const result = await complianceExemptionService.extendExpiry('ex-1', 'org-1', 'approver', next);
+      expect(result.exemption).toMatchObject({ id: 'ex-1', expiresAt: next });
+      expect(result.previousExpiresAt).toBe(cur);
+      const updateChain = tx.update.mock.results[0].value as Record<string, jest.Mock>;
+      expect(updateChain.set).toHaveBeenCalledWith(expect.objectContaining({
+        expiresAt: next, approvedBy: 'approver', expiryWarnedAt: null, updatedBy: 'approver',
+      }));
+    });
+
+    it('refuses the requester extending their own exemption (two-person rule), before any write', async () => {
+      selectResults = [[{ createdBy: 'u1', status: 'approved', expiresAt: current() }]];
+      await expect(complianceExemptionService.extendExpiry('ex-1', 'org-1', 'u1', later())).rejects.toThrow(CE_SELF_APPROVE);
+      expect(tx.update).not.toHaveBeenCalled();
+    });
+
+    it('refuses an expiry in the past without touching the database', async () => {
+      await expect(
+        complianceExemptionService.extendExpiry('ex-1', 'org-1', 'approver', new Date(Date.now() - day)),
+      ).rejects.toThrow(CE_EXPIRY_NOT_LATER);
+      expect(tx.select).not.toHaveBeenCalled();
+    });
+
+    it('refuses an expiry not later than the current one', async () => {
+      const cur = new Date(Date.now() + 10 * day);
+      selectResults = [[{ createdBy: 'requester', status: 'approved', expiresAt: cur }]];
+      await expect(
+        complianceExemptionService.extendExpiry('ex-1', 'org-1', 'approver', new Date(cur.getTime() - day)),
+      ).rejects.toThrow(CE_EXPIRY_NOT_LATER);
+      expect(tx.update).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['pending', { status: 'pending', expiresAt: new Date(Date.now() + 2 * day) }],
+      ['lapsed', { status: 'approved', expiresAt: new Date(Date.now() - day) }],
+      ['open-ended', { status: 'approved', expiresAt: null }],
+    ])('refuses a %s exemption (CE_NOT_EXTENDABLE)', async (_label, row) => {
+      selectResults = [[{ createdBy: 'requester', ...row }]];
+      await expect(complianceExemptionService.extendExpiry('ex-1', 'org-1', 'approver', later())).rejects.toThrow(CE_NOT_EXTENDABLE);
+      expect(tx.update).not.toHaveBeenCalled();
+    });
+
+    it('throws CE_NOT_FOUND for an id outside the org', async () => {
+      selectResults = [[]];
+      await expect(complianceExemptionService.extendExpiry('ex-1', 'org-1', 'approver', later())).rejects.toThrow(CE_NOT_FOUND);
+    });
+
+    it('a concurrent change (guarded update matches nothing) is CE_NOT_EXTENDABLE, not a silent success', async () => {
+      selectResults = [[{ createdBy: 'requester', status: 'approved', expiresAt: current() }]];
+      returningResults = [[]];
+      await expect(complianceExemptionService.extendExpiry('ex-1', 'org-1', 'approver', later())).rejects.toThrow(CE_NOT_EXTENDABLE);
+    });
+  });
+
   describe('create (dedup)', () => {
     const input = {
       ruleId: 'r1', entityType: 'plugin' as const, entityId: 'a', reason: 'ok',
@@ -181,6 +244,23 @@ describe('ComplianceExemptionService', () => {
       // closed row is reopened — a live one is still skipped.
       expect(clause.set.createdBy).toBeDefined();
       expect(clause.setWhere).toBeDefined();
+      // Filed NOW: listed by `createdAt desc`, a reopened request kept its
+      // original filing date and sank below every newer one.
+      expect(clause.set.createdAt).toBeInstanceOf(Date);
+    });
+
+    it('also reopens an APPROVED row whose expiresAt has passed (lapsed, not yet swept)', async () => {
+      // The expiry sweep runs daily; until it does, a lapsed exemption still
+      // reads `approved`, and a new request for it answered 409.
+      returningResults = [[{ id: 'ex-1', status: 'pending' }]];
+      await complianceExemptionService.create(input, 'org-1', 'u-2');
+      const insertChain = tx.insert.mock.results[0].value as Record<string, jest.Mock>;
+      const { PgDialect } = await import('drizzle-orm/pg-core');
+      type Where = Parameters<InstanceType<typeof PgDialect>['sqlToQuery']>[0];
+      const clause = insertChain.onConflictDoUpdate.mock.calls[0]![0] as { setWhere: Where };
+      const rendered = new PgDialect().sqlToQuery(clause.setWhere);
+      expect(rendered.params).toEqual(expect.arrayContaining(['rejected', 'expired', 'approved']));
+      expect(rendered.params.some((p) => p instanceof Date || typeof p === 'string' && !Number.isNaN(Date.parse(p)))).toBe(true);
     });
 
     it('throws CE_ALREADY_EXISTS when the triple collides with a live request (empty returning → clean 409, not a 500)', async () => {
@@ -218,6 +298,14 @@ describe('ComplianceExemptionService', () => {
       const insertChain = tx.insert.mock.results[0].value as Record<string, jest.Mock>;
       const values = insertChain.values.mock.calls[0]![0] as Array<{ entityId: string }>;
       expect(values.map((v) => v.entityId)).toEqual(['a', 'b']);
+    });
+
+    it('treats ids differing only in case as one repeat (uuid columns are case-insensitive)', async () => {
+      returningResults = [[{ id: 'ex-1' }]];
+      await complianceExemptionService.bulkCreate([row('ABC'), row('abc')], 'org-1', 'u-1');
+      const insertChain = tx.insert.mock.results[0].value as Record<string, jest.Mock>;
+      const values = insertChain.values.mock.calls[0]![0] as Array<{ entityId: string }>;
+      expect(values).toHaveLength(1);
     });
 
     it('returns no ids when every row collided (all skipped)', async () => {

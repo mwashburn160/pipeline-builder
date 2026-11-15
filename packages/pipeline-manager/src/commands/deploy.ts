@@ -79,8 +79,8 @@ export function deploy(program: Command): void {
         // Security warning for SSL verification disabled
         printSslWarning(options.verifySsl);
 
-        // Propagate to process.env so CDK constructs (Lambda, CodeBuild) inherit it,
-        // but refuse in production (see relaxTlsForCli) — the flag disables cert
+        // Propagate to process.env so the CDK app (and through it every CodeBuild
+        // step) inherits it, but refuse in production (see relaxTlsForCli) — the flag disables cert
         // validation for ALL outbound TLS, including the AWS SDK.
         relaxTlsForCli(options.verifySsl, printWarning);
 

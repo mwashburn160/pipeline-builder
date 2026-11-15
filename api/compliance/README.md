@@ -49,6 +49,7 @@ The service listens on port `3000`. The API gateway (nginx) routes `/api/complia
 | GET/POST | `/compliance/exemptions` | List / create exemptions |
 | POST | `/compliance/exemptions/bulk` | Bulk-create exemptions |
 | PUT | `/compliance/exemptions/:id/review` | Approve/reject an exemption |
+| PUT | `/compliance/exemptions/:id/expiry` | Extend an approved exemption's expiry before it lapses (same reviewer rules as approval) |
 | DELETE | `/compliance/exemptions/:id` | Delete an exemption |
 | GET/POST | `/compliance/scans` | List / start scans |
 | GET | `/compliance/scans/:id` | Get scan status |
@@ -61,7 +62,7 @@ The service listens on port `3000`. The API gateway (nginx) routes `/api/complia
 | POST | `/compliance/templates/apply` | Apply a template to bootstrap rules |
 | GET | `/compliance/audit` | Query the compliance audit log |
 | GET/PUT | `/compliance/notification-preferences` | Read / upsert the org's notification preference (PUT is org-admin; webhook secret never returned) |
-| POST | `/compliance/events/entity` | Internal entity-event receiver (`pipeline` / `plugin` service tokens only) |
+| POST | `/compliance/events/entity` | Internal entity-event receiver (`pipeline` / `plugin` service tokens only; the body `orgId` must match the token org; the parent org is resolved server-side and the audit actor is the calling service) |
 | PUT/GET | `/compliance/entitlements/:orgId` | Internal billing entitlement sync / drift read (`billing` service token only) |
 | GET | `/compliance/posture` | Internal posture counts for stakeholder reports (`reporting` service token only) |
 

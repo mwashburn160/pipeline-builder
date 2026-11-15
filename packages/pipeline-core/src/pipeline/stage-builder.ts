@@ -24,7 +24,7 @@ export interface StageBuilderProps {
   /** CDK construct scope for creating child constructs */
   readonly scope: Construct;
 
-  /** Plugin lookup service for resolving plugin references to CDK constructs */
+  /** Hands each step its pre-resolved plugin record (fails the synth for one that was not resolved) */
   readonly pluginLookup: PluginLookup;
 
   /** Unique ID generator for creating deterministic construct IDs */
@@ -164,8 +164,8 @@ export class StageBuilder {
       `${stageName}/${pluginStepIdAlias(stepConfig.plugin)}`);
     // Per-step plugin config lives on the plugin reference (`plugin.metadata` —
     // e.g. JAVA_VERSION/KOTLIN_VERSION/computetype overrides). pluginLookup.plugin()
-    // returns the resolved CATALOG plugin and drops the reference metadata in the
-    // pre-resolved path, so merge it here too — otherwise per-step overrides are
+    // returns the resolved CATALOG plugin, without the reference's metadata, so
+    // merge it here — otherwise per-step overrides are
     // silently ignored and the build falls back to plugin defaults.
     // Order (last wins): global < plugin-ref metadata < step-level metadata.
     const stepMetadata = merge(this.globalMetadata, stepConfig.plugin.metadata ?? {}, stepConfig.metadata ?? {});

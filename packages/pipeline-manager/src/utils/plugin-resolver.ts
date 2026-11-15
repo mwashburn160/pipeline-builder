@@ -116,8 +116,7 @@ function isNotFound(err: unknown): boolean {
  * The version a reference PINS — one exact `x.y.z[-pre]`, not a range or
  * `latest`. A pin names a version that must exist: if it doesn't (never
  * published, or refused by the build's vulnerability gate, which saves
- * nothing), there is no outage to ride out and nothing for the deploy-time
- * lookup to find either.
+ * nothing), the refusal says so (`PLUGIN_VERSION_NOT_FOUND`).
  */
 function exactVersionPin(ref: PluginRef): string | null {
   const version = ref.filter?.version;
@@ -168,7 +167,6 @@ export class PluginResolutionError extends Error {
  * Why an exact pin was not found, phrased from the 404's `details.state`
  * (`deleted` / `inactive` / `yanked` / `missing`). Without a state the answer
  * cannot tell the cases apart, so the message names the two likeliest.
- * Shared with the deploy-time Lambda's CloudFormation reason (pipeline-core).
  */
 function pinNotFoundMessage(label: string, pin: string, err?: unknown): string {
   return exactPinNotFoundMessage(label, pin, lookupNotFoundState(err));
@@ -251,7 +249,7 @@ function serviceMessage(err: unknown): string | null {
  * so the plugin service can record the warnings it returns against each of
  * those pipeline steps, not only print them into this synth's log.
  *
- * Keyed by `alias || name` to match `PluginLookup.plugin()`.
+ * Keyed by `pluginArtifactAlias` to match `PluginLookup.plugin()`.
  */
 export async function resolvePluginsForProps(
   client: ApiClient,
@@ -289,7 +287,7 @@ export async function resolvePluginsForProps(
     const refuse = (code: string, message: string): void => { fatal.push({ plugin: label, code, message }); };
     // A managed toolchain half (cdk-synth) resolves through the RELEASE — the
     // same `releasePin` the bootstrap lookup sends, so both halves come from
-    // one release — and it has no deploy-time fallback: any failure is fatal.
+    // one release — and any failure is fatal, with the toolchain's wording.
     const managed = isManagedToolchainRef(ref);
     const refuseManaged = (code: string, why: string): void => refuse(code,
       `Toolchain plugin "${label}"${releasePin ? ` (release ${releasePin})` : ''} could not be resolved: ${why}`);

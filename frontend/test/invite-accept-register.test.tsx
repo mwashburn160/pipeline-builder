@@ -33,7 +33,7 @@ jest.mock('@/lib/api', () => {
   const api = { getInvitationByToken: jest.fn<AnyFn>(), acceptInvitation: jest.fn<AnyFn>(), getOAuthUrl: jest.fn<AnyFn>() };
   return { __esModule: true, default: api, api };
 });
-const mockApi = jest.requireMock<Record<string, unknown>>('@/lib/api').api as Record<'getInvitationByToken' | 'acceptInvitation', jest.Mock<AnyFn>>;
+const mockApi = jest.requireMock<Record<string, unknown>>('@/lib/api').api as Record<'getInvitationByToken' | 'acceptInvitation' | 'getOAuthUrl', jest.Mock<AnyFn>>;
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -42,7 +42,7 @@ beforeEach(() => {
     data: {
       invitation: {
         email: 'new@example.com', role: 'member', status: 'pending', expiresAt: '2026-12-31T00:00:00Z',
-        isValid: true, canAcceptViaEmail: true, canAcceptViaGoogle: false,
+        isValid: true, canAcceptViaEmail: true, acceptProviders: [],
       },
     },
   });
@@ -74,4 +74,37 @@ it('still accepts when an older backend left that to the page', async () => {
   await submitRegistration();
 
   await waitFor(() => expect(mockApi.acceptInvitation).toHaveBeenCalledWith('tok-1'));
+});
+
+function oauthOnlyInvite(acceptProviders: string[]) {
+  mockApi.getInvitationByToken.mockResolvedValue({
+    success: true,
+    data: {
+      invitation: {
+        email: 'new@example.com', role: 'member', status: 'pending', expiresAt: '2026-12-31T00:00:00Z',
+        isValid: true, canAcceptViaEmail: false, acceptProviders,
+      },
+    },
+  });
+}
+
+it('offers one accept button per provider the invitation allows', async () => {
+  oauthOnlyInvite(['google', 'github']);
+  // No redirect URL: the click stops at an error instead of navigating.
+  mockApi.getOAuthUrl.mockResolvedValue({ success: true, data: {} });
+  render(<AcceptInvitePage />);
+
+  expect(await screen.findByRole('button', { name: /continue with google/i })).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: /continue with github/i }));
+
+  await waitFor(() => expect(mockApi.getOAuthUrl).toHaveBeenCalledWith('github'));
+  expect(await screen.findByText(/could not start sign-in with this provider/i)).toBeTruthy();
+});
+
+it('offers no provider button when the invitation allows none', async () => {
+  oauthOnlyInvite([]);
+  render(<AcceptInvitePage />);
+
+  expect(await screen.findByText(/approved\s+sign-in provider/i)).toBeTruthy();
+  expect(screen.queryByRole('button', { name: /continue with/i })).toBeNull();
 });

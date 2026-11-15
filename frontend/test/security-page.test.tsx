@@ -21,7 +21,7 @@
 import { describe, it, expect, jest, beforeEach, afterEach } from '@jest/globals';
 import type { AnyFn } from './helpers/mock-fn';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { mockAuthGuard } from './helpers/pageMocks';
+import { mockAuthGuard, pageToast } from './helpers/pageMocks';
 import {
   PASSKEY_ENROLMENT_HREF,
   SECURITY_HASH_TABS,
@@ -42,11 +42,18 @@ jest.mock('@/components/settings/TotpSection', () => ({ TotpSection: () => <div>
 jest.mock('@/components/settings/SessionsSection', () => ({ SessionsSection: () => <div>sessions-section</div> }));
 jest.mock('@/components/settings/AccessKeysSection', () => ({ AccessKeysSection: () => <div>access-keys-section</div> }));
 jest.mock('@/components/settings/ServiceAccountsSection', () => ({ ServiceAccountsSection: () => <div>service-accounts-section</div> }));
-jest.mock('@/components/admin/StepUpModal', () => ({ StepUpModal: () => null }));
+// A confirm button standing in for the factor prompt, so a test can drive the
+// step-up-gated password change through to its result.
+jest.mock('@/components/admin/StepUpModal', () => ({
+  StepUpModal: ({ onConfirmed, details }: { onConfirmed: (t: string) => void; details?: unknown }) => (
+    <div>{details as never}<button onClick={() => onConfirmed('tok')}>confirm-step-up</button></div>
+  ),
+}));
 
 const generateNewToken = jest.fn<AnyFn>();
 const listTokenHistory = jest.fn<AnyFn>();
 const getOwnPasswordPolicy = jest.fn<AnyFn>();
+const changePassword = jest.fn<AnyFn>();
 // The posture strip at the top of every tab reads sessions on mount. Stubbed so
 // it SETTLES within each test rather than throwing on a missing method and
 // landing its error state after the test body has finished.
@@ -58,6 +65,7 @@ jest.mock('@/lib/api', () => ({
     generateNewToken: (...a: unknown[]) => generateNewToken(...a),
     listTokenHistory: (...a: unknown[]) => listTokenHistory(...a),
     getOwnPasswordPolicy: (...a: unknown[]) => getOwnPasswordPolicy(...a),
+    changePassword: (...a: unknown[]) => changePassword(...a),
     listSessions: (...a: unknown[]) => listSessions(...a),
   },
 }));
@@ -289,6 +297,23 @@ describe('Security — the password form', () => {
     fireEvent.change(screen.getByLabelText('Confirm new password'), { target: { value: 'tenletters' } });
     fireEvent.click(screen.getByRole('button', { name: /change password/i }));
     expect(await screen.findByText('New password must be at least 14 characters')).toBeInTheDocument();
+    await postureSettled();
+  });
+
+  it('signs out after a change — the server ends every session, this one included, and revokes access keys', async () => {
+    getOwnPasswordPolicy.mockResolvedValue({ success: true, data: { minLength: 8, maxLength: 128 } });
+    changePassword.mockResolvedValue({ success: true, data: { accessKeysRevoked: 2 } });
+    const authGuard = mockAuthGuard({ user: { id: 'u1', organizationId: 'org-1' } });
+    render(<SecurityPage />);
+    fireEvent.change(await screen.findByLabelText('Current password'), { target: { value: 'old-password' } });
+    fireEvent.change(screen.getByLabelText('New password'), { target: { value: 'new-password' } });
+    fireEvent.change(screen.getByLabelText('Confirm new password'), { target: { value: 'new-password' } });
+    fireEvent.click(screen.getByRole('button', { name: /change password/i }));
+    expect(await screen.findByText(/Every session, this one included, is signed out/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'confirm-step-up' }));
+    await waitFor(() => expect(changePassword).toHaveBeenCalledWith('old-password', 'new-password', 'tok'));
+    await waitFor(() => expect(authGuard.logout).toHaveBeenCalled());
+    expect(pageToast.success).toHaveBeenCalledWith(expect.stringContaining('2 access keys revoked'));
     await postureSettled();
   });
 

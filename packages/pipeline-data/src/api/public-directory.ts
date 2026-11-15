@@ -820,7 +820,11 @@ export async function listPublicReviews(publisherHandle: string, name: string, q
   return {
     reviews: rows.map(toPublicReview),
     total,
-    nextCursor: offset + rows.length < total ? encodeOffsetCursor(offset + rows.length) : null,
+    // Ends at the decoder's ceiling, like the listing search: a cursor past
+    // MAX_DIRECTORY_OFFSET decodes to 0, and following it would loop to page one.
+    nextCursor: offset + rows.length < total && offset + rows.length <= MAX_DIRECTORY_OFFSET
+      ? encodeOffsetCursor(offset + rows.length)
+      : null,
   };
 }
 

@@ -43,6 +43,12 @@ jest.unstable_mockModule('../src/services/roles-service.js', () => ({
   assignRoles: (...a: unknown[]) => mockAssignRoles(...a),
   partitionAssignableRoles: (...a: unknown[]) => mockPartitionAssignableRoles(...a),
 }));
+// The inviter's authority at acceptance (the Role ceiling). Unset by default —
+// the inviter holds none — so a test opts in to an admin or an ancestor admin.
+const mockResolveOrgAuthority = jest.fn<(...a: unknown[]) => Promise<unknown>>(async () => undefined);
+jest.unstable_mockModule('../src/helpers/org-authority.js', () => ({
+  resolveOrgAuthority: (...a: unknown[]) => mockResolveOrgAuthority(...a),
+}));
 jest.unstable_mockModule('../src/utils/email.js', () => ({
   emailService: { sendInvitationAccepted: (...a: unknown[]) => mockSendInvitationAccepted(...a) },
 }));
@@ -357,6 +363,24 @@ describe('invitationService.accept — the Role grant is reportable', () => {
     expect(result.userId).toBeTruthy();
     expect(result.droppedRoleIds).toEqual([R_GONE]);
     expect(result.grantedRoleIds).toBeUndefined();
+  });
+
+  it('re-checks a TEAM invitation against the inviter\'s inherited (parent-admin) authority', async () => {
+    // A parent-org admin invited into one of its teams, where they hold no
+    // membership row. Their authority there is inherited — reading only the
+    // team's own roster found nothing and dropped every named Role.
+    mockResolveOrgAuthority.mockResolvedValue({
+      role: 'admin', via: 'ancestor', inheritedFromOrgId: 'parent-1', permissionOrgIds: ['parent-1'],
+    });
+    mockPartitionAssignableRoles.mockResolvedValue({ eligible: [R_OK], rejected: [] });
+    mockInvitationFindOne.mockReturnValue(sessionResolving(makeInvitation('member', [R_OK])));
+
+    const result = await invitationService.accept('tok', 'u1');
+
+    expect(mockResolveOrgAuthority).toHaveBeenCalledWith('inviter-1', 'org-1');
+    const actor = mockPartitionAssignableRoles.mock.calls[0]![2] as { isOrgAdmin: boolean };
+    expect(actor.isOrgAdmin).toBe(true);
+    expect(result.grantedRoleIds).toEqual([R_OK]);
   });
 
   it('omits both fields entirely when the invitation named no Roles', async () => {

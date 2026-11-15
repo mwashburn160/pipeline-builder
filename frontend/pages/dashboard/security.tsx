@@ -55,6 +55,7 @@ import { TotpSection } from '@/components/settings/TotpSection';
 import { CREDENTIAL_STATUS_COLOR, MAX_CREDENTIAL_DAYS, TOKEN_SCOPE_OPTIONS, readOnlyPreset, type PermissionMode } from '@/components/settings/token-scopes';
 import { TokenPermissionPicker, permissionsForRequest } from '@/components/settings/TokenPermissionPicker';
 import { StepUpModal } from '@/components/admin/StepUpModal';
+import { useToast } from '@/components/ui/Toast';
 import api from '@/lib/api';
 import { formatError } from '@/lib/constants';
 import { formatDateTime } from '@/lib/format';
@@ -77,7 +78,7 @@ function Anchor({ id, children }: { id: string; children: React.ReactNode }) {
 }
 
 export default function SecurityPage() {
-  const { user, isReady, isReadOnly, can, refreshUser } = useAuthGuard();
+  const { user, isReady, isReadOnly, can, refreshUser, logout } = useAuthGuard();
   const [activeTab, changeTab] = useUrlTab<SecurityTab>(
     'tab', SECURITY_TAB_IDS, 'factors', { hashTabs: SECURITY_HASH_TABS },
   );
@@ -115,7 +116,7 @@ export default function SecurityPage() {
             {/* An account that signs in only through Google/GitHub/SSO has no
                 password to change — the form could only fail. */}
             {user.authFactors?.hasPassword !== false && (
-              <Anchor id="password"><PasswordSection readOnly={isReadOnly} username={user?.email} /></Anchor>
+              <Anchor id="password"><PasswordSection readOnly={isReadOnly} username={user?.email} onSignedOut={logout} /></Anchor>
             )}
             <Anchor id="passkeys"><PasskeySection readOnly={isReadOnly} /></Anchor>
             <Anchor id="totp"><TotpSection readOnly={isReadOnly} /></Anchor>
@@ -168,7 +169,7 @@ export default function SecurityPage() {
  * ONE dialog that both states the consequence and takes the factor, rather than
  * posting blind and letting the 401 produce a dialog after the fact.
  */
-function PasswordSection({ readOnly, username }: { readOnly: boolean; username?: string }) {
+function PasswordSection({ readOnly, username, onSignedOut }: { readOnly: boolean; username?: string; onSignedOut: () => Promise<void> }) {
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -196,16 +197,23 @@ function PasswordSection({ readOnly, username }: { readOnly: boolean; username?:
     setConfirming(true);
   };
 
+  const toast = useToast();
+  // The server ends EVERY session on a password change (this tab's included —
+  // no token is re-issued) and revokes the person's access keys. Say so and
+  // sign out now, rather than leave a dead tab that drops to login on its next
+  // request with no explanation.
   const execute = async (stepUpToken: string) => {
     setConfirming(false);
     await form.run(
       () => api.changePassword(currentPassword, newPassword, stepUpToken),
       {
-        successMessage: 'Password changed successfully',
-        onSuccess: () => {
+        onSuccess: (res) => {
           setCurrentPassword('');
           setNewPassword('');
           setConfirmPassword('');
+          const keys = res.data?.accessKeysRevoked ?? 0;
+          toast.success(`Password changed. Every session was signed out${keys > 0 ? ` and ${keys} access key${keys === 1 ? '' : 's'} revoked` : ''} — sign in with the new password.`);
+          void onSignedOut();
         },
       },
     );
@@ -246,7 +254,7 @@ function PasswordSection({ readOnly, username }: { readOnly: boolean; username?:
         <StepUpModal
           title="Change your password?"
           action="Change the password on this account"
-          details={<p>Other sessions keep working; anything that stores the old password stops.</p>}
+          details={<p>Every session, this one included, is signed out, and your personal access keys are revoked. Sign in again with the new password.</p>}
           onConfirmed={execute}
           onClose={() => setConfirming(false)}
         />

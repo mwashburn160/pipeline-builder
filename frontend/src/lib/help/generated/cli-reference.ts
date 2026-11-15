@@ -1,6 +1,6 @@
 // GENERATED FROM docs/pipeline-manager.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 601ef905cc82c72690f9e7153add79ab6016d07bc15640fd297a773e0cb3a7cd
+// SOURCE-SHA256: d80f02063005259776202d73660ae29f9ab06db80ff84ad830da5e02b45252b3
 // SPDX-License-Identifier: Apache-2.0
 import { Terminal } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -249,6 +249,10 @@ export const cliReferenceTopic: HelpTopic = {
         {
           "type": "text",
           "content": "The file's platform host becomes the registry pull host (unless IMAGE_REGISTRY_PULL_HOST is set). A pipeline that pins toolchain.release must be given that release's export."
+        },
+        {
+          "type": "text",
+          "content": "Only the managed cdk-synth comes from --toolchain-file. A local-spec deploy looks up no other plugin, and every plugin must resolve before synth, so each stage plugin (and a synth plugin other than cdk-synth) must already be in the spec's resolvedPlugins, keyed by its alias. A plugin that isn't there fails the synth naming the plugin and the step."
         }
       ]
     },
@@ -600,7 +604,7 @@ export const cliReferenceTopic: HelpTopic = {
             ],
             [
               "infra store-token",
-              "Provision the org's machine identity — a service account plus one pb_sa_… key — and store the key in AWS Secrets Manager (read by CodeBuild's registry credentials, the events Lambda and --store-tokens). Add --schedule to also deploy a daily key-rotation stack (rotate → store → revoke) so the key never lapses. Re-run per scope (--scope reporting:ingest, --scope registry:push) — each is its own least-privilege account. Needs PLATFORM_PASSWORD: both writes are step-up gated"
+              "Provision the org's machine identity — a service account plus one pb_sa_… key — and store the key in AWS Secrets Manager (read by CodeBuild's registry credentials, the events Lambda and --store-tokens). Add --schedule to also deploy a daily key-rotation stack (rotate → store → revoke) so the key never lapses. Re-run per scope (--scope reporting:ingest, --scope registry:push) — each is its own least-privilege account. With PLATFORM_SECRET_NAME set, the platform key is written to exactly that name and a --scope key to its sibling (…/registry-push, …/reporting-ingest), so running every scope in one shell never overwrites the platform secret. --dry-run prints the plan without signing in or calling the platform. Needs PLATFORM_PASSWORD: both writes are step-up gated"
             ],
             [
               "infra setup-events",
@@ -816,6 +820,10 @@ export const cliReferenceTopic: HelpTopic = {
         {
           "type": "text",
           "content": "Environment variables (PLATFORM_BASE_URL, …) override the resolved config."
+        },
+        {
+          "type": "text",
+          "content": "A config file's api.rejectUnauthorized: false turns TLS verification off for a dev platform, like PLATFORM_TLS_VERIFY=false, and is ignored the same way under NODE_ENV=production (with a warning; verification stays on)."
         },
         {
           "type": "text",

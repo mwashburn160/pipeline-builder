@@ -130,11 +130,6 @@ spec:
             # Credentials (DB_PASSWORD, MONGODB_URI, API keys, …) split out of app-env.
             - secretRef:
                 name: app-secrets
-            - secretRef:
-                # IMAGE_REGISTRY_USERNAME / IMAGE_REGISTRY_PASSWORD —
-                # Basic auth used when image-registry talks to the
-                # underlying registry's management API.
-                name: image-registry-build-svc-secret
           env:
             - name: SERVICE_NAME
               value: "image-registry"
@@ -175,10 +170,6 @@ spec:
             # emptyDir below, since the root filesystem is read-only.
             - name: TMPDIR
               value: "/tmp"
-            # IMAGE_REGISTRY_USERNAME / IMAGE_REGISTRY_PASSWORD come from
-            # the image-registry-build-svc-secret envFrom above. Same creds
-            # as the registry container's htpasswd; startup.sh keeps them
-            # in sync.
           volumeMounts:
             # This pod's OWN internal-token signing key and the PUBLIC
             # bundle it verifies its peers with. One private key per pod — that

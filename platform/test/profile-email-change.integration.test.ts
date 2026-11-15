@@ -7,7 +7,8 @@
  *   - `isEmailChange` compares against the STORED address, normalized, and
  *     fails closed for a user that is gone;
  *   - `updateProfile` reports `previousEmail` only for a real change, and
- *     re-sending the current address touches nothing (verification included).
+ *     re-sending the current address touches nothing (verification included);
+ *   - a change voids an outstanding verification link (it proved the OLD address).
  *
  * Gated behind RUN_MONGO_INTEGRATION=1 (skipped by default) — mirrors
  * access-keys.integration.test.ts.
@@ -67,6 +68,22 @@ suite('profile email change (real Mongo)', () => {
     expect(r.previousEmail).toBe('owner@example.com');
     expect(r.user.email).toBe('new@example.com');
     expect(r.user.isEmailVerified).toBe(false);
+  });
+
+  it('a verification link mailed to the OLD address cannot verify the NEW one', async () => {
+    // An unverified account requests a link (to an address its owner controls),
+    // then changes the email to one it does not — the link must die with it.
+    await m.User.updateOne({ _id: userId }, { $set: { isEmailVerified: false } });
+    const { authService } = await import('../src/services/auth-service.js');
+    const dispatch = await authService.createVerificationToken(userId);
+    expect(dispatch?.alreadyVerified).toBe(false);
+
+    await userProfileService.updateProfile(userId, { email: 'someone@bigcorp.example' });
+
+    await expect(authService.verifyEmailWithToken(dispatch!.rawToken)).resolves.toBeNull();
+    const after = await m.User.findById(userId).select('+emailVerificationToken').lean();
+    expect(after.isEmailVerified).toBe(false);
+    expect(after.emailVerificationToken).toBeUndefined();
   });
 
   it('updateProfile treats re-sending the current address as no change', async () => {
