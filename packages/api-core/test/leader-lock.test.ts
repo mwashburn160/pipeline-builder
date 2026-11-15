@@ -197,6 +197,13 @@ describe('withLeaderLock — outcome metrics', () => {
     expect(names()).not.toContain('leader_lock_unavailable_total');
   });
 
+  it('labels a per-item lock with its fixed family name, not the item key', async () => {
+    // One lock per repository or request: the key holds the item, the label must not.
+    await withLeaderLock(fakeRedis({ acquire: true }) as never, 'svc:publication:public/acme/lint:leader', 1000, async () => {}, { metricKey: 'svc:publication:leader' });
+    await withLeaderLock(fakeRedis({ acquire: false }) as never, 'svc:publication:public/acme/fmt:leader', 1000, async () => {}, { metricKey: 'svc:publication:leader' });
+    expect(emitted.map((e) => e.labels)).toEqual([{ key: 'svc:publication:leader' }, { key: 'svc:publication:leader' }]);
+  });
+
   it('counts UNAVAILABILITY when Redis rejects, which means nobody ran', async () => {
     const redis = { set: jest.fn(async () => { throw new Error('not connected'); }), get: jest.fn(), del: jest.fn() };
     const ran = await withLeaderLock(redis as never, 'k', 1000, async () => {});

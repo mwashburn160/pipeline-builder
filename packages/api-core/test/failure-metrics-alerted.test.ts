@@ -69,10 +69,6 @@ const EXEMPT: Record<string, Exemption> = {
     reason: 'self-healing',
     why: 'Listing stats are recomputed by the ecosystem sweep; a review write deliberately never fails on its stats (services/ecosystem/stats.ts). The only symptom is a rating that lags until the next pass.',
   },
-  ecosystem_auto_approval_failed_total: {
-    reason: 'self-healing',
-    why: 'The request is transitioned back to `pending` and left for a manager, so it rejoins the human queue rather than being lost — and a growing queue is what EcosystemStandardLaneSLABreach already watches.',
-  },
   ecosystem_registry_retag_failed_total: {
     reason: 'non-blocking',
     why: 'Re-tagging `public/*` after an unyank. The catalog row is authoritative and deployed pipelines pull by DIGEST, so a failed re-tag changes nothing a user can observe (services/ecosystem/execute.ts).',

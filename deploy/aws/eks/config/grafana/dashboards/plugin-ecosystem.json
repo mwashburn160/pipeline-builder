@@ -517,8 +517,8 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(increase(ecosystem_auto_approval_failed_total[1h]))",
-          "legendFormat": "failed to execute"
+          "expr": "sum by (outcome) (increase(ecosystem_execution_failed_total[1h]))",
+          "legendFormat": "execution {{outcome}}"
         }
       ],
       "fieldConfig": {

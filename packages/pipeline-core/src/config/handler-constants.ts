@@ -14,7 +14,7 @@
 /** Default platform URL fallback when PLATFORM_BASE_URL is not set. */
 export const DEFAULT_PLATFORM_URL = 'https://localhost:8443';
 
-/** Custom-resource handler timeout (must be < the Lambda's 30s to allow response handling). */
+/** Custom-resource handler timeout (must be < the Lambda's 30s to allow response handling). The Lambda's only; services use api-server's own REQUEST_TIMEOUT_MS. */
 export const HANDLER_TIMEOUT_MS = 25_000;
 
 /** Platform base URL the handler calls; overridable per-request via ResourceProperties.baseURL. */

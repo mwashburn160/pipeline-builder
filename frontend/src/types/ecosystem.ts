@@ -186,6 +186,18 @@ export interface PublishRequestView {
   reason: string | null;
   autoRuleId: string | null;
   securityFixAdvisoryId: string | null;
+  /** Approved and still publishing in the background, or retrying after a transient failure. */
+  executing: boolean;
+  /** Why the latest attempt to execute an approval failed: the retry's error, or why it was handed back. */
+  executionError: string | null;
+}
+
+/** What an approval answers: whether its execution finished, and if not, why it is still running. */
+export interface DecisionResponse {
+  request: QueueItem;
+  executed: boolean;
+  executing?: 'publishing' | 'retrying';
+  error?: string;
 }
 
 export interface ListingsQuota {

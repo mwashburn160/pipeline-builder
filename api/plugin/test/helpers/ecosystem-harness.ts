@@ -128,7 +128,10 @@ export async function wireEcosystemHarness(h: Harness): Promise<void> {
   const { initEcosystem } = await import('../../src/services/ecosystem/context.js');
   const { setPlatformReadsForTests } = await import('../../src/services/ecosystem/platform-reads.js');
   const { setResignKickForTests } = await import('../../src/services/ecosystem/resign.js');
+  const { setExecutionLockForTests } = await import('../../src/services/ecosystem/execution.js');
   setResignKickForTests(h.resignKick as () => void);
+  // No Redis in tests: executions run without their per-request lock.
+  setExecutionLockForTests(null);
   setRegistryClientForTests({ post: h.registryPost as any, get: jest.fn() as any, delete: h.registryDelete as any });
   setPlatformReadsForTests(h.platform as any);
   setMembershipProbeForTests(h.membership as any);

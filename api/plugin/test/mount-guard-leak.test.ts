@@ -170,6 +170,10 @@ jest.unstable_mockModule('../src/services/ecosystem/version-deprecation.js', () 
 jest.unstable_mockModule('../src/services/ecosystem/maintenance.js', () => ({
   createEcosystemMaintenanceScheduler: () => ({ start: () => undefined, stop: () => undefined }),
 }));
+// The approved-request retry sweep — index.ts builds + starts it at boot.
+jest.unstable_mockModule('../src/services/ecosystem/execution.js', () => ({
+  createEcosystemExecutionScheduler: () => ({ start: () => undefined, stop: () => undefined }),
+}));
 // The ecosystem gauge sampler — index.ts builds + starts it at boot.
 jest.unstable_mockModule('../src/services/ecosystem/metrics.js', () => ({
   createEcosystemMetricsScheduler: () => ({ start: () => undefined, stop: () => undefined }),

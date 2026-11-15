@@ -101,8 +101,8 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
 ): Router {
   const router: Router = Router();
 
-  // Upload timeout: 15 minutes for large plugin ZIPs (overrides global
-  // HANDLER_TIMEOUT_MS). It matches nginx's upload-route proxy timeouts and the
+  // Upload timeout: 15 minutes for large plugin ZIPs (overrides api-server's
+  // 25s REQUEST_TIMEOUT_MS). It matches nginx's upload-route proxy timeouts and the
   // loader's curl limit — the shortest of the three cuts the upload, so a
   // deploy-contracts test keeps them equal.
   const UPLOAD_TIMEOUT_MS = envInt('PLUGIN_UPLOAD_TIMEOUT_MS', 900_000, { min: 1 });

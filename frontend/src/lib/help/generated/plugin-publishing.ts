@@ -1,6 +1,6 @@
 // GENERATED FROM docs/plugin-publishing.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 6b21b91ead8bc6af008a09f1cf79b92e6835cca32a820a706d8bfab00ab18f86
+// SOURCE-SHA256: e2cf2f05cb9191f77ece1fabb5261aa692ea761ff77627bab203da16482d04dc
 // SPDX-License-Identifier: Apache-2.0
 import { Store } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -71,7 +71,7 @@ export const pluginPublishingTopic: HelpTopic = {
             "Submit a request — a new listing, a new version, a listing update, a yank, an unpause, a transfer, a claim, a profile change, a Verified application or an advisory.",
             "The digest is pinned into the request. Approval verifies it still matches, and fails closed if not.",
             "An Ecosystem Manager decides, or an auto-approval rule does. Some request kinds need two people, and separation of duties stops one person supplying both approvals.",
-            "On approval the image is copied into the public namespace, freshly signed and SBOM-attested, and the listing becomes installable.",
+            "On approval the image is copied into the public namespace, freshly signed and SBOM-attested, and the listing becomes installable. A large image takes minutes; the request shows as publishing until it finishes, and a transient failure (image-registry unavailable, a timeout) is retried automatically with the approval kept.",
             "You keep unilateral control of reach. Pausing a listing or a version takes effect immediately without anyone's approval."
           ]
         }

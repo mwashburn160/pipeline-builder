@@ -108,8 +108,15 @@ export type ListingView = ReturnType<typeof listingView>;
 
 /** A request payload as the API returns it: a claim's claimant email hash stays server-side. */
 function publicPayload(payload: Record<string, unknown> | null | undefined): Record<string, unknown> {
-  const { claimantEmailHash: _hash, ...rest } = payload ?? {};
+  // `execution` is the executor's bookkeeping (execution.ts), not the request's content.
+  const { claimantEmailHash: _hash, execution: _execution, executionError: _error, ...rest } = payload ?? {};
   return rest;
+}
+
+function executionErrorOf(r: PluginPublishRequest): string | null {
+  const payload = (r.payload ?? {}) as { executionError?: unknown; execution?: { lastError?: unknown } };
+  const error = r.status === 'approved' ? payload.execution?.lastError : payload.executionError;
+  return typeof error === 'string' ? error : null;
 }
 
 export function requestView(
@@ -141,6 +148,10 @@ export function requestView(
     reason: r.reason,
     autoRuleId: r.autoRuleId,
     securityFixAdvisoryId: r.securityFixAdvisoryId,
+    /** Approved and still publishing (or retrying after a transient failure). */
+    executing: r.status === 'approved' && !r.executedAt,
+    /** Why the last approval could not be executed, when it was handed back (or the latest retry's error). */
+    executionError: executionErrorOf(r),
   };
 }
 export type RequestView = ReturnType<typeof requestView>;

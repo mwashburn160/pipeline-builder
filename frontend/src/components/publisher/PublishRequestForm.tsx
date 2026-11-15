@@ -157,9 +157,11 @@ export function PublishRequestForm({ pluginId, onSubmitted }: Props) {
           breaking: isBreaking,
           ...(advisoryId.trim() ? { securityFixAdvisoryId: advisoryId.trim() } : {}),
         });
-      toast.success(res.data?.autoApproved
-        ? 'Approved automatically by an auto-approval rule.'
-        : 'Request submitted. The ecosystem team will review it.');
+      toast.success(!res.data?.autoApproved
+        ? 'Request submitted. The ecosystem team will review it.'
+        : res.data.request?.executing
+          ? 'Approved automatically by an auto-approval rule. Publishing continues in the background.'
+          : 'Approved automatically by an auto-approval rule.');
 
       if (!isNewListing && draft.listing && Object.keys(offerEdits).length > 0) {
         try {

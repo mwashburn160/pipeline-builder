@@ -9,7 +9,7 @@ import type { ListedVersionsNeedingAttention } from '../plugin-vulnerability-typ
 import type {
   AdvisoryInput, AdvisoryState, AdvisoryView, AutoRule, AutoRuleConditions, ListingState, EcosystemOverview, EcosystemPublisher, EcosystemRequestDetail,
   ListingView, Publisher, PublisherContext, PublisherInsights, PublishDraft, PublishRequestBody, PublishRequestKind, PublishRequestLane,
-  PublishRequestStatus, PublishRequestView, QueueItem, QueueStatusFilter, ReservedName,
+  DecisionResponse, PublishRequestStatus, PublishRequestView, QueueItem, QueueStatusFilter, ReservedName,
 } from '@/types/ecosystem';
 
 const enc = encodeURIComponent;
@@ -121,12 +121,12 @@ export function ecosystemApi(core: ApiCore) {
 
     /** A two-person request comes back `pending_second_approval` after the first approval. */
     approveEcosystemRequest: async (id: string, note?: string, stepUpToken?: string) =>
-      post<{ request: QueueItem }>(
+      post<DecisionResponse>(
         `/api/plugins/ecosystem/requests/${enc(id)}/approve`, note ? { note } : {}, stepUpToken,
       ),
 
     secondApproveEcosystemRequest: async (id: string, note?: string, stepUpToken?: string) =>
-      post<{ request: QueueItem }>(
+      post<DecisionResponse>(
         `/api/plugins/ecosystem/requests/${enc(id)}/second-approve`, note ? { note } : {}, stepUpToken,
       ),
 

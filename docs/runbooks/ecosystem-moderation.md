@@ -103,6 +103,9 @@ The paging half is Prometheus (all targets; the list is in
 | `SubmissionBacklogHigh` | Many anonymous submissions waiting. See [Anonymous submissions](#anonymous-submissions). |
 | `SubmissionGateFailureSpike` | One gate failing often: abuse (heuristics / secrets) or a broken gate (vuln scan, smoke test). See [Anonymous submissions](#anonymous-submissions). |
 | `PluginLookupRefusalSpike` | Synth lookups refused because a plugin image's signature (or its signed tier annotation) no longer verifies. Check `plugin_lookup_refusals_total{reason}` by listing in the plugin logs ("Plugin image failed verification"); a re-pushed or tampered `public/*` image needs a yank, a stale tier annotation a re-sign (Ecosystem console → Re-sign). |
+| `EcosystemPublishRetrying` / `RegistryPublicPublishFailing` | Approved requests are failing to publish into `public/*`: image-registry unreachable, slow or failing a step. Nothing is lost: each keeps its approval (an automatic or bootstrap one included) and is retried with backoff. Check image-registry's health and its `Plugin publication failed` log; `registry_public_publish_duration_seconds{step}` shows which step is slow. |
+| `EcosystemPublishGaveUp` | A publish kept failing for 24 hours and its request went back to the queue; its error is on the request. Fix the cause, then approve it again. |
+| `EcosystemPublishStalled` | A request still publishing after an hour (the retries above have not succeeded), or a submission a pod died publishing. |
 | `OfficialAutoApprovalAnomaly` | The Official catalog rule is near its daily cap or far above its usual rate. Check recent `plugin.request.auto-approve` events; `OFFICIAL_AUTO_APPROVAL_ENABLED=false` stops the rule at once. |
 
 The **Plugin ecosystem** Grafana dashboard (`/grafana/`, folder *Pipeline
@@ -131,6 +134,14 @@ progress and notice sends.
    - **Auto-approval**: why each rule would or wouldn't approve it.
 2. **Approve**, **Reject** (a reason is required and is sent to the
    publisher) or leave it for someone else.
+
+An approval publishes the image before the version is listed, and a large
+image takes minutes. If it hasn't finished after about 20 seconds, the console
+says so and the request shows as **publishing** until it does; the audit entry
+and the publisher's notice follow once it has. If image-registry is down or
+slow, the approval is kept and retried automatically, so don't approve again.
+Only a refusal (the version no longer passes its checks, the digest changed,
+the name is taken) returns the request to the queue, with the reason on it.
 
 ### Verified applications
 
@@ -217,6 +228,11 @@ opens with the first such request and stays open for the initial load
 the window elapses, when any manager decides a request, or if the instance
 already had listings. The overview shows its state. Later loads are covered by
 the Official catalog rule instead.
+
+A request approved under the exception keeps that approval while its image
+publishes, even if the window closes meanwhile: a slow or failing publish is
+retried, not handed to a manager. Only a refusal, or 24 hours of failures,
+sends it to the queue.
 
 ### An Official plugin is missing after a load
 

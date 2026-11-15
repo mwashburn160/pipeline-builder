@@ -45,6 +45,7 @@ const submissionConfig = await import('../src/services/ecosystem/submission-conf
 const submissionGuards = await import('../src/services/ecosystem/submission-guards.js');
 const pipeline = await import('../src/services/ecosystem/submission-pipeline.js');
 const decisions = await import('../src/services/ecosystem/decisions.js');
+const execution = await import('../src/services/ecosystem/execution.js');
 const requestsSvc = await import('../src/services/ecosystem/requests.js');
 const consoleSvc = await import('../src/services/ecosystem/console.js');
 const { setEmailStatusProbeForTests } = await import('../src/services/ecosystem/email-status.js');
@@ -756,11 +757,30 @@ describe('moderating a submission', () => {
     expect(row(id).status).toBe('approved');
   });
 
-  it('hands the claim back and records nothing when the publish fails', async () => {
+  it('hands the submission claim back and records nothing when the publish fails; a 5xx is retried with the approval kept', async () => {
     const { id, requestId } = await queued();
     await decisions.approve(moderator('mod-1') as any, requestId, null);
     h.registryPost.mockImplementationOnce(async () => ({ statusCode: 502, body: { message: 'registry down' } }));
-    await expect(decisions.secondApprove(moderator('mod-2') as any, requestId, null)).rejects.toThrow(/registry down|HTTP 502/);
+    await expect(decisions.secondApprove(moderator('mod-2') as any, requestId, null)).resolves.toMatchObject({ executed: false, executing: 'retrying' });
+    expect(row(id).status).toBe('pending_review');
+    expect(db.tables.plugin_listings ?? []).toEqual([]);
+    expect(db.tables.plugin_publish_requests!.find((r) => r.id === requestId)!.status).toBe('approved');
+
+    execution.setExecutionClockForTests(() => new Date(Date.now() + 5 * 60_000));
+    try {
+      expect(await execution.runDueExecutions()).toEqual({ ran: 1, executed: 1 });
+    } finally {
+      execution.setExecutionClockForTests();
+    }
+    expect(row(id).status).toBe('approved');
+    expect(db.tables.plugin_listings ?? []).toHaveLength(1);
+  });
+
+  it('a refused publish hands both claims back', async () => {
+    const { id, requestId } = await queued();
+    await decisions.approve(moderator('mod-1') as any, requestId, null);
+    h.registryPost.mockImplementationOnce(async () => ({ statusCode: 409, body: { message: 'conflict' } }));
+    await expect(decisions.secondApprove(moderator('mod-2') as any, requestId, null)).rejects.toThrow(/HTTP 409/);
     expect(row(id).status).toBe('pending_review');
     expect(db.tables.plugin_listings ?? []).toEqual([]);
     expect(db.tables.plugin_publish_requests!.find((r) => r.id === requestId)!.status).toBe('pending_second_approval');

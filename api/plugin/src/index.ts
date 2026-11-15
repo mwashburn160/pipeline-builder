@@ -11,6 +11,7 @@ import { getHealthRedisConnection } from './queue/connections.js';
 import { startWorker, waitForWorkerReady, shutdownQueue } from './queue/plugin-build-queue.js';
 import { shutdownSubmissionQueue, startSubmissionWorker } from './queue/submission-build-queue.js';
 import { createVulnRescanScheduler } from './queue/vuln-rescan.js';
+import { createEcosystemExecutionScheduler } from './services/ecosystem/execution.js';
 import { createEcosystemMaintenanceScheduler } from './services/ecosystem/maintenance.js';
 import { createEcosystemMetricsScheduler } from './services/ecosystem/metrics.js';
 import { ensureOfficialPublisher } from './services/ecosystem/publishers.js';
@@ -94,6 +95,11 @@ const ecosystemNotificationScheduler = createEcosystemNotificationScheduler(getH
 // Leader-locked on the shared Redis.
 const ecosystemMaintenanceScheduler = createEcosystemMaintenanceScheduler(getHealthRedisConnection);
 
+// Approved publish requests whose execution is due a retry (a slow or failed
+// publish, or one a pod died running). Leader-locked; each request also holds
+// its own lock, so a run in progress on another replica is skipped.
+const ecosystemExecutionScheduler = createEcosystemExecutionScheduler(getHealthRedisConnection);
+
 // Plugin-ecosystem gauges (queue depth, oldest pending, SLA breaches,
 // re-sign jobs, approvers). Every replica samples (no lock), so the scraped pod
 // is never a stale former leader.
@@ -131,13 +137,14 @@ void runServer(app, {
     reportVulnWaivers();
   },
   onShutdown: async () => {
-    await shutdownQueue(); await shutdownSubmissionQueue(); purgeScheduler?.stop(); rescanScheduler?.stop(); ecosystemNotificationScheduler.stop(); ecosystemMaintenanceScheduler.stop(); ecosystemMetricsScheduler.stop(); ecosystemStatsScheduler.stop(); retentionScheduler?.stop();
+    await shutdownQueue(); await shutdownSubmissionQueue(); purgeScheduler?.stop(); rescanScheduler?.stop(); ecosystemNotificationScheduler.stop(); ecosystemMaintenanceScheduler.stop(); ecosystemExecutionScheduler.stop(); ecosystemMetricsScheduler.stop(); ecosystemStatsScheduler.stop(); retentionScheduler?.stop();
   },
 });
 purgeScheduler?.start();
 rescanScheduler?.start();
 ecosystemNotificationScheduler.start();
 ecosystemMaintenanceScheduler.start();
+ecosystemExecutionScheduler.start();
 ecosystemMetricsScheduler.start();
 ecosystemStatsScheduler.start();
 retentionScheduler?.start();

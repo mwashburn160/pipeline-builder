@@ -302,12 +302,21 @@ function mountRateLimiter(app: Express, serviceName: string): void {
   app.use(rateLimit(rateLimitOptions));
 }
 
+/**
+ * How long any request may run before it is answered 503. A route that
+ * legitimately runs longer (a plugin upload, a plugin publication) sets its own
+ * socket timeout; this default stays short so a wedged handler fails fast.
+ *
+ * Its own constant, not the CloudFormation Lambda handler's timeout: that one
+ * must stay under the Lambda's 30s, and the two have nothing else in common.
+ * Answering does not cancel the handler, so its work may still complete.
+ */
+export const REQUEST_TIMEOUT_MS = 25_000;
+
 /** Request timeout, duration logging and HTTP metrics. */
 function applyRequestTelemetry(app: Express): void {
-  // Express request timeout — uses CoreConstants to share the same default as Lambda handlers
-  const timeoutMs = CoreConstants.HANDLER_TIMEOUT_MS;
   app.use((_req: Request, res: Response, next: NextFunction) => {
-    res.setTimeout(timeoutMs, () => {
+    res.setTimeout(REQUEST_TIMEOUT_MS, () => {
       if (!res.headersSent) {
         sendError(res, 503, 'Request timeout');
       }

@@ -1,6 +1,6 @@
 // GENERATED FROM docs/api-reference.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: ac94500c8c8e36e7bb153b7f9139bb21c8c5448824184313fada0aa859c4f39b
+// SOURCE-SHA256: c85f087c91741fef758bcc0548ccae6f6447339ee2cba5e36ebec73fea5638e1
 // SPDX-License-Identifier: Apache-2.0
 import { Code } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -527,7 +527,7 @@ export const apiReferenceTopic: HelpTopic = {
               "POST",
               "/plugins/publish-requests",
               "Submit { kind, … }: new_listing / new_version { pluginId, metadata?, securityFixAdvisoryId?, breaking? }, listing_update { listingId, metadata, sources? }, yank { listingId, version, reason }, unpause { listingId, version? }, transfer { listingId, target: { targetPublisherHandle } }, claim `{ target: { handle } \\",
-              "{ listingId } }, profile_change { target: { handle?, displayName? } }, verify { application: { domain?, notes? } } (eligibility checked automatically: 403 VERIFIED_PLAN_REQUIRED, 409 VERIFIED_DOMAIN_REQUIRED / VERIFIED_OWNER_MFA_REQUIRED, 503 when it can't be checked; details.checks) → 201 { request, autoApproved }. Version kinds pin the image digest and freeze the version. Failing gates → 409 PUBLISH_GATE_FAILED (details.gates); listings limit → 429 QUOTA_EXCEEDED (details.quotaType: listings); stale terms → 403 PUBLISHER_TERMS_REQUIRED. Version / update / yank / unpause need plugins:publish; the rest publishers:manage`"
+              "{ listingId } }, profile_change { target: { handle?, displayName? } }, verify { application: { domain?, notes? } } (eligibility checked automatically: 403 VERIFIED_PLAN_REQUIRED, 409 VERIFIED_DOMAIN_REQUIRED / VERIFIED_OWNER_MFA_REQUIRED, 503 when it can't be checked; details.checks) → 201 { request, autoApproved } (request.executing while an automatic approval is still publishing or retrying). Version kinds pin the image digest and freeze the version. Failing gates → 409 PUBLISH_GATE_FAILED (details.gates); listings limit → 429 QUOTA_EXCEEDED (details.quotaType: listings); stale terms → 403 PUBLISHER_TERMS_REQUIRED. Version / update / yank / unpause need plugins:publish; the rest publishers:manage`"
             ],
             [
               "POST",
@@ -807,12 +807,12 @@ export const apiReferenceTopic: HelpTopic = {
             [
               "POST",
               "/plugins/ecosystem/requests/:id/approve",
-              "{ note? } — first approval of a two-person request (→ pending_second_approval, N28) or the only approval (executes). Step-up for yank, transfer, claim, profile change, Verified and moderation requests. 403 SEPARATION_OF_DUTIES for your own org's request, your own upload or your own first approval"
+              "{ note? } — first approval of a two-person request (→ pending_second_approval, N28) or the only approval (executes). Answers { request, executed }: an execution that outlasts about 20 s carries on in the background (executed: false, executing: \"publishing\"), and one that failed transiently (image-registry down, a timeout, a 5xx) keeps the approval and is retried (executing: \"retrying\", error); a refusal rolls the approval back and answers the error. Step-up for yank, transfer, claim, profile change, Verified and moderation requests. 403 SEPARATION_OF_DUTIES for your own org's request, your own upload or your own first approval"
             ],
             [
               "POST",
               "/plugins/ecosystem/requests/:id/second-approve",
-              "The second approval, by a different manager; executes the request"
+              "The second approval, by a different manager; executes the request, answering as approve does"
             ],
             [
               "POST",

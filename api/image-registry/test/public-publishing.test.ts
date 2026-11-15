@@ -68,7 +68,8 @@ jest.unstable_mockModule('../src/services/storage-usage.js', () => ({ invalidate
 
 const incCounter = jest.fn();
 const setGauge = jest.fn();
-jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', { incCounter, setGauge }));
+const observe = jest.fn();
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', { incCounter, setGauge, observe }));
 jest.unstable_mockModule('../src/config/index.js', () => ({ config: { registry: { host: 'registry', port: 5000 } } }));
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
@@ -91,6 +92,8 @@ const {
   PublicationNotFoundError,
   SourceVerificationError,
   PublicationMetrics,
+  PublicationBusyError,
+  setRepositoryLockRedisForTests,
   _resetPublicPublishingState,
 } = await import('../src/services/public-publishing.js');
 
@@ -748,5 +751,41 @@ describe('invalidateVerifyCache', () => {
     await prime();
     expect(invalidateVerifyCache()).toBe(3);
     expect(invalidateVerifyCache()).toBe(0);
+  });
+});
+
+describe('publish timing and the cross-replica lock', () => {
+  afterEach(() => setRepositoryLockRedisForTests(null));
+
+  it('records each step and the total, so a slow publish shows which step it is', async () => {
+    observe.mockClear();
+    await publishPublicImage(publishParams());
+    const steps = observe.mock.calls.filter(([name]) => name === PublicationMetrics.PUBLISH_DURATION).map(([, labels]) => (labels as { step: string }).step);
+    expect(steps).toEqual(['source', 'sbom', 'copy', 'sign', 'tag', 'total']);
+  });
+
+  it('answers 503 without touching the registry when another replica holds the repository', async () => {
+    setRepositoryLockRedisForTests({ set: jest.fn(async () => null), get: jest.fn(async () => null), del: jest.fn(async () => 0) } as never);
+    const err = await publishPublicImage(publishParams()).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(PublicationBusyError);
+    expect((err as { statusCode: number }).statusCode).toBe(503);
+    expect(getManifest).not.toHaveBeenCalled();
+    expect(signPluginImage).not.toHaveBeenCalled();
+  });
+
+  it('holds the lock for the whole publish and releases it after', async () => {
+    const held = new Map<string, string>();
+    const redis = {
+      set: jest.fn(async (key: string, token: string, ..._opts: unknown[]) => (held.has(key) ? null : (held.set(key, token), 'OK'))),
+      get: jest.fn(async (key: string) => held.get(key) ?? null),
+      del: jest.fn(async (key: string) => (held.delete(key) ? 1 : 0)),
+    };
+    setRepositoryLockRedisForTests(redis as never);
+    signPluginImage.mockImplementationOnce(async () => {
+      expect([...held.keys()]).toEqual([`image-registry:publication:${TARGET}:leader`]);
+    });
+    await publishPublicImage(publishParams());
+    expect(redis.set).toHaveBeenCalledWith(`image-registry:publication:${TARGET}:leader`, expect.any(String), 'PX', expect.any(Number), 'NX');
+    expect(held.size).toBe(0);
   });
 });

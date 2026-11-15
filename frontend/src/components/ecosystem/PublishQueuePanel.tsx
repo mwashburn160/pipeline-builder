@@ -24,7 +24,7 @@ import { formatError } from '@/lib/constants';
 import {
   ECOSYSTEM_RUNBOOK_URL, MODERATION_ACTION_LABELS, REQUEST_KIND_LABELS, REQUEST_STATUS_COLORS, REQUEST_STATUS_LABELS,
 } from '@/lib/ecosystem';
-import type { EcosystemOverview, PublishRequestKind, PublishRequestLane, QueueItem, QueueStatusFilter } from '@/types/ecosystem';
+import type { DecisionResponse, EcosystemOverview, PublishRequestKind, PublishRequestLane, QueueItem, QueueStatusFilter } from '@/types/ecosystem';
 import { EcosystemActionDialog } from './EcosystemActionDialog';
 import { ApproverStandingNotice, VerifiedEligibilityChecks } from './EcosystemEligibility';
 import { ReviewDiffView } from './ReviewDiffView';
@@ -125,6 +125,13 @@ function OverviewHeader({ overview }: { overview: EcosystemOverview }) {
 
 type Decision = 'approve' | 'second-approve' | 'reject';
 
+/** An approval's toast: whether it was carried out, or is still publishing in the background. */
+function executionToast(done: string, res: DecisionResponse | undefined): string {
+  if (!res || res.executed) return `${done}; the request was carried out`;
+  if (res.executing === 'retrying') return `${done}. Publishing failed for now and is retried automatically${res.error ? ` (${res.error})` : ''}.`;
+  return `${done}. Publishing continues in the background; the request shows as publishing until it finishes.`;
+}
+
 /** One request with its review diff and the decision controls. */
 export function QueueItemDetail({ id, can, holds, onBack, onDecided, backLabel = 'Back to the queue' }: {
   id: string;
@@ -169,10 +176,10 @@ export function QueueItemDetail({ id, can, holds, onBack, onDecided, backLabel =
       const res = await api.approveEcosystemRequest(item.id, text || undefined, token);
       toast.success(res.data?.request?.status === 'pending_second_approval'
         ? 'Approved. It now waits for a second approver.'
-        : 'Request approved');
+        : executionToast('Request approved', res.data));
     } else {
-      await api.secondApproveEcosystemRequest(item.id, text || undefined, token);
-      toast.success('Second approval recorded; the request was executed');
+      const res = await api.secondApproveEcosystemRequest(item.id, text || undefined, token);
+      toast.success(executionToast('Second approval recorded', res.data));
     }
     void detailQ.refetch();
     onDecided();
@@ -198,6 +205,14 @@ export function QueueItemDetail({ id, can, holds, onBack, onDecided, backLabel =
           </span>
         </p>
         {item.reason && <p className="text-xs text-fg">Reason: {item.reason}</p>}
+        {item.executing && (
+          <p className="text-xs text-fg" data-testid="queue-executing">
+            Approved; publishing in the background.{item.executionError ? ` Retrying after: ${item.executionError}` : ''}
+          </p>
+        )}
+        {!item.executing && item.executionError && (
+          <p className="text-xs text-danger-strong" data-testid="queue-execution-error">The last approval could not be carried out: {item.executionError}</p>
+        )}
       </div>
 
       {open && mayDecide && (

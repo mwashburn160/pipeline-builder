@@ -1105,10 +1105,12 @@ groups:
           description: "The '{{ $labels.step }}' step of the plugin service's ecosystem maintenance failed {{ $value | humanize }} time(s) in the last hour (it runs every 15 minutes). For submitter_email_purge that means submitter addresses are being kept past their 90-day retention. Check the plugin service's ecosystem-maintenance logs for the step's warning."
 
       # A submission left in `publishing`, or a publish request left `approved`
-      # without its execution recorded, for more than an hour: a pod died
-      # mid-publish. The maintenance pass hands these back every 15 minutes
-      # (services/ecosystem/stalled.ts), so a value that STAYS up means that
-      # recovery is not running or keeps failing.
+      # without its execution recorded, for more than an hour. A submission
+      # means a pod died mid-publish and the maintenance pass (every 15 minutes,
+      # services/ecosystem/stalled.ts) has not handed it back. A request is the
+      # executor's (services/ecosystem/execution.ts): it keeps retrying with
+      # the approval kept, so a request still here means its publish has been
+      # failing for an hour.
       - alert: EcosystemPublishStalled
         expr: max by (kind) (ecosystem_stalled_publishes) > 0
         for: 45m
@@ -1117,8 +1119,49 @@ groups:
           component: plugin-ecosystem
           tenancy: platform
         annotations:
-          summary: "{{ $value | humanize }} abandoned ecosystem {{ $labels.kind }}(s) not handed back"
-          description: "A {{ $labels.kind }} has sat mid-publish for over an hour and the maintenance pass has not returned it to the moderation queue. The submitter sees it as pending and a moderator's retry answers 409. Check EcosystemMaintenanceStepFailing (step stalled_publishes) and the ecosystem-maintenance scheduler."
+          summary: "{{ $value | humanize }} ecosystem {{ $labels.kind }}(s) stuck mid-publish"
+          description: "A {{ $labels.kind }} has sat mid-publish for over an hour. For a submission, the maintenance pass has not returned it to the moderation queue (check EcosystemMaintenanceStepFailing, step stalled_publishes). For a request, the approval is kept and retried, but the publish keeps failing: see EcosystemPublishRetrying and RegistryPublicPublishFailing, and the request's executionError in the console."
+
+      # An approved request whose execution failed TRANSIENTLY (image-registry
+      # unreachable, a timeout, a 5xx, a database blip). The approval is kept
+      # and retried with backoff, so one blip is normal; repeated retries mean
+      # publishing is down and approvals are piling up unexecuted.
+      - alert: EcosystemPublishRetrying
+        expr: sum by (kind) (increase(ecosystem_execution_failed_total{outcome="retrying"}[30m])) > 3
+        for: 10m
+        labels:
+          severity: warning
+          component: plugin-ecosystem
+          tenancy: platform
+        annotations:
+          summary: "Approved ecosystem {{ $labels.kind }} requests keep failing to publish"
+          description: "{{ $value | humanize }} execution attempts of approved {{ $labels.kind }} requests failed transiently in the last 30 minutes. They are retried with the approval kept, but nothing is being published. Check RegistryPublicPublishFailing, image-registry's logs (Plugin publication failed) and the plugin service's ecosystem-execution logs."
+
+      # A transient failure that persisted for a day: the executor gave up and
+      # handed the request back for a new decision. Someone has to look.
+      - alert: EcosystemPublishGaveUp
+        expr: sum by (kind) (increase(ecosystem_execution_failed_total{outcome="gave_up"}[1h])) > 0
+        labels:
+          severity: warning
+          component: plugin-ecosystem
+          tenancy: platform
+        annotations:
+          summary: "Gave up publishing an approved ecosystem {{ $labels.kind }} request"
+          description: "An approved {{ $labels.kind }} request failed to publish for 24 hours and was handed back to the queue; its executionError says why. Fix the cause, then approve it again."
+
+      # image-registry could not publish into `public/*` (a copy, a signature,
+      # an SBOM attestation). The plugin service retries 5xx failures, so this
+      # is the cause behind EcosystemPublishRetrying, not a second symptom.
+      - alert: RegistryPublicPublishFailing
+        expr: sum(increase(registry_public_publish_total{outcome="failure"}[30m])) > 0
+        for: 10m
+        labels:
+          severity: warning
+          component: image-registry
+          tenancy: platform
+        annotations:
+          summary: "image-registry is failing to publish plugin images"
+          description: "{{ $value | humanize }} publications into public/* failed in the last 30 minutes. registry_public_publish_duration_seconds{step} shows which step is slow, and image-registry's 'Plugin publication failed' log says which step threw."
 
       - alert: EcosystemApproverShortage
         # Two-person approval needs two different approvers; below that a

@@ -228,6 +228,9 @@ const HISTOGRAM_BUCKETS: Readonly<Record<string, readonly number[]>> = {
   plugin_job_wait_seconds: [1, 5, 15, 30, 60, 120, 300, 600, 1800, 3600],
   // A container build. Minutes normally, far longer for a cold base image.
   plugin_build_duration_seconds: [10, 30, 60, 120, 300, 600, 1200, 1800, 3600],
+  // One plugin publication into `public/*` and each of its steps. Seconds for a
+  // small image, minutes for a large one; the route allows ten (600 is a boundary).
+  registry_public_publish_duration_seconds: [0.5, 1, 2.5, 5, 10, 20, 30, 60, 120, 300, 600],
   // A full image scan, which routinely passes five minutes on a large image.
   plugin_vuln_scan_duration_seconds: [1, 5, 15, 30, 60, 120, 300, 600, 1200],
   // Time from an incident being raised to a human acknowledging it. The default

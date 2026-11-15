@@ -16,20 +16,22 @@
  *    Official catalog and the system-org auto-approval rules.
  *
  * Every decision claims the request with an optimistic status transition
- * BEFORE executing, so two managers can never both execute one request; a
- * failed execution rolls the status back.
+ * BEFORE executing, so two managers can never both execute one request. The
+ * execution itself runs in execution.ts: the decision waits for it briefly,
+ * a refusal rolls the status back, and a slow or transiently failing one
+ * carries on in the background with the claim kept.
  */
 
 import { isOfficialPublisher } from './util.js';
-import { actorId, ConflictError, createLogger, ErrorCode, errorMessage } from '@pipeline-builder/api-core';
+import { actorId, ConflictError, ErrorCode } from '@pipeline-builder/api-core';
 import { incCounter } from '@pipeline-builder/api-server';
-import { type PluginPublishRequest, type Publisher, type PublishRequestStatus } from '@pipeline-builder/pipeline-data';
+import { type PluginPublishRequest, type Publisher } from '@pipeline-builder/pipeline-data';
 
 import { discardDraft } from './advisories.js';
 import { ecosystemAudit, type PluginAuditAction } from './audit.js';
 import { conflictOfInterest } from './conflict.js';
 import { can, EcosystemError, type Caller } from './context.js';
-import { execute } from './execute.js';
+import { claimPayload, executeClaimNow, type InlineResult } from './execution.js';
 import {
   notifyDecision, notifySecondApprovalNeeded, notifyTransferUpdate, titleOfRequest,
 } from './notify.js';
@@ -38,8 +40,6 @@ import { OPEN_STATUSES, plugins, publishers, requests, versions } from './store.
 import { rejectSubmission } from './submission-moderation.js';
 import { assertVerifiedEligible, checkVerifiedEligibility } from './verified-eligibility.js';
 
-
-const logger = createLogger('ecosystem-decisions');
 
 type Req = PluginPublishRequest;
 const payloadOf = (r: Req) => (r.payload ?? {}) as Record<string, unknown>;
@@ -85,34 +85,27 @@ async function assertNoConflict(moderator: Caller, r: Req, publisher: Publisher,
   }
 }
 
-/** Run an approved request, rolling the status back to `from` when execution refuses. */
-async function executeClaimed(claimed: Req, from: PublishRequestStatus, rollback: Partial<Req>, publisher: Publisher, moderator: Caller): Promise<void> {
-  try {
-    await execute(claimed, publisher, actorId({ userId: moderator.userId }), { human: true });
-  } catch (err) {
-    const current = await requests.byId(claimed.id);
-    // A quota refusal already recorded the request as rejected; leave it.
-    if (current?.status === 'approved') await requests.transition(claimed.id, 'approved', { status: from, ...rollback });
-    throw err;
-  }
-  // Outside the try: a failed mark must not roll back an execution that ran.
-  // Without the mark the stalled-publish sweep (stalled.ts) would later hand
-  // this request back, so the failure is logged loudly.
-  await markExecuted(claimed.id);
+/** What a decision route answers: the request, and whether its execution has finished. */
+export interface DecisionResult {
+  request: Req;
+  executed: boolean;
+  /** Set when it hasn't: still publishing, or retrying after a transient failure. */
+  executing?: Exclude<InlineResult, { executed: true }>['reason'];
+  error?: string;
 }
 
-/** Stamp `executedAt` (never throws: the execution already happened). */
-export async function markExecuted(id: string): Promise<void> {
-  await requests.markExecuted(id).catch((err) =>
-    logger.error('Recording a request as executed failed; the stalled-publish sweep may hand it back', { requestId: id, error: errorMessage(err) }));
+function decisionResult(request: Req, result: InlineResult): DecisionResult {
+  return result.executed
+    ? { request, executed: true }
+    : { request, executed: false, executing: result.reason, ...(result.error ? { error: result.error } : {}) };
 }
 
 /**
  * POST /ecosystem/requests/:id/approve — the first (or only) approval. A
  * two-person request moves to `pending_second_approval` (N28); anything else
- * executes now.
+ * executes now (see execution.ts for one that outlasts the request).
  */
-export async function approve(moderator: Caller, id: string, note: string | null): Promise<{ request: Req; executed: boolean }> {
+export async function approve(moderator: Caller, id: string, note: string | null): Promise<DecisionResult> {
   const { r, publisher } = await loadForDecision(moderator, id);
   if (r.status === 'pending_second_approval') throw new ConflictError('This request already has its first approval; use second-approve.');
   if (r.status !== 'pending') throw new ConflictError(`This request is ${r.status}.`);
@@ -129,29 +122,35 @@ export async function approve(moderator: Caller, id: string, note: string | null
     return { request: parked, executed: false };
   }
 
-  const claimed = await requests.transition(r.id, 'pending', { status: 'approved', decidedBy: moderator.userId, decidedAt: new Date(), ...(note ? { reason: note } : {}) });
+  const claimed = await requests.transition(r.id, 'pending', {
+    status: 'approved',
+    decidedBy: moderator.userId,
+    decidedAt: new Date(),
+    ...(note ? { reason: note } : {}),
+    payload: claimPayload(r, { flavor: 'approve', actor, note, priorReason: r.reason }),
+  });
   if (!claimed) throw new ConflictError('The request was decided by someone else.');
-  await executeClaimed(claimed, 'pending', { decidedBy: null, decidedAt: null, reason: r.reason }, publisher, moderator);
-  ecosystemAudit({ action: 'plugin.request.approve', actor, affectedOrgId: publisher.ownerOrgId, targetType: 'plugin-publish-request', targetId: r.id, details: { kind: r.kind, ...(r.version ? { version: r.version } : {}), ...(r.digest ? { digest: r.digest } : {}) } });
-  await notifyDecision({ kind: r.kind, title, publisherOrgId: publisher.ownerOrgId, approved: true, reason: note });
-  return { request: (await requests.byId(r.id))!, executed: true };
+  // The audit entry and the publisher's notice follow the execution (execution.ts).
+  const result = await executeClaimNow(claimed.id);
+  return decisionResult((await requests.byId(r.id))!, result);
 }
 
 /** POST /ecosystem/requests/:id/second-approve — the second of two approvals, by a DIFFERENT manager. */
-export async function secondApprove(moderator: Caller, id: string, note: string | null): Promise<{ request: Req; executed: true }> {
+export async function secondApprove(moderator: Caller, id: string, note: string | null): Promise<DecisionResult> {
   const { r, publisher } = await loadForDecision(moderator, id);
   if (r.status !== 'pending_second_approval') throw new ConflictError('This request is not waiting for a second approval.');
   // conflictOfInterest refuses the first approver (and the submitter/uploader).
   await assertNoConflict(moderator, r, publisher, 'plugin.request.second-approve');
   const claimed = await requests.transition(r.id, 'pending_second_approval', {
-    status: 'approved', secondApprovedBy: moderator.userId, decidedBy: moderator.userId, decidedAt: new Date(),
+    status: 'approved',
+    secondApprovedBy: moderator.userId,
+    decidedBy: moderator.userId,
+    decidedAt: new Date(),
+    payload: claimPayload(r, { flavor: 'second-approve', actor: actorId({ userId: moderator.userId }), note }),
   });
   if (!claimed) throw new ConflictError('The request was decided by someone else.');
-  await executeClaimed(claimed, 'pending_second_approval', { secondApprovedBy: null, decidedBy: null, decidedAt: null }, publisher, moderator);
-  const actor = actorId({ userId: moderator.userId });
-  ecosystemAudit({ action: 'plugin.request.second-approve', actor, affectedOrgId: publisher.ownerOrgId, targetType: 'plugin-publish-request', targetId: r.id, details: { kind: r.kind, firstApprovedBy: r.firstApprovedBy, ...(note ? { note: note.slice(0, 200) } : {}) } });
-  await notifyDecision({ kind: r.kind, title: await titleOfRequest(r, publisher), publisherOrgId: publisher.ownerOrgId, approved: true, reason: note });
-  return { request: (await requests.byId(r.id))!, executed: true };
+  const result = await executeClaimNow(claimed.id);
+  return decisionResult((await requests.byId(r.id))!, result);
 }
 
 /** Clear a version's request freeze once nothing open references it and it isn't listed. */

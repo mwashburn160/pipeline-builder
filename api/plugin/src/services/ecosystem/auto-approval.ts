@@ -8,18 +8,13 @@
  */
 
 import { createLogger, errorMessage, isOfficialAutoApprovalEnabled, isSystemOrgId, SYSTEM_ACTOR_ID } from '@pipeline-builder/api-core';
-import { incCounter } from '@pipeline-builder/api-server';
 import { type EcosystemAutoApprovalRule, type PluginListing, type PluginPublishRequest, type Publisher } from '@pipeline-builder/pipeline-data';
 import { sql } from 'drizzle-orm';
 
-import { ecosystemAudit } from './audit.js';
-import { bootstrapEligible, countBootstrapApproval } from './bootstrap.js';
+import { bootstrapEligible } from './bootstrap.js';
 import { type Caller } from './context.js';
-import { execute } from './execute.js';
+import { claimPayload, executeClaimNow } from './execution.js';
 import { type RequestMetadata } from './metadata.js';
-import {
-  notifyDecision, titleOfRequest,
-} from './notify.js';
 import { contractDiff, evaluateAutoRule, specSnapshot, versionBump, vulnDelta, type AutoApprovalContext, type AutoRuleConditions } from './policy.js';
 import { atomically, elevated, listings, plugins, previousVersion, requests, rules, type PluginRow } from './store.js';
 import { isActiveListing } from './util.js';
@@ -109,7 +104,11 @@ async function claimForRule(r: Req, rule: EcosystemAutoApprovalRule, facts: Awai
     await elevated((tx) => tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`ecosystem-auto-rule:${rule.id}`}))`));
     if (!(await evaluateRuleFor(rule, r, facts)).eligible) return null;
     return requests.transition(r.id, 'pending', {
-      status: 'approved', decidedBy: SYSTEM_ACTOR_ID, decidedAt: new Date(), autoRuleId: rule.id, payload: payloadOf(r),
+      status: 'approved',
+      decidedBy: SYSTEM_ACTOR_ID,
+      decidedAt: new Date(),
+      autoRuleId: rule.id,
+      payload: claimPayload(r, { flavor: 'auto', actor: SYSTEM_ACTOR_ID, ruleName: rule.name }),
     });
   });
 }
@@ -117,50 +116,36 @@ async function claimForRule(r: Req, rule: EcosystemAutoApprovalRule, facts: Awai
 /**
  * Right after a request is submitted: approve it automatically when the
  * bootstrap exception or an auto-approval rule covers it. Returns the decided
- * request, or null when it waits for a person. Never throws for a refused
- * EXECUTION: the request then stays pending for a manager.
+ * request (executed, or still publishing in the background), or null when it
+ * waits for a person. Never throws for a refused EXECUTION: the request is
+ * then handed back to `pending` for a manager (execution.ts). A transient
+ * failure keeps the automatic approval and is retried.
  */
 export async function autoDecide(r: Req, publisher: Publisher, submitter: Caller): Promise<Req | null> {
   const bootstrap = await bootstrapEligible(r, publisher, submitter);
-  let rule: EcosystemAutoApprovalRule | null = null;
   let claimed: Req | null;
   if (bootstrap) {
     claimed = await requests.transition(r.id, 'pending', {
-      status: 'approved', decidedBy: SYSTEM_ACTOR_ID, decidedAt: new Date(), autoRuleId: null, payload: { ...payloadOf(r), bootstrap: true },
+      status: 'approved',
+      decidedBy: SYSTEM_ACTOR_ID,
+      decidedAt: new Date(),
+      autoRuleId: null,
+      payload: claimPayload(r, { flavor: 'auto', actor: SYSTEM_ACTOR_ID }, { bootstrap: true }),
     });
   } else {
     const listing = r.listingId ? await listings.byId(r.listingId) : null;
     const plugin = r.pluginId ? await plugins.byId(r.pluginId) : null;
-    rule = (await matchingRule(r, publisher, listing, plugin)).rule;
+    const rule = (await matchingRule(r, publisher, listing, plugin)).rule;
     if (!rule) return null;
     claimed = await claimForRule(r, rule, await autoApprovalFacts(r, publisher, listing, plugin));
   }
   if (!claimed) return null;
   try {
-    await execute(claimed, publisher, SYSTEM_ACTOR_ID, { human: false });
+    // The approvals counter, the audit entry and the notices follow the execution.
+    await executeClaimNow(claimed.id);
   } catch (err) {
-    await requests.transition(r.id, 'approved', { status: 'pending', decidedBy: null, decidedAt: null, autoRuleId: null, payload: payloadOf(r) });
     logger.warn('Automatic approval could not execute; left for a manager', { requestId: r.id, error: errorMessage(err) });
-    incCounter('ecosystem_auto_approval_failed_total', { kind: r.kind });
     return null;
   }
-  await requests.markExecuted(claimed.id).catch((err) =>
-    logger.error('Recording an auto-approved request as executed failed; the stalled-publish sweep may hand it back', { requestId: r.id, error: errorMessage(err) }));
-  if (bootstrap) await countBootstrapApproval();
-  incCounter('ecosystem_auto_approvals_total', { kind: r.kind, rule: bootstrap ? 'bootstrap' : rule!.name });
-  ecosystemAudit({
-    action: 'plugin.request.auto-approve',
-    actor: SYSTEM_ACTOR_ID,
-    affectedOrgId: publisher.ownerOrgId,
-    targetType: 'plugin-publish-request',
-    targetId: r.id,
-    details: {
-      kind: r.kind,
-      ...(bootstrap ? { bootstrap: true } : { autoRuleId: rule!.id, rule: rule!.name }),
-      ...(r.version ? { version: r.version } : {}),
-      ...(r.digest ? { digest: r.digest } : {}),
-    },
-  });
-  await notifyDecision({ kind: r.kind, title: await titleOfRequest(claimed, publisher), publisherOrgId: publisher.ownerOrgId, approved: true, auto: true });
-  return claimed;
+  return (await requests.byId(claimed.id)) ?? claimed;
 }

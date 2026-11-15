@@ -1,6 +1,6 @@
 // GENERATED FROM docs/environment-variables.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 2aff965555143a5e009738c97f763c9b0c12bf0fac71eeaf644df5a2a1fbdadc
+// SOURCE-SHA256: 9c47dff9396e1b6264f297676c5f0952b22e6d77821eb5873855b1871836eb4c
 // SPDX-License-Identifier: Apache-2.0
 import { FileCode } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -3605,11 +3605,6 @@ export const envVariablesTopic: HelpTopic = {
           ],
           "rows": [
             [
-              "HANDLER_TIMEOUT_MS",
-              "25000",
-              "Global HTTP request timeout (25s)"
-            ],
-            [
               "PLUGIN_UPLOAD_TIMEOUT_MS",
               "900000",
               "Upload route timeout override (15 min)"
@@ -3676,7 +3671,7 @@ export const envVariablesTopic: HelpTopic = {
         },
         {
           "type": "code",
-          "content": "Client (curl)                    UPLOAD_TIMEOUT = 900s (15 min)\n  └─ nginx proxy_read_timeout    900s (shipped configs); nginx's own default is 60s\n      └─ Express route           PLUGIN_UPLOAD_TIMEOUT_MS = 900s (15 min)\n          └─ Express global      HANDLER_TIMEOUT_MS = 25s (overridden by route)\n              └─ Build queue     DOCKER_BUILD_TIMEOUT_MS = 900s (15 min, async)\n                  └─ Push        DOCKER_PUSH_TIMEOUT_MS = 300s (5 min, async)"
+          "content": "Client (curl)                    UPLOAD_TIMEOUT = 900s (15 min)\n  └─ nginx proxy_read_timeout    900s (shipped configs); nginx's own default is 60s\n      └─ Express route           PLUGIN_UPLOAD_TIMEOUT_MS = 900s (15 min)\n          └─ Express global      25s request timeout (fixed; overridden by route)\n              └─ Build queue     DOCKER_BUILD_TIMEOUT_MS = 900s (15 min, async)\n                  └─ Push        DOCKER_PUSH_TIMEOUT_MS = 300s (5 min, async)"
         },
         {
           "type": "text",
@@ -3688,7 +3683,19 @@ export const envVariablesTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "If uploads fail with 503 (timeout): Raise all three together: PLUGIN_UPLOAD_TIMEOUT_MS, nginx's proxy_send_timeout / proxy_read_timeout / send_timeout on location = /api/plugins/upload, and the loader's --timeout. Do not increase HANDLER_TIMEOUT_MS — it applies globally to all routes."
+          "content": "If uploads fail with 503 (timeout): Raise all three together: PLUGIN_UPLOAD_TIMEOUT_MS, nginx's proxy_send_timeout / proxy_read_timeout / send_timeout on location = /api/plugins/upload, and the loader's --timeout. The services' 25 s request timeout is fixed in code and is not a setting: it applies to every route, so a long route gets its own limit instead."
+        },
+        {
+          "type": "text",
+          "content": "Plugin Publication Timeout"
+        },
+        {
+          "type": "text",
+          "content": "Publishing a plugin version into public/* (an approval, an automatic approval, a re-sign) is a call from the plugin service to image-registry's /internal/plugin-publications* routes. It copies, verifies, signs and attests the whole image, which takes minutes for a large toolchain image, so those routes allow 10 minutes, and the plugin service's client waits exactly as long. Neither is a setting; a deploy-contracts test (publication-timeout-contract.test.ts) keeps them equal."
+        },
+        {
+          "type": "text",
+          "content": "No browser or loader request waits for that call. An approval returns once the publish finishes or after about 20 seconds, whichever is first; a longer publish carries on in the background and the request shows as publishing until it completes. A timeout or a 5xx from image-registry is retried with the approval kept; only a refusal (a conflict, a failed check, a missing image) hands the request back for a decision. registry_public_publish_duration_seconds{step} shows how long each step takes."
         }
       ]
     },

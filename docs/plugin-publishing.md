@@ -40,7 +40,7 @@ Managing the publisher profile requires `publishers:manage`. Submitting listing 
 3. **Submit a request** — a new listing, a new version, a listing update, a yank, an unpause, a transfer, a claim, a profile change, a Verified application or an advisory.
 4. **The digest is pinned into the request.** Approval verifies it still matches, and fails closed if not.
 5. **An Ecosystem Manager decides**, or an auto-approval rule does. Some request kinds need two people, and separation of duties stops one person supplying both approvals.
-6. **On approval the image is copied into the public namespace**, freshly signed and SBOM-attested, and the listing becomes installable.
+6. **On approval the image is copied into the public namespace**, freshly signed and SBOM-attested, and the listing becomes installable. A large image takes minutes; the request shows as publishing until it finishes, and a transient failure (image-registry unavailable, a timeout) is retried automatically with the approval kept.
 7. **You keep unilateral control of reach.** Pausing a listing or a version takes effect immediately without anyone's approval.
 
 ## Configuration

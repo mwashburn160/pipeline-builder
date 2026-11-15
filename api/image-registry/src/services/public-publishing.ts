@@ -18,17 +18,19 @@
  *  - verify: the signature + its annotations, cached briefly, so lookup can
  *    detect a tier edited in the database without a re-sign.
  *
- * Every mutation of one repository is serialized in-process, so a concurrent
- * publish + yank (or two re-signs) can't interleave a signature drop with a
- * sign. The plugin service drives these one image at a time.
+ * Every mutation of one repository is serialized: in-process, and across
+ * replicas through a Redis lock, so a concurrent publish + yank (or two
+ * re-signs) can't interleave a signature drop with a sign. A mutation that
+ * finds another replica holding the lock answers 503 and the plugin service
+ * retries it.
  */
 
 import * as fs from 'fs';
 import * as os from 'os';
 import path from 'path';
 
-import { envInt, createLogger, AppError, ErrorCode, PUBLISHER_TIERS, SYSTEM_ORG_ID, type PublisherTier } from '@pipeline-builder/api-core';
-import { incCounter, setGauge } from '@pipeline-builder/api-server';
+import { envInt, createEnvRedisLock, createLogger, AppError, ErrorCode, leaderLockKey, PUBLISHER_TIERS, SYSTEM_ORG_ID, withLeaderLock, type LockRedis, type PublisherTier } from '@pipeline-builder/api-core';
+import { incCounter, observe, setGauge } from '@pipeline-builder/api-server';
 
 import { cosignCompanionTags, isCosignCompanionTag } from './cosign-tags.js';
 import { copyManifestTree } from './manifest-copy.js';
@@ -62,6 +64,8 @@ const logger = createLogger('public-publishing');
 /** Metric names. */
 export const PublicationMetrics = {
   PUBLISH: 'registry_public_publish_total',
+  /** Seconds per publish step (`step`: source, sbom, copy, sign, tag, total), to show which one is slow. */
+  PUBLISH_DURATION: 'registry_public_publish_duration_seconds',
   RESIGN: 'registry_public_resign_total',
   YANK: 'registry_public_yank_total',
   GC: 'registry_public_gc_total',
@@ -89,6 +93,14 @@ export class PublicationNotFoundError extends AppError {
   }
 }
 
+/** Another replica is mutating the same repository (maps to 503: retry shortly). */
+export class PublicationBusyError extends AppError {
+  constructor(repository: string) {
+    super(503, ErrorCode.SERVICE_UNAVAILABLE, `${repository} is being changed by another request; retry shortly`);
+    this.name = 'PublicationBusyError';
+  }
+}
+
 /** The source image has no verifiable signed SBOM to re-attest (maps to 409 IMAGE_VERIFICATION_FAILED). */
 export class SourceVerificationError extends AppError {
   constructor(message: string) {
@@ -103,9 +115,35 @@ export class SourceVerificationError extends AppError {
 
 const locks = new Map<string, Promise<unknown>>();
 
+/**
+ * The cross-replica lock. It heartbeats while a mutation runs, so the TTL is
+ * only how long a crashed holder blocks the repository, not a cap on a slow
+ * publish. Null when Redis isn't configured (one replica: in-process is enough).
+ */
+const lockRedis: LockRedis | null = createEnvRedisLock();
+const REPOSITORY_LOCK_TTL_MS = 60_000;
+
+/** Test hook: whether mutations also take the cross-replica lock. */
+let crossReplicaLock: LockRedis | null = lockRedis;
+export function setRepositoryLockRedisForTests(redis: LockRedis | null): void {
+  crossReplicaLock = redis;
+}
+
+/** Run `fn` holding the cross-replica lock on `repository`, or refuse with 503 when another replica holds it. */
+async function withCrossReplicaLock<T>(repository: string, fn: () => Promise<T>): Promise<T> {
+  const redis = crossReplicaLock;
+  if (!redis) return fn();
+  let out: T | undefined;
+  const ran = await withLeaderLock(redis, leaderLockKey('image-registry', `publication:${repository}`), REPOSITORY_LOCK_TTL_MS, async () => {
+    out = await fn();
+  }, { metricKey: leaderLockKey('image-registry', 'publication') });
+  if (!ran) throw new PublicationBusyError(repository);
+  return out as T;
+}
+
 async function withRepositoryLock<T>(repository: string, fn: () => Promise<T>): Promise<T> {
   const previous = locks.get(repository) ?? Promise.resolve();
-  const run = previous.catch(() => undefined).then(fn);
+  const run = previous.catch(() => undefined).then(() => withCrossReplicaLock(repository, fn));
   locks.set(repository, run);
   try {
     return await run;
@@ -237,7 +275,18 @@ export interface PublishResult {
  */
 export async function publishPublicImage(p: PublishParams): Promise<PublishResult> {
   const target = `public/${p.publisherHandle}/${p.name}`;
+  const started = Date.now();
+  let stepStarted = started;
+  const steps: Record<string, number> = {};
+  /** Close the current step: record its seconds and start the next. */
+  const lap = (step: string): void => {
+    const now = Date.now();
+    steps[step] = now - stepStarted;
+    observe(PublicationMetrics.PUBLISH_DURATION, { step }, (now - stepStarted) / 1000);
+    stepStarted = now;
+  };
   return withRepositoryLock(target, async () => {
+    stepStarted = Date.now();
     const existing = await headManifest(target, p.version);
     if (existing && existing.digest !== p.digest) {
       throw new PublicationConflictError(`${target}:${p.version} is already published as ${existing.digest}; a listed version is immutable`);
@@ -250,6 +299,7 @@ export async function publishPublicImage(p: PublishParams): Promise<PublishResul
       if (isNotFound(err)) throw new PublicationNotFoundError(`No manifest ${p.digest} in ${p.sourceRepository}`);
       throw err;
     }
+    lap('source');
 
     let sbom: Record<string, unknown>;
     try {
@@ -261,8 +311,11 @@ export async function publishPublicImage(p: PublishParams): Promise<PublishResul
       throw err;
     }
 
+    lap('sbom');
+
     await copyManifestTree(source, p.sourceRepository, target, p.digest);
     await writePublicationRecord(target, p.publisherOrgId);
+    lap('copy');
     // `signPluginImage` attests from a FILE (cosign's `--predicate`), so the
     // document this read out of the source attestation is written down here.
     // Removed in the `finally` whatever happens: an SBOM left behind is a disk
@@ -275,10 +328,14 @@ export async function publishPublicImage(p: PublishParams): Promise<PublishResul
     } finally {
       fs.rmSync(sbomDir, { recursive: true, force: true });
     }
+    lap('sign');
     if (!existing) await putManifest(target, p.version, source.raw, source.mediaType);
+    lap('tag');
 
     afterMutation(target, p.digest, [p.publisherOrgId]);
-    logger.info('Published plugin image', { target, digest: p.digest, version: p.version, tier: p.tier, alreadyPublished: !!existing });
+    const totalMs = Date.now() - started;
+    observe(PublicationMetrics.PUBLISH_DURATION, { step: 'total' }, totalMs / 1000);
+    logger.info('Published plugin image', { target, digest: p.digest, version: p.version, tier: p.tier, alreadyPublished: !!existing, durationMs: totalMs, stepMs: steps });
     return { imageRepository: target, digest: p.digest, alreadyPublished: !!existing };
   });
 }

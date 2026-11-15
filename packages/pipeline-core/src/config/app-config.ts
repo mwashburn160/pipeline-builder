@@ -33,10 +33,9 @@ export { RESERVED_TAG_KEYS, RESERVED_TAG_PREFIXES, isReservedTagKey } from '@pip
 export class CoreConstants {
   static readonly NAME_PATTERN = /^[a-z0-9-]+$/;
 
-  // Custom Resource Handler configuration (must be less than Lambda timeout of 30s to allow response handling).
-  // Sourced from the dependency-free `handler-constants.ts` leaf — the Lambda handler imports that module
-  // directly (not this one) so its esbuild bundle never pulls in aws-cdk-lib via infrastructure-config.
-  static readonly HANDLER_TIMEOUT_MS = HandlerConstants.HANDLER_TIMEOUT_MS;
+  // Custom Resource Handler configuration, sourced from the dependency-free `handler-constants.ts` leaf —
+  // the Lambda handler imports that module directly (not this one) so its esbuild bundle never pulls in
+  // aws-cdk-lib via infrastructure-config. The handler's own timeout stays there: nothing else uses it.
   /** Default platform URL fallback when PLATFORM_BASE_URL is not set. */
   static readonly DEFAULT_PLATFORM_URL = HandlerConstants.DEFAULT_PLATFORM_URL;
 

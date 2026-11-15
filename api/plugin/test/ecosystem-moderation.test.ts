@@ -19,6 +19,7 @@ import {
 const h = setupEcosystemHarness();
 const requestsSvc = await import('../src/services/ecosystem/requests.js');
 const decisions = await import('../src/services/ecosystem/decisions.js');
+const execution = await import('../src/services/ecosystem/execution.js');
 const bootstrap = await import('../src/services/ecosystem/bootstrap.js');
 const consoleSvc = await import('../src/services/ecosystem/console.js');
 const resign = await import('../src/services/ecosystem/resign.js');
@@ -162,11 +163,22 @@ describe('approving a tenant new listing', () => {
     const writes: string[] = [];
     // Model the transaction: the fake's writes inside `atomically` are undone when it throws.
     db.failNextInsert('plugin_listing_versions', new Error('db write failed'));
-    await expect(decisions.approve(MOD_A, request.id, null)).rejects.toThrow('db write failed');
+    await expect(decisions.approve(MOD_A, request.id, null)).resolves.toMatchObject({ executed: false, executing: 'retrying', error: 'db write failed' });
     writes.push(...(db.tables.plugin_listings ?? []).map((l) => l.name));
     expect(writes).toEqual([]);
-    // The request went back to pending (the approval rolled back), so a retry can publish.
-    expect(db.tables.plugin_publish_requests![0]).toMatchObject({ status: 'pending', listingId: null });
+    // A database blip is transient: the approval is kept, and the retry publishes it.
+    expect(db.tables.plugin_publish_requests![0]).toMatchObject({ status: 'approved', listingId: null });
+    expect(db.tables.plugin_publish_requests![0]!.executedAt ?? null).toBeNull();
+    execution.setExecutionClockForTests(() => new Date(Date.now() + 5 * 60_000));
+    try {
+      expect(await execution.runDueExecutions()).toEqual({ ran: 1, executed: 1 });
+    } finally {
+      execution.setExecutionClockForTests();
+    }
+    expect((db.tables.plugin_listings ?? []).map((l) => l.name)).toHaveLength(1);
+    expect(db.tables.plugin_publish_requests![0]!.executedAt).toBeInstanceOf(Date);
+    // The approval's audit entry follows the execution, so it is written once, after the retry.
+    expect(h.audit.mock.calls.filter(([e]: any[]) => e.action === 'plugin.request.approve')).toHaveLength(1);
   });
 });
 
@@ -220,16 +232,23 @@ describe('separation of duties + two-person approval', () => {
     await rejects(decisions.secondApprove(MOD_B, requestId!, null), 'CONFLICT');
   });
 
-  it('rolls a failed second approval back to pending_second_approval', async () => {
+  it('rolls a refused second approval back to pending_second_approval, and keeps one that failed transiently', async () => {
     const { official } = seedPublishers(db);
     listed(official, 'lint', '1.0.0');
     const upload = db.seed('plugins', pluginRow({ orgId: SYSTEM_ORG, version: '2.0.0', createdBy: 'someone' }));
     db.seed('ecosystem_settings', { key: 'bootstrap', value: { openedAt: null, closedAt: new Date().toISOString(), reason: 'x', approved: 0 } });
     const { requestId } = await requestsSvc.submitAfterBuild(loader() as any, upload.id);
     await decisions.approve(MOD_A, requestId!, null);
-    h.registryPost.mockImplementationOnce(async () => ({ statusCode: 500, body: {} }));
+    h.registryPost.mockImplementationOnce(async () => ({ statusCode: 409, body: {} }));
     await expect(decisions.secondApprove(MOD_B, requestId!, null)).rejects.toThrow('image-registry refused');
     expect(db.tables.plugin_publish_requests!.find((r) => r.id === requestId)).toMatchObject({ status: 'pending_second_approval', secondApprovedBy: null });
+
+    // A 500 (or a timeout) keeps both approvals: the request stays approved and is retried.
+    h.registryPost.mockImplementationOnce(async () => ({ statusCode: 500, body: {} }));
+    await expect(decisions.secondApprove(MOD_B, requestId!, null)).resolves.toMatchObject({ executed: false, executing: 'retrying' });
+    const kept = db.tables.plugin_publish_requests!.find((r) => r.id === requestId)!;
+    expect(kept).toMatchObject({ status: 'approved', secondApprovedBy: 'mod-b' });
+    expect(kept.executedAt ?? null).toBeNull();
   });
 });
 

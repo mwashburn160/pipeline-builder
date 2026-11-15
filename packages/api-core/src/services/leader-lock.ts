@@ -111,6 +111,13 @@ export interface LeaderLockOptions {
    * the rest of the TTL.
    */
   signal?: AbortSignal;
+  /**
+   * The `key` label on the lock's counters, when it must differ from the lock
+   * key. A lock per item (one per repository, one per request) would otherwise
+   * put every item's key on the metrics, an unbounded label set; such callers
+   * pass one fixed name for the whole family here.
+   */
+  metricKey?: string;
 }
 
 /**
@@ -152,6 +159,7 @@ export async function withLeaderLock(
   if (opts.signal?.aborted) return false;
 
   const token = randomUUID();
+  const metricKey = opts.metricKey ?? key;
   let acquired: unknown;
   try {
     // The env client has no offline queue: a SET before the first connection
@@ -166,14 +174,14 @@ export async function withLeaderLock(
     lockLogger.warn('Leader lock unavailable; skipping this run', {
       key, error: errorMessage(err),
     });
-    emitCounter('leader_lock_unavailable_total', { key });
+    emitCounter('leader_lock_unavailable_total', { key: metricKey });
     return false;
   }
   if (acquired !== 'OK') {
-    emitCounter('leader_lock_contended_total', { key });
+    emitCounter('leader_lock_contended_total', { key: metricKey });
     return false;
   }
-  emitCounter('leader_lock_acquired_total', { key });
+  emitCounter('leader_lock_acquired_total', { key: metricKey });
 
   const lost = new AbortController();
   // Shutdown is merged into the SAME signal a lock loss uses: from `fn`'s point of
@@ -192,7 +200,7 @@ export async function withLeaderLock(
       evalFn(EXTEND_IF_OWNER, 1, key, token, ttlMs).then((extended) => {
         if (Number(extended) !== 1 && !lost.signal.aborted) {
           lockLogger.warn('Leader lock lost mid-run (another holder, or the key expired)', { key });
-          emitCounter('leader_lock_lost_total', { key });
+          emitCounter('leader_lock_lost_total', { key: metricKey });
           lost.abort('lock-lost' satisfies LeaderLockAbortReason);
         }
       }).catch((err) => {

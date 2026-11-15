@@ -1,6 +1,6 @@
 // GENERATED FROM docs/runbooks/ecosystem-moderation.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: b6f1a89c74635ab42d0d2163e14e31bd4507aa6a2715a58ea44326abf9754c12
+// SOURCE-SHA256: e894e2d688e660a5daef6ec1fd27fd343d08013003ef034d95c2d02781115c24
 // SPDX-License-Identifier: Apache-2.0
 import { ShieldCheck } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -211,6 +211,18 @@ export const runbookEcosystemModerationTopic: HelpTopic = {
               "Synth lookups refused because a plugin image's signature (or its signed tier annotation) no longer verifies. Check plugin_lookup_refusals_total{reason} by listing in the plugin logs (\"Plugin image failed verification\"); a re-pushed or tampered public/* image needs a yank, a stale tier annotation a re-sign (Ecosystem console → Re-sign)."
             ],
             [
+              "EcosystemPublishRetrying / RegistryPublicPublishFailing",
+              "Approved requests are failing to publish into public/*: image-registry unreachable, slow or failing a step. Nothing is lost: each keeps its approval (an automatic or bootstrap one included) and is retried with backoff. Check image-registry's health and its Plugin publication failed log; registry_public_publish_duration_seconds{step} shows which step is slow."
+            ],
+            [
+              "EcosystemPublishGaveUp",
+              "A publish kept failing for 24 hours and its request went back to the queue; its error is on the request. Fix the cause, then approve it again."
+            ],
+            [
+              "EcosystemPublishStalled",
+              "A request still publishing after an hour (the retries above have not succeeded), or a submission a pod died publishing."
+            ],
+            [
               "OfficialAutoApprovalAnomaly",
               "The Official catalog rule is near its daily cap or far above its usual rate. Check recent plugin.request.auto-approve events; OFFICIAL_AUTO_APPROVAL_ENABLED=false stops the rule at once."
             ]
@@ -279,6 +291,10 @@ export const runbookEcosystemModerationTopic: HelpTopic = {
         {
           "type": "text",
           "content": "publisher) or leave it for someone else."
+        },
+        {
+          "type": "text",
+          "content": "An approval publishes the image before the version is listed, and a large image takes minutes. If it hasn't finished after about 20 seconds, the console says so and the request shows as publishing until it does; the audit entry and the publisher's notice follow once it has. If image-registry is down or slow, the approval is kept and retried automatically, so don't approve again. Only a refusal (the version no longer passes its checks, the digest changed, the name is taken) returns the request to the queue, with the reason on it."
         },
         {
           "type": "text",
@@ -430,6 +446,10 @@ export const runbookEcosystemModerationTopic: HelpTopic = {
         {
           "type": "text",
           "content": "On a fresh instance, init-platform.sh loads the Official catalog as the official-catalog-loader service account. While the instance has no listings, those requests are approved automatically by system and audited as plugin.request.auto-approve with details.bootstrap = true. The window opens with the first such request and stays open for the initial load (ECOSYSTEM_BOOTSTRAP_WINDOW_HOURS, default 24). It closes for good when the window elapses, when any manager decides a request, or if the instance already had listings. The overview shows its state. Later loads are covered by the Official catalog rule instead."
+        },
+        {
+          "type": "text",
+          "content": "A request approved under the exception keeps that approval while its image publishes, even if the window closes meanwhile: a slow or failing publish is retried, not handed to a manager. Only a refusal, or 24 hours of failures, sends it to the queue."
         },
         {
           "type": "text",

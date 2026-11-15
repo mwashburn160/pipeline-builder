@@ -276,6 +276,25 @@ describe('Publish queue — decisions', () => {
     expect(pageToast.success).toHaveBeenCalledWith(expect.stringMatching(/waits for a second approver/i));
   });
 
+  it('says when an approval is still publishing, and shows a retrying or handed-back execution', async () => {
+    api.approveEcosystemRequest.mockResolvedValue({ success: true, data: { request: { ...baseItem, status: 'approved' }, executed: false, executing: 'publishing' } });
+    render(<PublishQueuePanel can={canAll} holds={canAll} />);
+    await openDetail({});
+    fireEvent.click(screen.getByRole('button', { name: /^approve$/i }));
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: /^approve$/i }));
+    await waitFor(() => expect(pageToast.success).toHaveBeenCalledWith(expect.stringMatching(/publishing continues in the background/i)));
+  });
+
+  it('shows a request that is publishing, with the retry\'s error, and one whose approval was handed back', async () => {
+    const { unmount } = render(<PublishQueuePanel can={canAll} holds={canAll} />);
+    await openDetail({ status: 'approved', executing: true, executionError: 'image-registry unreachable' });
+    expect(screen.getByTestId('queue-executing')).toHaveTextContent(/publishing in the background.*image-registry unreachable/i);
+    unmount();
+    render(<PublishQueuePanel can={canAll} holds={canAll} />);
+    await openDetail({ executing: false, executionError: 'The version no longer passes its publish checks' });
+    expect(screen.getByTestId('queue-execution-error')).toHaveTextContent(/could not be carried out: the version no longer passes/i);
+  });
+
   it('offers Second-approve on a request awaiting the second approval', async () => {
     render(<PublishQueuePanel can={canAll} holds={canAll} />);
     await openDetail({ status: 'pending_second_approval', requiresTwoPerson: true, firstApprovedBy: 'mod-a' });

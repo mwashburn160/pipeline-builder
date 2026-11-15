@@ -172,9 +172,8 @@ export async function runEcosystemMaintenance(now: Date = new Date(), signal?: A
   searchMissesPruned: number;
   /** Long-yanked, unreferenced public images deleted from the registry. */
   publicImagesCollected: number;
-  /** Abandoned mid-publish submissions / mid-execution requests handed back. */
+  /** Abandoned mid-publish submissions handed back. */
   stalledSubmissionsRecovered: number;
-  stalledRequestsRecovered: number;
 }> {
   let failures = 0;
   const tenants = (await publishers.list()).filter((p) => p.ownerOrgId && p.ownerOrgId !== SYSTEM_ORG_ID && !p.suspendedAt);
@@ -219,7 +218,6 @@ export async function runEcosystemMaintenance(now: Date = new Date(), signal?: A
     searchMissesPruned: 0,
     publicImagesCollected: 0,
     stalledSubmissionsRecovered: 0,
-    stalledRequestsRecovered: 0,
   };
   await step('resign', 'Re-sign pass failed', async () => { out.resigned = (await runResignJobs(undefined, signal)).resigned; });
   await step('sla_breach', 'SLA-breach check failed', async () => { out.slaBreachesNotified = await notifySlaBreaches(now); });
@@ -229,9 +227,7 @@ export async function runEcosystemMaintenance(now: Date = new Date(), signal?: A
   await step('submission_expiry', 'Submission expiry failed', async () => { out.submissionsExpired = await expireSubmissions(now); });
   await step('submitter_email_purge', 'Submitter email purge failed', async () => { out.submitterEmailsPurged = await purgeSubmitterEmails(now); });
   await step('stalled_publishes', 'Stalled-publish recovery failed', async () => {
-    const r = await recoverStalledPublishes(now);
-    out.stalledSubmissionsRecovered = r.submissions;
-    out.stalledRequestsRecovered = r.requests;
+    out.stalledSubmissionsRecovered = (await recoverStalledPublishes(now)).submissions;
   });
   await step('search_miss_sweep', 'Search-miss retention sweep failed', async () => {
     const swept = await sweepSearchMisses(now);

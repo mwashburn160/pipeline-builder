@@ -29,6 +29,7 @@ const consoleSvc = await import('../src/services/ecosystem/console.js');
 const metrics = await import('../src/services/ecosystem/metrics.js');
 const sla = await import('../src/services/ecosystem/sla.js');
 const maintenance = await import('../src/services/ecosystem/maintenance.js');
+const execution = await import('../src/services/ecosystem/execution.js');
 const eligibility = await import('../src/services/ecosystem/verified-eligibility.js');
 const platformReads = await import('../src/services/ecosystem/platform-reads.js');
 await wireEcosystemHarness(h);
@@ -377,26 +378,37 @@ describe('stalled-publish recovery', () => {
     expect(incCounter).toHaveBeenCalledWith('ecosystem_stalled_publishes_recovered_total', { kind: 'submission' });
   });
 
-  it('rolls an approved-but-never-executed request back the way its in-process failure would', async () => {
+  it('leaves an approved-but-never-executed request to the executor; the retry sweep runs it and rolls a refusal back per flavor', async () => {
     const { acme } = seedPublishers(db);
     const now = new Date();
     const decided = new Date(now.getTime() - 2 * HOUR);
-    const second = openRequest(acme.id, { status: 'approved', firstApprovedBy: 'mod-a', secondApprovedBy: 'mod-b', decidedBy: 'mod-b', decidedAt: decided, version: '1.0.1' });
-    const single = openRequest(acme.id, { status: 'approved', decidedBy: 'mod-a', decidedAt: decided, version: '1.0.2' });
-    const auto = openRequest(acme.id, { status: 'approved', decidedBy: 'system', decidedAt: decided, version: '1.0.3', payload: { name: 'lint', bootstrap: true } });
+    const exec = (flavor: string) => ({ flavor, actor: 'user:mod', attempts: 0 });
+    // No plugin is pinned, so each execution is REFUSED (404): the roll-back an in-process refusal applies.
+    const second = openRequest(acme.id, { status: 'approved', firstApprovedBy: 'mod-a', secondApprovedBy: 'mod-b', decidedBy: 'mod-b', decidedAt: decided, version: '1.0.1', payload: { name: 'lint', execution: exec('second-approve') } });
+    const single = openRequest(acme.id, { status: 'approved', decidedBy: 'mod-a', decidedAt: decided, version: '1.0.2', reason: 'looks fine', payload: { name: 'lint', execution: { ...exec('approve'), priorReason: null } } });
+    const auto = openRequest(acme.id, { status: 'approved', decidedBy: 'system', decidedAt: decided, version: '1.0.3', payload: { name: 'lint', bootstrap: true, execution: exec('auto') } });
     const done = openRequest(acme.id, { status: 'approved', decidedBy: 'mod-a', decidedAt: decided, executedAt: decided, version: '1.0.4' });
-    const recent = openRequest(acme.id, { status: 'approved', decidedBy: 'mod-a', decidedAt: new Date(now.getTime() - 60_000), version: '1.0.5' });
+    const recent = openRequest(acme.id, { status: 'approved', decidedBy: 'mod-a', decidedAt: new Date(now.getTime() - 10_000), version: '1.0.5' });
 
-    const out = await (await stalled()).recoverStalledPublishes(now);
-
-    expect(out.requests).toBe(3);
+    // The stalled sweep no longer touches requests: they are the executor's.
+    expect(await (await stalled()).recoverStalledPublishes(now)).toEqual({ submissions: 0 });
     const row = (id: string) => db.tables.plugin_publish_requests!.find((r) => r.id === id)!;
+    expect(row(single.id).status).toBe('approved');
+
+    const out = await execution.runDueExecutions();
+
+    expect(out).toEqual({ ran: 3, executed: 0 });
     expect(row(second.id)).toMatchObject({ status: 'pending_second_approval', firstApprovedBy: 'mod-a', secondApprovedBy: null, decidedBy: null, decidedAt: null });
-    expect(row(single.id)).toMatchObject({ status: 'pending', decidedBy: null, decidedAt: null });
+    expect(row(single.id)).toMatchObject({ status: 'pending', decidedBy: null, decidedAt: null, reason: null });
     expect(row(auto.id)).toMatchObject({ status: 'pending', autoRuleId: null });
-    expect((row(auto.id).payload as Record<string, unknown>).bootstrap).toBeUndefined();
+    const autoPayload = row(auto.id).payload as Record<string, unknown>;
+    expect(autoPayload.bootstrap).toBeUndefined();
+    expect(autoPayload.execution).toBeUndefined();
+    expect(autoPayload.executionError).toEqual(expect.stringContaining('no longer exists'));
     expect(row(done.id).status).toBe('approved');
+    // Too fresh for the sweep: the deciding request is still running it.
     expect(row(recent.id).status).toBe('approved');
+    expect(incCounter).toHaveBeenCalledWith('ecosystem_execution_failed_total', { kind: 'new_version', outcome: 'refused' });
   });
 
   it('samples both kinds as a gauge', async () => {

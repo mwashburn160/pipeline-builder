@@ -1077,7 +1077,6 @@ All optional (defaults shown). They tune behavior that matters only under horizo
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `HANDLER_TIMEOUT_MS` | `25000` | Global HTTP request timeout (25s) |
 | `PLUGIN_UPLOAD_TIMEOUT_MS` | `900000` | Upload route timeout override (15 min) |
 | `DOCKER_BUILD_TIMEOUT_MS` | `900000` | Docker build timeout (15 min) |
 | `DOCKER_PUSH_TIMEOUT_MS` | `300000` | Docker push timeout (5 min) |
@@ -1098,7 +1097,7 @@ When uploading a large plugin ZIP (up to 4GB with prebuilt image.tar), the reque
 Client (curl)                    UPLOAD_TIMEOUT = 900s (15 min)
   └─ nginx proxy_read_timeout    900s (shipped configs); nginx's own default is 60s
       └─ Express route           PLUGIN_UPLOAD_TIMEOUT_MS = 900s (15 min)
-          └─ Express global      HANDLER_TIMEOUT_MS = 25s (overridden by route)
+          └─ Express global      25s request timeout (fixed; overridden by route)
               └─ Build queue     DOCKER_BUILD_TIMEOUT_MS = 900s (15 min, async)
                   └─ Push        DOCKER_PUSH_TIMEOUT_MS = 300s (5 min, async)
 ```
@@ -1107,7 +1106,13 @@ The upload request returns `202 Accepted` after the ZIP is parsed and the build 
 
 The first three layers must agree, because the shortest one cuts the upload: the shipped defaults are all 900 s, and a deploy-contracts test (`upload-timeout-contract.test.ts`) fails if the server default, any target's nginx upload-route timeouts or the loader's default drift apart.
 
-**If uploads fail with 503 (timeout):** Raise all three together: `PLUGIN_UPLOAD_TIMEOUT_MS`, nginx's `proxy_send_timeout` / `proxy_read_timeout` / `send_timeout` on `location = /api/plugins/upload`, and the loader's `--timeout`. Do not increase `HANDLER_TIMEOUT_MS` — it applies globally to all routes.
+**If uploads fail with 503 (timeout):** Raise all three together: `PLUGIN_UPLOAD_TIMEOUT_MS`, nginx's `proxy_send_timeout` / `proxy_read_timeout` / `send_timeout` on `location = /api/plugins/upload`, and the loader's `--timeout`. The services' 25 s request timeout is fixed in code and is not a setting: it applies to every route, so a long route gets its own limit instead.
+
+### Plugin Publication Timeout
+
+Publishing a plugin version into `public/*` (an approval, an automatic approval, a re-sign) is a call from the plugin service to image-registry's `/internal/plugin-publications*` routes. It copies, verifies, signs and attests the whole image, which takes minutes for a large toolchain image, so those routes allow 10 minutes, and the plugin service's client waits exactly as long. Neither is a setting; a deploy-contracts test (`publication-timeout-contract.test.ts`) keeps them equal.
+
+No browser or loader request waits for that call. An approval returns once the publish finishes or after about 20 seconds, whichever is first; a longer publish carries on in the background and the request shows as publishing until it completes. A timeout or a 5xx from image-registry is retried with the approval kept; only a refusal (a conflict, a failed check, a missing image) hands the request back for a decision. `registry_public_publish_duration_seconds{step}` shows how long each step takes.
 
 ---
 

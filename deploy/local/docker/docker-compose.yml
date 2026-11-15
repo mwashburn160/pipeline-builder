@@ -1528,7 +1528,6 @@ services:
       COMPLIANCE_BYPASS: ${COMPLIANCE_BYPASS:-false}
       PLUGIN_SERVICE_HOST: ${PLUGIN_SERVICE_HOST:-plugin}
       PLUGIN_SERVICE_PORT: ${PLUGIN_SERVICE_PORT:-3000}
-      HANDLER_TIMEOUT_MS: ${HANDLER_TIMEOUT_MS:-30000}
     volumes:
       - *service-key-bundle
       - *dev-ca

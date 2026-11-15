@@ -25,7 +25,12 @@ export class RegistryPublicationError extends Error {
   }
 }
 
-const TIMEOUT_MS = 10 * 60_000;
+/**
+ * How long one image-registry call may take. Equal to image-registry's
+ * `PUBLICATION_TIMEOUT_MS` (api/image-registry/src/routes/internal-publications.ts);
+ * a deploy-contracts test keeps the two equal.
+ */
+const TIMEOUT_MS = 600_000;
 
 type RegistryHttp = Pick<InternalHttpClient, 'post' | 'get'> & Partial<Pick<InternalHttpClient, 'delete'>>;
 

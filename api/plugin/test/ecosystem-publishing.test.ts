@@ -21,6 +21,7 @@ const h = setupEcosystemHarness();
 const publishersSvc = await import('../src/services/ecosystem/publishers.js');
 const requestsSvc = await import('../src/services/ecosystem/requests.js');
 const decisionsSvc = await import('../src/services/ecosystem/decisions.js');
+const execution = await import('../src/services/ecosystem/execution.js');
 const bootstrap = await import('../src/services/ecosystem/bootstrap.js');
 await wireEcosystemHarness(h);
 
@@ -614,7 +615,7 @@ describe('Official catalog auto-approval rule', () => {
     expect(db.tables.plugin_listing_versions!.find((v) => v.version === '1.0.1')).toBeUndefined();
   });
 
-  it('auto-approves a Verified publisher\'s patch through the Verified rule, and leaves it pending when publishing fails', async () => {
+  it('auto-approves a Verified publisher\'s patch through the Verified rule; a failed publish keeps the approval and is retried, a refused one goes to a manager', async () => {
     const { acme } = seedPublishers(db, { tenantTier: 'verified' });
     seedListed(acme, 'lint', '1.0.0');
     seedRules();
@@ -622,12 +623,31 @@ describe('Official catalog auto-approval rule', () => {
     const ok = await requestsSvc.submit(tenant() as any, { kind: 'new_version', pluginId: patch.id });
     expect(ok).toMatchObject({ autoApproved: true, request: expect.objectContaining({ status: 'approved', autoRuleId: VERIFIED_RULE }) });
 
+    // A 5xx is transient: the automatic approval is KEPT and retried, not handed to a manager.
     h.registryPost.mockImplementationOnce(async () => ({ statusCode: 502, body: { message: 'registry down' } }));
     const next = db.seed('plugins', pluginRow({ version: '1.0.2' }));
-    const failed = await requestsSvc.submit(tenant() as any, { kind: 'new_version', pluginId: next.id });
-    expect(failed.autoApproved).toBe(false);
-    expect(failed.request.status).toBe('pending');
-    expect(db.tables.plugin_publish_requests!.find((r) => r.version === '1.0.2')).toMatchObject({ status: 'pending', autoRuleId: null });
+    const slow = await requestsSvc.submit(tenant() as any, { kind: 'new_version', pluginId: next.id });
+    expect(slow).toMatchObject({ autoApproved: true, request: expect.objectContaining({ status: 'approved', autoRuleId: VERIFIED_RULE, executing: true }) });
+    expect(slow.request.executionError).toMatch(/registry down/);
+    expect(db.tables.plugin_listing_versions!.some((v) => v.version === '1.0.2')).toBe(false);
+    execution.setExecutionClockForTests(() => new Date(Date.now() + 5 * 60_000));
+    try {
+      expect(await execution.runDueExecutions()).toEqual({ ran: 1, executed: 1 });
+    } finally {
+      execution.setExecutionClockForTests();
+    }
+    expect(db.tables.plugin_listing_versions!.some((v) => v.version === '1.0.2')).toBe(true);
+    expect(db.tables.plugin_publish_requests!.find((r) => r.version === '1.0.2')!.executedAt).toBeInstanceOf(Date);
+
+    // A 409 is a refusal: the request goes back to pending for a manager, saying why.
+    h.registryPost.mockImplementationOnce(async () => ({ statusCode: 409, body: { message: 'already published as another digest' } }));
+    const third = db.seed('plugins', pluginRow({ version: '1.0.3' }));
+    const refused = await requestsSvc.submit(tenant() as any, { kind: 'new_version', pluginId: third.id });
+    expect(refused.autoApproved).toBe(false);
+    expect(refused.request.status).toBe('pending');
+    const row = db.tables.plugin_publish_requests!.find((r) => r.version === '1.0.3')!;
+    expect(row).toMatchObject({ status: 'pending', autoRuleId: null });
+    expect((row.payload as Record<string, unknown>).executionError).toMatch(/already published/);
   });
 });
 

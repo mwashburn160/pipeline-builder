@@ -42,6 +42,16 @@ import {
 /** Base path of the public-namespace routes (under `/internal`). */
 export const PLUGIN_PUBLICATIONS_PATH = '/plugin-publications';
 
+/**
+ * Socket timeout for every `/internal/plugin-publications*` route, replacing
+ * the 25s every service applies by default. A publish copies, verifies, signs
+ * and attests a whole image, which takes minutes for a large toolchain image.
+ * Equal to the plugin service's client timeout for these calls
+ * (api/plugin/src/services/ecosystem/registry.ts); a deploy-contracts test
+ * keeps the two equal, because the shorter one cuts the call.
+ */
+export const PUBLICATION_TIMEOUT_MS = 600_000;
+
 const digest = z.string().regex(/^sha256:[0-9a-f]{64}$/, 'digest must be sha256:<64 hex>');
 const handle = z.string().max(64).regex(PUBLISHER_HANDLE_RE, 'publisherHandle must be one lowercase registry path component');
 const pluginName = z.string().max(128).regex(/^[a-z0-9][a-z0-9._-]*$/, 'name must be a lowercase plugin name');
@@ -183,6 +193,12 @@ function auditPublication(
  */
 export function registerPublicationRoutes(router: Router): void {
   const pluginOnly = requireInternalService({ callers: ['plugin'] }) as RequestHandler;
+
+  router.use(PLUGIN_PUBLICATIONS_PATH, ((req, res, next) => {
+    res.setTimeout(PUBLICATION_TIMEOUT_MS);
+    req.setTimeout(PUBLICATION_TIMEOUT_MS);
+    next();
+  }) as RequestHandler);
 
   router.post(PLUGIN_PUBLICATIONS_PATH, pluginOnly, systemOrgOnly('registry.image.publish'), audited('registry.image.publish') as RequestHandler, withRoute(async ({ req, res, ctx }) => {
     const v = validateBody(req, PublishSchema);
