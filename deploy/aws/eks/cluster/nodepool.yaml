@@ -113,11 +113,19 @@ spec:
     # Balanced scores each consolidation against the disruption it causes and
     # skips the ones that are not worth it. Preferred here over the more
     # aggressive WhenEmptyOrUnderutilized because this cluster runs quorum
-    # services (redis + redis-sentinel, rustfs) and single-writer databases whose
-    # PodDisruptionBudgets (k8s/redis-sentinel.yaml, k8s/rustfs.yaml) would
-    # otherwise spend their whole budget on repacking.
+    # services (redis + redis-sentinel, rustfs) whose PodDisruptionBudgets
+    # (k8s/redis-sentinel.yaml, k8s/rustfs.yaml) would otherwise spend their
+    # whole budget on repacking.
+    #
+    # Balanced does NOT protect the single-replica databases: it evicted
+    # postgres as "Underutilized". Their PodDisruptionBudgets allow evicting
+    # the only copy, so postgres and mongodb carry karpenter.sh/do-not-disrupt
+    # instead (k8s/postgres.yaml, k8s/mongodb.yaml).
     consolidationPolicy: Balanced
-    consolidateAfter: 1m
+    # 10m, not 1m: a plugin catalogue load scales the plugin service up and down
+    # within minutes, and a 1m window repacked nodes in the middle of that
+    # burst, restarting every pod on them. Waiting lets the burst settle first.
+    consolidateAfter: 10m
     # Matches the Auto Mode default: never voluntarily disrupt more than a tenth
     # of the fleet at once.
     budgets:
