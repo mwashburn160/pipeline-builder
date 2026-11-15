@@ -1,6 +1,6 @@
 // GENERATED FROM docs/api-reference.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: c85f087c91741fef758bcc0548ccae6f6447339ee2cba5e36ebec73fea5638e1
+// SOURCE-SHA256: f176bfc04aacb9d09ba43edee00dd084e1689bf0c338285dcd09ff8d6255a041
 // SPDX-License-Identifier: Apache-2.0
 import { Code } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -338,7 +338,7 @@ export const apiReferenceTopic: HelpTopic = {
             [
               "GET",
               "/plugins/find",
-              "Find one plugin by query, including publisher (verifies the image signature first — 409 IMAGE_VERIFICATION_FAILED if it doesn't verify). Same resolution and { plugin, warnings } answer as /plugins/lookup"
+              "Find one plugin by query, including publisher (verifies the image signature first — 409 IMAGE_VERIFICATION_FAILED if it doesn't verify). Same resolution and { plugin, warnings } answer as /plugins/lookup, but with the full plugin record"
             ],
             [
               "GET",
@@ -363,7 +363,7 @@ export const apiReferenceTopic: HelpTopic = {
             [
               "POST",
               "/plugins/lookup",
-              "Find plugin by validated filter body (POST for URL-length safety). The endpoint synth resolves plugins through. Without publisher: own org → parent org's shared plugin → the Official listing pipeline-builder/<name> through the org's install (explicit, else implicit). With publisher: only that publisher's listing, only through an install (403 PLUGIN_NOT_INSTALLED / PLUGIN_BLOCKED_BY_POLICY, 409 PLUGIN_UNAVAILABLE otherwise). A listing's version range is the install's, narrowed by filter.version; yanked listing versions never resolve. Verifies the image signature (and, for a listing, the signed tier and publisher) and returns imageDigest, which synth pins CodeBuild to; 409 IMAGE_VERIFICATION_FAILED otherwise. Answer: { plugin, warnings } — plugin carries publisher, publisherTier, listingId, imageRepository, source (org \\",
+              "Find plugin by validated filter body (POST for URL-length safety). The endpoint synth resolves plugins through. Without publisher: own org → parent org's shared plugin → the Official listing pipeline-builder/<name> through the org's install (explicit, else implicit). With publisher: only that publisher's listing, only through an install (403 PLUGIN_NOT_INSTALLED / PLUGIN_BLOCKED_BY_POLICY, 409 PLUGIN_UNAVAILABLE otherwise). A listing's version range is the install's, narrowed by filter.version; yanked listing versions never resolve. Verifies the image signature (and, for a listing, the signed tier and publisher) and returns imageDigest, which synth pins CodeBuild to; 409 IMAGE_VERIFICATION_FAILED otherwise. Answer: { plugin, warnings } — plugin is the record synth needs, without the fields it never reads (readmeMd, readmeHtml, changelog, scanSummary, dockerfile, icon, uploadedIcon; /plugins/find returns them), and carries publisher, publisherTier, listingId, imageRepository, source (org \\",
               "listing) and install (explicit \\",
               "implicit \\",
               "null); warnings may list PLUGIN_SHADOWS_LISTING, PLUGIN_SECRETS_WITHHELD, LISTING_UNMAINTAINED, PLUGIN_DEPRECATED, PLUGIN_YANKED, PLUGIN_ADVISORY and the vulnerability grades (VULN_KEV, VULN_FLAGGED, VULN_CRITICAL_FIXABLE, VULN_HIGH_FIXABLE, UNSCANNED, SCAN_STALE, COMPLIANCE_VULN_RULE, VULN_ACCEPTED), which synth prints; each warning carries a severity (info \\",

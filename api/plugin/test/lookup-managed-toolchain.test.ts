@@ -15,6 +15,7 @@ import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { stubModule } from '@pipeline-builder/api-core/testing';
 import * as z from 'zod';
 import { apiCoreMock } from './helpers/mock-api-core.js';
+import { toSynthPlugin } from './helpers/synth-plugin.js';
 
 const mockFind = jest.fn<AnyFn>();
 const mockNormalizeArrayFields = jest.fn((p: unknown) => p);
@@ -87,6 +88,7 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
 }));
 
 jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@pipeline-builder/pipeline-core', {
+  toSynthPlugin,
   pluginImageRepository: (p: { orgId: string; name: string; buildType?: string | null }) => (p.buildType === 'metadata_only' ? null : `${p.orgId === '000000000000000000000001' ? 'system' : `org-${p.orgId}`}/${p.name}`),
   CoreConstants: { CACHE_CONTROL_LIST: 'public, max-age=60', CACHE_CONTROL_DETAIL: 'public, max-age=300' },
   Config: { get: () => ({ host: 'registry', port: 5000, network: '', http: true }) },
@@ -275,6 +277,34 @@ describe('/plugins/lookup — managed toolchain names', () => {
     await getHandler('/find')({ query: { name: 'cdk-synth', releasePin: '1.4.0' } }, res);
     expect(mockResolveManaged).toHaveBeenCalledWith({ orgId: 'org-1' }, { releasePin: '1.4.0' });
     expect(sent().toolchain).toEqual({ releaseVersion: '1.4.0', resolvedVia: 'default' });
+  });
+
+  it('/lookup answers without the fields synth never reads; /find keeps the full record', async () => {
+    // The scan summary alone is up to 500 findings: carried into the synth
+    // app's props whole, two toolchain halves' worth exceeded one process
+    // environment variable (E2BIG).
+    const heavy = (name: string) => ({
+      ...half(name, '1.4.0'),
+      readmeMd: '# readme',
+      readmeHtml: '<h1>readme</h1>',
+      changelog: '1.4.0: notes',
+      dockerfile: 'FROM scratch',
+      icon: 'box',
+      uploadedIcon: 'data:image/png;base64,AAAA',
+      scanSummary: { critical: 1, high: 2, findings: [{ id: 'CVE-1', severity: 'critical', packageName: 'p', packageVersion: '1', fixedIn: [] }] },
+    });
+    const omitted = ['readmeMd', 'readmeHtml', 'changelog', 'scanSummary', 'dockerfile', 'icon', 'uploadedIcon'];
+    mockResolveManaged.mockResolvedValue({ ...resolution('1.4.0'), bootstrap: heavy('pipeline-bootstrap'), synth: heavy('cdk-synth') });
+
+    await getHandler()({ body: { filter: { name: 'pipeline-bootstrap' } } }, makeRes().res);
+    const slim = sent().plugin;
+    for (const field of omitted) expect(slim).not.toHaveProperty(field);
+    expect(slim).toMatchObject({ name: 'pipeline-bootstrap', imageDigest: DIGEST, commands: [] });
+    expect(slim.toolchain).toEqual(TOOLCHAIN);
+
+    await getHandler('/find')({ query: { name: 'pipeline-bootstrap' } }, makeRes().res);
+    const full = sent().plugin;
+    for (const field of omitted) expect(full).toHaveProperty(field);
   });
 
   it('a non-managed name keeps the row branch (releasePin is ignored)', async () => {

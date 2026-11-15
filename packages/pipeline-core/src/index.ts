@@ -76,6 +76,9 @@ export {
   type ToolchainVersions,
   type LookupToolchain,
   type ResolvedBootstrap,
+  SYNTH_OMITTED_PLUGIN_FIELDS,
+  type SynthPlugin,
+  toSynthPlugin,
 } from './core/plugin-lookup-envelope.js';
 export * from './core/self-mutation.js';
 export * from './core/synth-failure.js';

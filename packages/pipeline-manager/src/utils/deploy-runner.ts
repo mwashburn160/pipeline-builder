@@ -7,6 +7,7 @@ import { errorMessage } from '@pipeline-builder/api-core';
 import pico from 'picocolors';
 import { executeCdkShellCommand, resolveBoilerplatePath } from './cdk-utils.js';
 import { ensureOutputDirectory, printInfo, printKeyValue, printSection, printSuccess, printWarning } from './output-utils.js';
+import { withPropsFile } from './props-file.js';
 import { buildRegistryPayload, readStepManifest, writePendingIntent } from './registry.js';
 import { assertShellSafe, shellQuote } from '../config/cli.constants.js';
 import { type Pipeline } from '../types/index.js';
@@ -57,8 +58,6 @@ export interface RunDeployInput {
 export async function runDeploy(input: RunDeployInput): Promise<void> {
   const { pipeline, propsWithIds, profile, region, requireApproval, output, debug, executionId } = input;
 
-  const encoded = Buffer.from(JSON.stringify(propsWithIds), 'utf-8').toString('base64');
-
   printInfo('Preparing output directory', { path: output });
   ensureOutputDirectory(output);
 
@@ -80,14 +79,16 @@ export async function runDeploy(input: RunDeployInput): Promise<void> {
   console.log(cyan(bold('Command:')), dim(command.split(' --')[0] + ' ...'));
   console.log('');
 
-  // Forward the resolved platform base URL into the CDK synth subprocess (it reads
-  // only process.env) for the PluginLookup Lambda endpoint + registry pull-host
-  // fallback. Absent in local-spec mode.
-  const cdkEnv: Record<string, string> = { PIPELINE_PROPS: encoded };
-  if (input.platformBaseUrl) cdkEnv.PLATFORM_BASE_URL = input.platformBaseUrl;
-
+  // The props reach the CDK app as a file (see props-file.ts). The resolved
+  // platform base URL is forwarded too (the app reads only process.env) for the
+  // PluginLookup Lambda endpoint + registry pull-host fallback. Absent in
+  // local-spec mode.
   // Throws on failure — surfaced by the caller as a non-zero exit.
-  const result = executeCdkShellCommand(command, { debug, showOutput: true, env: cdkEnv });
+  const result = withPropsFile(propsWithIds, (propsEnv) => executeCdkShellCommand(command, {
+    debug,
+    showOutput: true,
+    env: { ...propsEnv, ...(input.platformBaseUrl ? { PLATFORM_BASE_URL: input.platformBaseUrl } : {}) },
+  }));
 
   console.log('');
   printSection('Deployment Complete');

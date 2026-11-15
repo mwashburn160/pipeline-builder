@@ -5,8 +5,8 @@
 // CONTRACT, owned by api-core so the upload check, the CLI and this resolver
 // can't disagree about it. Do not re-declare the field list here.
 import { isPluginTemplatableField } from '@pipeline-builder/api-core';
-import type { Plugin } from '@pipeline-builder/pipeline-data';
 import { resolveSelfReferencing, resolveTemplates } from './index.js';
+import type { SynthPlugin } from '../core/plugin-lookup-envelope.js';
 
 /**
  * Return a shallow clone of `plugin` with all `{{ ... }}` templates
@@ -14,12 +14,12 @@ import { resolveSelfReferencing, resolveTemplates } from './index.js';
  * `pipelineScope` with `{ pipeline, plugin, env }` keys.
  */
 export function resolvePluginTemplates(
-  plugin: Plugin,
+  plugin: SynthPlugin,
   pipelineScope: Record<string, unknown>,
-): Plugin {
+): SynthPlugin {
   // Deep clone so mutations don't leak back to the caller's Plugin.
   // Structural fields we care about are plain JSON; structuredClone is safe.
-  const clone = structuredClone(plugin) as Plugin & Record<string, unknown>;
+  const clone = structuredClone(plugin) as SynthPlugin & Record<string, unknown>;
 
   // The `env` scope root IS the clone's env map, not the original: with
   // `plugin.env` — the UNRESOLVED values — `B: '{{ env.A }}'` would substitute

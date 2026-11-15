@@ -139,10 +139,10 @@ describe('executeCdkShellCommand', () => {
 
   it('should merge extra env vars into process.env', () => {
     mockExecSync.mockReturnValue(Buffer.from(''));
-    executeCdkShellCommand('cdk deploy', { env: { PIPELINE_PROPS: 'abc123' } });
+    executeCdkShellCommand('cdk deploy', { env: { PIPELINE_PROPS_FILE: '/tmp/props.json' } });
 
     const callArgs = mockExecSync.mock.calls[0]![1] as { env: Record<string, string> };
-    expect(callArgs.env.PIPELINE_PROPS).toBe('abc123');
+    expect(callArgs.env.PIPELINE_PROPS_FILE).toBe('/tmp/props.json');
   });
 
   it('should return duration in milliseconds', () => {

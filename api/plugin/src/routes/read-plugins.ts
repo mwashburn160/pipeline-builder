@@ -9,7 +9,7 @@ import {
 import type { ManagedToolchainPlugin, VulnSeverity, VulnWarning } from '@pipeline-builder/api-core';
 import { incCounter, withRoute } from '@pipeline-builder/api-server';
 import type { RequestContext } from '@pipeline-builder/api-server';
-import { Config, CoreConstants, pluginImageRepository } from '@pipeline-builder/pipeline-core';
+import { Config, CoreConstants, pluginImageRepository, toSynthPlugin } from '@pipeline-builder/pipeline-core';
 import {
   bootstrapToolchainOf, compareSemver, executeRows, isVersionRange, ManagedToolchainError, recordStepLookup,
   resolveManagedToolchain, vulnUpgradeAvailableWarning, withTenantTx,
@@ -314,7 +314,7 @@ export function createReadPluginRoutes(): Router {
     filter: PluginFilter,
     req: Request, res: Response, orgId: string,
     ctx: RequestContext,
-    opts: { setCacheHeader: boolean; context?: LookupContext | null; releasePin?: string },
+    opts: { setCacheHeader: boolean; context?: LookupContext | null; releasePin?: string; forSynth?: boolean },
   ) => {
     // Org → team hierarchy: a team org also sees its parent's public plugins
     // (mirrors the list path). No-op for root orgs (claim absent).
@@ -371,7 +371,10 @@ export function createReadPluginRoutes(): Router {
         });
       }
       if (opts.setCacheHeader) res.setHeader('Cache-Control', CoreConstants.CACHE_CONTROL_LIST);
-      return sendSuccess(res, 200, { plugin, warnings, severity, ...extra });
+      // Synth carries the record into the CDK app whole, so `/lookup` answers
+      // without the display and scan fields it never reads (pipeline-core's
+      // SYNTH_OMITTED_PLUGIN_FIELDS); `/find` answers the full record.
+      return sendSuccess(res, 200, { plugin: opts.forSynth ? toSynthPlugin(plugin) : plugin, warnings, severity, ...extra });
     };
     const refused = (status: number, message: string, code: ErrorCode, details: Record<string, unknown> | undefined, plugin?: Record<string, unknown>) => {
       const reason = typeof details?.reason === 'string' ? details.reason : String(code);
@@ -525,7 +528,7 @@ export function createReadPluginRoutes(): Router {
     if (typeof lookupContext === 'string') return sendBadRequest(res, lookupContext, ErrorCode.VALIDATION_ERROR);
     const pin = parseReleasePin(releasePin);
     if (typeof pin === 'object') return sendBadRequest(res, pin.error, ErrorCode.VALIDATION_ERROR);
-    return respondWithSinglePlugin(parsed.data as PluginFilter, req, res, orgId, ctx, { setCacheHeader: false, context: lookupContext, ...(pin ? { releasePin: pin } : {}) });
+    return respondWithSinglePlugin(parsed.data as PluginFilter, req, res, orgId, ctx, { setCacheHeader: false, forSynth: true, context: lookupContext, ...(pin ? { releasePin: pin } : {}) });
   }));
 
   // GET /plugins/find — single plugin by filter

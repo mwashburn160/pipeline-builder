@@ -315,6 +315,11 @@ signed digest) — which aborts the synth rather than falling back. The synthesi
 CodeBuild image is then pinned **by digest** (`<repo>@sha256:…`), never by the
 mutable `name:version` tag.
 
+The resolved props, with every plugin record, reach the CDK app as a JSON file
+named in `PIPELINE_PROPS_FILE` (readable by the current user only, removed when
+`cdk` returns), never as an environment variable's value: Linux refuses to start
+a process with any one variable over 128 KiB.
+
 ### Generated CloudFormation Resources
 
 ```mermaid

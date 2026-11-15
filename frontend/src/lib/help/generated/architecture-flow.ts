@@ -1,6 +1,6 @@
 // GENERATED FROM docs/architecture-flow.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: b9d7b7cbab8ee3fc6bfbc229c48929317e9898b020da340224d1bbfac0a1c783
+// SOURCE-SHA256: c8facc64fce8efa8d3b2018b866db9c91fbec9355bbf8c5466c9465c1ae7fcc0
 // SPDX-License-Identifier: Apache-2.0
 import { Workflow } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -262,6 +262,10 @@ export const architectureFlowTopic: HelpTopic = {
         {
           "type": "text",
           "content": "pipeline-manager pre-resolves every plugin through the same POST /api/plugins/lookup before synth. For a plugin that runs on its own image, the plugin service first runs cosign verify against the plugin-signing public key and answers 409 IMAGE_VERIFICATION_FAILED if the signature doesn't verify (or the plugin has no signed digest) — which aborts the synth rather than falling back. The synthesized CodeBuild image is then pinned by digest (<repo>@sha256:…), never by the mutable name:version tag."
+        },
+        {
+          "type": "text",
+          "content": "The resolved props, with every plugin record, reach the CDK app as a JSON file named in PIPELINE_PROPS_FILE (readable by the current user only, removed when cdk returns), never as an environment variable's value: Linux refuses to start a process with any one variable over 128 KiB."
         },
         {
           "type": "text",

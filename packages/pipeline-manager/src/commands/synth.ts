@@ -16,6 +16,7 @@ import { ERROR_CODES, handleError } from '../utils/error-handler.js';
 import { printInfo, printKeyValue, printSection, printSuccess, printWarning } from '../utils/output-utils.js';
 import { type FetchedPipeline, fetchPipelineProps, printResolvedOrExit } from '../utils/pipeline-config.js';
 import { PluginResolutionError, printLookupWarningSummary } from '../utils/plugin-resolver.js';
+import { withPropsFile } from '../utils/props-file.js';
 import { resolveRegistrationClient } from '../utils/registration-client.js';
 import { setPipelineId } from '../utils/request-context.js';
 import { relaxTlsForCli } from '../utils/tls.js';
@@ -26,12 +27,14 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 /** What a fetched synth needs afterwards to register the step manifest. */
 interface FetchedForSynth {
   client: ApiClient;
+  /** The resolved props the CDK app synthesizes (handed over as a file). */
+  props: Record<string, unknown>;
   pipeline: FetchedPipeline['pipeline'];
   pluginWarnings: FetchedPipeline['pluginWarnings'];
 }
 
 /**
- * Fetch pipeline config and set PIPELINE_PROPS env var for the boilerplate app.
+ * Fetch and resolve the pipeline config for the boilerplate app.
  * Uses createAuthenticatedClientAsync which supports all three auth methods.
  */
 async function fetchPipelineConfig(
@@ -40,8 +43,6 @@ async function fetchPipelineConfig(
 ): Promise<FetchedForSynth> {
   const client = await createAuthenticatedClientAsync(options);
   const { pipeline, propsWithIds, baseUrl, pluginWarnings } = await fetchPipelineProps(client, pipelineId);
-
-  process.env.PIPELINE_PROPS = Buffer.from(JSON.stringify(propsWithIds)).toString('base64');
 
   // Propagate the resolved platform base URL into the boilerplate synth (which
   // inherits process.env). The synth uses it for serverConfig.platformUrl (the
@@ -53,7 +54,7 @@ async function fetchPipelineConfig(
   }
 
   printSuccess('Pipeline configuration loaded');
-  return { client, pipeline: { ...pipeline, id: pipeline.id || pipelineId }, pluginWarnings };
+  return { client, props: propsWithIds, pipeline: { ...pipeline, id: pipeline.id || pipelineId }, pluginWarnings };
 }
 
 /** True inside an AWS CodeBuild build (the self-mutating synth). */
@@ -77,9 +78,9 @@ export function emitSynthFailure(error: unknown): void {
 /**
  * Registers the `synth` command with the CLI program.
  *
- * Runs CDK synthesis using the boilerplate app. Pipeline config is resolved from:
- * 1. --id flag or PIPELINE_ID env var → fetches config from platform API
- * 2. PIPELINE_PROPS env var (pre-encoded, from deploy command)
+ * Runs CDK synthesis using the boilerplate app, for the pipeline named by the
+ * --id flag or the PIPELINE_ID env var (its config is fetched from the platform
+ * API and handed to the app as a props file).
  *
  * Authentication methods (in priority order):
  * - PLATFORM_TOKEN env var
@@ -131,15 +132,11 @@ export function synth(program: Command): void {
         // validation for ALL outbound TLS, including the AWS SDK.
         relaxTlsForCli(options.verifySsl, printWarning);
 
-        // Fetch pipeline config if ID is available and PIPELINE_PROPS not already set
-        let fetched: FetchedForSynth | undefined;
-        if (pipelineId && !process.env.PIPELINE_PROPS) {
-          printInfo('Fetching pipeline configuration', { id: pipelineId });
-          fetched = await fetchPipelineConfig(pipelineId, options);
-        } else if (!pipelineId && !process.env.PIPELINE_PROPS) {
-          printWarning('No pipeline ID or PIPELINE_PROPS set');
+        if (!pipelineId) {
           throw new Error('Pipeline ID is required. Use --id <id> or set PIPELINE_ID env var.');
         }
+        printInfo('Fetching pipeline configuration', { id: pipelineId });
+        const fetched = await fetchPipelineConfig(pipelineId, options);
 
         // Local-tool prerequisites (cdk + esbuild/pnpm) are verified up front by
         // the CLI's preAction hook, so by here they're guaranteed present.
@@ -165,9 +162,10 @@ export function synth(program: Command): void {
         printInfo('Executing', { command: (command.split('--app')[0] ?? '').trim() + ' ...' });
         console.log('');
 
-        const result = executeCdkShellCommand(command, {
+        const result = withPropsFile(fetched.props, (env) => executeCdkShellCommand(command, {
           showOutput: !options.quiet,
-        });
+          env,
+        }));
 
         console.log('');
         printSection('Synthesis Complete');
@@ -181,7 +179,7 @@ export function synth(program: Command): void {
         // Registered with the `pipeline-register` key, NOT the platform key the
         // synth fetched with: that one reads pipelines and plugins only. A
         // missing registration key skips this with a warning (no fallback).
-        if (result.success && fetched && inCodeBuild()) {
+        if (result.success && inCodeBuild()) {
           const registrationClient = await resolveRegistrationClient({
             client: fetched.client,
             storeTokens: options.storeTokens,
@@ -204,7 +202,7 @@ export function synth(program: Command): void {
         // Vulnerability/lifecycle state is reported, never enforced: one graded
         // summary line so the warnings printed during resolution aren't lost
         // above the CDK output.
-        if (fetched) printLookupWarningSummary(fetched.pluginWarnings);
+        printLookupWarningSummary(fetched.pluginWarnings);
 
         if (result.success) {
           if (options.json) {

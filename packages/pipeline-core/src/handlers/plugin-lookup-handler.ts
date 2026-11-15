@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { Agent } from 'https';
-import type { PluginFilter, Plugin } from '@pipeline-builder/pipeline-data';
+import type { PluginFilter } from '@pipeline-builder/pipeline-data';
 import type { CloudFormationCustomResourceEvent, CloudFormationCustomResourceResponse, Context } from 'aws-lambda';
 import axios, { type AxiosInstance, AxiosError } from 'axios';
 // Import the dependency-free leaf, NOT `app-config.js`/`CoreConstants`: the latter
@@ -18,7 +18,7 @@ import {
 } from '../config/handler-constants.js';
 import { correlationHeaders } from '../core/audit-correlation.js';
 import { platformCaList } from '../core/platform-tls.js';
-import { exactPinNotFoundMessage, lookupNotFoundState, unwrapLookup } from '../core/plugin-lookup-envelope.js';
+import { exactPinNotFoundMessage, lookupNotFoundState, unwrapLookup, type SynthPlugin } from '../core/plugin-lookup-envelope.js';
 import { describeQuotaExceeded } from '../core/quota-exceeded.js';
 
 /**
@@ -159,7 +159,7 @@ function create(baseURL: string, key: string, requestId?: string): AxiosInstance
  * @returns The plugin data returned by the API
  * @throws Error on persistent failure, timeout or invalid response
  */
-async function fetch(api: AxiosInstance, baseURL: string, pluginFilter: PluginFilter, stepKey?: string): Promise<Plugin> {
+async function fetch(api: AxiosInstance, baseURL: string, pluginFilter: PluginFilter, stepKey?: string): Promise<SynthPlugin> {
   lambdaLog.debug('FETCH', 'Starting plugin fetch', { filter: pluginFilter });
 
   let lastError: Error | undefined;
@@ -263,7 +263,7 @@ async function fetch(api: AxiosInstance, baseURL: string, pluginFilter: PluginFi
  * likely rotated underneath this warm container (token-renew stores the new key
  * and revokes the old one), so drop the cache, re-read the secret and retry once.
  */
-async function lookupWithCredentialRefresh(baseURL: string, pluginFilter: PluginFilter, stepKey?: string, requestId?: string): Promise<Plugin> {
+async function lookupWithCredentialRefresh(baseURL: string, pluginFilter: PluginFilter, stepKey?: string, requestId?: string): Promise<SynthPlugin> {
   try {
     return await fetch(create(baseURL, await credential.getKey(), requestId), baseURL, pluginFilter, stepKey);
   } catch (err) {

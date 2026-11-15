@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createLogger } from '@pipeline-builder/api-core';
-import type { Plugin } from '@pipeline-builder/pipeline-data';
 import { Duration, RemovalPolicy, Stack, Tags } from 'aws-cdk-lib';
 import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
 import { BuildSpec, type IBuildImage } from 'aws-cdk-lib/aws-codebuild';
@@ -44,7 +43,7 @@ import { MetadataKeys, TriggerType } from '../core/pipeline-types.js';
 import type { MetaDataType } from '../core/pipeline-types.js';
 import { PLATFORM_CA_BUNDLE_ENV, PLATFORM_TLS_VERIFY_ENV, platformCaBundle, platformTlsVerify } from '../core/platform-tls.js';
 import { assertPluginContract, contractScopeFromTemplateScope, pluginArtifactAlias, pluginStepLabel } from '../core/plugin-contract.js';
-import type { ResolvedBootstrap } from '../core/plugin-lookup-envelope.js';
+import type { ResolvedBootstrap, SynthPlugin } from '../core/plugin-lookup-envelope.js';
 import type { RoleConfig } from '../core/role-types.js';
 import { resolveRole } from '../core/role.js';
 import { isRuntimeVulnCheckEnabled, RUNTIME_VULN_CHECK_KEY } from '../core/runtime-check.js';
@@ -193,7 +192,7 @@ export interface BuilderProps {
    * Populated by the CLI before invoking the boilerplate app; CDK consumers
    * who construct PipelineBuilder directly normally leave this unset.
    */
-  readonly resolvedPlugins?: Record<string, Plugin>;
+  readonly resolvedPlugins?: Record<string, SynthPlugin>;
 
   /**
    * The toolchain release this pipeline runs on, pinned by the pipeline's own

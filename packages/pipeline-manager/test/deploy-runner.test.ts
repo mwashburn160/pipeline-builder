@@ -1,6 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { describe, it, expect, jest, beforeEach } from '@jest/globals';
 import type { AnyFn } from '@pipeline-builder/api-core/testing';
 
@@ -61,10 +62,35 @@ describe('runDeploy', () => {
     // split into extra cdk args).
     expect(cmd).toContain("--require-approval='never'");
     expect(cmd).toContain("--output='cdk.out'");
-    // PIPELINE_PROPS is passed base64 via env, not on the command line.
+    // The props reach the CDK app as a file named in the env, never on the
+    // command line or as an env value (E2BIG past 128 KiB on Linux).
     const env = (mockExecuteCdk.mock.calls[0]![1] as { env: Record<string, string> }).env;
-    expect(env.PIPELINE_PROPS).toBeTruthy();
+    expect(env.PIPELINE_PROPS_FILE).toBeTruthy();
+    expect(cmd).not.toContain(env.PIPELINE_PROPS_FILE!);
     expect(post).toHaveBeenCalledWith('/api/pipelines/registry', { pipelineId: 'p-1' });
+  });
+
+  it('hands the props over in a private file that is gone once cdk returns', async () => {
+    let seen: { file: string; props: unknown; mode: number } | undefined;
+    mockExecuteCdk.mockImplementation((_cmd: unknown, opts: unknown) => {
+      const file = (opts as { env: Record<string, string> }).env.PIPELINE_PROPS_FILE!;
+      seen = { file, props: JSON.parse(readFileSync(file, 'utf-8')), mode: statSync(file).mode % 0o1000 };
+      return { success: true, duration: 5 };
+    });
+    await runDeploy(BASE);
+    expect(seen!.props).toEqual(BASE.propsWithIds);
+    expect(seen!.mode).toBe(0o600);
+    expect(existsSync(seen!.file)).toBe(false);
+  });
+
+  it('removes the props file when cdk fails too', async () => {
+    let file = '';
+    mockExecuteCdk.mockImplementation((_cmd: unknown, opts: unknown) => {
+      file = (opts as { env: Record<string, string> }).env.PIPELINE_PROPS_FILE!;
+      throw new Error('cdk exit 1');
+    });
+    await expect(runDeploy(BASE)).rejects.toThrow(/cdk exit 1/);
+    expect(existsSync(file)).toBe(false);
   });
 
   it('THROWS when the CDK deploy fails (so the caller exits non-zero) and never registers', async () => {

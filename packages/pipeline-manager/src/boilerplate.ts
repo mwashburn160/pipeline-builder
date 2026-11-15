@@ -10,34 +10,11 @@ import { PipelineBuilder, type BuilderProps } from '@pipeline-builder/pipeline-c
 import { App, Stack } from 'aws-cdk-lib';
 import pico from 'picocolors';
 import { generateExecutionId } from './config/cli.constants.js';
+import { readPropsFile } from './utils/props-file.js';
 
 const { cyan, green, dim, bold, magenta, red } = pico;
 
 const app = new App();
-
-/**
- * Parse PIPELINE_PROPS from environment variable (base64-encoded JSON).
- * This is always set by the `synth` or `deploy` command before invoking boilerplate.
- */
-function parse(): BuilderProps {
-  const encodedProps = process.env.PIPELINE_PROPS;
-
-  if (!encodedProps) {
-    throw new Error(
-      'PIPELINE_PROPS environment variable is missing. ' +
-      'Use "pipeline-manager pipeline synth --id <id>" or "pipeline-manager pipeline deploy --id <id>" to set it.',
-    );
-  }
-
-  try {
-    const decoded = Buffer.from(encodedProps, 'base64').toString('utf-8');
-    return JSON.parse(decoded) as BuilderProps;
-  } catch (error) {
-    throw new Error(
-      `Failed to parse PIPELINE_PROPS: ${error instanceof Error ? error.message : 'Invalid Base64/JSON format'}`,
-    );
-  }
-}
 
 function main(): void {
   const executionId = generateExecutionId().toUpperCase();
@@ -46,7 +23,7 @@ function main(): void {
     `${magenta(`[CDK-APP-${executionId}]`)} ${cyan('Pipeline builder starting')}`,
   );
 
-  const props = parse();
+  const props = readPropsFile<BuilderProps>();
 
   const stackName = `${props.project}-${props.organization}`.toLowerCase();
   const componentId = 'pipeline-builder';

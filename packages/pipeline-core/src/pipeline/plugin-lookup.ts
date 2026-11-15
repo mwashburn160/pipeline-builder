@@ -4,7 +4,7 @@
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import { createLogger, MANAGED_TOOLCHAIN, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
-import type { PluginFilter, Plugin } from '@pipeline-builder/pipeline-data';
+import type { PluginFilter } from '@pipeline-builder/pipeline-data';
 import { CustomResource, Token, Duration } from 'aws-cdk-lib';
 import { PolicyStatement, Effect } from 'aws-cdk-lib/aws-iam';
 import { Runtime, Architecture, Function, Code } from 'aws-cdk-lib/aws-lambda';
@@ -17,6 +17,7 @@ import { lambdaRuntime } from '../config/aws-config-cdk.js';
 import { UniqueId } from '../core/id-generator.js';
 import { PLATFORM_CA_BUNDLE_ENV, platformCaBundle, platformTlsVerify } from '../core/platform-tls.js';
 import { pluginArtifactAlias, pluginLookupFilter } from '../core/plugin-contract.js';
+import type { SynthPlugin } from '../core/plugin-lookup-envelope.js';
 import { PLACEHOLDER_PLUGIN_ID } from '../core/step-manifest.js';
 
 const log = createLogger('plugin-lookup');
@@ -64,7 +65,7 @@ export interface PluginLookupProps {
    * name, version, commands, env, etc. available at synth time so the resulting
    * CFN template ships with the real values baked in.
    */
-  readonly resolvedPlugins?: Record<string, Plugin>;
+  readonly resolvedPlugins?: Record<string, SynthPlugin>;
 }
 
 /**
@@ -100,7 +101,7 @@ export class PluginLookup extends Construct {
   private readonly _reservedConcurrentExecutions?: number;
   private readonly _orgId?: string;
   private readonly _pipelineId?: string;
-  private readonly _resolvedPlugins?: Record<string, Plugin>;
+  private readonly _resolvedPlugins?: Record<string, SynthPlugin>;
 
   constructor(scope: Construct, id: string, props: PluginLookupProps) {
     super(scope, id);
@@ -160,7 +161,7 @@ export class PluginLookup extends Construct {
    *   against it, so it must match the step manifest's and the security view's key.
    * @returns Resolved Plugin object or fallback default configuration
    */
-  public plugin(plugin: string | PluginOptions, stepKey?: string): Plugin {
+  public plugin(plugin: string | PluginOptions, stepKey?: string): SynthPlugin {
     const props = this.normalize(plugin);
 
     // Pre-resolved by `pipeline-manager pipeline synth` from the platform API.
@@ -168,7 +169,7 @@ export class PluginLookup extends Construct {
     // name, version, commands, env, etc. at synth time, so the resulting CFN
     // template can ship with the real CodeBuild image baked in.
     const cacheKey = props.alias || props.name;
-    const preResolved = this._resolvedPlugins?.[cacheKey] as (Plugin & { publisher?: string | null }) | undefined;
+    const preResolved = this._resolvedPlugins?.[cacheKey] as (SynthPlugin & { publisher?: string | null }) | undefined;
     // The map is keyed by ALIAS, so check it actually holds THIS plugin. Two
     // steps sharing an alias across different plugins would otherwise get the
     // first one's record back — the second step silently running the wrong
@@ -214,7 +215,7 @@ export class PluginLookup extends Construct {
         throw new Error('Invalid plugin response: missing required fields (name, commands)');
       }
 
-      return data as Plugin;
+      return data as SynthPlugin;
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : 'Unknown error';
       throw new Error(`Failed to parse plugin "${props.name}" data: ${errorMsg}`);
@@ -321,7 +322,7 @@ export class PluginLookup extends Construct {
   }
 
   /** Base plugin shape with no-op defaults for fields CDK doesn't use. */
-  private static basePlugin(): Plugin {
+  private static basePlugin(): SynthPlugin {
     const now = new Date();
     return {
       id: PLACEHOLDER_PLUGIN_ID,
@@ -346,7 +347,6 @@ export class PluginLookup extends Construct {
       buildArgs: {},
       installCommands: [],
       commands: [],
-      dockerfile: null,
       buildType: 'metadata_only',
       imageDigest: null,
       imageSource: null,
@@ -373,14 +373,9 @@ export class PluginLookup extends Construct {
       varsTypes: {},
       smokeTest: null,
       networkEgress: [],
-      readmeMd: null,
-      readmeHtml: null,
       license: null,
-      changelog: null,
       homepageUrl: null,
       sourceUrl: null,
-      icon: null,
-      uploadedIcon: null,
       vulnCritical: null,
       vulnHigh: null,
       vulnMedium: null,
@@ -388,7 +383,6 @@ export class PluginLookup extends Construct {
       vulnCriticalFixable: null,
       vulnHighFixable: null,
       scannedAt: null,
-      scanSummary: null,
       scanFlaggedAt: null,
       scanFlag: null,
       runAsRoot: null,
@@ -413,7 +407,7 @@ export class PluginLookup extends Construct {
    * `basePlugin().failureBehavior === 'fail'`. The message is actionable so the
    * operator knows the catalog is empty/incomplete, not that the tool crashed.
    */
-  private fallback(): Plugin {
+  private fallback(): SynthPlugin {
     return {
       ...PluginLookup.basePlugin(),
       commands: [
@@ -444,7 +438,7 @@ export class PluginLookup extends Construct {
    * certificate) adds `--no-verify-ssl` — and the CLI refuses that in
    * production. See core/platform-tls.ts.
    */
-  public bootstrap(): Plugin {
+  public bootstrap(): SynthPlugin {
     const tlsFlag = platformTlsVerify() ? '' : ' --no-verify-ssl';
     return {
       ...PluginLookup.basePlugin(),

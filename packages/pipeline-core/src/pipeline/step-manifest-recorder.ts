@@ -1,10 +1,9 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import type { Plugin } from '@pipeline-builder/pipeline-data';
 import type { Pipeline } from 'aws-cdk-lib/aws-codepipeline';
 import type { Step } from 'aws-cdk-lib/pipelines';
-import type { LookupToolchain } from '../core/plugin-lookup-envelope.js';
+import type { LookupToolchain, SynthPlugin } from '../core/plugin-lookup-envelope.js';
 import {
   BUILD_IMAGE_MANIFEST_ACTION, BUILD_IMAGE_MANIFEST_STAGE, BUILD_IMAGE_STEP_KEY, PLACEHOLDER_PLUGIN_ID,
   type BuildImageManifestEntry, type StepManifestEntry,
@@ -30,11 +29,11 @@ function cdkActionKey(stepId: string): string {
  * `fallback()` / `bootstrap()` placeholders name no `plugins` row.
  */
 export class StepManifestRecorder {
-  private readonly byActionKey = new Map<string, { plugin: Plugin; stepKey: string }>();
+  private readonly byActionKey = new Map<string, { plugin: SynthPlugin; stepKey: string }>();
   private buildImage: BuildImageManifestEntry | null = null;
 
   /** Remember that `step` runs `plugin` under step label `stepKey` (`pluginStepLabel`). Call once per plugin-backed step. */
-  record(step: Step, plugin: Plugin, stepKey: string): void {
+  record(step: Step, plugin: SynthPlugin, stepKey: string): void {
     if (plugin.id === PLACEHOLDER_PLUGIN_ID) return;
     this.byActionKey.set(cdkActionKey(step.id), { plugin, stepKey });
   }
@@ -45,9 +44,9 @@ export class StepManifestRecorder {
    * (`toolchain`). Emitted as the non-step `build-image` entry — the synth half
    * of the release is already recorded as the synth step.
    */
-  recordBuildImage(plugin: Plugin, toolchain: LookupToolchain): void {
+  recordBuildImage(plugin: SynthPlugin, toolchain: LookupToolchain): void {
     if (plugin.id === PLACEHOLDER_PLUGIN_ID) return;
-    const repository = (plugin as Plugin & { imageRepository?: string | null }).imageRepository ?? null;
+    const repository = (plugin as SynthPlugin & { imageRepository?: string | null }).imageRepository ?? null;
     this.buildImage = {
       kind: 'build-image',
       stageName: BUILD_IMAGE_MANIFEST_STAGE,
