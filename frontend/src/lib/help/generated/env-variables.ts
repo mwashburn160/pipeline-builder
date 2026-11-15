@@ -1,6 +1,6 @@
 // GENERATED FROM docs/environment-variables.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 9c47dff9396e1b6264f297676c5f0952b22e6d77821eb5873855b1871836eb4c
+// SOURCE-SHA256: 7a1981bc1193f12fd664f595cd9b592c7084fbedf36288025b5fa8df24d8a207
 // SPDX-License-Identifier: Apache-2.0
 import { FileCode } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -1705,7 +1705,7 @@ export const envVariablesTopic: HelpTopic = {
             [
               "PLUGIN_UPLOAD_TIMEOUT_MS",
               "900000",
-              "Upload HTTP timeout (15 min) — overrides HANDLER_TIMEOUT_MS for the upload route. Kept equal to nginx's upload-route proxy timeouts and the loader's UPLOAD_TIMEOUT (see Plugin Upload Timeout Chain)"
+              "Upload HTTP timeout (15 min) — overrides the 25 s default request timeout for the upload route. Kept equal to nginx's upload-route proxy timeouts and the loader's UPLOAD_TIMEOUT (see Plugin Upload Timeout Chain)"
             ],
             [
               "PLUGIN_UPLOAD_DIR",
