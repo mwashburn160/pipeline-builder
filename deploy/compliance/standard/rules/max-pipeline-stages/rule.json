@@ -3,7 +3,7 @@
   "description": "Pipelines should not exceed 20 stages to maintain readability and reduce blast radius",
   "target": "pipeline",
   "severity": "warning",
-  "field": "$count(stages)",
+  "field": "$count(props.stages)",
   "operator": "lte",
   "value": 20,
   "priority": 15,

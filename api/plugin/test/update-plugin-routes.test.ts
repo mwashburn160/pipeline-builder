@@ -100,9 +100,11 @@ jest.unstable_mockModule('../src/services/version-withdrawal.js', () => ({ onVer
 
 
 const mockCheckUpdateCompliance = jest.fn<(...args: any[]) => any>(async () => ({ outcome: 'allowed' }));
+const { RULE_FIELDS } = await import('@pipeline-builder/api-core/wire-vocabulary');
+const PLUGIN_RULE_ROOTS = RULE_FIELDS.plugin.filter((f) => !f.derived).map((f) => f.path.split('.')[0]!);
 jest.unstable_mockModule('../src/helpers/update-compliance.js', () => ({
   checkUpdateCompliance: mockCheckUpdateCompliance,
-  needsComplianceRecheck: (data: Record<string, unknown>) => ['visibility', 'keywords', 'labels'].some((k) => k in data),
+  needsComplianceRecheck: (data: Record<string, unknown>) => PLUGIN_RULE_ROOTS.some((k) => data[k] !== undefined),
 }));
 
 
@@ -189,8 +191,8 @@ describe('PUT /plugins/:id (update)', () => {
     );
     // Descriptive edits on a mutable version were checked for immutability first.
     expect(mockVersionImmutability).toHaveBeenCalled();
-    // A descriptive-only edit doesn't change the compliance posture.
-    expect(mockCheckUpdateCompliance).not.toHaveBeenCalled();
+    // `description` and `category` are fields rules read, so the edit is re-checked.
+    expect(mockCheckUpdateCompliance).toHaveBeenCalledTimes(1);
     // shapePlugin attaches the computed `uri` field to the response.
     expect(sendSuccess).toHaveBeenCalledWith(
       res,

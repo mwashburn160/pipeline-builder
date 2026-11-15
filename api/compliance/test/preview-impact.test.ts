@@ -197,6 +197,37 @@ describe('POST /preview/impact', () => {
     expect(payload.data.samples).toHaveLength(10);
   });
 
+  it('evaluates a stored plugin row with its derived image facts, as enforcement does', async () => {
+    nextRuleResult = [{ id: 'r1', name: 'require-signed', target: 'plugin', field: 'signed', operator: 'eq', value: true }];
+    nextEntityResult = [{ id: 'p1', name: 'foo', buildType: 'build_image', pluginType: 'CodeBuildStep', imageDigest: `sha256:${'a'.repeat(64)}` }];
+    evaluateRulesMock.mockReturnValue({ blocked: false, violations: [], warnings: [], rulesSkipped: 0 });
+
+    const { res } = makeRes();
+    await getHandler('/preview/impact')({ __orgId: 'org-a', body: { ruleId: '11111111-1111-4111-8111-111111111111' } } as any, res);
+
+    const evaluated = evaluateRulesMock.mock.calls[0]![1] as Record<string, unknown>;
+    expect(evaluated.signed).toBe(true);
+  });
+
+  it('counts entities missing the rule field, and ones it could not evaluate', async () => {
+    nextRuleResult = [{ id: 'r1', name: 'needs-owner', target: 'plugin', field: 'description', operator: 'notEmpty' }];
+    nextEntityResult = [
+      { id: 'p1', name: 'has-it', description: 'x' },
+      { id: 'p2', name: 'lacks-it' },
+      { id: 'p3', name: 'deferred' },
+    ];
+    evaluateRulesMock
+      .mockReturnValueOnce({ blocked: false, violations: [], warnings: [], rulesSkipped: 0 })
+      .mockReturnValueOnce({ blocked: true, violations: [{ message: 'not present' }], warnings: [], rulesSkipped: 0 })
+      .mockReturnValueOnce({ blocked: false, violations: [], warnings: [], rulesSkipped: 1 });
+
+    const { res, json } = makeRes();
+    await getHandler('/preview/impact')({ __orgId: 'org-a', body: { ruleId: '11111111-1111-4111-8111-111111111111' } } as any, res);
+
+    const { data } = json.mock.calls[0][0];
+    expect(data).toMatchObject({ total: 3, wouldPass: 1, wouldFail: 1, notEvaluated: 1, fieldAbsent: 1 });
+  });
+
   it('returns total=0 when org has no entities', async () => {
     nextRuleResult = [{ id: 'r1', name: 'rule', target: 'pipeline' }];
     nextEntityResult = [];

@@ -63,10 +63,21 @@ describe('withPipelineStepFacts — other steps', () => {
     const props = { stages: [{ stageName: 'Test', steps: [{ plugin: { name: 'trivy' } }, { plugin: { name: 'lint', publisher: 'acme', filter: { version: '1.0.0' } } }] }] };
     const { attributes } = await withPipelineStepFacts({ props }, 'org-a', 'root-a');
     expect(mockManagedHalf).not.toHaveBeenCalled();
-    expect(attributes.stepFacts).toMatchObject({ securityScanSteps: 2, kevSteps: 1, kevStepNames: ['Test/trivy'] });
+    expect(attributes.stepFacts).toMatchObject({ securityScanSteps: 2, testSteps: 0, kevSteps: 1, kevStepNames: ['Test/trivy'] });
 
     mockRowQuery.mockRejectedValueOnce(new Error('db down'));
     const failed = await withPipelineStepFacts({ props: { synth: { plugin: { name: 'trivy' } } } }, 'org-a');
     expect(failed.deferredFields).toEqual(['stepFacts']);
+  });
+});
+
+describe('withPipelineStepFacts — test steps', () => {
+  it('counts steps whose plugin is in the testing category', async () => {
+    mockRowQuery
+      .mockResolvedValueOnce([{ category: 'testing', pluginType: 'CodeBuildStep', scanSummary: null, scanFlag: null }])
+      .mockResolvedValueOnce([{ category: 'quality', pluginType: 'CodeBuildStep', scanSummary: null, scanFlag: null }]);
+    const props = { stages: [{ stageName: 'Test', steps: [{ plugin: { name: 'jest' } }, { plugin: { name: 'eslint' } }] }] };
+    const { attributes } = await withPipelineStepFacts({ props }, 'org-a');
+    expect(attributes.stepFacts).toMatchObject({ testSteps: 1, securityScanSteps: 0 });
   });
 });

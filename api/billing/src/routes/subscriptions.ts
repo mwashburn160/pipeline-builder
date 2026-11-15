@@ -198,7 +198,8 @@ export function createSubscriptionRoutes(): Router {
         status: 'active',
         interval,
         currentPeriodStart: now,
-        currentPeriodEnd: calculatePeriodEnd(now, interval),
+        currentPeriodEnd: calculatePeriodEnd(now, interval, now.getUTCDate()),
+        billingAnchorDay: now.getUTCDate(),
         cancelAtPeriodEnd: false,
         // Stamp the configured provider so lifecycle webhooks can find this row.
         // The Stripe webhook lookup filters on `metadata.provider: 'stripe'`;
@@ -405,7 +406,10 @@ export function createSubscriptionRoutes(): Router {
       // the period restarts now; for a provider-backed sub the next webhook
       // overwrites both fields with the provider's authoritative dates anyway.
       subscription.currentPeriodStart = new Date();
-      subscription.currentPeriodEnd = calculatePeriodEnd(subscription.currentPeriodStart, effectiveInterval);
+      subscription.billingAnchorDay = subscription.currentPeriodStart.getUTCDate();
+      subscription.currentPeriodEnd = calculatePeriodEnd(
+        subscription.currentPeriodStart, effectiveInterval, subscription.billingAnchorDay,
+      );
       oldIntervalForEvent = oldInterval;
     }
 

@@ -19,6 +19,8 @@
  * identical while plaintext secrets never reach Redis or the compliance service.
  */
 
+import { RULE_FIELDS, type RuleTarget } from '../types/wire-vocabulary.js';
+
 /** Marker written in place of a redacted secret VALUE. */
 const REDACTED = '[REDACTED]';
 
@@ -85,4 +87,22 @@ export function mapSecretValues(value: unknown, replace: (secret: unknown, path:
  */
 export function toComplianceAttributes(value: unknown): unknown {
   return mapSecretValues(value, () => REDACTED);
+}
+
+/**
+ * The stored fields of `source` that `target`'s rules can read: one copy of
+ * every non-derived root in {@link RULE_FIELDS}, skipping the ones `source`
+ * doesn't have. The live checks build their payload with this, so a field the
+ * rule catalog lists can't be missing from what they send. Derived fields (a
+ * plugin's image facts, a pipeline's `stepFacts`) are added by their own
+ * derivations, never copied from a caller.
+ */
+export function pickRuleAttributes(target: RuleTarget, source: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const spec of RULE_FIELDS[target]) {
+    if (spec.derived) continue;
+    const root = spec.path.split('.')[0]!;
+    if (source[root] !== undefined) out[root] = source[root];
+  }
+  return out;
 }

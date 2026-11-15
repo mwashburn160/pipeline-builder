@@ -11,7 +11,7 @@ Warns when a pipeline has more than 20 stages. Overly complex pipelines are hard
 
 | Field | Operator | Value |
 |-------|----------|-------|
-| `$count(stages)` | `lte` | `20` |
+| `$count(props.stages)` | `lte` | `20` |
 
 Uses the `$count()` computed field to count the number of elements in the `stages` array.
 

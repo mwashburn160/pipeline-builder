@@ -30,18 +30,10 @@ import { audit } from '../helpers/audit.js';
 import { requirePlatformPermission, withController } from '../helpers/controller-helper.js';
 import { toOrgId } from '../helpers/org-id.js';
 import { renderManifest } from '../helpers/org-namespace-manifest.js';
+import { isValidK8sNamespaceName, orgNamespaceName } from '../helpers/org-slug.js';
 import { Organization } from '../models/index.js';
 
 const logger = createLogger('org-namespace-controller');
-
-/** Validate the org slug used in the namespace name. k8s names must be a
- *  DNS-1123 label: lowercase alphanumeric / hyphen, ≤63 chars, no
- *  leading/trailing hyphen. Org slugs already follow this shape (slugify
- *  enforces it on create), but defense-in-depth — reject anything that
- *  could yield a malformed manifest. */
-function isValidK8sLabel(s: string): boolean {
-  return /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/.test(s);
-}
 
 /**
  * Render the per-org namespace YAML. Sysadmin-gated; emits an audit
@@ -55,14 +47,13 @@ export const renderOrgNamespace = withController('Render org k8s namespace', asy
   if (!org) return sendError(res, 404, 'Organization not found');
 
   const slug = (org as { slug?: string }).slug;
-  if (!slug || !isValidK8sLabel(slug)) {
-    // Defensive: the org's slug should already be DNS-1123 (slugify
-    // enforces it), but reject anything malformed rather than emit a
-    // manifest with an invalid namespace name.
-    return sendError(res, 400, `Org slug "${slug ?? ''}" is not a valid k8s DNS-1123 label`);
+  const nsName = slug ? orgNamespaceName(slug) : '';
+  if (!slug || !isValidK8sNamespaceName(nsName)) {
+    // The whole namespace name must be a DNS-1123 label (≤63 chars), not just
+    // the slug — refuse rather than emit a manifest kubectl would reject.
+    return sendError(res, 400, `Org slug "${slug ?? ''}" does not yield a valid k8s namespace name`);
   }
 
-  const nsName = `pb-org-${slug}`;
   const createdAt = new Date().toISOString();
   const yaml = renderManifest({ slug, nsName, createdAt });
 
@@ -74,7 +65,7 @@ export const renderOrgNamespace = withController('Render org k8s namespace', asy
   });
 
   res.setHeader('Content-Type', 'application/yaml; charset=utf-8');
-  res.setHeader('Content-Disposition', `attachment; filename="pb-org-${slug}.yaml"`);
+  res.setHeader('Content-Disposition', `attachment; filename="${nsName}.yaml"`);
   res.status(200).send(yaml);
   logger.info('Rendered per-org namespace manifest', { orgId, namespace: nsName, bytes: yaml.length });
 });

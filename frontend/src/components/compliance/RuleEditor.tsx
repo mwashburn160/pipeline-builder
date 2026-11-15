@@ -16,6 +16,7 @@ import { RuleImpactPanel, type RuleImpact } from './RuleImpactPanel';
 import type { ComplianceRule, ComplianceRuleCreate, ComplianceRuleUpdate, RuleCondition, RuleTarget, RuleSeverity, RuleOperator, RuleConditionMode, RuleScope, ComplianceCheckResult } from '@/types/compliance';
 import { formatError } from '@/lib/constants';
 import type { VALUELESS_RULE_OPERATORS } from '@pipeline-builder/api-core';
+import { RULE_FIELDS, ruleFieldError } from '@pipeline-builder/api-core/wire-vocabulary';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { localDay, localDayEndIso, localDayStartIso } from '@/lib/local-day';
 
@@ -111,6 +112,19 @@ function ruleToForm(rule?: ComplianceRule): FormState {
   };
 }
 
+/**
+ * Under a field box: what the field is, or why it isn't one the target has —
+ * the same check the API refuses the rule with.
+ */
+function FieldHint({ id, target, field }: { id: string; target: RuleTarget; field: string }) {
+  const trimmed = field.trim();
+  if (!trimmed) return null;
+  const error = ruleFieldError(target, trimmed);
+  if (error) return <p id={id} className="mt-1 text-xs text-danger">{error}</p>;
+  const known = RULE_FIELDS[target].find(f => f.path === trimmed);
+  return known ? <p id={id} className="mt-1 text-xs text-fg-muted">{known.description}</p> : null;
+}
+
 function parseValue(str: string): unknown {
   if (!str) return undefined;
   try { return JSON.parse(str); } catch { return str; }
@@ -153,6 +167,10 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
     if (!form.useConditions && !form.field.trim()) {
       setError('A field is required for single-field mode.'); return;
     }
+    // The API refuses a field the target's entities don't have; say so here first.
+    const fieldError = (form.useConditions ? form.conditions.map(c => c.field) : [form.field])
+      .map(f => f.trim()).filter(Boolean).map(f => ruleFieldError(form.target, f)).find(Boolean);
+    if (fieldError) { setError(`Unknown field: ${fieldError}`); return; }
 
     setSaving(true);
     setError(null);
@@ -257,6 +275,8 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
           total: res.data.total,
           wouldPass: res.data.wouldPass,
           wouldFail: res.data.wouldFail,
+          notEvaluated: res.data.notEvaluated,
+          fieldAbsent: res.data.fieldAbsent,
           samples: res.data.samples,
         });
       } else {
@@ -366,11 +386,15 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
             </label>
           </div>
 
+          <datalist id={`${uid}-fields`}>
+            {RULE_FIELDS[form.target].map(f => <option key={f.path} value={f.open ? `${f.path}.` : f.path}>{f.description}</option>)}
+          </datalist>
           {!form.useConditions ? (
             <div className="grid grid-cols-3 gap-3">
               <div>
                 <label className="block text-xs font-medium text-fg-muted mb-1" htmlFor={`${uid}-field`}>Field</label>
-                <Input id={`${uid}-field`} value={form.field} onChange={e => set('field', e.target.value)} placeholder="e.g. name, computeType" />
+                <Input id={`${uid}-field`} list={`${uid}-fields`} value={form.field} onChange={e => set('field', e.target.value)} placeholder="e.g. name, computeType" aria-describedby={`${uid}-field-hint`} />
+                <FieldHint id={`${uid}-field-hint`} target={form.target} field={form.field} />
               </div>
               <div>
                 <label className="block text-xs font-medium text-fg-muted mb-1" htmlFor={`${uid}-operator`}>Operator</label>
@@ -402,13 +426,17 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
               )}
               {form.conditions.map((cond, idx) => (
                 <div key={condIds[idx]} className="flex items-center gap-2 p-2 rounded-lg bg-surface-muted">
-                  <Input
-                    value={cond.field}
-                    onChange={e => updateCondition(idx, { field: e.target.value })}
-                    aria-label={`Condition ${idx + 1} field`}
-                    className="flex-1"
-                    placeholder="Field"
-                  />
+                  <div className="flex-1">
+                    <Input
+                      value={cond.field}
+                      list={`${uid}-fields`}
+                      onChange={e => updateCondition(idx, { field: e.target.value })}
+                      aria-label={`Condition ${idx + 1} field`}
+                      aria-describedby={`${uid}-cond-${idx}-hint`}
+                      placeholder="Field"
+                    />
+                    <FieldHint id={`${uid}-cond-${idx}-hint`} target={form.target} field={cond.field} />
+                  </div>
                   <Select
                     value={cond.operator}
                     onChange={e => updateCondition(idx, { operator: e.target.value as RuleOperator })}

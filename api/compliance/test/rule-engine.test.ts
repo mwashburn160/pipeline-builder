@@ -409,3 +409,32 @@ describe('evaluateRules — deferredFields', () => {
     expect(rootAttribute('$count($keys(env))')).toBe('env');
   });
 });
+
+describe('a rule field the entity does not have', () => {
+  it('says the field is not present instead of reporting undefined as a value', () => {
+    const result = evaluateRules([makeRule({ field: 'ownerId', operator: 'notEmpty', severity: 'error' })], { pipelineName: 'p' });
+    expect(result.blocked).toBe(true);
+    expect(result.violations[0]!.message).toBe('Field "ownerId" is not present, so the notEmpty check cannot pass');
+  });
+
+  it('keeps the value message when the field is there but fails', () => {
+    const result = evaluateRules([makeRule({ field: 'timeout', operator: 'lte', value: 60, severity: 'error' })], { timeout: 90 });
+    expect(result.violations[0]!.message).toContain('got 90');
+  });
+
+  it('names the absent field in a single failing cross-field condition', () => {
+    const result = evaluateRules([makeRule({
+      name: 'x',
+      field: null as never,
+      operator: null as never,
+      severity: 'error',
+      conditions: [{ field: 'name', operator: 'exists' }, { field: '$count(props.stages)', operator: 'countGt', value: 0 }],
+    })], { name: 'n' });
+    expect(result.violations[0]!.message).toBe('Cross-field rule "x" failed: field "$count(props.stages)" is not present, so its countGt check cannot pass');
+  });
+
+  it('a null numeric field no longer satisfies lte 0', () => {
+    const result = evaluateRules([makeRule({ field: 'stepFacts.kevSteps', operator: 'lte', value: 0, severity: 'error' })], { stepFacts: { kevSteps: null } });
+    expect(result.blocked).toBe(true);
+  });
+});

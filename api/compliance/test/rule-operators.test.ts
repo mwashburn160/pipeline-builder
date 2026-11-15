@@ -20,7 +20,7 @@ import { describe, it, expect } from '@jest/globals';
  */
 process.env.COMPLIANCE_REGEX_TIMEOUT_MS ||= '2000';
 
-const { getFieldValue, evaluateOperator, validateRegexPattern } = await import('../src/engine/rule-operators.js');
+const { getFieldValue, evaluateOperator, isFieldPresent, validateRegexPattern } = await import('../src/engine/rule-operators.js');
 
 // ============================================
 // getFieldValue
@@ -336,5 +336,42 @@ describe('lookups ignore inherited object keys', () => {
   it('an unknown computed prefix resolves to undefined, not an inherited function', () => {
     expect(getFieldValue({ a: [1, 2] }, '$constructor(a)')).toBeUndefined();
     expect(getFieldValue({ a: [1, 2] }, '$count(a)')).toBe(2);
+  });
+});
+
+describe('numeric operators need numbers on both sides', () => {
+  it.each([
+    ['lte', null, 0], ['lte', '', 0], ['lt', null, 1], ['gte', null, 0], ['gt', '', -1],
+    ['lte', false, 0], ['gte', true, 1], ['lte', undefined, 0], ['countLt', null, 1], ['lengthGt', '', -1],
+  ] as const)('%s fails on %p (no number to compare)', (op, value, ruleValue) => {
+    expect(evaluateOperator(op, value, ruleValue)).toBe(false);
+  });
+
+  it('still compares a numeric string on either side', () => {
+    expect(evaluateOperator('lte', '120', 180)).toBe(true);
+    expect(evaluateOperator('gt', 5, '3')).toBe(true);
+    expect(evaluateOperator('lte', 0, 0)).toBe(true);
+  });
+
+  it('a rule value that is not a number fails too', () => {
+    expect(evaluateOperator('gt', 5, 'many')).toBe(false);
+  });
+});
+
+describe('isFieldPresent', () => {
+  it('reads the path inside a computed field, so $count of a missing array is absent', () => {
+    expect(isFieldPresent({}, '$count(props.stages)')).toBe(false);
+    expect(isFieldPresent({ props: { stages: [] } }, '$count(props.stages)')).toBe(true);
+  });
+
+  it('treats null as absent and false / 0 / "" as present', () => {
+    expect(isFieldPresent({ a: null }, 'a')).toBe(false);
+    expect(isFieldPresent({ a: false, b: 0, c: '' }, 'a')).toBe(true);
+    expect(isFieldPresent({ a: false, b: 0, c: '' }, 'b')).toBe(true);
+    expect(isFieldPresent({ a: false, b: 0, c: '' }, 'c')).toBe(true);
+  });
+
+  it('reads a metadata key that contains colons', () => {
+    expect(isFieldPresent({ metadata: { 'aws:cdk:codebuild:buildenvironment:privileged': true } }, 'metadata.aws:cdk:codebuild:buildenvironment:privileged')).toBe(true);
   });
 });

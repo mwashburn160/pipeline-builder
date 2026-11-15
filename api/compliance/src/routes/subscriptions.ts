@@ -23,8 +23,10 @@ import {
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router, type NextFunction, type Request, type Response } from 'express';
 import { z } from 'zod';
-import { evaluateRules } from '../engine/rule-engine.js';
+import { evaluateRules, type EvaluableRule } from '../engine/rule-engine.js';
+import { isFieldPresent } from '../engine/rule-operators.js';
 import { setForFeature } from '../helpers/content-set-tags.js';
+import { evaluateEntity } from '../helpers/evaluate-entity.js';
 import { withInheritedSource } from '../helpers/inherited-source.js';
 import { complianceRuleService } from '../services/compliance-rule-service.js';
 import { subscriptionService } from '../services/subscription-service.js';
@@ -398,22 +400,42 @@ export function createSubscriptionRoutes(): Router {
     const ENTITY_FETCH_CAP = 1000;
 
     const entities = await complianceRuleService.findOrgEntitiesForTarget(target, orgId, ENTITY_FETCH_CAP);
+    const parentOrgId = (req.user as { parentOrganizationId?: string } | undefined)?.parentOrganizationId;
+    const evaluable = rule as unknown as EvaluableRule;
+    const ruleFields = [evaluable.field, ...(evaluable.conditions ?? []).map((c) => c.field)]
+      .filter((f): f is string => typeof f === 'string' && f !== '');
 
     let wouldPass = 0;
     let wouldFail = 0;
+    // Couldn't be evaluated (a derived field the preview couldn't resolve).
+    let notEvaluated = 0;
+    // Evaluated, but missing a field the rule reads — the tell of a rule
+    // pointed at the wrong field when it is every entity.
+    let fieldAbsent = 0;
     const samples: Array<{ entityType: string; entityId: string; entityName: string | null; messages: string[] }> = [];
 
-    for (const entity of entities) {
-      const result = evaluateRules([rule as unknown as Parameters<typeof evaluateRules>[0][0]], entity.raw, []);
-      if (result.blocked || result.warnings.length > 0) {
-        wouldFail++;
-        if (samples.length < SAMPLE_CAP) {
-          const msgs = [...result.violations, ...result.warnings].map(v => v.message);
-          samples.push({ entityType: target, entityId: entity.id, entityName: entity.name, messages: msgs });
+    // Evaluated exactly as enforcement does (derived fields included), a few at
+    // a time: a pipeline's step facts cost a plugin resolution per step.
+    const PREVIEW_CONCURRENCY = 20;
+    for (let i = 0; i < entities.length; i += PREVIEW_CONCURRENCY) {
+      const batch = entities.slice(i, i + PREVIEW_CONCURRENCY);
+      const evaluated = await Promise.all(batch.map((entity) => evaluateEntity({
+        target, rules: [evaluable], attributes: entity.raw, orgId, parentOrgId, storedPlugin: true,
+      })));
+      batch.forEach((entity, j) => {
+        const { result, attributes } = evaluated[j]!;
+        if (result.rulesSkipped > 0) { notEvaluated++; return; }
+        if (ruleFields.some((f) => !isFieldPresent(attributes, f))) fieldAbsent++;
+        if (result.blocked || result.warnings.length > 0) {
+          wouldFail++;
+          if (samples.length < SAMPLE_CAP) {
+            const msgs = [...result.violations, ...result.warnings].map(v => v.message);
+            samples.push({ entityType: target, entityId: entity.id, entityName: entity.name, messages: msgs });
+          }
+        } else {
+          wouldPass++;
         }
-      } else {
-        wouldPass++;
-      }
+      });
     }
 
     ctx.log('COMPLETED', 'Rule impact preview', { ruleId: rule.id, target, total: entities.length, wouldFail });
@@ -424,6 +446,8 @@ export function createSubscriptionRoutes(): Router {
       total: entities.length,
       wouldPass,
       wouldFail,
+      notEvaluated,
+      fieldAbsent,
       samples,
     });
   }));

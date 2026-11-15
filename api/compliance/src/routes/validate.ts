@@ -15,11 +15,10 @@ import { withRoute } from '@pipeline-builder/api-server';
 import { type RuleTarget } from '@pipeline-builder/pipeline-data';
 import { Router, type Request } from 'express';
 import { z } from 'zod';
-import { evaluateRules } from '../engine/rule-engine.js';
 import { logComplianceCheck } from '../helpers/compliance-check-log.js';
 import { notifyComplianceBlock, notifyComplianceWarnings } from '../helpers/compliance-notifier.js';
+import { evaluateEntity } from '../helpers/evaluate-entity.js';
 import { resolveParentOrgId } from '../helpers/org-hierarchy-client.js';
-import { asNonBlockingVulnRules, rulesReadStepFacts, withPipelineStepFacts } from '../helpers/pipeline-step-facts.js';
 import { complianceExemptionService } from '../services/compliance-exemption-service.js';
 import { complianceRuleService } from '../services/compliance-rule-service.js';
 
@@ -116,13 +115,9 @@ async function validateEntity(
     : [];
   // A pipeline's step facts (`stepFacts.*` — scanner present, approval before
   // production, KEV versions) are resolved here, never taken from the caller,
-  // and only when a rule reads them.
-  const enriched = target === 'pipeline' && rulesReadStepFacts(rules)
-    ? await withPipelineStepFacts(attributes, orgId, parentOrgId)
-    : { attributes, deferredFields: [] as string[] };
-  // Vulnerability state never blocks a pipeline: rules on it are enforced as warnings.
-  const enforced = target === 'pipeline' ? asNonBlockingVulnRules(rules) : rules;
-  const result = evaluateRules(enforced, enriched.attributes, exemptions, [...deferredFields, ...enriched.deferredFields]);
+  // and only when a rule reads them. A plugin payload is live: the plugin
+  // service sends its image facts itself.
+  const { result } = await evaluateEntity({ target, rules, attributes, orgId, parentOrgId, exemptions, deferredFields });
 
   // Write audit log (skip for dry-runs). Log failures but don't block.
   if (!isDryRun) {

@@ -3,7 +3,7 @@
   "description": "CIS 5.3 Do not use privileged containers",
   "target": "plugin",
   "severity": "critical",
-  "field": "privileged",
+  "field": "metadata.aws:cdk:codebuild:buildenvironment:privileged",
   "operator": "neq",
   "value": true,
   "scope": "published",

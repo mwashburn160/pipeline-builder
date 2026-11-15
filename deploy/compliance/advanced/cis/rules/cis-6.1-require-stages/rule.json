@@ -3,7 +3,7 @@
   "description": "CIS 6.1 Pipeline defines explicit stages",
   "target": "pipeline",
   "severity": "error",
-  "field": "$count(stages)",
+  "field": "$count(props.stages)",
   "operator": "countGt",
   "value": 0,
   "scope": "published",

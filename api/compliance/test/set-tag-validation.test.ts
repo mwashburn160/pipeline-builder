@@ -73,7 +73,7 @@ jest.unstable_mockModule('../src/helpers/rule-change-notifier.js', () => ({
   notifyPublishedRuleChange: jest.fn<(...a: unknown[]) => Promise<unknown>>().mockResolvedValue(undefined),
 }));
 
-const { ComplianceRuleService, InvalidSetTagError } = await import('../src/services/compliance-rule-service.js');
+const { ComplianceRuleService, InvalidSetTagError, UnknownRuleFieldError } = await import('../src/services/compliance-rule-service.js');
 
 describe('set-tag validation on published rules', () => {
   let svc: InstanceType<typeof ComplianceRuleService>;
@@ -126,5 +126,39 @@ describe('set-tag validation on published rules', () => {
       const updated = await svc.update('r1', { name: 'renamed' } as never, 'sys', 'u1');
       expect(updated).toBeDefined();
     });
+  });
+});
+
+describe('rule fields must be ones the target has', () => {
+  let svc: InstanceType<typeof ComplianceRuleService>;
+  beforeEach(() => {
+    jest.clearAllMocks();
+    existingRule = undefined;
+    svc = new ComplianceRuleService();
+  });
+
+  it('refuses a create whose field no pipeline has', async () => {
+    await expect(
+      svc.create({ scope: 'org', target: 'pipeline', field: 'timeoutInMinutes', operator: 'lte', value: 120, name: 'r', orgId: 'org-a' } as never, 'u1'),
+    ).rejects.toThrow(new UnknownRuleFieldError('Unknown rule field: "timeoutInMinutes" is not a field a pipeline has'));
+  });
+
+  it('refuses an unknown field inside a condition', async () => {
+    await expect(
+      svc.create({ scope: 'org', target: 'plugin', conditions: [{ field: 'name', operator: 'exists' }, { field: 'privileged', operator: 'neq', value: true }], name: 'r', orgId: 'org-a' } as never, 'u1'),
+    ).rejects.toBeInstanceOf(UnknownRuleFieldError);
+  });
+
+  it('accepts listed fields, open sub-paths and computed fields', async () => {
+    for (const field of ['pipelineName', 'props.stages', '$count(props.stages)', 'stepFacts.testSteps', 'labels.team']) {
+      await expect(svc.create({ scope: 'org', target: 'pipeline', field, operator: 'exists', name: `r-${field}`, orgId: 'org-a' } as never, 'u1')).resolves.toBeDefined();
+    }
+    await expect(svc.create({ scope: 'org', target: 'plugin', field: 'metadata.aws:cdk:codebuild:buildenvironment:privileged', operator: 'neq', value: true, name: 'priv', orgId: 'org-a' } as never, 'u1')).resolves.toBeDefined();
+  });
+
+  it('checks an update against the stored rule target', async () => {
+    existingRule = { id: 'r1', scope: 'org', target: 'plugin', name: 'r', orgId: 'org-a' };
+    await expect(svc.update('r1', { field: 'pipelineName' } as never, 'org-a', 'u1')).rejects.toBeInstanceOf(UnknownRuleFieldError);
+    await expect(svc.update('r1', { field: 'name' } as never, 'org-a', 'u1')).resolves.toBeDefined();
   });
 });

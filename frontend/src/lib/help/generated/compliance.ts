@@ -1,6 +1,6 @@
 // GENERATED FROM docs/compliance.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 541dca8e357d7559761dda38fc4641094583bdaa5ef75da2fe740665bb7dd254
+// SOURCE-SHA256: d0601be42d29f6dc836caab54be0bca44d487dc7e83194ae02d5892780aa7435
 // SPDX-License-Identifier: Apache-2.0
 import { ShieldCheck } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -133,7 +133,7 @@ export const complianceTopic: HelpTopic = {
           "type": "list",
           "items": [
             "Create or subscribe to rules. Author org-scoped rules with POST /compliance/rules, or browse GET /compliance/published-rules and subscribe. Subscriptions start inactive — activate the ones you want enforced.",
-            "Preview before enabling. POST /compliance/subscriptions/preview/impact reports how many of your existing entities a rule would fail, with samples, before it starts blocking anything.",
+            "Preview before enabling. POST /compliance/subscriptions/preview/impact reports how many of your existing entities a rule would fail, with samples, before it starts blocking anything. It evaluates them exactly as enforcement does, derived fields included, and also reports fieldAbsent (entities missing a field the rule reads) and notEvaluated (entities a derived field couldn't be resolved for).",
             "Set the notification preference with PUT /compliance/notification-preferences (org admin/owner). notifyOnBlock is on by default; notifyOnWarning is opt-in.",
             "Add a scan schedule if you want recurring sweeps: POST /compliance/scan-schedules with a standard 5-field cron expression.",
             "Tune the limits if the defaults don't suit — regex length, attribute depth and key count, scan concurrency, retention. See Environment Variables."
@@ -568,7 +568,7 @@ export const complianceTopic: HelpTopic = {
             [
               "field",
               "string",
-              "Attribute to check (supports dot-notation and $count(), $length())"
+              "Attribute to check: one the target has (see Readable Fields), with dot-notation below an open field and $count() / $length() / $keys() / $lines()"
             ],
             [
               "operator",
@@ -626,7 +626,7 @@ export const complianceTopic: HelpTopic = {
             ],
             [
               "gt / gte / lt / lte",
-              "Numeric comparison"
+              "Numeric comparison. A value that isn't a number (absent, null, '', a boolean) fails"
             ],
             [
               "contains / notContains",
@@ -671,7 +671,7 @@ export const complianceTopic: HelpTopic = {
           "rows": [
             [
               "$count(field)",
-              "$count(stages) — array length"
+              "$count(props.stages) — array length"
             ],
             [
               "$length(field)",
@@ -686,6 +686,46 @@ export const complianceTopic: HelpTopic = {
               "$lines(dockerfile) — line count"
             ]
           ]
+        },
+        {
+          "type": "text",
+          "content": "Readable Fields"
+        },
+        {
+          "type": "text",
+          "content": "A rule may only read a field its target's entities have. Creating or updating a rule with any other field (its own, or a condition's) answers 400 naming it: such a rule would fail every entity or pass every one. The rule editor offers the same list and flags an unknown field as you type."
+        },
+        {
+          "type": "text",
+          "content": "The list lives in api-core (RULE_FIELDS, exported through @pipeline-builder/api-core/wire-vocabulary):"
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Target",
+            "Stored fields",
+            "Derived by the platform"
+          ],
+          "rows": [
+            [
+              "plugin",
+              "name, description, keywords, category, version, pluginType, computeType, timeout, failureBehavior, buildType, visibility, secrets, installCommands, commands; open maps env., buildArgs., metadata., labels.",
+              "image facts: signed, scanned, vulnCritical / vulnHigh / vulnMedium / vulnLow, vulnCriticalFixable / vulnHighFixable, runAsRoot, packages, tags"
+            ],
+            [
+              "pipeline",
+              "project, organization, pipelineName, description, keywords, visibility, ownerId; open labels.* and props.* (props.stages, props.environment, props.synth.source, props.tags, …)",
+              "stepFacts.securityScanSteps, stepFacts.testSteps, stepFacts.productionStages, stepFacts.approvalBeforeProduction, stepFacts.kevSteps, stepFacts.kevStepNames"
+            ]
+          ]
+        },
+        {
+          "type": "text",
+          "content": "A plugin's privileged mode is the step metadata key: metadata.aws:cdk:codebuild:buildenvironment:privileged."
+        },
+        {
+          "type": "text",
+          "content": "When an entity lacks a field a rule reads, the violation says so (\"Field \\\"ownerId\\\" is not present…\") rather than reporting undefined as a value. The live checks send every stored field on the list, and an update that changes any of them (a rename, a description edit) is re-checked."
         },
         {
           "type": "text",
@@ -757,14 +797,14 @@ export const complianceTopic: HelpTopic = {
             [
               "Standard Compliance",
               "compliance_standard",
-              "One \"CI/CD Best Practices\" policy — a curated library (~20 rules) of CI/CD guardrails (require review stage, no hardcoded secrets, artifact retention, resource limits, pinned deps, …)",
+              "Five policies (security baseline, quality, naming, cost, production readiness) over a curated library of 9 CI/CD guardrails (pinned versions, semver, no privileged builds, no public plugins, naming, stage counts, …)",
               "$29.99 / mo · $299.99 / yr",
               "Buy on Developer / Pro / Team / Business · included in Enterprise / Unlimited"
             ],
             [
               "Advanced Compliance",
               "compliance_advanced",
-              "Three framework policies — SOC2, PCI-DSS, CIS (~75 rules total), each rule tagged with its framework control id — requires Standard",
+              "Three framework policies — SOC2, PCI-DSS, CIS (51 rules total), each rule tagged with its framework control id — requires Standard",
               "$99.99 / mo · $999.99 / yr",
               "Buy on Developer / Pro / Team / Business (requires Standard, or buy the Suite) · included in Enterprise / Unlimited"
             ],
@@ -855,7 +895,7 @@ export const complianceTopic: HelpTopic = {
         },
         {
           "type": "code",
-          "content": "{\n  \"success\": false,\n  \"status\": 403,\n  \"code\": \"COMPLIANCE_VIOLATION\",\n  \"details\": {\n    \"violations\": [{ \"ruleName\": \"block-latest-version\", \"severity\": \"error\", \"field\": \"version\" }]\n  }\n}",
+          "content": "{\n  \"success\": false,\n  \"status\": 403,\n  \"code\": \"COMPLIANCE_VIOLATION\",\n  \"details\": {\n    \"violations\": [{ \"ruleName\": \"block-latest-image-tag\", \"severity\": \"error\", \"field\": \"version\" }]\n  }\n}",
           "language": "json"
         }
       ]
@@ -957,7 +997,7 @@ export const complianceTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "10 sample rules are included in deploy/compliance/rules/, each with a rule.json and README.md:"
+          "content": "9 sample rules are included in deploy/compliance/standard/rules/, each with a rule.json and README.md:"
         },
         {
           "type": "table",
@@ -998,13 +1038,8 @@ export const complianceTopic: HelpTopic = {
               "warning"
             ],
             [
-              "enforce-pipeline-timeout",
-              "pipeline",
-              "error"
-            ],
-            [
               "recommended-compute-type",
-              "pipeline",
+              "plugin",
               "warning"
             ],
             [
@@ -1025,7 +1060,7 @@ export const complianceTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Five starter policies (named rule groups) ship alongside them in deploy/compliance/policies/: security-baseline, production-readiness, quality-standards, naming-conventions, and cost-optimization. load-compliance.sh loads both the rules and these policy templates."
+          "content": "Five starter policies (named rule groups) ship alongside them in deploy/compliance/standard/policies/: security-baseline, production-readiness, quality-standards, naming-conventions, and cost-optimization. load-compliance.sh loads both the rules and these policy templates."
         },
         {
           "type": "text",
@@ -1038,7 +1073,7 @@ export const complianceTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Add your own by creating deploy/compliance/rules/<name>/rule.json + README.md."
+          "content": "Add your own by creating deploy/compliance/standard/rules/<name>/rule.json + README.md. api/compliance/test/shipped-library.test.ts checks that every rule reads only readable fields and that every policy names rules that exist (a policy links rules by name and skips names that match nothing)."
         }
       ]
     },

@@ -3,7 +3,7 @@
   "description": "CC8.1 Change management: pipeline complexity bound",
   "target": "pipeline",
   "severity": "warning",
-  "field": "$count(stages)",
+  "field": "$count(props.stages)",
   "operator": "countLt",
   "value": 50,
   "scope": "published",

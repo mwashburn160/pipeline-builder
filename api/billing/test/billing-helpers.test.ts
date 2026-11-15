@@ -144,25 +144,58 @@ describe('effectiveEntitlements', () => {
 // calculatePeriodEnd
 
 describe('calculatePeriodEnd', () => {
-  it('adds 1 month for monthly interval', () => {
-    const start = new Date(2026, 2, 1); // March 1, 2026 (local)
-    const end = calculatePeriodEnd(start, 'monthly');
-    expect(end.getFullYear()).toBe(2026);
-    expect(end.getMonth()).toBe(3); // April
-    expect(end.getDate()).toBe(1);
+  const utc = (iso: string) => new Date(`${iso}T00:00:00.000Z`);
+
+  it('leaves a mid-month monthly period unchanged', () => {
+    expect(calculatePeriodEnd(utc('2026-03-15'), 'monthly', 15)).toEqual(utc('2026-04-15'));
   });
 
-  it('adds 1 year for annual interval', () => {
-    const start = new Date(2026, 2, 1); // March 1, 2026 (local)
-    const end = calculatePeriodEnd(start, 'annual');
-    expect(end.getFullYear()).toBe(2027);
-    expect(end.getMonth()).toBe(2); // March
+  it('adds one year for an annual period', () => {
+    expect(calculatePeriodEnd(utc('2026-03-15'), 'annual', 15)).toEqual(utc('2027-03-15'));
+  });
+
+  it('clamps Jan 31 to the last day of February instead of overflowing into March', () => {
+    expect(calculatePeriodEnd(utc('2026-01-31'), 'monthly', 31)).toEqual(utc('2026-02-28'));
+    expect(calculatePeriodEnd(utc('2028-01-31'), 'monthly', 31)).toEqual(utc('2028-02-29'));
+  });
+
+  it('clamps Mar 31 to Apr 30', () => {
+    expect(calculatePeriodEnd(utc('2026-03-31'), 'monthly', 31)).toEqual(utc('2026-04-30'));
+  });
+
+  it('ends a Feb 29 annual period on Feb 28 of the following year', () => {
+    expect(calculatePeriodEnd(utc('2028-02-29'), 'annual', 29)).toEqual(utc('2029-02-28'));
+  });
+
+  it('keeps the anchor across a chained monthly run from Jan 31', () => {
+    const ends: Date[] = [];
+    let start = utc('2026-01-31');
+    for (let i = 0; i < 3; i++) {
+      start = calculatePeriodEnd(start, 'monthly', 31);
+      ends.push(start);
+    }
+    expect(ends).toEqual([utc('2026-02-28'), utc('2026-03-31'), utc('2026-04-30')]);
+  });
+
+  it('works in UTC and keeps the UTC time of day', () => {
+    const start = new Date('2026-01-31T23:30:15.250Z');
+    expect(calculatePeriodEnd(start, 'monthly', 31)).toEqual(new Date('2026-02-28T23:30:15.250Z'));
+  });
+
+  it('crosses a year boundary', () => {
+    expect(calculatePeriodEnd(utc('2026-12-31'), 'monthly', 31)).toEqual(utc('2027-01-31'));
+  });
+
+  it('rejects an anchor outside 1-31', () => {
+    expect(() => calculatePeriodEnd(utc('2026-03-15'), 'monthly', 0)).toThrow(RangeError);
+    expect(() => calculatePeriodEnd(utc('2026-03-15'), 'monthly', 32)).toThrow(RangeError);
+    expect(() => calculatePeriodEnd(utc('2026-03-15'), 'monthly', 1.5)).toThrow(RangeError);
   });
 
   it('does not mutate the input date', () => {
-    const start = new Date(2026, 5, 15); // June 15, 2026 (local)
-    calculatePeriodEnd(start, 'monthly');
-    expect(start.getMonth()).toBe(5); // June unchanged
+    const start = utc('2026-06-15');
+    calculatePeriodEnd(start, 'monthly', 15);
+    expect(start).toEqual(utc('2026-06-15'));
   });
 });
 

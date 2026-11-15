@@ -8,10 +8,9 @@ import { eq, and, gt, lt, asc } from 'drizzle-orm';
 import { logComplianceCheck } from './compliance-check-log.js';
 import { notifyComplianceBlock, notifyComplianceWarnings } from './compliance-notifier.js';
 import { ruleTargetsOf } from './compliance-vocabulary.js';
+import { evaluateEntity } from './evaluate-entity.js';
 import { resolveParentOrgId } from './org-hierarchy-client.js';
-import { asNonBlockingVulnRules, rulesReadStepFacts, withPipelineStepFacts } from './pipeline-step-facts.js';
-import { withPluginImageFacts } from './plugin-image-attributes.js';
-import { evaluateRules, type ActiveExemption } from '../engine/rule-engine.js';
+import type { ActiveExemption } from '../engine/rule-engine.js';
 import { complianceExemptionService } from '../services/compliance-exemption-service.js';
 import { complianceRuleService } from '../services/compliance-rule-service.js';
 
@@ -30,8 +29,6 @@ interface EntityRecord {
   id: string;
   name?: string;
   attributes: Record<string, unknown>;
-  /** Attributes this scan cannot see (rules on them are skipped, not passed). */
-  deferredFields?: string[];
 }
 
 /**
@@ -48,13 +45,6 @@ function toEntityRecord(row: Record<string, unknown>, name: unknown): EntityReco
     name: typeof name === 'string' ? name : undefined,
     attributes: toComplianceAttributes(row) as Record<string, unknown>,
   };
-}
-
-/** A plugin row also carries its derived image facts (`signed`, `scanned`, …). */
-function toPluginEntityRecord(row: Record<string, unknown>, name: unknown): EntityRecord {
-  const base = toEntityRecord(row, name);
-  const { attributes, deferredFields } = withPluginImageFacts(base.attributes);
-  return { ...base, attributes, deferredFields };
 }
 
 /** A `running` scan whose `startedAt` is older than this is presumed orphaned
@@ -324,16 +314,12 @@ async function evaluateBatch(
   ctx: { scanId: string; scan: ScanRow; target: RuleTarget; isDryRun: boolean; parentOrgId?: string },
 ): Promise<BatchCounts> {
   const { scanId, scan, target, isDryRun, parentOrgId } = ctx;
-  // A pipeline's step facts are resolved per entity, and only when a rule reads them.
-  const stepFacts = target === 'pipeline' && rulesReadStepFacts(rules);
-  // Vulnerability state never blocks a pipeline: rules on it are enforced as warnings.
-  const enforced = target === 'pipeline' ? asNonBlockingVulnRules(rules) : rules;
   const settled = await Promise.allSettled(slice.map(async (entity) => {
     const exemptions = exemptionMap.get(entity.id) ?? [];
-    const enriched = stepFacts
-      ? await withPipelineStepFacts(entity.attributes, scan.orgId, parentOrgId)
-      : { attributes: entity.attributes, deferredFields: [] as string[] };
-    const result = evaluateRules(enforced, enriched.attributes, exemptions, [...(entity.deferredFields ?? []), ...enriched.deferredFields]);
+    // A pipeline's step facts are resolved per entity, and only when a rule reads them.
+    const { result } = await evaluateEntity({
+      target, rules, attributes: entity.attributes, orgId: scan.orgId, parentOrgId, storedPlugin: true, exemptions,
+    });
 
     if (!isDryRun) {
       logComplianceCheck(
@@ -413,7 +399,7 @@ async function fetchEntities(target: RuleTarget, orgId: string): Promise<EntityR
           ))
           .orderBy(asc(schema.plugin.id))
           .limit(pageSize));
-        rows = page.map((r: typeof schema.plugin.$inferSelect) => toPluginEntityRecord(r as unknown as Record<string, unknown>, r.name));
+        rows = page.map((r: typeof schema.plugin.$inferSelect) => toEntityRecord(r as unknown as Record<string, unknown>, r.name));
       } else {
         const page = await withTenantTx(async (tx) => tx
           .select()

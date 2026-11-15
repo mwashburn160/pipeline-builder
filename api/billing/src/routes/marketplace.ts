@@ -322,6 +322,7 @@ export function createMarketplaceRoutes(): Router {
           status: 'active',
           interval: consumed.interval,
           currentPeriodStart: now,
+          billingAnchorDay: now.getUTCDate(),
           // AWS's own term end when the resolve captured it; else cadence-derived.
           currentPeriodEnd: marketplacePeriodEnd(consumed.entitlementExpiresAt, now, consumed.interval),
           cancelAtPeriodEnd: false,

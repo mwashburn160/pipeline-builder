@@ -81,7 +81,7 @@ Inline validation on upload or create is synchronous and blocking. Existing enti
    ```
 
 4. **Create or subscribe to rules.** Author org-scoped rules with `POST /compliance/rules`, or browse `GET /compliance/published-rules` and subscribe. **Subscriptions start inactive** — activate the ones you want enforced.
-5. **Preview before enabling.** `POST /compliance/subscriptions/preview/impact` reports how many of your existing entities a rule would fail, with samples, before it starts blocking anything.
+5. **Preview before enabling.** `POST /compliance/subscriptions/preview/impact` reports how many of your existing entities a rule would fail, with samples, before it starts blocking anything. It evaluates them exactly as enforcement does, derived fields included, and also reports `fieldAbsent` (entities missing a field the rule reads) and `notEvaluated` (entities a derived field couldn't be resolved for).
 6. **Set the notification preference** with `PUT /compliance/notification-preferences` (org admin/owner). `notifyOnBlock` is on by default; `notifyOnWarning` is opt-in.
 7. **Add a scan schedule** if you want recurring sweeps: `POST /compliance/scan-schedules` with a standard 5-field cron expression.
 8. **Tune the limits** if the defaults don't suit — regex length, attribute depth and key count, scan concurrency, retention. See [Environment Variables](#environment-variables).
@@ -200,7 +200,7 @@ The webhook signing secret is never returned — reads expose only a `hasWebhook
 | `name` | string | Unique name within the org |
 | `target` | `plugin` \| `pipeline` | Entity type |
 | `severity` | `warning` \| `error` \| `critical` | `warning` = non-blocking; `error`/`critical` = blocking |
-| `field` | string | Attribute to check (supports dot-notation and `$count()`, `$length()`) |
+| `field` | string | Attribute to check: one the target has (see [Readable Fields](#readable-fields)), with dot-notation below an open field and `$count()` / `$length()` / `$keys()` / `$lines()` |
 | `operator` | enum | One of the operators below |
 | `value` | any | Expected value |
 | `priority` | 0–10000 | Higher = evaluated first |
@@ -214,7 +214,7 @@ The webhook signing secret is never returned — reads expose only a `hasWebhook
 | Operator | Description |
 |----------|-------------|
 | `eq` / `neq` | Equals / not equals |
-| `gt` / `gte` / `lt` / `lte` | Numeric comparison |
+| `gt` / `gte` / `lt` / `lte` | Numeric comparison. A value that isn't a number (absent, `null`, `''`, a boolean) fails |
 | `contains` / `notContains` | String or array contains |
 | `in` / `notIn` | Value in set |
 | `regex` | Pattern match (pattern length capped, default 100 chars; configurable via `COMPLIANCE_MAX_REGEX_LENGTH`) |
@@ -227,10 +227,25 @@ The webhook signing secret is never returned — reads expose only a `hasWebhook
 
 | Function | Example |
 |----------|---------|
-| `$count(field)` | `$count(stages)` — array length |
+| `$count(field)` | `$count(props.stages)` — array length |
 | `$length(field)` | `$length(name)` — string length |
 | `$keys(field)` | `$keys(env)` — object keys as array |
 | `$lines(field)` | `$lines(dockerfile)` — line count |
+
+### Readable Fields
+
+A rule may only read a field its target's entities have. Creating or updating a rule with any other field (its own, or a condition's) answers `400` naming it: such a rule would fail every entity or pass every one. The rule editor offers the same list and flags an unknown field as you type.
+
+The list lives in api-core (`RULE_FIELDS`, exported through `@pipeline-builder/api-core/wire-vocabulary`):
+
+| Target | Stored fields | Derived by the platform |
+|--------|---------------|-------------------------|
+| `plugin` | `name`, `description`, `keywords`, `category`, `version`, `pluginType`, `computeType`, `timeout`, `failureBehavior`, `buildType`, `visibility`, `secrets`, `installCommands`, `commands`; open maps `env.*`, `buildArgs.*`, `metadata.*`, `labels.*` | image facts: `signed`, `scanned`, `vulnCritical` / `vulnHigh` / `vulnMedium` / `vulnLow`, `vulnCriticalFixable` / `vulnHighFixable`, `runAsRoot`, `packages`, `tags` |
+| `pipeline` | `project`, `organization`, `pipelineName`, `description`, `keywords`, `visibility`, `ownerId`; open `labels.*` and `props.*` (`props.stages`, `props.environment`, `props.synth.source`, `props.tags`, …) | `stepFacts.securityScanSteps`, `stepFacts.testSteps`, `stepFacts.productionStages`, `stepFacts.approvalBeforeProduction`, `stepFacts.kevSteps`, `stepFacts.kevStepNames` |
+
+A plugin's privileged mode is the step metadata key: `metadata.aws:cdk:codebuild:buildenvironment:privileged`.
+
+When an entity lacks a field a rule reads, the violation says so ("Field \"ownerId\" is not present…") rather than reporting `undefined` as a value. The live checks send every stored field on the list, and an update that changes any of them (a rename, a description edit) is re-checked.
 
 ### Cross-Field Conditions
 
@@ -270,8 +285,8 @@ The published catalog includes two **curated content libraries** sold as billing
 
 | Add-on | Feature flag | Content | Price | Availability |
 |--------|--------------|---------|-------|--------------|
-| **Standard Compliance** | `compliance_standard` | One **"CI/CD Best Practices"** policy — a curated library (~20 rules) of CI/CD guardrails (require review stage, no hardcoded secrets, artifact retention, resource limits, pinned deps, …) | $29.99 / mo · $299.99 / yr | Buy on **Developer / Pro / Team / Business** · **included** in Enterprise / Unlimited |
-| **Advanced Compliance** | `compliance_advanced` | Three **framework** policies — **SOC2, PCI-DSS, CIS** (~75 rules total), each rule tagged with its framework control id — **requires Standard** | $99.99 / mo · $999.99 / yr | Buy on **Developer / Pro / Team / Business** (requires Standard, or buy the Suite) · **included** in Enterprise / Unlimited |
+| **Standard Compliance** | `compliance_standard` | Five policies (security baseline, quality, naming, cost, production readiness) over a curated library of 9 CI/CD guardrails (pinned versions, semver, no privileged builds, no public plugins, naming, stage counts, …) | $29.99 / mo · $299.99 / yr | Buy on **Developer / Pro / Team / Business** · **included** in Enterprise / Unlimited |
+| **Advanced Compliance** | `compliance_advanced` | Three **framework** policies — **SOC2, PCI-DSS, CIS** (51 rules total), each rule tagged with its framework control id — **requires Standard** | $99.99 / mo · $999.99 / yr | Buy on **Developer / Pro / Team / Business** (requires Standard, or buy the Suite) · **included** in Enterprise / Unlimited |
 | **Compliance Suite** (combo) | both | Standard + Advanced together, **30% off** | $90.99 / mo · $909.99 / yr | Buy on **Developer / Pro / Team / Business** (grants both at once) |
 
 **Advanced requires Standard.** Buy Standard, then add Advanced — or buy the **Compliance Suite** combo to get both in one action (also the way to obtain Advanced without a separate Standard line). Cancelling Standard while Advanced is held cascade-cancels Advanced. Enterprise / Unlimited include both, so nothing is purchased there. See [Billing Add-on Bundles](billing-bundles.md#the-bundles) for pricing and the combo mechanics.
@@ -316,7 +331,7 @@ Warnings are logged and returned but do not block. Blocked responses include vio
   "status": 403,
   "code": "COMPLIANCE_VIOLATION",
   "details": {
-    "violations": [{ "ruleName": "block-latest-version", "severity": "error", "field": "version" }]
+    "violations": [{ "ruleName": "block-latest-image-tag", "severity": "error", "field": "version" }]
   }
 }
 ```
@@ -388,7 +403,7 @@ curl -X POST https://localhost:8443/api/compliance/subscriptions \
 
 ## Sample Rules
 
-10 sample rules are included in `deploy/compliance/rules/`, each with a `rule.json` and `README.md`:
+9 sample rules are included in `deploy/compliance/standard/rules/`, each with a `rule.json` and `README.md`:
 
 | Rule | Target | Severity |
 |------|--------|----------|
@@ -398,14 +413,13 @@ curl -X POST https://localhost:8443/api/compliance/subscriptions \
 | `max-pipeline-stages` | pipeline | warning |
 | `require-plugin-version-semver` | plugin | error |
 | `require-plugin-keywords` | plugin | warning |
-| `enforce-pipeline-timeout` | pipeline | error |
-| `recommended-compute-type` | pipeline | warning |
+| `recommended-compute-type` | plugin | warning |
 | `block-privileged-plugins` | plugin | critical |
 | `restrict-public-access` | plugin | error |
 
 All sample rules are `published` scope — teams browse the catalog and subscribe to the ones they want to enforce.
 
-Five starter policies (named rule groups) ship alongside them in `deploy/compliance/policies/`: `security-baseline`, `production-readiness`, `quality-standards`, `naming-conventions`, and `cost-optimization`. `load-compliance.sh` loads both the rules and these policy templates.
+Five starter policies (named rule groups) ship alongside them in `deploy/compliance/standard/policies/`: `security-baseline`, `production-readiness`, `quality-standards`, `naming-conventions`, and `cost-optimization`. `load-compliance.sh` loads both the rules and these policy templates.
 
 Load them during init or standalone:
 
@@ -414,7 +428,7 @@ Load them during init or standalone:
 PLATFORM_TOKEN="$JWT" ./deploy/bin/load-compliance.sh   # standalone (rules + policies)
 ```
 
-Add your own by creating `deploy/compliance/rules/<name>/rule.json` + `README.md`.
+Add your own by creating `deploy/compliance/standard/rules/<name>/rule.json` + `README.md`. `api/compliance/test/shipped-library.test.ts` checks that every rule reads only [readable fields](#readable-fields) and that every policy names rules that exist (a policy links rules by name and skips names that match nothing).
 
 ---
 

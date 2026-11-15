@@ -47,8 +47,10 @@ jest.unstable_mockModule('../src/services/pipeline-service.js', () => ({
 
 // The compliance re-check, driven per test (the relevance rule is the real one's).
 const mockComplianceCheck = jest.fn<AnyFn>(async () => ({ status: 'ok' }));
+const { RULE_FIELDS } = await import('@pipeline-builder/api-core/wire-vocabulary');
+const PIPELINE_RULE_ROOTS = RULE_FIELDS.pipeline.filter((f) => !f.derived).map((f) => f.path.split('.')[0]!);
 jest.unstable_mockModule('../src/helpers/pipeline-update-compliance.js', () => ({
-  isComplianceRelevantUpdate: (u: { props?: unknown; visibility?: unknown }) => u.props !== undefined || u.visibility !== undefined,
+  isComplianceRelevantUpdate: (u: Record<string, unknown>) => PIPELINE_RULE_ROOTS.some((k) => u[k] !== undefined),
   checkPipelineUpdateCompliance: (...a: unknown[]) => mockComplianceCheck(...a),
 }));
 

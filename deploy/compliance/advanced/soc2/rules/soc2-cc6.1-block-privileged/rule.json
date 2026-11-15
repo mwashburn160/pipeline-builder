@@ -3,7 +3,7 @@
   "description": "CC6.1 Logical access: plugin build containers must not run privileged",
   "target": "plugin",
   "severity": "critical",
-  "field": "privileged",
+  "field": "metadata.aws:cdk:codebuild:buildenvironment:privileged",
   "operator": "neq",
   "value": true,
   "scope": "published",

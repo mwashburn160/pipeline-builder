@@ -3,7 +3,7 @@
   "description": "CC7.2 Monitoring: pipelines carry classification tags",
   "target": "pipeline",
   "severity": "warning",
-  "field": "$count(tags)",
+  "field": "$count(props.tags)",
   "operator": "countGt",
   "value": 0,
   "scope": "published",

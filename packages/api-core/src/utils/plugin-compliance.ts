@@ -37,6 +37,8 @@
  */
 export interface PluginComplianceAttributes {
   name?: string;
+  description?: string | null;
+  category?: string;
   version?: string;
   pluginType?: string;
   computeType?: string;
@@ -50,6 +52,7 @@ export interface PluginComplianceAttributes {
   secrets?: unknown[];
   metadata?: Record<string, unknown>;
   keywords?: string[];
+  labels?: Record<string, unknown>;
   buildType?: string;
   tags?: string[];
   signed?: boolean;

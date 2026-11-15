@@ -97,7 +97,7 @@ Prices are the built-in defaults (USD); annual defaults to 10× monthly.
 | **DORA History Pack** | +365 days DORA history **and** +365 days on the per-org report-query window | $30 | $300 | all tiers | ✅ (max 1) |
 | **Advanced Reporting (DORA)** | unlocks the `advanced_reporting` feature | $30 | $300 | Developer, Pro, Team | ❌ |
 | **Team Usage Analytics** | unlocks the `team_usage_analytics` feature (per-team usage breakdown across the org → team subtree) | $30 | $300 | Team, Business | ❌ |
-| **Standard Compliance** | unlocks the `compliance_standard` feature — a curated **CI/CD best-practice** rule library (~20 rules) | $29.99 | $299.99 | Developer, Pro, Team, Business | ❌ |
+| **Standard Compliance** | unlocks the `compliance_standard` feature — a curated **CI/CD best-practice** rule library (9 rules in 5 policies) | $29.99 | $299.99 | Developer, Pro, Team, Business | ❌ |
 | **Advanced Compliance** | unlocks the `compliance_advanced` feature — curated **SOC2 / PCI-DSS / CIS** framework libraries — **requires Standard Compliance** | $99.99 | $999.99 | Developer, Pro, Team, Business | ❌ |
 | **Stakeholder Reports** | unlocks the `stakeholder_reports` feature — saved, scheduled manager-facing reports: frozen period snapshots, review-and-publish, email / in-app / Slack / Teams delivery and expiring share links | $30 | $300 | Pro, Team, Business | ❌ |
 

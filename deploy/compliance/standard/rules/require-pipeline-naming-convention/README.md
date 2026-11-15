@@ -11,7 +11,7 @@ Enforces a consistent naming convention for pipelines: lowercase letters, digits
 
 | Field | Operator | Value |
 |-------|----------|-------|
-| `name` | `regex` | `^[a-z][a-z0-9-]{2,63}$` |
+| `pipelineName` | `regex` | `^[a-z][a-z0-9-]{2,63}$` |
 
 ## Rationale
 

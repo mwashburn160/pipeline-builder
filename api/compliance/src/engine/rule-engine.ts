@@ -17,7 +17,7 @@
  */
 
 import type { RuleOperator, RuleSeverity, RuleCondition } from '@pipeline-builder/pipeline-data';
-import { evaluateOperator, getFieldValue } from './rule-operators.js';
+import { evaluateOperator, getFieldValue, isFieldPresent } from './rule-operators.js';
 
 /**
  * A compliance rule as stored in the database.
@@ -121,7 +121,9 @@ function evaluateSingleRule(
     expectedValue: rule.value,
     actualValue: fieldValue,
     severity: rule.severity,
-    message: `Field "${rule.field}" failed ${rule.operator} check: expected ${JSON.stringify(rule.value)}, got ${JSON.stringify(fieldValue)}`,
+    message: isFieldPresent(entity, rule.field)
+      ? `Field "${rule.field}" failed ${rule.operator} check: expected ${JSON.stringify(rule.value)}, got ${JSON.stringify(fieldValue)}`
+      : `Field "${rule.field}" is not present, so the ${rule.operator} check cannot pass`,
     suppressNotification: rule.suppressNotification,
   };
 }
@@ -187,7 +189,9 @@ function evaluateCrossFieldRule(
   // immediately actionable feedback ("foo failed gt check") instead of the
   // generic "1 of N conditions violated" rollup.
   const message = (mode === 'all' && failedCount === 1 && firstFailure)
-    ? `Cross-field rule "${rule.name}" failed: condition "${failField}" ${failOp} ${JSON.stringify(firstFailure.condition.value)} (got ${JSON.stringify(firstFailure.fieldValue)})`
+    ? (isFieldPresent(entity, failField)
+      ? `Cross-field rule "${rule.name}" failed: condition "${failField}" ${failOp} ${JSON.stringify(firstFailure.condition.value)} (got ${JSON.stringify(firstFailure.fieldValue)})`
+      : `Cross-field rule "${rule.name}" failed: field "${failField}" is not present, so its ${failOp} check cannot pass`)
     : `Cross-field rule "${rule.name}" failed (${mode} mode): ${failedCount} of ${results.length} conditions violated`;
 
   return {

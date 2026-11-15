@@ -3,7 +3,7 @@
   "description": "CC8.1 Change management: production pipelines require a manual approval gate",
   "target": "pipeline",
   "severity": "error",
-  "field": "requiresApproval",
+  "field": "stepFacts.approvalBeforeProduction",
   "operator": "eq",
   "value": true,
   "scope": "published",

@@ -3,8 +3,8 @@
   "description": "CC7.2 Monitoring: pipeline declares a target environment",
   "target": "pipeline",
   "severity": "warning",
-  "field": "environment",
-  "operator": "exists",
+  "field": "props.environment",
+  "operator": "notEmpty",
   "scope": "published",
   "tags": [
     "set:advanced",

@@ -17,6 +17,11 @@ export interface SubscriptionDocument extends Document {
   interval: BillingInterval;
   currentPeriodStart: Date;
   currentPeriodEnd: Date;
+  /** UTC day of month (1-31) the billing period is anchored to, set whenever
+   *  the period is started or restarted. Each period end is computed from it
+   *  (see `calculatePeriodEnd`), so a short month clamps one period without
+   *  moving the anchor. A row without it takes `currentPeriodStart`'s UTC day. */
+  billingAnchorDay?: number;
   cancelAtPeriodEnd: boolean;
   externalId?: string;
   externalCustomerId?: string;
@@ -159,6 +164,7 @@ const subscriptionSchema = new Schema<SubscriptionDocument>(
     },
     currentPeriodStart: { type: Date, required: true },
     currentPeriodEnd: { type: Date, required: true },
+    billingAnchorDay: { type: Number, min: 1, max: 31 },
     cancelAtPeriodEnd: { type: Boolean, default: false },
     externalId: { type: String, default: null },
     externalCustomerId: { type: String, default: null },

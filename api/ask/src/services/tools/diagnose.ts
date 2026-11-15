@@ -31,6 +31,7 @@
 
 import { tool } from '@pipeline-builder/ai-core';
 import type { ToolSet } from '@pipeline-builder/ai-core';
+import { compareSemver, isSemver } from '@pipeline-builder/api-core';
 import { z } from 'zod';
 
 import type { AgentToolDeps } from '../tool-deps.js';
@@ -460,14 +461,17 @@ function countBy(values: string[]): Record<string, number> {
   return out;
 }
 
-/** Numeric-segment version compare, so `1.10.0` sorts above `1.9.0`. */
+/**
+ * A total order over published version strings: SemVer order (so `1.10.0`
+ * sorts above `1.9.0`, and `1.0.0-rc.1` below `1.0.0`) where both are versions,
+ * any version above a non-version, and plain string order between two
+ * non-versions.
+ */
 function compareVersions(a: string, b: string): number {
-  const pa = a.split('.').map((s) => parseInt(s, 10));
-  const pb = b.split('.').map((s) => parseInt(s, 10));
-  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
-    const d = (pa[i] ?? 0) - (pb[i] ?? 0);
-    if (!Number.isNaN(d) && d !== 0) return d;
-  }
+  const sa = isSemver(a);
+  const sb = isSemver(b);
+  if (sa && sb) return compareSemver(a, b);
+  if (sa !== sb) return sa ? 1 : -1;
   return a.localeCompare(b);
 }
 

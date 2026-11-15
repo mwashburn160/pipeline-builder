@@ -3,9 +3,9 @@
   "description": "CC8.1 Change management: pipeline runs tests before deploy",
   "target": "pipeline",
   "severity": "warning",
-  "field": "hasTestStage",
-  "operator": "eq",
-  "value": true,
+  "field": "stepFacts.testSteps",
+  "operator": "gt",
+  "value": 0,
   "scope": "published",
   "tags": [
     "set:advanced",

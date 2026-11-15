@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { CheckCircle, XCircle } from 'lucide-react';
+import { AlertTriangle, CheckCircle, XCircle } from 'lucide-react';
 
 /** One failing entity from a rule-impact preview. */
 export interface RuleImpactSample {
@@ -18,6 +18,10 @@ export interface RuleImpact {
   total: number;
   wouldPass: number;
   wouldFail: number;
+  /** Entities the preview couldn't evaluate (a derived field it couldn't resolve). */
+  notEvaluated: number;
+  /** Evaluated entities missing a field the rule reads. */
+  fieldAbsent: number;
   samples: RuleImpactSample[];
 }
 
@@ -49,6 +53,7 @@ export function RuleImpactPanel({
   showPassingState?: boolean;
 }): React.ReactElement {
   const hidden = impact.wouldFail - impact.samples.length;
+  const evaluated = impact.wouldPass + impact.wouldFail;
 
   return (
     <div className={`p-3 rounded-lg bg-indigo-50 dark:bg-indigo-900/20 text-sm border border-indigo-200 dark:border-indigo-800 ${className}`.trim()}>
@@ -76,6 +81,15 @@ export function RuleImpactPanel({
             <li className="text-xs text-fg-muted italic">+ {hidden} more</li>
           )}
         </ul>
+      )}
+      {evaluated > 0 && impact.fieldAbsent === evaluated && (
+        <div className="flex items-start gap-1.5 text-xs text-warning-strong mb-1">
+          <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+          <span>None of your {evaluated} entities has the field this rule reads, so its result is the same for all of them. Check that it reads the right field.</span>
+        </div>
+      )}
+      {impact.notEvaluated > 0 && (
+        <div className="text-xs text-fg-muted mb-1">{impact.notEvaluated} could not be evaluated right now and are not counted.</div>
       )}
       {showPassingState && impact.wouldFail === 0 && (
         <div className="flex items-center gap-1.5 text-xs text-success">

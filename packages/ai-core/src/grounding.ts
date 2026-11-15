@@ -78,7 +78,9 @@ export function chunkMarkdown(markdown: string, meta: { id: string; url?: string
     const text = buf.join('\n').trim();
     buf = [];
     if (!text) return;
-    const anchor = heading ? slugify(heading) : `intro-${chunks.length}`;
+    // A heading with no ASCII alphanumerics (CJK, emoji) slugifies to '' —
+    // fall back to a positional anchor so such chunks never share an id.
+    const anchor = (heading && slugify(heading)) || `${heading ? 'section' : 'intro'}-${chunks.length}`;
     chunks.push({
       id: `${meta.id}#${anchor}`,
       text: heading ? `${heading}\n${text}` : text,

@@ -67,6 +67,13 @@ describe('chunkMarkdown', () => {
     expect(chunks[0].text).toContain('# Step 1: generate');
     expect(chunks[0].text).toContain('pb deploy');
   });
+
+  it('gives non-Latin headings distinct positional anchors', () => {
+    const md = '# デプロイ\nfirst\n\n# 設定\nsecond\n\n# 🚀\nthird\n\n# Real Heading\nfourth';
+    const ids = chunkMarkdown(md, { id: 'ja.md' }).map((c) => c.id);
+    expect(ids).toEqual(['ja.md#section-0', 'ja.md#section-1', 'ja.md#section-2', 'ja.md#real-heading']);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
 });
 
 describe('buildGroundingIndex', () => {

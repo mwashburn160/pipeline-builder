@@ -3,7 +3,7 @@
   "description": "Req 7.1 Restrict access by need-to-know — accountable owner",
   "target": "pipeline",
   "severity": "warning",
-  "field": "owner",
+  "field": "ownerId",
   "operator": "notEmpty",
   "scope": "published",
   "tags": [

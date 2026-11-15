@@ -15,6 +15,8 @@
  *     `security` (the canonical category every scanner plugin declares —
  *     trivy, grype, snyk, semgrep, gitleaks …), so a new scanner counts without
  *     anyone editing a name list.
+ *   - `testSteps` — steps whose plugin's category is `testing` (jest, pytest,
+ *     cypress, cargo-test …), by the same rule.
  *   - `productionStages` / `approvalBeforeProduction` — a stage whose
  *     `environment` reads as production (`prod`, `production`, `prd`, `live`)
  *     must be preceded by a `ManualApprovalStep`: in an earlier stage, or in the
@@ -62,7 +64,7 @@ export const STEP_FACTS_KEY = 'stepFacts';
 
 /** The derived fields, as rule paths (`stepFacts.<field>`). */
 export const STEP_FACT_FIELDS = [
-  'securityScanSteps', 'productionStages', 'approvalBeforeProduction', 'kevSteps', 'kevStepNames',
+  'securityScanSteps', 'testSteps', 'productionStages', 'approvalBeforeProduction', 'kevSteps', 'kevStepNames',
 ] as const;
 
 /** What a step's reference resolves to, as far as the step facts care. */
@@ -75,6 +77,7 @@ export interface StepPluginFacts {
 
 export interface PipelineStepFacts {
   securityScanSteps: number;
+  testSteps: number;
   productionStages: number;
   approvalBeforeProduction: boolean;
   kevSteps: number;
@@ -137,11 +140,13 @@ function kevCount(scanSummary: unknown, scanFlag: unknown): number {
 export function derivePipelineStepFacts(props: unknown, resolved: ReadonlyMap<string, StepPluginFacts>): PipelineStepFacts {
   const steps = collectPluginSteps(props);
   let securityScanSteps = 0;
+  let testSteps = 0;
   const kevStepNames: string[] = [];
   for (const step of steps) {
     const facts = resolved.get(step.path);
     if (!facts) continue;
     if (facts.category === 'security') securityScanSteps++;
+    if (facts.category === 'testing') testSteps++;
     if (facts.kev > 0) kevStepNames.push(step.label);
   }
 
@@ -162,7 +167,7 @@ export function derivePipelineStepFacts(props: unknown, resolved: ReadonlyMap<st
     if (stageSteps.some((_, j) => isApproval(j))) approvalSeen = true;
   });
 
-  return { securityScanSteps, productionStages, approvalBeforeProduction, kevSteps: kevStepNames.length, kevStepNames };
+  return { securityScanSteps, testSteps, productionStages, approvalBeforeProduction, kevSteps: kevStepNames.length, kevStepNames };
 }
 
 /** Resolve one lookup filter the way the pipeline service's contract check does. */

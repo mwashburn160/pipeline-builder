@@ -72,13 +72,15 @@ export function deriveMarketplaceInterval(entitlement: EntitlementResult | undef
  * `expirationDate` (AWS's authoritative term end) when it lies after `start`,
  * else the cadence-derived fallback. A wall-clock period drifts from the real
  * term and made still-entitled subs look expired to the stale-period scan.
+ * `start` begins a new period, so the fallback anchors on its UTC day; callers
+ * store the same day as the row's `billingAnchorDay`.
  */
 export function marketplacePeriodEnd(
   exp: Date | undefined,
   start: Date,
   interval: BillingInterval,
 ): Date {
-  return exp instanceof Date && exp > start ? exp : calculatePeriodEnd(start, interval);
+  return exp instanceof Date && exp > start ? exp : calculatePeriodEnd(start, interval, start.getUTCDate());
 }
 
 // Helpers
@@ -209,6 +211,7 @@ export async function handleEntitlementUpdate(licenseArn: string): Promise<void>
     const oldInterval = subscription.interval;
     subscription.interval = newInterval;
     subscription.currentPeriodStart = now;
+    subscription.billingAnchorDay = now.getUTCDate();
     subscription.currentPeriodEnd = marketplacePeriodEnd(activeEntitlement?.expirationDate, now, newInterval);
     await subscription.save();
     await createBillingEvent(subscription.orgId, 'interval_changed', {
@@ -235,6 +238,7 @@ export async function handleEntitlementUpdate(licenseArn: string): Promise<void>
   if (intervalChanged) {
     subscription.interval = newInterval;
     subscription.currentPeriodStart = now;
+    subscription.billingAnchorDay = now.getUTCDate();
     subscription.currentPeriodEnd = marketplacePeriodEnd(activeEntitlement?.expirationDate, now, newInterval);
   }
 

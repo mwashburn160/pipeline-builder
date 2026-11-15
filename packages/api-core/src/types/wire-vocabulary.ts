@@ -48,6 +48,109 @@ export type RuleConditionMode = (typeof RULE_CONDITION_MODES)[number];
 export const RULE_SCOPES = ['org', 'published'] as const;
 export type RuleScope = (typeof RULE_SCOPES)[number];
 
+/** Computed-field functions a rule field may wrap a path in: `$count(props.stages)`. */
+export const RULE_FIELD_FUNCTIONS = ['count', 'length', 'keys', 'lines'] as const;
+export type RuleFieldFunction = (typeof RULE_FIELD_FUNCTIONS)[number];
+
+/** The value shape of a rule field, for the editor's picker and the operator hints. */
+export const RULE_FIELD_TYPES = ['string', 'number', 'boolean', 'array', 'map', 'object'] as const;
+export type RuleFieldType = (typeof RULE_FIELD_TYPES)[number];
+
+/**
+ * One field a compliance rule can read.
+ *
+ * - `open`: any dot-path below this one is readable too (`metadata.<key>`,
+ *   `props.stages`). The keys are the entity's own, so they can't be listed.
+ * - `derived`: not a stored column. The platform computes it (a plugin's image
+ *   facts, a pipeline's `stepFacts`), so a payload builder never copies it.
+ */
+export interface RuleFieldSpec {
+  readonly path: string;
+  readonly type: RuleFieldType;
+  readonly description: string;
+  readonly open?: true;
+  readonly derived?: true;
+}
+
+/** Every field a plugin rule can read. */
+export const PLUGIN_RULE_FIELDS = [
+  { path: 'name', type: 'string', description: 'Plugin name' },
+  { path: 'description', type: 'string', description: 'Catalog description' },
+  { path: 'keywords', type: 'array', description: 'Catalog keywords' },
+  { path: 'category', type: 'string', description: 'Catalog category (security, testing, deploy, …)' },
+  { path: 'version', type: 'string', description: 'Version string' },
+  { path: 'pluginType', type: 'string', description: 'Step type (CodeBuildStep, ShellStep, ManualApprovalStep)' },
+  { path: 'computeType', type: 'string', description: 'Build compute size (SMALL, MEDIUM, LARGE, X2_LARGE)' },
+  { path: 'timeout', type: 'number', description: 'Step timeout, minutes' },
+  { path: 'failureBehavior', type: 'string', description: 'What a failing step does (fail, warn, ignore)' },
+  { path: 'buildType', type: 'string', description: 'How the image is produced (build_image, prebuilt, metadata_only)' },
+  { path: 'visibility', type: 'string', description: 'Who can see the plugin (private, org, public)' },
+  { path: 'secrets', type: 'array', description: 'Declared secrets' },
+  { path: 'env', type: 'map', open: true, description: 'Environment variables (keys only; values are redacted)' },
+  { path: 'buildArgs', type: 'map', open: true, description: 'Docker build args (keys only; values are redacted)' },
+  { path: 'metadata', type: 'map', open: true, description: 'Step metadata, e.g. metadata.aws:cdk:codebuild:buildenvironment:privileged' },
+  { path: 'labels', type: 'map', open: true, description: 'Inventory labels' },
+  { path: 'installCommands', type: 'array', description: 'Install-phase commands' },
+  { path: 'commands', type: 'array', description: 'Build-phase commands' },
+  { path: 'signed', type: 'boolean', derived: true, description: 'The image carries the platform signature' },
+  { path: 'scanned', type: 'boolean', derived: true, description: 'A vulnerability scan of the image completed' },
+  { path: 'vulnCritical', type: 'number', derived: true, description: 'Critical findings (present only when scanned)' },
+  { path: 'vulnHigh', type: 'number', derived: true, description: 'High findings (present only when scanned)' },
+  { path: 'vulnMedium', type: 'number', derived: true, description: 'Medium findings (present only when scanned)' },
+  { path: 'vulnLow', type: 'number', derived: true, description: 'Low findings (present only when scanned)' },
+  { path: 'vulnCriticalFixable', type: 'number', derived: true, description: 'Critical findings with a fixed version' },
+  { path: 'vulnHighFixable', type: 'number', derived: true, description: 'High findings with a fixed version' },
+  { path: 'runAsRoot', type: 'boolean', derived: true, description: 'The image runs as root (present only when known)' },
+  { path: 'packages', type: 'array', derived: true, description: 'Package names from the signed SBOM' },
+  { path: 'tags', type: 'array', derived: true, description: 'Keywords plus labels as key=value' },
+] as const satisfies readonly RuleFieldSpec[];
+
+/** Every field a pipeline rule can read. */
+export const PIPELINE_RULE_FIELDS = [
+  { path: 'project', type: 'string', description: 'Project segment of the stack name' },
+  { path: 'organization', type: 'string', description: 'Organization segment of the stack name' },
+  { path: 'pipelineName', type: 'string', description: 'Pipeline name' },
+  { path: 'description', type: 'string', description: 'Pipeline description' },
+  { path: 'keywords', type: 'array', description: 'Pipeline keywords' },
+  { path: 'visibility', type: 'string', description: 'Who can see the pipeline (private, org, public)' },
+  { path: 'ownerId', type: 'string', description: 'Accountable owner' },
+  { path: 'labels', type: 'map', open: true, description: 'Inventory labels' },
+  { path: 'props', type: 'object', open: true, description: 'Pipeline definition: props.stages, props.environment, props.synth.source, props.tags, …' },
+  { path: 'stepFacts.securityScanSteps', type: 'number', derived: true, description: 'Steps whose plugin is a security scanner' },
+  { path: 'stepFacts.testSteps', type: 'number', derived: true, description: 'Steps whose plugin is in the testing category' },
+  { path: 'stepFacts.productionStages', type: 'number', derived: true, description: 'Stages whose environment reads as production' },
+  { path: 'stepFacts.approvalBeforeProduction', type: 'boolean', derived: true, description: 'Every production stage is preceded by a manual approval' },
+  { path: 'stepFacts.kevSteps', type: 'number', derived: true, description: 'Steps whose plugin version has a known-exploited finding' },
+  { path: 'stepFacts.kevStepNames', type: 'array', derived: true, description: 'Names of those steps' },
+] as const satisfies readonly RuleFieldSpec[];
+
+/** The readable fields of each rule target. */
+export const RULE_FIELDS: Readonly<Record<RuleTarget, readonly RuleFieldSpec[]>> = {
+  plugin: PLUGIN_RULE_FIELDS,
+  pipeline: PIPELINE_RULE_FIELDS,
+};
+
+/** `$count(props.stages)` → `{ fn: 'count', path: 'props.stages' }`; a plain path has no `fn`. */
+export function parseRuleField(field: string): { fn?: string; path: string } {
+  const m = /^\$(\w+)\((.+)\)$/.exec(field);
+  return m ? { fn: m[1]!, path: m[2]! } : { path: field };
+}
+
+/**
+ * Why `field` is not a readable field of `target`, or `null` when it is.
+ * A field is readable when it names a listed path exactly, or sits below an
+ * `open` one. Shared by the rule API (which refuses unknown fields) and the
+ * shipped-library check, so a rule can never again read a field no entity has.
+ */
+export function ruleFieldError(target: RuleTarget, field: string): string | null {
+  const { fn, path } = parseRuleField(field);
+  if (fn !== undefined && !(RULE_FIELD_FUNCTIONS as readonly string[]).includes(fn)) {
+    return `Unknown field function "$${fn}()"; use one of ${RULE_FIELD_FUNCTIONS.map((f) => `$${f}()`).join(', ')}`;
+  }
+  const known = RULE_FIELDS[target].some((spec) => spec.path === path || (spec.open === true && path.startsWith(`${spec.path}.`)));
+  return known ? null : `"${path}" is not a field a ${target} has`;
+}
+
 // -----------------------------------------------------------------------------
 // Messages
 // -----------------------------------------------------------------------------

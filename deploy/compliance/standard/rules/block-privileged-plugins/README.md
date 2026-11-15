@@ -11,7 +11,7 @@ Blocks plugins that request privileged Docker mode. Running containers in privil
 
 | Field | Operator | Value |
 |-------|----------|-------|
-| `privileged` | `neq` | `true` |
+| `metadata.aws:cdk:codebuild:buildenvironment:privileged` | `neq` | `true` |
 
 ## Rationale
 

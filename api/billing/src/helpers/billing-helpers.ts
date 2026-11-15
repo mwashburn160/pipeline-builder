@@ -43,16 +43,30 @@ export function billingServiceAuth(orgId: string, role: 'owner' | 'member' = 'ow
 }
 
 /**
- * Calculate the end date for a billing period.
+ * Calculate the end date for a billing period, in UTC.
+ *
+ * The end lands on `anchorDay` of the month one (monthly) or twelve (annual)
+ * months after `start`, clamped to that month's last day, keeping `start`'s
+ * UTC time of day. Clamping only shortens the one period: because the anchor
+ * is passed in rather than read off `start`, a subscription anchored on the
+ * 31st runs Jan 31 -> Feb 28 -> Mar 31 -> Apr 30 instead of drifting to the
+ * 28th for good. A Feb 29 annual anchor ends on Feb 28 in a common year.
+ *
+ * `anchorDay` is the subscription's `billingAnchorDay` — the UTC day of month
+ * its period started on when the period was last (re)started.
  */
-export function calculatePeriodEnd(start: Date, interval: BillingInterval): Date {
-  const end = new Date(start);
-  if (interval === 'annual') {
-    end.setFullYear(end.getFullYear() + 1);
-  } else {
-    end.setMonth(end.getMonth() + 1);
+export function calculatePeriodEnd(start: Date, interval: BillingInterval, anchorDay: number): Date {
+  if (!Number.isInteger(anchorDay) || anchorDay < 1 || anchorDay > 31) {
+    throw new RangeError(`billing anchor day must be an integer 1-31, got ${anchorDay}`);
   }
-  return end;
+  const year = start.getUTCFullYear();
+  const month = start.getUTCMonth() + (interval === 'annual' ? 12 : 1);
+  // Day 0 of the following month is the last day of the target month.
+  const lastDay = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+  return new Date(Date.UTC(
+    year, month, Math.min(anchorDay, lastDay),
+    start.getUTCHours(), start.getUTCMinutes(), start.getUTCSeconds(), start.getUTCMilliseconds(),
+  ));
 }
 
 /**

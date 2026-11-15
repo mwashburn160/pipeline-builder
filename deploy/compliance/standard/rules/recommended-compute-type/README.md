@@ -1,8 +1,8 @@
 # recommended-compute-type
 
-Recommends using the standard small compute type (`BUILD_GENERAL1_SMALL`) for pipelines. This is a published rule that orgs can subscribe to for cost governance.
+Recommends using the standard small compute type (`SMALL`) for plugins. This is a published rule that orgs can subscribe to for cost governance.
 
-**Target:** pipeline
+**Target:** plugin
 **Severity:** warning
 **Scope:** published (opt-in via subscription)
 **Priority:** 5
@@ -11,11 +11,11 @@ Recommends using the standard small compute type (`BUILD_GENERAL1_SMALL`) for pi
 
 | Field | Operator | Value |
 |-------|----------|-------|
-| `computeType` | `eq` | `BUILD_GENERAL1_SMALL` |
+| `computeType` | `eq` | `SMALL` |
 
 ## Rationale
 
-Larger compute types (MEDIUM, LARGE, 2XLARGE) cost significantly more per build minute. Most build and test workloads run efficiently on small instances. This rule helps teams identify pipelines that may be over-provisioned.
+Larger compute types (MEDIUM, LARGE, 2XLARGE) cost significantly more per build minute. Most build and test workloads run efficiently on small instances. This rule helps teams identify plugins that may be over-provisioned.
 
 ## How to Subscribe
 

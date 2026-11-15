@@ -8,7 +8,7 @@
  * post-build compliance check the upload deferred.
  */
 
-import { AppError, ErrorCode, createComplianceClient, createLogger, errorMessage, getServiceAuthHeader, parseDockerfile } from '@pipeline-builder/api-core';
+import { AppError, ErrorCode, createComplianceClient, createLogger, errorMessage, getServiceAuthHeader, parseDockerfile, pickRuleAttributes } from '@pipeline-builder/api-core';
 
 import { postBuildComplianceAttributes } from './plugin-compliance.js';
 import type { PluginRecordData } from './plugin-helpers.js';
@@ -85,21 +85,8 @@ export async function assertPostBuildCompliance(
   const derived = postBuildComplianceAttributes({ ...record, ...facts, imageDigest }, facts.packages);
   const authHeader = getServiceAuthHeader({ serviceName: 'plugin', orgId, role: 'member' });
   const result = await complianceClient.validatePlugin(orgId, {
+    ...pickRuleAttributes('plugin', record as unknown as Record<string, unknown>),
     name: record.name,
-    version: record.version,
-    pluginType: record.pluginType,
-    computeType: record.computeType,
-    timeout: record.timeout,
-    failureBehavior: record.failureBehavior,
-    env: record.env,
-    buildArgs: record.buildArgs,
-    installCommands: record.installCommands,
-    commands: record.commands,
-    visibility: record.visibility,
-    secrets: record.secrets,
-    metadata: record.metadata,
-    keywords: record.keywords,
-    buildType: record.buildType,
     ...derived.attributes,
   }, authHeader, undefined, record.name, 'build', derived.deferredFields);
   if (result.blocked) {

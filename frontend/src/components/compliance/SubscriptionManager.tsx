@@ -213,6 +213,8 @@ export default function SubscriptionManager({ readOnly = false }: SubscriptionMa
           total: d.total,
           wouldPass: d.wouldPass,
           wouldFail: d.wouldFail,
+          notEvaluated: d.notEvaluated,
+          fieldAbsent: d.fieldAbsent,
           samples: d.samples,
         });
       }

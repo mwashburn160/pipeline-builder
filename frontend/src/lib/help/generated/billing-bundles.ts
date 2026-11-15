@@ -1,6 +1,6 @@
 // GENERATED FROM docs/billing-bundles.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 24861110de673a7d994471a92b9b6a8c279131441a2879a95448ab862c1f5722
+// SOURCE-SHA256: c1291d92e0862fe7bdbe64a69e910c80fc56f1212a548718376ed1e26e450bc4
 // SPDX-License-Identifier: Apache-2.0
 import { Package } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -305,7 +305,7 @@ export const billingBundlesTopic: HelpTopic = {
             ],
             [
               "Standard Compliance",
-              "unlocks the compliance_standard feature — a curated CI/CD best-practice rule library (~20 rules)",
+              "unlocks the compliance_standard feature — a curated CI/CD best-practice rule library (9 rules in 5 policies)",
               "$29.99",
               "$299.99",
               "Developer, Pro, Team, Business",

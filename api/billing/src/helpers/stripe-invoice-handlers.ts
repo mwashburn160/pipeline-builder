@@ -126,8 +126,12 @@ export async function handlePaymentSucceeded(invoice: Stripe.Invoice, event: Str
       subscription.currentPeriodStart = new Date(linePeriod.start * 1000);
       subscription.currentPeriodEnd = new Date(linePeriod.end * 1000);
     } else {
+      // The period restarts now, so it re-anchors on today.
       subscription.currentPeriodStart = new Date();
-      subscription.currentPeriodEnd = calculatePeriodEnd(subscription.currentPeriodStart, subscription.interval);
+      subscription.billingAnchorDay = subscription.currentPeriodStart.getUTCDate();
+      subscription.currentPeriodEnd = calculatePeriodEnd(
+        subscription.currentPeriodStart, subscription.interval, subscription.billingAnchorDay,
+      );
     }
 
     // Restore active status if recovering from past_due

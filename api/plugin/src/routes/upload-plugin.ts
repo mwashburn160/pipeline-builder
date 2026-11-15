@@ -277,6 +277,8 @@ export function createUploadPluginRoutes( quotaService: QuotaService,
             const preflight = await compliancePreflight(orgId, authHeader, {
               attributes: {
                 name: s.name,
+                description: catalog.description,
+                category: catalog.category,
                 version: s.version,
                 pluginType: s.pluginType,
                 computeType: s.computeType,

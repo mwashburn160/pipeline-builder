@@ -8,6 +8,7 @@ import { z } from 'zod';
 import { EMAIL_PATTERN } from './email-address.js';
 import { config } from '../config/index.js';
 import { GRANTABLE_ORG_ROLES } from '../constants/member-roles.js';
+import { ORG_SLUG_MAX, ORG_SLUG_MIN, ORG_SLUG_PATTERN } from '../constants/org-slug.js';
 import { PASSWORD_MAX_LENGTH, PASSWORD_RULES } from '../constants/password.js';
 import { DOMAIN_JOIN_MODES, IMPERSONATION_POLICIES, INVITATION_TYPES } from '../constants/vocabulary.js';
 import { MAX_ALLOWED_AAGUIDS } from '../helpers/authenticator-policy.js';
@@ -244,16 +245,16 @@ export const createOrganizationSchema = z.object({
   parentOrgId: z.string().min(1).optional(),
 });
 
-/** Reusable org slug rule: lowercase alphanumeric words joined by single
- *  hyphens (no leading/trailing/double hyphens). Mirrors the shape the
- *  Organization model auto-generates via `slugify(..., { strict: true })`. */
+/** Reusable org slug rule (constants/org-slug.ts) — the same rule the
+ *  Organization model's auto-generator produces, so a generated slug always
+ *  saves back unchanged. */
 const orgSlugSchema = z
   .string()
   .trim()
   .toLowerCase()
-  .min(2, 'Slug must be at least 2 characters')
-  .max(100, 'Slug must be at most 100 characters')
-  .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, 'Slug may contain only lowercase letters, numbers, and single hyphens');
+  .min(ORG_SLUG_MIN, `Slug must be at least ${ORG_SLUG_MIN} characters`)
+  .max(ORG_SLUG_MAX, `Slug must be at most ${ORG_SLUG_MAX} characters`)
+  .regex(ORG_SLUG_PATTERN, 'Slug may contain only lowercase letters, numbers, and single hyphens');
 
 /** Sysadmin organization update (`PUT /organization/:id`): name, slug and/or
  *  description. The superset of the self-serve identity edit — description is

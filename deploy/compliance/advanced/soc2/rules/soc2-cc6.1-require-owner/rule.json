@@ -3,7 +3,7 @@
   "description": "CC6.1 Logical access: pipelines have an accountable owner",
   "target": "pipeline",
   "severity": "warning",
-  "field": "owner",
+  "field": "ownerId",
   "operator": "notEmpty",
   "scope": "published",
   "tags": [

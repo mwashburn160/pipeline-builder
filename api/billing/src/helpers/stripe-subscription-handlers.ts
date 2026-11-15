@@ -159,7 +159,7 @@ export async function handleSubscriptionCreated(stripeSubscription: Stripe.Subsc
   const periodStart = stripePeriod.current_period_start ? new Date(stripePeriod.current_period_start * 1000) : new Date();
   const periodEnd = stripePeriod.current_period_end
     ? new Date(stripePeriod.current_period_end * 1000)
-    : calculatePeriodEnd(periodStart, interval);
+    : calculatePeriodEnd(periodStart, interval, periodStart.getUTCDate());
 
   let subscription: SubscriptionDocument;
   try {
@@ -170,6 +170,7 @@ export async function handleSubscriptionCreated(stripeSubscription: Stripe.Subsc
       interval,
       currentPeriodStart: periodStart,
       currentPeriodEnd: periodEnd,
+      billingAnchorDay: periodStart.getUTCDate(),
       cancelAtPeriodEnd: stripeSubscription.cancel_at_period_end ?? false,
       externalId,
       externalCustomerId: customerId,

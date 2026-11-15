@@ -1,5 +1,5 @@
 {
-  "name": "block-latest-version",
+  "name": "block-latest-image-tag",
   "description": "Plugin versions must not be the literal string 'latest' — pin to a specific semver for reproducible builds",
   "target": "plugin",
   "severity": "error",

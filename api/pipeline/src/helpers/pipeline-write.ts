@@ -14,6 +14,7 @@ import {
   errorMessage,
   isSystemAdmin,
   pickDefined,
+  pickRuleAttributes,
   resolveVisibility,
   userHasPermission,
   type PipelineCreateSchema,
@@ -183,13 +184,18 @@ export async function createOnePipeline(
   const { project, organization, pipelineName, visibility } = prepared;
 
   try {
-    const verdict = await complianceClient.validatePipeline(orgId, {
+    // The pipeline as it will be stored: the creator is always its owner.
+    const verdict = await complianceClient.validatePipeline(orgId, pickRuleAttributes('pipeline', {
       project,
       organization,
       pipelineName,
+      description: body.description ?? '',
+      keywords: body.keywords ?? [],
       props: body.props,
       visibility,
-    }, serviceAuth, undefined, pipelineName, 'create');
+      ownerId: actorId({ userId }),
+      labels: body.labels,
+    }), serviceAuth, undefined, pipelineName, 'create');
     if (verdict.blocked) {
       // A refused create is still an attempt a reviewer must see: no pipeline
       // exists, so the slot it would have taken rides in `details`.

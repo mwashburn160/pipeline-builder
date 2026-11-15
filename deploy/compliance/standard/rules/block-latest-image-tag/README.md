@@ -1,4 +1,4 @@
-# block-latest-version
+# block-latest-image-tag
 
 Blocks plugins whose `version` is the literal string `latest`. Using `latest` as a version makes builds non-reproducible because the underlying image bytes can change without notice.
 

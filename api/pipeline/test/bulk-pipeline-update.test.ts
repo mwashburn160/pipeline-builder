@@ -19,6 +19,11 @@ const mockUpdate = jest.fn<(...a: any[]) => Promise<any>>();
 const mockFindByIds = jest.fn<(...a: any[]) => Promise<any>>().mockResolvedValue([]);
 const mockEmitAudit = jest.fn();
 const mockValidatePipeline = jest.fn<(...a: any[]) => Promise<any>>();
+// Edits to rule-readable fields (description, keywords, …) are re-checked, so
+// suites that aren't about compliance get an allowing verdict by default.
+beforeEach(() => {
+  mockValidatePipeline.mockResolvedValue({ blocked: false, violations: [], warnings: [] });
+});
 const mockCreateAsDefault = jest.fn<(...a: any[]) => Promise<any>>();
 
 // Plugin-contract check — resolves plugins through the DB; stubbed here
@@ -133,7 +138,7 @@ describe('PUT /pipelines/bulk/update — per-item isolation', () => {
       return { id };
     });
 
-    const req = mockReq({ ids: [ID1, ID2, ID3, ID4], data: { description: 'x' } });
+    const req = mockReq({ ids: [ID1, ID2, ID3, ID4], data: { isActive: false } });
     const res = mockRes();
     await handler(req, res);
 
@@ -175,7 +180,7 @@ describe('PUT /pipelines/bulk/update — per-item isolation', () => {
   it('reports all failures without throwing when every update rejects', async () => {
     mockUpdate.mockRejectedValue(new Error('boom'));
 
-    const req = mockReq({ ids: [ID1, ID2], data: { description: 'x' } });
+    const req = mockReq({ ids: [ID1, ID2], data: { isActive: false } });
     const res = mockRes();
     await handler(req, res);
 
@@ -265,8 +270,20 @@ describe('PUT /pipelines/bulk/update — compliance re-check (shared with single
     expect(payload.errors[0].error).toMatch(/Compliance service unavailable/);
   });
 
-  it('skips the compliance round-trip for a metadata-only edit', async () => {
+  it('re-checks an edit to a field rules read (description)', async () => {
     await handler(mockReq({ ids: [ID1, ID2], data: { description: 'x' } }), mockRes());
+    expect(mockValidatePipeline).toHaveBeenCalledTimes(2);
+    expect(mockValidatePipeline.mock.calls[0][1]).toMatchObject({ description: 'x', pipelineName: expect.any(String) });
+  });
+
+  it('re-checks a rename, so a naming rule sees the new name', async () => {
+    await handler(mockReq({ ids: [ID1], data: { pipelineName: 'Bad Name' } }), mockRes());
+    expect(mockValidatePipeline).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ pipelineName: 'Bad Name' }),
+      expect.any(String), ID1, 'Bad Name', 'update');
+  });
+
+  it('skips the compliance round-trip for an edit no rule reads', async () => {
+    await handler(mockReq({ ids: [ID1, ID2], data: { isActive: false } }), mockRes());
     expect(mockValidatePipeline).not.toHaveBeenCalled();
     expect(mockUpdate).toHaveBeenCalledTimes(2);
   });
@@ -296,7 +313,7 @@ describe('bulk routes — plugin contract enforcement', () => {
   });
 
   it('bulk update skips the contract check when props are not changing', async () => {
-    await getHandler('put', '/bulk/update')(mockReq({ ids: [ID1], data: { description: 'x' } }), mockRes());
+    await getHandler('put', '/bulk/update')(mockReq({ ids: [ID1], data: { isActive: false } }), mockRes());
     expect(mockFindContractViolations).not.toHaveBeenCalled();
     expect(mockUpdate).toHaveBeenCalledTimes(1);
   });
@@ -359,6 +376,8 @@ describe('bulk routes — catalog metadata parity with single create/update', ()
   });
 
   it('bulk update writes catalog metadata; ownership only for an admin', async () => {
+    // Catalog fields are rule-readable, so each row is re-checked against its stored state.
+    mockFindByIds.mockResolvedValue([{ id: ID1, orgId: 'test-org', project: 'p', organization: 'o', pipelineName: 'n', visibility: 'private', createdBy: 'test-user' }]);
     await getHandler('put', '/bulk/update')(mockReq({ ids: [ID1], data: { ...catalog, ownerId: 'u-2', ownerType: 'user' } }), mockRes());
     expect(mockUpdate.mock.calls[0][1]).toEqual(catalog);
 

@@ -3,8 +3,8 @@
 
 import { DEFAULT_TIER, PLAN_TIERS, type PlanTier, type PlanTierLimits, VALID_TIERS, nextQuotaResetDate, quotaPeriodDays } from '@pipeline-builder/api-core';
 import { Schema, model, Types, Model, type HydratedDocument } from 'mongoose';
-import slugify from 'slugify';
 import { IMPERSONATION_POLICIES } from '../constants/vocabulary.js';
+import { nextOrgSlug, orgSlugBase, orgSlugCollisionPattern } from '../helpers/org-slug.js';
 
 /**
  * Quota usage tracking interface
@@ -617,29 +617,16 @@ organizationSchema.pre<OrganizationDocument>('validate', async function () {
   if (this.isModified('slug') && this.slug) return;
   if (!this.isModified('name') && this.slug) return;
 
-  const baseSlug = slugify(this.name, { lower: true, strict: true });
-  const slugRegex = new RegExp(`^(${baseSlug})(-[0-9]+)?$`, 'i');
-
+  const baseSlug = orgSlugBase(this.name);
   const existingOrgs = await (this.constructor as Model<OrganizationDocument>)
     .find({
-      slug: slugRegex,
+      slug: orgSlugCollisionPattern(baseSlug),
       _id: { $ne: this._id },
     })
     .select('slug')
     .lean();
 
-  if (existingOrgs.length === 0) {
-    this.slug = baseSlug;
-  } else {
-    const suffixes = existingOrgs.map((org: { slug: string }) => {
-      const parts = org.slug.split('-');
-      const lastPart = parseInt(parts[parts.length - 1], 10);
-      return isNaN(lastPart) ? 0 : lastPart;
-    });
-    const maxSuffix = Math.max(0, ...suffixes);
-    this.slug = `${baseSlug}-${maxSuffix + 1}`;
-  }
-
+  this.slug = nextOrgSlug(baseSlug, existingOrgs.map((org: { slug: string }) => org.slug));
 });
 
 export default model<OrganizationData>('Organization', organizationSchema);

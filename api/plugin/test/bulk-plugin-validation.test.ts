@@ -436,9 +436,16 @@ describe('PUT /plugins/bulk/update — compliance re-check parity with single up
     expect(mockUpdateMany).not.toHaveBeenCalled();
   });
 
-  it('skips the round-trip for a catalog-metadata-only edit', async () => {
+  it('re-checks a description edit, sending the edited description', async () => {
     const { res } = makeRes();
-    await getUpdateHandler()({ body: { ids: [P1], data: { description: 'x', isActive: false } }, user: { isSuperAdmin: true } }, res);
+    await getUpdateHandler()({ body: { ids: [P1], data: { description: 'now documented' } }, user: { isSuperAdmin: true } }, res);
+    expect(mockValidatePlugin).toHaveBeenCalledWith('org-1', expect.objectContaining({ name: 'a', description: 'now documented' }),
+      expect.any(String), P1, 'a', 'update', ['packages']);
+  });
+
+  it('skips the round-trip for an edit no rule reads', async () => {
+    const { res } = makeRes();
+    await getUpdateHandler()({ body: { ids: [P1], data: { isActive: false } }, user: { isSuperAdmin: true } }, res);
     expect(mockValidatePlugin).not.toHaveBeenCalled();
     expect(mockUpdateMany).toHaveBeenCalled();
   });

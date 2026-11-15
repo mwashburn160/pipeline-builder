@@ -265,6 +265,8 @@ export function complianceApi(core: ApiCore) {
         total: number;
         wouldPass: number;
         wouldFail: number;
+        notEvaluated: number;
+        fieldAbsent: number;
         samples: Array<{ entityType: string; entityId: string; entityName: string | null; messages: string[] }>;
       }>>('/api/compliance/subscriptions/preview/impact', {
         method: 'POST',

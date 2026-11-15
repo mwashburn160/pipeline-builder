@@ -421,6 +421,42 @@ describe('diagnosis — diagnose_installs', () => {
     expect(postedPaths()).toEqual([]);
   });
 
+  it('orders fixes by SemVer: a release clears above its prerelease, and a non-version never wins', async () => {
+    plugin.get.mockResolvedValue({
+      data: {
+        installs: [{
+          id: 'i1',
+          publisherHandle: 'acme',
+          name: 'scan',
+          resolvedVersion: '1.0.0-rc.1',
+          advisories: [
+            { id: 'a1', severity: 'high', fixedVersion: '1.0.0' },
+            { id: 'a2', severity: 'high', fixedVersion: 'unreleased' },
+            { id: 'a3', severity: 'high', fixedVersion: '1.0.0-rc.2' },
+          ],
+        }],
+      },
+    });
+    const out = await call('diagnose_installs', {});
+    expect((out.installs as Array<{ clearedBy: string }>)[0].clearedBy).toBe('1.0.0');
+  });
+
+  it('falls back to string order when no fix is a version', async () => {
+    plugin.get.mockResolvedValue({
+      data: {
+        installs: [{
+          id: 'i1',
+          publisherHandle: 'acme',
+          name: 'scan',
+          resolvedVersion: 'main',
+          advisories: [{ id: 'a1', severity: 'high', fixedVersion: 'beta' }, { id: 'a2', severity: 'high', fixedVersion: 'alpha' }],
+        }],
+      },
+    });
+    const out = await call('diagnose_installs', {});
+    expect((out.installs as Array<{ clearedBy: string }>)[0].clearedBy).toBe('beta');
+  });
+
   it('says plainly when nothing is exposed', async () => {
     plugin.get.mockResolvedValue({ data: { installs: [{ id: 'i1', publisherHandle: 'a', name: 'b', advisories: [] }] } });
     const out = await call('diagnose_installs', {});

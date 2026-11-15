@@ -3,9 +3,9 @@
   "description": "Req 6.4 Separate test from production",
   "target": "pipeline",
   "severity": "error",
-  "field": "hasTestStage",
-  "operator": "eq",
-  "value": true,
+  "field": "stepFacts.testSteps",
+  "operator": "gt",
+  "value": 0,
   "scope": "published",
   "tags": [
     "set:advanced",

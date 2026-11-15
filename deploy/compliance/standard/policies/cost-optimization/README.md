@@ -1,6 +1,6 @@
 # cost-optimization
 
-A policy focused on controlling infrastructure costs by enforcing timeout limits, stage counts, and compute type recommendations.
+A policy focused on controlling infrastructure costs by limiting stage counts and recommending cost-effective compute types.
 
 **Version:** 1.0.0
 **Template:** yes (available for cloning)
@@ -10,9 +10,8 @@ A policy focused on controlling infrastructure costs by enforcing timeout limits
 
 | Rule | Target | Severity | Purpose |
 |------|--------|----------|---------|
-| `enforce-pipeline-timeout` | pipeline | error | Cap pipeline execution at 120 minutes |
 | `max-pipeline-stages` | pipeline | warning | Limit the number of stages per pipeline |
-| `recommended-compute-type` | pipeline | warning | Guide teams toward cost-effective compute types |
+| `recommended-compute-type` | plugin | warning | Guide teams toward cost-effective compute types |
 
 ## When to Use
 
@@ -24,6 +23,6 @@ Apply this policy when:
 ## Customization
 
 After cloning, organizations can:
-- Adjust the timeout threshold (e.g. 60 minutes for dev, 120 for production)
+- Adjust the stage-count threshold to match your delivery model
 - Change compute type recommendations to match available instance types
 - Promote warnings to errors for stricter enforcement

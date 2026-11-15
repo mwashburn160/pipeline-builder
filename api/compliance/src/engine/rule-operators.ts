@@ -10,7 +10,7 @@
 
 import { createContext, Script, type Context } from 'vm';
 import { createLogger, envInt, errorMessage } from '@pipeline-builder/api-core';
-import type { RuleOperator } from '@pipeline-builder/api-core';
+import type { RuleFieldFunction, RuleOperator } from '@pipeline-builder/api-core';
 
 const logger = createLogger('rule-operators');
 
@@ -109,7 +109,7 @@ export function safeRegexTest(pattern: string, value: string): boolean {
 }
 
 /** The computed-field prefixes `getFieldValue` understands, keyed by name. */
-const COMPUTED_FIELDS: Readonly<Record<string, (val: unknown) => unknown>> = {
+const COMPUTED_FIELDS: Readonly<Record<RuleFieldFunction, (val: unknown) => unknown>> = {
   count: (val) => Array.isArray(val) ? val.length : (val && typeof val === 'object') ? Object.keys(val).length : 0,
   length: (val) => typeof val === 'string' ? val.length : 0,
   keys: (val) => (val && typeof val === 'object' && !Array.isArray(val)) ? Object.keys(val) : [],
@@ -142,7 +142,7 @@ export function getFieldValue(entity: Record<string, unknown>, fieldPath: string
     // Own keys only: `fn` comes from a rule's field text, and a plain lookup
     // answered `$constructor(x)` with Object's constructor.
     if (!Object.hasOwn(COMPUTED_FIELDS, fn!)) return undefined;
-    return COMPUTED_FIELDS[fn!]!(getFieldValue(entity, innerPath!));
+    return COMPUTED_FIELDS[fn as RuleFieldFunction](getFieldValue(entity, innerPath!));
   }
 
   // Standard dot-notation traversal
@@ -158,6 +158,17 @@ export function getFieldValue(entity: Record<string, unknown>, fieldPath: string
   return current;
 }
 
+/**
+ * Whether the entity has the value a rule field reads: the path itself, or for
+ * a computed field (`$count(props.stages)`) the path inside it — `$count` of a
+ * missing array is 0, which reads like an empty one but isn't.
+ */
+export function isFieldPresent(entity: Record<string, unknown>, fieldPath: string): boolean {
+  const inner = /^\$\w+\((.+)\)$/.exec(fieldPath)?.[1] ?? fieldPath;
+  const value = getFieldValue(entity, inner);
+  return value !== undefined && value !== null;
+}
+
 /** Check if fieldValue contains ruleValue (string or array). */
 function evalContains(fieldValue: unknown, ruleValue: unknown): boolean {
   if (typeof fieldValue === 'string' && typeof ruleValue === 'string') {
@@ -167,6 +178,27 @@ function evalContains(fieldValue: unknown, ruleValue: unknown): boolean {
     return fieldValue.some((v) => String(v).toLowerCase() === String(ruleValue).toLowerCase());
   }
   return false;
+}
+
+/**
+ * A comparable number, or `NaN`. A finite number, or a string that is one
+ * (rule values authored as `"120"`). `null`, `""`, booleans and everything else
+ * are NOT numbers: `Number()` turned `null` and `""` into 0, so `lte 0` passed
+ * on a value that wasn't there.
+ */
+function asNumber(v: unknown): number {
+  if (typeof v === 'number') return Number.isFinite(v) ? v : Number.NaN;
+  if (typeof v === 'string' && v.trim() !== '') return Number(v);
+  return Number.NaN;
+}
+
+/** `test(field, rule)` when both are numbers; a non-number on either side fails. */
+function numeric(test: (a: number, b: number) => boolean): (fv: unknown, rv: unknown) => boolean {
+  return (fv, rv) => {
+    const a = asNumber(fv);
+    const b = asNumber(rv);
+    return !Number.isNaN(a) && !Number.isNaN(b) && test(a, b);
+  };
 }
 
 /**
@@ -185,10 +217,10 @@ const OPERATORS: Readonly<Record<RuleOperator, (fv: unknown, rv: unknown) => boo
   // Regex
   regex: (fv, rv) => typeof rv === 'string' && safeRegexTest(rv, String(fv ?? '')),
   // Numeric comparison
-  gt: (fv, rv) => Number(fv) > Number(rv),
-  gte: (fv, rv) => Number(fv) >= Number(rv),
-  lt: (fv, rv) => Number(fv) < Number(rv),
-  lte: (fv, rv) => Number(fv) <= Number(rv),
+  gt: numeric((a, b) => a > b),
+  gte: numeric((a, b) => a >= b),
+  lt: numeric((a, b) => a < b),
+  lte: numeric((a, b) => a <= b),
   // Set membership
   in: (fv, rv) => Array.isArray(rv) && rv.some((v) => String(v) === String(fv)),
   notIn: (fv, rv) => !Array.isArray(rv) || !rv.some((v) => String(v) === String(fv)),
@@ -200,10 +232,10 @@ const OPERATORS: Readonly<Record<RuleOperator, (fv: unknown, rv: unknown) => boo
   // `exists` would still pass on `field: ''`.
   notEmpty: (fv) => fv !== null && fv !== undefined && fv !== '' && fv !== 0 && fv !== false,
   // Count/length aliases (used with computed $count/$length fields)
-  countGt: (fv, rv) => Number(fv) > Number(rv),
-  countLt: (fv, rv) => Number(fv) < Number(rv),
-  lengthGt: (fv, rv) => Number(fv) > Number(rv),
-  lengthLt: (fv, rv) => Number(fv) < Number(rv),
+  countGt: numeric((a, b) => a > b),
+  countLt: numeric((a, b) => a < b),
+  lengthGt: numeric((a, b) => a > b),
+  lengthLt: numeric((a, b) => a < b),
 };
 
 /**

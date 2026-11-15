@@ -3,7 +3,7 @@
   "description": "Plugins must not request privileged Docker mode — prevents container escape attacks",
   "target": "plugin",
   "severity": "critical",
-  "field": "privileged",
+  "field": "metadata.aws:cdk:codebuild:buildenvironment:privileged",
   "operator": "neq",
   "value": true,
   "priority": 100,

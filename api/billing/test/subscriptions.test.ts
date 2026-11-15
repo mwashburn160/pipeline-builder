@@ -698,9 +698,12 @@ describe('PUT /subscriptions/:id', () => {
     // The period restarts at the change...
     expect(sub.currentPeriodStart.getTime()).toBeGreaterThanOrEqual(before);
     // ...and the new end is computed from THAT, not from the year-old start.
-    const [startUsed, intervalUsed] = mockCalculatePeriodEnd.mock.calls.at(-1) as unknown as [Date, string];
+    const [startUsed, intervalUsed, anchorUsed] = mockCalculatePeriodEnd.mock.calls.at(-1) as unknown as [Date, string, number];
     expect(startUsed.getTime()).toBeGreaterThanOrEqual(before);
     expect(intervalUsed).toBe('monthly');
+    // ...and the anchor moves to the restart day, stored on the row.
+    expect(anchorUsed).toBe(startUsed.getUTCDate());
+    expect((sub as { billingAnchorDay?: number }).billingAnchorDay).toBe(startUsed.getUTCDate());
   });
 
   it('interval-only change pushes the NEW interval to the provider (mischarge fix)', async () => {

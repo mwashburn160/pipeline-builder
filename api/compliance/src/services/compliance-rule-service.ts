@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { SYSTEM_ACTOR_ID, ConflictError, createCacheService, createLogger, errorMessage, RULE_TARGETS, SYSTEM_ORG_ID, toComplianceAttributes, ValidationError, type RuleSeverity } from '@pipeline-builder/api-core';
+import { SYSTEM_ACTOR_ID, ConflictError, createCacheService, createLogger, errorMessage, RULE_TARGETS, ruleFieldError, SYSTEM_ORG_ID, toComplianceAttributes, ValidationError, type RuleSeverity } from '@pipeline-builder/api-core';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { CrudService, buildComplianceRuleConditions, buildPublishedRuleCatalogConditions, runWithTenantContext, schema, withTenantTx, type ComplianceRuleFilter, type RuleTarget, type RuleScope } from '@pipeline-builder/pipeline-data';
 import { SQL, eq, and, or, desc, inArray, isNull } from 'drizzle-orm';
@@ -24,6 +24,32 @@ export class InvalidRuleRegexError extends ValidationError {
     super(message);
     this.name = 'InvalidRuleRegexError';
   }
+}
+
+/**
+ * Thrown by `create`/`update` when the rule (or one of its conditions) reads a
+ * field its target's entities don't have. Such a rule can only ever fail every
+ * entity or pass every one, and neither is what its author meant. Extends
+ * `ValidationError`, so `withRoute` answers it as a 400.
+ */
+export class UnknownRuleFieldError extends ValidationError {
+  constructor(message: string) {
+    super(message);
+    this.name = 'UnknownRuleFieldError';
+  }
+}
+
+/** Why the first unreadable field of `data` (its own, or a condition's) is unreadable for `target`, or null. */
+function unknownRuleFieldMessage(target: RuleTarget, data: { field?: unknown; conditions?: unknown }): string | null {
+  const conditionFields = Array.isArray(data.conditions)
+    ? data.conditions.map((c) => (c && typeof c === 'object' ? (c as { field?: unknown }).field : undefined))
+    : [];
+  for (const field of [data.field, ...conditionFields]) {
+    if (typeof field !== 'string' || field === '') continue;
+    const error = ruleFieldError(target, field);
+    if (error) return `Unknown rule field: ${error}`;
+  }
+  return null;
 }
 
 /**
@@ -592,6 +618,8 @@ export class ComplianceRuleService extends CrudService<
     // can't narrow the union, so cast to the validator's input shape.
     const regexError = validateRuleRegexPatterns(data as Parameters<typeof validateRuleRegexPatterns>[0]);
     if (regexError) throw new InvalidRuleRegexError(regexError);
+    const fieldError = unknownRuleFieldMessage(data.target as RuleTarget, data);
+    if (fieldError) throw new UnknownRuleFieldError(fieldError);
     // Guard published rules against typo'd/unknown `set:<x>` tags (see
     // InvalidSetTagError). Org-scoped rules are unaffected.
     if ((data as { scope?: RuleScope }).scope === 'published') {
@@ -624,6 +652,10 @@ export class ComplianceRuleService extends CrudService<
     const regexError = validateRuleRegexPatterns(data as Parameters<typeof validateRuleRegexPatterns>[0]);
     if (regexError) throw new InvalidRuleRegexError(regexError);
     const existing = await this.findById(id, orgId);
+    if (existing) {
+      const fieldError = unknownRuleFieldMessage(existing.target as RuleTarget, data as { field?: unknown; conditions?: unknown });
+      if (fieldError) throw new UnknownRuleFieldError(fieldError);
+    }
     // A published rule whose tags are being updated must not introduce an
     // unknown `set:<x>` tag. The update body carries no `scope`, so the target
     // rule's stored scope decides whether the guard applies.

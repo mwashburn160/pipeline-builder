@@ -1,20 +1,18 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createComplianceClient, errorMessage, getServiceAuthHeader } from '@pipeline-builder/api-core';
+import { RULE_FIELDS, createComplianceClient, errorMessage, getServiceAuthHeader, pickRuleAttributes } from '@pipeline-builder/api-core';
 
 const complianceClient = createComplianceClient();
 
 type ValidateResult = Awaited<ReturnType<typeof complianceClient.validatePipeline>>;
 
 /** The existing-row fields the compliance re-check reads. */
+/** The stored pipeline an update starts from: its id, plus whatever rule-readable columns the caller has. */
 export interface ComplianceCheckedPipeline {
   id: string;
-  project: string;
-  organization: string;
   pipelineName?: string | null;
-  props?: unknown;
-  visibility?: string | null;
+  [column: string]: unknown;
 }
 
 /** Outcome of the fail-closed compliance re-check for one pipeline update. */
@@ -23,13 +21,16 @@ export type UpdateComplianceVerdict =
   | { status: 'blocked'; violations: ValidateResult['violations'] }
   | { status: 'unavailable'; error: string };
 
+/** The stored pipeline columns a rule can read (`pipelineName`, `props`, `ownerId`, …). */
+const RULE_READABLE_COLUMNS: readonly string[] = [...new Set(RULE_FIELDS.pipeline.filter((f) => !f.derived).map((f) => f.path.split('.')[0]!))];
+
 /**
- * Whether an update can change the pipeline's compliance posture. Only config
- * (`props`) and `visibility` do — a metadata- or name-only edit doesn't, so it
+ * Whether an update can change the pipeline's compliance posture: it touches a
+ * column some rule can read. An edit to anything else (links, active flag)
  * doesn't pay a compliance round-trip or get blocked by a compliance outage.
  */
-export function isComplianceRelevantUpdate(update: { props?: unknown; visibility?: unknown }): boolean {
-  return update.props !== undefined || update.visibility !== undefined;
+export function isComplianceRelevantUpdate(update: Record<string, unknown>): boolean {
+  return RULE_READABLE_COLUMNS.some((column) => update[column] !== undefined);
 }
 
 /**
@@ -45,18 +46,13 @@ export function isComplianceRelevantUpdate(update: { props?: unknown; visibility
 export async function checkPipelineUpdateCompliance(
   orgId: string,
   existing: ComplianceCheckedPipeline,
-  update: { pipelineName?: unknown; props?: unknown; visibility?: unknown },
+  update: Record<string, unknown>,
 ): Promise<UpdateComplianceVerdict> {
   const serviceAuth = getServiceAuthHeader({ serviceName: 'pipeline', orgId, role: 'member' });
   const resolvedName = (update.pipelineName ?? existing.pipelineName) as string | undefined;
   try {
-    const result = await complianceClient.validatePipeline(orgId, {
-      project: existing.project,
-      organization: existing.organization,
-      pipelineName: resolvedName,
-      props: update.props ?? existing.props,
-      visibility: update.visibility ?? existing.visibility,
-    }, serviceAuth, existing.id, resolvedName, 'update');
+    const defined = Object.fromEntries(Object.entries(update).filter(([, v]) => v !== undefined));
+    const result = await complianceClient.validatePipeline(orgId, pickRuleAttributes('pipeline', { ...existing, ...defined }), serviceAuth, existing.id, resolvedName, 'update');
     return result.blocked ? { status: 'blocked', violations: result.violations } : { status: 'ok' };
   } catch (err) {
     return { status: 'unavailable', error: errorMessage(err) };

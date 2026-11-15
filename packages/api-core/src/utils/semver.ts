@@ -56,41 +56,97 @@ export function compareSemver(a: string, b: string): -1 | 0 | 1 {
   return 0;
 }
 
-/** A partial version (`26`, `26.13`) padded to x.y.z, or null. */
-function padded(v: string): string | null {
-  const m = /^v?(\d+)(?:\.(\d+))?(?:\.(\d+))?(-[0-9A-Za-z.-]+)?$/.exec(v);
+/**
+ * A comparator's version operand: 0-3 numeric parts (`26`, `26.5`, `26.5.1`),
+ * where a trailing `x` / `X` / `*` part counts as absent (`26.x` = `26`). A
+ * prerelease is only meaningful on a full version. Null when unparseable.
+ */
+interface Operand { nums: number[]; pre: string }
+
+function parsePartial(v: string): Operand | null {
+  const m = /^v?(\d+|[xX*])(?:\.(\d+|[xX*]))?(?:\.(\d+|[xX*]))?(-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.exec(v);
   if (!m) return null;
-  return `${m[1]}.${m[2] ?? 0}.${m[3] ?? 0}${m[4] ?? ''}`;
+  const parts = [m[1], m[2], m[3]].filter((p): p is string => p !== undefined);
+  const wild = parts.findIndex((p) => !/^\d+$/.test(p));
+  // A number after a wildcard (`1.x.3`) has no meaning.
+  if (wild >= 0 && parts.slice(wild).some((p) => /^\d+$/.test(p))) return null;
+  const nums = (wild >= 0 ? parts.slice(0, wild) : parts).map(Number);
+  if (m[4] && nums.length < 3) return null;
+  return { nums, pre: m[4] ?? '' };
+}
+
+type Bound = ['>=' | '>' | '<=' | '<' | '=', string];
+
+/** `nums` padded to x.y.z with zeros. */
+function full(nums: number[], pre = ''): string {
+  return `${nums[0] ?? 0}.${nums[1] ?? 0}.${nums[2] ?? 0}${pre}`;
+}
+
+/**
+ * The exclusive upper bound one past the last part that is fixed: `bumpAt([1,2,3], 0)`
+ * is `2.0.0-0`, `bumpAt([1,2,3], 1)` is `1.3.0-0`. The `-0` keeps the next
+ * version's prereleases out, as npm does.
+ */
+function bumpAt(nums: number[], i: number): string {
+  const out = [0, 0, 0];
+  for (let k = 0; k < i; k++) out[k] = nums[k] ?? 0;
+  out[i] = (nums[i] ?? 0) + 1;
+  return `${full(out)}-0`;
+}
+
+/**
+ * One comparator desugared to plain bounds, with npm's meaning for partial
+ * operands: a bare or `=` partial is the whole span it names (`26` =
+ * `>=26.0.0 <27.0.0-0`), `<=26` = `<27.0.0-0`, `>26` = `>=27.0.0`, `~` fixes
+ * major.minor (major alone when only that is given), and `^` fixes the
+ * left-most non-zero part among those given (`^0.0.3` = exactly `0.0.3`).
+ * An empty list matches anything; null means the comparator matches nothing.
+ */
+function bounds(op: string, p: Operand): Bound[] | null {
+  const n = p.nums.length;
+  const lower = full(p.nums, p.pre);
+  if (n === 0) return op === '<' || op === '>' ? null : [];
+  switch (op) {
+    case '>=': return [['>=', lower]];
+    case '>': return n === 3 ? [['>', lower]] : [['>=', bumpAt(p.nums, n - 1).replace(/-0$/, '')]];
+    case '<': return [['<', n === 3 ? lower : `${lower}-0`]];
+    case '<=': return n === 3 ? [['<=', lower]] : [['<', bumpAt(p.nums, n - 1)]];
+    case '~': return [['>=', lower], ['<', bumpAt(p.nums, n === 1 ? 0 : 1)]];
+    case '^': {
+      // The left-most non-zero part, or the last one given when all are zero.
+      const nz = p.nums.findIndex((x) => x !== 0);
+      return [['>=', lower], ['<', bumpAt(p.nums, nz >= 0 ? nz : n - 1)]];
+    }
+    default: return n === 3 ? [['=', lower]] : [['>=', lower], ['<', bumpAt(p.nums, n - 1)]];
+  }
 }
 
 function satisfiesComparator(version: string, comparator: string): boolean | null {
   const m = /^(>=|<=|>|<|=|\^|~)?\s*(.+)$/.exec(comparator);
   if (!m) return null;
-  const op = m[1] ?? '=';
-  const base = padded(m[2]!);
-  if (!base) return null;
-  const c = compareSemver(version, base);
-  switch (op) {
-    case '>=': return c >= 0;
-    case '>': return c > 0;
-    case '<=': return c <= 0;
-    case '<': return c < 0;
-    case '=': return c === 0;
-    default: {
-      // ^ keeps the left-most non-zero part fixed; ~ keeps major.minor fixed.
-      const [maj, min] = base.split(/[.-]/).map(Number) as [number, number];
-      const upper = op === '~' ? `${maj}.${min + 1}.0` : maj > 0 ? `${maj + 1}.0.0` : `0.${min + 1}.0`;
-      return c >= 0 && compareSemver(version, `${upper}-0`) < 0;
+  const operand = parsePartial(m[2]!);
+  if (!operand) return null;
+  const set = bounds(m[1] ?? '=', operand);
+  if (set === null) return false;
+  return set.every(([op, base]) => {
+    const c = compareSemver(version, base);
+    switch (op) {
+      case '>=': return c >= 0;
+      case '>': return c > 0;
+      case '<=': return c <= 0;
+      case '<': return c < 0;
+      default: return c === 0;
     }
-  }
+  });
 }
 
 /**
- * Whether `version` satisfies an `engines`-style range: comparator sets joined
- * by `||`, each a space-separated AND of `>=`, `>`, `<=`, `<`, `=`, `^`, `~` or
- * bare versions (partials like `>= 26` allowed). `*` / empty match anything.
- * Returns null when the range uses syntax outside that (hyphen ranges, `x`
- * wildcards), so the caller can decide rather than guess.
+ * Whether `version` satisfies an `engines`-style range with npm's semantics:
+ * comparator sets joined by `||`, each a space-separated AND of `>=`, `>`,
+ * `<=`, `<`, `=`, `^`, `~` or bare versions, any of which may be partial
+ * (`26`, `26.5`, `26.x`, `>= 26`). `*` / empty match anything. Returns null
+ * when the range uses syntax outside that (hyphen ranges), so the caller can
+ * decide rather than guess.
  */
 export function satisfiesRange(version: string, range: string): boolean | null {
   if (!isSemver(version)) return null;

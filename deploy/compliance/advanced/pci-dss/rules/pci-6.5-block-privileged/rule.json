@@ -3,7 +3,7 @@
   "description": "Req 6.5 Secure coding: no privileged build containers",
   "target": "plugin",
   "severity": "critical",
-  "field": "privileged",
+  "field": "metadata.aws:cdk:codebuild:buildenvironment:privileged",
   "operator": "neq",
   "value": true,
   "scope": "published",

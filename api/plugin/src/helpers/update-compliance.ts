@@ -7,7 +7,7 @@
  * can't turn a compliant plugin non-compliant through either door.
  */
 
-import { createComplianceClient, errorMessage, getServiceAuthHeader } from '@pipeline-builder/api-core';
+import { RULE_FIELDS, createComplianceClient, errorMessage, getServiceAuthHeader, pickRuleAttributes } from '@pipeline-builder/api-core';
 
 import { storedComplianceImageFacts } from './plugin-compliance.js';
 import type { Plugin } from '../services/plugin-service.js';
@@ -15,17 +15,17 @@ import type { Plugin } from '../services/plugin-service.js';
 const complianceClient = createComplianceClient();
 
 /**
- * Editable fields whose change can alter a plugin's compliance posture:
- * `visibility`, and the inventory `tags` (CIS 2.1) derived from `keywords` and
- * `labels`. The execution contract is not editable on update, so a
- * descriptive-only edit (summary, links, README, lifecycle, …) keeps the same
- * posture and shouldn't pay a round-trip or be blocked by a compliance outage.
+ * The stored plugin columns a rule can read. An edit touching one can alter the
+ * plugin's compliance posture (`description`, `visibility`, the inventory
+ * `tags` derived from `keywords` and `labels`, …); a descriptive-only edit
+ * (summary, links, README, lifecycle) keeps it and shouldn't pay a round-trip
+ * or be blocked by a compliance outage.
  */
-const COMPLIANCE_RELEVANT_FIELDS = ['visibility', 'keywords', 'labels'] as const;
+const RULE_READABLE_COLUMNS: readonly string[] = [...new Set(RULE_FIELDS.plugin.filter((f) => !f.derived).map((f) => f.path.split('.')[0]!))];
 
-/** Whether `updateData` touches a compliance-relevant field. */
+/** Whether `updateData` touches a column some rule can read. */
 export function needsComplianceRecheck(updateData: Record<string, unknown>): boolean {
-  return COMPLIANCE_RELEVANT_FIELDS.some((f) => f in updateData);
+  return RULE_READABLE_COLUMNS.some((f) => updateData[f] !== undefined);
 }
 
 export type UpdateComplianceVerdict =
@@ -45,31 +45,17 @@ export async function checkUpdateCompliance(
   updateData: Record<string, unknown>,
 ): Promise<UpdateComplianceVerdict> {
   const serviceAuth = getServiceAuthHeader({ serviceName: 'plugin', orgId, role: 'member' });
-  const val = <T>(k: string, fallback: T): T => (k in updateData ? updateData[k] as T : fallback);
+  const edited = Object.fromEntries(Object.entries(updateData).filter(([, v]) => v !== undefined));
+  const after = { ...existing, ...edited };
   // The stored image's real facts (signed / scanned / vuln* / runAsRoot) and
   // the edited inventory tags; `packages` stays deferred (evaluated post-build).
-  const facts = storedComplianceImageFacts({
-    ...existing,
-    keywords: val('keywords', existing.keywords),
-    labels: val('labels', existing.labels),
-  });
+  const facts = storedComplianceImageFacts(after);
   try {
     const result = await complianceClient.validatePlugin(orgId, {
+      ...pickRuleAttributes('plugin', after),
+      // Immutable on update: they key the pushed registry image.
       name: existing.name,
       version: existing.version,
-      pluginType: existing.pluginType,
-      computeType: existing.computeType,
-      timeout: existing.timeout,
-      failureBehavior: existing.failureBehavior,
-      env: existing.env,
-      buildArgs: existing.buildArgs,
-      installCommands: existing.installCommands,
-      commands: existing.commands,
-      visibility: val('visibility', existing.visibility),
-      secrets: existing.secrets,
-      metadata: existing.metadata,
-      keywords: val('keywords', existing.keywords),
-      buildType: existing.buildType,
       ...facts.attributes,
     }, serviceAuth, existing.id, existing.name, 'update', facts.deferredFields);
     return result.blocked ? { outcome: 'blocked', violations: result.violations } : { outcome: 'allowed' };

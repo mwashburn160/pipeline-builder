@@ -3,9 +3,9 @@
   "description": "CIS 6.5 Pipeline runs a security scan stage",
   "target": "pipeline",
   "severity": "warning",
-  "field": "hasSecurityScan",
-  "operator": "eq",
-  "value": true,
+  "field": "stepFacts.securityScanSteps",
+  "operator": "gt",
+  "value": 0,
   "scope": "published",
   "tags": [
     "set:advanced",

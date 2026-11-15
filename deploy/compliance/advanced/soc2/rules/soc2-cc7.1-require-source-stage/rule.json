@@ -3,9 +3,8 @@
   "description": "CC7.1 Change detection: pipeline has a source stage",
   "target": "pipeline",
   "severity": "warning",
-  "field": "hasSourceStage",
-  "operator": "eq",
-  "value": true,
+  "field": "props.synth.source",
+  "operator": "exists",
   "scope": "published",
   "tags": [
     "set:advanced",

@@ -3,7 +3,7 @@
   "description": "Req 6.3 Review code before release",
   "target": "pipeline",
   "severity": "error",
-  "field": "requiresApproval",
+  "field": "stepFacts.approvalBeforeProduction",
   "operator": "eq",
   "value": true,
   "scope": "published",

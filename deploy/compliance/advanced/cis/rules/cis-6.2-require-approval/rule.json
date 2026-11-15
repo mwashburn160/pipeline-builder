@@ -3,7 +3,7 @@
   "description": "CIS 6.2 Require a manual approval gate",
   "target": "pipeline",
   "severity": "error",
-  "field": "requiresApproval",
+  "field": "stepFacts.approvalBeforeProduction",
   "operator": "eq",
   "value": true,
   "scope": "published",
