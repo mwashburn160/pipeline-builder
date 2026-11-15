@@ -63,7 +63,7 @@ spec:
       labels:
         app: image-registry
         app.kubernetes.io/component: backend
-        version: "4.4.21"
+        version: "4.4.22"
         track: stable
       annotations:
         prometheus.io/scrape: "true"
@@ -107,7 +107,7 @@ spec:
               echo "Registry ready"
       containers:
         - name: image-registry
-          image: ghcr.io/mwashburn160/image-registry:4.4.21@sha256:d6045ee352df21caa8c43c17fb5a486b32bf31e6ae4389a7e2b1164911f52099
+          image: ghcr.io/mwashburn160/image-registry:4.4.22@sha256:11b585359676058e8b7ab0a369ff19c5869fc091c42397a5b8ab20307a6b1af3
           securityContext:
             runAsNonRoot: true
             runAsUser: 1000
