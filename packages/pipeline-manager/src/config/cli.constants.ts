@@ -231,6 +231,44 @@ export function defaultPipelineName(organization: string, project: string): stri
   return `${sanitize(organization)}-${sanitize(project)}-pipeline`;
 }
 
+/** CloudFormation's stack-name rule (the same pattern aws-cdk-lib's `Stack` enforces). */
+const STACK_NAME_PATTERN = /^[a-z][a-z0-9-]*$/;
+/** CloudFormation's stack-name length limit. */
+const STACK_NAME_MAX_LENGTH = 128;
+
+/**
+ * The CloudFormation stack name a pipeline deploys as: `<project>-<organization>`,
+ * lowercased, with `_` turned into `-`. A project name may contain underscores
+ * and a stack name may not (`spring_boot` gave the invalid `spring_boot-system`).
+ *
+ * Shared by the synth app (`boilerplate.ts`, which names the stack) and the
+ * registry payload (`utils/registry.ts`, which records it), so the deployed
+ * stack and its registry record always agree. Only the derived name changes;
+ * the project and organization values are kept as they are everywhere else.
+ *
+ * Throws when the result is still not a valid stack name: CloudFormation wants a
+ * letter first, then letters, digits and hyphens, at most 128 characters. CDK
+ * checks the pattern too, but only at synth, and past 128 characters it silently
+ * swaps in a hashed name, so the registry would record a stack that doesn't exist.
+ */
+export function pipelineStackName(project: string, organization: string): string {
+  const name = `${project}-${organization}`.toLowerCase().replace(/_/g, '-');
+  if (name.length > STACK_NAME_MAX_LENGTH) {
+    throw new Error(
+      `Stack name '${name}' (from project '${project}' and organization '${organization}') is ${name.length} characters; `
+      + `CloudFormation allows at most ${STACK_NAME_MAX_LENGTH}. Shorten the project or organization name.`,
+    );
+  }
+  if (!STACK_NAME_PATTERN.test(name)) {
+    throw new Error(
+      `Stack name '${name}' (from project '${project}' and organization '${organization}') is not a valid CloudFormation stack name: `
+      + 'it must start with a letter and contain only letters, digits, hyphens or underscores (underscores become hyphens).',
+    );
+  }
+  return name;
+}
+
+
 /**
  * CloudFormation stack name for the event-ingestion infra. Shared so `setup-events`
  * (which deploys it) and `redrive-events` (which resolves the DLQ/queue from it)

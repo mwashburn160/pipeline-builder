@@ -5,7 +5,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
-import { bakePlatformRegistry, readStepManifest, registryOverrideFromBaseUrl } from '../src/utils/registry.js';
+import { bakePlatformRegistry, buildRegistryPayload, readStepManifest, registryOverrideFromBaseUrl } from '../src/utils/registry.js';
 
 describe('registryOverrideFromBaseUrl', () => {
   it.each([
@@ -63,5 +63,19 @@ describe('readStepManifest', () => {
     await expect(readStepManifest(dir)).resolves.toBeUndefined();
     writeFileSync(join(dir, 'pb-step-manifest.json'), '{"not":"an array"}');
     await expect(readStepManifest(dir)).resolves.toBeUndefined();
+  });
+});
+
+describe('buildRegistryPayload stack name', () => {
+  // The registry must record the SAME stack name the synth app deploys
+  // (boilerplate.ts), or audit-stacks reports a live stack as orphaned.
+  it('records the hyphenated stack name and keeps project/organization as given', async () => {
+    const payload = await buildRegistryPayload(
+      { id: 'pl-1', orgId: 'org-1', project: 'spring_boot', organization: 'system' },
+      'us-east-1',
+    );
+    expect(payload.stackName).toBe('spring-boot-system');
+    expect(payload.project).toBe('spring_boot');
+    expect(payload.organization).toBe('system');
   });
 });

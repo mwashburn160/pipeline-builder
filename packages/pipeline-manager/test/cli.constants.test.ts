@@ -17,7 +17,40 @@ import {
   ENV_VARS,
   meetsNodeVersionFloor,
   NODE_VERSION_FLOOR,
+  pipelineStackName,
 } from '../src/config/cli.constants.js';
+
+describe('pipelineStackName', () => {
+  it('turns underscores into hyphens (CloudFormation stack names allow no `_`)', () => {
+    expect(pipelineStackName('spring_boot', 'system')).toBe('spring-boot-system');
+    expect(pipelineStackName('my__app', 'acme_corp')).toBe('my--app-acme-corp');
+  });
+
+  it('lowercases, and leaves an already-valid name as it was', () => {
+    expect(pipelineStackName('Spring_Boot', 'System')).toBe('spring-boot-system');
+    expect(pipelineStackName('api', 'acme')).toBe('api-acme');
+  });
+
+  it.each([
+    ['my.app', 'acme'],
+    ['my app', 'acme'],
+    ['api', 'acme@corp'],
+    ['2fa-app', 'acme'],
+    ['-api', 'acme'],
+    ['', 'acme'],
+  ])('refuses %j / %j, which no CloudFormation stack name can carry', (project, organization) => {
+    expect(() => pipelineStackName(project, organization)).toThrow(/not a valid CloudFormation stack name/);
+  });
+
+  it('accepts exactly 128 characters and refuses 129, rather than letting CDK hash the name', () => {
+    expect(pipelineStackName('a'.repeat(123), 'acme')).toHaveLength(128);
+    expect(() => pipelineStackName('a'.repeat(124), 'acme')).toThrow(/at most 128/);
+  });
+
+  it('names the project and organization in the error', () => {
+    expect(() => pipelineStackName('my.app', 'acme')).toThrow("from project 'my.app' and organization 'acme'");
+  });
+});
 
 // Tests
 
