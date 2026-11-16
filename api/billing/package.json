@@ -65,7 +65,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "version": "4.7.24",
+  "version": "4.7.25",
   "packageManager": "pnpm@12.14.0",
   "jest": {
     "coverageProvider": "v8",
