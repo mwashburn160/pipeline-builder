@@ -54,6 +54,14 @@ jest.unstable_mockModule('../src/middleware/rate-limiter.js', () => ({
   userOrIpKey: () => 'k',
 }));
 jest.unstable_mockModule('../src/middleware/rate-limit-keys.js', () => ({ extractClientIp: () => 'ip' }));
+// The /auth buckets are attached route by route (middleware/auth-limiters.ts);
+// tagged by their store names so a chain shows which bucket a route spends.
+jest.unstable_mockModule('../src/middleware/auth-limiters.js', () => ({
+  signInLimiter: tagged('limiter:auth'),
+  registerLimiter: tagged('limiter:auth-register'),
+  authDiscoveryLimiter: tagged('limiter:auth-discovery'),
+  accountSecurityLimiter: tagged('limiter:account-security'),
+}));
 
 const CONTROLLERS = [
   'listPasskeys', 'loginOptions', 'loginVerify', 'registerOptions', 'registerVerify',
@@ -133,16 +141,30 @@ describe('passkey route gates', () => {
     expect(routeChain(webauthnRouter, 'get', '/credentials')).toEqual(['requireAuth', 'listPasskeys']);
   });
 
-  it('sign-in is public, and its challenge endpoint has its own limiter', () => {
+  it('sign-in is public; the autofill challenge spends only the discovery bucket', () => {
     const options = routeChain(webauthnRouter, 'post', '/login/options');
     expect(options).not.toContain('requireAuth');
-    expect(options).toContain('limiter:webauthn-login-options');
+    // Asked on every sign-in page load, before anyone has typed anything.
+    expect(options.filter((m) => m?.startsWith('limiter:'))).toEqual(['limiter:auth-discovery']);
 
     const verify = routeChain(webauthnRouter, 'post', '/login/verify');
     expect(verify).not.toContain('requireAuth');
-    // The credential presentation stays on the shared pre-auth budget.
-    expect(verify.filter((m) => m?.startsWith('limiter:'))).toEqual([]);
+    // The credential presentation is on the per-IP sign-in bucket (failures only).
+    expect(verify.filter((m) => m?.startsWith('limiter:'))).toEqual(['limiter:auth']);
     expect(verify).toContain('audited:user.login,user.login.failed');
+  });
+
+  it.each([
+    ['post', '/register/options'],
+    ['post', '/register/verify'],
+    ['patch', '/credentials/:id'],
+    ['delete', '/credentials/:id'],
+  ])('%s %s is bounded per user, after auth — never on a per-IP sign-in bucket', (method, path) => {
+    // A bootstrap admin enrolling a first passkey must not be locked out of it by
+    // failed sign-ins from the same address.
+    const mw = routeChain(webauthnRouter, method, path);
+    expect(mw.filter((m) => m?.startsWith('limiter:'))).toEqual(['limiter:account-security']);
+    expect(mw.indexOf('limiter:account-security')).toBeGreaterThan(mw.indexOf('requireAuth'));
   });
 
   it('audits both ends of a passkey\'s life', () => {

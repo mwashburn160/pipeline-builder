@@ -31,9 +31,7 @@ let rateLimitKey: Keys['rateLimitKey'];
 let peekJwtClaims: Keys['peekJwtClaims'];
 let scimOrgKey: Keys['scimOrgKey'];
 let verifiedIsSuperAdmin: Keys['verifiedIsSuperAdmin'];
-let tierLimitedMax: Keys['tierLimitedMax'], isSignOut: typeof import('../src/middleware/rate-limit-keys.js')['isSignOut'];
-let isFactorSelfRead: typeof import('../src/middleware/rate-limit-keys.js')['isFactorSelfRead'];
-let isSessionMaintenance: typeof import('../src/middleware/rate-limit-keys.js')['isSessionMaintenance'];
+let tierLimitedMax: Keys['tierLimitedMax'];
 let config: Cfg;
 /** Signs the ES256 user tokens these helpers verify. */
 let signUserToken: (payload: Record<string, unknown>) => Promise<string>;
@@ -44,7 +42,7 @@ beforeAll(async () => {
   process.env.MONGODB_URI ||= 'mongodb://stub:27017/test';
 
   ({ config } = await import('../src/config/index.js'));
-  ({ extractClientIp, rateLimitKey, peekJwtClaims, scimOrgKey, verifiedIsSuperAdmin, tierLimitedMax, isSignOut, isFactorSelfRead, isSessionMaintenance } =
+  ({ extractClientIp, rateLimitKey, peekJwtClaims, scimOrgKey, verifiedIsSuperAdmin, tierLimitedMax } =
     await import('../src/middleware/rate-limit-keys.js'));
 
   // Bucket selection verifies the token, so it needs platform's signing key
@@ -251,122 +249,5 @@ describe('tierLimitedMax', () => {
 
   it('never returns less than 1', async () => {
     expect(tierLimitedMax(req({ headers: await signed({ tier: 'developer' }) }))).toBeGreaterThanOrEqual(1);
-  });
-});
-
-describe('isSignOut — sign-out is exempt from the auth limiter', () => {
-  // The shared `req()` above models only ip/headers; this predicate reads
-  // method + path, so it gets its own minimal request.
-  // MODELS THE MOUNT. `app.use('/auth', limiters.auth, authRoutes)` rewrites
-  // req.url, so inside the limiter req.path is '/logout' while originalUrl still
-  // reads '/auth/logout'. The old helper passed only `path: '/auth/logout'` — a
-  // request shape that never occurs there — so the predicate passed this suite
-  // and was ALWAYS false in production, silently re-creating the sign-out
-  // lockout its own comment describes.
-  const call = (method: string, fullPath: string, mountedAt = '/auth') => ({
-    method,
-    originalUrl: fullPath,
-    path: fullPath.startsWith(mountedAt) ? (fullPath.slice(mountedAt.length) || '/') : fullPath,
-  }) as unknown as express.Request;
-
-  // Being rate-limited out of LEAVING, and then out of signing back in, was a
-  // real lockout: the app asks /auth/sso/logout for an SLO redirect before
-  // /auth/logout, so one sign-out spent two of the per-IP budget.
-  it('matches both sign-out paths', () => {
-    expect(isSignOut(call('POST', '/auth/logout'))).toBe(true);
-    expect(isSignOut(call('POST', '/auth/sso/logout'))).toBe(true);
-  });
-
-  it('still matches when the limiter sits at the root (req.path already absolute)', () => {
-    // Both forms are accepted so one predicate works from either mount point.
-    expect(isSignOut({ method: 'POST', path: '/auth/logout' } as unknown as express.Request)).toBe(true);
-  });
-
-  it('does NOT exempt the credential-guessing surface it defends', () => {
-    for (const path of ['/auth/login', '/auth/register', '/auth/webauthn/login/options', '/auth/webauthn/login/verify', '/auth/step-up']) {
-      expect(isSignOut(call('POST', path))).toBe(false);
-    }
-  });
-
-  it('is POST-only, so a GET cannot slip past the limiter on the same path', () => {
-    expect(isSignOut(call('GET', '/auth/logout'))).toBe(false);
-  });
-});
-
-describe('isFactorSelfRead — reading your own factors is not a login attempt', () => {
-  const call = (method: string, fullPath: string, mountedAt = '/auth') => ({
-    method,
-    originalUrl: fullPath,
-    path: fullPath.startsWith(mountedAt) ? (fullPath.slice(mountedAt.length) || '/') : fullPath,
-  }) as unknown as express.Request;
-
-  // The Security page loads BOTH on mount. At 20 attempts per 15 minutes, shared
-  // by every person behind one IP, a handful of visits locked a fresh
-  // administrator out of enrolling a factor — which the bootstrap exception
-  // REQUIRES them to do before it closes.
-  it('exempts the two authenticated reads the Security page makes', () => {
-    expect(isFactorSelfRead(call('GET', '/auth/webauthn/credentials'))).toBe(true);
-    expect(isFactorSelfRead(call('GET', '/auth/totp/status'))).toBe(true);
-  });
-
-  it('exempts NOTHING that guesses or presents a credential', () => {
-    for (const [method, path] of [
-      // The unauthenticated passkey sign-in surface — this is what the per-IP
-      // budget exists for.
-      ['POST', '/auth/webauthn/login/options'],
-      ['POST', '/auth/webauthn/login/verify'],
-      // Enrolment and the 6-digit activation stay limited.
-      ['POST', '/auth/totp/enrol'],
-      ['POST', '/auth/totp/activate'],
-      ['POST', '/auth/webauthn/register/options'],
-      ['POST', '/auth/webauthn/register/verify'],
-      ['POST', '/auth/login'],
-      // Right paths, wrong method: a write must never inherit a read's exemption.
-      ['POST', '/auth/webauthn/credentials'],
-      ['DELETE', '/auth/webauthn/credentials/abc'],
-      ['POST', '/auth/totp/status'],
-    ] as const) {
-      expect([method, path, isFactorSelfRead(call(method, path))]).toEqual([method, path, false]);
-    }
-  });
-});
-
-describe('isSessionMaintenance — keeping a session alive is exempt from the auth limiter', () => {
-  // Same mount model as isSignOut above: inside `app.use('/auth', limiters.auth,
-  // authRoutes)` req.path is '/refresh', and only originalUrl still carries the
-  // prefix. A predicate written against '/auth/refresh' on req.path alone passes
-  // a naive suite and is ALWAYS false in production.
-  const call = (method: string, fullPath: string, mountedAt = '/auth') => ({
-    method,
-    originalUrl: fullPath,
-    path: fullPath.startsWith(mountedAt) ? (fullPath.slice(mountedAt.length) || '/') : fullPath,
-  }) as unknown as express.Request;
-
-  // The lockout this prevents: the client retries a transient refresh up to
-  // three times and treated 429 as transient, then re-attempts 30s later — so a
-  // tripped bucket was re-tripped faster than its 15-minute window could drain,
-  // and a signed-in person could neither refresh their token nor switch org.
-  it('exempts refreshing a token and switching org', () => {
-    expect(isSessionMaintenance(call('POST', '/auth/refresh'))).toBe(true);
-    expect(isSessionMaintenance(call('POST', '/auth/switch-org'))).toBe(true);
-  });
-
-  it('still matches when the limiter sits at the root (req.path already absolute)', () => {
-    expect(isSessionMaintenance({ method: 'POST', path: '/auth/refresh' } as unknown as express.Request)).toBe(true);
-  });
-
-  it('does NOT exempt the credential-guessing surface it defends', () => {
-    for (const path of ['/auth/login', '/auth/register', '/auth/mfa/verify', '/auth/step-up', '/auth/token/exchange', '/auth/verify-email', '/auth/password/reset-request', '/auth/password/reset']) {
-      expect(isSessionMaintenance(call('POST', path))).toBe(false);
-    }
-  });
-
-  it('is POST-only, so a GET cannot slip past the limiter on the same path', () => {
-    expect(isSessionMaintenance(call('GET', '/auth/refresh'))).toBe(false);
-  });
-
-  it('does not exempt a path that merely starts the same way', () => {
-    expect(isSessionMaintenance(call('POST', '/auth/refresh-token'))).toBe(false);
-    expect(isSessionMaintenance(call('POST', '/auth/switch-org/force'))).toBe(false);
   });
 });

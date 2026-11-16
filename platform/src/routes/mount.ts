@@ -44,8 +44,6 @@ export const SCIM_PATH = '/scim/v2';
 
 /** The per-surface limiters (`middleware/limiters.ts`) this module mounts. */
 export interface RouteLimiters {
-  /** Strict IP-keyed limiter for the pre-auth `/auth*` surface. */
-  auth: RequestHandler;
   /** Dedicated burst bucket for the Alertmanager relay. */
   alertWebhook: RequestHandler;
   /** Tighter per-org limiter for the Prometheus/Loki-backed reads. */
@@ -61,14 +59,22 @@ export interface RouteLimiters {
  * Note: nginx strips the `/api` prefix before proxying to this service.
  */
 export function mountApiRoutes(app: Express, limiters: RouteLimiters): void {
-  // Device authorization first: a conforming client polls every 5 seconds for up
-  // to 10 minutes, which would exhaust the strict pre-auth `auth` bucket (20 per
-  // 15 min per IP) in the first two minutes. The router carries its own per-code
-  // and per-IP limiters, so this mount must SHADOW the `/auth` one below.
+  // The `/auth*` surface carries NO tree-wide limiter: each route names the
+  // bucket it spends (middleware/auth-limiters.ts) — failed credentials on the
+  // per-IP sign-in bucket, page-load reads on the discovery bucket, factor
+  // management per user — and everything else is bounded by the root
+  // `generalLimiter`. A tree mount here once counted every request under it
+  // (page loads, refreshes, the Security page's own reads) as a sign-in attempt,
+  // and counted /auth/oauth and /auth/sso TWICE, because both this prefix and
+  // theirs carried it. Don't reintroduce one: `auth-rate-limit-budget.test.ts`
+  // measures what a normal sign-in spends.
+  //
+  // Device authorization has its own per-code and per-IP limiters (a conforming
+  // client polls every 5 seconds for up to 10 minutes).
   app.use('/auth/device', deviceAuthRoutes);
-  app.use('/auth', limiters.auth, authRoutes);
-  app.use('/auth/oauth', limiters.auth, oauthRoutes);
-  app.use('/auth/sso', limiters.auth, ssoRoutes);
+  app.use('/auth', authRoutes);
+  app.use('/auth/oauth', oauthRoutes);
+  app.use('/auth/sso', ssoRoutes);
   // `apiCallsQuota` meters + gates the tenant surface on apiCalls, the check
   // run by each route's requireAuth (see middleware/quota.ts): /user, /users, /organization (incl. the nested
   // support-contacts router below, reached through this same prefix — mounting

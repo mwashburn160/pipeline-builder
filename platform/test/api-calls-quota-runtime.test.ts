@@ -93,7 +93,7 @@ beforeAll(async () => {
   const passthrough = (_req: Request, _res: Response, next: NextFunction): void => next();
   const app = express();
   app.use(express.json());
-  mountApiRoutes(app, { auth: passthrough, alertWebhook: passthrough, observability: passthrough, scim: passthrough });
+  mountApiRoutes(app, { alertWebhook: passthrough, observability: passthrough, scim: passthrough });
   server = http.createServer(app);
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
   baseUrl = `http://127.0.0.1:${(server.address() as { port: number }).port}`;

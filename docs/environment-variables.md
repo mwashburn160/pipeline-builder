@@ -690,8 +690,12 @@ The deadline scales with the machine: a sub-Standard build gets `DOCKER_BUILD_TI
 | `REGISTRY_TOKEN_RATE_LIMIT_MAX` | `60` | image-registry `/token`: requests per window per (source IP, username) — also listed under [Docker Registry](#docker-registry) |
 | `REGISTRY_TOKEN_RATE_LIMIT_IP_MAX` | `300` | image-registry `/token`: requests per window per source IP across all usernames |
 | `REGISTRY_TOKEN_RATE_LIMIT_WINDOW_MS` | `60000` | image-registry `/token` rate-limit window (ms) |
-| `AUTH_LIMITER_MAX` | `20` | Auth endpoint rate limit |
-| `AUTH_LIMITER_WINDOW_MS` | `900000` | Auth rate limit window (15 min) |
+| `AUTH_LIMITER_MAX` | `20` | Per-IP **failed** credential presentations (sign-in, passkey, MFA, OAuth/SSO callbacks, step-up, password reset, access-key exchange) per window; a correct one is not counted. Also the size of the separate per-IP sign-up bucket on `/auth/register`, which counts every attempt. See [Sign-in throttling](authentication.md#sign-in-throttling) |
+| `AUTH_LIMITER_WINDOW_MS` | `900000` | Window for `AUTH_LIMITER_MAX` (15 min) |
+| `AUTH_DISCOVERY_LIMITER_MAX` | `60` | Per-IP pre-auth reads and flow starts a sign-in page makes on its own (OAuth provider list, passkey autofill challenge, SSO discovery, building an OAuth/SSO redirect) per window |
+| `AUTH_DISCOVERY_LIMITER_WINDOW_MS` | `60000` | Window for `AUTH_DISCOVERY_LIMITER_MAX` (1 min) |
+| `ACCOUNT_SECURITY_LIMITER_MAX` | `30` | Per-**user** authenticated writes to one's own sign-in factors and account (enrol/rename/remove a passkey or authenticator app, regenerate recovery codes, send a verification email) per window |
+| `ACCOUNT_SECURITY_LIMITER_WINDOW_MS` | `900000` | Window for `ACCOUNT_SECURITY_LIMITER_MAX` (15 min) |
 | `MESSAGE_SEND_RATE_MAX` | `60` | Per-**org** message send + reply limit (post-auth; complements the global per-IP limiter). Verified service principals exempt |
 | `MESSAGE_SEND_RATE_WINDOW_MS` | `60000` | Per-org message-send window (1 min) |
 | `MESSAGE_ATTACHMENT_RATE_MAX` | `30` | Per-**org** attachment-upload limit (rejected before multipart buffering) |

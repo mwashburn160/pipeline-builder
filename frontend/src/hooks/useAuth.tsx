@@ -6,6 +6,7 @@ import api, { ApiError } from '@/lib/api';
 import { clearAttachmentImageCache } from '@/lib/attachment-image-cache';
 import { syncAdminConsoleCookie } from '@/lib/admin-console';
 import { clearQueryCache } from '@/lib/query-cache';
+import { isEnrolmentPendingSession } from '@/lib/enrolment-session';
 import { setUnreadCount } from '@/lib/unread-count-store';
 import { clearImageTagsCache } from './useImageTags';
 import { useLoginActions, type LoginResult } from './internal/useLoginActions';
@@ -230,7 +231,15 @@ export function AuthProvider({ children, deferInit = false }: { children: ReactN
           if (userData.organizationId) {
             api.setOrganizationId(userData.organizationId);
           }
-          // Profile endpoint never returns `organizations`; always fetch separately.
+          // Profile endpoint never returns `organizations`; fetch separately —
+          // except for an enrolment-only session (bootstrap admin with no
+          // factor yet), which platform refuses everything but enrolment with a
+          // 403. Asking anyway only adds a failure to the console the person
+          // can do nothing about until they enrol.
+          if (isEnrolmentPendingSession()) {
+            setOrganizations((prev) => (prev.length === 0 ? prev : []));
+            return;
+          }
           try {
             const orgRes = await api.getUserOrganizations();
             const orgs = (orgRes.data?.organizations || []).map(o => ({

@@ -8,9 +8,9 @@
  * simply be the loosest of them.
  *
  * The endpoints accept credentials from an already-authenticated session. The
- * global `authLimiter` (20 req / 15 min, IP-keyed) is too loose for brute-force
- * protection here — a session pivoter sharing an IP with legitimate users could
- * burn the budget. Per-user keying (requireAuth runs first) with a much tighter
+ * per-IP `signInLimiter` (20 failures / 15 min, also on these routes) is too
+ * loose on its own for brute-force protection here — a session pivoter sharing
+ * an IP with legitimate users could burn the budget. Per-user keying (requireAuth runs first) with a much tighter
  * window: 5 attempts / minute, allowing for fat-fingers + a retry on a transient
  * error. The StepUpModal surfaces the 429 message verbatim.
  *

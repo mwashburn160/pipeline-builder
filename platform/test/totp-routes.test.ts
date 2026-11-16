@@ -50,6 +50,14 @@ jest.unstable_mockModule('../src/middleware/rate-limiter.js', () => ({
   userOrIpKey: () => 'k',
 }));
 jest.unstable_mockModule('../src/middleware/rate-limit-keys.js', () => ({ extractClientIp: () => 'ip' }));
+// The /auth buckets are attached route by route (middleware/auth-limiters.ts);
+// tagged by their store names so a chain shows which bucket a route spends.
+jest.unstable_mockModule('../src/middleware/auth-limiters.js', () => ({
+  signInLimiter: tagged('limiter:auth'),
+  registerLimiter: tagged('limiter:auth-register'),
+  authDiscoveryLimiter: tagged('limiter:auth-discovery'),
+  accountSecurityLimiter: tagged('limiter:account-security'),
+}));
 
 const TOTP_CONTROLLERS = [
   'activateTotp', 'disableTotp', 'enrolTotp',
@@ -123,6 +131,16 @@ describe('TOTP route gates', () => {
     expect(routeChain(totpRouter, 'get', '/status')).toEqual(['requireAuth', 'totpStatus']);
   });
 
+  it.each([
+    ['post', '/enrol'],
+    ['post', '/activate'],
+    ['delete', '/'],
+  ])('%s %s is bounded per user, after auth — never on a per-IP sign-in bucket', (method, path) => {
+    const mw = routeChain(totpRouter, method, path);
+    expect(mw.filter((m) => m?.startsWith('limiter:'))).toEqual(['limiter:account-security']);
+    expect(mw.indexOf('limiter:account-security')).toBeGreaterThan(mw.indexOf('requireAuth'));
+  });
+
   it('audits both ends of the factor\'s life', () => {
     expect(routeChain(totpRouter, 'post', '/enrol')).toContain('audited:user.totp.enrol');
     expect(routeChain(totpRouter, 'post', '/activate')).toContain('audited:user.totp.enrol,user.login.failed');
@@ -156,8 +174,10 @@ describe('TOTP on the sign-in surface', () => {
     expect(mw).toContain('requireAuth');
     expect(mw).toContain('stepUpLimiter');
     expect(mw).toContain('audited:user.step-up,user.login.failed');
-    // A budget that reset per factor would just be the loosest of them.
-    expect(mw.filter((m) => m?.startsWith('limiter:'))).toEqual([]);
+    // A budget that reset per factor would just be the loosest of them: no
+    // TOTP-specific bucket — only the per-IP failed-credential one every
+    // credential check shares.
+    expect(mw.filter((m) => m?.startsWith('limiter:'))).toEqual(['limiter:auth']);
   });
 
   it('the sign-in exchange is public, limited per challenge, and audits both outcomes', () => {

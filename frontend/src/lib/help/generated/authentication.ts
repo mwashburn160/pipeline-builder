@@ -1,6 +1,6 @@
 // GENERATED FROM docs/authentication.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 60d6f1057b1a9740a3287bc8176a1c413cdc2ec258aea75b83b6c7d5f63a29d4
+// SOURCE-SHA256: 272e891e71bfc439c2cfe179b15785c0610dfc97ae4cc8306ec6da1dd0c2bf6e
 // SPDX-License-Identifier: Apache-2.0
 import { Lock } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -276,7 +276,65 @@ export const authenticationTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "/auth/* sits behind the per-IP auth limiter (AUTH_LIMITER_MAX per AUTH_LIMITER_WINDOW_MS, default 20 / 15 min). POST /auth/login additionally has a per-account limiter keyed on a SHA-256 of the normalized (trimmed, lower-cased) identifier that counts only failed attempts (LOGIN_ACCOUNT_LIMITER_MAX / _WINDOW_MS, default 10 / 15 min) — so a credential-stuffing run spread across many addresses still stalls on the account, while the owner's successful sign-ins never consume the budget. Both use the shared Redis rate-limit store (limits hold across replicas; a store outage lets requests through). The trade-off: anyone who knows an identifier can delay its password sign-in for one window; passkey, social and SSO sign-in are unaffected. TOTP codes have their own per-account lockout."
+          "content": "The /auth* routes have no tree-wide limiter. Each route names the bucket it spends (platform/src/middleware/auth-limiters.ts), and anything that names none is bounded only by the root per-caller limiter (LIMITER_MAX):"
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Bucket",
+            "Keyed on",
+            "Counts",
+            "Routes"
+          ],
+          "rows": [
+            [
+              "sign-in (AUTH_LIMITER_MAX / _WINDOW_MS, default 20 / 15 min)",
+              "client IP",
+              "failed attempts only",
+              "every route that presents a credential or single-use secret: /auth/login, /auth/webauthn/login/verify, /auth/mfa/verify, the OAuth/SSO callbacks, SAML ACS and completion, /auth/password/change-required, /auth/password/reset, /auth/verify-email, the step-up verifications, and the access-key exchange/rotate/revoke"
+            ],
+            [
+              "sign-up (same size)",
+              "client IP",
+              "every attempt",
+              "/auth/register"
+            ],
+            [
+              "discovery (AUTH_DISCOVERY_LIMITER_MAX / _WINDOW_MS, default 60 / 1 min)",
+              "client IP",
+              "every request",
+              "what the sign-in page asks for on its own — /auth/oauth/providers, the passkey autofill challenge, SSO discovery — and building an OAuth/SSO redirect"
+            ],
+            [
+              "account security (ACCOUNT_SECURITY_LIMITER_MAX / _WINDOW_MS, default 30 / 15 min)",
+              "signed-in user",
+              "every request",
+              "enrolling, renaming or removing a passkey or authenticator app, regenerating recovery codes, sending a verification email"
+            ],
+            [
+              "per account (LOGIN_ACCOUNT_LIMITER_MAX / _WINDOW_MS, default 10 / 15 min)",
+              "SHA-256 of the normalized (trimmed, lower-cased) identifier",
+              "failed attempts only",
+              "/auth/login"
+            ]
+          ]
+        },
+        {
+          "type": "text",
+          "content": "So a person who signs in correctly, loads the sign-in page, refreshes a session, opens the Security page or signs out spends none of the sign-in budget; a credential-stuffing run spread across many addresses still stalls on the per-account bucket; and a fresh install's administrator enrolling their first factor is bounded per user, so failed sign-ins from the same address can't lock them out of the one page that ends their enrolment-only session. platform/test/auth-rate-limit-budget.test.ts pins which route spends which bucket — adding a route to the sign-in bucket means adding it there too."
+        },
+        {
+          "type": "text",
+          "content": "All buckets use the shared Redis rate-limit store (limits hold across replicas; a store outage lets requests through). A refusal answers 429 RATE_LIMIT_EXCEEDED with Retry-After and details.retryAfterSeconds, which the sign-in page turns into \"Try again in N minutes\", and is counted on platform_rate_limit_rejected_total{limiter,route} (alert: AuthRateLimitRefusalBurst). The trade-off of the per-account bucket: anyone who knows an identifier can delay its password sign-in for one window; passkey, social and SSO sign-in are unaffected. TOTP codes have their own per-account lockout."
+        },
+        {
+          "type": "text",
+          "content": "To give a locked-out caller their budget back before the window ends, run the unlock inside a platform container — --ip clears the per-IP buckets for that address, --identifier the per-account one, --dry-run only lists the keys:"
+        },
+        {
+          "type": "code",
+          "content": "docker compose exec platform node scripts/rate-limit-unlock.js --ip 203.0.113.7 --identifier admin@internal\nkubectl exec -n pipeline-builder deploy/platform -- node scripts/rate-limit-unlock.js --ip 203.0.113.7",
+          "language": "bash"
         }
       ]
     },

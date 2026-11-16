@@ -2279,6 +2279,25 @@ groups:
           summary: "Sustained MFA enforcement refusals ({{ $labels.reason }})"
           description: "{{ $value | humanize }} refusals/sec of type {{ $labels.reason }} over 5m, sustained 15m. `machine_principal` means a service account or API key is calling a human-only route — point it at the machine equivalent. `weak_session` means people have not enrolled a factor yet; check the org's grace deadline before tightening further. `bootstrap_session` means the install's admin is still un-enrolled."
 
+      # ---- Auth: sign-in rate-limit refusals ----
+      # `platform_rate_limit_rejected_total{limiter,route}` counts every 429 a
+      # platform bucket answers. On `auth` / `login-account` (failed credentials
+      # per IP / per account) a sustained burst is guessing, or a client retrying
+      # a failure in a loop. On `auth-discovery` or `account-security` it is
+      # almost always a client bug: those buckets are sized so a person never
+      # reaches them by hand. Either way someone is seeing "Too many …" and
+      # cannot sign in — `scripts/rate-limit-unlock.js` clears a bucket.
+      - alert: AuthRateLimitRefusalBurst
+        expr: sum by (limiter, route) (rate(platform_rate_limit_rejected_total{limiter=~"auth|auth-register|auth-discovery|account-security|login-account"}[5m])) > 0.05
+        for: 10m
+        labels:
+          severity: warning
+          component: auth
+          tenancy: platform
+        annotations:
+          summary: "Sustained sign-in rate-limit refusals ({{ $labels.limiter }} on {{ $labels.route }})"
+          description: "{{ $value | humanize }} refusals/sec from the {{ $labels.limiter }} bucket on {{ $labels.route }} over 5m, sustained 10m. On auth/login-account check the audit log for user.login.failed from one address (guessing) before clearing anything; on auth-discovery/account-security look for a client calling the route in a loop."
+
       # ---- Auth: administrative MFA resets ----
       # `platform_mfa_resets_total{stage}` traces the whole approval flow:
       # requested -> approved | denied | withdrawn, plus `direct` for a reset

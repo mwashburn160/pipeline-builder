@@ -3,7 +3,8 @@
 
 /**
  * Authenticator-app (TOTP) routes, mounted under `/auth/totp` by
- * `routes/auth.ts` (so they inherit the pre-auth `authLimiter`). The STEP-UP
+ * `routes/auth.ts`. Writes are on the per-user `accountSecurityLimiter`
+ * (middleware/auth-limiters.ts); the status read on the root limiter only. The STEP-UP
  * route lives in `routes/auth.ts` instead, under `/auth/step-up/totp`, so the
  * whole step-up surface shares one limiter and one URL prefix — and the sign-in
  * exchange lives there too, under `/auth/mfa/verify`, because it is a sign-in
@@ -38,6 +39,7 @@ import {
 // api-core's copy refuses an `mfaEnrollmentPending` token OUTRIGHT, so importing
 // it here made enrolment unreachable from the one session that needs it — the
 // admin was locked out of the product and out of the fix for it.
+import { accountSecurityLimiter } from '../middleware/auth-limiters.js';
 import { requireAuth, requireInteractiveSession } from '../middleware/index.js';
 
 const router: Router = Router();
@@ -49,6 +51,7 @@ router.get('/status', requireAuth, totpStatus);
 router.post(
   '/enrol',
   requireAuth,
+  accountSecurityLimiter,
   requireInteractiveSession,
   requireStepUp,
   audited('user.totp.enrol'),
@@ -59,6 +62,7 @@ router.post(
 router.post(
   '/activate',
   requireAuth,
+  accountSecurityLimiter,
   requireInteractiveSession,
   audited('user.totp.enrol', 'user.login.failed'),
   activateTotp,
@@ -68,6 +72,7 @@ router.post(
 router.delete(
   '/',
   requireAuth,
+  accountSecurityLimiter,
   requireInteractiveSession,
   requireStepUp,
   audited('user.totp.disable'),

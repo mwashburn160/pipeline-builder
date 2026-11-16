@@ -67,7 +67,7 @@ beforeAll(async () => {
   const { mountApiRoutes } = await import('../src/routes/mount.js');
   const passthrough = (_req: Request, _res: Response, next: NextFunction): void => next();
   const app = express();
-  mountApiRoutes(app, { auth: passthrough, alertWebhook: passthrough, observability: passthrough, scim: passthrough });
+  mountApiRoutes(app, { alertWebhook: passthrough, observability: passthrough, scim: passthrough });
   table = buildRouteTable(app);
 });
 

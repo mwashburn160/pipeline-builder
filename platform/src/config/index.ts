@@ -226,9 +226,28 @@ export const config = {
      * extra DB lookup. Sysadmins bypass entirely via the `skip` predicate.
      */
     tierMultipliers: tierMultipliers(),
+    /**
+     * Per-IP FAILED credential presentations (`signInLimiter`) — and, as a
+     * separate bucket of the same size, per-IP sign-ups (`registerLimiter`).
+     * See middleware/auth-limiters.ts for which routes spend it.
+     */
     auth: {
       max: envInt('AUTH_LIMITER_MAX', 20),
       windowMs: envInt('AUTH_LIMITER_WINDOW_MS', 900000), // 15 min
+    },
+    /**
+     * Per-IP pre-auth reads and flow starts a sign-in page makes on its own
+     * (provider list, passkey autofill challenge, SSO discovery). Generous:
+     * they reveal nothing, and one office NAT loads the page many times.
+     */
+    authDiscovery: {
+      max: envInt('AUTH_DISCOVERY_LIMITER_MAX', 60),
+      windowMs: envInt('AUTH_DISCOVERY_LIMITER_WINDOW_MS', 60000), // 1 min
+    },
+    /** Per-USER authenticated writes to one's own factors and account. */
+    accountSecurity: {
+      max: envInt('ACCOUNT_SECURITY_LIMITER_MAX', 30),
+      windowMs: envInt('ACCOUNT_SECURITY_LIMITER_WINDOW_MS', 900000), // 15 min
     },
     // Observability endpoints (catalog query, range query, log query) hit
     // Prometheus / Loki directly. A noisy operator clicking through panels

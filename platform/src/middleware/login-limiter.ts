@@ -4,9 +4,9 @@
 /**
  * PER-ACCOUNT throttle for password sign-in (`POST /auth/login`).
  *
- * `/auth/*` already sits behind the per-IP auth limiter (index.ts
- * `authLimiter`, `AUTH_LIMITER_*`), which stops one address hammering the
- * endpoint. It cannot stop a credential-stuffing or password-spraying run that
+ * The route also sits behind the per-IP `signInLimiter`
+ * (middleware/auth-limiters.ts, `AUTH_LIMITER_*`), which stops one address
+ * hammering the endpoint. It cannot stop a credential-stuffing or password-spraying run that
  * rotates addresses against ONE account — every attempt lands in a fresh IP
  * bucket. This bucket is keyed on the ACCOUNT instead.
  *
@@ -29,11 +29,9 @@
  */
 
 import { createHash } from 'crypto';
-import { ErrorCode, sendError } from '@pipeline-builder/api-core';
-import { createSharedRateLimitStore } from '@pipeline-builder/api-server';
 import type { Request, RequestHandler } from 'express';
-import rateLimit from 'express-rate-limit';
 import { extractClientIp } from './rate-limit-keys.js';
+import { createLimiter } from './rate-limiter.js';
 import { config } from '../config/index.js';
 
 /** The bucket key for a login request: the hashed identifier, else the client IP. */
@@ -43,18 +41,11 @@ export function loginAccountKey(req: Request): string {
   return `a:${createHash('sha256').update(identifier).digest('hex')}`;
 }
 
-export const loginAccountLimiter: RequestHandler = rateLimit({
-  store: createSharedRateLimitStore('platform:login-account'),
-  passOnStoreError: true,
+export const loginAccountLimiter: RequestHandler = createLimiter({
+  name: 'login-account',
   windowMs: config.auth.loginThrottle.perAccountWindowMs,
   max: config.auth.loginThrottle.perAccountMax,
   keyGenerator: loginAccountKey,
   skipSuccessfulRequests: true,
-  handler: (_req, res) => sendError(
-    res, 429,
-    'Too many failed sign-in attempts for this account. Please wait a few minutes, or sign in with a passkey.',
-    ErrorCode.RATE_LIMIT_EXCEEDED,
-  ),
-  standardHeaders: true,
-  legacyHeaders: false,
+  message: 'Too many failed sign-in attempts for this account. Please wait a few minutes, or sign in with a passkey.',
 });

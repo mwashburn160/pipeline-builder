@@ -15,6 +15,7 @@ import { stepUpVerify } from '../controllers/step-up.js';
 import { exchangeToken, revokeKey, rotateKey } from '../controllers/token-exchange.js';
 import { stepUpVerifyTotp, verifyMfaLogin } from '../controllers/totp.js';
 import { stepUpOptions, stepUpVerifyWebAuthn } from '../controllers/webauthn.js';
+import { accountSecurityLimiter, registerLimiter, signInLimiter } from '../middleware/auth-limiters.js';
 import { requireAuth, requireRefreshSession, requireClientType, stepUpLimiter } from '../middleware/index.js';
 import { loginAccountLimiter } from '../middleware/login-limiter.js';
 import { extractClientIp } from '../middleware/rate-limit-keys.js';
@@ -23,14 +24,14 @@ import { createLimiter, userOrIpKey } from '../middleware/rate-limiter.js';
 const router: Router = Router();
 
 /** POST /auth/register - Create a new user account */
-router.post('/register', audited('user.register'), register);
+router.post('/register', registerLimiter, audited('user.register'), register);
 
-/** Per-ACCOUNT failed-attempt throttle for password sign-in (the per-IP auth
- *  limiter is mounted on all of /auth) — see middleware/login-limiter.ts. */
-router.use('/login', loginAccountLimiter);
-
-/** POST /auth/login - Authenticate and receive tokens */
-router.post('/login', audited('user.login', 'user.login.failed'), login);
+/** POST /auth/login - Authenticate and receive tokens.
+ *  Failed sign-ins are bounded twice: per IP (`signInLimiter`, which stops one
+ *  address guessing many accounts) and per ACCOUNT (`loginAccountLimiter`, which
+ *  stops many addresses guessing one) — see middleware/auth-limiters.ts and
+ *  middleware/login-limiter.ts. */
+router.post('/login', signInLimiter, loginAccountLimiter, audited('user.login', 'user.login.failed'), login);
 
 /**
  * Two limiters guard the access-key exchange, because neither can do both jobs:
@@ -65,11 +66,14 @@ const exchangeIpLimiter = createLimiter({
 });
 
 /** POST /auth/token/exchange - Trade an opaque access key for a 5-minute JWT.
- *  Pre-auth by construction: the key IS the credential. Both outcomes audited. */
+ *  Pre-auth by construction: the key IS the credential. Both outcomes audited.
+ *  A REFUSED key also spends the per-IP `signInLimiter` (failures only), so a
+ *  legitimate holder exchanging every few minutes never touches it. */
 router.post(
   '/token/exchange',
   exchangeIpLimiter,
   exchangeKeyLimiter,
+  signInLimiter,
   audited('user.key.exchange', 'user.key.exchange.failed'),
   exchangeToken,
 );
@@ -91,6 +95,7 @@ router.post(
   '/key/rotate',
   exchangeIpLimiter,
   exchangeKeyLimiter,
+  signInLimiter,
   audited('org.service-account.key.rotate', 'org.service-account.key.rotate.failed'),
   rotateKey,
 );
@@ -102,6 +107,7 @@ router.post(
   '/key/revoke',
   exchangeIpLimiter,
   exchangeKeyLimiter,
+  signInLimiter,
   audited('org.service-account.key.revoke', 'org.service-account.key.rotate.failed'),
   revokeKey,
 );
@@ -120,26 +126,33 @@ router.post('/logout', requireClientType, requireAuth, audited('user.logout'), l
 router.post('/switch-org', requireAuth, audited('org.switch'), switchOrg);
 
 /** POST /auth/onboarding/complete - Finish first-run onboarding (name org + plan) */
-router.post('/onboarding/complete', requireAuth, audited('user.onboarding.complete'), completeOnboarding);
+router.post('/onboarding/complete', requireAuth, accountSecurityLimiter, audited('user.onboarding.complete'), completeOnboarding);
 
 /** POST /auth/send-verification - Send email verification link */
-router.post('/send-verification', requireAuth, sendVerificationEmail);
+router.post('/send-verification', requireAuth, accountSecurityLimiter, sendVerificationEmail);
 
 /** POST /auth/verify-email - Verify email with token (public, no auth needed) */
-router.post('/verify-email', audited('user.email.verified'), verifyEmail);
+router.post('/verify-email', signInLimiter, audited('user.email.verified'), verifyEmail);
 
 /** POST /auth/mark-email-verified - Superadmin self-verify (no token). */
-router.post('/mark-email-verified', requireAuth, audited('user.email.verified'), markEmailVerified);
+router.post('/mark-email-verified', requireAuth, accountSecurityLimiter, audited('user.email.verified'), markEmailVerified);
+
+/**
+ * Step-up: re-prove a factor before a sensitive action. Every route that CHECKS
+ * a factor is on the per-user `stepUpLimiter` (5/min) and — for a wrong answer
+ * only — the per-IP `signInLimiter`, so a stolen session cannot guess a
+ * password or code faster than an anonymous caller could at /auth/login.
+ */
 
 /** POST /auth/step-up - Re-verify password before destructive admin actions */
-router.post('/step-up', requireAuth, stepUpLimiter, audited('user.step-up', 'user.login.failed'), stepUpVerify);
+router.post('/step-up', requireAuth, stepUpLimiter, signInLimiter, audited('user.step-up', 'user.login.failed'), stepUpVerify);
 
 /** POST /auth/step-up/reauth - Start a re-auth with the caller's own sign-in
  *  provider (the step-up path for accounts that have no password). */
 router.post('/step-up/reauth', requireAuth, stepUpLimiter, startStepUpReauth);
 
 /** POST /auth/step-up/reauth/callback - Verify that re-auth and issue the step-up token */
-router.post('/step-up/reauth/callback', requireAuth, stepUpLimiter, audited('user.step-up', 'user.login.failed'), completeStepUpReauth);
+router.post('/step-up/reauth/callback', requireAuth, stepUpLimiter, signInLimiter, audited('user.step-up', 'user.login.failed'), completeStepUpReauth);
 
 /**
  * Passkey step-up — the third factor-agnostic way to earn the SAME step-up
@@ -148,7 +161,7 @@ router.post('/step-up/reauth/callback', requireAuth, stepUpLimiter, audited('use
  * factor would just be the loosest of them.
  */
 router.post('/step-up/webauthn/options', requireAuth, stepUpLimiter, stepUpOptions);
-router.post('/step-up/webauthn/verify', requireAuth, stepUpLimiter, audited('user.step-up', 'user.login.failed'), stepUpVerifyWebAuthn);
+router.post('/step-up/webauthn/verify', requireAuth, stepUpLimiter, signInLimiter, audited('user.step-up', 'user.login.failed'), stepUpVerifyWebAuthn);
 
 /**
  * Authenticator-app step-up — the fourth factor-agnostic way to earn the SAME
@@ -157,18 +170,18 @@ router.post('/step-up/webauthn/verify', requireAuth, stepUpLimiter, audited('use
  * others; the service adds a per-account lockout on top, because a 6-digit code
  * is small enough that the request limiter alone is not the real bound.
  */
-router.post('/step-up/totp', requireAuth, stepUpLimiter, audited('user.step-up', 'user.login.failed'), stepUpVerifyTotp);
+router.post('/step-up/totp', requireAuth, stepUpLimiter, signInLimiter, audited('user.step-up', 'user.login.failed'), stepUpVerifyTotp);
 
 /**
  * Second leg of a password sign-in for an account with an authenticator app.
  * PRE-AUTH by construction, exactly like `/auth/login`: the caller holds a
  * challenge handle, not a session.
  *
- * Its own limiter rather than `authLimiter`: the first leg already spent part of
- * that IP budget, and a legitimate person may fat-finger a 6-digit code once or
- * twice. Keyed per CHALLENGE (falling back to the IP) so one person retrying
+ * Its own per-CHALLENGE limiter (falling back to the IP), so one person retrying
  * can't lock out everyone behind the same NAT — and the per-account TOTP lockout
- * is what actually bounds guessing.
+ * is what actually bounds guessing. A wrong code also spends the per-IP
+ * `signInLimiter`, like any failed credential; a right one spends nothing (the
+ * first leg's correct password didn't either).
  */
 const mfaVerifyLimiter = createLimiter({
   name: 'mfa-verify',
@@ -180,16 +193,16 @@ const mfaVerifyLimiter = createLimiter({
   message: 'Too many verification attempts. Please wait a minute and try again.',
 });
 
-router.post('/mfa/verify', mfaVerifyLimiter, audited('user.login', 'user.login.failed'), verifyMfaLogin);
+router.post('/mfa/verify', mfaVerifyLimiter, signInLimiter, audited('user.login', 'user.login.failed'), verifyMfaLogin);
 
 /** POST /auth/password/change-required — last leg of a password sign-in whose
  *  password no longer meets the person's org password policy: challenge handle
  *  + a NEW password → the session (controllers/password-change-required.ts). */
-router.post('/password/change-required', audited('user.password.change', 'user.login'), completeRequiredPasswordChange);
+router.post('/password/change-required', signInLimiter, audited('user.password.change', 'user.login'), completeRequiredPasswordChange);
 
 /**
- * Forgot-password (controllers/password-reset.ts). Pre-auth, under the /auth
- * per-IP limiter plus two of their own:
+ * Forgot-password (controllers/password-reset.ts). Pre-auth, with two limiters
+ * of their own (and the per-IP `signInLimiter` on a refused reset token):
  *  - PER ADDRESS on the request: a reset email is something an attacker can
  *    make us send to a victim, so one address gets 3 per 15 minutes however
  *    many IPs ask (keyed on a hash — never the address — in the shared store);
@@ -217,7 +230,7 @@ const passwordResetEmailLimiter = createLimiter({
 router.post('/password/reset-request', passwordResetIpLimiter, passwordResetEmailLimiter, audited('user.password.reset.request'), requestReset);
 
 /** POST /auth/password/reset - Set a new password with the emailed token; ends every session and revokes access keys. */
-router.post('/password/reset', passwordResetIpLimiter, audited('user.password.reset'), confirmReset);
+router.post('/password/reset', passwordResetIpLimiter, signInLimiter, audited('user.password.reset'), confirmReset);
 
 /** Passkey registration, management and sign-in (/auth/webauthn/*). */
 router.use('/webauthn', webauthnRoutes);
@@ -232,7 +245,7 @@ router.use('/recovery-codes', recoveryCodesRoutes);
  * Per-user limiter for the domain-based join endpoints. Discovery + join are
  * authenticated but still worth bounding: `join` writes to an org's admin queue
  * (request spam) and both are cheap enumeration probes if abused. Keyed per-user
- * (requireAuth runs first), tighter than the shared IP `authLimiter`.
+ * (requireAuth runs first).
  */
 const domainJoinLimiter = createLimiter({
   name: 'domain-join',

@@ -4,10 +4,10 @@
 /**
  * `/auth/device/*` — the OAuth 2.0 device authorization grant (RFC 8628).
  *
- * Mounted AHEAD of `/auth` in `routes/mount.ts` so it never shares the strict
- * pre-auth `authLimiter` budget (20 requests / 15 min per IP): a conforming
- * client polls every 5 seconds for up to 10 minutes, which would exhaust that
- * bucket within the first two minutes. Each endpoint here carries the limiter
+ * Never on the per-IP `signInLimiter` budget (20 failures / 15 min): a
+ * conforming client polls every 5 seconds for up to 10 minutes, and a pending
+ * poll answers 400 `authorization_pending`, so it would exhaust that bucket
+ * within the first two minutes. Each endpoint here carries the limiter
  * its own traffic shape needs instead — the same reasoning as the alert relay's
  * dedicated bucket.
  */

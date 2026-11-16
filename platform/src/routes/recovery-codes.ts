@@ -3,7 +3,8 @@
 
 /**
  * MFA recovery-code routes, mounted under `/auth/recovery-codes` by
- * `routes/auth.ts` (so they inherit the pre-auth `authLimiter`).
+ * `routes/auth.ts`. Regeneration is on the per-user `accountSecurityLimiter`
+ * (middleware/auth-limiters.ts); the status read on the root limiter only.
  *
  * The codes back up the ACCOUNT's second factor — a passkey or an
  * authenticator app — so they are managed here rather than under either
@@ -20,6 +21,7 @@ import { recoveryCodeStatus, regenerateRecoveryCodes } from '../controllers/reco
 // enrolment-pending session may reach. Recovery codes are NOT on that list
 // (they follow a first factor, by which point the exception has closed), so
 // this changes no answer today; it keeps the decision in one place.
+import { accountSecurityLimiter } from '../middleware/auth-limiters.js';
 import { requireAuth, requireInteractiveSession } from '../middleware/index.js';
 
 const router: Router = Router();
@@ -31,6 +33,7 @@ router.get('/', requireAuth, recoveryCodeStatus);
 router.post(
   '/',
   requireAuth,
+  accountSecurityLimiter,
   requireInteractiveSession,
   requireStepUp,
   audited('user.mfa.recovery_regenerate'),

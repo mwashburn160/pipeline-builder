@@ -63,6 +63,7 @@ import type { TokenHistoryEntry } from '@/lib/api/domains/auth';
 import { decodeJwt, formatTimestamp, isExpired, expiresIn } from '@/lib/jwt';
 import { redactString, redactDetails } from '@/lib/redact';
 import { SECURITY_HASH_TABS, SECURITY_TABS, SECURITY_TAB_IDS, type SecurityTab } from '@/lib/security-links';
+import { isEnrolmentPendingSession } from '@/lib/enrolment-session';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 
 /** An anchored section: `#passkeys` and friends land (and focus) here. */
@@ -84,13 +85,24 @@ export default function SecurityPage() {
   );
 
   const canManageServiceAccounts = can('service_accounts:manage');
+  // An enrolment-only session (a fresh install's admin, no factor yet) can reach
+  // ONLY factor enrolment: platform answers everything else — sessions, the
+  // password policy, the org's IdP, access keys — with 403
+  // MFA_ENROLLMENT_REQUIRED. This page is where that session is sent, so it
+  // shows just the enrolment it can finish, instead of a page of failed panels
+  // that reads as "sign-in didn't work" and sends the person back to sign in
+  // again (spending the sign-in budget each time).
+  const enrolmentOnly = isEnrolmentPendingSession();
   // The org's machine identities are a different authority from your own
   // credentials, so the tab only exists for someone who holds it (the API
   // enforces the same permission).
   const tabs = useMemo(
-    () => SECURITY_TABS.filter((t) => t.id !== 'service-accounts' || canManageServiceAccounts),
-    [canManageServiceAccounts],
+    () => SECURITY_TABS.filter((t) => (enrolmentOnly
+      ? t.id === 'factors'
+      : t.id !== 'service-accounts' || canManageServiceAccounts)),
+    [canManageServiceAccounts, enrolmentOnly],
   );
+  const shownTab: SecurityTab = enrolmentOnly ? 'factors' : activeTab;
 
   if (!isReady || !user) return <LoadingPage />;
 
@@ -103,19 +115,30 @@ export default function SecurityPage() {
       titleExtra={<ShieldCheck className="w-5 h-5 text-brand" />}
     >
       <div className="space-y-6">
-        {/* Posture at a glance — each item links to the tab that changes it. */}
-        <SecurityPostureStrip user={user} />
-        <TabBar items={[...tabs]} activeId={activeTab} onSelect={(id) => changeTab(id as SecurityTab)} />
+        {/* Posture at a glance — each item links to the tab that changes it.
+            Not for an enrolment-only session: it reads the sessions list and
+            the org's IdP, both refused until a factor is enrolled. */}
+        {!enrolmentOnly && <SecurityPostureStrip user={user} />}
+        {enrolmentOnly ? (
+          <Callout variant="info" title="Add a passkey or an authenticator app to continue">
+            This administrator account has no second factor yet. Until you add one, this is
+            the only page it can use.
+          </Callout>
+        ) : (
+          <TabBar items={[...tabs]} activeId={activeTab} onSelect={(id) => changeTab(id as SecurityTab)} />
+        )}
         {/* Everything here is a write the backend's read-only guard rejects
             during impersonation, on every tab — including the org's service
             accounts, which had no notice at all before. */}
         <ReadOnlyNotice show={isReadOnly} />
 
-        {activeTab === 'factors' && (
+        {shownTab === 'factors' && (
           <div className="space-y-6">
             {/* An account that signs in only through Google/GitHub/SSO has no
                 password to change — the form could only fail. */}
-            {user.authFactors?.hasPassword !== false && (
+            {/* Not for an enrolment-only session either: changing the password
+                needs a step-up and the org password policy, both refused to it. */}
+            {user.authFactors?.hasPassword !== false && !enrolmentOnly && (
               <Anchor id="password"><PasswordSection readOnly={isReadOnly} username={user?.email} onSignedOut={logout} /></Anchor>
             )}
             <Anchor id="passkeys"><PasskeySection readOnly={isReadOnly} /></Anchor>
@@ -129,14 +152,14 @@ export default function SecurityPage() {
           </div>
         )}
 
-        {activeTab === 'sessions' && (
+        {shownTab === 'sessions' && (
           <div className="space-y-6">
             <Anchor id="devices"><SessionsSection readOnly={isReadOnly} /></Anchor>
             <Anchor id="current-token"><CurrentTokenSection /></Anchor>
           </div>
         )}
 
-        {activeTab === 'keys' && (
+        {shownTab === 'keys' && (
           <div className="space-y-6">
             <MachineTokenSection readOnly={isReadOnly} held={user?.permissions ?? []} />
             <Anchor id="token-history"><TokenHistorySection /></Anchor>
@@ -144,7 +167,7 @@ export default function SecurityPage() {
           </div>
         )}
 
-        {activeTab === 'service-accounts' && (
+        {shownTab === 'service-accounts' && (
           canManageServiceAccounts && orgId ? (
             <Anchor id="service-accounts">
               <ServiceAccountsSection orgId={orgId} readOnly={isReadOnly} />

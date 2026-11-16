@@ -470,7 +470,7 @@ beforeAll(async () => {
   // route of their own.
   const passthrough = (_req: Request, _res: Response, next: NextFunction): void => next();
   const app = express();
-  mountApiRoutes(app, { auth: passthrough, alertWebhook: passthrough, observability: passthrough, scim: passthrough });
+  mountApiRoutes(app, { alertWebhook: passthrough, observability: passthrough, scim: passthrough });
   table = buildRouteTable(app);
 });
 

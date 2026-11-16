@@ -13,7 +13,7 @@ import { Registry, collectDefaultMetrics, Counter, Histogram } from 'prom-client
 import { config } from './config/index.js';
 import { notFoundHandler, errorHandler } from './middleware/index.js';
 import {
-  alertWebhookLimiter, authLimiter, generalLimiter, observabilityLimiter, scimLimiter,
+  alertWebhookLimiter, generalLimiter, observabilityLimiter, scimLimiter,
 } from './middleware/limiters.js';
 import { peekJwtClaims } from './middleware/rate-limit-keys.js';
 import { denyReadOnlyImpersonationWrite, isWriteBlockedByImpersonation } from './middleware/require-write-access.js';
@@ -287,7 +287,7 @@ app.get('/metrics', async (_req: Request, res: Response) => {
  * API Routes (see `routes/mount.ts` — shared with the route-coverage test so the
  * table it checks is exactly what this process serves).
  */
-mountApiRoutes(app, { auth: authLimiter, alertWebhook: alertWebhookLimiter, observability: observabilityLimiter, scim: scimLimiter });
+mountApiRoutes(app, { alertWebhook: alertWebhookLimiter, observability: observabilityLimiter, scim: scimLimiter });
 
 /** Error handling middleware (must be registered last) */
 app.use(notFoundHandler);

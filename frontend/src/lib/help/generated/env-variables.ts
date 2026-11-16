@@ -1,6 +1,6 @@
 // GENERATED FROM docs/environment-variables.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 2256f63f0e0f496144f7f6ae6109a76f3ff32caacbf91f52f8bbcde756999850
+// SOURCE-SHA256: 334e79906483251084881d2c5a7ebd53545d98eab250eb9180c2d7b7faeb6cd6
 // SPDX-License-Identifier: Apache-2.0
 import { FileCode } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -2154,12 +2154,32 @@ export const envVariablesTopic: HelpTopic = {
             [
               "AUTH_LIMITER_MAX",
               "20",
-              "Auth endpoint rate limit"
+              "Per-IP failed credential presentations (sign-in, passkey, MFA, OAuth/SSO callbacks, step-up, password reset, access-key exchange) per window; a correct one is not counted. Also the size of the separate per-IP sign-up bucket on /auth/register, which counts every attempt. See Sign-in throttling"
             ],
             [
               "AUTH_LIMITER_WINDOW_MS",
               "900000",
-              "Auth rate limit window (15 min)"
+              "Window for AUTH_LIMITER_MAX (15 min)"
+            ],
+            [
+              "AUTH_DISCOVERY_LIMITER_MAX",
+              "60",
+              "Per-IP pre-auth reads and flow starts a sign-in page makes on its own (OAuth provider list, passkey autofill challenge, SSO discovery, building an OAuth/SSO redirect) per window"
+            ],
+            [
+              "AUTH_DISCOVERY_LIMITER_WINDOW_MS",
+              "60000",
+              "Window for AUTH_DISCOVERY_LIMITER_MAX (1 min)"
+            ],
+            [
+              "ACCOUNT_SECURITY_LIMITER_MAX",
+              "30",
+              "Per-user authenticated writes to one's own sign-in factors and account (enrol/rename/remove a passkey or authenticator app, regenerate recovery codes, send a verification email) per window"
+            ],
+            [
+              "ACCOUNT_SECURITY_LIMITER_WINDOW_MS",
+              "900000",
+              "Window for ACCOUNT_SECURITY_LIMITER_MAX (15 min)"
             ],
             [
               "MESSAGE_SEND_RATE_MAX",

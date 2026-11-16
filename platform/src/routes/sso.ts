@@ -3,7 +3,7 @@
 
 /**
  * Per-org SSO login routes — OIDC and SAML 2.0. Mounted under `/auth/sso`
- * (behind the same `authLimiter` as the rest of `/auth`). These are
+ * (each route names its bucket — middleware/auth-limiters.ts). These are
  * UNAUTHENTICATED by design — they ARE the login path — so enforcement (enabled
  * + `sso`-entitled) is applied inside the controllers, not by an auth
  * middleware.
@@ -23,17 +23,18 @@ import { Router } from 'express';
 import { handleSamlSlo, startSsoLogout } from '../controllers/saml-slo.js';
 import { completeSamlLogin, getSamlMetadata, handleSamlAcs } from '../controllers/saml.js';
 import { discoverSso, getSsoAuthUrl, handleSsoCallback, startSsoLogin } from '../controllers/sso.js';
+import { authDiscoveryLimiter, signInLimiter } from '../middleware/auth-limiters.js';
 import { requireAuth } from '../middleware/index.js';
 
 const router: Router = Router();
 
 /** POST /auth/sso/discover - Is this email forced through SSO? (login page hint) */
-router.post('/discover', discoverSso);
+router.post('/discover', authDiscoveryLimiter, discoverSso);
 
 /** POST /auth/sso/start - Begin the flow for an EMAIL (the login page's "Continue
  *  with single sign-on"): resolves the enforcing org server-side and returns the
  *  same { url, state } the by-org route does, without naming the org. */
-router.post('/start', startSsoLogin);
+router.post('/start', authDiscoveryLimiter, startSsoLogin);
 
 /** POST /auth/sso/logout - SP-initiated Single Logout for the CALLER'S OWN
  *  current session: { redirectUrl } to the IdP's SLO endpoint (a signed
@@ -42,25 +43,26 @@ router.post('/start', startSsoLogin);
 router.post('/logout', requireAuth, audited('sso.saml.logout'), startSsoLogout);
 
 /** GET /auth/sso/:orgId/authorize - Get the IdP authorize URL for redirect (OIDC or SAML) */
-router.get('/:orgId/authorize', getSsoAuthUrl);
+router.get('/:orgId/authorize', authDiscoveryLimiter, getSsoAuthUrl);
 
 /** POST /auth/sso/:orgId/callback - Exchange code + validate id_token → tokens (OIDC) */
-router.post('/:orgId/callback', audited('user.login', 'user.login.failed'), handleSsoCallback);
+router.post('/:orgId/callback', signInLimiter, audited('user.login', 'user.login.failed'), handleSsoCallback);
 
 /** GET /auth/sso/:orgId/saml/metadata - Service-provider metadata for the IdP admin */
-router.get('/:orgId/saml/metadata', getSamlMetadata);
+router.get('/:orgId/saml/metadata', authDiscoveryLimiter, getSamlMetadata);
 
 /** POST /auth/sso/:orgId/saml/acs - Assertion Consumer Service: the IdP posts the
  *  signed assertion here. Verifies, provisions, and redirects to the landing
  *  page with a one-time handoff (or an error code). */
 router.post(
   '/:orgId/saml/acs',
+  signInLimiter,
   audited('sso.saml.refused', 'sso.jit.provision', 'sso.jit.role.change', 'user.login.failed'),
   handleSamlAcs,
 );
 
 /** POST /auth/sso/:orgId/saml/complete - Redeem the ACS handoff for a session */
-router.post('/:orgId/saml/complete', audited('user.login'), completeSamlLogin);
+router.post('/:orgId/saml/complete', signInLimiter, audited('user.login'), completeSamlLogin);
 
 /** GET|POST /auth/sso/:orgId/saml/slo - Single Logout endpoint (HTTP-Redirect and
  *  HTTP-POST bindings): the IdP's signed LogoutRequest (IdP-initiated — revokes

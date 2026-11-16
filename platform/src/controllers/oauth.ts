@@ -84,6 +84,12 @@ export const handleCallback = withController('OAuth callback', async (req, res) 
   logger.info(`[OAUTH] ${providerName} login successful`, { userId: user._id, email: userInfo.email });
 }, OAUTH_ERROR_MAP);
 
+/** How long a browser may reuse the provider list (seconds). */
+export const OAUTH_PROVIDERS_MAX_AGE_SECONDS = 300;
+
 export const getProviders = withController('Get OAuth providers', async (_req, res) => {
+  // Public, the same for every caller, and changed only by a redeploy — so let
+  // the browser reuse it: the sign-in page asks on every load.
+  res.setHeader('Cache-Control', `public, max-age=${OAUTH_PROVIDERS_MAX_AGE_SECONDS}`);
   sendSuccess(res, 200, { providers: enabledOAuthProviders() });
 });

@@ -70,6 +70,14 @@ jest.mock('@/lib/api', () => ({
   },
 }));
 
+// Whether the signed-in session is the bootstrap admin's enrolment-only one
+// (decoded from the access token in production).
+let mockEnrolmentPending = false;
+jest.mock('@/lib/enrolment-session', () => ({
+  ...(jest.requireActual('@/lib/enrolment-session') as object),
+  isEnrolmentPendingSession: () => mockEnrolmentPending,
+}));
+
 const replace = jest.fn<AnyFn>();
 let query: Record<string, string> = {};
 jest.mock('next/router', () => require('./helpers/pageMocks').routerModule(() => ({ isReady: true, query, pathname: '/dashboard/security', replace, push: jest.fn<AnyFn>() })));
@@ -82,6 +90,7 @@ const postureSettled = () => screen.findByTestId('posture-sessions');
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockEnrolmentPending = false;
   query = {};
   window.location.hash = '';
   mockAuthGuard({ user: { id: 'u1', organizationId: 'org-1' } });
@@ -323,5 +332,33 @@ describe('Security — the password form', () => {
     expect(screen.queryByRole('button', { name: /change password/i })).not.toBeInTheDocument();
     expect(screen.getByText('passkey-section')).toBeInTheDocument();
     await postureSettled();
+  });
+});
+
+describe('Security — an enrolment-only session (bootstrap admin, no factor yet)', () => {
+  // Platform refuses such a session everything but factor enrolment (403
+  // MFA_ENROLLMENT_REQUIRED). The page it is sent to must not fire reads it will
+  // be refused: a page of failed panels reads as "sign-in didn't work", and the
+  // person signs in again — spending the sign-in budget every time.
+  beforeEach(() => { mockEnrolmentPending = true; });
+
+  it('shows only factor enrolment, whatever tab the link named', async () => {
+    query = { tab: 'sessions' };
+    render(<SecurityPage />);
+    expect(screen.getByText('Add a passkey or an authenticator app to continue')).toBeInTheDocument();
+    expect(screen.getByText('passkey-section')).toBeInTheDocument();
+    expect(screen.getByText('totp-section')).toBeInTheDocument();
+    expect(screen.queryByText('sessions-section')).not.toBeInTheDocument();
+    expect(screen.queryByRole('tablist')).not.toBeInTheDocument();
+  });
+
+  it('asks for nothing the session would be refused', async () => {
+    render(<SecurityPage />);
+    await screen.findByText('passkey-section');
+    // Give any mount-time read a chance to fire before asserting it didn't.
+    await new Promise((r) => setTimeout(r, 0));
+    expect(listSessions).not.toHaveBeenCalled();
+    expect(getOwnPasswordPolicy).not.toHaveBeenCalled();
+    expect(screen.queryByRole('button', { name: /change password/i })).not.toBeInTheDocument();
   });
 });

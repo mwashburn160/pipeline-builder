@@ -10,10 +10,9 @@
  * place; `index.ts` only wires them into the app.
  */
 
-import { verifyServicePrincipal } from '@pipeline-builder/api-core';
 import type { Request, RequestHandler } from 'express';
 
-import { extractClientIp, rateLimitKey, scimOrgKey, verifiedIsSuperAdmin, tierLimitedMax, isSignOut, isFactorSelfRead, isSessionMaintenance, isPasskeyChallenge } from './rate-limit-keys.js';
+import { extractClientIp, rateLimitKey, scimOrgKey, verifiedIsSuperAdmin, tierLimitedMax } from './rate-limit-keys.js';
 import { createLimiter } from './rate-limiter.js';
 import { config } from '../config/index.js';
 import { SCIM_RATE_LIMIT_MAX, SCIM_RATE_LIMIT_WINDOW_MS } from '../constants/scim.js';
@@ -80,20 +79,7 @@ export const generalLimiter: RequestHandler = createLimiter({
   message: 'Too many requests. Please try again later.',
 });
 
-/** Strict rate limiter for auth endpoints (login, register, OAuth) — IP-based since the user is not yet authenticated. */
-export const authLimiter: RequestHandler = createLimiter({
-  name: 'auth',
-  windowMs: config.rateLimit.auth.windowMs,
-  max: config.rateLimit.auth.max,
-  keyGenerator: extractClientIp,
-  // A verified internal service (image-registry relaying `docker login`) sends
-  // every user's attempt from one pod IP; counting those in one IP bucket would
-  // let one user's failures lock everyone out. That service limits per client
-  // and username itself (image-registry token-rate-limiter).
-  skip: (req: Request) => verifyServicePrincipal(req) || isSignOut(req) || isFactorSelfRead(req)
-    || isSessionMaintenance(req) || isPasskeyChallenge(req),
-  message: 'Too many authentication attempts. Please try again later.',
-});
+// The `/auth*` buckets are attached route by route — see `auth-limiters.ts`.
 
 /**
  * Per-org rate limiter for observability endpoints. Tighter than the general

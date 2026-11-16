@@ -10,8 +10,23 @@ import { storeSsoIntent } from '@/lib/sso-intent';
 import { startOAuthLogin } from '@/lib/oauth-intent';
 import { peekReturnPath } from '@/lib/return-to';
 import { formatError, providerLabel } from '@/lib/constants';
+import { rateLimitedMessage } from '@/lib/rate-limit-message';
 import { browserSupportsWebAuthn, browserSupportsWebAuthnAutofill, cancelPasskeyCeremony } from '@/lib/passkeys';
 import { webauthnErrorMessage } from '@/lib/webauthn';
+
+/**
+ * A sign-in failure as the person should read it. A rate-limited one says WHEN
+ * to try again ("Try again in 12 minutes") rather than "later": every failed
+ * retry on the sign-in bucket is counted, so retrying blind extends the wait.
+ */
+function signInError(err: unknown, fallback: string): string {
+  return rateLimitedMessage(err) ?? formatError(err, fallback);
+}
+
+/** The same for a passkey ceremony, which stays silent when the person cancelled. */
+function passkeyError(err: unknown): string | null {
+  return rateLimitedMessage(err) ?? webauthnErrorMessage(err, 'Passkey sign-in failed');
+}
 
 /** How long the identifier has to stop changing before we ask the backend about
  *  its domain. Long enough that typing an address is ONE request, short enough
@@ -162,7 +177,7 @@ export function useSignInFlow() {
         await loginWithPasskey({ autofill: true });
       } catch (err) {
         if (cancelled) return;
-        const message = webauthnErrorMessage(err, 'Passkey sign-in failed');
+        const message = passkeyError(err);
         if (message) setError(message);
       }
     })();
@@ -214,7 +229,7 @@ export function useSignInFlow() {
         return;
       }
 
-      setError(formatError(err, 'Sign in failed'));
+      setError(signInError(err, 'Sign in failed'));
     }
   };
 
@@ -245,7 +260,7 @@ export function useSignInFlow() {
       storeSsoIntent(state);
       window.location.href = url;
     } catch (err) {
-      setError(formatError(err, 'Could not start single sign-on'));
+      setError(signInError(err, 'Could not start single sign-on'));
       setSsoBusy(false);
     }
   };
@@ -268,7 +283,7 @@ export function useSignInFlow() {
       // where retrying the code is pointless — drop back to the password form
       // rather than keep asking for codes nothing will accept.
       if ((err as { code?: string } | null)?.code === 'TOTP_INVALID_CHALLENGE') setMfaChallengeId(null);
-      setError(formatError(err, 'Verification failed'));
+      setError(signInError(err, 'Verification failed'));
     } finally {
       setMfaBusy(false);
     }
@@ -290,7 +305,7 @@ export function useSignInFlow() {
     } catch (err) {
       // A dead handle can't be retried — back to the password form.
       if ((err as { code?: string } | null)?.code === 'PASSWORD_CHANGE_CHALLENGE_INVALID') setPwChange(null);
-      setError(formatError(err, 'Could not change your password'));
+      setError(signInError(err, 'Could not change your password'));
     } finally {
       setPwChangeBusy(false);
     }
@@ -321,7 +336,7 @@ export function useSignInFlow() {
     try {
       await loginWithPasskey();
     } catch (err) {
-      const message = webauthnErrorMessage(err, 'Passkey sign-in failed');
+      const message = passkeyError(err);
       if (message) setError(message);
     } finally {
       setPasskeyBusy(false);
@@ -352,7 +367,7 @@ export function useSignInFlow() {
     try {
       await startOAuthLogin(provider, peekReturnPath() ?? undefined);
     } catch (err) {
-      setError(formatError(err, `Could not sign in with ${providerLabel(provider)}`));
+      setError(signInError(err, `Could not sign in with ${providerLabel(provider)}`));
       setOauthBusy(null);
     }
   };

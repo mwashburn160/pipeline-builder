@@ -1,6 +1,6 @@
 // GENERATED FROM docs/deploy-operations.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 7ea333ae719f1c363e43909ea1768a14ef098a4e26e7ae474e9a35293d42c73a
+// SOURCE-SHA256: 505ebf7340be52bbae4e8ada5478770fc01f5842af8ec8a19b9cf29b38eb0aaa
 // SPDX-License-Identifier: Apache-2.0
 import { Wrench } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -1433,7 +1433,7 @@ export const deployOperationsTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "At 218 rules one root cause is a pager flood, and a flood is functionally the same as no alert. The inhibition tree in alertmanager.yml suppresses the consequences of DNS failure, a dead waypoint, Redis at its cap, node saturation, and a service being down."
+          "content": "At 219 rules one root cause is a pager flood, and a flood is functionally the same as no alert. The inhibition tree in alertmanager.yml suppresses the consequences of DNS failure, a dead waypoint, Redis at its cap, node saturation, and a service being down."
         },
         {
           "type": "text",
