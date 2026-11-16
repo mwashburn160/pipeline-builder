@@ -7,6 +7,7 @@ import { join } from 'path';
 import { parsePlatformBaseUrl, STEP_MANIFEST_FILE, type StepManifestEntry } from '@pipeline-builder/pipeline-core';
 import { resolveAwsRegion } from './aws-env.js';
 import { printInfo } from './output-utils.js';
+import { pipelineStackName } from './stack-name.js';
 import { defaultPipelineName } from '../config/cli.constants.js';
 
 /**
@@ -111,7 +112,7 @@ export async function buildRegistryPayload(
 
   const pipelineName = pipeline.pipelineName
     || defaultPipelineName(pipeline.organization, pipeline.project);
-  const stackName = `${pipeline.project}-${pipeline.organization}`.toLowerCase();
+  const stackName = pipelineStackName(pipeline.project, pipeline.organization);
 
   return {
     pipelineId: pipeline.id,

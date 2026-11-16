@@ -11,6 +11,7 @@ import { App, Stack } from 'aws-cdk-lib';
 import pico from 'picocolors';
 import { generateExecutionId } from './config/cli.constants.js';
 import { readPropsFile } from './utils/props-file.js';
+import { pipelineStackName } from './utils/stack-name.js';
 
 const { cyan, green, dim, bold, magenta, red } = pico;
 
@@ -25,7 +26,7 @@ function main(): void {
 
   const props = readPropsFile<BuilderProps>();
 
-  const stackName = `${props.project}-${props.organization}`.toLowerCase();
+  const stackName = pipelineStackName(props.project, props.organization);
   const componentId = 'pipeline-builder';
 
   console.log('Pipeline configuration:', {
