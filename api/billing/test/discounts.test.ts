@@ -243,6 +243,8 @@ function freshSub(over: any = {}) {
     planId: 'pro',
     status: 'active',
     interval: 'monthly',
+    currentPeriodStart: new Date('2026-07-15T00:00:00Z'),
+    currentPeriodEnd: new Date('2026-08-15T00:00:00Z'),
     recurringDiscount: null,
     creditBalanceCents: 0,
     creditLedger: [] as any[],
@@ -629,7 +631,7 @@ describe('lifecycle reconciliation', () => {
     expect(mockApplyUsageCredit).not.toHaveBeenCalled();
   });
 
-  it('re-grants a combo credit once per CALENDAR PERIOD, derived from live add-ons', async () => {
+  it('re-grants a combo credit once per BILLING PERIOD, derived from live add-ons', async () => {
     mockActiveComboCredits.mockReturnValue([{ comboId: 'analytics_suite', name: 'Analytics Suite', creditCents: 2000 }]);
     subDoc = freshSub({
       externalCustomerId: 'cus_x',
@@ -638,10 +640,11 @@ describe('lifecycle reconciliation', () => {
     await reconcileDiscountsOnInvoice(subDoc as any, { id: 'in_c1', ending_balance: null });
     expect(subDoc.creditBalanceCents).toBe(2000);
     expect(mockApplyUsageCredit).toHaveBeenCalledWith('cus_x', 2000, expect.stringContaining('combo:analytics_suite'));
-    // The ledger dedupe key is the calendar period (YYYY-MM for monthly), NOT the
-    // invoice id — this is what stops a second invoice in the same period from
-    // double-crediting.
-    expect(subDoc.creditLedger).toContainEqual(expect.objectContaining({ discountId: 'combo:analytics_suite', cents: 2000, dedupeKey: expect.stringMatching(/^\d{4}-\d{2}$/) }));
+    // The ledger dedupe key is the billing period's start date, NOT the invoice
+    // id — this is what stops a second invoice in the same period from
+    // double-crediting. An invoice with no recurring line keys on the
+    // subscription's current period.
+    expect(subDoc.creditLedger).toContainEqual(expect.objectContaining({ discountId: 'combo:analytics_suite', cents: 2000, dedupeKey: '2026-07-15' }));
 
     // H2 regression lock: a DIFFERENT invoice settling in the SAME period (a
     // proration / one-off) must NOT re-grant the combo credit — the atomic
@@ -670,7 +673,7 @@ describe('lifecycle reconciliation', () => {
 
 // grantPeriodicCredits — the shared re-grant used by BOTH the Stripe invoice
 // reconciler (periodKey = invoice id) and the Marketplace metering cycle
-// (periodKey = calendar `YYYY-MM`). The reconcile tests above cover the invoice-id
+// (periodKey = the period's start date, `YYYY-MM-DD`). The reconcile tests above cover the invoice-id
 // path; these assert the Marketplace calendar-period path directly.
 describe('grantPeriodicCredits (shared re-grant, calendar period key)', () => {
   const sub = (over: any = {}) => ({ _id: { toString: () => 'sub-1' }, orgId: 'org-cust', planId: 'pro', interval: 'monthly', creditBalanceCents: 0, creditLedger: [] as any[], recurringDiscount: null, ...over });

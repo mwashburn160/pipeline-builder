@@ -136,7 +136,7 @@ When metering is off, the provider reports `usageCreditSupport: 'none'` and the 
 
 **Per metering cycle** (gated, default-off):
 
-1. **Re-grant** — once per billing period (`YYYY` annual / `YYYY-MM` monthly), the standing recurring discount plus any active combo credits are re-granted onto the local balance. Marketplace has no invoices to drive Stripe's reconciler, so the cycle drives it.
+1. **Re-grant** — once per billing period (keyed on the date the subscription's period starts, e.g. `2026-11-16`, the same key the Stripe path uses), the standing recurring discount plus any active combo credits are re-granted onto the local balance. Marketplace has no invoices to drive Stripe's reconciler, so the cycle drives it.
 2. **Withhold** — for each metered add-on dimension, the cycle reports `units − withheld` to `BatchMeterUsage`, where the withheld units' value (at the dimension's configured price, `AWS_MARKETPLACE_DIMENSION_PRICE_MAP`, cents per unit per cycle) is drawn from the balance. Whole units only; the remainder carries forward.
 3. **Consume** — the balance is drawn down **once per dedupe-hour**, only when AWS accepted every record (`unprocessed === 0`), emitting `credit_consumed` and `credit_exhausted` at zero. Multi-pod safe via atomic conditional updates.
 

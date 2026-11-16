@@ -24,7 +24,7 @@
  * every execution still running at midnight as neither a success nor a failure.
  */
 
-import { createLogger, errorMessage, envInt } from '@pipeline-builder/api-core';
+import { createLogger, errorMessage, envInt, startOf } from '@pipeline-builder/api-core';
 import { sql } from 'drizzle-orm';
 import { withTenantTx } from '../../database/tenancy.js';
 
@@ -46,11 +46,6 @@ export function rollupBatchDays(): number {
   return envInt('REPORTING_ROLLUP_BATCH_DAYS', 7, { min: 1 });
 }
 
-/** The UTC midnight that starts `d`'s day. */
-export function utcDayStart(d: Date): Date {
-  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
-}
-
 /**
  * Rebuild the rollup rows for one UTC day, for every org that had activity.
  *
@@ -64,7 +59,7 @@ export function utcDayStart(d: Date): Date {
  * differing by an interpolation rule.
  */
 export async function rebuildDay(day: Date): Promise<number> {
-  const dayStart = utcDayStart(day);
+  const dayStart = startOf(day, 'day');
   const dayEnd = new Date(dayStart.getTime() + 24 * 3600_000);
 
   // TWO GRAINS, one scan, and no GROUPING SETS needed: a PIPELINE event carries
@@ -161,7 +156,7 @@ export async function runRollupPass(now: Date = new Date()): Promise<{ days: num
   const settleMs = rollupSettleHours() * 3600_000;
   // The newest day that has settled. A day is only built once everything that
   // started in it has had time to finish.
-  const newest = utcDayStart(new Date(now.getTime() - settleMs));
+  const newest = startOf(new Date(now.getTime() - settleMs), 'day');
   let rows = 0;
   let days = 0;
   for (let i = 0; i < rollupBatchDays(); i++) {

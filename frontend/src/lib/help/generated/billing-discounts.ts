@@ -1,6 +1,6 @@
 // GENERATED FROM docs/billing-discounts.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: c8e122e89b0fa7276731475f80516cf9f220042713a8e591424d0996c0df7994
+// SOURCE-SHA256: a5e190620522e13e8e72714e176c7efae3f59c63ecebafe4485bd7d8e9520c38
 // SPDX-License-Identifier: Apache-2.0
 import { BadgePercent } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -330,7 +330,7 @@ export const billingDiscountsTopic: HelpTopic = {
         {
           "type": "list",
           "items": [
-            "Re-grant — once per billing period (YYYY annual / YYYY-MM monthly), the standing recurring discount plus any active combo credits are re-granted onto the local balance. Marketplace has no invoices to drive Stripe's reconciler, so the cycle drives it.",
+            "Re-grant — once per billing period (keyed on the date the subscription's period starts, e.g. 2026-11-16, the same key the Stripe path uses), the standing recurring discount plus any active combo credits are re-granted onto the local balance. Marketplace has no invoices to drive Stripe's reconciler, so the cycle drives it.",
             "Withhold — for each metered add-on dimension, the cycle reports units − withheld to BatchMeterUsage, where the withheld units' value (at the dimension's configured price, AWS_MARKETPLACE_DIMENSION_PRICE_MAP, cents per unit per cycle) is drawn from the balance. Whole units only; the remainder carries forward.",
             "Consume — the balance is drawn down once per dedupe-hour, only when AWS accepted every record (unprocessed === 0), emitting credit_consumed and credit_exhausted at zero. Multi-pod safe via atomic conditional updates."
           ]

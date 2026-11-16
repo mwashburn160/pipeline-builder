@@ -9,13 +9,13 @@
 
 import { createLogger, errorMessage, sendSystemNotification } from '@pipeline-builder/api-core';
 import type Stripe from 'stripe';
-import { createBillingEvent, calculatePeriodEnd, recordReactivatePlanMissing } from './billing-helpers.js';
+import { createBillingEvent, recordReactivatePlanMissing } from './billing-helpers.js';
 import { ingestStripeInvoice } from './billing-ledger.js';
-import { billingPeriodKey } from './billing-period.js';
 import { reconcileDiscountsOnInvoice } from './discount-helpers.js';
 import { syncEntitlements } from './entitlement-sync.js';
 import { grantRecurringPromotions, qualifyReferral } from './promotion-engine.js';
 import { findSubscriptionByStripeId, invoiceSubscriptionId, type StripeEventMeta } from './stripe-helpers.js';
+import { invoiceCreditPeriodKey, recurringInvoicePeriod } from './stripe-period.js';
 import { acceptStripeEvent, awaitsLocalRow, grantOnBecomingEntitled } from './stripe-subscription-handlers.js';
 import { MANAGEABLE_SUBSCRIPTION_STATUSES } from './subscription-status.js';
 import { config } from '../config.js';
@@ -118,20 +118,14 @@ export async function handlePaymentSucceeded(invoice: Stripe.Invoice, event: Str
     subscription.failedPaymentAttempts = 0;
     subscription.firstFailedAt = undefined;
 
-    // Advance billing period using the invoice line's period so our window
-    // tracks Stripe exactly (handles proration, mid-period plan changes,
-    // and timezone drift that wall-clock would lose).
-    const linePeriod = invoice.lines?.data?.[0]?.period;
-    if (linePeriod?.start && linePeriod?.end) {
-      subscription.currentPeriodStart = new Date(linePeriod.start * 1000);
-      subscription.currentPeriodEnd = new Date(linePeriod.end * 1000);
-    } else {
-      // The period restarts now, so it re-anchors on today.
-      subscription.currentPeriodStart = new Date();
-      subscription.billingAnchorDay = subscription.currentPeriodStart.getUTCDate();
-      subscription.currentPeriodEnd = calculatePeriodEnd(
-        subscription.currentPeriodStart, subscription.interval, subscription.billingAnchorDay,
-      );
+    // Adopt the period the RECURRING charge bills for, so our window tracks
+    // Stripe exactly. A proration-only or one-off invoice has no recurring line
+    // and leaves the period alone: its lines cover partial or unrelated periods.
+    const period = recurringInvoicePeriod(invoice);
+    if (period) {
+      subscription.currentPeriodStart = period.start;
+      subscription.currentPeriodEnd = period.end;
+      subscription.billingAnchorDay = period.start.getUTCDate();
     }
 
     // Restore active status if recovering from past_due
@@ -190,7 +184,7 @@ export async function handlePaymentSucceeded(invoice: Stripe.Invoice, event: Str
     // Atomic: persist promo credits with guarded $push/$inc, NOT via the full-doc
     // save below — so a concurrent redemption's credit write on the same ledger
     // isn't clobbered (M2). The reconcile above is atomic for the same reason.
-    await grantRecurringPromotions(subscription, billingPeriodKey(subscription.interval), { atomic: true });
+    await grantRecurringPromotions(subscription, invoiceCreditPeriodKey(invoice, subscription), { atomic: true });
   } catch (promoErr) {
     logger.warn('Recurring promotion re-grant failed', { orgId: subscription.orgId, invoiceId: invoice.id, error: String(promoErr) });
   }

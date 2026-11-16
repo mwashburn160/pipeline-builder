@@ -51,52 +51,31 @@ jest.unstable_mockModule('../src/helpers/scan-executor.js', () => ({
   recoverStaleScans: jest.fn(async () => { callOrder.push('recoverStaleScans'); return 0; }),
 }));
 
-const { calculateNextRun, isValidCronExpression, startScanScheduler, stopScanScheduler } = await import('../src/helpers/scan-scheduler.js');
+const { calculateNextRun, startScanScheduler, stopScanScheduler } = await import('../src/helpers/scan-scheduler.js');
 
+// The grammar itself is api-core's (cron.test.ts); this covers the scheduler's
+// contract: UTC, strictly after `from`, and the +1h fallback.
 describe('calculateNextRun', () => {
-  it('falls back to ~1 hour for invalid cron', () => {
-    const before = Date.now();
-    const next = calculateNextRun('not a cron');
-    const diff = next.getTime() - before;
-    expect(diff).toBeGreaterThan(3500_000);
-    expect(diff).toBeLessThan(3700_000);
+  const FROM = new Date(Date.UTC(2026, 8, 16, 10, 7, 30)); // Wed 10:07:30Z
+  const utcParts = (d: Date) => [d.getUTCFullYear(), d.getUTCMonth() + 1, d.getUTCDate(), d.getUTCHours(), d.getUTCMinutes()];
+
+  it.each(['not a cron', '* * *', '0 0 31 2 *'])('falls back to 1 hour for %s', (expr) => {
+    expect(calculateNextRun(expr, FROM).getTime() - FROM.getTime()).toBe(3600_000);
   });
 
-  it('falls back to ~1 hour when wrong number of fields', () => {
-    const before = Date.now();
-    const next = calculateNextRun('* * *');
-    const diff = next.getTime() - before;
-    expect(diff).toBeGreaterThan(3500_000);
-    expect(diff).toBeLessThan(3700_000);
+  it('reads the expression in UTC, whatever the host timezone', () => {
+    expect(utcParts(calculateNextRun('30 14 * * *', FROM))).toEqual([2026, 9, 16, 14, 30]);
+    expect(utcParts(calculateNextRun('0 6 * * 1', FROM))).toEqual([2026, 9, 21, 6, 0]);
+    expect(utcParts(calculateNextRun('0 0 20 * 5', FROM))).toEqual([2026, 9, 18, 0, 0]);
   });
 
-  it('parses "0 0 * * *" as next midnight', () => {
-    const next = calculateNextRun('0 0 * * *');
-    expect(next.getMinutes()).toBe(0);
-    expect(next.getHours()).toBe(0);
-    expect(next.getTime()).toBeGreaterThan(Date.now());
+  it('never returns `from` itself (strictly after)', () => {
+    const exact = new Date(Date.UTC(2026, 8, 16, 10, 15));
+    expect(utcParts(calculateNextRun('15 10 * * *', exact))).toEqual([2026, 9, 17, 10, 15]);
   });
 
-  it('parses "30 14 * * *" as next 14:30', () => {
-    const next = calculateNextRun('30 14 * * *');
-    expect(next.getMinutes()).toBe(30);
-    expect(next.getHours()).toBe(14);
-  });
-
-  it('parses "*/15 * * * *" as the next 15-minute interval', () => {
-    const next = calculateNextRun('*/15 * * * *');
-    expect(next.getTime()).toBeGreaterThan(Date.now());
-    expect(next.getMinutes() % 15).toBe(0);
-  });
-
-  it('parses "0 * * * *" as the next top-of-hour', () => {
-    const next = calculateNextRun('0 * * * *');
-    expect(next.getMinutes()).toBe(0);
-    expect(next.getTime()).toBeGreaterThan(Date.now());
-  });
-
-  it('returns a Date object', () => {
-    expect(calculateNextRun('0 0 * * *')).toBeInstanceOf(Date);
+  it('defaults `from` to now', () => {
+    expect(calculateNextRun('* * * * *').getTime()).toBeGreaterThan(Date.now());
   });
 });
 
@@ -126,102 +105,3 @@ describe('scheduler lifecycle', () => {
   });
 });
 
-// isValidCronExpression — guards POST /scan-schedules against accepting
-// malformed cron that would silently store nextRunAt=null and never fire.
-
-describe('isValidCronExpression', () => {
-  it('accepts standard 5-field cron', () => {
-    expect(isValidCronExpression('0 0 * * *')).toBe(true);
-    expect(isValidCronExpression('30 14 * * *')).toBe(true);
-    expect(isValidCronExpression('* * * * *')).toBe(true);
-  });
-
-  it('accepts step expressions in minute/hour fields', () => {
-    expect(isValidCronExpression('*/15 * * * *')).toBe(true);
-    expect(isValidCronExpression('0 */6 * * *')).toBe(true);
-  });
-
-  it('rejects fewer than 5 fields', () => {
-    expect(isValidCronExpression('* * * *')).toBe(false);
-    expect(isValidCronExpression('0 0')).toBe(false);
-  });
-
-  it('rejects more than 5 fields', () => {
-    expect(isValidCronExpression('0 0 * * * *')).toBe(false);
-  });
-
-  it('rejects empty / whitespace-only', () => {
-    expect(isValidCronExpression('')).toBe(false);
-    expect(isValidCronExpression('   ')).toBe(false);
-  });
-
-  it('rejects garbage that resembles cron', () => {
-    expect(isValidCronExpression('hello world this is bad')).toBe(false);
-    expect(isValidCronExpression('not a cron expression')).toBe(false);
-  });
-
-  it('rejects out-of-range minute or hour literals', () => {
-    expect(isValidCronExpression('60 0 * * *')).toBe(false); // minute 60 invalid
-    expect(isValidCronExpression('0 24 * * *')).toBe(false); // hour 24 invalid
-  });
-});
-
-// Every field is honored (not just minute/hour), with the same grammar the
-// validator accepts — steps, ranges and lists included.
-describe('calculateNextRun — full 5-field grammar', () => {
-  // Wed 2026-09-16 10:07 local.
-  const FROM = new Date(2026, 8, 16, 10, 7, 30);
-  const at = (expr: string) => calculateNextRun(expr, FROM);
-  const parts = (d: Date) => [d.getFullYear(), d.getMonth() + 1, d.getDate(), d.getHours(), d.getMinutes()];
-
-  it('*/15 minute step → next quarter hour', () => {
-    expect(parts(at('*/15 * * * *'))).toEqual([2026, 9, 16, 10, 15]);
-  });
-
-  it('*/6 HOUR step (previously ignored) → next 6-hour boundary', () => {
-    expect(parts(at('0 */6 * * *'))).toEqual([2026, 9, 16, 12, 0]);
-  });
-
-  it('ranges and lists in minute/hour', () => {
-    expect(parts(at('5,45 9-11 * * *'))).toEqual([2026, 9, 16, 10, 45]);
-    expect(parts(at('0 8-9 * * *'))).toEqual([2026, 9, 17, 8, 0]);
-  });
-
-  it('day-of-week (previously ignored): Monday 06:00 → next Monday', () => {
-    expect(parts(at('0 6 * * 1'))).toEqual([2026, 9, 21, 6, 0]);
-    expect(parts(at('0 6 * * 7'))).toEqual([2026, 9, 20, 6, 0]); // 7 = Sunday
-  });
-
-  it('day-of-month + month', () => {
-    expect(parts(at('0 0 1 * *'))).toEqual([2026, 10, 1, 0, 0]);
-    expect(parts(at('30 2 15 1 *'))).toEqual([2027, 1, 15, 2, 30]);
-  });
-
-  it('dom AND dow both restricted → either matches (standard cron OR)', () => {
-    // 20th OR any Friday → Fri 2026-09-18 comes first.
-    expect(parts(at('0 0 20 * 5'))).toEqual([2026, 9, 18, 0, 0]);
-  });
-
-  it('a-b/n step inside a range', () => {
-    expect(parts(at('0 1-23/10 * * *'))).toEqual([2026, 9, 16, 11, 0]);
-  });
-
-  it('never returns `from` itself (strictly after)', () => {
-    const exact = new Date(2026, 8, 16, 10, 15, 0);
-    expect(parts(calculateNextRun('15 10 * * *', exact))).toEqual([2026, 9, 17, 10, 15]);
-  });
-});
-
-describe('isValidCronExpression — consistent with calculateNextRun', () => {
-  it('accepts every field form the calculator honors', () => {
-    for (const expr of ['0 6 * * 1', '0 0 1 * *', '*/5 9-17 * * 1-5', '0 0 1,15 * *', '0 */2 * 1-6 *', '0 0 * * 0,6']) {
-      expect(isValidCronExpression(expr)).toBe(true);
-    }
-  });
-
-  it('rejects malformed fields and impossible dates', () => {
-    for (const expr of ['*/0 * * * *', '0 0 32 * *', '0 0 * 13 *', '0 0 * * 8', '5-1 * * * *', '1/ * * * *', '0 0 31 2 *', '-1 * * * *']) {
-      expect(isValidCronExpression(expr)).toBe(false);
-    }
-  });
-});

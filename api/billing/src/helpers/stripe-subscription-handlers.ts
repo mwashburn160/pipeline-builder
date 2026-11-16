@@ -22,6 +22,7 @@ import { clearDiscountsOnCancel } from './discount-helpers.js';
 import { syncEntitlements } from './entitlement-sync.js';
 import { runSignupPromotions } from './signup-promotions.js';
 import { claimStripeEventOrder, findSubscriptionByStripeId, mapStripeStatus, type StripeEventMeta } from './stripe-helpers.js';
+import { stripeSubscriptionPeriod } from './stripe-period.js';
 import { MANAGEABLE_SUBSCRIPTION_STATUSES } from './subscription-status.js';
 import { config } from '../config.js';
 import { Plan, type PlanDocument } from '../models/plan.js';
@@ -153,13 +154,11 @@ export async function handleSubscriptionCreated(stripeSubscription: Stripe.Subsc
   const interval = (stripeSubscription.metadata?.interval === 'annual' ? 'annual' : 'monthly') as BillingInterval;
   const customerId = typeof stripeSubscription.customer === 'string' ? stripeSubscription.customer : stripeSubscription.customer?.id;
   const status = mapStripeStatus(stripeSubscription.status);
-  // Prefer Stripe's real period (matters for trials / annual) when the SDK surfaces
-  // it; else wall-clock (corrected on the first invoice.payment_succeeded anyway).
-  const stripePeriod = stripeSubscription as unknown as { current_period_start?: number; current_period_end?: number };
-  const periodStart = stripePeriod.current_period_start ? new Date(stripePeriod.current_period_start * 1000) : new Date();
-  const periodEnd = stripePeriod.current_period_end
-    ? new Date(stripePeriod.current_period_end * 1000)
-    : calculatePeriodEnd(periodStart, interval, periodStart.getUTCDate());
+  // Stripe's real period (a trial's included), from the subscription's items.
+  // Wall clock only when Stripe sent none; the first paid invoice corrects it.
+  const stripePeriod = stripeSubscriptionPeriod(stripeSubscription);
+  const periodStart = stripePeriod?.start ?? new Date();
+  const periodEnd = stripePeriod?.end ?? calculatePeriodEnd(periodStart, interval, periodStart.getUTCDate());
 
   let subscription: SubscriptionDocument;
   try {
@@ -323,6 +322,19 @@ export async function handleSubscriptionUpdated(payload: Stripe.Subscription, ev
     dirty = true;
   }
   const statusChanged = dirty;
+
+  // Track Stripe's period on every update, not only on a paid invoice: a renewal,
+  // a trial ending or a billing-anchor reset all arrive here, and an invoice
+  // webhook that is late or dropped would otherwise leave the row looking expired
+  // to the stale-period scan. Not a status change, so not in `statusChanged`.
+  const period = stripeSubscriptionPeriod(stripeSubscription);
+  if (period && (period.start.getTime() !== subscription.currentPeriodStart?.getTime()
+    || period.end.getTime() !== subscription.currentPeriodEnd?.getTime())) {
+    subscription.currentPeriodStart = period.start;
+    subscription.currentPeriodEnd = period.end;
+    subscription.billingAnchorDay = period.start.getUTCDate();
+    dirty = true;
+  }
 
   // Start the grace clock if Stripe moved us into past_due WITHOUT a preceding
   // invoice.payment_failed (which is what normally stamps firstFailedAt).

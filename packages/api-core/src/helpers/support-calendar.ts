@@ -35,6 +35,7 @@
  * customer, which is a cleaner upsell than silently running two dozen clocks.
  */
 
+import { addDays, civilIn, instantOfCivil, isoDateOf, isUsableTimeZone, weekdayOf, type CivilDate } from '../utils/calendar.js';
 import { envInt, envStr } from '../utils/env.js';
 
 /** How a level's target is measured. */
@@ -70,54 +71,8 @@ export interface BusinessCalendar {
   holidays: ReadonlySet<string>;
 }
 
-/** `YYYY-MM-DD` and the weekday of an instant, as seen in `timeZone`. */
-function localParts(at: Date, timeZone: string): { date: string; weekday: number; hour: number } {
-  // `en-CA` yields ISO-ordered date parts, which is the cheapest way to get a
-  // zone-correct YYYY-MM-DD without pulling a date library in.
-  const fmt = new Intl.DateTimeFormat('en-CA', {
-    timeZone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    hour12: false,
-    weekday: 'short',
-  });
-  const parts = new Map(fmt.formatToParts(at).map((p) => [p.type, p.value]));
-  const weekdays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-  return {
-    date: `${parts.get('year')}-${parts.get('month')}-${parts.get('day')}`,
-    weekday: Math.max(0, weekdays.indexOf(parts.get('weekday') ?? '')),
-    // `hour12: false` can render midnight as 24 in some engines.
-    hour: Number(parts.get('hour')) % 24,
-  };
-}
-
-/** The UTC instant of `hour:00` on local date `ymd` in `timeZone`. */
-function instantAtLocalHour(ymd: string, hour: number, timeZone: string): Date {
-  // Guess from the naive UTC reading, then correct by the zone's actual offset
-  // at that moment. One correction is enough: the residual error could only
-  // exceed an hour if the offset itself changed between the guess and the
-  // target, which no real zone does.
-  const guess = new Date(`${ymd}T${String(hour).padStart(2, '0')}:00:00Z`);
-  const seen = localParts(guess, timeZone);
-  const seenUtc = Date.parse(`${seen.date}T${String(seen.hour).padStart(2, '0')}:00:00Z`);
-  return new Date(guess.getTime() + (guess.getTime() - seenUtc));
-}
-
-/** Step one calendar day forward from a `YYYY-MM-DD`. */
-function nextYmd(ymd: string): string {
-  const d = new Date(`${ymd}T12:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + 1);
-  return d.toISOString().slice(0, 10);
-}
-
-const isWorkingDay = (ymd: string, weekday: number, cal: BusinessCalendar): boolean =>
-  cal.days.includes(weekday) && !cal.holidays.has(ymd);
-
-/** The weekday of a `YYYY-MM-DD`, read at local noon so no zone shifts the date. */
-const weekdayOf = (ymd: string, timeZone: string): number =>
-  localParts(new Date(`${ymd}T12:00:00Z`), timeZone).weekday;
+const isWorkingDay = (day: CivilDate, cal: BusinessCalendar): boolean =>
+  cal.days.includes(weekdayOf(day)) && !cal.holidays.has(isoDateOf(day));
 
 /**
  * The instant a first response is due, or null for a level with no target.
@@ -149,16 +104,16 @@ export function responseDueAt(
   // opening a case fail.
   if (cal.days.length === 0) return null;
 
-  let ymd = localParts(openedAt, cal.timeZone).date;
+  let day: CivilDate = civilIn(openedAt, cal.timeZone);
   let counted = 0;
   // Bounded: 366 steps covers a year, which is far past any holiday list that
   // is not itself a configuration error.
   for (let step = 0; step < 366 && counted < measure.days; step += 1) {
-    ymd = nextYmd(ymd);
-    if (isWorkingDay(ymd, weekdayOf(ymd, cal.timeZone), cal)) counted += 1;
+    day = addDays(day, 1);
+    if (isWorkingDay(day, cal)) counted += 1;
   }
   if (counted < measure.days) return null;
-  return instantAtLocalHour(ymd, cal.endHour, cal.timeZone);
+  return instantOfCivil({ ...day, hour: cal.endHour, minute: 0, second: 0 }, cal.timeZone);
 }
 
 /** `1,2,3,4,5` → `[1,2,3,4,5]`, ignoring anything that is not a weekday index. */
@@ -196,14 +151,8 @@ function parseHolidays(raw: string): Set<string> {
  */
 export function businessCalendar(): BusinessCalendar {
   const configured = envStr('SUPPORT_BUSINESS_HOURS_TZ', 'America/New_York');
-  let timeZone = configured;
-  try {
-    new Intl.DateTimeFormat('en-CA', { timeZone: configured }).format(new Date());
-  } catch {
-    timeZone = 'UTC';
-  }
   return {
-    timeZone,
+    timeZone: isUsableTimeZone(configured) ? configured : 'UTC',
     days: parseDays(envStr('SUPPORT_BUSINESS_HOURS_DAYS', '1,2,3,4,5')),
     endHour: envInt('SUPPORT_BUSINESS_HOURS_END_HOUR', 17, { min: 0, max: 23 }),
     holidays: parseHolidays(envStr('SUPPORT_BUSINESS_HOURS_HOLIDAYS', '')),

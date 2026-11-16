@@ -75,6 +75,8 @@ export type {
 } from './jwk.js';
 export * from './object.js';
 export * from './date.js';
+export * from './calendar.js';
+export * from './cron.js';
 export {
   resetSupportAliasesCache,
   getPrimarySupportAlias,

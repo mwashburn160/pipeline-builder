@@ -100,6 +100,18 @@ describe('askModelScheduleNotice — when the schedule is the explanation', () =
     expect(askModelScheduleNotice(SELF_HOSTED, UNREACHABLE, at('2026-10-09T09:00:00Z'))).toContain('scheduled to be running now');
   });
 
+  it('reads weekday names the way the CronJob does', () => {
+    process.env.ASK_SCHEDULE_UP = '45 7 * * MON-FRI';
+    process.env.ASK_SCHEDULE_DOWN = '0 17 * * mon-fri';
+    expect(askModelScheduleNotice(SELF_HOSTED, UNREACHABLE, at('2026-10-10T09:00:00Z'))).toContain('Monday to Friday');
+  });
+
+  it('does not describe a window restricted by day-of-month', () => {
+    process.env.ASK_SCHEDULE_UP = '45 7 1 * *';
+    process.env.ASK_SCHEDULE_DOWN = '0 17 1 * *';
+    expect(askModelScheduleNotice(SELF_HOSTED, UNREACHABLE, at('2026-10-10T09:00:00Z'))).toContain('may be switched off right now, or still starting up');
+  });
+
   it('does not call an arbitrary day set "Monday to Friday"', () => {
     process.env.ASK_SCHEDULE_UP = '45 7 * * 1,3,5';
     process.env.ASK_SCHEDULE_DOWN = '0 17 * * 1,3,5';

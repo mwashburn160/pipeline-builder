@@ -1,6 +1,6 @@
 // GENERATED FROM docs/billing-providers.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 76d1457dc58f7b3e061661266e9de377bdffe7a7abca555b2b78ff0b4a3ce516
+// SOURCE-SHA256: 91f1f562bafe8ff153d9520b65870ce5dca9a9391ed978b25f13a71790215151
 // SPDX-License-Identifier: Apache-2.0
 import { CreditCard } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -530,7 +530,7 @@ export const billingProvidersTopic: HelpTopic = {
             ],
             [
               "customer.subscription.updated",
-              "Re-syncs status/plan (status mapped internally; unpaid ⇒ canceled after grace)"
+              "Re-syncs status, plan and billing period (status mapped internally; unpaid ⇒ canceled after grace)"
             ],
             [
               "customer.subscription.deleted",
@@ -610,6 +610,7 @@ export const billingProvidersTopic: HelpTopic = {
             "Provider selection — getPaymentProvider() constructs the StripeProvider when BILLING_PROVIDER=stripe and throws at startup if STRIPE_SECRET_KEY is unset (STRIPE_SECRET_KEY is required when BILLING_PROVIDER=stripe), so a misconfigured deployment fails fast rather than silently running stubbed.",
             "Subscribe — the dashboard Billing page calls POST /billing/subscriptions (authenticated, billing:manage), which runs createCustomer → createSubscription on the provider. createSubscription looks up the Stripe Price from STRIPE_PRICE_MAP[<planId>_<interval>] and fails fast if that key is missing.",
             "Add-ons — purchased bundles call the add-on routes, which invoke syncAddons; each bundle's Stripe Price comes from STRIPE_PRICE_MAP[<bundleId>_<interval>], applied as an extra subscription line item (a missing key is skipped — granted but not charged).",
+            "Billing periods — Stripe owns the dates. The app is pinned to one Stripe API version (STRIPE_API_VERSION in the provider), and at that version the period lives on the subscription items, so that is where it is read from (on create, on every .updated, and by the late-webhook reconciler). A paid invoice moves the period to the one its recurring line bills for. Proration lines are skipped, and a proration-only or one-off invoice leaves the period alone. Each period carries the UTC day it is anchored on. Only periods no provider keeps (the stub provider, and a Marketplace entitlement with no expiry) are renewed by the app, on that anchor day clamped to the month's length, so an anchor of the 31st runs Jan 31 → Feb 28 → Mar 31.",
             "Reconciliation — all state changes come back through POST /billing/stripe/webhook, which verifies each delivery with stripe.webhooks.constructEvent(rawBody, signature, STRIPE_WEBHOOK_SECRET), returns 503 if the secret is unset (so Stripe retries rather than the app processing unsigned payloads), and de-dupes redeliveries by event.id. The consumed event set is the table in Step 4."
           ]
         },

@@ -31,7 +31,7 @@
  * how much the notice can say: with one it names the window and when the model
  * returns; without one it says the model is not responding and stops there.
  *
- * It never claims to know more than it does: an unparseable cron (a step or
+ * It never claims to know more than it does: a cron it cannot describe (a step or
  * list in the minute/hour field, a window crossing midnight) yields the
  * "should be running, may still be starting" wording rather than a guess about
  * whether we are inside it. The same applies to an unusable ASK_SCHEDULE_TIMEZONE.
@@ -42,7 +42,10 @@
  * abbreviation, so they say EDT in summer and EST in winter.
  */
 
-import { ErrorCode, OPENAI_COMPATIBLE_PROVIDER_ID, errorMessage, handleAIError, sendError } from '@pipeline-builder/api-core';
+import {
+  ErrorCode, OPENAI_COMPATIBLE_PROVIDER_ID, civilIn, errorMessage, handleAIError, isUsableTimeZone, parseCron, sendError,
+  timeZoneAbbreviation, weekdayOf, type CronField,
+} from '@pipeline-builder/api-core';
 import type { Response } from 'express';
 
 /**
@@ -65,61 +68,42 @@ interface Window {
   readonly days: ReadonlySet<number> | null;
 }
 
-/** A cron minute/hour field, but only when it is a plain number. */
-function plainNumber(field: string | undefined): number | null {
-  if (!field || !/^\d+$/.test(field)) return null;
-  return Number(field);
+/** The one value of a cron field restricted to exactly one, else null. */
+function single(field: CronField): number | null {
+  return !field.any && field.values.size === 1 ? [...field.values][0]! : null;
 }
+
+/** The days-of-week a field allows, or null for every day. */
+const daysOf = (field: CronField): ReadonlySet<number> | null => (field.any ? null : field.values);
 
 /**
- * A cron day-of-week field: `*`, `3`, `1-5`, `1,3,5` or a mix. Returns null for
- * `*` (every day) and undefined when it cannot be read.
+ * The configured window, or null when the pair is not plain enough to describe
+ * in a sentence: each must fire at one minute of one hour, restricted by
+ * day-of-week at most, on the same days.
  *
- * Cron accepts both 0 and 7 for Sunday; the zoned weekday only ever reads 0,
- * so 7 is normalised rather than silently never matching.
+ * The grammar is api-core's, the same one the scan schedules use, so a list or
+ * a name (`MON-FRI`) reads here exactly as the CronJob reads it.
  */
-function parseDays(field: string | undefined): ReadonlySet<number> | null | undefined {
-  if (!field || field === '*') return null;
-  const days = new Set<number>();
-  for (const part of field.split(',')) {
-    const range = /^(\d)-(\d)$/.exec(part);
-    const single = /^\d$/.test(part) ? Number(part) : null;
-    if (range) {
-      const [from, to] = [Number(range[1]) % 7, Number(range[2]) % 7];
-      // A wrapping range (`5-1` = Fri..Mon) is legal cron; walk it forward
-      // rather than assuming from <= to.
-      for (let d = from; ; d = (d + 1) % 7) {
-        days.add(d);
-        if (d === to) break;
-      }
-    } else if (single !== null) {
-      days.add(single % 7);
-    } else {
-      return undefined; // a step (*/2) or name (MON) — not read here
-    }
-  }
-  return days;
-}
-
-/** The configured window, or null when either expression is not plain enough to reason about. */
 function readWindow(up: string, down: string): Window | null {
-  const [upMin, upHour, , , upDow] = up.trim().split(/\s+/);
-  const [downMin, downHour, , , downDow] = down.trim().split(/\s+/);
-  const startMinute = plainNumber(upHour) !== null && plainNumber(upMin) !== null ? plainNumber(upHour)! * 60 + plainNumber(upMin)! : null;
-  const endMinute = plainNumber(downHour) !== null && plainNumber(downMin) !== null ? plainNumber(downHour)! * 60 + plainNumber(downMin)! : null;
-  if (startMinute === null || endMinute === null) return null;
+  const u = parseCron(up);
+  const d = parseCron(down);
+  if (!u || !d) return null;
+  const [upMin, upHour, downMin, downHour] = [single(u.minute), single(u.hour), single(d.minute), single(d.hour)];
+  if (upMin === null || upHour === null || downMin === null || downHour === null) return null;
+  const startMinute = upHour * 60 + upMin;
+  const endMinute = downHour * 60 + downMin;
   // A window that ends before it starts crosses midnight. The deploy's own
   // validation does not forbid it, but reasoning about "are we inside it" then
   // needs care that is not worth guessing at for a message.
   if (endMinute <= startMinute) return null;
-  const days = parseDays(upDow);
-  if (days === undefined) return null;
+  // A day-of-month or month restriction is a calendar no sentence here describes.
+  if (![u.dayOfMonth, u.month, d.dayOfMonth, d.month].every((f) => f.any)) return null;
   // Divergent day sets (up weekdays, down daily) make "which days is it up"
   // ambiguous; say nothing definite rather than something wrong.
-  const downDays = parseDays(downDow);
-  if (downDays === undefined) return null;
+  const days = daysOf(u.dayOfWeek);
+  const downDays = daysOf(d.dayOfWeek);
   const sameDays = (days === null && downDays === null)
-    || (days !== null && downDays !== null && days.size === downDays.size && [...days].every((d) => downDays.has(d)));
+    || (days !== null && downDays !== null && days.size === downDays.size && [...days].every((x) => downDays.has(x)));
   if (!sameDays) return null;
   return { startMinute, endMinute, days };
 }
@@ -174,35 +158,19 @@ interface ZonedNow {
   readonly label: string;
 }
 
-const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-
 /**
  * Read `now` in `timeZone`, or null when the zone is unusable.
  *
- * `Intl` is what makes daylight saving correct without shipping a tz database:
- * it resolves the offset FOR THIS INSTANT, so the window does not drift across
- * the switch the way a hardcoded offset does. The abbreviation comes from the
- * same call, so the message says "EDT" in summer and "EST" in winter rather
- * than a zone name most readers would have to translate.
+ * The calendar resolves the offset FOR THIS INSTANT, so the window does not drift
+ * across a DST switch the way a hardcoded offset does, and the abbreviation is
+ * the one in force now: "EDT" in summer, "EST" in winter.
  */
 function zonedNow(now: Date, timeZone: string): ZonedNow | null {
-  try {
-    const parts = new Intl.DateTimeFormat('en-US', {
-      timeZone, hour12: false, weekday: 'short', hour: '2-digit', minute: '2-digit', timeZoneName: 'short',
-    }).formatToParts(now);
-    const get = (type: string): string => parts.find((p) => p.type === type)?.value ?? '';
-    // `hour12: false` renders midnight as "24" in en-US, which would put the
-    // first minute of the day at 1440 and read as after every window.
-    const hour = Number(get('hour')) % 24;
-    const minute = Number(get('minute'));
-    const day = WEEKDAYS.indexOf(get('weekday'));
-    if (!Number.isFinite(hour) || !Number.isFinite(minute) || day < 0) return null;
-    return { minuteOfDay: hour * 60 + minute, day, label: get('timeZoneName') || timeZone };
-  } catch {
-    // An invalid zone throws rather than falling back. Saying nothing is better
-    // than naming a window computed in the wrong one.
-    return null;
-  }
+  // An invalid zone. Saying nothing is better than naming a window computed in
+  // the wrong one.
+  if (!isUsableTimeZone(timeZone)) return null;
+  const c = civilIn(now, timeZone);
+  return { minuteOfDay: c.hour * 60 + c.minute, day: weekdayOf(c), label: timeZoneAbbreviation(now, timeZone) };
 }
 
 function evaluateWindow(now: Date): WindowState {

@@ -242,3 +242,23 @@ describe('rejectUnreportablePeriod', () => {
     expect(rejectUnreportablePeriod(ancient, { minFromMs: 0, now: new Date('2026-09-23T15:00:00Z') })).toBeNull();
   });
 });
+
+describe('Sunday weeks', () => {
+  // Labelled by the ISO week of their Monday. Labelling by the Sunday's own ISO
+  // week named the PREVIOUS week, and in years like 2027 (Jan 4 a Monday) the
+  // label of the first Sunday week resolved back to a different week.
+  it.each(['2026-11-24T12:00:00Z', '2027-01-06T12:00:00Z', '2027-01-12T12:00:00Z', '2026-12-31T12:00:00Z'])(
+    'the label of the week before %s resolves back to the same period',
+    (now) => {
+      const period = resolvePeriod('weekly', UTC, 'sunday', new Date(now));
+      expect(new Date(period.start).getUTCDay()).toBe(0);
+      expect(resolvePeriodByLabel(period.label, 'weekly', UTC, 'sunday')).toEqual(period);
+    },
+  );
+
+  it('a Sunday week shares the number of the Monday week it overlaps', () => {
+    const period = resolvePeriod('weekly', UTC, 'sunday', new Date('2026-11-24T12:00:00Z'));
+    expect(period.start.toISOString()).toBe('2026-11-15T00:00:00.000Z');
+    expect(period.label).toBe('2026-W47');
+  });
+});

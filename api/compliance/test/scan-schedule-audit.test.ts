@@ -22,6 +22,8 @@ let validatePasses = true;
 let cronValid = true;
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
+  CRON_GRAMMAR_HINT: 'hint',
+  isValidCron: () => cronValid,
   recordAudit: (...a: unknown[]) => recordAuditMock(...a),
   getParam: (p: any, k: string) => p[k],
   parsePaginationParams: () => ({ limit: 25, offset: 0 }),
@@ -39,11 +41,6 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
   withRoute: (h: Function) => async (req: any, res: any) => {
     await h({ req, res, ctx: { log: jest.fn() }, orgId: req.__orgId, userId: req.user?.sub });
   },
-}));
-
-jest.unstable_mockModule('../src/helpers/scan-scheduler.js', () => ({
-  CRON_VALIDATION_HINT: 'hint',
-  isValidCronExpression: () => cronValid,
 }));
 
 

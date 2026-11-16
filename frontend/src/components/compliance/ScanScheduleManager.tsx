@@ -186,14 +186,14 @@ export default function ScanScheduleManager({ readOnly = false }: ScanScheduleMa
               </FilterSelect>
             </div>
             <div className="flex-[2]">
-              <label htmlFor="scan-schedule-cron" className="block text-xs font-medium text-fg-muted mb-1">Cron expression</label>
+              <label htmlFor="scan-schedule-cron" className="block text-xs font-medium text-fg-muted mb-1">Cron expression (UTC)</label>
               <Input
                 id="scan-schedule-cron"
                 type="text"
                 value={formData.cronExpression}
                 onChange={e => setFormData(prev => ({ ...prev, cronExpression: e.target.value }))}
                 placeholder="0 0 * * *"
-                aria-label="Cron expression"
+                aria-label="Cron expression (UTC)"
                 required
               />
             </div>

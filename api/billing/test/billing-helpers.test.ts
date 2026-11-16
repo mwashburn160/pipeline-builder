@@ -98,7 +98,7 @@ jest.unstable_mockModule('../src/config.js', () => ({
   },
 }));
 
-const { calculatePeriodEnd, createBillingEvent } = await import('../src/helpers/billing-helpers.js');
+const { calculatePeriodEnd, createBillingEvent, renewedPeriod } = await import('../src/helpers/billing-helpers.js');
 const { buildSubscriptionResponse } = await import('../src/helpers/subscription-response.js');
 const {
   syncTierToQuotaService,
@@ -196,6 +196,36 @@ describe('calculatePeriodEnd', () => {
     const start = utc('2026-06-15');
     calculatePeriodEnd(start, 'monthly', 15);
     expect(start).toEqual(utc('2026-06-15'));
+  });
+});
+
+// renewedPeriod
+
+describe('renewedPeriod', () => {
+  const utc = (iso: string) => new Date(`${iso}T00:00:00.000Z`);
+
+  it('starts the next period at the old end and ends it on the anchor day', () => {
+    expect(renewedPeriod({
+      currentPeriodStart: utc('2026-01-31'), currentPeriodEnd: utc('2026-02-28'), interval: 'monthly', billingAnchorDay: 31,
+    }, utc('2026-03-01'))).toEqual({ start: utc('2026-02-28'), end: utc('2026-03-31') });
+  });
+
+  it('skips every renewal missed while it was stale, keeping the anchor day', () => {
+    expect(renewedPeriod({
+      currentPeriodStart: utc('2026-01-31'), currentPeriodEnd: utc('2026-02-28'), interval: 'monthly', billingAnchorDay: 31,
+    }, utc('2026-05-10'))).toEqual({ start: utc('2026-04-30'), end: utc('2026-05-31') });
+  });
+
+  it("uses the period's start day when no anchor is stored", () => {
+    expect(renewedPeriod({
+      currentPeriodStart: utc('2026-03-15'), currentPeriodEnd: utc('2026-04-15'), interval: 'annual',
+    }, utc('2026-04-16'))).toEqual({ start: utc('2026-04-15'), end: utc('2027-04-15') });
+  });
+
+  it('a period ending exactly now is over', () => {
+    expect(renewedPeriod({
+      currentPeriodStart: utc('2026-03-01'), currentPeriodEnd: utc('2026-04-01'), interval: 'monthly', billingAnchorDay: 1,
+    }, utc('2026-05-01')).start).toEqual(utc('2026-05-01'));
   });
 });
 

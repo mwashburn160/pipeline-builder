@@ -12,6 +12,7 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 
 const mockSyncEntitlements = jest.fn<(...args: unknown[]) => Promise<boolean>>().mockResolvedValue(true);
 const mockCreateBillingEvent = jest.fn<(...args: unknown[]) => Promise<void>>().mockResolvedValue(undefined);
+const mockRenewedPeriod = jest.fn((..._args: unknown[]) => ({ start: new Date('2026-12-01T00:00:00Z'), end: new Date('2027-01-01T00:00:00Z') }));
 const mockSyncProviderAddons = jest.fn<(...args: unknown[]) => Promise<void>>().mockResolvedValue(undefined);
 // The compliance-set drift leg re-drives ONLY this push (not the full sync).
 const mockPushComplianceSets = jest.fn<(...args: unknown[]) => Promise<boolean>>().mockResolvedValue(true);
@@ -127,6 +128,7 @@ jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({
   // The cron + entitlement-drift reader mint their service token via this helper.
   billingServiceAuth: (_orgId: string) => 'Bearer test-service-token',
   createBillingEvent: (...args: unknown[]) => mockCreateBillingEvent(...args),
+  renewedPeriod: (...args: unknown[]) => mockRenewedPeriod(...args),
   getBundleCatalog: () => [],
   // The real downstream client reads the outbound timeout from here.
   getBillingTimeout: () => 5000,
@@ -607,6 +609,84 @@ describe('Subscription Lifecycle Checker', () => {
       expect(mockUpdateOne).toHaveBeenCalledWith({ _id: staleSub._id }, { $set: { currentPeriodEnd: expiry } });
       expect(mockCreateBillingEvent).not.toHaveBeenCalled();
       expect(mockSyncEntitlements).not.toHaveBeenCalled();
+    });
+
+    it('RENEWS a still-entitled marketplace sub with an open-ended entitlement on its anchor day', async () => {
+      mockGetEntitlements.mockResolvedValueOnce([{ planId: 'pro', dimension: 'pro', isEntitled: true }]);
+      const previousEnd = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const staleSub = {
+        _id: { toString: () => 'sub-mkt4' },
+        orgId: 'org-mkt4',
+        status: 'active',
+        interval: 'monthly',
+        currentPeriodStart: new Date(previousEnd.getTime() - 30 * 24 * 60 * 60 * 1000),
+        currentPeriodEnd: previousEnd,
+        billingAnchorDay: 31,
+        cancelAtPeriodEnd: false,
+        metadata: { provider: 'aws-marketplace', awsLicenseArn: 'cust-4' } as Record<string, unknown>,
+      };
+      mockFind.mockResolvedValueOnce([]).mockResolvedValueOnce([staleSub]).mockResolvedValue([]);
+
+      startSubscriptionLifecycleChecker();
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      expect(mockRenewedPeriod).toHaveBeenCalledWith(staleSub, expect.any(Date));
+      // Guarded on the old end, so a concurrent writer that moved it first wins.
+      expect(mockUpdateOne).toHaveBeenCalledWith(
+        { _id: staleSub._id, currentPeriodEnd: previousEnd },
+        { $set: { currentPeriodStart: new Date('2026-12-01T00:00:00Z'), currentPeriodEnd: new Date('2027-01-01T00:00:00Z') } },
+      );
+      expect(mockCreateBillingEvent).toHaveBeenCalledWith('org-mkt4', 'subscription_updated',
+        expect.objectContaining({ reason: 'marketplace_open_ended_entitlement_renewed' }), 'sub-mkt4');
+      expect(mockSyncEntitlements).not.toHaveBeenCalled();
+    });
+
+    it('RENEWS a period the provider does not keep (renewsLocally), and never downgrades it', async () => {
+      mockGetSubscription.mockResolvedValueOnce({ status: 'active', renewsLocally: true });
+      const previousEnd = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const staleSub = {
+        _id: { toString: () => 'sub-stub' },
+        orgId: 'org-stub',
+        status: 'active',
+        externalId: 'stub_sub_1',
+        interval: 'monthly',
+        currentPeriodStart: new Date(previousEnd.getTime() - 30 * 24 * 60 * 60 * 1000),
+        currentPeriodEnd: previousEnd,
+        cancelAtPeriodEnd: false,
+      };
+      mockFind.mockResolvedValueOnce([]).mockResolvedValueOnce([staleSub]).mockResolvedValue([]);
+
+      startSubscriptionLifecycleChecker();
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      expect(mockUpdateOne).toHaveBeenCalledWith(
+        { _id: staleSub._id, currentPeriodEnd: previousEnd },
+        expect.objectContaining({ $set: expect.objectContaining({ currentPeriodEnd: new Date('2027-01-01T00:00:00Z') }) }),
+      );
+      expect(mockCreateBillingEvent).toHaveBeenCalledWith('org-stub', 'subscription_updated',
+        expect.objectContaining({ reason: 'platform_period_renewed' }), 'sub-stub');
+      expect(mockSyncEntitlements).not.toHaveBeenCalled();
+    });
+
+    it('does nothing more when a concurrent writer already moved the period', async () => {
+      mockGetSubscription.mockResolvedValueOnce({ status: 'active', renewsLocally: true });
+      mockUpdateOne.mockResolvedValueOnce({ modifiedCount: 0 });
+      const staleSub = {
+        _id: { toString: () => 'sub-stub2' },
+        orgId: 'org-stub2',
+        status: 'active',
+        externalId: 'stub_sub_2',
+        interval: 'monthly',
+        currentPeriodStart: new Date(Date.now() - 31 * 24 * 60 * 60 * 1000),
+        currentPeriodEnd: new Date(Date.now() - 24 * 60 * 60 * 1000),
+        cancelAtPeriodEnd: false,
+      };
+      mockFind.mockResolvedValueOnce([]).mockResolvedValueOnce([staleSub]).mockResolvedValue([]);
+
+      startSubscriptionLifecycleChecker();
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      expect(mockCreateBillingEvent).not.toHaveBeenCalled();
     });
 
     it('records a stale-period investigation row ONCE per (sub, period, detail)', async () => {

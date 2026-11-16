@@ -11,6 +11,7 @@
 
 import { createLogger } from '@pipeline-builder/api-core';
 import { incCounter } from '@pipeline-builder/api-server';
+import { recurringInvoicePeriod, type InvoiceLineLike } from './stripe-period.js';
 import { BillingInvoice } from '../models/billing-invoice.js';
 import { BillingPendingReversal, PENDING_REVERSAL_TTL_MS } from '../models/billing-pending-reversal.js';
 
@@ -29,7 +30,7 @@ export interface StripeInvoiceLike {
   total_discount_amounts?: Array<{ amount: number }> | null;
   currency?: string | null;
   status?: string | null;
-  lines?: { data?: Array<{ period?: { start?: number | null; end?: number | null } | null }> };
+  lines?: { data?: InvoiceLineLike[] };
 }
 
 type LedgerStatus = 'paid' | 'open' | 'void' | 'uncollectible' | 'refunded' | 'disputed';
@@ -133,7 +134,10 @@ async function applyBankedReversal(invoiceId: string): Promise<void> {
  */
 export async function ingestStripeInvoice(orgId: string, invoice: StripeInvoiceLike): Promise<void> {
   if (!invoice.id) return;
-  const period = invoice.lines?.data?.[0]?.period;
+  // The recurring charge's period; a proration-only or one-off invoice falls back
+  // to its first line, which is the only period it has.
+  const recurring = recurringInvoicePeriod(invoice);
+  const line = invoice.lines?.data?.[0]?.period;
   const discountCents = (invoice.total_discount_amounts ?? []).reduce((s, d) => s + (d.amount ?? 0), 0);
   const creditCents = Math.max(0, (invoice.ending_balance ?? 0) - (invoice.starting_balance ?? 0));
 
@@ -148,8 +152,8 @@ export async function ingestStripeInvoice(orgId: string, invoice: StripeInvoiceL
   const set: Record<string, unknown> = {
     orgId,
     source: 'stripe',
-    periodStart: period?.start ? new Date(period.start * 1000) : new Date(),
-    periodEnd: period?.end ? new Date(period.end * 1000) : new Date(),
+    periodStart: recurring?.start ?? (line?.start ? new Date(line.start * 1000) : new Date()),
+    periodEnd: recurring?.end ?? (line?.end ? new Date(line.end * 1000) : new Date()),
     subtotalCents: invoice.subtotal ?? 0,
     discountCents,
     creditCents,

@@ -15,12 +15,13 @@ import {
   actorId,
   recordAudit,
   COMPLIANCE_SCAN_TARGETS,
+  CRON_GRAMMAR_HINT,
+  isValidCron,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import { z } from 'zod';
 import { auditedChanges } from '../helpers/audit-changes.js';
-import { CRON_VALIDATION_HINT, isValidCronExpression } from '../helpers/scan-scheduler.js';
 import { complianceScanScheduleService } from '../services/compliance-scan-schedule-service.js';
 
 /**
@@ -65,8 +66,8 @@ export function createScanScheduleRoutes(): Router {
     }
 
     const { target, cronExpression } = validation.value;
-    if (!isValidCronExpression(cronExpression)) {
-      return sendBadRequest(res, `Invalid cron expression: '${cronExpression}'. ${CRON_VALIDATION_HINT}`, ErrorCode.VALIDATION_ERROR);
+    if (!isValidCron(cronExpression)) {
+      return sendBadRequest(res, `Invalid cron expression: '${cronExpression}'. ${CRON_GRAMMAR_HINT}`, ErrorCode.VALIDATION_ERROR);
     }
 
     const schedule = await complianceScanScheduleService.create(orgId, userId, target, cronExpression);
@@ -95,8 +96,8 @@ export function createScanScheduleRoutes(): Router {
       return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
     }
 
-    if (validation.value.cronExpression && !isValidCronExpression(validation.value.cronExpression)) {
-      return sendBadRequest(res, `Invalid cron expression: '${validation.value.cronExpression}'. ${CRON_VALIDATION_HINT}`, ErrorCode.VALIDATION_ERROR);
+    if (validation.value.cronExpression && !isValidCron(validation.value.cronExpression)) {
+      return sendBadRequest(res, `Invalid cron expression: '${validation.value.cronExpression}'. ${CRON_GRAMMAR_HINT}`, ErrorCode.VALIDATION_ERROR);
     }
 
     // The prior row, read only for the audit's before → after.

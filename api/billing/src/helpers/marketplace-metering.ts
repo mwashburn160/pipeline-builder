@@ -22,17 +22,6 @@ function hourKeyFor(now: Date): string {
   return now.toISOString().slice(0, 13); // e.g. 2026-07-29T14
 }
 
-/** UTC bounds of the current billing period — used for the per-period consumption
- *  BillingInvoice row (`YYYY-MM` → that calendar month; `YYYY` → that year). */
-function periodBounds(interval: string, now: Date): { start: Date; end: Date } {
-  const y = now.getUTCFullYear();
-  if (interval === 'annual') {
-    return { start: new Date(Date.UTC(y, 0, 1)), end: new Date(Date.UTC(y + 1, 0, 1)) };
-  }
-  const m = now.getUTCMonth();
-  return { start: new Date(Date.UTC(y, m, 1)), end: new Date(Date.UTC(y, m + 1, 1)) };
-}
-
 /** Why a metering report was skipped, or the result when it ran. */
 export type MeteringOutcome =
   | { status: 'skipped'; reason: 'not-marketplace' | 'no-subscription' | 'no-license' | 'no-addons' | 'provider-mismatch' }
@@ -83,7 +72,7 @@ export async function reportMarketplaceAddonUsage(orgId: string, now: Date = new
 
   // 1. Re-grant recurring + combo credits once per billing period (atomic claim).
   if (creditsActive) {
-    const periodKey = billingPeriodKey(subscription.interval, now);
+    const periodKey = billingPeriodKey(subscription.currentPeriodStart);
     const claimed = await Subscription.findOneAndUpdate(
       { '_id': subscription._id, 'metadata.lastCreditPeriod': { $ne: periodKey } },
       { $set: { 'metadata.lastCreditPeriod': periodKey } },
@@ -162,9 +151,11 @@ export async function reportMarketplaceAddonUsage(orgId: string, now: Date = new
       { new: true },
     );
     if (drawn) {
-      const periodKey = billingPeriodKey(subscription.interval, now);
-      const { start, end } = periodBounds(subscription.interval, now);
-      await recordMarketplaceConsumption(orgId, periodKey, start, end, acceptedConsumedCents);
+      // The subscription's own period, the same one the credit grant above keys on.
+      await recordMarketplaceConsumption(
+        orgId, billingPeriodKey(subscription.currentPeriodStart),
+        subscription.currentPeriodStart, subscription.currentPeriodEnd, acceptedConsumedCents,
+      );
       const subId = subscription._id.toString();
       await createBillingEvent(orgId, 'credit_consumed', { consumedCents: acceptedConsumedCents, dimensions: acceptedLines.length, partial: unprocessedDims.size > 0 }, subId);
       // Mirror to the central audit trail (system-initiated; no request actor).

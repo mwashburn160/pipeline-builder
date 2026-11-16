@@ -1,6 +1,6 @@
 // GENERATED FROM docs/compliance.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: d0601be42d29f6dc836caab54be0bca44d487dc7e83194ae02d5892780aa7435
+// SOURCE-SHA256: 50d618498e85e9fb7f3e4504cadefbf3f44c04eb82b0a04f3e724039d4982d1d
 // SPDX-License-Identifier: Apache-2.0
 import { ShieldCheck } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -135,7 +135,7 @@ export const complianceTopic: HelpTopic = {
             "Create or subscribe to rules. Author org-scoped rules with POST /compliance/rules, or browse GET /compliance/published-rules and subscribe. Subscriptions start inactive — activate the ones you want enforced.",
             "Preview before enabling. POST /compliance/subscriptions/preview/impact reports how many of your existing entities a rule would fail, with samples, before it starts blocking anything. It evaluates them exactly as enforcement does, derived fields included, and also reports fieldAbsent (entities missing a field the rule reads) and notEvaluated (entities a derived field couldn't be resolved for).",
             "Set the notification preference with PUT /compliance/notification-preferences (org admin/owner). notifyOnBlock is on by default; notifyOnWarning is opt-in.",
-            "Add a scan schedule if you want recurring sweeps: POST /compliance/scan-schedules with a standard 5-field cron expression.",
+            "Add a scan schedule if you want recurring sweeps: POST /compliance/scan-schedules with a standard 5-field cron expression, read in UTC. Month and weekday names (JAN, MON) and the macros @daily, @weekly, @monthly, @yearly and @hourly are accepted.",
             "Tune the limits if the defaults don't suit — regex length, attribute depth and key count, scan concurrency, retention. See Environment Variables."
           ]
         }

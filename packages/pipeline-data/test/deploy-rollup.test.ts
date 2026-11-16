@@ -37,7 +37,7 @@ const {
   isDeployEvent, leadTimeGapOf, upsertDeployments, applyDeployOutcome, correlateIncident,
 } = await import('../src/api/reporting/deploy-rollup.js');
 const {
-  utcDayStart, rollupSettleHours, rollupBatchDays, rebuildDay, runRollupPass,
+  rollupSettleHours, rollupBatchDays, rebuildDay, runRollupPass,
 } = await import('../src/api/reporting/daily-rollup.js');
 
 const ORG = 'acme';
@@ -264,11 +264,6 @@ describe('correlateIncident', () => {
 });
 
 describe('the rollup pass timing', () => {
-  it('floors a moment to its UTC day', () => {
-    expect(utcDayStart(new Date('2026-09-21T23:59:59.999Z')).toISOString()).toBe('2026-09-21T00:00:00.000Z');
-    expect(utcDayStart(new Date('2026-09-21T00:00:00.000Z')).toISOString()).toBe('2026-09-21T00:00:00.000Z');
-  });
-
   /**
    * Rolling up a day at 00:01 counts every execution still running at midnight as
    * neither a success nor a failure. Six hours matches the report scheduler's own

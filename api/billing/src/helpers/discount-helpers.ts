@@ -6,7 +6,6 @@ import { createLogger, errorMessage, type BillingInterval } from '@pipeline-buil
 import { incCounter } from '@pipeline-builder/api-server';
 import { config } from '../config.js';
 import { createBillingEvent, getBundleCatalog } from './billing-helpers.js';
-import { billingPeriodKey } from './billing-period.js';
 import { campaignWindowRefusal, orgRedeemedCampaign, releaseCampaignBudget, reserveCampaignBudget } from './campaign.js';
 // Re-exported so routes/discounts.ts keeps importing it from here.
 export { loadManageableSubscription };
@@ -15,6 +14,7 @@ import { creditCents, discountFloorBreach, floorHeadroomCents, recurringDiscount
 import { compactInMemoryLedger, creditLedgerEntry } from './credit-ledger-compaction.js';
 import { decodeDiscountCode, type DiscountSpec, type DiscountKind } from './discount-code.js';
 import { standingRecurringPromotionCents } from './promotion-engine.js';
+import { invoiceCreditPeriodKey, type InvoiceLineLike } from './stripe-period.js';
 import { loadManageableSubscription } from './subscription-status.js';
 import { Campaign } from '../models/campaign.js';
 import { Discount } from '../models/discount.js';
@@ -460,9 +460,11 @@ async function grantUsageCredit(subscription: SubscriptionDocument, discountId: 
 
 /** Invoice fields the discount reconciler reads (Stripe is source of truth). */
 export interface InvoiceLike {
-  /** Invoice id. Not what the re-grant is keyed on — that is the calendar
+  /** Invoice id. Not what the re-grant is keyed on — that is the billing
    *  period, so several invoices in one period share one grant. */
   id?: string;
+  /** The invoice's lines; the recurring one names the period the re-grant keys on. */
+  lines?: { data?: InvoiceLineLike[] } | null;
   /** Customer balance AFTER this invoice, in cents — NEGATIVE = credit remaining. */
   ending_balance?: number | null;
   /** Invoice creation time, Unix SECONDS. Orders the balance mirror: Stripe
@@ -513,12 +515,12 @@ export async function reconcileDiscountsOnInvoice(subscription: SubscriptionDocu
     }
   }
 
-  // 2+3. Re-grant the recurring + combo credits for THIS CALENDAR PERIOD (atomic,
-  // Stripe path). Keying on a calendar period (not the invoice id) makes the
-  // re-grant idempotent when more than one invoice settles in the same period — a
+  // 2+3. Re-grant the recurring + combo credits for the BILLING PERIOD this invoice
+  // belongs to (atomic, Stripe path). Keying on the period (not the invoice id)
+  // makes the re-grant idempotent when more than one invoice settles in it — a
   // proration / one-off / out-of-cycle invoice reuses the period key and hits the
   // ledger dedupe instead of double-crediting the account.
-  await grantPeriodicCredits(subscription, billingPeriodKey(subscription.interval), { atomic: true });
+  await grantPeriodicCredits(subscription, invoiceCreditPeriodKey(invoice, subscription), { atomic: true });
 }
 
 /**
@@ -530,7 +532,7 @@ export async function reconcileDiscountsOnInvoice(subscription: SubscriptionDocu
  * can't leak credits. `atomic` (the Stripe webhook) persists each grant with a
  * guarded write; otherwise `subscription` is mutated in place and the caller saves.
  *
- * Shared realization for both providers: both pass a calendar period key
+ * Shared realization for both providers: both pass the period-start key
  * (`billingPeriodKey`) — the Stripe invoice reconciler so several invoices in
  * one period share one grant, the Marketplace metering cycle because it has no
  * invoices to drive it.

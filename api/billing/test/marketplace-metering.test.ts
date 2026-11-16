@@ -174,6 +174,10 @@ describe('reportMarketplaceAddonUsage — usage-credit realization', () => {
   const creditSub = (over: Record<string, unknown> = {}) => activeSub({
     _id: { toString: () => 'sub-1' },
     interval: 'monthly',
+    // Anchored on the 15th: the credit and consumption period is the
+    // subscription's own, not the calendar month the cycle ran in.
+    currentPeriodStart: new Date('2026-07-15T00:00:00Z'),
+    currentPeriodEnd: new Date('2026-08-15T00:00:00Z'),
     creditBalanceCents: 3000,
     addons: [{ bundleId: 'seat_pack', quantity: 3 }],
     ...over,
@@ -200,7 +204,7 @@ describe('reportMarketplaceAddonUsage — usage-credit realization', () => {
     // $30 credit @ $10/seat withholds all 3 → report quantity 0.
     expect(mockMeterAddonUsage).toHaveBeenCalledWith(LICENSE, [{ bundleId: 'seat_pack', quantity: 0 }], expect.any(Date));
     // B1: consumption recorded on a per-period BillingInvoice row (dashboard visibility).
-    expect(mockRecordMarketplaceConsumption).toHaveBeenCalledWith('org-1', '2026-07', new Date(Date.UTC(2026, 6, 1)), new Date(Date.UTC(2026, 7, 1)), 3000);
+    expect(mockRecordMarketplaceConsumption).toHaveBeenCalledWith('org-1', '2026-07-15', new Date('2026-07-15T00:00:00Z'), new Date('2026-08-15T00:00:00Z'), 3000);
     // B2: the drawdown update decrements the balance but does NOT $push a per-hour creditLedger entry.
     const hourUpdate = mockSubscriptionFindOneAndUpdate.mock.calls.find((c: any) => c[0]['metadata.lastDrawdownHour'])?.[1] as any;
     expect(hourUpdate.$push).toBeUndefined();
@@ -253,7 +257,7 @@ describe('reportMarketplaceAddonUsage — usage-credit realization', () => {
     claims({ period: granted, hour: { creditBalanceCents: 0 } });
 
     await reportMarketplaceAddonUsage('org-1', new Date('2026-07-29T14:00:00Z'));
-    expect(mockGrantPeriodicCredits).toHaveBeenCalledWith(granted, '2026-07'); // monthly period key
+    expect(mockGrantPeriodicCredits).toHaveBeenCalledWith(granted, '2026-07-15'); // the period's start date
     expect((granted as unknown as { save: unknown }).save).toHaveBeenCalled();
   });
 

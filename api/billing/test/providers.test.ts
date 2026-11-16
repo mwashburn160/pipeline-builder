@@ -71,7 +71,8 @@ jest.unstable_mockModule('stripe', () => {
 });
 
 const { AWSMarketplaceProvider } = await import('../src/providers/aws-marketplace-provider.js');
-const { StripeProvider } = await import('../src/providers/stripe-provider.js');
+const { StripeProvider, STRIPE_API_VERSION } = await import('../src/providers/stripe-provider.js');
+const { default: StripeCtor } = await import('stripe') as unknown as { default: jest.Mock };
 const { StubPaymentProvider } = await import('../src/providers/stub-provider.js');
 
 type AWSMarketplaceProvider = InstanceType<typeof AWSMarketplaceProvider>;
@@ -107,8 +108,8 @@ describe('StubPaymentProvider', () => {
     await expect(provider.reactivateSubscription('sub-1')).resolves.toBeUndefined();
   });
 
-  it('getSubscription always reports active (stub never lapses)', async () => {
-    await expect(provider.getSubscription('sub-1')).resolves.toEqual({ status: 'active' });
+  it('getSubscription always reports active, with the period renewed locally (stub never lapses)', async () => {
+    await expect(provider.getSubscription('sub-1')).resolves.toEqual({ status: 'active', renewsLocally: true });
   });
 
   it('realizes usage credits via balance and applyUsageCredit is a no-op', async () => {
@@ -373,6 +374,10 @@ describe('StripeProvider', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     provider = new StripeProvider(stripeConfig);
+  });
+
+  it('calls Stripe at the pinned API version, not the SDK default', () => {
+    expect(StripeCtor).toHaveBeenCalledWith(stripeConfig.secretKey, { apiVersion: STRIPE_API_VERSION });
   });
 
   describe('currency and tax', () => {
@@ -747,10 +752,20 @@ describe('StripeProvider', () => {
   });
 
   describe('getSubscription', () => {
-    it('maps status + current_period_end + cancel_at_period_end from Stripe', async () => {
+    it('maps status + the items\' period end + cancel_at_period_end from Stripe', async () => {
       const unix = Math.floor(new Date('2026-09-01T00:00:00.000Z').getTime() / 1000);
+      // The period is on the subscription ITEMS since API 2025-03-31; a top-level
+      // current_period_end is not read.
       mockStripeSubscriptionsRetrieve.mockResolvedValue({
-        status: 'active', current_period_end: unix, cancel_at_period_end: false,
+        status: 'active',
+        cancel_at_period_end: false,
+        current_period_end: 1,
+        items: {
+          data: [
+            { current_period_start: unix - 2_592_000, current_period_end: unix + 86_400 },
+            { current_period_start: unix - 2_592_000, current_period_end: unix },
+          ],
+        },
       });
       const view = await provider.getSubscription('sub_stripe_live');
       expect(view).toEqual({

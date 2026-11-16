@@ -15,7 +15,7 @@
  * until a moderator acts.
  */
 
-import { isoOrNull } from '@pipeline-builder/api-core';
+import { civilIn, isoOrNull, periodLabel, shiftUnit, startOfUnit, unitLabel } from '@pipeline-builder/api-core';
 import type { PluginReview, PluginReviewReport, PluginStats, Publisher } from '@pipeline-builder/pipeline-data';
 
 import { advisoryStore } from './advisories-store.js';
@@ -42,8 +42,6 @@ export interface RatingTrendPoint {
   count: number;
 }
 
-const monthKey = (d: Date): string => `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
-
 /** The last `months` calendar months (oldest first, the current month last), each with its review average. Pure. */
 export function monthlyRatingTrend(
   rated: ReadonlyArray<Pick<PluginReview, 'rating' | 'createdAt'>>,
@@ -52,13 +50,14 @@ export function monthlyRatingTrend(
 ): RatingTrendPoint[] {
   const buckets = new Map<string, { sum: number; count: number }>();
   const keys: string[] = [];
+  const thisMonth = startOfUnit(civilIn(now), 'month');
   for (let i = months - 1; i >= 0; i--) {
-    const key = monthKey(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1)));
+    const key = unitLabel(shiftUnit(thisMonth, 'month', -i), 'month');
     keys.push(key);
     buckets.set(key, { sum: 0, count: 0 });
   }
   for (const r of rated) {
-    const b = buckets.get(monthKey(new Date(r.createdAt)));
+    const b = buckets.get(periodLabel(new Date(r.createdAt), 'month'));
     if (!b) continue;
     b.sum += r.rating;
     b.count++;

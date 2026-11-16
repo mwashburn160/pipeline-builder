@@ -35,12 +35,9 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({ sendS
 const createBillingEvent = jest.fn<(...a: unknown[]) => Promise<void>>(async () => undefined);
 const syncEntitlements = jest.fn<(...a: unknown[]) => Promise<void>>(async () => undefined);
 const recordReactivatePlanMissing = jest.fn<(...a: unknown[]) => Promise<void>>(async () => undefined);
-const calculatePeriodEnd = jest.fn((start: Date) => new Date(start.getTime() + 30 * 86_400_000));
-
 jest.unstable_mockModule('../src/helpers/billing-helpers.js', () => ({
   createBillingEvent,
   recordReactivatePlanMissing,
-  calculatePeriodEnd,
 }));
 jest.unstable_mockModule('../src/helpers/entitlement-sync.js', () => ({
   syncEntitlements,
@@ -48,10 +45,6 @@ jest.unstable_mockModule('../src/helpers/entitlement-sync.js', () => ({
 
 const ingestStripeInvoice = jest.fn<(...a: unknown[]) => Promise<void>>(async () => undefined);
 jest.unstable_mockModule('../src/helpers/billing-ledger.js', () => ({ ingestStripeInvoice }));
-
-jest.unstable_mockModule('../src/helpers/billing-period.js', () => ({
-  billingPeriodKey: () => '2026-09',
-}));
 
 const reconcileDiscountsOnInvoice = jest.fn<(...a: unknown[]) => Promise<void>>(async () => undefined);
 jest.unstable_mockModule('../src/helpers/discount-helpers.js', () => ({ reconcileDiscountsOnInvoice }));
@@ -108,13 +101,19 @@ function makeSub(over: Partial<Sub> = {}): Sub {
 }
 
 /** An invoice whose line period is Stripe's authoritative billing window. */
+/** A subscription invoice line; `proration` marks a mid-period adjustment. */
+const recurringLine = (start: number, end: number, proration = false) => ({
+  period: { start, end },
+  parent: { type: 'subscription_item_details', subscription_item_details: { proration } },
+});
+
 function makeInvoice(over: Record<string, unknown> = {}): Stripe.Invoice {
   return {
     id: 'in_1',
     subscription: 'sub_stripe_1',
     currency: 'usd',
     amount_due: 4900,
-    lines: { data: [{ period: { start: 1767225600, end: 1769904000 } }] },
+    lines: { data: [recurringLine(1767225600, 1769904000)] },
     ...over,
   } as unknown as Stripe.Invoice;
 }
@@ -154,7 +153,7 @@ describe('handleInvoiceUpcoming', () => {
 });
 
 describe('handlePaymentSucceeded', () => {
-  it('advances the billing window from the INVOICE LINE period, not wall-clock', async () => {
+  it('advances the billing window from the RECURRING line period, and anchors on its day', async () => {
     const sub = makeSub();
     findSubscriptionByStripeId.mockResolvedValue(sub);
 
@@ -162,18 +161,34 @@ describe('handlePaymentSucceeded', () => {
 
     expect(sub.currentPeriodStart).toEqual(new Date(1767225600 * 1000));
     expect(sub.currentPeriodEnd).toEqual(new Date(1769904000 * 1000));
-    // Stripe's window was available, so the wall-clock fallback stays unused.
-    expect(calculatePeriodEnd).not.toHaveBeenCalled();
+    expect(sub.billingAnchorDay).toBe(1);
   });
 
-  it('falls back to wall-clock only when the invoice has no line period', async () => {
+  it('skips proration lines: a partial period listed first does not become the period', async () => {
     const sub = makeSub();
     findSubscriptionByStripeId.mockResolvedValue(sub);
+    // 2026-08-20 → 2026-09-01: the unused tail of the old plan, listed before the renewal.
+    const proration = recurringLine(Date.UTC(2026, 7, 20) / 1000, Date.UTC(2026, 8, 1) / 1000, true);
+    const renewal = recurringLine(Date.UTC(2026, 8, 1) / 1000, Date.UTC(2026, 9, 1) / 1000);
 
-    await handlePaymentSucceeded(makeInvoice({ lines: { data: [] } }), EVT);
+    await handlePaymentSucceeded(makeInvoice({ lines: { data: [proration, renewal] } }), EVT);
 
-    expect(calculatePeriodEnd).toHaveBeenCalledTimes(1);
-    expect(sub.currentPeriodEnd).toEqual(new Date(sub.currentPeriodStart.getTime() + 30 * 86_400_000));
+    expect(sub.currentPeriodStart).toEqual(new Date('2026-09-01T00:00:00Z'));
+    expect(sub.currentPeriodEnd).toEqual(new Date('2026-10-01T00:00:00Z'));
+    expect(grantRecurringPromotions).toHaveBeenCalledWith(sub, '2026-09-01', { atomic: true });
+  });
+
+  it('leaves the period alone for an invoice with no recurring line (proration-only or one-off)', async () => {
+    const sub = makeSub();
+    findSubscriptionByStripeId.mockResolvedValue(sub);
+    const proration = recurringLine(Date.UTC(2026, 7, 20) / 1000, Date.UTC(2026, 8, 1) / 1000, true);
+
+    await handlePaymentSucceeded(makeInvoice({ lines: { data: [proration] } }), EVT);
+
+    expect(sub.currentPeriodStart).toEqual(new Date('2026-08-01T00:00:00Z'));
+    expect(sub.currentPeriodEnd).toEqual(new Date('2026-09-01T00:00:00Z'));
+    // ...and its credits share the current period's one grant.
+    expect(grantRecurringPromotions).toHaveBeenCalledWith(sub, '2026-08-01', { atomic: true });
   });
 
   it('resets the grace-period counters on every successful payment', async () => {
@@ -316,7 +331,9 @@ describe('handlePaymentSucceeded', () => {
 
     expect(ingestStripeInvoice).toHaveBeenCalledWith('org-1', invoice);
     expect(reconcileDiscountsOnInvoice).toHaveBeenCalledWith(sub, invoice);
-    expect(grantRecurringPromotions).toHaveBeenCalledWith(sub, '2026-09', { atomic: true });
+    // Out of order, so the period was not adopted, but the credit still keys on
+    // the period the invoice's recurring charge opens (2026-01-01).
+    expect(grantRecurringPromotions).toHaveBeenCalledWith(sub, '2026-01-01', { atomic: true });
     expect(qualifyReferral).toHaveBeenCalledWith('org-1');
     const [, kind, details] = createBillingEvent.mock.calls.at(-1) as [string, string, Record<string, unknown>];
     expect(kind).toBe('payment_succeeded');

@@ -41,13 +41,13 @@ export class StubPaymentProvider implements PaymentProvider {
   }
 
   /**
-   * Stub subscriptions never lapse — always report active. The lifecycle
-   * checker therefore never downgrades a stub-provider sub on the stale-active
-   * path (dev/test convenience).
+   * Stub subscriptions never lapse — always report active. There is no provider
+   * period either, so the lifecycle checker renews the period locally on its
+   * anchor day instead of flagging the row stale every tick.
    */
   async getSubscription(externalId: string): Promise<ProviderSubscriptionView | null> {
     logger.debug('Stub: getSubscription', { externalId });
-    return { status: 'active' };
+    return { status: 'active', renewsLocally: true };
   }
 
   readonly usageCreditSupport = 'balance' as const;

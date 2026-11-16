@@ -13,9 +13,13 @@ import type { DiscountRef, ExternalSubscriptionResult, PaymentProvider, Provider
 import { getBillingConfig } from '../config/billing-config.js';
 import type { StripeConfig } from '../config.js';
 import { mapStripeStatus } from '../helpers/stripe-helpers.js';
+import { stripeSubscriptionPeriod } from '../helpers/stripe-period.js';
 import type { BillingInterval } from '../models/subscription.js';
 
 const logger = createLogger('stripe-provider');
+
+/** The Stripe API version every call is made at. */
+export const STRIPE_API_VERSION = '2026-10-28.endive';
 
 export class StripeProvider implements PaymentProvider {
   private readonly stripe: Stripe;
@@ -23,7 +27,11 @@ export class StripeProvider implements PaymentProvider {
 
   constructor(stripeConfig: StripeConfig) {
     this.stripeConfig = stripeConfig;
-    this.stripe = new Stripe(stripeConfig.secretKey);
+    // Pinned, not left to the SDK default: the API version decides where fields
+    // live (the billing period moved onto subscription items in 2025-03-31), and
+    // an SDK upgrade that silently changed it is how the period reads broke. A
+    // new SDK fails to compile here until this is reviewed and moved.
+    this.stripe = new Stripe(stripeConfig.secretKey, { apiVersion: STRIPE_API_VERSION });
   }
 
   /**
@@ -228,11 +236,9 @@ export class StripeProvider implements PaymentProvider {
   async getSubscription(externalId: string): Promise<ProviderSubscriptionView | null> {
     try {
       const sub = await this.stripe.subscriptions.retrieve(externalId);
-      // `current_period_end` is a Unix seconds timestamp on the Stripe object.
-      const periodEndUnix = (sub as unknown as { current_period_end?: number }).current_period_end;
       return {
         status: mapStripeStatus(sub.status),
-        currentPeriodEnd: typeof periodEndUnix === 'number' ? new Date(periodEndUnix * 1000) : undefined,
+        currentPeriodEnd: stripeSubscriptionPeriod(sub)?.end,
         cancelAtPeriodEnd: sub.cancel_at_period_end ?? false,
       };
     } catch (err) {

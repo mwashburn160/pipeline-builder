@@ -6,7 +6,7 @@ import { incCounter } from '@pipeline-builder/api-server';
 import { runWithTenantContext } from '@pipeline-builder/pipeline-data';
 import { config } from '../config.js';
 import { syncProviderAddons } from './addon-prune.js';
-import { billingServiceAuth, createBillingEvent } from './billing-helpers.js';
+import { billingServiceAuth, createBillingEvent, renewedPeriod } from './billing-helpers.js';
 import { retryPendingCreditDebits } from './credit-debits.js';
 import { reconcileEntitlementDrift } from './entitlement-drift.js';
 import { syncEntitlements } from './entitlement-sync.js';
@@ -213,6 +213,31 @@ async function recordStalePeriodEvent(
 }
 
 /**
+ * Renew a period the PLATFORM owns (no provider reports one): the next period,
+ * or the one `now` falls in after missed renewals, on the stored anchor day. The
+ * write is guarded on the old period end, so a concurrent pass or a provider
+ * webhook that moved the period first wins and this is a no-op.
+ */
+async function renewLocally(subscription: SubscriptionDocument, now: Date, reason: string): Promise<void> {
+  const previousEnd = subscription.currentPeriodEnd;
+  const { start, end } = renewedPeriod(subscription, now);
+  const res = await Subscription.updateOne(
+    { _id: subscription._id, currentPeriodEnd: previousEnd },
+    { $set: { currentPeriodStart: start, currentPeriodEnd: end } },
+  );
+  if (res.modifiedCount === 0) return;
+  subscription.currentPeriodStart = start;
+  subscription.currentPeriodEnd = end;
+  await createBillingEvent(subscription.orgId, 'subscription_updated', {
+    reason, previousPeriodEnd: previousEnd.toISOString(), currentPeriodEnd: end.toISOString(),
+  }, subscription._id.toString());
+  incCounter('billing_stale_subscription_reconciled_total', { outcome: 'renewed_locally' });
+  logger.info('Platform-owned period renewed on its anchor day', {
+    orgId: subscription.orgId, subscriptionId: subscription._id.toString(), currentPeriodEnd: end.toISOString(),
+  });
+}
+
+/**
  * Find subscriptions that are still 'active' but past their currentPeriodEnd —
  * the classic missed `customer.subscription.deleted` (or renewal) webhook. A
  * stale-active row that just sits here would keep the org on a paid tier/seats
@@ -291,8 +316,8 @@ async function checkExpiredSubscriptions(): Promise<void> {
           // Entitlement is live — the terminal SNS was a false alarm / the contract
           // renewed. Advance the local period to the entitlement's own expiry so the
           // row leaves this scan (otherwise it re-matched and re-recorded forever).
-          // An open-ended entitlement (no expirationDate) has no period to adopt →
-          // record it (deduped per period) for investigation.
+          // An open-ended entitlement (no expirationDate) has no period to adopt,
+          // so the platform renews it on the anchor day instead.
           const expiries = live.map((e) => e.expirationDate).filter((d): d is Date => d instanceof Date && d > now);
           if (expiries.length > 0 && expiries.length === live.length) {
             const periodEnd = new Date(Math.max(...expiries.map((d) => d.getTime())));
@@ -303,7 +328,9 @@ async function checkExpiredSubscriptions(): Promise<void> {
               orgId: subscription.orgId, subscriptionId: subscription._id.toString(), currentPeriodEnd: periodEnd.toISOString(),
             });
           } else {
-            await recordStalePeriodEvent(subscription, now, 'marketplace_still_entitled');
+            // An open-ended entitlement has no term for AWS to report, so the
+            // period is the platform's to keep: renew it on the anchor day.
+            await renewLocally(subscription, now, 'marketplace_open_ended_entitlement_renewed');
           }
           continue;
         }
@@ -346,6 +373,11 @@ async function checkExpiredSubscriptions(): Promise<void> {
         // Provider couldn't resolve it in a safe-to-act-on way — leave it for a
         // later tick rather than risk a false downgrade.
         await recordStalePeriodEvent(subscription, now, 'provider_lookup_inconclusive');
+        continue;
+      }
+
+      if (view.status !== 'canceled' && view.renewsLocally) {
+        await renewLocally(subscription, now, 'platform_period_renewed');
         continue;
       }
 

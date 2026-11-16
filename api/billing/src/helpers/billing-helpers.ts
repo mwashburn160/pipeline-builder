@@ -9,7 +9,7 @@
  * `addon-prune.ts`, and the route response shape in `subscription-response.ts`.
  */
 
-import { createLogger, envBool, getServiceAuthHeader } from '@pipeline-builder/api-core';
+import { addUtcMonths, createLogger, envBool, getServiceAuthHeader } from '@pipeline-builder/api-core';
 import { incCounter } from '@pipeline-builder/api-server';
 import { Config } from '@pipeline-builder/pipeline-core';
 import { getBillingConfig } from '../config/billing-config.js';
@@ -56,17 +56,30 @@ export function billingServiceAuth(orgId: string, role: 'owner' | 'member' = 'ow
  * its period started on when the period was last (re)started.
  */
 export function calculatePeriodEnd(start: Date, interval: BillingInterval, anchorDay: number): Date {
-  if (!Number.isInteger(anchorDay) || anchorDay < 1 || anchorDay > 31) {
-    throw new RangeError(`billing anchor day must be an integer 1-31, got ${anchorDay}`);
+  return addUtcMonths(start, interval === 'annual' ? 12 : 1, anchorDay);
+}
+
+/**
+ * The period a subscription whose dates the PLATFORM keeps is in at `now`:
+ * each period follows the last, ending on the anchor day (clamped to the month),
+ * so the series keeps its day through short months and any number of missed
+ * renewals. Only for periods no provider owns. Stripe and Marketplace report
+ * their own dates, and computing them here would disagree with the invoice.
+ *
+ * A row without a stored anchor uses its period's start day.
+ */
+export function renewedPeriod(
+  subscription: { currentPeriodStart: Date; currentPeriodEnd: Date; interval: BillingInterval; billingAnchorDay?: number | null },
+  now: Date,
+): { start: Date; end: Date } {
+  const anchor = subscription.billingAnchorDay ?? subscription.currentPeriodStart.getUTCDate();
+  let start = subscription.currentPeriodEnd;
+  let end = calculatePeriodEnd(start, subscription.interval, anchor);
+  while (end.getTime() <= now.getTime()) {
+    start = end;
+    end = calculatePeriodEnd(start, subscription.interval, anchor);
   }
-  const year = start.getUTCFullYear();
-  const month = start.getUTCMonth() + (interval === 'annual' ? 12 : 1);
-  // Day 0 of the following month is the last day of the target month.
-  const lastDay = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
-  return new Date(Date.UTC(
-    year, month, Math.min(anchorDay, lastDay),
-    start.getUTCHours(), start.getUTCMinutes(), start.getUTCSeconds(), start.getUTCMilliseconds(),
-  ));
+  return { start, end };
 }
 
 /**

@@ -341,6 +341,9 @@ describe('handleSubscriptionUpdated past_due grace clock', () => {
       status: 'active',
       cancelAtPeriodEnd: false,
       firstFailedAt: undefined as Date | undefined,
+      currentPeriodStart: undefined as Date | undefined,
+      currentPeriodEnd: undefined as Date | undefined,
+      billingAnchorDay: undefined as number | undefined,
       addons: [],
       metadata: { provider: 'stripe' },
       save: jest.fn<() => Promise<void>>().mockResolvedValue(undefined),
@@ -363,6 +366,33 @@ describe('handleSubscriptionUpdated past_due grace clock', () => {
     expect(sub.status).toBe('past_due');
     expect(sub.firstFailedAt).toBeInstanceOf(Date);
     expect(sub.save).toHaveBeenCalled();
+  });
+
+  it("tracks Stripe's period on every update, not only on a paid invoice", async () => {
+    const sub = makeSub({ currentPeriodStart: new Date('2026-08-01T00:00:00Z'), currentPeriodEnd: new Date('2026-09-01T00:00:00Z') });
+    mockFindByStripeId.mockResolvedValue(sub);
+
+    await handleSubscriptionUpdated({
+      ...stripeSub('active'),
+      items: { data: [{ current_period_start: Date.UTC(2026, 8, 1) / 1000, current_period_end: Date.UTC(2026, 9, 1) / 1000 }] },
+    }, EVT);
+
+    expect(sub.currentPeriodStart).toEqual(new Date('2026-09-01T00:00:00Z'));
+    expect(sub.currentPeriodEnd).toEqual(new Date('2026-10-01T00:00:00Z'));
+    expect(sub.billingAnchorDay).toBe(1);
+    expect(sub.save).toHaveBeenCalled();
+  });
+
+  it('does not save when the period and status are unchanged', async () => {
+    const sub = makeSub({ currentPeriodStart: new Date('2026-08-01T00:00:00Z'), currentPeriodEnd: new Date('2026-09-01T00:00:00Z') });
+    mockFindByStripeId.mockResolvedValue(sub);
+
+    await handleSubscriptionUpdated({
+      ...stripeSub('active'),
+      items: { data: [{ current_period_start: Date.UTC(2026, 7, 1) / 1000, current_period_end: Date.UTC(2026, 8, 1) / 1000 }] },
+    }, EVT);
+
+    expect(sub.save).not.toHaveBeenCalled();
   });
 
   it('leaves an existing firstFailedAt untouched when already past_due', async () => {
@@ -422,6 +452,21 @@ describe('handleSubscriptionCreated (checkout provisioning)', () => {
   function created(metadata: Record<string, string>, status = 'active') {
     return { id: 'sub_ext', status, cancel_at_period_end: false, customer: 'cust_x', metadata } as any;
   }
+
+  it("takes the period from the subscription's items (a trial's included), anchored on its start day", async () => {
+    const start = Date.UTC(2026, 0, 31) / 1000;
+    const end = Date.UTC(2026, 1, 14) / 1000; // a 14-day trial
+    await handleSubscriptionCreated({
+      ...created({ orgId: 'org-9', planId: 'team', interval: 'monthly' }),
+      items: { data: [{ price: { id: 'price_team_m' }, current_period_start: start, current_period_end: end }] },
+    }, EVT);
+
+    expect(mockSubscriptionCreate).toHaveBeenCalledWith(expect.objectContaining({
+      currentPeriodStart: new Date('2026-01-31T00:00:00Z'),
+      currentPeriodEnd: new Date('2026-02-14T00:00:00Z'),
+      billingAnchorDay: 31,
+    }));
+  });
 
   it('provisions the local subscription + grants entitlements from checkout metadata', async () => {
     await handleSubscriptionCreated(created({ orgId: 'org-9', planId: 'team', interval: 'monthly' }), EVT);

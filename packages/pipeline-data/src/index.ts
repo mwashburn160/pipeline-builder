@@ -233,7 +233,6 @@ export {
   runRollupPass,
   rollupSettleHours,
   rollupBatchDays,
-  utcDayStart,
 } from './api/reporting/daily-rollup.js';
 export {
   classifyFailure,
