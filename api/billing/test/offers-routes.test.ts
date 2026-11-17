@@ -94,8 +94,9 @@ jest.unstable_mockModule('../src/models/offer-exclusion.js', () => ({
   },
 }));
 
+const mockSubFindOne = jest.fn((_filter: unknown) => ({ lean: async () => ({ orgId: 'acct-1', planId: 'pro', interval: 'monthly', addons: [] }) }));
 jest.unstable_mockModule('../src/models/subscription.js', () => ({
-  Subscription: { findOne: () => ({ lean: async () => ({ orgId: 'acct-1', planId: 'pro', interval: 'monthly', addons: [] }) }) },
+  Subscription: { findOne: mockSubFindOne },
 }));
 
 const { createOfferRoutes } = await import('../src/routes/offers.js');
@@ -110,6 +111,9 @@ function handler(method: string, routePath: string) {
 }
 const call = (h: Function, req: any) => h({ ...req, params: req.params || {}, query: req.query || {}, user: req.user || { sub: 'u-1', organizationId: 'acct-1' } }, {});
 /* eslint-enable @typescript-eslint/no-explicit-any */
+
+/** A well-formed ObjectId: offer `_id`s are ObjectIds, and a malformed one is refused before the query. */
+const OFFER_ID = '64b0c0ffee0000000000a001';
 
 const OPEN_OFFER = {
   _id: { toString: () => 'offer-1' },
@@ -218,6 +222,12 @@ describe('the manual trigger', () => {
     }));
   });
 
+  it('evaluates the LIVE subscription, never a canceled history row', async () => {
+    mockRunForAccount.mockResolvedValue(null);
+    await call(handler('post', '/admin/offers/trigger/:orgId'), { params: { orgId: 'acct-1' } });
+    expect(mockSubFindOne).toHaveBeenCalledWith({ orgId: 'acct-1', status: { $in: ['active', 'trialing', 'past_due'] } });
+  });
+
   it('distinguishes "could not be evaluated" from "refused"', async () => {
     // No plan, no profile: deliberately NOT a suppression, which would mean the
     // rules had considered it and inflate the metric that says they are too tight.
@@ -232,17 +242,26 @@ describe('the manual trigger', () => {
 
 describe('decline and dismiss are different writes', () => {
   it('decline resolves the offer and records the reason', async () => {
-    await call(handler('post', '/offers/:id/decline'), { params: { id: 'offer-1' }, body: { reason: 'too expensive' } });
+    await call(handler('post', '/offers/:id/decline'), { params: { id: OFFER_ID }, body: { reason: 'too expensive' } });
     const [filter, update] = mockOfferUpdate.mock.calls[0] as [Record<string, unknown>, Record<string, Record<string, unknown>>];
     // Scoped to the caller's own account AND to a still-OPEN offer: declining a
     // redeemed one would rewrite a conversion as a refusal.
-    expect(filter).toMatchObject({ _id: 'offer-1', orgId: 'acct-1', status: 'sent' });
+    expect(filter).toMatchObject({ _id: OFFER_ID, orgId: 'acct-1', status: 'sent' });
     expect(update.$set).toMatchObject({ status: 'declined', declineReason: 'too expensive' });
     expect(mockAuditRecord).toHaveBeenCalledWith(expect.objectContaining({ action: 'billing.offer.declined' }));
   });
 
+  it('a malformed offer id is a 404, never a CastError 500', async () => {
+    for (const path of ['/offers/:id/decline', '/offers/:id/dismiss']) {
+      await call(handler('post', path), { params: { id: 'not-an-object-id' }, body: {} });
+    }
+    expect(mockOfferUpdate).not.toHaveBeenCalled();
+    expect(mockSendError).toHaveBeenCalledTimes(2);
+    expect(mockSendError).toHaveBeenCalledWith({}, 404, 'No open offer with that id', expect.anything());
+  });
+
   it('dismiss hides it WITHOUT resolving it', async () => {
-    await call(handler('post', '/offers/:id/dismiss'), { params: { id: 'offer-1' } });
+    await call(handler('post', '/offers/:id/dismiss'), { params: { id: OFFER_ID } });
     const [, update] = mockOfferUpdate.mock.calls[0] as [unknown, Record<string, Record<string, unknown>>];
     expect(Object.keys(update.$set!)).toEqual(['dismissedAt']);
     expect(update.$set).not.toHaveProperty('status');
@@ -250,7 +269,7 @@ describe('decline and dismiss are different writes', () => {
   });
 
   it('declining accepts no reason at all — requiring one would push accounts to dismiss instead', async () => {
-    await call(handler('post', '/offers/:id/decline'), { params: { id: 'offer-1' }, body: {} });
+    await call(handler('post', '/offers/:id/decline'), { params: { id: OFFER_ID }, body: {} });
     const [, update] = mockOfferUpdate.mock.calls[0] as [unknown, Record<string, Record<string, unknown>>];
     expect(update.$set).not.toHaveProperty('declineReason');
   });

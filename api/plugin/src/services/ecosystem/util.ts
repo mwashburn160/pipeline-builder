@@ -5,6 +5,7 @@
 
 import { isSystemOrgId, ErrorCode, type ListingState } from '@pipeline-builder/api-core';
 import type { PluginListing } from '@pipeline-builder/pipeline-data';
+import { z } from 'zod';
 
 import { EcosystemError } from './context.js';
 
@@ -12,6 +13,16 @@ export const DAY_MS = 24 * 3_600_000;
 
 /** The first row, or null. */
 export const first = <T>(rows: T[]): T | null => rows[0] ?? null;
+
+const UuidSchema = z.string().uuid();
+
+/**
+ * Whether `id` is a UUID — the key type of every ecosystem table. The stores'
+ * `byId` reads answer null for anything else: the ids come straight from route
+ * params, and comparing a `uuid` column to a non-uuid string is a Postgres cast
+ * error (22P02) that `withRoute` turns into a 500 instead of the caller's 404.
+ */
+export const isUuid = (id: string): boolean => UuidSchema.safeParse(id).success;
 
 /** A listing counts toward the `listings` quota (and is live in the directory) while in one of these states. */
 export const ACTIVE_LISTING_STATES = ['listed', 'unmaintained'] as const satisfies readonly ListingState[];

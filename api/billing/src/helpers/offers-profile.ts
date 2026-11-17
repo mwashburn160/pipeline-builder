@@ -232,11 +232,6 @@ function isDuplicateKey(err: unknown): boolean {
   return (err as { code?: number } | null)?.code === 11000;
 }
 
-/** Whether this deployment may MAKE offers right now (read per cycle). */
-export function offersAllowed(): boolean {
-  return config.enabled && config.offersEnabled;
-}
-
 // ---------------------------------------------------------------------------
 // The scheduler
 // ---------------------------------------------------------------------------

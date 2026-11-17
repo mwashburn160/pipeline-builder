@@ -171,6 +171,12 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
     await this.invalidateMessageCaches(entity.orgId, entity.recipientOrgId);
   }
 
+  /** A restored message re-enters both participants' inbox/conversation views,
+   *  so their cached pages must drop it back in now rather than at TTL. */
+  protected async onAfterRestore(_id: string, entity: Message): Promise<void> {
+    await this.invalidateMessageCaches(entity.orgId, entity.recipientOrgId);
+  }
+
   /**
    * Storage keys of attachments whose metadata rows were deleted inside a purge
    * transaction, keyed by message id, awaiting blob deletion in

@@ -882,8 +882,8 @@ export class PluginService extends CrudService<
   /**
    * After the default `removed` was deleted or yanked, make the next version
    * the default: the highest live, active, stable, non-yanked version whose
-   * major is not above the removed one's (a new major is never auto-promoted,
-   * ). No-op if a default already exists again (a concurrent deploy) or no
+   * major is not above the removed one's (a new major is never auto-promoted).
+   * No-op if a default already exists again (a concurrent deploy) or no
    * candidate qualifies — resolution then falls back to the highest version.
    */
   async promoteNextDefault(orgId: string, removed: { name: string; version: string }, userId: string): Promise<Plugin | null> {

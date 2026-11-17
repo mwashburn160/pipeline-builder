@@ -40,7 +40,7 @@ jest.unstable_mockModule('../src/helpers/downstream-client.js', () => ({
   fetchSeatActivity: mockFetchSeatActivity,
 }));
 
-const { buildProfile, periodKeyFor, offersAllowed } = await import('../src/helpers/offers-profile.js');
+const { buildProfile, periodKeyFor } = await import('../src/helpers/offers-profile.js');
 const { config } = await import('../src/config.js');
 
 const BASE = {
@@ -182,25 +182,7 @@ describe('buildProfile — UNKNOWN activity is not inactivity', () => {
   });
 });
 
-describe('offersAllowed — two knobs, dependency one way', () => {
-  it('requires BOTH billing and offers to be on', () => {
-    // Offers need billing (nothing to grant without a catalogue); billing being
-    // on does not imply offers.
-    const original = { enabled: config.enabled, offersEnabled: config.offersEnabled };
-    try {
-      for (const [enabled, offers, expected] of [
-        [true, true, true], [true, false, false], [false, true, false], [false, false, false],
-      ] as const) {
-        (config as { enabled: boolean }).enabled = enabled;
-        (config as { offersEnabled: boolean }).offersEnabled = offers;
-        expect(offersAllowed()).toBe(expected);
-      }
-    } finally {
-      (config as { enabled: boolean }).enabled = original.enabled;
-      (config as { offersEnabled: boolean }).offersEnabled = original.offersEnabled;
-    }
-  });
-
+describe('the offers switches', () => {
   it('defaults BOTH to true, matching SUPPORT_ENABLED rather than inverting', () => {
     expect(config.enabled).toBe(true);
     expect(config.offersEnabled).toBe(true);

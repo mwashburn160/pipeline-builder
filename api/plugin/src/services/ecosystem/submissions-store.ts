@@ -28,13 +28,13 @@ import { and, asc, desc, eq, gt, inArray, lte, sql } from 'drizzle-orm';
 // store.ts's `elevated`: joins an ambient `atomically` block, so a submission
 // write commits or rolls back with the moderation writes around it.
 import { elevated } from './store.js';
-import { first } from './util.js';
+import { first, isUuid } from './util.js';
 
 const S = () => schema.pluginSubmission;
 
 export const submissions = {
   byId: (id: string): Promise<PluginSubmission | null> =>
-    elevated(async (tx) => first(await tx.select().from(S()).where(eq(S().id, id)))),
+    !isUuid(id) ? Promise.resolve(null) : elevated(async (tx) => first(await tx.select().from(S()).where(eq(S().id, id)))),
   byVerifyTokenHash: (hash: string): Promise<PluginSubmission | null> =>
     elevated(async (tx) => first(await tx.select().from(S()).where(eq(S().verifyTokenHash, hash)))),
   byStatusTokenHash: (hash: string): Promise<PluginSubmission | null> =>

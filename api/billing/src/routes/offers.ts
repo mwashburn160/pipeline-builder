@@ -21,11 +21,13 @@ import {
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router, type RequestHandler } from 'express';
+import { isValidObjectId } from 'mongoose';
 import { config } from '../config.js';
 import { DEFAULT_QUIET_PERIOD_DAYS, frequencyVerdict } from '../helpers/offers-gates.js';
 import { measureLift } from '../helpers/offers-outcome.js';
 import { runForAccount } from '../helpers/offers-run.js';
 import { refuseTeamBilling } from '../helpers/root-org-guard.js';
+import { MANAGEABLE_SUBSCRIPTION_STATUSES } from '../helpers/subscription-status.js';
 import { OfferExclusion } from '../models/offer-exclusion.js';
 import { Offer, type OfferDocument } from '../models/offer.js';
 import { Subscription } from '../models/subscription.js';
@@ -166,6 +168,8 @@ export function createOfferRoutes(): Router {
     withRoute(async ({ req, res, ctx, orgId, userId }) => {
       const id = getParam(req.params, 'id');
       if (!id) return sendBadRequest(res, 'Offer id is required', ErrorCode.MISSING_REQUIRED_FIELD);
+      // `_id` is an ObjectId: a malformed id would throw a CastError (a 500).
+      if (!isValidObjectId(id)) return sendError(res, 404, 'No open offer with that id', ErrorCode.NOT_FOUND);
       const reason = typeof (req.body as { reason?: unknown } | undefined)?.reason === 'string'
         ? ((req.body as { reason: string }).reason).slice(0, 500)
         : undefined;
@@ -212,6 +216,7 @@ export function createOfferRoutes(): Router {
     withRoute(async ({ req, res, ctx, orgId, userId }) => {
       const id = getParam(req.params, 'id');
       if (!id) return sendBadRequest(res, 'Offer id is required', ErrorCode.MISSING_REQUIRED_FIELD);
+      if (!isValidObjectId(id)) return sendError(res, 404, 'No open offer with that id', ErrorCode.NOT_FOUND);
       const offer = await Offer.findOneAndUpdate(
         { _id: id, orgId, status: 'sent' },
         { $set: { dismissedAt: new Date() } },
@@ -463,8 +468,11 @@ export function createOfferRoutes(): Router {
       if (!config.offersEnabled || !config.enabled) {
         return sendError(res, 409, 'Offers are disabled on this deployment', ErrorCode.SERVICE_UNAVAILABLE);
       }
-      const sub = await Subscription.findOne({ orgId: target }).lean();
-      if (!sub) return sendError(res, 404, 'That account has no subscription', ErrorCode.NOT_FOUND);
+      // The account's LIVE subscription, as the cycle selects it: an org keeps
+      // its canceled rows as history, and an unfiltered `findOne` could hand the
+      // decision a stale plan + add-on set (or evaluate a churned account).
+      const sub = await Subscription.findOne({ orgId: target, status: { $in: [...MANAGEABLE_SUBSCRIPTION_STATUSES] } }).lean();
+      if (!sub) return sendError(res, 404, 'That account has no active subscription', ErrorCode.NOT_FOUND);
 
       let outcome: Awaited<ReturnType<typeof runForAccount>> = null;
       try {

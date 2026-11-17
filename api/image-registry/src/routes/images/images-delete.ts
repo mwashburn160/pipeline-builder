@@ -19,7 +19,7 @@ import { withRoute, incCounter } from '@pipeline-builder/api-server';
 import { type Request, type Response, type Router, type RequestHandler } from 'express';
 import { canWriteRepo } from './repo-access.js';
 import { denyRepoNotOwned, logger, recordRegistryAudit, RegistryMetrics } from './shared.js';
-import { cosignCompanionTags } from '../../services/cosign-tags.js';
+import { deleteCosignCompanions } from '../../services/cosign-tags.js';
 import { COPY_PARALLEL_BLOBS } from '../../services/manifest-copy.js';
 import { repoOwnerOrgId } from '../../services/namespaces.js';
 import { pipelinesReferencingImages, type ImagePipelineReference } from '../../services/plugin-image-references.js';
@@ -30,25 +30,6 @@ import {
   isNotFound,
 } from '../../services/registry-client.js';
 import { invalidateOrgStorageCache, invalidateStorageCache } from '../../services/storage-usage.js';
-
-/**
- * Delete the cosign signature/attestation tags that describe `digest`, once the
- * manifest itself is gone. Missing companions are normal (a copied or
- * base image was never signed). Returns how many were removed.
- */
-async function deleteCosignCompanions(name: string, digest: string): Promise<number> {
-  let deleted = 0;
-  for (const tag of cosignCompanionTags(digest)) {
-    try {
-      const companion = await getManifest(name, tag);
-      await deleteManifest(name, companion.digest);
-      deleted++;
-    } catch (err) {
-      if (!isNotFound(err)) throw err;
-    }
-  }
-  return deleted;
-}
 
 /**
  * Refuse deleting any of `digests` while a pipeline references it — 409

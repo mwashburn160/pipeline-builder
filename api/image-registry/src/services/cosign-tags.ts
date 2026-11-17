@@ -1,6 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { deleteManifest, getManifest, isNotFound } from './registry-client.js';
+
 /**
  * cosign stores a plugin image's signature and SBOM attestation as TAGS beside
  * it — `sha256-<hex>.sig` / `sha256-<hex>.att` (see api/plugin supply-chain).
@@ -25,4 +27,24 @@ export function cosignCompanionTags(digest: string): string[] {
 export function cosignCompanionSubject(tag: string): string | null {
   const match = /^sha256-([0-9a-f]{64})\.(?:sig|att)$/.exec(tag);
   return match ? `sha256:${match[1]}` : null;
+}
+
+/**
+ * Delete the `.sig` / `.att` companions cosign wrote for `digest` in
+ * `repository`. A companion that is already gone (404) is skipped, so a retried
+ * delete converges; any other registry error propagates. Returns how many
+ * companion manifests were deleted.
+ */
+export async function deleteCosignCompanions(repository: string, digest: string): Promise<number> {
+  let deleted = 0;
+  for (const tag of cosignCompanionTags(digest)) {
+    try {
+      const companion = await getManifest(repository, tag);
+      await deleteManifest(repository, companion.digest);
+      deleted++;
+    } catch (err) {
+      if (!isNotFound(err)) throw err;
+    }
+  }
+  return deleted;
 }

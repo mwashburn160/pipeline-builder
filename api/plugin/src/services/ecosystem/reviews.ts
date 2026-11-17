@@ -168,7 +168,7 @@ async function publicListing(handle: string, name: string): Promise<{ publisher:
 
 /** A review with its listing and publisher, or 404. */
 export async function loadReview(id: string): Promise<{ review: PluginReview; listing: PluginListing; publisher: Publisher }> {
-  const review = z.string().uuid().safeParse(id).success ? await reviews.byId(id) : null;
+  const review = await reviews.byId(id);
   const listing = review ? await listings.byId(review.listingId) : null;
   const publisher = listing ? await publishers.byId(listing.publisherId) : null;
   if (!review || !listing || !publisher) throw new EcosystemError(ErrorCode.NOT_FOUND, 'Review not found.');

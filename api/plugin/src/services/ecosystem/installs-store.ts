@@ -31,7 +31,7 @@ import {
 import { and, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
 
 import { elevated } from './store.js';
-import { ACTIVE_LISTING_STATES, first } from './util.js';
+import { ACTIVE_LISTING_STATES, first, isUuid } from './util.js';
 
 const P = () => schema.publisher;
 const L = () => schema.pluginListing;
@@ -68,7 +68,7 @@ export const listingSource: ListingDataSource = {
 
 export const installRows = {
   byId: (id: string): Promise<PluginInstall | null> =>
-    elevated(async (tx) => first(await tx.select().from(I()).where(eq(I().id, id)) as PluginInstall[])),
+    !isUuid(id) ? Promise.resolve(null) : elevated(async (tx) => first(await tx.select().from(I()).where(eq(I().id, id)) as PluginInstall[])),
   /** The org's row for a listing (any status). */
   forOrgListing: (orgId: string, listingId: string): Promise<PluginInstall | null> =>
     elevated(async (tx) => first(await tx.select().from(I()).where(and(eq(I().orgId, orgId), eq(I().listingId, listingId))) as PluginInstall[])),

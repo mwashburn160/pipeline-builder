@@ -108,7 +108,7 @@ const ingestEventSchema = z.discriminatedUnion('eventSource', [
 
 const ingestBatchSchema = z.object({
   // Bound at the Zod layer so an oversized batch is rejected BEFORE the whole
-  // array is validated element-by-element (the route also re-checks post-parse).
+  // array is validated element-by-element.
   events: z.array(ingestEventSchema)
     .min(1, 'At least one event is required')
     .max(CoreConstants.MAX_EVENTS_PER_BATCH, `Maximum ${CoreConstants.MAX_EVENTS_PER_BATCH} events per batch`),
@@ -199,9 +199,6 @@ export function createEventIngestRoutes(sseManager: SSEManager): Router {
     if (!parsed.ok) return sendBadRequest(res, parsed.error, ErrorCode.VALIDATION_ERROR);
 
     const { events } = parsed.value;
-    if (events.length > CoreConstants.MAX_EVENTS_PER_BATCH) {
-      return sendBadRequest(res, `Maximum ${CoreConstants.MAX_EVENTS_PER_BATCH} events per batch`, ErrorCode.VALIDATION_ERROR);
-    }
 
     // Fan each registered terminal deploy/stage outcome into Prometheus
     // counters (exposed on this service's /metrics, scraped by in-cluster

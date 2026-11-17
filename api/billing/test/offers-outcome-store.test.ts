@@ -24,9 +24,11 @@ const mockFindOne = jest.fn<AnyFn>();
 const mockUpdateMany = jest.fn<AnyFn>();
 const mockAggregate = jest.fn<AnyFn>();
 const mockFind = jest.fn<AnyFn>();
+const mockUpdateOne = jest.fn<AnyFn>();
 jest.unstable_mockModule('../src/models/offer.js', () => ({
   Offer: {
     findOne: mockFindOne,
+    updateOne: mockUpdateOne,
     updateMany: mockUpdateMany,
     aggregate: mockAggregate,
     find: mockFind,
@@ -38,16 +40,16 @@ const { attributeConversion, sweepExpiredOffers, measureLift } = await import('.
 const NOW = new Date('2026-11-20T12:00:00Z');
 const DAY = 24 * 60 * 60 * 1000;
 
-/** A saveable offer doc, with the fields the attribution writes. */
+/** An open offer row, as the attribution query returns it. */
 function offerDoc(over: Record<string, unknown> = {}) {
   return {
+    _id: 'offer-1',
     orgId: 'acct-1',
     offerType: 'pack',
     holdout: false,
     status: 'sent',
     sentAt: new Date(NOW.getTime() - 3 * DAY),
     targetTier: undefined,
-    save: jest.fn<AnyFn>(async () => undefined),
     ...over,
   };
 }
@@ -60,19 +62,27 @@ function queued(doc: unknown) {
 beforeEach(() => {
   jest.clearAllMocks();
   mockUpdateMany.mockResolvedValue({ modifiedCount: 0 });
+  mockUpdateOne.mockResolvedValue({ modifiedCount: 1 });
   mockAggregate.mockResolvedValue([]);
   mockFind.mockReturnValue({ select: () => ({ lean: async () => [] }) });
 });
 
 describe('crediting a purchase to an offer', () => {
   it('records the SKU bought and how long it took', async () => {
-    const doc = offerDoc();
-    queued(doc);
+    queued(offerDoc());
     await expect(attributeConversion('acct-1', { kind: 'bundle', sku: 'pipeline_pack' }, NOW)).resolves.toBe(true);
-    expect(doc.status).toBe('redeemed');
-    expect((doc as unknown as { boughtSku: string }).boughtSku).toBe('pipeline_pack');
-    expect((doc as unknown as { conversionMs: number }).conversionMs).toBe(3 * DAY);
-    expect(doc.save).toHaveBeenCalled();
+    const [filter, update] = mockUpdateOne.mock.calls[0] as [Record<string, unknown>, { $set: Record<string, unknown> }];
+    expect(filter).toEqual({ _id: 'offer-1', status: 'sent' });
+    expect(update.$set).toMatchObject({ status: 'redeemed', boughtSku: 'pipeline_pack', conversionMs: 3 * DAY, resolvedAt: NOW });
+  });
+
+  it('credits an offer ONCE: a purchase that loses the race to another (or to a decline) is not a conversion', async () => {
+    // The read saw it open, but by the conditional write it was already
+    // redeemed or declined — so nothing is counted twice or overwritten.
+    queued(offerDoc());
+    mockUpdateOne.mockResolvedValue({ modifiedCount: 0 });
+    await expect(attributeConversion('acct-1', { kind: 'bundle', sku: 'x' }, NOW)).resolves.toBe(false);
+    expect(mockCounter).not.toHaveBeenCalled();
   });
 
   it('counts the SKU match and the time bucket, not just "a conversion"', async () => {

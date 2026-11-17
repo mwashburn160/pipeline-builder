@@ -49,7 +49,7 @@ import {
 } from '@pipeline-builder/pipeline-data';
 import { and, asc, count, desc, eq, gt, gte, inArray, isNotNull, isNull, like, lt, or, sql, type AnyColumn, type SQL } from 'drizzle-orm';
 import { latestVersion } from './policy.js';
-import { ACTIVE_LISTING_STATES, first } from './util.js';
+import { ACTIVE_LISTING_STATES, first, isUuid } from './util.js';
 
 const storeLogger = createLogger('ecosystem-store');
 
@@ -95,7 +95,7 @@ const R = () => schema.pluginPublishRequest;
 
 export const publishers = {
   byId: (id: string): Promise<Publisher | null> =>
-    elevated(async (tx) => first(await tx.select().from(P()).where(eq(P().id, id)))),
+    !isUuid(id) ? Promise.resolve(null) : elevated(async (tx) => first(await tx.select().from(P()).where(eq(P().id, id)))),
   byOrg: (orgId: string): Promise<Publisher | null> =>
     elevated(async (tx) => first(await tx.select().from(P()).where(eq(P().ownerOrgId, orgId.toLowerCase())))),
   byHandle: (handle: string): Promise<Publisher | null> =>
@@ -121,7 +121,7 @@ export const publishers = {
 
 export const listings = {
   byId: (id: string): Promise<PluginListing | null> =>
-    elevated(async (tx) => first(await tx.select().from(L()).where(eq(L().id, id)))),
+    !isUuid(id) ? Promise.resolve(null) : elevated(async (tx) => first(await tx.select().from(L()).where(eq(L().id, id)))),
   byIds: (ids: string[]): Promise<PluginListing[]> =>
     ids.length === 0 ? Promise.resolve([]) : elevated(async (tx) => tx.select().from(L()).where(inArray(L().id, ids))),
   byName: (publisherId: string, name: string): Promise<PluginListing | null> =>
@@ -351,7 +351,7 @@ function requestWhere(filter: RequestFilter, withCursor: boolean): SQL | undefin
 
 export const requests = {
   byId: (id: string): Promise<PluginPublishRequest | null> =>
-    elevated(async (tx) => first(await tx.select().from(R()).where(eq(R().id, id)))),
+    !isUuid(id) ? Promise.resolve(null) : elevated(async (tx) => first(await tx.select().from(R()).where(eq(R().id, id)))),
   /** One page, filtered, ordered and limited in SQL (keyset on `(created_at, id)`). */
   list: (filter: RequestFilter = {}): Promise<PluginPublishRequest[]> =>
     elevated(async (tx) => {
@@ -400,7 +400,7 @@ export const rules = {
   list: (): Promise<EcosystemAutoApprovalRule[]> =>
     elevated(async (tx) => tx.select().from(AR()).orderBy(desc(AR().createdAt))),
   byId: (id: string): Promise<EcosystemAutoApprovalRule | null> =>
-    elevated(async (tx) => first(await tx.select().from(AR()).where(eq(AR().id, id)))),
+    !isUuid(id) ? Promise.resolve(null) : elevated(async (tx) => first(await tx.select().from(AR()).where(eq(AR().id, id)))),
   insert: (values: EcosystemAutoApprovalRuleInsert): Promise<EcosystemAutoApprovalRule> =>
     elevated(async (tx) => (await tx.insert(AR()).values(values).returning())[0] as EcosystemAutoApprovalRule),
   update: (id: string, patch: Partial<EcosystemAutoApprovalRuleInsert>): Promise<EcosystemAutoApprovalRule | null> =>
@@ -470,7 +470,7 @@ const PL = () => schema.plugin;
 export const plugins = {
   /** A LIVE plugin row, optionally pinned to its owning org. */
   byId: (id: string, orgId?: string): Promise<PluginRow | null> =>
-    elevated(async (tx) => first(await tx.select().from(PL()).where(and(
+    !isUuid(id) ? Promise.resolve(null) : elevated(async (tx) => first(await tx.select().from(PL()).where(and(
       eq(PL().id, id),
       isNull(PL().deletedAt),
       ...(orgId ? [eq(PL().orgId, orgId.toLowerCase())] : []),

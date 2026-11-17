@@ -23,14 +23,14 @@ import express, { Router, type Request, type RequestHandler, type Response } fro
 import { z } from 'zod';
 
 import { registerPublicationRoutes } from './internal-publications.js';
-import { cosignCompanionTags } from '../services/cosign-tags.js';
+import { deleteCosignCompanions } from '../services/cosign-tags.js';
 import { PUBLISHER_HANDLE_RE, QUARANTINE_PREFIX, inQuarantineNamespace, isPluginRepository, isPublicRepository, isQuarantineRepository, isSha256Digest, repoOwnerOrgId } from '../services/namespaces.js';
 import {
   PluginSigningError,
   signPluginImage,
 } from '../services/plugin-signing.js';
 import { isQuarantineSubmissionId, mintQuarantineCredential } from '../services/quarantine-credential.js';
-import { deleteManifest, deleteTag, getManifest, headManifest, isNotFound } from '../services/registry-client.js';
+import { deleteManifest, deleteTag, headManifest, isNotFound } from '../services/registry-client.js';
 import { deleteOrgNamespace, deleteQuarantineRepository } from '../services/registry-gc.js';
 import { computeOrgStorageBreakdown, computeOrgStorageUsage, computeSystemRetentionBreakdown, invalidateOrgStorageCache } from '../services/storage-usage.js';
 
@@ -124,16 +124,7 @@ const storagePruneSchema = z.object({
  * step tolerates 404, so a retried discard converges. Returns manifests deleted.
  */
 async function deleteSignedManifest(repository: string, digest: string): Promise<number> {
-  let deleted = 0;
-  for (const tag of cosignCompanionTags(digest)) {
-    try {
-      const companion = await getManifest(repository, tag);
-      await deleteManifest(repository, companion.digest);
-      deleted++;
-    } catch (err) {
-      if (!isNotFound(err)) throw err;
-    }
-  }
+  let deleted = await deleteCosignCompanions(repository, digest);
   try {
     await deleteManifest(repository, digest);
     deleted++;

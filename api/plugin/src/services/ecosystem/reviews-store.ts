@@ -28,7 +28,7 @@ import {
 import { and, count, desc, eq, gte, inArray, isNull } from 'drizzle-orm';
 
 import { elevated } from './store.js';
-import { first } from './util.js';
+import { first, isUuid } from './util.js';
 
 const RV = () => schema.pluginReview;
 const RH = () => schema.pluginReviewHistory;
@@ -39,7 +39,7 @@ const ST = () => schema.pluginStats;
 
 export const reviews = {
   byId: (id: string): Promise<PluginReview | null> =>
-    elevated(async (tx) => first(await tx.select().from(RV()).where(eq(RV().id, id)))),
+    !isUuid(id) ? Promise.resolve(null) : elevated(async (tx) => first(await tx.select().from(RV()).where(eq(RV().id, id)))),
   byIds: (ids: string[]): Promise<PluginReview[]> =>
     ids.length === 0 ? Promise.resolve([]) : elevated(async (tx) =>
       tx.select().from(RV()).where(inArray(RV().id, ids)).orderBy(desc(RV().updatedAt))),

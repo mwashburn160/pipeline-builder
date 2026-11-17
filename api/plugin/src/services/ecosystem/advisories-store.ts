@@ -18,7 +18,7 @@ import {
 import { and, desc, eq, gte, inArray, type SQL } from 'drizzle-orm';
 
 import { elevated } from './store.js';
-import { first } from './util.js';
+import { first, isUuid } from './util.js';
 
 type Advisory = PluginAdvisory;
 
@@ -27,7 +27,7 @@ const D = () => schema.pluginAdvisoryDelivery;
 
 export const advisoryStore = {
   byId: (id: string): Promise<Advisory | null> =>
-    elevated(async (tx) => first(await tx.select().from(A()).where(eq(A().id, id)))),
+    !isUuid(id) ? Promise.resolve(null) : elevated(async (tx) => first(await tx.select().from(A()).where(eq(A().id, id)))),
   list: (filter: { listingId?: string; publisherId?: string; states?: AdvisoryState[]; publishedSince?: Date; limit?: number } = {}): Promise<Advisory[]> =>
     elevated(async (tx) => {
       const where: SQL[] = [];

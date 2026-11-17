@@ -81,11 +81,14 @@ export async function attributeConversion(orgId: string, purchase: Purchase, now
     if (offer.expiresAt && offer.expiresAt < now) return false;
 
     const conversionMs = now.getTime() - offer.sentAt.getTime();
-    offer.status = 'redeemed';
-    offer.resolvedAt = now;
-    offer.boughtSku = purchase.sku;
-    offer.conversionMs = conversionMs;
-    await offer.save();
+    // Conditional on the row STILL being open: a read-then-save let two
+    // concurrent purchases both redeem (and both count) one offer, and let a
+    // purchase racing a decline overwrite the refusal with a conversion.
+    const claimed = await Offer.updateOne(
+      { _id: offer._id, status: 'sent' },
+      { $set: { status: 'redeemed', resolvedAt: now, boughtSku: purchase.sku, conversionMs } },
+    );
+    if (claimed.modifiedCount === 0) return false;
 
     const match = skuMatch(offer.offerType, offer.targetTier ?? null, purchase);
     emitCounter('billing_offer_conversions_total', {

@@ -151,6 +151,16 @@ describe('MessageService', () => {
     service = new MessageService();
   });
 
+  describe('onAfterRestore', () => {
+    it('drops both participants\' cached views so a restored message reappears before TTL', async () => {
+      // The base restore only runs this hook; without the override the restored
+      // row stayed invisible in the cached announcements/conversations pages.
+      await (service as unknown as { onAfterRestore: (id: string, e: unknown, u: string) => Promise<void> })
+        .onAfterRestore('m-1', { id: 'm-1', orgId: 'org-a', recipientOrgId: 'org-b' }, 'u-1');
+      expect(new Set(mockInvalidatePattern.mock.calls.map((c) => c[0]))).toEqual(new Set(['org-a:*', 'org-b:*']));
+    });
+  });
+
   describe('invalidateRemovedMessages', () => {
     it('drops the sender and every recipient org\'s cached views, once per pair', async () => {
       await service.invalidateRemovedMessages([

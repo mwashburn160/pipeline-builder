@@ -148,9 +148,10 @@ export function createBulkPluginRoutes(quotaService: QuotaService): Router {
       return sendBadRequest(res, `Invalid update data: ${dataValidation.error.message}`, ErrorCode.VALIDATION_ERROR);
     }
 
-    // Same escalation guard the single-update path applies: only admins/owners
-    // may set `visibility: 'public'`. Without this, any member with the
-    // bulk-ops feature could flip every plugin in the org to public.
+    // Same escalation guard the single-update path applies: only holders of
+    // `plugins:publish` may set `visibility: 'public'` (resolveVisibility clamps
+    // it to `org` otherwise). Without this, any member with the bulk-ops
+    // feature could flip every plugin in the org to public.
     const updateData = { ...dataValidation.data };
     if (updateData.visibility !== undefined) {
       updateData.visibility = resolveVisibility(req, updateData.visibility, 'plugins:publish');
