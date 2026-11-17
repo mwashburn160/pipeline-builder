@@ -239,13 +239,25 @@ export function createBuildFailedHandler(sseManager: SSEManager, quotaService: Q
           attempts: cfg.dlqMaxAttempts,
           backoff: { type: 'exponential', delay: cfg.dlqBackoffBaseMs },
         }))
-        .then(() => {
+        .then(async () => {
           logger.info('Moved to DLQ for retry', {
             jobId: job.id,
             pluginName: pluginRecord.name,
             totalAttempts,
             dlqAttempts: cfg.dlqMaxAttempts,
           });
+          // The DLQ entry is now the ONE retry vehicle for this build, so drop
+          // the tier `failed` copy. Left behind, it outlived the DLQ entry (the
+          // DLQ re-queues, completes, gets evicted / purged) and a manual
+          // `POST /failed/:id/retry` then re-ran the build a second time — a
+          // second quota slot and a duplicate image push. Best-effort: the
+          // retry path's DLQ-twin guard still refuses it while the DLQ entry
+          // exists.
+          try {
+            await job.remove();
+          } catch (removeErr) {
+            logger.warn('Moved to DLQ but could not remove the tier failed entry', { jobId: job.id, error: errorMessage(removeErr) });
+          }
         })
         .catch((dlqErr) => {
           // The hand-off failed, so this job will never run again — that is

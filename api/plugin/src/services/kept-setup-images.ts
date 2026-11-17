@@ -33,6 +33,7 @@ import { Config } from '@pipeline-builder/pipeline-core';
 import { runWithTenantContext, schema, withTenantTx, type PluginKeptSetupImage } from '@pipeline-builder/pipeline-data';
 import { and, asc, count, eq, lte, ne } from 'drizzle-orm';
 
+import { isUuid } from './ecosystem/util.js';
 import { persistVersion } from './version-persist.js';
 import type { BuildResult } from '../helpers/docker-build.js';
 import { establishImageFacts } from '../helpers/image-facts.js';
@@ -269,7 +270,11 @@ export interface PromotionResult {
  */
 export async function promoteKeptSetupImage(id: string, actor: { orgId: string; userId: string }): Promise<PromotionResult> {
   const T = schema.pluginKeptSetupImage;
-  const [row] = await withTenantTx((tx) => tx.select().from(T).where(and(eq(T.id, id), eq(T.orgId, actor.orgId))).limit(1)) as PluginKeptSetupImage[];
+  // The id comes straight from the route param and the column is a uuid: a
+  // malformed one is a Postgres cast error (a 500), not the 404 it means.
+  const [row] = isUuid(id)
+    ? await withTenantTx((tx) => tx.select().from(T).where(and(eq(T.id, id), eq(T.orgId, actor.orgId))).limit(1)) as PluginKeptSetupImage[]
+    : [];
   if (!row) throw new AppError(404, ErrorCode.NOT_FOUND, 'Kept setup image not found');
   const build = row.build as unknown as KeptBuild;
   const subject = { pluginName: row.pluginName, pluginVersion: row.pluginVersion, imageDigest: row.imageDigest, keptSetupImageId: row.id };

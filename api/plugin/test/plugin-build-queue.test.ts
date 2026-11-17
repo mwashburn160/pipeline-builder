@@ -433,6 +433,9 @@ function makeJob(data: PluginBuildJobData, overrides: Record<string, any> = {}) 
     // BullMQ Job.moveToDelayed — the org slot gate re-delays a job whose org is
     // at its cap, then throws DelayedError so the worker moves on.
     moveToDelayed: jest.fn<(...args: any[]) => any>().mockResolvedValue(undefined),
+    // BullMQ Job.remove — the failure handler drops the tier `failed` entry
+    // once the DLQ hand-off has landed.
+    remove: jest.fn<(...args: any[]) => any>().mockResolvedValue(undefined),
     ...overrides,
   };
 }
@@ -1566,6 +1569,55 @@ describe('plugin-build-queue', () => {
       expect(mockReserveQuota).not.toHaveBeenCalled();
     });
 
+    it('takes a queue-qualified SET NX PX lock around the retry and releases it with its token', async () => {
+      const quota = makeQuotaService();
+      const failedJob = makeFailedJob({ queueName: 'plugin-build-developer' });
+      mockQueueGetJob.mockImplementation((id: string) => Promise.resolve(id.startsWith('dlq-') ? undefined : failedJob));
+      mockQueueAdd.mockResolvedValueOnce({ id: 'new-job-l' });
+      const redis = connectionsModule.getConnectionForDb(0) as any;
+      redis.set.mockClear();
+      redis.eval.mockClear();
+
+      await expect(requeueModule.retryFailedJob(failedJob as any, quota, SYSADMIN)).resolves.toBe('new-job-l');
+
+      const key = 'plugin-build:retry-lock:plugin-build-developer:failed-1';
+      expect(requeueModule.retryLockKey('plugin-build-developer', 'failed-1')).toBe(key);
+      expect(redis.set).toHaveBeenCalledWith(key, expect.any(String), 'PX', requeueModule.RETRY_LOCK_TTL_MS, 'NX');
+      const token = redis.set.mock.calls[0][1];
+      expect(redis.eval).toHaveBeenCalledWith(expect.stringContaining("redis.call('del'"), 1, key, token);
+    });
+
+    it('a concurrent retry (lock held) is refused 409 CONFLICT — nothing reserved, queued or removed', async () => {
+      const quota = makeQuotaService();
+      const failedJob = makeFailedJob();
+      const redis = connectionsModule.getConnectionForDb(0) as any;
+      redis.set.mockResolvedValueOnce(null);
+      redis.eval.mockClear();
+
+      await expect(requeueModule.retryFailedJob(failedJob as any, quota, SYSADMIN))
+        .rejects.toMatchObject({ statusCode: 409, code: 'CONFLICT' });
+      expect(failedJob.isFailed).not.toHaveBeenCalled();
+      expect(mockReserveQuota).not.toHaveBeenCalled();
+      expect(mockQueueAdd).not.toHaveBeenCalled();
+      expect(failedJob.remove).not.toHaveBeenCalled();
+      // Not ours, so never released.
+      expect(redis.eval).not.toHaveBeenCalled();
+    });
+
+    it('releases the lock even when the retry throws, and a failed release is only logged', async () => {
+      const quota = makeQuotaService();
+      const failedJob = makeFailedJob();
+      mockQueueGetJob.mockImplementation((id: string) => Promise.resolve(id.startsWith('dlq-') ? undefined : failedJob));
+      mockQueueAdd.mockRejectedValueOnce(new Error('redis add failed'));
+      const redis = connectionsModule.getConnectionForDb(0) as any;
+      redis.eval.mockClear();
+      redis.eval.mockRejectedValueOnce(new Error('redis down'));
+
+      await expect(requeueModule.retryFailedJob(failedJob as any, quota, SYSADMIN)).rejects.toThrow('redis add failed');
+      expect(redis.eval).toHaveBeenCalledTimes(1);
+      expect(queueLogger.warn).toHaveBeenCalledWith('Could not release the build retry lock; it expires on its TTL', expect.objectContaining({ error: 'redis down' }));
+    });
+
     it('happy path: enqueues once and removes the original failed entry', async () => {
       const quota = makeQuotaService();
       const failedJob = makeFailedJob();
@@ -1739,6 +1791,47 @@ describe('plugin-build-queue', () => {
         expect.any(Object),
         expect.objectContaining({ jobId: 'dlq-plugin-build-developer:job-1' }),
       );
+    });
+
+    it('removes the tier failed entry once the DLQ hand-off lands (no second retry vehicle)', async () => {
+      const sse = makeSseManager();
+      const quota = makeQuotaService();
+      queueModule.startWorker(sse, quota);
+
+      const job = makeJob(makeJobData(), { attemptsMade: 2 });
+      await getTierFailedHandler()(job, new Error('Docker build failed'));
+      await flush();
+
+      expect(mockQueueAdd).toHaveBeenCalledWith('dlq-plugin-build-developer:job-1', expect.any(Object), expect.any(Object));
+      expect(job.remove).toHaveBeenCalledTimes(1);
+    });
+
+    it('a failed removal of the tier entry after the DLQ hand-off is logged, not fatal', async () => {
+      const sse = makeSseManager();
+      const quota = makeQuotaService();
+      queueModule.startWorker(sse, quota);
+
+      const job = makeJob(makeJobData(), { attemptsMade: 2, remove: jest.fn<AnyFn>().mockRejectedValue(new Error('gone')) });
+      await getTierFailedHandler()(job, new Error('Docker build failed'));
+      await flush();
+
+      expect(job.remove).toHaveBeenCalledTimes(1);
+      expect(queueLogger.warn).toHaveBeenCalledWith('Moved to DLQ but could not remove the tier failed entry', expect.objectContaining({ error: 'gone' }));
+      // Still a DLQ hand-off, not an abandonment.
+      expect(terminalFailedEmits()).toHaveLength(0);
+    });
+
+    it('does NOT remove the tier failed entry when the DLQ hand-off fails', async () => {
+      const sse = makeSseManager();
+      const quota = makeQuotaService();
+      queueModule.startWorker(sse, quota);
+
+      mockQueueAdd.mockRejectedValueOnce(new Error('dlq add failed'));
+      const job = makeJob(makeJobData(), { attemptsMade: 2 });
+      await getTierFailedHandler()(job, new Error('Docker build failed'));
+      await flush();
+
+      expect(job.remove).not.toHaveBeenCalled();
     });
 
     it('emits exactly one terminal failed at tier budget exhaustion (no DLQ hand-off)', async () => {

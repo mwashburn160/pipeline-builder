@@ -27,6 +27,12 @@ const mockDlqGetJob = jest.fn<AnyFn>();
 const mockRetryFailedJob = jest.fn<AnyFn>();
 const mockReplayDlqJob = jest.fn<AnyFn>();
 const mockRecordAuthzDenial = jest.fn<AnyFn>();
+// Step-up gate: passes when the request carries X-Step-Up-Token, else 401s the
+// way api-core's real `requireStepUp` does (STEP_UP_REQUIRED).
+const mockRequireStepUp = jest.fn((req: any, res: any, next: () => unknown) => {
+  if (req.headers?.['x-step-up-token']) return next();
+  return res.status(401).json({ success: false, statusCode: 401, code: 'STEP_UP_REQUIRED' });
+});
 jest.unstable_mockModule('../src/queue/connections.js', () => ({
   // EVERY export `slot-manager` reaches for, which these route suites now pull
   // in transitively. A hand-rolled factory replaces the WHOLE namespace, so an
@@ -72,6 +78,7 @@ const mockQuotaService = { getTier: jest.fn<AnyFn>().mockResolvedValue('develope
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   recordAudit: mockEmitPluginAudit,
   recordAuthzDenial: mockRecordAuthzDenial,
+  requireStepUp: mockRequireStepUp,
   isSystemAdmin: jest.fn<AnyFn>(),
   // The cross-org widening (`seesEveryOrg`): system org + plugin_queue:manage.
   isSystemOrgRequest: jest.fn<AnyFn>(),
@@ -658,11 +665,12 @@ describe('queue-status route', () => {
       mockPurgeDlq.mockResolvedValue({ count: 7, jobs: [{ jobId: 'j1', orgId: 'org-a', pluginName: 'p' }] });
 
       // `requireSystemAdmin` reads the `isSuperAdmin` token claim directly.
-      const req = { headers: { 'x-org-id': '000000000000000000000001' }, method: 'DELETE', originalUrl: '/plugins/queue/dlq', user: { role: 'owner', sub: 'admin-1', isSuperAdmin: true, organizationId: '000000000000000000000001', aal: 2, principalType: 'user', token_use: 'access' } } as any;
+      const req = { headers: { 'x-org-id': '000000000000000000000001', 'x-step-up-token': 'tok' }, method: 'DELETE', originalUrl: '/plugins/queue/dlq', user: { role: 'owner', sub: 'admin-1', isSuperAdmin: true, organizationId: '000000000000000000000001', aal: 2, principalType: 'user', token_use: 'access' } } as any;
       const json = jest.fn<AnyFn>();
       const res = { status: jest.fn<AnyFn>().mockReturnValue({ json }), json } as any;
       await runFullRoute('/dlq', 'DELETE', req, res);
 
+      expect(mockRequireStepUp).toHaveBeenCalledTimes(1);
       expect(mockPurgeDlq).toHaveBeenCalledWith(mockQuotaService);
       expect(mockEmitPluginAudit).toHaveBeenCalledTimes(1);
       expect(mockEmitPluginAudit).toHaveBeenCalledWith(
@@ -673,6 +681,19 @@ describe('queue-status route', () => {
           details: expect.objectContaining({ purgedCount: 7, jobs: [{ jobId: 'j1', orgId: 'org-a', pluginName: 'p' }] }),
         }),
       );
+    });
+
+    it('an operator WITHOUT a step-up token is refused 401 STEP_UP_REQUIRED and does NOT purge or emit', async () => {
+      const req = { headers: { 'x-org-id': '000000000000000000000001' }, method: 'DELETE', originalUrl: '/plugins/queue/dlq', user: { role: 'owner', sub: 'admin-1', isSuperAdmin: true, organizationId: '000000000000000000000001', aal: 2, principalType: 'user', token_use: 'access' } } as any;
+      const json = jest.fn<AnyFn>();
+      const res = { status: jest.fn<AnyFn>().mockReturnValue({ json }), json } as any;
+      await runFullRoute('/dlq', 'DELETE', req, res);
+
+      expect(mockRequireStepUp).toHaveBeenCalledTimes(1);
+      expect(res.status).toHaveBeenCalledWith(401);
+      expect((json.mock.calls[0] as any[])[0].code).toBe('STEP_UP_REQUIRED');
+      expect(mockPurgeDlq).not.toHaveBeenCalled();
+      expect(mockEmitPluginAudit).not.toHaveBeenCalled();
     });
 
     it('non-sysadmin is rejected 403 and does NOT purge or emit', async () => {

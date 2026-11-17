@@ -401,8 +401,8 @@ describe('PUT /plugins/bulk/update — exact ids, visibility ladder, singular de
 // bulk visibility flip could turn a compliant plugin non-compliant.
 describe('PUT /plugins/bulk/update — compliance re-check parity with single update', () => {
   const rows = [
-    { id: P1, name: 'a', version: '1.0.0', visibility: 'org', createdBy: 'u-1', env: {}, buildArgs: {} },
-    { id: P2, name: 'b', version: '2.0.0', visibility: 'org', createdBy: 'u-1', env: {}, buildArgs: {} },
+    { id: P1, orgId: 'org-1', name: 'a', version: '1.0.0', visibility: 'org', createdBy: 'u-1', env: {}, buildArgs: {} },
+    { id: P2, orgId: 'org-1', name: 'b', version: '2.0.0', visibility: 'org', createdBy: 'u-1', env: {}, buildArgs: {} },
   ];
   beforeEach(() => {
     jest.clearAllMocks();
@@ -475,7 +475,7 @@ describe('PUT /plugins/bulk/update — frozen / listed versions (same rule as si
     const { res, json } = makeRes();
     await getUpdateHandler()({ user: admin, body: { ids: [P1, P2, P3], data: { keywords: ['x'], category: 'lint' } } }, res);
 
-    expect(mockUpdateMany).toHaveBeenCalledWith({ id: [P3] }, expect.anything(), 'org-1', 'u-1');
+    expect(mockUpdateMany).toHaveBeenCalledWith({ id: [P3] }, expect.anything(), 'org-1', 'u-1', expect.anything());
     expect(json).toHaveBeenCalledWith(expect.objectContaining({
       data: {
         updated: 1,
@@ -538,6 +538,107 @@ describe('PUT /plugins/bulk/update — deactivation notice parity with single up
     mockUpdateMany.mockResolvedValue([{ id: P1, orgId: 'org-1', name: 'a', version: '1.0.0', isActive: true }]);
     const { res } = makeRes();
     await getUpdateHandler()({ user: { sub: 'u-1', isSuperAdmin: true }, body: { ids: [P1], data: { isActive: true } } }, res);
+    expect(mockOnVersionWithdrawn).not.toHaveBeenCalled();
+  });
+});
+
+// Single update marks every edited catalog field's provenance `user`
+// (catalogEditColumns); bulk used to write the value and leave the provenance
+// claiming it was derived, so a later re-derive could overwrite the edit.
+describe('PUT /plugins/bulk/update — metadataSources provenance parity with single update', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockVersionImmutability.mockResolvedValue(null);
+    mockFindByIds.mockResolvedValue([{ id: P1, orgId: 'org-1', visibility: 'org' }]);
+    mockUpdateMany.mockResolvedValue([{ id: P1 }]);
+  });
+  const admin = { sub: 'u-1', isSuperAdmin: true };
+
+  it('merges `user` provenance for exactly the edited catalog fields', async () => {
+    const { res } = makeRes();
+    await getUpdateHandler()({ user: admin, body: { ids: [P1], data: { description: 'd', keywords: ['k'], isActive: true } } }, res);
+    expect(mockUpdateMany).toHaveBeenCalledWith(
+      { id: [P1] },
+      { description: 'd', keywords: ['k'], isActive: true },
+      'org-1', 'u-1',
+      { mergeMetadataSources: { description: 'user', keywords: 'user' } },
+    );
+    // The provenance column is never written as a shared value over every row.
+    expect((mockUpdateMany.mock.calls[0] as any[])[1]).not.toHaveProperty('metadataSources');
+  });
+
+  it('records no provenance for an operational-only edit', async () => {
+    const { res } = makeRes();
+    await getUpdateHandler()({ user: admin, body: { ids: [P1], data: { isActive: false, visibility: 'org' } } }, res);
+    expect(mockUpdateMany).toHaveBeenCalledWith({ id: [P1] }, expect.anything(), 'org-1', 'u-1');
+  });
+});
+
+describe('PUT /plugins/bulk/update — compliance judged only over rows the update applies to', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockVersionImmutability.mockResolvedValue(null);
+    mockValidatePlugin.mockResolvedValue({ blocked: true, violations: [{ rule: 'r' }] });
+  });
+  const admin = { sub: 'u-1', isSuperAdmin: true };
+
+  it("never checks another org's row, a managed toolchain release or a frozen version — and so is not blocked by them", async () => {
+    mockFindByIds.mockResolvedValue([
+      { id: P1, orgId: 'system', name: 'a', version: '1.0.0', visibility: 'public', env: {}, buildArgs: {} },
+      { id: P2, orgId: 'org-1', name: 'pipeline-bootstrap', version: '1.0.0', visibility: 'org', env: {}, buildArgs: {} },
+      { id: P3, orgId: 'org-1', name: 'c', version: '1.0.0', visibility: 'org', env: {}, buildArgs: {} },
+    ]);
+    mockVersionImmutability.mockImplementation(async (row: any) => (row.id === P3 ? 'listed' : null));
+    mockUpdateMany.mockResolvedValue([]);
+    const { res, status } = makeRes();
+    await getUpdateHandler()({ user: admin, body: { ids: [P1, P2, P3], data: { description: 'x' } } }, res);
+    expect(mockValidatePlugin).not.toHaveBeenCalled();
+    expect(status).toHaveBeenCalledWith(200);
+  });
+
+  it('still checks (and blocks on) a row the update applies to', async () => {
+    mockFindByIds.mockResolvedValue([
+      { id: P1, orgId: 'system', name: 'a', version: '1.0.0', visibility: 'public', env: {}, buildArgs: {} },
+      { id: P3, orgId: 'org-1', name: 'c', version: '1.0.0', visibility: 'org', env: {}, buildArgs: {} },
+    ]);
+    const { res, status, json } = makeRes();
+    await getUpdateHandler()({ user: admin, body: { ids: [P1, P3], data: { description: 'x' } } }, res);
+    expect(mockValidatePlugin).toHaveBeenCalledTimes(1);
+    expect(mockValidatePlugin).toHaveBeenCalledWith('org-1', expect.objectContaining({ name: 'c' }), expect.any(String), P3, 'c', 'update', ['packages']);
+    expect(status).toHaveBeenCalledWith(403);
+    expect(json).toHaveBeenCalledWith(expect.objectContaining({ blocked: [{ id: P3, violations: [{ rule: 'r' }] }] }));
+    expect(mockUpdateMany).not.toHaveBeenCalled();
+  });
+});
+
+describe('POST /plugins/bulk/delete — withdrawal notice parity with single delete', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockFindByIds.mockResolvedValue([]);
+  });
+
+  it('notifies once per deleted version, and never for a skipped one', async () => {
+    mockFindByIds.mockResolvedValue([{ id: P1, orgId: 'org-1' }, { id: P2, orgId: 'org-1' }, { id: P3, orgId: 'org-1' }]);
+    mockDeleteBlockers
+      .mockResolvedValueOnce({ frozen: false, listed: false, inUse: 0 })
+      .mockResolvedValueOnce({ frozen: false, listed: false, inUse: 2 })
+      .mockResolvedValueOnce({ frozen: false, listed: false, inUse: 0 });
+    mockBulkDelete.mockResolvedValue([
+      { id: P1, orgId: 'org-1', name: 'a', version: '1.0.0', isDefault: false },
+      { id: P3, orgId: 'org-1', name: 'c', version: '1.0.0', isDefault: false },
+    ]);
+    const { res } = makeRes();
+    await getDeleteHandler()({ body: { ids: [P1, P2, P3] }, user: { isSuperAdmin: false } }, res);
+
+    expect(mockOnVersionWithdrawn).toHaveBeenCalledTimes(2);
+    expect(mockOnVersionWithdrawn).toHaveBeenCalledWith(expect.objectContaining({ id: P1, name: 'a' }), 'deleted');
+    expect(mockOnVersionWithdrawn).toHaveBeenCalledWith(expect.objectContaining({ id: P3, name: 'c' }), 'deleted');
+  });
+
+  it('sends no notice when nothing was deleted', async () => {
+    mockBulkDelete.mockResolvedValue([]);
+    const { res } = makeRes();
+    await getDeleteHandler()({ body: { ids: [P1] }, user: { isSuperAdmin: false } }, res);
     expect(mockOnVersionWithdrawn).not.toHaveBeenCalled();
   });
 });

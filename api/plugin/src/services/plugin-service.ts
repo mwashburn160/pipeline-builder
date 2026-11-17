@@ -5,6 +5,7 @@ import {
   SYSTEM_ACTOR_ID, checkWriteAccess, ConflictError, ErrorCode, ForbiddenError, NotFoundError, VISIBILITY_WRITE_REFUSAL, entityEvents, createCacheService, createLogger, errorMessage,
   isManagedToolchainPlugin,
   toComplianceAttributes, versionScanFacts, type VulnSeverity,
+  type MetadataSources,
   type VisibilityWriteRefusal,
   type WriteAccess,
 } from '@pipeline-builder/api-core';
@@ -121,6 +122,15 @@ function managedVersionImmutable(name: string, version: string): ConflictError {
  */
 async function lockPluginName(tx: TenantTx, orgId: string, name: string): Promise<void> {
   await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${orgId} || ':' || ${name}))`);
+}
+
+/**
+ * The `metadata_sources` value that MERGES `patch` into each row's own
+ * provenance (`coalesce(…, '{}') || patch`), for a multi-row UPDATE where one
+ * shared value would overwrite every row's other recorded fields.
+ */
+export function mergedMetadataSources(patch: MetadataSources): MetadataSources {
+  return sql`coalesce(${schema.plugin.metadataSources}, '{}'::jsonb) || ${JSON.stringify(patch)}::jsonb` as unknown as MetadataSources;
 }
 
 /** Plugin CRUD service with multi-tenant access control. */
@@ -358,14 +368,23 @@ export class PluginService extends CrudService<
    * don't serve the pre-update row until the TTL lapses) and the `updated`
    * entity event the compliance subscriber re-evaluates. The base
    * `CrudService.updateMany` fires no hooks.
+   *
+   * `mergeMetadataSources` records field provenance the way a single update
+   * does (`catalogEditColumns`): it is MERGED into each row's own
+   * `metadata_sources` in the same UPDATE (`coalesce(…) || patch`), never
+   * written over it — one shared value would wipe the other fields' recorded
+   * provenance on every row.
    */
   async updateMany(
     filter: Partial<PluginFilter>,
     data: PluginUpdate,
     orgId: string,
     userId: string,
+    opts: { mergeMetadataSources?: MetadataSources } = {},
   ): Promise<Plugin[]> {
-    const updated = await super.updateMany(filter, data, orgId, userId);
+    const patch = opts.mergeMetadataSources;
+    const write = patch && Object.keys(patch).length > 0 ? { ...data, metadataSources: mergedMetadataSources(patch) } : data;
+    const updated = await super.updateMany(filter, write, orgId, userId);
     for (const row of updated) {
       try {
         await this.onAfterUpdate(row.id, row, userId);

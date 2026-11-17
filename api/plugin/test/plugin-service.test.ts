@@ -490,6 +490,22 @@ describe('PluginService', () => {
       expect(captured.map((e) => [e.eventType, e.entityId])).toEqual([['updated', 'p-1'], ['updated', 'p-2']]);
     });
 
+    it('merges mergeMetadataSources into each row (an SQL merge), never a shared overwrite', async () => {
+      mockSuperUpdateMany.mockResolvedValue([]);
+      await service.updateMany({ id: ['p-1'] } as any, { description: 'd' }, 'org-1', 'user-1', { mergeMetadataSources: { description: 'user' } });
+      const data = (mockSuperUpdateMany.mock.calls.at(-1) as any[])[1];
+      expect(data.description).toBe('d');
+      expect(data.metadataSources.text).toContain('coalesce(');
+      expect(data.metadataSources.text).toContain('::jsonb');
+      expect(data.metadataSources.vals).toContain(JSON.stringify({ description: 'user' }));
+    });
+
+    it('writes no metadataSources for an empty (or absent) patch', async () => {
+      mockSuperUpdateMany.mockResolvedValue([]);
+      await service.updateMany({ id: ['p-1'] } as any, { isActive: false }, 'org-1', 'user-1', { mergeMetadataSources: {} });
+      expect(mockSuperUpdateMany).toHaveBeenLastCalledWith({ id: ['p-1'] }, { isActive: false }, 'org-1', 'user-1');
+    });
+
     it('invalidates the org plugin cache (via the shared update hook)', async () => {
       mockSuperUpdateMany.mockResolvedValue([{ ...secretPluginBase, id: 'p-1' }]);
       const spy = jest.spyOn(service as any, 'onAfterUpdate');

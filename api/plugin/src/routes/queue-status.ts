@@ -3,13 +3,13 @@
 
 import {
   isoOrNull,
-  envInt, ErrorCode, audited, getParam, isSystemAdmin, isSystemOrgRequest, paginationMeta, parsePage, parseQueryInt, refuseWeakSession, requireSystemOrgPermission, sendError, sendSuccess, actorId, tagRouteGate, userHasPermission,
+  envInt, ErrorCode, audited, getParam, isSystemAdmin, isSystemOrgRequest, paginationMeta, parsePage, parseQueryInt, refuseWeakSession, requireStepUp, requireSystemOrgPermission, sendError, sendSuccess, actorId, tagRouteGate, userHasPermission,
   recordAudit, recordAuthzDenial, SYSTEM_ORG_ID, VALID_TIERS, buildConcurrencyEnvVar, buildWorkerConcurrencyFor,
 } from '@pipeline-builder/api-core';
 import type { PlanTier, QuotaService } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import type { Job } from 'bullmq';
-import { Router, type NextFunction, type Request, type Response } from 'express';
+import { Router, type NextFunction, type Request, type RequestHandler, type Response } from 'express';
 
 import type { PluginBuildJobData } from '../helpers/plugin-helpers.js';
 import { findFailedJobs, getAllTierQueues, getDeadLetterQueue } from '../queue/connections.js';
@@ -535,10 +535,12 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
     return sendSuccess(res, 200, { jobs, pagination });
   }));
 
-  // Access: `requireSystemOrgPermission('plugin_queue:manage')` (route
-  // middleware) — the purge discards every org's dead-lettered builds, so it is
-  // operator-only, declared on the route so the route table sees it.
-  router.delete('/dlq', ...requireSystemOrgPermission('plugin_queue:manage'), audited('plugin.dlq.purge'), withRoute(async ({ res, userId }) => {
+  // Access: `requireSystemOrgPermission('plugin_queue:manage')` + `requireStepUp`
+  // (route middleware) — the purge irreversibly discards every org's
+  // dead-lettered builds, so it is operator-only AND re-verified with a fresh
+  // step-up token (`X-Step-Up-Token`), declared on the route so the route
+  // table sees both.
+  router.delete('/dlq', ...requireSystemOrgPermission('plugin_queue:manage'), requireStepUp as RequestHandler, audited('plugin.dlq.purge'), withRoute(async ({ res, userId }) => {
     const purged = await purgeDlq(quotaService);
 
     // Best-effort attributed audit — the purge discards ALL dead-lettered build

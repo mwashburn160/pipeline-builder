@@ -1,11 +1,12 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { SYSTEM_ACTOR_ID, audited, sendBadRequest, sendError, sendSuccess, ErrorCode, requireFeature, resolveVisibility, isManagedToolchainPlugin, isSystemAdmin, rejectForbiddenBulkRows, userHasPermission, VisibilitySchema, actorId, PLUGIN_CATALOG_FIELDS, type QuotaService, recordAudit } from '@pipeline-builder/api-core';
+import { SYSTEM_ACTOR_ID, audited, sendBadRequest, sendError, sendSuccess, ErrorCode, requireFeature, resolveVisibility, isManagedToolchainPlugin, isSystemAdmin, rejectForbiddenBulkRows, userHasPermission, VisibilitySchema, actorId, PLUGIN_CATALOG_FIELDS, type MetadataSources, type QuotaService, recordAudit } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { Router } from 'express';
 import { z } from 'zod';
+import { catalogEditColumns } from './update-plugin.js';
 import { refundPluginSlot } from '../helpers/quota-refund.js';
 import { checkUpdateCompliance, needsComplianceRecheck } from '../helpers/update-compliance.js';
 import { pluginService } from '../services/plugin-service.js';
@@ -102,11 +103,14 @@ export function createBulkPluginRoutes(quotaService: QuotaService): Router {
     });
 
     // Same after-effects as a single delete: refund each slot (period-
-    // conditional, then forget the snapshot) and promote a new default for
-    // every deleted default.
+    // conditional, then forget the snapshot), promote a new default for every
+    // deleted default, and send the withdrawal notice.
     for (const row of deleted) {
       if (refundPluginSlot(quotaService, row, ctx.log.bind(null, 'WARN'))) await pluginService.clearQuotaSnapshot(row.id);
       if (row.isDefault) await pluginService.promoteNextDefault(orgId, row, userId || SYSTEM_ACTOR_ID);
+      // As a single delete: the orgs using the version (installers, pipelines)
+      // hear it is gone. Fire-and-forget (it never throws).
+      void onVersionWithdrawn(row, 'deleted');
     }
 
     ctx.log('COMPLETED', 'Bulk delete complete', { requested: ids.length, deleted: deleted.length, skipped: skipped.length });
@@ -183,26 +187,6 @@ export function createBulkPluginRoutes(quotaService: QuotaService): Router {
       'Bulk update rejected: you cannot modify one or more of these plugins',
     )) return;
 
-    // Same fail-closed compliance re-check as single-row update, per row: a bulk
-    // edit (e.g. flipping visibility) must not turn a compliant plugin
-    // non-compliant. Any block rejects the whole batch (mirrors the visibility
-    // gate above); an unreachable compliance service rejects it with 503.
-    if (recheck) {
-      const blocked: Array<{ id: string; violations: unknown[] }> = [];
-      for (const plugin of matched) {
-        const verdict = await checkUpdateCompliance(orgId, plugin, updateData);
-        if (verdict.outcome === 'unavailable') {
-          ctx.log('ERROR', 'Compliance service unavailable — bulk plugin update rejected', { error: verdict.error });
-          return sendError(res, 503, 'Compliance service unavailable — plugin update rejected', ErrorCode.COMPLIANCE_SERVICE_UNAVAILABLE);
-        }
-        if (verdict.outcome === 'blocked') blocked.push({ id: plugin.id, violations: verdict.violations });
-      }
-      if (blocked.length > 0) {
-        ctx.log('WARN', 'Bulk plugin update blocked by compliance', { blocked: blocked.length });
-        return sendError(res, 403, 'Bulk update blocked by compliance rules', ErrorCode.COMPLIANCE_VIOLATION, { blocked });
-      }
-    }
-
     // Same rule as single-row update: a version referenced by a
     // publish request, or published to a listing, has its catalog metadata
     // frozen with it. Per row, such a version is SKIPPED with its 409 rather
@@ -225,15 +209,46 @@ export function createBulkPluginRoutes(quotaService: QuotaService): Router {
     const skippedIds = new Set(skipped.map((s) => s.id));
     const toUpdate = ids.filter((id) => !skippedIds.has(id.toLowerCase()) && !skippedIds.has(id));
 
+    // Same fail-closed compliance re-check as single-row update, per row: a bulk
+    // edit (e.g. flipping visibility) must not turn a compliant plugin
+    // non-compliant. Any block rejects the whole batch (mirrors the visibility
+    // gate above); an unreachable compliance service rejects it with 503.
+    // Judged over exactly the rows the update will APPLY to: another org's row
+    // (updateMany pins the org), a managed toolchain release or a frozen /
+    // listed version is skipped, so its verdict must not block (or 503) the
+    // rows that do change.
+    if (recheck) {
+      const toUpdateIds = new Set(toUpdate.map((id) => id.toLowerCase()));
+      const applied = matched.filter((row) => row.orgId === orgId && toUpdateIds.has(row.id.toLowerCase()));
+      const blocked: Array<{ id: string; violations: unknown[] }> = [];
+      for (const plugin of applied) {
+        const verdict = await checkUpdateCompliance(orgId, plugin, updateData);
+        if (verdict.outcome === 'unavailable') {
+          ctx.log('ERROR', 'Compliance service unavailable — bulk plugin update rejected', { error: verdict.error });
+          return sendError(res, 503, 'Compliance service unavailable — plugin update rejected', ErrorCode.COMPLIANCE_SERVICE_UNAVAILABLE);
+        }
+        if (verdict.outcome === 'blocked') blocked.push({ id: plugin.id, violations: verdict.violations });
+      }
+      if (blocked.length > 0) {
+        ctx.log('WARN', 'Bulk plugin update blocked by compliance', { blocked: blocked.length });
+        return sendError(res, 403, 'Bulk update blocked by compliance rules', ErrorCode.COMPLIANCE_VIOLATION, { blocked });
+      }
+    }
+
     ctx.log('INFO', 'Bulk update plugins', { count: toUpdate.length, skipped: skipped.length });
 
     // pluginService.updateMany runs the per-row post-update lifecycle (cache
     // invalidation + compliance entity event), same as a single-row update.
+    // Catalog edits go through the single update's `catalogEditColumns`, so
+    // every edited field's provenance becomes `user` — merged into each row's
+    // own `metadataSources` (a later catalog re-derive must not overwrite it).
+    const { metadataSources: sourcesPatch, ...catalogColumns } = catalogEditColumns(updateData, {});
     const updated = toUpdate.length === 0 ? [] : await pluginService.updateMany(
       { id: toUpdate },
-      updateData,
+      { ...updateData, ...catalogColumns },
       orgId,
       userId,
+      ...(sourcesPatch ? [{ mergeMetadataSources: sourcesPatch as MetadataSources }] as const : []),
     );
 
     ctx.log('COMPLETED', 'Bulk update complete', { requested: ids.length, updated: updated.length, skipped: skipped.length });
