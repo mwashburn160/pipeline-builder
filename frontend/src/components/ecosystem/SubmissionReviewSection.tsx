@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useState, type ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import { AlertTriangle, Download, UserX } from 'lucide-react';
 import { SubmissionGateList, HeuristicFindingsList } from '@/components/plugin-submissions/SubmissionChecks';
 import { Badge } from '@/components/ui/Badge';
@@ -9,9 +9,8 @@ import { Button } from '@/components/ui/Button';
 import { Callout } from '@/components/ui/Callout';
 import { CopyButton } from '@/components/ui/CopyButton';
 import { RelativeTime } from '@/components/ui/RelativeTime';
-import { useToast } from '@/components/ui/Toast';
+import { useMutation } from '@/hooks/useMutation';
 import api from '@/lib/api';
-import { formatError } from '@/lib/constants';
 import { triggerBlobDownload } from '@/lib/download';
 import { normalizeSubmissionModeration } from '@/lib/plugin-submissions/moderation';
 import { SUBMISSION_STATUS_COLORS, SUBMISSION_STATUS_LABELS } from '@/lib/plugin-submissions/status';
@@ -21,21 +20,15 @@ import { Section } from './ReviewSection';
 const count = (n: number | null) => (n == null ? '—' : String(n));
 
 function DownloadButton({ path, label, fallbackName }: { path: string; label: string; fallbackName: string }) {
-  const toast = useToast();
-  const [busy, setBusy] = useState(false);
-  const download = async () => {
-    setBusy(true);
-    try {
-      const { blob, filename } = await api.downloadEcosystemArtifact(path, fallbackName);
-      triggerBlobDownload(blob, filename);
-    } catch (err) {
-      toast.error(formatError(err, `${label} download failed`));
-    } finally {
-      setBusy(false);
-    }
-  };
+  const dl = useMutation({
+    fn: () => api.downloadEcosystemArtifact(path, fallbackName),
+    scopeKey: path,
+    errorFallback: `${label} download failed`,
+    toast: { error: true },
+    onSuccess: ({ blob, filename }) => triggerBlobDownload(blob, filename),
+  });
   return (
-    <Button variant="outline" size="xs" onClick={download} loading={busy}>
+    <Button variant="outline" size="xs" onClick={() => void dl.run()} loading={dl.pending}>
       <Download className="mr-1 h-3.5 w-3.5" aria-hidden />{label}
     </Button>
   );

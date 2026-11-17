@@ -21,6 +21,7 @@ import { ApiError } from '@/lib/api/errors';
 import { confirmPluginSecurityEmail } from '@/lib/api/domains/plugin-security';
 import { tokenFromQuery } from '@/lib/plugin-submissions/status';
 import { Card } from '@/components/ui/Card';
+import { useMutation } from '@/hooks/useMutation';
 
 function confirmErrorMessage(err: unknown): string {
   if (err instanceof ApiError) {
@@ -36,22 +37,19 @@ function confirmErrorMessage(err: unknown): string {
 export default function ConfirmNotificationAddressPage() {
   const router = useRouter();
   const token = router.isReady ? tokenFromQuery(router.query.token) : null;
-  const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const confirmation = useMutation({
+    fn: (t: string) => confirmPluginSecurityEmail(t),
+    scopeKey: token,
+    formatError: confirmErrorMessage,
+    onSuccess: () => setDone(true),
+  });
+  const busy = confirmation.pending;
+  const error = confirmation.error;
 
   const confirm = async () => {
     if (!token) return;
-    setBusy(true);
-    setError(null);
-    try {
-      await confirmPluginSecurityEmail(token);
-      setDone(true);
-    } catch (err) {
-      setError(confirmErrorMessage(err));
-    } finally {
-      setBusy(false);
-    }
+    await confirmation.run(token);
   };
 
   return (

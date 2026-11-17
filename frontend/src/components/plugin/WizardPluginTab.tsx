@@ -22,6 +22,7 @@ import { listAllPlugins } from '@/lib/list-all';
 import { formatError } from '@/lib/constants';
 import type { Plugin, Visibility } from '@/types';
 import { useUnmountedRef } from '@/hooks/useUnmountedRef';
+import { useMutation } from '@/hooks/useMutation';
 import { useAutoCloseTimer } from '@/hooks/useAutoCloseTimer';
 
 /** Props for the WizardPluginTab component. */
@@ -126,7 +127,6 @@ export default function WizardPluginTab({ canPublish, disabled, onCreated, onClo
 
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
 
   // Build queue tracking (create mode only) — same SSE flow as AI/Upload.
   const [requestId, setRequestId] = useState<string | null>(null);
@@ -136,11 +136,74 @@ export default function WizardPluginTab({ canPublish, disabled, onCreated, onClo
   const { quota: creditQuota } = useOwnQuota('cpuCredits', requestId !== null);
 
   const { status: buildStatus, events, lastEvent } = useBuildStatus(requestId);
+  const autoClose = useAutoCloseTimer();
+
+  // Both writes report into the tab's one `error` banner (shared with the
+  // plugin-list / prefill reads), so they hand their message to it.
+  const createM = useMutation({
+    fn: () => {
+      const env = parseEnv(envText);
+      return api.deployGeneratedPlugin({
+        name: name.trim(),
+        description: description.trim() || undefined,
+        version: version.trim(),
+        pluginType,
+        computeType,
+        keywords: keywords.trim() ? keywords.split(',').map((k) => k.trim()).filter(Boolean) : undefined,
+        primaryOutputDirectory: primaryOutputDirectory.trim() || undefined,
+        installCommands: toLines(installCommands),
+        commands: toLines(commands),
+        env: Object.keys(env).length ? env : undefined,
+        dockerfile,
+        visibility: access,
+        buildClass,
+        buildSize,
+      });
+    },
+    errorFallback: 'Failed to create plugin',
+    onError: (_err, message) => setError(message),
+    onSuccess: (response) => {
+      if (response.statusCode === 202 && response.data?.requestId) {
+        setRequestId(response.data.requestId);
+      } else if (response.success) {
+        setSuccess(`Plugin "${name}" created successfully!`);
+        onCreated();
+        autoClose.schedule(onClose, 2000);
+      }
+    },
+  });
+
+  const saveM = useMutation({
+    // `PUT /plugins/:id` accepts only descriptive + operational fields: the
+    // execution contract (type, compute, env, commands, timeout, …) changes
+    // only by uploading a new version, and the API refuses those keys.
+    fn: async (id: string) => {
+      const response = await api.updatePlugin(id, {
+        description: description.trim() || undefined,
+        keywords: keywords.trim() ? keywords.split(',').map((k) => k.trim()).filter(Boolean) : [],
+        visibility: access,
+        isActive,
+        isDefault,
+      });
+      if (!response.success) throw new Error(response.message || 'Failed to update plugin.');
+      return response;
+    },
+    scopeKey: selectedId,
+    errorFallback: 'Failed to update plugin',
+    onError: (_err, message) => setError(message),
+    onSuccess: () => {
+      setSuccess(`Plugin "${name}" updated successfully!`);
+      onCreated();
+      autoClose.schedule(onClose, 1500);
+    },
+  });
+
+  const saving = createM.pending || saveM.pending;
+
   const isBuilding = requestId !== null && buildStatus === 'building';
   const isWorking = saving || isBuilding || prefilling;
 
   const unmountedRef = useUnmountedRef();
-  const autoClose = useAutoCloseTimer();
   // Monotonic token so a slower earlier selectPlugin() response can't prefill
   // the form after a newer selection (or a mode switch) has moved on.
   const selectGenRef = useRef(0);
@@ -235,65 +298,14 @@ export default function WizardPluginTab({ canPublish, disabled, onCreated, onClo
   const handleCreate = async () => {
     const problem = validateCreate();
     if (problem) { setError(problem); return; }
-    setError(null); setSuccess(null); setRequestId(null); setSaving(true);
-    try {
-      const env = parseEnv(envText);
-      const response = await api.deployGeneratedPlugin({
-        name: name.trim(),
-        description: description.trim() || undefined,
-        version: version.trim(),
-        pluginType,
-        computeType,
-        keywords: keywords.trim() ? keywords.split(',').map((k) => k.trim()).filter(Boolean) : undefined,
-        primaryOutputDirectory: primaryOutputDirectory.trim() || undefined,
-        installCommands: toLines(installCommands),
-        commands: toLines(commands),
-        env: Object.keys(env).length ? env : undefined,
-        dockerfile,
-        visibility: access,
-        buildClass,
-        buildSize,
-      });
-      if (response.statusCode === 202 && response.data?.requestId) {
-        setRequestId(response.data.requestId);
-      } else if (response.success) {
-        setSuccess(`Plugin "${name}" created successfully!`);
-        onCreated();
-        autoClose.schedule(onClose, 2000);
-      }
-    } catch (err: unknown) {
-      setError(formatError(err, 'Failed to create plugin'));
-    } finally {
-      setSaving(false);
-    }
+    setError(null); setSuccess(null); setRequestId(null);
+    await createM.run();
   };
 
   const handleSave = async () => {
     if (!selectedId) { setError('Select a plugin to edit.'); return; }
-    setError(null); setSuccess(null); setSaving(true);
-    try {
-      // `PUT /plugins/:id` accepts only descriptive + operational fields: the
-      // execution contract (type, compute, env, commands, timeout, …) changes
-      // only by uploading a new version, and the API refuses those keys.
-      const response = await api.updatePlugin(selectedId, {
-        description: description.trim() || undefined,
-        keywords: keywords.trim() ? keywords.split(',').map((k) => k.trim()).filter(Boolean) : [],
-        visibility: access,
-        isActive,
-        isDefault,
-      });
-      if (response.success) {
-        setSuccess(`Plugin "${name}" updated successfully!`);
-        onCreated();
-        autoClose.schedule(onClose, 1500);
-      } else {
-        setError(response.message || 'Failed to update plugin.');
-      }
-    } catch (err: unknown) {
-      setError(formatError(err, 'Failed to update plugin'));
-    } finally {
-      setSaving(false);
-    }
+    setError(null); setSuccess(null);
+    await saveM.run(selectedId);
   };
 
   const filtered = plugins.filter((p) => {

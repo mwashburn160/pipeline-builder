@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { ShieldPlus } from 'lucide-react';
 import api from '@/lib/api';
 import { useAuth } from '@/hooks/useAuth';
+import { useMutation } from '@/hooks/useMutation';
 import { isEnrolmentPendingSession } from '@/lib/enrolment-session';
 import { PASSKEY_ENROLMENT_HREF } from '@/lib/security-links';
 import type { User } from '@/types';
@@ -80,7 +81,16 @@ export function MfaEnrolmentNudge() {
   // Local so the banner goes away on click, before the profile round-trip that
   // makes it stay away lands.
   const [answered, setAnswered] = useState(false);
-  const [busy, setBusy] = useState(false);
+  // A failed write is deliberately silent: the banner is already gone for this
+  // page view, and it returns on the next load, which is the safe direction to
+  // fail in — the account is still password-only either way.
+  const answerM = useMutation({
+    fn: async (call: () => Promise<unknown>) => {
+      await call();
+      await refreshUser({ force: true });
+    },
+  });
+  const busy = answerM.pending;
 
   if (!mounted || answered) return null;
   if (isPasswordOnly(user) !== true) return null;
@@ -94,18 +104,8 @@ export function MfaEnrolmentNudge() {
 
   /** Record the answer, then re-read the profile so it survives a reload. */
   const answer = async (call: () => Promise<unknown>) => {
-    setBusy(true);
     setAnswered(true);
-    try {
-      await call();
-      await refreshUser({ force: true });
-    } catch {
-      // The banner is already gone for this page view. A failed write means it
-      // returns on the next load, which is the safe direction to fail in: the
-      // account is still password-only either way.
-    } finally {
-      setBusy(false);
-    }
+    await answerM.run(call);
   };
 
   return (

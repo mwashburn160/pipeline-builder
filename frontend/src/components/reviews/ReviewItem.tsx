@@ -11,6 +11,7 @@ import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { FormField } from '@/components/ui/FormField';
 import { Textarea } from '@/components/ui/Textarea';
 import { formatDay } from '@/components/public-directory/ListingCardView';
+import { useMutation } from '@/hooks/useMutation';
 import api from '@/lib/api';
 import { REPLY_BODY_MAX, reviewErrorMessage } from '@/lib/plugin-reviews';
 import type { PublicReview, ReviewReply } from '@/lib/public-directory/types';
@@ -65,41 +66,47 @@ export function ReviewItem({
   /** A local update: helpful count, reported, reply. */
   onChange: (next: PublicReview, flags?: { helpful?: boolean; reported?: boolean }) => void;
 }) {
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [reporting, setReporting] = useState(false);
   const [replying, setReplying] = useState(false);
   const [confirmDeleteReply, setConfirmDeleteReply] = useState(false);
   const author = review.author?.displayName ?? 'Former user';
 
+  const vote = useMutation({
+    fn: async (v: ReviewViewer): Promise<{ data?: { helpfulCount: number; voted: boolean } }> => {
+      removeReply.reset();
+      return v.helpful ? api.unvoteReviewHelpful(review.id) : api.voteReviewHelpful(review.id);
+    },
+    scopeKey: review.id,
+    formatError: (err) => reviewErrorMessage(err, 'Could not record your vote'),
+    onSuccess: (res, v) => {
+      const data = res.data;
+      onChange({ ...review, helpfulCount: data?.helpfulCount ?? review.helpfulCount }, { helpful: data?.voted ?? !v.helpful });
+    },
+  });
+  const removeReply = useMutation({
+    fn: async () => {
+      vote.reset();
+      try {
+        return await api.deleteReviewReply(review.id);
+      } finally {
+        setConfirmDeleteReply(false);
+      }
+    },
+    scopeKey: review.id,
+    formatError: (err) => reviewErrorMessage(err, 'Could not delete the response'),
+    onSuccess: () => onChange({ ...review, reply: null }),
+  });
+  // One action at a time on a review: every control disables while either is in flight.
+  const busy = vote.pending || removeReply.pending;
+  const error = vote.error ?? removeReply.error;
+  const clearError = () => { vote.reset(); removeReply.reset(); };
+
   const toggleHelpful = async () => {
     if (!viewer) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const res = viewer.helpful ? await api.unvoteReviewHelpful(review.id) : await api.voteReviewHelpful(review.id);
-      const data = res.data;
-      onChange({ ...review, helpfulCount: data?.helpfulCount ?? review.helpfulCount }, { helpful: data?.voted ?? !viewer.helpful });
-    } catch (err) {
-      setError(reviewErrorMessage(err, 'Could not record your vote'));
-    } finally {
-      setBusy(false);
-    }
+    await vote.run(viewer);
   };
 
-  const deleteReply = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      await api.deleteReviewReply(review.id);
-      onChange({ ...review, reply: null });
-    } catch (err) {
-      setError(reviewErrorMessage(err, 'Could not delete the response'));
-    } finally {
-      setBusy(false);
-      setConfirmDeleteReply(false);
-    }
-  };
+  const deleteReply = () => removeReply.run();
 
   return (
     <article className="space-y-2 py-4" data-testid={`review-${review.id}`} aria-label={`Review by ${author}`}>
@@ -152,7 +159,7 @@ export function ReviewItem({
           </>
         )}
       </div>
-      <ErrorAlert message={error} onDismiss={() => setError(null)} />
+      <ErrorAlert message={error} onDismiss={clearError} />
 
       {replying ? (
         <ReplyEditor
@@ -197,25 +204,25 @@ function ReplyEditor({ reviewId, hasReply, onSaved, onCancel }: {
   onCancel: () => void;
 }) {
   const [body, setBody] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const id = useId();
 
-  const save = async () => {
-    if (!body.trim()) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const res = await api.putReviewReply(reviewId, body.trim());
+  const put = useMutation({
+    fn: (text: string) => api.putReviewReply(reviewId, text),
+    scopeKey: reviewId,
+    formatError: (err) => reviewErrorMessage(err, 'Could not save the response'),
+    onSuccess: (res) => {
       if (res.data?.reply) {
         const { bodyHtml, publisherDisplayName, createdAt, updatedAt } = res.data.reply;
         onSaved({ bodyHtml, publisherDisplayName, createdAt, updatedAt });
       }
-    } catch (err) {
-      setError(reviewErrorMessage(err, 'Could not save the response'));
-    } finally {
-      setBusy(false);
-    }
+    },
+  });
+  const busy = put.pending;
+  const error = put.error;
+
+  const save = async () => {
+    if (!body.trim()) return;
+    await put.run(body.trim());
   };
 
   return (
@@ -228,7 +235,7 @@ function ReplyEditor({ reviewId, hasReply, onSaved, onCancel }: {
         <Textarea id={id} rows={3} value={body} maxLength={REPLY_BODY_MAX} onChange={(e) => setBody(e.target.value)} disabled={busy} />
       </FormField>
       <p className="text-xs text-fg-subtle"><MarkdownNote /></p>
-      <ErrorAlert message={error} onDismiss={() => setError(null)} />
+      <ErrorAlert message={error} onDismiss={put.reset} />
       <div className="flex gap-2">
         <Button size="xs" onClick={() => void save()} loading={busy} disabled={!body.trim()}>Save response</Button>
         <Button variant="secondary" size="xs" onClick={onCancel} disabled={busy}>Cancel</Button>

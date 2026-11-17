@@ -8,6 +8,7 @@ import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { useToast } from '@/components/ui/Toast';
 import { useFetch } from '@/hooks/useFetch';
+import { useMutation } from '@/hooks/useMutation';
 import { formatError } from '@/lib/constants';
 import api from '@/lib/api';
 import { OfferBasketModal } from './OfferBasketModal';
@@ -57,12 +58,19 @@ export function OfferCard({ canRespond, subscriptionId, bundles, interval = 'mon
   const toast = useToast();
   const offerQ = useFetch(async (signal) => (await api.getOffer({ signal })).data?.offer ?? null, []);
   const offer = offerQ.data;
-  const [busy, setBusy] = useState(false);
   // Hidden locally the moment the server confirms, so the card goes away
   // without waiting for a refetch. The RECORD is what makes the dismissal
   // stick across devices; this is only the immediate feedback.
   const [resolved, setResolved] = useState(false);
   const [basketOpen, setBasketOpen] = useState(false);
+  const actM = useMutation({
+    fn: (verb: 'decline' | 'dismiss', id: string) => (verb === 'decline' ? api.declineOffer(id) : api.dismissOffer(id)),
+    onSuccess: () => setResolved(true),
+    onError: (err, _message, verb) => {
+      toast.error(formatError(err, verb === 'decline' ? 'Could not decline this' : 'Could not hide this'));
+    },
+  });
+  const busy = actM.pending;
 
   if (!offer || resolved) return null;
 
@@ -76,18 +84,7 @@ export function OfferCard({ canRespond, subscriptionId, bundles, interval = 'mon
     && Boolean(bundles?.length)
     && canRespond;
 
-  async function act(verb: 'decline' | 'dismiss') {
-    setBusy(true);
-    try {
-      if (verb === 'decline') await api.declineOffer(offer!.id);
-      else await api.dismissOffer(offer!.id);
-      setResolved(true);
-    } catch (err) {
-      toast.error(formatError(err, verb === 'decline' ? 'Could not decline this' : 'Could not hide this'));
-    } finally {
-      setBusy(false);
-    }
-  }
+  const act = (verb: 'decline' | 'dismiss') => actM.run(verb, offer!.id);
 
   const expires = offer.expiresAt ? new Date(offer.expiresAt) : null;
   return (

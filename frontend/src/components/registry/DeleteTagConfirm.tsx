@@ -6,6 +6,7 @@ import { Modal } from '@/components/ui/Modal';
 import { CopyButton } from '@/components/ui/CopyButton';
 import { Button } from '@/components/ui/Button';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
+import { useMutation } from '@/hooks/useMutation';
 import { api } from '@/lib/api';
 import { scanTagsForDigest } from '@/lib/registry-scan';
 
@@ -30,7 +31,6 @@ export function DeleteTagConfirm({ repo, tagRef, onClose, onDeleted }: DeleteTag
   const [totalToScan, setTotalToScan] = useState(0);
   const [extraTagCount, setExtraTagCount] = useState(0);
   const [scanning, setScanning] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -61,18 +61,16 @@ export function DeleteTagConfirm({ repo, tagRef, onClose, onDeleted }: DeleteTag
     return () => { aborted = true; };
   }, [repo, tagRef]);
 
-  const submit = async () => {
-    setSubmitting(true);
-    setError(null);
-    try {
-      const res = await api.deleteImageManifest(repo, tagRef);
-      onDeleted(res.data?.digest ?? digest ?? undefined);
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setSubmitting(false);
-    }
-  };
+  type DeleteResult = Awaited<ReturnType<typeof api.deleteImageManifest>>;
+  const del = useMutation({
+    fn: () => { setError(null); return api.deleteImageManifest(repo, tagRef); },
+    scopeKey: `${repo}:${tagRef}`,
+    onSuccess: (res) => onDeleted(res.data?.digest ?? digest ?? undefined),
+    // Refused for step-up and confirmed in the global dialog: the replay deleted it.
+    onStepUpResumed: (replay) => onDeleted((replay as DeleteResult | undefined)?.data?.digest ?? digest ?? undefined),
+  });
+  const submitting = del.pending;
+  const submit = () => { void del.run(); };
 
   return (
     <Modal title="Delete tag" onClose={onClose} maxWidth="max-w-lg">
@@ -127,7 +125,7 @@ export function DeleteTagConfirm({ repo, tagRef, onClose, onDeleted }: DeleteTag
           Note: distribution deletes the manifest by digest, so any other tags pointing at the same digest also stop resolving immediately. Blob layers stay on disk as orphans until the registry&apos;s garbage collector runs (a separate maintenance pass — deletion does not reclaim disk on its own). This action is audit-logged.
         </div>
 
-        <ErrorAlert message={error} />
+        <ErrorAlert message={del.error ?? error} />
 
         <div className="flex justify-end gap-2 pt-2">
           <Button variant="secondary" size="sm" onClick={onClose} disabled={submitting}>

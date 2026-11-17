@@ -39,6 +39,7 @@ import { PublishRequestsPanel } from '@/components/publisher/PublishRequestsPane
 import { PublisherAdvisoriesPanel } from '@/components/publisher/PublisherAdvisoriesPanel';
 import { PublisherInsightsPanel } from '@/components/publisher/PublisherInsightsPanel';
 import api from '@/lib/api';
+import { queryTags } from '@/lib/api-cache';
 import { formatError } from '@/lib/constants';
 import type { PublisherContext } from '@/types/ecosystem';
 
@@ -76,7 +77,7 @@ function PublishTab({ orgId, initialPluginId, onSubmitted }: {
     }, { signal });
     const rows = (res.data?.plugins ?? []).filter((p) => p.orgId === orgId && p.visibility === 'public');
     return { plugins: rows, total: res.data?.pagination?.total ?? rows.length };
-  }, [orgId, query]);
+  }, [orgId, query], { tags: [queryTags.plugins] });
   const [pluginId, setPluginId] = useState<string>(initialPluginId ?? '');
   const publicOnes = pluginsQ.data?.plugins ?? [];
   const truncated = (pluginsQ.data?.total ?? 0) > publicOnes.length;

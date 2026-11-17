@@ -29,9 +29,8 @@ import { CatalogOwnerFields, type CatalogOwner } from '@/components/ui/CatalogOw
 import { useAuth } from '@/hooks/useAuth';
 import { hasPermission, isOrgAdmin, isSystemAdmin } from '@/lib/auth-helpers';
 import { isSystemOrgActive } from '@/lib/ecosystem-access';
-import { useUnmountedRef } from '@/hooks/useUnmountedRef';
+import { useMutation } from '@/hooks/useMutation';
 import { useAutoCloseTimer } from '@/hooks/useAutoCloseTimer';
-import { invalidate } from '@/lib/api-cache';
 import { ToolchainManagedNote, isManagedToolchainVersion } from './PluginLifecycleModal';
 
 /** Props for the EditPluginModal component. */
@@ -87,14 +86,34 @@ export default function EditPluginModal({ plugin, canPublish, onClose, onSaved }
   const [owner, setOwner] = useState<CatalogOwner>({});
   const { user } = useAuth();
   const canAssignOwner = isOrgAdmin(user) || isSystemAdmin(user);
-  const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   /** A 409: this version's catalog details are frozen by a publish request / listing. */
   const [frozenMessage, setFrozenMessage] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
-  const unmountedRef = useUnmountedRef();
   const autoClose = useAutoCloseTimer();
+
+  const saveM = useMutation({
+    fn: async (data: Parameters<typeof api.updatePlugin>[1]) => {
+      const response = await api.updatePlugin(plugin.id, data);
+      if (!response?.success) throw new Error(response.message || 'Failed to update plugin');
+      return response;
+    },
+    scopeKey: plugin.id,
+    // The pipeline builder's plugin picker caches the catalog — drop it.
+    invalidates: ['plugins'],
+    errorFallback: 'Failed to update plugin',
+    onError: (err, message) => {
+      if (err instanceof ApiError && err.statusCode === 409) setFrozenMessage(err.message);
+      else setSaveError(message);
+    },
+    onSuccess: () => {
+      setSuccess('Plugin updated successfully!');
+      onSaved();
+      autoClose.schedule(onClose, 1500);
+    },
+  });
+  const saving = saveM.pending;
   /** A managed toolchain version is edited (default included) only in the
    *  Toolchain console; the API refuses every edit here, so the form is read-only. */
   const managed = isManagedToolchainVersion(plugin);
@@ -183,26 +202,7 @@ export default function EditPluginModal({ plugin, canPublish, onClose, onSaved }
       return;
     }
 
-    setSaving(true);
-    try {
-      const response = await api.updatePlugin(plugin.id, data);
-      if (unmountedRef.current) return;
-      if (response?.success) {
-        setSuccess('Plugin updated successfully!');
-        // The pipeline builder's plugin picker caches the catalog — drop it.
-        invalidate.plugins();
-        onSaved();
-        autoClose.schedule(onClose, 1500);
-      } else {
-        setSaveError(response.message || 'Failed to update plugin');
-      }
-    } catch (err) {
-      if (unmountedRef.current) return;
-      if (err instanceof ApiError && err.statusCode === 409) setFrozenMessage(err.message);
-      else setSaveError(formatError(err, 'Failed to update plugin'));
-    } finally {
-      if (!unmountedRef.current) setSaving(false);
-    }
+    await saveM.run(data);
   };
 
   const footer = (

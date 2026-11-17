@@ -1,6 +1,6 @@
 // GENERATED FROM docs/authentication.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: ce8df831a6be6f1df65ed9ddbaa71fa701cb48beb5186ebd3f9b0e9b74fe2d4f
+// SOURCE-SHA256: fed4a8f3863f0c868880f7e4efb65c43b0da4468f2099c600a544c95ea1d2b0e
 // SPDX-License-Identifier: Apache-2.0
 import { Lock } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -3124,7 +3124,7 @@ export const authenticationTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "A session is scoped to ONE organization at a time; POST /auth/switch-org ({ organizationId }) moves the current session — same refresh-session slot, same assurance — to another org and returns an access token only ({ accessToken, expiresIn }). It never mints or rotates a refresh token: it is authenticated by an access token alone, and a fresh refresh token from it would turn a 15-minute token into a long-lived login (rotating the legitimate holder's token out). The org is recorded on the slot itself (refreshSessions[].activeOrgId), so the slot's next refresh renews into it, and two devices — or a browser and the CLI — keep independent orgs. A slot pinned to an org the person has since left renews into one they are still in (the slot's org → lastActiveOrgId → their earliest membership; never an org they have no authority in). The caller may switch into an org when they hold authority there, resolved by one rule (platform/src/helpers/org-authority.ts) that switch-org, token issuance and the refresh path all apply, so the three can never disagree:"
+          "content": "A session is scoped to ONE organization at a time; POST /auth/switch-org ({ organizationId }) moves the current session — same refresh-session slot, same assurance — to another org and returns an access token only ({ accessToken, expiresIn }). It never mints or rotates a refresh token: it is authenticated by an access token alone, and a fresh refresh token from it would turn a 15-minute token into a long-lived login (rotating the legitimate holder's token out). The org is recorded on the slot itself (the refresh_sessions row's activeOrgId), so the slot's next refresh renews into it, and two devices — or a browser and the CLI — keep independent orgs. A slot pinned to an org the person has since left renews into one they are still in (the slot's org → lastActiveOrgId → their earliest membership; never an org they have no authority in). The caller may switch into an org when they hold authority there, resolved by one rule (platform/src/helpers/org-authority.ts) that switch-org, token issuance and the refresh path all apply, so the three can never disagree:"
         },
         {
           "type": "list",
@@ -4420,6 +4420,95 @@ export const authenticationTopic: HelpTopic = {
         {
           "type": "note",
           "content": "Operators: every stored machine credential is a service-account key — see Stored machine credentials (AWS) and Access Keys and Machine Credentials. Personal access credentials are keys as well. The secret never stores a refresh token, so consumers read password, which holds a pb_sa_… key."
+        },
+        {
+          "type": "text",
+          "content": "Session validity"
+        },
+        {
+          "type": "text",
+          "content": "Everything that decides whether a person's session (and the tokens minted for it) is still good, in one place. A session is a refresh-session slot — one row in the refresh_sessions collection (platform/src/models/refresh-session.ts, keyed { userId, id }; id is the tokens' sid), read and written only through platform/src/services/session/session-store.ts. The user document carries no slots: the auth middleware's per-request check is one indexed exists on that collection, not a load of every device with the user."
+        },
+        {
+          "type": "table",
+          "headers": [
+            "Mechanism",
+            "What it ends",
+            "How it is checked"
+          ],
+          "rows": [
+            [
+              "tokenVersion (user)",
+              "Everything: every access and refresh token and every slot. Bumped by sign-out-everywhere, a password change / reset, an MFA factor reset, a platform-admin flip, org soft-delete (members), and an admin password reset.",
+              "Access tokens carry tokenVersion + claimsVersion; refresh tokens carry tokenVersion. Each slot row stores the tokenVersion it was opened at and is live only while it equals the user's current one — so a bump strands every slot at once, even a row written concurrently with the bump. The bump sites also delete the rows (in the same transaction where there is one)."
+            ],
+            [
+              "claimsVersion (user)",
+              "Outstanding access tokens only — role, permission, membership, tier or feature changes. The sessions stay.",
+              "Part of the access token's version sum; a stale token is refused and the client's next refresh re-mints current claims."
+            ],
+            [
+              "credentialsEpoch (user)",
+              "Nothing by itself. A write-conflict counter so two concurrent sign-in-method removals cannot both succeed (removeUnlessLastSignInMethod).",
+              "—"
+            ],
+            [
+              "Slot existence (sid)",
+              "One device / one machine credential: logout, revoke from the Sessions page, eviction by the per-kind cap (10 interactive, newest kept; 10 machine, most recently used kept), refresh-token reuse, an expired session.",
+              "Platform's requireAuth checks the slot row (at the current tokenVersion) for every token carrying a sid; every other service reads revoke:sid:<sid>, which each of those paths publishes."
+            ],
+            [
+              "Slot hash",
+              "A refresh token that was already rotated away.",
+              "/auth/refresh swaps the slot's SHA-256 hash in one compare-and-set matched on { userId, id, tokenVersion, kind, scope, hash } — of two racing uses exactly one wins. A miss is reuse: that slot (only) is revoked and audited (user.session.revoke, reason: refresh_reuse)."
+            ],
+            [
+              "Refresh grace (30 s)",
+              "— (it prevents a false reuse).",
+              "The winner of a rotation parks the new pair under the old token's hash for 30 seconds (helpers/refresh-grace.ts); a concurrent loser presenting that immediately-previous token gets the same pair instead of a revocation."
+            ],
+            [
+              "Session lifetime",
+              "An interactive session that has run its course.",
+              "See below."
+            ]
+          ]
+        },
+        {
+          "type": "text",
+          "content": "Lifetime rules. An interactive session (a signed-in device, or a CLI session a browser approved) has two bounds, checked on every refresh and switch-org:"
+        },
+        {
+          "type": "list",
+          "items": [
+            "Maximum age — counted from the sign-in that opened it (authTime, which"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "renewal never resets). Platform default 30 days (SESSION_MAX_AGE_DAYS). A session derived from an earlier sign-in (a device approval, the survivor of sign-out-everywhere) inherits that sign-in's age. Nothing minted for the session outlives it: the refresh token's lifetime is min(REFRESH_TOKEN_EXPIRES_IN, time left before the maximum age)."
+        },
+        {
+          "type": "list",
+          "items": [
+            "Idle timeout — counted from the slot's last use (lastUsedAt: refresh,"
+          ]
+        },
+        {
+          "type": "text",
+          "content": "switch-org). Platform default 7 days (SESSION_IDLE_TIMEOUT_DAYS)."
+        },
+        {
+          "type": "text",
+          "content": "An org may only tighten either bound — GET/PATCH /organization/:id/session-policy { maxAgeDays?, idleTimeoutDays? } (days, 1–365; null clears a field back to the platform / ancestor value; org_settings:write + step-up; lengthening needs an aal: 2 session; audited org.session_policy.update). The effective policy is the strictest of the platform ceiling, the org's own values and every ancestor's (a parent account can shorten sessions for every team), and it is the policy of the org the token is minted for that applies. A tightened policy bites at each session's next refresh — within one access-token lifetime."
+        },
+        {
+          "type": "text",
+          "content": "A refresh past either bound answers 401 SESSION_EXPIRED (\"Your session has expired — please sign in again\"), drops the slot (publishing revoke:sid) and clears the browser's refresh cookie; it is not reuse and is not audited as such (platform_session_expired_total{kind} counts it). A refresh token past its own exp answers the same code. Switch-org into an org whose policy the session is too old for answers 403 SESSION_POLICY_REAUTH_REQUIRED and leaves the session valid where it is."
+        },
+        {
+          "type": "text",
+          "content": "Machine slots (generate-token) are never idle-timed — they renew unattended — and are not bound by the interactive maximum age; they end at their own fixed expiresAt, after which a renewal is refused with the same SESSION_EXPIRED. Rows are purged by a TTL index on purgeAt: the latest moment the slot could still renew under the platform ceiling (interactive: the earlier of authTime + the platform maximum age and the current refresh token's end; machine: expiresAt, or the refresh token's end)."
         }
       ]
     },

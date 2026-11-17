@@ -13,6 +13,7 @@ import { RetryError } from '@/components/ui/RetryError';
 import { SectionCard } from '@/components/ui/SectionCard';
 import { useToast } from '@/components/ui/Toast';
 import { useFetch } from '@/hooks/useFetch';
+import { useMutation } from '@/hooks/useMutation';
 import api from '@/lib/api';
 import { MfaRequiredError } from '@/lib/api/errors';
 import { formatError } from '@/lib/constants';
@@ -59,11 +60,41 @@ export function MfaResetPanel({
   );
   const [approving, setApproving] = useState<MfaResetRequest | null>(null);
   const [denying, setDenying] = useState<MfaResetRequest | null>(null);
-  const [busy, setBusy] = useState(false);
   // Text for the always-mounted live region in the card. A decision removes the
   // row it was made on, so without this the only feedback a screen-reader user
   // gets is a list that silently got shorter.
   const [announcement, setAnnouncement] = useState('');
+
+  /** Toast and announce a decision's outcome (success or the server's refusal). */
+  const report = (ok: boolean, message: string) => {
+    (ok ? toast.success : toast.error)(message);
+    setAnnouncement(message);
+  };
+  const approveM = useMutation({
+    fn: (request: MfaResetRequest, stepUpToken: string) => api.approveMfaReset(orgId, request.id, {}, stepUpToken),
+    scopeKey: orgId,
+    onSuccess: (res, request) => {
+      report(res.success, res.success
+        ? (res.message || `Two-factor authentication reset for ${request.targetEmail}`)
+        : (res.message || 'Could not approve the reset'));
+      void read.refetch();
+    },
+    onError: (err) => {
+      // The shell's dialog already explains a single-factor session.
+      if (!(err instanceof MfaRequiredError)) report(false, formatError(err, 'Could not approve the reset'));
+      void read.refetch();
+    },
+    onStepUpResumed: () => { void read.refetch(); },
+  });
+  const denyM = useMutation({
+    fn: (request: MfaResetRequest) => api.denyMfaReset(orgId, request.id),
+    scopeKey: orgId,
+    onSuccess: (res) => {
+      report(res.success, res.success ? (res.message || 'Request closed') : (res.message || 'Could not close the request'));
+    },
+    onError: (err) => report(false, formatError(err, 'Could not close the request')),
+  });
+  const busy = approveM.pending || denyM.pending;
 
   const requests = read.data ?? [];
   const pending = requests.filter((r) => r.status === 'pending');
@@ -75,45 +106,15 @@ export function MfaResetPanel({
 
   const approve = async (request: MfaResetRequest, stepUpToken: string) => {
     setApproving(null);
-    setBusy(true);
-    try {
-      const res = await api.approveMfaReset(orgId, request.id, {}, stepUpToken);
-      const message = res.success
-        ? (res.message || `Two-factor authentication reset for ${request.targetEmail}`)
-        : (res.message || 'Could not approve the reset');
-      (res.success ? toast.success : toast.error)(message);
-      setAnnouncement(message);
-    } catch (err) {
-      // The shell's dialog already explains a single-factor session.
-      if (!(err instanceof MfaRequiredError)) {
-        const message = formatError(err, 'Could not approve the reset');
-        toast.error(message);
-        setAnnouncement(message);
-      }
-    } finally {
-      setBusy(false);
-      void read.refetch();
-    }
+    await approveM.run(request, stepUpToken);
   };
 
   const deny = async (request: MfaResetRequest) => {
-    setBusy(true);
-    try {
-      const res = await api.denyMfaReset(orgId, request.id);
-      const message = res.success ? (res.message || 'Request closed') : (res.message || 'Could not close the request');
-      (res.success ? toast.success : toast.error)(message);
-      setAnnouncement(message);
-    } catch (err) {
-      const message = formatError(err, 'Could not close the request');
-      toast.error(message);
-      setAnnouncement(message);
-    } finally {
-      // The dialog stays up, showing its in-flight state, until the call
-      // settles — closing on the click left Deny looking like it did nothing.
-      setDenying(null);
-      setBusy(false);
-      void read.refetch();
-    }
+    await denyM.run(request);
+    // The dialog stays up, showing its in-flight state, until the call
+    // settles — closing on the click left Deny looking like it did nothing.
+    setDenying(null);
+    void read.refetch();
   };
 
   return (

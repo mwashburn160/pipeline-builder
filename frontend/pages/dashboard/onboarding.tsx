@@ -18,6 +18,7 @@ import { DEFAULT_PLAN_ID } from '@/components/billing/helpers';
 import { SelectablePlanCard } from '@/components/billing/SelectablePlanCard';
 import { OrgSetupStep } from '@/components/onboarding/OrgSetupStep';
 import { usePlans } from '@/hooks/usePlans';
+import { useMutation } from '@/hooks/useMutation';
 
 /** An org the signed-in user's verified email domain could join, annotated with
  *  where this user already stands with it (see `GET /auth/onboarding/domain-orgs`). */
@@ -63,7 +64,6 @@ export default function OnboardingPage() {
   const [orgName, setOrgName] = useState('');
   const { plans } = usePlans(billingEnabled);
   const [selectedPlan, setSelectedPlan] = useState(DEFAULT_PLAN_ID);
-  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Two-phase: after CREATING an org (Continue), show the CLI/setup step before
   // heading to the dashboard. Skip / domain-join go straight to the dashboard.
@@ -166,10 +166,11 @@ export default function OnboardingPage() {
     }
   };
 
-  const finish = async (withName: boolean) => {
-    setSubmitting(true);
-    setError(null);
-    try {
+  // Set once "Skip for now" has handed off to the dashboard, so the buttons stay
+  // disabled through the navigation rather than flickering back on.
+  const [leaving, setLeaving] = useState(false);
+  const complete = useMutation({
+    fn: async (withName: boolean) => {
       const trimmed = orgName.trim();
       await api.completeOnboarding({
         organizationName: withName && trimmed.length >= 2 ? trimmed : undefined,
@@ -180,15 +181,20 @@ export default function OnboardingPage() {
         // setup step before the dashboard. completeOnboarding already cleared
         // needsOnboarding, and this page is guard-exempt, so no bounce.
         setPhase('install');
-        setSubmitting(false);
         return;
       }
       // "Skip for now" → opting out of setup; head straight to the dashboard.
+      setLeaving(true);
       await goToDashboard();
-    } catch (e) {
-      setError(formatError(e));
-      setSubmitting(false);
-    }
+    },
+    // `error` is shared with the domain-join actions above.
+    onError: (_e, message) => setError(message),
+  });
+  const submitting = complete.pending || leaving;
+
+  const finish = async (withName: boolean) => {
+    setError(null);
+    await complete.run(withName);
   };
 
   /**

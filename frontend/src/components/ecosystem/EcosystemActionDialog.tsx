@@ -8,7 +8,7 @@ import { FormField } from '@/components/ui/FormField';
 import { Modal } from '@/components/ui/Modal';
 import { ModalFooter } from '@/components/ui/ModalFooter';
 import { Textarea } from '@/components/ui/Textarea';
-import { formatError } from '@/lib/constants';
+import { useMutation } from '@/hooks/useMutation';
 
 interface EcosystemActionDialogProps {
   title: string;
@@ -43,8 +43,13 @@ export function EcosystemActionDialog({
   stepUp, confirmLabel = 'Confirm', tone = 'primary', onSubmit, onClose,
 }: EcosystemActionDialogProps) {
   const [reason, setReason] = useState(initialReason);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const act = useMutation({
+    fn: (r: string) => onSubmit(r),
+    errorFallback: 'The action failed',
+    onSuccess: () => onClose(),
+  });
+  const busy = act.pending;
+  const error = act.error;
   const fieldId = useId();
   const missingReason = reasonRequired && !reason.trim();
 
@@ -69,18 +74,7 @@ export function EcosystemActionDialog({
     );
   }
 
-  const submit = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      await onSubmit(reason.trim());
-      onClose();
-    } catch (err) {
-      setError(formatError(err, 'The action failed'));
-    } finally {
-      setBusy(false);
-    }
-  };
+  const submit = () => act.run(reason.trim());
 
   return (
     <Modal
@@ -102,7 +96,7 @@ export function EcosystemActionDialog({
         <p className="text-fg-muted">{action}</p>
         {details && <div className="space-y-2 text-fg-muted">{details}</div>}
         {reasonField}
-        <ErrorAlert message={error} onDismiss={() => setError(null)} />
+        <ErrorAlert message={error} onDismiss={act.reset} />
       </div>
     </Modal>
   );

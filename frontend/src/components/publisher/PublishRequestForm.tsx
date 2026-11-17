@@ -14,6 +14,7 @@ import { RetryError } from '@/components/ui/RetryError';
 import { useToast } from '@/components/ui/Toast';
 import { CatalogFieldEditor } from '@/components/plugin/CatalogFieldEditor';
 import { useFetch } from '@/hooks/useFetch';
+import { useMutation } from '@/hooks/useMutation';
 import api from '@/lib/api';
 import { ApiError } from '@/lib/api/errors';
 import { formatError } from '@/lib/constants';
@@ -118,8 +119,54 @@ export function PublishRequestForm({ pluginId, onSubmitted }: Props) {
   const [offerEdits, setOfferEdits] = useState<PluginCatalogEdits>({});
   const [breaking, setBreaking] = useState<boolean | null>(null);
   const [advisoryId, setAdvisoryId] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<{ message: string; gates?: PublishGate[] } | null>(null);
+  // The failing gates of the last refused submit, shown under its message.
+  const [errorGates, setErrorGates] = useState<PublishGate[] | undefined>(undefined);
+
+  const submitM = useMutation({
+    fn: async ({ d, isNew, isBreaking }: { d: PublishDraft; isNew: boolean; isBreaking: boolean }) => {
+      setErrorGates(undefined);
+      const res = isNew
+        ? await api.submitPublishRequest({
+          kind: 'new_listing',
+          pluginId,
+          ...(Object.keys(edits).length ? { metadata: edits } : {}),
+          ...(advisoryId.trim() ? { securityFixAdvisoryId: advisoryId.trim() } : {}),
+        })
+        : await api.submitPublishRequest({
+          kind: 'new_version',
+          pluginId,
+          breaking: isBreaking,
+          ...(advisoryId.trim() ? { securityFixAdvisoryId: advisoryId.trim() } : {}),
+        });
+      toast.success(!res.data?.autoApproved
+        ? 'Request submitted. The ecosystem team will review it.'
+        : res.data.request?.executing
+          ? 'Approved automatically by an auto-approval rule. Publishing continues in the background.'
+          : 'Approved automatically by an auto-approval rule.');
+
+      if (!isNew && d.listing && Object.keys(offerEdits).length > 0) {
+        try {
+          const sources = acceptedOfferSources(d, offerEdits);
+          await api.submitPublishRequest({
+            kind: 'listing_update',
+            listingId: d.listing.id,
+            metadata: offerEdits,
+            ...(Object.keys(sources).length ? { sources } : {}),
+          });
+          toast.success('Listing update requested.');
+        } catch (err) {
+          toast.error(`The version was submitted, but the listing update was not: ${describePublishError(err).message}`);
+        }
+      }
+    },
+    scopeKey: pluginId,
+    formatError: (err) => describePublishError(err).message,
+    onError: (err) => setErrorGates(describePublishError(err).gates),
+    onSuccess: () => onSubmitted(),
+  });
+  const busy = submitM.pending;
+  const error = submitM.error;
+  const dismissError = () => { submitM.reset(); setErrorGates(undefined); };
 
   if (draftQ.loading && !draft) return <Skeleton className="h-40 w-full" />;
   if (draftQ.error || !draft) {
@@ -140,50 +187,7 @@ export function PublishRequestForm({ pluginId, onSubmitted }: Props) {
       offerEdits,
     );
 
-  const submit = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      const res = isNewListing
-        ? await api.submitPublishRequest({
-          kind: 'new_listing',
-          pluginId,
-          ...(Object.keys(edits).length ? { metadata: edits } : {}),
-          ...(advisoryId.trim() ? { securityFixAdvisoryId: advisoryId.trim() } : {}),
-        })
-        : await api.submitPublishRequest({
-          kind: 'new_version',
-          pluginId,
-          breaking: isBreaking,
-          ...(advisoryId.trim() ? { securityFixAdvisoryId: advisoryId.trim() } : {}),
-        });
-      toast.success(!res.data?.autoApproved
-        ? 'Request submitted. The ecosystem team will review it.'
-        : res.data.request?.executing
-          ? 'Approved automatically by an auto-approval rule. Publishing continues in the background.'
-          : 'Approved automatically by an auto-approval rule.');
-
-      if (!isNewListing && draft.listing && Object.keys(offerEdits).length > 0) {
-        try {
-          const sources = acceptedOfferSources(draft, offerEdits);
-          await api.submitPublishRequest({
-            kind: 'listing_update',
-            listingId: draft.listing.id,
-            metadata: offerEdits,
-            ...(Object.keys(sources).length ? { sources } : {}),
-          });
-          toast.success('Listing update requested.');
-        } catch (err) {
-          toast.error(`The version was submitted, but the listing update was not: ${describePublishError(err).message}`);
-        }
-      }
-      onSubmitted();
-    } catch (err) {
-      setError(describePublishError(err));
-    } finally {
-      setBusy(false);
-    }
-  };
+  const submit = () => submitM.run({ d: draft, isNew: isNewListing, isBreaking });
 
   return (
     <div className="space-y-5" data-testid="publish-request-form">
@@ -258,8 +262,8 @@ export function PublishRequestForm({ pluginId, onSubmitted }: Props) {
 
       {error && (
         <div className="space-y-2">
-          <ErrorAlert message={error.message} onDismiss={() => setError(null)} />
-          {error.gates && error.gates.length > 0 && <GateList gates={error.gates} />}
+          <ErrorAlert message={error} onDismiss={dismissError} />
+          {errorGates && errorGates.length > 0 && <GateList gates={errorGates} />}
         </div>
       )}
 

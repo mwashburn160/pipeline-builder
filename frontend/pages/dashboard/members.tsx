@@ -41,7 +41,7 @@ import { MfaResetPanel } from '@/components/members/MfaResetPanel';
 import { POOLING_TITLE, poolingExplanation } from '@/components/quotas/constants';
 import { RequestMfaResetModal } from '@/components/members/RequestMfaResetModal';
 import api from '@/lib/api';
-import { invalidate } from '@/lib/api-cache';
+import { invalidate, queryTags } from '@/lib/api-cache';
 import { tierAllowsTeams, seatRemedy } from '@pipeline-builder/api-core/tier-limits';
 import { seatRemedyLabel, seatsAtCapacity } from '@/lib/tiers';
 import type { OrganizationMember } from '@/types';
@@ -105,6 +105,9 @@ export default function MembersPage() {
       return { items: res.data?.members || [], pagination: res.data?.pagination };
     },
     enabled: isAuthenticated && canViewMembers && !!orgId,
+    // `invalidate.orgMembers(orgId)` from any surface (invite accepted, a
+    // team's roster edit, a role change) re-reads the roster.
+    tags: [queryTags.orgMembers(orgId)],
   });
   // Maps a sortable DataTable column id to the backend `sortBy` whitelist key.
   // `username`/`role`/`status` map through; the "Joined" column orders by the
@@ -177,7 +180,7 @@ export default function MembersPage() {
   const seatQ = useFetch(async (signal) => {
     if (!user?.organizationId || !canManageMembers) return null;
     return (await api.getOrganizationSeatUsage(user.organizationId, { signal })).data ?? null;
-  }, [user?.organizationId, canManageMembers, list.pagination.total], { keepPreviousData: true });
+  }, [user?.organizationId, canManageMembers, list.pagination.total], { keepPreviousData: true, tags: [queryTags.orgMembers()] });
   const seatUsage = seatQ.data;
   const seatLoadWarning = !!seatQ.error;
 

@@ -6,6 +6,7 @@ import { Modal } from '@/components/ui/Modal';
 import { ModalFooter } from '@/components/ui/ModalFooter';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { CatalogFieldEditor, type CatalogEditorField } from '@/components/plugin/CatalogFieldEditor';
+import { useMutation } from '@/hooks/useMutation';
 import api from '@/lib/api';
 import { applyCatalogEdits } from '@/lib/ecosystem';
 import type { PluginCatalogEdits } from '@/types';
@@ -38,24 +39,18 @@ export function RequestListingUpdateDialog({ listing, onClose, onSubmitted }: {
   onSubmitted: () => void;
 }) {
   const [edits, setEdits] = useState<PluginCatalogEdits>({});
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const fields = listingCatalogFields(listing);
   const dirty = Object.keys(edits).length > 0;
 
-  const submit = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      await api.submitPublishRequest({ kind: 'listing_update', listingId: listing.id, metadata: edits });
-      onSubmitted();
-      onClose();
-    } catch (err) {
-      setError(describePublishError(err).message);
-    } finally {
-      setBusy(false);
-    }
-  };
+  const submitM = useMutation({
+    fn: () => api.submitPublishRequest({ kind: 'listing_update', listingId: listing.id, metadata: edits }),
+    scopeKey: listing.id,
+    formatError: (err) => describePublishError(err).message,
+    onSuccess: () => { onSubmitted(); onClose(); },
+  });
+  const busy = submitM.pending;
+  const error = submitM.error;
+  const submit = () => submitM.run();
 
   return (
     <Modal
@@ -91,7 +86,7 @@ export function RequestListingUpdateDialog({ listing, onClose, onSubmitted }: {
           publisher={{ handle: listing.publisherHandle, displayName: listing.publisherHandle, tier: listing.publisherTier }}
         />
       </div>
-      <ErrorAlert message={error} onDismiss={() => setError(null)} className="mt-3" />
+      <ErrorAlert message={error} onDismiss={submitM.reset} className="mt-3" />
     </Modal>
   );
 }

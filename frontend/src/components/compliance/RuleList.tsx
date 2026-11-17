@@ -4,6 +4,7 @@ import { RULE_TARGET_IDS, RULE_TARGET_LABELS, RULE_SCOPE_IDS, RULE_SCOPE_META, R
 import { useEffect, useState, useMemo } from 'react';
 import { Shield, Plus, Pencil, Trash2, ToggleLeft, ToggleRight, History, Search, Tag } from 'lucide-react';
 import api from '@/lib/api';
+import { invalidate } from '@/lib/api-cache';
 import { useCrudResource } from '@/hooks/useCrudResource';
 import { useDebounce } from '@/hooks/useDebounce';
 import { useDelete } from '@/hooks/useDelete';
@@ -78,13 +79,20 @@ export default function RuleList({ onEdit, onCreateNew, onViewHistory }: RuleLis
     },
     create: async (data: ComplianceRuleCreate) => {
       const res = await api.createComplianceRule(data);
+      // Other rule readers (the overview's count) re-read; this list updates in place.
+      invalidate.complianceRules();
       return { success: res.success, data: res.data ? { item: res.data.rule } : undefined };
     },
     update: async (id: string, data: ComplianceRuleUpdate) => {
       const res = await api.updateComplianceRule(id, data);
+      invalidate.complianceRules();
       return { success: res.success, data: res.data ? { item: res.data.rule } : undefined };
     },
-    delete: (id: string) => api.deleteComplianceRule(id),
+    delete: async (id: string) => {
+      const res = await api.deleteComplianceRule(id);
+      invalidate.complianceRules();
+      return res;
+    },
   }), [targetFilter, severityFilter, scopeFilter, debouncedName, debouncedTag, sortBy, sortOrder, page.limit, page.offset]);
   const { items: rules, total, loading, loadError, mutationError, clearError, fetch: fetchRules, remove: deleteRule, update: updateRule } = useCrudResource<ComplianceRule, ComplianceRuleCreate, ComplianceRuleUpdate, RuleParams>(crudApi, 'compliance rules');
 

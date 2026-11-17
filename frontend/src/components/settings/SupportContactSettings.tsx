@@ -14,6 +14,7 @@ import { RetryError } from '@/components/ui/RetryError';
 import { useToast } from '@/components/ui/Toast';
 import { useFetch } from '@/hooks/useFetch';
 import api from '@/lib/api';
+import { queryTags } from '@/lib/api-cache';
 import { listAllOrgMembers } from '@/lib/list-all';
 import { formatError } from '@/lib/constants';
 import { responseTargetLabel } from '@/components/message/MessageList';
@@ -71,6 +72,8 @@ export function SupportContactSettings({ orgId, readOnly = false }: { orgId: str
       return { support: s.data ?? null, members: m };
     },
     [orgId],
+    // A roster change elsewhere (a member deactivated, an invite accepted) re-reads the picker.
+    { tags: [queryTags.orgMembers(orgId)] },
   );
 
   const support = read.data?.support;

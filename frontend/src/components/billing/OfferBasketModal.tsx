@@ -1,12 +1,11 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useState } from 'react';
 import { Modal } from '@/components/ui/Modal';
 import { ModalFooter } from '@/components/ui/ModalFooter';
 import { useToast } from '@/components/ui/Toast';
 import { formatPrice } from './helpers';
-import { formatError } from '@/lib/constants';
+import { useMutation } from '@/hooks/useMutation';
 import api from '@/lib/api';
 import type { AccountOffer, Bundle, BillingInterval } from '@/types';
 
@@ -44,7 +43,6 @@ export function OfferBasketModal({
   onApplied: () => void;
 }) {
   const toast = useToast();
-  const [busy, setBusy] = useState(false);
 
   const items = offer.targetBundles
     .map((t) => {
@@ -57,21 +55,22 @@ export function OfferBasketModal({
   const priceOf = (b: Bundle) => (interval === 'annual' ? b.prices.annual : b.prices.monthly);
   const totalCents = items.reduce((sum, i) => sum + priceOf(i.bundle) * i.quantity, 0);
 
-  async function apply() {
-    setBusy(true);
-    try {
-      await api.addAddonBasket(subscriptionId, items.map((i) => ({ bundleId: i.bundle.id, quantity: i.quantity })));
+  const applyM = useMutation({
+    fn: () => api.addAddonBasket(subscriptionId, items.map((i) => ({ bundleId: i.bundle.id, quantity: i.quantity }))),
+    scopeKey: subscriptionId,
+    // One failure means NOTHING was applied — the server's atomicity is what
+    // makes that message honest, so say it rather than leaving the account to
+    // wonder which part went through.
+    errorFallback: 'Nothing was changed — the basket was not applied',
+    toast: { error: true },
+    onSuccess: () => {
+      // Toasted before `onApplied`, which typically closes (unmounts) this dialog.
       toast.success('Add-ons applied');
       onApplied();
-    } catch (err) {
-      // One failure means NOTHING was applied — the server's atomicity is what
-      // makes that message honest, so say it rather than leaving the account to
-      // wonder which part went through.
-      toast.error(formatError(err, 'Nothing was changed — the basket was not applied'));
-    } finally {
-      setBusy(false);
-    }
-  }
+    },
+  });
+  const busy = applyM.pending;
+  const apply = applyM.run;
 
   return (
     <Modal

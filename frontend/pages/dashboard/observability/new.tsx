@@ -14,7 +14,7 @@ import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Textarea } from '@/components/ui/Textarea';
 import { api } from '@/lib/api';
-import { formatError } from '@/lib/constants';
+import { useMutation } from '@/hooks/useMutation';
 
 /**
  * Create-dashboard page. Captures the metadata (name / description /
@@ -35,27 +35,26 @@ export default function NewDashboardPage() {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [visibility, setVisibility] = useState<'private' | 'org' | 'public'>('private');
-  const [submitting, setSubmitting] = useState(false);
-
-  const onCreate = async () => {
-    if (!name.trim() || !canWrite) return;
-    setSubmitting(true);
-    try {
+  const create = useMutation({
+    fn: async (draftName: string) => {
       const res = await api.createDashboard({
-        name: name.trim(),
+        name: draftName,
         description: description.trim() ? description.trim() : null,
         visibility,
         panels: [],
       });
       const id = res.data?.dashboard.id;
       if (!id) throw new Error('Server returned no dashboard id');
-      toast.success('Dashboard created');
-      void router.push(`/dashboard/observability/${id}/edit`);
-    } catch (err) {
-      toast.error(formatError(err));
-    } finally {
-      setSubmitting(false);
-    }
+      return id;
+    },
+    toast: { success: 'Dashboard created', error: true },
+    onSuccess: (id) => { void router.push(`/dashboard/observability/${id}/edit`); },
+  });
+  const submitting = create.pending;
+
+  const onCreate = async () => {
+    if (!name.trim() || !canWrite) return;
+    await create.run(name.trim());
   };
 
   if (accessDenied) return <AccessDenied denial={accessDenied} />;

@@ -63,6 +63,19 @@ const listeners = new Set<() => void>();
 const keyEpochs = new Map<string, number>();
 
 /**
+ * Per-PREFIX invalidation counters, for readers that do not go through the
+ * cache (`useFetch` / `useListPage` with `tags`). `invalidateQueries` only bumps
+ * the epoch of keys the cache actually holds, so a reader whose answer lives in
+ * its own component state would never hear about a write; it subscribes to a
+ * TAG instead (a key prefix such as `pipelines?`) and re-reads whenever a
+ * matching prefix is invalidated. Kept as a tiny map keyed by the prefixes
+ * writers invalidate — a handful in practice.
+ */
+const prefixEpochs = new Map<string, number>();
+/** Bumped by a whole-cache invalidation or {@link clearQueryCache}: wakes every tag. */
+let allTagsEpoch = 0;
+
+/**
  * Bumped by {@link clearQueryCache}. A request that started under an older
  * generation refuses to write its result — the identity it was issued under is
  * gone (org switch, sign-out), so its answer belongs to nobody.
@@ -96,6 +109,20 @@ export function subscribeQueries(listener: () => void): () => void {
  *  affected, so a reader re-runs only when ITS data was dropped. */
 export function getKeyEpoch(key: string | null): number {
   return key === null ? 0 : keyEpochs.get(key) ?? 0;
+}
+
+/**
+ * How many times an invalidation touched `tag` — a write to a prefix the tag
+ * falls under (`invalidate.orgMembers()` for tag `org-members/o1?`) or one
+ * narrower than it (`invalidate.orgMembers('o1')` for tag `org-members/`).
+ * Monotonic for the session, so it is safe as an effect dependency.
+ */
+export function getTagEpoch(tag: string): number {
+  let n = allTagsEpoch;
+  for (const [prefix, count] of prefixEpochs) {
+    if (tag.startsWith(prefix) || prefix.startsWith(tag)) n += count;
+  }
+  return n;
 }
 
 /** The cached value for `key`, regardless of age, or `undefined`. Used to seed
@@ -248,6 +275,8 @@ export function runQuery<T>(
  */
 export function invalidateQueries(prefix?: string): void {
   const matches = (key: string) => prefix === undefined || key.startsWith(prefix);
+  if (prefix === undefined) allTagsEpoch += 1;
+  else prefixEpochs.set(prefix, (prefixEpochs.get(prefix) ?? 0) + 1);
   for (const key of [...entries.keys()]) {
     if (matches(key)) { entries.delete(key); bumpKey(key); }
   }
@@ -270,6 +299,7 @@ export function invalidateQueries(prefix?: string): void {
  */
 export function clearQueryCache(): void {
   cacheGeneration += 1;
+  allTagsEpoch += 1;
   for (const key of entries.keys()) bumpKey(key);
   entries.clear();
   for (const [key, flight] of inflight) {

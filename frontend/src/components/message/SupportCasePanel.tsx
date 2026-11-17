@@ -1,12 +1,11 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useState } from 'react';
 import { LifeBuoy } from 'lucide-react';
 import { Select } from '@/components/ui/Select';
 import { Button } from '@/components/ui/Button';
 import api from '@/lib/api';
-import { formatError } from '@/lib/constants';
+import { useMutation } from '@/hooks/useMutation';
 import { TENANT_CASE_STATUSES, caseStatusLabel, isTenantTerminalCaseStatus, responseTargetLabel } from '@/components/message/MessageList';
 import type { SupportCaseSummary } from '@/types';
 
@@ -36,8 +35,20 @@ interface SupportCasePanelProps {
  * no panel rather than an empty one.
  */
 export function SupportCasePanel({ supportCase, contacts, onChanged, readOnly = false }: SupportCasePanelProps) {
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // Run one mutation, surfacing the server's own refusal rather than a generic
+  // one. A refusal (4xx/5xx) arrives as a thrown ApiError carrying the server's
+  // message; a 2xx `success: false` envelope carries it as `message`.
+  const change = useMutation({
+    fn: async (fn: () => Promise<{ success: boolean; message?: string }>) => {
+      const res = await fn();
+      if (!res.success) throw new Error(res.message ?? 'That change was not applied');
+    },
+    scopeKey: supportCase.threadId,
+    errorFallback: 'That change could not be saved',
+    onSuccess: () => { onChanged?.(); },
+  });
+  const busy = change.pending;
+  const error = change.error;
   const target = responseTargetLabel(supportCase.level);
   // Closed is terminal for the tenant: only staff may reopen. Shown as disabled
   // rather than hidden so the status is still legible — and with a line saying
@@ -50,25 +61,7 @@ export function SupportCasePanel({ supportCase, contacts, onChanged, readOnly = 
   const tenantSettable = TENANT_CASE_STATUSES.some((s) => s.value === supportCase.status);
   const locked = busy || readOnly;
 
-  /** Run one mutation, surfacing the server's own refusal rather than a generic one. */
-  // A refusal (4xx/5xx) arrives as a thrown ApiError carrying the server's
-  // message; a 2xx `success: false` envelope carries it as `message`.
-  const run = async (fn: () => Promise<{ success: boolean; message?: string }>) => {
-    setBusy(true);
-    setError(null);
-    try {
-      const res = await fn();
-      // The server's message is the useful one — it names which statuses a
-      // tenant may set, or why a transfer target was rejected. A generic
-      // "something went wrong" would hide exactly the part worth reading.
-      if (!res.success) setError(res.message ?? 'That change was not applied');
-      else onChanged?.();
-    } catch (err) {
-      setError(formatError(err, 'That change could not be saved'));
-    } finally {
-      setBusy(false);
-    }
-  };
+  const run = change.run;
 
   return (
     <section

@@ -14,6 +14,7 @@ import { useToast } from '@/components/ui/Toast';
 import { AdvisoryFacts } from '@/components/ecosystem/AdvisoryFacts';
 import { AdvisoryFormDialog } from '@/components/ecosystem/AdvisoryFormDialog';
 import { useFetch } from '@/hooks/useFetch';
+import { useMutation } from '@/hooks/useMutation';
 import api from '@/lib/api';
 import {
   ADVISORY_SOURCE_LABELS, ADVISORY_STATE_COLORS, ADVISORY_STATE_LABELS, severityColor, severityLabel,
@@ -36,31 +37,31 @@ export function PublisherAdvisoriesPanel({ canManage }: { canManage: boolean }) 
     if (!res.success || !res.data) throw new Error(res.message || 'Failed to load advisories');
     return res.data.advisories;
   }, []);
-  const [submitting, setSubmitting] = useState(false);
+  // The "submit an advisory" form is open (not a write in flight).
+  const [composing, setComposing] = useState(false);
   const [withdrawing, setWithdrawing] = useState<AdvisoryView | null>(null);
-  const [busy, setBusy] = useState(false);
 
   const listingsQ = useFetch(async (signal) => {
-    if (!submitting) return null;
+    if (!composing) return null;
     const res = await api.listPublisherListings({ signal });
     // See AdvisoriesPanel: coalescing a failure to [] leaves a dead form.
     if (!res.success || !res.data) throw new Error(res.message || 'Failed to load listings');
     return res.data.listings;
-  }, [submitting]);
+  }, [composing]);
 
-  const withdraw = async () => {
-    if (!withdrawing?.requestId) return;
-    setBusy(true);
-    try {
-      await api.withdrawPublishRequest(withdrawing.requestId);
-      toast.success('Advisory request withdrawn');
+  const withdrawM = useMutation({
+    fn: (requestId: string) => api.withdrawPublishRequest(requestId),
+    errorFallback: 'Could not withdraw the request',
+    toast: { success: 'Advisory request withdrawn', error: true },
+    onSuccess: () => {
       setWithdrawing(null);
       void advisoriesQ.refetch();
-    } catch (err) {
-      toast.error(formatError(err, 'Could not withdraw the request'));
-    } finally {
-      setBusy(false);
-    }
+    },
+  });
+  const busy = withdrawM.pending;
+  const withdraw = async () => {
+    if (!withdrawing?.requestId) return;
+    await withdrawM.run(withdrawing.requestId);
   };
 
   const advisories = advisoriesQ.data ?? [];
@@ -71,7 +72,7 @@ export function PublisherAdvisoriesPanel({ canManage }: { canManage: boolean }) 
       title="Security advisories"
       description="Advisories warn every organization that installed an affected version. You submit a draft; the ecosystem team publishes it."
       actions={canManage ? (
-        <Button size="sm" onClick={() => setSubmitting(true)}>
+        <Button size="sm" onClick={() => setComposing(true)}>
           <Plus className="w-4 h-4 mr-1" aria-hidden />Submit advisory
         </Button>
       ) : undefined}
@@ -114,7 +115,7 @@ export function PublisherAdvisoriesPanel({ canManage }: { canManage: boolean }) 
         </ul>
       )}
 
-      {submitting && (
+      {composing && (
         <AdvisoryFormDialog
           title="Submit a security advisory"
           confirmLabel="Submit request"
@@ -128,10 +129,10 @@ export function PublisherAdvisoriesPanel({ canManage }: { canManage: boolean }) 
               throw new Error(describePublishError(err).message);
             }
             toast.success('Advisory submitted. The ecosystem team will review it.');
-            setSubmitting(false);
+            setComposing(false);
             void advisoriesQ.refetch();
           }}
-          onClose={() => setSubmitting(false)}
+          onClose={() => setComposing(false)}
         />
       )}
 

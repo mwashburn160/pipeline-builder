@@ -59,6 +59,21 @@ const PREFIX = {
   totpStatus: 'totp-status',
   sessions: 'sessions',
   plugins: 'plugins/',
+  complianceRules: 'compliance-rules?',
+} as const;
+
+/**
+ * Invalidation TAGS for readers that keep their answer in their own state
+ * (`useFetch(..., { tags })`, `useListPage({ tags })`) rather than in this
+ * cache: each re-reads whenever the matching {@link invalidate} member runs.
+ */
+export const queryTags = {
+  pipelines: PREFIX.pipelines,
+  plugins: PREFIX.plugins,
+  organizations: PREFIX.organizations,
+  /** Every org's members, or one org's. */
+  orgMembers: (orgId?: string) => (orgId ? `${PREFIX.orgMembers}${orgId}?` : PREFIX.orgMembers),
+  complianceRules: PREFIX.complianceRules,
 } as const;
 
 type PipelineParams = Record<string, string>;
@@ -207,4 +222,9 @@ export const invalidate = {
   /** The editor's plugin list and catalog — after a plugin write, an install
    *  change or a finished build. */
   plugins: () => invalidateQueries(PREFIX.plugins),
+  /** Compliance rule readers (the rule list, the overview's rule count). */
+  complianceRules: () => invalidateQueries(PREFIX.complianceRules),
 };
+
+/** A member of {@link invalidate}, by name — what `useMutation({ invalidates })` takes. */
+export type InvalidateTarget = keyof typeof invalidate;

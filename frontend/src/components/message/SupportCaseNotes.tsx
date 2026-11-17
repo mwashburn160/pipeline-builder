@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/Button';
 import { Textarea } from '@/components/ui/Textarea';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import api from '@/lib/api';
-import { formatError } from '@/lib/constants';
+import { useMutation } from '@/hooks/useMutation';
 import type { SupportCaseNote } from '@/types';
 
 /** Matches the server's bound; a working note, not a field. */
@@ -40,21 +40,43 @@ export function SupportCaseNotes({ threadId, caseNumber }: SupportCaseNotesProps
   const [open, setOpen] = useState(false);
   const [notes, setNotes] = useState<SupportCaseNote[] | null>(null);
   const [draft, setDraft] = useState('');
-  const [busy, setBusy] = useState(false);
+  // One banner for all three actions: starting any of them clears it.
   const [error, setError] = useState('');
+  const showError = (_err: unknown, message: string) => setError(message);
 
-  const load = async () => {
-    setBusy(true);
-    setError('');
-    try {
-      const res = await api.getSupportCaseNotes(threadId);
-      setNotes(res.data?.notes ?? []);
-    } catch (err) {
-      setError(formatError(err));
-    } finally {
-      setBusy(false);
-    }
+  const fetchNotes = async () => {
+    const res = await api.getSupportCaseNotes(threadId);
+    setNotes(res.data?.notes ?? []);
   };
+
+  const loadM = useMutation({
+    fn: async () => { setError(''); await fetchNotes(); },
+    scopeKey: threadId,
+    onError: showError,
+  });
+  const addM = useMutation({
+    fn: async (content: string) => {
+      setError('');
+      const res = await api.addSupportCaseNote(threadId, content);
+      if (!res.success) throw new Error(res.message ?? 'The note was not saved');
+      setDraft('');
+      await fetchNotes();
+    },
+    scopeKey: threadId,
+    onError: showError,
+  });
+  const removeM = useMutation({
+    fn: async (noteId: string) => {
+      setError('');
+      const res = await api.deleteSupportCaseNote(threadId, noteId);
+      if (!res.success) throw new Error(res.message ?? 'The note was not removed');
+      await fetchNotes();
+    },
+    scopeKey: threadId,
+    onError: showError,
+  });
+  const busy = loadM.pending || addM.pending || removeM.pending;
+  const load = loadM.run;
 
   const toggle = async () => {
     const next = !open;
@@ -65,36 +87,10 @@ export function SupportCaseNotes({ threadId, caseNumber }: SupportCaseNotesProps
   const add = async () => {
     const content = draft.trim();
     if (!content) return;
-    setBusy(true);
-    setError('');
-    try {
-      const res = await api.addSupportCaseNote(threadId, content);
-      if (!res.success) {
-        setError(res.message ?? 'The note was not saved');
-      } else {
-        setDraft('');
-        await load();
-      }
-    } catch (err) {
-      setError(formatError(err));
-    } finally {
-      setBusy(false);
-    }
+    await addM.run(content);
   };
 
-  const remove = async (noteId: string) => {
-    setBusy(true);
-    setError('');
-    try {
-      const res = await api.deleteSupportCaseNote(threadId, noteId);
-      if (!res.success) setError(res.message ?? 'The note was not removed');
-      else await load();
-    } catch (err) {
-      setError(formatError(err));
-    } finally {
-      setBusy(false);
-    }
-  };
+  const remove = (noteId: string) => removeM.run(noteId);
 
   return (
     <div className="mt-2 w-full">

@@ -41,7 +41,7 @@ export function ClaimListingNotice({ listingName, signedIn, canClaim, loginHref 
   loginHref: string;
 }) {
   const toast = useToast();
-  const [claiming, setClaiming] = useState(false);
+  const [claimOpen, setClaimOpen] = useState(false);
 
   return (
     <>
@@ -55,7 +55,7 @@ export function ClaimListingNotice({ listingName, signedIn, canClaim, loginHref 
             <Button
               size="xs"
               variant="secondary"
-              onClick={() => setClaiming(true)}
+              onClick={() => setClaimOpen(true)}
               disabledReason={canClaim ? undefined : 'Requires the publishers:manage permission — ask an organization admin to claim it'}
             >
               <BadgeCheck className="mr-1 h-3.5 w-3.5" aria-hidden />Claim this listing
@@ -69,7 +69,7 @@ export function ClaimListingNotice({ listingName, signedIn, canClaim, loginHref 
         </div>
       </Callout>
 
-      {claiming && (
+      {claimOpen && (
         <EcosystemActionDialog
           title="Claim this listing"
           action={`Claim ${listingName}`}
@@ -91,9 +91,9 @@ export function ClaimListingNotice({ listingName, signedIn, canClaim, loginHref 
               throw new Error(describePublishError(err).message);
             }
             toast.success('Claim submitted. The ecosystem team will review it.');
-            setClaiming(false);
+            setClaimOpen(false);
           }}
-          onClose={() => setClaiming(false)}
+          onClose={() => setClaimOpen(false)}
         />
       )}
     </>

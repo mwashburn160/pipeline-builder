@@ -12,6 +12,7 @@ import { Textarea } from '@/components/ui/Textarea';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useRowIds } from '@/hooks/useRowIds';
+import { useMutation } from '@/hooks/useMutation';
 import { RuleImpactPanel, type RuleImpact } from './RuleImpactPanel';
 import type { ComplianceRule, ComplianceRuleCreate, ComplianceRuleUpdate, RuleCondition, RuleTarget, RuleSeverity, RuleOperator, RuleConditionMode, RuleScope, ComplianceCheckResult } from '@/types/compliance';
 import { formatError } from '@/lib/constants';
@@ -134,7 +135,6 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
   const uid = useId();
   const { isSuperAdmin } = useAuthGuard();
   const [form, setForm] = useState<FormState>(() => ruleToForm(rule));
-  const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dryRunResult, setDryRunResult] = useState<ComplianceCheckResult | null>(null);
   const [dryRunAttrs, setDryRunAttrs] = useState('{}');
@@ -156,25 +156,10 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
   const updateCondition = (idx: number, patch: Partial<{ field: string; operator: RuleOperator; value: string }>) =>
     set('conditions', form.conditions.map((c, i) => i === idx ? { ...c, ...patch } : c));
 
-  const handleSubmit = async () => {
-    if (!form.name || !form.target) { setError('Name and target are required.'); return; }
-    // Don't persist a predicate-less rule: multi-condition mode with no
-    // conditions collapses `conditions` to undefined and the single-field
-    // branch is skipped, saving a rule that matches nothing.
-    if (form.useConditions && form.conditions.length === 0) {
-      setError('Add at least one condition, or switch to single-field mode.'); return;
-    }
-    if (!form.useConditions && !form.field.trim()) {
-      setError('A field is required for single-field mode.'); return;
-    }
-    // The API refuses a field the target's entities don't have; say so here first.
-    const fieldError = (form.useConditions ? form.conditions.map(c => c.field) : [form.field])
-      .map(f => f.trim()).filter(Boolean).map(f => ruleFieldError(form.target, f)).find(Boolean);
-    if (fieldError) { setError(`Unknown field: ${fieldError}`); return; }
-
-    setSaving(true);
-    setError(null);
-    try {
+  // The rule list and the overview's rule count read through the
+  // `complianceRules` tag, so a save re-reads them wherever they're mounted.
+  const save = useMutation({
+    fn: async (): Promise<ComplianceRule> => {
       const tags = form.tags ? form.tags.split(',').map(t => t.trim()).filter(Boolean) : [];
       const conditions: RuleCondition[] | undefined = form.useConditions && form.conditions.length > 0
         ? form.conditions.map(c => ({
@@ -205,8 +190,8 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
           } : {}),
         };
         const res = await api.updateComplianceRule(rule!.id, data);
-        if (res.success && res.data) onSave(res.data.rule);
-        else setError('Failed to update rule');
+        if (!res.success || !res.data) throw new Error('Failed to update rule');
+        return res.data.rule;
       } else {
         const data: ComplianceRuleCreate = {
           name: form.name,
@@ -229,13 +214,36 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
           } : {}),
         };
         const res = await api.createComplianceRule(data);
-        if (res.success && res.data) onSave(res.data.rule);
-        else setError('Failed to create rule');
+        if (!res.success || !res.data) throw new Error('Failed to create rule');
+        return res.data.rule;
       }
-    } catch (err) {
-      setError(formatError(err, 'An error occurred'));
+    },
+    scopeKey: rule?.id,
+    invalidates: ['complianceRules'],
+    errorFallback: 'An error occurred',
+    onError: (_err, message) => setError(message),
+    onSuccess: (saved) => onSave(saved),
+  });
+  const saving = save.pending;
+
+  const handleSubmit = async () => {
+    if (!form.name || !form.target) { setError('Name and target are required.'); return; }
+    // Don't persist a predicate-less rule: multi-condition mode with no
+    // conditions collapses `conditions` to undefined and the single-field
+    // branch is skipped, saving a rule that matches nothing.
+    if (form.useConditions && form.conditions.length === 0) {
+      setError('Add at least one condition, or switch to single-field mode.'); return;
     }
-    setSaving(false);
+    if (!form.useConditions && !form.field.trim()) {
+      setError('A field is required for single-field mode.'); return;
+    }
+    // The API refuses a field the target's entities don't have; say so here first.
+    const fieldError = (form.useConditions ? form.conditions.map(c => c.field) : [form.field])
+      .map(f => f.trim()).filter(Boolean).map(f => ruleFieldError(form.target, f)).find(Boolean);
+    if (fieldError) { setError(`Unknown field: ${fieldError}`); return; }
+
+    setError(null);
+    await save.run();
   };
 
   const handleDryRun = async () => {

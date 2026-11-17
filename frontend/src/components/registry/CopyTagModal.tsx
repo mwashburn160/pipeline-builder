@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { api, ApiError, ConflictError } from '@/lib/api';
+import { useMutation } from '@/hooks/useMutation';
 import { invalidateImageTags } from '@/hooks/useImageTags';
 import { useCopyToClipboard, type CopyState } from '@/hooks/useCopyToClipboard';
 
@@ -70,9 +71,7 @@ export function CopyTagModal({
   const [targetRepo, setTargetRepo] = useState(defaultTargetRepo);
   const [targetRef, setTargetRef] = useState(sourceRef);
   const [confirmPhrase, setConfirmPhrase] = useState('');
-  const [submitting, setSubmitting] = useState(false);
   const [conflict, setConflict] = useState<{ existing: string; requested: string } | null>(null);
-  const [error, setError] = useState<string | null>(null);
 
   const effectiveTargetRef = targetRef.trim() || sourceRef;
   const target = `${targetRepo.trim()}:${effectiveTargetRef}`;
@@ -82,7 +81,6 @@ export function CopyTagModal({
   const isShapeValid = REPO_REF_REGEX.test(target);
   // Promotions require typing PROMOTE — see PROMOTE_CONFIRM_PHRASE rationale.
   const promotionGatePassed = !isPromotion || confirmPhrase.trim().toUpperCase() === PROMOTE_CONFIRM_PHRASE;
-  const canSubmit = !submitting && targetRepo.trim().length > 0 && !isSameAsSource && isShapeValid && promotionGatePassed;
 
   /**
    * Build a shareable deep-link the operator can paste into Slack / ticket
@@ -111,12 +109,13 @@ export function CopyTagModal({
     .filter((r) => r.toLowerCase().startsWith(targetRepo.trim().toLowerCase()) && r !== targetRepo.trim())
     .slice(0, 6);
 
-  const submit = async (overwrite: boolean) => {
-    setSubmitting(true);
-    setError(null);
-    setConflict(null);
-    try {
-      const res = await api.copyImage({ source, target, overwrite });
+  const copy = useMutation({
+    fn: (overwrite: boolean) => {
+      setConflict(null);
+      return api.copyImage({ source, target, overwrite });
+    },
+    scopeKey: source,
+    onSuccess: (res) => {
       invalidateImageTags(targetRepo.trim());
       onSuccess(
         targetRepo.trim(),
@@ -124,26 +123,31 @@ export function CopyTagModal({
         res.data?.digest,
         res.data?.mounted?.blobs,
       );
-    } catch (err) {
+    },
+    formatError: (err) => {
       if (err instanceof ConflictError) {
-        if (err.reason === 'target-exists' && err.existing && err.requested) {
-          setConflict({ existing: err.existing.digest, requested: err.requested.digest });
-        } else if (err.reason === 'source-incomplete') {
-          setError(`Source manifest references a missing blob: ${err.missingDigest}. Retry — the source may be back if the deletion was transient.`);
-        } else if (err.reason === 'source-equals-target') {
-          setError('Source and target are identical — pick a different target repo or ref.');
-        } else {
-          setError(err.message);
+        if (err.reason === 'source-incomplete') {
+          return `Source manifest references a missing blob: ${err.missingDigest}. Retry — the source may be back if the deletion was transient.`;
         }
-      } else if (err instanceof ApiError) {
-        setError(err.message);
-      } else {
-        setError((err as Error).message);
+        if (err.reason === 'source-equals-target') {
+          return 'Source and target are identical — pick a different target repo or ref.';
+        }
+        return err.message;
       }
-    } finally {
-      setSubmitting(false);
-    }
-  };
+      if (err instanceof ApiError) return err.message;
+      return (err as Error).message;
+    },
+    onError: (err) => {
+      // A digest conflict is answered by the Overwrite prompt, not the error banner.
+      if (err instanceof ConflictError && err.reason === 'target-exists' && err.existing && err.requested) {
+        setConflict({ existing: err.existing.digest, requested: err.requested.digest });
+      }
+    },
+  });
+  const submitting = copy.pending;
+  const canSubmit = !submitting && targetRepo.trim().length > 0 && !isSameAsSource && isShapeValid && promotionGatePassed;
+  const error = copy.error;
+  const submit = (overwrite: boolean) => copy.run(overwrite);
 
   return (
     <Modal title="Copy tag" onClose={onClose} maxWidth="max-w-lg">

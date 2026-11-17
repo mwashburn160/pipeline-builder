@@ -7,6 +7,7 @@ import { FormField } from '@/components/ui/FormField';
 import { Modal } from '@/components/ui/Modal';
 import { ModalFooter } from '@/components/ui/ModalFooter';
 import { Textarea } from '@/components/ui/Textarea';
+import { useMutation } from '@/hooks/useMutation';
 import api from '@/lib/api';
 import { REVIEW_REPORT_CATEGORIES } from '@pipeline-builder/api-core/wire-vocabulary';
 import { REPORT_CATEGORY_LABELS, REPORT_REASON_MAX, reviewErrorMessage } from '@/lib/plugin-reviews';
@@ -23,24 +24,21 @@ export function ReportReviewDialog({ reviewId, onReported, onClose }: {
 }) {
   const [category, setCategory] = useState<ReviewReportCategory | null>(null);
   const [reason, setReason] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const name = useId();
   const reasonId = useId();
 
+  const report = useMutation({
+    fn: (c: ReviewReportCategory) => api.reportReview(reviewId, c, reason.trim() || undefined),
+    scopeKey: reviewId,
+    formatError: (err) => reviewErrorMessage(err, 'Could not send the report', { DUPLICATE_ENTRY: 'You have already reported this review.' }),
+    onSuccess: () => { onReported(); onClose(); },
+  });
+  const busy = report.pending;
+  const error = report.error;
+
   const submit = async () => {
     if (!category) return;
-    setBusy(true);
-    setError(null);
-    try {
-      await api.reportReview(reviewId, category, reason.trim() || undefined);
-      onReported();
-      onClose();
-    } catch (err) {
-      setError(reviewErrorMessage(err, 'Could not send the report', { DUPLICATE_ENTRY: 'You have already reported this review.' }));
-    } finally {
-      setBusy(false);
-    }
+    await report.run(category);
   };
 
   return (
@@ -81,7 +79,7 @@ export function ReportReviewDialog({ reviewId, onReported, onClose }: {
         <FormField label="Details" id={reasonId} hint={`Optional, up to ${REPORT_REASON_MAX} characters.`}>
           <Textarea id={reasonId} rows={3} value={reason} maxLength={REPORT_REASON_MAX} onChange={(e) => setReason(e.target.value)} disabled={busy} />
         </FormField>
-        <ErrorAlert message={error} onDismiss={() => setError(null)} />
+        <ErrorAlert message={error} onDismiss={report.reset} />
       </div>
     </Modal>
   );

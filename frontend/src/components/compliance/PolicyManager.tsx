@@ -16,6 +16,7 @@ import { RecentlyDeletedPanel } from '@/components/RecentlyDeletedPanel';
 import api from '@/lib/api';
 import { useCrudResource } from '@/hooks/useCrudResource';
 import { useDelete } from '@/hooks/useDelete';
+import { useMutation } from '@/hooks/useMutation';
 import type { CompliancePolicy } from '@/types/compliance';
 import { formatDate } from '@/lib/format';
 
@@ -57,24 +58,22 @@ export default function PolicyManager({ readOnly = false }: PolicyManagerProps) 
   // failure lands in `mutationError` and renders inline above the list.
   const del = useDelete<CompliancePolicy>((policy) => deletePolicy(policy.id));
   // Create/update had no in-flight state — repeated clicks fired repeated writes.
-  const [saving, setSaving] = useState(false);
-
-  const handleSubmit = async () => {
-    if (!form.name || saving) return;
-    setSaving(true);
-    try {
-    // create/update return null on failure (the hook surfaces the error). Keep
-    // the form open in that case so the user's input isn't silently discarded.
-      const result = editingId
-        ? await updatePolicy(editingId, form)
-        : await createPolicy(form);
+  // create/update never throw and resolve null on failure (the crud hook
+  // surfaces the error); keep the form open then so input isn't discarded.
+  const save = useMutation({
+    fn: (id: string | null, data: typeof form) => (id ? updatePolicy(id, data) : createPolicy(data)),
+    onSuccess: (result) => {
       if (!result) return;
       setShowForm(false);
       setEditingId(null);
       setForm({ name: '', description: '', version: '1.0.0' });
-    } finally {
-      setSaving(false);
-    }
+    },
+  });
+  const saving = save.pending;
+
+  const handleSubmit = async () => {
+    if (!form.name) return;
+    await save.run(editingId, form);
   };
 
   const handleEdit = (policy: CompliancePolicy) => {

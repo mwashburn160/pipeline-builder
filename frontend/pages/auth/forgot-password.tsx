@@ -14,6 +14,7 @@ import { LoadingSpinner } from '@/components/ui/Loading';
 import api from '@/lib/api';
 import { ApiError } from '@/lib/api/errors';
 import { formatError } from '@/lib/constants';
+import { useMutation } from '@/hooks/useMutation';
 
 /** The platform's one answer to a reset request — shown whatever happened. */
 const RESET_REQUESTED_MESSAGE = 'If an account with that email can reset its password, a reset link is on its way.';
@@ -31,9 +32,16 @@ const RESET_REQUESTED_MESSAGE = 'If an account with that email can reset its pas
 export default function ForgotPasswordPage() {
   const router = useRouter();
   const [email, setEmail] = useState('');
-  const [submitting, setSubmitting] = useState(false);
   const [sent, setSent] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const request = useMutation({
+    fn: (address: string) => api.requestPasswordReset(address),
+    formatError: (err) => (err instanceof ApiError && err.statusCode === 429
+      ? 'Too many reset requests. Wait a few minutes, then try again.'
+      : formatError(err, 'Could not request a reset link')),
+    onSuccess: () => setSent(true),
+  });
+  const submitting = request.pending;
+  const error = request.error;
 
   // The sign-in card passes what was typed there, when it looked like an email.
   useEffect(() => {
@@ -46,18 +54,7 @@ export default function ForgotPasswordPage() {
     e.preventDefault();
     const trimmed = email.trim();
     if (!trimmed) return;
-    setSubmitting(true);
-    setError(null);
-    try {
-      await api.requestPasswordReset(trimmed);
-      setSent(true);
-    } catch (err) {
-      setError(err instanceof ApiError && err.statusCode === 429
-        ? 'Too many reset requests. Wait a few minutes, then try again.'
-        : formatError(err, 'Could not request a reset link'));
-    } finally {
-      setSubmitting(false);
-    }
+    await request.run(trimmed);
   };
 
   return (

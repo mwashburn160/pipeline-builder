@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/Button';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { formatDay } from '@/components/public-directory/ListingCardView';
+import { useMutation } from '@/hooks/useMutation';
 import api from '@/lib/api';
 import { REVIEW_STATUS_COLORS, REVIEW_STATUS_LABELS, reviewErrorMessage } from '@/lib/plugin-reviews';
 import type { OwnReview } from '@/types/plugin-reviews';
@@ -28,24 +29,18 @@ export function OwnReviewPanel({ review, versions, verifiedUse, onChanged }: {
 }) {
   const [editing, setEditing] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const removed = review.status === 'removed';
 
-  const remove = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      await api.deleteReview(review.id);
-      setConfirmDelete(false);
-      onChanged();
-    } catch (err) {
-      setError(reviewErrorMessage(err, 'Could not delete your review'));
-      setConfirmDelete(false);
-    } finally {
-      setBusy(false);
-    }
-  };
+  const del = useMutation({
+    fn: () => api.deleteReview(review.id),
+    scopeKey: review.id,
+    formatError: (err) => reviewErrorMessage(err, 'Could not delete your review'),
+    onSuccess: () => { setConfirmDelete(false); onChanged(); },
+    onError: () => setConfirmDelete(false),
+  });
+  const busy = del.pending;
+  const error = del.error;
+  const remove = () => del.run();
 
   if (editing) {
     return (
@@ -101,7 +96,7 @@ export function OwnReviewPanel({ review, versions, verifiedUse, onChanged }: {
         <p className="text-xs text-fg-muted">{review.helpfulCount} found this helpful</p>
       )}
       {review.reply && <ReplyBlock reply={review.reply} />}
-      <ErrorAlert message={error} onDismiss={() => setError(null)} />
+      <ErrorAlert message={error} onDismiss={del.reset} />
       {confirmDelete && (
         <ConfirmDialog
           title="Delete your review?"

@@ -6,9 +6,8 @@ import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Switch } from '@/components/ui/Switch';
-import { useToast } from '@/components/ui/Toast';
 import { useFetch } from '@/hooks/useFetch';
-import { formatError } from '@/lib/constants';
+import { useMutation } from '@/hooks/useMutation';
 import api from '@/lib/api';
 
 /**
@@ -99,13 +98,11 @@ function parseLimit(raw: string): number | null | undefined {
  * Shown to billing contacts of the ROOT org only — these are per account.
  */
 export function QuotaNoticeSettingsCard({ orgId }: { orgId: string }) {
-  const toast = useToast();
   const settingsQ = useFetch(async (signal) => (await api.getQuotaNoticeSettings(orgId, { signal })).data?.settings ?? null, [orgId]);
   const settings = settingsQ.data;
   const [webhookUrl, setWebhookUrl] = useState('');
   const [memberPct, setMemberPct] = useState('');
   const [tokenBudget, setTokenBudget] = useState('');
-  const [saving, setSaving] = useState(false);
 
   useEffect(() => { setWebhookUrl(settings?.webhookUrl ?? ''); }, [settings?.webhookUrl]);
   useEffect(() => { setMemberPct(settings?.aiCallsPerMemberPct != null ? String(settings.aiCallsPerMemberPct) : ''); }, [settings?.aiCallsPerMemberPct]);
@@ -119,18 +116,16 @@ export function QuotaNoticeSettingsCard({ orgId }: { orgId: string }) {
   const budgetInvalid = budget === undefined || (budget !== null && budget < 1);
   const aiDirty = pct !== (settings?.aiCallsPerMemberPct ?? null) || budget !== (settings?.aiTokenBudget ?? null);
 
-  async function save(data: { enabled?: boolean; offersEnabled?: boolean; webhookUrl?: string | null; aiCallsPerMemberPct?: number | null; aiTokenBudget?: number | null }) {
-    setSaving(true);
-    try {
-      await api.updateQuotaNoticeSettings(orgId, data);
-      await settingsQ.refetch();
-      toast.success('Quota settings saved');
-    } catch (err) {
-      toast.error(formatError(err, 'Could not save quota settings'));
-    } finally {
-      setSaving(false);
-    }
-  }
+  const saveM = useMutation({
+    fn: (data: { enabled?: boolean; offersEnabled?: boolean; webhookUrl?: string | null; aiCallsPerMemberPct?: number | null; aiTokenBudget?: number | null }) =>
+      api.updateQuotaNoticeSettings(orgId, data),
+    scopeKey: orgId,
+    onSuccess: async () => { await settingsQ.refetch(); },
+    errorFallback: 'Could not save quota settings',
+    toast: { success: 'Quota settings saved', error: true },
+  });
+  const saving = saveM.pending;
+  const save = saveM.run;
 
   if (!settings) return null;
   return (

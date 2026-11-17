@@ -16,6 +16,7 @@ import { Select } from '@/components/ui/Select';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { useToast } from '@/components/ui/Toast';
 import { useFetch } from '@/hooks/useFetch';
+import { useMutation } from '@/hooks/useMutation';
 import api from '@/lib/api';
 import { continueAfterStepUp } from '@/lib/api/errors';
 import { formatError } from '@/lib/constants';
@@ -63,38 +64,36 @@ export function ReservedNamesPanel({ can }: Props) {
   const [name, setName] = useState('');
   const [reason, setReason] = useState('');
   const [publisherId, setPublisherId] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [removing, setRemoving] = useState<ReservedName | null>(null);
 
   const normalized = name.trim().toLowerCase();
   const invalid = normalized !== '' && !RESERVED_NAME_PATTERN.test(normalized);
   const names = namesQ.data ?? [];
 
+  const afterReserve = (reservedName: string) => {
+    toast.success(`Reserved ${reservedName}`);
+    setName('');
+    setReason('');
+    setPublisherId('');
+    void namesQ.refetch();
+  };
+  const reserve = useMutation({
+    fn: (reservedName: string) => api.putReservedName(reservedName, { reason: reason.trim() || null, publisherId: publisherId || null }),
+    errorFallback: 'Failed to reserve the name',
+    onSuccess: (_res, reservedName) => afterReserve(reservedName),
+    // Step-up gated, and this is an inline form rather than an
+    // `EcosystemActionDialog`, so there is no dialog to carry the token: the
+    // route's refusal opens the step-up and resumes the request, the same way
+    // `remove` below handles an expired one.
+    onStepUpResumed: (_replay, reservedName) => afterReserve(reservedName),
+  });
+  const busy = reserve.pending;
+  const error = reserve.error;
+
   const add = async (e: FormEvent) => {
     e.preventDefault();
     if (!normalized || invalid) return;
-    setBusy(true);
-    setError(null);
-    const done = () => {
-      toast.success(`Reserved ${normalized}`);
-      setName('');
-      setReason('');
-      setPublisherId('');
-      void namesQ.refetch();
-    };
-    try {
-      await api.putReservedName(normalized, { reason: reason.trim() || null, publisherId: publisherId || null });
-      done();
-    } catch (err) {
-      // Step-up gated, and this is an inline form rather than an
-      // `EcosystemActionDialog`, so there is no dialog to carry the token: the
-      // route's refusal opens the step-up and resumes the request, the same way
-      // `remove` below handles an expired one.
-      if (!continueAfterStepUp(err, done)) setError(formatError(err, 'Failed to reserve the name'));
-    } finally {
-      setBusy(false);
-    }
+    await reserve.run(normalized);
   };
 
   // NOT `useDelete`: `EcosystemActionDialog` already owns the confirm/busy/error

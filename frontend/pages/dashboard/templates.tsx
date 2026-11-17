@@ -26,9 +26,9 @@ import { useDelete } from '@/hooks/useDelete';
 import { ResourceList } from '@/components/ui/ResourceList';
 import { TabBar } from '@/components/ui/TabBar';
 import api from '@/lib/api';
-import { invalidate } from '@/lib/api-cache';
 import type { PipelineTemplate, TemplateInput, Visibility } from '@/types';
 import { pluginWarningsToast } from '@/lib/pipeline-security';
+import { useMutation } from '@/hooks/useMutation';
 
 // Authoring modals and the recently-deleted panel load on first use.
 const RecentlyDeletedPanel = dynamic(() => import('@/components/RecentlyDeletedPanel').then((m) => m.RecentlyDeletedPanel), { ssr: false });
@@ -138,7 +138,6 @@ export default function TemplatesPage() {
   // Visibility of the PIPELINE this creates — `org` is the pipeline create default.
   const [pipelineVisibility, setPipelineVisibility] = useState<Visibility>('org');
   const [inputValues, setInputValues] = useState<Record<string, string | boolean>>({});
-  const [submitting, setSubmitting] = useState(false);
 
   const openInstantiate = (t: PipelineTemplate) => {
     setSelected(t);
@@ -157,6 +156,53 @@ export default function TemplatesPage() {
 
   const organization = user?.organizationName || user?.organizationId || '';
 
+  const instantiate = useMutation({
+    fn: async (template: PipelineTemplate) => {
+      const inputs: Record<string, string | number | boolean> = {};
+      for (const inp of template.inputs || []) {
+        const raw = inputValues[inp.name];
+        if (raw === undefined || raw === '') continue;
+        inputs[inp.name] = coerceValue(inp.type, raw);
+      }
+      const inst = await api.instantiatePipelineTemplate(template.id, {
+        project: project.trim(),
+        organization,
+        pipelineName: pipelineName.trim() || undefined,
+        inputs,
+      });
+      if (!inst.success || !inst.data) {
+        throw new Error((inst as { message?: string }).message || 'Failed to render template');
+      }
+
+      const created = await api.createPipeline({
+        project: project.trim(),
+        organization,
+        pipelineName: pipelineName.trim() || undefined,
+        description: inst.data.description,
+        keywords: inst.data.keywords,
+        visibility: pipelineVisibility,
+        props: inst.data.props,
+      });
+      if (!created.success || !created.data) {
+        // Surface the real reason (compliance / quota / validation), not a generic message.
+        throw new Error((created as { message?: string }).message || 'Template rendered, but pipeline creation failed');
+      }
+      return created.data;
+    },
+    // The new pipeline must show up in every cached pipeline list.
+    invalidates: ['pipelines'],
+    errorFallback: 'Failed to create pipeline from template',
+    toast: { error: true },
+    onSuccess: (created) => {
+      toast.success('Pipeline created from template');
+      const pw = pluginWarningsToast(created.pluginWarnings);
+      if (pw) toast.toast(pw.type, pw.message, 12000);
+      setSelected(null);
+      void router.push(`/dashboard/pipelines/${created.pipeline.id}`);
+    },
+  });
+  const submitting = instantiate.pending;
+
   const handleCreate = async () => {
     if (!selected) return;
     if (!project.trim()) { toast.error('Project is required'); return; }
@@ -170,52 +216,7 @@ export default function TemplatesPage() {
         toast.error(`Input "${inp.label || inp.name}" must be a number`); return;
       }
     }
-    setSubmitting(true);
-    try {
-      const inputs: Record<string, string | number | boolean> = {};
-      for (const inp of selected.inputs || []) {
-        const raw = inputValues[inp.name];
-        if (raw === undefined || raw === '') continue;
-        inputs[inp.name] = coerceValue(inp.type, raw);
-      }
-      const inst = await api.instantiatePipelineTemplate(selected.id, {
-        project: project.trim(),
-        organization,
-        pipelineName: pipelineName.trim() || undefined,
-        inputs,
-      });
-      if (!inst.success || !inst.data) {
-        toast.error((inst as { message?: string }).message || 'Failed to render template');
-        setSubmitting(false);
-        return;
-      }
-
-      const created = await api.createPipeline({
-        project: project.trim(),
-        organization,
-        pipelineName: pipelineName.trim() || undefined,
-        description: inst.data.description,
-        keywords: inst.data.keywords,
-        visibility: pipelineVisibility,
-        props: inst.data.props,
-      });
-      if (created.success && created.data) {
-        // The new pipeline must show up in every cached pipeline list.
-        invalidate.pipelines();
-        toast.success('Pipeline created from template');
-        const pw = pluginWarningsToast(created.data.pluginWarnings);
-        if (pw) toast.toast(pw.type, pw.message, 12000);
-        setSelected(null);
-        void router.push(`/dashboard/pipelines/${created.data.pipeline.id}`);
-      } else {
-        // Surface the real reason (compliance / quota / validation), not a generic message.
-        toast.error((created as { message?: string }).message || 'Template rendered, but pipeline creation failed');
-      }
-    } catch (err) {
-      toast.error(formatError(err, 'Failed to create pipeline from template'));
-    } finally {
-      setSubmitting(false);
-    }
+    await instantiate.run(selected);
   };
 
   // `useDelete` also owns the step-up replay: a delete refused pending re-auth

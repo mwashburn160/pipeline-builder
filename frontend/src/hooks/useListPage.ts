@@ -5,6 +5,7 @@ import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useRouter } from 'next/router';
 import { useDebounce } from './useDebounce';
 import { runCancellableFetch } from './internal/fetchCore';
+import { useTagEpoch } from './internal/useTagEpoch';
 import type { PaginationState } from '@/components/ui/Pagination';
 import { DEFAULT_PAGE_SIZE, usePagination } from './usePagination';
 import { formatError } from '@/lib/constants';
@@ -58,6 +59,13 @@ export interface UseListPageOptions<T> {
    * refresh and be shareable. Off by default so pages adopt it deliberately.
    */
   urlSync?: boolean;
+  /**
+   * Shared-cache invalidation tags (`queryTags` in `@/lib/api-cache`): the page
+   * re-reads whenever a write anywhere calls the matching `invalidate.*`
+   * member, so a list is never left showing a row another surface just
+   * deleted. The current page stays on screen while it does.
+   */
+  tags?: ReadonlyArray<string>;
 }
 
 export interface UseListPageResult<T> {
@@ -104,7 +112,8 @@ export interface UseListPageResult<T> {
  * ```
  */
 export function useListPage<T>(options: UseListPageOptions<T>): UseListPageResult<T> {
-  const { fields, fetcher, enabled = true, pageSize = DEFAULT_PAGE_SIZE, debounceMs = 300, buildParams, initialSort, urlSync = false } = options;
+  const { fields, fetcher, enabled = true, pageSize = DEFAULT_PAGE_SIZE, debounceMs = 300, buildParams, initialSort, urlSync = false, tags } = options;
+  const tagEpoch = useTagEpoch(tags);
   const router = useRouter();
   // One-shot guard: hydrate from the URL exactly once (before write-back begins),
   // so the mirror-to-URL effect can't feed back into hydration and loop.
@@ -220,7 +229,7 @@ export function useListPage<T>(options: UseListPageOptions<T>): UseListPageResul
       onSettled: () => setIsLoading(false),
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- selectFieldKeys is static config; the dynamic filter values are folded into selectFilterKey
-  }, [enabled, debouncedTextValues, selectFilterKey, limit, offset, sortState.sortBy, sortState.sortOrder, fetchKey]);
+  }, [enabled, debouncedTextValues, selectFilterKey, limit, offset, sortState.sortBy, sortState.sortOrder, fetchKey, tagEpoch]);
 
   // URL → state (once, when the router is ready). Reads any managed filter keys,
   // sortBy/sortOrder, and offset from the query so a refresh/shared link restores

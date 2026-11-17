@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
+import { useMutation } from '@/hooks/useMutation';
 import { api } from '@/lib/api';
 import { ApiError } from '@/lib/api/errors';
 import { mapInWaves, PARALLEL_MANIFEST_DELETES, PARALLEL_MANIFEST_READS } from '@/lib/registry-scan';
@@ -48,7 +49,6 @@ const TYPE_CONFIRM_THRESHOLD = 5;
  * state incrementally.
  */
 export function BulkDeleteConfirm({ repo, refs, onClose, onProgress, onDone }: BulkDeleteConfirmProps) {
-  const [submitting, setSubmitting] = useState(false);
   const [complete, setComplete] = useState(false);
   const [progress, setProgress] = useState({ done: 0, succeeded: 0, failed: 0 });
   const [confirmPhrase, setConfirmPhrase] = useState('');
@@ -94,8 +94,7 @@ export function BulkDeleteConfirm({ repo, refs, onClose, onProgress, onDone }: B
     return () => { cancelled = true; };
   }, [repo, refs]);
 
-  const submit = async () => {
-    setSubmitting(true);
+  const runBatch = async () => {
     let succeeded = 0;
     let failed = 0;
     let done = 0;
@@ -146,9 +145,12 @@ export function BulkDeleteConfirm({ repo, refs, onClose, onProgress, onDone }: B
     // Keep the delete button disabled after the batch completes — re-clicking
     // would re-issue deletes against already-removed refs.
     setComplete(true);
-    setSubmitting(false);
     onDone({ succeeded, failed });
   };
+  // The lock matters here: a second click mid-batch would re-issue every delete.
+  const batch = useMutation({ fn: runBatch, scopeKey: repo });
+  const submitting = batch.pending;
+  const submit = () => { void batch.run(); };
 
   const digestScanProgress = distinctDigests === null
     ? `Scanning digests… ${digestScanDone}/${refs.length}`

@@ -14,7 +14,7 @@ import { LinkButton } from '@/components/ui/LinkButton';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import api from '@/lib/api';
 import { ApiError } from '@/lib/api/errors';
-import { formatError } from '@/lib/constants';
+import { useMutation } from '@/hooks/useMutation';
 
 /** The emailed token: 32 random bytes, hex. Anything else can only be refused. */
 const TOKEN_SHAPE = /^[0-9a-f]{64}$/;
@@ -48,9 +48,24 @@ export default function ResetPasswordPage() {
   const token = typeof router.query.token === 'string' ? router.query.token : '';
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [outcome, setOutcome] = useState<Outcome>({ kind: 'form' });
+  const reset = useMutation({
+    fn: async (pw: string) => {
+      try {
+        const res = await api.resetPassword(token, pw);
+        setOutcome({ kind: 'done', accessKeysRevoked: res.data?.accessKeysRevoked ?? 0 });
+      } catch (err) {
+        // A dead link or an SSO-only account is an outcome, not a form error.
+        if (err instanceof ApiError && err.code === 'PASSWORD_RESET_TOKEN_INVALID') setOutcome({ kind: 'invalid' });
+        else if (err instanceof ApiError && err.code === 'SSO_REQUIRED') setOutcome({ kind: 'sso' });
+        else throw err;
+      }
+    },
+    scopeKey: token,
+    errorFallback: 'Could not reset your password',
+  });
+  const submitting = reset.pending;
+  const { error, setError } = reset;
 
   const tokenLooksValid = TOKEN_SHAPE.test(token);
   const view: Outcome = router.isReady && !tokenLooksValid && outcome.kind === 'form' ? { kind: 'invalid' } : outcome;
@@ -59,18 +74,7 @@ export default function ResetPasswordPage() {
     e.preventDefault();
     if (password.length < PLATFORM_MIN_LENGTH) { setError(`Use at least ${PLATFORM_MIN_LENGTH} characters.`); return; }
     if (password !== confirm) { setError('The passwords do not match.'); return; }
-    setSubmitting(true);
-    setError(null);
-    try {
-      const res = await api.resetPassword(token, password);
-      setOutcome({ kind: 'done', accessKeysRevoked: res.data?.accessKeysRevoked ?? 0 });
-    } catch (err) {
-      if (err instanceof ApiError && err.code === 'PASSWORD_RESET_TOKEN_INVALID') setOutcome({ kind: 'invalid' });
-      else if (err instanceof ApiError && err.code === 'SSO_REQUIRED') setOutcome({ kind: 'sso' });
-      else setError(formatError(err, 'Could not reset your password'));
-    } finally {
-      setSubmitting(false);
-    }
+    await reset.run(password);
   };
 
   return (

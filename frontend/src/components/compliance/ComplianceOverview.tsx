@@ -6,6 +6,7 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { Shield, ShieldCheck, CheckCircle, AlertTriangle, XCircle, Clock, Filter, ChevronDown, History } from 'lucide-react';
 import api from '@/lib/api';
+import { queryTags } from '@/lib/api-cache';
 import { Pagination } from '@/components/ui/Pagination';
 import { StatusPill } from '@/components/ui/StatusPill';
 import { Button } from '@/components/ui/Button';
@@ -150,7 +151,7 @@ export function ComplianceOverview({ onGoToRules }: OverviewProps) {
     const total = res.success ? res.data?.pagination?.total : undefined;
     if (typeof total !== 'number') throw new Error(res.message || 'Could not count the rules');
     return total;
-  }, []);
+  }, [], { tags: [queryTags.complianceRules] });
   const checks = checksQ.data;
   // The check log's filters/pagination/fetch — state the Overview alone reads,
   // so it lives here rather than being drilled down from the dashboard shell.

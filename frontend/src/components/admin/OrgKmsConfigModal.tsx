@@ -5,6 +5,7 @@ import { useCallback, useState, useId } from 'react';
 import { KeyRound, AlertTriangle } from 'lucide-react';
 import api from '@/lib/api';
 import { useFetch } from '@/hooks/useFetch';
+import { useMutation } from '@/hooks/useMutation';
 import { Input } from '@/components/ui/Input';
 import { Textarea } from '@/components/ui/Textarea';
 import { Button } from '@/components/ui/Button';
@@ -42,8 +43,6 @@ export function OrgKmsConfigModal({ org, onClose, onSaved }: Props) {
   const [written, setWritten] = useState<{ configured: boolean; keyId?: string } | null>(null);
   const [keyId, setKeyId] = useState('');
   const [ciphertextBase64, setCiphertextBase64] = useState('');
-  const [submitting, setSubmitting] = useState(false);
-  const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<string | null>(null);
   // Gate destructive ops (save/clear) on a step-up password reverify.
   const [pendingOp, setPendingOp] = useState<'save' | 'clear' | null>(null);
@@ -58,63 +57,65 @@ export function OrgKmsConfigModal({ org, onClose, onSaved }: Props) {
   const configured = written?.configured ?? loaded?.configured ?? false;
   const currentKeyId = written ? written.keyId : loaded?.keyId;
 
-  const executeSave = useCallback(async (stepUpToken: string) => {
-    setSubmitting(true);
-    setError(null);
-    try {
+  // One banner for save / test / clear: starting any of them clears it.
+  const showError = (_err: unknown, message: string) => setError(message);
+
+  const saveM = useMutation({
+    fn: async (stepUpToken: string) => {
+      setError(null);
       const res = await api.putOrgKmsConfig(org.id, { keyId, ciphertextBase64 }, undefined, stepUpToken);
       if (!res.success) throw new Error(res.message || 'Failed to save KMS config');
+      return res;
+    },
+    scopeKey: org.id,
+    onSuccess: (res) => {
       setWritten({ configured: true, keyId: res.data?.keyId });
       setKeyId('');
       setCiphertextBase64('');
       onSaved?.();
-      // Reset busy state BEFORE onClose() unmounts the modal — otherwise the
-      // finally would setState on an unmounted component.
-      setSubmitting(false);
       onClose();
-    } catch (e) {
-      setError(formatError(e));
-      setSubmitting(false);
-    }
-  }, [org.id, keyId, ciphertextBase64, onSaved, onClose]);
+    },
+    onError: showError,
+  });
 
   /** Dry-run the proposed config without committing. The backend's
    *  /test endpoint constructs an ephemeral provider, calls KMS Decrypt
    *  + HKDF, and returns the derived-key fingerprint on success — proves
    *  the CMK + wrapped master are valid without re-encrypting anything. */
-  const handleTest = useCallback(async () => {
-    setTesting(true);
-    setError(null);
-    setTestResult(null);
-    try {
+  const testM = useMutation({
+    fn: async () => {
+      setError(null);
+      setTestResult(null);
       const res = await api.testOrgKmsConfig(org.id, { keyId, ciphertextBase64 });
-      if (res.success && res.data) {
-        setTestResult(`✓ ${res.data.message} Key fingerprint: ${res.data.keyFingerprint}`);
-      } else {
-        setError(res.message || 'Test failed');
-      }
-    } catch (e) {
-      setError(formatError(e));
-    } finally {
-      setTesting(false);
-    }
-  }, [org.id, keyId, ciphertextBase64]);
+      if (!res.success || !res.data) throw new Error(res.message || 'Test failed');
+      return res.data;
+    },
+    scopeKey: org.id,
+    onSuccess: (data) => setTestResult(`✓ ${data.message} Key fingerprint: ${data.keyFingerprint}`),
+    onError: showError,
+  });
 
-  const executeClear = useCallback(async (stepUpToken: string) => {
-    setSubmitting(true);
-    setError(null);
-    try {
+  const clearM = useMutation({
+    fn: async (stepUpToken: string) => {
+      setError(null);
       const res = await api.deleteOrgKmsConfig(org.id, stepUpToken);
       if (!res.success) throw new Error(res.message || 'Failed to clear KMS config');
+    },
+    scopeKey: org.id,
+    onSuccess: () => {
       setWritten({ configured: false });
       onSaved?.();
-      setSubmitting(false);
       onClose();
-    } catch (e) {
-      setError(formatError(e));
-      setSubmitting(false);
-    }
-  }, [org.id, onSaved, onClose]);
+    },
+    onError: showError,
+  });
+
+  const submitting = saveM.pending || clearM.pending;
+  const testing = testM.pending;
+  const { run: executeSave } = saveM;
+  const { run: executeClear } = clearM;
+  const { run: runTest } = testM;
+  const handleTest = useCallback(() => { void runTest(); }, [runTest]);
 
   // Public actions just gate on step-up; the executeXxx fns run after.
   const handleSave = useCallback(() => setPendingOp('save'), []);

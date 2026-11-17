@@ -375,7 +375,7 @@ describe('ArtifactSecurityReportsCard', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Remove report' }));
     await waitFor(() => expect(api.deletePipelineSecurityReport).toHaveBeenCalledWith('p1', { tool: 'semgrep', stage: undefined }));
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Removed the semgrep report'));
-    expect(api.getPipelineSecurityReports).toHaveBeenCalledTimes(2);
+    await waitFor(() => expect(api.getPipelineSecurityReports).toHaveBeenCalledTimes(2));
 
     fireEvent.click(screen.getByRole('button', { name: 'Remove grype build report' }));
     fireEvent.click(screen.getByRole('button', { name: 'Remove report' }));

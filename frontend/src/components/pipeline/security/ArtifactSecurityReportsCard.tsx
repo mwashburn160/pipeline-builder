@@ -12,6 +12,7 @@ import { LoadingSpinner } from '@/components/ui/Loading';
 import { RelativeTime } from '@/components/ui/RelativeTime';
 import { useFetch } from '@/hooks/useFetch';
 import api from '@/lib/api';
+import { useMutation } from '@/hooks/useMutation';
 import { formatError } from '@/lib/constants';
 import type { ArtifactSecurityReport, PipelineSecurityReports, SeverityCounts } from '@/lib/api/pipeline-security-types';
 
@@ -34,7 +35,6 @@ function Counts({ counts }: { counts: SeverityCounts }) {
 export function ArtifactSecurityReportsCard({ pipelineId, canWrite }: { pipelineId: string; canWrite: boolean }) {
   const toast = useToast();
   const [removing, setRemoving] = useState<ArtifactSecurityReport | null>(null);
-  const [busy, setBusy] = useState(false);
   const read = useFetch<PipelineSecurityReports>(async (signal) => {
     const res = await api.getPipelineSecurityReports(pipelineId, { signal });
     if (!res.success || !res.data) throw new Error(res.message || 'Failed to load security reports');
@@ -43,20 +43,27 @@ export function ArtifactSecurityReportsCard({ pipelineId, canWrite }: { pipeline
   const data = read.data;
   const lock = canWrite ? undefined : 'Requires pipelines:write';
 
-  const remove = async () => {
-    if (!removing) return;
-    setBusy(true);
-    try {
-      const res = await api.deletePipelineSecurityReport(pipelineId, { tool: removing.tool, stage: removing.stage || undefined });
+  const removeM = useMutation({
+    fn: async (report: ArtifactSecurityReport) => {
+      const res = await api.deletePipelineSecurityReport(pipelineId, { tool: report.tool, stage: report.stage || undefined });
       if (!res.success) throw new Error(res.message || 'Failed to remove the report');
-      toast.success(`Removed the ${removing.tool} report${removing.stage ? ` for ${removing.stage}` : ''}`);
+      return res;
+    },
+    scopeKey: pipelineId,
+    errorFallback: 'Failed to remove the report',
+    toast: { error: true },
+    onSuccess: (_r, report) => {
+      toast.success(`Removed the ${report.tool} report${report.stage ? ` for ${report.stage}` : ''}`);
       setRemoving(null);
       void read.refetch();
-    } catch (err) {
-      toast.error(formatError(err, 'Failed to remove the report'));
-    } finally {
-      setBusy(false);
-    }
+    },
+    onStepUpResumed: () => { setRemoving(null); void read.refetch(); },
+  });
+  const busy = removeM.pending;
+
+  const remove = async () => {
+    if (!removing) return;
+    await removeM.run(removing);
   };
 
   return (

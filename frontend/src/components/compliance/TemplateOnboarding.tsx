@@ -4,6 +4,7 @@ import type { BadgeColor } from '@/components/ui/Badge';
 import { useState, useEffect } from 'react';
 import { Sparkles, Check } from 'lucide-react';
 import api from '@/lib/api';
+import { useMutation } from '@/hooks/useMutation';
 import type { RuleTemplate } from '@/types/compliance';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
@@ -33,7 +34,6 @@ export default function TemplateOnboarding({ readOnly = false }: TemplateOnboard
   const [templates, setTemplates] = useState<RuleTemplate[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
-  const [applying, setApplying] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<{ created: number; skipped: Array<{ id: string; reason: string }> } | null>(null);
 
@@ -59,18 +59,24 @@ export default function TemplateOnboarding({ readOnly = false }: TemplateOnboard
     });
   };
 
+  // Applied templates become rules: re-read every tagged rule reader.
+  const apply = useMutation({
+    fn: async (ids: string[]) => {
+      const res = await api.applyRuleTemplates(ids);
+      if (!res.success || !res.data) throw new Error(res.message || 'Failed to apply templates');
+      return res.data;
+    },
+    invalidates: ['complianceRules'],
+    errorFallback: 'Failed to apply templates',
+    onError: (_err, message) => setError(message),
+    onSuccess: (data) => setResult(data),
+  });
+  const applying = apply.pending;
+
   const handleApply = async () => {
     if (readOnly || selectedIds.size === 0) return;
-    setApplying(true);
     setError(null);
-    try {
-      const res = await api.applyRuleTemplates([...selectedIds]);
-      if (res.success && res.data) setResult(res.data);
-      else setError(res.message || 'Failed to apply templates');
-    } catch (err) {
-      setError(formatError(err, 'Failed to apply templates'));
-    }
-    setApplying(false);
+    await apply.run([...selectedIds]);
   };
 
   if (loading) {

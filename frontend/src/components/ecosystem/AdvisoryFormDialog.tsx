@@ -11,7 +11,7 @@ import { Select } from '@/components/ui/Select';
 import { Textarea } from '@/components/ui/Textarea';
 import { ADVISORY_SEVERITIES } from '@pipeline-builder/api-core/wire-vocabulary';
 import { ADVISORY_SEVERITY_META, ADVISORY_SUMMARY_MAX, advisoryRangeProblem, isSemverVersion, parseCveIds, vulnIdsProblem } from '@/lib/advisories';
-import { formatError } from '@/lib/constants';
+import { useMutation } from '@/hooks/useMutation';
 import type { AdvisoryInput, AdvisorySeverity, AdvisoryView } from '@/types/ecosystem';
 
 export interface AdvisoryFormValue {
@@ -57,8 +57,14 @@ export function AdvisoryFormDialog({
   const [detailsMd, setDetailsMd] = useState((d && 'detailsMd' in d ? d.detailsMd : initial?.detailsMd) ?? '');
   const [cves, setCves] = useState((d && 'cveIds' in d ? d.cveIds?.join(', ') : initial?.cveIds.join(', ')) ?? '');
   const [fixedVersion, setFixedVersion] = useState((d && 'fixedVersion' in d ? d.fixedVersion : initial?.fixedVersion) ?? '');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(initialError);
+  // The refusal that sent the person back here, until they act on the form.
+  const [priorError, setPriorError] = useState<string | null>(initialError);
+  const save = useMutation({
+    fn: (value: AdvisoryFormValue) => onSubmit(value),
+    errorFallback: 'Could not save the advisory',
+  });
+  const busy = save.pending;
+  const error = save.error ?? priorError;
 
   const summaryTooLong = summary.trim().length > ADVISORY_SUMMARY_MAX;
   // The server's own checks, run here first (see lib/advisories).
@@ -69,8 +75,7 @@ export function AdvisoryFormDialog({
     || !!rangeProblem || !!fixedProblem || !!cveProblem;
 
   const submit = async () => {
-    setBusy(true);
-    setError(null);
+    setPriorError(null);
     const details = detailsMd.trim();
     const fixed = fixedVersion.trim();
     const cveIds = parseCveIds(cves);
@@ -86,13 +91,7 @@ export function AdvisoryFormDialog({
           ...(cveIds.length ? { cveIds } : {}),
         }),
     };
-    try {
-      await onSubmit({ listingId, advisory });
-    } catch (err) {
-      setError(formatError(err, 'Could not save the advisory'));
-    } finally {
-      setBusy(false);
-    }
+    await save.run({ listingId, advisory });
   };
 
   return (
@@ -151,7 +150,7 @@ export function AdvisoryFormDialog({
             <Input value={fixedVersion} onChange={(e) => setFixedVersion(e.target.value)} placeholder="1.4.2" disabled={busy} />
           </FormField>
         </div>
-        <ErrorAlert message={error} onDismiss={() => setError(null)} />
+        <ErrorAlert message={error} onDismiss={() => { save.reset(); setPriorError(null); }} />
       </div>
     </Modal>
   );

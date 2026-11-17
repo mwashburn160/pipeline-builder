@@ -1,11 +1,12 @@
 'use client';
 
 import { RULE_TARGET_IDS, RULE_TARGET_LABELS } from '@/lib/compliance-styles';
-import { useRef, useState } from 'react';
+import { useState } from 'react';
 import { CalendarClock, Plus, Pencil, Trash2, Loader2, X } from 'lucide-react';
 import api from '@/lib/api';
 import { useFetch } from '@/hooks/useFetch';
 import { useDelete } from '@/hooks/useDelete';
+import { useMutation } from '@/hooks/useMutation';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -35,7 +36,6 @@ export default function ScanScheduleManager({ readOnly = false }: ScanScheduleMa
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formData, setFormData] = useState<ScanScheduleFormData>(EMPTY_FORM);
-  const [submitting, setSubmitting] = useState(false);
   const [togglingId, setTogglingId] = useState<string | null>(null);
 
   const { data, loading, refetch: fetchSchedules } = useFetch<ScanSchedule[]>(
@@ -63,30 +63,23 @@ export default function ScanScheduleManager({ readOnly = false }: ScanScheduleMa
     setFormData(EMPTY_FORM);
   };
 
-  // Synchronous twin of `submitting`: Enter in the cron field submits the form
+  // useMutation's lock is synchronous: Enter in the cron field submits the form
   // without going through the disabled button, so a second Enter before the
-  // re-render would create the schedule twice.
-  const submittingRef = useRef(false);
+  // re-render must not create the schedule twice.
+  const save = useMutation({
+    fn: async (id: string | null, body: ScanScheduleFormData) => {
+      if (id) await api.updateScanSchedule(id, body);
+      else await api.createScanSchedule(body);
+    },
+    toast: { success: (_r, id) => (id ? 'Schedule updated' : 'Schedule created') },
+    onSuccess: () => { closeForm(); void fetchSchedules(); },
+    onStepUpResumed: () => { closeForm(); void fetchSchedules(); },
+    onError: (err, _message, id) => toast.error(formatError(err, `Failed to ${id ? 'update' : 'create'} schedule`)),
+  });
+  const submitting = save.pending;
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (submittingRef.current) return;
-    submittingRef.current = true;
-    setSubmitting(true);
-    try {
-      if (editingId) {
-        await api.updateScanSchedule(editingId, formData);
-        toast.success('Schedule updated');
-      } else {
-        await api.createScanSchedule(formData);
-        toast.success('Schedule created');
-      }
-      closeForm();
-      void fetchSchedules();
-    } catch (err) {
-      toast.error(formatError(err, `Failed to ${editingId ? 'update' : 'create'} schedule`));
-    }
-    submittingRef.current = false;
-    setSubmitting(false);
+    await save.run(editingId, formData);
   };
 
   const handleToggle = async (schedule: ScanSchedule) => {

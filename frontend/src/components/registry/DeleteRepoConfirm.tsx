@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
+import { useMutation } from '@/hooks/useMutation';
 import { api } from '@/lib/api';
 
 interface DeleteRepoConfirmProps {
@@ -27,8 +28,6 @@ const MAX_TAGS_TO_PREVIEW = 20;
 export function DeleteRepoConfirm({ repo, onClose, onDeleted }: DeleteRepoConfirmProps) {
   const [tags, setTags] = useState<string[] | null>(null);
   const [scanning, setScanning] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let aborted = false;
@@ -49,22 +48,22 @@ export function DeleteRepoConfirm({ repo, onClose, onDeleted }: DeleteRepoConfir
     return () => { aborted = true; };
   }, [repo]);
 
-  const submit = async () => {
-    setSubmitting(true);
-    setError(null);
-    try {
-      const res = await api.deleteRepository(repo);
-      onDeleted({
-        deletedManifests: res.data?.deletedManifests ?? 0,
-        deletedTags: res.data?.deletedTags ?? 0,
-        alreadyEmpty: res.data?.alreadyEmpty,
-      });
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setSubmitting(false);
-    }
-  };
+  type DeleteResult = Awaited<ReturnType<typeof api.deleteRepository>>;
+  const report = (res: DeleteResult | undefined) => onDeleted({
+    deletedManifests: res?.data?.deletedManifests ?? 0,
+    deletedTags: res?.data?.deletedTags ?? 0,
+    alreadyEmpty: res?.data?.alreadyEmpty,
+  });
+  const del = useMutation({
+    fn: () => api.deleteRepository(repo),
+    scopeKey: repo,
+    onSuccess: report,
+    // Refused for step-up and confirmed in the global dialog: the replay deleted it.
+    onStepUpResumed: (replay) => report(replay as DeleteResult | undefined),
+  });
+  const submitting = del.pending;
+  const error = del.error;
+  const submit = () => { void del.run(); };
 
   const tagCount = tags?.length ?? 0;
   const isEmpty = !scanning && tagCount === 0;

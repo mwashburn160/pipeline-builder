@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useMemo } from 'react';
-import { formatError , QUOTA_WARNING_THRESHOLD } from '@/lib/constants';
+import { QUOTA_WARNING_THRESHOLD } from '@/lib/constants';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useDebounce } from '@/hooks/useDebounce';
 import { useFetch } from '@/hooks/useFetch';
@@ -18,6 +18,7 @@ import { QuotasReadOnly, type AtRiskDimension } from '@/components/quotas/Quotas
 import { QuotasAdmin } from '@/components/quotas/QuotasAdmin';
 import api from '@/lib/api';
 import { queries } from '@/lib/api-cache';
+import { useMutation } from '@/hooks/useMutation';
 
 /** One org in the sysadmin picker. */
 type PickerOrg = { id: string; name: string; slug?: string };
@@ -68,7 +69,6 @@ export default function QuotasPage() {
   const [orgHealthColors, setOrgHealthColors] = useState<Record<string, string>>({});
 
   const [seededOrgData, setOrgData] = useState<OrgQuotaResponse | null>(null);
-  const [saving, setSaving] = useState(false);
 
   const [editValues, setEditValues] = useState<Record<DisplayedQuotaType, number>>(
     () => Object.fromEntries(DISPLAYED_QUOTA_TYPES.map((t) => [t, 0])) as Record<DisplayedQuotaType, number>,
@@ -235,9 +235,24 @@ export default function QuotasPage() {
     setSelectedOrgId(orgId);
   }
 
+  // NOT scope-bound to the selected org: a save that lands after an org switch
+  // still recolors the saved org's sidebar dot (see `applyWriteResult`).
+  const saveQuotas = useMutation({
+    fn: async (from: OrgQuotaResponse, body: { tier?: PlanTier; quotas?: Record<string, number> }) => {
+      const res = await api.updateOrgQuotas(from.orgId, body);
+      return (res.data?.quota || res.data) as OrgQuotaResponse;
+    },
+    errorFallback: 'Failed to save',
+    toast: { success: 'Saved', error: true },
+    // Carries the sidebar identity — if the update response omits `name`, the
+    // fallback chain would otherwise resolve to the acting sysadmin's own org
+    // name while editing a different org.
+    onSuccess: (updated, from) => applyWriteResult(updated, from),
+  });
+  const saving = saveQuotas.pending;
+
   async function handleSave() {
     if (!orgData || !dirty) return;
-    setSaving(true);
 
     const body: { tier?: PlanTier; quotas?: Record<string, number> } = {};
     if (editTier !== (orgData.tier || 'developer')) body.tier = editTier;
@@ -248,25 +263,11 @@ export default function QuotasPage() {
     }
     if (Object.keys(qc).length > 0) body.quotas = qc;
     if (Object.keys(body).length === 0) {
-      setSaving(false);
       setDirty(false);
       return;
     }
 
-    try {
-      const res = await api.updateOrgQuotas(orgData.orgId, body);
-      const updated = (res.data?.quota || res.data) as OrgQuotaResponse;
-      // Carries the sidebar identity — if the update response omits `name`, the
-      // fallback chain would otherwise resolve to the acting sysadmin's own org
-      // name while editing a different org.
-      applyWriteResult(updated, orgData);
-
-      toast.success('Saved');
-    } catch (error) {
-      toast.error(formatError(error, 'Failed to save'));
-    } finally {
-      setSaving(false);
-    }
+    await saveQuotas.run(orgData, body);
   }
 
   // Sysadmin operational action: zero the selected org's usage counters

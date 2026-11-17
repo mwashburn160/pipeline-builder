@@ -1,14 +1,12 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useState } from 'react';
 import { BellOff } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Callout } from '@/components/ui/Callout';
 import { SectionCard } from '@/components/ui/SectionCard';
-import { useToast } from '@/components/ui/Toast';
+import { useMutation } from '@/hooks/useMutation';
 import api from '@/lib/api';
-import { formatError } from '@/lib/constants';
 import { formatDateLong } from '@/lib/format';
 import type { MfaNudgeState } from '@/types';
 
@@ -38,23 +36,15 @@ interface MfaPromptPreferenceProps {
 }
 
 export function MfaPromptPreference({ nudge, readOnly, onChanged }: MfaPromptPreferenceProps) {
-  const toast = useToast();
-  const [busy, setBusy] = useState(false);
+  const restore = useMutation({
+    fn: () => api.restoreMfaPrompt(),
+    onSuccess: async () => { await onChanged(); },
+    errorFallback: 'Could not turn the reminders back on',
+    toast: { success: 'Reminders are back on.', error: true },
+  });
+  const busy = restore.pending;
 
   if (!nudge) return null;
-
-  const restore = async () => {
-    setBusy(true);
-    try {
-      await api.restoreMfaPrompt();
-      await onChanged();
-      toast.success('Reminders are back on.');
-    } catch (e) {
-      toast.error(formatError(e, 'Could not turn the reminders back on'));
-    } finally {
-      setBusy(false);
-    }
-  };
 
   const declined = !!nudge.declinedAt;
 
@@ -80,7 +70,7 @@ export function MfaPromptPreference({ nudge, readOnly, onChanged }: MfaPromptPre
           )}
         </Callout>
         <div className="flex justify-end">
-          <Button type="button" variant="secondary" readOnly={readOnly} disabled={busy} onClick={() => void restore()}>
+          <Button type="button" variant="secondary" readOnly={readOnly} disabled={busy} onClick={() => void restore.run()}>
             {busy ? 'Saving…' : 'Remind me again'}
           </Button>
         </div>

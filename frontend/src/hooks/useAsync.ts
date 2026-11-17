@@ -1,9 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useState, useCallback } from 'react';
-import { formatError } from '@/lib/constants';
-import { useUnmountedRef } from '@/hooks/useUnmountedRef';
+import { useCallback } from 'react';
+import { useMutation } from '@/hooks/useMutation';
 
 /**
  * Return type for `useAsyncCallback()`.
@@ -22,52 +21,23 @@ export interface UseAsyncCallbackResult<T, A extends unknown[]> {
 /**
  * Wrap an async action with loading/error state management.
  *
+ * A thin adapter over {@link useMutation} for the older `execute / loading /
+ * error` shape — so it inherits the synchronous in-flight lock (a second
+ * `execute` while one is pending returns the same result), unmount dropping,
+ * and step-up handoff (a refusal the global dialog took over resolves `null`
+ * with no error). New code should call `useMutation` directly.
+ *
  * Does NOT auto-execute — call `execute()` to trigger the action (e.g., on
  * button click, form submit). For fetch-on-mount/deps-change use `useFetch`.
- *
- * @param fn - Async function to wrap
- * @returns Execute callback, loading, error, and clearError
- *
- * @example
- * ```tsx
- * const { execute: upload, loading, error } = useAsyncCallback(
- *   (file: File) => api.uploadPlugin(file, 'org'),
- * );
- *
- * const handleSubmit = async () => {
- *   const result = await upload(selectedFile);
- *   if (result) onSuccess();
- * };
- * ```
  */
 export function useAsyncCallback<T, A extends unknown[]>(
   fn: (...args: A) => Promise<T>,
 ): UseAsyncCallbackResult<T, A> {
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const unmountedRef = useUnmountedRef();
-
-  const clearError = useCallback(() => setError(null), []);
-
-  const execute = useCallback(
-    async (...args: A): Promise<T | null> => {
-      setLoading(true);
-      setError(null);
-      try {
-        const result = await fn(...args);
-        if (!unmountedRef.current) setLoading(false);
-        return result;
-      } catch (err) {
-        if (!unmountedRef.current) {
-          setError(formatError(err));
-          setLoading(false);
-        }
-        return null;
-      }
-    },
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- fn is intentionally the only dep; callers must memoize it
-    [fn],
-  );
-
-  return { execute, loading, error, clearError };
+  const m = useMutation<T, A>({ fn });
+  const { run } = m;
+  const execute = useCallback(async (...args: A): Promise<T | null> => {
+    const result = await run(...args);
+    return result === undefined ? null : result;
+  }, [run]);
+  return { execute, loading: m.pending, error: m.error, clearError: m.reset };
 }

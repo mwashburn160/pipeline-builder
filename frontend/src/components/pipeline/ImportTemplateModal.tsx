@@ -14,6 +14,7 @@ import { formatError } from '@/lib/constants';
 import api from '@/lib/api';
 import type { BuilderProps, TemplateInput, TemplateVisibility } from '@/types';
 import { useAutoCloseTimer } from '@/hooks/useAutoCloseTimer';
+import { useMutation } from '@/hooks/useMutation';
 
 interface ImportTemplateModalProps {
   /** `templates:publish` — required to import a PUBLIC template. */
@@ -43,10 +44,29 @@ export function ImportTemplateModal({ canPublish, onClose, onImported }: ImportT
   const [text, setText] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
+  // Stay locked after success — see CreateTemplateModal: the modal lingers
+  // ~1.5s on the confirmation and a re-armed button imported it twice.
+  const [imported, setImported] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const autoClose = useAutoCloseTimer();
+
+  const importM = useMutation({
+    fn: async (body: Parameters<typeof api.createPipelineTemplate>[0], _note: string) => {
+      const res = await api.createPipelineTemplate(body);
+      if (!res.success) throw new Error(res.message || 'Failed to import template.');
+      return res;
+    },
+    errorFallback: 'Failed to import template',
+    onError: (_err, message) => setError(message),
+    onSuccess: (_res, body, note) => {
+      setImported(true);
+      setSuccess(`Template "${body.name}" imported${note}.`);
+      onImported();
+      autoClose.schedule(onClose, 1500);
+    },
+  });
+  const saving = importM.pending || imported;
 
   const onFile = async (file: File | undefined) => {
     if (!file) return;
@@ -83,34 +103,16 @@ export function ImportTemplateModal({ canPublish, onClose, onImported }: ImportT
       ? (canPublish ? 'public' : 'org')
       : (requested === 'org' ? 'org' : 'private');
 
-    setSaving(true);
-    // Stay locked after success — see CreateTemplateModal: the modal lingers
-    // ~1.5s on the confirmation and a re-armed button imported it twice.
-    let imported = false;
-    try {
-      const res = await api.createPipelineTemplate({
-        name: parsed.name.trim(),
-        description: parsed.description?.trim() || undefined,
-        keywords: Array.isArray(parsed.keywords) ? parsed.keywords.filter((k) => typeof k === 'string') : undefined,
-        category: parsed.category?.trim() || 'general',
-        visibility,
-        props: parsed.props,
-        inputs: Array.isArray(parsed.inputs) ? parsed.inputs : [],
-      });
-      if (res.success) {
-        imported = true;
-        const note = requested === 'public' && !canPublish ? ' (imported as org-shared — publishing needs templates:publish)' : '';
-        setSuccess(`Template "${parsed.name.trim()}" imported${note}.`);
-        onImported();
-        autoClose.schedule(onClose, 1500);
-      } else {
-        setError(res.message || 'Failed to import template.');
-      }
-    } catch (err) {
-      setError(formatError(err, 'Failed to import template'));
-    } finally {
-      if (!imported) setSaving(false);
-    }
+    const note = requested === 'public' && !canPublish ? ' (imported as org-shared — publishing needs templates:publish)' : '';
+    await importM.run({
+      name: parsed.name.trim(),
+      description: parsed.description?.trim() || undefined,
+      keywords: Array.isArray(parsed.keywords) ? parsed.keywords.filter((k) => typeof k === 'string') : undefined,
+      category: parsed.category?.trim() || 'general',
+      visibility,
+      props: parsed.props,
+      inputs: Array.isArray(parsed.inputs) ? parsed.inputs : [],
+    }, note);
   };
 
   const footer = (

@@ -28,6 +28,7 @@ import type { DashboardWithPanels, CatalogEntry, DashboardWrite } from '@/types/
 import type { LayoutPanelInput } from '@/components/observability/DashboardLayoutGrid';
 import { formatError } from '@/lib/constants';
 import { useElementWidth } from '@/hooks/useElementWidth';
+import { useMutation } from '@/hooks/useMutation';
 
 // Load the grid-layout driver only on this page. `ssr: false` is
 // load-bearing: react-grid-layout reads `window` during measurement.
@@ -80,7 +81,6 @@ export default function DashboardEditPage() {
   // Callback-ref measured — see useElementWidth for why a mount-only effect
   // left every dashboard stuck at 960px.
   const [gridContainerRef, gridWidth] = useElementWidth(960);
-  const [saving, setSaving] = useState(false);
   const [showAddPanel, setShowAddPanel] = useState(false);
 
   // Fetch dashboard + catalog in parallel; the draft state below is seeded
@@ -108,39 +108,40 @@ export default function DashboardEditPage() {
   // for the intentional post-save redirect.
   const allowNavigation = useUnsavedChangesWarning(dirty);
 
+  const save = useMutation({
+    fn: (dashboardId: string, body: DashboardWrite) => api.updateDashboard(dashboardId, body),
+    scopeKey: original?.id,
+    toast: { success: 'Dashboard saved', error: true },
+    onSuccess: (_res, dashboardId) => {
+      // Draft is now persisted — let the redirect through without a prompt.
+      allowNavigation();
+      void router.push(`/dashboard/observability/${dashboardId}`);
+    },
+  });
+  const saving = save.pending;
+
   const onSave = async () => {
     if (!original) return;
     if (!canWrite) { toast.error('Read-only — requires dashboards:write'); return; }
     if (!name.trim()) { toast.error('Name is required'); return; }
-    setSaving(true);
-    try {
-      const body: DashboardWrite = {
-        name: name.trim(),
-        description: description.trim() ? description.trim(): null,
-        visibility,
-        // layoutJson round-trips through the API as-is, keyed by
-        // `p-${position}` so it survives PUT (which re-assigns panel ids).
-        layoutJson,
-        panels: panels.map((p, i) => ({
-          queryKey: p.queryKey,
-          vizKind: p.vizKind,
-          title: p.title,
-          span: p.span,
-          groupBy: p.groupBy ?? undefined,
-          format: p.format ?? undefined,
-          position: i,
-        })),
-      };
-      await api.updateDashboard(original.id, body);
-      toast.success('Dashboard saved');
-      // Draft is now persisted — let the redirect through without a prompt.
-      allowNavigation();
-      void router.push(`/dashboard/observability/${original.id}`);
-    } catch (err) {
-      toast.error(formatError(err));
-    } finally {
-      setSaving(false);
-    }
+    const body: DashboardWrite = {
+      name: name.trim(),
+      description: description.trim() ? description.trim(): null,
+      visibility,
+      // layoutJson round-trips through the API as-is, keyed by
+      // `p-${position}` so it survives PUT (which re-assigns panel ids).
+      layoutJson,
+      panels: panels.map((p, i) => ({
+        queryKey: p.queryKey,
+        vizKind: p.vizKind,
+        title: p.title,
+        span: p.span,
+        groupBy: p.groupBy ?? undefined,
+        format: p.format ?? undefined,
+        position: i,
+      })),
+    };
+    await save.run(original.id, body);
   };
 
   if (accessDenied) return <AccessDenied denial={accessDenied} />;

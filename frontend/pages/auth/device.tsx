@@ -21,6 +21,7 @@ import { SESSIONS_HREF } from '@/lib/security-links';
 import { rememberReturnPath } from '@/lib/return-to';
 import { ApiError } from '@/lib/api/errors';
 import type { DeviceAuthorizationRequest } from '@/lib/api/domains/auth';
+import { useMutation } from '@/hooks/useMutation';
 
 /** The page's terminal states, all of which end the flow. */
 type Outcome = 'approved' | 'denied';
@@ -49,7 +50,6 @@ export default function DeviceApprovalPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
-  const [submitting, setSubmitting] = useState(false);
   const [stepUp, setStepUp] = useState(false);
 
   const authReady = isInitialized && !isLoading;
@@ -97,24 +97,26 @@ export default function DeviceApprovalPage() {
     void load(code);
   }, [authReady, isAuthenticated, code, load]);
 
-  const decide = useCallback(async (decision: Outcome, stepUpToken?: string) => {
-    setSubmitting(true);
-    setError(null);
-    try {
-      const res = decision === 'approved'
+  // `error` is shared with the code lookup above, so the write reports into it.
+  const decision = useMutation({
+    fn: async (d: Outcome, stepUpToken?: string) => {
+      const res = d === 'approved'
         ? await api.approveDeviceAuthorization(code, stepUpToken)
         : await api.denyDeviceAuthorization(code);
-      if (res.success) {
-        setOutcome(decision);
-      } else {
-        setError(res.message || 'That did not go through. Try again.');
-      }
-    } catch (err) {
-      setError(formatError(err, 'That did not go through. Try again.'));
-    } finally {
-      setSubmitting(false);
-    }
-  }, [code]);
+      if (!res.success) throw new Error(res.message || 'That did not go through. Try again.');
+      return d;
+    },
+    scopeKey: code,
+    errorFallback: 'That did not go through. Try again.',
+    onSuccess: (d) => setOutcome(d),
+    onError: (_err, message) => setError(message),
+  });
+  const submitting = decision.pending;
+  const { run: runDecision } = decision;
+  const decide = useCallback(async (d: Outcome, stepUpToken?: string) => {
+    setError(null);
+    await runDecision(d, stepUpToken);
+  }, [runDecision]);
 
   const shell = (children: React.ReactNode) => (
     <>

@@ -2600,6 +2600,14 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
     coveredBy: 'Run / cancel a pipeline execution',
     why: 'Accept risk / False positive / Reopen on an exposure in the pipeline detail page\'s Plugin security tab (src/components/pipeline/security/PipelineSecurityTab.tsx → ExposureTriageModal.tsx, api.triagePipelineExposure). Disabled with a reason unless canWritePipeline (pipelines:write + ownership) — the same gate and page as Run pipeline. Audited pipeline.vuln.accepted / .false_positive / .reopened; KEV acceptance needs the explicit checkbox (kev: true).',
   },
+  'platform GET /organization/:id/session-policy': {
+    category: 'no-ui',
+    why: 'Read side of the org session-lifetime policy (effective maximum age / idle timeout, the org\'s own values, the platform ceiling, any stricter ancestor). No settings panel reads it yet; API callers with org_settings:write do.',
+  },
+  'platform PATCH /organization/:id/session-policy': {
+    category: 'no-ui',
+    why: 'The org session-lifetime policy (maximum age from sign-in / idle timeout, days; may only tighten SESSION_MAX_AGE_DAYS / SESSION_IDLE_TIMEOUT_DAYS) has no settings panel yet — set through the API (org_settings:write + step-up, aal2 to lengthen; audited org.session_policy.update). Enforced at every refresh by platform (helpers/session-policy.ts).',
+  },
   'plugin POST /plugins/runtime-check': {
     category: 'no-ui',
     why: 'Machine-facing grade of the image digests a pipeline runs (pipeline-manager `plugin verify`): ok | info | warning | error | critical per step, never a block. plugins:read; an error or louder notifies the pipeline owners (N32).',

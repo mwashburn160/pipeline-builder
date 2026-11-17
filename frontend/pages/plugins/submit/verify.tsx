@@ -26,6 +26,7 @@ import {
 } from '@/lib/plugin-submissions/status';
 import type { SubmissionVerified } from '@/types/plugin-submissions';
 import { Card } from '@/components/ui/Card';
+import { useMutation } from '@/hooks/useMutation';
 
 function verifyErrorMessage(err: unknown): string {
   if (err instanceof ApiError) {
@@ -42,21 +43,19 @@ function verifyErrorMessage(err: unknown): string {
 export default function VerifySubmissionPage() {
   const router = useRouter();
   const token = router.isReady ? tokenFromQuery(router.query.token) : null;
-  const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<SubmissionVerified | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const verification = useMutation({
+    fn: (t: string) => verifySubmission(t),
+    scopeKey: token,
+    formatError: verifyErrorMessage,
+    onSuccess: (verified) => setResult(verified),
+  });
+  const busy = verification.pending;
+  const error = verification.error;
 
   const confirm = async () => {
     if (!token) return;
-    setBusy(true);
-    setError(null);
-    try {
-      setResult(await verifySubmission(token));
-    } catch (err) {
-      setError(verifyErrorMessage(err));
-    } finally {
-      setBusy(false);
-    }
+    await verification.run(token);
   };
 
   const statusPath = result?.statusToken ? submissionStatusPath(result.statusToken) : null;

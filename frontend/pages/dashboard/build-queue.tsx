@@ -26,6 +26,7 @@ import { formatTime } from '@/lib/format';
 import { FailedJobsTable } from '@/components/build-queue/FailedJobsTable';
 import type { DlqJob, FailedJob } from '@/components/build-queue/types';
 import { toServerPage } from '@/components/build-queue/server-page';
+import { useMutation } from '@/hooks/useMutation';
 
 const POLL_INTERVAL = 10_000;
 
@@ -97,7 +98,6 @@ export default function BuildQueuePage() {
   const [showDlq, setShowDlq] = useState(false);
   const [replayingIds, setReplayingIds] = useState<Set<string>>(new Set());
   const [retryingIds, setRetryingIds] = useState<Set<string>>(new Set());
-  const [purging, setPurging] = useState(false);
   // Confirmation targets — queue actions route through a confirm modal instead
   // of a bare window.confirm (ConfirmDialog for per-row replay/retry, StepUpModal
   // for the fleet-wide DLQ purge).
@@ -181,19 +181,20 @@ export default function BuildQueuePage() {
 
   // Purge the ENTIRE dead-letter queue — destructive, sysadmin-only. Strong
   // confirm, then refresh the aggregate status + (if open) the DLQ list.
-  const handlePurgeDlq = useCallback(async (stepUpToken: string) => {
-    setPurging(true);
-    try {
-      await api.purgeDlq(stepUpToken);
-      toast.success('Dead-letter queue purged');
+  const purge = useMutation({
+    fn: (stepUpToken: string) => api.purgeDlq(stepUpToken),
+    errorFallback: 'Failed to purge DLQ',
+    toast: { success: 'Dead-letter queue purged', error: true },
+    onSuccess: () => {
       refetchDlq();
       void fetchStatus();
-    } catch (err) {
-      toast.error(formatError(err, 'Failed to purge DLQ'));
-    } finally {
-      setPurging(false);
-    }
-  }, [toast, fetchStatus, refetchDlq]);
+    },
+  });
+  const purging = purge.pending;
+  const { run: runPurge } = purge;
+  const handlePurgeDlq = useCallback(async (stepUpToken: string) => {
+    await runPurge(stepUpToken);
+  }, [runPurge]);
 
   // Poll the aggregate status while the tab is visible (usePolling pauses when
   // hidden and refreshes on return). The first read is useFetch's own.

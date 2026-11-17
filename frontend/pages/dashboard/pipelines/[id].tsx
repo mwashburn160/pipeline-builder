@@ -47,7 +47,7 @@ import { PipelineContextCard } from '@/components/pipeline/PipelineContextCard';
 import { LifecycleBadge } from '@/components/ui/LifecycleBadge';
 import { canWritePipeline } from '@/lib/resource-helpers';
 import api from '@/lib/api';
-import { invalidate, queries } from '@/lib/api-cache';
+import { queries } from '@/lib/api-cache';
 import type { PipelineDeployment, PipelineRegistrationStatus } from '@/lib/api/domains/pipelines';
 import type { Pipeline } from '@/types';
 import { formatError } from '@/lib/constants';
@@ -55,6 +55,7 @@ import { formatDuration } from '@/lib/format';
 import { awsStackConsoleUrl } from '@/lib/deploy-target';
 import { toolchainChangeRunId } from '@/lib/pipeline-security';
 import type { PipelineBuildImage } from '@/lib/api/pipeline-security-types';
+import { useMutation } from '@/hooks/useMutation';
 
 // The edit wizard and save-as-template modal load on first use.
 const EditPipelineModal = dynamic(() => import('@/components/pipeline/EditPipelineModal'), { ssr: false });
@@ -226,43 +227,55 @@ function PipelineDetail({ id }: { id: string }) {
   // Write actions (AWS CodePipeline trigger / cancel). Ingestion of the new
   // event is asynchronous, so we refetch after a short delay to let the
   // pipeline-events Lambda persist the run before we re-query.
-  const [triggering, setTriggering] = useState(false);
   const [cancelTarget, setCancelTarget] = useState<string | null>(null);
-  const [canceling, setCanceling] = useState(false);
   const REFETCH_DELAY_MS = 2500;
 
+  // Each action reports into the page's shared `actionError` banner, and is
+  // bound to the pipeline it started for: an id switch mid-flight drops it.
+  const reportActionError = (_e: unknown, message: string) => setActionError(message);
+  const trigger = useMutation({
+    fn: async (pipelineId: string) => {
+      const res = await api.triggerPipelineExecution(pipelineId);
+      if (!res.success) throw new Error(res.message || 'Failed to trigger execution');
+      return res.data?.executionId;
+    },
+    scopeKey: id,
+    errorFallback: 'Failed to trigger execution',
+    onSuccess: (executionId) => {
+      toast.success(`Started execution ${executionId ?? ''}`.trim());
+      setTimeout(loadExecutions, REFETCH_DELAY_MS);
+    },
+    onError: reportActionError,
+  });
+  const triggering = trigger.pending;
+  const { run: runTrigger } = trigger;
   const handleTrigger = useCallback(async () => {
     if (!id) return;
-    setTriggering(true);
     setActionError(null);
-    try {
-      const res = await api.triggerPipelineExecution(id);
-      if (!res.success) throw new Error(res.message || 'Failed to trigger execution');
-      toast.success(`Started execution ${res.data?.executionId ?? ''}`.trim());
-      setTimeout(loadExecutions, REFETCH_DELAY_MS);
-    } catch (e) {
-      setActionError(formatError(e, 'Failed to trigger execution'));
-    } finally {
-      setTriggering(false);
-    }
-  }, [id, loadExecutions, toast]);
+    await runTrigger(id);
+  }, [id, runTrigger]);
 
-  const confirmCancel = useCallback(async () => {
-    if (!id || !cancelTarget) return;
-    setCanceling(true);
-    setActionError(null);
-    try {
-      const res = await api.stopPipelineExecution(id, cancelTarget, { reason: 'Canceled from dashboard' });
+  const cancelExecution = useMutation({
+    fn: async (pipelineId: string, executionId: string) => {
+      const res = await api.stopPipelineExecution(pipelineId, executionId, { reason: 'Canceled from dashboard' });
       if (!res.success) throw new Error(res.message || 'Failed to cancel execution');
+    },
+    scopeKey: id,
+    errorFallback: 'Failed to cancel execution',
+    onSuccess: () => {
       toast.success('Execution canceled');
       setTimeout(loadExecutions, REFETCH_DELAY_MS);
-    } catch (e) {
-      setActionError(formatError(e, 'Failed to cancel execution'));
-    } finally {
-      setCanceling(false);
-      setCancelTarget(null);
-    }
-  }, [id, cancelTarget, loadExecutions, toast]);
+    },
+    onError: reportActionError,
+  });
+  const canceling = cancelExecution.pending;
+  const { run: runCancel } = cancelExecution;
+  const confirmCancel = useCallback(async () => {
+    if (!id || !cancelTarget) return;
+    setActionError(null);
+    await runCancel(id, cancelTarget);
+    setCancelTarget(null);
+  }, [id, cancelTarget, runCancel]);
 
   const [showEdit, setShowEdit] = useState(false);
   const [showSaveTemplate, setShowSaveTemplate] = useState(false);
@@ -272,27 +285,31 @@ function PipelineDetail({ id }: { id: string }) {
   const canWriteTemplate = can('templates:write');
   const canPublishTemplate = can('templates:publish');
   const [showDelete, setShowDelete] = useState(false);
-  const [deleting, setDeleting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
-  const confirmDelete = useCallback(async () => {
-    if (!pipeline) return;
-    setDeleting(true);
-    try {
-      const res = await api.deletePipeline(pipeline.id);
+  const deletion = useMutation({
+    fn: async (pipelineId: string) => {
+      const res = await api.deletePipeline(pipelineId);
       if (!res.success) throw new Error(res.message || 'Delete failed');
-      // Every cached pipeline list still holds the deleted row — drop them
-      // before landing on the list page.
-      invalidate.pipelines();
+    },
+    scopeKey: id,
+    // Every cached pipeline list still holds the deleted row — drop them
+    // before landing on the list page.
+    invalidates: ['pipelines'],
+    errorFallback: 'Failed to delete pipeline',
+    onSuccess: () => {
       toast.success('Pipeline deleted');
       void router.push('/dashboard/pipelines');
-    } catch (e) {
-      setActionError(formatError(e, 'Failed to delete pipeline'));
-    } finally {
-      setDeleting(false);
-      setShowDelete(false);
-    }
-  }, [pipeline, router, toast]);
+    },
+    onError: reportActionError,
+  });
+  const deleting = deletion.pending;
+  const { run: runDelete } = deletion;
+  const confirmDelete = useCallback(async () => {
+    if (!pipeline) return;
+    await runDelete(pipeline.id);
+    setShowDelete(false);
+  }, [pipeline, runDelete]);
 
   if (accessDenied) return <AccessDenied denial={accessDenied} />;
   if (!isReady || !user) return <LoadingPage />;

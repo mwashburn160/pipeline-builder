@@ -8,8 +8,8 @@ import { FormField } from '@/components/ui/FormField';
 import { Select } from '@/components/ui/Select';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { useFetch } from '@/hooks/useFetch';
+import { useMutation } from '@/hooks/useMutation';
 import api from '@/lib/api';
-import { formatError } from '@/lib/constants';
 import { INSTALL_VERSION_POLICIES } from '@pipeline-builder/api-core/wire-vocabulary';
 import { VERSION_POLICY_LABELS } from '@/lib/plugin-installs';
 import type { ListingVersionState, InstallVersionPolicy } from '@/types/plugin-installs';
@@ -39,8 +39,6 @@ export function InstallPolicyDialog({
 }) {
   const [policy, setPolicy] = useState<InstallVersionPolicy>(initialPolicy);
   const [version, setVersion] = useState<string>(initialVersion ?? '');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   const versions = useFetch(async (signal): Promise<ListingVersionState[]> => {
     const res = await api.getListingInstallState(publisher, name, { signal });
@@ -48,18 +46,15 @@ export function InstallPolicyDialog({
   }, [publisher, name]);
   const selectable = (versions.data ?? []).filter((v) => !v.yanked && !v.paused);
 
-  const submit = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      await onSubmit({ versionPolicy: policy, ...(version ? { version } : {}) });
-      onClose();
-    } catch (e) {
-      setError(formatError(e, 'Could not save the install'));
-    } finally {
-      setBusy(false);
-    }
-  };
+  const save = useMutation({
+    fn: () => onSubmit({ versionPolicy: policy, ...(version ? { version } : {}) }),
+    scopeKey: `${publisher}/${name}`,
+    errorFallback: 'Could not save the install',
+    onSuccess: () => onClose(),
+  });
+  const busy = save.pending;
+  const error = save.error;
+  const submit = save.run;
 
   return (
     <Modal

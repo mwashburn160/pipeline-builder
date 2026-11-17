@@ -23,6 +23,7 @@ import { triggerBlobDownload } from '@/lib/download';
 import { caseStatusLabel, responseTargetLabel } from '@/components/message/MessageList';
 import { SupportCaseRating } from '@/components/message/SupportCaseRating';
 import type { SupportCaseSummary } from '@/types';
+import { useMutation } from '@/hooks/useMutation';
 
 /**
  * The tenant's own support cases.
@@ -68,22 +69,18 @@ export default function SupportPage() {
     return res.data?.balance ?? 0;
   }, []);
 
-  const [exporting, setExporting] = useState(false);
-  const [exportError, setExportError] = useState<string | null>(null);
   const [exportTruncated, setExportTruncated] = useState(false);
-  const exportCases = async () => {
-    setExporting(true);
-    setExportError(null);
-    try {
-      const { blob, truncated } = await api.exportSupportCases();
+  const exportMutation = useMutation({
+    fn: () => api.exportSupportCases(),
+    formatError: (err) => (err instanceof Error ? err.message : 'Export failed'),
+    onSuccess: ({ blob, truncated }) => {
       setExportTruncated(truncated);
       triggerBlobDownload(blob, 'support-cases.csv');
-    } catch (err) {
-      setExportError(err instanceof Error ? err.message : 'Export failed');
-    } finally {
-      setExporting(false);
-    }
-  };
+    },
+  });
+  const exporting = exportMutation.pending;
+  const exportError = exportMutation.error;
+  const exportCases = async () => { await exportMutation.run(); };
 
   if (accessDenied) return <AccessDenied denial={accessDenied} />;
   if (!isReady) return <LoadingPage />;
@@ -136,7 +133,7 @@ export default function SupportPage() {
                 </Button>
               </div>
             )}
-            <ErrorAlert message={exportError} onDismiss={() => setExportError(null)} />
+            <ErrorAlert message={exportError} onDismiss={exportMutation.reset} />
             {exportTruncated && (
               <Callout variant="warning">
                 The export stopped at its row limit, so the file holds your most recent cases only, not every case.

@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import api from '@/lib/api';
-import { formatError } from '@/lib/constants';
+import { useMutation } from '@/hooks/useMutation';
 
 interface SupportCaseRatingProps {
   threadId: string;
@@ -37,28 +37,23 @@ interface SupportCaseRatingProps {
  */
 export function SupportCaseRating({ threadId, caseNumber, current, onRated }: SupportCaseRatingProps) {
   const [comment, setComment] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
   const [open, setOpen] = useState(false);
 
-  const rate = async (score: number) => {
-    setBusy(true);
-    setError('');
-    try {
+  const rateM = useMutation({
+    fn: async (score: number) => {
       const res = await api.rateSupportCase(threadId, score, comment.trim() || undefined);
-      if (!res.success) {
-        setError(res.message ?? 'That rating was not saved');
-      } else {
-        setComment('');
-        setOpen(false);
-        onRated?.();
-      }
-    } catch (err) {
-      setError(formatError(err));
-    } finally {
-      setBusy(false);
-    }
-  };
+      if (!res.success) throw new Error(res.message ?? 'That rating was not saved');
+    },
+    scopeKey: threadId,
+    onSuccess: () => {
+      setComment('');
+      setOpen(false);
+      onRated?.();
+    },
+  });
+  const busy = rateM.pending;
+  const error = rateM.error;
+  const rate = rateM.run;
 
   return (
     <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">

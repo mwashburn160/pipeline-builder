@@ -4,6 +4,7 @@ import { useState, useCallback, useId } from 'react';
 import { Save } from 'lucide-react';
 import api from '@/lib/api';
 import { useFetch } from '@/hooks/useFetch';
+import { useMutation } from '@/hooks/useMutation';
 import { queries } from '@/lib/api-cache';
 import { runQuery } from '@/lib/query-cache';
 import { useToast } from '@/components/ui/Toast';
@@ -32,7 +33,6 @@ const NO_MEMBERS: OrganizationMember[] = [];
 export default function NotificationPreferencesManager({ readOnly = false }: NotificationPreferencesManagerProps) {
   const uid = useId();
   const toast = useToast();
-  const [saving, setSaving] = useState(false);
   const [hasSecret, setHasSecret] = useState(false);
 
   const [notifyOnBlock, setNotifyOnBlock] = useState(true);
@@ -84,11 +84,8 @@ export default function NotificationPreferencesManager({ readOnly = false }: Not
     });
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (readOnly) return;
-    setSaving(true);
-    try {
+  const save = useMutation({
+    fn: async () => {
       // Prune selections against the roster ONLY when it actually loaded — a
       // failed/empty members fetch must not wipe the saved recipients. The
       // backend re-intersects targetUsers with org membership at send time, so
@@ -105,14 +102,18 @@ export default function NotificationPreferencesManager({ readOnly = false }: Not
         webhookUrl: webhookUrl.trim() || null,
       };
       if (webhookSecret.trim()) body.webhookSecret = webhookSecret.trim();
+      return api.updateComplianceNotificationPreference(body);
+    },
+    errorFallback: 'Failed to save notification preferences',
+    toast: { success: 'Notification preferences saved', error: true },
+    onSuccess: (res) => { if (res.data?.preference) apply(res.data.preference); },
+  });
+  const saving = save.pending;
 
-      const res = await api.updateComplianceNotificationPreference(body);
-      if (res.data?.preference) apply(res.data.preference);
-      toast.success('Notification preferences saved');
-    } catch (err) {
-      toast.error(formatError(err, 'Failed to save notification preferences'));
-    }
-    setSaving(false);
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (readOnly) return;
+    await save.run();
   };
 
   if (loading) {

@@ -22,6 +22,7 @@ import { api } from '@/lib/api';
 import type { Alert, Silence } from '@/types/observability';
 import { formatRelativeTime } from '@/lib/relative-time';
 import { formatError } from '@/lib/constants';
+import { useMutation } from '@/hooks/useMutation';
 
 const SEVERITY_STYLES: Record<string, { bg: string; text: string; chip: string }> = {
   critical: {
@@ -69,7 +70,15 @@ export default function AlertsPage() {
   const [silenceTarget, setSilenceTarget] = useState<Alert | null>(null);
   // Expiring a silence re-arms its alerts immediately — confirm first.
   const [expireTarget, setExpireTarget] = useState<Silence | null>(null);
-  const [expiring, setExpiring] = useState(false);
+  const expire = useMutation({
+    fn: (silence: Silence) => api.observabilityDeleteSilence(silence.id),
+    toast: { success: 'Silence expired.', error: true },
+    onSuccess: () => {
+      setExpireTarget(null);
+      void refetch();
+    },
+  });
+  const expiring = expire.pending;
 
   const { data, loading, error, refetch } = useFetch(
     async (signal) => {
@@ -128,17 +137,7 @@ export default function AlertsPage() {
 
   const onExpireSilence = async () => {
     if (!expireTarget) return;
-    setExpiring(true);
-    try {
-      await api.observabilityDeleteSilence(expireTarget.id);
-      toast.success('Silence expired.');
-      setExpireTarget(null);
-      void refetch();
-    } catch (err) {
-      toast.error(formatError(err));
-    } finally {
-      setExpiring(false);
-    }
+    await expire.run(expireTarget);
   };
 
   return (
@@ -309,16 +308,14 @@ function SilenceModal(props: {
 
   const [durationMs, setDurationMs] = useState(DURATIONS[0].ms);
   const [comment, setComment] = useState('');
-  const [submitting, setSubmitting] = useState(false);
+  const create = useMutation({
+    fn: (text: string) => onSubmit(seedMatchers, durationMs, text),
+  });
+  const submitting = create.pending;
 
   const handleSubmit = async () => {
     if (!comment.trim()) return;
-    setSubmitting(true);
-    try {
-      await onSubmit(seedMatchers, durationMs, comment.trim());
-    } finally {
-      setSubmitting(false);
-    }
+    await create.run(comment.trim());
   };
 
   const footer = (

@@ -78,7 +78,7 @@ const REGISTERED: ReadonlyArray<readonly [string, string, string]> = [
   ['KeptSetupImageView', 'frontend/src/lib/api/pipeline-security-types.ts', 'api/plugin/src/services/kept-setup-images.ts'],
   ['OrgIdpConfigDto', 'frontend/src/types/sso.ts', 'platform/src/services/org-idp-service.ts'],
   ['ParsedIdpMetadata', 'frontend/src/types/sso.ts', 'platform/src/services/saml-service.ts'],
-  ['PluginIcon', 'frontend/src/types/plugin.ts', 'packages/pipeline-data/src/database/schema/plugin.ts'],
+  ['PluginIcon', 'frontend/src/types/plugin.ts', 'packages/api-core/src/types/plugin-wire.ts'],
   // A version in the fleet / moderation vulnerability attention lists (api/plugin, not importable).
   ['PostureVersion', 'frontend/src/lib/api/plugin-vulnerability-types.ts', 'api/plugin/src/services/plugin-vuln-posture.ts'],
   ['PromotionResult', 'frontend/src/lib/api/pipeline-security-types.ts', 'api/plugin/src/services/kept-setup-images.ts'],

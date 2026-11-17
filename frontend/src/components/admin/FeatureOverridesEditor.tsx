@@ -8,7 +8,7 @@ import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { Button } from '@/components/ui/Button';
 import { FilterSelect } from '@/components/ui/FilterSelect';
 import { ALL_FEATURE_FLAGS, FEATURE_METADATA, type FeatureFlag } from '@/lib/feature-flags';
-import { formatError } from '@/lib/constants';
+import { useMutation } from '@/hooks/useMutation';
 
 /**
  * Per-user, PER-ORG feature-flag override editor. Overrides are stored per
@@ -42,8 +42,6 @@ export function FeatureOverridesEditor({
   onSaved: () => void;
 }) {
   const [state, setState] = useState<Record<string, boolean | undefined>>(() => ({ ...initial }));
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [savedAt, setSavedAt] = useState<number | null>(null);
   // Granting capabilities needs a fresh password check; Save opens it.
   const [confirming, setConfirming] = useState(false);
@@ -65,28 +63,29 @@ export function FeatureOverridesEditor({
     });
   }, []);
 
-  const handleSave = useCallback(async (stepUpToken: string) => {
-    setConfirming(false);
-    setSaving(true);
-    setError(null);
-    try {
+  const save = useMutation({
+    fn: async (stepUpToken: string) => {
       // Filter out `undefined` (inherit) and send only the explicit overrides.
       const overrides = Object.fromEntries(
         Object.entries(state).filter(([, v]) => typeof v === 'boolean'),
       ) as Record<string, boolean>;
       const res = await api.updateUserFeatures(userId, overrides, stepUpToken, organizationId);
-      if (res.success) {
-        setSavedAt(Date.now());
-        onSaved();
-      } else {
-        setError(res.message || 'Save failed');
-      }
-    } catch (err) {
-      setError(formatError(err));
-    } finally {
-      setSaving(false);
-    }
-  }, [userId, organizationId, state, onSaved]);
+      if (!res.success) throw new Error(res.message || 'Save failed');
+    },
+    scopeKey: `${userId}:${organizationId ?? ''}`,
+    onSuccess: () => {
+      setSavedAt(Date.now());
+      onSaved();
+    },
+  });
+  const saving = save.pending;
+  const error = save.error;
+  const { run: runSave } = save;
+
+  const handleSave = useCallback(async (stepUpToken: string) => {
+    setConfirming(false);
+    await runSave(stepUpToken);
+  }, [runSave]);
 
   return (
     <div className="rounded-lg border border-default px-3 py-2 text-sm">

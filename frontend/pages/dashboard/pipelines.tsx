@@ -33,7 +33,7 @@ import api from '@/lib/api';
 import { ApiError } from '@/lib/api/errors';
 // Every refresh below follows a write, so the shared pipeline cache the command
 // palette / dashboard home / deployment-drift view read from must be dropped too.
-import { invalidate } from '@/lib/api-cache';
+import { invalidate, queryTags } from '@/lib/api-cache';
 import { PIPELINE_LIST_FIELDS, type PipelineSummary } from '@/lib/api/domains/pipelines';
 import { mapCommonParams, canWritePipeline } from '@/lib/resource-helpers';
 import { buildListSummary } from '@/lib/list-summary';
@@ -110,6 +110,9 @@ export default function PipelinesPage() {
     },
     enabled: isAuthenticated,
     urlSync: true,
+    // A pipeline write anywhere (the editor, a template, the command palette)
+    // re-reads this page.
+    tags: [queryTags.pipelines],
   });
 
   // Any write here invalidates the shared pipeline cache AND re-reads this page.

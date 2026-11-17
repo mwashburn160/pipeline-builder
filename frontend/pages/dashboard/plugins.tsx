@@ -42,7 +42,7 @@ import { PolicyTab } from '@/components/plugin-installs/PolicyTab';
 import { AdvisorySearchPanel } from '@/components/plugin/AdvisorySearchPanel';
 import { OrgFailedBuildsPanel } from '@/components/plugin/OrgFailedBuildsPanel';
 import { PluginInUseModal, pluginInUseRefusal, type PluginInUseRefusal } from '@/components/plugin/PluginInUseModal';
-import { invalidate } from '@/lib/api-cache';
+import { invalidate, queryTags } from '@/lib/api-cache';
 import { isSystemOrgActive } from '@/lib/ecosystem-access';
 
 // Modals and the recently-deleted panel load on first use — none of them is
@@ -209,6 +209,8 @@ export default function PluginsPage() {
     // replaces the whole query and would drop another tab's `?tab=`.
     enabled: isAuthenticated && mineActive,
     urlSync: mineActive,
+    // A plugin write anywhere (upload, build, install change) re-reads the page.
+    tags: [queryTags.plugins],
   });
 
   // Any write here re-reads this page AND drops the pipeline builder's cached

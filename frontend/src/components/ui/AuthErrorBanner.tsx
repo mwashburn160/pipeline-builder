@@ -4,6 +4,7 @@
 import { useEffect, useState } from 'react';
 import { AlertTriangle, RefreshCw, X } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
+import { useMutation } from '@/hooks/useMutation';
 
 /**
  * Surfaces `AuthContext.authError` — set when a profile refresh fails for a
@@ -19,7 +20,11 @@ import { useAuth } from '@/hooks/useAuth';
 export function AuthErrorBanner() {
   const { authError, refreshUser } = useAuth();
   const [dismissed, setDismissed] = useState(false);
-  const [retrying, setRetrying] = useState(false);
+  // On success refreshUser() clears authError → this unmounts. On another
+  // transient failure a new Error is set → banner stays (dismissed reset).
+  const retryM = useMutation({ fn: () => refreshUser() });
+  const retrying = retryM.pending;
+  const retry = retryM.run;
 
   // A fresh failure (new Error identity) re-shows a previously dismissed banner.
   useEffect(() => {
@@ -28,16 +33,6 @@ export function AuthErrorBanner() {
 
   if (!authError || dismissed) return null;
 
-  const retry = async () => {
-    setRetrying(true);
-    try {
-      // On success refreshUser() clears authError → this unmounts. On another
-      // transient failure a new Error is set → banner stays (dismissed reset).
-      await refreshUser();
-    } finally {
-      setRetrying(false);
-    }
-  };
 
   return (
     <div

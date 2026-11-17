@@ -3,6 +3,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { runCancellableFetch } from './internal/fetchCore';
+import { useTagEpoch } from './internal/useTagEpoch';
 
 /**
  * Generic "fetch-once-or-on-deps-change" hook.
@@ -60,6 +61,14 @@ export interface UseFetchOptions<T> {
    * SAME record).
    */
   keepPreviousData?: boolean;
+  /**
+   * Shared-cache invalidation tags (see `queryTags` in `@/lib/api-cache`) this
+   * read depends on. When a write calls the matching `invalidate.*` member —
+   * directly or through `useMutation({ invalidates })` — the read re-runs,
+   * keeping its current `data` on screen while it does, exactly as a `useQuery`
+   * consumer would. Omit for a read no shared write affects.
+   */
+  tags?: ReadonlyArray<string>;
 }
 
 /** Element-wise `Object.is` — the comparison React applies to effect deps. */
@@ -92,6 +101,7 @@ export function useFetch<T>(
   // differ is a read that has not started yet, so it reports `loading`.
   const [startedFor, setStartedFor] = useState<ReadonlyArray<unknown>>(deps);
   const [tick, setTick] = useState(0);
+  const tagEpoch = useTagEpoch(options.tags);
   const fetcherRef = useRef(fetcher);
   fetcherRef.current = fetcher;
   const onSuccessRef = useRef(options.onSuccess);
@@ -138,7 +148,7 @@ export function useFetch<T>(
       },
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the caller's `deps` are spread in, so the list size is not statically known
-  }, [...deps, tick, enabled, clearDataOnError, keepPreviousData]);
+  }, [...deps, tick, tagEpoch, enabled, clearDataOnError, keepPreviousData]);
 
   const current = (s: Stamped<unknown> | null) =>
     !!s && (keepPreviousData || (enabled && sameDeps(s.deps, deps)));

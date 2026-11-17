@@ -8,6 +8,7 @@ import { FormField } from '@/components/ui/FormField';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Textarea } from '@/components/ui/Textarea';
+import { useMutation } from '@/hooks/useMutation';
 import { REVIEW_BODY_MAX, REVIEW_TITLE_MAX, reviewErrorMessage } from '@/lib/plugin-reviews';
 import type { OwnReview, ReviewBody } from '@/types/plugin-reviews';
 import { StarRatingInput } from './StarRating';
@@ -40,40 +41,36 @@ export function ReviewForm({
   const [title, setTitle] = useState(initial?.title ?? '');
   const [body, setBody] = useState(initial?.bodyMd ?? '');
   const [version, setVersion] = useState(initial?.version ?? '');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const titleId = useId();
   const bodyId = useId();
   const versionId = useId();
   const editing = !!initial;
   const versionOptions = version && !versions.includes(version) ? [version, ...versions] : versions;
+  const save = useMutation({
+    fn: (payload: ReviewBody) => onSubmit(payload),
+    formatError: (err) => reviewErrorMessage(err, editing ? 'Could not save your review' : 'Could not post your review'),
+  });
+  const busy = save.pending;
+  const error = save.error;
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     if (rating < 1) {
-      setError('Choose a rating from 1 to 5 stars.');
+      save.setError('Choose a rating from 1 to 5 stars.');
       return;
     }
-    setBusy(true);
-    setError(null);
-    try {
-      const payload: ReviewBody = editing
-        // An edit sends every field so clearing the title, body OR version
-        // sticks — "Not specified" is `null`, not an omitted field (which the
-        // server reads as "leave it").
-        ? { rating, title: title.trim(), body: body.trim(), version: version || null }
-        : {
-          rating,
-          ...(title.trim() ? { title: title.trim() } : {}),
-          ...(body.trim() ? { body: body.trim() } : {}),
-          ...(version ? { version } : {}),
-        };
-      await onSubmit(payload);
-    } catch (err) {
-      setError(reviewErrorMessage(err, editing ? 'Could not save your review' : 'Could not post your review'));
-    } finally {
-      setBusy(false);
-    }
+    const payload: ReviewBody = editing
+      // An edit sends every field so clearing the title, body OR version
+      // sticks — "Not specified" is `null`, not an omitted field (which the
+      // server reads as "leave it").
+      ? { rating, title: title.trim(), body: body.trim(), version: version || null }
+      : {
+        rating,
+        ...(title.trim() ? { title: title.trim() } : {}),
+        ...(body.trim() ? { body: body.trim() } : {}),
+        ...(version ? { version } : {}),
+      };
+    await save.run(payload);
   };
 
   return (
@@ -97,7 +94,7 @@ export function ReviewForm({
       {verifiedUse && (
         <p className="text-xs text-fg-muted">Your organization ran this plugin recently, so your review shows a “Verified use” badge. Your organization is never shown.</p>
       )}
-      <ErrorAlert message={error} onDismiss={() => setError(null)} />
+      <ErrorAlert message={error} onDismiss={save.reset} />
       <div className="flex flex-wrap gap-2">
         <Button type="submit" size="sm" loading={busy}>{editing ? 'Save review' : 'Post review'}</Button>
         {onCancel && <Button type="button" variant="secondary" size="sm" onClick={onCancel} disabled={busy}>Cancel</Button>}

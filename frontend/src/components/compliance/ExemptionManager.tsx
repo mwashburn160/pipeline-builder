@@ -4,6 +4,7 @@ import { Badge } from '@/components/ui/Badge';
 import { useState, useEffect, useRef } from 'react';
 import { ShieldOff, Check, X, Plus, Clock, Trash2, Upload, CalendarClock } from 'lucide-react';
 import api from '@/lib/api';
+import { useMutation } from '@/hooks/useMutation';
 import { Pagination } from '@/components/ui/Pagination';
 import { useToast } from '@/components/ui/Toast';
 import { TextEmptyState } from '@/components/ui/EmptyState';
@@ -45,7 +46,6 @@ export default function ExemptionManager({ readOnly = false }: ExemptionManagerP
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   // Submit had no in-flight state: repeated clicks fired N create calls, and an
   // incomplete form did nothing at all (a bare `return`) with no explanation.
-  const [submitting, setSubmitting] = useState(false);
   const [rejectionReason, setRejectionReason] = useState('');
   /** The exemption whose review (approve / reject) is in flight — a second
    *  click would send a second `PUT /:id/review`, which the server refuses. */
@@ -91,30 +91,32 @@ export default function ExemptionManager({ readOnly = false }: ExemptionManagerP
     if (fetchError) toastRef.current.error(fetchError.message || 'Failed to load exemptions');
   }, [fetchError]);
 
-  const handleCreate = async () => {
-    if (!form.ruleId || !form.entityId || !form.reason || submitting) return;
-    setSubmitting(true);
-    try {
+  const create = useMutation({
+    fn: async (data: typeof form) => {
       const res = await api.createExemption({
-        ruleId: form.ruleId,
-        entityType: form.entityType,
-        entityId: form.entityId,
-        entityName: form.entityName || undefined,
-        reason: form.reason,
+        ruleId: data.ruleId,
+        entityType: data.entityType,
+        entityId: data.entityId,
+        entityName: data.entityName || undefined,
+        reason: data.reason,
       });
-      if (res.success) {
-        setShowForm(false);
-        setForm({ ruleId: '', entityType: 'plugin', entityId: '', entityName: '', reason: '' });
-        toastRef.current.success('Exemption requested');
-        fetchExemptions();
-      } else {
-        toastRef.current.error(res.message || 'Failed to create exemption');
-      }
-    } catch (err) {
-      toastRef.current.error(formatError(err, 'Failed to create exemption'));
-    } finally {
-      setSubmitting(false);
-    }
+      if (!res.success) throw new Error(res.message || 'Failed to create exemption');
+      return res;
+    },
+    errorFallback: 'Failed to create exemption',
+    toast: { error: true },
+    onSuccess: () => {
+      setShowForm(false);
+      setForm({ ruleId: '', entityType: 'plugin', entityId: '', entityName: '', reason: '' });
+      toastRef.current.success('Exemption requested');
+      fetchExemptions();
+    },
+  });
+  const submitting = create.pending;
+
+  const handleCreate = async () => {
+    if (!form.ruleId || !form.entityId || !form.reason) return;
+    await create.run(form);
   };
 
   const handleApprove = async (id: string) => {

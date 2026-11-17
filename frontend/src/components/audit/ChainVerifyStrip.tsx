@@ -5,7 +5,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { ShieldCheck, ShieldAlert, ShieldQuestion } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
-import { formatError } from '@/lib/constants';
+import { useMutation } from '@/hooks/useMutation';
 import api from '@/lib/api';
 import type { AuditChainBreak, AuditChainVerification } from '@/types/audit';
 
@@ -38,46 +38,40 @@ interface ChainVerifyStripProps {
  * three `useState`s and a reset effect for it, none of which anything else read.
  */
 export function ChainVerifyStrip({ orgId, renderOrgRef }: ChainVerifyStripProps) {
-  const [verifying, setVerifying] = useState(false);
   const [result, setResult] = useState<AuditChainVerification | null>(null);
-  const [error, setError] = useState<string | null>(null);
 
-  // The verification in flight, and which org it is for, so a verify started
-  // for org A that resolves after the scope moved to org B can't paint A's
-  // verdict ("Chain intact") next to B's name.
-  const inFlight = useRef<{ orgId: string; ctrl: AbortController } | null>(null);
+  // The verification in flight, so a scope change (or unmount) stops it on the
+  // wire. `useMutation` binds the outcome to `orgId`, so a verify started for
+  // org A that resolves after the scope moved to org B can't paint A's verdict
+  // ("Chain intact") next to B's name — and A's error is not shown for B.
+  const inFlight = useRef<AbortController | null>(null);
+
+  const verify = useMutation({
+    fn: async (forOrg: string) => {
+      const ctrl = new AbortController();
+      inFlight.current = ctrl;
+      setResult(null);
+      const res = await api.verifyAuditChain(forOrg, { signal: ctrl.signal });
+      if (!res.success || !res.data) throw new Error(res.message || 'Failed to verify audit chain');
+      return res.data;
+    },
+    scopeKey: orgId,
+    errorFallback: 'Failed to verify audit chain',
+    onSuccess: (data) => setResult(data),
+  });
+  const verifying = verify.pending;
+  const error = verify.error;
 
   // Reset any stale verify result — and drop the one in flight — when the org
   // in scope changes (and on unmount).
   useEffect(() => {
     setResult(null);
-    setError(null);
-    setVerifying(false);
-    return () => { inFlight.current?.ctrl.abort(); inFlight.current = null; };
+    return () => { inFlight.current?.abort(); inFlight.current = null; };
   }, [orgId]);
 
   const runVerify = async () => {
     if (!orgId) return;
-    inFlight.current?.ctrl.abort();
-    const mine = { orgId, ctrl: new AbortController() };
-    inFlight.current = mine;
-    setVerifying(true);
-    setResult(null);
-    setError(null);
-    try {
-      const res = await api.verifyAuditChain(orgId, { signal: mine.ctrl.signal });
-      if (inFlight.current !== mine) return; // superseded or scope moved
-      if (res.success && res.data) setResult(res.data);
-      else setError(res.message || 'Failed to verify audit chain');
-    } catch (e) {
-      if (inFlight.current !== mine) return;
-      setError(formatError(e, 'Failed to verify audit chain'));
-    } finally {
-      if (inFlight.current === mine) {
-        inFlight.current = null;
-        setVerifying(false);
-      }
-    }
+    await verify.run(orgId);
   };
 
   return (

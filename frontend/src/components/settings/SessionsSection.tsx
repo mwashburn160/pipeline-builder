@@ -12,6 +12,7 @@ import { RelativeTime } from '@/components/ui/RelativeTime';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { StepUpModal } from '@/components/admin/StepUpModal';
 import { useToast } from '@/components/ui/Toast';
+import { useMutation } from '@/hooks/useMutation';
 import { useQuery } from '@/hooks/useQuery';
 import { invalidate, queries } from '@/lib/api-cache';
 import { formatError } from '@/lib/constants';
@@ -88,7 +89,6 @@ export function SessionsSection({ readOnly }: { readOnly: boolean }) {
   const loadError = read.error ? formatError(read.error, 'Failed to load sessions') : null;
   const reload = () => { invalidate.sessions(); read.refetch(); };
   const [revoking, setRevoking] = useState<string | null>(null);
-  const [revokingAll, setRevokingAll] = useState(false);
   const [pending, setPending] = useState<Pending | null>(null);
 
   const executeRevoke = async (session: SessionMeta, stepUpToken: string) => {
@@ -109,18 +109,14 @@ export function SessionsSection({ readOnly }: { readOnly: boolean }) {
   };
 
   /** Kills every other session plus all CLI/PAT tokens; this tab is re-issued. */
-  const executeRevokeAll = async (stepUpToken: string) => {
-    setRevokingAll(true);
-    try {
-      await api.revokeAllTokens(stepUpToken);
-      toast.success('Signed out everywhere. This tab has a fresh token.');
-      void reload();
-    } catch (err) {
-      toast.error(formatError(err, 'Failed to revoke tokens'));
-    } finally {
-      setRevokingAll(false);
-    }
-  };
+  const revokeAll = useMutation({
+    fn: async (stepUpToken: string) => { await api.revokeAllTokens(stepUpToken); },
+    errorFallback: 'Failed to revoke tokens',
+    toast: { success: 'Signed out everywhere. This tab has a fresh token.', error: true },
+    onSuccess: () => { void reload(); },
+  });
+  const revokingAll = revokeAll.pending;
+  const executeRevokeAll = revokeAll.run;
 
   const revokeColumn = (label: string): Column<SessionMeta> => ({
     id: 'actions',

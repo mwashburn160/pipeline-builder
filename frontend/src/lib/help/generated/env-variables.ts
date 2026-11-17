@@ -1,6 +1,6 @@
 // GENERATED FROM docs/environment-variables.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: e365b963710d72fe9756de7a6f3f9bf49b9d9b55954b543100faba83875acd95
+// SOURCE-SHA256: 357f8740f30cecf8b3b58f6b475e0c6539a5e54d8a3cb473b0a9273bbb5f8c75
 // SPDX-License-Identifier: Apache-2.0
 import { FileCode } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -280,6 +280,16 @@ export const envVariablesTopic: HelpTopic = {
               "REFRESH_TOKEN_EXPIRES_IN",
               "2592000",
               "Refresh token TTL (30d). Also the Max-Age of the browser's pb_refresh cookie."
+            ],
+            [
+              "SESSION_MAX_AGE_DAYS",
+              "30",
+              "Platform ceiling on an INTERACTIVE session's age, counted from the sign-in that opened it (renewal never resets it). Past it /auth/refresh answers 401 SESSION_EXPIRED and the person signs in again; the refresh token never outlives it. An org may only shorten it (PATCH /organization/:id/session-policy). Machine credentials keep their own fixed end. Minimum 1. See Session validity."
+            ],
+            [
+              "SESSION_IDLE_TIMEOUT_DAYS",
+              "7",
+              "Platform ceiling on how long an INTERACTIVE session may go unused (no refresh / switch-org) before /auth/refresh refuses it with SESSION_EXPIRED. An org may only shorten it. Not applied to machine credentials, which renew unattended. Minimum 1."
             ],
             [
               "AUTH_REFRESH_COOKIE_PATH",

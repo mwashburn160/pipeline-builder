@@ -11,7 +11,7 @@ import { Checkbox } from '@/components/ui/Checkbox';
 import { Callout } from '@/components/ui/Callout';
 import { useToast } from '@/components/ui/Toast';
 import api from '@/lib/api';
-import { formatError } from '@/lib/constants';
+import { useMutation } from '@/hooks/useMutation';
 import type { ExposureTriageBody, PipelineExposureView } from '@/lib/api/pipeline-security-types';
 import { RISK_ACCEPTANCE_MAX_DAYS, acceptanceWindow, triageBody, triageProblem } from '@/lib/pipeline-security';
 
@@ -47,26 +47,29 @@ export function ExposureTriageModal({ pipelineId, exposure, action, needsKev, on
   const [reason, setReason] = useState('');
   const [day, setDay] = useState(range.defaultValue);
   const [kevAck, setKevAck] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   const draft = { action, reason, day, kevAck };
   const problem = triageProblem(draft, needsKev);
 
-  const submit = async () => {
-    if (problem) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const res = await api.triagePipelineExposure(pipelineId, exposure.id, triageBody(draft, needsKev));
+  const triage = useMutation({
+    fn: async (body: ExposureTriageBody) => {
+      const res = await api.triagePipelineExposure(pipelineId, exposure.id, body);
       if (!res.success) throw new Error(res.message || 'Triage failed');
+      return res;
+    },
+    scopeKey: `${pipelineId}:${exposure.id}`,
+    errorFallback: 'Triage failed',
+    onSuccess: () => {
       toast.success(action === 'accept' ? 'Risk accepted for this pipeline' : action === 'false_positive' ? 'Marked as a false positive' : 'Exposure reopened');
       onDone();
-    } catch (err) {
-      setError(formatError(err, 'Triage failed'));
-    } finally {
-      setBusy(false);
-    }
+    },
+  });
+  const busy = triage.pending;
+  const error = triage.error;
+
+  const submit = async () => {
+    if (problem) return;
+    await triage.run(triageBody(draft, needsKev));
   };
 
   return (

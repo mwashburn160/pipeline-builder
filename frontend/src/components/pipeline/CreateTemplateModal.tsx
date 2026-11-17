@@ -22,6 +22,7 @@ import type { Pipeline, BuilderProps, TemplateInput, TemplateVisibility } from '
 import { VisibilitySelect, visibilityHint } from '@/components/ui/VisibilitySelect';
 import { useUnmountedRef } from '@/hooks/useUnmountedRef';
 import { useAutoCloseTimer } from '@/hooks/useAutoCloseTimer';
+import { useMutation } from '@/hooks/useMutation';
 import { INPUT_NAME_RE, toTemplateInputs, type EditableInput } from '@/lib/template-inputs';
 
 /** How each rung reads back in the post-save confirmation. */
@@ -134,7 +135,10 @@ export function CreateTemplateModal({ pipeline, canPublish, onClose, onCreated }
 
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
+  // On success the modal stays open ~1.5s to show the confirmation; the submit
+  // button must stay locked for exactly that window, or a second click creates
+  // a duplicate template (or a name-conflict error stacks on the success banner).
+  const [created, setCreated] = useState(false);
 
   const unmountedRef = useUnmountedRef();
   const autoClose = useAutoCloseTimer();
@@ -197,6 +201,37 @@ export function CreateTemplateModal({ pipeline, canPublish, onClose, onCreated }
     }
   };
 
+  const createM = useMutation({
+    // Declared inputs → vars.<name>; swap each input's `replaces` literal in the
+    // captured props for `{{ vars.<name> }}` so the template is parameterized
+    // (e.g. the source repo URL becomes vars.repoUrl). A template with no inputs
+    // instantiates as a clone of the source pipeline's config.
+    fn: async (sourceProps: BuilderProps) => {
+      const templateInputs = toTemplateInputs(inputs);
+      const finalProps = parameterizeProps(sourceProps, inputs);
+      const res = await api.createPipelineTemplate({
+        name: name.trim(),
+        description: description.trim() || undefined,
+        keywords: keywords.trim() ? keywords.split(',').map((k) => k.trim()).filter(Boolean) : undefined,
+        category: category.trim() || 'general',
+        visibility,
+        props: finalProps,
+        inputs: templateInputs,
+      });
+      if (!res.success) throw new Error(res.message || 'Failed to create template.');
+      return res;
+    },
+    errorFallback: 'Failed to create template',
+    onError: (_err, message) => setError(message),
+    onSuccess: () => {
+      setCreated(true);
+      setSuccess(`Template "${name.trim()}" saved as ${VISIBILITY_BLURB[visibility]}.`);
+      onCreated();
+      autoClose.schedule(onClose, 1500);
+    },
+  });
+  const saving = createM.pending || created;
+
   const handleCreate = async () => {
     if (!name.trim()) { setError('Template name is required.'); return; }
     if (!source?.props) { setError('Select a pipeline to base the template on.'); return; }
@@ -213,41 +248,7 @@ export function CreateTemplateModal({ pipeline, canPublish, onClose, onCreated }
 
     setError(null);
     setSuccess(null);
-    setSaving(true);
-    // On success the modal stays open ~1.5s to show the confirmation, and
-    // clearing `saving` in `finally` re-armed the submit button for exactly that
-    // window: a second click created a duplicate template (or a name-conflict
-    // error stacked on the success banner). Stay locked until it closes.
-    let created = false;
-    try {
-      // Declared inputs → vars.<name>; swap each input's `replaces` literal in the
-      // captured props for `{{ vars.<name> }}` so the template is parameterized
-      // (e.g. the source repo URL becomes vars.repoUrl). A template with no inputs
-      // instantiates as a clone of the source pipeline's config.
-      const templateInputs = toTemplateInputs(inputs);
-      const finalProps = parameterizeProps(source.props, inputs);
-      const res = await api.createPipelineTemplate({
-        name: name.trim(),
-        description: description.trim() || undefined,
-        keywords: keywords.trim() ? keywords.split(',').map((k) => k.trim()).filter(Boolean) : undefined,
-        category: category.trim() || 'general',
-        visibility,
-        props: finalProps,
-        inputs: templateInputs,
-      });
-      if (res.success) {
-        created = true;
-        setSuccess(`Template "${name.trim()}" saved as ${VISIBILITY_BLURB[visibility]}.`);
-        onCreated();
-        autoClose.schedule(onClose, 1500);
-      } else {
-        setError(res.message || 'Failed to create template.');
-      }
-    } catch (err) {
-      setError(formatError(err, 'Failed to create template'));
-    } finally {
-      if (!created) setSaving(false);
-    }
+    await createM.run(source.props);
   };
 
   const footer = (

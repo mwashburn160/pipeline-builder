@@ -23,6 +23,7 @@ import { Card } from '@/components/ui/Card';
 import { confirmReportRecipientEmail } from '@/lib/api/domains/stakeholder-reports-public';
 import { ApiError } from '@/lib/api/errors';
 import { tokenFromQuery } from '@/lib/plugin-submissions/status';
+import { useMutation } from '@/hooks/useMutation';
 
 /**
  * One message for every way a token can fail.
@@ -46,22 +47,19 @@ function confirmErrorMessage(err: unknown): string {
 export default function ConfirmReportRecipientPage() {
   const router = useRouter();
   const token = router.isReady ? tokenFromQuery(router.query.token) : null;
-  const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const confirmation = useMutation({
+    fn: (t: string) => confirmReportRecipientEmail(t),
+    scopeKey: token,
+    formatError: confirmErrorMessage,
+    onSuccess: () => setDone(true),
+  });
+  const busy = confirmation.pending;
+  const error = confirmation.error;
 
   const confirm = async () => {
     if (!token) return;
-    setBusy(true);
-    setError(null);
-    try {
-      await confirmReportRecipientEmail(token);
-      setDone(true);
-    } catch (err) {
-      setError(confirmErrorMessage(err));
-    } finally {
-      setBusy(false);
-    }
+    await confirmation.run(token);
   };
 
   return (

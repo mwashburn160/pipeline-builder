@@ -19,6 +19,7 @@ import { storeOAuthIntent } from '@/lib/oauth-intent';
 import { formatError, providerLabel } from '@/lib/constants';
 import { rememberReturnPath } from '@/lib/return-to';
 import type { OrgRole } from '@pipeline-builder/api-core/wire-vocabulary';
+import { useMutation } from '@/hooks/useMutation';
 
 interface InvitePreview {
   email: string;
@@ -62,7 +63,6 @@ export default function AcceptInvitePage({ siteUrl = DEFAULT_SITE_URL }: Partial
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
 
-  const [submitting, setSubmitting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
   /** The provider whose sign-in redirect is being started, if any. */
@@ -99,30 +99,32 @@ export default function AcceptInvitePage({ siteUrl = DEFAULT_SITE_URL }: Partial
     redirectTimer.current = setTimeout(() => router.push('/dashboard'), 1200);
   };
 
+  // Every write reports into the one `actionError` banner, which client-side
+  // validation shares too.
+  const reportError = (_err: unknown, message: string) => setActionError(message);
+
   // Logged-in: accept directly.
-  const handleAcceptLoggedIn = async () => {
-    setSubmitting(true);
-    setActionError(null);
-    try {
+  const acceptLoggedIn = useMutation({
+    fn: async () => {
       const res = await api.acceptInvitation(token);
       if (!res.success) throw new Error(res.message || 'Failed to accept invitation');
       await finish();
-    } catch (err) {
-      setActionError(formatError(err, 'Failed to accept invitation'));
-    } finally {
-      setSubmitting(false);
-    }
+    },
+    scopeKey: token,
+    errorFallback: 'Failed to accept invitation',
+    onError: reportError,
+  });
+  const handleAcceptLoggedIn = async () => {
+    setActionError(null);
+    await acceptLoggedIn.run();
   };
 
   // Logged-out OAuth-only invite: carry the invite token through the OAuth dance.
   // We stash an "invite" intent (keyed by the backend-minted CSRF state) so the
   // shared callback page (pages/auth/callback/[provider].tsx) completes the accept
   // via POST /invitation/accept-oauth, then establishes the session.
-  const handleOAuthAccept = async (provider: string) => {
-    setActionError(null);
-    setSubmitting(true);
-    setOauthBusy(provider);
-    try {
+  const oauthAccept = useMutation({
+    fn: async (provider: string) => {
       const res = await api.getOAuthUrl(provider);
       const url = res.data?.url;
       const state = res.data?.state;
@@ -142,14 +144,42 @@ export default function AcceptInvitePage({ siteUrl = DEFAULT_SITE_URL }: Partial
         );
       }
       window.location.href = url;
-    } catch (err) {
-      setActionError(formatError(err, 'Could not start sign-in'));
-      setSubmitting(false);
+    },
+    scopeKey: token,
+    errorFallback: 'Could not start sign-in',
+    onError: (err, message) => {
+      reportError(err, message);
       setOauthBusy(null);
-    }
+    },
+  });
+  const handleOAuthAccept = async (provider: string) => {
+    setActionError(null);
+    // Stays set on success: the page is leaving for the provider, so the form
+    // must stay disabled until it does.
+    setOauthBusy(provider);
+    await oauthAccept.run(provider);
   };
 
   // Logged-out: register with the invited email, log in, then accept.
+  const registerAndAccept = useMutation({
+    fn: async (email: string) => {
+      // Registering WITH the invitation token joins the inviting org server-side
+      // (the invitation is accepted in the same transaction) and creates no org
+      // of its own. `redirect: false` keeps register from navigating to
+      // /dashboard before `finish()` runs. Naming the invitation also makes the
+      // inviting org's password policy apply.
+      const { invitationAccepted } = await register(username.trim(), email, password, undefined, undefined, { redirect: false, invitationToken: token });
+      // Only an older backend leaves the accept to us (it created an org instead).
+      if (!invitationAccepted) {
+        const res = await api.acceptInvitation(token);
+        if (!res.success) throw new Error(res.message || 'Failed to accept invitation');
+      }
+      await finish();
+    },
+    scopeKey: token,
+    errorFallback: 'Failed to create account and accept',
+    onError: reportError,
+  });
   const handleRegisterAndAccept = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!invite) return;
@@ -157,27 +187,10 @@ export default function AcceptInvitePage({ siteUrl = DEFAULT_SITE_URL }: Partial
     if (username.trim().length < 3) { setActionError('Username must be at least 3 characters'); return; }
     if (password.length < 8) { setActionError('Password must be at least 8 characters'); return; }
     if (password !== confirmPassword) { setActionError('Passwords do not match'); return; }
-
-    setSubmitting(true);
-    try {
-      // Registering WITH the invitation token joins the inviting org server-side
-      // (the invitation is accepted in the same transaction) and creates no org
-      // of its own. `redirect: false` keeps register from navigating to
-      // /dashboard before `finish()` runs. Naming the invitation also makes the
-      // inviting org's password policy apply.
-      const { invitationAccepted } = await register(username.trim(), invite.email, password, undefined, undefined, { redirect: false, invitationToken: token });
-      // Only an older backend leaves the accept to us (it created an org instead).
-      if (!invitationAccepted) {
-        const res = await api.acceptInvitation(token);
-        if (!res.success) throw new Error(res.message || 'Failed to accept invitation');
-      }
-      await finish();
-    } catch (err) {
-      setActionError(formatError(err, 'Failed to create account and accept'));
-    } finally {
-      setSubmitting(false);
-    }
+    await registerAndAccept.run(invite.email);
   };
+
+  const submitting = acceptLoggedIn.pending || oauthAccept.pending || registerAndAccept.pending || oauthBusy !== null;
 
   const inviteUnusable = invite && (!invite.isValid || invite.status !== 'pending');
 
