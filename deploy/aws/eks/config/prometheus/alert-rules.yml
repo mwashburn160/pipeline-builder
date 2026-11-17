@@ -2628,6 +2628,71 @@ groups:
           summary: "Token revocation is failing open"
           description: "{{ $value | humanize }} revocation read failures/sec over 5m sustained for 10m — forced logouts / privilege revocations are NOT taking effect until token expiry. Restore the revocation Redis."
 
+      - alert: RateLimitStoreFailingOpen
+        expr: sum by (limiter) (rate(rate_limit_store_error_total[5m])) > 0.1
+        for: 10m
+        labels:
+          severity: warning
+          component: auth
+          tenancy: platform
+        annotations:
+          summary: "Rate-limit store failing open ({{ $labels.limiter }})"
+          description: "Shared rate-limit store errors on {{ $labels.limiter }} — requests pass UNLIMITED. Password guessing is still bounded by the Mongo lockout; restore Redis."
+
+      - alert: RefreshTokenReuseSpike
+        expr: sum(increase(platform_refresh_reuse_total[15m])) > 20
+        for: 5m
+        labels:
+          severity: warning
+          component: auth
+          tenancy: platform
+        annotations:
+          summary: "Refresh-token reuse spike"
+          description: "{{ $value }} presumed-stolen refresh tokens revoked in 15m — possible token theft, or a client refreshing concurrently outside the 30s grace."
+
+      - alert: OidcDiscoveryFailing
+        expr: sum by (stage) (rate(platform_oidc_discovery_failed_total[10m])) > 0.05
+        for: 15m
+        labels:
+          severity: warning
+          component: auth
+          tenancy: platform
+        annotations:
+          summary: "OIDC {{ $labels.stage }} failing"
+          description: "Per-org SSO cannot load IdP metadata/keys — affected orgs cannot sign in via SSO."
+
+      - alert: EmailSendFailing
+        expr: (sum(rate(platform_email_send_total{outcome="failure"}[15m])) / clamp_min(sum(rate(platform_email_send_total{outcome=~"success|failure"}[15m])), 1e-9)) > 0.2 and sum(rate(platform_email_send_total{outcome="failure"}[15m])) > 0
+        for: 15m
+        labels:
+          severity: warning
+          component: notifications
+          tenancy: platform
+        annotations:
+          summary: "Outbound email failing"
+          description: ">20% of sends failing — password reset / verification emails are not arriving."
+
+      - alert: BreakglassImpersonationStarted
+        expr: sum(increase(platform_impersonation_total{kind="breakglass",outcome="started"}[10m])) > 0
+        labels:
+          severity: info
+          component: auth
+          tenancy: platform
+        annotations:
+          summary: "Break-glass impersonation session started"
+          description: "An emergency impersonation session opened — confirm it matches an incident."
+
+      - alert: ComplianceAuditWriteFailing
+        expr: sum by (kind) (increase(compliance_audit_write_failures_total[15m])) > 0
+        for: 5m
+        labels:
+          severity: warning
+          component: compliance
+          tenancy: platform
+        annotations:
+          summary: "Compliance audit writes failing ({{ $labels.kind }})"
+          description: "Compliance {{ $labels.kind }} rows were lost after retries — the compliance audit trail has gaps. Check the compliance service's database connectivity."
+
       # The fail-CLOSED half of the same store, and the one with no alert until now.
       # `getSessionRevocation` treats an unreadable Redis as `unavailable`, which REJECTS
       # the token — so where the counter above means "revocations stop working", this one

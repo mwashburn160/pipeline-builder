@@ -74,7 +74,15 @@ describe('sign_service_jwt — the deploy-bootstrap token is least-privilege', (
       token_use: 'access',
       type: 'access',
       organizationId: 'system',
+      iss: 'pipeline-builder-platform',
+      aud: 'pipeline-builder',
     });
+  });
+
+  it('stamps iss/aud from JWT_ISSUER/JWT_AUDIENCE when the target .env sets them', () => {
+    const r = spawnSync('bash', ['-c', `. "${COMMON}"; JWT_ISSUER=custom-iss JWT_AUDIENCE=custom-aud sign_service_jwt "${keyFile}" "${bundleFile}" plugins:write`], { encoding: 'utf-8' });
+    expect(r.status).toBe(0);
+    expect(decode(r.stdout.trim()).payload).toMatchObject({ iss: 'custom-iss', aud: 'custom-aud' });
   });
 
   it('asserts no superadmin and no admin role', () => {

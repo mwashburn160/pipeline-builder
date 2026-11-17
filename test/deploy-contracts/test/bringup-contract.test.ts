@@ -547,7 +547,7 @@ describe('postgres-init.sql', () => {
   it('is what the pipeline-data schema suites boot PGlite from', () => {
     // Those suites assert what the DB actually enforces; pointed at a stale or
     // absent file they would silently assert nothing.
-    expect(read('packages/pipeline-data/test/helpers/pglite-init.ts'))
+    expect(read('packages/pipeline-data/src/testing/pglite-init.ts'))
       .toContain("resolve(REPO_ROOT, 'deploy/local/docker/postgres-init.sql')");
   });
 });

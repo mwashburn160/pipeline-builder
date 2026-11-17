@@ -276,6 +276,25 @@ spec:
 # Not present on ec2 or minikube: their PVs are manual hostPath
 # (storageClassName: ""), there is no CSI driver to resize, and a patch there
 # would be accepted by the API server and silently do nothing.
+#
+# `resourceNames` pins the grant to the claims this tree actually declares.
+# The claim name arrives in an Alertmanager label, so without the list a forged
+# or mislabelled alert could make platform grow ANY claim in the namespace. The
+# list is every PersistentVolumeClaim in deploy/aws/eks/k8s plus the claims the
+# StatefulSet volumeClaimTemplates mint (<template>-<statefulset>-<ordinal>):
+#
+#   * data-rustfs-0..3        rustfs.yaml          replicas: 4
+#   * data-redis-0..2         redis-sentinel.yaml  replicas: 3
+#   * postgres-replica-data-postgres-replica-0..1
+#                             postgres-replica.yaml  ordinals up to the
+#                             .env.example default PG_READ_REPLICA_MAX=2
+#
+# CONFIG-DRIVEN ORDINALS: raising PG_READ_REPLICA_MAX (or a StatefulSet's
+# replicas) past these ordinals means adding the new claim names here, or the
+# extra claim's expansion is refused with a 403 (outcome `error`, audited).
+# deploy/bin/k8s-resources.sh warns at deploy time when PG_READ_REPLICA_MAX
+# outruns the list, and test/deploy-contracts/test/platform-rbac-contract.test.ts
+# keeps the list in lockstep with the manifests.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -285,6 +304,24 @@ rules:
   - apiGroups: [""]
     resources: ["persistentvolumeclaims"]
     verbs: ["get", "patch"]
+    resourceNames:
+      - alertmanager-data
+      - ask-model-models
+      - grafana-data
+      - grype-db
+      - mongodb-data
+      - pgadmin-data
+      - postgres-data
+      - prometheus-data
+      - data-rustfs-0
+      - data-rustfs-1
+      - data-rustfs-2
+      - data-rustfs-3
+      - data-redis-0
+      - data-redis-1
+      - data-redis-2
+      - postgres-replica-data-postgres-replica-0
+      - postgres-replica-data-postgres-replica-1
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -325,9 +362,19 @@ metadata:
   name: platform-postgres-rung
   namespace: pipeline-builder
 rules:
+  # resourceNames: exactly the two workloads services/postgres-rung.ts TARGETS
+  # names (hard-coded there, not config). Without them this Role could patch
+  # every Deployment in the namespace — including platform's own, i.e. swap
+  # its image. Two rules because resourceNames applies to every resource in a
+  # rule, and `postgres` must not match a StatefulSet or vice versa.
   - apiGroups: ["apps"]
-    resources: ["deployments", "statefulsets"]
+    resources: ["deployments"]
     verbs: ["get", "patch"]
+    resourceNames: ["postgres"]
+  - apiGroups: ["apps"]
+    resources: ["statefulsets"]
+    verbs: ["get", "patch"]
+    resourceNames: ["postgres-replica"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

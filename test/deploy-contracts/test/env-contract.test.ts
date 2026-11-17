@@ -49,6 +49,14 @@ describe.each(TARGETS)('deploy env contract — %s', (target) => {
     expect(env.NODE_ENV).toBe('production');
   });
 
+  it('pins JWT_ISSUER/JWT_AUDIENCE to the fleet-wide values (required under production)', () => {
+    // api-core refuses to sign or verify without them under NODE_ENV=production,
+    // and every target must agree so tokens and the deploy-bootstrap signer's
+    // defaults (deploy/bin/common.sh) line up.
+    expect(env.JWT_ISSUER).toBe('pipeline-builder-platform');
+    expect(env.JWT_AUDIENCE).toBe('pipeline-builder');
+  });
+
   it('sets SECRET_ENCRYPTION_KEY (not commented out)', () => {
     // A commented-out key means platform boots with the all-zeros dev key.
     expect(env.SECRET_ENCRYPTION_KEY).toBeDefined();

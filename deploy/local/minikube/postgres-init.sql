@@ -3407,8 +3407,10 @@ BEGIN
     IF current_is_sysadmin() OR OLD.org_id = current_org_id() THEN
         RETURN NEW;
     END IF;
-    IF (to_jsonb(NEW) - ARRAY['read_by', 'updated_at', 'updated_by'])
-         = (to_jsonb(OLD) - ARRAY['read_by', 'updated_at', 'updated_by']) THEN
+    -- `hidden_by` is per-participant inbox state, exactly like `read_by`: a
+    -- recipient hiding (or unhiding) a received conversation stamps it.
+    IF (to_jsonb(NEW) - ARRAY['read_by', 'hidden_by', 'updated_at', 'updated_by'])
+         = (to_jsonb(OLD) - ARRAY['read_by', 'hidden_by', 'updated_at', 'updated_by']) THEN
         RETURN NEW;
     END IF;
     IF NEW.thread_id IS NOT NULL

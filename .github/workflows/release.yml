@@ -124,6 +124,7 @@ jobs:
       RELEASED_SHA: ${{ steps.released_sha.outputs.RELEASED_SHA }}
     env:
       RUN_MONGO_INTEGRATION: "true"
+      API_CORE_TEST_REDIS_URL: redis://127.0.0.1:6379
     if: ${{ needs.init.outputs.AFFECTED_PROJECTS != '[]' || needs.init.outputs.AFFECTED_IMAGES != '[]' }}
     steps:
       - name: Disable Nx telemetry and daemon
@@ -286,6 +287,12 @@ jobs:
       - name: Record released commit
         id: released_sha
         run: echo RELEASED_SHA=$(git rev-parse HEAD) >> $GITHUB_OUTPUT
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 3s --health-retries 10
   publish:
     name: publish image
     needs:
@@ -299,6 +306,7 @@ jobs:
       id-token: write
     env:
       RUN_MONGO_INTEGRATION: "true"
+      API_CORE_TEST_REDIS_URL: redis://127.0.0.1:6379
     if: ${{ needs.init.outputs.AFFECTED_IMAGES != '[]' }}
     steps:
       - name: Disable Nx telemetry and daemon
@@ -489,6 +497,12 @@ jobs:
       fail-fast: false
       matrix:
         project_name: ${{ fromJson(needs.init.outputs.AFFECTED_IMAGES) }}
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 3s --health-retries 10
   verify_release:
     name: verify release
     needs:

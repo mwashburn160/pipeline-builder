@@ -183,6 +183,51 @@ export class Workflow extends Component {
             deploy_contracts: this.createDeployContractsJob(),
             docker_smoke: this.createDockerSmokeJob(),
         });
+        // Its own addJobs call (not folded into the map above) so it renders as a
+        // separate block at the END of test.yml.
+        testWorkflow.addJobs({ frontend_e2e: this.createFrontendE2eJob() });
+    }
+
+    /**
+     * Frontend browser smoke + accessibility: Playwright against `next dev` with
+     * every `/api/**` request answered by route stubs inside the test (no
+     * platform, no services, no secrets). Flows: sign-in + token refresh, the
+     * pipeline form builder's create request, a step-up prompt replaying the
+     * refused write, the billing checkout return and marketplace fulfillment;
+     * plus axe scans of the key pages, failing on serious/critical violations.
+     */
+    private createFrontendE2eJob() {
+        return {
+            name: 'frontend e2e (playwright + axe)',
+            runsOn: ['ubuntu-latest'],
+            permissions: {
+                contents: JobPermission.READ,
+                packages: JobPermission.READ,
+            },
+            steps: [
+                ...this.ciSetupSteps(),
+                {
+                    // The workspace packages the UI imports resolve to their built lib/.
+                    name: 'Build frontend workspace dependencies',
+                    run: 'pnpm nx run-many -t compile --projects=@pipeline-builder/api-core,@pipeline-builder/pipeline-core',
+                },
+                {
+                    name: 'Install Playwright chromium',
+                    run: 'cd frontend && npx playwright install --with-deps chromium',
+                },
+                {
+                    name: 'Run e2e',
+                    run: 'cd frontend && npx playwright test',
+                    env: { CI: 'true' },
+                },
+                {
+                    name: 'Upload Playwright report',
+                    if: 'failure()',
+                    uses: ACTIONS.uploadArtifact,
+                    with: { name: 'playwright-report', path: 'frontend/playwright-report', 'retention-days': 7 },
+                },
+            ],
+        };
     }
 
     /**
@@ -312,7 +357,9 @@ export class Workflow extends Component {
             // reaches `nx build`/`nx test` must carry it. Setting it once on the job
             // means a step added later cannot miss it — which is precisely the
             // "a new workflow forgets it" failure the gate was written to catch.
-            env: { RUN_MONGO_INTEGRATION: 'true' },
+            // The real-Redis gate works the same way (see TEST_TIER).
+            env: { ...Workflow.TEST_TIER.env },
+            services: Workflow.TEST_TIER.services,
             permissions: {
                 actions: JobPermission.READ,
                 contents: JobPermission.WRITE,
@@ -600,8 +647,10 @@ export class Workflow extends Component {
             // job DOES execute platform's Mongo integration tier even though it looks
             // like a pure packaging step, and without this it dies on the gate that
             // refuses to skip silently on a runner. Job-level so every step here has
-            // it, including `docker:verify` and anything added later.
-            env: { RUN_MONGO_INTEGRATION: 'true' },
+            // it, including `docker:verify` and anything added later. Same for the
+            // real-Redis tier (see TEST_TIER).
+            env: { ...Workflow.TEST_TIER.env },
+            services: Workflow.TEST_TIER.services,
             permissions: {
                 actions: JobPermission.READ,
                 contents: JobPermission.WRITE,
@@ -1187,6 +1236,48 @@ export class Workflow extends Component {
         };
     }
 
+    /**
+     * JOB-level env + service containers for every job whose steps reach
+     * `nx build` / `nx test` (each project's `build` runs its tests).
+     *
+     * - `RUN_MONGO_INTEGRATION`: the Mongo integration tier (mongodb-memory-server,
+     *   in-process — no service). Its gate FAILS on a runner when unset
+     *   (platform/test/helpers/integration-gate.ts and the per-service copies).
+     * - `API_CORE_TEST_REDIS_URL` + a `redis:7-alpine` service: api-core's
+     *   real-Redis suites (durable event bus XPENDING/XRANGE shapes, the SSE
+     *   ticket Lua script, `incrWindow` TTL healing). Their gate
+     *   (packages/api-core/test/helpers/redis-gate.ts) likewise FAILS on a runner
+     *   when the URL is missing, so dropping either half of this turns CI red.
+     *
+     * The port is published as a fixed `6379:6379` mapping so the URL can be a
+     * plain job-level literal: the `job.services.*.ports` context that would
+     * resolve an ephemeral host port is not available in `jobs.<id>.env`.
+     * projen types `ports` as `number[]` but emits it verbatim, hence the cast
+     * (a bare `6379` would publish to a random host port).
+     */
+    private static readonly TEST_TIER = {
+        env: {
+            RUN_MONGO_INTEGRATION: 'true',
+            API_CORE_TEST_REDIS_URL: 'redis://127.0.0.1:6379',
+        },
+        services: {
+            redis: {
+                image: 'redis:7-alpine',
+                ports: ['6379:6379'] as unknown as number[],
+                // GitHub's `services.<id>.options` is ONE string of `docker create`
+                // flags; projen types it `string[]` and emits a YAML list, which is
+                // not the documented shape — so it is joined and cast like `ports`.
+                // The health check makes the runner wait for PONG before any step.
+                options: [
+                    '--health-cmd "redis-cli ping"',
+                    '--health-interval 5s',
+                    '--health-timeout 3s',
+                    '--health-retries 10',
+                ].join(' ') as unknown as string[],
+            },
+        },
+    };
+
     /** `env` every DIFF_BASE step needs (the push `before` SHA). */
     private static readonly DIFF_BASE_ENV = { PUSH_BEFORE: '${{ github.event.before }}' };
 
@@ -1252,7 +1343,9 @@ export class Workflow extends Component {
             // reaches `nx build`/`nx test` must carry it. Setting it once on the job
             // means a step added later cannot miss it — which is precisely the
             // "a new workflow forgets it" failure the gate was written to catch.
-            env: { RUN_MONGO_INTEGRATION: 'true' },
+            // The real-Redis gate works the same way (see TEST_TIER).
+            env: { ...Workflow.TEST_TIER.env },
+            services: Workflow.TEST_TIER.services,
             permissions: {
                 contents: JobPermission.READ,
                 packages: JobPermission.READ,

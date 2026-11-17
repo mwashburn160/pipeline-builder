@@ -156,6 +156,11 @@ x-common-env: &common-env
   # start without them.
   SERVICE_SIGNING_KEY_FILE: /etc/pipeline-builder/service-keys/service.key
   SERVICE_KEY_BUNDLE_FILE: /etc/pipeline-builder/service-key-bundle/bundle.json
+  # Issuer/audience stamped on and checked against EVERY token — platform's user
+  # tokens and every service token. Required under NODE_ENV=production (a
+  # service refuses to sign or verify without them); identical on every service.
+  JWT_ISSUER: ${JWT_ISSUER:-pipeline-builder-platform}
+  JWT_AUDIENCE: ${JWT_AUDIENCE:-pipeline-builder}
   # AES-256-GCM master key for encrypted secret columns (AI provider keys, IdP
   # client secrets). Required under NODE_ENV=production — platform refuses to
   # boot without it. In common-env rather than a service-specific block so any

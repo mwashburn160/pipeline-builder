@@ -616,6 +616,21 @@ const pipelineData = new PackageProject({
 });
 pipelineData.eslint?.addRules(rules);
 publishToNpm(pipelineData);
+// Entry points. `./testing` (src/testing) is the REAL-database test entry: it boots
+// PGlite with the shipped postgres-init.sql and installs it as the package's `db`,
+// so a consumer's suite runs the production `withTenantTx` / CrudService code under
+// RLS instead of a mocked transaction. Never part of the root barrel and dropped from
+// the packed package (it imports the PGlite devDependency and reads the init script
+// out of the repo's deploy/ tree, so it is workspace-only by construction) — the
+// same arrangement as api-core's `./testing`. `./lib/*` stays open because services
+// deep-import modules the barrel narrows away (e.g. `lib/database/pg-result.js`).
+pipelineData.package.addField('exports', {
+  '.': { types: './lib/index.d.ts', default: './lib/index.js' },
+  './testing': { types: './lib/testing/index.d.ts', default: './lib/testing/index.js' },
+  './lib/*': './lib/*',
+  './package.json': './package.json',
+});
+pipelineData.addPackageIgnore('/lib/testing/');
 addPackageMetadata(pipelineData, 'Drizzle ORM schemas and organization-scoped data access for Pipeline Builder.');
 
 // -- Pipeline Core --
@@ -992,8 +1007,21 @@ const frontend = new FrontEndProject({
     // every jsdom test. jest core and jest-environment-jsdom release together,
     // so keep this equal to jestVersion.
     'jest-environment-jsdom@30.5.2',
+    // Browser smoke suite (e2e/, `test:e2e`): the app under `next dev` with every
+    // `/api/**` call answered by Playwright route stubs — no services. Pinned
+    // exactly; axe-core scans key pages and fails on serious/critical findings.
+    '@playwright/test@1.64.1',
+    '@axe-core/playwright@4.14.0',
   ],
 });
+// Not part of `test`/`build`: it needs a browser (`npx playwright install
+// chromium`) and boots `next dev`. CI runs it as its own job (frontend e2e).
+frontend.addTask('test:e2e', {
+  description: 'Playwright smoke + axe suite against next dev with the backend stubbed',
+  exec: 'playwright test',
+  receiveArgs: true,
+});
+frontend.gitignore.exclude('/test-results/', '/playwright-report/');
 // Regenerate the in-app help topics from docs/*.md (single source of truth).
 frontend.addScripts({ 'generate:help': 'node scripts/generate-help.mjs' });
 // Regenerate the route index in docs/api-reference.md from the route-table snapshots.
@@ -1072,7 +1100,8 @@ frontendEslint.addRules({
   ].map((r) => [`@stylistic/${r}`, 'off'])),
   'import/order': 'off',
   'react-hooks/rules-of-hooks': 'error',
-  'react-hooks/exhaustive-deps': 'warn',
+  // 'error', not 'warn': a warning never failed CI, so stale-closure bugs piled up unseen.
+  'react-hooks/exhaustive-deps': 'error',
   // Props are typed by TypeScript, not PropTypes.
   'react/prop-types': 'off',
   // Focusing the first field of a just-opened dialog/step IS the accessible
@@ -1171,9 +1200,16 @@ const services: Array<{ name: string; deps: string[]; devDeps?: string[] }> = [
     // HTTP middleware (cors/helmet/rate limit) and JWT/logging come from
     // api-server/api-core; a service lists only what its own code imports.
     deps: ['mongoose@9.12.1', 'zod@4.6.7'],
+    // Real-Mongo integration suites (test/*.integration.test.ts), gated on
+    // RUN_MONGO_INTEGRATION exactly like platform's — the default suite never
+    // starts mongod. Same pin as platform.
+    devDeps: ['mongodb-memory-server@11.3.0'],
   },
   {
     name: 'billing',
+    // Real-Mongo integration suites (partial unique index, grace-period claim);
+    // see quota above.
+    devDeps: ['mongodb-memory-server@11.3.0'],
     deps: [
       `@pipeline-builder/pipeline-data@${pkg.pipelineData}`,
       'mongoose@9.12.1', 'zod@4.6.7',
@@ -1517,7 +1553,28 @@ const COVERAGE_THRESHOLDS: Record<string, {
     // 86.5 / 78.1 / 67.2 / 86.5. Branches held at 78 by adding suites for the
     // untested key flows (pipeline create/edit, ExemptionManager, EditUserModal,
     // PlanGrid, campaigns, templates, users), not by lowering it.
-    global: { statements: 86, branches: 78, functions: 66, lines: 86 },
+    //
+    // Re-measured 2026-11-17 after the pipeline-authoring suites (builder +
+    // every section/editor, edit/template modals, Git URL tab, dashboard home,
+    // marketplace fulfillment, verify-email): over the pool MINUS the `paths`
+    // entries below it reads 91.2 / 79.3 / 70.1 — pinned at floor - 1.
+    global: { statements: 90, branches: 78, functions: 69, lines: 90 },
+    // DIRECTORY floors (a `./` key — see the emitter below): the directory is
+    // checked as ONE aggregate, so a single thin file does not fail it but the
+    // area as a whole cannot slide. Measured 2026-11-17, floor(measured) - 1:
+    paths: {
+      // The API client: token refresh, step-up replay, impersonation storage.
+      // 91.5 / 77.6 / 88.9.
+      './src/lib/api/core.ts': { statements: 90, branches: 76, functions: 87, lines: 90 },
+      // Billing UI (checkout return, plan/add-on change). 81.6 / 76.9 / 72.6.
+      './src/components/billing/': { statements: 80, branches: 75, functions: 71, lines: 80 },
+      // Pipeline authoring — builder, sections, editors, modals. 94.1 / 81.9 / 78.7.
+      './src/components/pipeline/': { statements: 93, branches: 80, functions: 77, lines: 93 },
+      // AWS Marketplace fulfillment (money path). 100 / 92.5 / 100 (95 cap).
+      './pages/marketplace/': { statements: 95, branches: 91, functions: 95, lines: 95 },
+      // Sign-in / sign-up / verify / reset / SSO callbacks. 92.5 / 75.2 / 82.9.
+      './pages/auth/': { statements: 91, branches: 74, functions: 81, lines: 91 },
+    },
   },
 };
 
@@ -1583,7 +1640,10 @@ for (const project of root.subprojects) {
   ];
   jest.config.coverageThreshold = {
     global: t.global,
-    ...Object.fromEntries(Object.entries(t.paths ?? {}).map(([p, v]) => [`**/${p}`, v])),
+    // A key starting `./` is emitted as-is: jest treats a plain path as ONE
+    // aggregated group (a directory's files summed), where `**/…` is a glob
+    // checked file by file.
+    ...Object.fromEntries(Object.entries(t.paths ?? {}).map(([p, v]) => [p.startsWith('./') ? p : `**/${p}`, v])),
   };
 }
 

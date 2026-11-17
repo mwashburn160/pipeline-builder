@@ -1090,7 +1090,8 @@ login() {
 # for the deploy's own registry pushes. Used by push-base-images.sh and
 # build-plugin-images.sh to authenticate against the in-cluster image registry.
 # Same shape api-core's `signServiceToken` mints: a `service:<name>` subject, a
-# least-privilege `permissions` claim, a per-mint `jti`, a short TTL.
+# least-privilege `permissions` claim, a per-mint `jti`, `iss`/`aud` (from
+# JWT_ISSUER/JWT_AUDIENCE), a short TTL.
 #
 #   $1   path to the `deploy-bootstrap` EC P-256 private key (PKCS#8 PEM)
 #   $2   path to the service key bundle (bundle.json) — supplies the `kid`
@@ -1166,7 +1167,11 @@ sign_service_jwt() {
   _header="$(printf '{"alg":"ES256","typ":"JWT","kid":"%s"}' "$_kid")"
   # Built with jq so no value is ever spliced into JSON by hand. No role above
   # `member`, no isAdmin, no isSuperAdmin — see the header comment.
-  _payload="$(jq -cn --arg jti "$_jti" --arg perms "$_perms" --argjson iat "$_now" --argjson exp "$_exp" '{
+  # iss/aud: every verifier pins them under NODE_ENV=production, so a token
+  # without them is refused. Read from the target's .env (the callers source
+  # it); the defaults are the values every .env.example ships.
+  local _iss="${JWT_ISSUER:-pipeline-builder-platform}" _aud="${JWT_AUDIENCE:-pipeline-builder}"
+  _payload="$(jq -cn --arg jti "$_jti" --arg perms "$_perms" --arg iss "$_iss" --arg aud "$_aud" --argjson iat "$_now" --argjson exp "$_exp" '{
     sub: "service:deploy-bootstrap",
     username: "deploy-bootstrap-service",
     email: "deploy-bootstrap@internal",
@@ -1178,6 +1183,8 @@ sign_service_jwt() {
     organizationName: "system",
     permissions: ($perms | split(",") | map(select(length > 0))),
     jti: $jti,
+    iss: $iss,
+    aud: $aud,
     iat: $iat,
     exp: $exp
   }')" || return 1

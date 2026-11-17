@@ -274,9 +274,19 @@ metadata:
   name: platform-postgres-rung
   namespace: pipeline-builder
 rules:
+  # resourceNames: exactly the two workloads services/postgres-rung.ts TARGETS
+  # names (hard-coded there, not config). Without them this Role could patch
+  # every Deployment in the namespace — including platform's own, i.e. swap
+  # its image. Two rules because resourceNames applies to every resource in a
+  # rule, and `postgres` must not match a StatefulSet or vice versa.
   - apiGroups: ["apps"]
-    resources: ["deployments", "statefulsets"]
+    resources: ["deployments"]
     verbs: ["get", "patch"]
+    resourceNames: ["postgres"]
+  - apiGroups: ["apps"]
+    resources: ["statefulsets"]
+    verbs: ["get", "patch"]
+    resourceNames: ["postgres-replica"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

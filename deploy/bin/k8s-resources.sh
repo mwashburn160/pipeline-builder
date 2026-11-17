@@ -950,6 +950,21 @@ pb_read_replica_env() {
       return 1
     fi
   fi
+  # eks: platform's PVC auto-expand Role pins resourceNames to the standby
+  # claims that exist at the DEFAULT ceiling (platform.yaml). A higher ceiling
+  # still deploys and serves reads; only auto-expansion of the extra claims is
+  # refused (403), so this warns rather than fails.
+  if [ -f "$_k8s/platform.yaml" ]; then
+    local _granted
+    _granted=$(grep -c '^      - postgres-replica-data-postgres-replica-[0-9]' "$_k8s/platform.yaml" 2>/dev/null)
+    _granted=${_granted:-0}
+    if [ "$_granted" -gt 0 ] && [ "$PG_READ_REPLICA_MAX" -gt "$_granted" ]; then
+      echo "WARNING: PG_READ_REPLICA_MAX is $PG_READ_REPLICA_MAX but Role/platform-pvc-autoexpand in" >&2
+      echo "         $_k8s/platform.yaml grants only $_granted standby claim(s)." >&2
+      echo "         Add postgres-replica-data-postgres-replica-<ordinal> for each extra ordinal" >&2
+      echo "         or PVC auto-expansion will be refused for those standbys." >&2
+    fi
+  fi
   # Read by the callers that source this file (eks/bin/setup.sh and
   # ec2/bin/startup.sh substitute them into the replica ScaledObject); the
   # linter cannot see that use from here, hence SC2034 is disabled.
