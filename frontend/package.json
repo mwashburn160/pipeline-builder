@@ -186,6 +186,7 @@
       "!src/types/message.ts",
       "!src/types/observability.ts",
       "!src/types/plugin-installs.ts",
+      "!src/types/plugin-retention.ts",
       "!src/types/plugin-reviews.ts",
       "!src/types/plugin-security-notifications.ts",
       "!src/types/plugin-submissions.ts",
