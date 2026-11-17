@@ -49,9 +49,11 @@
  * the read happened to land on.
  */
 
-import { and, eq, gte, inArray, lt, sql } from 'drizzle-orm';
+import { civilIn, instantOfCivil, isUsableTimeZone } from '@pipeline-builder/api-core';
+import { and, eq, gte, inArray, lt, sql, type SQL } from 'drizzle-orm';
 import { FAILURE_CATEGORY_LABELS, isTeamActionable } from './failure-classifier.js';
 import { liveExposurePredicate } from './plugin-exposure.js';
+import { elevateRollup, orgScope } from './query-scope.js';
 import { schema } from '../../database/drizzle-schema.js';
 import { anyText } from '../../database/pg-result.js';
 import type { FailureCategory } from '../../database/schema/reporting-analytics.js';
@@ -64,13 +66,77 @@ export interface AnalyticsScope {
   orgIds?: string[];
   from: string;
   to: string;
+  /**
+   * The report's IANA timezone. `execution_daily_rollups.day` is a UTC calendar
+   * day stamped at UTC midnight, while `from`/`to` are LOCAL midnights in this
+   * zone — so the day predicates compare against the period's local calendar
+   * dates (see {@link rollupDayBound}), not the raw instants. Omitted = UTC.
+   */
+  tz?: string;
 }
 
-/** The org predicate: one org, or a rollup set. */
-function orgPredicate(col: Parameters<typeof inArray>[0], scope: AnalyticsScope) {
-  return scope.orgIds && scope.orgIds.length > 0
-    ? inArray(col, scope.orgIds)
-    : eq(col as never, scope.orgId as never);
+type ReadTx = Parameters<Parameters<typeof withTenantTxRead>[0]>[0];
+
+/** What every analytics read is built from: the org predicate and the day bounds. */
+interface ScopedRead {
+  /** `= $org` or `= ANY($ids::text[])`, over {@link orgScope}'s validated ids. */
+  org: SQL;
+  /** The scope's org ids, as {@link orgScope} validated them. */
+  ids: string[];
+  /** Inclusive / exclusive bounds for `execution_daily_rollups.day` (UTC-midnight ISO). */
+  dayFrom: string;
+  dayTo: string;
+}
+
+const DAY_MS = 86_400_000;
+
+/**
+ * The UTC-midnight instant of the rollup `day` that a period bound maps to.
+ *
+ * A rollup `day` is the UTC calendar date D, stored as D at 00:00Z. A period
+ * bound is an instant — normally a local midnight in `tz`. Comparing the two
+ * directly is off by one day west of UTC (America/Chicago's Sept 1 starts at
+ * 05:00Z, so `day >= from` drops the Sept 1 row and picks up Oct 1's), and east
+ * of it the other way. So the bound is first read as a LOCAL calendar date in
+ * `tz`, and that date's UTC-midnight stamp is what `day` is compared against.
+ *
+ * A bound that is not a local midnight rounds UP to the next date — the same
+ * rule `day >= from AND day < to` applied in UTC: a partial first day is left
+ * out, a partial last day kept. An unparseable bound passes through unchanged
+ * (Postgres rejects it exactly as before).
+ */
+export function rollupDayBound(iso: string, tz = 'UTC'): string {
+  const instant = new Date(iso);
+  if (Number.isNaN(instant.getTime())) return iso;
+  const { year, month, day } = civilIn(instant, tz);
+  const atLocalMidnight = instantOfCivil({ year, month, day }, tz).getTime() === instant.getTime();
+  return new Date(Date.UTC(year, month - 1, day) + (atLocalMidnight ? 0 : DAY_MS)).toISOString();
+}
+
+/** Shift a UTC-midnight ISO bound by whole days. */
+function dayShift(iso: string, days: number): string {
+  const t = new Date(iso).getTime();
+  return Number.isNaN(t) ? iso : new Date(t + days * DAY_MS).toISOString();
+}
+
+/**
+ * One analytics read. The org set comes from {@link orgScope} (anchor-validated,
+ * server-resolved) and a multi-org rollup runs under the SAME sysadmin elevation
+ * `runReport` uses for DORA and success rate ({@link elevateRollup}): FORCE RLS
+ * on the rollup tables otherwise filters every child team's rows out of a parent
+ * org's report, under the caller's own tenant. The `= ANY(ids)` predicate is
+ * then the tenancy gate.
+ */
+function analyticsRead<T>(scope: AnalyticsScope, fn: (q: ScopedRead, tx: ReadTx) => Promise<T>): Promise<T> {
+  const { ids, multi } = orgScope(scope.orgId, scope.orgIds);
+  const tz = scope.tz && isUsableTimeZone(scope.tz) ? scope.tz : 'UTC';
+  const q: ScopedRead = {
+    org: multi ? sql`= ${anyText(ids)}` : sql`= ${ids[0]}`,
+    ids,
+    dayFrom: rollupDayBound(scope.from, tz),
+    dayTo: rollupDayBound(scope.to, tz),
+  };
+  return elevateRollup(multi, () => withTenantTxRead((tx) => fn(q, tx)));
 }
 
 /** One pipeline's line in the breakdown. */
@@ -103,7 +169,7 @@ export interface PipelineBreakdownRow {
  * pipeline nobody ran is not a pipeline that failed.
  */
 export async function getPipelineBreakdown(scope: AnalyticsScope, limit = 10): Promise<PipelineBreakdownRow[]> {
-  const rows = await withTenantTxRead((tx) => tx.execute(sql`
+  const rows = await analyticsRead(scope, (q, tx) => tx.execute(sql`
     WITH totals AS (
       SELECT
         r.pipeline_id,
@@ -113,8 +179,8 @@ export async function getPipelineBreakdown(scope: AnalyticsScope, limit = 10): P
         MAX(r.p95_ms)::int AS p95_ms,
         SUM(r.build_seconds)::int AS build_seconds
       FROM execution_daily_rollups r
-      WHERE r.org_id ${scope.orgIds?.length ? sql`= ${anyText(scope.orgIds)}` : sql`= ${scope.orgId}`}
-        AND r.day >= ${scope.from}::timestamptz AND r.day < ${scope.to}::timestamptz
+      WHERE r.org_id ${q.org}
+        AND r.day >= ${q.dayFrom}::timestamptz AND r.day < ${q.dayTo}::timestamptz
         -- The pipeline-level grain only: summing the stage rows too would count
         -- every run once per stage.
         AND r.stage_name = ''
@@ -123,7 +189,7 @@ export async function getPipelineBreakdown(scope: AnalyticsScope, limit = 10): P
     deploys AS (
       SELECT pipeline_id, COUNT(*)::int AS deploys
       FROM dora_deployments
-      WHERE org_id ${scope.orgIds?.length ? sql`= ${anyText(scope.orgIds)}` : sql`= ${scope.orgId}`}
+      WHERE org_id ${q.org}
         AND deployed_at >= ${scope.from}::timestamptz AND deployed_at < ${scope.to}::timestamptz
         AND succeeded = true
       GROUP BY pipeline_id
@@ -132,8 +198,8 @@ export async function getPipelineBreakdown(scope: AnalyticsScope, limit = 10): P
       -- The most recent failing STAGE row per pipeline: what to look at first.
       SELECT DISTINCT ON (pipeline_id) pipeline_id, day, stage_name
       FROM execution_daily_rollups
-      WHERE org_id ${scope.orgIds?.length ? sql`= ${anyText(scope.orgIds)}` : sql`= ${scope.orgId}`}
-        AND day >= ${scope.from}::timestamptz AND day < ${scope.to}::timestamptz
+      WHERE org_id ${q.org}
+        AND day >= ${q.dayFrom}::timestamptz AND day < ${q.dayTo}::timestamptz
         AND stage_name <> '' AND failed > 0
       ORDER BY pipeline_id, day DESC, failed DESC
     )
@@ -222,11 +288,11 @@ export async function getFailureAnalysis(
 }
 
 async function categoryCounts(scope: AnalyticsScope): Promise<Map<FailureCategory, { count: number }>> {
-  const rows = await withTenantTxRead((tx) => tx.execute(sql`
+  const rows = await analyticsRead(scope, (q, tx) => tx.execute(sql`
     SELECT key AS category, SUM(value::int)::int AS count
     FROM execution_daily_rollups r, jsonb_each(r.failures_by_category)
-    WHERE r.org_id ${scope.orgIds?.length ? sql`= ${anyText(scope.orgIds)}` : sql`= ${scope.orgId}`}
-      AND r.day >= ${scope.from}::timestamptz AND r.day < ${scope.to}::timestamptz
+    WHERE r.org_id ${q.org}
+      AND r.day >= ${q.dayFrom}::timestamptz AND r.day < ${q.dayTo}::timestamptz
       AND r.stage_name = ''
     GROUP BY key
   `));
@@ -239,7 +305,7 @@ async function topPipelinesByCategory(
   scope: AnalyticsScope,
   perCategory = 3,
 ): Promise<Map<FailureCategory, Array<{ pipelineId: string; pipelineName: string | null; count: number }>>> {
-  const rows = await withTenantTxRead((tx) => tx.execute(sql`
+  const rows = await analyticsRead(scope, (q, tx) => tx.execute(sql`
     SELECT category, pipeline_id, pipeline_name, count FROM (
       SELECT
         e.key AS category,
@@ -254,8 +320,8 @@ async function topPipelinesByCategory(
       FROM execution_daily_rollups r
       CROSS JOIN LATERAL jsonb_each(r.failures_by_category) e
       LEFT JOIN pipelines p ON p.id::text = r.pipeline_id
-      WHERE r.org_id ${scope.orgIds?.length ? sql`= ${anyText(scope.orgIds)}` : sql`= ${scope.orgId}`}
-        AND r.day >= ${scope.from}::timestamptz AND r.day < ${scope.to}::timestamptz
+      WHERE r.org_id ${q.org}
+        AND r.day >= ${q.dayFrom}::timestamptz AND r.day < ${q.dayTo}::timestamptz
         AND r.stage_name = ''
       GROUP BY e.key, r.pipeline_id, p.pipeline_name
     ) ranked
@@ -316,7 +382,7 @@ export async function getStagePerformance(
 interface StageRow { stageName: string; runs: number; p50Ms: number | null; p95Ms: number | null; failed: number }
 
 async function stageRows(scope: AnalyticsScope, pipelineId: string): Promise<StageRow[]> {
-  const rows = await withTenantTxRead((tx) => tx.select({
+  const rows = await analyticsRead(scope, (q, tx) => tx.select({
     stageName: schema.executionDailyRollup.stageName,
     runs: sql<number>`SUM(${schema.executionDailyRollup.runs})::int`,
     failed: sql<number>`SUM(${schema.executionDailyRollup.failed})::int`,
@@ -327,10 +393,12 @@ async function stageRows(scope: AnalyticsScope, pipelineId: string): Promise<Sta
     p95Ms: sql<number | null>`MAX(${schema.executionDailyRollup.p95Ms})::int`,
   }).from(schema.executionDailyRollup)
     .where(and(
-      orgPredicate(schema.executionDailyRollup.orgId, scope),
+      q.ids.length > 1
+        ? inArray(schema.executionDailyRollup.orgId, q.ids)
+        : eq(schema.executionDailyRollup.orgId, q.ids[0] as string),
       eq(schema.executionDailyRollup.pipelineId, pipelineId),
-      gte(schema.executionDailyRollup.day, new Date(scope.from)),
-      lt(schema.executionDailyRollup.day, new Date(scope.to)),
+      gte(schema.executionDailyRollup.day, new Date(q.dayFrom)),
+      lt(schema.executionDailyRollup.day, new Date(q.dayTo)),
       sql`${schema.executionDailyRollup.stageName} <> ''`,
     ))
     .groupBy(schema.executionDailyRollup.stageName));
@@ -369,7 +437,7 @@ export async function getResourceConsumption(scope: AnalyticsScope, limit = 20):
   pipelines: ResourceRow[];
   totalBuildSeconds: number;
 }> {
-  const rows = await withTenantTxRead((tx) => tx.execute(sql`
+  const rows = await analyticsRead(scope, (q, tx) => tx.execute(sql`
     SELECT
       p.project,
       r.pipeline_id,
@@ -378,8 +446,8 @@ export async function getResourceConsumption(scope: AnalyticsScope, limit = 20):
       SUM(r.runs)::int AS runs
     FROM execution_daily_rollups r
     LEFT JOIN pipelines p ON p.id::text = r.pipeline_id
-    WHERE r.org_id ${scope.orgIds?.length ? sql`= ${anyText(scope.orgIds)}` : sql`= ${scope.orgId}`}
-      AND r.day >= ${scope.from}::timestamptz AND r.day < ${scope.to}::timestamptz
+    WHERE r.org_id ${q.org}
+      AND r.day >= ${q.dayFrom}::timestamptz AND r.day < ${q.dayTo}::timestamptz
       AND r.stage_name = ''
     GROUP BY p.project, r.pipeline_id, p.pipeline_name
     ORDER BY build_seconds DESC
@@ -423,10 +491,10 @@ export async function getPromotionView(
   productionEnv = 'production',
   limit = 25,
 ): Promise<{ commits: PromotionRow[]; stuckCount: number }> {
-  const rows = await withTenantTxRead((tx) => tx.execute(sql`
+  const rows = await analyticsRead(scope, (q, tx) => tx.execute(sql`
     SELECT commit_sha, environment, MIN(deployed_at) AS deployed_at
     FROM dora_deployments
-    WHERE org_id ${scope.orgIds?.length ? sql`= ${anyText(scope.orgIds)}` : sql`= ${scope.orgId}`}
+    WHERE org_id ${q.org}
       AND deployed_at >= ${scope.from}::timestamptz AND deployed_at < ${scope.to}::timestamptz
       AND succeeded = true
       AND commit_sha IS NOT NULL
@@ -489,14 +557,14 @@ export async function getOutdatedPlugins(scope: AnalyticsScope, limit = 50): Pro
   behindPipelines: number;
   majorBehind: number;
 }> {
-  const rows = await withTenantTxRead((tx) => tx.execute(sql`
+  const rows = await analyticsRead(scope, (q, tx) => tx.execute(sql`
     SELECT
       r.pipeline_id, p.pipeline_name, r.stage_name, r.step_name,
       COALESCE(r.plugin_publisher || '/', '') || r.plugin_name AS plugin,
       r.resolved_version, r.latest_version, r.version_gap, r.within_policy
     FROM pipeline_plugin_resolution r
     LEFT JOIN pipelines p ON p.id::text = r.pipeline_id
-    WHERE r.org_id ${scope.orgIds?.length ? sql`= ${anyText(scope.orgIds)}` : sql`= ${scope.orgId}`}
+    WHERE r.org_id ${q.org}
       AND (r.version_gap IN ('major', 'minor', 'patch') OR r.within_policy = false)
     ORDER BY CASE r.version_gap WHEN 'major' THEN 0 WHEN 'minor' THEN 1 WHEN 'patch' THEN 2 ELSE 3 END,
              r.pipeline_id
@@ -548,14 +616,14 @@ export async function getPluginVulnerabilities(scope: AnalyticsScope, limit = 50
   criticalPipelines: number;
 }> {
   const now = new Date();
-  const rows = await withTenantTxRead((tx) => tx.execute(sql`
+  const rows = await analyticsRead(scope, (q, tx) => tx.execute(sql`
     SELECT
       v.pipeline_id, p.pipeline_name,
       COALESCE(v.plugin_publisher || '/', '') || v.plugin_name AS plugin,
       v.plugin_version, v.source, v.critical_count, v.high_count, v.top_findings, v.flagged_at
     FROM plugin_vuln_exposure v
     LEFT JOIN pipelines p ON p.id::text = v.pipeline_id
-    WHERE v.org_id ${scope.orgIds?.length ? sql`= ${anyText(scope.orgIds)}` : sql`= ${scope.orgId}`}
+    WHERE v.org_id ${q.org}
       AND ${liveExposurePredicate(now, 'v')}
     ORDER BY v.critical_count DESC, v.high_count DESC
     LIMIT ${limit}
@@ -602,24 +670,24 @@ export interface AdoptionSummary {
  * feature could do.
  */
 export async function getAdoption(scope: AnalyticsScope, timeSavedMinutes?: number | null): Promise<AdoptionSummary> {
-  const rows = await withTenantTxRead((tx) => tx.execute(sql`
+  const rows = await analyticsRead(scope, (q, tx) => tx.execute(sql`
     WITH scoped AS (
       SELECT id::text AS id, org_id, creation_source
       FROM pipelines
-      WHERE org_id ${scope.orgIds?.length ? sql`= ${anyText(scope.orgIds)}` : sql`= ${scope.orgId}`}
+      WHERE org_id ${q.org}
         AND deleted_at IS NULL
     ),
     active AS (
       SELECT DISTINCT pipeline_id, org_id
       FROM execution_daily_rollups
-      WHERE org_id ${scope.orgIds?.length ? sql`= ${anyText(scope.orgIds)}` : sql`= ${scope.orgId}`}
-        AND day >= ${scope.from}::timestamptz AND day < ${scope.to}::timestamptz
+      WHERE org_id ${q.org}
+        AND day >= ${q.dayFrom}::timestamptz AND day < ${q.dayTo}::timestamptz
         AND stage_name = '' AND runs > 0
     ),
     tracked AS (
       SELECT DISTINCT pipeline_id
       FROM dora_deployments
-      WHERE org_id ${scope.orgIds?.length ? sql`= ${anyText(scope.orgIds)}` : sql`= ${scope.orgId}`}
+      WHERE org_id ${q.org}
         AND deployed_at >= ${scope.from}::timestamptz AND deployed_at < ${scope.to}::timestamptz
     )
     SELECT
@@ -677,15 +745,14 @@ export async function getPipelineStreaks(
   scope: AnalyticsScope,
   lookbackDays = 90,
 ): Promise<PipelineStreakRow[]> {
-  const since = new Date(new Date(scope.to).getTime() - lookbackDays * 86_400_000).toISOString();
-  const rows = await withTenantTxRead((tx) => tx.execute(sql`
+  const rows = await analyticsRead(scope, (q, tx) => tx.execute(sql`
     WITH days AS (
       SELECT pipeline_id, day,
              SUM(succeeded)::int AS succeeded,
              SUM(failed)::int    AS failed
       FROM execution_daily_rollups
-      WHERE org_id ${scope.orgIds?.length ? sql`= ${anyText(scope.orgIds)}` : sql`= ${scope.orgId}`}
-        AND day >= ${since}::timestamptz AND day < ${scope.to}::timestamptz
+      WHERE org_id ${q.org}
+        AND day >= ${dayShift(q.dayTo, -lookbackDays)}::timestamptz AND day < ${q.dayTo}::timestamptz
       GROUP BY pipeline_id, day
     ),
     last_ok AS (
@@ -718,12 +785,12 @@ export async function getPipelineStreaks(
  * report would say so.
  */
 export async function getUntrackedPipelines(scope: AnalyticsScope): Promise<string[]> {
-  const rows = await withTenantTxRead((tx) => tx.execute(sql`
+  const rows = await analyticsRead(scope, (q, tx) => tx.execute(sql`
     WITH active AS (
       SELECT pipeline_id
       FROM execution_daily_rollups
-      WHERE org_id ${scope.orgIds?.length ? sql`= ${anyText(scope.orgIds)}` : sql`= ${scope.orgId}`}
-        AND day >= ${scope.from}::timestamptz AND day < ${scope.to}::timestamptz
+      WHERE org_id ${q.org}
+        AND day >= ${q.dayFrom}::timestamptz AND day < ${q.dayTo}::timestamptz
         AND stage_name = ''
       GROUP BY pipeline_id
       HAVING SUM(runs) > 0
@@ -731,7 +798,7 @@ export async function getUntrackedPipelines(scope: AnalyticsScope): Promise<stri
     tracked AS (
       SELECT DISTINCT pipeline_id
       FROM dora_deployments
-      WHERE org_id ${scope.orgIds?.length ? sql`= ${anyText(scope.orgIds)}` : sql`= ${scope.orgId}`}
+      WHERE org_id ${q.org}
         AND deployed_at >= ${scope.from}::timestamptz AND deployed_at < ${scope.to}::timestamptz
     )
     SELECT a.pipeline_id FROM active a
@@ -756,10 +823,10 @@ export async function getUntrackedPipelines(scope: AnalyticsScope): Promise<stri
  */
 export async function getVulnerablePipelines(scope: AnalyticsScope): Promise<string[]> {
   const now = new Date();
-  const rows = await withTenantTxRead((tx) => tx.execute(sql`
+  const rows = await analyticsRead(scope, (q, tx) => tx.execute(sql`
     SELECT DISTINCT pipeline_id
     FROM plugin_vuln_exposure
-    WHERE org_id ${scope.orgIds?.length ? sql`= ${anyText(scope.orgIds)}` : sql`= ${scope.orgId}`}
+    WHERE org_id ${q.org}
       AND critical_count > 0
       AND ${liveExposurePredicate(now)}
   `));
@@ -779,10 +846,10 @@ export async function getVulnerablePipelines(scope: AnalyticsScope): Promise<str
  * true of a rename too, and does not claim to name the change.
  */
 export async function getPipelineConfigChanges(scope: AnalyticsScope): Promise<Map<string, Date>> {
-  const rows = await withTenantTxRead((tx) => tx.execute(sql`
+  const rows = await analyticsRead(scope, (q, tx) => tx.execute(sql`
     SELECT id::text AS id, updated_at
     FROM pipelines
-    WHERE org_id ${scope.orgIds?.length ? sql`= ${anyText(scope.orgIds)}` : sql`= ${scope.orgId}`}
+    WHERE org_id ${q.org}
       AND deleted_at IS NULL
       AND updated_at IS NOT NULL
   `));

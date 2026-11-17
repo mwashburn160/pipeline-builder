@@ -129,7 +129,9 @@ function assertNotPerPerson(id: string): void {
 
 /** The scope every analytics query takes, from the section context. */
 function scopeOf(c: SectionContext): AnalyticsScope {
-  return { orgId: c.orgId, ...(c.orgIds ? { orgIds: c.orgIds } : {}), from: c.from, to: c.to };
+  // `tz` too: the rollup `day` predicates compare against the period's LOCAL
+  // calendar dates, which only the report's timezone can name.
+  return { orgId: c.orgId, ...(c.orgIds ? { orgIds: c.orgIds } : {}), from: c.from, to: c.to, tz: c.tz };
 }
 
 /** The previous period, when the context carries one (for the trend columns). */

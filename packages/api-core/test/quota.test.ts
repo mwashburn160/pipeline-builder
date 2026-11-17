@@ -247,6 +247,18 @@ describe('quota.check', () => {
     expect(mockGet.mock.calls[0]![1]).toEqual(expect.objectContaining({ timeout: 300, maxRetries: 0, maxRateLimitRetries: 0 }));
   });
 
+  it('REGRESSION: counter checks trip their OWN breaker, so check timeouts cannot open the fail-closed reserve path', async () => {
+    const quotaService = await loadQuotaService();
+    mockGet.mockResolvedValue(httpResponse(200, { success: true, data: { quotaType: 'apiCalls', status: { allowed: true } } }));
+    await quotaService.check('org1', 'apiCalls', AUTH);
+    expect(mockGet.mock.calls[0]![1]).toEqual(expect.objectContaining({ breakerClass: 'quota-check' }));
+    mockPost.mockResolvedValue(httpResponse(200, { success: true, data: { reservationId: 'r1' } }));
+    await quotaService.reserve('org1', 'apiCalls', AUTH).catch(() => undefined);
+    for (const call of mockPost.mock.calls) {
+      expect((call[1] as Record<string, unknown> | undefined)?.breakerClass).toBeUndefined();
+    }
+  });
+
   it('keeps the client timeout and one retry for the MEASURED storageBytes read', async () => {
     const quotaService = await loadQuotaService();
     mockGet.mockResolvedValue(httpResponse(200, { success: true, data: { quotaType: 'storageBytes', status: { allowed: true } } }));

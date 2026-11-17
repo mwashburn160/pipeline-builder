@@ -195,6 +195,7 @@ export {
   createMemorySseTicketStore,
   createEnvSseTicketStore,
   envSseTicketCaps,
+  SseStreamOwnerConflictError,
   type EnvSseTicketStoreConfig,
   type SseTicketStore,
   type SseTicketStoreConfig,

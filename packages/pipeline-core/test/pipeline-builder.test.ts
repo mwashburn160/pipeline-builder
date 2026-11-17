@@ -85,6 +85,22 @@ function baseProps(overrides: Partial<BuilderProps> = {}): BuilderProps {
   } as BuilderProps;
 }
 
+/**
+ * The exact Fn::Join an env-agnostic stack emits for a same-account,
+ * same-region, partition-aware secret ARN pattern — never a hardcoded
+ * `arn:aws` or a `*:*` region/account wildcard.
+ */
+function stackSecretArn(secretName: string): unknown {
+  return {
+    'Fn::Join': ['', [
+      'arn:', { Ref: 'AWS::Partition' },
+      ':secretsmanager:', { Ref: 'AWS::Region' },
+      ':', { Ref: 'AWS::AccountId' },
+      `:secret:${secretName}-*`,
+    ]],
+  };
+}
+
 function build(props: BuilderProps): { template: Template; builder: any } {
   const stack = new Stack(new App(), 'PbTestStack');
   const builder = new PipelineBuilder(stack, 'Pb', props);
@@ -195,7 +211,7 @@ describe('PipelineBuilder', () => {
               Action: 'secretsmanager:GetSecretValue',
               // The `-*` suffix matters: Secrets Manager appends six random
               // characters to every ARN, so an exact-name resource never matches.
-              Resource: Match.stringLikeRegexp('secret:pipeline-builder/org-42/platform-\\*$'),
+              Resource: stackSecretArn('pipeline-builder/org-42/platform'),
             }),
           ]),
         }),
@@ -215,7 +231,7 @@ describe('PipelineBuilder', () => {
             Match.objectLike({
               Effect: 'Allow',
               Action: 'secretsmanager:GetSecretValue',
-              Resource: Match.stringLikeRegexp('secret:pipeline-builder/org-42/pipeline-registry-write-\\*$'),
+              Resource: stackSecretArn('pipeline-builder/org-42/pipeline-registry-write'),
             }),
           ]),
         }),

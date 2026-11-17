@@ -541,6 +541,9 @@ describe('ai-core provider-registry', () => {
       onlyKeys({ ANTHROPIC_API_KEY: 'k' });
       const { resolveModelSelection } = await freshImport();
       expect(() => resolveModelSelection({ model: 'claude-sonnet-5-5' })).toThrow(/without a `provider`/);
+      // REGRESSION: a caller's key with no provider used to be dropped and the
+      // request served on the platform key.
+      expect(() => resolveModelSelection({ apiKey: 'byo' })).toThrow(/`apiKey` was supplied without a `provider`/);
     });
 
     it('picks the first configured provider when nothing is named, and errors when none is', async () => {

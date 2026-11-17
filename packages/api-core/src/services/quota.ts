@@ -52,9 +52,19 @@ const QUOTA_REQUEST_OPTIONS: Pick<RequestOptions, 'maxRateLimitRetries' | 'maxRe
  */
 export const QUOTA_CHECK_TIMEOUT_MS = envInt('QUOTA_CHECK_TIMEOUT_MS', 300, { min: 1 });
 
-function checkRequestOptions(quotaType: QuotaType): Pick<RequestOptions, 'maxRateLimitRetries' | 'maxRetries' | 'timeout'> {
+/**
+ * Counter checks also get their OWN circuit-breaker class. With a 300 ms budget
+ * a brief latency spike times out a burst of checks; on the shared breaker that
+ * opened the circuit for `reserve`/`increment` too, and `reserve` fails CLOSED —
+ * so a spike the 5 s reserve would have ridden out turned into 503s on every
+ * pipeline create, plugin build and AI call. Checks fail open, so their breaker
+ * opening costs nothing but a faster fail-open.
+ */
+const QUOTA_CHECK_BREAKER_CLASS = 'quota-check';
+
+function checkRequestOptions(quotaType: QuotaType): Pick<RequestOptions, 'maxRateLimitRetries' | 'maxRetries' | 'timeout' | 'breakerClass'> {
   if (quotaType === 'storageBytes') return QUOTA_REQUEST_OPTIONS;
-  return { maxRateLimitRetries: 0, maxRetries: 0, timeout: QUOTA_CHECK_TIMEOUT_MS };
+  return { maxRateLimitRetries: 0, maxRetries: 0, timeout: QUOTA_CHECK_TIMEOUT_MS, breakerClass: QUOTA_CHECK_BREAKER_CLASS };
 }
 
 const logger = createLogger('quota');

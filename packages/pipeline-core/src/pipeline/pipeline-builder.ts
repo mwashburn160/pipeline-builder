@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createLogger } from '@pipeline-builder/api-core';
-import { Duration, RemovalPolicy, Stack, Tags } from 'aws-cdk-lib';
+import { ArnFormat, Duration, RemovalPolicy, Stack, Tags } from 'aws-cdk-lib';
 import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
 import { BuildSpec, type IBuildImage } from 'aws-cdk-lib/aws-codebuild';
 import { PipelineNotificationEvents, PipelineType, Variable } from 'aws-cdk-lib/aws-codepipeline';
@@ -510,12 +510,21 @@ export class PipelineBuilder extends Construct {
       // patched by hand in each account.
       //
       // Scoped to this org's platform secret, with the `-*` suffix — Secrets
-      // Manager appends six random characters to every ARN.
+      // Manager appends six random characters to every ARN. Partition, region
+      // and account are the pipeline stack's: the synth reads the secret with a
+      // region-less SDK client (CodeBuild's own region) by NAME, which only ever
+      // resolves in the build's own account and region.
+      const secretArnPattern = (secretName: string): string => Stack.of(this).formatArn({
+        service: 'secretsmanager',
+        resource: 'secret',
+        resourceName: `${secretName}-*`,
+        arnFormat: ArnFormat.COLON_RESOURCE_NAME,
+      });
       if (platformSecretName) {
         this.pipeline.synthProject.addToRolePolicy(new PolicyStatement({
           effect: Effect.ALLOW,
           actions: ['secretsmanager:GetSecretValue'],
-          resources: [`arn:aws:secretsmanager:*:*:secret:${platformSecretName}-*`],
+          resources: [secretArnPattern(platformSecretName)],
         }));
       }
       // Same grant for the registration key, and on the SYNTH project only: it
@@ -528,7 +537,7 @@ export class PipelineBuilder extends Construct {
         this.pipeline.synthProject.addToRolePolicy(new PolicyStatement({
           effect: Effect.ALLOW,
           actions: ['secretsmanager:GetSecretValue'],
-          resources: [`arn:aws:secretsmanager:*:*:secret:${registrationSecretName}-*`],
+          resources: [secretArnPattern(registrationSecretName)],
         }));
       }
 

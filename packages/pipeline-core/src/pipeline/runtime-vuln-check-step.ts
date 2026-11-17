@@ -1,6 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { Aws } from 'aws-cdk-lib';
 import { BuildSpec } from 'aws-cdk-lib/aws-codebuild';
 import { Effect, PolicyStatement } from 'aws-cdk-lib/aws-iam';
 import { CodeBuildStep } from 'aws-cdk-lib/pipelines';
@@ -45,7 +46,10 @@ export function createRuntimeVulnCheckStep(props: RuntimeVulnCheckStepProps): Co
     rolePolicyStatements: [new PolicyStatement({
       effect: Effect.ALLOW,
       actions: ['secretsmanager:GetSecretValue'],
-      resources: [`arn:aws:secretsmanager:*:*:secret:${props.platformSecretName}-*`],
+      // The step's CodeBuild project lives in the pipeline stack, so the pseudo
+      // parameters resolve to that stack's partition/region/account — where the
+      // secret is read by name (same account and region as the build).
+      resources: [`arn:${Aws.PARTITION}:secretsmanager:${Aws.REGION}:${Aws.ACCOUNT_ID}:secret:${props.platformSecretName}-*`],
     })],
   });
 }

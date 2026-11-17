@@ -477,7 +477,13 @@ export class PerOrgKmsKeyProvider implements KeyProvider {
     if (!promise) {
       promise = this.resolveAndDecrypt(orgId);
       this.inFlight.set(orgId, promise);
-      void promise.finally(() => { if (this.inFlight.get(orgId) === promise) this.inFlight.delete(orgId); });
+      // `.finally()` returns a NEW promise carrying the same rejection; the
+      // trailing catch keeps it from surfacing as an unhandledRejection (which
+      // the crash handler turns into process.exit). Callers still see the
+      // failure through `await promise` below.
+      void promise
+        .finally(() => { if (this.inFlight.get(orgId) === promise) this.inFlight.delete(orgId); })
+        .catch(() => undefined);
     }
     const result = await promise;
     if (result) this.masters.set(orgId, result);

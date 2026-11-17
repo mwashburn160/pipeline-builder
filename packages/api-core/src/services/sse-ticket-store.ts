@@ -44,7 +44,14 @@ export interface SseTicketStore {
   issue(orgId: string, subject?: string): Promise<SseTicketIssueResult>;
   /** Redeem a ticket exactly once; null when unknown, expired or already spent. */
   consume(ticketId: string): Promise<SseTicketRecord | null>;
-  /** Record (or refresh) the org that owns `subject` for `ttlMs`. Throws when the backend can't record it. */
+  /**
+   * Claim `subject` for `orgId` for `ttlMs` — compare-and-set: binds an unowned
+   * (or lapsed) subject, refreshes the TTL when `orgId` already owns it, and
+   * REFUSES with {@link SseStreamOwnerConflictError} when another org owns it,
+   * leaving that binding untouched. A plain overwrite let anyone who replayed a
+   * live stream id (e.g. a victim's `X-Request-Id`) re-bind it and mint tickets
+   * for the victim's build-log stream. Throws too when the backend can't record it.
+   */
   bindOwner(subject: string, orgId: string, ttlMs: number): Promise<void>;
   /** The org that owns `subject`, or null when none is bound. Throws when the backend can't answer. */
   getOwner(subject: string): Promise<string | null>;
@@ -67,6 +74,20 @@ export interface SseTicketStoreConfig {
    * redeemable on another. Omit for the default namespace.
    */
   keyPrefix?: string;
+}
+
+/**
+ * Thrown by {@link SseTicketStore.bindOwner} when `subject` is already bound to a
+ * DIFFERENT org. The existing binding is left as it was; callers that bind on a
+ * request path should treat it as a conflict (the stream id is taken), not as a
+ * transient backend failure worth retrying.
+ */
+export class SseStreamOwnerConflictError extends Error {
+  readonly code = 'SSE_STREAM_OWNER_CONFLICT';
+  constructor() {
+    super('SSE stream subject is already owned by another org');
+    this.name = 'SseStreamOwnerConflictError';
+  }
 }
 
 function newTicketId(): string {
@@ -105,7 +126,10 @@ export function createMemorySseTicketStore(config: SseTicketStoreConfig): SseTic
       return { orgId: t.orgId, ...(t.subject !== undefined && { subject: t.subject }) };
     },
     async bindOwner(subject, orgId, ttlMs) {
-      owners.set(subject, { orgId, expiresAt: Date.now() + ttlMs });
+      const now = Date.now();
+      const cur = owners.get(subject);
+      if (cur && now < cur.expiresAt && cur.orgId !== orgId) throw new SseStreamOwnerConflictError();
+      owners.set(subject, { orgId, expiresAt: now + ttlMs });
     },
     async getOwner(subject) {
       const o = owners.get(subject);
@@ -150,6 +174,19 @@ redis.call('ZADD', KEYS[2], now + ttl, ARGV[4])
 redis.call('PEXPIRE', KEYS[1], ttl)
 redis.call('PEXPIRE', KEYS[2], ttl)
 return 'ok'`;
+
+/**
+ * Atomic compare-and-set owner bind. Sets (with a fresh PX TTL) when the key is
+ * absent or already holds this org — the same-owner path is the TTL refresh —
+ * and otherwise leaves the other org's binding and its TTL untouched.
+ *
+ * KEYS: owner key. ARGV: orgId, ttlMs. Returns 1 when bound, 0 when refused.
+ */
+const BIND_OWNER_SCRIPT = `
+local cur = redis.call('GET', KEYS[1])
+if cur and cur ~= ARGV[1] then return 0 end
+redis.call('SET', KEYS[1], ARGV[1], 'PX', tonumber(ARGV[2]))
+return 1`;
 
 /**
  * Redis backend — multi-replica safe.
@@ -207,12 +244,17 @@ export function createRedisSseTicketStore(redis: SseTicketRedis, config: SseTick
       }
     },
     async bindOwner(subject, orgId, ownerTtlMs) {
+      let bound: unknown;
       try {
         await ready();
-        await redis.set(ownerKey(subject), orgId, 'PX', Math.max(1, Math.ceil(ownerTtlMs)));
+        bound = await redis.eval(BIND_OWNER_SCRIPT, 1, ownerKey(subject), orgId, Math.max(1, Math.ceil(ownerTtlMs)));
       } catch (err) {
         logger.warn('SSE stream-owner bind failed', { error: errorMessage(err) });
         throw err;
+      }
+      if (Number(bound) !== 1) {
+        logger.warn('SSE stream-owner bind refused: subject owned by another org', { orgId });
+        throw new SseStreamOwnerConflictError();
       }
     },
     async getOwner(subject) {

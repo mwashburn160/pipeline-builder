@@ -3,7 +3,7 @@
 
 import { describe, it, expect, afterEach, jest } from '@jest/globals';
 import { makeFakeRedis } from './helpers/fake-redis.js';
-import { createEnvSseTicketStore, createRedisSseTicketStore, envSseTicketCaps, type SseTicketStore, type SseTicketStoreConfig } from '../src/services/sse-ticket-store.js';
+import { createEnvSseTicketStore, createRedisSseTicketStore, envSseTicketCaps, SseStreamOwnerConflictError, type SseTicketStore, type SseTicketStoreConfig } from '../src/services/sse-ticket-store.js';
 
 const stores: Array<{ stop(): void }> = [];
 afterEach(() => { while (stores.length) stores.pop()!.stop(); });
@@ -71,6 +71,42 @@ function contract(name: string, make: (cfg?: Partial<SseTicketStoreConfig>) => S
       expect(await store.getOwner('subj')).toBeNull();
       await store.bindOwner('subj', 'org-a', 60_000);
       expect(await store.getOwner('subj')).toBe('org-a');
+    });
+
+    it('refuses to re-bind a live subject to a different org (compare-and-set)', async () => {
+      const store = build();
+      await store.bindOwner('subj', 'victim', 60_000);
+      await expect(store.bindOwner('subj', 'attacker', 60_000)).rejects.toBeInstanceOf(SseStreamOwnerConflictError);
+      expect(await store.getOwner('subj')).toBe('victim');
+    });
+
+    it('treats a same-owner bind as a refresh that extends the TTL', async () => {
+      jest.useFakeTimers({ now: 1_000_000, doNotFake: ['setTimeout', 'setImmediate', 'nextTick', 'queueMicrotask'] });
+      try {
+        const store = build();
+        await store.bindOwner('subj', 'org-a', 1_000);
+        jest.setSystemTime(1_000_800);
+        await expect(store.bindOwner('subj', 'org-a', 1_000)).resolves.toBeUndefined();
+        jest.setSystemTime(1_001_500); // past the first TTL, inside the refreshed one
+        expect(await store.getOwner('subj')).toBe('org-a');
+        jest.setSystemTime(1_002_000);
+        expect(await store.getOwner('subj')).toBeNull();
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('lets another org bind a subject once the previous binding has lapsed', async () => {
+      jest.useFakeTimers({ now: 2_000_000, doNotFake: ['setTimeout', 'setImmediate', 'nextTick', 'queueMicrotask'] });
+      try {
+        const store = build();
+        await store.bindOwner('subj', 'org-a', 1_000);
+        jest.setSystemTime(2_001_000);
+        await store.bindOwner('subj', 'org-b', 1_000);
+        expect(await store.getOwner('subj')).toBe('org-b');
+      } finally {
+        jest.useRealTimers();
+      }
     });
   });
 }
@@ -201,6 +237,9 @@ const REAL_URL = process.env.API_CORE_TEST_REDIS_URL;
     expect(await store.consume(t.ok ? t.ticket : '')).toBeNull();
     expect((await store.issue('org-a')).ok).toBe(true);
     await store.bindOwner('subj', 'org-a', 10_000);
+    expect(await store.getOwner('subj')).toBe('org-a');
+    await store.bindOwner('subj', 'org-a', 10_000); // same-owner refresh
+    await expect(store.bindOwner('subj', 'org-b', 10_000)).rejects.toBeInstanceOf(SseStreamOwnerConflictError);
     expect(await store.getOwner('subj')).toBe('org-a');
   });
 

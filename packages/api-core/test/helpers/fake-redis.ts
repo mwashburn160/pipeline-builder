@@ -4,7 +4,7 @@
 /**
  * In-memory Redis stand-in for the SSE ticket store and `incrWindow`.
  *
- * `eval` recognizes the two scripts api-core ships and reproduces their effect
+ * `eval` recognizes the three scripts api-core ships and reproduces their effect
  * in JS (one call = one atomic step, like Redis). The Lua itself is exercised by
  * the opt-in real-Redis suites (API_CORE_TEST_REDIS_URL).
  */
@@ -48,6 +48,13 @@ export function makeFakeRedis() {
         zsetExpiry.set(totalKey, now + Number(ttl));
         zsetExpiry.set(orgKey, now + Number(ttl));
         return 'ok';
+      }
+      if (script.includes('cur ~= ARGV[1]')) {
+        const [key, orgId, ttl] = args.map(String);
+        const cur = liveString(key);
+        if (cur && cur.value !== orgId) return 0;
+        strings.set(key, { value: orgId, expiresAt: Date.now() + Number(ttl) });
+        return 1;
       }
       if (script.includes('INCR')) {
         const [key, windowMs] = args.map(String);

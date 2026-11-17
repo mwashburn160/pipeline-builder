@@ -175,6 +175,14 @@ describe('searchPublicListings', () => {
       health: /health_score DESC NULLS LAST/,
     }[sort]);
   });
+
+  it.each(['relevance', 'rating', 'installs', 'name', 'health', 'updated'] as const)(
+    'REGRESSION: %s ends on a unique (name, publisher_handle) tie-break so OFFSET paging is stable',
+    async (sort) => {
+      await searchPublicListings({ sort, q: 'terraform' });
+      expect(executed[0].sql).toMatch(/name ASC, publisher_handle ASC/);
+    },
+  );
 });
 
 describe('listPublicCategories', () => {

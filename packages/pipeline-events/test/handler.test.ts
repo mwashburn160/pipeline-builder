@@ -1210,17 +1210,20 @@ describe('pipeline-events handler', () => {
         commit: { committer: { date: '1710000000 +0000' }, parents: [`p-${cmd.commitId}-${++n}`] },
       }));
 
-      const ccEvent = (sha: string) => ({
+      const ccEvent = (sha: string, deploy = false) => ({
         ...MOCK_CODEPIPELINE_EVENT,
+        ...(deploy && { 'detail-type': 'CodePipeline Stage Execution State Change' }),
         detail: {
           ...MOCK_CODEPIPELINE_EVENT.detail,
+          ...(deploy && { pipeline: 'prod-pipeline', stage: 'Deploy' }),
           'execution-id': `exec-${sha}`,
           'source-revisions': [{ revisionId: sha, revisionUrl: `https://console.aws.amazon.com/codesuite/codecommit/repositories/my-repo/commits/${sha}` }],
         },
       });
 
-      // First event: single commit (cold start) → establishes the range lower bound.
-      await handler(createSQSEvent([ccEvent('head1')]));
+      // First event: a SUCCESSFUL DEPLOY of head1 (cold start, single commit) →
+      // establishes the range lower bound. Only a successful deploy may set it.
+      await handler(createSQSEvent([ccEvent('head1', true)]));
       // Second event: range walk head2 → … never hits head1 within MAX_COMMIT_WALK.
       await handler(createSQSEvent([ccEvent('head2')]));
 
@@ -1229,6 +1232,40 @@ describe('pipeline-events handler', () => {
       expect(body.events[0].commitSha).toBe('head2');
       expect(body.events[0].commitTimestamp).toBeUndefined();
       expect(body.events[0].commitCount).toBeUndefined();
+    });
+    /**
+     * The range bound is "the last sha a deploy SHIPPED". A pipeline-level event,
+     * a non-deploy stage and a FAILED deploy did not ship theirs, so none of them
+     * may move it — if they did, the next range would start from a commit that
+     * never reached an environment (here: the walk would be truncated → omitted).
+     */
+    it.each([
+      ['a pipeline-level event', { }],
+      ['a non-deploy stage', { 'detail-type': 'CodePipeline Stage Execution State Change', 'stage': 'Build' }],
+      ['a FAILED deploy', { 'detail-type': 'CodePipeline Stage Execution State Change', 'stage': 'Deploy', 'state': 'FAILED' }],
+    ])('%s does not advance the range bound', async (_label, over: Record<string, string>) => {
+      let n = 0;
+      mockCcSend.mockImplementation((cmd: any) => Promise.resolve({
+        commit: { committer: { date: '1710000000 +0000' }, parents: [`p-${cmd.commitId}-${++n}`] },
+      }));
+      const { 'detail-type': detailType, ...detailOver } = over;
+      const ev = (sha: string, withOver: boolean) => ({
+        ...MOCK_CODEPIPELINE_EVENT,
+        ...(withOver && detailType && { 'detail-type': detailType }),
+        detail: {
+          ...MOCK_CODEPIPELINE_EVENT.detail,
+          'pipeline': 'prod-pipeline',
+          ...(withOver && detailOver),
+          'execution-id': `exec-${sha}`,
+          'source-revisions': [{ revisionId: sha, revisionUrl: `https://console.aws.amazon.com/codesuite/codecommit/repositories/my-repo/commits/${sha}` }],
+        },
+      });
+      await handler(createSQSEvent([ev('head1', true)]));
+      await handler(createSQSEvent([ev('head2', false)]));
+      const eventsCalls = mockFetch.mock.calls.filter(isIngestCall);
+      const body = JSON.parse(eventsCalls[eventsCalls.length - 1][1].body);
+      // No bound → resolved as the single newest commit, not a truncated range.
+      expect(body.events[0]).toMatchObject({ commitSha: 'head2', commitCount: 1 });
     });
   });
   /**
@@ -1299,6 +1336,26 @@ describe('pipeline-events handler', () => {
       });
       await expect(handler(createSQSEvent([MOCK_CODEPIPELINE_EVENT]))).rejects.toThrow(/exchange refused \(401\)/);
       expect(posted()).toBe(false);
+    });
+
+    it('REGRESSION: re-reads the SECRET after the EXCHANGE refuses the key, so a rotation does not wedge a warm container', async () => {
+      const ROTATED_KEY = 'pb_sa_ffffffffffffffffffffffffffffffff';
+      mockSend
+        .mockResolvedValueOnce({ SecretString: JSON.stringify({ password: STORED_KEY }) })
+        .mockResolvedValue({ SecretString: JSON.stringify({ password: ROTATED_KEY }) });
+      mockFetch.mockImplementation((url: string, opts?: any) => {
+        if (url.includes('/auth/token/exchange')) {
+          const { key } = JSON.parse(opts.body);
+          return key === ROTATED_KEY
+            ? exchangeResponse('rotated.token')
+            : Promise.resolve({ ok: false, status: 401, json: () => Promise.resolve({}) });
+        }
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+      });
+      await expect(handler(createSQSEvent([MOCK_CODEPIPELINE_EVENT]))).rejects.toThrow(/exchange refused \(401\)/);
+      await handler(createSQSEvent([MOCK_CODEPIPELINE_EVENT]));
+      expect(JSON.parse((exchanges().at(-1)![1] as { body: string }).body)).toEqual({ key: ROTATED_KEY });
+      expect(posted()).toBe(true);
     });
 
     it('FAILS CLOSED when the exchange is unreachable', async () => {

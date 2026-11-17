@@ -13,7 +13,7 @@
  * the deterministic path instead of erroring.
  */
 
-import { AI_PROVIDER_ENV_VARS, REDACTED, SENSITIVE_VALUE_PATTERNS } from '@pipeline-builder/api-core';
+import { AI_PROVIDER_ENV_VARS, REDACTED, SENSITIVE_VALUE_PATTERNS, isKeylessProviderId } from '@pipeline-builder/api-core';
 import { z } from 'zod';
 
 export interface AiOptions {
@@ -29,13 +29,6 @@ export interface AiOptions {
 const PROVIDER_ALIASES: Record<string, string> = {
   bedrock: 'amazon-bedrock',
 };
-
-/**
- * Providers that authenticate WITHOUT an API key (Bedrock uses the runtime IAM
- * role). Mirrors ai-core's provider-registry so the CLI's "is AI usable?" gate
- * agrees with what the registry will actually register.
- */
-const KEYLESS_PROVIDERS = new Set(['amazon-bedrock']);
 
 /**
  * Model used when neither --ai-model nor AI_MODEL names one. Taking the first
@@ -58,7 +51,10 @@ function providerId(opts: AiOptions): string {
  * role (no API key), so an AWS region — set by every AWS runtime — is the "running
  * in / configured for AWS" signal. Gating it on AWS_ACCESS_KEY_ID (which it never
  * uses) left it permanently unavailable on instance-role EC2/EKS despite valid IAM
- * creds. Mirrors ai-core `provider-registry.ts` `keylessProviderAvailable()`.
+ * creds. Deliberately LOOSER than ai-core's `keylessProviderAvailable()`, which
+ * also wants an explicit credential source (or `BEDROCK_ENABLED=true`): when
+ * ai-core declines to register Bedrock, `resolveModel` throws and {@link resolve}
+ * degrades to the deterministic path, so over-reporting here costs nothing.
  */
 function keylessProviderAvailable(): boolean {
   return !!(process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION);
@@ -67,13 +63,14 @@ function keylessProviderAvailable(): boolean {
 /**
  * True when the selected provider can be used: a key-based provider needs its API
  * key, a keyless provider (Bedrock) needs either static AWS creds or an AWS region
- * (the IAM-role signal). Kept in lockstep with ai-core's registry gating.
+ * (the IAM-role signal). A superset of ai-core's registry gating (see above).
  */
 export function isAiConfigured(opts: AiOptions = {}): boolean {
   const id = providerId(opts);
   const env = AI_PROVIDER_ENV_VARS[id];
   const hasKey = !!(env && process.env[env]);
-  if (KEYLESS_PROVIDERS.has(id)) return hasKey || keylessProviderAvailable();
+  // Keyless (Bedrock: the runtime IAM role) per the shared catalog flag.
+  if (isKeylessProviderId(id)) return hasKey || keylessProviderAvailable();
   return hasKey;
 }
 

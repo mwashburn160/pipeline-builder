@@ -85,6 +85,8 @@ const MAX_DETAIL_BYTES = 7500;
  * `ABANDONED` (an action left unfinished when its execution moved on) end it as
  * surely as `STOPPED` does — without them, those rows read as still running.
  */
+/** A deploy STAGE in one of these states shipped its sha (mirrors reporting's deploy rollup). */
+const DEPLOY_SUCCEEDED_STATES: ReadonlySet<string> = new Set(['SUCCEEDED', 'SUCCESS']);
 const TERMINAL_STATES: ReadonlySet<string> = new Set(['SUCCEEDED', 'FAILED', 'CANCELED', 'STOPPED', 'SUPERSEDED', 'ABANDONED']);
 
 /** First non-empty string among the candidates, capped to the ingest max. */
@@ -293,7 +295,12 @@ export async function parseRecord(record: SQSRecord): Promise<ParsedEvent | null
   let commitCount: number | undefined;
   if (commitSha && process.env.DORA_ENABLED === 'true') {
     const src = classifySource(revisionUrl);
-    const info = await resolveCommitInfo(pipelineId, orgId, event.region, { sha: commitSha, ...src });
+    // Only a SUCCESSFUL DEPLOY advances the pipeline's "last shipped" range bound —
+    // the same predicate the reporting deploy rollup uses for a succeeded deploy
+    // (a STAGE event in a pb.deploys stage, SUCCEEDED). A source event, a failed
+    // deploy or a non-deploy stage did not ship its sha.
+    const successfulDeploy = eventType === 'STAGE' && !!environment && DEPLOY_SUCCEEDED_STATES.has(state);
+    const info = await resolveCommitInfo(pipelineId, orgId, event.region, { sha: commitSha, ...src }, { successfulDeploy });
     commitTimestamp = info.commitTimestamp;
     commitCount = info.commitCount;
   }

@@ -107,6 +107,18 @@ describe('resolveNetwork', () => {
       expect(resolved.subnetSelection.subnetType).toBe(SubnetType.PRIVATE_ISOLATED);
       expect(resolved.subnetSelection.availabilityZones).toEqual(['us-east-1a', 'us-east-1b']);
     });
+
+    it('selects by subnetGroupName alone, without the default subnetType CDK refuses alongside it', () => {
+      const network: NetworkConfig = {
+        type: 'vpcId',
+        options: { vpcId: 'vpc-0a1b2c3d', subnetGroupName: 'app' },
+      };
+
+      const resolved = resolveNetwork(stack, id, network);
+
+      expect(resolved.subnetSelection.subnetGroupName).toBe('app');
+      expect(resolved.subnetSelection.subnetType).toBeUndefined();
+    });
   });
 
   describe('vpcLookup', () => {

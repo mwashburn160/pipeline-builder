@@ -48,7 +48,20 @@ export function orgScope(orgId: string, orgIds?: string[]) {
   const pred = multi
     ? sql`IN (${sql.join(ids.map((id) => sql`${id}`), sql`, `)})`
     : sql`= ${ids[0]}`;
-  return { pred, multi };
+  return { pred, multi, ids };
+}
+
+/**
+ * Run `exec` under the rollup's sysadmin context when `multi`, else as-is.
+ *
+ * The ONE elevation every multi-org report read uses ({@link runReport} and the
+ * analytics queries): FORCE RLS on the rollup tables scopes a read to the
+ * request's own org, so a parent org's subtree read must step outside it. The
+ * caller's `IN (...)` / `= ANY(...)` over {@link orgScope}'s `ids` — the
+ * anchor-validated, server-resolved subtree — is then the tenancy gate.
+ */
+export function elevateRollup<T>(multi: boolean, exec: () => Promise<T>): Promise<T> {
+  return multi ? runWithTenantContext({ isSuperAdmin: true }, exec) : exec();
 }
 
 /**
@@ -59,9 +72,7 @@ export function orgScope(orgId: string, orgIds?: string[]) {
  * has no org tree), so caching them would serve stale aggregates. Always fresh.
  */
 export function runReport<T>(cacheKey: string, multi: boolean, exec: () => Promise<T>): Promise<T> {
-  return multi
-    ? runWithTenantContext({ isSuperAdmin: true }, exec)
-    : timeseriesCache.getOrSet(cacheKey, exec);
+  return multi ? elevateRollup(true, exec) : timeseriesCache.getOrSet(cacheKey, exec);
 }
 
 /**

@@ -492,18 +492,27 @@ export function createCodeBuildStep(options: CodeBuildStepOptions): ShellStep | 
   // the resolved image. The plugin author's intent ("use my baked tools")
   // is preserved without forcing them to change pluginType.
   //
-  // When the plugin has no image (or registry isn't configured), we keep
-  // the original ShellStep — it's lighter weight and the default
-  // CodeBuild image is fine.
+  // Likewise a SHELL_STEP that needs SECRETS_MANAGER variables (required
+  // plugin secrets, or the security-report upload key) is promoted: ShellStep
+  // `env` is plaintext-only, so returning a ShellStep silently dropped them and
+  // the build ran without its credentials. The promoted step runs on the
+  // pipeline's default image — the same image the ShellStep would have used.
+  //
+  // Otherwise (no image, no secrets) we keep the original ShellStep — it's
+  // lighter weight and the default CodeBuild image is fine.
   if (plugin.pluginType === PluginType.SHELL_STEP) {
-    if (!pluginBuildImage) {
+    const needsSecretEnv = Object.keys(secretEnvVars).length > 0 || Object.keys(reportKeyEnvVar).length > 0;
+    if (!pluginBuildImage && !needsSecretEnv) {
       return new ShellStep(id, {
         ...programmatic,
         env: { ...env, ...actionEnv },
         ...metadataForShellStep(merged),
       });
     }
-    log.debug(`[CreateCodeBuildStep] SHELL_STEP plugin "${plugin.name}" has a registry image — promoting to CodeBuildStep so the plugin image is actually used`);
+    log.debug(
+      `[CreateCodeBuildStep] SHELL_STEP plugin "${plugin.name}" promoted to CodeBuildStep ` +
+      (pluginBuildImage ? 'so the plugin image is actually used' : 'so its Secrets Manager env vars are injected'),
+    );
     // Fall through to the CodeBuildStep path below.
   }
 
@@ -529,9 +538,14 @@ export function createCodeBuildStep(options: CodeBuildStepOptions): ShellStep | 
   // getComputeType — otherwise a friendly value like "LARGE" reaches CodeBuild verbatim
   // and fails with "Invalid compute type provided" (it needs BUILD_GENERAL1_LARGE).
   const rawMetaBuildEnv = metadataForBuildEnvironment(merged);
-  const metaBuildEnv = typeof rawMetaBuildEnv.computeType === 'string'
+  const normalizedMetaBuildEnv = typeof rawMetaBuildEnv.computeType === 'string'
     ? { ...rawMetaBuildEnv, computeType: getComputeType(rawMetaBuildEnv.computeType) }
     : rawMetaBuildEnv;
+  // Metadata `environmentVariables` MERGES into the step's map rather than
+  // replacing it: spread whole, one metadata variable silently dropped every
+  // plugin/metadata env var AND the injected SECRETS_MANAGER secrets and report
+  // key. Secrets go last so metadata cannot redirect them.
+  const { environmentVariables: metaEnvVars, ...metaBuildEnv } = normalizedMetaBuildEnv;
 
   const step = new CodeBuildStep(id, {
     ...programmatic,
@@ -552,6 +566,7 @@ export function createCodeBuildStep(options: CodeBuildStepOptions): ShellStep | 
       buildImage: pluginBuildImage ?? defaultBuildImageOrThrow(options),
       environmentVariables: {
         ...toCodeBuildEnvVars(env),
+        ...metaEnvVars,
         ...secretEnvVars,
         ...reportKeyEnvVar,
       },

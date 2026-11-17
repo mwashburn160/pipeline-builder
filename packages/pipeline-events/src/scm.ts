@@ -39,16 +39,23 @@ export interface CommitInfo { commitTimestamp?: string; commitCount?: number }
 // 404 from a repo whose token was just added) must not pin "no commit info" for
 // that sha for the container's lifetime.
 const commitResultCache = new BoundedMap<string, CommitInfo>(CACHE_MAX_ENTRIES);
-// Last sha we successfully resolved per pipeline — the exclusive lower bound for the
-// next range ("commits since the last deploy"). In-memory, so a cold start empties
-// it; `fetchLastDeployedSha` then reads the bound back from the reporting API,
-// because resolving as a single commit made lead time and commitCount far too
-// small on every fresh container — which is most of them.
+// Last sha a SUCCESSFUL DEPLOY shipped per pipeline — the exclusive lower bound for
+// the next range ("commits since the last deploy"). Advanced only by a successful
+// deploy event (see `ResolveOptions.successfulDeploy`), never by a source event, a
+// failed deploy or a non-deploy stage: those did not ship their sha, and letting
+// them move the bound made the next deploy's range (and so its lead time and
+// commitCount) start from a commit that never reached an environment. In-memory, so
+// a cold start empties it; `fetchLastDeployedSha` then reads the bound back from
+// the reporting API, because resolving as a single commit made lead time and
+// commitCount far too small on every fresh container — which is most of them.
 const lastShaByPipeline = new BoundedMap<string, string>(CACHE_MAX_ENTRIES);
 // Pipelines whose bound we already asked the reporting API for and it had none.
 // Without this, a pipeline that genuinely has never deployed re-asks on every
-// event for the life of the container.
-const noRecordedDeploy = new Set<string>();
+// event for the life of the container. BOUNDED (oldest evicted first): a fleet
+// container sees an open-ended set of pipelines, and an evicted entry only costs
+// one more lookup.
+export const NO_RECORDED_DEPLOY_MAX = 1000;
+const noRecordedDeploy = new BoundedMap<string, true>(NO_RECORDED_DEPLOY_MAX);
 // Per-sha CodeCommit metadata cache (date + first-parent) for range walks.
 const commitMetaCache = new BoundedMap<string, { date?: string; parents?: string[] }>(CACHE_MAX_ENTRIES);
 // SCM rate-limit cooldown: after a 403/429 we stop calling the SCM for a while.
@@ -62,9 +69,15 @@ const SCM_FETCH_TIMEOUT_MS = 3000;
 // The forwarder is a fleet Lambda: one warm container resolves events for MANY
 // orgs, so the GitHub token MUST be keyed by the event's resolved org (not a single
 // container-global token). Each org's token lives at `<prefix>/<orgId>/github-token`,
-// derived from PLATFORM_SECRET_NAME (`<prefix>/<containerOrg>/platform`). null caches
-// a definitive miss (no secret / read failed) → unauthenticated best-effort.
-const githubTokenByOrg = new BoundedMap<string, string | null>(CACHE_MAX_ENTRIES);
+// derived from PLATFORM_SECRET_NAME (`<prefix>/<containerOrg>/platform`).
+// Only a token that was READ is cached for the container's life. A miss (no secret,
+// an empty one, or a GetSecretValue error — throttling, a network blip, an IAM
+// change still propagating) is negative-cached for GITHUB_TOKEN_MISS_TTL_MS only:
+// caching it forever pinned an org to unauthenticated (60 req/h) resolution until
+// the container recycled because of one transient error.
+const githubTokenByOrg = new BoundedMap<string, string>(CACHE_MAX_ENTRIES);
+const githubTokenMissUntil = new BoundedMap<string, number>(CACHE_MAX_ENTRIES);
+export const GITHUB_TOKEN_MISS_TTL_MS = 60_000;
 
 /**
  * Derive a specific org's github-token secret name from PLATFORM_SECRET_NAME
@@ -90,8 +103,12 @@ async function getGitHubToken(orgId: string | null): Promise<string | null> {
   const key = orgId ?? '';
   const cached = githubTokenByOrg.get(key);
   if (cached !== undefined) return cached;
+  const missUntil = githubTokenMissUntil.get(key);
+  if (missUntil !== undefined && Date.now() < missUntil) return null;
+  // No `.../platform` PLATFORM_SECRET_NAME: a config fact for the container's life,
+  // not a lookup result — nothing to retry.
   const secretName = githubTokenSecretName(orgId);
-  if (!secretName) { githubTokenByOrg.set(key, null); return null; }
+  if (!secretName) return null;
   let token: string | null;
   try {
     const client = new SecretsManagerClient({});
@@ -103,7 +120,12 @@ async function getGitHubToken(orgId: string | null): Promise<string | null> {
     log.warn('No github-token secret — GitHub commit resolution will be unauthenticated', { orgId, error: (err as { name?: string })?.name });
     token = null;
   }
-  githubTokenByOrg.set(key, token);
+  if (token) {
+    githubTokenByOrg.set(key, token);
+    githubTokenMissUntil.delete(key);
+  } else {
+    githubTokenMissUntil.set(key, Date.now() + GITHUB_TOKEN_MISS_TTL_MS);
+  }
   return token;
 }
 
@@ -245,16 +267,38 @@ async function resolveBitbucket(owner: string, repo: string, sha: string): Promi
   return {};
 }
 
+/** How the event being resolved relates to a deploy. */
+export interface ResolveOptions {
+  /**
+   * True only for a SUCCESSFUL DEPLOY event — a STAGE event whose stage is in the
+   * pipeline's `pb.deploys` map, in a succeeded state (the same predicate the
+   * reporting deploy rollup uses for `dora_deployments.succeeded`). Only such an
+   * event advances the pipeline's range boundary to `src.sha`.
+   */
+  successfulDeploy?: boolean;
+}
+
 /**
  * Resolve `commitTimestamp` + `commitCount` for a source/deploy event, in-account,
- * best-effort. Computed once per (pipelineId, sha); advances the pipeline's range
- * boundary only on success. Never throws — returns {} on any failure.
+ * best-effort. Computed once per (pipelineId, sha); the pipeline's range boundary
+ * advances to this sha only when `opts.successfulDeploy` (the sha has shipped —
+ * whether or not its commit metadata resolved). Never throws — returns {} on any
+ * failure.
  */
-export async function resolveCommitInfo(pipelineId: string, orgId: string | null, region: string, src: SourceRef): Promise<CommitInfo> {
+export async function resolveCommitInfo(
+  pipelineId: string,
+  orgId: string | null,
+  region: string,
+  src: SourceRef,
+  opts: ResolveOptions = {},
+): Promise<CommitInfo> {
   if (src.provider === 'unknown') return {};
   const rkey = `${pipelineId}|${src.sha}`;
   const cached = commitResultCache.get(rkey);
-  if (cached) return cached;
+  if (cached) {
+    if (opts.successfulDeploy) markDeployed(pipelineId, src.sha);
+    return cached;
+  }
 
   // Cold-start recovery: nothing in this container's memory, so ask the reporting
   // API what this pipeline last shipped. Without it the range below collapses to
@@ -276,11 +320,15 @@ export async function resolveCommitInfo(pipelineId: string, orgId: string | null
     info = {};
   }
 
-  if (info.commitTimestamp) {
-    commitResultCache.set(rkey, info);
-    lastShaByPipeline.set(pipelineId, src.sha);
-  }
+  if (info.commitTimestamp) commitResultCache.set(rkey, info);
+  if (opts.successfulDeploy) markDeployed(pipelineId, src.sha);
   return info;
+}
+
+/** A successful deploy shipped `sha`: it is the next range's exclusive lower bound. */
+function markDeployed(pipelineId: string, sha: string): void {
+  lastShaByPipeline.set(pipelineId, sha);
+  noRecordedDeploy.delete(pipelineId);
 }
 
 /**
@@ -313,7 +361,7 @@ async function fetchLastDeployedSha(pipelineId: string): Promise<string | undefi
     const sha = body.data?.commitSha ?? undefined;
     if (!sha) {
       // A real "never deployed" answer — remember it so we ask once per container.
-      noRecordedDeploy.add(pipelineId);
+      noRecordedDeploy.set(pipelineId, true);
       return undefined;
     }
     lastShaByPipeline.set(pipelineId, sha);
@@ -334,4 +382,10 @@ export function _resetScmForTests(): void {
   commitMetaCache.clear();
   scmCooldownUntil = 0;
   githubTokenByOrg.clear();
+  githubTokenMissUntil.clear();
+}
+
+/** @internal Test-only: the bounded caches' sizes and the current range bound. */
+export function _scmStateForTests(pipelineId?: string): { noRecordedDeploy: number; lastSha: string | undefined } {
+  return { noRecordedDeploy: noRecordedDeploy.size, lastSha: pipelineId ? lastShaByPipeline.get(pipelineId) : undefined };
 }

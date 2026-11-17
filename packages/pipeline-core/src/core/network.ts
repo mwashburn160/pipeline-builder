@@ -144,8 +144,12 @@ function withSecurityGroups(
 function resolveSubnetSelection(
   options: { subnetType?: SubnetTypeName; availabilityZones?: string[]; subnetGroupName?: string },
 ): SubnetSelection {
+  // CDK refuses a selection carrying both subnetType and subnetGroupName, so the
+  // DEFAULT type applies only when no group is named. An explicit subnetType
+  // alongside a group is still passed through, and CDK reports the conflict.
+  const subnetType = options.subnetType ?? (options.subnetGroupName ? undefined : DEFAULT_SUBNET_TYPE);
   return {
-    subnetType: SUBNET_TYPE_MAP[options.subnetType ?? DEFAULT_SUBNET_TYPE],
+    ...(subnetType && { subnetType: SUBNET_TYPE_MAP[subnetType] }),
     ...(options.availabilityZones && { availabilityZones: options.availabilityZones }),
     ...(options.subnetGroupName && { subnetGroupName: options.subnetGroupName }),
   };

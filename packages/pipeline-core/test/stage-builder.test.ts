@@ -290,6 +290,19 @@ describe('StageBuilder — run-time vulnerability check (report-only)', () => {
       { stepKey: 'Build/trivy', imageDigest: DIGEST },
       { stepKey: 'Build/smoke', imageDigest: DIGEST },
     ]);
+    // Its only grant is the org platform secret, in the pipeline's own
+    // partition/region/account — never a hardcoded `arn:aws` or `*:*`.
+    const statements = (verify as any).rolePolicyStatements as Array<{ toStatementJson(): any }>;
+    expect(statements).toHaveLength(1);
+    const scope = new Stack(new App(), 'ResolveStack');
+    expect(scope.resolve(statements[0]!.toStatementJson().Resource)).toEqual({
+      'Fn::Join': ['', [
+        'arn:', { Ref: 'AWS::Partition' },
+        ':secretsmanager:', { Ref: 'AWS::Region' },
+        ':', { Ref: 'AWS::AccountId' },
+        ':secret:pipeline-builder/org-123/platform-*',
+      ]],
+    });
     // Visibility, never a gate: nothing waits on the verify step.
     for (const step of [...waveOpts.pre.slice(1), ...waveOpts.post]) {
       expect((step as { dependencies?: unknown[] }).dependencies ?? []).toHaveLength(0);

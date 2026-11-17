@@ -262,6 +262,106 @@ describe('createCodeBuildStep — env var precedence', () => {
   });
 });
 
+describe('createCodeBuildStep — metadata buildEnvironment.environmentVariables', () => {
+  it('REGRESSION: merges into the step env instead of wiping its secrets and plugin env', async () => {
+    const { metadataForBuildEnvironment } = await import('../src/core/metadata-builder.js');
+    (metadataForBuildEnvironment as jest.Mock).mockReturnValueOnce({
+      environmentVariables: { EXTRA: { value: 'x' }, SONAR_TOKEN: { value: 'hijack' } },
+    });
+    mockCodeBuildStep.mockClear();
+    createCodeBuildStep({
+      id: 'step',
+      orgId: 'org-1',
+      plugin: {
+        name: 'sonar',
+        version: '1.0.0',
+        pluginType: 'CodeBuildStep',
+        buildType: 'metadata_only',
+        commands: ['echo'],
+        metadata: {},
+        env: { PLUGIN_VAR: 'p' },
+        secrets: [{ name: 'SONAR_TOKEN', required: true }],
+      },
+      metadata: {},
+      scope: undefined,
+      defaultBuildImage: 'default-image',
+      pipelineScope: { pipeline: {} },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const vars = (mockCodeBuildStep.mock.calls[0]![1] as any).buildEnvironment.environmentVariables;
+    expect(vars.EXTRA).toEqual({ value: 'x' });
+    expect(vars.PLUGIN_VAR).toBeDefined();
+    expect(vars.SONAR_TOKEN.type).toBe('SECRETS_MANAGER');
+  });
+});
+
+describe('createCodeBuildStep — ShellStep plugins that need Secrets Manager env', () => {
+  // Regression: a SHELL_STEP plugin with no registry image returned a plain
+  // ShellStep, whose `env` is plaintext-only — required secrets and the
+  // security-report key were silently dropped and the build ran without them.
+  const shellPlugin = (over: Record<string, unknown> = {}) => ({
+    name: 'sonar-shell',
+    version: '1.0.0',
+    pluginType: 'ShellStep',
+    buildType: 'metadata_only',
+    commands: ['echo'],
+    metadata: {},
+    env: {},
+    secrets: [],
+    ...over,
+  });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const build = (plugin: Record<string, unknown>, extra: Record<string, unknown> = {}): any => {
+    mockShellStep.mockClear();
+    mockCodeBuildStep.mockClear();
+    createCodeBuildStep({
+      id: 'step',
+      orgId: 'org-1',
+      plugin,
+      metadata: {},
+      scope: undefined,
+      defaultBuildImage: 'default-image',
+      pipelineScope: { pipeline: {} },
+      ...extra,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
+  };
+
+  it('promotes to a CodeBuildStep carrying the required secret as SECRETS_MANAGER', () => {
+    build(shellPlugin({ secrets: [{ name: 'SONAR_TOKEN', required: true }] }));
+    expect(mockShellStep).not.toHaveBeenCalled();
+    expect(mockCodeBuildStep).toHaveBeenCalledTimes(1);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const props = mockCodeBuildStep.mock.calls[0]![1] as any;
+    expect(props.buildEnvironment.buildImage).toBe('default-image');
+    expect(props.buildEnvironment.environmentVariables.SONAR_TOKEN).toEqual({
+      value: expect.stringContaining('org-1/SONAR_TOKEN'),
+      type: 'SECRETS_MANAGER',
+    });
+  });
+
+  it('promotes to a CodeBuildStep carrying SECURITY_REPORT_KEY when report upload is on', async () => {
+    const { SECURITY_REPORT_KEY_ENV, SECURITY_REPORT_UPLOAD_ENV } = await import('../src/core/security-reports.js');
+    build(shellPlugin({ env: { [SECURITY_REPORT_UPLOAD_ENV]: 'true' } }));
+    expect(mockShellStep).not.toHaveBeenCalled();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const vars = (mockCodeBuildStep.mock.calls[0]![1] as any).buildEnvironment.environmentVariables;
+    expect(vars[SECURITY_REPORT_KEY_ENV].type).toBe('SECRETS_MANAGER');
+  });
+
+  it('keeps a plain ShellStep when nothing needs Secrets Manager (optional secrets are not injected)', () => {
+    build(shellPlugin({ secrets: [{ name: 'NVD_API_KEY', required: false }] }));
+    expect(mockShellStep).toHaveBeenCalledTimes(1);
+    expect(mockCodeBuildStep).not.toHaveBeenCalled();
+  });
+
+  it('fails the synth (no silent drop) when promoted without a default build image', () => {
+    expect(() => build(shellPlugin({ secrets: [{ name: 'SONAR_TOKEN', required: true }] }), { defaultBuildImage: undefined }))
+      .toThrow(/BOOTSTRAP_IMAGE_UNRESOLVED/);
+  });
+});
+
 describe('createCodeBuildStep — platform-reserved secret names', () => {
   // Regression: a plugin declaring a platform leaf (`platform`, `registry-push`,
   // …) was mapped to SECRETS_MANAGER at {prefix}/{orgId}/<leaf> and granted
@@ -281,6 +381,7 @@ describe('createCodeBuildStep — platform-reserved secret names', () => {
     },
     metadata: {},
     scope: undefined,
+    defaultBuildImage: 'default-image',
     pipelineScope: { pipeline: {} },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } as any);

@@ -68,7 +68,10 @@ export async function fetchAllRegistryEntries(
   orgId?: string,
 ): Promise<RegistryEntry[]> {
   const entries: RegistryEntry[] = [];
-  for (let offset = 0; ; offset += REGISTRY_PAGE_LIMIT) {
+  // Advance by the rows actually RETURNED, not the limit asked for: the server
+  // clamps `limit` to its own MAX_PAGE_LIMIT, and stepping by 500 over smaller
+  // pages skipped rows — each one a false orphaned-stack finding.
+  for (let offset = 0; ;) {
     const res = await client.get(`${pipelineUrl}/registry`, {
       limit: REGISTRY_PAGE_LIMIT,
       offset,
@@ -76,6 +79,7 @@ export async function fetchAllRegistryEntries(
     });
     const page = extractListPage<RegistryEntry>(res, 'registry');
     entries.push(...page.items);
+    offset += page.items.length;
     // An empty page ends the walk even if the server claims more, so a
     // misreporting server can't spin this forever.
     if (!page.hasMore || page.items.length === 0) return entries;

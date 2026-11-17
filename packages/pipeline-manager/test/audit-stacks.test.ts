@@ -49,6 +49,8 @@ const { Command } = await import('commander');
 
 interface Row { id: string; pipelineId: string; orgId: string; pipelineName: string; stackName?: string; region?: string }
 let registry: Row[] = [];
+/** The route's own page cap (MAX_PAGE_LIMIT); it clamps whatever `limit` is asked for. */
+let serverMaxLimit = Number.MAX_SAFE_INTEGER;
 const registryQueries: URLSearchParams[] = [];
 
 /** Run the route's real envelope builder against a minimal Express-shaped response. */
@@ -59,6 +61,7 @@ function envelope(rows: Row[], limit: number, offset: number): { status: number;
     status(code: number) { out.status = code; return res; },
     json(body: unknown) { out.body = body; return res; },
   };
+  limit = Math.min(limit, serverMaxLimit);
   sendPaginatedNested(res as never, 'registry', rows.slice(offset, offset + limit), { total: rows.length, limit, offset });
   return out;
 }
@@ -90,6 +93,7 @@ beforeEach(() => {
   cfnRegions.length = 0;
   send.mockClear();
   registry = [];
+  serverMaxLimit = Number.MAX_SAFE_INTEGER;
   stackPages = [];
   process.env.PLATFORM_TOKEN = 'pb_pat_0123456789abcdef0123456789abcdef';
   for (const m of ['log', 'error', 'warn', 'info'] as const) {
@@ -136,6 +140,17 @@ describe('audit stacks', () => {
     expect(report.findings).toEqual([]);
     expect(report.registryEntries).toBe(2);
     expect(code).toBe(0);
+  });
+
+  it('REGRESSION: steps by the rows returned when the server clamps the page below the asked limit', async () => {
+    serverMaxLimit = 200;
+    const n = 450;
+    registry = Array.from({ length: n }, (_, i) => row(i));
+    stackPages = [registry.map((r) => stack(r.stackName!))];
+    const { report } = await audit(['--region', 'us-east-1']);
+    expect(registryQueries.map((q) => q.get('offset'))).toEqual(['0', '200', '400']);
+    expect(report.registryEntries).toBe(n);
+    expect(report.findings).toEqual([]);
   });
 
   it('pages through the whole registry (no false orphans past the first page)', async () => {

@@ -359,8 +359,8 @@ describe('SSEManager', () => {
         expect((await mintOwned(capped, 'org-a', REQ_A)).ok).toBe(true);
         const third = await mintOwned(capped, 'org-a', REQ_A);
         expect(third).toEqual({ ok: false, reason: 'org-limit' });
-        // A different org is unaffected.
-        expect((await mintOwned(capped, 'org-b', REQ_A)).ok).toBe(true);
+        // A different org (on its own stream — REQ_A is org-a's) is unaffected.
+        expect((await mintOwned(capped, 'org-b', REQ_B)).ok).toBe(true);
       } finally {
         capped.shutdown();
       }
@@ -370,7 +370,7 @@ describe('SSEManager', () => {
       const capped = new SSEManager({ maxTotalTickets: 1, maxTicketsPerOrg: 100, cleanupIntervalMs: 0 });
       try {
         expect((await mintOwned(capped, 'org-a', REQ_A)).ok).toBe(true);
-        const second = await mintOwned(capped, 'org-b', REQ_A);
+        const second = await mintOwned(capped, 'org-b', REQ_B);
         expect(second).toEqual({ ok: false, reason: 'capacity' });
       } finally {
         capped.shutdown();

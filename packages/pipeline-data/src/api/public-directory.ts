@@ -438,22 +438,25 @@ function baseQuery(params: DirectorySearchParams, q: string): SQL {
 }
 
 function orderBy(sort: DirectorySort, hasQuery: boolean): SQL {
+  // Every order ends on (name, publisher_handle) — unique together — so OFFSET
+  // paging is deterministic. `name` alone is unique only per publisher, and
+  // two publishers' same-named listings could repeat or vanish across pages.
   switch (sort === 'relevance' && !hasQuery ? 'updated' : sort) {
     case 'relevance':
       // Text relevance first, nudged by rating and adoption so equal matches
       // favour proven plugins.
-      return sql`(rank * (1 + COALESCE(rating_bayes, 0) / 10) + ln(1 + install_count) / 20) DESC, name ASC`;
+      return sql`(rank * (1 + COALESCE(rating_bayes, 0) / 10) + ln(1 + install_count) / 20) DESC, name ASC, publisher_handle ASC`;
     case 'rating':
-      return sql`rating_bayes DESC NULLS LAST, rating_count DESC, name ASC`;
+      return sql`rating_bayes DESC NULLS LAST, rating_count DESC, name ASC, publisher_handle ASC`;
     case 'installs':
-      return sql`install_count DESC, name ASC`;
+      return sql`install_count DESC, name ASC, publisher_handle ASC`;
     case 'name':
       return sql`name ASC, publisher_handle ASC`;
     case 'health':
-      return sql`health_score DESC NULLS LAST, install_count DESC, name ASC`;
+      return sql`health_score DESC NULLS LAST, install_count DESC, name ASC, publisher_handle ASC`;
     case 'updated':
     default:
-      return sql`updated_at DESC, name ASC`;
+      return sql`updated_at DESC, name ASC, publisher_handle ASC`;
   }
 }
 

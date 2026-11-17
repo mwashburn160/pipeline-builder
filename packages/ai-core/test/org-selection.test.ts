@@ -37,6 +37,12 @@ describe('resolveOrgModelSelection', () => {
     expect(fetchKey).not.toHaveBeenCalled();
   });
 
+  it('REGRESSION: refuses a bring-your-own key with no provider instead of billing the platform key', async () => {
+    await expect(resolveOrgModelSelection({ orgId: 'o', apiKey: 'byo' }, { assertEnabled: enabled(['anthropic']) }))
+      .rejects.toMatchObject({ statusCode: 400 });
+    expect(resolveModelSelection).not.toHaveBeenCalled();
+  });
+
   it('uses the org key for the named provider, and the org\'s first provider when none is named', async () => {
     const fetchKey = jest.fn(async () => 'org-key');
     const named = await resolveOrgModelSelection({ orgId: 'o', provider: 'anthropic' }, { assertEnabled: enabled(['openai', 'anthropic']), fetchKey });

@@ -62,7 +62,15 @@ export async function resolveOrgModelSelection(
 
   // 1. Bring-your-own key: the caller pays. The registry already refuses
   //    fallbacks for it; nothing org-side applies.
-  if (apiKey) return resolveModelSelection({ provider, model, apiKey });
+  //    A key with no provider is refused: there is nothing to bind it to, and
+  //    resolving it anyway dropped the key and ran (and billed) the request on
+  //    the platform's key — the silent downgrade this module exists to prevent.
+  if (apiKey) {
+    if (!provider) {
+      throw new AIConfigurationError('An `apiKey` was supplied without a `provider` — name the provider the key belongs to.', 400, ErrorCode.VALIDATION_ERROR);
+    }
+    return resolveModelSelection({ provider, model, apiKey });
+  }
 
   if (model && !provider) {
     throw new AIConfigurationError('A `model` was supplied without a `provider` — specify both, or neither.', 400, ErrorCode.VALIDATION_ERROR);

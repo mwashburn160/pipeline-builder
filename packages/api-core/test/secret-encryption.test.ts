@@ -397,6 +397,29 @@ describe('PerOrgKmsKeyProvider', () => {
     expect(mockSend).toHaveBeenCalledTimes(2);
   });
 
+  it('REGRESSION: a failed warm-up rejects ONLY to its caller, never as an unhandled rejection', async () => {
+    // The in-flight cleanup used to be `void promise.finally(...)`, whose derived
+    // promise re-rejected with nobody listening; the crash handler turns an
+    // unhandledRejection into process.exit(1), so one org's KMS outage
+    // restart-looped every pod that served its secrets.
+    const { PerOrgKmsKeyProvider: P, EnvKeyProvider: E } = await import('../src/utils/secret-encryption.js');
+    const unhandled = jest.fn();
+    process.on('unhandledRejection', unhandled);
+    try {
+      const provider = new P({
+        resolver: async () => { throw new Error('db down'); },
+        fallback: new E(randomBytes(32).toString('hex')),
+      });
+      await expect(provider.ensureWarmed('org-acme')).rejects.toThrow('db down');
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(unhandled).not.toHaveBeenCalled();
+      // The failed attempt is not cached: the next call tries again.
+      await expect(provider.ensureWarmed('org-acme')).rejects.toThrow('db down');
+    } finally {
+      process.off('unhandledRejection', unhandled);
+    }
+  });
+
   describe('cold (unresolved) orgs — data-loss guard', () => {
     /** A provider whose org HAS per-org config, but which nothing has warmed. */
     const coldProvider = async () => {

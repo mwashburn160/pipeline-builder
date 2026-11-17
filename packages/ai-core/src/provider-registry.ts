@@ -270,6 +270,11 @@ export function resolveModelSelection(selection: ModelSelection): ResolvedModelS
     if (model) {
       throw new Error('A `model` was supplied without a `provider` — specify both, or neither.');
     }
+    if (apiKey) {
+      // Never resolve a caller's key onto the platform's: it would be dropped
+      // and the request served (and billed) as keySource 'platform'.
+      throw new Error('An `apiKey` was supplied without a `provider` — name the provider the key belongs to.');
+    }
     const first = getAvailableProviders()[0];
     const firstModel = first?.models[0]?.id;
     if (!first || !firstModel) {

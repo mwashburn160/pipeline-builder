@@ -188,6 +188,11 @@ export interface OidcRoleOptions {
   /**
    * StringEquals conditions for the assume-role trust policy.
    * Keys are the condition claim, values are the expected claim value(s).
+   *
+   * A `<issuer-host>:sub` condition is REQUIRED (here or in `conditionsLike`) —
+   * synth throws without one, since an unscoped OIDC trust lets any identity the
+   * issuer serves (e.g. any GitHub repository) assume the role. `<issuer-host>:aud`
+   * is pinned automatically to `clientIds` (default `sts.amazonaws.com`) when not set.
    * @example { 'token.actions.githubusercontent.com:sub': 'repo:my-org/my-repo:ref:refs/heads/main' }
    */
   readonly conditions?: Record<string, string | string[]>;

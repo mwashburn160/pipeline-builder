@@ -83,6 +83,11 @@ export async function getAuthToken(): Promise<string> {
     // deliberately answers every refusal the same way — so say what to check
     // rather than echoing an undifferentiated 401.
     if (res.status === 401 || res.status === 403) {
+      // Forget the KEY too, not just the token: a rotation (store-token, the
+      // token-renew Lambda) revokes the old key at once, and a warm container
+      // that kept it would re-present the dead key on every batch until it
+      // recycled. The next batch re-reads the secret and picks up the new one.
+      credential.invalidate();
       throw new Error(
         `Access-key exchange refused (${res.status}) — the stored key is unknown, revoked, expired, `
         + 'its service account is disabled, or this address is outside the key’s IP allowlist',
