@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, sendError, sendSuccess, createSafeClient, getServiceAuthHeader, isSystemOrgId, errorMessage, userHasPermission } from '@pipeline-builder/api-core';
+import { ErrorCode, createLogger, sendError, sendSuccess, createSafeClient, getServiceAuthHeader, isSystemOrgId, errorMessage, userHasPermission } from '@pipeline-builder/api-core';
 import { config } from '../config/index.js';
 import type { RefreshSessionKind } from '../constants/vocabulary.js';
 import { audit } from '../helpers/audit.js';
@@ -257,6 +257,26 @@ export const login = withController('Login', async (req, res) => {
     && !isBootstrapSuperAdminEmail(body.identifier)
     && await rejectIfSsoEnforced(req, res, body.identifier, { method: 'password' })) return;
 
+  // DURABLE PER-ACCOUNT LOCKOUT (helpers/password-lockout.ts): the Mongo-backed
+  // backstop to `loginAccountLimiter`, which fails open when Redis errors.
+  // Lazily imported, like the other heavy branches in this file.
+  const lockout = await import('../helpers/password-lockout.js');
+  const refuseLocked = (err: InstanceType<typeof lockout.PasswordLockedOutError>, targetId: string, orgId?: string): void => {
+    audit(req, 'user.login.failed', {
+      targetType: 'user',
+      targetId,
+      ...(orgId ? { affectedOrgId: orgId } : {}),
+      outcome: 'failure',
+      details: { identifier: body.identifier, method: 'password', reason: 'locked-out' },
+    });
+    incCounter('platform_logins_failed_total');
+    // The SAME answer the Redis bucket gives, so the layers are indistinguishable.
+    res.setHeader('Retry-After', String(err.retryAfterSeconds));
+    sendError(res, 429, lockout.PASSWORD_LOCKOUT_MESSAGE, ErrorCode.RATE_LIMIT_EXCEEDED, {
+      retryAfterSeconds: err.retryAfterSeconds,
+    });
+  };
+
   const user = await authService.findByCredentials(body.identifier, body.password);
   if (!user) {
     // Emit a failed-login audit + counter so brute-force / credential-stuffing
@@ -266,6 +286,17 @@ export const login = withController('Login', async (req, res) => {
     // When the identifier names a real account, file the failure against it
     // (and its org) so a guessing run shows on that account's trail.
     const named = await authService.resolveIdentifier(body.identifier).catch(() => null);
+    if (named) {
+      // A locked account answers 429 for a wrong password exactly as for a right
+      // one; otherwise the failure counts toward the lockout.
+      try {
+        await lockout.assertPasswordNotLocked(named.userId);
+      } catch (err) {
+        if (err instanceof lockout.PasswordLockedOutError) return refuseLocked(err, named.userId, named.orgId);
+        throw err;
+      }
+      await lockout.recordPasswordFailure(named.userId);
+    }
     audit(req, 'user.login.failed', {
       targetType: 'user',
       ...(named ? { targetId: named.userId, ...(named.orgId ? { affectedOrgId: named.orgId } : {}) } : {}),
@@ -275,6 +306,18 @@ export const login = withController('Login', async (req, res) => {
     incCounter('platform_logins_failed_total');
     return sendError(res, 401, 'Invalid credentials');
   }
+
+  // The right password does not lift a live lockout — that is the point of it.
+  try {
+    await lockout.assertPasswordNotLocked(user._id.toString());
+  } catch (err) {
+    if (err instanceof lockout.PasswordLockedOutError) {
+      return refuseLocked(err, user._id.toString(), user.lastActiveOrgId?.toString());
+    }
+    throw err;
+  }
+  // The password was right: the failure run is over.
+  await lockout.clearPasswordFailures(user._id.toString());
 
   // Post-credential gate: closes the username-login bypass of the email-identifier
   // early gate above — a covered account can't password-login by username either.
@@ -402,6 +445,13 @@ export const refresh = withController('Refresh', async (req, res) => {
     // drop it rather than leave the browser retrying a token nothing accepts.
     clearRefreshCookie(res);
     logger.warn('Refresh token reuse detected, revoked its session', { userId: req.user.sub, sessionId });
+    // Presumed theft — counted so a spike pages. Never at the cost of the
+    // revocation answer (no registry outside the app, e.g. a test harness).
+    try {
+      incCounter('platform_refresh_reuse_total');
+    } catch {
+      // No registry — nothing to count into.
+    }
     // A presumed-stolen token just cost its owner a session — the one trace a
     // reviewer has of a theft, and of why a device was signed out unprompted.
     audit(req, 'user.session.revoke', {

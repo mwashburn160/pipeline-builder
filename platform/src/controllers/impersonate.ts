@@ -42,11 +42,29 @@ import { expandOrgScope } from '../helpers/org-hierarchy.js';
 import { toOrgId } from '../helpers/org-id.js';
 import { publishImpersonationSessionRevocation } from '../helpers/session-revocation.js';
 import { ImpersonationRequest, User, UserOrganization, type ImpersonationApproverMode } from '../models/index.js';
+import { incCounter } from '../observability/metrics.js';
 import { IMP_NOT_APPROVED } from '../services/impersonation-errors.js';
 import { decideInitialApproval, impersonationService } from '../services/impersonation-service.js';
 import { authFromClaims, issueImpersonationToken } from '../services/session/access-tokens.js';
 
 const logger = createLogger('impersonate');
+
+/** `breakglass` = emergency access; `consented` = every ordinary request (approved on creation or by a challenge). */
+type ImpersonationKind = 'breakglass' | 'consented';
+type ImpersonationOutcome = 'started' | 'pending' | 'not_redeemable' | 'undeliverable' | 'policy_denied' | 'approved' | 'denied';
+
+/**
+ * `platform_impersonation_total{kind,outcome}` — every impersonation step that
+ * matters to a security reviewer, so a spike in break-glass sessions (or in
+ * refused ones) is a graph, not an audit-log query. Never fails the request.
+ */
+function meterImpersonation(kind: ImpersonationKind, outcome: ImpersonationOutcome): void {
+  try {
+    incCounter('platform_impersonation_total', { kind, outcome });
+  } catch {
+    // No registry — nothing to count into.
+  }
+}
 
 export const impersonateUser = withController('Impersonate user', async (req, res) => {
   // NOT gated on sysadmin here: an ancestor-org admin may also impersonate
@@ -173,6 +191,7 @@ export const impersonateUser = withController('Impersonate user', async (req, re
     : decideInitialApproval({ ancestorAuthority: ancestorSkipsConsent, policy });
 
   if (decision.kind === 'refused') {
+    meterImpersonation('consented', 'policy_denied');
     return forbid(
       req, res, 'impersonation-policy:emergency-only',
       'This organization only allows emergency access. Use emergency access if this is an incident.',
@@ -226,6 +245,7 @@ export const impersonateUser = withController('Impersonate user', async (req, re
       // Nobody can see it. Say so now rather than leaving it pending until it
       // expires and letting the silence read as a refusal.
       await impersonationService.markUndeliverable(request.id);
+      meterImpersonation('consented', 'undeliverable');
       // The request row EXISTS (now marked undeliverable): record that it was
       // made, and that nobody could be asked.
       audit(req, 'admin.impersonate.request', {
@@ -255,10 +275,11 @@ export const impersonateUser = withController('Impersonate user', async (req, re
       },
     });
     // No token: the requester opens the session from Access requests once it's approved.
+    meterImpersonation('consented', 'pending');
     return sendSuccess(res, 202, { requestId: request.id, status: 'pending', approverMode: route });
   }
 
-  const issued = await redeemAndIssue(req, request, target, sessionOrgIdStr);
+  const issued = await redeemAndIssue(req, request, target, sessionOrgIdStr, 'consented');
   if (!issued.ok) return sendError(res, 409, 'Impersonation request is no longer redeemable', issued.code);
 
   // Informed, not asked: the team learns its parent viewed one of its members.
@@ -295,6 +316,7 @@ async function redeemAndIssue(
   request: { id: string; approvalReason?: string },
   target: Parameters<typeof issueImpersonationToken>[0],
   orgId: string | undefined,
+  kind: ImpersonationKind,
 ): Promise<{ ok: true; accessToken: string; expiresIn: number } | { ok: false; code: string }> {
   const requesterId = req.user!.sub;
   const targetUserId = String(target._id);
@@ -311,7 +333,10 @@ async function redeemAndIssue(
   // (ancestor-admin) authority — once their claimsVersion moves (a role or
   // membership change). `+tokenVersion` / `+isSuperAdmin` are `select: false`.
   const operator = await User.findById(requesterId).select('+tokenVersion +isSuperAdmin');
-  if (!operator) return { ok: false, code: IMP_NOT_APPROVED };
+  if (!operator) {
+    meterImpersonation(kind, 'not_redeemable');
+    return { ok: false, code: IMP_NOT_APPROVED };
+  }
   const operatorState = {
     tokenVersion: (operator as { tokenVersion?: number }).tokenVersion ?? 0,
     claimsVersion: (operator as { claimsVersion?: number }).claimsVersion ?? 0,
@@ -323,6 +348,7 @@ async function redeemAndIssue(
   const redeemed = await impersonationService.consume(request.id, jti, operatorState);
   if (!redeemed.ok) {
     logger.warn('Impersonation request could not be redeemed', { requestId: request.id, code: redeemed.code });
+    meterImpersonation(kind, 'not_redeemable');
     return redeemed;
   }
 
@@ -342,6 +368,7 @@ async function redeemAndIssue(
     affectedOrgId: orgId,
     details: { expiresIn, impersonationRequestId: request.id, approvalReason: request.approvalReason },
   });
+  meterImpersonation(kind, 'started');
   logger.info('Impersonation started', {
     requesterId, targetUserId, expiresIn, requestId: request.id, approvalReason: request.approvalReason,
   });
@@ -409,6 +436,7 @@ export const decideImpersonationRequest = withController('Decide impersonation r
     return sendError(res, 409, 'Request is no longer pending', decided.code);
   }
 
+  meterImpersonation(request.breakglass === true ? 'breakglass' : 'consented', approve ? 'approved' : 'denied');
   audit(req, approve ? 'admin.impersonate.approve' : 'admin.impersonate.deny', {
     targetType: 'user',
     targetId: String(request.targetUserId),
@@ -532,6 +560,7 @@ export const redeemImpersonationRequest = withController('Redeem impersonation r
     { id: requestId, approvalReason: request.approvalReason },
     target,
     orgId,
+    request.breakglass === true ? 'breakglass' : 'consented',
   );
   if (!issued.ok) return sendError(res, 409, 'Impersonation request is no longer redeemable', issued.code);
 
@@ -629,6 +658,7 @@ export const breakglassImpersonation = withController('Break-glass impersonation
   if (fourEyes) {
     // Nothing is issued yet: a second sysadmin decides via the ordinary decide
     // endpoint, and the requester then redeems.
+    meterImpersonation('breakglass', 'pending');
     return sendSuccess(res, 202, {
       requestId: request.id,
       status: 'pending',
@@ -637,7 +667,7 @@ export const breakglassImpersonation = withController('Break-glass impersonation
     });
   }
 
-  const issued = await redeemAndIssue(req, request, target, orgId);
+  const issued = await redeemAndIssue(req, request, target, orgId, 'breakglass');
   if (!issued.ok) return sendError(res, 409, 'Emergency request is no longer redeemable', issued.code);
 
   sendSuccess(res, 200, {

@@ -25,6 +25,12 @@ const logger = createLogger('org-members-service');
 const MEMBER_LIST_DEFAULT_LIMIT = 25;
 /** Hard cap on a single member-roster page (bounds a hostile ?limit). */
 const MEMBER_LIST_MAX_LIMIT = 200;
+/** Longest roster search term honoured; the rest is ignored. Usernames and
+ *  emails are far shorter, so this only ever trims a hostile input. */
+const MEMBER_SEARCH_MAX_LENGTH = 100;
+/** Server-side time budget for the joined (search / user-field sort) roster
+ *  read, so one pathological query can't hold a connection indefinitely. */
+const MEMBER_SEARCH_MAX_TIME_MS = 5_000;
 
 /**
  * Whitelist of member-roster sort keys → the field they order by and which
@@ -34,8 +40,9 @@ const MEMBER_LIST_MAX_LIMIT = 200;
  *
  * `role`/`status`/`joinedAt` are UserOrganization-native, so they sort the
  * membership query directly. `username`/`email` live on the joined User doc,
- * and `find().populate()` cannot order by a populated field — those resolve the
- * ordered page from User FIRST (two-phase), then hydrate the page's memberships.
+ * and `find().populate()` cannot order by a populated field — those (and any
+ * search) run as one aggregation that starts from the org's memberships and
+ * `$lookup`s each one's user, so the cost is bounded by the org's size.
  */
 const MEMBER_SORT_FIELDS: Record<string, { field: string; on: 'membership' | 'user' }> = {
   joinedAt: { field: 'joinedAt', on: 'membership' },
@@ -111,7 +118,8 @@ class OrgMembersService {
    * the org doesn't exist. Skips memberships whose user record was deleted out
    * from under them.
    *
-   * `search` matches username/email (case-insensitive); `role` narrows to a
+   * `search` matches a literal substring of username/email (case-insensitive,
+   * regex-escaped, capped at {@link MEMBER_SEARCH_MAX_LENGTH}); `role` narrows to a
    * coarse membership role; `isActive` narrows to active/inactive memberships.
    * All are applied at the DB level (never in memory), and `total` reflects the
    * full filtered count so the client can page.
@@ -147,19 +155,6 @@ class OrgMembersService {
     if (opts.role) filter.role = opts.role;
     if (opts.isActive !== undefined) filter.isActive = opts.isActive;
 
-    // Search matches username/email. populate() can't be filtered at the DB
-    // level, so resolve matching user ids first and constrain the membership
-    // query by them. No match short-circuits to an empty page (no count needed).
-    if (opts.search && opts.search.trim()) {
-      const rx = new RegExp(escapeRegex(opts.search.trim()), 'i');
-      const matched = await User.find({ $or: [{ username: rx }, { email: rx }] })
-        .select('_id').lean();
-      if (matched.length === 0) {
-        return { organizationId: orgId, organizationName: org.name, ownerId: org.owner?.toString(), members: [], total: 0, offset, limit };
-      }
-      filter.userId = { $in: matched.map((u) => u._id) };
-    }
-
     // Resolve the requested sort against the whitelist; an unrecognized key is
     // ignored so a hostile ?sortBy silently falls back to the default order.
     // OWN keys only: a bare index would resolve `constructor` / `__proto__` /
@@ -168,8 +163,11 @@ class OrgMembersService {
       ? MEMBER_SORT_FIELDS[opts.sortBy]
       : undefined;
     const sortDir = opts.sortOrder === 'desc' ? -1 : 1;
+    // Escaped (a literal substring, never a pattern) and length-capped, so a
+    // hostile ?search can neither change the match semantics nor feed the regex
+    // engine an unbounded string.
+    const search = opts.search?.trim().slice(0, MEMBER_SEARCH_MAX_LENGTH) ?? '';
 
-    const userSelect = '_id username email isEmailVerified createdAt updatedAt';
     type PopulatedUser = {
       _id: mongoose.Types.ObjectId;
       username: string;
@@ -183,37 +181,58 @@ class OrgMembersService {
     let present: PageMembership[];
     let total: number;
 
-    if (sortSpec?.on === 'user') {
-      // Sort key lives on the joined User doc — find().populate() can't order by
-      // it. Resolve the ordered, paged user ids from User first (constrained to
-      // this org's matching memberships), then hydrate just that page.
-      const matches = await UserOrganization.find(filter)
-        .select('userId role isActive joinedAt').lean();
-      total = matches.length;
-      if (total === 0) {
-        present = [];
-      } else {
-        const byUserId = new Map(matches.map((m) => [String(m.userId), m]));
-        const orderedUsers = await User.find({ _id: { $in: matches.map((m) => m.userId) } })
-          .select(userSelect)
-          .sort({ [sortSpec.field]: sortDir, _id: 1 })
-          .skip(offset)
-          .limit(limit)
-          .lean<PopulatedUser[]>();
-        present = orderedUsers
-          .filter((u) => byUserId.has(String(u._id)))
-          .map((u) => {
-            const m = byUserId.get(String(u._id))!;
-            return { userId: u, role: m.role as string, isActive: m.isActive as boolean, joinedAt: m.joinedAt as Date | undefined };
-          });
-      }
+    if (search || sortSpec?.on === 'user') {
+      // The filter or the order needs the joined User doc, which
+      // find().populate() can neither filter nor sort by. One aggregation that
+      // STARTS from this org's memberships (index on organizationId) and joins
+      // each to its user by _id — so the work is bounded by the org's size,
+      // never by the whole `users` collection — then filters, orders and pages
+      // in the database. `$unwind` drops memberships whose user was deleted.
+      const rx = search ? new RegExp(escapeRegex(search), 'i') : undefined;
+      const userSort: Record<string, 1 | -1> = sortSpec?.on === 'user'
+        ? { [`user.${sortSpec.field}`]: sortDir, _id: 1 }
+        : sortSpec
+          ? { [sortSpec.field]: sortDir, _id: 1 }
+          : { joinedAt: 1, _id: 1 };
+      type FacetRow = {
+        page: Array<{ user: PopulatedUser; role: string; isActive: boolean; joinedAt?: Date }>;
+        total: Array<{ n: number }>;
+      };
+      const [facet] = await UserOrganization.aggregate<FacetRow>([
+        { $match: filter },
+        { $project: { userId: 1, role: 1, isActive: 1, joinedAt: 1 } },
+        {
+          $lookup: {
+            from: User.collection.name,
+            localField: 'userId',
+            foreignField: '_id',
+            as: 'user',
+            pipeline: [
+              ...(rx ? [{ $match: { $or: [{ username: rx }, { email: rx }] } }] : []),
+              { $project: { username: 1, email: 1, isEmailVerified: 1, createdAt: 1, updatedAt: 1 } },
+            ],
+          },
+        },
+        { $unwind: '$user' },
+        { $sort: userSort },
+        {
+          $facet: {
+            page: [{ $skip: offset }, { $limit: limit }],
+            total: [{ $count: 'n' }],
+          },
+        },
+      ]).option({ maxTimeMS: MEMBER_SEARCH_MAX_TIME_MS });
+      total = facet?.total[0]?.n ?? 0;
+      present = (facet?.page ?? []).map((r) => ({
+        userId: r.user, role: r.role, isActive: r.isActive, joinedAt: r.joinedAt,
+      }));
     } else {
       const membershipSort: Record<string, 1 | -1> = sortSpec
         ? { [sortSpec.field]: sortDir, _id: 1 }
         : { joinedAt: 1, _id: 1 };
       const [memberships, count] = await Promise.all([
         UserOrganization.find(filter)
-          .populate<{ userId: PopulatedUser }>({ path: 'userId', select: userSelect })
+          .populate<{ userId: PopulatedUser }>({ path: 'userId', select: '_id username email isEmailVerified createdAt updatedAt' })
           .sort(membershipSort)
           .skip(offset)
           .limit(limit)

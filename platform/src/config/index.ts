@@ -574,6 +574,21 @@ export const config = {
     },
 
     /**
+     * DURABLE per-account password lockout (helpers/password-lockout.ts) — the
+     * Mongo-backed backstop for the Redis bucket above, which fails open on a
+     * store error. After `maxFailures` failed passwords for a real account
+     * within `windowMs`, password sign-in for it is refused for `lockoutMs`
+     * whatever the password. Defaults MATCH the Redis bucket, so while Redis is
+     * healthy the bucket (which answers every identifier alike) trips first and
+     * this never adds an "account exists" signal of its own.
+     */
+    passwordLockout: {
+      maxFailures: envInt('LOGIN_ACCOUNT_LOCKOUT_MAX_FAILURES', envInt('LOGIN_ACCOUNT_LIMITER_MAX', 10)),
+      windowMs: envInt('LOGIN_ACCOUNT_LOCKOUT_WINDOW_MS', envInt('LOGIN_ACCOUNT_LIMITER_WINDOW_MS', 900_000)),
+      lockoutMs: envInt('LOGIN_ACCOUNT_LOCKOUT_MS', envInt('LOGIN_ACCOUNT_LIMITER_WINDOW_MS', 900_000)),
+    },
+
+    /**
      * Authenticator-app codes (TOTP, RFC 6238). The algorithm parameters are NOT
      * configurable — SHA-1 / 6 digits / 30 s is the only combination every
      * authenticator reads reliably (see utils/totp.ts); a knob here would only
@@ -625,6 +640,15 @@ export const config = {
     from: process.env.EMAIL_FROM || 'noreply@example.com',
     fromName: process.env.EMAIL_FROM_NAME || 'Platform',
     provider: (process.env.EMAIL_PROVIDER || 'smtp') as 'smtp' | 'ses',
+    /**
+     * Upper bound on one send, per transport phase. Sends are awaited INLINE on
+     * request paths (forgot-password, verification email, internal notify), and
+     * the library defaults are minutes (nodemailer: 2 min connect, 10 min
+     * socket; the AWS SDK: none) — a stalled mail server would hold the request,
+     * and its connection, that long. Bounded, a send fails fast and `send()`
+     * returns false (counted on `platform_email_send_total{outcome="failure"}`).
+     */
+    timeoutMs: envInt('EMAIL_SEND_TIMEOUT_MS', 10_000),
     smtp: {
       host: process.env.SMTP_HOST || 'localhost',
       port: envInt('SMTP_PORT', 587),

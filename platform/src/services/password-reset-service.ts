@@ -36,7 +36,7 @@ import { config } from '../config/index.js';
 import { assertNewPasswordAcceptable } from '../helpers/password-policy.js';
 import { publishUserRevocation } from '../helpers/session-revocation.js';
 import { findSsoEnforcementForEmail } from '../helpers/sso-enforcement.js';
-import { PasswordResetToken, User } from '../models/index.js';
+import { PasswordLoginLockout, PasswordResetToken, User } from '../models/index.js';
 
 const logger = createLogger('password-reset-service');
 
@@ -126,6 +126,10 @@ export async function resetPassword(rawToken: string, newPassword: string): Prom
   await user.save();
   const userId = user._id.toString();
   await PasswordResetToken.deleteMany({ userId: user._id });
+  // The password a failed-password lockout protected no longer exists, and the
+  // person just proved control of the account's email — lift it, so they can
+  // sign in with the new password straight away.
+  await PasswordLoginLockout.deleteOne({ userId: user._id });
   await publishUserRevocation(userId);
   const accessKeysRevoked = await apiKeyService.revokeAllForUser(userId);
   logger.info('Password reset', { userId, accessKeysRevoked });

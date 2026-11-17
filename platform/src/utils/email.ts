@@ -7,9 +7,29 @@ import nodemailer, { type Transporter } from 'nodemailer';
 import { invitationTemplate, invitationAcceptedTemplate, addedToOrganizationTemplate, htmlEscape } from './email-templates.js';
 import { config } from '../config/index.js';
 import type { InvitationType } from '../constants/vocabulary.js';
+import { incCounter } from '../observability/metrics.js';
 import type { OAuthProviderName } from '../types/oauth-provider.js';
 
 const logger = createLogger('email-service');
+
+/** Per-phase send bound when config carries none (see `config.email.timeoutMs`). */
+const DEFAULT_SEND_TIMEOUT_MS = 10_000;
+
+/** Counter for every send attempt: `{transport: smtp|ses|disabled, outcome: success|failure|skipped}`. */
+export const EMAIL_SEND_METRIC = 'platform_email_send_total';
+
+function sendTimeoutMs(): number {
+  return config.email.timeoutMs ?? DEFAULT_SEND_TIMEOUT_MS;
+}
+
+/** Count one send outcome — never at the cost of the send (no registry in a script/test). */
+function countSend(transport: string, outcome: 'success' | 'failure' | 'skipped'): void {
+  try {
+    incCounter(EMAIL_SEND_METRIC, { transport, outcome });
+  } catch {
+    // No registry — nothing to count into.
+  }
+}
 
 export interface EmailOptions {
   to: string | string[];
@@ -68,8 +88,12 @@ class EmailService {
 
     try {
       if (config.email.provider === 'ses') {
+        const timeoutMs = sendTimeoutMs();
         const sesClient = new SESv2Client({
           region: config.email.ses.region,
+          // Bounded connect + request, so a stalled SES endpoint fails the send
+          // in seconds instead of holding the (inline-awaiting) request.
+          requestHandler: { connectionTimeout: timeoutMs, requestTimeout: timeoutMs },
           ...(config.email.ses.accessKeyId && {
             credentials: {
               accessKeyId: config.email.ses.accessKeyId,
@@ -89,6 +113,12 @@ class EmailService {
           host: config.email.smtp.host,
           port: config.email.smtp.port,
           secure: config.email.smtp.secure,
+          // nodemailer's defaults are 2 min (connect), 30 s (greeting) and 10 min
+          // (socket idle); sends are awaited inline on request paths, so bound
+          // each phase.
+          connectionTimeout: sendTimeoutMs(),
+          greetingTimeout: sendTimeoutMs(),
+          socketTimeout: Math.round(sendTimeoutMs() * 1.5),
           auth: config.email.smtp.user
             ? {
               user: config.email.smtp.user,
@@ -114,11 +144,14 @@ class EmailService {
 
     if (!config.email.enabled) {
       logger.debug('Email disabled, skipping send:', { to: options.to, subject: options.subject });
+      countSend('disabled', 'skipped');
       return true;
     }
 
+    const transport = config.email.provider === 'ses' ? 'ses' : 'smtp';
     if (!this.transporter) {
       logger.error('Email transporter not initialized');
+      countSend(transport, 'failure');
       return false;
     }
 
@@ -146,9 +179,11 @@ class EmailService {
         subject: options.subject,
       });
 
+      countSend(transport, 'success');
       return true;
     } catch (error) {
       logger.error('Failed to send email:', error);
+      countSend(transport, 'failure');
       return false;
     }
   }

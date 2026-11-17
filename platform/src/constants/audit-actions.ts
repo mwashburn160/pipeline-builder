@@ -89,6 +89,10 @@ export const PLATFORM_AUDIT_ACTIONS = [
   // verification until `details.lockedUntil`. System actor — the guesser is
   // unauthenticated by definition; filed against the account's active org.
   'user.mfa.locked_out',
+  // Too many failed PASSWORDS for one account (helpers/password-lockout.ts, the
+  // durable backstop to the per-account Redis limiter): password sign-in is
+  // refused until `details.lockedUntil`. Same shape as `user.mfa.locked_out`.
+  'user.login.locked_out',
   // Assurance levels and required MFA (helpers/bootstrap-admin.ts +
   // controllers/org-mfa-policy.ts).
   //

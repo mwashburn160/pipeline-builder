@@ -30,6 +30,8 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   safeFetch: (url: string, opts?: Record<string, unknown>) => mockSafeFetch(url, opts),
 }));
 jest.unstable_mockModule('../src/config/index.js', () => mockConfig({ oauth: { callbackBaseUrl: 'https://app.test', oidcDocCacheTtlMs: 3_600_000 } }));
+const mockIncCounter = jest.fn();
+jest.unstable_mockModule('../src/observability/metrics.js', () => ({ incCounter: (...a: unknown[]) => mockIncCounter(...a) }));
 
 const {
   buildAuthorizeUrl,
@@ -364,5 +366,56 @@ describe('PKCE', () => {
     stubDiscovery({ code_challenge_methods_supported: ['plain'] }, signIdToken(goodPem));
     const identity = await exchangeAndValidate(cfg, 'c', 'nonce-1');
     expect(identity.subject).toBe('idp-user-1');
+  });
+});
+
+describe('platform_oidc_discovery_failed_total{stage,reason}', () => {
+  const failed = (stage: string, reason: string) =>
+    expect(mockIncCounter).toHaveBeenCalledWith('platform_oidc_discovery_failed_total', { stage, reason });
+
+  it('counts an unreachable discovery endpoint', async () => {
+    mockSafeFetch.mockRejectedValue(new Error('ECONNREFUSED'));
+    await expect(buildAuthorizeUrl(cfg, 's', 'n')).rejects.toThrow('OIDC_DISCOVERY_FAILED');
+    failed('discovery', 'fetch');
+  });
+
+  it('counts a non-2xx discovery answer', async () => {
+    mockSafeFetch.mockResolvedValue(errJson(503));
+    await expect(buildAuthorizeUrl(cfg, 's', 'n')).rejects.toThrow('OIDC_DISCOVERY_FAILED');
+    failed('discovery', 'status');
+  });
+
+  it('counts a discovery document missing required endpoints', async () => {
+    mockSafeFetch.mockResolvedValue(okJson({ issuer: 'https://idp.test' }));
+    await expect(buildAuthorizeUrl(cfg, 's', 'n')).rejects.toThrow('OIDC_DISCOVERY_FAILED');
+    failed('discovery', 'invalid');
+  });
+
+  it('counts JWKS fetch and status failures on the exchange', async () => {
+    const idToken = signIdToken(goodPem);
+    mockSafeFetch.mockImplementation(async (url: string) => {
+      if (url.endsWith('/.well-known/openid-configuration')) return okJson(DISCOVERY);
+      if (url === DISCOVERY.token_endpoint) return okJson({ id_token: idToken, access_token: 'at' });
+      if (url === DISCOVERY.jwks_uri) throw new Error('timeout');
+      return errJson(404);
+    });
+    await expect(exchange(cfg, 'code', 'nonce-1')).rejects.toThrow('OIDC_DISCOVERY_FAILED');
+    failed('jwks', 'fetch');
+
+    __resetOidcCaches();
+    mockIncCounter.mockClear();
+    mockSafeFetch.mockImplementation(async (url: string) => {
+      if (url.endsWith('/.well-known/openid-configuration')) return okJson(DISCOVERY);
+      if (url === DISCOVERY.token_endpoint) return okJson({ id_token: idToken, access_token: 'at' });
+      return errJson(500);
+    });
+    await expect(exchange(cfg, 'code', 'nonce-1')).rejects.toThrow('OIDC_DISCOVERY_FAILED');
+    failed('jwks', 'status');
+  });
+
+  it('a missing metrics registry never changes the refusal', async () => {
+    mockIncCounter.mockImplementationOnce(() => { throw new Error('no registry'); });
+    mockSafeFetch.mockResolvedValue(errJson(503));
+    await expect(buildAuthorizeUrl(cfg, 's', 'n')).rejects.toThrow('OIDC_DISCOVERY_FAILED');
   });
 });

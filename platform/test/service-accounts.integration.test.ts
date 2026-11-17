@@ -42,9 +42,11 @@ suite('service accounts (real Mongo)', () => {
   };
 
   beforeAll(async () => {
-    const { MongoMemoryServer } = await import('mongodb-memory-server');
+    // A replica set: create/update write the account and its Role set in ONE
+    // transaction, which a standalone mongod refuses.
+    const { MongoMemoryReplSet } = await import('mongodb-memory-server');
     mongoose = (await import('mongoose')).default;
-    mongod = await MongoMemoryServer.create({ binary: { version: MONGOD_VERSION } });
+    mongod = await MongoMemoryReplSet.create({ binary: { version: MONGOD_VERSION }, replSet: { count: 1, storageEngine: 'wiredTiger' } });
     process.env.MONGODB_URI = mongod.getUri();
     await mongoose.connect(process.env.MONGODB_URI);
     m = await import('../src/models/index.js');

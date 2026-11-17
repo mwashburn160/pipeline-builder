@@ -60,6 +60,7 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   // The user-delete cascade also removes the account's passkeys.
   WebAuthnCredential: { deleteMany: jest.fn(async () => ({ deletedCount: 0 })) },
   UserTotp: { deleteMany: jest.fn(async () => ({ deletedCount: 0 })), exists: jest.fn(async () => null) },
+  PasswordLoginLockout: { deleteMany: jest.fn(async () => ({ deletedCount: 0 })) },
   MfaRecoveryCodes: { deleteMany: jest.fn(async () => ({ deletedCount: 0 })) },
   MfaResetRequest: { deleteMany: jest.fn(async () => ({ deletedCount: 0 })) },
   PersonalAccessToken: {},

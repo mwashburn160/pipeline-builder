@@ -107,17 +107,17 @@ const UserOrganization = {
 };
 
 const WebAuthnCredential = {
-  deleteMany: jest.fn(async ({ userId }: { userId: string }) => {
+  deleteMany: jest.fn(async ({ userId }: { userId: string }, _opts?: unknown) => {
     const n = db.passkeys.get(String(userId)) ?? 0;
     db.passkeys.delete(String(userId));
     return { deletedCount: n };
   }),
 };
 const UserTotp = {
-  deleteOne: jest.fn(async ({ userId }: { userId: string }) => ({ deletedCount: db.totp.delete(String(userId)) ? 1 : 0 })),
+  deleteOne: jest.fn(async ({ userId }: { userId: string }, _opts?: unknown) => ({ deletedCount: db.totp.delete(String(userId)) ? 1 : 0 })),
 };
 const MfaRecoveryCodes = {
-  deleteOne: jest.fn(async ({ userId }: { userId: string }) => ({ deletedCount: db.codes.delete(String(userId)) ? 1 : 0 })),
+  deleteOne: jest.fn(async ({ userId }: { userId: string }, _opts?: unknown) => ({ deletedCount: db.codes.delete(String(userId)) ? 1 : 0 })),
 };
 
 const MfaResetRequest = {
@@ -172,6 +172,13 @@ jest.unstable_mockModule('../src/helpers/session-revocation.js', () => ({
   publishSessionSlotRevocation: async () => true,
   publishAccessKeyRevocation: async () => true,
   publishUserRevocation: (...a: unknown[]) => mockPublishRevocation(...a),
+}));
+// The reset's writes run in ONE transaction; the double hands the body a
+// recognisable session so a test can prove every write was bound to it.
+const txSession = { id: 'mfa-reset-tx' };
+const mockWithTx = jest.fn(async (fn: (s: unknown) => Promise<unknown>) => fn(txSession));
+jest.unstable_mockModule('../src/utils/mongo-tx.js', () => ({
+  withMongoTransaction: (fn: (s: unknown) => Promise<unknown>) => mockWithTx(fn),
 }));
 jest.unstable_mockModule('../src/models/index.js', () => ({
   MfaRecoveryCodes, MfaResetRequest, User, UserOrganization, UserTotp, WebAuthnCredential,
@@ -633,6 +640,30 @@ describe('directMfaReset — the single-person sysadmin path', () => {
       targetUserId: MEMBER, actor: actor(SYSADMIN, 'root@pipeline-builder.test', true), graceHours: 200,
     });
     expect(Math.round((result.graceUntil.getTime() - Date.now()) / 3600_000)).toBe(MFA_RESET_GRACE_MAX_HOURS);
+  });
+});
+
+describe('resetFactors — atomicity', () => {
+  it('binds the factor deletes, the tokenVersion bump and the slot clear to ONE transaction', async () => {
+    await svc.resetFactors(MEMBER);
+
+    expect(mockWithTx).toHaveBeenCalledTimes(1);
+    expect(WebAuthnCredential.deleteMany).toHaveBeenCalledWith({ userId: MEMBER }, { session: txSession });
+    expect(UserTotp.deleteOne).toHaveBeenCalledWith({ userId: MEMBER }, { session: txSession });
+    expect(MfaRecoveryCodes.deleteOne).toHaveBeenCalledWith({ userId: MEMBER }, { session: txSession });
+    expect(User.findByIdAndUpdate).toHaveBeenCalledWith(
+      MEMBER,
+      expect.objectContaining({ $inc: { tokenVersion: 1 } }),
+      expect.objectContaining({ session: txSession }),
+    );
+  });
+
+  it('publishes no revocation and revokes no keys when the transaction aborts', async () => {
+    mockWithTx.mockRejectedValueOnce(new Error('TransientTransactionError'));
+
+    await expect(svc.resetFactors(MEMBER)).rejects.toThrow('TransientTransactionError');
+    expect(mockPublishRevocation).not.toHaveBeenCalled();
+    expect(mockRevokeAllKeys).not.toHaveBeenCalled();
   });
 });
 

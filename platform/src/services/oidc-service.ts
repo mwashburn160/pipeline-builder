@@ -35,6 +35,7 @@ import { config } from '../config/index.js';
 import { extractGroupClaim } from '../helpers/idp-claims.js';
 import { PKCE_METHOD_S256, createCodeVerifier, pkceAuthorizeParams } from '../helpers/pkce.js';
 import { GOOGLE_DISCOVERY_URL, isCustomGoogleDiscoveryUrl, isReservedDiscoveryUrl, isReservedIssuer } from '../helpers/reserved-issuers.js';
+import { incCounter } from '../observability/metrics.js';
 
 const logger = createLogger('oidc-service');
 
@@ -126,6 +127,22 @@ function wellKnownUrl(discoveryUrl: string): string {
   return `${trimmed}/.well-known/openid-configuration`;
 }
 
+/**
+ * Count a discovery / JWKS failure on `platform_oidc_discovery_failed_total{stage,reason}`
+ * and return the error to throw. An IdP whose metadata is unreachable or broken
+ * stops EVERY sign-in for its org; the counter is what tells an operator it is
+ * the IdP and not the platform. Counting never fails the throw (no registry in
+ * a script/test).
+ */
+function discoveryFailed(stage: 'discovery' | 'jwks', reason: 'fetch' | 'status' | 'invalid'): Error {
+  try {
+    incCounter('platform_oidc_discovery_failed_total', { stage, reason });
+  } catch {
+    // No registry — nothing to count into.
+  }
+  return new Error('OIDC_DISCOVERY_FAILED');
+}
+
 async function fetchDiscovery(discoveryUrl: string): Promise<DiscoveryDoc> {
   const url = wellKnownUrl(discoveryUrl);
   const cached = discoveryCache.get(url);
@@ -140,12 +157,12 @@ async function fetchDiscovery(discoveryUrl: string): Promise<DiscoveryDoc> {
     res = await safeFetch(url, { headers: { Accept: 'application/json' } });
   } catch (err) {
     logger.warn('OIDC discovery fetch failed', { url, error: errorMessage(err) });
-    throw new Error('OIDC_DISCOVERY_FAILED');
+    throw discoveryFailed('discovery', 'fetch');
   }
-  if (!res.ok || res.redirected) throw new Error('OIDC_DISCOVERY_FAILED');
+  if (!res.ok || res.redirected) throw discoveryFailed('discovery', 'status');
   const doc = res.json() as Partial<DiscoveryDoc>;
   if (!doc.issuer || !doc.authorization_endpoint || !doc.token_endpoint || !doc.jwks_uri) {
-    throw new Error('OIDC_DISCOVERY_FAILED');
+    throw discoveryFailed('discovery', 'invalid');
   }
   const value = doc as DiscoveryDoc;
   discoveryCache.set(url, { value, fetchedAt: Date.now() });
@@ -163,9 +180,9 @@ async function fetchJwks(jwksUri: string, force = false): Promise<Jwk[]> {
     res = await safeFetch(jwksUri, { headers: { Accept: 'application/json' } });
   } catch (err) {
     logger.warn('OIDC JWKS fetch failed', { jwksUri, error: errorMessage(err) });
-    throw new Error('OIDC_DISCOVERY_FAILED');
+    throw discoveryFailed('jwks', 'fetch');
   }
-  if (!res.ok || res.redirected) throw new Error('OIDC_DISCOVERY_FAILED');
+  if (!res.ok || res.redirected) throw discoveryFailed('jwks', 'status');
   const body = res.json() as { keys?: Jwk[] };
   const keys = Array.isArray(body.keys) ? body.keys : [];
   jwksCache.set(jwksUri, { value: keys, fetchedAt: Date.now() });

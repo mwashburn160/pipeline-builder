@@ -3,6 +3,7 @@
 
 import { createLogger, isSystemAdmin, isSystemOrgId, normalizeOrgId, recordAuthzDenial, sendError, userHasPermission, type Permission } from '@pipeline-builder/api-core';
 import type { Request, Response } from 'express';
+import { PENDING_STATE_UNAVAILABLE } from './pending-state-errors.js';
 import type { RoleAssignmentActor } from '../services/role-authority.js';
 
 const logger = createLogger('platform-api');
@@ -483,6 +484,13 @@ export function handleControllerError(
     if (mapped.status >= 500) logger.warn(fallbackMessage, { code: errObj.message, status: mapped.status });
     else logger.debug(fallbackMessage, { code: errObj.message, status: mapped.status });
     return sendError(res, mapped.status, mapped.message, mapped.code);
+  }
+
+  // 1b. The shared pending-state store (Redis) refused a write in production —
+  // an infrastructure outage, not a bug: answer 503 so the client retries.
+  if (errObj?.message === PENDING_STATE_UNAVAILABLE) {
+    logger.error(fallbackMessage, err);
+    return sendError(res, 503, 'Sign-in is temporarily unavailable. Please try again in a moment.', 'SERVICE_UNAVAILABLE');
   }
 
   // 2. Check Mongoose errors

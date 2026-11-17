@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import crypto from 'crypto';
-import { ANONYMOUS_ACTOR_ID, JWKS_PATH, clientVersionGate, auditContextFromRequest, runWithAuditContext, sanitizeCorrelationId, createHealthRouter, createLogger, emitCounter, installCrashHandlers, setCounterEmitter, setGaugeEmitter, mongoSanitize, resolveRedisConnection, errorMessage, retryForever, type Scheduler, sleep } from '@pipeline-builder/api-core';
+import { ANONYMOUS_ACTOR_ID, assertJwtIssuerAudienceConfigured, JWKS_PATH, clientVersionGate, auditContextFromRequest, runWithAuditContext, sanitizeCorrelationId, createHealthRouter, createLogger, emitCounter, installCrashHandlers, setCounterEmitter, setGaugeEmitter, mongoSanitize, resolveRedisConnection, errorMessage, retryForever, type Scheduler, sleep } from '@pipeline-builder/api-core';
 import { withTenantContext, readinessGuard, setReady, isReady, mongoHealthCheck, registerSecretRotationGauge } from '@pipeline-builder/api-server';
 import cors from 'cors';
 import express, { type Request, type Response, type NextFunction } from 'express';
@@ -20,12 +20,19 @@ import { denyReadOnlyImpersonationWrite, isWriteBlockedByImpersonation } from '.
 import jwksRoutes from './routes/jwks.js';
 import { mountApiRoutes } from './routes/mount.js';
 import { reconcileIndexes } from './utils/index-reconcile.js';
+import { assertRedisConfiguredForProduction } from './utils/redis-client.js';
 
 const logger = createLogger('platform-api');
 
 // Refuse to start on an unusable Redis configuration (throws RedisConfigError)
 // rather than running with Redis-backed guarantees quietly switched off.
 resolveRedisConnection();
+// ...and refuse to start a PRODUCTION deployment with no Redis at all: every
+// cross-replica guarantee (rate limits, SAML replay guard, OAuth/SSO pending
+// state, revocation) would otherwise degrade to per-process state silently.
+assertRedisConfiguredForProduction();
+// Same fail-at-boot rule for JWT issuer/audience pinning (production only).
+assertJwtIssuerAudienceConfigured();
 
 // NOTE: OpenTelemetry is initialized by the `otel-bootstrap.js` preload
 // (`node -r ./otel-bootstrap.js index.js` — see Dockerfile / start script),

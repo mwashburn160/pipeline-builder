@@ -18,6 +18,7 @@
  * the shared pending-state store, so it works across replicas.
  */
 
+import { createLogger, errorMessage } from '@pipeline-builder/api-core';
 import { createPendingStateStore } from './pending-state-store.js';
 import type { IssuedTokens } from '../services/session/refresh-sessions.js';
 
@@ -30,6 +31,8 @@ interface GraceEntry {
   tokens: IssuedTokens;
 }
 
+const logger = createLogger('refresh-grace');
+
 const graceStore = createPendingStateStore<GraceEntry>({
   prefix: 'refresh-grace:',
   ttlMs: REFRESH_GRACE_MS,
@@ -37,9 +40,21 @@ const graceStore = createPendingStateStore<GraceEntry>({
   maxEntries: 10_000,
 });
 
-/** Park the pair a successful rotation minted, under the rotated-away token's hash. */
+/**
+ * Park the pair a successful rotation minted, under the rotated-away token's hash.
+ *
+ * BEST-EFFORT: the rotation has already committed, so failing here (the store
+ * refuses writes in production while Redis is down) would cost the caller the
+ * new pair it was just issued — and its next refresh, with the old token, would
+ * then be treated as reuse. Without the grace entry the only loss is that a
+ * concurrent refresh in the next 30 s is treated as reuse.
+ */
 export async function rememberRotation(previousHash: string, entry: GraceEntry): Promise<void> {
-  await graceStore.put(previousHash, entry);
+  try {
+    await graceStore.put(previousHash, entry);
+  } catch (err) {
+    logger.warn('Refresh rotation grace not recorded (shared store unavailable)', { error: errorMessage(err) });
+  }
 }
 
 /**

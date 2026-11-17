@@ -41,6 +41,7 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   JoinRequest: { deleteMany: deleteMany('JoinRequest') },
   WebAuthnCredential: { deleteMany: deleteMany('WebAuthnCredential') },
   UserTotp: { deleteMany: deleteMany('UserTotp') },
+  PasswordLoginLockout: { deleteMany: deleteMany('PasswordLoginLockout') },
   MfaRecoveryCodes: { deleteMany: deleteMany('MfaRecoveryCodes') },
   MfaResetRequest: { deleteMany: deleteMany('MfaResetRequest') },
 }));

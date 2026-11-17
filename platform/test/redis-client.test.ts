@@ -23,7 +23,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   createLogger: () => ({ info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() }),
 }));
 
-const { getRedisClient, __resetRedisClientForTests } = await import('../src/utils/redis-client.js');
+const { getRedisClient, __resetRedisClientForTests, assertRedisConfiguredForProduction, isProductionEnv } = await import('../src/utils/redis-client.js');
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -49,5 +49,28 @@ describe('getRedisClient', () => {
     await getRedisClient();
     await getRedisClient();
     expect(mockCreateEnvRedisClient).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('assertRedisConfiguredForProduction', () => {
+  it('refuses to boot a production platform with no Redis configured', () => {
+    expect(() => assertRedisConfiguredForProduction({ NODE_ENV: 'production' }))
+      .toThrow(/Redis is required when NODE_ENV=production/);
+  });
+
+  it('accepts production with REDIS_URL or REDIS_SENTINELS', () => {
+    expect(() => assertRedisConfiguredForProduction({ NODE_ENV: 'production', REDIS_URL: 'redis://redis:6379' })).not.toThrow();
+    expect(() => assertRedisConfiguredForProduction({ NODE_ENV: 'production', REDIS_SENTINELS: 's1:26379,s2:26379' })).not.toThrow();
+  });
+
+  it('keeps dev and test working without Redis', () => {
+    expect(() => assertRedisConfiguredForProduction({ NODE_ENV: 'development' })).not.toThrow();
+    expect(() => assertRedisConfiguredForProduction({ NODE_ENV: 'test' })).not.toThrow();
+    expect(() => assertRedisConfiguredForProduction({})).not.toThrow();
+  });
+
+  it('isProductionEnv is exactly NODE_ENV=production', () => {
+    expect(isProductionEnv({ NODE_ENV: 'production' })).toBe(true);
+    expect(isProductionEnv({ NODE_ENV: 'staging' })).toBe(false);
   });
 });

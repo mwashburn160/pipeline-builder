@@ -111,6 +111,18 @@ suite('password reset (real Mongo)', () => {
     expect(await m.PasswordResetToken.countDocuments({})).toBe(0);
   });
 
+  it('lifts a live failed-password lockout — the guarded password is gone', async () => {
+    await m.PasswordLoginLockout.collection.insertOne({
+      userId: new mongoose.Types.ObjectId(userId),
+      failedAttempts: 0,
+      lockedUntil: new Date(Date.now() + 600_000),
+      expiresAt: new Date(Date.now() + 600_000),
+    });
+    const { rawToken } = await svc.requestPasswordReset('forgetful@example.com');
+    await svc.resetPassword(rawToken, 'New-Passw0rd!secret');
+    expect(await m.PasswordLoginLockout.countDocuments({})).toBe(0);
+  });
+
   it('refuses an expired token', async () => {
     const { rawToken } = await svc.requestPasswordReset('forgetful@example.com');
     await m.PasswordResetToken.updateMany({}, { $set: { expiresAt: new Date(Date.now() - 1000) } });

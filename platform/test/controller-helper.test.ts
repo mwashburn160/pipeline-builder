@@ -268,4 +268,12 @@ describe('controller-helper', () => {
       expect(toOrgId('abc')).toBe('abc');
     });
   });
+
+  describe('handleControllerError — pending-state store outage', () => {
+    it('answers 503 SERVICE_UNAVAILABLE so the client retries, not a 500', () => {
+      const res = mockRes();
+      handleControllerError(res, new Error('PENDING_STATE_UNAVAILABLE'), 'SSO initiate failed');
+      expect(mockSendError).toHaveBeenCalledWith(res, 503, expect.stringContaining('temporarily unavailable'), 'SERVICE_UNAVAILABLE');
+    });
+  });
 });

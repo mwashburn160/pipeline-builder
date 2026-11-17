@@ -39,7 +39,8 @@ jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: (...a: unkno
 // helper so that chain isn't loaded (avoids needing its transitive api-core exports).
 jest.unstable_mockModule('../src/helpers/sso-enforcement.js', () => ({ findSsoEnforcementForEmail: async () => null, rejectIfSsoEnforced: async () => false }));
 jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controllerHelperMock());
-jest.unstable_mockModule('../src/observability/metrics.js', () => ({ incCounter: jest.fn() }));
+const mockIncCounter = jest.fn();
+jest.unstable_mockModule('../src/observability/metrics.js', () => ({ incCounter: (...a: unknown[]) => mockIncCounter(...a) }));
 jest.unstable_mockModule('../src/services/billing-provision.js', () => ({ provisionBillingSubscription: jest.fn() }));
 jest.unstable_mockModule('../src/services/index.js', () => ({
   authService: {
@@ -316,6 +317,8 @@ describe('refresh — reuse revokes one slot', () => {
     expect(res.status).toHaveBeenCalledWith(401);
     expect(mockRevokeRefreshSession).toHaveBeenCalledWith('u1', 's1');
     expect(mockInvalidateAllSessions).not.toHaveBeenCalled();
+    // Presumed theft is counted, so a spike pages rather than hiding in logs.
+    expect(mockIncCounter).toHaveBeenCalledWith('platform_refresh_reuse_total');
   });
 });
 

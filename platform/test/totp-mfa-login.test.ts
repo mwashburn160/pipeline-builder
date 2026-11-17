@@ -73,6 +73,14 @@ jest.unstable_mockModule('../src/services/recovery-codes-service.js', () => ({
 }));
 // The org password-policy check on the login leg says "fine" here — this suite
 // is about the second factor.
+// The durable password lockout (helpers/password-lockout.ts) has its own suite.
+jest.unstable_mockModule('../src/helpers/password-lockout.js', () => ({
+  PASSWORD_LOCKOUT_MESSAGE: 'locked',
+  PasswordLockedOutError: class extends Error {},
+  assertPasswordNotLocked: jest.fn(async () => undefined),
+  recordPasswordFailure: jest.fn(async () => undefined),
+  clearPasswordFailures: jest.fn(async () => undefined),
+}));
 jest.unstable_mockModule('../src/helpers/password-policy.js', () => ({
   passwordShortfall: async () => null,
   assertNewPasswordAcceptable: async () => undefined,

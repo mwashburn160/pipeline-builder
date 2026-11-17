@@ -47,6 +47,14 @@ jest.unstable_mockModule('../src/helpers/bootstrap-admin.js', () => ({
   recordBootstrapSession: jest.fn(),
   closeBootstrapExceptionOnEnrolment: jest.fn(),
 }));
+// The durable password lockout (helpers/password-lockout.ts) has its own suite.
+jest.unstable_mockModule('../src/helpers/password-lockout.js', () => ({
+  PASSWORD_LOCKOUT_MESSAGE: 'locked',
+  PasswordLockedOutError: class extends Error {},
+  assertPasswordNotLocked: jest.fn(async () => undefined),
+  recordPasswordFailure: jest.fn(async () => undefined),
+  clearPasswordFailures: jest.fn(async () => undefined),
+}));
 jest.unstable_mockModule('../src/helpers/password-policy.js', () => ({
   passwordShortfall: (...a: unknown[]) => mockShortfall(...a),
   assertNewPasswordAcceptable: (...a: unknown[]) => mockAssertAcceptable(...a),

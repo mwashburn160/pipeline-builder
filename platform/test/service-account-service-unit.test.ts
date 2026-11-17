@@ -71,6 +71,10 @@ jest.unstable_mockModule('../src/services/api-key-service.js', () => ({
     revokeForServiceAccount: (...a: unknown[]) => mockRevokeForSa(...a),
   },
 }));
+const txSession = { id: 'sa-tx' };
+jest.unstable_mockModule('../src/utils/mongo-tx.js', () => ({
+  withMongoTransaction: async (fn: (s: unknown) => Promise<unknown>) => fn(txSession),
+}));
 jest.unstable_mockModule('../src/services/service-account-cascade.js', () => ({
   deleteServiceAccountsForOrg: async () => 0,
   revokeServiceAccountKeysForOrg: async () => 0,
@@ -129,7 +133,7 @@ beforeEach(() => {
   mockOrgFindById.mockReturnValue(queryChain({ name: 'Acme', tier: 'pro' }));
   mockSaCount.mockResolvedValue(0);
   mockSaExists.mockResolvedValue(null);
-  mockSaCreate.mockImplementation(async (d: unknown) => ({ _id: new Types.ObjectId(ACCOUNT_ID), createdAt: new Date(0), ...(d as object) }));
+  mockSaCreate.mockImplementation(async (docs: unknown) => (docs as object[]).map((d) => ({ _id: new Types.ObjectId(ACCOUNT_ID), createdAt: new Date(0), ...d })));
   mockSaDeleteOne.mockResolvedValue({});
   mockSaUpdateOne.mockResolvedValue({});
   mockSaFindOne.mockReturnValue(queryChain(accountDoc()));
@@ -154,7 +158,10 @@ describe('createServiceAccount', () => {
     expect(view.tokenBudget).toBe(-1);
     expect(view.seatsConsumed).toBe(0);
     expect(view.createdByEmail).toBe('a@x.io');
-    const created = mockSaCreate.mock.calls[0][0] as { usage: { resetAt: Date } };
+    const [created] = mockSaCreate.mock.calls[0][0] as Array<{ usage: { resetAt: Date } }>;
+    // Created inside the transaction, with its Role set bound to the same session.
+    expect(mockSaCreate.mock.calls[0][1]).toEqual({ session: txSession });
+    expect(mockRaDeleteMany).toHaveBeenCalledWith(expect.anything(), { session: txSession });
     expect(created.usage.resetAt.getTime()).toBeGreaterThan(Date.now());
     // Empty Role set: the old assignments are cleared and nothing is inserted.
     expect(mockRaDeleteMany).toHaveBeenCalled();
@@ -188,11 +195,13 @@ describe('createServiceAccount', () => {
     await expect(svc.createServiceAccount(ORG_ID, { name: 'deploy' }, ADMIN)).rejects.toThrow('boom');
   });
 
-  it('deletes the new row when the Role ceiling refuses the requested Roles', async () => {
-    // The requested Role doesn't belong to the org.
+  it('creates the row and its Roles in ONE transaction, so a ceiling refusal aborts both', async () => {
+    // The requested Role doesn't belong to the org: the refusal is thrown INSIDE
+    // the transaction (which rolls the row back) — no compensating delete.
     mockRoleFind.mockReturnValue(queryChain([]));
     await expect(svc.createServiceAccount(ORG_ID, { name: 'deploy', roleIds: ['r1'] }, ADMIN)).rejects.toThrow('RL_ROLE_NOT_FOUND');
-    expect(mockSaDeleteOne).toHaveBeenCalledWith({ _id: expect.anything() });
+    expect(mockSaCreate).toHaveBeenCalledWith([expect.objectContaining({ name: 'deploy' })], { session: txSession });
+    expect(mockSaDeleteOne).not.toHaveBeenCalled();
   });
 });
 

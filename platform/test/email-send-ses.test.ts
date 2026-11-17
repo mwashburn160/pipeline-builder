@@ -24,20 +24,24 @@ jest.unstable_mockModule('nodemailer', () => ({
   default: { createTransport: mockCreateTransport },
   createTransport: mockCreateTransport,
 }));
+const mockSesClientOpts: unknown[] = [];
+const mockIncCounter = jest.fn();
 jest.unstable_mockModule('@aws-sdk/client-sesv2', () => ({
-  SESv2Client: class { },
+  SESv2Client: class { constructor(opts: unknown) { mockSesClientOpts.push(opts); } },
   SendEmailCommand: class { },
 }));
+jest.unstable_mockModule('../src/observability/metrics.js', () => ({ incCounter: (...a: unknown[]) => mockIncCounter(...a) }));
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   createLogger: () => ({ info() {}, warn() {}, error() {}, debug() {} }),
 }));
 jest.unstable_mockModule('../src/config/index.js', () => ({ get config() { return mockConfig; } }));
 
-function sesConfig(overrides: { configurationSet?: string } = {}) {
+function sesConfig(overrides: { configurationSet?: string; provider?: string; enabled?: boolean; timeoutMs?: number } = {}) {
   return {
     email: {
-      enabled: true,
-      provider: 'ses',
+      enabled: overrides.enabled ?? true,
+      provider: overrides.provider ?? 'ses',
+      ...(overrides.timeoutMs !== undefined ? { timeoutMs: overrides.timeoutMs } : {}),
       from: 'noreply@pb.example',
       fromName: 'Pipeline Builder',
       ses: {
@@ -56,6 +60,8 @@ async function loadEmailService(cfg: any) {
   jest.resetModules();
   mockSendMail.mockReset().mockResolvedValue({ messageId: 'msg-1' });
   mockCreateTransport.mockClear();
+  mockIncCounter.mockClear();
+  mockSesClientOpts.length = 0;
   const mod = await import('../src/utils/email.js');
   return mod.emailService;
 }
@@ -136,5 +142,50 @@ describe('sendEmailChanged — the notice to the PREVIOUS address', () => {
     expect(arg.text).toContain('@evil.com');
     expect(arg.html).not.toContain('<svg/onload=alert(1)>');
     expect(arg.html).toContain('&lt;svg/onload=alert(1)&gt;');
+  });
+});
+
+describe('send timeouts — a stalled mail server fails the send in seconds', () => {
+  it('bounds the SES client connect + request with config.email.timeoutMs', async () => {
+    const svc = await loadEmailService(sesConfig({ timeoutMs: 7_000 }));
+    await svc.send({ to: 'a@x.com', subject: 'S', text: 'T' });
+    expect(mockSesClientOpts[0]).toMatchObject({ requestHandler: { connectionTimeout: 7_000, requestTimeout: 7_000 } });
+  });
+
+  it('bounds every SMTP phase, defaulting to 10s when config carries none', async () => {
+    const svc = await loadEmailService(sesConfig({ provider: 'smtp' }));
+    await svc.send({ to: 'a@x.com', subject: 'S', text: 'T' });
+    expect(mockCreateTransport.mock.calls[0][0]).toMatchObject({
+      connectionTimeout: 10_000, greetingTimeout: 10_000, socketTimeout: 15_000,
+    });
+  });
+});
+
+describe('platform_email_send_total{transport,outcome}', () => {
+  it('counts a success under its transport', async () => {
+    const svc = await loadEmailService(sesConfig());
+    await svc.send({ to: 'a@x.com', subject: 'S', text: 'T' });
+    expect(mockIncCounter).toHaveBeenCalledWith('platform_email_send_total', { transport: 'ses', outcome: 'success' });
+  });
+
+  it('counts a failure — and still returns false', async () => {
+    const svc = await loadEmailService(sesConfig({ provider: 'smtp' }));
+    mockSendMail.mockRejectedValueOnce(new Error('ETIMEDOUT'));
+    await expect(svc.send({ to: 'a@x.com', subject: 'S', text: 'T' })).resolves.toBe(false);
+    expect(mockIncCounter).toHaveBeenCalledWith('platform_email_send_total', { transport: 'smtp', outcome: 'failure' });
+  });
+
+  it('counts a disabled-mail skip, and a metrics outage never fails the send', async () => {
+    const svc = await loadEmailService(sesConfig({ enabled: false }));
+    mockIncCounter.mockImplementationOnce(() => { throw new Error('no registry'); });
+    await expect(svc.send({ to: 'a@x.com', subject: 'S', text: 'T' })).resolves.toBe(true);
+    expect(mockIncCounter).toHaveBeenCalledWith('platform_email_send_total', { transport: 'disabled', outcome: 'skipped' });
+  });
+
+  it('counts a failure when the transporter never initialized', async () => {
+    mockCreateTransport.mockImplementationOnce(() => { throw new Error('bad config'); });
+    const svc = await loadEmailService(sesConfig());
+    await expect(svc.send({ to: 'a@x.com', subject: 'S', text: 'T' })).resolves.toBe(false);
+    expect(mockIncCounter).toHaveBeenCalledWith('platform_email_send_total', { transport: 'ses', outcome: 'failure' });
   });
 });

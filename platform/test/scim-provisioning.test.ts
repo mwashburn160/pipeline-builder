@@ -938,6 +938,22 @@ describe('Groups', () => {
     expect(db.memberships[0].scim.groups).toEqual(['platform engineers']);
   });
 
+  it('PUT rename writes the mapping and the members\' keys in ONE transaction', async () => {
+    const group = seedGroup('Engineers');
+    const save = jest.spyOn(group, 'save');
+
+    await scim.replaceGroup(ctx(), String(group._id), { displayName: 'Platform Engineers' });
+
+    // Apart, a failure between the two writes would strand every member on the
+    // old key — silently out of the group the mapping now names.
+    expect(save).toHaveBeenCalledWith({ session: { id: 'session' } });
+    expect(UserOrganization.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ 'scim.groups': 'engineers' }),
+      { $set: { 'scim.groups.$': 'platform engineers' } },
+      { session: { id: 'session' } },
+    );
+  });
+
   it('PUT replaces the member set only when `members` is present', async () => {
     const group = seedGroup('Engineers');
 

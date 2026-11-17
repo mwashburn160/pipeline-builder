@@ -21,6 +21,7 @@ const mockUoFind = jest.fn<(...a: unknown[]) => unknown>();
 const mockUoCount = jest.fn<(...a: unknown[]) => Promise<number>>();
 const mockRaFind = jest.fn<(...a: unknown[]) => unknown>();
 const mockUserFind = jest.fn<(...a: unknown[]) => unknown>();
+const mockUoAggregate = jest.fn<(...a: unknown[]) => unknown>();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 
@@ -40,18 +41,17 @@ jest.unstable_mockModule('../src/services/roles-service.js', () => ({ assertActo
 jest.unstable_mockModule('../src/utils/mongo-tx.js', () => ({
   withMongoTransaction: (cb: (s: unknown) => unknown) => cb({ id: 'test-session' }),
 }));
-// Identity escape keeps the search-regex assertions simple.
-jest.unstable_mockModule('../src/utils/regex.js', () => ({ escapeRegex: (s: string) => s }));
 
 jest.unstable_mockModule('../src/models/index.js', () => ({
   // Linking stubs: user-profile/auth SUTs import these from the models barrel.
   PersonalAccessToken: {},
   UserPreferences: {},
   Organization: { findById: (...a: unknown[]) => mockOrgFindById(...a) },
-  User: { find: (...a: unknown[]) => mockUserFind(...a) },
+  User: { find: (...a: unknown[]) => mockUserFind(...a), collection: { name: 'users' } },
   UserOrganization: {
     find: (...a: unknown[]) => mockUoFind(...a),
     countDocuments: (...a: unknown[]) => mockUoCount(...a),
+    aggregate: (...a: unknown[]) => mockUoAggregate(...a),
   },
   RoleAssignment: { find: (...a: unknown[]) => mockRaFind(...a) },
   // Linking stub: org-members-service revokes a leaving member's invitations.
@@ -69,8 +69,25 @@ const { orgMembersService } = await import('../src/services/org-members-service.
 /** `Organization.findById(...).select(...).lean()` → org. */
 const orgQuery = (org: unknown) => ({ select: () => ({ lean: () => Promise.resolve(org) }) });
 
-/** `User.find(...).select(...).lean()` → rows (search-id prefilter). */
-const userQuery = (rows: unknown[]) => ({ select: () => ({ lean: () => Promise.resolve(rows) }) });
+/** `UserOrganization.aggregate(pipeline).option(opts)` → one `$facet` row,
+ *  recording the pipeline and options so the stages can be asserted. */
+let capturedPipeline: Array<Record<string, unknown>> = [];
+let capturedAggOptions: unknown;
+const aggQuery = (page: unknown[], total: number) => (pipeline: unknown) => {
+  capturedPipeline = pipeline as Array<Record<string, unknown>>;
+  return {
+    option: (o: unknown) => {
+      capturedAggOptions = o;
+      return Promise.resolve([{ page, total: total > 0 ? [{ n: total }] : [] }]);
+    },
+  };
+};
+/** The stage object for operator `op` in the captured pipeline. */
+const stage = (op: string) => capturedPipeline.find((s) => op in s)?.[op] as Record<string, unknown> | undefined;
+const aggRows = [
+  { user: { _id: 'u2', username: 'aaron', email: 'aaron@x.com', isEmailVerified: true }, role: 'member', isActive: true, joinedAt: new Date() },
+  { user: { _id: 'u1', username: 'zed', email: 'zed@x.com', isEmailVerified: false }, role: 'admin', isActive: false },
+];
 
 /** `RoleAssignment.find(...).populate(...).lean()` → assignment rows. */
 const raQuery = (rows: unknown[]) => ({ populate: () => ({ lean: () => Promise.resolve(rows) }) });
@@ -110,7 +127,9 @@ beforeEach(() => {
   mockUoFind.mockReturnValue(uoQuery(memberships));
   mockUoCount.mockResolvedValue(42);
   mockRaFind.mockReturnValue(raQuery(assignments));
-  mockUserFind.mockReturnValue(userQuery([{ _id: 'u1' }]));
+  capturedPipeline = [];
+  capturedAggOptions = undefined;
+  mockUoAggregate.mockImplementation(aggQuery(aggRows, 2));
 });
 
 describe('OrgMembersService.listMembers', () => {
@@ -143,15 +162,72 @@ describe('OrgMembersService.listMembers', () => {
     expect(bob.isActive).toBe(false);
   });
 
-  it('short-circuits to an empty page (no count query) when a search matches no user', async () => {
-    mockUserFind.mockReturnValue(userQuery([]));
+  it('answers an empty page when a search matches no member', async () => {
+    mockUoAggregate.mockImplementation(aggQuery([], 0));
     const result = await orgMembersService.listMembers('org-1', { search: 'nobody', limit: 25 });
 
     expect(result!.members).toEqual([]);
     expect(result!.total).toBe(0);
     expect(result!.limit).toBe(25);
-    expect(mockUoCount).not.toHaveBeenCalled();
+    expect(mockRaFind).not.toHaveBeenCalled();
+  });
+
+  it('searches FROM the org\'s memberships, never the whole users collection', async () => {
+    const result = await orgMembersService.listMembers('org-1', { search: '  ali  ', role: 'admin', isActive: true, offset: 3, limit: 7 });
+
+    // No unscoped User scan, no membership find/count.
+    expect(mockUserFind).not.toHaveBeenCalled();
     expect(mockUoFind).not.toHaveBeenCalled();
+    expect(mockUoCount).not.toHaveBeenCalled();
+    // The first stage pins the org (plus role/status filters).
+    expect(capturedPipeline[0]).toEqual({ $match: { organizationId: 'org-1', role: 'admin', isActive: true } });
+    // The search runs inside the per-membership user join, on username/email.
+    const lookup = stage('$lookup')!;
+    expect(lookup).toMatchObject({ from: 'users', localField: 'userId', foreignField: '_id', as: 'user' });
+    const userMatch = (lookup.pipeline as Array<Record<string, unknown>>)[0].$match as { $or: Array<Record<string, RegExp>> };
+    expect(userMatch.$or[0].username.source).toBe('ali');
+    expect(userMatch.$or[0].username.flags).toBe('i');
+    expect(userMatch.$or[1].email.source).toBe('ali');
+    // Paged in the database, with the total from the same pass.
+    expect(stage('$facet')).toEqual({ page: [{ $skip: 3 }, { $limit: 7 }], total: [{ $count: 'n' }] });
+    expect(capturedAggOptions).toEqual({ maxTimeMS: expect.any(Number) });
+    expect(result!.total).toBe(2);
+    expect(result!.members.map((m) => m.id)).toEqual(['u2', 'u1']);
+    // Response shape unchanged.
+    expect(result!.members[1]).toEqual({
+      id: 'u1',
+      username: 'zed',
+      email: 'zed@x.com',
+      role: 'admin',
+      isEmailVerified: false,
+      isActive: false,
+      isOwner: false,
+      joinedAt: undefined,
+      createdAt: undefined,
+      updatedAt: undefined,
+      roles: [{ id: 'r1', name: 'Admin' }],
+    });
+  });
+
+  it('escapes regex metacharacters and caps the search length', async () => {
+    await orgMembersService.listMembers('org-1', { search: `a.*(b${'x'.repeat(500)}` });
+    const lookup = stage('$lookup')!;
+    const rx = ((lookup.pipeline as Array<Record<string, unknown>>)[0].$match as { $or: Array<Record<string, RegExp>> }).$or[0].username;
+    expect(rx.source.startsWith('a\\.\\*\\(b')).toBe(true);
+    expect(rx.test(`A.*(B${'X'.repeat(96)}`)).toBe(true);
+    expect(rx.test(`aZZb${'x'.repeat(96)}`)).toBe(false);
+    // 100 characters of input survive, escaped.
+    expect(rx.source.replace(/\\/g, '').length).toBe(100);
+  });
+
+  it('sorts a search by a native membership field inside the aggregation', async () => {
+    await orgMembersService.listMembers('org-1', { search: 'a', sortBy: 'role', sortOrder: 'desc' });
+    expect(stage('$sort')).toEqual({ role: -1, _id: 1 });
+  });
+
+  it('sorts a search by the default join-time order when no sort is given', async () => {
+    await orgMembersService.listMembers('org-1', { search: 'a' });
+    expect(stage('$sort')).toEqual({ joinedAt: 1, _id: 1 });
   });
 
   it('returns null when the org does not exist', async () => {
@@ -193,39 +269,25 @@ describe('OrgMembersService.listMembers', () => {
     },
   );
 
-  it('sorts by a populated User field (username) via the two-phase path', async () => {
-    // Phase 1: the matching memberships (plain-id userId + native fields).
-    const matchRows = [
-      { userId: 'u1', role: 'admin', isActive: true, joinedAt: new Date() },
-      { userId: 'u2', role: 'member', isActive: false, joinedAt: new Date() },
-    ];
-    mockUoFind.mockReturnValue({ select: () => ({ lean: () => Promise.resolve(matchRows) }) });
-
-    // Phase 2: User ordered by the requested field — records the sort spec and
-    // returns the page in the resolved order.
-    let capturedUserSort: unknown;
-    const orderedUsers = [
-      { _id: 'u2', username: 'aaron', email: 'aaron@x.com', isEmailVerified: true },
-      { _id: 'u1', username: 'zed', email: 'zed@x.com', isEmailVerified: false },
-    ];
-    mockUserFind.mockReturnValue({
-      select: () => ({
-        sort: (s: unknown) => {
-          capturedUserSort = s; return {
-            skip: () => ({ limit: () => ({ lean: () => Promise.resolve(orderedUsers) }) }),
-          };
-        },
-      }),
-    });
-
+  it('sorts by a joined User field (username) in one org-scoped aggregation', async () => {
     const result = await orgMembersService.listMembers('org-1', { sortBy: 'username', sortOrder: 'asc' });
 
-    expect(capturedUserSort).toEqual({ username: 1, _id: 1 });
-    // Total is the full match count (not countDocuments — the two-phase path
-    // derives it from the resolved membership set).
+    // No full-membership load + unbounded $in: the order is applied in the DB.
+    expect(mockUoFind).not.toHaveBeenCalled();
+    expect(mockUserFind).not.toHaveBeenCalled();
+    expect(capturedPipeline[0]).toEqual({ $match: { organizationId: 'org-1' } });
+    // No search → the join carries only the projection.
+    expect((stage('$lookup')!.pipeline as unknown[])).toHaveLength(1);
+    expect(stage('$sort')).toEqual({ 'user.username': 1, '_id': 1 });
     expect(result!.total).toBe(2);
-    expect(mockUoCount).not.toHaveBeenCalled();
-    // The page preserves the User-collection order (aaron before zed).
+    // The page preserves the database order (aaron before zed).
     expect(result!.members.map((m) => m.id)).toEqual(['u2', 'u1']);
+  });
+
+  it('answers total 0 when the aggregation returns no facet row', async () => {
+    mockUoAggregate.mockImplementation(() => ({ option: () => Promise.resolve([]) }));
+    const result = await orgMembersService.listMembers('org-1', { sortBy: 'email', sortOrder: 'desc' });
+    expect(result!.total).toBe(0);
+    expect(result!.members).toEqual([]);
   });
 });

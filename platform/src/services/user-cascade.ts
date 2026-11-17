@@ -5,7 +5,7 @@ import type { ClientSession } from 'mongoose';
 import { Types } from 'mongoose';
 import { assertNotLastPrivilegedMember } from './role-crud.js';
 import { USER_OWNER_HAS_ORGS } from './user-errors.js';
-import { JoinRequest, MfaRecoveryCodes, MfaResetRequest, Organization, PasswordResetToken, PersonalAccessToken, RoleAssignment, User, UserOrganization, UserPreferences, UserTotp, WebAuthnCredential } from '../models/index.js';
+import { JoinRequest, MfaRecoveryCodes, MfaResetRequest, Organization, PasswordLoginLockout, PasswordResetToken, PersonalAccessToken, RoleAssignment, User, UserOrganization, UserPreferences, UserTotp, WebAuthnCredential } from '../models/index.js';
 import SamlSession from '../models/saml-session.js';
 
 /**
@@ -72,6 +72,8 @@ export async function deleteUserCascade(
   // `userId` unique indexes would block a re-created account from enrolling.
   await UserTotp.deleteMany({ userId: uid }, { session });
   await MfaRecoveryCodes.deleteMany({ userId: uid }, { session });
+  // A failed-password run / lockout for an account that no longer exists.
+  await PasswordLoginLockout.deleteMany({ userId: uid }, { session });
   // Pending MFA resets naming this account can no longer be carried out. The
   // audit trail keeps what happened to them.
   await MfaResetRequest.deleteMany({ targetUserId: uid }, { session });

@@ -25,16 +25,37 @@
  *   - `peek(state)` reads WITHOUT deleting and `remove(state)` deletes without
  *     reading — the multi-step device-authorization flow polls and rewrites its
  *     state many times before the single `consume` that issues the session.
- *   - Fail-safe: a Redis error on `put` falls back to the local Map; a Redis
- *     error on `consume` rejects that one attempt (the user simply retries),
- *     which is the safe direction for a CSRF token; a Redis error on
- *     `putIfAbsent` (a replay guard) answers "already claimed" — fail closed.
+ *   - Fail-safe: a Redis error on `consume` rejects that one attempt (the user
+ *     simply retries), which is the safe direction for a CSRF token; a Redis
+ *     error on `putIfAbsent` (a replay guard) answers "already claimed" — fail
+ *     closed.
+ *   - A Redis error on `put` depends on the environment. Under
+ *     `NODE_ENV=production` it THROWS (`PENDING_STATE_UNAVAILABLE`): a pod-local
+ *     entry is invisible to every other replica, so the flow would fail later on
+ *     a different pod anyway — or, worse, a security-relevant record would exist
+ *     on one pod only. Failing the initiate step is the honest answer (the
+ *     person retries). Outside production it falls back to the local Map so a
+ *     single-process dev stack keeps working through a Redis blip. Production
+ *     with no Redis client at all is refused the same way (the boot guard in
+ *     utils/redis-client.ts normally makes that unreachable).
  *
  * Reuses `getRedisClient()` — the SAME env Redis client the platform already
  * uses to publish session-revocation entries — so no new connection/config.
  */
 
+import { PENDING_STATE_UNAVAILABLE } from './pending-state-errors.js';
 import { getRedisClient } from '../utils/redis-client.js';
+
+export { PENDING_STATE_UNAVAILABLE };
+
+/**
+ * Whether a missing / failing shared store must fail closed. Read per call (not
+ * at import) so a test can flip `NODE_ENV`; checked here rather than imported
+ * from redis-client.ts so suites that mock that module stay unaffected.
+ */
+function failClosed(): boolean {
+  return process.env.NODE_ENV === 'production';
+}
 
 /** ioredis exposes an atomic GETDEL (Redis 6.2+); use it for true consume-once
  *  when present, else fall back to GET+DEL (a negligible, TTL-bounded race). */
@@ -133,10 +154,18 @@ export function createPendingStateStore<T>(opts: PendingStateStoreOptions): Pend
           // ioredis-style variadic SET with millisecond expiry.
           await redis.set(key(state), JSON.stringify(value), 'PX', entryTtl);
           return;
-        } catch {
-          // Fall through to the local map so an in-flight Redis blip on initiate
-          // still lets a same-pod callback succeed.
+        } catch (err) {
+          // Production: FAIL CLOSED — a pod-local entry is invisible to the other
+          // replicas, so the flow would break on another pod (or a record would
+          // silently live on one pod only). Elsewhere fall through to the local
+          // map so an in-flight Redis blip on initiate still lets a same-pod
+          // callback succeed.
+          if (failClosed()) {
+            throw new Error(PENDING_STATE_UNAVAILABLE, { cause: err });
+          }
         }
+      } else if (failClosed()) {
+        throw new Error(PENDING_STATE_UNAVAILABLE);
       }
       evictOldestIfFull();
       mem.set(state, { value, expiresAt: Date.now() + entryTtl });
@@ -159,6 +188,9 @@ export function createPendingStateStore<T>(opts: PendingStateStoreOptions): Pend
           return false;
         }
       }
+      // Production with no shared store: the pod-local map is no replay record
+      // at all for the other replicas — refuse, like the error path above.
+      if (failClosed()) return false;
       const existing = mem.get(state);
       if (existing && Date.now() <= existing.expiresAt) return false;
       evictOldestIfFull();

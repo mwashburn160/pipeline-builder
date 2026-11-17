@@ -2,10 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Consecutive-failure lockout for per-account code verification (the
- * authenticator app and the recovery-only sign-in leg). A 6-digit code is ~20
- * bits, so the lockout — not the code — is what makes online guessing hopeless.
- * Both legs share the `config.auth.totp` limits so they bound guessing alike.
+ * Consecutive-failure lockout for per-account credential verification: the
+ * authenticator app and the recovery-only sign-in leg (a 6-digit code is ~20
+ * bits, so the lockout — not the code — is what makes online guessing
+ * hopeless; both legs share the `config.auth.totp` limits), and password
+ * sign-in (helpers/password-lockout.ts, `config.auth.passwordLockout`).
  */
 
 import { createLogger, errorMessage, SYSTEM_ACTOR_ID } from '@pipeline-builder/api-core';
@@ -19,6 +20,19 @@ export interface LockoutModel {
     lean(): PromiseLike<{ failedAttempts?: number } | null>;
   };
   updateOne(filter: Record<string, unknown>, update: Record<string, unknown>): unknown;
+}
+
+/** How a caller's lockout differs from the TOTP default. */
+export interface RecordFailureOptions {
+  /** Create the counter document on the first failure (a store that holds a
+   *  document only while a run is in progress). Default: count only into an
+   *  existing document. */
+  upsert?: boolean;
+  /** Stamp `expiresAt` (a TTL field) to `now + windowMs` on every failure, and
+   *  to `lockedUntil` when the run locks — so a stale run ages out by itself. */
+  windowMs?: number;
+  /** The audit action the lockout is filed as. Default `user.mfa.locked_out`. */
+  auditAction?: 'user.mfa.locked_out' | 'user.login.locked_out';
 }
 
 /** Refuse every verification while a lockout is live. Throws `TOTP_LOCKED_OUT`. */
@@ -40,36 +54,47 @@ export async function recordFailure(
   userId: string,
   label: string,
   limits: { maxFailures: number; lockoutMs: number },
+  options: RecordFailureOptions = {},
 ): Promise<void> {
+  const { upsert = false, windowMs, auditAction = 'user.mfa.locked_out' } = options;
   const updated = await model.findOneAndUpdate(
     { userId },
-    { $inc: { failedAttempts: 1 } },
-    { new: true, projection: { failedAttempts: 1 } },
+    {
+      $inc: { failedAttempts: 1 },
+      ...(windowMs !== undefined ? { $set: { expiresAt: new Date(Date.now() + windowMs) } } : {}),
+    },
+    { new: true, projection: { failedAttempts: 1 }, ...(upsert ? { upsert: true } : {}) },
   ).lean();
   if (!updated || (updated.failedAttempts ?? 0) < limits.maxFailures) return;
   const lockedUntil = new Date(Date.now() + limits.lockoutMs);
   await model.updateOne(
     { userId },
-    { $set: { lockedUntil, failedAttempts: 0 } },
+    { $set: { lockedUntil, failedAttempts: 0, ...(windowMs !== undefined ? { expiresAt: lockedUntil } : {}) } },
   );
   logger.warn(`${label} locked out after repeated failures`, { userId, lockoutMs: limits.lockoutMs });
-  await auditLockout(userId, label, lockedUntil, limits.maxFailures);
+  await auditLockout(userId, label, lockedUntil, limits.maxFailures, auditAction);
 }
 
 /**
- * Record the lockout as `user.mfa.locked_out` — the moment a guessing run
+ * Record the lockout (`user.mfa.locked_out`, or the caller's action) — the moment a guessing run
  * crossed the limit, filed against the account and its active org so the org's
  * admins see it. System actor: the guesser is unauthenticated by definition.
  * Lazily imported (audit → chain → models) and best-effort: a failed write must
  * never undo, or fail, the lockout itself.
  */
-async function auditLockout(userId: string, label: string, lockedUntil: Date, failures: number): Promise<void> {
+async function auditLockout(
+  userId: string,
+  label: string,
+  lockedUntil: Date,
+  failures: number,
+  action: NonNullable<RecordFailureOptions['auditAction']>,
+): Promise<void> {
   try {
     const [{ recordAuditEvent }, { User }] = await Promise.all([import('./audit.js'), import('../models/index.js')]);
     const user = await User.findById(userId).select('lastActiveOrgId').lean<{ lastActiveOrgId?: { toString(): string } | null }>();
     const orgId = user?.lastActiveOrgId?.toString();
     recordAuditEvent({
-      action: 'user.mfa.locked_out',
+      action,
       actorId: SYSTEM_ACTOR_ID,
       ...(orgId ? { orgId, affectedOrgId: orgId } : {}),
       targetType: 'user',

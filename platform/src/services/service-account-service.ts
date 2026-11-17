@@ -33,7 +33,7 @@
 import { BlockList, isIPv4, isIPv6 } from 'net';
 import { createLogger, isoOrNull, TOKEN_SCOPES } from '@pipeline-builder/api-core';
 import type { PlanTier, TokenScope } from '@pipeline-builder/api-core';
-import { Types } from 'mongoose';
+import { Types, type ClientSession } from 'mongoose';
 import { apiKeyService, type AccessKeyView } from './api-key-service.js';
 import { assertActorMayAssignRole, type RoleAssignmentActor } from './role-authority.js';
 import { RL_REQUIRES_SUPERADMIN } from './roles-errors.js';
@@ -69,6 +69,7 @@ import { toOrgId } from '../helpers/org-id.js';
 import Organization from '../models/organization.js';
 import ServiceAccount from '../models/service-account.js';
 import type { ServiceAccountData } from '../models/service-account.js';
+import { withMongoTransaction } from '../utils/mongo-tx.js';
 import type { ServiceAccountTokenContext } from './session/access-tokens.js';
 
 const logger = createLogger('service-account-service');
@@ -294,29 +295,28 @@ export async function createServiceAccount(
   if (count >= MAX_SERVICE_ACCOUNTS_PER_ORG) throw new Error(SA_LIMIT);
   if (await ServiceAccount.exists({ organizationId: oid, name })) throw new Error(SA_NAME_TAKEN);
 
+  // ONE transaction: the row and its Role set land together. A refused Role
+  // assignment (the ceiling, an unknown Role) aborts it, so no role-less account
+  // is left holding the name — previously a compensating delete did this, and a
+  // failure of THAT delete stranded the row.
   let doc;
   try {
-    doc = await ServiceAccount.create({
-      organizationId: oid,
-      name,
-      description: input.description?.trim() || null,
-      createdBy: actor.userId && Types.ObjectId.isValid(actor.userId) ? new Types.ObjectId(actor.userId) : null,
-      createdByEmail: actor.email ?? null,
-      tokenBudget,
-      usage: { exchanges: 0, resetAt: nextResetAt() },
+    doc = await withMongoTransaction(async (session) => {
+      const [created] = await ServiceAccount.create([{
+        organizationId: oid,
+        name,
+        description: input.description?.trim() || null,
+        createdBy: actor.userId && Types.ObjectId.isValid(actor.userId) ? new Types.ObjectId(actor.userId) : null,
+        createdByEmail: actor.email ?? null,
+        tokenBudget,
+        usage: { exchanges: 0, resetAt: nextResetAt() },
+      }], { session });
+      await setServiceAccountRoles(orgId, String(created._id), input.roleIds ?? [], actor, session);
+      return created;
     });
   } catch (err) {
     // Unique (organizationId, name) — a concurrent create won the race.
     if ((err as { code?: number }).code === 11000) throw new Error(SA_NAME_TAKEN);
-    throw err;
-  }
-
-  try {
-    await setServiceAccountRoles(orgId, String(doc._id), input.roleIds ?? [], actor);
-  } catch (err) {
-    // A refused Role assignment must not leave a role-less account behind:
-    // remove the row so the caller's retry (with a permitted Role set) is clean.
-    await ServiceAccount.deleteOne({ _id: doc._id });
     throw err;
   }
 
@@ -367,8 +367,13 @@ export async function getServiceAccount(orgId: string, id: string): Promise<Serv
  * `service_accounts:manage` delegate could mint a key for an account an admin
  * set up, and act with more than they hold.
  */
-async function assertActorMayWieldAccount(orgId: string, accountId: string, actor: RoleAssignmentActor): Promise<void> {
-  for (const role of await serviceAccountRoles(toOrgId(orgId), accountId)) {
+async function assertActorMayWieldAccount(
+  orgId: string,
+  accountId: string,
+  actor: RoleAssignmentActor,
+  session?: ClientSession,
+): Promise<void> {
+  for (const role of await serviceAccountRoles(toOrgId(orgId), accountId, session)) {
     if (role.grantsRole === 'superadmin' && !actor.isSuperAdmin) throw new Error(RL_REQUIRES_SUPERADMIN);
     assertActorMayAssignRole(role.permissions, actor);
   }
@@ -417,18 +422,26 @@ export async function updateServiceAccount(
   if (patch.tokenBudget !== undefined) set.tokenBudget = normalizeBudget(patch.tokenBudget);
   if (patch.disabled !== undefined) set.disabled = patch.disabled;
 
-  // Roles first: if the ceiling refuses, nothing at all changed.
-  if (patch.roleIds !== undefined) {
-    await setServiceAccountRoles(orgId, String(existing._id), patch.roleIds, actor);
-  }
-  // RE-ENABLING puts every key back to work with the account's Roles — the same
-  // ceiling as minting a key for it.
-  if (patch.disabled === false && existing.disabled === true) {
-    await assertActorMayWieldAccount(orgId, String(existing._id), actor);
-  }
-  if (Object.keys(set).length > 0) {
-    await ServiceAccount.updateOne({ _id: existing._id }, { $set: set });
-  }
+  // ONE transaction: the Role replace (a delete + insert), the re-enable ceiling
+  // check and the field update land together or not at all — a refusal or a
+  // failure part-way never leaves the account with its Roles swapped but its
+  // `disabled` flag unchanged (or with no Roles at all, between the delete and
+  // the insert).
+  await withMongoTransaction(async (session) => {
+    // Roles first: if the ceiling refuses, nothing at all changed.
+    if (patch.roleIds !== undefined) {
+      await setServiceAccountRoles(orgId, String(existing._id), patch.roleIds, actor, session);
+    }
+    // RE-ENABLING puts every key back to work with the account's Roles — the same
+    // ceiling as minting a key for it. Read in the session, so it judges the Role
+    // set this update is writing.
+    if (patch.disabled === false && existing.disabled === true) {
+      await assertActorMayWieldAccount(orgId, String(existing._id), actor, session);
+    }
+    if (Object.keys(set).length > 0) {
+      await ServiceAccount.updateOne({ _id: existing._id }, { $set: set }, { session });
+    }
+  });
   logger.info('Updated service account', { organizationId: orgId, serviceAccountId: id, fields: Object.keys(set) });
   return { account: await viewOf(await requireAccount(orgId, id)), before };
 }

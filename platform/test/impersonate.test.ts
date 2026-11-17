@@ -67,6 +67,11 @@ jest.unstable_mockModule('../src/helpers/account-membership.js', () => ({
   hasMembershipOutsideAccount: (...a: unknown[]) => mockOutsideAccount(...a),
 }));
 jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: (...a: unknown[]) => mockAudit(...a) }));
+const mockIncCounter = jest.fn();
+jest.unstable_mockModule('../src/observability/metrics.js', () => ({ incCounter: (...a: unknown[]) => mockIncCounter(...a) }));
+/** Assert one `platform_impersonation_total` increment. */
+const metered = (kind: string, outcome: string) =>
+  expect(mockIncCounter).toHaveBeenCalledWith('platform_impersonation_total', { kind, outcome });
 jest.unstable_mockModule('../src/helpers/controller-helper.js', () => controllerHelperMock());
 // Authority now depends on BOTH parties (is the caller an ancestor admin of the
 // target's pinned org?), so it is resolved in the controller rather than by a
@@ -156,6 +161,7 @@ function mockRes() {
 }
 
 beforeEach(() => {
+  mockIncCounter.mockClear();
   mockUserFindById.mockReset();
   mockResolveAuthority.mockReset().mockResolvedValue({ kind: 'sysadmin' });
   mockNotifyTeam.mockReset().mockResolvedValue(undefined);
@@ -376,6 +382,7 @@ describe('impersonateUser', () => {
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ accessToken: 'imp.jwt', expiresIn: 900, targetUserId: 'target' }),
     }));
+    metered('consented', 'started');
   });
 });
 
@@ -406,6 +413,7 @@ describe('redeemImpersonationRequest', () => {
     // Redeemed through the SAME single-use gate and token path as inline
     // sessions — stamping the OPERATOR's state so revoking them ends the session.
     expect(mockConsume).toHaveBeenCalledWith('req-1', expect.any(String), { tokenVersion: 4, claimsVersion: 2, isSuperAdmin: true });
+    metered('consented', 'started');
     expect(mockIssueImpersonation).toHaveBeenCalledWith(
       expect.objectContaining({ _id: 'target' }), 'sysadmin', 'org-a', expect.any(String),
       expect.objectContaining({ amr: expect.any(Array), aal: 1 }), undefined, RECORD_EXPIRES_AT,
@@ -425,6 +433,7 @@ describe('redeemImpersonationRequest', () => {
     expect(res.status).toHaveBeenCalledWith(409);
     expect(mockConsume).not.toHaveBeenCalled();
     expect(mockIssueImpersonation).not.toHaveBeenCalled();
+    metered('consented', 'not_redeemable');
   });
 
   it('refuses anyone other than the requester — an approval is not a bearer ticket', async () => {
@@ -625,6 +634,7 @@ describe('decideImpersonationRequest — authorization', () => {
     expect(res.status).toHaveBeenCalledWith(200);
     // Recorded as breakglass, not consent — nobody in the tenant said yes.
     expect(mockDecide).toHaveBeenCalledWith('req-1', 'sysadmin-b', true, true);
+    metered('breakglass', 'approved');
   });
 
   it('FOUR-EYES: a tenant admin may NOT approve break-glass', async () => {
@@ -697,6 +707,7 @@ describe('breakglassImpersonation', () => {
     }));
     // Audited as break-glass, never as an ordinary start.
     expect(mockAudit).toHaveBeenCalledWith(expect.anything(), 'admin.impersonate.breakglass', expect.anything());
+    metered('breakglass', 'started');
   });
 
   it('issues NOTHING when a second sysadmin is required', async () => {
@@ -708,6 +719,7 @@ describe('breakglassImpersonation', () => {
     expect(mockConsume).not.toHaveBeenCalled();
     expect(mockIssueImpersonation).not.toHaveBeenCalled();
     expect(mockNotifyBreakglass).toHaveBeenCalledWith(expect.objectContaining({ awaitingSecondSysadmin: true }));
+    metered('breakglass', 'pending');
   });
 
   it('records how many admins were actually reached, so a silent notice failure is visible', async () => {

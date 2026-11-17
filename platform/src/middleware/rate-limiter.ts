@@ -4,7 +4,7 @@
 import { ErrorCode, sendError } from '@pipeline-builder/api-core';
 import { createSharedRateLimitStore } from '@pipeline-builder/api-server';
 import type { Request, RequestHandler } from 'express';
-import rateLimit from 'express-rate-limit';
+import rateLimit, { type Store } from 'express-rate-limit';
 import { extractClientIp } from './rate-limit-keys.js';
 import { incCounter } from '../observability/metrics.js';
 
@@ -28,6 +28,53 @@ export interface LimiterOptions {
 
 /** Name of the counter every platform limiter bumps when it refuses a request. */
 export const RATE_LIMIT_REJECTED_METRIC = 'platform_rate_limit_rejected_total';
+
+/** Counter bumped each time a limiter's shared store errors (the request is
+ *  then let through — `passOnStoreError`). Label: `limiter`. */
+export const RATE_LIMIT_STORE_ERROR_METRIC = 'rate_limit_store_error_total';
+
+/**
+ * Count a store failure. Like {@link countRejection}, never at the cost of the
+ * request: no registry → nothing to count into.
+ */
+function countStoreError(name: string): void {
+  try {
+    incCounter(RATE_LIMIT_STORE_ERROR_METRIC, { limiter: name });
+  } catch {
+    // No registry — nothing to count into.
+  }
+}
+
+/**
+ * Wrap a shared store so every error it raises is COUNTED before it reaches
+ * express-rate-limit (which, with `passOnStoreError`, lets the request through
+ * unlimited and only logs). Without this a Redis outage silently turns every
+ * limiter off; with it, `rate_limit_store_error_total{limiter}` pages. The error
+ * is re-thrown unchanged, so the pass-through behaviour is exactly as before.
+ *
+ * Only the methods the wrapped store has are forwarded: express-rate-limit
+ * reads the PRESENCE of optional methods as capabilities.
+ */
+export function withStoreErrorCounting(store: Store, name: string): Store {
+  const counted = <A extends unknown[], R>(fn: (...args: A) => R | Promise<R>) =>
+    async (...args: A): Promise<R> => {
+      try {
+        return await fn(...args);
+      } catch (err) {
+        countStoreError(name);
+        throw err;
+      }
+    };
+  const wrapped: Store = {
+    increment: counted((key: string) => store.increment(key)),
+    decrement: counted((key: string) => store.decrement(key)),
+    resetKey: counted((key: string) => store.resetKey(key)),
+    ...(store.init ? { init: (options) => store.init!(options) } : {}),
+    ...(store.get ? { get: counted((key: string) => store.get!(key)) } : {}),
+    ...(store.prefix !== undefined ? { prefix: store.prefix } : {}),
+  };
+  return wrapped;
+}
 
 /**
  * The ROUTE a refused request was for, as a bounded label: the matched route
@@ -71,11 +118,16 @@ function countRejection(name: string, req: Request): void {
  *
  * Every refusal is counted on `platform_rate_limit_rejected_total{limiter,route}`,
  * so a route that starts spending a bucket it shouldn't shows up on a dashboard
- * before it shows up in a support ticket.
+ * before it shows up in a support ticket. Every STORE failure (the request was
+ * let through unlimited) is counted on `rate_limit_store_error_total{limiter}`.
+ * Password sign-in does not rely on this limiter alone: the per-account
+ * Mongo-backed lockout (helpers/password-lockout.ts) bounds guessing even while
+ * the store is failing open.
  */
 export function createLimiter(opts: LimiterOptions): RequestHandler {
+  const shared = createSharedRateLimitStore(`platform:${opts.name}`);
   return rateLimit({
-    store: createSharedRateLimitStore(`platform:${opts.name}`),
+    ...(shared ? { store: withStoreErrorCounting(shared, opts.name) } : {}),
     passOnStoreError: true,
     windowMs: opts.windowMs,
     max: opts.max,

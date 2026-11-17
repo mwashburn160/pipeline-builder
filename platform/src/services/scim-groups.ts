@@ -20,6 +20,7 @@ import { toOrgId } from '../helpers/org-id.js';
 import IdpGroupMapping, { type IdpGroupMappingDocument } from '../models/idp-group-mapping.js';
 import UserOrganization from '../models/user-organization.js';
 import User from '../models/user.js';
+import { withMongoTransaction } from '../utils/mongo-tx.js';
 
 const logger = createLogger('scim-service');
 
@@ -240,21 +241,31 @@ export async function replaceGroup(ctx: ScimContext, id: string, body: Record<st
   return { resource: await getGroup(ctx, id), action: renaming || adding.length > 0 ? 'update' : 'members', changed, affectedUserIds };
 }
 
-/** Rename a group, carrying every member's stored key across with it. */
+/**
+ * Rename a group, carrying every member's stored key across with it.
+ *
+ * ONE transaction: the mapping's new key and the members' moved keys land
+ * together. Apart, a failure between them would leave members holding the OLD
+ * key while the mapping answers only to the new one — everyone silently drops
+ * out of the group (and the Roles it maps to) until the IdP happens to re-push.
+ */
 async function renameGroupKey(orgId: string, doc: IdpGroupMappingDocument, displayName: string, key: string): Promise<void> {
   const previous = doc.groupKey;
-  doc.group = displayName;
-  doc.groupKey = key;
-  doc.updatedBy = 'scim';
-  await doc.save();
-  if (previous !== key) {
-    // Members carry the KEY, so a rename must move them or everyone silently
-    // drops out of the group (and loses the Roles it maps to).
-    await UserOrganization.updateMany(
-      { 'organizationId': toOrgId(orgId), 'scim.groups': previous },
-      { $set: { 'scim.groups.$': key } },
-    );
-  }
+  await withMongoTransaction(async (session) => {
+    doc.group = displayName;
+    doc.groupKey = key;
+    doc.updatedBy = 'scim';
+    await doc.save({ session });
+    if (previous !== key) {
+      // Members carry the KEY, so a rename must move them or everyone silently
+      // drops out of the group (and loses the Roles it maps to).
+      await UserOrganization.updateMany(
+        { 'organizationId': toOrgId(orgId), 'scim.groups': previous },
+        { $set: { 'scim.groups.$': key } },
+        { session },
+      );
+    }
+  });
 }
 
 /**

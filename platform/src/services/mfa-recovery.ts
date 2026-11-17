@@ -57,6 +57,7 @@ import {
   WebAuthnCredential,
   type MfaResetRequestData,
 } from '../models/index.js';
+import { withMongoTransaction } from '../utils/mongo-tx.js';
 
 const logger = createLogger('mfa-recovery');
 
@@ -105,20 +106,27 @@ export async function resetFactors(userId: string, graceHours?: number): Promise
   const user = await User.findById(userId).select('email').lean();
   if (!user) return null;
 
-  const [passkeys, totp, codes] = await Promise.all([
-    WebAuthnCredential.deleteMany({ userId }),
-    UserTotp.deleteOne({ userId }),
-    MfaRecoveryCodes.deleteOne({ userId }),
-  ]);
-
   const graceUntil = new Date(Date.now() + clampGraceHours(graceHours) * 60 * 60 * 1000);
-  // Bump `tokenVersion` AND clear the slots — "sign out everywhere". A reset
-  // that left a live session behind would be a reset in name only.
-  const updated = await User.findByIdAndUpdate(
-    userId,
-    { $inc: { tokenVersion: 1 }, $set: { refreshSessions: [], mfaResetGraceUntil: graceUntil } },
-    { new: true },
-  ).select('+tokenVersion').lean();
+  // ONE transaction: the factor deletes, the `tokenVersion` bump and the slot
+  // clear land together or not at all. Without it a failure part-way (a primary
+  // step-down between the deletes and the bump) would leave an account with no
+  // factors but its sessions still live — a reset in name only — or sessions
+  // ended with the old factors still enrolled. Sequential, not `Promise.all`:
+  // operations on one session must not run concurrently.
+  const { passkeys, totp, codes, updated } = await withMongoTransaction(async (session) => {
+    const passkeysRes = await WebAuthnCredential.deleteMany({ userId }, { session });
+    const totpRes = await UserTotp.deleteOne({ userId }, { session });
+    const codesRes = await MfaRecoveryCodes.deleteOne({ userId }, { session });
+    // Bump `tokenVersion` AND clear the slots — "sign out everywhere".
+    const bumped = await User.findByIdAndUpdate(
+      userId,
+      { $inc: { tokenVersion: 1 }, $set: { refreshSessions: [], mfaResetGraceUntil: graceUntil } },
+      { new: true, session },
+    ).select('+tokenVersion').lean();
+    return { passkeys: passkeysRes, totp: totpRes, codes: codesRes, updated: bumped };
+  });
+  // Side effects that can't roll back (the Redis revocation publish, and the
+  // key revocation, which publishes too) run only once the reset has committed.
   await publishUserRevocation(userId);
   // A factor reset is a "someone else may hold this account" event: a key the
   // attacker minted must not survive it.

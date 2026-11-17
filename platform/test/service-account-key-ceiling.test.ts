@@ -40,6 +40,10 @@ jest.unstable_mockModule('../src/services/service-account-roles.js', () => ({
   setServiceAccountRoles: async () => undefined,
   clearServiceAccountRoles: async () => undefined,
 }));
+const txSession = { id: 'sa-tx' };
+jest.unstable_mockModule('../src/utils/mongo-tx.js', () => ({
+  withMongoTransaction: async (fn: (s: unknown) => Promise<unknown>) => fn(txSession),
+}));
 jest.unstable_mockModule('../src/services/service-account-cascade.js', () => ({
   deleteServiceAccountsForOrg: async () => 0,
   revokeServiceAccountKeysForOrg: async () => 0,
@@ -115,6 +119,7 @@ describe('re-enabling an account — the same ceiling as issuing a key for it', 
   it('does not apply the ceiling to DISABLING (containment is always allowed)', async () => {
     accountRoles = [{ id: 'r1', name: 'Admin', grantsRole: 'admin', permissions: ['members:manage'] }];
     await updateServiceAccount('org-1', ACCOUNT_ID, { disabled: true }, delegate(['service_accounts:manage']));
-    expect(mockSaUpdateOne).toHaveBeenCalled();
+    // Inside the update's transaction, with the Role replace it may carry.
+    expect(mockSaUpdateOne).toHaveBeenCalledWith(expect.anything(), { $set: { disabled: true } }, { session: txSession });
   });
 });

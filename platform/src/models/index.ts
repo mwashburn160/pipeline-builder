@@ -5,6 +5,7 @@ export { default as User, type UserDocument, type UserData, type RefreshSession 
 export { default as PersonalAccessToken, type PersonalAccessTokenDocument, type PersonalAccessTokenData } from './personal-access-token.js';
 export { default as WebAuthnCredential, type WebAuthnCredentialDocument, type WebAuthnCredentialData } from './webauthn-credential.js';
 export { default as UserTotp, type UserTotpDocument, type UserTotpData } from './user-totp.js';
+export { default as PasswordLoginLockout, type PasswordLoginLockoutDocument, type PasswordLoginLockoutData } from './password-login-lockout.js';
 export { default as MfaRecoveryCodes, type MfaRecoveryCodesDocument, type MfaRecoveryCodesData } from './mfa-recovery-codes.js';
 export {
   default as MfaResetRequest,
