@@ -161,8 +161,10 @@ export async function upsertOrgIdp(req: Request, res: Response, orgId: string, s
   // ...but ONLY while it still goes to the same IdP: a change of provider,
   // discovery URL, region or user pool needs the secret re-entered, so a stored
   // secret is never carried to a token endpoint it wasn't entered for.
+  // Judged by the RESULTING protocol, not the stored one: a SAML config keeps
+  // its OIDC fields and secret, so a SAML -> OIDC switch is a retarget too.
   if (existing && !body.clientSecret) {
-    if (existing.protocol !== 'saml' && body.protocol !== 'saml' && retargetsIdp(existing, body)) {
+    if ((body.protocol ?? existing.protocol) !== 'saml' && retargetsIdp(existing, body)) {
       throw new Error(IDP_SECRET_REQUIRED);
     }
     const login = await orgIdpService.getLoginConfig(orgId);
@@ -206,7 +208,7 @@ export async function patchOrgIdp(req: Request, res: Response, orgId: string, su
 
   // The stored secret follows the connection only while it points at the same
   // IdP (see `upsertOrgIdp`): retargeting it needs the secret re-entered.
-  if (existing && existing.protocol !== 'saml' && !parsed.clientSecret
+  if (existing && (parsed.protocol ?? existing.protocol) !== 'saml' && !parsed.clientSecret
     && retargetsIdp(existing, parsed as Record<string, unknown>)) {
     throw new Error(IDP_SECRET_REQUIRED);
   }

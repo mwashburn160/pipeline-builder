@@ -267,6 +267,9 @@ class ApiKeyService {
       permissions?: readonly string[];
       client?: ClientInfo;
       prefix?: ApiKeyPrefix;
+      /** The org the CREATING session is in. Omitted: the user's `lastActiveOrgId`,
+       *  which another device's switch-org moves. */
+      organizationId?: string;
     },
     auth: SessionAuth,
   ): Promise<{ key: string; view: AccessKeyView }> {
@@ -289,7 +292,7 @@ class ApiKeyService {
       name: input.name,
       scope: input.scope ?? null,
       ...(input.permissions ? { permissions: [...input.permissions] } : {}),
-      organizationId: user.lastActiveOrgId?.toString() ?? null,
+      organizationId: input.organizationId ?? user.lastActiveOrgId?.toString() ?? null,
       createdUserAgent: input.client?.userAgent ?? null,
       createdIp: input.client?.ip ?? null,
       expiresAt: new Date(Date.now() + input.expiresInSeconds * 1000),

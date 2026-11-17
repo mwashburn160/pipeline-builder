@@ -45,7 +45,7 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   UserOrganization: {},
 }));
 
-const { assertActorMayStripMemberRoles } = await import('../src/services/role-crud.js');
+const { assertActorMayStripMemberRoles, assertActorMayWieldMemberRoles } = await import('../src/services/role-crud.js');
 const {
   RL_ASSIGN_EXCEEDS_CEILING, RL_LAST_PRIVILEGED_MEMBER, RL_REQUIRES_SUPERADMIN,
 } = await import('../src/services/roles-errors.js');
@@ -125,5 +125,25 @@ describe('assertActorMayStripMemberRoles', () => {
     holds([]);
     await expect(assertActorMayStripMemberRoles('org-1', 'u-1', peopleManager, session)).resolves.toEqual({ heldSuperadmin: false });
     expect(mockRoleFind).not.toHaveBeenCalled();
+  });
+});
+
+describe('assertActorMayWieldMemberRoles (reactivation)', () => {
+  it('refuses a members:manage-only delegate restoring an ADMIN', async () => {
+    holds([MEMBER, ADMIN_ROLE]);
+    await expect(assertActorMayWieldMemberRoles('org-1', 'admin-1', peopleManager, session))
+      .rejects.toThrow(RL_ASSIGN_EXCEEDS_CEILING);
+  });
+
+  it('a superadmin-granting Role needs a platform superadmin', async () => {
+    holds([SUPER_ROLE]);
+    await expect(assertActorMayWieldMemberRoles('system', 'sa-1', orgAdmin, session))
+      .rejects.toThrow(RL_REQUIRES_SUPERADMIN);
+  });
+
+  it('runs NO lockout count — restoring the sole holder of a Role empties nothing', async () => {
+    holds([MEMBER, ADMIN_ROLE], 1);
+    await expect(assertActorMayWieldMemberRoles('org-1', 'admin-1', orgAdmin, session)).resolves.toHaveLength(2);
+    expect(mockRaAggregate).not.toHaveBeenCalled();
   });
 });

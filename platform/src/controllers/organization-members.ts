@@ -287,12 +287,15 @@ export const activateMember = withController('Activate member', async (req, res)
   const admin = getAdminContext(req);
   if (!(await requireOrgScope(req, res, id))) return;
 
-  await orgMembersService.activateMember(id, userId);
+  await orgMembersService.activateMember(id, userId, roleAssignmentActor(req));
   logger.info(`[ACTIVATE MEMBER] User ${userId} reactivated in Org ${id} by ${admin.adminType} ${req.user!.sub}`);
   audit(req, 'org.member.activate', { targetType: 'user', targetId: userId, affectedOrgId: id });
   sendSuccess(res, 200, undefined, 'Member reactivated successfully');
 }, {
   [OM_MEMBERSHIP_NOT_FOUND]: { status: 404, message: 'Membership not found' },
   [OM_ALREADY_ACTIVE]: { status: 400, message: 'Member is already active' },
+  [RL_REQUIRES_SUPERADMIN]: { status: 403, message: 'Only a platform superadmin can reactivate a member of a superadmin role' },
+  [RL_SYSTEM_ORG_ROLE_REQUIRES_SUPERADMIN]: { status: 403, message: 'Only a platform superadmin can reactivate a member of an ecosystem-management role' },
+  [RL_ASSIGN_EXCEEDS_CEILING]: { status: 403, message: 'You cannot reactivate this member: they hold a role granting permissions you do not hold yourself' },
   [OM_SEAT_LIMIT]: { status: 403, message: 'Seat limit reached for this plan — upgrade the plan or remove a member' },
 });

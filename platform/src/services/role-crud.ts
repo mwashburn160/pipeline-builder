@@ -500,10 +500,29 @@ export async function assertActorMayStripMemberRoles(
   actor: RoleAssignmentActor,
   session: mongoose.ClientSession,
 ): Promise<{ heldSuperadmin: boolean }> {
-  const oid = toOrgId(orgId);
-  const held = await RoleAssignment.find({ userId, organizationId: oid })
+  const roles = await assertActorMayWieldMemberRoles(orgId, userId, actor, session);
+  for (const role of roles) {
+    if (role.grantsRole !== 'member') await assertNotLastPrivilegedMember(session, userId, role._id as mongoose.Types.ObjectId);
+  }
+  return { heldSuperadmin: roles.some((r) => r.grantsRole === 'superadmin') };
+}
+
+/**
+ * The per-Role ceiling half of {@link assertActorMayStripMemberRoles}, without
+ * the lockout guard: `actor` must be able to wield EVERY Role `userId` holds in
+ * `orgId`. On its own it gates REACTIVATING a member — which puts every kept
+ * assignment back to work — so restoring access is as guarded as withdrawing
+ * it. Returns the held Roles.
+ */
+export async function assertActorMayWieldMemberRoles(
+  orgId: string,
+  userId: UserId,
+  actor: RoleAssignmentActor,
+  session: mongoose.ClientSession,
+): Promise<Array<{ _id: unknown; grantsRole?: string | null; permissions?: string[] }>> {
+  const held = await RoleAssignment.find({ userId, organizationId: toOrgId(orgId) })
     .select('roleId').session(session).lean();
-  if (held.length === 0) return { heldSuperadmin: false };
+  if (held.length === 0) return [];
   const roles = await Role.find({ _id: { $in: held.map((a) => a.roleId) } })
     .select('_id grantsRole permissions').session(session).lean();
   const opts: UnassignActorOpts = {
@@ -512,10 +531,7 @@ export async function assertActorMayStripMemberRoles(
     actorPermissions: actor.permissions,
   };
   for (const role of roles) assertActorMayUnassignRole(role as { grantsRole?: string; permissions?: string[] }, opts);
-  for (const role of roles) {
-    if (role.grantsRole !== 'member') await assertNotLastPrivilegedMember(session, userId, role._id as mongoose.Types.ObjectId);
-  }
-  return { heldSuperadmin: roles.some((r) => r.grantsRole === 'superadmin') };
+  return roles as Array<{ _id: unknown; grantsRole?: string | null; permissions?: string[] }>;
 }
 
 /**

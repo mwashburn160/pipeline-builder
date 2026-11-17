@@ -53,6 +53,12 @@ describe('resolveRequestedPermissions', () => {
     expect(mockMembershipForOrg).toHaveBeenCalledWith('u1', 'org-1');
   });
 
+  it('resolves in the CALLING session\'s org, not lastActiveOrgId (another device may have switched)', async () => {
+    storedUser = { _id: 'u1', lastActiveOrgId: 'org-b', isSuperAdmin: false };
+    await resolveRequestedPermissions(req({ ...caller, organizationId: 'org-a' }), 'u1', ['pipelines:read'], undefined);
+    expect(mockMembershipForOrg).toHaveBeenCalledWith('u1', 'org-a');
+  });
+
   it('refuses a permission the creator does not hold (403, naming it)', async () => {
     const out = await resolveRequestedPermissions(req(caller), 'u1', ['pipelines:read', 'billing:manage'], undefined);
     expect(out).toMatchObject({ ok: false, status: 403, code: 'PERMISSION_SUBSET_EXCEEDS', missing: ['billing:manage'] });

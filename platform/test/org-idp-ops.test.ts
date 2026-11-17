@@ -213,6 +213,18 @@ describe.each(['admin', 'self-service'] as const)('patch/delete — %s surface',
     expect(patch).toHaveBeenCalledTimes(1);
   });
 
+  it('REFUSES switching a SAML config back to OIDC at a new IdP without re-entering the secret', async () => {
+    // A SAML config keeps the OIDC fields + stored secret it had; flipping the
+    // protocol back must not carry that secret to a different token endpoint.
+    findByOrg.mockResolvedValue({ ...EXISTING, protocol: 'saml' });
+    await expect(patchOrgIdp(mockReq({ protocol: 'oidc', discoveryUrl: 'https://attacker.test/.well-known/openid-configuration' }), mockRes(), 'org-1', surface))
+      .rejects.toThrow('IDP_SECRET_REQUIRED');
+    await expect(upsertOrgIdp(mockReq({ ...EDIT_BODY, protocol: 'oidc', discoveryUrl: 'https://attacker.test/.well-known/openid-configuration' }), mockRes(), 'org-1', surface))
+      .rejects.toThrow('IDP_SECRET_REQUIRED');
+    expect(patch).not.toHaveBeenCalled();
+    expect(upsert).not.toHaveBeenCalled();
+  });
+
   it('404s a patch when the org has no config', async () => {
     patch.mockResolvedValue(null);
     const res = mockRes();

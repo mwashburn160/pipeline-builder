@@ -261,8 +261,8 @@ app.use(generalLimiter);
  */
 app.use((req: Request, res: Response, next: NextFunction) => {
   // Shipped gate runs pre-auth, so it JWT-peeks; the decision itself is the
-  // shared (and unit-tested) predicate, so this can't drift from the per-route
-  // `requireWriteAccess`.
+  // shared (and unit-tested) predicate, so this can't drift from the
+  // post-verification backstop in `requireAuth`.
   if (isWriteBlockedByImpersonation(req.method, peekJwtClaims(req).impersonationReadOnly === true)) {
     // Recorded on the authz-denied trail too. Pre-auth, so the row carries the
     // method + path but no verified actor (the peeked claims are unverified).

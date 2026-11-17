@@ -247,6 +247,11 @@ describe('create — minting a personal key', () => {
     });
   });
 
+  it('binds to the creating session\'s org when given, not lastActiveOrgId', async () => {
+    const { view } = await apiKeyService.create(USER_ID, { name: 'ci', expiresInSeconds: DAY, organizationId: 'org-a' }, auth);
+    expect(view.organizationId).toBe('org-a');
+  });
+
   it('stores the creating session\'s assurance, so an exchanged token can never raise it', async () => {
     await apiKeyService.create(USER_ID, { name: 'ci', expiresInSeconds: DAY }, auth);
     expect(keys[0]).toMatchObject({ amr: ['pwd', 'webauthn'], aal: 2, authTime: auth.authTime });

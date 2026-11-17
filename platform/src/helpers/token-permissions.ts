@@ -118,8 +118,9 @@ export type PermissionSubsetResult =
 
 /**
  * The creator's current effective permissions in the org a new credential is
- * bound to (their `lastActiveOrgId` — the org `api-key-service.create` and
- * generate-token bind to), bounded by the calling token's own claim.
+ * bound to — the calling session's org (the org generate-token and
+ * `createAccessKey` bind to; `lastActiveOrgId` only for a token naming none) —
+ * bounded by the calling token's own claim.
  */
 async function creatorPermissions(req: Request, userId: string): Promise<Set<string>> {
   // Loaded on demand: `callerRestriction` (the pure half of this module) is on
@@ -130,7 +131,8 @@ async function creatorPermissions(req: Request, userId: string): Promise<Set<str
     import('../services/session/membership-context.js'),
   ]);
   const user = await User.findById(userId).select('+isSuperAdmin lastActiveOrgId').lean();
-  const orgId = user?.lastActiveOrgId ? String(user.lastActiveOrgId) : undefined;
+  const sessionOrg = (req.user as { organizationId?: string } | undefined)?.organizationId;
+  const orgId = sessionOrg ?? (user?.lastActiveOrgId ? String(user.lastActiveOrgId) : undefined);
   const membership = orgId ? await membershipForOrg(userId, orgId) : undefined;
   const fresh = resolveUserPermissions(membership?.rolePermissions, (user as { isSuperAdmin?: boolean } | null)?.isSuperAdmin === true);
   const claimed = new Set((req.user as { permissions?: string[] } | undefined)?.permissions ?? []);

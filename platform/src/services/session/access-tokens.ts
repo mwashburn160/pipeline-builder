@@ -430,8 +430,8 @@ export async function signServiceAccountToken(
 /**
  * Issue an access token that grants `impersonator` the identity of
  * `target`. The token carries `impersonatorId` (so audit events still
- * attribute the sysadmin) and `impersonationReadOnly: true` (so the
- * `requireWriteAccess` middleware blocks state-changing requests).
+ * attribute the sysadmin) and `impersonationReadOnly: true` (so
+ * `requireAuth` blocks state-changing requests).
  *
  * No refresh token is issued — impersonation is intentionally
  * short-lived. The caller is responsible for storing the token client-

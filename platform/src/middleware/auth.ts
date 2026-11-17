@@ -14,6 +14,7 @@ import { User, Organization, UserOrganization, ImpersonationRequest, PersonalAcc
 import { incCounter } from '../observability/metrics.js';
 import type { AccessTokenPayload } from '../types/index.js';
 import { verifyAccessToken, verifyRefreshToken } from '../utils/token.js';
+import { denyReadOnlyImpersonationWrite, isWriteBlockedByImpersonation } from './require-write-access.js';
 
 const logger = createLogger('auth-middleware');
 
@@ -175,7 +176,11 @@ function bearerTokenOr401(req: Request, res: Response): string | undefined {
     sendError(res, 401, 'Malformed authorization header', ErrorCode.TOKEN_INVALID);
     return undefined;
   }
-  return authHeader.split(' ')[1];
+  // Everything after the scheme, exactly as the pre-auth gates read it
+  // (rate-limit-keys `bearerCredential`). A `split(' ')[1]` here would let
+  // `Bearer <jwt> .x` verify as `<jwt>` while the pre-auth read-only
+  // impersonation fence peeked the whole (unparseable) string and let it by.
+  return authHeader.slice('Bearer '.length);
 }
 
 /**
@@ -329,6 +334,14 @@ export async function requireAuth(
       'Finish setting up two-factor authentication before using the rest of Pipeline Builder',
       ErrorCode.MFA_ENROLLMENT_REQUIRED,
     );
+  }
+
+  // Read-only impersonation, re-checked on the VERIFIED claims. The global
+  // fence in index.ts runs pre-auth on an unverified peek; this is the backstop
+  // that cannot be sidestepped by a header the peek fails to parse.
+  if (req.method && isWriteBlockedByImpersonation(req.method, decoded.impersonationReadOnly)) {
+    denyReadOnlyImpersonationWrite(req, res);
+    return;
   }
 
   // Trust the JWT claims verbatim (role/organizationId/organizationName/

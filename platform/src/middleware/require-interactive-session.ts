@@ -11,6 +11,9 @@
  *   - an access key (`pb_pat_…` / `pb_sa_…`) exchanged for a token — no `sid`,
  *     `token_use: 'api_key'`;
  *   - a scoped machine credential (`reporting:ingest` and friends);
+ *   - a permission-restricted credential (`permissionsRestricted`) — minted for
+ *     a subset of the holder's authority, so it must not mint credentials (or,
+ *     via device approval, a full session) that escape that subset;
  *   - an impersonation token, read-only or not — an operator viewing an account
  *     must never be able to leave a credential behind in it. (The global
  *     read-only gate in `index.ts` already blocks the writes; this also covers
@@ -32,6 +35,7 @@ export function requireInteractiveSession(req: Request, res: Response, next: Nex
   const isPersonalSession = !!user
     && !!user.sid
     && !user.scope
+    && !user.permissionsRestricted
     && !user.impersonatorId
     && user.token_use !== 'api_key'
     && !isServicePrincipal(req)

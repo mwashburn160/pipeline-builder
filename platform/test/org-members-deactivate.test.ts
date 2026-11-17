@@ -38,7 +38,8 @@ jest.unstable_mockModule('../src/helpers/seats.js', () => seatsMock({
   userHasSeatInAccount: jest.fn(async () => false),
 }));
 const mockStripGuard = jest.fn<(...a: unknown[]) => Promise<unknown>>();
-jest.unstable_mockModule('../src/services/role-crud.js', () => ({ assertActorMayStripMemberRoles: (...a: unknown[]) => mockStripGuard(...a) }));
+const mockWieldGuard = jest.fn<(...a: unknown[]) => Promise<unknown>>(async () => []);
+jest.unstable_mockModule('../src/services/role-crud.js', () => ({ assertActorMayStripMemberRoles: (...a: unknown[]) => mockStripGuard(...a), assertActorMayWieldMemberRoles: (...a: unknown[]) => mockWieldGuard(...a) }));
 jest.unstable_mockModule('../src/helpers/account-membership.js', () => ({ assertDirectAddConsented: jest.fn(async () => undefined) }));
 jest.unstable_mockModule('../src/services/roles-service.js', () => ({ assertActorMayAssignBuiltinAdmin: async () => undefined, ensureBaselineRole: jest.fn(async () => undefined), assignBuiltinAdminRole: jest.fn(async () => true), recomputeUserOrgRole: jest.fn(async () => undefined) }));
 
@@ -60,7 +61,7 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
 }));
 
 const { orgMembersService } = await import('../src/services/org-members-service.js');
-const { OM_MEMBERSHIP_NOT_FOUND, OM_CANNOT_REMOVE_OWNER, OM_ALREADY_INACTIVE } = await import('../src/services/org-members-errors.js');
+const { OM_MEMBERSHIP_NOT_FOUND, OM_CANNOT_REMOVE_OWNER, OM_ALREADY_INACTIVE, OM_ALREADY_ACTIVE } = await import('../src/services/org-members-errors.js');
 
 /** `UserOrganization.findOne(...)` returns a query whose `.session()` resolves to `doc`. */
 const findOneResolving = (doc: unknown) => ({ session: () => Promise.resolve(doc) });
@@ -72,6 +73,7 @@ beforeEach(() => {
   mockUserUpdateOne.mockResolvedValue(undefined);
   mockMembershipSave.mockResolvedValue(undefined);
   mockStripGuard.mockResolvedValue({ heldSuperadmin: false });
+  mockWieldGuard.mockResolvedValue([]);
 });
 
 describe('OrgMembersService.deactivateMember', () => {
@@ -141,5 +143,37 @@ describe('OrgMembersService.deactivateMember', () => {
     mockUoFindOne.mockReturnValue(findOneResolving({ role: 'member', isActive: false, save: mockMembershipSave }));
     await expect(orgMembersService.deactivateMember('org-1', 'user-1', ADMIN)).rejects.toThrow(OM_ALREADY_INACTIVE);
     expect(mockUserUpdateOne).not.toHaveBeenCalled();
+  });
+});
+
+describe('OrgMembersService.activateMember', () => {
+  it('reactivates when the actor may wield every kept Role', async () => {
+    const membership = { role: 'member', isActive: false, save: mockMembershipSave };
+    mockUoFindOne.mockReturnValue(findOneResolving(membership));
+
+    await orgMembersService.activateMember('org-1', 'user-1', ADMIN);
+
+    expect(mockWieldGuard).toHaveBeenCalledWith('org-1', 'user-1', ADMIN, expect.anything());
+    expect(membership.isActive).toBe(true);
+    expect(mockMembershipSave).toHaveBeenCalled();
+  });
+
+  it('REFUSES a delegate restoring a member whose kept Roles exceed their ceiling — nothing is written', async () => {
+    // Deactivation keeps the assignments; reactivating puts them back to work,
+    // so it must be as guarded as deactivating was.
+    const membership = { role: 'admin', isActive: false, save: mockMembershipSave };
+    mockUoFindOne.mockReturnValue(findOneResolving(membership));
+    mockWieldGuard.mockRejectedValue(new Error('RL_ASSIGN_EXCEEDS_CEILING'));
+    const delegate = { isSuperAdmin: false, isOrgAdmin: false, permissions: ['members:manage'] };
+
+    await expect(orgMembersService.activateMember('org-1', 'admin-1', delegate)).rejects.toThrow('RL_ASSIGN_EXCEEDS_CEILING');
+    expect(membership.isActive).toBe(false);
+    expect(mockMembershipSave).not.toHaveBeenCalled();
+  });
+
+  it('throws when already active (guard not consulted)', async () => {
+    mockUoFindOne.mockReturnValue(findOneResolving({ role: 'member', isActive: true, save: mockMembershipSave }));
+    await expect(orgMembersService.activateMember('org-1', 'user-1', ADMIN)).rejects.toThrow(OM_ALREADY_ACTIVE);
+    expect(mockWieldGuard).not.toHaveBeenCalled();
   });
 });

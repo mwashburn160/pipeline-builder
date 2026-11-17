@@ -334,7 +334,16 @@ export const createAccessKey = withController('Create access key', async (req, r
   if (!creatingSlot) return sendError(res, 401, 'Session invalid');
   const { key, view } = await apiKeyService.create(
     userId,
-    { name, expiresInSeconds: expiresIn, scope, ...(permissions ? { permissions } : {}), client: clientInfoOf(req) },
+    // Bound to the org the creating session is IN (as generate-token is), not
+    // `lastActiveOrgId` — another device's switch-org moves only the latter.
+    {
+      name,
+      expiresInSeconds: expiresIn,
+      scope,
+      ...(permissions ? { permissions } : {}),
+      client: clientInfoOf(req),
+      ...(creatingSlot.activeOrgId ? { organizationId: String(creatingSlot.activeOrgId) } : {}),
+    },
     { ...authFromClaims(req.user), ...slotAuthContext(creatingSlot) },
   );
   audit(req, 'user.key.create', {

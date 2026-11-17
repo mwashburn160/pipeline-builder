@@ -46,7 +46,7 @@ jest.unstable_mockModule('../src/services/roles-service.js', () => ({
 
 // The member service's consent and Role-unassign guards (untested here).
 jest.unstable_mockModule('../src/helpers/account-membership.js', () => ({ assertDirectAddConsented: jest.fn(async () => undefined) }));
-jest.unstable_mockModule('../src/services/role-crud.js', () => ({ assertActorMayStripMemberRoles: jest.fn(async () => ({ heldSuperadmin: false })) }));
+jest.unstable_mockModule('../src/services/role-crud.js', () => ({ assertActorMayStripMemberRoles: jest.fn(async () => ({ heldSuperadmin: false })), assertActorMayWieldMemberRoles: jest.fn(async () => []) }));
 
 // Run the transaction body inline with a fake session (no live Mongo).
 jest.unstable_mockModule('../src/utils/mongo-tx.js', () => ({

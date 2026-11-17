@@ -2,20 +2,20 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Blocks state-changing requests when the caller is operating under a
- * read-only impersonation token. Lets a sysadmin "view as user X" for
- * support work without any chance of destructive actions landing under
- * that identity.
+ * Read-only impersonation fence: state-changing requests under a read-only
+ * impersonation token are refused, so a sysadmin can "view as user X" for
+ * support work without any chance of destructive actions landing under that
+ * identity.
  *
  * Whitelisted methods: GET, HEAD, OPTIONS.
  *
- * Applied globally after `requireAuth` populates `req.user`. Endpoints
- * that legitimately need a state change while impersonated (none
- * today) would have to opt out individually.
+ * Enforced twice: pre-auth by the global `app.use` in index.ts (an unverified
+ * JWT peek, so a refusal costs no DB work) and post-verification in
+ * `requireAuth` (middleware/auth.ts), which is the authoritative check.
  */
 
 import { recordAuthzDenial, sendError } from '@pipeline-builder/api-core';
-import type { Request, Response, NextFunction } from 'express';
+import type { Request, Response } from 'express';
 
 const READ_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 
@@ -27,9 +27,9 @@ export const IMPERSONATION_READ_ONLY_CODE = 'IMPERSONATION_READ_ONLY';
 export const IMPERSONATION_READ_ONLY_REQUIRED = 'impersonation-read-only';
 
 /**
- * Pure decision shared by BOTH read-only-impersonation gates: the shipped
- * global guard in `index.ts` (which JWT-peeks pre-auth) and the per-route
- * `requireWriteAccess` middleware (which reads `req.user` post-auth). Keeping
+ * Pure decision shared by BOTH read-only-impersonation gates: the global guard
+ * in `index.ts` (which JWT-peeks pre-auth) and `requireAuth` (which checks the
+ * verified claims). Keeping
  * one predicate means the two can't drift. A write (non read-method) is blocked
  * iff the caller is under a read-only impersonation token.
  */
@@ -45,12 +45,4 @@ export function isWriteBlockedByImpersonation(method: string, impersonationReadO
 export function denyReadOnlyImpersonationWrite(req: Request, res: Response): void {
   recordAuthzDenial(req, IMPERSONATION_READ_ONLY_REQUIRED);
   sendError(res, 403, IMPERSONATION_READ_ONLY_MESSAGE, IMPERSONATION_READ_ONLY_CODE);
-}
-
-export function requireWriteAccess(req: Request, res: Response, next: NextFunction): void {
-  if (isWriteBlockedByImpersonation(req.method, req.user?.impersonationReadOnly)) {
-    denyReadOnlyImpersonationWrite(req, res);
-    return;
-  }
-  next();
 }

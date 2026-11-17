@@ -5,7 +5,7 @@ import { createLogger, errorMessage, parsePage } from '@pipeline-builder/api-cor
 import mongoose from 'mongoose';
 import { OM_ORG_NOT_FOUND, OM_USER_NOT_FOUND, OM_ALREADY_MEMBER, OM_NOT_A_MEMBER, OM_CANNOT_REMOVE_OWNER, OM_OWNER_MEMBERSHIP_NOT_FOUND, OM_NEW_OWNER_MUST_BE_MEMBER, OM_ALREADY_OWNER, OM_MEMBERSHIP_NOT_FOUND, OM_ALREADY_INACTIVE, OM_ALREADY_ACTIVE, OM_TARGETS_OUT_OF_SCOPE, OM_SEAT_LIMIT } from './org-members-errors.js';
 import type { RoleAssignmentActor } from './role-authority.js';
-import { assertActorMayStripMemberRoles } from './role-crud.js';
+import { assertActorMayStripMemberRoles, assertActorMayWieldMemberRoles } from './role-crud.js';
 import { assertActorMayAssignBuiltinAdmin, assignBuiltinAdminRole, ensureBaselineRole, recomputeUserOrgRole } from './roles-service.js';
 import { isAdminOrgRole, type OrgRole } from '@pipeline-builder/api-core/wire-vocabulary';
 import { assertDirectAddConsented } from '../helpers/account-membership.js';
@@ -651,12 +651,19 @@ class OrgMembersService {
     await publishUserRevocation(userId);
   }
 
-  /** Re-activate a previously deactivated member. */
-  async activateMember(orgId: string, userId: string): Promise<void> {
+  /**
+   * Re-activate a previously deactivated member. Their Role assignments were
+   * kept, so reactivating puts every one back to work: the actor must be able to
+   * wield each (the ceiling deactivation enforced), or a `members:manage`-only
+   * delegate could restore an admin an owner had just deactivated.
+   */
+  async activateMember(orgId: string, userId: string, actor: RoleAssignmentActor): Promise<void> {
     await withMongoTransaction(async (session) => {
       const membership = await UserOrganization.findOne({ userId, organizationId: toOrgId(orgId) }).session(session);
       if (!membership) throw new Error(OM_MEMBERSHIP_NOT_FOUND);
       if (membership.isActive) throw new Error(OM_ALREADY_ACTIVE);
+
+      await assertActorMayWieldMemberRoles(orgId, userId, actor, session);
 
       // Reactivation re-occupies a seat, so it must honor the pooled cap the
       // invite/add paths enforce — otherwise deactivate→reactivate churn could

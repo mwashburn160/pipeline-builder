@@ -40,7 +40,7 @@ const mockAssertConsented = jest.fn(async (..._args: unknown[]) => undefined);
 jest.unstable_mockModule('../src/helpers/account-membership.js', () => ({
   assertDirectAddConsented: (...a: unknown[]) => (mockAssertConsented as any)(...a),
 }));
-jest.unstable_mockModule('../src/services/role-crud.js', () => ({ assertActorMayStripMemberRoles: jest.fn(async () => ({ heldSuperadmin: false })) }));
+jest.unstable_mockModule('../src/services/role-crud.js', () => ({ assertActorMayStripMemberRoles: jest.fn(async () => ({ heldSuperadmin: false })), assertActorMayWieldMemberRoles: jest.fn(async () => []) }));
 
 jest.unstable_mockModule('mongoose', () => {
   class Schema {

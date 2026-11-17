@@ -2,13 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Tests for the `requireWriteAccess` middleware — the read-only
- * impersonation gate. The shipped version of this gate lives in
- * platform/src/index.ts as an inline `app.use` that does a JWT-peek;
- * `require-write-access.ts` is the per-route alternative that operates
- * on `req.user` already populated by `requireAuth`. Both must enforce
- * the same contract: GET/HEAD/OPTIONS pass through; everything else is
- * rejected when `impersonationReadOnly` is set.
+ * The read-only impersonation predicate + refusal shared by the pre-auth fence
+ * (index.ts `app.use`, JWT peek) and the post-verification backstop in
+ * `requireAuth`: GET/HEAD/OPTIONS pass; everything else is refused when
+ * `impersonationReadOnly` is set.
  */
 
 import { jest, describe, it, expect } from '@jest/globals';
@@ -20,17 +17,8 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   },
 }));
 
-const { requireWriteAccess, isWriteBlockedByImpersonation } = await import('../src/middleware/require-write-access.js');
+const { denyReadOnlyImpersonationWrite, isWriteBlockedByImpersonation } = await import('../src/middleware/require-write-access.js');
 
-
-function mockReq(method: string, impersonationReadOnly?: boolean) {
-  return {
-    method,
-    user: impersonationReadOnly === undefined
-      ? undefined
-      : { sub: 'u1', impersonationReadOnly },
-  } as any;
-}
 
 function mockRes() {
   const res: any = {};
@@ -39,53 +27,18 @@ function mockRes() {
   return res;
 }
 
-describe('requireWriteAccess', () => {
-  it('passes GET through under impersonation', () => {
-    const next = jest.fn<AnyFn>();
-    requireWriteAccess(mockReq('GET', true), mockRes(), next);
-    expect(next).toHaveBeenCalled();
-  });
-
-  it('passes HEAD and OPTIONS through under impersonation', () => {
-    const head = jest.fn<AnyFn>();
-    const opt = jest.fn<AnyFn>();
-    requireWriteAccess(mockReq('HEAD', true), mockRes(), head);
-    requireWriteAccess(mockReq('OPTIONS', true), mockRes(), opt);
-    expect(head).toHaveBeenCalled();
-    expect(opt).toHaveBeenCalled();
-  });
-
-  it('rejects POST/PUT/PATCH/DELETE under impersonation', () => {
-    for (const method of ['POST', 'PUT', 'PATCH', 'DELETE']) {
-      const res = mockRes();
-      const next = jest.fn<AnyFn>();
-      requireWriteAccess(mockReq(method, true), res, next);
-      expect(res.status).toHaveBeenCalledWith(403);
-      expect((res.json as jest.Mock<AnyFn>).mock.calls[0][0].code).toBe('IMPERSONATION_READ_ONLY');
-      expect(next).not.toHaveBeenCalled();
-    }
-  });
-
-  it('passes writes through when NOT impersonating (impersonationReadOnly false)', () => {
-    const next = jest.fn<AnyFn>();
-    requireWriteAccess(mockReq('POST', false), mockRes(), next);
-    expect(next).toHaveBeenCalled();
-  });
-
-  it('passes writes through for unauthenticated requests (no req.user)', () => {
-    // requireWriteAccess relies on requireAuth running first; if it didn't,
-    // we let the request through and requireAuth (or its absence) will
-    // reject it elsewhere.
-    const next = jest.fn<AnyFn>();
-    requireWriteAccess(mockReq('POST'), mockRes(), next);
-    expect(next).toHaveBeenCalled();
+describe('denyReadOnlyImpersonationWrite', () => {
+  it('answers 403 IMPERSONATION_READ_ONLY', () => {
+    const res = mockRes();
+    denyReadOnlyImpersonationWrite({ method: 'POST' } as any, res);
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect((res.json as jest.Mock<AnyFn>).mock.calls[0][0].code).toBe('IMPERSONATION_READ_ONLY');
   });
 });
 
-// The SHIPPED gate is the inline app.use in index.ts (a pre-auth JWT-peek). It
-// now shares this predicate, so covering the predicate covers both gates'
-// decision and guarantees they can't diverge.
-describe('isWriteBlockedByImpersonation (shared by the shipped + per-route gates)', () => {
+// Both gates share this predicate, so covering it covers both decisions and
+// guarantees they can't diverge.
+describe('isWriteBlockedByImpersonation (shared by the pre-auth + requireAuth gates)', () => {
   it('blocks writes only when impersonationReadOnly is true', () => {
     for (const m of ['POST', 'PUT', 'PATCH', 'DELETE']) {
       expect(isWriteBlockedByImpersonation(m, true)).toBe(true);

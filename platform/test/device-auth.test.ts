@@ -307,6 +307,24 @@ describe('POST /auth/device/token — issuing the session', () => {
   });
 });
 
+describe('POST /auth/device/approve — only an interactive slot may approve', () => {
+  it('refuses a MACHINE slot (generate-token credential) and grants nothing', async () => {
+    // Approving would turn a fixed-lifetime (possibly permission-restricted)
+    // machine credential into an open-ended interactive session.
+    mockFindRefreshSession.mockResolvedValue({ id: 'machine-slot', kind: 'machine' });
+    const started = await start();
+
+    const res = await call(approveDeviceRequest, { user: APPROVER, body: { userCode: started.user_code } });
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(body(res).code).toBe('INTERACTIVE_SESSION_REQUIRED');
+
+    clockOffset += 5_000;
+    const poll = await call(deviceToken, { body: { device_code: started.device_code } });
+    expect(body(poll).access_token).toBeUndefined();
+    expect(mockIssueTokens).not.toHaveBeenCalled();
+  });
+});
+
 describe('POST /auth/device/token — the slot context the JWT does not carry', () => {
   it('carries the approving slot\'s org-asserted aal and passkey model into the CLI session', async () => {
     // An `aal: 2` vouched for by ONE org's IdP must stay tied to that org on the

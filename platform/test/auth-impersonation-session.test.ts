@@ -33,6 +33,7 @@ const mockImpFindOne = jest.fn<(...a: unknown[]) => unknown>();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   isServiceTokenDenied: () => false,
+  recordAuthzDenial: jest.fn(),
   sendError: (res: any, status: number, msg: string, code?: string) =>
     res.status(status).json({ success: false, message: msg, code }),
 }));
@@ -199,5 +200,42 @@ describe('requireAuth — impersonation session', () => {
 
     expect(mockImpFindOne).not.toHaveBeenCalled();
     expect(next).toHaveBeenCalled();
+  });
+});
+
+describe('requireAuth — read-only impersonation backstop', () => {
+  beforeEach(() => {
+    mockImpFindOne.mockReturnValue(selectLean({ status: 'consumed', targetUserId: 'target-user', expiresAt: future() }));
+  });
+
+  it('refuses a WRITE on the verified claims (not only the pre-auth peek)', async () => {
+    const res = makeRes(); const next = jest.fn();
+
+    await (requireAuth as any)({ method: 'POST', headers: { authorization: 'Bearer imp.jwt' } }, res, next);
+
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ code: 'IMPERSONATION_READ_ONLY' }));
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it('still admits a READ', async () => {
+    const res = makeRes(); const next = jest.fn();
+
+    await (requireAuth as any)({ method: 'GET', headers: { authorization: 'Bearer imp.jwt' } }, res, next);
+
+    expect(next).toHaveBeenCalled();
+  });
+
+  it('verifies the WHOLE credential after the scheme — trailing segments are not dropped', async () => {
+    // `Bearer <jwt> .x` defeated the pre-auth peek (4 dot-parts → `{}`) while a
+    // `split(' ')[1]` read verified just `<jwt>`.
+    mockVerifyAccessToken.mockImplementation(() => { throw new Error('bad'); });
+    const res = makeRes(); const next = jest.fn();
+
+    await (requireAuth as any)({ method: 'POST', headers: { authorization: 'Bearer imp.jwt .x' } }, res, next);
+
+    expect(mockVerifyAccessToken).toHaveBeenCalledWith('imp.jwt .x');
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(next).not.toHaveBeenCalled();
   });
 });

@@ -43,7 +43,8 @@ jest.unstable_mockModule('../src/helpers/seats.js', () => seatsMock({
 const mockRecompute = jest.fn<(...a: unknown[]) => Promise<void>>(async () => undefined);
 jest.unstable_mockModule('../src/services/roles-service.js', () => ({ assertActorMayAssignBuiltinAdmin: async () => undefined, ensureBaselineRole: jest.fn(async () => undefined), assignBuiltinAdminRole: jest.fn(async () => true), recomputeUserOrgRole: (...a: unknown[]) => mockRecompute(...a) }));
 const mockStripGuard = jest.fn<(...a: unknown[]) => Promise<unknown>>();
-jest.unstable_mockModule('../src/services/role-crud.js', () => ({ assertActorMayStripMemberRoles: (...a: unknown[]) => mockStripGuard(...a) }));
+const mockWieldGuard = jest.fn<(...a: unknown[]) => Promise<unknown>>(async () => []);
+jest.unstable_mockModule('../src/services/role-crud.js', () => ({ assertActorMayStripMemberRoles: (...a: unknown[]) => mockStripGuard(...a), assertActorMayWieldMemberRoles: (...a: unknown[]) => mockWieldGuard(...a) }));
 jest.unstable_mockModule('../src/helpers/account-membership.js', () => ({ assertDirectAddConsented: jest.fn(async () => undefined) }));
 
 // The publisher under assertion — mocked so we verify the call, not the Redis I/O.

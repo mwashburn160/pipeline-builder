@@ -13,8 +13,8 @@
  *
  * Returns an access token that grants the
  * caller the target user's identity for `IMPERSONATION_SESSION_TTL_MS`. The token
- * carries `impersonationReadOnly: true` so the `requireWriteAccess`
- * middleware rejects any state-changing request — operators can
+ * carries `impersonationReadOnly: true` so `requireAuth` (and the
+ * pre-auth fence in index.ts) rejects any state-changing request — operators can
  * reproduce a tenant's view for support work without risk of acting
  * destructively under that identity.
  *

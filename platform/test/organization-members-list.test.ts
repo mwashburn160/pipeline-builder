@@ -58,7 +58,7 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
 
 // The member service's consent and Role-unassign guards (untested here).
 jest.unstable_mockModule('../src/helpers/account-membership.js', () => ({ assertDirectAddConsented: jest.fn(async () => undefined) }));
-jest.unstable_mockModule('../src/services/role-crud.js', () => ({ assertActorMayStripMemberRoles: jest.fn(async () => ({ heldSuperadmin: false })) }));
+jest.unstable_mockModule('../src/services/role-crud.js', () => ({ assertActorMayStripMemberRoles: jest.fn(async () => ({ heldSuperadmin: false })), assertActorMayWieldMemberRoles: jest.fn(async () => []) }));
 
 const { orgMembersService } = await import('../src/services/org-members-service.js');
 

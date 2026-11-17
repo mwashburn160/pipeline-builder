@@ -266,6 +266,12 @@ export const approveDeviceRequest = withController('Device authorization approve
   // model, the org that asserted `aal`), so the CLI session is re-checked
   // against them exactly as the browser session is at every renewal.
   const approverSlot = approverSid ? await findRefreshSession(approver._id, approverSid) : undefined;
+  // A MACHINE slot (generate-token) carries a `sid` too, but approving would
+  // turn a fixed-lifetime credential into an open-ended interactive session.
+  if (approverSlot?.kind === 'machine') {
+    sendError(res, 403, 'Approve sign-in from a browser session, not a machine credential', 'INTERACTIVE_SESSION_REQUIRED');
+    return;
+  }
   const outcome = await decide(located.record.userCode, 'approved', {
     userId: req.user.sub,
     ...(req.user.organizationId ? { orgId: req.user.organizationId } : {}),
