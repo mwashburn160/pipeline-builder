@@ -5,14 +5,14 @@ import {
   attachmentDisposition, getParam, ErrorCode, isManagedToolchainPlugin, isSystemOrgId, managedRefPinsVersion, requirePermission, sendBadRequest, sendError, sendSuccess, sendPaginatedNested,
   parsePaginationParams, validateQuery, PluginFilterSchema, sendEntityNotFound, maxSeverity, severityAtLeast,
   parseVulnWaivers, SYSTEM_ORG_ID, TOOLCHAIN_RELEASE_VERSION_PATTERN, MANAGED_TOOLCHAIN,
+  compareSemverLenient, isVersionRange,
 } from '@pipeline-builder/api-core';
 import type { ManagedToolchainPlugin, VulnSeverity, VulnWarning } from '@pipeline-builder/api-core';
 import { incCounter, withRoute } from '@pipeline-builder/api-server';
 import type { RequestContext } from '@pipeline-builder/api-server';
 import { Config, CoreConstants, pluginImageRepository, toResolvedPlugin } from '@pipeline-builder/pipeline-core';
 import {
-  bootstrapToolchainOf, compareSemver, executeRows, isVersionRange, ManagedToolchainError, recordStepLookup,
-  resolveManagedToolchain, vulnUpgradeAvailableWarning, withTenantTx,
+  bootstrapToolchainOf, executeRows, ManagedToolchainError, recordStepLookup, resolveManagedToolchain, vulnUpgradeAvailableWarning, withTenantTx,
 } from '@pipeline-builder/pipeline-data';
 import type { PluginFilter, VulnUpgradeAvailableWarning } from '@pipeline-builder/pipeline-data';
 import { sql } from 'drizzle-orm';
@@ -433,7 +433,7 @@ export function createReadPluginRoutes(): Router {
         const newest = result.scanFlaggedAt && result.name
           ? await pluginService.findFirst({ ...resolutionFilter({ name: result.name, isActive: true } as PluginFilter), excludeScanFlagged: true }, orgId, parentOrgId)
           : null;
-        const suggestedVersion = newest && compareSemver(newest.version, result.version) > 0 ? newest.version : null;
+        const suggestedVersion = newest && compareSemverLenient(newest.version, result.version) > 0 ? newest.version : null;
         const assessment = await assessmentFor({ orgId, record: result, policy, acceptances, suggestedVersion });
         const shaped = { ...shapePlugin(result), source: 'org', publisher: null } as Record<string, unknown> & { name: string; version: string };
         const imageRepository = pluginImageRepository(result);

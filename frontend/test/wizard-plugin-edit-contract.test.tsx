@@ -12,6 +12,7 @@ import { describe, it, expect, jest, beforeEach } from '@jest/globals';
 import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import WizardPluginTab from '../src/components/plugin/WizardPluginTab';
+import { ApiError } from '../src/lib/api/errors';
 
 const listPlugins = jest.fn<AnyFn>();
 const getPluginById = jest.fn<AnyFn>();
@@ -73,5 +74,30 @@ describe('WizardPluginTab — execution contract', () => {
     const sent = updatePlugin.mock.calls[0][1] as Record<string, unknown>;
     expect(sent).toMatchObject({ description: 'Lints harder', keywords: ['lint'], visibility: 'org' });
     for (const key of CONTRACT_KEYS) expect(sent).not.toHaveProperty(key);
+  }, 20_000);
+
+  it('sends the prefilled version as expectedUpdatedAt; a 412 offers Reload, which re-prefills the latest', async () => {
+    getPluginById.mockResolvedValue({ success: true, data: { plugin: { ...plugin, updatedAt: '2026-09-01T00:00:00.000Z' } } });
+    updatePlugin.mockRejectedValueOnce(new ApiError('The record was modified by someone else.', 412, 'PRECONDITION_FAILED'));
+    render(<WizardPluginTab canPublish={false} onCreated={jest.fn<AnyFn>()} onClose={jest.fn<AnyFn>()} />);
+    fireEvent.click(screen.getByText('Edit existing'));
+    await waitFor(() => expect(screen.getByRole('option', { name: /lint v1\.0\.0/ })).toBeInTheDocument());
+    fireEvent.change(screen.getByDisplayValue('Select a plugin…'), { target: { value: 'p1' } });
+    await waitFor(() => expect(screen.getByRole('button', { name: /Save changes/ })).not.toBeDisabled());
+
+    fireEvent.change(screen.getByLabelText('Description'), { target: { value: 'My stale edit' } });
+    fireEvent.click(screen.getByRole('button', { name: /Save changes/ }));
+    await waitFor(() => expect(updatePlugin).toHaveBeenCalledTimes(1));
+    expect(updatePlugin.mock.calls[0][1]).toMatchObject({ expectedUpdatedAt: '2026-09-01T00:00:00.000Z' });
+    expect(await screen.findByTestId('concurrency-conflict')).toHaveTextContent(/changed by someone else since you opened it/);
+
+    getPluginById.mockResolvedValue({ success: true, data: { plugin: { ...plugin, description: 'Their edit', updatedAt: '2026-09-02T00:00:00.000Z' } } });
+    fireEvent.click(screen.getByRole('button', { name: 'Reload' }));
+    await waitFor(() => expect(screen.getByLabelText('Description')).toHaveValue('Their edit'));
+    expect(screen.queryByTestId('concurrency-conflict')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /Save changes/ }));
+    await waitFor(() => expect(updatePlugin).toHaveBeenCalledTimes(2));
+    expect(updatePlugin.mock.calls[1][1]).toMatchObject({ description: 'Their edit', expectedUpdatedAt: '2026-09-02T00:00:00.000Z' });
   }, 20_000);
 });

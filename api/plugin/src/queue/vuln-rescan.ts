@@ -83,11 +83,12 @@ import {
   ADVISORY_SEVERITIES, envInt, createLogger, createScheduler, errorMessage, isManagedToolchainPlugin, isSystemOrgId, newScanFindings, parseVulnWaivers, recordAudit, runWithAuditContext, scanFindingKey, SYSTEM_ACTOR_ID, SYSTEM_ORG_ID,
   vulnWaiverLabels, leaderLockKey, DEFAULT_LEADER_LOCK_TTL_MS,
   type PluginScanFinding, type RemoteAuditEvent, type PluginScanFlag, type PluginScanSummary, type Scheduler, type VulnWaiver,
+  compareSemverLenient,
 } from '@pipeline-builder/api-core';
 import { incCounter, resetGauge, setGauge } from '@pipeline-builder/api-server';
 import { Config } from '@pipeline-builder/pipeline-core';
 import {
-  compareSemver, pipelinesOnVersion, reopenLapsedAcceptances, runWithTenantContext, schema, syncVersionExposures, versionReferencedPredicate, withTenantTx,
+  pipelinesOnVersion, reopenLapsedAcceptances, runWithTenantContext, schema, syncVersionExposures, versionReferencedPredicate, withTenantTx,
 } from '@pipeline-builder/pipeline-data';
 import { and, asc, eq, gt, isNotNull, isNull, or, sql } from 'drizzle-orm';
 
@@ -510,8 +511,8 @@ async function newestUnflaggedListedVersion(listingId: string, than: string): Pr
 }
 
 function newestAbove(versions: readonly string[], than: string): string | null {
-  const above = versions.filter((x) => compareSemver(x, than) > 0);
-  return above.reduce<string | null>((best, x) => (best === null || compareSemver(x, best) > 0 ? x : best), null);
+  const above = versions.filter((x) => compareSemverLenient(x, than) > 0);
+  return above.reduce<string | null>((best, x) => (best === null || compareSemverLenient(x, best) > 0 ? x : best), null);
 }
 
 /**

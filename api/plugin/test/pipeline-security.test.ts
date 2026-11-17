@@ -75,7 +75,6 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@p
     return [...byId.values()];
   },
   resolveManagedToolchain: (...a: unknown[]) => mockResolveManaged(...a),
-  compareSemver: (a: string, b: string) => a.localeCompare(b, undefined, { numeric: true }),
 }));
 jest.unstable_mockModule('../src/services/ecosystem/store.js', () => ({
   elevated: async (fn: AnyFn) => fn({}),

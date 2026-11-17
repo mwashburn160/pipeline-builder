@@ -19,6 +19,7 @@ import { describe, it, expect, jest, beforeEach } from '@jest/globals';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { AnyFn } from './helpers/mock-fn';
 import { apiFn, resetApiMock } from './helpers/apiMock';
+import { ApiError } from '../src/lib/api/errors';
 
 jest.mock('@/lib/api', () => require('./helpers/apiMock').apiMockModule());
 let authUser: Record<string, unknown> = { id: 'u1', role: 'member', organizationId: 'org-1' };
@@ -172,6 +173,37 @@ describe('EditPipelineModal — warnings and failures', () => {
     expect(await screen.findByText(/Compliance blocked the save/)).toBeInTheDocument();
     expect(onSaved).not.toHaveBeenCalled();
     expect(screen.getByRole('button', { name: 'Save Changes' })).toBeEnabled();
+  });
+
+  it('sends the loaded updatedAt as expectedUpdatedAt; a 412 says so and Reload resets the form to the latest', async () => {
+    apiFn('updatePipeline').mockRejectedValueOnce(new ApiError('The record was modified by someone else.', 412, 'PRECONDITION_FAILED'));
+    const { onSaved } = renderModal();
+    await screen.findByLabelText('Project *');
+    fireEvent.change(screen.getByLabelText('Description'), { target: { value: 'My stale edit' } });
+    await toLastStep();
+    fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }));
+    await waitFor(() => expect(apiFn('updatePipeline')).toHaveBeenCalledTimes(1));
+    expect(apiFn('updatePipeline').mock.calls[0][1]).toMatchObject({ expectedUpdatedAt: '2026-11-02T00:00:00Z' });
+
+    const alert = await screen.findByTestId('concurrency-conflict');
+    expect(alert).toHaveTextContent('This was changed by someone else since you opened it. Reload to see the latest.');
+    expect(screen.queryByText('The record was modified by someone else.')).not.toBeInTheDocument();
+    expect(onSaved).not.toHaveBeenCalled();
+
+    apiFn('getPipelineById').mockResolvedValue({
+      success: true, data: { pipeline: { ...FULL, description: 'Their edit', updatedAt: '2026-11-03T00:00:00Z' } },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Reload' }));
+    // Back on the first step, re-seeded from the latest version.
+    await waitFor(() => expect(screen.getByLabelText('Description')).toHaveValue('Their edit'));
+    expect(apiFn('getPipelineById')).toHaveBeenCalledTimes(2);
+    expect(screen.queryByTestId('concurrency-conflict')).not.toBeInTheDocument();
+
+    await toLastStep();
+    fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }));
+    await waitFor(() => expect(apiFn('updatePipeline')).toHaveBeenCalledTimes(2));
+    expect(apiFn('updatePipeline').mock.calls[1][1]).toMatchObject({ description: 'Their edit', expectedUpdatedAt: '2026-11-03T00:00:00Z' });
+    expect(await screen.findByText('Pipeline updated successfully!')).toBeInTheDocument();
   });
 
   it('a failed fetch shows the error and no builder', async () => {

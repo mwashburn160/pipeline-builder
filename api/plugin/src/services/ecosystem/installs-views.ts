@@ -3,14 +3,12 @@
 
 /** The views of the in-app catalog and an org's installs: install state, upgrades, notes, the catalog entry. */
 
-import { isoOrNull } from '@pipeline-builder/api-core';
+import { isoOrNull, compareSemverLenient, parseSemver } from '@pipeline-builder/api-core';
 import {
   advisoriesCovering,
-  compareSemver,
   installAdmits,
   listedVersionWarnings,
   OFFICIAL_PUBLISHER_HANDLE,
-  parseSemver,
   type ConsumptionPolicy,
   type InstallVersionPolicy,
   type OrgListingState,
@@ -48,12 +46,12 @@ function upgradeOf(state: OrgListingState) {
   const mode = state.mode;
   const current = state.resolved;
   const candidates = state.versions.filter((v) => isLive(v) && !v.pausedAt && isStable(v.version)
-    && (!current || compareSemver(v.version, current.version) > 0)
+    && (!current || compareSemverLenient(v.version, current.version) > 0)
     && (mode.kind === 'explicit' ? !installAdmits(mode.install, v.version, state.versions) : true)
     && v.id !== current?.id);
-  const next = candidates.reduce<PluginListingVersion | null>((best, v) => (best === null || compareSemver(v.version, best.version) > 0 ? v : best), null);
+  const next = candidates.reduce<PluginListingVersion | null>((best, v) => (best === null || compareSemverLenient(v.version, best.version) > 0 ? v : best), null);
   if (!next) return null;
-  const crossed = state.versions.some((v) => v.breaking && (!current || compareSemver(v.version, current.version) > 0) && compareSemver(v.version, next.version) <= 0);
+  const crossed = state.versions.some((v) => v.breaking && (!current || compareSemverLenient(v.version, current.version) > 0) && compareSemverLenient(v.version, next.version) <= 0);
   return {
     version: next.version,
     breaking: crossed || (!!current && parseSemver(next.version)?.major !== parseSemver(current.version)?.major),

@@ -17,6 +17,8 @@
  */
 
 import { createSafeClient } from './http-client.js';
+import { callInternal } from '../contracts/call.js';
+import { PLATFORM_INTERNAL } from '../contracts/platform.js';
 import { getServiceAuthHeader } from '../middleware/service-tokens.js';
 import { SYSTEM_ORG_ID } from '../middleware/system-org.js';
 import type { ServiceConfig } from '../types/common.js';
@@ -35,7 +37,7 @@ const logger = createLogger('ecosystem-notify-client');
  * reporting), and this was spelled three times — here, in quota's threshold
  * notifier and in billing's offer mailer, each as its own const.
  */
-export const NOTIFY_EMAIL_PATH = '/internal/notify-email';
+export const NOTIFY_EMAIL_PATH = PLATFORM_INTERNAL.notifyEmail.path;
 
 /** What one send achieved. `ok: false` means nothing was confirmed delivered. */
 export interface EcosystemNotifyResult {
@@ -84,19 +86,18 @@ export function createEcosystemNotifyClient(config: EcosystemNotifyClientConfig)
         // System-org scoped, least privilege: the relay authorizes the CALLER by
         // its key-bound service name, not by a role or permission on the token.
         const authorization = getServiceAuthHeader({ serviceName: config.serviceName, orgId: SYSTEM_ORG_ID, role: 'member' });
-        const response = await client.post<{ data?: { recipientCount?: number }; recipientCount?: number }>(
-          NOTIFY_EMAIL_PATH, parsed, { headers: { Authorization: authorization } },
-        );
-        const status = response?.statusCode;
-        const ok = status !== undefined && status >= 200 && status < 300;
-        if (!ok) {
+        const result = await callInternal(client, PLATFORM_INTERNAL.notifyEmail, {
+          body: parsed, options: { headers: { Authorization: authorization } },
+        });
+        if (!result.ok && result.reason !== 'invalid-response') {
+          const status = result.reason === 'status' ? result.status : undefined;
           emitCounter('ecosystem_notification_failed_total', { event: parsed.event });
           logger.warn('Ecosystem notification not delivered', { event: parsed.event, status: status ?? 'unreachable' });
           return { ok: false, ...(status !== undefined ? { status } : {}) };
         }
-        const body = response!.body ?? {};
-        const recipientCount = body.data?.recipientCount ?? body.recipientCount;
-        return { ok: true, status, ...(typeof recipientCount === 'number' ? { recipientCount } : {}) };
+        // A 2xx is delivered; the count is reported only when the reply carried one.
+        const recipientCount = result.ok ? result.data.recipientCount : undefined;
+        return { ok: true, status: result.status, ...(typeof recipientCount === 'number' ? { recipientCount } : {}) };
       } catch (err) {
         emitCounter('ecosystem_notification_failed_total', { event: parsed.event });
         logger.warn('Ecosystem notification failed', { event: parsed.event, error: errorMessage(err) });

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { randomUUID } from 'node:crypto';
-import { correlationHeaders } from '@pipeline-builder/pipeline-core/lib/core/audit-correlation.js';
+import { correlationHeaders } from '@pipeline-builder/pipeline-core/runtime';
 import type { Context, SQSBatchResponse, SQSEvent, SQSRecord } from 'aws-lambda';
 import { _resetAuthForTests, getAuthToken, invalidateCredential } from './auth.js';
 import { _resetHealthForTests, recordForwarded, reportHealthAndRedrive } from './health.js';

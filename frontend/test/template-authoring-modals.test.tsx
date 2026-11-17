@@ -19,6 +19,7 @@ import { describe, it, expect, jest, beforeEach } from '@jest/globals';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { AnyFn } from './helpers/mock-fn';
 import { apiFn, resetApiMock } from './helpers/apiMock';
+import { ApiError } from '../src/lib/api/errors';
 
 jest.mock('@/lib/api', () => require('./helpers/apiMock').apiMockModule());
 
@@ -247,6 +248,29 @@ describe('EditTemplateModal', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }));
     await screen.findByLabelText('Template name');
     expect(screen.getByText(/name is required/i)).toBeInTheDocument();
+  });
+
+  it('sends the loaded updatedAt as expectedUpdatedAt; a 412 says so and Reload resets the form to the latest', async () => {
+    apiFn('updatePipelineTemplate').mockRejectedValueOnce(new ApiError('The record was modified by someone else.', 412, 'PRECONDITION_FAILED'));
+    const { onSaved } = renderEdit();
+    await screen.findByLabelText('Project *');
+    fireEvent.change(screen.getByLabelText('Template name'), { target: { value: 'my-stale-name' } });
+    await toLast();
+    fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }));
+    await waitFor(() => expect(apiFn('updatePipelineTemplate')).toHaveBeenCalledTimes(1));
+    expect(apiFn('updatePipelineTemplate').mock.calls[0][1]).toMatchObject({ expectedUpdatedAt: '2026-11-02T00:00:00Z' });
+    expect(await screen.findByTestId('concurrency-conflict')).toHaveTextContent('This was changed by someone else since you opened it. Reload to see the latest.');
+    expect(onSaved).not.toHaveBeenCalled();
+
+    apiFn('getPipelineTemplate').mockResolvedValue({ success: true, data: { template: { ...TEMPLATE, name: 'their-name', updatedAt: '2026-11-03T00:00:00Z' } } });
+    fireEvent.click(screen.getByRole('button', { name: 'Reload' }));
+    await waitFor(() => expect(screen.getByLabelText('Template name')).toHaveValue('their-name'));
+    expect(screen.queryByTestId('concurrency-conflict')).not.toBeInTheDocument();
+
+    await toLast();
+    fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }));
+    await waitFor(() => expect(apiFn('updatePipelineTemplate')).toHaveBeenCalledTimes(2));
+    expect(apiFn('updatePipelineTemplate').mock.calls[1][1]).toMatchObject({ name: 'their-name', expectedUpdatedAt: '2026-11-03T00:00:00Z' });
   });
 
   it('Edit JSON opens the template props; a refused save shows the error', async () => {

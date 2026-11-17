@@ -58,11 +58,11 @@ let gcStatus = 200;
 const registry = {
   get: jest.fn(async (path: string) => {
     registryCalls.push({ method: 'get', path });
-    return { statusCode: 200, body: { data: { entries: [{ name: 'lint', version: '1.1.0', totalBytes: 100, marginalBytes: 40 }, { name: 'lint', version: '1.2.0', totalBytes: 100, marginalBytes: 2 }], incomplete: false } } };
+    return { statusCode: 200, body: { data: { entries: [{ name: 'lint', version: '1.1.0', totalBytes: 100, marginalBytes: 40 }, { name: 'lint', version: '1.2.0', totalBytes: 100, marginalBytes: 2 }], computedAt: 1, incomplete: false } } };
   }),
   post: jest.fn(async (path: string, body: unknown) => {
     registryCalls.push({ method: 'post', path, body });
-    if (path.endsWith('/gc')) return gcStatus === 200 ? { statusCode: 200, body: { data: { deleted: true } } } : { statusCode: gcStatus, body: { message: 'still referenced by tag latest' } };
+    if (path.endsWith('/gc')) return gcStatus === 200 ? { statusCode: 200, body: { data: { ...(body as object), deleted: true } } } : { statusCode: gcStatus, body: { message: 'still referenced by tag latest' } };
     return { statusCode: 200, body: { data: {} } };
   }),
 };

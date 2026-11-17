@@ -29,11 +29,11 @@
 import {
   computeHealthScore, createLogger, createScheduler, errorMessage, publisherHealthScore, publisherSuccessRate,
   type HealthResult, type LockRedis, type Scheduler, leaderLockKey, DEFAULT_LEADER_LOCK_TTL_MS,
+  compareSemverLenient, parseSemver,
 } from '@pipeline-builder/api-core';
 import { incCounter, setGauge } from '@pipeline-builder/api-server';
 import {
-  executeRows,
-  compareSemver, parseSemver, schema, type PluginListing, type PluginListingVersion, type PluginReview,
+  executeRows, schema, type PluginListing, type PluginListingVersion, type PluginReview,
 } from '@pipeline-builder/pipeline-data';
 import { eq, sql } from 'drizzle-orm';
 
@@ -72,7 +72,7 @@ export function bayesianRating(rated: ReadonlyArray<Pick<PluginReview, 'rating' 
 /** `major.minor` of the listing's two newest minor lines (a prerelease's line counts like any other). */
 export function recentMinorLines(listingVersions: readonly string[]): Set<string> {
   const lines: string[] = [];
-  const sorted = [...listingVersions].filter((v) => parseSemver(v)).sort((a, b) => compareSemver(b, a));
+  const sorted = [...listingVersions].filter((v) => parseSemver(v)).sort((a, b) => compareSemverLenient(b, a));
   for (const v of sorted) {
     const p = parseSemver(v)!;
     const line = `${p.major}.${p.minor}`;
@@ -178,7 +178,7 @@ export function currentListedVersion(
 ): PluginListingVersion | null {
   const live = listingVersions.filter((v) => !v.yankedAt && !v.pausedAt);
   return live.find((v) => v.version === listing.latestVersion)
-    ?? [...live].sort((a, b) => compareSemver(b.version, a.version))[0]
+    ?? [...live].sort((a, b) => compareSemverLenient(b.version, a.version))[0]
     ?? null;
 }
 

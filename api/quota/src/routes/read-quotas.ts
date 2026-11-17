@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import {
+  QUOTA_INTERNAL,
+  contractRoute,
   requireAuth,
   requirePermission,
   requireSystemOrgPermission,
@@ -88,7 +90,7 @@ export function createReadQuotaRoutes(svc: QuotaService = defaultQuotaService): 
    * Registered before `/:orgId` so that route does not swallow it.
    */
   router.get(
-    '/internal/:orgId/profile',
+    contractRoute(QUOTA_INTERNAL.usageProfile, '/quotas'),
     requireAuth as RequestHandler,
     authorizeOrg() as RequestHandler,
     // `authorizeOrg()` alone admits any same-org member. An account's whole
@@ -98,7 +100,7 @@ export function createReadQuotaRoutes(svc: QuotaService = defaultQuotaService): 
     // `requireInternalCaller` admits, because every service meters its own
     // traffic): only the offers scheduler reads this, and it runs in billing.
     // Same shape as `/quotas/:orgId/own-usage`.
-    requireInternalService({ callers: ['billing'] }) as RequestHandler,
+    requireInternalService({ callers: QUOTA_INTERNAL.usageProfile.callers }) as RequestHandler,
     withRoute(async ({ req, res, ctx }) => {
       const targetOrgId = getParam(req.params, 'orgId')!;
       const quota = await svc.findByOrgId(targetOrgId);

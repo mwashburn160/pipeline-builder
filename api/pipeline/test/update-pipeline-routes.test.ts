@@ -92,7 +92,6 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   validateBody: jest.fn((req: any) => {
     return { ok: true, value: req.body };
   }),
-  PipelineUpdateSchema: {},
   normalizeArrayFields: jest.fn((p: any) => p),
   sendEntityNotFound: jest.fn((res: any, entity: string) => {
     res.status(404).json({ success: false, statusCode: 404, message: `${entity} not found.` });
@@ -206,6 +205,7 @@ describe('PUT /pipelines/:id (update)', () => {
       expect.objectContaining({ pipelineName: 'updated-name' }),
       'org-1',
       'user-1',
+      { expectedUpdatedAt: undefined },
     );
     expect(res.status).toHaveBeenCalledWith(200);
     expect(res.json).toHaveBeenCalledWith(

@@ -102,7 +102,8 @@
     ],
     "moduleNameMapper": {
       "^uuid$": "<rootDir>/../../jest-uuid-stub.js",
-      "^(\\.{1,2}/.*)\\.js$": "$1"
+      "^(\\.{1,2}/.*)\\.js$": "$1",
+      "^@pipeline-builder/(api-core|api-server|pipeline-core|pipeline-data|ai-core|pipeline-events)/lib/(.*)$": "<rootDir>/../../packages/$1/lib/$2"
     },
     "restoreMocks": true,
     "setupFilesAfterEnv": [
@@ -130,6 +131,19 @@
           "{workspaceRoot}/package.json",
           "{workspaceRoot}/renovate.json",
           "{workspaceRoot}/SECURITY.md",
+          "{workspaceRoot}/packages/*/package.json",
+          "{workspaceRoot}/packages/*/.npmignore",
+          "{workspaceRoot}/packages/*/src/**/*",
+          "{workspaceRoot}/packages/*/test/**/*",
+          "{workspaceRoot}/api/*/package.json",
+          "{workspaceRoot}/api/*/src/**/*",
+          "{workspaceRoot}/api/*/test/**/*",
+          "{workspaceRoot}/api/*/scripts/**/*",
+          "{workspaceRoot}/platform/package.json",
+          "{workspaceRoot}/platform/src/**/*",
+          "{workspaceRoot}/platform/test/**/*",
+          "{workspaceRoot}/frontend/src/**/*",
+          "{workspaceRoot}/frontend/test/**/*",
           "!{projectRoot}/lib/**/*",
           "!{projectRoot}/dist/**/*"
         ]
@@ -152,6 +166,19 @@
           "{workspaceRoot}/package.json",
           "{workspaceRoot}/renovate.json",
           "{workspaceRoot}/SECURITY.md",
+          "{workspaceRoot}/packages/*/package.json",
+          "{workspaceRoot}/packages/*/.npmignore",
+          "{workspaceRoot}/packages/*/src/**/*",
+          "{workspaceRoot}/packages/*/test/**/*",
+          "{workspaceRoot}/api/*/package.json",
+          "{workspaceRoot}/api/*/src/**/*",
+          "{workspaceRoot}/api/*/test/**/*",
+          "{workspaceRoot}/api/*/scripts/**/*",
+          "{workspaceRoot}/platform/package.json",
+          "{workspaceRoot}/platform/src/**/*",
+          "{workspaceRoot}/platform/test/**/*",
+          "{workspaceRoot}/frontend/src/**/*",
+          "{workspaceRoot}/frontend/test/**/*",
           "!{projectRoot}/lib/**/*",
           "!{projectRoot}/dist/**/*"
         ]

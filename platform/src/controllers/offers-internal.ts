@@ -1,17 +1,15 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, sendSuccess, getParam, parseQueryString } from '@pipeline-builder/api-core';
+import { PLATFORM_INTERNAL, createLogger, sendSuccess, getParam } from '@pipeline-builder/api-core';
 import type { Request, Response } from 'express';
-import UserOrganization from '../models/user-organization.js';
 import { expandOrgScope } from '../helpers/org-hierarchy.js';
+import UserOrganization from '../models/user-organization.js';
 
 const logger = createLogger('offers-internal');
 
-/** Default activity window, in days — a billing period is the unit that matters. */
-const DEFAULT_WINDOW_DAYS = 30;
-/** Bounded so a caller cannot ask for an unbounded scan of history. */
-const MAX_WINDOW_DAYS = 365;
+/** The window (default 30 days, clamped to 1..365) is parsed by the endpoint's contract. */
+const { offerSeatActivity: SEAT_ACTIVITY } = PLATFORM_INTERNAL;
 
 /**
  * GET /internal/offers/seat-activity/:orgId — seats held against members who
@@ -35,10 +33,8 @@ const MAX_WINDOW_DAYS = 365;
  */
 export async function getOrgSeatActivity(req: Request, res: Response): Promise<void> {
   const orgId = getParam(req.params, 'orgId')!;
-  const requested = Number(parseQueryString(req.query.windowDays) ?? DEFAULT_WINDOW_DAYS);
-  const windowDays = Number.isFinite(requested)
-    ? Math.min(MAX_WINDOW_DAYS, Math.max(1, Math.trunc(requested)))
-    : DEFAULT_WINDOW_DAYS;
+  // Never fails: an unreadable window falls back to the default, as it always has.
+  const { windowDays } = SEAT_ACTIVITY.query!.parse(req.query ?? {});
   const since = new Date(Date.now() - windowDays * 24 * 60 * 60 * 1000);
 
   const scope = await expandOrgScope(orgId);

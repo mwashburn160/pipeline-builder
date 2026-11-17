@@ -63,6 +63,9 @@ export function pipelineTemplatesApi(core: ApiCore) {
       props?: BuilderProps;
       inputs?: PipelineTemplate['inputs'];
       isActive?: boolean;
+      /** Optimistic concurrency: the `updatedAt` the edit was based on (412
+       *  PRECONDITION_FAILED when the template changed since). Absent: last write wins. */
+      expectedUpdatedAt?: string;
     }, opts?: ProposedByOptions) => {
       return core.request<ApiResponse<{ template: PipelineTemplate }>>(`/api/pipeline-templates/${id}`, {
         method: 'PUT',

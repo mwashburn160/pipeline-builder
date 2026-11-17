@@ -186,6 +186,102 @@ export class Workflow extends Component {
         // Its own addJobs call (not folded into the map above) so it renders as a
         // separate block at the END of test.yml.
         testWorkflow.addJobs({ frontend_e2e: this.createFrontendE2eJob() });
+
+        // Nightly compose smoke. test.yml only VALIDATES docker-compose.yml
+        // (`compose config`); nothing ever booted the stack and pointed the
+        // built CLI at it. Too slow for a merge gate (the managed toolchain
+        // release is built from source on the runner), so it runs once a day and
+        // on demand, and its red reads as "main no longer comes up + signs in +
+        // synthesizes", not as a per-PR verdict.
+        const nightlyWorkflow = new GithubWorkflow(root.github!, 'nightly-smoke');
+        nightlyWorkflow.on({
+            schedule: [{ cron: '17 5 * * *' }],
+            workflowDispatch: {
+                inputs: {
+                    skip_synth: {
+                        description: 'Skip init-platform (the toolchain build) and the synth: boot + device-flow login + status only',
+                        type: 'boolean',
+                        required: false,
+                    },
+                },
+            },
+        });
+        // projen types `default` as a string; a boolean input wants a boolean.
+        nightlyWorkflow.file!.addOverride('on.workflow_dispatch.inputs.skip_synth.default', false);
+        // One smoke at a time: a dispatch during the nightly queues behind it.
+        nightlyWorkflow.file!.addOverride('concurrency', { 'group': 'nightly-smoke', 'cancel-in-progress': false });
+        nightlyWorkflow.addJobs({ nightly_smoke: this.createNightlySmokeJob() });
+    }
+
+    /**
+     * Boot deploy/local/docker on the runner and drive the BUILT CLI against it:
+     * `auth login` through the real device flow (the script approves the code
+     * as a throwaway user), `status`, `pipeline create` of a sample props file
+     * and `pipeline synth` into a cloud assembly. Every phase is one step of
+     * packages/pipeline-manager/test/e2e/compose-smoke.sh, so a local run is the
+     * same commands (packages/pipeline-manager/README.md → Testing).
+     *
+     * Needs NO secrets: the service images are public on ghcr.io and every
+     * credential (.env secrets, TLS, signing keys, the smoke user) is generated
+     * on the runner. Logs (compose, each service, each CLI step) upload on
+     * failure; the stack is always torn down.
+     */
+    private createNightlySmokeJob() {
+        const smoke = 'bash packages/pipeline-manager/test/e2e/compose-smoke.sh';
+        return {
+            name: 'compose smoke (boot + CLI login/status/synth)',
+            runsOn: ['ubuntu-latest'],
+            timeoutMinutes: 150,
+            permissions: {
+                contents: JobPermission.READ,
+                packages: JobPermission.READ,
+            },
+            env: {
+                // No inputs on the schedule → 'false': the full smoke.
+                SMOKE_SKIP_SYNTH: "${{ inputs.skip_synth && 'true' || 'false' }}",
+            },
+            steps: [
+                ...this.ciSetupSteps(),
+                {
+                    // `runner.temp` is not available in job-level env.
+                    name: 'Smoke work dir',
+                    run: 'echo "SMOKE_DIR=$RUNNER_TEMP/compose-smoke" >> "$GITHUB_ENV"',
+                },
+                {
+                    name: 'Build the CLI',
+                    run: 'pnpm nx run @pipeline-builder/pipeline-manager:post-compile',
+                },
+                {
+                    name: 'Boot deploy/local/docker',
+                    run: `${smoke} up`,
+                },
+                {
+                    name: 'Initialize the platform (admin + managed toolchain release)',
+                    if: "env.SMOKE_SKIP_SYNTH != 'true'",
+                    run: `${smoke} init`,
+                },
+                {
+                    name: 'CLI smoke (device-flow login, status, pipeline create + synth)',
+                    run: `${smoke} run`,
+                },
+                {
+                    name: 'Collect logs',
+                    if: 'failure()',
+                    run: `${smoke} logs`,
+                },
+                {
+                    name: 'Upload logs',
+                    if: 'failure()',
+                    uses: ACTIONS.uploadArtifact,
+                    with: { 'name': 'compose-smoke-logs', 'path': '${{ env.SMOKE_DIR }}/logs', 'retention-days': 7 },
+                },
+                {
+                    name: 'Tear down',
+                    if: 'always()',
+                    run: `${smoke} down`,
+                },
+            ],
+        };
     }
 
     /**

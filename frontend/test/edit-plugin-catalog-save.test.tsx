@@ -99,6 +99,8 @@ describe('EditPluginModal — catalog details only', () => {
       license: null,
       icon: { key: 'lock', badge: 'verified' },
       readme: '# Scan v2',
+      // Optimistic concurrency: the version the form was opened on.
+      expectedUpdatedAt: '2026-09-01T00:00:00Z',
     });
     for (const key of CONTRACT_KEYS) expect(sent()).not.toHaveProperty(key);
   });
@@ -108,7 +110,7 @@ describe('EditPluginModal — catalog details only', () => {
     fireEvent.click(await screen.findByLabelText('Default'));
     fireEvent.click(screen.getByRole('button', { name: /save/i }));
     await waitFor(() => expect(updatePlugin).toHaveBeenCalled());
-    expect(sent()).toEqual({ isDefault: true });
+    expect(sent()).toEqual({ isDefault: true, expectedUpdatedAt: '2026-09-01T00:00:00Z' });
   });
 
   it('closes without a request when nothing changed', async () => {
@@ -137,6 +139,36 @@ describe('EditPluginModal — catalog details only', () => {
     fireEvent.click(screen.getByRole('button', { name: /save/i }));
     expect(await screen.findByText(/Catalog details are frozen for this version/)).toBeInTheDocument();
     expect(screen.getByText(/Request a listing update instead/)).toBeInTheDocument();
+  });
+});
+
+describe('EditPluginModal — concurrent edit (412)', () => {
+  it('says the version changed, and Reload re-reads it and resets the form to the latest', async () => {
+    updatePlugin.mockRejectedValueOnce(new ApiError('The record was modified by someone else.', 412, 'PRECONDITION_FAILED', {
+      expectedUpdatedAt: '2026-09-01T00:00:00Z', currentUpdatedAt: '2026-09-02T00:00:00Z',
+    }));
+    renderModal();
+    fireEvent.change(await screen.findByLabelText('Summary'), { target: { value: 'My stale edit' } });
+    fireEvent.click(screen.getByRole('button', { name: /save/i }));
+
+    const alert = await screen.findByTestId('concurrency-conflict');
+    expect(alert).toHaveTextContent('This was changed by someone else since you opened it. Reload to see the latest.');
+    // Not also shown as a generic error.
+    expect(screen.queryByText('The record was modified by someone else.')).not.toBeInTheDocument();
+
+    const LATEST = { ...FULL, summary: 'Their edit', updatedAt: '2026-09-02T00:00:00Z' };
+    getPluginById.mockResolvedValue({ success: true, data: { plugin: LATEST } });
+    fireEvent.click(screen.getByRole('button', { name: 'Reload' }));
+
+    await waitFor(() => expect(screen.getByLabelText('Summary')).toHaveValue('Their edit'));
+    expect(getPluginById).toHaveBeenCalledTimes(2);
+    expect(screen.queryByTestId('concurrency-conflict')).not.toBeInTheDocument();
+
+    // The next save is based on the reloaded version.
+    fireEvent.change(screen.getByLabelText('Summary'), { target: { value: 'Rebased edit' } });
+    fireEvent.click(screen.getByRole('button', { name: /save/i }));
+    await waitFor(() => expect(updatePlugin).toHaveBeenCalledTimes(2));
+    expect(updatePlugin.mock.calls[1][1]).toMatchObject({ summary: 'Rebased edit', expectedUpdatedAt: '2026-09-02T00:00:00Z' });
   });
 });
 

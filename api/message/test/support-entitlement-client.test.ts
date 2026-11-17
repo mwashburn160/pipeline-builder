@@ -95,11 +95,13 @@ describe('a healthy read', () => {
     expect(mockCacheSet).toHaveBeenCalledWith('org-1', expect.objectContaining({ canOpenCase: true }));
   });
 
-  it('accepts an unwrapped body as well as a {data} envelope', async () => {
-    // Platform's responders are not uniform; a shape assumption here would
-    // degrade every send against the service that answers the other way.
+  it('reads the {data} envelope the contract defines — an unwrapped body is malformed', async () => {
+    // Platform's entitlement route answers through `sendSuccess`, and the
+    // endpoint's contract (api-core PLATFORM_INTERNAL.supportEntitlement) parses
+    // the envelope's `data`. A bare body is not that answer: null, not cached.
     respond({ ok: true, body: GRANT });
-    await expect(fetchSupportEntitlement('org-1')).resolves.toMatchObject({ canOpenCase: true });
+    await expect(fetchSupportEntitlement('org-1')).resolves.toBeNull();
+    expect(mockCacheSet).not.toHaveBeenCalled();
   });
 
   it('caches a NEGATIVE answer too', async () => {

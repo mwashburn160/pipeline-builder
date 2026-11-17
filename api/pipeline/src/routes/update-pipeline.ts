@@ -4,10 +4,21 @@
 import { getParam, ErrorCode, requireVisibilityWriteAccess, sendBadRequest, sendError, sendSuccess, sendEntityNotFound, validateBody, PipelineUpdateSchema, normalizeArrayFields, audited, actorId, proposable, recordAudit, withProposalProvenance, requirePermission } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
+import { z } from 'zod';
 import { checkPipelineUpdateCompliance, isComplianceRelevantUpdate } from '../helpers/pipeline-update-compliance.js';
 import { auditedChanges, buildPipelineUpdateData, complianceBlockedDetails, pluginWarningsField, validatePipelineWrite } from '../helpers/pipeline-write.js';
 import { recordPipelineResolution } from '../helpers/plugin-contract-check.js';
 import { pipelineService } from '../services/pipeline-service.js';
+
+/**
+ * The update body plus the optimistic-concurrency token: `expectedUpdatedAt` is
+ * the `updatedAt` the editor loaded. Present → the write lands only if the
+ * pipeline is unchanged since (else 412 PRECONDITION_FAILED); absent → last
+ * write wins. Never a column write (buildPipelineUpdateData picks columns).
+ */
+const PipelineUpdateRequestSchema = PipelineUpdateSchema.extend({
+  expectedUpdatedAt: z.iso.datetime({ offset: true }).optional(),
+});
 
 /**
  * Register the UPDATE route on a router.
@@ -24,7 +35,7 @@ export function createUpdatePipelineRoutes(): Router {
     if (!id) return sendBadRequest(res, 'Pipeline ID is required.', ErrorCode.MISSING_REQUIRED_FIELD);
 
     // Validate request body with Zod
-    const validation = validateBody(req, PipelineUpdateSchema);
+    const validation = validateBody(req, PipelineUpdateRequestSchema);
     if (!validation.ok) {
       return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
     }
@@ -79,21 +90,25 @@ export function createUpdatePipelineRoutes(): Router {
       }
     }
 
+    // A stale token makes the service throw ConcurrencyConflictError → 412.
+    const { expectedUpdatedAt } = body;
     let updated;
     if (body.isDefault === true) {
+      // With a token, the conditional column write runs FIRST (even with no
+      // other field, as a check-and-stamp): promoting must not land on a
+      // pipeline that moved on, and setDefault itself bumps `updatedAt`.
+      if (Object.keys(updateData).length > 0 || expectedUpdatedAt !== undefined) {
+        updated = await pipelineService.update(id, updateData, orgId, userId, { expectedUpdatedAt });
+        if (!updated) return sendEntityNotFound(res, 'Pipeline');
+      }
       // Promote-to-default takes the FOR UPDATE-locked transactional path so
       // it can't race a concurrent setDefault on the same slot. Pass orgId (the
       // tenant UUID); the slot itself is read from the promoted row.
       updated = await pipelineService.setDefault(existing.orgId, id, userId);
-
-      // Apply the rest of the update body (if any non-isDefault fields changed).
-      if (Object.keys(updateData).length > 0) {
-        updated = await pipelineService.update(id, updateData, orgId, userId);
-      }
     } else {
       // Allow explicit demotion (isDefault: false) as a normal column write.
       if (body.isDefault === false) updateData.isDefault = false;
-      updated = await pipelineService.update(id, updateData, orgId, userId);
+      updated = await pipelineService.update(id, updateData, orgId, userId, { expectedUpdatedAt });
     }
 
     if (!updated) return sendEntityNotFound(res, 'Pipeline');

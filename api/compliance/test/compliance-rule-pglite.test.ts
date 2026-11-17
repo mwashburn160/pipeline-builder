@@ -12,7 +12,7 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from '@jest/globals';
-import { ConflictError } from '@pipeline-builder/api-core';
+import { ConcurrencyConflictError, ConflictError } from '@pipeline-builder/api-core';
 import { asTenantContext, bootTenantDb, type TenantTestDb } from '@pipeline-builder/pipeline-data/testing';
 
 const { complianceRuleService, InvalidRuleRegexError } = await import('../src/services/compliance-rule-service.js');
@@ -42,17 +42,13 @@ const ruleInput = (over: Record<string, unknown> = {}) => ({
   ...over,
 });
 
-/** History rows are written fire-and-forget after the mutation; wait for them. */
-async function historyFor(ruleId: string, expected: number): Promise<Array<{ change_type: string; previous_state: unknown }>> {
-  for (let i = 0; i < 50; i++) {
-    const { rows } = await owner((q) => q.query<{ change_type: string; previous_state: unknown }>(
-      'SELECT change_type, previous_state FROM compliance_rule_history WHERE rule_id = $1 ORDER BY changed_at, change_type',
-      [ruleId],
-    ));
-    if (rows.length >= expected) return rows;
-    await new Promise((r) => setTimeout(r, 20));
-  }
-  throw new Error(`history for ${ruleId} never reached ${expected} rows`);
+/** History rows commit WITH the mutation (in-tx hooks): read them straight away, no polling. */
+async function historyFor(ruleId: string): Promise<Array<{ change_type: string; previous_state: unknown }>> {
+  const { rows } = await owner((q) => q.query<{ change_type: string; previous_state: unknown }>(
+    'SELECT change_type, previous_state FROM compliance_rule_history WHERE rule_id = $1 ORDER BY changed_at, change_type',
+    [ruleId],
+  ));
+  return rows;
 }
 
 beforeAll(async () => {
@@ -81,7 +77,8 @@ describe('rule CRUD + history (real Postgres, RLS)', () => {
     const deleted = await as(() => complianceRuleService.delete(created.id, ORG, USER));
     expect(deleted?.id).toBe(created.id);
 
-    const history = await historyFor(created.id, 3);
+    const history = await historyFor(created.id);
+    expect(history).toHaveLength(3);
     expect(history.map((h) => h.change_type).sort()).toEqual(['created', 'deleted', 'updated']);
     const priorOfUpdate = history.find((h) => h.change_type === 'updated')?.previous_state as { value?: unknown };
     expect(priorOfUpdate?.value).toBe('web');
@@ -92,13 +89,51 @@ describe('rule CRUD + history (real Postgres, RLS)', () => {
 
   it('a rule change queues ONE coalesced rescan for the org/target', async () => {
     const a = await as(() => complianceRuleService.create(ruleInput() as never, USER));
-    await historyFor(a.id, 1);
+    expect(await historyFor(a.id)).toHaveLength(1);
     await as(() => complianceRuleService.create(ruleInput({ name: 'second' }) as never, USER));
     await new Promise((r) => setTimeout(r, 100));
     const { rows } = await owner((q) => q.query<{ n: number }>(
       "SELECT COUNT(*)::int AS n FROM compliance_scans WHERE org_id = $1 AND target = 'pipeline' AND status = 'pending'", [ORG],
     ));
     expect(rows[0]?.n).toBe(1);
+  });
+
+  it('each mutation\'s history row is committed by the time the call resolves', async () => {
+    const created = await as(() => complianceRuleService.create(ruleInput() as never, USER));
+    expect((await historyFor(created.id)).map((h) => h.change_type)).toEqual(['created']);
+    await as(() => complianceRuleService.update(created.id, { value: 'api' }, ORG, USER));
+    expect(await historyFor(created.id)).toHaveLength(2);
+  });
+
+  it('a history insert that fails rolls the mutation back with it (atomic)', async () => {
+    const created = await as(() => complianceRuleService.create(ruleInput() as never, USER));
+    // Make every further history insert fail inside the mutation's transaction.
+    await owner((q) => q.exec(`
+      CREATE OR REPLACE FUNCTION test_reject_history() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN RAISE EXCEPTION 'history write refused'; END $$;
+      CREATE TRIGGER test_reject_history BEFORE INSERT ON compliance_rule_history FOR EACH ROW EXECUTE FUNCTION test_reject_history();
+    `));
+    try {
+      await expect(as(() => complianceRuleService.update(created.id, { value: 'api' }, ORG, USER))).rejects.toThrow(/compliance_rule_history/);
+      await expect(as(() => complianceRuleService.delete(created.id, ORG, USER))).rejects.toThrow(/compliance_rule_history/);
+    } finally {
+      await owner((q) => q.exec('DROP TRIGGER test_reject_history ON compliance_rule_history; DROP FUNCTION test_reject_history();'));
+    }
+    const { rows } = await owner((q) => q.query<{ value: unknown; is_active: boolean }>('SELECT value, is_active FROM compliance_rules WHERE id = $1', [created.id]));
+    expect(rows[0]).toEqual({ value: 'web', is_active: true });
+    expect((await historyFor(created.id)).map((h) => h.change_type)).toEqual(['created']);
+  });
+
+  it('a stale expectedUpdatedAt is a 412 that changes nothing and records no history', async () => {
+    const created = await as(() => complianceRuleService.create(ruleInput() as never, USER));
+    const loaded = new Date(created.updatedAt).toISOString();
+    // Someone else edits first.
+    await as(() => complianceRuleService.update(created.id, { value: 'api' }, ORG, USER, { expectedUpdatedAt: loaded }));
+    await expect(as(() => complianceRuleService.update(created.id, { value: 'other' }, ORG, USER, { expectedUpdatedAt: loaded })))
+      .rejects.toBeInstanceOf(ConcurrencyConflictError);
+    const { rows } = await owner((q) => q.query<{ value: unknown }>('SELECT value FROM compliance_rules WHERE id = $1', [created.id]));
+    expect(rows[0]?.value).toBe('api');
+    expect((await historyFor(created.id)).map((h) => h.change_type).sort()).toEqual(['created', 'updated']);
   });
 
   it('a same-name rule in the same org is a 409 (the real unique index)', async () => {

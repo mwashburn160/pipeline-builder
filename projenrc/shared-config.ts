@@ -98,6 +98,33 @@ interface JestConfigurable {
     addDevDeps: (...deps: string[]) => void;
     jest?: { config: Record<string, unknown> };
     tasks: Tasks;
+    tryFindObjectFile: (filePath: string) => { addOverride: (p: string, v: unknown) => void } | undefined;
+}
+
+/**
+ * The workspace libraries whose INTERNALS unit tests may deep-import.
+ *
+ * No published package has a `./lib/*` export (each `exports` map lists its
+ * entry points explicitly — see setPublicSurface in .projenrc.ts), so a
+ * consumer of the npm tarball cannot reach an internal module. Unit tests still
+ * need to — to take the real implementation of a module whose barrel the suite
+ * has mocked, or a symbol the barrel deliberately narrows away — and they do it
+ * through `@pipeline-builder/<lib>/lib/<path>.js`, which this workspace-only
+ * mapping resolves straight to `packages/<lib>/lib/<path>.js`: the jest
+ * moduleNameMapper at run time, test/tsconfig.json `paths` for typecheck:tests.
+ * Neither exists outside the repo, and test/package-surface.test.ts fails any
+ * NON-test source file that deep-imports.
+ */
+export const WORKSPACE_LIBS = ['api-core', 'api-server', 'pipeline-core', 'pipeline-data', 'ai-core', 'pipeline-events'] as const;
+
+function workspaceInternalsMapper(project: JestConfigurable): Record<string, string> {
+    const toRoot = path.relative(project.outdir, process.cwd()) || '.';
+    return { [`^@pipeline-builder/(${WORKSPACE_LIBS.join('|')})/lib/(.*)$`]: `<rootDir>/${toRoot}/packages/$1/lib/$2` };
+}
+
+function workspaceInternalsPaths(project: JestConfigurable): Record<string, string[]> {
+    const toRoot = path.relative(path.join(project.outdir, 'test'), process.cwd()) || '.';
+    return Object.fromEntries(WORKSPACE_LIBS.map((lib) => [`@pipeline-builder/${lib}/lib/*`, [`${toRoot}/packages/${lib}/lib/*`]]));
 }
 
 // ESM relative imports carry explicit `.js` extensions; strip them so ts-jest
@@ -151,7 +178,7 @@ export function configureEsmJest(project: JestConfigurable): void {
     if (project.jest) {
         project.jest.config.extensionsToTreatAsEsm = ['.ts', '.tsx'];
         project.jest.config.transform = tsJestTransform();
-        project.jest.config.moduleNameMapper = { ...uuidStub(project), ...JS_EXT_MAP };
+        project.jest.config.moduleNameMapper = { ...uuidStub(project), ...JS_EXT_MAP, ...workspaceInternalsMapper(project) };
         // `clearMocks` (projen's default) only resets calls — it leaves a
         // `jest.spyOn(...).mockImplementation(...)` in place for every later test
         // in the file AND, for a spy on a shared module object, for every later
@@ -179,6 +206,8 @@ export function configureEsmJest(project: JestConfigurable): void {
         exec: 'tsc --noEmit -p test/tsconfig.json',
     });
     project.tasks.tryFind('test')?.prependSpawn(typecheckTests);
+    // The typecheck half of the workspace-only internals mapping (see WORKSPACE_LIBS).
+    project.tryFindObjectFile('test/tsconfig.json')?.addOverride('compilerOptions.paths', workspaceInternalsPaths(project));
     // `test:update` (jest --updateSnapshot) runs the same ESM suites.
     project.tasks.tryFind('test:update')?.env('NODE_OPTIONS', '--experimental-vm-modules');
 }

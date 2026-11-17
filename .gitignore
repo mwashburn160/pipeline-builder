@@ -61,6 +61,7 @@ deploy/pipeline-builder/
 !/.vscode/settings.json
 !/.github/workflows/release.yml
 !/.github/workflows/test.yml
+!/.github/workflows/nightly-smoke.yml
 !/deploy/local/docker/services.txt
 !/deploy/local/minikube/services.txt
 !/deploy/aws/ec2/services.txt

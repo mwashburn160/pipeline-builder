@@ -5,8 +5,11 @@ import {
   actorId,
   AppError,
   audited,
+  contractErrorMessage,
+  contractRoute,
   ErrorCode,
-  PUBLISHER_TIERS,
+  IMAGE_REGISTRY_INTERNAL,
+  parseContractQuery,
   requireInternalService,
   sendBadRequest,
   sendError,
@@ -18,9 +21,7 @@ import {
 } from '@pipeline-builder/api-core';
 import { incCounter, withRoute } from '@pipeline-builder/api-server';
 import { type RequestHandler, type Router } from 'express';
-import { z } from 'zod';
 
-import { inQuarantineNamespace, isPluginRepository, isPublicRepository, isQuarantineRepository, isSystemPluginRepository, PUBLISHER_HANDLE_RE } from '../services/namespaces.js';
 import {
   PluginSigningError,
 } from '../services/plugin-signing.js';
@@ -39,8 +40,11 @@ import {
   yankPublicVersion,
 } from '../services/public-publishing.js';
 
+const C = IMAGE_REGISTRY_INTERNAL;
+const MOUNT = '/internal';
+
 /** Base path of the public-namespace routes (under `/internal`). */
-export const PLUGIN_PUBLICATIONS_PATH = '/plugin-publications';
+export const PLUGIN_PUBLICATIONS_PATH = contractRoute(C.publishPublicImage, MOUNT);
 
 /**
  * Socket timeout for every `/internal/plugin-publications*` route, replacing
@@ -52,73 +56,9 @@ export const PLUGIN_PUBLICATIONS_PATH = '/plugin-publications';
  */
 export const PUBLICATION_TIMEOUT_MS = 600_000;
 
-const digest = z.string().regex(/^sha256:[0-9a-f]{64}$/, 'digest must be sha256:<64 hex>');
-const handle = z.string().max(64).regex(PUBLISHER_HANDLE_RE, 'publisherHandle must be one lowercase registry path component');
-const pluginName = z.string().max(128).regex(/^[a-z0-9][a-z0-9._-]*$/, 'name must be a lowercase plugin name');
-/** A Distribution tag — and never a cosign companion (`sha256-….sig`). */
-const version = z.string().regex(/^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$/, 'version must be a registry tag')
-  .refine((v) => !/^sha256-/.test(v), 'version must not look like a cosign signature tag');
-const tier = z.enum(PUBLISHER_TIERS);
-const orgId = z.string().regex(/^[a-z0-9][a-z0-9-]*$/i, 'publisherOrgId must be an org id');
-const publicRepository = z.string().refine(isPublicRepository, 'imageRepository must be public/<publisherHandle>/<name>');
-/**
- * The user whose decision this call executes (the approving moderator, the
- * admin who triggered a re-sign). The plugin service's token is the system
- * org's, so without it the trail could only say "system" did it.
- */
-const onBehalfOf = z.string().min(1).max(128).optional();
-
-const PublishSchema = z.object({
-  // `quarantine/<submissionId>` is an approved anonymous submission; like every
-  // source it is published only by the plugin service executing a moderation
-  // approval (a system-org token on a plugin-only route).
-  sourceRepository: z.string().refine(
-    (r) => isPluginRepository(r) && !isPublicRepository(r) && (!inQuarantineNamespace(r) || isQuarantineRepository(r)),
-    'sourceRepository must be org-<orgId>/<name>, system/<name> or quarantine/<submissionId>',
-  ),
-  digest,
-  publisherHandle: handle,
-  name: pluginName,
-  version,
-  tier,
-  publisherOrgId: orgId.nullable(),
-  actorId: onBehalfOf,
-});
-
-const ResignSchema = z.object({
-  imageRepository: publicRepository,
-  digest,
-  publisherHandle: handle,
-  tier,
-  /** Optional: re-point storage attribution (ownership transfer). */
-  publisherOrgId: orgId.nullable().optional(),
-  /** Optional progress hook for the plugin service's resumable re-sign job. */
-  progress: z.object({
-    completed: z.number().int().min(0),
-    total: z.number().int().min(0),
-  }).optional(),
-  actorId: onBehalfOf,
-});
-
-const YankSchema = z.object({ imageRepository: publicRepository, version, digest, actorId: onBehalfOf });
-/**
- * A collection: a long-yanked `public/*` digest, or — with the retired
- * version's own tag — the `system/<name>` build copy of a system plugin version
- * the retention pass retired and purged.
- */
-const GcSchema = z.union([
-  z.object({ imageRepository: publicRepository, digest, actorId: onBehalfOf }),
-  z.object({
-    imageRepository: z.string().refine(isSystemPluginRepository, 'imageRepository must be public/<publisherHandle>/<name> or system/<name> (never a -base image)'),
-    digest,
-    version,
-    actorId: onBehalfOf,
-  }),
-]);
-const InvalidateSchema = z.object({
-  imageRepository: publicRepository.optional(),
-  digest: digest.optional(),
-}).refine((b) => !b.digest || b.imageRepository, 'digest requires imageRepository');
+// The request bodies (and their messages) are the contracts' — api-core
+// `IMAGE_REGISTRY_INTERNAL` — so the plugin service's client validates against
+// exactly what these routes accept.
 
 /** The calling service token's org (lowercased), or '' when the token names none. */
 function callerOrg(user: { organizationId?: string } | undefined): string {
@@ -192,7 +132,9 @@ function auditPublication(
  *  - POST /internal/plugin-publications/verify-cache/invalidate
  */
 export function registerPublicationRoutes(router: Router): void {
-  const pluginOnly = requireInternalService({ callers: ['plugin'] }) as RequestHandler;
+  // Every publication contract names the same single caller.
+  const pluginOnly = requireInternalService({ callers: [...C.publishPublicImage.callers] }) as RequestHandler;
+  const route = (c: (typeof C)[keyof typeof C]): string => contractRoute(c, MOUNT);
 
   router.use(PLUGIN_PUBLICATIONS_PATH, ((req, res, next) => {
     res.setTimeout(PUBLICATION_TIMEOUT_MS);
@@ -200,8 +142,8 @@ export function registerPublicationRoutes(router: Router): void {
     next();
   }) as RequestHandler);
 
-  router.post(PLUGIN_PUBLICATIONS_PATH, pluginOnly, systemOrgOnly('registry.image.publish'), audited('registry.image.publish') as RequestHandler, withRoute(async ({ req, res, ctx }) => {
-    const v = validateBody(req, PublishSchema);
+  router.post(route(C.publishPublicImage), pluginOnly, systemOrgOnly('registry.image.publish'), audited('registry.image.publish') as RequestHandler, withRoute(async ({ req, res, ctx }) => {
+    const v = validateBody(req, C.publishPublicImage.body!);
     if (!v.ok) return sendBadRequest(res, v.error, ErrorCode.VALIDATION_ERROR);
     const body = v.value;
 
@@ -222,8 +164,8 @@ export function registerPublicationRoutes(router: Router): void {
     return sendSuccess(res, 200, { imageRepository: result.imageRepository, digest: result.digest });
   }));
 
-  router.post(`${PLUGIN_PUBLICATIONS_PATH}/resign`, pluginOnly, systemOrgOnly('registry.image.resign'), audited('registry.image.resign') as RequestHandler, withRoute(async ({ req, res, ctx }) => {
-    const v = validateBody(req, ResignSchema);
+  router.post(route(C.resignPublicImage), pluginOnly, systemOrgOnly('registry.image.resign'), audited('registry.image.resign') as RequestHandler, withRoute(async ({ req, res, ctx }) => {
+    const v = validateBody(req, C.resignPublicImage.body!);
     if (!v.ok) return sendBadRequest(res, v.error, ErrorCode.VALIDATION_ERROR);
     const body = v.value;
 
@@ -243,8 +185,8 @@ export function registerPublicationRoutes(router: Router): void {
     return sendSuccess(res, 200, { imageRepository: body.imageRepository, digest: body.digest, tier: body.tier, publisher: body.publisherHandle });
   }));
 
-  router.post(`${PLUGIN_PUBLICATIONS_PATH}/yank`, pluginOnly, systemOrgOnly('registry.image.yank'), audited('registry.image.yank') as RequestHandler, withRoute(async ({ req, res, ctx }) => {
-    const v = validateBody(req, YankSchema);
+  router.post(route(C.yankPublicVersion), pluginOnly, systemOrgOnly('registry.image.yank'), audited('registry.image.yank') as RequestHandler, withRoute(async ({ req, res, ctx }) => {
+    const v = validateBody(req, C.yankPublicVersion.body!);
     if (!v.ok) return sendBadRequest(res, v.error, ErrorCode.VALIDATION_ERROR);
     const body = v.value;
 
@@ -260,8 +202,8 @@ export function registerPublicationRoutes(router: Router): void {
     return sendSuccess(res, 200, { imageRepository: body.imageRepository, version: body.version, digest: body.digest, yanked: true });
   }));
 
-  router.post(`${PLUGIN_PUBLICATIONS_PATH}/retag`, pluginOnly, systemOrgOnly('registry.image.publish'), audited('registry.image.publish') as RequestHandler, withRoute(async ({ req, res, ctx }) => {
-    const v = validateBody(req, YankSchema);
+  router.post(route(C.retagPublicVersion), pluginOnly, systemOrgOnly('registry.image.publish'), audited('registry.image.publish') as RequestHandler, withRoute(async ({ req, res, ctx }) => {
+    const v = validateBody(req, C.retagPublicVersion.body!);
     if (!v.ok) return sendBadRequest(res, v.error, ErrorCode.VALIDATION_ERROR);
     const body = v.value;
 
@@ -277,8 +219,8 @@ export function registerPublicationRoutes(router: Router): void {
     return sendSuccess(res, 200, { imageRepository: body.imageRepository, version: body.version, digest: body.digest, tagged: true });
   }));
 
-  router.post(`${PLUGIN_PUBLICATIONS_PATH}/gc`, pluginOnly, systemOrgOnly('registry.image.gc'), audited('registry.image.gc') as RequestHandler, withRoute(async ({ req, res, ctx }) => {
-    const v = validateBody(req, GcSchema);
+  router.post(route(C.collectImage), pluginOnly, systemOrgOnly('registry.image.gc'), audited('registry.image.gc') as RequestHandler, withRoute(async ({ req, res, ctx }) => {
+    const v = validateBody(req, C.collectImage.body!);
     if (!v.ok) return sendBadRequest(res, v.error, ErrorCode.VALIDATION_ERROR);
     const body = v.value;
     const system = 'version' in body;
@@ -300,13 +242,10 @@ export function registerPublicationRoutes(router: Router): void {
     return sendSuccess(res, 200, { imageRepository: body.imageRepository, digest: body.digest, deleted: result.deleted });
   }));
 
-  router.get(`${PLUGIN_PUBLICATIONS_PATH}/verify`, pluginOnly, withRoute(async ({ req, res }) => {
-    const imageRepository = typeof req.query.imageRepository === 'string' ? req.query.imageRepository : '';
-    const d = typeof req.query.digest === 'string' ? req.query.digest : '';
-    if (!isPublicRepository(imageRepository)) {
-      return sendBadRequest(res, 'imageRepository must be public/<publisherHandle>/<name>', ErrorCode.VALIDATION_ERROR);
-    }
-    if (!digest.safeParse(d).success) return sendBadRequest(res, 'digest must be sha256:<64 hex>', ErrorCode.VALIDATION_ERROR);
+  router.get(route(C.verifyPublication), pluginOnly, withRoute(async ({ req, res }) => {
+    const q = parseContractQuery(C.verifyPublication, req);
+    if (!q.ok) return sendBadRequest(res, contractErrorMessage(q), ErrorCode.VALIDATION_ERROR);
+    const { imageRepository, digest: d } = q.value;
 
     try {
       return sendSuccess(res, 200, await verifyPublication(imageRepository, d));
@@ -316,8 +255,8 @@ export function registerPublicationRoutes(router: Router): void {
     }
   }));
 
-  router.post(`${PLUGIN_PUBLICATIONS_PATH}/verify-cache/invalidate`, pluginOnly, withRoute(async ({ req, res }) => {
-    const v = validateBody(req, InvalidateSchema);
+  router.post(route(C.invalidateVerifyCache), pluginOnly, withRoute(async ({ req, res }) => {
+    const v = validateBody(req, C.invalidateVerifyCache.body!);
     if (!v.ok) return sendBadRequest(res, v.error, ErrorCode.VALIDATION_ERROR);
     const invalidated = invalidateVerifyCache(v.value.imageRepository, v.value.digest);
     return sendSuccess(res, 200, { invalidated });

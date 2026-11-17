@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { parseSynthFailure, SYNTH_FAILURE_MARKER, type SynthFailure } from '@pipeline-builder/pipeline-core/lib/core/synth-failure.js';
+import { parseSynthFailure, SYNTH_FAILURE_MARKER, type SynthFailure } from '@pipeline-builder/pipeline-core/runtime';
 import { loadSdk, log } from './util.js';
 
 // Structured failure reasons for failed CodeBuild actions.

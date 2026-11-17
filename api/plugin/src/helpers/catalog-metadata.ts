@@ -11,7 +11,7 @@
  */
 
 import type { ResolvedCatalog } from '@pipeline-builder/api-core';
-import { renderUntrustedMarkdown } from '@pipeline-builder/api-server/lib/markdown.js';
+import { renderUntrustedMarkdown } from '@pipeline-builder/api-server/markdown';
 import type { PluginIcon } from '@pipeline-builder/pipeline-data';
 
 import type { PluginCatalogDocFields } from './plugin-helpers.js';

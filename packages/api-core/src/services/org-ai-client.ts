@@ -29,6 +29,8 @@
 import type { NextFunction, Request, Response } from 'express';
 import { createSafeClient } from './http-client.js';
 import { serviceIdentity } from './service-keys.js';
+import { callInternal } from '../contracts/call.js';
+import { PLATFORM_INTERNAL } from '../contracts/platform.js';
 import { AIConfigurationError, AIDisabledError } from '../errors/app-errors.js';
 import { getServiceAuthHeader } from '../middleware/service-tokens.js';
 import { ErrorCode } from '../types/error-codes.js';
@@ -36,9 +38,12 @@ import { envInt } from '../utils/env.js';
 import { sendError } from '../utils/response.js';
 import { serviceEndpoint } from '../utils/service-registry.js';
 
-/** Platform paths (exported for the platform route-coverage + mesh declarations). */
-export const ORG_AI_ACCESS_PATH = '/internal/ai/access';
-export const ORG_AI_KEYS_PATH = '/internal/ai/keys';
+/** The two platform reads, defined once in `contracts/platform.ts`. */
+const { orgAIAccess: ACCESS, orgAIKey: KEY } = PLATFORM_INTERNAL;
+
+/** Platform path prefixes (exported for the platform route-coverage + mesh declarations). */
+export const ORG_AI_ACCESS_PATH = ACCESS.path.replace(/\/:orgId$/, '');
+export const ORG_AI_KEYS_PATH = KEY.path.replace(/\/:orgId\/:provider$/, '');
 
 /** How long an org's switch + configured-provider list is reused (default 30s). */
 export const ORG_AI_ACCESS_TTL_MS = envInt('ORG_AI_ACCESS_TTL_MS', 30_000, { min: 0 });
@@ -78,18 +83,12 @@ export async function fetchOrgAIAccess(orgId: string): Promise<OrgAIAccess> {
   const hit = accessCache.get(orgId);
   if (hit && hit.expiresAt > Date.now()) return hit.value;
 
-  const response = await platform().get<{ data?: Partial<OrgAIAccess> } & Partial<OrgAIAccess>>(
-    `${ORG_AI_ACCESS_PATH}/${encodeURIComponent(orgId)}`, { headers: authFor(orgId) },
-  );
-  const body = response?.body;
-  const data = body?.data ?? body;
-  if (!response || response.statusCode !== 200 || typeof data?.aiEnabled !== 'boolean') {
+  const result = await callInternal(platform(), ACCESS, { params: { orgId }, options: { headers: authFor(orgId) } });
+  if (!result.ok || result.status !== 200) {
     throw new AIConfigurationError('The organization\'s AI settings could not be read, so no AI request was made. Try again shortly.');
   }
-  const value: OrgAIAccess = {
-    aiEnabled: data.aiEnabled,
-    providers: Array.isArray(data.providers) ? data.providers.filter((p): p is string => typeof p === 'string') : [],
-  };
+  // The contract drops non-string provider ids and reads a missing list as none.
+  const value: OrgAIAccess = { aiEnabled: result.data.aiEnabled, providers: result.data.providers };
   if (ORG_AI_ACCESS_TTL_MS > 0) accessCache.set(orgId, { value, expiresAt: Date.now() + ORG_AI_ACCESS_TTL_MS });
   return value;
 }
@@ -104,11 +103,9 @@ export async function fetchOrgAIKey(orgId: string, provider: string): Promise<st
   const hit = keyCache.get(cacheKey);
   if (hit && hit.expiresAt > Date.now()) return hit.value;
 
-  const response = await platform().get<{ data?: { apiKey?: unknown }; apiKey?: unknown }>(
-    `${ORG_AI_KEYS_PATH}/${encodeURIComponent(orgId)}/${encodeURIComponent(provider)}`, { headers: authFor(orgId) },
-  );
-  const apiKey = response?.body?.data?.apiKey ?? response?.body?.apiKey;
-  if (!response || response.statusCode !== 200 || typeof apiKey !== 'string' || apiKey.length === 0) {
+  const result = await callInternal(platform(), KEY, { params: { orgId, provider }, options: { headers: authFor(orgId) } });
+  const apiKey = result.ok && result.status === 200 ? result.data.apiKey : undefined;
+  if (apiKey === undefined) {
     // Status only: the body is never echoed, and the key is never in a message.
     throw new AIConfigurationError(
       `The organization's ${provider} API key could not be loaded, so the request was not sent. `

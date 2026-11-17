@@ -19,12 +19,12 @@
  * fallback is its decision, not ours.
  */
 
-import { getParam, sendError, sendSuccess } from '@pipeline-builder/api-core';
+import { PLATFORM_INTERNAL, contractErrorMessage, parseContractParams, sendError, sendSuccess } from '@pipeline-builder/api-core';
 import { withController } from '../helpers/controller-helper.js';
 import { supportEntitlement } from '../helpers/support-entitlement.js';
 
-/** Organization ids are 24-hex ObjectIds. */
-const ORG_ID = /^[a-f0-9]{24}$/i;
+/** The org id (24-hex, lowercased) is validated by the endpoint's contract. */
+const { supportEntitlement: ENTITLEMENT } = PLATFORM_INTERNAL;
 
 /**
  * May this org open a support case, and at what level?
@@ -40,7 +40,7 @@ const ORG_ID = /^[a-f0-9]{24}$/i;
  * org as an outage and fall back to a stale cached grant.
  */
 export const getSupportEntitlement = withController('Support entitlement', async (req, res) => {
-  const orgId = (getParam(req.params, 'orgId') ?? '').toLowerCase();
-  if (!ORG_ID.test(orgId)) return sendError(res, 400, 'orgId must be an organization id');
-  return sendSuccess(res, 200, await supportEntitlement(orgId));
+  const params = parseContractParams(ENTITLEMENT, req);
+  if (!params.ok) return sendError(res, 400, contractErrorMessage(params));
+  return sendSuccess(res, 200, await supportEntitlement(params.value.orgId));
 });

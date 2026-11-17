@@ -20,9 +20,9 @@
  * per fresh install / intentional price change, then set STRIPE_PRICE_MAP.
  */
 import Stripe from 'stripe';
-// `loadBillingConfig` isn't a package-root export; reach it via the deep path
-// (the package's exports map exposes `./lib/*`).
-import { loadBillingConfig } from '@pipeline-builder/pipeline-core/lib/config/billing-config.js';
+// The billing config loader lives in this service (src/config/billing-config.ts);
+// run `pnpm build` in api/billing first so lib/ is current.
+import { loadBillingConfig } from '../lib/config/billing-config.js';
 
 const dryRun = process.argv.includes('--dry-run');
 const key = process.env.STRIPE_SECRET_KEY;

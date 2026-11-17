@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { sendSuccess, sendError, sendBadRequest, ErrorCode, createLogger, requireAuth, requireInternalService, getParam, errorMessage, audited, recordAudit, SYSTEM_ACTOR_ID, SYSTEM_ORG_ID, type RemoteAuditEvent } from '@pipeline-builder/api-core';
+import { MESSAGE_INTERNAL, contractRoute, sendSuccess, sendError, sendBadRequest, ErrorCode, createLogger, requireAuth, requireInternalService, getParam, errorMessage, audited, recordAudit, SYSTEM_ACTOR_ID, SYSTEM_ORG_ID, type RemoteAuditEvent } from '@pipeline-builder/api-core';
 import { Router } from 'express';
 import type { Request, Response } from 'express';
 import { attachmentService } from '../services/attachment-service.js';
@@ -37,10 +37,13 @@ function purgeAudit(orgId: string): Omit<RemoteAuditEvent, 'details'> {
   };
 }
 
+/** The route and its callers — defined once in api-core. */
+const PURGE = MESSAGE_INTERNAL.purgeOrgAttachments;
+
 export function createInternalOrgPurgeRoutes(): Router {
   const router = Router();
 
-  router.delete('/internal/org/:orgId/attachments', requireAuth, requireInternalService({ callers: ['platform'] }), audited('message.org.purge'), async (req: Request, res: Response) => {
+  router.delete(contractRoute(PURGE, '/messages'), requireAuth, requireInternalService({ callers: PURGE.callers }), audited('message.org.purge'), async (req: Request, res: Response) => {
     const orgId = getParam(req.params, 'orgId');
     if (!orgId) {
       return sendBadRequest(res, 'orgId is required', ErrorCode.MISSING_REQUIRED_FIELD);

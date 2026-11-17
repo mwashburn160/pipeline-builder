@@ -42,7 +42,7 @@ import {
   SYSTEM_ORG_ID,
 } from '@pipeline-builder/api-core';
 import { incCounter } from '@pipeline-builder/api-server';
-import { renderUntrustedMarkdown } from '@pipeline-builder/api-server/lib/markdown.js';
+import { renderUntrustedMarkdown } from '@pipeline-builder/api-server/markdown';
 import {
   advisoryRangeCovers,
   advisoryRangeProblem,

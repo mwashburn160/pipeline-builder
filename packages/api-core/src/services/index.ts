@@ -56,6 +56,7 @@ export {
 } from './version-vuln-policy.js';
 export {
   createComplianceClient,
+  type ComplianceClient,
   type ComplianceCheckResult,
   type ComplianceViolation,
 } from './compliance-client.js';

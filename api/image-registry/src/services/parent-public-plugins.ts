@@ -13,7 +13,7 @@
  * is refused, and a retry after the short failure TTL tries again).
  */
 
-import { createLogger, errorMessage, getServiceAuthHeader, InternalHttpClient, serviceEndpoint, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import { callInternal, createLogger, errorMessage, getServiceAuthHeader, InternalHttpClient, PLUGIN_INTERNAL, serviceEndpoint, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
 import { TtlCache } from './ttl-cache.js';
 
 const logger = createLogger('parent-public-plugins');
@@ -28,13 +28,13 @@ const cache = new TtlCache<ReadonlySet<string>>(MAX_ENTRIES, TTL_MS);
 
 const liveFetcher: Fetcher = async (orgId) => {
   const client = new InternalHttpClient(serviceEndpoint('plugin'));
-  const res = await client.get<{ data?: { names?: unknown } }>(`/internal/plugins/public-names?orgId=${encodeURIComponent(orgId)}`, {
-    headers: { Authorization: getServiceAuthHeader({ serviceName: 'image-registry', orgId: SYSTEM_ORG_ID, role: 'member' }) },
+  const res = await callInternal(client, PLUGIN_INTERNAL.publicPluginNames, {
+    query: { orgId },
+    options: { headers: { Authorization: getServiceAuthHeader({ serviceName: 'image-registry', orgId: SYSTEM_ORG_ID, role: 'member' }) } },
   });
-  if (res.statusCode !== 200) throw new Error(`plugin service answered HTTP ${res.statusCode}`);
-  const names = res.body?.data?.names;
-  if (!Array.isArray(names)) throw new Error('plugin service answered without a names list');
-  return names.filter((n): n is string => typeof n === 'string');
+  if (res.ok) return res.data.names;
+  if (res.reason === 'invalid-response') throw new Error('plugin service answered without a names list');
+  throw new Error(`plugin service answered HTTP ${res.reason === 'status' ? res.status : 'unreachable'}`);
 };
 
 let fetcher: Fetcher = liveFetcher;

@@ -17,8 +17,9 @@ import {
   createChannelRegistry,
   createEmailChannel,
   createWebhookChannel,
+  callInternal,
   getServiceAuthHeader,
-  NOTIFY_EMAIL_PATH,
+  PLATFORM_INTERNAL,
   sendSystemNotification,
   type ChannelTarget,
   type NotificationChannel,
@@ -61,20 +62,24 @@ const emailChannel = createEmailChannel({
   send: async (req) => {
     // The client resolves (not throws) on a 4xx/5xx, so the status is the only
     // signal that platform refused or failed the send.
-    const resp = await emailClient.post(NOTIFY_EMAIL_PATH, {
-      orgId: req.orgId,
-      targetUsers: req.targetUsers ?? null,
-      subject: req.subject,
-      text: req.text,
-    }, {
-      headers: {
-        // Scoped to the TENANT the email is for: platform's relay is tenant-bound
-        // (a non-superadmin service token may only email its own org's users),
-        // so a system-org token naming a tenant `orgId` is refused 403.
-        Authorization: getServiceAuthHeader({ serviceName: 'compliance', orgId: req.orgId, role: 'member' }),
+    const resp = await callInternal(emailClient, PLATFORM_INTERNAL.notifyEmail, {
+      body: {
+        orgId: req.orgId,
+        targetUsers: req.targetUsers ?? null,
+        subject: req.subject,
+        text: req.text,
+      },
+      options: {
+        headers: {
+          // Scoped to the TENANT the email is for: platform's relay is tenant-bound
+          // (a non-superadmin service token may only email its own org's users),
+          // so a system-org token naming a tenant `orgId` is refused 403.
+          Authorization: getServiceAuthHeader({ serviceName: 'compliance', orgId: req.orgId, role: 'member' }),
+        },
       },
     });
-    return resp.statusCode < 400;
+    // Delivered on any 2xx, as before — the reply's shape is not the signal.
+    return resp.ok || resp.reason === 'invalid-response';
   },
 });
 

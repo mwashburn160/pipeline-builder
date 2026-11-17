@@ -223,12 +223,12 @@ describe('PUT /:id', () => {
     const r = res();
     await update(req({ body: { props: { project: '{{ vars.repo }}' }, ownerId: 'u-9', description: 'new' } }), r);
     expect(r.status).toHaveBeenCalledWith(200);
-    expect(svc.update).toHaveBeenCalledWith('t-1', expect.not.objectContaining({ ownerId: 'u-9' }), 'acme', 'user-1');
+    expect(svc.update).toHaveBeenCalledWith('t-1', expect.not.objectContaining({ ownerId: 'u-9' }), 'acme', 'user-1', { expectedUpdatedAt: undefined });
     expect(mockRecordAudit).toHaveBeenCalledWith(expect.objectContaining({ action: 'pipeline_template.update' }));
 
     const admin = res();
     await update(req({ body: { ownerId: 'u-9', ownerType: 'user' }, user: { isAdmin: true } }), admin);
-    expect(svc.update).toHaveBeenLastCalledWith('t-1', expect.objectContaining({ ownerId: 'u-9' }), 'acme', 'user-1');
+    expect(svc.update).toHaveBeenLastCalledWith('t-1', expect.objectContaining({ ownerId: 'u-9' }), 'acme', 'user-1', { expectedUpdatedAt: undefined });
   });
 
   // The `(name, org_id)` unique index used to surface a colliding rename as a

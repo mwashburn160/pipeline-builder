@@ -21,10 +21,13 @@
  *    because it is not in `changedFields` and so is never picked: the reviewed
  *    diff IS the commit payload, expressed as a type.
  *
- * `current` is also the RE-READ BASELINE. These tables carry no
- * version column, so before applying, the UI re-reads the entity and refuses
- * when any field in `changedFields` no longer equals `current[field]` — the
- * approved diff must be the applied diff.
+ * The approved diff must be the applied diff, and the SERVER enforces it: an
+ * edit proposal carries `baseUpdatedAt`, the `updatedAt` of the read it was
+ * drafted against, and the UI sends it as the update's `expectedUpdatedAt`. If
+ * the entity changed in any way since the draft, the update route answers 412
+ * PRECONDITION_FAILED and writes nothing — no window between a client-side
+ * re-read and the write. `current` remains the baseline the UI re-reads against
+ * first, so it can name WHICH reviewed field moved before even trying.
  *
  * `provenance` is the AI-provenance stamp: the commit records
  * `details: { proposedBy: 'ask-agent' }` so the hash-chained audit trail can
@@ -149,6 +152,14 @@ export interface EditProposal extends ProposalBase {
   changedPaths: string[];
   commit: CommitTarget;
   compliance?: ComplianceNote;
+  /**
+   * The `updatedAt` of the read the diff was drafted against (ISO string). The
+   * UI sends it as `expectedUpdatedAt` on the commit, so a change landing after
+   * the draft is a 412 from the update route, never a silent clobber. Absent
+   * only when the read carried no timestamp — the commit is then guarded by the
+   * client-side re-read alone.
+   */
+  baseUpdatedAt?: string;
   /** Template edits only: the merged document's template-engine verdict. */
   validation?: TemplateDraftValidation;
   /**

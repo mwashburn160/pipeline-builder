@@ -199,6 +199,12 @@ export {
   type OrgToolchainDefaultHistory,
   type OrgToolchainDefaultHistoryInsert,
 } from './drizzle-schema.js';
+// Every schema TYPE (row/insert shapes and the `$type<…>` JSON column shapes)
+// is public: a table exported above carries them structurally, so a consumer
+// whose declarations infer a table's type must be able to name them — with no
+// `./lib/*` export, a type reachable only via drizzle-schema.js fails the
+// consumer's declaration emit (TS2883). Types only; values stay the list above.
+export type * from './drizzle-schema.js';
 export {
   getSslConfig,
   getConnection,

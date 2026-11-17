@@ -47,8 +47,12 @@ const mockEmit = jest.fn<AnyFn>();
 /** Every scheduler the suite built, so each test can stop what it started. */
 const built: Array<{ start: () => void; stop: () => void }> = [];
 
+/** The scheduler's logger, so a test can read what a failed run logged. */
+const mockLogError = jest.fn<AnyFn>();
+
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   emitCounter: (...a: unknown[]) => mockEmit(...a),
+  createLogger: () => ({ info: jest.fn(), warn: jest.fn(), debug: jest.fn(), error: (...a: unknown[]) => mockLogError(...a) }),
   createScheduler: (opts: Record<string, unknown>) => {
     const s = {
       start: () => undefined,
@@ -607,6 +611,11 @@ describe('the Monday spike', () => {
     await cycled;
 
     expect(mockReadyForReview).toHaveBeenCalledTimes(1);
+    // api-core's withTimeout names the run and its budget.
+    expect(mockLogError).toHaveBeenCalledWith('Report run failed', expect.objectContaining({
+      definitionId: 'def-hung',
+      error: 'report run def-hung timed out after 1000ms',
+    }));
     delete process.env.REPORT_RUN_TIMEOUT_MS;
     delete process.env.REPORT_SCHEDULER_CONCURRENCY;
   });

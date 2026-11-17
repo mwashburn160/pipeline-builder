@@ -2,12 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Compliance rule history is the audit trail of rule changes, so it must not be
- * fire-and-forget:
- *  - create/update/delete AWAIT the history write (retried) before answering,
- *    and a row that is finally lost is COUNTED
- *    (`compliance_audit_write_failures_total{kind="rule_history"}`), never thrown
- *    — the mutation already committed;
+ * Compliance rule history is the audit trail of rule changes, so it commits
+ * ATOMICALLY with the change:
+ *  - create/update/delete write the history row in the mutation's own
+ *    transaction (CrudService's onCreateInTx / onUpdateInTx / onDeleteInTx),
+ *    with the pre-mutation row as `previousState`; a failed history insert
+ *    fails — and rolls back — the mutation;
  *  - restore writes its row INSIDE the restore transaction (restoreExtraSet),
  *    locking the tombstone first, so a restore that does not happen leaves no
  *    "restored" entry.
@@ -21,12 +21,26 @@ const RULE = { id: 'rule-1', orgId: 'org-1', name: 'r', target: 'plugin', scope:
 
 // Prototype methods (not class fields) so the subclass overrides run and
 // `super.x()` resolves here — see rule-delete-notify.test.ts.
+// The stub mutations run the in-tx hooks the way CrudService does: inside the
+// (mock) transaction, after the write, a throw propagating to the caller.
+const superUpdate = jest.fn<AnyFn>();
+type HookFn = (e: unknown, tx: unknown, ctx: unknown) => Promise<void>;
 class StubCrudService {
   async find(): Promise<unknown> { return []; }
-  async findById(): Promise<unknown> { return RULE; }
-  async create(): Promise<unknown> { return RULE; }
-  async update(): Promise<unknown> { return RULE; }
-  async delete(): Promise<unknown> { return RULE; }
+  async findById(): Promise<unknown> { return { ...RULE, value: 'before' }; }
+  async create(_d: unknown, userId: string): Promise<unknown> {
+    await (this as unknown as { onCreateInTx: HookFn }).onCreateInTx(RULE, { insert: dbInsert }, { userId, operation: 'create' });
+    return RULE;
+  }
+  async update(...args: unknown[]): Promise<unknown> {
+    superUpdate(...args);
+    await (this as unknown as { onUpdateInTx: HookFn }).onUpdateInTx(RULE, { insert: dbInsert }, { userId: args[3], orgId: args[2], operation: 'update' });
+    return RULE;
+  }
+  async delete(_id: string, orgId: string, userId: string): Promise<unknown> {
+    await (this as unknown as { onDeleteInTx: HookFn }).onDeleteInTx(RULE, { insert: dbInsert }, { userId, orgId, operation: 'delete' });
+    return RULE;
+  }
 }
 
 const order: string[] = [];
@@ -57,8 +71,7 @@ const pipelineDataMock = {
   withTenantTx: (fn: (tx: unknown) => unknown) => fn({ insert: dbInsert, select: dbSelect }),
 };
 
-const mockEmitCounter = jest.fn();
-jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({ emitCounter: (...a: unknown[]) => mockEmitCounter(...a) }));
+jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => pipelineDataMock);
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => pipelineDataMock);
 jest.unstable_mockModule('../src/helpers/rule-change-notifier.js', () => ({
@@ -77,31 +90,38 @@ beforeEach(() => {
   svc = new ComplianceRuleService();
 });
 
-describe('create / update / delete await their history row', () => {
+describe('create / update / delete write history in the mutation transaction', () => {
   it.each([
-    ['create', 'created', () => svc.create({ name: 'r', target: 'plugin', orgId: 'org-1' } as never, 'u-1')],
-    ['update', 'updated', () => svc.update('rule-1', { description: 'x' } as never, 'org-1', 'u-1')],
-    ['delete', 'deleted', () => svc.delete('rule-1', 'org-1', 'u-1')],
-  ])('%s writes the history row before it resolves', async (_op, changeType, run) => {
+    ['create', 'created', null, () => svc.create({ name: 'r', target: 'plugin', orgId: 'org-1' } as never, 'u-1')],
+    ['update', 'updated', { ...RULE, value: 'before' }, () => svc.update('rule-1', { description: 'x' } as never, 'org-1', 'u-1')],
+    ['delete', 'deleted', { ...RULE, value: 'before' }, () => svc.delete('rule-1', 'org-1', 'u-1')],
+  ])('%s writes the history row (prior state %#) inside the transaction', async (_op, changeType, previousState, run) => {
     await run();
-    // Already written when the call resolved — no fire-and-forget window.
-    expect(historyRows()).toEqual([expect.objectContaining({ ruleId: 'rule-1', orgId: 'org-1', changeType, changedBy: 'u-1' })]);
+    expect(historyRows()).toEqual([expect.objectContaining({ ruleId: 'rule-1', orgId: 'org-1', changeType, changedBy: 'u-1', previousState })]);
   });
 
-  it('retries a transient history failure and counts nothing when it lands', async () => {
-    dbInsertValues.mockRejectedValueOnce(new Error('deadlock')).mockImplementation(async () => undefined);
-    await svc.update('rule-1', { description: 'x' } as never, 'org-1', 'u-1');
-    expect(historyRows().length).toBeGreaterThanOrEqual(2);
-    expect(mockEmitCounter).not.toHaveBeenCalledWith('compliance_audit_write_failures_total', expect.anything());
-  });
-
-  it('counts a history row that is finally lost — and never fails the committed mutation', async () => {
+  it('a failed history insert fails the mutation (it rolls back with it) — no retry, no lost row', async () => {
     dbInsertValues.mockImplementation(async (v: unknown) => {
       if ((v as Record<string, unknown>).changeType) throw new Error('pg down');
     });
-    await expect(svc.delete('rule-1', 'org-1', 'u-1')).resolves.toEqual(RULE);
-    expect(mockEmitCounter).toHaveBeenCalledWith('compliance_audit_write_failures_total', { kind: 'rule_history' });
-    expect(historyRows()).toHaveLength(3);
+    await expect(svc.delete('rule-1', 'org-1', 'u-1')).rejects.toThrow('pg down');
+    expect(historyRows()).toHaveLength(1);
+  });
+
+  it('passes expectedUpdatedAt through to CrudService.update', async () => {
+    await svc.update('rule-1', { description: 'x' } as never, 'org-1', 'u-1', { expectedUpdatedAt: '2026-01-01T00:00:00.000Z' });
+    expect(superUpdate).toHaveBeenCalledWith('rule-1', { description: 'x' }, 'org-1', 'u-1', { expectedUpdatedAt: '2026-01-01T00:00:00.000Z' });
+  });
+
+  it('concurrent mutations each record their OWN prior state', async () => {
+    const seen = jest.spyOn(StubCrudService.prototype, 'findById');
+    seen.mockImplementationOnce(async () => ({ ...RULE, value: 'a' })).mockImplementationOnce(async () => ({ ...RULE, value: 'b' }));
+    await Promise.all([
+      svc.update('rule-1', { description: 'x' } as never, 'org-1', 'u-1'),
+      svc.update('rule-1', { description: 'y' } as never, 'org-1', 'u-1'),
+    ]);
+    expect(historyRows().map((r) => (r.previousState as { value: string }).value).sort()).toEqual(['a', 'b']);
+    seen.mockRestore();
   });
 });
 

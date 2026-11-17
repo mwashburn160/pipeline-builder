@@ -12,7 +12,7 @@
  */
 
 /**
- * `envInt` through the `lib/*` SUBPATH, never the api-core barrel. This module's
+ * `envInt` through the `./env` SUBPATH, never the api-core barrel. This module's
  * whole point is that it pulls in nothing (see the note above), and the barrel
  * would drag express + the service graph into a middleware and into every suite
  * that mocks it — a suite mocking `@pipeline-builder/api-core` partially would
@@ -22,7 +22,7 @@
  * (decimals, garbage, bounds) is the same one every other knob gets, and so the
  * env-documented guard can see these names.
  */
-import { envInt } from '@pipeline-builder/api-core/lib/utils/env.js';
+import { envInt } from '@pipeline-builder/api-core/env';
 
 /**
  * How long an issued impersonation SESSION token lives. The single source of

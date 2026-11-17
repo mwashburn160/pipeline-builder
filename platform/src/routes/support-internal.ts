@@ -23,12 +23,15 @@
  * contact allowance here, and the UI gets that through its own gated surfaces.
  */
 
-import { requireInternalService } from '@pipeline-builder/api-core';
+import { PLATFORM_INTERNAL, contractRoute, requireInternalService } from '@pipeline-builder/api-core';
 import { Router } from 'express';
 import { getSupportEntitlement } from '../controllers/support-internal.js';
 import { requireServiceAuth } from '../middleware/index.js';
 
-const messageOnly = [requireServiceAuth, requireInternalService({ callers: ['message'] })];
+/** Where `mount.ts` mounts this router — the contract's path is under it. */
+export const SUPPORT_INTERNAL_MOUNT = '/internal/support';
+
+const { supportEntitlement: ENTITLEMENT } = PLATFORM_INTERNAL;
 
 const router: Router = Router();
 
@@ -40,6 +43,11 @@ const router: Router = Router();
  * payload are deliberate and documented on `SupportEntitlement`: the allowance
  * pools subtree-wide, ownership is own-org.
  */
-router.get('/entitlement/:orgId', ...messageOnly, getSupportEntitlement);
+router.get(
+  contractRoute(ENTITLEMENT, SUPPORT_INTERNAL_MOUNT),
+  requireServiceAuth,
+  requireInternalService({ callers: [...ENTITLEMENT.callers] }),
+  getSupportEntitlement,
+);
 
 export default router;

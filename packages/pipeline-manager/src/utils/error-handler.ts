@@ -174,6 +174,19 @@ export class ValidationError extends Error {
 }
 
 /**
+ * No usable credential (not signed in, no token, no stored key). Exits with the
+ * AUTHENTICATION code — a plain Error here made a signed-out run exit 3
+ * (API_REQUEST), which scripts read as a server failure.
+ */
+export class AuthenticationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'AuthenticationError';
+    Error.captureStackTrace(this, this.constructor);
+  }
+}
+
+/**
  * Network error class
  */
 export class NetworkError extends Error {
@@ -205,6 +218,7 @@ export class NetworkError extends Error {
  */
 function resolveExitCode(err: unknown, fallback: ErrorCode): ErrorCode {
   if (err instanceof ValidationError) return ERROR_CODES.VALIDATION;
+  if (err instanceof AuthenticationError) return ERROR_CODES.AUTHENTICATION;
   if (err instanceof NetworkError) return err.timeout ? ERROR_CODES.TIMEOUT : ERROR_CODES.NETWORK;
 
   if (isAxiosError(err)) {

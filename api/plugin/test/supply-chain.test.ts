@@ -182,7 +182,7 @@ describe('discardPluginImage (a build the gates refused)', () => {
   beforeEach(() => { jest.clearAllMocks(); });
 
   it('asks image-registry to delete the namespace-relative image with a service token for the owning org', async () => {
-    mockPost.mockResolvedValueOnce({ statusCode: 200, body: { data: { deleted: 3 } } });
+    mockPost.mockResolvedValueOnce({ statusCode: 200, body: { data: { repository: 'org-acme/foo', digest: DIGEST, deleted: 3 } } });
     await expect(discardPluginImage({ repository: 'registry:5000/org-acme/foo', digest: DIGEST, registry: REGISTRY, orgId: 'acme' }))
       .resolves.toEqual({ deleted: 3 });
     expect(mockClientCtor).toHaveBeenCalledWith(expect.objectContaining({ host: 'image-registry', port: 3000 }));

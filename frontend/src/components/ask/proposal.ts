@@ -118,6 +118,12 @@ export interface Proposal {
   target?: string;
   /** The state the diff was rendered against — re-read before the commit lands. */
   current?: Record<string, unknown>;
+  /**
+   * `*-edit` kinds: the `updatedAt` of the read the draft was made against.
+   * Sent as the update's `expectedUpdatedAt`, so the server refuses (412) a
+   * write to an entity that changed since the draft.
+   */
+  baseUpdatedAt?: string;
   /** The drafted state. Only fields named in `changedFields` can be applied. */
   proposed?: Record<string, unknown>;
   /** The fields the tool declares it changed. An allowlist, not a hint. */

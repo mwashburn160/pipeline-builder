@@ -19,10 +19,10 @@ import {
   assessVersionVulns, BUILD_IMAGE_MANIFEST_ACTION, MANAGED_TOOLCHAIN, BUILD_IMAGE_MANIFEST_STAGE, BUILD_IMAGE_STEP_KEY, ErrorCode, maxSeverity,
   recordAudit, scanFreshness, severityAtLeast, SYSTEM_ACTOR_ID, SYSTEM_ORG_ID, versionScanFacts,
   type ScannedRecord, type VulnSeverity, type VulnWarning,
+  compareSemverLenient,
 } from '@pipeline-builder/api-core';
 import {
-  anyText, compareSemver, executeRows, pipelineExposures, pipelineStepLookups, resolveManagedToolchain, scopeOrgIds, stepLabelOf, triageExposure,
-  exposureById, withTenantTx, type PipelineExposure, type ResolutionScope,
+  anyText, executeRows, pipelineExposures, pipelineStepLookups, resolveManagedToolchain, scopeOrgIds, stepLabelOf, triageExposure, exposureById, withTenantTx, type PipelineExposure, type ResolutionScope,
 } from '@pipeline-builder/pipeline-data';
 import { sql } from 'drizzle-orm';
 
@@ -440,7 +440,7 @@ async function buildImageView(
     currentWarnings: assessment?.warnings.map((w) => ({ code: w.code, severity: w.severity, message: w.message })) ?? [],
     exposures: ctx.exposures.filter((e) => e.pluginName === MANAGED_TOOLCHAIN.bootstrap && e.pluginVersion === releaseVersion && !e.pluginPublisher).map(shapeExposure),
     effectiveDefault,
-    behindDefault: !!(releaseVersion && effectiveDefault && compareSemver(releaseVersion, effectiveDefault.releaseVersion) < 0),
+    behindDefault: !!(releaseVersion && effectiveDefault && compareSemverLenient(releaseVersion, effectiveDefault.releaseVersion) < 0),
     synthPlugin: synth ? (synth.publisher ? `${synth.publisher}/${synth.name}` : synth.name) : null,
     toolchainUnmanaged: !!synth && (synth.publisher !== null || synth.name !== MANAGED_TOOLCHAIN.synth),
     /** The last release change between consecutive deploys (the run-history "toolchain X → Y" marker). */

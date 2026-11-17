@@ -28,7 +28,16 @@
  * outside the `reports:*` family.
  */
 
-import { getParam, sendError, sendSuccess, resolveUserFeatures, resolveUserPermissions } from '@pipeline-builder/api-core';
+import {
+  PLATFORM_INTERNAL,
+  contractErrorMessage,
+  parseContractParams,
+  parseContractQuery,
+  sendError,
+  sendSuccess,
+  resolveUserFeatures,
+  resolveUserPermissions,
+} from '@pipeline-builder/api-core';
 import { withController } from '../helpers/controller-helper.js';
 import { toOrgId } from '../helpers/org-id.js';
 import { orgFeatureOverrides, type StoredFeatureOverrides } from '../helpers/user-response.js';
@@ -44,10 +53,13 @@ import {
 } from '../models/index.js';
 import { membershipForOrg } from '../services/session/membership-context.js';
 
-const ORG_ID = /^[a-f0-9]{24}$/i;
-const USER_ID = /^[A-Za-z0-9_-]{1,64}$/;
-/** Deliberately loose — the address is only ever compared, never delivered to. */
-const EMAIL = /^[^\s@]+@[^\s@]{1,253}$/;
+/**
+ * Params and query are validated by the endpoints' contracts (api-core
+ * `PLATFORM_INTERNAL`), which carry this router's 400 messages: the org and user
+ * id shapes, the deliberately loose recipient address (only ever compared, never
+ * delivered to) and the posture window.
+ */
+const { reportAuthority: AUTHORITY, reportRecipientCheck: RECIPIENT, reportAccessPosture: POSTURE } = PLATFORM_INTERNAL;
 
 /** The only permissions this endpoint will talk about. */
 const REPORT_PERMISSIONS = ['reports:read', 'reports:write', 'reports:publish', 'reports:rollup'] as const;
@@ -60,10 +72,9 @@ const REPORT_PERMISSIONS = ['reports:read', 'reports:write', 'reports:publish', 
  * caller's behaviour is the same for all of them: pause the definition.
  */
 export const getReportAuthority = withController('Report authority', async (req, res) => {
-  const orgId = (getParam(req.params, 'orgId') ?? '').toLowerCase();
-  const userId = getParam(req.params, 'userId') ?? '';
-  if (!ORG_ID.test(orgId)) return sendError(res, 400, 'orgId must be an organization id');
-  if (!USER_ID.test(userId)) return sendError(res, 400, 'userId must be a user id');
+  const params = parseContractParams(AUTHORITY, req);
+  if (!params.ok) return sendError(res, 400, contractErrorMessage(params));
+  const { orgId, userId } = params.value;
 
   const user = await User.findById(userId).select('+isSuperAdmin featureOverrides').lean();
   // `membershipForOrg` is the authority on "may this person act in this org": it
@@ -101,10 +112,12 @@ export const getReportAuthority = withController('Report authority', async (req,
  * policy says. Anything else falls through to the policy check in reporting.
  */
 export const getRecipientCheck = withController('Report recipient check', async (req, res) => {
-  const orgId = (getParam(req.params, 'orgId') ?? '').toLowerCase();
-  const email = typeof req.query.email === 'string' ? req.query.email.trim().toLowerCase() : '';
-  if (!ORG_ID.test(orgId)) return sendError(res, 400, 'orgId must be an organization id');
-  if (!EMAIL.test(email) || email.length > 320) return sendError(res, 400, 'email must be an email address');
+  const params = parseContractParams(RECIPIENT, req);
+  if (!params.ok) return sendError(res, 400, contractErrorMessage(params));
+  const query = parseContractQuery(RECIPIENT, req);
+  if (!query.ok) return sendError(res, 400, contractErrorMessage(query));
+  const { orgId } = params.value;
+  const { email } = query.value;
 
   const user = await User.findOne({ email }).select('_id username').lean();
   if (!user) return sendSuccess(res, 200, { member: false });
@@ -159,12 +172,14 @@ const PERMISSION_CHANGE_ACTIONS = [
  * service identity alone, which is why nothing here returns a row, a name or an id.
  */
 export const getAccessPosture = withController('Access posture', async (req, res) => {
-  const orgId = (getParam(req.params, 'orgId') ?? '').toLowerCase();
-  if (!ORG_ID.test(orgId)) return sendError(res, 400, 'orgId must be an organization id');
+  const params = parseContractParams(POSTURE, req);
+  if (!params.ok) return sendError(res, 400, contractErrorMessage(params));
+  const { orgId } = params.value;
   const organizationId = toOrgId(orgId);
 
-  const window = parseWindow(req.query as Record<string, unknown>);
-  if (typeof window === 'string') return sendError(res, 400, window);
+  const query = parseContractQuery(POSTURE, req);
+  if (!query.ok) return sendError(res, 400, contractErrorMessage(query));
+  const window = query.value;
 
   const memberships = await UserOrganization.find({ organizationId, isActive: true })
     .select('userId').lean();
@@ -216,14 +231,3 @@ export const getAccessPosture = withController('Access posture', async (req, res
     permissionChanges,
   });
 });
-
-/** Parse `from`/`to` into a window, or return the reason it could not be. */
-function parseWindow(query: Record<string, unknown>): { from: Date; to: Date } | string {
-  const from = new Date(String(query.from ?? ''));
-  const to = new Date(String(query.to ?? ''));
-  if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) {
-    return 'from and to must both be ISO timestamps';
-  }
-  if (from.getTime() >= to.getTime()) return 'from must be before to';
-  return { from, to };
-}

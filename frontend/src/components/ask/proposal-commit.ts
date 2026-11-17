@@ -8,10 +8,15 @@
  * the user's own session and permissions; the agent never writes. Four rules
  * this module enforces:
  *
- *  - **Re-read first (rule 7).** None of these tables carries a version column,
- *    so the only way to know the approved diff is still the applied diff is to
- *    fetch the live state and compare it against the snapshot the diff was
- *    rendered from. A move is a refusal ({@link StaleDraftError}), not a clobber.
+ *  - **The approved diff is the applied diff (rule 7).** An edit proposal
+ *    carries `baseUpdatedAt` — the `updatedAt` of the read it was drafted
+ *    against — and the update is sent with it as `expectedUpdatedAt`, so the
+ *    SERVER refuses (412) a write to an entity that changed in any way since
+ *    the draft: there is no window between a check here and the write. The
+ *    live state is still re-read first and compared with the snapshot the diff
+ *    was rendered from, so a moved REVIEWED field is named before anything is
+ *    sent. Either way a move is a refusal ({@link StaleDraftError}), not a
+ *    clobber.
  *  - **Send only the reviewed fields (rule 3).** The payload is a projection of
  *    the rendered rows (`commitPayload`), so a field the model added but the
  *    panel did not render has no way into the request. Org settings get the
@@ -57,6 +62,7 @@
 
 import { orgSettingRequests } from '@pipeline-builder/api-core/ask-proposals';
 import api from '@/lib/api';
+import { isConcurrencyConflict } from '@/lib/api/concurrency';
 import type { ProposedByOptions } from '@/lib/api/util';
 import { invalidate } from '@/lib/api-cache';
 import type { BuilderProps } from '@/types';
@@ -70,13 +76,26 @@ import { applyOrgSettingRequests, readOrgSettings } from './org-settings-client'
  * approved is not the diff that would be applied. Nothing was written.
  */
 export class StaleDraftError extends Error {
-  constructor(public readonly fields: string[]) {
-    super(
+  constructor(public readonly fields: string[], message?: string) {
+    super(message ?? (
       `This changed after the draft was reviewed (${fields.join(', ')}), so nothing was applied. `
-      + 'Ask again to draft against the current state.',
-    );
+      + 'Ask again to draft against the current state.'
+    ));
     this.name = 'StaleDraftError';
   }
+}
+
+/** The server's 412 for an edit whose base read is no longer current. */
+export const CHANGED_SINCE_DRAFTED_MESSAGE =
+  'This changed since the proposal was drafted, so nothing was applied. Ask again to regenerate the proposal against the current state.';
+
+/**
+ * The update body for an edit kind: the reviewed payload, plus the draft's
+ * concurrency token when it has one (never a reviewed field — it is how the
+ * server proves the reviewed baseline is still the live one).
+ */
+function withBaseToken(p: Proposal, payload: Row): Row {
+  return typeof p.baseUpdatedAt === 'string' ? { ...payload, expectedUpdatedAt: p.baseUpdatedAt } : payload;
 }
 
 /** A draft that cannot be committed at all (missing id, unknown route, …). */
@@ -167,15 +186,15 @@ async function applyPayload(p: Proposal, payload: Row): Promise<void> {
   // dynamic object meets a per-route body type.
   switch (p.kind) {
     case 'pipeline-edit':
-      await api.updatePipeline(p.id as string, body<Parameters<typeof api.updatePipeline>[1]>(payload), PROPOSED_BY_AGENT);
+      await api.updatePipeline(p.id as string, body<Parameters<typeof api.updatePipeline>[1]>(withBaseToken(p, payload)), PROPOSED_BY_AGENT);
       invalidate.pipelines();
       return;
     case 'plugin-edit':
-      await api.updatePlugin(p.id as string, body<Parameters<typeof api.updatePlugin>[1]>(payload), PROPOSED_BY_AGENT);
+      await api.updatePlugin(p.id as string, body<Parameters<typeof api.updatePlugin>[1]>(withBaseToken(p, payload)), PROPOSED_BY_AGENT);
       invalidate.plugins();
       return;
     case 'template-edit':
-      await api.updatePipelineTemplate(p.id as string, body<Parameters<typeof api.updatePipelineTemplate>[1]>(payload), PROPOSED_BY_AGENT);
+      await api.updatePipelineTemplate(p.id as string, body<Parameters<typeof api.updatePipelineTemplate>[1]>(withBaseToken(p, payload)), PROPOSED_BY_AGENT);
       return;
     // These two FILE A REQUEST that a different person decides, under a
     // different permission (`plugin_installs:manage`, `compliance:write`). They
@@ -253,5 +272,12 @@ export async function commitProposal(p: Proposal): Promise<void> {
     if (moved.length > 0) throw new StaleDraftError(moved);
   }
 
-  await applyPayload(p, payload);
+  try {
+    await applyPayload(p, payload);
+  } catch (err) {
+    // The server's half of rule 7: the entity moved after the draft (even in a
+    // field the diff does not show), so the write was refused and nothing landed.
+    if (isConcurrencyConflict(err)) throw new StaleDraftError([], CHANGED_SINCE_DRAFTED_MESSAGE);
+    throw err;
+  }
 }

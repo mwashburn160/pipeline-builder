@@ -260,8 +260,8 @@ const restrictedModuleMocks = [
 /**
  * api-core's test helpers are their own package entry,
  * `@pipeline-builder/api-core/testing`. The built files still sit under
- * `lib/testing/` (the `./lib/*` export stays open for deep imports of internals),
- * so ban reaching them that way — one import path, not two.
+ * `lib/testing/` (and the workspace-only test mapping can reach lib/), so ban
+ * reaching them that way — one import path, not two.
  */
 const restrictedImports = {
   patterns: [{
@@ -376,8 +376,49 @@ function publishToNpm(project: TypeScriptProject): void {
   // provenance: every publish carries a Sigstore-signed SLSA provenance
   // statement linking the tarball to the release.yml run that built it (needs
   // the job's id-token: write — already granted for npm trusted publishing).
-  project.package.addField('publishConfig', { access: 'public', registry: 'https://registry.npmjs.org/', provenance: true });
+  // Merged, not replaced: setPublicSurface may already have added `exports`.
+  project.package.addField('publishConfig', {
+    ...(project.package.manifest.publishConfig ?? {}),
+    access: 'public', registry: 'https://registry.npmjs.org/', provenance: true,
+  });
   libraryProjects.push(project.package.packageName.replace(/^@pipeline-builder\//, ''));
+}
+
+/** One `exports` target: a built entry file under lib/ (or dist/), with its declarations. */
+type ExportTarget = { types: string; default: string } | string;
+
+/** `{ types, default }` for a compiled entry `lib/<path>.js` + `lib/<path>.d.ts`. */
+const entry = (libPath: string): ExportTarget => ({ types: `./${libPath}.d.ts`, default: `./${libPath}.js` });
+
+/**
+ * Declare a published package's ENTIRE public surface: its `exports` map.
+ *
+ * Every package lists its entry points explicitly — no `./lib/*` wildcard —
+ * so a module is importable from outside the package only because it is named
+ * here, and the barrel each entry points at is the allow-list beneath it. Every
+ * map carries `./package.json` (api-core's `stubModule` resolves
+ * `<pkg>/package.json` to find each package's lib/testing/exports.json).
+ *
+ * `workspaceOnly` entries resolve inside this monorepo but are dropped from the
+ * PUBLISHED manifest: `pnpm publish` / `pnpm pack` apply `publishConfig.exports`
+ * in place of `exports`. That is how the test-helper entries (`./testing`) stay
+ * a workspace import while their files are stripped from the tarball by the
+ * npmignore — the packed map never points at a file the tarball does not ship.
+ *
+ * Unit tests that need a package INTERNAL (to bypass a mocked barrel, or reach
+ * a symbol the barrel narrows away) deep-import `@pipeline-builder/<pkg>/lib/…`;
+ * that resolves only through the workspace jest moduleNameMapper and
+ * test/tsconfig.json `paths` (projenrc/shared-config.ts), never through
+ * `exports`. test/package-surface.test.ts enforces both halves.
+ */
+function setPublicSurface(project: TypeScriptProject, exportsMap: Record<string, ExportTarget>, opts: { workspaceOnly?: string[] } = {}): void {
+  const full = { ...exportsMap, './package.json': './package.json' };
+  project.package.addField('exports', full);
+  const workspaceOnly = opts.workspaceOnly ?? [];
+  if (workspaceOnly.length > 0) {
+    const published = Object.fromEntries(Object.entries(full).filter(([k]) => !workspaceOnly.includes(k)));
+    project.package.addField('publishConfig', { ...(project.package.manifest.publishConfig ?? {}), exports: published });
+  }
 }
 
 function dockerScripts(name: string) {
@@ -447,7 +488,7 @@ function dockerScripts(name: string) {
   return {
     // --import preloads the otel bootstrap for dev parity with the Dockerfile CMD
     // (a no-op unless OTEL_TRACING_ENABLED=true). Frontend's start is vestigial (Next).
-    'start': 'node --import @pipeline-builder/api-server/lib/otel-bootstrap.js lib/index.js',
+    'start': 'node --import @pipeline-builder/api-server/otel-bootstrap lib/index.js',
     // Local SINGLE-ARCH build → loads into the local docker daemon for fast dev
     // iteration (builds for the host arch). Multi-arch can't use --load (the
     // daemon has no manifest-list store); CI uses docker:publish instead.
@@ -560,27 +601,35 @@ publishToNpm(apiCore);
 // bucket-ensure: deliberately OUT of the root barrel, because only the two
 // blob-storage services (message attachments, plugin build contexts) need it
 // and the S3 SDK is a large eager import the other services must not pay for at
-// boot. `./lib/*` stays open because tests deep-import
-// internals the root barrel narrows away (e.g. `lib/services/service-keys.js`).
-apiCore.package.addField('exports', {
-  '.': { types: './lib/index.d.ts', default: './lib/index.js' },
-  './permissions': { types: './lib/types/permissions.d.ts', default: './lib/types/permissions.js' },
-  './metadata-keys': { types: './lib/types/metadata-keys.d.ts', default: './lib/types/metadata-keys.js' },
-  './feature-flags': { types: './lib/types/feature-flags.d.ts', default: './lib/types/feature-flags.js' },
-  './plugin-catalog': { types: './lib/types/plugin-catalog.d.ts', default: './lib/types/plugin-catalog.js' },
-  './ask-proposals': { types: './lib/types/ask-proposals.d.ts', default: './lib/types/ask-proposals.js' },
-  './ai-catalog': { types: './lib/types/ai-catalog.d.ts', default: './lib/types/ai-catalog.js' },
-  './plugin-scan': { types: './lib/types/plugin-scan.d.ts', default: './lib/types/plugin-scan.js' },
-  './quota-catalog': { types: './lib/types/quota-catalog.d.ts', default: './lib/types/quota-catalog.js' },
-  './build-catalog': { types: './lib/types/build-catalog.d.ts', default: './lib/types/build-catalog.js' },
-  './usage-projection': { types: './lib/types/usage-projection.d.ts', default: './lib/types/usage-projection.js' },
-  './tier-limits': { types: './lib/types/tier-limits.d.ts', default: './lib/types/tier-limits.js' },
-  './wire-vocabulary': { types: './lib/types/wire-vocabulary.d.ts', default: './lib/types/wire-vocabulary.js' },
-  './testing': { types: './lib/testing/index.d.ts', default: './lib/testing/index.js' },
-  './s3': { types: './lib/services/s3-client.d.ts', default: './lib/services/s3-client.js' },
-  './lib/*': './lib/*',
-  './package.json': './package.json',
-});
+// boot. There is no `./lib/*`: internals are reachable only by relative import
+// inside api-core, and by unit tests through the workspace-only mapping (see
+// setPublicSurface). `./testing` is workspace-only: its files are stripped from
+// the tarball (it imports the @jest/globals devDependency and mints test
+// tokens, neither of which belongs in a service image), so the published map
+// drops it too rather than point at a file that is not there.
+setPublicSurface(apiCore, {
+  '.': entry('lib/index'),
+  './permissions': entry('lib/types/permissions'),
+  './metadata-keys': entry('lib/types/metadata-keys'),
+  './feature-flags': entry('lib/types/feature-flags'),
+  './plugin-catalog': entry('lib/types/plugin-catalog'),
+  './ask-proposals': entry('lib/types/ask-proposals'),
+  './ai-catalog': entry('lib/types/ai-catalog'),
+  './plugin-scan': entry('lib/types/plugin-scan'),
+  './quota-catalog': entry('lib/types/quota-catalog'),
+  './build-catalog': entry('lib/types/build-catalog'),
+  './usage-projection': entry('lib/types/usage-projection'),
+  './tier-limits': entry('lib/types/tier-limits'),
+  './wire-vocabulary': entry('lib/types/wire-vocabulary'),
+  './testing': entry('lib/testing/index'),
+  './s3': entry('lib/services/s3-client'),
+  // The env readers (envInt/envBool/envStr) as a LEAF: utils/env.ts has no
+  // imports, so dependency-free modules (platform's SCIM / impersonation
+  // tunables) read env with the shared strictness without loading the barrel —
+  // and without a suite's partial `@pipeline-builder/api-core` mock making
+  // `envInt` throw.
+  './env': entry('lib/utils/env'),
+}, { workspaceOnly: ['./testing'] });
 // The frontend's jest tsconfig resolves modules with node10, which ignores
 // `exports` — typesVersions is what points it at the subpath's declarations.
 apiCore.package.addField('typesVersions', {
@@ -622,14 +671,14 @@ publishToNpm(pipelineData);
 // RLS instead of a mocked transaction. Never part of the root barrel and dropped from
 // the packed package (it imports the PGlite devDependency and reads the init script
 // out of the repo's deploy/ tree, so it is workspace-only by construction) — the
-// same arrangement as api-core's `./testing`. `./lib/*` stays open because services
-// deep-import modules the barrel narrows away (e.g. `lib/database/pg-result.js`).
-pipelineData.package.addField('exports', {
-  '.': { types: './lib/index.d.ts', default: './lib/index.js' },
-  './testing': { types: './lib/testing/index.d.ts', default: './lib/testing/index.js' },
-  './lib/*': './lib/*',
-  './package.json': './package.json',
-});
+// same arrangement as api-core's `./testing` (workspace-only: absent from the
+// published map). No `./lib/*`: modules the barrel narrows away (e.g.
+// `lib/database/pg-result.js`) are reachable only by unit tests, through the
+// workspace-only mapping (see setPublicSurface).
+setPublicSurface(pipelineData, {
+  '.': entry('lib/index'),
+  './testing': entry('lib/testing/index'),
+}, { workspaceOnly: ['./testing'] });
 pipelineData.addPackageIgnore('/lib/testing/');
 addPackageMetadata(pipelineData, 'Drizzle ORM schemas and organization-scoped data access for Pipeline Builder.');
 
@@ -672,21 +721,23 @@ publishToNpm(pipelineCore);
 // Entry points. The root is free of `aws-cdk-lib` (config, domain types, template
 // engine) so the API services that import it never load the CDK; `/cdk` carries the
 // constructs and the synth-time authoring types; `/template` is the dependency-free
-// template tokenizer the BROWSER shares for inline `{{ … }}` validation. `./lib/*`
-// stays open because tests deep-import concrete modules (e.g. billing mocks
-// `lib/config/entitlements.js`).
-pipelineCore.package.addField('exports', {
-  '.': { types: './lib/index.d.ts', default: './lib/index.js' },
-  './cdk': { types: './lib/cdk.d.ts', default: './lib/cdk.js' },
-  './template': { types: './lib/template/tokenizer.d.ts', default: './lib/template/tokenizer.js' },
-  './lib/*': './lib/*',
-  './package.json': './package.json',
+// template tokenizer the BROWSER shares for inline `{{ … }}` validation;
+// `/runtime` is the Lambda-runtime entry (src/runtime.ts) — platform-credential,
+// audit-correlation, platform-TLS and synth-failure helpers, all leaves, which the
+// pipeline-events and token-renew Lambdas bundle without dragging in the root
+// barrel's config layer. No `./lib/*` (see setPublicSurface).
+setPublicSurface(pipelineCore, {
+  '.': entry('lib/index'),
+  './cdk': entry('lib/cdk'),
+  './template': entry('lib/template/tokenizer'),
+  './runtime': entry('lib/runtime'),
 });
 // Same node10 caveat as api-core: typesVersions points the frontend's jest
 // tsconfig at the browser subpath's declarations.
 pipelineCore.package.addField('typesVersions', {
   '*': {
     template: ['lib/template/tokenizer.d.ts'],
+    runtime: ['lib/runtime.d.ts'],
   },
 });
 addPackageMetadata(pipelineCore, 'AWS CDK constructs that turn a Pipeline Builder spec into a CodePipeline stack.');
@@ -712,7 +763,7 @@ const apiServer = new PackageProject({
     // require-in-the-middle path doesn't cover ESM services).
     '@opentelemetry/instrumentation@0.301.1',
     '@opentelemetry/api@1.10.0',
-    // Server-side untrusted-markdown renderer (`lib/markdown.js`, plugin
+    // Server-side untrusted-markdown renderer (the `./markdown` entry, plugin
     // READMEs / advisories / reviews).
     // ESM-only; reached through the subpath, never the package root.
     'unified@11.0.5', 'remark-parse@11.0.0', 'remark-gfm@4.0.1', 'remark-rehype@11.1.2',
@@ -727,6 +778,17 @@ const apiServer = new PackageProject({
 });
 apiServer.eslint?.addRules({...rules, 'import/no-unresolved': 'off' });
 publishToNpm(apiServer);
+// Entry points. `./markdown` is the untrusted-markdown renderer (src/markdown.ts):
+// its own entry, never the root, because the unified/remark/rehype stack is
+// ESM-only and only the services that render markdown should load it.
+// `./otel-bootstrap` is the OpenTelemetry `--import` preload every service image
+// starts with (`node --import @pipeline-builder/api-server/otel-bootstrap`); it
+// must stay out of the root barrel, which loads express before the SDK starts.
+setPublicSurface(apiServer, {
+  '.': entry('lib/index'),
+  './markdown': entry('lib/markdown'),
+  './otel-bootstrap': entry('lib/otel-bootstrap'),
+});
 addPackageMetadata(apiServer, 'Express app factory, middleware and route wrappers for Pipeline Builder services.');
 if (apiServer.jest) apiServer.jest.config.maxWorkers = 1;
 
@@ -754,6 +816,7 @@ aiCore.eslint?.addRules(rules);
 // of pipeline-manager can't resolve `@pipeline-builder/ai-core@<version>`.
 // publishToNpm registers it with the release workflow.
 publishToNpm(aiCore);
+setPublicSurface(aiCore, { '.': entry('lib/index') });
 addPackageMetadata(aiCore, 'One AI provider registry for Pipeline Builder — Anthropic, OpenAI, Google, xAI and Bedrock.');
 
 // -- Pipeline Events (CodePipeline → Reporting Lambda) --
@@ -799,6 +862,10 @@ if (pipelineEvents.jest) {
 // uploads (see commands/setup-events.ts), so it must be on the registry and
 // version-synced; publishToNpm registers it with the release workflow.
 publishToNpm(pipelineEvents);
+// The root entry IS the bundled Lambda handler (lib/index.js). `infra
+// setup-events` copies that file out of the installed package by path, not by
+// import, so it needs no further entry.
+setPublicSurface(pipelineEvents, { '.': entry('lib/index') });
 addPackageMetadata(pipelineEvents, 'Lambda that forwards CodePipeline state changes to Pipeline Builder reporting.');
 
 // =============================================================================
@@ -833,6 +900,10 @@ const manager = new ManagerProject({
 });
 manager.eslint?.addRules({...rules, '@typescript-eslint/no-shadow': 'off' });
 publishToNpm(manager);
+// A CLI, not a library: `bin` is its interface and nothing imports it, so the
+// only entry is `./package.json` (the CLI's own `upgrade`/version checks read it
+// by path). An empty surface is explicit, not an accident of a missing `main`.
+setPublicSurface(manager, {});
 addPackageMetadata(manager, 'CLI for Pipeline Builder — deploy and run software factories on AWS.');
 manager.addPackageIgnore('/dist/js/');
 // `infra store-token --schedule` uploads the token-renew handler as the ONE file
@@ -860,7 +931,7 @@ const platform = new FunctionProject({
     `@pipeline-builder/api-core@${pkg.apiCore}`,
     // api-server is pulled in for `currentTraceId` (read the active span's trace
     // id at audit-write time) AND for the shared `otel-bootstrap.js` preload
-    // (node -r @pipeline-builder/api-server/lib/otel-bootstrap.js — see
+    // (node --import @pipeline-builder/api-server/otel-bootstrap — see
     // Dockerfile/start). The preload's OpenTelemetry deps resolve from
     // api-server, so platform needs no direct @opentelemetry/* deps.
     `@pipeline-builder/api-server@${pkg.apiServer}`,
@@ -1182,7 +1253,7 @@ if (frontend.jest) {
 frontend.addScripts(dockerScripts('frontend'));
 addImageDescription(frontend, 'frontend');
 // Override the shared `start`: the api-services variant preloads
-// `@pipeline-builder/api-server/lib/otel-bootstrap.js` and runs `lib/index.js`,
+// `@pipeline-builder/api-server/otel-bootstrap` and runs `lib/index.js`,
 // neither of which exists for a Next app — the image runs the standalone
 // `server.js`. Pointing it at `next start` makes the script mean something and
 // lets the frontend drop its api-server dependency.
@@ -1707,7 +1778,13 @@ const REPO_FIXTURE_INPUTS: Record<string, string[]> = {
   // package.json, renovate.json and SECURITY.md.
   'deploy-contracts': ['{workspaceRoot}/deploy/**/*', '{workspaceRoot}/.github/workflows/*', '{workspaceRoot}/scripts/*', '{workspaceRoot}/README.md', '{workspaceRoot}/index.md',
     '{workspaceRoot}/platform/Dockerfile', '{workspaceRoot}/frontend/Dockerfile', '{workspaceRoot}/api/*/Dockerfile',
-    '{workspaceRoot}/projenrc/*', '{workspaceRoot}/.projenrc.ts', '{workspaceRoot}/package.json', '{workspaceRoot}/renovate.json', '{workspaceRoot}/SECURITY.md'],
+    '{workspaceRoot}/projenrc/*', '{workspaceRoot}/.projenrc.ts', '{workspaceRoot}/package.json', '{workspaceRoot}/renovate.json', '{workspaceRoot}/SECURITY.md',
+    // package-surface-contract.test.ts: every package's exports map and
+    // .npmignore, and every import of a @pipeline-builder/* subpath anywhere.
+    '{workspaceRoot}/packages/*/package.json', '{workspaceRoot}/packages/*/.npmignore', '{workspaceRoot}/packages/*/src/**/*', '{workspaceRoot}/packages/*/test/**/*',
+    '{workspaceRoot}/api/*/package.json', '{workspaceRoot}/api/*/src/**/*', '{workspaceRoot}/api/*/test/**/*', '{workspaceRoot}/api/*/scripts/**/*',
+    '{workspaceRoot}/platform/package.json', '{workspaceRoot}/platform/src/**/*', '{workspaceRoot}/platform/test/**/*',
+    '{workspaceRoot}/frontend/src/**/*', '{workspaceRoot}/frontend/test/**/*'],
   // org-namespace-template.test.ts: the served manifest vs the per-org templates.
   'platform': ['{workspaceRoot}/deploy/*/*/k8s/per-org/*'],
   // plugin-spec-smoke.test.ts: every catalog plugin spec, and the managed

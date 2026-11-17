@@ -539,9 +539,22 @@ describe('cascadeDeleteOrg', () => {
   });
 
   it('reports messageBlobs ok + deleted count from the purge response', async () => {
-    mockHttpDelete.mockResolvedValue({ statusCode: 200, body: { data: { deleted: 7 } } });
+    mockHttpDelete.mockResolvedValue({ statusCode: 200, body: { data: { orgId: 'org-acme', deleted: 7 } } });
     const report = await cascadeDeleteOrg('org-acme', '000000000000000000000001');
     expect(report.messageBlobs).toEqual({ ok: true, statusCode: 200, deleted: 7 });
+  });
+
+  it('reports messageBlobs ok without a count when the purge reply is not the contract\'s shape', async () => {
+    mockHttpDelete.mockResolvedValue({ statusCode: 200, body: { data: { deleted: 'seven' } } });
+    const report = await cascadeDeleteOrg('org-acme', '000000000000000000000001');
+    expect(report.messageBlobs).toEqual({ ok: true, statusCode: 200 });
+  });
+
+  it('reports messageBlobs not ok when the purge is refused or unreachable', async () => {
+    mockHttpDelete.mockResolvedValue({ statusCode: 500, body: {} });
+    expect((await cascadeDeleteOrg('org-acme', '000000000000000000000001')).messageBlobs).toEqual({ ok: false, statusCode: 500 });
+    mockHttpDelete.mockResolvedValue(null);
+    expect((await cascadeDeleteOrg('org-acme', '000000000000000000000001')).messageBlobs).toEqual({ ok: false });
   });
 
   it('reports messageBlobs ok=false on a non-2xx purge (orphans flagged, not fatal)', async () => {

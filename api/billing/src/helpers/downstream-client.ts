@@ -20,8 +20,19 @@
  * by the safe client, so a client per call is cheap.
  */
 
-import { createLogger, createSafeClient, errorMessage } from '@pipeline-builder/api-core';
-import type { PlanTier } from '@pipeline-builder/api-core';
+import {
+  MESSAGE_INTERNAL,
+  PLATFORM_INTERNAL,
+  QUOTA_INTERNAL,
+  callInternal,
+  createLogger,
+  createSafeClient,
+  errorMessage,
+  type ContractResponse,
+  type InternalEndpointContract,
+  type PlanTier,
+  type QueryValue,
+} from '@pipeline-builder/api-core';
 import { config } from '../config.js';
 import { getBillingTimeout } from './billing-helpers.js';
 
@@ -54,6 +65,38 @@ export async function getJson<T>(service: ServiceTarget, path: string, orgId: st
       return null;
     }
     return resp.body ?? null;
+  } catch (err) {
+    logger.warn('Downstream read failed', { orgId, path, error: errorMessage(err) });
+    return null;
+  }
+}
+
+/**
+ * {@link getJson} for an INTERNAL endpoint with a contract (api-core
+ * `*_INTERNAL`): the path is built from the contract, and the reply's `data`
+ * is returned parsed by its response schema. `null` on a transport failure,
+ * a non-2xx, a thrown error, or a reply that does not match the contract —
+ * all logged at WARN, all read by callers as "no answer".
+ */
+export async function getContractJson<C extends InternalEndpointContract>(
+  service: ServiceTarget,
+  contract: C,
+  orgId: string,
+  auth: string,
+  query?: Record<string, QueryValue>,
+): Promise<ContractResponse<C> | null> {
+  const path = contract.path;
+  try {
+    const result = await callInternal(clientFor(service), contract, {
+      params: { orgId }, ...(query ? { query } : {}), options: { headers: tenantHeaders(orgId, auth) },
+    });
+    if (result.ok) return result.data;
+    if (result.reason === 'invalid-response') {
+      logger.warn('Downstream read failed', { orgId, path, statusCode: result.status, error: result.error });
+    } else {
+      logger.warn('Downstream read failed', { orgId, path, statusCode: result.reason === 'status' ? result.status : undefined });
+    }
+    return null;
   } catch (err) {
     logger.warn('Downstream read failed', { orgId, path, error: errorMessage(err) });
     return null;
@@ -187,10 +230,8 @@ export interface UsageProfileRead {
  * account should have had, or argues for one it should not.
  */
 export async function fetchUsageProfile(orgId: string, auth: string): Promise<UsageProfileRead | null> {
-  const body = await getJson<{ data?: { profile?: UsageProfileRead } }>(
-    config.quotaService, `/quotas/internal/${encodeURIComponent(orgId)}/profile`, orgId, auth,
-  );
-  return body?.data?.profile ?? null;
+  const data = await getContractJson(config.quotaService, QUOTA_INTERNAL.usageProfile, orgId, auth);
+  return data?.profile ?? null;
 }
 
 /** Seats held against members who actually used them, over a window. */
@@ -216,13 +257,8 @@ export async function fetchSeatActivity(
   auth: string,
   windowDays: number,
 ): Promise<SeatActivityRead | null> {
-  const body = await getJson<{ data?: { seatActivity?: SeatActivityRead } }>(
-    config.platformService,
-    `/internal/offers/seat-activity/${encodeURIComponent(orgId)}?windowDays=${windowDays}`,
-    orgId,
-    auth,
-  );
-  return body?.data?.seatActivity ?? null;
+  const data = await getContractJson(config.platformService, PLATFORM_INTERNAL.offerSeatActivity, orgId, auth, { windowDays });
+  return data?.seatActivity ?? null;
 }
 
 /** The derived frustration signal, as the message service answers it. */
@@ -252,13 +288,8 @@ export interface FrustrationSignalRead {
  * offer — which must never happen.
  */
 export async function fetchFrustrationSignal(orgId: string, auth: string): Promise<FrustrationSignalRead | null> {
-  const body = await getJson<{ data?: { signal?: FrustrationSignalRead } }>(
-    config.messageService,
-    `/messages/internal/offers/frustration/${encodeURIComponent(orgId)}`,
-    orgId,
-    auth,
-  );
-  return body?.data?.signal ?? null;
+  const data = await getContractJson(config.messageService, MESSAGE_INTERNAL.offersFrustration, orgId, auth);
+  return data?.signal ?? null;
 }
 
 export async function fetchSeatUsage(orgId: string, auth: string): Promise<SeatUsageSnapshot | null> {

@@ -12,7 +12,9 @@
  *  - the commit sends exactly the fields the user saw change — a field the
  *    model slipped in is structurally unappliable;
  *  - a draft whose entity moved since it was rendered is REFUSED, with nothing
- *    written and a message that says so;
+ *    written and a message that says so — by the client-side re-read for a
+ *    reviewed field, and by the SERVER (the draft's `baseUpdatedAt` sent as
+ *    `expectedUpdatedAt`, a 412 on any change) for everything else;
  *  - the button is inert without the permission the route wants, including
  *    during a read-only impersonation session;
  *  - a remediation commit FILES A REQUEST rather than applying a change.
@@ -23,6 +25,7 @@ import type { AnyFn } from './helpers/mock-fn';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { mockAuthGuard } from './helpers/pageMocks';
 import { AskPanel } from '../src/components/ask/AskPanel';
+import { ApiError } from '../src/lib/api/errors';
 
 jest.mock('@/hooks/useAuthGuard', () => require('./helpers/pageMocks').authGuardModule());
 
@@ -162,6 +165,60 @@ describe('AskPanel edit proposals', () => {
     expect(stale).toHaveTextContent(/nothing was applied/i);
     // Refused, not clobbered.
     expect(updatePipeline).not.toHaveBeenCalled();
+  });
+
+  it('sends the draft\'s baseUpdatedAt as expectedUpdatedAt, outside the reviewed fields', async () => {
+    propose({ ...PIPELINE_EDIT, baseUpdatedAt: '2026-11-01T10:00:00.123Z' });
+    getPipelineById.mockResolvedValue({ success: true, data: { pipeline: { pipelineName: 'web-ci', description: 'builds the web app' } } });
+    updatePipeline.mockResolvedValue({ success: true, data: { pipeline: { id: 'p1' } } });
+
+    render(<AskPanel onClose={jest.fn<AnyFn>()} />);
+    ask('rename web-ci');
+
+    await waitFor(() => expect(screen.getByRole('button', { name: /Apply change/i })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: /Apply change/i }));
+    await waitFor(() => expect(updatePipeline).toHaveBeenCalled());
+    expect(updatePipeline).toHaveBeenCalledWith(
+      'p1',
+      { pipelineName: 'web-ci-v2', expectedUpdatedAt: '2026-11-01T10:00:00.123Z' },
+      { proposedByAgent: true },
+    );
+    // Not a diff row: the token is never something the reviewer approves.
+    expect(screen.queryByTestId('ask-diff-expectedUpdatedAt')).not.toBeInTheDocument();
+  });
+
+  it('a 412 from the server (changed since drafted, even in an unreviewed field) is a STALE draft, not a failure', async () => {
+    propose({ ...PIPELINE_EDIT, baseUpdatedAt: '2026-11-01T10:00:00.123Z' });
+    // The reviewed field still matches, so the client-side re-read passes …
+    getPipelineById.mockResolvedValue({ success: true, data: { pipeline: { pipelineName: 'web-ci', description: 'builds the web app' } } });
+    // … but something else moved, and the update route refuses the stale token.
+    updatePipeline.mockRejectedValue(new ApiError('The record was modified by someone else.', 412, 'PRECONDITION_FAILED'));
+
+    render(<AskPanel onClose={jest.fn<AnyFn>()} />);
+    ask('rename web-ci');
+
+    await waitFor(() => expect(screen.getByRole('button', { name: /Apply change/i })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: /Apply change/i }));
+
+    const stale = await screen.findByTestId('ask-stale');
+    expect(stale).toHaveTextContent(/changed since the proposal was drafted/i);
+    expect(stale).toHaveTextContent(/nothing was applied/i);
+    expect(stale).toHaveTextContent(/regenerate/i);
+    expect(screen.queryByText('Applied — open pipelines')).not.toBeInTheDocument();
+  });
+
+  it('a draft without a token is still applied (last-write-wins, guarded by the re-read)', async () => {
+    propose(PIPELINE_EDIT);
+    getPipelineById.mockResolvedValue({ success: true, data: { pipeline: { pipelineName: 'web-ci', description: 'builds the web app' } } });
+    updatePipeline.mockResolvedValue({ success: true, data: { pipeline: { id: 'p1' } } });
+
+    render(<AskPanel onClose={jest.fn<AnyFn>()} />);
+    ask('rename web-ci');
+
+    await waitFor(() => expect(screen.getByRole('button', { name: /Apply change/i })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: /Apply change/i }));
+    await waitFor(() => expect(updatePipeline).toHaveBeenCalled());
+    expect(updatePipeline.mock.calls[0]![1]).not.toHaveProperty('expectedUpdatedAt');
   });
 
   it('leaves the card readable but inert without the route\'s permission', async () => {

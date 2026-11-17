@@ -1032,6 +1032,33 @@ describe('secrets never reach the model, and an edit never persists a placeholde
   });
 });
 
+describe('edit — the base read\'s updatedAt rides along as the commit\'s concurrency token', () => {
+  const STAMP = '2026-11-01T10:00:00.123Z';
+
+  it.each([
+    ['propose_pipeline_edit', 'pipeline', { pipeline: { id: 'p1', pipelineName: 'api', description: 'old', updatedAt: STAMP } }, 'p1'],
+    ['propose_plugin_edit', 'plugin', { plugin: { id: 'pl1', name: 'trivy', summary: 'old', updatedAt: STAMP } }, 'pl1'],
+    ['propose_template_edit', 'template', { template: { id: 't1', name: 'node', description: 'old', props: {}, inputs: [], updatedAt: STAMP } }, 't1'],
+  ] as const)('%s carries baseUpdatedAt from its read', async (toolName, svcName, data, id) => {
+    (svcName === 'plugin' ? plugin : pipeline).get.mockResolvedValue({ data });
+    const changes = svcName === 'plugin' ? { summary: 'new' } : { description: 'new' };
+    const out = await call(toolName, { id, changes });
+    expect(out).toMatchObject({ baseUpdatedAt: STAMP });
+    // Never part of the reviewed diff or the commit payload.
+    expect(out.changedFields).not.toContain('updatedAt');
+    expect(out.proposed).not.toHaveProperty('updatedAt');
+  });
+
+  it('normalizes the stamp to ISO and omits it when the read has none (or an unusable one)', async () => {
+    pipeline.get.mockResolvedValueOnce({ data: { pipeline: { id: 'p1', pipelineName: 'api', updatedAt: '2026-11-01T10:00:00.123+00:00' } } });
+    expect(await call('propose_pipeline_edit', { id: 'p1', changes: { pipelineName: 'x' } })).toMatchObject({ baseUpdatedAt: STAMP });
+    pipeline.get.mockResolvedValueOnce({ data: { pipeline: { id: 'p1', pipelineName: 'api' } } });
+    expect(await call('propose_pipeline_edit', { id: 'p1', changes: { pipelineName: 'x' } })).not.toHaveProperty('baseUpdatedAt');
+    pipeline.get.mockResolvedValueOnce({ data: { pipeline: { id: 'p1', pipelineName: 'api', updatedAt: 'garbage' } } });
+    expect(await call('propose_pipeline_edit', { id: 'p1', changes: { pipelineName: 'x' } })).not.toHaveProperty('baseUpdatedAt');
+  });
+});
+
 describe('edit — propose_plugin_edit', () => {
   it('edits catalog metadata and REFUSES execution-contract keys', async () => {
     plugin.get.mockResolvedValue({ data: { plugin: { id: 'pl1', name: 'trivy', summary: 'old', commands: ['a'] } } });

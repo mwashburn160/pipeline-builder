@@ -29,10 +29,12 @@
  */
 
 import {
+  callInternal,
   createLogger,
   errorMessage,
   getServiceAuthHeader,
   InternalHttpClient,
+  PLATFORM_INTERNAL,
   SYSTEM_ORG_ID,
 } from '@pipeline-builder/api-core';
 import { Config } from '@pipeline-builder/pipeline-core';
@@ -71,24 +73,21 @@ const headers = () => ({
   Authorization: getServiceAuthHeader({ serviceName: 'reporting', orgId: SYSTEM_ORG_ID, role: 'member' }),
 });
 
-const strings = (v: unknown): string[] =>
-  (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
+/** The two reads, defined once in api-core (paths, params, reply normalization). */
+const { reportAuthority: AUTHORITY, reportRecipientCheck: RECIPIENT } = PLATFORM_INTERNAL;
 
 /** The live implementation (platform over HTTP). Exported for tests. */
 export const httpReportIdentity: ReportIdentity = {
   async authority(orgId, userId) {
     try {
-      const res = await client().get<{ data?: Record<string, unknown> }>(
-        `/internal/reporting/report-authority/${encodeURIComponent(orgId)}/${encodeURIComponent(userId)}`,
-        { headers: headers() },
-      );
-      const d = res.body?.data;
-      if (res.statusCode >= 400 || !d || typeof d.active !== 'boolean') return null;
+      const res = await callInternal(client(), AUTHORITY, { params: { orgId, userId }, options: { headers: headers() } });
+      if (!res.ok) return null;
+      const d = res.data;
       return {
         active: d.active,
-        permissions: strings(d.permissions),
-        features: strings(d.features),
-        ...(typeof d.tier === 'string' ? { tier: d.tier } : {}),
+        permissions: d.permissions,
+        features: d.features,
+        ...(d.tier !== undefined ? { tier: d.tier } : {}),
       };
     } catch (err) {
       logger.warn('Report-authority read failed', { orgId, userId, error: errorMessage(err) });
@@ -97,18 +96,14 @@ export const httpReportIdentity: ReportIdentity = {
   },
 
   async recipientCheck(orgId, email) {
-    const q = new URLSearchParams({ email });
     try {
-      const res = await client().get<{ data?: Record<string, unknown> }>(
-        `/internal/reporting/recipient-check/${encodeURIComponent(orgId)}?${q.toString()}`,
-        { headers: headers() },
-      );
-      const d = res.body?.data;
-      if (res.statusCode >= 400 || !d || typeof d.member !== 'boolean') return null;
+      const res = await callInternal(client(), RECIPIENT, { params: { orgId }, query: { email }, options: { headers: headers() } });
+      if (!res.ok) return null;
+      const d = res.data;
       return {
         member: d.member,
-        ...(typeof d.userId === 'string' ? { userId: d.userId } : {}),
-        ...(typeof d.displayName === 'string' ? { displayName: d.displayName } : {}),
+        ...(d.userId !== undefined ? { userId: d.userId } : {}),
+        ...(d.displayName !== undefined ? { displayName: d.displayName } : {}),
       };
     } catch (err) {
       // The address itself never reaches the log — it is the PII this whole

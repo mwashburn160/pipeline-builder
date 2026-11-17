@@ -15,7 +15,7 @@ import {
   type PluginCatalogEdits,
   type PluginCatalogField,
 } from '@pipeline-builder/api-core';
-import { renderUntrustedMarkdown } from '@pipeline-builder/api-server/lib/markdown.js';
+import { renderUntrustedMarkdown } from '@pipeline-builder/api-server/markdown';
 import type { PluginIcon, PluginListing, PluginListingInsert } from '@pipeline-builder/pipeline-data';
 
 import { isLinkField, sameValue } from './policy.js';

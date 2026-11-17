@@ -39,7 +39,8 @@ describe('plugin publication timeouts', () => {
   it('the publication routes apply their timeout before any handler runs', () => {
     const src = read('api/image-registry/src/routes/internal-publications.ts');
     const use = src.indexOf('router.use(PLUGIN_PUBLICATIONS_PATH');
-    const firstRoute = src.indexOf('router.post(PLUGIN_PUBLICATIONS_PATH');
+    // Routes mount from their internal contracts (`route(C.<endpoint>)`).
+    const firstRoute = src.indexOf('router.post(route(C.');
     expect(use).toBeGreaterThan(-1);
     expect(use).toBeLessThan(firstRoute);
     expect(src.slice(use, firstRoute)).toContain('res.setTimeout(PUBLICATION_TIMEOUT_MS)');

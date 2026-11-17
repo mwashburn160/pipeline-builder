@@ -50,7 +50,14 @@ export function complianceApi(core: ApiCore) {
       });
     },
 
-    /** Update a compliance rule */
+    /** Get a compliance rule by id. */
+    getComplianceRule: async (id: string) => {
+      return core.request<ApiResponse<{ rule: ComplianceRule }>>(`/api/compliance/rules/${id}`);
+    },
+
+    /** Update a compliance rule. `data.expectedUpdatedAt` (the `updatedAt` the
+     *  edit was based on) makes it a conditional write: 412 PRECONDITION_FAILED
+     *  when the rule changed since. Absent: last write wins. */
     updateComplianceRule: async (id: string, data: ComplianceRuleUpdate) => {
       return core.request<ApiResponse<{ rule: ComplianceRule }>>(`/api/compliance/rules/${id}`, {
         method: 'PUT',
@@ -132,7 +139,10 @@ export function complianceApi(core: ApiCore) {
     },
 
     /** Update a compliance policy */
-    updateCompliancePolicy: async (id: string, data: { name?: string; description?: string; version?: string; isActive?: boolean }) => {
+    /** Update a compliance policy. `expectedUpdatedAt` (the `updatedAt` the edit
+     *  was based on) makes it a conditional write: 412 PRECONDITION_FAILED when
+     *  the policy changed since. Absent: last write wins. */
+    updateCompliancePolicy: async (id: string, data: { name?: string; description?: string; version?: string; isActive?: boolean; expectedUpdatedAt?: string }) => {
       return core.request<ApiResponse<{ policy: CompliancePolicy }>>(`/api/compliance/policies/${id}`, {
         method: 'PUT',
         body: JSON.stringify(data),

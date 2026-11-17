@@ -3231,10 +3231,15 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
     coveredBy: 'Plugin list + detail reads',
     why: 'A READ over POST: the pipeline editor previews how a step\'s plugin reference resolves (src/components/pipeline/editors/PluginResolutionWarnings.tsx → api.lookupPlugin) to show its severity-graded VULN_* / scan / compliance warnings, failing soft; same plugins:read gate as the plugin list. Its main caller is pipeline-manager, which pre-resolves every plugin before synth.',
   },
-  ...group('compliance', ['GET /compliance/rules/:id', 'GET /compliance/policies/:id'], {
+  'compliance GET /compliance/rules/:id': {
+    category: 'same-control',
+    coveredBy: 'Compliance reads (rules, policies, scans)',
+    why: 'The Reload in src/components/compliance/RuleEditor.tsx (api.getComplianceRule) after a save is refused 412 as a concurrent edit — inside the compliance:write-gated editor, stricter than the compliance:read route. Otherwise the list response carries the whole row.',
+  },
+  'compliance GET /compliance/policies/:id': {
     category: 'no-ui',
-    why: 'Read-one-by-id, for API / CLI callers. The dashboard never re-reads a single rule or policy: src/lib/api/domains/compliance.ts has only the list, PUT and DELETE by id — the list response already carries the whole row the drawer renders.',
-  }),
+    why: 'Read-one-by-id, for API / CLI callers. The dashboard never re-reads a single policy (PolicyManager\'s conflict Reload re-reads the list): src/lib/api/domains/compliance.ts has only the list, PUT and DELETE by id.',
+  },
   ...group('pipeline', ['GET /pipelines/find'], {
     category: 'no-ui',
     why: 'Exact-match lookup by project/organization, documented in docs/api-reference.md as a curl/CLI surface (the CDK resolves a pipeline this way). The dashboard uses the filtered list (GET /pipelines) instead; no client function exists.',

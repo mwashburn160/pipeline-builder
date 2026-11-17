@@ -10,14 +10,14 @@
 import { describe, it, expect } from '@jest/globals';
 import { PgDialect, pgTable, varchar } from 'drizzle-orm/pg-core';
 import {
-  compareSemver as deprecatedCompareSemver, compareSemverLenient, isVersionRange, maxSatisfying, parseSemver, parseVersionSpec,
+  compareSemverLenient, isVersionRange, maxSatisfying, parseSemver, parseVersionSpec,
   satisfiesVersionSpec, semverOrderBy, versionSpecCondition,
 } from '../src/api/semver-range.js';
 
 // The JS parser / matcher / precedence moved to api-core's single semver module
 // (tested there); this file re-exports it unchanged and owns only the SQL half.
 describe('re-exports api-core\'s semver module', () => {
-  it('is the same implementation, and the deprecated compareSemver is the LENIENT one', async () => {
+  it('is the same implementation (and exports only the unambiguous LENIENT comparator)', async () => {
     const core = await import('@pipeline-builder/api-core');
     expect(parseSemver).toBe(core.parseSemver);
     expect(parseVersionSpec).toBe(core.parseVersionSpec);
@@ -25,8 +25,8 @@ describe('re-exports api-core\'s semver module', () => {
     expect(maxSatisfying).toBe(core.maxSatisfying);
     expect(isVersionRange).toBe(core.isVersionRange);
     expect(compareSemverLenient).toBe(core.compareSemverLenient);
-    expect(deprecatedCompareSemver('garbage', '0.0.1')).toBeLessThan(0); // never throws
-    expect(deprecatedCompareSemver('1.0.1', '1.0.0')).toBeGreaterThan(0);
+    // The ambiguous `compareSemver` alias (lenient here, STRICT in api-core) is gone.
+    expect(await import('../src/api/semver-range.js')).not.toHaveProperty('compareSemver');
   });
 });
 

@@ -21,7 +21,19 @@
 // every other service uses.
 
 import { AI_REQUEST_TIMEOUT_MS } from '@pipeline-builder/ai-core';
-import { createLogger, currentAuditContext, envInt, errorMessage, getServiceAuthHeader, InternalHttpClient, onBehalfHeaders, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import {
+  buildContractPath,
+  createLogger,
+  currentAuditContext,
+  envInt,
+  errorMessage,
+  getServiceAuthHeader,
+  InternalHttpClient,
+  onBehalfHeaders,
+  parseContractResponse,
+  PLATFORM_INTERNAL,
+  SYSTEM_ORG_ID,
+} from '@pipeline-builder/api-core';
 import type { OnBehalfSubject } from '@pipeline-builder/api-core';
 import { Config } from '@pipeline-builder/pipeline-core';
 
@@ -224,11 +236,12 @@ export async function readInstanceEmailStatus(): Promise<EmailSwitch> {
       platformPort,
       getServiceAuthHeader({ serviceName: 'ask', orgId: SYSTEM_ORG_ID, role: 'member' }),
     );
-    const body = (await client.get('/internal/notify-email/status')) as { data?: { enabled?: unknown }; enabled?: unknown };
-    const enabled = body?.data?.enabled ?? body?.enabled;
-    if (enabled === true) return 'enabled';
-    if (enabled === false) return 'disabled';
-    return 'unknown';
+    // Through ask's own client (no retries, the per-call timeout, status → throw),
+    // with the path and the reply's shape from the endpoint's contract.
+    const status = PLATFORM_INTERNAL.notifyEmailStatus;
+    const reply = parseContractResponse(status, await client.get(buildContractPath(status)));
+    if (!reply.ok) return 'unknown';
+    return reply.value.enabled ? 'enabled' : 'disabled';
   } catch (err) {
     // Logged, because the alternative to a loud failure here is exactly the
     // silent degradation this call was introduced to remove: the diagnosis

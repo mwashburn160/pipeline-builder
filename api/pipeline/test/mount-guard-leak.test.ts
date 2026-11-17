@@ -90,7 +90,6 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   resolveVisibility: (_req: any, am?: string) => am ?? 'private',
   runConcurrent: async <T, R>(items: T[], _max: number, fn: (i: T) => Promise<R>) => Promise.all(items.map(fn)),
   PipelineCreateSchema: {},
-  PipelineUpdateSchema: {},
   PipelineFilterSchema: {},
   AIGenerateBodySchema: {},
   AIGenerateFromUrlBodySchema: {},

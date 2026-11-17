@@ -8,14 +8,25 @@ import {
   proposable, recordAudit, withProposalProvenance,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
-import { renderUntrustedMarkdown } from '@pipeline-builder/api-server/lib/markdown.js';
+import { renderUntrustedMarkdown } from '@pipeline-builder/api-server/markdown';
 import { Router } from 'express';
+import { z } from 'zod';
 import { onPluginDeprecated } from '../helpers/deprecation-notice.js';
 import { assertNotManaged, isYankedVersion } from '../helpers/managed-toolchain.js';
 import { shapePlugin } from '../helpers/plugin-helpers.js';
 import { checkUpdateCompliance, needsComplianceRecheck } from '../helpers/update-compliance.js';
 import { pluginService, type Plugin } from '../services/plugin-service.js';
 import { onVersionWithdrawn } from '../services/version-withdrawal.js';
+
+/**
+ * The update body plus the optimistic-concurrency token: `expectedUpdatedAt` is
+ * the `updatedAt` the editor loaded. Present → the write lands only if the
+ * version is unchanged since (else 412 PRECONDITION_FAILED); absent → last
+ * write wins. Still `.strict()` (extend keeps it); never a column write.
+ */
+const PluginUpdateRequestSchema = PluginUpdateSchema.extend({
+  expectedUpdatedAt: z.iso.datetime({ offset: true }).optional(),
+});
 
 /**
  * The posture-bearing scalar fields whose before → after a reviewer needs (who
@@ -110,12 +121,12 @@ export function createUpdatePluginRoutes(): Router {
       return sendError(res, 400, contractKeysMessage(contractKeys), ErrorCode.VALIDATION_ERROR, { fields: contractKeys });
     }
 
-    const validation = validateBody(req, PluginUpdateSchema);
+    const validation = validateBody(req, PluginUpdateRequestSchema);
     if (!validation.ok) {
       return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
     }
 
-    const body = validation.value;
+    const { expectedUpdatedAt, ...body } = validation.value;
 
     ctx.log('INFO', 'Plugin update request received', { id });
 
@@ -193,12 +204,13 @@ export function createUpdatePluginRoutes(): Router {
 
     // Promoting to default demotes the current default in the same transaction,
     // which needs write access to THAT row too — pass the caller's authority.
+    // A stale `expectedUpdatedAt` makes the service throw ConcurrencyConflictError → 412.
     const updated = await pluginService.update(
       id,
       updateData,
       orgId,
       userId,
-      { access: { isSystemAdmin: isSystemAdmin(req), canPublish: userHasPermission(req, 'plugins:publish') } },
+      { access: { isSystemAdmin: isSystemAdmin(req), canPublish: userHasPermission(req, 'plugins:publish') }, expectedUpdatedAt },
     );
 
     if (!updated) return sendEntityNotFound(res, 'Plugin');

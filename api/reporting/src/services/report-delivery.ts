@@ -32,12 +32,15 @@
  */
 
 import {
+  callInternal,
+  ContractRequestError,
   createLogger,
   createWebhookChannel,
   emitCounter,
   errorMessage,
   getServiceAuthHeader,
   InternalHttpClient,
+  PLATFORM_INTERNAL,
   sendSystemNotification,
   serviceEndpoint,
   type NotificationMessage,
@@ -104,6 +107,9 @@ function platform(): InternalHttpClient {
   return new InternalHttpClient({ host, port });
 }
 
+/** Platform's relay and its switch, defined once in api-core. */
+const { notifyEmail: NOTIFY_EMAIL, notifyEmailStatus: NOTIFY_EMAIL_STATUS } = PLATFORM_INTERNAL;
+
 let emailStatus: { enabled: boolean; at: number } | null = null;
 
 /**
@@ -118,11 +124,13 @@ export async function emailAvailable(now = Date.now()): Promise<boolean> {
   if (emailStatus && now - emailStatus.at < EMAIL_STATUS_TTL_MS) return emailStatus.enabled;
   let enabled = false;
   try {
-    const res = await platform().get<{ data?: { enabled?: unknown } }>('/internal/notify-email/status', {
-      headers: { Authorization: getServiceAuthHeader({ serviceName: 'reporting', role: 'member' }) },
-      timeout: REPORTING_HTTP_TIMEOUT_MS,
+    const res = await callInternal(platform(), NOTIFY_EMAIL_STATUS, {
+      options: {
+        headers: { Authorization: getServiceAuthHeader({ serviceName: 'reporting', role: 'member' }) },
+        timeout: REPORTING_HTTP_TIMEOUT_MS,
+      },
     });
-    enabled = res.statusCode < 400 && res.body?.data?.enabled === true;
+    enabled = res.ok && res.data.enabled;
   } catch (err) {
     logger.warn('Email status unreadable; treating this instance as mail-less', { error: errorMessage(err) });
   }
@@ -418,9 +426,8 @@ async function sendReportEmail(
   headline: string | null,
 ): Promise<{ sent: string[]; failed: string[]; relayFailed: false | 'refused' | 'unreachable' }> {
   try {
-    const res = await platform().post<{ data?: { sent?: unknown; failed?: unknown } }>(
-      '/internal/notify-email',
-      {
+    const res = await callInternal(platform(), NOTIFY_EMAIL, {
+      body: {
         orgId: definition.orgId,
         subject,
         text: emailBody(definition, run, headline),
@@ -429,26 +436,31 @@ async function sendReportEmail(
           ...(unsubscribeUrl(r) ? { unsubscribeUrl: unsubscribeUrl(r) } : {}),
         })),
       },
-      {
+      options: {
         headers: {
           // Scoped to the org whose report this is: platform's relay is tenant-bound,
           // so a system-org token naming a tenant would be refused 403.
           Authorization: getServiceAuthHeader({ serviceName: 'reporting', orgId: definition.orgId, role: 'member' }),
         },
       },
-    );
-    const d = res.body?.data;
-    if (res.statusCode >= 400 || !d) {
+    });
+    if (!res.ok) {
       // A refused CALL is not a bounce: the addresses are fine and the relay is not.
       // Counting it as one would retire a manager's address after three bad deploys.
-      logger.warn('Report email relay refused the send', { orgId: definition.orgId, status: res.statusCode });
+      logger.warn('Report email relay refused the send', { orgId: definition.orgId, status: 'status' in res ? res.status : undefined });
       emitCounter('report_delivery_failed_total', { channel: 'email' });
       return { sent: [], failed: [], relayFailed: 'refused' };
     }
     const strings = (v: unknown): string[] =>
       (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
-    return { sent: strings(d.sent), failed: strings(d.failed), relayFailed: false };
+    return { sent: res.data.sent ?? [], failed: strings(res.data.failed), relayFailed: false };
   } catch (err) {
+    if (err instanceof ContractRequestError) {
+      // A body the relay's contract rejects would have been a 400: a refused call.
+      logger.warn('Report email relay refused the send', { orgId: definition.orgId, error: err.message });
+      emitCounter('report_delivery_failed_total', { channel: 'email' });
+      return { sent: [], failed: [], relayFailed: 'refused' };
+    }
     logger.warn('Report email relay unreachable', { orgId: definition.orgId, error: errorMessage(err) });
     emitCounter('report_delivery_failed_total', { channel: 'email' });
     return { sent: [], failed: [], relayFailed: 'unreachable' };
@@ -634,9 +646,8 @@ export async function notifyPaused(definition: ReportDefinition, reason: ReportP
 export async function sendRecipientConfirmation(orgId: string, email: string, token: string): Promise<boolean> {
   if (!(await emailAvailable())) return false;
   try {
-    const res = await platform().post<{ data?: { sent?: unknown } }>(
-      '/internal/notify-email',
-      {
+    const res = await callInternal(platform(), NOTIFY_EMAIL, {
+      body: {
         orgId,
         subject: 'Confirm your address for delivery reports',
         text: [
@@ -648,14 +659,14 @@ export async function sendRecipientConfirmation(orgId: string, email: string, to
         ].join('\n'),
         reportRecipients: [{ email }],
       },
-      {
+      options: {
         headers: { Authorization: getServiceAuthHeader({ serviceName: 'reporting', orgId, role: 'member' }) },
         timeout: REPORTING_HTTP_TIMEOUT_MS,
       },
-    );
-    const sent = res.statusCode < 400 && Array.isArray(res.body?.data?.sent) && res.body.data.sent.length > 0;
+    });
+    const sent = res.ok && (res.data.sent?.length ?? 0) > 0;
     if (!sent) {
-      logger.warn('Recipient confirmation email not sent', { orgId, status: res.statusCode });
+      logger.warn('Recipient confirmation email not sent', { orgId, status: 'status' in res ? res.status : undefined });
       emitCounter('report_delivery_failed_total', { channel: 'confirmation' });
     }
     return sent;
@@ -672,14 +683,17 @@ async function emailOwner(definition: ReportDefinition, subject: string, text: s
   try {
     // The TENANT leg, not the report leg: the owner is a platform user, so platform
     // resolves the address from the directory and reporting never handles it.
-    await platform().post('/internal/notify-email', {
-      orgId: definition.orgId,
-      targetUsers: [definition.ownerId],
-      subject,
-      text,
-    }, {
-      headers: {
-        Authorization: getServiceAuthHeader({ serviceName: 'reporting', orgId: definition.orgId, role: 'member' }),
+    await callInternal(platform(), NOTIFY_EMAIL, {
+      body: {
+        orgId: definition.orgId,
+        targetUsers: [definition.ownerId],
+        subject,
+        text,
+      },
+      options: {
+        headers: {
+          Authorization: getServiceAuthHeader({ serviceName: 'reporting', orgId: definition.orgId, role: 'member' }),
+        },
       },
     });
   } catch (err) {

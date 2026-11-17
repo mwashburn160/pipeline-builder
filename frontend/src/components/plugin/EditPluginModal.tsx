@@ -11,11 +11,13 @@ import { Textarea } from '@/components/ui/Textarea';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { Button } from '@/components/ui/Button';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
+import { ConcurrencyConflictAlert } from '@/components/ui/ConcurrencyConflictAlert';
 import { InfoAlert } from '@/components/ui/InfoAlert';
 import { SuccessAlert } from '@/components/ui/SuccessAlert';
 import { WarningAlert } from '@/components/ui/WarningAlert';
 import api from '@/lib/api';
 import { ApiError } from '@/lib/api/errors';
+import { expectedUpdatedAtOf, isConcurrencyConflict } from '@/lib/api/concurrency';
 import type { PluginSummary } from '@/lib/api/domains/plugins';
 import { formatError } from '@/lib/constants';
 import { CATEGORY_DISPLAY_NAMES, PLUGIN_CATEGORIES } from '@/lib/plugin-categories';
@@ -89,6 +91,8 @@ export default function EditPluginModal({ plugin, canPublish, onClose, onSaved }
   const [saveError, setSaveError] = useState<string | null>(null);
   /** A 409: this version's catalog details are frozen by a publish request / listing. */
   const [frozenMessage, setFrozenMessage] = useState<string | null>(null);
+  /** A 412: the version changed since this form loaded it (optimistic concurrency). */
+  const [conflict, setConflict] = useState(false);
   const [success, setSuccess] = useState<string | null>(null);
 
   const autoClose = useAutoCloseTimer();
@@ -104,7 +108,8 @@ export default function EditPluginModal({ plugin, canPublish, onClose, onSaved }
     invalidates: ['plugins'],
     errorFallback: 'Failed to update plugin',
     onError: (err, message) => {
-      if (err instanceof ApiError && err.statusCode === 409) setFrozenMessage(err.message);
+      if (isConcurrencyConflict(err)) setConflict(true);
+      else if (err instanceof ApiError && err.statusCode === 409) setFrozenMessage(err.message);
       else setSaveError(message);
     },
     onSuccess: () => {
@@ -127,7 +132,18 @@ export default function EditPluginModal({ plugin, canPublish, onClose, onSaved }
     if (!response.data?.plugin) throw new Error(response.message || 'Failed to load plugin');
     return response.data.plugin;
   }, []);
-  const { entity: fullPlugin, fetching, error: fetchError } = useEntityFetch<Plugin>(plugin.id, fetchPlugin);
+  const { entity: fullPlugin, fetching, error: fetchError, reload } = useEntityFetch<Plugin>(plugin.id, fetchPlugin);
+
+  // Re-read the record after a concurrency conflict; the seed effect below then
+  // resets every field to the latest version (this edit is discarded).
+  const handleReload = () => {
+    setConflict(false);
+    setSaveError(null);
+    setFrozenMessage(null);
+    setFieldErrors({});
+    setSuccess(null);
+    reload();
+  };
 
   // Seed editable fields once the full record loads.
   useEffect(() => {
@@ -169,6 +185,7 @@ export default function EditPluginModal({ plugin, canPublish, onClose, onSaved }
   const handleSave = async () => {
     setSaveError(null);
     setFrozenMessage(null);
+    setConflict(false);
     setSuccess(null);
     if (!fullPlugin) return;
 
@@ -202,7 +219,9 @@ export default function EditPluginModal({ plugin, canPublish, onClose, onSaved }
       return;
     }
 
-    await saveM.run(data);
+    // The version this edit was based on: a concurrent edit is a 412, not an overwrite.
+    const expectedUpdatedAt = expectedUpdatedAtOf(fullPlugin);
+    await saveM.run(expectedUpdatedAt ? { ...data, expectedUpdatedAt } : data);
   };
 
   const footer = (
@@ -247,6 +266,7 @@ export default function EditPluginModal({ plugin, canPublish, onClose, onSaved }
   return (
     <Modal title="Edit plugin" onClose={onClose} maxWidth="max-w-2xl" tall footer={footer} dirty={dirty}>
       <ErrorAlert message={saveError} />
+      <ConcurrencyConflictAlert show={conflict} onReload={handleReload} reloading={fetching} />
       {frozenMessage && (
         <WarningAlert
           message={(

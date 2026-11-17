@@ -42,7 +42,7 @@ describe('public image collection', () => {
     const v1 = db.seed('plugin_listing_versions', { listingId: 'l-1', version: '1.0.0', imageRepository: REPO, imageDigest: DIGEST_A, yankedAt: new Date(now.getTime() - 200 * DAY) });
     const v2 = db.seed('plugin_listing_versions', { listingId: 'l-1', version: '1.0.1', imageRepository: REPO, imageDigest: DIGEST_B, yankedAt: new Date(now.getTime() - 200 * DAY) });
     answer([{ image_repository: REPO, image_digest: DIGEST_A, version: '1.0.0' }]);
-    h.registryPost.mockImplementationOnce(async () => ({ statusCode: 200, body: { data: { deleted: true } } }) as never);
+    h.registryPost.mockImplementationOnce(async (_path: string, body: any) => ({ statusCode: 200, body: { data: { imageRepository: body.imageRepository, digest: body.digest, deleted: true } } }) as never);
 
     expect(await gc.collectYankedPublicImages(now)).toBe(1);
     expect(h.registryPost).toHaveBeenCalledWith('/internal/plugin-publications/gc', { imageRepository: REPO, digest: DIGEST_A }, expect.anything());
@@ -75,7 +75,7 @@ describe('public image collection', () => {
     answer([{ image_repository: REPO, image_digest: DIGEST_A, version: '1.0.0' }, { image_repository: REPO, image_digest: DIGEST_B, version: '1.0.1' }]);
     h.findRefs.mockImplementation(async (target: any) => (target.imageDigest === DIGEST_A
       ? [{ pipelineId: 'pipe-1', orgId: 'org-1', source: 'declared', pipelineName: 'p', pipelineDeleted: false, steps: ['Build/lint'] }] : []));
-    h.registryPost.mockImplementationOnce(async () => ({ statusCode: 200, body: { data: { deleted: true } } }) as never);
+    h.registryPost.mockImplementationOnce(async (_path: string, body: any) => ({ statusCode: 200, body: { data: { imageRepository: body.imageRepository, digest: body.digest, deleted: true } } }) as never);
     expect(await gc.collectYankedPublicImages()).toBe(1);
     expect(h.registryPost).toHaveBeenCalledTimes(1);
     expect(h.registryPost).toHaveBeenCalledWith('/internal/plugin-publications/gc', { imageRepository: REPO, digest: DIGEST_B }, expect.anything());

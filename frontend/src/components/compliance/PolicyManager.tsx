@@ -10,10 +10,12 @@ import { IconButton } from '@/components/ui/IconButton';
 import { Input } from '@/components/ui/Input';
 import { Textarea } from '@/components/ui/Textarea';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
+import { ConcurrencyConflictAlert } from '@/components/ui/ConcurrencyConflictAlert';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { RecentlyDeletedPanel } from '@/components/RecentlyDeletedPanel';
 import api from '@/lib/api';
+import { expectedUpdatedAtOf, isConcurrencyConflict } from '@/lib/api/concurrency';
 import { useCrudResource } from '@/hooks/useCrudResource';
 import { useDelete } from '@/hooks/useDelete';
 import { useMutation } from '@/hooks/useMutation';
@@ -25,7 +27,7 @@ interface PolicyManagerProps {
 }
 
 type PolicyCreate = { name: string; description?: string; version?: string; rules?: string[] };
-type PolicyUpdate = { name?: string; description?: string; version?: string; isActive?: boolean };
+type PolicyUpdate = { name?: string; description?: string; version?: string; isActive?: boolean; expectedUpdatedAt?: string };
 type PolicyParams = { name?: string; limit?: number; offset?: number };
 
 export default function PolicyManager({ readOnly = false }: PolicyManagerProps) {
@@ -53,6 +55,10 @@ export default function PolicyManager({ readOnly = false }: PolicyManagerProps) 
 
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  /** The `updatedAt` of the policy the form was opened on — sent as `expectedUpdatedAt`. */
+  const [editingUpdatedAt, setEditingUpdatedAt] = useState<string | undefined>(undefined);
+  /** After a conflict's Reload: re-seed the open form from the re-read row. */
+  const [reseedPending, setReseedPending] = useState(false);
   const [form, setForm] = useState({ name: '', description: '', version: '1.0.0' });
   // Deleting a policy is confirmed via a modal. `deletePolicy` never throws — a
   // failure lands in `mutationError` and renders inline above the list.
@@ -61,11 +67,15 @@ export default function PolicyManager({ readOnly = false }: PolicyManagerProps) 
   // create/update never throw and resolve null on failure (the crud hook
   // surfaces the error); keep the form open then so input isn't discarded.
   const save = useMutation({
-    fn: (id: string | null, data: typeof form) => (id ? updatePolicy(id, data) : createPolicy(data)),
+    fn: (id: string | null, data: typeof form) => (id
+      // Conditional on the version the form opened: a concurrent edit is a 412, not an overwrite.
+      ? updatePolicy(id, { ...data, expectedUpdatedAt: editingUpdatedAt })
+      : createPolicy(data)),
     onSuccess: (result) => {
       if (!result) return;
       setShowForm(false);
       setEditingId(null);
+      setEditingUpdatedAt(undefined);
       setForm({ name: '', description: '', version: '1.0.0' });
     },
   });
@@ -78,13 +88,32 @@ export default function PolicyManager({ readOnly = false }: PolicyManagerProps) 
 
   const handleEdit = (policy: CompliancePolicy) => {
     setEditingId(policy.id);
+    setEditingUpdatedAt(expectedUpdatedAtOf(policy));
     setForm({ name: policy.name, description: policy.description || '', version: policy.version });
     setShowForm(true);
   };
 
+  // A save refused as a concurrent edit: re-read the list, then reset the open
+  // form to the latest version of its policy (this edit is discarded).
+  const conflict = isConcurrencyConflict(mutationError);
+  const handleReload = async () => {
+    clearError();
+    await fetchPolicies();
+    setReseedPending(true);
+  };
+  useEffect(() => {
+    if (!reseedPending) return;
+    setReseedPending(false);
+    const fresh = editingId ? policies.find((p) => p.id === editingId) : undefined;
+    if (!fresh) return;
+    setEditingUpdatedAt(expectedUpdatedAtOf(fresh));
+    setForm({ name: fresh.name, description: fresh.description || '', version: fresh.version });
+  }, [reseedPending, editingId, policies]);
+
   const handleCancel = () => {
     setShowForm(false);
     setEditingId(null);
+    setEditingUpdatedAt(undefined);
     setForm({ name: '', description: '', version: '1.0.0' });
   };
 
@@ -119,7 +148,7 @@ export default function PolicyManager({ readOnly = false }: PolicyManagerProps) 
         <div className="flex items-center justify-end gap-1">
           <IconButton
             restTone={policy.isActive ? 'success' : 'default'}
-            onClick={() => updatePolicy(policy.id, { isActive: !policy.isActive })}
+            onClick={() => updatePolicy(policy.id, { isActive: !policy.isActive, expectedUpdatedAt: expectedUpdatedAtOf(policy) })}
             title={policy.isActive ? 'Deactivate' : 'Activate'}
             aria-label={policy.isActive ? 'Deactivate policy' : 'Activate policy'}
           >
@@ -191,7 +220,11 @@ export default function PolicyManager({ readOnly = false }: PolicyManagerProps) 
       {/* Errors render inline so the list (and the form's input) stay put. A
           load failure offers Retry; a mutation failure is dismissible. */}
       <ErrorAlert message={loadError?.message} onRetry={() => fetchPolicies()} onDismiss={clearError} />
-      <ErrorAlert message={mutationError?.message} onDismiss={clearError} />
+      {conflict ? (
+        <ConcurrencyConflictAlert show onReload={() => void handleReload()} reloading={loading} />
+      ) : (
+        <ErrorAlert message={mutationError?.message} onDismiss={clearError} />
+      )}
 
       {loading ? (
         <div className="flex items-center justify-center py-12">

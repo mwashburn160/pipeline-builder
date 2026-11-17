@@ -3,6 +3,8 @@
 
 import {
   ErrorCode,
+  MESSAGE_INTERNAL,
+  contractRoute,
   createLogger,
   errorMessage,
   getParam,
@@ -18,8 +20,8 @@ import { frustrationSignalFor } from '../helpers/offers-sentiment.js';
 
 const logger = createLogger('internal-offers');
 
-/** The one caller. Expansion offers are billing's; nobody else needs this. */
-const SIGNAL_CALLERS = ['billing'] as const;
+/** The route and its one caller (billing — expansion offers are billing's), defined once in api-core. */
+const FRUSTRATION = MESSAGE_INTERNAL.offersFrustration;
 
 /**
  * The FRUSTRATION signal for one org.
@@ -51,9 +53,9 @@ export function createInternalOffersRoutes(): Router {
   const router: Router = Router();
 
   router.get(
-    '/internal/offers/frustration/:orgId',
+    contractRoute(FRUSTRATION, '/messages'),
     requireAuth,
-    requireInternalService({ callers: SIGNAL_CALLERS }),
+    requireInternalService({ callers: FRUSTRATION.callers }),
     async (req: Request, res: Response) => {
       const orgId = getParam(req.params, 'orgId');
       if (!orgId) {

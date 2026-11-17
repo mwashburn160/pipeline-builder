@@ -193,6 +193,8 @@ export interface ComplianceRuleUpdate {
   conditions?: RuleCondition[];
   conditionMode?: RuleConditionMode;
   isActive?: boolean;
+  /** Optimistic concurrency: the `updatedAt` the edit was based on. */
+  expectedUpdatedAt?: string;
 }
 
 export interface ComplianceRuleSubscription {

@@ -38,7 +38,19 @@ import * as fs from 'fs';
 import * as os from 'os';
 import path from 'path';
 
-import { createLogger, errorMessage, extractPredicate, getServiceAuthHeader, InternalHttpClient, SPDX_PREDICATE_TYPE, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import {
+  buildContractPath,
+  callInternal,
+  createLogger,
+  errorMessage,
+  extractPredicate,
+  getServiceAuthHeader,
+  IMAGE_REGISTRY_INTERNAL,
+  InternalHttpClient,
+  PLUGIN_SIGNATURE_HEADERS,
+  SPDX_PREDICATE_TYPE,
+  SYSTEM_ORG_ID,
+} from '@pipeline-builder/api-core';
 import { observe } from '@pipeline-builder/api-server';
 import { Config } from '@pipeline-builder/pipeline-core';
 
@@ -197,11 +209,14 @@ export async function attachSupplyChain(params: AttachSupplyChainParams, opts?: 
   // validate the repository and digest before reading a byte of the document —
   // and can stream it straight to the file cosign needs instead of buffering a
   // JSON envelope around it. Same method and path, so no route contract moves.
-  const res = await client.post<{ message?: string }>('/internal/plugin-signatures', sbom, {
+  // The raw SPDX bytes are the body, so this one call goes through the client
+  // directly rather than `callInternal` (which sends a validated JSON body);
+  // the path and header names still come from the contract.
+  const res = await client.post<{ message?: string }>(buildContractPath(IMAGE_REGISTRY_INTERNAL.signPluginImage), sbom, {
     headers: {
-      'Authorization': getServiceAuthHeader({ serviceName: 'plugin', orgId, role: 'member' }),
-      'x-pb-repository': relativeRepository(repository, registry),
-      'x-pb-digest': digest,
+      Authorization: getServiceAuthHeader({ serviceName: 'plugin', orgId, role: 'member' }),
+      [PLUGIN_SIGNATURE_HEADERS.repository]: relativeRepository(repository, registry),
+      [PLUGIN_SIGNATURE_HEADERS.digest]: digest,
     },
     maxRetries: 0,
   });
@@ -262,18 +277,24 @@ export async function discardPluginImage(params: { repository: string; digest: s
     port: services.imageRegistryPort,
     timeout: getBuildCfg().pushTimeoutMs,
   });
-  const res = await client.post<{ data?: { deleted?: number }; message?: string }>('/internal/plugin-images/discard', {
-    repository: relativeRepository(repository, registry),
-    digest,
-    ...(context && { context }),
-  }, {
-    headers: { Authorization: getServiceAuthHeader({ serviceName: 'plugin', orgId, role: 'member' }) },
-    maxRetries: 1,
+  const res = await callInternal(client, IMAGE_REGISTRY_INTERNAL.discardPluginImage, {
+    body: {
+      repository: relativeRepository(repository, registry),
+      digest,
+      ...(context && { context }),
+    },
+    options: {
+      headers: { Authorization: getServiceAuthHeader({ serviceName: 'plugin', orgId, role: 'member' }) },
+      maxRetries: 1,
+    },
   });
-  if (res.statusCode < 200 || res.statusCode >= 300) {
-    throw new Error(`image-registry refused to discard ${repository}@${digest} (HTTP ${res.statusCode}): ${res.body?.message ?? 'no detail'}`);
+  if (res.ok) return { deleted: res.data.deleted };
+  if (res.reason === 'status') {
+    const message = (res.body as { message?: string } | undefined)?.message;
+    throw new Error(`image-registry refused to discard ${repository}@${digest} (HTTP ${res.status}): ${message ?? 'no detail'}`);
   }
-  return { deleted: res.body?.data?.deleted ?? 0 };
+  // A 2xx the contract cannot read: the discard happened, the count is unknown.
+  return { deleted: 0 };
 }
 
 // -----------------------------------------------------------------------------

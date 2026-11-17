@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { formatDateTime } from '@/lib/format';
-import { useAsyncCallback } from '@/hooks/useAsync';
+import { useMutation } from '@/hooks/useMutation';
 import { useEntityFetch } from '@/hooks/useEntityFetch';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { LoadingSpinner } from '@/components/ui/Loading';
@@ -10,9 +10,11 @@ import { Button } from '@/components/ui/Button';
 import { Select } from '@/components/ui/Select';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
+import { ConcurrencyConflictAlert } from '@/components/ui/ConcurrencyConflictAlert';
 import { SuccessAlert } from '@/components/ui/SuccessAlert';
 import api from '@/lib/api';
 import { invalidate } from '@/lib/api-cache';
+import { expectedUpdatedAtOf, isConcurrencyConflict } from '@/lib/api/concurrency';
 import type { PipelineSummary } from '@/lib/api/domains/pipelines';
 import { Pipeline, BuilderProps, Visibility } from '@/types';
 import FormBuilderTab, { FormBuilderTabRef } from './FormBuilderTab';
@@ -61,9 +63,16 @@ export default function EditPipelineModal({ pipeline, canPublish, onClose, onSav
   const [owner, setOwner] = useState<CatalogOwner>({});
   const { user } = useAuth();
   const canAssignOwner = isOrgAdmin(user) || isSystemAdmin(user);
-  const { execute: saveAsync, loading, error, clearError } = useAsyncCallback(
-    (data: Parameters<typeof api.updatePipeline>[1]) => api.updatePipeline(pipeline.id, data),
-  );
+  // A 412: the pipeline changed since this form loaded it (optimistic concurrency).
+  const [conflict, setConflict] = useState(false);
+  const saveM = useMutation({
+    fn: (data: Parameters<typeof api.updatePipeline>[1]) => api.updatePipeline(pipeline.id, data),
+    scopeKey: pipeline.id,
+    errorFallback: 'Failed to update pipeline',
+    onError: (err) => { if (isConcurrencyConflict(err)) setConflict(true); },
+  });
+  const { run: saveAsync, pending: loading, reset: clearError } = saveM;
+  const error = conflict ? null : saveM.error;
   const [success, setSuccess] = useState<string | null>(null);
   // Severity-graded plugin warnings the save answered (never a refusal).
   const [pluginWarnings, setPluginWarnings] = useState<PipelinePluginWarning[]>([]);
@@ -93,7 +102,17 @@ export default function EditPipelineModal({ pipeline, canPublish, onClose, onSav
     if (!response.data?.pipeline) throw new Error(response.message || 'Failed to load pipeline');
     return response.data.pipeline;
   }, []);
-  const { entity: fullPipeline, fetching, error: fetchError } = useEntityFetch<Pipeline>(pipeline.id, fetchPipeline);
+  const { entity: fullPipeline, fetching, error: fetchError, reload } = useEntityFetch<Pipeline>(pipeline.id, fetchPipeline);
+
+  // Re-read the record after a concurrency conflict; the builder remounts on the
+  // new `updatedAt` (below), so the form shows the latest version, not this edit.
+  const handleReload = () => {
+    setConflict(false);
+    clearError();
+    setSuccess(null);
+    resetWizard();
+    reload();
+  };
 
   // Reset wizard/preview state and seed editable fields when the fetched
   // pipeline changes (parent may keep us mounted within the close window).
@@ -125,6 +144,7 @@ export default function EditPipelineModal({ pipeline, canPublish, onClose, onSav
 
   const handleSave = async () => {
     clearError();
+    setConflict(false);
     setSuccess(null);
     setPluginWarnings([]);
 
@@ -143,6 +163,8 @@ export default function EditPipelineModal({ pipeline, canPublish, onClose, onSav
       isActive,
       isDefault,
       visibility,
+      // The version this edit was based on: a concurrent edit is a 412, not an overwrite.
+      expectedUpdatedAt: expectedUpdatedAtOf(p),
       // Owner is admin-only server-side and non-nullable in the schema, so only
       // send it when this viewer may set it AND it resolves to a real id.
       ...(canAssignOwner && owner.ownerId && owner.ownerType
@@ -264,6 +286,7 @@ export default function EditPipelineModal({ pipeline, canPublish, onClose, onSav
       dirty={formDirty || ownFieldsDirty}
     >
       <ErrorAlert message={error} className="mb-4" />
+      <ConcurrencyConflictAlert show={conflict} onReload={handleReload} reloading={fetching} className="mb-4" />
       <SuccessAlert message={success} className="mb-4" />
       {pluginWarnings.length > 0 && (
         <div className="mb-4 rounded-xl border border-warning-border bg-warning-bg/40 p-3" data-testid="save-plugin-warnings">
@@ -298,6 +321,7 @@ export default function EditPipelineModal({ pipeline, canPublish, onClose, onSav
           </div>
 
           <FormBuilderTab
+            key={p.updatedAt}
             ref={formRef}
             onDirtyChange={setFormDirty}
             disabled={loading}

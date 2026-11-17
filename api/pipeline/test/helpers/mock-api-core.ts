@@ -73,9 +73,9 @@ const pipelineDefaults = (): Record<string, unknown> => ({
   resolveVisibility: (_req: unknown, requested?: string) =>
     (requested === 'public' || requested === 'org' ? requested : 'private'),
   // Pipeline-template Zod schemas — the template routes import them as values.
+  // (The update schema stays REAL: the route extends it at module load.)
   PipelineTemplateFilterSchema: {},
   PipelineTemplateCreateSchema: {},
-  PipelineTemplateUpdateSchema: {},
   InstantiateTemplateSchema: {},
   // Shared SSRF guard — git-analysis http.ts links against this.
   assertSafeUrl: async () => {},

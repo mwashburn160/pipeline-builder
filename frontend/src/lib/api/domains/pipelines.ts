@@ -211,6 +211,10 @@ export function pipelinesApi(core: ApiCore) {
        *  non-empty string, so ownership is reassigned, never cleared. */
       ownerId?: string;
       ownerType?: OwnerType;
+      /** Optimistic concurrency: the `updatedAt` the edit was based on. When the
+       *  pipeline changed since, the server answers 412 PRECONDITION_FAILED
+       *  (see `isConcurrencyConflict`). Absent: last write wins. */
+      expectedUpdatedAt?: string;
     }, opts?: ProposedByOptions) => {
       return core.request<ApiResponse<{ pipeline: Pipeline; pluginWarnings?: PipelinePluginWarning[] }>>(`/api/pipelines/${id}`, {
         method: 'PUT',

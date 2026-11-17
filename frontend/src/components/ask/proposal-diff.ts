@@ -170,9 +170,11 @@ export function commitPayload(proposed: Record<string, unknown> | undefined, row
 }
 
 /**
- * Re-read check. These tables carry no version column, so the only way to know
- * the approved diff is still the applied diff is to compare the freshly-read
- * entity against the snapshot the diff was rendered from.
+ * Re-read check: compare the freshly-read entity against the snapshot the diff
+ * was rendered from, so a moved REVIEWED field is named before anything is
+ * sent. The server-side guarantee is separate — an edit draft's
+ * `baseUpdatedAt` rides the update as `expectedUpdatedAt` and the route refuses
+ * (412) a row that changed at all (see proposal-commit.ts).
  *
  * Only the REVIEWED fields are compared: an unrelated column moving (or a
  * volatile one like `updatedAt`) does not invalidate a diff that does not touch

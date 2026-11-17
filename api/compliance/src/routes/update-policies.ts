@@ -13,6 +13,8 @@ const CompliancePolicyUpdateSchema = z.object({
   description: z.string().optional(),
   version: z.string().max(50).optional(),
   isActive: z.boolean().optional(),
+  /** Optimistic concurrency: the `updatedAt` the editor loaded (absent → last write wins; stale → 412). */
+  expectedUpdatedAt: z.iso.datetime({ offset: true }).optional(),
 });
 
 export function createUpdatePolicyRoutes(): Router {
@@ -29,7 +31,8 @@ export function createUpdatePolicyRoutes(): Router {
 
     // The prior row, read only for the audit's before → after.
     const before = await compliancePolicyService.findById(id, orgId);
-    const updated = await compliancePolicyService.update(id, validation.value, orgId, userId);
+    const { expectedUpdatedAt, ...changes } = validation.value;
+    const updated = await compliancePolicyService.update(id, changes, orgId, userId, { expectedUpdatedAt });
     if (!updated) return sendEntityNotFound(res, 'Policy');
 
     ctx.log('COMPLETED', 'Updated compliance policy', { id: updated.id, name: updated.name });

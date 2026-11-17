@@ -53,7 +53,8 @@ import {
 } from './config/cli.constants.js';
 import { banner, miniBanner } from './utils/banner.js';
 import { getApiConfig } from './utils/config-loader.js';
-import { loadSession } from './utils/credential-store.js';
+import { refreshStoredSession } from './utils/command-utils.js';
+import { isSessionUsable, loadSession } from './utils/credential-store.js';
 import { ERROR_CODES, handleError } from './utils/error-handler.js';
 import { printInfo, printError, printWarning, printDebug, printSection } from './utils/output-utils.js';
 import { preflightCommandTools } from './utils/preflight.js';
@@ -381,6 +382,24 @@ function registerCommands(): void {
   // help output, so those always work; API-only commands declare no requirements
   // and pass through untouched.
   program.hook('preAction', (_thisCommand, actionCommand) => preflightCommandTools(actionCommand));
+  // Renew an EXPIRED stored `auth login` session before ANY command runs. Only the
+  // async credential path used to refresh, so commands on the sync client
+  // (`pipeline list`, …) exited "Not signed in" while `status` promised the
+  // session would be "renewed on the next command". Commander chains a returned
+  // promise before the action, so this completes first. Best-effort: a network
+  // blip leaves the session as it was and the command reports what it finds.
+  program.hook('preAction', async () => {
+    if (process.env.PLATFORM_TOKEN) return;
+    let baseUrl: string;
+    try { baseUrl = getApiConfig().api.baseUrl; } catch { return; }
+    const stored = loadSession(baseUrl);
+    if (!stored || isSessionUsable(stored)) return;
+    try {
+      await refreshStoredSession(baseUrl, stored);
+    } catch (err) {
+      printDebug('Stored session renewal before the command failed', { error: errorMessage(err) });
+    }
+  });
 
   // Top-level meta commands (no namespace).
   version(program);

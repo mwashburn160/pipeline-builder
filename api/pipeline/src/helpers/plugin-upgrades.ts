@@ -31,18 +31,15 @@
  * pipeline's `toolchain.release`.
  */
 
-import { managedToolchainRefName, PluginFilterSchema, scanFreshness, versionScanFacts } from '@pipeline-builder/api-core';
+import { managedToolchainRefName, PluginFilterSchema, scanFreshness, versionScanFacts, compareSemverLenient, isVersionRange, satisfiesVersionSpec } from '@pipeline-builder/api-core';
 import { collectPluginSteps, pluginLookupFilter, type PluginStepRef } from '@pipeline-builder/pipeline-core';
 import {
   buildPluginConditions,
-  compareSemver,
   drizzleListingSource,
   implicitInstallRange,
   installAdmits,
-  isVersionRange,
   orgListingStates,
   runWithTenantContext,
-  satisfiesVersionSpec,
   schema,
   withTenantTx,
   type PluginFilter,
@@ -109,7 +106,7 @@ function newestClean(candidates: readonly Candidate[], spec: string | null): str
   for (const c of candidates) {
     if (spec !== null && !satisfiesVersionSpec(c.version, spec)) continue;
     if (!isClean(c)) continue;
-    if (best === null || compareSemver(c.version, best) > 0) best = c.version;
+    if (best === null || compareSemverLenient(c.version, best) > 0) best = c.version;
   }
   return best;
 }
@@ -202,7 +199,7 @@ export async function previewPluginUpgrades(props: unknown, orgId: string, paren
         : ownCandidates(plugin.name, orgId, parentOrgId);
       candidatesMemo.set(key, candidates);
     }
-    const all = (await candidates).filter((c) => compareSemver(c.version, plugin.version) > 0);
+    const all = (await candidates).filter((c) => compareSemverLenient(c.version, plugin.version) > 0);
     const { pin, declared, spec } = pinSpec(step);
     const suggestedInPin = newestClean(all, spec);
     const suggestedLatest = newestClean(all, null);

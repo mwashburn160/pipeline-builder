@@ -37,7 +37,8 @@ import {
   emitCounter,
   errorMessage,
   getServiceAuthHeader,
-  NOTIFY_EMAIL_PATH,
+  PLATFORM_INTERNAL,
+  callInternal,
   QUOTA_TYPE_LABELS,
   QUOTA_UPGRADE_PATH,
   enforcedQuotaLimit,
@@ -293,18 +294,21 @@ async function deliverEmail(
   try {
     // api-core's shared path. The endpoint serves five callers; its `quotaNotice`
     // leg accepts only the `quota` caller, which is this one.
-    const response = await platform().post(NOTIFY_EMAIL_PATH, {
-      quotaNotice: true,
-      orgId: input.rootOrgId,
-      subject: text.subject,
-      text: text.content,
-    }, {
-      headers: { authorization: getServiceAuthHeader({ serviceName: 'quota', orgId: input.rootOrgId, role: 'member' }) },
-      maxRetries: 0,
+    const response = await callInternal(platform(), PLATFORM_INTERNAL.notifyEmail, {
+      body: {
+        quotaNotice: true,
+        orgId: input.rootOrgId,
+        subject: text.subject,
+        text: text.content,
+      },
+      options: {
+        headers: { authorization: getServiceAuthHeader({ serviceName: 'quota', orgId: input.rootOrgId, role: 'member' }) },
+        maxRetries: 0,
+      },
     });
     // The client resolves on a 4xx/5xx, so the status is the only refusal signal.
-    if (response && response.statusCode < 400) outcome = 'sent';
-    else logger.warn('Quota threshold email refused by the relay', { rootOrgId: input.rootOrgId, status: response?.statusCode });
+    if (response.ok || response.reason === 'invalid-response') outcome = 'sent';
+    else logger.warn('Quota threshold email refused by the relay', { rootOrgId: input.rootOrgId, status: response.reason === 'status' ? response.status : undefined });
   } catch (err) {
     logger.warn('Quota threshold email failed', { rootOrgId: input.rootOrgId, error: errorMessage(err) });
   }

@@ -32,9 +32,7 @@
  *      production).
  */
 import { SecretsManagerClient, PutSecretValueCommand } from '@aws-sdk/client-secrets-manager';
-import { correlationHeaders } from '@pipeline-builder/pipeline-core/lib/core/audit-correlation.js';
-import { platformTlsVerify } from '@pipeline-builder/pipeline-core/lib/core/platform-tls.js';
-import { assertAccessKey, readCredentialSecret } from '@pipeline-builder/pipeline-core/lib/handlers/platform-credential.js';
+import { assertAccessKey, correlationHeaders, platformTlsVerify, readCredentialSecret } from '@pipeline-builder/pipeline-core/runtime';
 
 /** Per-request timeout for the platform calls. */
 const HTTP_TIMEOUT_MS = 10_000;

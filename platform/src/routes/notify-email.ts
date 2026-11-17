@@ -1,10 +1,13 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { requireInternalService } from '@pipeline-builder/api-core';
+import { PLATFORM_INTERNAL, contractRoute, requireInternalService } from '@pipeline-builder/api-core';
 import { Router } from 'express';
 import { notifyEmail, notifyEmailStatus } from '../controllers/notify-email.js';
 import { requireServiceAuth } from '../middleware/index.js';
+
+/** Where `mount.ts` mounts this router — the contracts' paths are under it. */
+export const NOTIFY_EMAIL_MOUNT = '/internal/notify-email';
 
 const router: Router = Router();
 
@@ -37,7 +40,9 @@ const router: Router = Router();
  * agent may learn WHETHER email works, never make this instance send mail to an
  * address a model (or a prompt-injected message) chose.
  */
-router.post('/', requireServiceAuth, requireInternalService({ callers: ['billing', 'compliance', 'plugin', 'quota', 'reporting'] }), notifyEmail);
+const { notifyEmail: SEND, notifyEmailStatus: STATUS } = PLATFORM_INTERNAL;
+
+router.post(contractRoute(SEND, NOTIFY_EMAIL_MOUNT), requireServiceAuth, requireInternalService({ callers: [...SEND.callers] }), notifyEmail);
 
 /**
  * GET /internal/notify-email/status — `{ enabled }`: whether this instance can
@@ -66,6 +71,6 @@ router.post('/', requireServiceAuth, requireInternalService({ callers: ['billing
  * member is asking — may read it while it may NOT appear on the send route
  * above. Same service-only gate either way.
  */
-router.get('/status', requireServiceAuth, requireInternalService({ callers: ['ask', 'plugin', 'reporting'] }), notifyEmailStatus);
+router.get(contractRoute(STATUS, NOTIFY_EMAIL_MOUNT), requireServiceAuth, requireInternalService({ callers: [...STATUS.callers] }), notifyEmailStatus);
 
 export default router;

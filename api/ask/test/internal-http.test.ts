@@ -235,8 +235,10 @@ describe('readInstanceEmailStatus — the authoritative email switch', () => {
   it.each([
     [{ data: { enabled: true } }, 'enabled'],
     [{ data: { enabled: false } }, 'disabled'],
-    [{ enabled: true }, 'enabled'],
-    // A body that does not answer is not an answer.
+    // Platform answers through `sendSuccess`; the endpoint's contract reads the
+    // envelope's `data`, so a bare body — like one that does not answer — is
+    // not an answer.
+    [{ enabled: true }, 'unknown'],
     [{ data: {} }, 'unknown'],
   ])('maps %j to %s', async (body, expected) => {
     handler = reply(body);

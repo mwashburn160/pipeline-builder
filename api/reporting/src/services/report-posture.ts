@@ -23,10 +23,12 @@
  */
 
 import {
+  callInternal,
   createLogger,
   errorMessage,
   getServiceAuthHeader,
   InternalHttpClient,
+  PLATFORM_INTERNAL,
   serviceEndpoint,
   SYSTEM_ORG_ID,
 } from '@pipeline-builder/api-core';
@@ -131,21 +133,22 @@ async function readCompliance(orgId: string): Promise<CompliancePosture | null> 
 
 /** Read the access half from platform, or null. */
 async function readAccess(orgId: string, from: string, to: string): Promise<AccessPosture | null> {
-  const q = new URLSearchParams({ from, to });
   try {
-    const res = await client('platform').get<{ data?: Record<string, unknown> }>(
-      `/internal/reporting/access-posture/${encodeURIComponent(orgId)}?${q.toString()}`,
-      { headers: auth(SYSTEM_ORG_ID), timeout: REPORTING_HTTP_TIMEOUT_MS },
-    );
-    const d = res.body?.data;
-    if (res.statusCode >= 400 || !d || typeof d.members !== 'number') return null;
+    const res = await callInternal(client('platform'), PLATFORM_INTERNAL.reportAccessPosture, {
+      params: { orgId },
+      query: { from, to },
+      options: { headers: auth(SYSTEM_ORG_ID), timeout: REPORTING_HTTP_TIMEOUT_MS },
+    });
+    if (!res.ok) return null;
+    // The contract floors each count at 0 and reads ssoRequired as `=== true`.
+    const d = res.data;
     return {
       members: num(d.members),
-      membersWithMfa: num(d.membersWithMfa),
-      ssoRequired: d.ssoRequired === true,
-      serviceAccounts: num(d.serviceAccounts),
-      activeApiKeys: num(d.activeApiKeys),
-      permissionChanges: num(d.permissionChanges),
+      membersWithMfa: d.membersWithMfa,
+      ssoRequired: d.ssoRequired,
+      serviceAccounts: d.serviceAccounts,
+      activeApiKeys: d.activeApiKeys,
+      permissionChanges: d.permissionChanges,
     };
   } catch (err) {
     logger.warn('Access posture unavailable for report', { orgId, error: errorMessage(err) });

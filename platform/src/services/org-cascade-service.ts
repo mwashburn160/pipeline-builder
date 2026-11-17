@@ -23,7 +23,7 @@
  * portability) before pulling the trigger.
  */
 
-import { isSystemOrgId, createLogger, createSafeClient, errorMessage, getServiceAuthHeader, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import { isSystemOrgId, callInternal, createLogger, createSafeClient, errorMessage, getServiceAuthHeader, IMAGE_REGISTRY_INTERNAL, MESSAGE_INTERNAL, SYSTEM_ORG_ID, type InternalEndpointContract } from '@pipeline-builder/api-core';
 import { runWithTenantContext, softDeleteRetentionMs, withTenantTx } from '@pipeline-builder/pipeline-data';
 import { eq, sql } from 'drizzle-orm';
 import type { Types } from 'mongoose';
@@ -217,8 +217,8 @@ export async function cascadeDeleteOrg(orgId: string, actorOrgId: string): Promi
   // service reclaims the blobs. Best-effort and NOT a hard gate — an unreachable
   // message service must not block the org delete; a false `ok` flags leftover
   // blobs for the out-of-band orgId-prefix sweep.
-  const blobs = await deleteDownstream(
-    messageClient(), `/messages/internal/org/${encodeURIComponent(orgId)}/attachments`, orgId, 'Message attachment-blob purge',
+  const blobs = await deleteViaContract(
+    messageClient(), MESSAGE_INTERNAL.purgeOrgAttachments, orgId, 'Message attachment-blob purge',
   );
   report.messageBlobs = { ok: blobs.ok, statusCode: blobs.statusCode, ...(blobs.deleted === undefined ? {} : { deleted: blobs.deleted }) };
   // The org's PRIVATE container images (`org-<id>/*`). Platform holds no
@@ -235,8 +235,8 @@ export async function cascadeDeleteOrg(orgId: string, actorOrgId: string): Promi
   // Best-effort and NOT a hard gate, like the blob purge: an unreachable
   // registry must not block the org delete, and a false `ok` flags leftover
   // images for the operator's own GC.
-  const images = await deleteDownstream(
-    imageRegistryClient(), `/internal/org-namespace/${encodeURIComponent(orgId)}`, orgId, 'Registry private-namespace purge',
+  const images = await deleteViaContract(
+    imageRegistryClient(), IMAGE_REGISTRY_INTERNAL.purgeOrgNamespace, orgId, 'Registry private-namespace purge',
   );
   report.registryImages = { ok: images.ok, statusCode: images.statusCode, ...(images.deleted === undefined ? {} : { deleted: images.deleted }) };
 
@@ -432,6 +432,40 @@ async function deleteDownstream(
     if (!ok) logger.warn(`${label} returned non-2xx`, { orgId, statusCode: resp?.statusCode });
     const deleted = (resp?.body as { data?: { deleted?: number } } | undefined)?.data?.deleted;
     return { ok, statusCode: resp?.statusCode, ...(typeof deleted === 'number' ? { deleted } : {}) };
+  } catch (err) {
+    logger.warn(`${label} delete failed`, { orgId, error: errorMessage(err) });
+    return { ok: false };
+  }
+}
+
+/**
+ * {@link deleteDownstream} for an INTERNAL endpoint with a contract (api-core
+ * `*_INTERNAL`): the path is built from the contract's `:orgId` param and the
+ * reply's `data` parsed with its response schema. Same platform token, same
+ * `x-org-id`, same never-throws `{ ok, statusCode, deleted? }` — a 2xx whose
+ * reply does not match the contract is still `ok` (the peer did the delete),
+ * just without a count.
+ */
+async function deleteViaContract(
+  client: ReturnType<typeof createSafeClient>,
+  contract: InternalEndpointContract,
+  orgId: string,
+  label: string,
+): Promise<{ ok: boolean; statusCode?: number; deleted?: number }> {
+  try {
+    const auth = getServiceAuthHeader({ serviceName: 'platform', orgId: SYSTEM_ORG_ID, role: 'owner' });
+    const result = await callInternal(client, contract, {
+      params: { orgId },
+      options: { headers: { 'Authorization': auth, 'x-org-id': orgId } },
+    });
+    if (!result.ok && result.reason === 'unreachable') {
+      logger.warn(`${label} returned non-2xx`, { orgId, statusCode: undefined });
+      return { ok: false, statusCode: undefined };
+    }
+    const ok = result.status < 400;
+    if (!ok) logger.warn(`${label} returned non-2xx`, { orgId, statusCode: result.status });
+    const deleted = result.ok ? (result.data as { deleted?: unknown }).deleted : undefined;
+    return { ok, statusCode: result.status, ...(typeof deleted === 'number' ? { deleted } : {}) };
   } catch (err) {
     logger.warn(`${label} delete failed`, { orgId, error: errorMessage(err) });
     return { ok: false };

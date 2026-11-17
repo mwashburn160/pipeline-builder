@@ -12,11 +12,7 @@
  * kept equivalent by the shared tests.
  */
 
-import {
-  compareSemverLenient,
-  parseVersionSpec,
-  type SemverParts,
-} from '@pipeline-builder/api-core';
+import { parseVersionSpec, type SemverParts } from '@pipeline-builder/api-core';
 import { and, asc, desc, eq, or, sql, SQL } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
 
@@ -31,17 +27,6 @@ export {
   type SemverParts,
   type VersionSpec,
 } from '@pipeline-builder/api-core';
-
-/**
- * LENIENT semver ordering (unparseable versions sort lowest; never throws).
- *
- * @deprecated Ambiguous name: api-core's `compareSemver` is the STRICT variant
- * (throws on a non-version). Import `compareSemverLenient` instead; this alias
- * is kept only so existing importers keep compiling.
- */
-export function compareSemver(a: string, b: string): number {
-  return compareSemverLenient(a, b);
-}
 
 // -- SQL ------------------------------------------------------------------------
 //

@@ -21,63 +21,66 @@
  *    override.
  */
 
-import { ErrorCode, requireInternalService, sendBadRequest, sendSuccess } from '@pipeline-builder/api-core';
+import {
+  contractErrorMessage,
+  contractRoute,
+  ErrorCode,
+  MAX_REFERENCE_DIGESTS,
+  parseContractQuery,
+  PLUGIN_INTERNAL,
+  requireInternalService,
+  sendBadRequest,
+  sendSuccess,
+  splitReferenceDigests,
+} from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { distinctPipelines, findVersionReferences, orgImageDigestsInUse, runWithTenantContext } from '@pipeline-builder/pipeline-data';
 import { Router, type RequestHandler } from 'express';
 
 import { plugins } from '../services/ecosystem/store.js';
 
-const ORG_ID_PATTERN = /^[a-z0-9][a-z0-9-]*$/;
-const DIGEST_PATTERN = /^sha256:[a-f0-9]{64}$/;
-/** Digests one image-pipeline-references read may ask about (the caller chunks). */
-export const MAX_REFERENCE_DIGESTS = 50;
+/** Digests one image-pipeline-references read may ask about (the contract's cap). */
+export { MAX_REFERENCE_DIGESTS };
 /** Pipelines named per digest; the count is always exact. */
 const MAX_NAMED_PIPELINES = 50;
 
-/** The `?digests=` list (comma-separated), deduped; null when absent, malformed or over the cap. */
-function digestsQuery(raw: unknown): string[] | null {
-  if (typeof raw !== 'string' || raw === '') return null;
-  const digests = [...new Set(raw.split(','))];
-  return digests.length <= MAX_REFERENCE_DIGESTS && digests.every((d) => DIGEST_PATTERN.test(d)) ? digests : null;
-}
-
-/** The `?orgId=` both routes take, lowercased; null when absent or malformed. */
-function orgIdQuery(raw: unknown): string | null {
-  const orgId = typeof raw === 'string' ? raw.toLowerCase() : '';
-  return ORG_ID_PATTERN.test(orgId) && orgId.length <= 255 ? orgId : null;
-}
+/** The endpoints this router serves, defined once in api-core. */
+const C = PLUGIN_INTERNAL;
+const MOUNT = '/internal';
 
 export function createInternalRoutes(): Router {
   const router: Router = Router();
 
   router.get(
-    '/plugins/public-names',
-    requireInternalService({ callers: ['image-registry'] }) as RequestHandler,
+    contractRoute(C.publicPluginNames, MOUNT),
+    requireInternalService({ callers: [...C.publicPluginNames.callers] }) as RequestHandler,
     withRoute(async ({ req, res }) => {
-      const orgId = orgIdQuery(req.query.orgId);
-      if (!orgId) return sendBadRequest(res, 'orgId is required', ErrorCode.VALIDATION_ERROR);
+      const q = parseContractQuery(C.publicPluginNames, req);
+      if (!q.ok) return sendBadRequest(res, contractErrorMessage(q), ErrorCode.VALIDATION_ERROR);
+      const { orgId } = q.value;
       return sendSuccess(res, 200, { names: await plugins.publicNames(orgId) });
     }, { requireOrgId: false }),
   );
 
   router.get(
-    '/plugins/image-references',
-    requireInternalService({ callers: ['image-registry'] }) as RequestHandler,
+    contractRoute(C.orgImageReferences, MOUNT),
+    requireInternalService({ callers: [...C.orgImageReferences.callers] }) as RequestHandler,
     withRoute(async ({ req, res }) => {
-      const orgId = orgIdQuery(req.query.orgId);
-      if (!orgId) return sendBadRequest(res, 'orgId is required', ErrorCode.VALIDATION_ERROR);
+      const q = parseContractQuery(C.orgImageReferences, req);
+      if (!q.ok) return sendBadRequest(res, contractErrorMessage(q), ErrorCode.VALIDATION_ERROR);
+      const { orgId } = q.value;
       const digests = await runWithTenantContext({ isSuperAdmin: true }, () => orgImageDigestsInUse(orgId));
       return sendSuccess(res, 200, { digests });
     }, { requireOrgId: false }),
   );
 
   router.get(
-    '/plugins/image-pipeline-references',
-    requireInternalService({ callers: ['image-registry'] }) as RequestHandler,
+    contractRoute(C.imagePipelineReferences, MOUNT),
+    requireInternalService({ callers: [...C.imagePipelineReferences.callers] }) as RequestHandler,
     withRoute(async ({ req, res }) => {
-      const digests = digestsQuery(req.query.digests);
-      if (!digests) return sendBadRequest(res, `digests must be 1-${MAX_REFERENCE_DIGESTS} comma-separated sha256 digests`, ErrorCode.VALIDATION_ERROR);
+      const q = parseContractQuery(C.imagePipelineReferences, req);
+      if (!q.ok) return sendBadRequest(res, contractErrorMessage(q), ErrorCode.VALIDATION_ERROR);
+      const digests = splitReferenceDigests(q.value.digests);
       // Elevated: a pipeline of ANY org holding the image counts.
       const references = await runWithTenantContext({ isSuperAdmin: true }, async () => {
         const out: Array<{ digest: string; pipelineCount: number; pipelines: Array<{ id: string; name: string | null; orgId: string; sources: string[]; deleted: boolean }> }> = [];

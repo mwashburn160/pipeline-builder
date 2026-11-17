@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import {
-  SYSTEM_ACTOR_ID, checkWriteAccess, ConflictError, ErrorCode, ForbiddenError, NotFoundError, VISIBILITY_WRITE_REFUSAL, entityEvents, createCacheService, createLogger, errorMessage,
+  SYSTEM_ACTOR_ID, checkWriteAccess, ConcurrencyConflictError, ConflictError, ErrorCode, ForbiddenError, NotFoundError, ValidationError, VISIBILITY_WRITE_REFUSAL, entityEvents, createCacheService, createLogger, errorMessage,
   isManagedToolchainPlugin,
   toComplianceAttributes, versionScanFacts, type VulnSeverity,
   type MetadataSources,
@@ -138,6 +138,14 @@ export function mergedMetadataSources(patch: MetadataSources): MetadataSources {
  *  plus the caller's write authority (needed to demote the current default). */
 export interface PluginUpdateOptions extends UpdateOptions {
   access?: WriteAccess;
+}
+
+/** Parse an `expectedUpdatedAt` option (as CrudService.update does): invalid → 400. */
+function expectedTimestamp(value: Date | string | undefined): Date | undefined {
+  if (value === undefined) return undefined;
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) throw new ValidationError('expectedUpdatedAt must be a valid timestamp');
+  return d;
 }
 
 export class PluginService extends CrudService<
@@ -300,6 +308,10 @@ export class PluginService extends CrudService<
    * concurrent promote/deploy can't leave two defaults. Demoting the current
    * default is a change to that row, so the caller needs write access to it on
    * the visibility ladder (`access`, defaulting to the least privilege).
+   *
+   * `expectedUpdatedAt` (optimistic concurrency) holds on BOTH paths: on the
+   * promote path the target row is locked and its `updated_at` compared before
+   * anything is demoted, so a stale token is a 412 that changes nothing.
    */
   async update(
     id: string,
@@ -312,6 +324,7 @@ export class PluginService extends CrudService<
     // with CrudService.update (which now carries `expectedUpdatedAt`).
     const { access = { isSystemAdmin: false, canPublish: false }, ...baseOptions } = options;
     if (data.isDefault !== true) return super.update(id, data, orgId, userId, baseOptions);
+    const expected = expectedTimestamp(baseOptions.expectedUpdatedAt);
 
     // Same target predicate as CrudService.update (read access + own-org pin +
     // exact id); `orgId` is never writable.
@@ -327,10 +340,26 @@ export class PluginService extends CrudService<
 
     const updated = await withTenantTx(async (tx) => {
       const [target] = await tx
-        .select({ name: schema.plugin.name, orgId: schema.plugin.orgId, yankedAt: schema.plugin.yankedAt, lifecycle: schema.plugin.lifecycle })
+        .select({
+          name: schema.plugin.name,
+          orgId: schema.plugin.orgId,
+          yankedAt: schema.plugin.yankedAt,
+          lifecycle: schema.plugin.lifecycle,
+          updatedAt: schema.plugin.updatedAt,
+          // Same millisecond-precision compare as CrudService.update (Postgres
+          // keeps microseconds; the client's copy, milliseconds).
+          ...(expected ? { unchanged: sql<boolean>`date_trunc('milliseconds', ${schema.plugin.updatedAt}) = ${expected.toISOString()}::timestamptz` } : {}),
+        })
         .from(schema.plugin)
         .where(and(...conditions));
       if (!target) return null;
+      const conflict = (currentUpdatedAt: unknown) => new ConcurrencyConflictError(undefined, {
+        expectedUpdatedAt: expected!.toISOString(),
+        currentUpdatedAt: new Date(currentUpdatedAt as string).toISOString(),
+      });
+      // Fail fast on a token that is already stale; the final row write below
+      // re-checks it, so a change landing in between still rolls everything back.
+      if (expected && !(target as { unchanged?: boolean }).unchanged) throw conflict(target.updatedAt);
       // A yanked version must not resolve as the default; unyank it first.
       if (isYankedVersion(target)) throw yankedNotDefault(target.name);
 
@@ -353,8 +382,14 @@ export class PluginService extends CrudService<
       const [row] = await tx
         .update(schema.plugin)
         .set({ ...safeData, updatedAt: now, updatedBy: actor })
-        .where(and(...conditions))
+        .where(and(
+          ...conditions,
+          ...(expected ? [sql`date_trunc('milliseconds', ${schema.plugin.updatedAt}) = ${expected.toISOString()}::timestamptz`] : []),
+        ))
         .returning();
+      // A token that went stale after the first read: throwing rolls the
+      // siblings' demotion back with it.
+      if (!row && expected) throw conflict(target.updatedAt);
       return (row as Plugin | undefined) ?? null;
     });
 

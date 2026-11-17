@@ -7,10 +7,18 @@ import path from 'path';
 import {
   actorId,
   audited,
+  contractErrorMessage,
+  contractRoute,
   envInt,
   ErrorCode,
-  getParam,
+  IMAGE_REGISTRY_INTERNAL,
+  parseContractBody,
+  parseContractParams,
+  parseContractQuery,
+  PLUGIN_SIGNATURE_HEADERS,
+  PluginSignatureHeadersSchema,
   requireInternalService,
+  validate,
   sendBadRequest,
   sendError,
   sendSuccess,
@@ -20,35 +28,40 @@ import {
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import express, { Router, type Request, type RequestHandler, type Response } from 'express';
-import { z } from 'zod';
 
 import { registerPublicationRoutes } from './internal-publications.js';
 import { deleteCosignCompanions } from '../services/cosign-tags.js';
-import { PUBLISHER_HANDLE_RE, QUARANTINE_PREFIX, inQuarantineNamespace, isPluginRepository, isPublicRepository, isQuarantineRepository, isSha256Digest, repoOwnerOrgId } from '../services/namespaces.js';
+import { QUARANTINE_PREFIX, inQuarantineNamespace, repoOwnerOrgId } from '../services/namespaces.js';
 import {
   PluginSigningError,
   signPluginImage,
 } from '../services/plugin-signing.js';
-import { isQuarantineSubmissionId, mintQuarantineCredential } from '../services/quarantine-credential.js';
+import { mintQuarantineCredential } from '../services/quarantine-credential.js';
 import { deleteManifest, deleteTag, headManifest, isNotFound } from '../services/registry-client.js';
 import { deleteOrgNamespace, deleteQuarantineRepository } from '../services/registry-gc.js';
 import { computeOrgStorageBreakdown, computeOrgStorageUsage, computeSystemRetentionBreakdown, invalidateOrgStorageCache } from '../services/storage-usage.js';
 
+/** The internal endpoints this router serves, each defined once in api-core. */
+const C = IMAGE_REGISTRY_INTERNAL;
+
+/** The mount every route below is registered under (app-routes.ts). */
+const MOUNT = '/internal';
+
 /** Path of the signing route — also excluded from the app's global 1mb JSON parser. */
-export const PLUGIN_SIGNATURES_PATH = '/internal/plugin-signatures';
+export const PLUGIN_SIGNATURES_PATH = C.signPluginImage.path;
 
 /** Base path (under `/internal`) of the quarantine-namespace delete hook. */
-export const QUARANTINE_PATH = '/quarantine';
+export const QUARANTINE_PATH = contractRoute(C.deleteQuarantineRepository, MOUNT).replace(/\/:submissionId$/, '');
 
 /** Path (under `/internal`) of the refused-build discard hook. */
-export const PLUGIN_IMAGE_DISCARD_PATH = '/plugin-images/discard';
+export const PLUGIN_IMAGE_DISCARD_PATH = contractRoute(C.discardPluginImage, MOUNT);
 
 /**
  * Base path (under `/internal`) of the per-org storage reading. The quota
  * service's client (api/quota `REGISTRY_STORAGE_USAGE_PATH`) calls
  * `/internal/storage-usage/<orgId>` on this service directly — keep the two in step.
  */
-export const STORAGE_USAGE_PATH = '/storage-usage';
+export const STORAGE_USAGE_PATH = contractRoute(C.orgStorageUsage, MOUNT).replace(/\/:orgId$/, '');
 
 /**
  * Per-version storage attribution for an org — what each image version costs
@@ -61,7 +74,7 @@ export const STORAGE_USAGE_PATH = '/storage-usage';
  * on-demand catalog walk with a HEAD per blob. Nothing latency-sensitive may
  * call it.
  */
-export const STORAGE_BREAKDOWN_PATH = '/storage-breakdown';
+export const STORAGE_BREAKDOWN_PATH = contractRoute(C.orgStorageBreakdown, MOUNT).replace(/\/:orgId$/, '');
 
 /**
  * Tenant-driven reclaim of ONE image version's storage: drop the version tag so
@@ -87,7 +100,7 @@ export const STORAGE_BREAKDOWN_PATH = '/storage-breakdown';
  * digest — the same reason the public yank uses a tag delete), and a manifest
  * shared by a second tag cannot be removed out from under it.
  */
-export const STORAGE_PRUNE_PATH = '/storage-prune';
+export const STORAGE_PRUNE_PATH = contractRoute(C.pruneOrgStorage, MOUNT).replace(/\/:orgId$/, '');
 
 /**
  * Full paths (the router is mounted at `/internal`) of the routes that run
@@ -95,8 +108,8 @@ export const STORAGE_PRUNE_PATH = '/storage-prune';
  * (index.ts `jsonBodyExclude`).
  */
 export const OWN_BODY_PARSER_PATHS = [
-  PLUGIN_SIGNATURES_PATH,
-  `/internal${PLUGIN_IMAGE_DISCARD_PATH}`,
+  C.signPluginImage.path,
+  C.discardPluginImage.path,
 ] as const;
 
 /**
@@ -104,18 +117,10 @@ export const OWN_BODY_PARSER_PATHS = [
  * org-delete cascade. Published (`public/*`) copies are deliberately kept —
  * see {@link deleteOrgNamespace} for why each excluded namespace is excluded.
  */
-export const ORG_NAMESPACE_PATH = '/org-namespace';
+export const ORG_NAMESPACE_PATH = contractRoute(C.purgeOrgNamespace, MOUNT).replace(/\/:orgId$/, '');
 
 /** The private-namespace prefix: `org-<id>/…`. */
 const ORG_NAMESPACE_PREFIX = 'org-';
-
-/** Which version to drop: a repo in the caller's namespace, and a tag. */
-const storagePruneSchema = z.object({
-  repo: z.string().min(1).max(255),
-  // A tag, never a digest: deleting by digest would take any second tag
-  // pointing at the same manifest with it.
-  tag: z.string().min(1).max(128).regex(/^[\w][\w.-]*$/, 'tag must be a Docker tag'),
-});
 
 /**
  * Delete one manifest by digest plus the cosign `.sig` / `.att` companion tags
@@ -286,28 +291,26 @@ export function createInternalRoutes(): Router {
   const router: Router = Router();
 
   router.post(
-    PLUGIN_SIGNATURES_PATH.slice('/internal'.length),
+    contractRoute(C.signPluginImage, MOUNT),
     // Only the plugin build worker asks for signatures — never a user token,
     // however privileged (the key is what synth trusts). Gated BEFORE the large
     // body is streamed, so no other caller can make this route write an SBOM to disk.
-    requireInternalService({ callers: ['plugin'] }) as RequestHandler,
+    requireInternalService({ callers: [...C.signPluginImage.callers] }) as RequestHandler,
     audited('registry.image.sign') as RequestHandler,
     // NO body parser: the SBOM is streamed to disk below. The metadata rides in
     // headers precisely so it can be validated BEFORE a byte of the document is
     // read — a bad repository or digest is refused without an upload.
     withRoute(async ({ req, res, ctx }) => {
-      const repository = req.header('x-pb-repository');
-      const digest = req.header('x-pb-digest');
       // `public/*` is signed only by the publish/resign routes (fresh, annotated).
       // `quarantine/<submissionId>` is signed so its SBOM attestation survives into
       // the approved public copy; it is owned by the system org (repoOwnerOrgId).
-      if (typeof repository !== 'string' || !isPluginRepository(repository) || isPublicRepository(repository)
-        || (inQuarantineNamespace(repository) && !isQuarantineRepository(repository))) {
-        return sendBadRequest(res, 'x-pb-repository must be system/<name>, org-<orgId>/<name> or quarantine/<submissionId>', ErrorCode.VALIDATION_ERROR);
-      }
-      if (typeof digest !== 'string' || !isSha256Digest(digest)) {
-        return sendBadRequest(res, 'x-pb-digest must be sha256:<64 hex>', ErrorCode.VALIDATION_ERROR);
-      }
+      const headers = validate({
+        [PLUGIN_SIGNATURE_HEADERS.repository]: req.header(PLUGIN_SIGNATURE_HEADERS.repository),
+        [PLUGIN_SIGNATURE_HEADERS.digest]: req.header(PLUGIN_SIGNATURE_HEADERS.digest),
+      }, PluginSignatureHeadersSchema);
+      if (!headers.ok) return sendBadRequest(res, contractErrorMessage(headers), ErrorCode.VALIDATION_ERROR);
+      const repository = headers.value[PLUGIN_SIGNATURE_HEADERS.repository]!;
+      const digest = headers.value[PLUGIN_SIGNATURE_HEADERS.digest]!;
 
       // The plugin service mints its token for the org whose build this is — it
       // may only get that org's images signed (the system org owns `system/*`).
@@ -381,20 +384,16 @@ export function createInternalRoutes(): Router {
   // why it is the plugin service's alone. Idempotent: a gone manifest is
   // `deleted: 0`.
   router.post(
-    PLUGIN_IMAGE_DISCARD_PATH,
-    requireInternalService({ callers: ['plugin'] }) as RequestHandler,
+    contractRoute(C.discardPluginImage, MOUNT),
+    requireInternalService({ callers: [...C.discardPluginImage.callers] }) as RequestHandler,
     audited('registry.image.delete') as RequestHandler,
     express.json({ limit: '16kb' }) as RequestHandler,
     withRoute(async ({ req, res, ctx }) => {
-      const { repository, digest, context } = (req.body ?? {}) as { repository?: unknown; digest?: unknown; context?: unknown };
       // The org's own namespaces only: `public/*` is append-only and
       // `quarantine/*` has its own lifecycle (DELETE /internal/quarantine).
-      if (typeof repository !== 'string' || !isPluginRepository(repository) || isPublicRepository(repository) || inQuarantineNamespace(repository)) {
-        return sendBadRequest(res, 'repository must be system/<name> or org-<orgId>/<name>', ErrorCode.VALIDATION_ERROR);
-      }
-      if (typeof digest !== 'string' || !isSha256Digest(digest)) {
-        return sendBadRequest(res, 'digest must be sha256:<64 hex>', ErrorCode.VALIDATION_ERROR);
-      }
+      const body = parseContractBody(C.discardPluginImage, req);
+      if (!body.ok) return sendBadRequest(res, contractErrorMessage(body), ErrorCode.VALIDATION_ERROR);
+      const { repository, digest, context } = body.value;
       // Same binding as signing: the plugin service's token carries the org
       // whose build this was, and may only discard that org's images.
       const ownerOrgId = repoOwnerOrgId(repository);
@@ -442,15 +441,13 @@ export function createInternalRoutes(): Router {
   // `deleted: 0`). The 30-day age sweep (startQuarantineGcScheduler) is the
   // backstop. Audited as `registry.gc` — a destructive namespace prune.
   router.delete(
-    `${QUARANTINE_PATH}/:submissionId`,
-    requireInternalService({ callers: ['plugin'] }) as RequestHandler,
+    contractRoute(C.deleteQuarantineRepository, MOUNT),
+    requireInternalService({ callers: [...C.deleteQuarantineRepository.callers] }) as RequestHandler,
     audited('registry.gc') as RequestHandler,
     withRoute(async ({ req, res, ctx }) => {
-      const submissionId = getParam(req.params, 'submissionId');
-      const repository = `${QUARANTINE_PREFIX}${submissionId ?? ''}`;
-      if (!submissionId || !isQuarantineRepository(repository)) {
-        return sendBadRequest(res, 'submissionId must be one lowercase path component (the submission id)', ErrorCode.VALIDATION_ERROR);
-      }
+      const params = parseContractParams(C.deleteQuarantineRepository, req);
+      if (!params.ok) return sendBadRequest(res, contractErrorMessage(params), ErrorCode.VALIDATION_ERROR);
+      const repository = `${QUARANTINE_PREFIX}${params.value.submissionId}`;
       // Moderation state is the system org's: the plugin mints this call's token for it.
       if (req.user?.organizationId?.toLowerCase() !== SYSTEM_ORG_ID) {
         recordAuthzDenial(req, `system org for ${repository} (registry.gc)`);
@@ -479,18 +476,19 @@ export function createInternalRoutes(): Router {
   // changes no durable state (it expires on its own; the token endpoint
   // re-checks it on every use), but it is a write grant, so each mint is audited.
   router.post(
-    `${QUARANTINE_PATH}/:submissionId/credential`,
-    requireInternalService({ callers: ['plugin'] }) as RequestHandler,
+    contractRoute(C.mintQuarantineCredential, MOUNT),
+    requireInternalService({ callers: [...C.mintQuarantineCredential.callers] }) as RequestHandler,
     audited('registry.quarantine.credential.mint') as RequestHandler,
     withRoute(async ({ req, res, ctx }) => {
-      const submissionId = getParam(req.params, 'submissionId');
-      if (!submissionId || !isQuarantineSubmissionId(submissionId)) {
-        return sendBadRequest(res, 'submissionId must be one lowercase path component (the submission id)', ErrorCode.VALIDATION_ERROR);
-      }
+      const params = parseContractParams(C.mintQuarantineCredential, req);
+      if (!params.ok) return sendBadRequest(res, contractErrorMessage(params), ErrorCode.VALIDATION_ERROR);
+      const { submissionId } = params.value;
       if (req.user?.organizationId?.toLowerCase() !== SYSTEM_ORG_ID) {
         recordAuthzDenial(req, `system org for quarantine/${submissionId} (registry.quarantine.credential.mint)`);
         return sendError(res, 403, 'Forbidden: quarantine repositories are managed under the system org.', ErrorCode.ORG_MISMATCH);
       }
+      // Read leniently, as it always was: the registry clamps the TTL, so a
+      // non-numeric value is the minimum rather than a 400.
       const ttlSeconds = Number((req.body as { ttlSeconds?: unknown } | undefined)?.ttlSeconds ?? 0);
       const credential = await mintQuarantineCredential(submissionId, ttlSeconds);
       ctx.log('COMPLETED', 'Minted quarantine build credential', { submissionId, expiresAt: credential.expiresAt });
@@ -525,15 +523,14 @@ export function createInternalRoutes(): Router {
   // scan throws → 500, which the quota client reads as "unknown" (fail-soft).
   // Read-only, so not audited.
   router.get(
-    `${STORAGE_USAGE_PATH}/:orgId`,
-    requireInternalService({ callers: ['quota'] }) as RequestHandler,
+    contractRoute(C.orgStorageUsage, MOUNT),
+    requireInternalService({ callers: [...C.orgStorageUsage.callers] }) as RequestHandler,
     withRoute(async ({ req, res, ctx }) => {
       // Registry repository names are lowercase, so the namespace is too; the id
       // must be ONE path component or `org-<id>/` would reach past its own prefix.
-      const orgId = getParam(req.params, 'orgId')?.toLowerCase();
-      if (!orgId || !PUBLISHER_HANDLE_RE.test(orgId)) {
-        return sendBadRequest(res, 'orgId must be one registry path component', ErrorCode.VALIDATION_ERROR);
-      }
+      const params = parseContractParams(C.orgStorageUsage, req);
+      if (!params.ok) return sendBadRequest(res, contractErrorMessage(params), ErrorCode.VALIDATION_ERROR);
+      const { orgId } = params.value;
       // The quota service mints this call's token for the org it is asking about;
       // a token for one org reading another's footprint is a bug or a forgery.
       if (req.user?.organizationId?.toLowerCase() !== orgId) {
@@ -554,13 +551,12 @@ export function createInternalRoutes(): Router {
   // under-stated breakdown must be labelled partial, because a tenant reading
   // it is about to decide what to delete.
   router.get(
-    `${STORAGE_BREAKDOWN_PATH}/:orgId`,
-    requireInternalService({ callers: ['plugin'] }) as RequestHandler,
+    contractRoute(C.orgStorageBreakdown, MOUNT),
+    requireInternalService({ callers: [...C.orgStorageBreakdown.callers] }) as RequestHandler,
     withRoute(async ({ req, res, ctx }) => {
-      const orgId = getParam(req.params, 'orgId')?.toLowerCase();
-      if (!orgId || !PUBLISHER_HANDLE_RE.test(orgId)) {
-        return sendBadRequest(res, 'orgId must be one registry path component', ErrorCode.VALIDATION_ERROR);
-      }
+      const params = parseContractParams(C.orgStorageBreakdown, req);
+      if (!params.ok) return sendBadRequest(res, contractErrorMessage(params), ErrorCode.VALIDATION_ERROR);
+      const { orgId } = params.value;
       // Same confinement as the usage route: a token for one org reading
       // another's per-version footprint is a bug or a forgery.
       if (req.user?.organizationId?.toLowerCase() !== orgId) {
@@ -591,25 +587,24 @@ export function createInternalRoutes(): Router {
   // audits the tenant-facing action; this route enforces the registry-side
   // invariant that only the org's OWN namespace can be touched.
   router.delete(
-    `${STORAGE_PRUNE_PATH}/:orgId`,
-    requireInternalService({ callers: ['plugin'] }) as RequestHandler,
+    contractRoute(C.pruneOrgStorage, MOUNT),
+    requireInternalService({ callers: [...C.pruneOrgStorage.callers] }) as RequestHandler,
     audited('registry.image.delete') as RequestHandler,
     withRoute(async ({ req, res, ctx }) => {
-      const orgId = getParam(req.params, 'orgId')?.toLowerCase();
-      if (!orgId || !PUBLISHER_HANDLE_RE.test(orgId)) {
-        return sendBadRequest(res, 'orgId must be one registry path component', ErrorCode.VALIDATION_ERROR);
-      }
+      const params = parseContractParams(C.pruneOrgStorage, req);
+      if (!params.ok) return sendBadRequest(res, contractErrorMessage(params), ErrorCode.VALIDATION_ERROR);
+      const { orgId } = params.value;
       if (req.user?.organizationId?.toLowerCase() !== orgId) {
         recordAuthzDenial(req, `storage prune for org ${orgId}`);
         return sendError(res, 403, 'Forbidden: storage can only be pruned for the token\'s own org.', ErrorCode.ORG_MISMATCH);
       }
       // `repo` and `tag` ride the QUERY string: a DELETE carries no body through
       // the shared internal HTTP client.
-      const parsed = storagePruneSchema.safeParse({ repo: req.query.repo, tag: req.query.tag });
-      if (!parsed.success) {
+      const parsed = parseContractQuery(C.pruneOrgStorage, req);
+      if (!parsed.ok) {
         return sendBadRequest(res, 'repo and tag query parameters are required', ErrorCode.VALIDATION_ERROR);
       }
-      const { repo, tag } = parsed.data;
+      const { repo, tag } = parsed.value;
       // The ONLY namespace a tenant may prune is its own, decided by the same
       // ownership helper the rest of the service uses rather than by a prefix
       // comparison written here. `public/*` is excluded on purpose and not as
@@ -669,14 +664,13 @@ export function createInternalRoutes(): Router {
   // the authorization, and the namespace rule is enforced inside
   // `deleteOrgNamespace`.
   router.delete(
-    `${ORG_NAMESPACE_PATH}/:orgId`,
-    requireInternalService({ callers: ['platform'] }) as RequestHandler,
+    contractRoute(C.purgeOrgNamespace, MOUNT),
+    requireInternalService({ callers: [...C.purgeOrgNamespace.callers] }) as RequestHandler,
     audited('registry.gc') as RequestHandler,
     withRoute(async ({ req, res, ctx }) => {
-      const orgId = getParam(req.params, 'orgId')?.toLowerCase();
-      if (!orgId || !PUBLISHER_HANDLE_RE.test(orgId)) {
-        return sendBadRequest(res, 'orgId must be one registry path component', ErrorCode.VALIDATION_ERROR);
-      }
+      const params = parseContractParams(C.purgeOrgNamespace, req);
+      if (!params.ok) return sendBadRequest(res, contractErrorMessage(params), ErrorCode.VALIDATION_ERROR);
+      const { orgId } = params.value;
       const result = await deleteOrgNamespace(orgId);
       ctx.log('COMPLETED', 'Purged an org\'s private registry namespace', { orgId, ...result });
       if (result.repositories > 0 || result.failed.length > 0) {

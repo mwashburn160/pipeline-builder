@@ -104,7 +104,70 @@
   "publishConfig": {
     "access": "public",
     "registry": "https://registry.npmjs.org/",
-    "provenance": true
+    "provenance": true,
+    "exports": {
+      ".": {
+        "types": "./lib/index.d.ts",
+        "default": "./lib/index.js"
+      },
+      "./permissions": {
+        "types": "./lib/types/permissions.d.ts",
+        "default": "./lib/types/permissions.js"
+      },
+      "./metadata-keys": {
+        "types": "./lib/types/metadata-keys.d.ts",
+        "default": "./lib/types/metadata-keys.js"
+      },
+      "./feature-flags": {
+        "types": "./lib/types/feature-flags.d.ts",
+        "default": "./lib/types/feature-flags.js"
+      },
+      "./plugin-catalog": {
+        "types": "./lib/types/plugin-catalog.d.ts",
+        "default": "./lib/types/plugin-catalog.js"
+      },
+      "./ask-proposals": {
+        "types": "./lib/types/ask-proposals.d.ts",
+        "default": "./lib/types/ask-proposals.js"
+      },
+      "./ai-catalog": {
+        "types": "./lib/types/ai-catalog.d.ts",
+        "default": "./lib/types/ai-catalog.js"
+      },
+      "./plugin-scan": {
+        "types": "./lib/types/plugin-scan.d.ts",
+        "default": "./lib/types/plugin-scan.js"
+      },
+      "./quota-catalog": {
+        "types": "./lib/types/quota-catalog.d.ts",
+        "default": "./lib/types/quota-catalog.js"
+      },
+      "./build-catalog": {
+        "types": "./lib/types/build-catalog.d.ts",
+        "default": "./lib/types/build-catalog.js"
+      },
+      "./usage-projection": {
+        "types": "./lib/types/usage-projection.d.ts",
+        "default": "./lib/types/usage-projection.js"
+      },
+      "./tier-limits": {
+        "types": "./lib/types/tier-limits.d.ts",
+        "default": "./lib/types/tier-limits.js"
+      },
+      "./wire-vocabulary": {
+        "types": "./lib/types/wire-vocabulary.d.ts",
+        "default": "./lib/types/wire-vocabulary.js"
+      },
+      "./s3": {
+        "types": "./lib/services/s3-client.d.ts",
+        "default": "./lib/services/s3-client.js"
+      },
+      "./env": {
+        "types": "./lib/utils/env.d.ts",
+        "default": "./lib/utils/env.js"
+      },
+      "./package.json": "./package.json"
+    }
   },
   "typesVersions": {
     "*": {
@@ -205,7 +268,8 @@
     ],
     "moduleNameMapper": {
       "^uuid$": "<rootDir>/../../jest-uuid-stub.js",
-      "^(\\.{1,2}/.*)\\.js$": "$1"
+      "^(\\.{1,2}/.*)\\.js$": "$1",
+      "^@pipeline-builder/(api-core|api-server|pipeline-core|pipeline-data|ai-core|pipeline-events)/lib/(.*)$": "<rootDir>/../../packages/$1/lib/$2"
     },
     "restoreMocks": true,
     "setupFilesAfterEnv": [
@@ -311,7 +375,10 @@
       "types": "./lib/services/s3-client.d.ts",
       "default": "./lib/services/s3-client.js"
     },
-    "./lib/*": "./lib/*",
+    "./env": {
+      "types": "./lib/utils/env.d.ts",
+      "default": "./lib/utils/env.js"
+    },
     "./package.json": "./package.json"
   },
   "nx": {

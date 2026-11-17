@@ -117,7 +117,6 @@ class ManagedToolchainError extends Error {
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
   // The lookup's consumption-policy read (lookup-vuln-policy.ts): default policy.
   effectiveConsumptionPolicy: () => currentPolicy,
-  compareSemver: (a: string, b: string) => a.localeCompare(b, undefined, { numeric: true }),
   recordStepLookup: (...a: unknown[]) => mockRecordStepLookup(...a),
   activeAcceptances: async () => ({ byKey: new Map(), versionsByPlugin: new Map() }),
   acceptanceKey: (n: string, v: string, d?: string | null) => `${n}@${v}@${d ?? ''}`,

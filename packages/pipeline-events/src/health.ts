@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { correlationHeaders } from '@pipeline-builder/pipeline-core/lib/core/audit-correlation.js';
+import { correlationHeaders } from '@pipeline-builder/pipeline-core/runtime';
 import { getAuthToken } from './auth.js';
 import { arnRef, BoundedMap, CACHE_MAX_ENTRIES, dnsSuffixForPartition, fetchWithTimeout, loadSdk, log } from './util.js';
 

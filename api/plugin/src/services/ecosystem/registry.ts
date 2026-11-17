@@ -14,7 +14,19 @@
  * the caller (approval / the re-sign job / maintenance) owns the retry.
  */
 
-import { getServiceAuthHeader, InternalHttpClient, SYSTEM_ORG_ID, type PublisherTier } from '@pipeline-builder/api-core';
+import {
+  callInternal,
+  ContractRequestError,
+  getServiceAuthHeader,
+  IMAGE_REGISTRY_INTERNAL,
+  InternalHttpClient,
+  SYSTEM_ORG_ID,
+  type ContractHttpClient,
+  type ContractResponse,
+  type InternalCallInput,
+  type InternalEndpointContract,
+  type PublisherTier,
+} from '@pipeline-builder/api-core';
 import { Config } from '@pipeline-builder/pipeline-core';
 
 /** A registry call was refused or failed; `status` is the HTTP status (0 = transport). */
@@ -47,35 +59,40 @@ function client(): RegistryHttp {
   return new InternalHttpClient({ host: services.imageRegistryHost, port: services.imageRegistryPort, timeout: TIMEOUT_MS });
 }
 
-type Envelope<T> = { data?: T; message?: string };
+const C = IMAGE_REGISTRY_INTERNAL;
 
 /**
- * One image-registry call: a transport failure is status 0, a non-2xx a
- * refusal naming `what`. Returns the response's `data` (empty when absent).
+ * One image-registry call through its contract: a transport failure is status
+ * 0, a non-2xx a refusal naming `what`, and a 2xx whose reply the contract
+ * cannot read a refusal with that 2xx status. Returns the parsed `data`.
  */
-async function call<T>(method: 'get' | 'post' | 'delete', path: string, what: string, body?: unknown): Promise<T> {
+async function call<K extends InternalEndpointContract>(
+  contract: K, what: string, input: Omit<InternalCallInput<K>, 'options'> = {},
+  /** The caller never reads the reply: any 2xx is the success, readable or not. */
+  replyUnused = false,
+): Promise<ContractResponse<K>> {
   const c = client();
-  const opts = { headers: { Authorization: getServiceAuthHeader({ serviceName: 'plugin', orgId: SYSTEM_ORG_ID, role: 'member' }) }, maxRetries: 0 };
+  if (contract.method === 'DELETE' && !c.delete) throw new RegistryPublicationError('image-registry client cannot delete', 0);
+  const options = { headers: { Authorization: getServiceAuthHeader({ serviceName: 'plugin', orgId: SYSTEM_ORG_ID, role: 'member' }) }, maxRetries: 0 };
   let res;
   try {
-    if (method === 'post') {res = await c.post<Envelope<T>>(path, body, opts);} else if (method === 'get') {res = await c.get<Envelope<T>>(path, opts);} else {
-      if (!c.delete) throw new RegistryPublicationError('image-registry client cannot delete', 0);
-      res = await c.delete<Envelope<T>>(path, opts);
-    }
+    // Only the verb the contract names is called, so a test double holding
+    // just `get` / `post` (and `delete`) is enough.
+    res = await callInternal(c as unknown as ContractHttpClient, contract, { ...input, options });
   } catch (err) {
-    if (err instanceof RegistryPublicationError) throw err;
+    // A body the contract rejects was never sent: the registry would have
+    // answered it 400, so it is reported as that refusal.
+    if (err instanceof ContractRequestError) throw new RegistryPublicationError(`image-registry refused ${what} (HTTP 400): ${err.message}`, 400);
     throw new RegistryPublicationError(`image-registry unreachable: ${(err as Error).message}`, 0);
   }
-  if (res.statusCode < 200 || res.statusCode >= 300) {
-    throw new RegistryPublicationError(`image-registry refused ${what} (HTTP ${res.statusCode}): ${res.body?.message ?? 'no detail'}`, res.statusCode);
+  if (res.ok) return res.data;
+  if (res.reason === 'invalid-response' && replyUnused) return undefined as ContractResponse<K>;
+  if (res.reason === 'unreachable') throw new RegistryPublicationError('image-registry unreachable: no response', 0);
+  if (res.reason === 'invalid-response') {
+    throw new RegistryPublicationError(`image-registry refused ${what} (HTTP ${res.status}): unreadable reply (${res.error})`, res.status);
   }
-  return (res.body?.data ?? {}) as T;
-}
-
-const PUBLICATIONS = '/internal/plugin-publications';
-
-function post<T>(path: string, body: unknown): Promise<T> {
-  return call<T>('post', `${PUBLICATIONS}${path}`, path || 'publish', body);
+  const message = (res.body as { message?: string } | undefined)?.message;
+  throw new RegistryPublicationError(`image-registry refused ${what} (HTTP ${res.status}): ${message ?? 'no detail'}`, res.status);
 }
 
 export interface PublishImageParams {
@@ -94,7 +111,7 @@ export interface PublishImageParams {
 
 /** Copy the pinned digest into `public/<publisher>/<name>`, sign it fresh with the tier, tag the version. */
 export function publishImage(p: PublishImageParams): Promise<{ imageRepository: string; digest: string }> {
-  return post('', p);
+  return call(C.publishPublicImage, 'publish', { body: p });
 }
 
 export interface ResignParams {
@@ -110,12 +127,12 @@ export interface ResignParams {
 
 /** Replace a public image's signature with new trust/publisher annotations (the re-sign job). */
 export function resignImage(p: ResignParams): Promise<unknown> {
-  return post('/resign', p);
+  return call(C.resignPublicImage, '/resign', { body: p }, true);
 }
 
 /** Remove a public version TAG (content stays: deployed pipelines pull by digest). */
 export function yankImage(p: { imageRepository: string; version: string; digest: string; actorId?: string }): Promise<unknown> {
-  return post('/yank', p);
+  return call(C.yankPublicVersion, '/yank', { body: p }, true);
 }
 
 /**
@@ -124,7 +141,7 @@ export function yankImage(p: { imageRepository: string; version: string; digest:
  * source org's row is not needed.
  */
 export function retagImage(p: { imageRepository: string; version: string; digest: string; actorId?: string }): Promise<unknown> {
-  return post('/retag', p);
+  return call(C.retagPublicVersion, '/retag', { body: p }, true);
 }
 
 /** What image-registry verified about a published image: the signature and its trust annotations. */
@@ -140,14 +157,12 @@ export interface PublicationVerification {
  * publisher, so a tier changed in the database without a re-sign is caught.
  */
 export async function verifyPublication(imageRepository: string, digest: string): Promise<PublicationVerification> {
-  const query = `?imageRepository=${encodeURIComponent(imageRepository)}&digest=${encodeURIComponent(digest)}`;
-  const data = await call<Partial<PublicationVerification>>('get', `${PUBLICATIONS}/verify${query}`, 'verify');
-  return { signed: data.signed === true, tier: data.tier ?? null, publisher: data.publisher ?? null };
+  return call(C.verifyPublication, 'verify', { query: { imageRepository, digest } });
 }
 
 /** Drop image-registry's verify cache for one repository/digest, or all of it. */
 export function invalidateVerifyCache(p: { imageRepository?: string; digest?: string } = {}): Promise<unknown> {
-  return post('/verify-cache/invalidate', p);
+  return call(C.invalidateVerifyCache, '/verify-cache/invalidate', { body: p }, true);
 }
 
 /**
@@ -156,7 +171,7 @@ export function invalidateVerifyCache(p: { imageRepository?: string; digest?: st
  * registry's 30-day quarantine sweep is the backstop.
  */
 export async function deleteQuarantineImage(submissionId: string): Promise<void> {
-  await call('delete', `/internal/quarantine/${encodeURIComponent(submissionId)}`, 'the quarantine delete');
+  await call(C.deleteQuarantineRepository, 'the quarantine delete', { params: { submissionId } }, true);
 }
 
 /**
@@ -166,8 +181,8 @@ export async function deleteQuarantineImage(submissionId: string): Promise<void>
  * an already-deleted digest answers `deleted: false`.
  */
 export async function gcImage(p: { imageRepository: string; digest: string; actorId?: string }): Promise<{ deleted: boolean }> {
-  const data = await post<{ deleted?: boolean }>('/gc', p);
-  return { deleted: data.deleted === true };
+  const data = await call(C.collectImage, '/gc', { body: p });
+  return { deleted: data.deleted };
 }
 
 /**
@@ -178,8 +193,10 @@ export async function gcImage(p: { imageRepository: string; digest: string; acto
  * resolves to.
  */
 export async function gcSystemImage(p: { name: string; version: string; digest: string; actorId?: string }): Promise<{ deleted: boolean }> {
-  const data = await post<{ deleted?: boolean }>('/gc', { imageRepository: `system/${p.name}`, digest: p.digest, version: p.version, ...(p.actorId ? { actorId: p.actorId } : {}) });
-  return { deleted: data.deleted === true };
+  const data = await call(C.collectImage, '/gc', {
+    body: { imageRepository: `system/${p.name}`, digest: p.digest, version: p.version, ...(p.actorId ? { actorId: p.actorId } : {}) },
+  });
+  return { deleted: data.deleted };
 }
 
 /** One system plugin version's storage, every copy counted as one unit (image-registry's retention breakdown). */
@@ -191,9 +208,13 @@ export interface RetentionBreakdownEntry { name: string; version: string; totalB
  */
 export async function retentionBreakdown(): Promise<{ entries: RetentionBreakdownEntry[]; incomplete: boolean } | null> {
   try {
-    const data = await call<{ entries?: RetentionBreakdownEntry[]; incomplete?: boolean }>('get',
-      `/internal/storage-breakdown/${SYSTEM_ORG_ID}?scope=retention`, 'the retention breakdown');
-    return { entries: Array.isArray(data.entries) ? data.entries : [], incomplete: data.incomplete === true };
+    const data = await call(C.orgStorageBreakdown, 'the retention breakdown', {
+      params: { orgId: SYSTEM_ORG_ID }, query: { scope: 'retention' },
+    });
+    // The retention shape's entries are `{ name, version, … }`; the per-org
+    // shape (which `scope=retention` never answers) is not a retention view.
+    if ('orgId' in data) return null;
+    return { entries: data.entries, incomplete: data.incomplete };
   } catch {
     return null;
   }
@@ -215,7 +236,7 @@ export interface QuarantineCredential {
  */
 export async function mintQuarantineCredential(submissionId: string, ttlSeconds: number): Promise<QuarantineCredential> {
   const what = 'the quarantine credential';
-  const data = await call<Partial<QuarantineCredential>>('post', `/internal/quarantine/${encodeURIComponent(submissionId)}/credential`, what, { ttlSeconds });
+  const data = await call(C.mintQuarantineCredential, what, { params: { submissionId }, body: { ttlSeconds } });
   if (!data.password) throw new RegistryPublicationError(`image-registry refused ${what} (HTTP 200): no credential returned`, 200);
-  return data as QuarantineCredential;
+  return data;
 }

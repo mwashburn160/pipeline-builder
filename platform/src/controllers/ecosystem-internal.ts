@@ -17,44 +17,41 @@
  *    the system org, minus the named conflicts of interest).
  */
 
-import { getParam, sendError, sendSuccess } from '@pipeline-builder/api-core';
+import {
+  PLATFORM_INTERNAL,
+  contractErrorMessage,
+  parseContractParams,
+  parseContractQuery,
+  sendError,
+  sendSuccess,
+  splitIdList,
+} from '@pipeline-builder/api-core';
 import { withController } from '../helpers/controller-helper.js';
 import { countEcosystemApprovers } from '../services/ecosystem-notifications.js';
 import { publisherEligibilityFacts } from '../services/publisher-eligibility.js';
 
-/** The only permissions an ecosystem decision can require. */
-const DECISION_PERMISSIONS = ['plugins:moderate', 'publishers:verify'] as const;
-
-const ORG_ID = /^[a-f0-9]{24}$/i;
-const USER_ID = /^[A-Za-z0-9_-]{1,64}$/;
-
-/** A comma-separated query value as a de-duplicated, capped, validated list. */
-function listParam(raw: unknown, valid: RegExp, normalize: (s: string) => string = (s) => s): string[] | null {
-  if (raw === undefined || raw === '') return [];
-  if (typeof raw !== 'string') return null;
-  const items = [...new Set(raw.split(',').map((s) => normalize(s.trim())).filter(Boolean))];
-  if (items.length > 20 || items.some((s) => !valid.test(s))) return null;
-  return items;
-}
+/**
+ * Params and query are validated by the endpoints' contracts (api-core
+ * `PLATFORM_INTERNAL`), which carry this route's 400 messages: the org id shape,
+ * the decision-permission allow-list and the capped, de-duplicated id lists.
+ */
+const { publisherEligibility: ELIGIBILITY, ecosystemApprovers: APPROVERS } = PLATFORM_INTERNAL;
 
 /** GET /internal/ecosystem/publisher-eligibility/:orgId */
 export const getPublisherEligibility = withController('Publisher eligibility', async (req, res) => {
-  const orgId = getParam(req.params, 'orgId') ?? '';
-  if (!ORG_ID.test(orgId)) return sendError(res, 400, 'orgId must be an organization id');
-  sendSuccess(res, 200, await publisherEligibilityFacts(orgId.toLowerCase()));
+  const params = parseContractParams(ELIGIBILITY, req);
+  if (!params.ok) return sendError(res, 400, contractErrorMessage(params));
+  sendSuccess(res, 200, await publisherEligibilityFacts(params.value.orgId));
 });
 
 /** GET /internal/ecosystem/approvers */
 export const getEcosystemApprovers = withController('Ecosystem approvers', async (req, res) => {
-  const permission = req.query.permission;
-  if (typeof permission !== 'string' || !(DECISION_PERMISSIONS as readonly string[]).includes(permission)) {
-    return sendError(res, 400, `permission must be one of: ${DECISION_PERMISSIONS.join(', ')}`);
-  }
-  const orgIds = listParam(req.query.excludeOrgIds, ORG_ID, (s) => s.toLowerCase());
-  const userIds = listParam(req.query.excludeUserIds, USER_ID);
-  if (!orgIds || !userIds) return sendError(res, 400, 'excludeOrgIds / excludeUserIds must be comma-separated ids (at most 20)');
+  // The permission is checked first: its issue precedes the lists' in the schema.
+  const query = parseContractQuery(APPROVERS, req);
+  if (!query.ok) return sendError(res, 400, contractErrorMessage(query));
+  const { permission, excludeOrgIds, excludeUserIds } = query.value;
   sendSuccess(res, 200, await countEcosystemApprovers(permission, {
-    memberOfOrgIds: orgIds,
-    userIds,
+    memberOfOrgIds: splitIdList(excludeOrgIds),
+    userIds: splitIdList(excludeUserIds),
   }));
 });

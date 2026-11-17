@@ -13,11 +13,13 @@ import { Textarea } from '@/components/ui/Textarea';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { Button } from '@/components/ui/Button';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
+import { ConcurrencyConflictAlert } from '@/components/ui/ConcurrencyConflictAlert';
 import { SuccessAlert } from '@/components/ui/SuccessAlert';
 import { InfoAlert } from '@/components/ui/InfoAlert';
 import { useBuildStatus } from '@/hooks/useBuildStatus';
 import { BuildFailureMessage } from './BuildFailureMessage';
 import api from '@/lib/api';
+import { isConcurrencyConflict } from '@/lib/api/concurrency';
 import { listAllPlugins } from '@/lib/list-all';
 import { formatError } from '@/lib/constants';
 import type { Plugin, Visibility } from '@/types';
@@ -124,6 +126,10 @@ export default function WizardPluginTab({ canPublish, disabled, onCreated, onClo
   const [filter, setFilter] = useState('');
   const [selectedId, setSelectedId] = useState('');
   const [prefilling, setPrefilling] = useState(false);
+  /** The selected version's `updatedAt` as prefilled — sent as `expectedUpdatedAt`. */
+  const [loadedUpdatedAt, setLoadedUpdatedAt] = useState<string | undefined>(undefined);
+  /** A 412: the version changed since it was prefilled (optimistic concurrency). */
+  const [conflict, setConflict] = useState(false);
 
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -184,13 +190,18 @@ export default function WizardPluginTab({ canPublish, disabled, onCreated, onClo
         visibility: access,
         isActive,
         isDefault,
+        // The version this edit was based on: a concurrent edit is a 412, not an overwrite.
+        ...(loadedUpdatedAt ? { expectedUpdatedAt: loadedUpdatedAt } : {}),
       });
       if (!response.success) throw new Error(response.message || 'Failed to update plugin.');
       return response;
     },
     scopeKey: selectedId,
     errorFallback: 'Failed to update plugin',
-    onError: (_err, message) => setError(message),
+    onError: (err, message) => {
+      if (isConcurrencyConflict(err)) setConflict(true);
+      else setError(message);
+    },
     onSuccess: () => {
       setSuccess(`Plugin "${name}" updated successfully!`);
       onCreated();
@@ -253,7 +264,9 @@ export default function WizardPluginTab({ canPublish, disabled, onCreated, onClo
     const gen = ++selectGenRef.current;
     setSelectedId(id);
     setError(null);
+    setConflict(false);
     setSuccess(null);
+    setLoadedUpdatedAt(undefined);
     if (!id) return;
     setPrefilling(true);
     try {
@@ -278,6 +291,7 @@ export default function WizardPluginTab({ canPublish, disabled, onCreated, onClo
       setFailureBehavior(p.failureBehavior ?? 'fail');
       setIsActive(p.isActive);
       setIsDefault(p.isDefault);
+      setLoadedUpdatedAt(p.updatedAt || undefined);
     } catch (err) {
       if (!unmountedRef.current && selectGenRef.current === gen) setError(formatError(err, 'Failed to load the selected plugin'));
     } finally {
@@ -304,7 +318,7 @@ export default function WizardPluginTab({ canPublish, disabled, onCreated, onClo
 
   const handleSave = async () => {
     if (!selectedId) { setError('Select a plugin to edit.'); return; }
-    setError(null); setSuccess(null);
+    setError(null); setConflict(false); setSuccess(null);
     await saveM.run(selectedId);
   };
 
@@ -371,6 +385,8 @@ export default function WizardPluginTab({ canPublish, disabled, onCreated, onClo
       </p>
 
       <ErrorAlert message={error} />
+      {/* Reload re-prefills the form from the latest version (this edit is discarded). */}
+      <ConcurrencyConflictAlert show={conflict} onReload={() => void selectPlugin(selectedId)} reloading={prefilling} />
       <SuccessAlert message={success} />
 
       {/* Edit mode: filterable plugin picker */}

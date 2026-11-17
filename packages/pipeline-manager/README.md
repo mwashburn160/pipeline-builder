@@ -158,6 +158,47 @@ Run `pipeline-manager <command> --help` for the full flag reference on any comma
 
 Full reference: [Environment Variables](https://mwashburn160.github.io/pipeline-builder/docs/environment-variables).
 
+## Testing (contributors)
+
+Two end-to-end tiers sit on top of the unit suites in `test/`:
+
+**In-process e2e** (`test/e2e/cli-e2e.test.ts`) runs with every `jest` run and in
+the PR gate, with no Docker and no network. It drives the real command tree
+(`initializeCli()` + `program.parseAsync`) against a local stub of the platform API
+(`test/e2e/helpers/stub-platform.ts`) and checks exit codes, stdout, the stored
+`credentials.json` and the request payloads. It covers device-flow `auth login`
+with `--org` and with `--token`, `status`, `pipeline create`, session refresh
+(`X-Pb-Client: cli`), a revoked session, a rejected access key, and
+`pipeline synth`. The synth produces a real CDK cloud assembly. A `cdk` shim on
+`PATH` runs the CLI's own `src/boilerplate.ts`, bundled with esbuild, against the
+built `pipeline-core`, so neither the CDK CLI nor AWS credentials are needed.
+
+```bash
+cd packages/pipeline-manager
+NODE_OPTIONS=--experimental-vm-modules npx jest --ci test/e2e   # needs the workspace libs built (pnpm nx run-many -t compile)
+```
+
+**Compose smoke** (`test/e2e/compose-smoke.sh`) runs nightly in
+`.github/workflows/nightly-smoke.yml` and can also be started from the Actions tab.
+It boots `deploy/local/docker` and points the **built** CLI at it. `auth login`
+goes through the real device flow: the script plays the browser, approving the
+printed code as a throwaway user. After that it runs `status --json`,
+`pipeline create` of a sample props file, and `pipeline synth` into a cloud
+assembly. It needs no secrets. Locally you need Docker (Compose V2), `jq`, `yq`
+and `openssl`, plus a checkout with no `deploy/local/docker/data/` (or set
+`SMOKE_ALLOW_EXISTING_STACK=true`):
+
+```bash
+pnpm nx run @pipeline-builder/pipeline-manager:post-compile
+bash packages/pipeline-manager/test/e2e/compose-smoke.sh all            # up → init → run, logs on failure, always down
+SMOKE_SKIP_SYNTH=true bash packages/pipeline-manager/test/e2e/compose-smoke.sh all   # skip the toolchain build + synth
+```
+
+The phases (`up`, `init`, `run`, `logs`, `down`) can also be run one at a time.
+`init` builds the managed toolchain release from source, so it takes the longest.
+`down` removes only a stack that the script started itself. The CLI's
+credentials go under `$SMOKE_DIR/home` and never touch your `~/.pipeline-manager`.
+
 ## Documentation
 
 - [Getting started](https://mwashburn160.github.io/pipeline-builder/)

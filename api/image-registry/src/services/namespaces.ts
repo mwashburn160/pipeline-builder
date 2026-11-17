@@ -53,60 +53,18 @@ export function repoOwnerOrgId(repo: string): string | undefined {
 }
 
 /**
- * A publisher handle / plugin name as ONE registry path component (the
- * Distribution grammar: lowercase alphanumerics joined by `.`, `_`, `__` or
- * runs of `-`).
+ * The repository-name grammar (publisher handle as ONE registry path component,
+ * plugin / quarantine / public / system repositories, sha256 digests). Defined
+ * ONCE in api-core beside the internal endpoint contracts whose bodies are
+ * validated against it, so a caller's idea of a valid repository and this
+ * service's are the same code.
  */
-export const PUBLISHER_HANDLE_RE = /^[a-z0-9]+(?:(?:[._]|__|-+)[a-z0-9]+)*$/;
-const PLUGIN_NAME_PATTERN = '[a-z0-9][a-z0-9._-]*';
-/**
- * Plugin repositories that are signed: a build's private copy (`system/<name>`,
- * `org-<orgId>/<name>`), an anonymous submission's quarantined build
- * (`quarantine/<submissionId>` — signed so its SBOM attestation can be carried
- * into `public/community/<name>` on approval), or a listed version's public
- * copy (`public/<publisherHandle>/<name>`).
- */
-const PLUGIN_REPO_RE = new RegExp(
-  `^(system|org-[a-z0-9][a-z0-9-]*|quarantine|public/[a-z0-9]+(?:(?:[._]|__|-+)[a-z0-9]+)*)/${PLUGIN_NAME_PATTERN}$`,
-);
-/** `quarantine/<submissionId>` — one lowercase path component (a submission uuid). */
-const QUARANTINE_REPO_RE = /^quarantine\/[a-z0-9][a-z0-9-]{0,127}$/;
-const PUBLIC_REPO_RE = new RegExp(`^public/([a-z0-9]+(?:(?:[._]|__|-+)[a-z0-9]+)*)/(${PLUGIN_NAME_PATTERN})$`);
-const DIGEST_RE = /^sha256:[0-9a-f]{64}$/;
-
-export function isPluginRepository(repository: string): boolean {
-  return PLUGIN_REPO_RE.test(repository);
-}
-
-/** True for an anonymous submission's `quarantine/<submissionId>` repository. */
-export function isQuarantineRepository(repository: string): boolean {
-  return QUARANTINE_REPO_RE.test(repository);
-}
-
-/** True for a `public/<publisherHandle>/<name>` repository. */
-export function isPublicRepository(repository: string): boolean {
-  return PUBLIC_REPO_RE.test(repository);
-}
-
-const SYSTEM_PLUGIN_REPO_RE = new RegExp(`^system/(${PLUGIN_NAME_PATTERN})$`);
-
-/**
- * True for a system plugin's build copy, `system/<name>` — the one shape the
- * plugin service may hand over for collection once it has retired a version.
- * A `-base` name is a shared base image (no plugin row; every plugin build
- * starts FROM one), never a plugin, so it is excluded outright.
- */
-export function isSystemPluginRepository(repository: string): boolean {
-  const m = SYSTEM_PLUGIN_REPO_RE.exec(repository);
-  return m !== null && !m[1]!.endsWith('-base');
-}
-
-/** `{ handle, name }` of a `public/<handle>/<name>` repository, or null. */
-export function parsePublicRepository(repository: string): { handle: string; name: string } | null {
-  const m = PUBLIC_REPO_RE.exec(repository);
-  return m ? { handle: m[1], name: m[2] } : null;
-}
-
-export function isSha256Digest(digest: string): boolean {
-  return DIGEST_RE.test(digest);
-}
+export {
+  PUBLISHER_HANDLE_RE,
+  isPluginRepository,
+  isPublicRepository,
+  isQuarantineRepository,
+  isSha256Digest,
+  isSystemPluginRepository,
+  parsePublicRepository,
+} from '@pipeline-builder/api-core';

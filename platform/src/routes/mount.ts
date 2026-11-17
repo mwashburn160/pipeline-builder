@@ -24,6 +24,8 @@ import {
   orgIdpRoutes, orgKmsConfigRoutes, orgNamespaceRoutes, userGrantsRoutes, adminConsoleRoutes, adminConsoleSessionRouter, adminSummaryRoutes, impersonateRoutes,
   scimRoutes, mfaResetAdminRoutes, ecosystemInternalRoutes, reportingInternalRoutes, aiInternalRoutes, supportInternalRoutes,
   offersInternalRoutes,
+  NOTIFY_EMAIL_MOUNT, ECOSYSTEM_INTERNAL_MOUNT, REPORTING_INTERNAL_MOUNT, AI_INTERNAL_MOUNT, SUPPORT_INTERNAL_MOUNT,
+  OFFERS_INTERNAL_MOUNT,
   supportContactRoutes,
 } from './index.js';
 
@@ -88,15 +90,15 @@ export function mountApiRoutes(app: Express, limiters: RouteLimiters): void {
   app.use('/organizations', organizationsRoutes);
   app.use('/invitation', ...apiCallsQuota, invitationRoutes);
   app.use('/audit', ...apiCallsQuota, auditRoutes);
-  app.use('/internal/notify-email', notifyEmailRoutes);
-  app.use('/internal/ecosystem', ecosystemInternalRoutes);
-  app.use('/internal/reporting', reportingInternalRoutes);
+  app.use(NOTIFY_EMAIL_MOUNT, notifyEmailRoutes);
+  app.use(ECOSYSTEM_INTERNAL_MOUNT, ecosystemInternalRoutes);
+  app.use(REPORTING_INTERNAL_MOUNT, reportingInternalRoutes);
   // The org half of every AI call (switch, configured providers, audited key reads).
-  app.use('/internal/ai', aiInternalRoutes);
+  app.use(AI_INTERNAL_MOUNT, aiInternalRoutes);
   // Support entitlement, for the message service only (named-caller gated).
-  app.use('/internal/support', supportInternalRoutes);
+  app.use(SUPPORT_INTERNAL_MOUNT, supportInternalRoutes);
   // The expansion-offers profile's membership reads (billing only).
-  app.use('/internal/offers', offersInternalRoutes);
+  app.use(OFFERS_INTERNAL_MOUNT, offersInternalRoutes);
   // Tenant-facing, org-scoped: who in this org may raise and own a support case.
   app.use('/organization/:id/support-contacts', supportContactRoutes);
   app.use('/config', configRoutes);

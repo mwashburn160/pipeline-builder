@@ -6,7 +6,7 @@
  *
  * Preload it BEFORE the app's own code with (services are ESM, so `--import`,
  * not the CJS `-r`):
- *   node --import @pipeline-builder/api-server/lib/otel-bootstrap.js index.js
+ *   node --import @pipeline-builder/api-server/otel-bootstrap index.js
  * (see each service's Dockerfile CMD).
  *
  * Why a preload and not a programmatic SDK start from createApp/index.ts:

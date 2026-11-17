@@ -40,10 +40,21 @@ export interface TableColumn {
 
 // --- Logging functions ---
 
+/**
+ * Machine-output mode: while on, every diagnostic line (info / success / debug)
+ * goes to STDERR, so stdout carries only the command's document. A `--json`
+ * command turns it on first thing — otherwise a helper's progress line (e.g.
+ * "Toolchain release" from fetchPipelineProps) landed on stdout ahead of the JSON
+ * and broke every `| jq` consumer.
+ */
+let diagnosticsToStderr = false;
+export function setMachineOutput(on: boolean): void { diagnosticsToStderr = on; }
+
 function logOutput(level: LogLevel, message: string, data?: unknown): void {
   const colors = { info: cyan, success: green, warn: yellow, error: red, debug: magenta };
   const prefixes = { info: 'ℹ', success: '✓', warn: '⚠', error: '✗', debug: '●' };
-  const writers = { error: console.error, warn: console.warn, info: console.log, success: console.log, debug: console.log };
+  const out = diagnosticsToStderr ? console.error : console.log;
+  const writers = { error: console.error, warn: console.warn, info: out, success: out, debug: out };
 
   // Fall back to console.log + raw message if a caller leaks an unknown level
   // (e.g. an `as LogLevel` cast on user input). The whole point of the logger

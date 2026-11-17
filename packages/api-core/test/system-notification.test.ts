@@ -29,6 +29,16 @@ describe('sendSystemNotification', () => {
     await expect(sendSystemNotification(N)).resolves.toBe(false);
   });
 
+  it('reports a 2xx as delivered even when its reply is not the contract\'s { id }', async () => {
+    post.mockResolvedValue({ statusCode: 201, body: { data: { unexpected: true } } });
+    await expect(sendSystemNotification(N)).resolves.toBe(true);
+  });
+
+  it('sends nothing (and reports not delivered) for a notification the contract rejects', async () => {
+    await expect(sendSystemNotification({ ...N, recipientOrgId: '*' })).resolves.toBe(false);
+    expect(post).not.toHaveBeenCalled();
+  });
+
   it('reports an unreachable service or a thrown error as not delivered', async () => {
     post.mockResolvedValueOnce(null);
     await expect(sendSystemNotification(N)).resolves.toBe(false);

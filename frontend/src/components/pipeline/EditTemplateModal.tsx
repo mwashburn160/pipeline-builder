@@ -3,7 +3,7 @@
 
 import { useState, useRef, useEffect, useCallback, useId } from 'react';
 import { formatDateTime } from '@/lib/format';
-import { useAsyncCallback } from '@/hooks/useAsync';
+import { useMutation } from '@/hooks/useMutation';
 import { useEntityFetch } from '@/hooks/useEntityFetch';
 import { ChevronLeft, ChevronRight, Plus, Trash2 } from 'lucide-react';
 import { LoadingSpinner } from '@/components/ui/Loading';
@@ -14,8 +14,10 @@ import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
+import { ConcurrencyConflictAlert } from '@/components/ui/ConcurrencyConflictAlert';
 import { SuccessAlert } from '@/components/ui/SuccessAlert';
 import api from '@/lib/api';
+import { expectedUpdatedAtOf, isConcurrencyConflict } from '@/lib/api/concurrency';
 import { PipelineTemplate, BuilderProps, TemplateInput, TemplateVisibility } from '@/types';
 import { VisibilitySelect, visibilityHint } from '@/components/ui/VisibilitySelect';
 import FormBuilderTab, { FormBuilderTabRef } from './FormBuilderTab';
@@ -26,10 +28,6 @@ import { WIZARD_STEPS } from '@/lib/wizard-validation';
 import { useIsDirty } from '@/hooks/useIsDirty';
 import { useAutoCloseTimer } from '@/hooks/useAutoCloseTimer';
 import { INPUT_NAME_RE, toEditableInputs, toTemplateInputs, type EditableInput } from '@/lib/template-inputs';
-
-
-
-
 
 /** Props for {@link EditTemplateModal}. */
 interface EditTemplateModalProps {
@@ -59,9 +57,16 @@ export default function EditTemplateModal({ template, canPublish, onClose, onSav
   const [inputs, setInputs] = useState<EditableInput[]>(toEditableInputs(template.inputs));
 
   const [validationError, setValidationError] = useState<string | null>(null);
-  const { execute: saveAsync, loading, error, clearError } = useAsyncCallback(
-    (data: Parameters<typeof api.updatePipelineTemplate>[1]) => api.updatePipelineTemplate(template.id, data),
-  );
+  // A 412: the template changed since this form loaded it (optimistic concurrency).
+  const [conflict, setConflict] = useState(false);
+  const saveM = useMutation({
+    fn: (data: Parameters<typeof api.updatePipelineTemplate>[1]) => api.updatePipelineTemplate(template.id, data),
+    scopeKey: template.id,
+    errorFallback: 'Failed to update template',
+    onError: (err) => { if (isConcurrencyConflict(err)) setConflict(true); },
+  });
+  const { run: saveAsync, pending: loading, reset: clearError } = saveM;
+  const error = conflict ? null : saveM.error;
   const [success, setSuccess] = useState<string | null>(null);
 
   const formRef = useRef<FormBuilderTabRef>(null);
@@ -80,7 +85,7 @@ export default function EditTemplateModal({ template, canPublish, onClose, onSav
     const response = await api.getPipelineTemplate(id);
     return response.data?.template ?? template;
   }, [template]);
-  const { entity: fullTemplate, fetching } = useEntityFetch<PipelineTemplate>(template.id, fetchTemplate, template);
+  const { entity: fullTemplate, fetching, reload } = useEntityFetch<PipelineTemplate>(template.id, fetchTemplate, template);
 
   // Reset wizard/preview state when the fetched template changes (parent may keep
   // us mounted within the close window).
@@ -101,6 +106,17 @@ export default function EditTemplateModal({ template, canPublish, onClose, onSav
   // Resolved template data (fetched by ID, or fallback to list data).
   const t = fullTemplate ?? template;
 
+  // Re-read the record after a concurrency conflict; the builder remounts on the
+  // new `updatedAt` (below) and the seed effect resets the template fields.
+  const handleReload = () => {
+    setConflict(false);
+    clearError();
+    setValidationError(null);
+    setSuccess(null);
+    resetWizard();
+    reload();
+  };
+
   const addInput = () => setInputs((rows) => [...rows, { name: '', label: '', type: 'string', required: false, default: '', options: '' }]);
   const updateInput = (i: number, patch: Partial<EditableInput>) => setInputs((rows) => rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
   const removeInput = (i: number) => setInputs((rows) => rows.filter((_, idx) => idx !== i));
@@ -116,6 +132,7 @@ export default function EditTemplateModal({ template, canPublish, onClose, onSav
 
   const handleSave = async () => {
     clearError();
+    setConflict(false);
     setValidationError(null);
     setSuccess(null);
 
@@ -149,6 +166,8 @@ export default function EditTemplateModal({ template, canPublish, onClose, onSav
       visibility,
       props: parsedProps,
       inputs: toTemplateInputs(inputs),
+      // The version this edit was based on: a concurrent edit is a 412, not an overwrite.
+      expectedUpdatedAt: expectedUpdatedAtOf(t),
     });
 
     if (response?.success) {
@@ -282,6 +301,7 @@ export default function EditTemplateModal({ template, canPublish, onClose, onSav
       dirty={formDirty || ownFieldsDirty}
     >
       <ErrorAlert message={validationError ?? error} className="mb-4" />
+      <ConcurrencyConflictAlert show={conflict} onReload={handleReload} reloading={fetching} className="mb-4" />
       <SuccessAlert message={success} className="mb-4" />
 
       {fetching ? (
@@ -303,6 +323,7 @@ export default function EditTemplateModal({ template, canPublish, onClose, onSav
           </div>
 
           <FormBuilderTab
+            key={t.updatedAt}
             ref={formRef}
             onDirtyChange={setFormDirty}
             disabled={loading}

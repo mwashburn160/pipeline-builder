@@ -223,16 +223,19 @@ describe('the registry can sign a vendored-SDK image', () => {
     expect(src).toContain('streamBodyToFile');
     expect(src).toContain("envInt('REGISTRY_SBOM_MAX_BYTES'");
     // The metadata is in headers so the repository and digest can be refused
-    // BEFORE a byte of the document is read.
-    expect(src).toContain("req.header('x-pb-repository')");
-    expect(src).toContain("req.header('x-pb-digest')");
+    // BEFORE a byte of the document is read. The header names live in the
+    // internal contract (api-core contracts/image-registry.ts).
+    expect(src).toContain('req.header(PLUGIN_SIGNATURE_HEADERS.repository)');
+    expect(src).toContain('req.header(PLUGIN_SIGNATURE_HEADERS.digest)');
+    expect(read('packages/api-core/src/contracts/image-registry.ts'))
+      .toContain("PLUGIN_SIGNATURE_HEADERS = { repository: 'x-pb-repository', digest: 'x-pb-digest' }");
     // No JSON parser on this route any more.
     expect(src).not.toContain('SBOM_BODY_LIMIT');
   });
 
   it('hands cosign a PATH, so nothing re-serializes the document', () => {
     expect(read('api/image-registry/src/services/plugin-signing.ts')).toContain('sbomPath: string;');
-    expect(read('api/plugin/src/helpers/supply-chain.ts')).toContain("'x-pb-repository'");
+    expect(read('api/plugin/src/helpers/supply-chain.ts')).toContain('[PLUGIN_SIGNATURE_HEADERS.repository]');
   });
 
   it('MEASURES every SBOM, so the ceiling can be set from evidence', () => {

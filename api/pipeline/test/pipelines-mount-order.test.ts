@@ -81,7 +81,6 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   checkVisibilityWriteAccess: () => 'ok',
   runConcurrent: async <T, R>(items: T[], _max: number, fn: (i: T) => Promise<R>) => Promise.all(items.map(fn)),
   PipelineCreateSchema: {},
-  PipelineUpdateSchema: {},
   PipelineFilterSchema: {},
   AIGenerateBodySchema: {},
   AIGenerateFromUrlBodySchema: {},

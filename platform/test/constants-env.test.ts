@@ -9,7 +9,7 @@
  * Both modules are deliberately DEPENDENCY-FREE (the response helper, the scope
  * gate, the token helper and the routes all share them, and pulling them through
  * a service would drag the config + model graph into a middleware and into every
- * suite that mocks it). So they take `envInt` from the `lib/*` SUBPATH, not the
+ * suite that mocks it). So they take `envInt` from the `./env` SUBPATH, not the
  * api-core barrel: `utils/env.ts` has no imports of its own, and a suite that
  * mocks `@pipeline-builder/api-core` partially would otherwise make `envInt`
  * throw, since `stubModule` refuses a non-overridden export.

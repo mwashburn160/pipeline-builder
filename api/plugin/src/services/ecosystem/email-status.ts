@@ -10,7 +10,7 @@
  * unreadable answer counts as "email off".
  */
 
-import { createLogger, errorMessage, getServiceAuthHeader, InternalHttpClient, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import { callInternal, createLogger, errorMessage, getServiceAuthHeader, InternalHttpClient, PLATFORM_INTERNAL, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
 import { Config } from '@pipeline-builder/pipeline-core';
 
 const logger = createLogger('ecosystem-email-status');
@@ -23,13 +23,13 @@ type Probe = () => Promise<boolean>;
 const httpProbe: Probe = async () => {
   const { services } = Config.get('server');
   const client = new InternalHttpClient({ host: services.platformHost, port: services.platformPort });
-  const res = await client.get<{ data?: { enabled?: unknown }; enabled?: unknown }>('/internal/notify-email/status', {
-    headers: { Authorization: getServiceAuthHeader({ serviceName: 'plugin', orgId: SYSTEM_ORG_ID, role: 'member' }) },
-    maxRetries: 0,
+  const res = await callInternal(client, PLATFORM_INTERNAL.notifyEmailStatus, {
+    options: {
+      headers: { Authorization: getServiceAuthHeader({ serviceName: 'plugin', orgId: SYSTEM_ORG_ID, role: 'member' }) },
+      maxRetries: 0,
+    },
   });
-  if (res.statusCode >= 400) return false;
-  const body = res.body ?? {};
-  return (body.data?.enabled ?? body.enabled) === true;
+  return res.ok && res.data.enabled;
 };
 
 let probe: Probe = httpProbe;

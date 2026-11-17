@@ -53,4 +53,10 @@ export const ComplianceRuleUpdateSchema = z.object({
   conditions: z.array(ConditionSchema).optional(),
   conditionMode: z.enum(RULE_CONDITION_MODES).optional(),
   isActive: z.boolean().optional(),
+  /**
+   * Optimistic concurrency: the `updatedAt` the editor loaded. Present → the
+   * write lands only if the rule is unchanged since (else 412
+   * PRECONDITION_FAILED); absent → last write wins.
+   */
+  expectedUpdatedAt: z.iso.datetime({ offset: true }).optional(),
 });

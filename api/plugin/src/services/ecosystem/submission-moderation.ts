@@ -32,7 +32,7 @@ import {
   SYSTEM_ACTOR_ID,
   SYSTEM_ORG_ID,
 } from '@pipeline-builder/api-core';
-import { renderUntrustedMarkdown } from '@pipeline-builder/api-server/lib/markdown.js';
+import { renderUntrustedMarkdown } from '@pipeline-builder/api-server/markdown';
 import type { PluginSpec } from '@pipeline-builder/pipeline-core';
 import {
   COMMUNITY_PUBLISHER_HANDLE,

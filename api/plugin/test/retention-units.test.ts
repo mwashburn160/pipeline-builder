@@ -69,21 +69,23 @@ describe('summarize (the measurement)', () => {
 
 describe('the image-registry calls', () => {
   it('gcSystemImage posts system/<name> with the retired version to the publications GC', async () => {
-    const post = jest.fn(async (..._a: unknown[]) => ({ statusCode: 200, body: { data: { deleted: true } } }));
+    const digest = `sha256:${'c'.repeat(64)}`;
+    const post = jest.fn(async (..._a: unknown[]) => ({ statusCode: 200, body: { data: { imageRepository: 'system/lint', digest, deleted: true } } }));
     setRegistryClientForTests({ post, get: jest.fn() } as never);
-    await expect(gcSystemImage({ name: 'lint', version: '1.0.0', digest: 'sha256:x', actorId: 'system' })).resolves.toEqual({ deleted: true });
-    expect(post).toHaveBeenCalledWith('/internal/plugin-publications/gc', { imageRepository: 'system/lint', digest: 'sha256:x', version: '1.0.0', actorId: 'system' }, expect.anything());
+    await expect(gcSystemImage({ name: 'lint', version: '1.0.0', digest, actorId: 'system' })).resolves.toEqual({ deleted: true });
+    expect(post).toHaveBeenCalledWith('/internal/plugin-publications/gc', { imageRepository: 'system/lint', digest, version: '1.0.0', actorId: 'system' }, expect.anything());
     post.mockResolvedValueOnce({ statusCode: 409, body: { message: 'tag latest' } } as never);
-    await expect(gcSystemImage({ name: 'lint', version: '1.0.0', digest: 'sha256:x' })).rejects.toBeInstanceOf(RegistryPublicationError);
+    await expect(gcSystemImage({ name: 'lint', version: '1.0.0', digest })).rejects.toBeInstanceOf(RegistryPublicationError);
   });
 
   it('retentionBreakdown reads the system org\'s retention scope, and answers null when image-registry cannot', async () => {
-    const get = jest.fn(async (..._a: unknown[]) => ({ statusCode: 200, body: { data: { entries: [{ name: 'lint', version: '1.0.0', totalBytes: 1, marginalBytes: 1 }], incomplete: true } } }));
+    const get = jest.fn(async (..._a: unknown[]) => ({ statusCode: 200, body: { data: { entries: [{ name: 'lint', version: '1.0.0', totalBytes: 1, marginalBytes: 1 }], computedAt: 1, incomplete: true } } }));
     setRegistryClientForTests({ post: jest.fn(), get } as never);
     await expect(retentionBreakdown()).resolves.toEqual({ entries: [{ name: 'lint', version: '1.0.0', totalBytes: 1, marginalBytes: 1 }], incomplete: true });
     expect(get).toHaveBeenCalledWith('/internal/storage-breakdown/000000000000000000000001?scope=retention', expect.anything());
+    // A reply the contract cannot read is no answer — never an empty one, which would read as "nothing to free".
     get.mockResolvedValueOnce({ statusCode: 200, body: { data: {} } } as never);
-    await expect(retentionBreakdown()).resolves.toEqual({ entries: [], incomplete: false });
+    await expect(retentionBreakdown()).resolves.toBeNull();
     get.mockRejectedValueOnce(new Error('down') as never);
     await expect(retentionBreakdown()).resolves.toBeNull();
   });

@@ -75,8 +75,12 @@
  *
  * api-core's own modules reach the excluded symbols by relative import; unit
  * tests reach them by DEEP import
- * (`@pipeline-builder/api-core/lib/services/service-keys.js`). Test helpers are
- * the separate `@pipeline-builder/api-core/testing` entry, never this barrel.
+ * (`@pipeline-builder/api-core/lib/services/service-keys.js`), which resolves
+ * ONLY inside this workspace (the jest moduleNameMapper and test/tsconfig.json
+ * `paths` that projenrc/shared-config.ts generates) — the exports map has no
+ * `./lib/*`, so no consumer of the published package can reach an internal.
+ * Test helpers are the separate `@pipeline-builder/api-core/testing` entry,
+ * never this barrel.
  */
 
 // Types
@@ -108,3 +112,6 @@ export * from './validation/index.js';
 
 // OpenAPI
 export * from './openapi/index.js';
+
+// Internal endpoint contracts
+export * from './contracts/index.js';

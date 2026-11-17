@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { requireInternalService } from '@pipeline-builder/api-core';
+import { PLATFORM_INTERNAL, contractRoute, requireInternalService } from '@pipeline-builder/api-core';
 import { Router } from 'express';
 import { getOrgAIAccess, getOrgAIKey } from '../controllers/ai-internal.js';
 import { requireServiceAuth } from '../middleware/index.js';
@@ -13,14 +13,19 @@ import { requireServiceAuth } from '../middleware/index.js';
  * `plugin` (generation), `reporting` (report summaries). The mesh policy on the Istio
  * targets names the same callers; compose relies on this gate alone.
  */
-const aiCallers = [requireServiceAuth, requireInternalService({ callers: ['ask', 'pipeline', 'plugin', 'reporting'] })];
+/** Where `mount.ts` mounts this router — the contracts' paths are under it. */
+export const AI_INTERNAL_MOUNT = '/internal/ai';
+
+const { orgAIAccess: ACCESS, orgAIKey: KEY } = PLATFORM_INTERNAL;
+
+const aiCallers = (callers: readonly string[]) => [requireServiceAuth, requireInternalService({ callers: [...callers] })];
 
 const router: Router = Router();
 
 /** The org's AI switch + configured provider NAMES. */
-router.get('/access/:orgId', ...aiCallers, getOrgAIAccess);
+router.get(contractRoute(ACCESS, AI_INTERNAL_MOUNT), ...aiCallers(ACCESS.callers), getOrgAIAccess);
 
 /** The org's decrypted key for one provider. Audited as `org.ai-key.read`. */
-router.get('/keys/:orgId/:provider', ...aiCallers, getOrgAIKey);
+router.get(contractRoute(KEY, AI_INTERNAL_MOUNT), ...aiCallers(KEY.callers), getOrgAIKey);
 
 export default router;

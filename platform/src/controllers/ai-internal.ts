@@ -27,28 +27,31 @@
  * path and the audit row.
  */
 
-import { AI_KEY_PROVIDER_IDS, getParam, isServicePrincipal, sendError, sendSuccess } from '@pipeline-builder/api-core';
+import { PLATFORM_INTERNAL, contractErrorMessage, isServicePrincipal, parseContractParams, sendError, sendSuccess } from '@pipeline-builder/api-core';
 import type { Request, Response } from 'express';
 import { audit } from '../helpers/audit.js';
 import { withController } from '../helpers/controller-helper.js';
 import { organizationService } from '../services/index.js';
 
-/** Org ids are ObjectIds, plus the system org's well-known id. */
-const ORG_ID = /^(?:[a-f0-9]{24}|system)$/i;
 /**
- * The providers an org may hold a key for — the catalog's key-based ones, the
- * same list the write side stores (services/organization-ai-secrets.ts). A
- * keyless provider has no org key by construction, so it is simply absent.
+ * Params are validated by the endpoints' contracts (api-core `PLATFORM_INTERNAL`):
+ * org ids are ObjectIds plus the system org's well-known id, and a key read names
+ * one of the catalog's KEY-BASED providers — the same list the write side stores
+ * (services/organization-ai-secrets.ts). A keyless provider has no org key by
+ * construction, so it is simply absent.
  */
-const PROVIDERS = new Set(AI_KEY_PROVIDER_IDS);
+const { orgAIAccess: ACCESS, orgAIKey: KEY } = PLATFORM_INTERNAL;
 
 /** The path org, normalized, when the caller's token is scoped to it; else answers and returns undefined. */
 function scopedOrg(req: Request, res: Response): string | undefined {
-  const orgId = (getParam(req.params, 'orgId') ?? '').toLowerCase();
-  if (!ORG_ID.test(orgId)) {
-    sendError(res, 400, 'orgId must be an organization id');
+  // The ACCESS params are the org alone, so a key read's provider is not judged
+  // here: an unscoped token must meet the 403 before a provider 400.
+  const params = parseContractParams(ACCESS, req);
+  if (!params.ok) {
+    sendError(res, 400, contractErrorMessage(params));
     return undefined;
   }
+  const { orgId } = params.value;
   if (!isServicePrincipal(req) || String(req.user?.organizationId ?? '').toLowerCase() !== orgId) {
     sendError(res, 403, 'The service token must be scoped to the organization it asks about');
     return undefined;
@@ -69,8 +72,9 @@ export const getOrgAIAccess = withController('Org AI access', async (req, res) =
 export const getOrgAIKey = withController('Org AI key', async (req, res) => {
   const orgId = scopedOrg(req, res);
   if (!orgId) return;
-  const provider = getParam(req.params, 'provider') ?? '';
-  if (!PROVIDERS.has(provider)) return sendError(res, 400, 'provider must be a key-based AI provider');
+  const params = parseContractParams(KEY, req);
+  if (!params.ok) return sendError(res, 400, contractErrorMessage(params));
+  const { provider } = params.value;
 
   const apiKey = await organizationService.readAIProviderKey(orgId, provider);
   if (!apiKey) return sendError(res, 404, 'The organization has no key for this provider');

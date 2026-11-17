@@ -4,12 +4,14 @@ import { RULE_TARGET_IDS, RULE_TARGET_LABELS, RULE_SCOPE_IDS, RULE_SCOPE_META, R
 import { useState, useId } from 'react';
 import { ArrowLeft, Plus, Trash2, FlaskConical, CheckCircle, AlertTriangle, XCircle, BarChart3, Loader2 } from 'lucide-react';
 import api from '@/lib/api';
+import { expectedUpdatedAtOf, isConcurrencyConflict } from '@/lib/api/concurrency';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Textarea } from '@/components/ui/Textarea';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
+import { ConcurrencyConflictAlert } from '@/components/ui/ConcurrencyConflictAlert';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { useRowIds } from '@/hooks/useRowIds';
 import { useMutation } from '@/hooks/useMutation';
@@ -136,6 +138,12 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
   const { isSuperAdmin } = useAuthGuard();
   const [form, setForm] = useState<FormState>(() => ruleToForm(rule));
   const [error, setError] = useState<string | null>(null);
+  /** The version of the rule this form edits — the prop, or the reloaded copy
+   *  after a concurrency conflict. Its `updatedAt` is sent as `expectedUpdatedAt`. */
+  const [baseRule, setBaseRule] = useState<ComplianceRule | undefined>(rule);
+  /** A 412: the rule changed since this form loaded it (optimistic concurrency). */
+  const [conflict, setConflict] = useState(false);
+  const [reloading, setReloading] = useState(false);
   const [dryRunResult, setDryRunResult] = useState<ComplianceCheckResult | null>(null);
   const [dryRunAttrs, setDryRunAttrs] = useState('{}');
   const [impactResult, setImpactResult] = useState<RuleImpact | null>(null);
@@ -188,6 +196,8 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
             operator: form.operator,
             value: parseValue(form.value),
           } : {}),
+          // The version this edit was based on: a concurrent edit is a 412, not an overwrite.
+          expectedUpdatedAt: expectedUpdatedAtOf(baseRule),
         };
         const res = await api.updateComplianceRule(rule!.id, data);
         if (!res.success || !res.data) throw new Error('Failed to update rule');
@@ -221,10 +231,31 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
     scopeKey: rule?.id,
     invalidates: ['complianceRules'],
     errorFallback: 'An error occurred',
-    onError: (_err, message) => setError(message),
+    onError: (err, message) => {
+      if (isConcurrencyConflict(err)) setConflict(true);
+      else setError(message);
+    },
     onSuccess: (saved) => onSave(saved),
   });
   const saving = save.pending;
+
+  // Re-read the rule after a concurrency conflict and reset the form to it.
+  const handleReload = async () => {
+    if (!rule) return;
+    setReloading(true);
+    try {
+      const res = await api.getComplianceRule(rule.id);
+      if (!res.success || !res.data?.rule) throw new Error(res.message || 'Failed to reload rule');
+      setBaseRule(res.data.rule);
+      setForm(ruleToForm(res.data.rule));
+      setConflict(false);
+      setError(null);
+    } catch (err) {
+      setError(formatError(err, 'Failed to reload rule'));
+    } finally {
+      setReloading(false);
+    }
+  };
 
   const handleSubmit = async () => {
     if (!form.name || !form.target) { setError('Name and target are required.'); return; }
@@ -243,6 +274,7 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
     if (fieldError) { setError(`Unknown field: ${fieldError}`); return; }
 
     setError(null);
+    setConflict(false);
     await save.run();
   };
 
@@ -309,6 +341,7 @@ export default function RuleEditor({ rule, onSave, onCancel }: RuleEditorProps) 
       </div>
 
       <ErrorAlert message={error} />
+      <ConcurrencyConflictAlert show={conflict} onReload={() => void handleReload()} reloading={reloading} />
 
       <div className="space-y-4 p-4 rounded-lg border border-default bg-surface">
         {/* Basic info */}

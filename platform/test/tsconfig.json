@@ -3,7 +3,27 @@
   "extends": "../tsconfig.json",
   "compilerOptions": {
     "noEmit": true,
-    "rootDir": ".."
+    "rootDir": "..",
+    "paths": {
+      "@pipeline-builder/api-core/lib/*": [
+        "../../packages/api-core/lib/*"
+      ],
+      "@pipeline-builder/api-server/lib/*": [
+        "../../packages/api-server/lib/*"
+      ],
+      "@pipeline-builder/pipeline-core/lib/*": [
+        "../../packages/pipeline-core/lib/*"
+      ],
+      "@pipeline-builder/pipeline-data/lib/*": [
+        "../../packages/pipeline-data/lib/*"
+      ],
+      "@pipeline-builder/ai-core/lib/*": [
+        "../../packages/ai-core/lib/*"
+      ],
+      "@pipeline-builder/pipeline-events/lib/*": [
+        "../../packages/pipeline-events/lib/*"
+      ]
+    }
   },
   "include": [
     "**/*.ts"

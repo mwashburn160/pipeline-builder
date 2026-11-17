@@ -9,6 +9,7 @@ import { errorMessage } from '@pipeline-builder/api-core';
 import { platformTlsVerify } from '@pipeline-builder/pipeline-core';
 import * as yaml from 'yaml';
 import { activePlatform, isSessionUsable, loadSession } from './credential-store.js';
+import { AuthenticationError } from './error-handler.js';
 import { printDebug, printError, printWarning } from './output-utils.js';
 import { assertSslDisableAllowed, isProductionEnv } from './tls.js';
 import { type Config } from '../types/index.js';
@@ -156,7 +157,7 @@ export function getConfig(): Config {
 
   if (!token) {
     printError('Not signed in: no PLATFORM_TOKEN, and no valid stored session for this platform');
-    throw new Error('Run "pipeline-manager auth login", or set PLATFORM_TOKEN to an access key');
+    throw new AuthenticationError('Run "pipeline-manager auth login", or set PLATFORM_TOKEN to an access key');
   }
 
   if (token.trim().length === 0) {

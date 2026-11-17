@@ -40,7 +40,8 @@ import {
   errorMessage,
   formatQuotaAmount,
   getServiceAuthHeader,
-  NOTIFY_EMAIL_PATH,
+  PLATFORM_INTERNAL,
+  callInternal,
   quotaLabelPlural,
   sendSystemNotification,
   serviceEndpoint,
@@ -256,21 +257,24 @@ async function mail(
   try {
     // api-core's shared path. The endpoint serves five callers; its `offerNotice`
     // leg accepts only the `billing` caller, which is this one.
-    const response = await platform().post(NOTIFY_EMAIL_PATH, {
-      offerNotice: true,
-      orgId: rootOrgId,
-      subject: text.subject,
-      text: text.text,
-    }, {
-      headers: { authorization: getServiceAuthHeader({ serviceName: 'billing', orgId: rootOrgId, role: 'member' }) },
-      maxRetries: 0,
+    const response = await callInternal(platform(), PLATFORM_INTERNAL.notifyEmail, {
+      body: {
+        offerNotice: true,
+        orgId: rootOrgId,
+        subject: text.subject,
+        text: text.text,
+      },
+      options: {
+        headers: { authorization: getServiceAuthHeader({ serviceName: 'billing', orgId: rootOrgId, role: 'member' }) },
+        maxRetries: 0,
+      },
     });
     // The safe client resolves on 4xx/5xx, so the status is the only signal.
-    if (!response || response.statusCode >= 400) {
-      logger.warn('Offer email refused by the relay', { orgId: rootOrgId, type: offerType, status: response?.statusCode });
+    if (!response.ok && response.reason !== 'invalid-response') {
+      logger.warn('Offer email refused by the relay', { orgId: rootOrgId, type: offerType, status: response.reason === 'status' ? response.status : undefined });
       return 'failed';
     }
-    const count = recipientCountOf(response.body);
+    const count = response.ok ? response.data.recipientCount ?? null : null;
     // The relay reports zero recipients rather than failing, so an account with
     // no reachable admin is distinguishable from a send that broke.
     return count === 0 ? 'no_recipients' : 'sent';
@@ -280,7 +284,3 @@ async function mail(
   }
 }
 
-function recipientCountOf(body: unknown): number | null {
-  const data = (body as { data?: { recipientCount?: unknown } } | null)?.data;
-  return typeof data?.recipientCount === 'number' ? data.recipientCount : null;
-}

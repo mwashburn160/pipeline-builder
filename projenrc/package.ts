@@ -83,6 +83,9 @@ export class PackageProject extends TypeScriptProject {
         // compile, so it cannot drift from lib/.
         const toRoot = path.relative(this.outdir, process.cwd()) || '.';
         this.postCompileTask.exec(`node ${toRoot}/scripts/emit-export-manifest.mjs`);
+        // Every `exports` target exists once compiled, and every PUBLISHED one
+        // survives the npmignore (setPublicSurface in .projenrc.ts).
+        this.postCompileTask.exec(`node ${toRoot}/scripts/check-package-surface.mjs`);
     }
 
     /**

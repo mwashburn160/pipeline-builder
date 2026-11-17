@@ -17,10 +17,12 @@
  */
 
 import {
+  callInternal,
   createLogger,
   errorMessage,
   getServiceAuthHeader,
   InternalHttpClient,
+  PLATFORM_INTERNAL,
   SYSTEM_ORG_ID,
 } from '@pipeline-builder/api-core';
 import { Config } from '@pipeline-builder/pipeline-core';
@@ -55,7 +57,8 @@ export interface PlatformReads {
   approvers(permission: DecisionPermission, exclude?: ApproverExclusions): Promise<ApproverCount | null>;
 }
 
-const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : null);
+/** The two reads, defined once in api-core (paths, query, reply shapes). */
+const { publisherEligibility: ELIGIBILITY, ecosystemApprovers: APPROVERS } = PLATFORM_INTERNAL;
 
 function client(): InternalHttpClient {
   const { services } = Config.get('server');
@@ -68,14 +71,11 @@ const headers = () => ({ Authorization: getServiceAuthHeader({ serviceName: 'plu
 export const httpPlatformReads: PlatformReads = {
   async eligibility(orgId) {
     try {
-      const res = await client().get<{ data?: Record<string, unknown> }>(
-        `/internal/ecosystem/publisher-eligibility/${encodeURIComponent(orgId)}`, { headers: headers() });
-      const d = res.body?.data;
-      if (res.statusCode >= 400 || !d) return null;
-      const owners = num(d.owners);
-      const ownersWithMfa = num(d.ownersWithMfa);
-      if (!Array.isArray(d.verifiedDomains) || owners === null || ownersWithMfa === null) return null;
-      return { verifiedDomains: d.verifiedDomains.filter((x): x is string => typeof x === 'string'), owners, ownersWithMfa };
+      // The contract requires non-negative finite counts and a domain list (non-strings dropped).
+      const res = await callInternal(client(), ELIGIBILITY, { params: { orgId }, options: { headers: headers() } });
+      if (!res.ok) return null;
+      const { verifiedDomains, owners, ownersWithMfa } = res.data;
+      return { verifiedDomains, owners, ownersWithMfa };
     } catch (err) {
       logger.warn('Verified-eligibility read failed', { orgId, error: errorMessage(err) });
       return null;
@@ -83,17 +83,15 @@ export const httpPlatformReads: PlatformReads = {
   },
 
   async approvers(permission, exclude = {}) {
-    const q = new URLSearchParams({ permission });
-    if (exclude.orgIds?.length) q.set('excludeOrgIds', [...new Set(exclude.orgIds)].join(','));
-    if (exclude.userIds?.length) q.set('excludeUserIds', [...new Set(exclude.userIds)].join(','));
+    const query = {
+      permission,
+      excludeOrgIds: exclude.orgIds?.length ? [...new Set(exclude.orgIds)].join(',') : undefined,
+      excludeUserIds: exclude.userIds?.length ? [...new Set(exclude.userIds)].join(',') : undefined,
+    };
     try {
-      const res = await client().get<{ data?: Record<string, unknown> }>(`/internal/ecosystem/approvers?${q.toString()}`, { headers: headers() });
-      const d = res.body?.data;
-      if (res.statusCode >= 400 || !d) return null;
-      const holders = num(d.holders);
-      const eligible = num(d.eligible);
-      const superadmins = num(d.superadmins);
-      if (holders === null || eligible === null || superadmins === null) return null;
+      const res = await callInternal(client(), APPROVERS, { query, options: { headers: headers() } });
+      if (!res.ok) return null;
+      const { holders, eligible, superadmins } = res.data;
       return { holders, eligible, superadmins };
     } catch (err) {
       logger.warn('Approver-count read failed', { permission, error: errorMessage(err) });

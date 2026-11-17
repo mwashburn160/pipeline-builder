@@ -75,9 +75,6 @@ export async function grantSupportIncidents(
   return updated.supportIncidentBalance;
 }
 
-/** A consume/refund caller key: opaque, bounded, header-safe. */
-export const INCIDENT_KEY_PATTERN = /^[A-Za-z0-9_-]{8,128}$/;
-
 const MANAGEABLE = { $in: [...MANAGEABLE_SUBSCRIPTION_STATUSES] };
 
 /** Append one spend record, keeping only the newest history window. */

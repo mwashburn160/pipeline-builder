@@ -22,13 +22,17 @@
  */
 
 import {
+  BILLING_INTERNAL,
   ErrorCode,
   SYSTEM_ORG_ID,
   actorId,
   audited,
+  contractErrorMessage,
+  contractRoute,
   createLogger,
   errorMessage,
   getParam,
+  parseContractBody,
   recordAudit,
   requireAuth,
   requireInternalService,
@@ -45,7 +49,6 @@ import type { Request, RequestHandler, Response } from 'express';
 import { z } from 'zod';
 import { resolveAccountRootOrgId } from '../helpers/root-org-guard.js';
 import {
-  INCIDENT_KEY_PATTERN,
   MAX_INCIDENT_GRANT,
   consumeSupportIncident,
   grantSupportIncidents,
@@ -56,12 +59,8 @@ import { bodyErrorMessage, validateOptionalBody } from '../validation/schemas.js
 
 const logger = createLogger('support-incidents-routes');
 
-const INCIDENT_KEY_MESSAGE = 'idempotencyKey must be 8-128 characters of [A-Za-z0-9_-]';
-
-/** `{ idempotencyKey }` — the body of the internal consume and refund. */
-const IncidentKeySchema = z.object({
-  idempotencyKey: z.string({ error: INCIDENT_KEY_MESSAGE }).regex(INCIDENT_KEY_PATTERN, INCIDENT_KEY_MESSAGE),
-}).strict();
+/** The internal consume + refund, defined once in api-core (body, path, callers). */
+const { consumeSupportIncident: CONSUME, refundSupportIncident: REFUND } = BILLING_INTERNAL;
 
 const GRANT_COUNT_MESSAGE = `count must be an integer in 1..${MAX_INCIDENT_GRANT}`;
 
@@ -70,9 +69,6 @@ const IncidentGrantSchema = z.object({
   count: z.number({ error: GRANT_COUNT_MESSAGE }).int(GRANT_COUNT_MESSAGE).min(1, GRANT_COUNT_MESSAGE).max(MAX_INCIDENT_GRANT, GRANT_COUNT_MESSAGE),
   note: z.string({ error: 'note must be a string' }).optional(),
 }).strict();
-
-/** The one service allowed to spend an incident. */
-const CONSUME_CALLERS = ['message'] as const;
 
 /**
  * The ROOT org whose subscription holds `orgId`'s incident balance. The balance
@@ -99,9 +95,10 @@ async function accountOrgOr503(res: Response, orgId: string): Promise<string | n
  * from one that did not.
  */
 function incidentKeyOr400(req: Request, res: Response): string | null {
-  const parsed = validateOptionalBody(req, IncidentKeySchema);
+  // Consume and refund share one body schema (the contract's).
+  const parsed = parseContractBody(CONSUME, req);
   if (!parsed.ok) {
-    sendBadRequest(res, bodyErrorMessage(parsed), ErrorCode.VALIDATION_ERROR);
+    sendBadRequest(res, contractErrorMessage(parsed), ErrorCode.VALIDATION_ERROR);
     return null;
   }
   return parsed.value.idempotencyKey;
@@ -156,9 +153,9 @@ export function createSupportIncidentRoutes(): Router {
    * those two very differently.
    */
   router.post(
-    '/internal/support-incidents/:orgId/consume',
+    contractRoute(CONSUME, '/billing'),
     requireAuth,
-    requireInternalService({ callers: [...CONSUME_CALLERS] }),
+    requireInternalService({ callers: [...CONSUME.callers] }),
     withRoute(async ({ req, res }) => {
       const orgId = (getParam(req.params, 'orgId') ?? '').toLowerCase();
       if (!orgId) return sendBadRequest(res, 'orgId is required', ErrorCode.MISSING_REQUIRED_FIELD);
@@ -184,9 +181,9 @@ export function createSupportIncidentRoutes(): Router {
    * `refunded: false` is the no-op for a key never spent (or already refunded).
    */
   router.post(
-    '/internal/support-incidents/:orgId/refund',
+    contractRoute(REFUND, '/billing'),
     requireAuth,
-    requireInternalService({ callers: [...CONSUME_CALLERS] }),
+    requireInternalService({ callers: [...REFUND.callers] }),
     withRoute(async ({ req, res }) => {
       const orgId = (getParam(req.params, 'orgId') ?? '').toLowerCase();
       if (!orgId) return sendBadRequest(res, 'orgId is required', ErrorCode.MISSING_REQUIRED_FIELD);

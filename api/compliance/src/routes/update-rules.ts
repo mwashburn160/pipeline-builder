@@ -27,7 +27,7 @@ export function createUpdateRuleRoutes(): Router {
       return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
     }
 
-    const body = validation.value;
+    const { expectedUpdatedAt, ...body } = validation.value;
     const updateData: Record<string, unknown> = { ...body };
 
     if (body.effectiveFrom !== undefined) {
@@ -38,10 +38,11 @@ export function createUpdateRuleRoutes(): Router {
     }
 
     // A bad regex operator or an unknown `set:` tag raises a ValidationError,
-    // which `withRoute` answers as a 400 — no try/catch here.
+    // which `withRoute` answers as a 400 — no try/catch here. A stale
+    // `expectedUpdatedAt` raises ConcurrencyConflictError → 412.
     // The prior row, read only for the audit's before → after.
     const before = await complianceRuleService.findById(id, orgId);
-    const updated = await complianceRuleService.update(id, updateData, orgId, userId);
+    const updated = await complianceRuleService.update(id, updateData, orgId, userId, { expectedUpdatedAt });
     if (!updated) {
       // Not in the caller's org — a team editing its parent's propagated rule gets a clear 403.
       if (await rejectIfInheritedRule(req, res, id)) return;

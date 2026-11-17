@@ -23,7 +23,16 @@
  * me back", which is why the surface lives here and the computation lives there.
  */
 
-import { createLogger, errorMessage, getServiceAuthHeader, formatQuotaAmount, InternalHttpClient } from '@pipeline-builder/api-core';
+import {
+  callInternal,
+  createLogger,
+  errorMessage,
+  getServiceAuthHeader,
+  formatQuotaAmount,
+  IMAGE_REGISTRY_INTERNAL,
+  InternalHttpClient,
+  type ContractHttpClient,
+} from '@pipeline-builder/api-core';
 import { Config } from '@pipeline-builder/pipeline-core';
 import { distinctPipelines, findVersionReferences, runWithTenantContext, withTenantTx, schema, type VersionReferenceTarget } from '@pipeline-builder/pipeline-data';
 import { and, eq, isNull } from 'drizzle-orm';
@@ -106,6 +115,12 @@ export function setStorageRegistryClientForTests(c: RegistryHttp | null): void {
   clientOverride = c;
 }
 
+/**
+ * The client as `callInternal` takes it. Only the verb the contract names is
+ * ever called, so a test double holding just `get` (and `delete`) is enough.
+ */
+const contractClient = (c: RegistryHttp): ContractHttpClient => c as unknown as ContractHttpClient;
+
 function client(): RegistryHttp {
   if (clientOverride) return clientOverride;
   const services = Config.get('server').services;
@@ -123,15 +138,17 @@ const orgAuth = (orgId: string) => getServiceAuthHeader({ serviceName: 'plugin',
 /** The registry's per-version breakdown, or `null` when it cannot answer. */
 async function fetchBreakdown(orgId: string): Promise<RegistryBreakdown | null> {
   try {
-    const res = await client().get<{ data?: RegistryBreakdown }>(
-      `/internal/storage-breakdown/${encodeURIComponent(orgId)}`,
-      { headers: { Authorization: orgAuth(orgId) }, maxRetries: 0 },
-    );
-    if (res.statusCode < 200 || res.statusCode >= 300) {
-      logger.warn('Registry refused the storage breakdown', { orgId, status: res.statusCode });
+    const res = await callInternal(contractClient(client()), IMAGE_REGISTRY_INTERNAL.orgStorageBreakdown, {
+      params: { orgId },
+      options: { headers: { Authorization: orgAuth(orgId) }, maxRetries: 0 },
+    });
+    if (!res.ok && res.reason === 'status') {
+      logger.warn('Registry refused the storage breakdown', { orgId, status: res.status });
       return null;
     }
-    return res.body?.data ?? null;
+    // Without `scope` the registry answers the per-org shape; anything else
+    // (an unreadable reply, the retention shape) is not an answer.
+    return res.ok && 'orgId' in res.data ? res.data : null;
   } catch (err) {
     logger.warn('Registry unreachable for the storage breakdown', { orgId, error: errorMessage(err) });
     return null;
@@ -257,13 +274,13 @@ export async function pruneVersion(orgId: string, repo: string, tag: string): Pr
   const c = client();
   if (!c.delete) throw new Error('image-registry client cannot delete');
   // Query parameters, not a body: the internal HTTP client's DELETE sends none.
-  const query = new URLSearchParams({ repo, tag }).toString();
-  const res = await c.delete<{ data?: unknown }>(
-    `/internal/storage-prune/${encodeURIComponent(orgId)}?${query}`,
-    { headers: { Authorization: orgAuth(orgId) }, maxRetries: 0 },
-  );
-  if (res.statusCode < 200 || res.statusCode >= 300) {
-    logger.warn('Registry refused the storage prune', { orgId, repo, tag, status: res.statusCode });
+  const res = await callInternal(contractClient(c), IMAGE_REGISTRY_INTERNAL.pruneOrgStorage, {
+    params: { orgId },
+    query: { repo, tag },
+    options: { headers: { Authorization: orgAuth(orgId) }, maxRetries: 0 },
+  });
+  if (!res.ok && res.reason === 'status') {
+    logger.warn('Registry refused the storage prune', { orgId, repo, tag, status: res.status });
     return { pruned: false, repo, tag, freedBytes: 0, reason: 'registry_unavailable' };
   }
   logger.info('Pruned a version to reclaim storage', { orgId, repo, tag, freedBytes: candidate.marginalBytes });

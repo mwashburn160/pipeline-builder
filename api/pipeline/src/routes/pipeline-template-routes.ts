@@ -35,11 +35,21 @@ import {
 import { createAuthenticatedWithOrgRoute, withRoute } from '@pipeline-builder/api-server';
 import { tokenize } from '@pipeline-builder/pipeline-core';
 import { Router } from 'express';
+import { z } from 'zod';
 import { instantiateTemplateProps } from '../helpers/instantiate-template.js';
 import { validatePipelineTemplates } from '../helpers/pipeline-template-validator.js';
 import { checkPipelinePlugins, type PluginWarning } from '../helpers/plugin-save-check.js';
 import { withoutToolchainPin } from '../helpers/template-props.js';
 import { pipelineTemplateService } from '../services/pipeline-template-service.js';
+
+/**
+ * The update body plus the optimistic-concurrency token (`expectedUpdatedAt`,
+ * the `updatedAt` the editor loaded): stale → 412 PRECONDITION_FAILED, absent →
+ * last write wins. Never a column write (updateData picks columns).
+ */
+const PipelineTemplateUpdateRequestSchema = PipelineTemplateUpdateSchema.extend({
+  expectedUpdatedAt: z.iso.datetime({ offset: true }).optional(),
+});
 
 /**
  * Every `{{ vars.X }}` placeholder in a template's self-scope fields must be
@@ -267,7 +277,7 @@ export function createPipelineTemplateRoutes(): Router {
     const id = getParam(req.params, 'id');
     if (!id) return sendBadRequest(res, 'Template ID is required.', ErrorCode.MISSING_REQUIRED_FIELD);
 
-    const validation = validateBody(req, PipelineTemplateUpdateSchema);
+    const validation = validateBody(req, PipelineTemplateUpdateRequestSchema);
     if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
     const body = validation.value;
 
@@ -328,7 +338,8 @@ export function createPipelineTemplateRoutes(): Router {
       ...(body.visibility !== undefined ? { visibility: resolveVisibility(req, body.visibility, 'templates:publish') } : {}),
     };
 
-    const updated = await pipelineTemplateService.update(id, updateData, orgId, userId);
+    // A stale `expectedUpdatedAt` makes the service throw ConcurrencyConflictError → 412.
+    const updated = await pipelineTemplateService.update(id, updateData, orgId, userId, { expectedUpdatedAt: body.expectedUpdatedAt });
     if (!updated) return sendEntityNotFound(res, 'Template');
 
     ctx.log('COMPLETED', 'Updated pipeline template', { id });

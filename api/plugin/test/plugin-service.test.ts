@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 import { type AnyFn, drizzleMock, stubModule } from '@pipeline-builder/api-core/testing';
 
 // Mock external dependencies — must be set up before importing the service
@@ -457,6 +457,63 @@ describe('PluginService', () => {
         update: jest.fn(() => { throw new Error('must not write'); }),
       }));
       await expect(service.update('p-9', { isDefault: true }, 'org-1', 'user-1', { access: member })).resolves.toBeNull();
+    });
+
+    describe('expectedUpdatedAt (optimistic concurrency) on the promote path', () => {
+      const TOKEN = '2026-11-01T10:00:00.123Z';
+      afterEach(() => { delete (target as Record<string, unknown>).unchanged; delete (target as Record<string, unknown>).updatedAt; });
+
+      it('a token already stale at the first read is a 412 that writes nothing', async () => {
+        Object.assign(target, { unchanged: false, updatedAt: new Date('2026-11-02T00:00:00.000Z') });
+        await expect(service.update('p-2', { isDefault: true }, 'org-1', 'user-1', { access: member, expectedUpdatedAt: TOKEN }))
+          .rejects.toMatchObject({ statusCode: 412, code: 'PRECONDITION_FAILED', details: { expectedUpdatedAt: TOKEN, currentUpdatedAt: '2026-11-02T00:00:00.000Z' } });
+        expect(ops.filter((o) => o.op === 'update')).toHaveLength(0);
+      });
+
+      it('a token that goes stale before the final write throws 412 (rolling the demotion back)', async () => {
+        Object.assign(target, { unchanged: true, updatedAt: new Date(TOKEN) });
+        pipelineDataMock.withTenantTx.mockImplementation(async (cb: any) => {
+          let selects = 0;
+          return cb({
+            execute: jest.fn(async () => []),
+            select: jest.fn(() => ({
+              from: () => ({
+                where: () => {
+                  const rows = selects++ === 0 ? [target] : [];
+                  return Object.assign(Promise.resolve(rows), { for: async () => rows });
+                },
+              }),
+            })),
+            update: jest.fn(() => ({ set: () => ({ where: () => Object.assign(Promise.resolve([]), { returning: async () => [] }) }) })),
+          });
+        });
+        await expect(service.update('p-2', { isDefault: true }, 'org-1', 'user-1', { access: member, expectedUpdatedAt: TOKEN }))
+          .rejects.toMatchObject({ statusCode: 412 });
+      });
+
+      it('a fresh token promotes, with the token re-checked on the final row write', async () => {
+        await service.update('p-2', { isDefault: true }, 'org-1', 'user-1', { access: member });
+        const untokened = ops.filter((o) => o.op === 'update')[1].where.length;
+        ops.length = 0;
+        Object.assign(target, { unchanged: true, updatedAt: new Date(TOKEN) });
+        await expect(service.update('p-2', { isDefault: true }, 'org-1', 'user-1', { access: member, expectedUpdatedAt: TOKEN })).resolves.toEqual(promoted);
+        const updates = ops.filter((o) => o.op === 'update');
+        expect(updates).toHaveLength(2);
+        // One more predicate than the untokened write: the date_trunc compare.
+        expect(updates[1].where).toHaveLength(untokened + 1);
+      });
+
+      it('an unparseable token is a 400 before any transaction', async () => {
+        await expect(service.update('p-2', { isDefault: true }, 'org-1', 'user-1', { access: member, expectedUpdatedAt: 'nope' }))
+          .rejects.toMatchObject({ statusCode: 400 });
+        expect(txCount).toBe(0);
+      });
+
+      it('passes the token through to the base update on a non-promoting write', async () => {
+        mockSuperUpdate.mockResolvedValue({ id: 'p-2' });
+        await service.update('p-2', { description: 'x' }, 'org-1', 'user-1', { access: member, expectedUpdatedAt: TOKEN });
+        expect(mockSuperUpdate).toHaveBeenCalledWith('p-2', { description: 'x' }, 'org-1', 'user-1', { expectedUpdatedAt: TOKEN });
+      });
     });
 
     it('delegates a non-promoting update to the base CrudService.update', async () => {

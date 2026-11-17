@@ -16,16 +16,12 @@ jest.unstable_mockModule('../src/helpers/plugin-contract-check.js', () => ({
 
 /** The org's own live versions of the plugin (the candidates). */
 let mockOwnRows: Array<Record<string, unknown>> = [];
-const actualData = jest.requireActual('@pipeline-builder/pipeline-data') as Record<string, unknown>;
 jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@pipeline-builder/pipeline-data', {
   withTenantTx: async (fn: (tx: unknown) => unknown) => fn({
     select: () => ({ from: () => ({ where: async () => mockOwnRows }) }),
   }),
   runWithTenantContext: (_c: unknown, fn: () => unknown) => fn(),
   buildPluginConditions: () => [],
-  compareSemver: actualData.compareSemver,
-  satisfiesVersionSpec: actualData.satisfiesVersionSpec,
-  isVersionRange: actualData.isVersionRange,
   schema: {
     plugin: {
       version: 'version',

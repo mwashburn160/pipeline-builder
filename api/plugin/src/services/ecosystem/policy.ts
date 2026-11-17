@@ -13,8 +13,9 @@ import {
   STEP_UP_REQUEST_KINDS,
   VERIFY_REQUEST_KINDS,
   type PluginCatalogField,
+  compareSemverLenient, parseSemver,
 } from '@pipeline-builder/api-core';
-import { compareSemver, parseSemver, type ListingVersionSpecSnapshot, type PublisherTier } from '@pipeline-builder/pipeline-data';
+import type { ListingVersionSpecSnapshot, PublisherTier } from '@pipeline-builder/pipeline-data';
 
 import type { PluginRow } from './store.js';
 
@@ -31,7 +32,7 @@ export function versionBump(previous: string | null, next: string): VersionBump 
   if (previous === null) return 'major';
   const p = parseSemver(previous);
   if (!p) return 'invalid';
-  const cmp = compareSemver(next, previous);
+  const cmp = compareSemverLenient(next, previous);
   if (cmp === 0) return 'same';
   if (cmp < 0) return 'downgrade';
   if (n.prerelease.length > 0) return 'prerelease';
@@ -42,7 +43,7 @@ export function versionBump(previous: string | null, next: string): VersionBump 
 
 /** The highest STABLE version among `versions` (prereleases only when nothing else). */
 export function latestVersion(versions: readonly string[]): string | null {
-  const sorted = [...versions].sort((a, b) => compareSemver(b, a));
+  const sorted = [...versions].sort((a, b) => compareSemverLenient(b, a));
   return sorted.find((v) => (parseSemver(v)?.prerelease.length ?? 1) === 0) ?? sorted[0] ?? null;
 }
 

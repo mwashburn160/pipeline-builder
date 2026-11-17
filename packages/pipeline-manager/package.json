@@ -182,7 +182,8 @@
     ],
     "moduleNameMapper": {
       "^uuid$": "<rootDir>/../../jest-uuid-stub.js",
-      "^(\\.{1,2}/.*)\\.js$": "$1"
+      "^(\\.{1,2}/.*)\\.js$": "$1",
+      "^@pipeline-builder/(api-core|api-server|pipeline-core|pipeline-data|ai-core|pipeline-events)/lib/(.*)$": "<rootDir>/../../packages/$1/lib/$2"
     },
     "restoreMocks": true,
     "setupFilesAfterEnv": [
@@ -207,6 +208,9 @@
     }
   },
   "type": "module",
+  "exports": {
+    "./package.json": "./package.json"
+  },
   "nx": {
     "targets": {
       "build": {

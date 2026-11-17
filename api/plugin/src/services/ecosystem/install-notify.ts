@@ -21,17 +21,15 @@ import {
   errorMessage,
   type EcosystemNotificationEventId,
   type EcosystemRecipientSpec,
+  compareSemverLenient, parseSemver, satisfiesVersionSpec,
 } from '@pipeline-builder/api-core';
 import { incCounter } from '@pipeline-builder/api-server';
 import {
-  compareSemver,
   implicitInstallRange,
   installAdmits,
   listingBlock,
   OFFICIAL_PUBLISHER_HANDLE,
-  parseSemver,
   policyOf,
-  satisfiesVersionSpec,
   type PluginInstall,
   type PluginListing,
   type PluginListingVersion,
@@ -175,7 +173,7 @@ export async function announceNewVersion(publisher: Publisher, listing: PluginLi
     // What an implicit user runs today: the highest version of the implicit range.
     const implicitCurrent = range
       ? others.filter((v) => !v.pausedAt && satisfiesVersionSpec(v.version, range))
-        .reduce<string | null>((best, v) => (best === null || compareSemver(v.version, best) > 0 ? v.version : best), null)
+        .reduce<string | null>((best, v) => (best === null || compareSemverLenient(v.version, best) > 0 ? v.version : best), null)
       : null;
     const ref = `${publisher.handle}/${listing.name}`;
     const inRange: string[] = [];
@@ -187,12 +185,12 @@ export async function announceNewVersion(publisher: Publisher, listing: PluginLi
         : range !== null && satisfiesVersionSpec(published.version, range);
       if (admits && !published.pausedAt) {
         inRange.push(org.orgId);
-      } else if (!current || compareSemver(published.version, current) > 0) {
+      } else if (!current || compareSemverLenient(published.version, current) > 0) {
         const key = current ?? '';
         outOfRange.set(key, [...(outOfRange.get(key) ?? []), org.orgId]);
       }
     }
-    const previous = others.reduce<PluginListingVersion | null>((best, v) => (best === null || compareSemver(v.version, best.version) > 0 ? v : best), null);
+    const previous = others.reduce<PluginListingVersion | null>((best, v) => (best === null || compareSemverLenient(v.version, best.version) > 0 ? v : best), null);
     const n27 = await sendToOrgs('N27', inRange, {
       subject: `${ref} updated to ${published.version}`,
       text: `${ref} ${published.version} is within your install's version policy, so new pipeline synths use it automatically.\n\n${upgradeDetails(previous, published)}`,

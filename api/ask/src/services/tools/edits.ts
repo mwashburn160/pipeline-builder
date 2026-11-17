@@ -16,8 +16,9 @@
  *  - the commit payload is exactly `pick(proposed, changedFields)`, so a field
  *    the model slipped in that the card never showed is structurally
  *    unappliable — the reviewed diff IS the commit payload;
- *  - `current` doubles as the re-read baseline the UI checks before applying,
- *    because none of these tables carries a version column.
+ *  - the read's `updatedAt` travels as `baseUpdatedAt`, which the UI sends as
+ *    the update's `expectedUpdatedAt`: a change landing after the draft is a
+ *    412 from the update route, so what the user approved is what is applied.
  *
  * SECRETS. The model never sees a secret value: every tool result reaches it
  * through `redactForModel`, so the `props` it hands back carry `[REDACTED:<tag>]`
@@ -82,6 +83,18 @@ const ChangesSchema = z
 function named(value: unknown, key: string): Record<string, unknown> {
   const rec = asRecord(value);
   return key in rec ? asRecord(rec[key]) : rec;
+}
+
+/**
+ * The optimistic-concurrency token of the base read: its `updatedAt`, as the
+ * ISO string the update routes compare (at millisecond precision). Omitted when
+ * the read carried no usable timestamp.
+ */
+function baseUpdatedAtOf(current: Record<string, unknown>): { baseUpdatedAt?: string } {
+  const v = current.updatedAt;
+  if (typeof v !== 'string' && !(v instanceof Date)) return {};
+  const d = new Date(v);
+  return Number.isNaN(d.getTime()) ? {} : { baseUpdatedAt: d.toISOString() };
 }
 
 export function editTools(deps: AgentToolDeps): ToolSet {
@@ -149,6 +162,7 @@ export function editTools(deps: AgentToolDeps): ToolSet {
       description: opts.reason,
       refusedFields: diff.refusedFields,
       ...(secrets.addedSecrets.length > 0 ? { addedSecrets: secrets.addedSecrets } : {}),
+      ...baseUpdatedAtOf(current),
       provenance: ASK_PROVENANCE,
     };
   }

@@ -20,18 +20,16 @@
 
 import type { IncomingHttpHeaders } from 'node:http';
 
-import { isoOrNull, actorId, ConflictError, ErrorCode, paginationMeta, type Permission, parsePage, PUBLISHER_HANDLE_PATTERN, type ShadowingMode, withProposalProvenance } from '@pipeline-builder/api-core';
+import { isoOrNull, actorId, ConflictError, ErrorCode, paginationMeta, type Permission, parsePage, PUBLISHER_HANDLE_PATTERN, type ShadowingMode, withProposalProvenance, compareSemverLenient, parseSemver } from '@pipeline-builder/api-core';
 import {
   isUniqueViolation,
   applyPolicyUpdate,
   blockingAdvisories,
-  compareSemver,
   effectiveConsumptionPolicy,
   listingBlock,
   loadOrgInstallContext,
   OFFICIAL_PUBLISHER_HANDLE,
   orgListingStates,
-  parseSemver,
   policyOf,
   scopeOrgIds,
   INSTALL_VERSION_POLICIES,
@@ -148,7 +146,7 @@ export async function installState(caller: Caller, handle: string, name: string)
   const stats = (await statsFor([listing.id])).get(listing.id) ?? NO_STATS;
   return {
     entry: { ...catalogEntry(caller, state, ctx.policy, shadows), ...stats },
-    versions: [...state.versions].sort((a, b) => compareSemver(b.version, a.version)).map((v) => ({
+    versions: [...state.versions].sort((a, b) => compareSemverLenient(b.version, a.version)).map((v) => ({
       version: v.version,
       breaking: v.breaking,
       yanked: v.yankedAt !== null,
@@ -290,7 +288,7 @@ function baselineVersion(
     return v;
   }
   const usable = versions.filter((v) => !v.yankedAt && !v.pausedAt && isStable(v.version) && !advisoriesBlock(v.version));
-  const best = usable.reduce<PluginListingVersion | null>((b, v) => (b === null || compareSemver(v.version, b.version) > 0 ? v : b), null);
+  const best = usable.reduce<PluginListingVersion | null>((b, v) => (b === null || compareSemverLenient(v.version, b.version) > 0 ? v : b), null);
   if (!best) refuse({ code: 'PLUGIN_UNAVAILABLE', reason: 'no_version', message: `${ref} has no version your organization can install.` });
   return best;
 }
@@ -389,9 +387,9 @@ async function planInstallChange(caller: Caller, row: PluginInstall, body: Recor
   const target = baseline ?? baselineVersion(ref, state.versions, body.version, policy, blocks, current);
 
   const from = current ?? row.pinnedVersion;
-  const crosses = !!from && compareSemver(target.version, from) > 0 && (
+  const crosses = !!from && compareSemverLenient(target.version, from) > 0 && (
     parseSemver(target.version)?.major !== parseSemver(from)?.major
-    || state.versions.some((v) => v.breaking && compareSemver(v.version, from) > 0 && compareSemver(v.version, target.version) <= 0));
+    || state.versions.some((v) => v.breaking && compareSemverLenient(v.version, from) > 0 && compareSemverLenient(v.version, target.version) <= 0));
   const widens = versionPolicy === 'latest' && row.versionPolicy !== 'latest';
   const gated = (crosses || widens) && policy.requireApprovalTiers.includes(publisher.tier);
   return { publisher, listing, ref, policy, versionPolicy, target, gated };

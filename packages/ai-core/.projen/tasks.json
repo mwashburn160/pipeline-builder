@@ -141,6 +141,9 @@
       "steps": [
         {
           "exec": "node ../../scripts/emit-export-manifest.mjs"
+        },
+        {
+          "exec": "node ../../scripts/check-package-surface.mjs"
         }
       ]
     },

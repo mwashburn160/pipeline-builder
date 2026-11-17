@@ -4,6 +4,7 @@ import { RULE_TARGET_IDS, RULE_TARGET_LABELS, RULE_SCOPE_IDS, RULE_SCOPE_META, R
 import { useEffect, useState, useMemo } from 'react';
 import { Shield, Plus, Pencil, Trash2, ToggleLeft, ToggleRight, History, Search, Tag } from 'lucide-react';
 import api from '@/lib/api';
+import { expectedUpdatedAtOf, isConcurrencyConflict } from '@/lib/api/concurrency';
 import { invalidate } from '@/lib/api-cache';
 import { useCrudResource } from '@/hooks/useCrudResource';
 import { useDebounce } from '@/hooks/useDebounce';
@@ -19,6 +20,7 @@ import { IconButton } from '@/components/ui/IconButton';
 import { FilterInput } from '@/components/ui/FilterInput';
 import { FilterSelect } from '@/components/ui/FilterSelect';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
+import { ConcurrencyConflictAlert } from '@/components/ui/ConcurrencyConflictAlert';
 import { DeleteConfirmModal } from '@/components/ui/DeleteConfirmModal';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { Pagination } from '@/components/ui/Pagination';
@@ -193,7 +195,8 @@ export default function RuleList({ onEdit, onCreateNew, onViewHistory }: RuleLis
               restTone={rule.isActive ? 'success' : 'default'}
               disabled={locked}
               className={locked ? 'opacity-40 cursor-not-allowed' : undefined}
-              onClick={() => updateRule(rule.id, { isActive: !rule.isActive })}
+              // Conditional on the row as shown: a rule changed meanwhile is a 412, not an overwrite.
+              onClick={() => updateRule(rule.id, { isActive: !rule.isActive, expectedUpdatedAt: expectedUpdatedAtOf(rule) })}
               title={lockReason ?? (rule.isActive ? 'Deactivate' : 'Activate')}
               aria-label={rule.isActive ? 'Deactivate rule' : 'Activate rule'}
               aria-describedby={locked ? `inherited-reason-${rule.id}` : undefined}
@@ -300,7 +303,11 @@ export default function RuleList({ onEdit, onCreateNew, onViewHistory }: RuleLis
       {/* Errors and the loading spinner render inline so the filter bar and the
           recently-deleted panel stay mounted across a filter-driven refetch. */}
       <ErrorAlert message={loadError?.message} onRetry={() => fetchRules()} onDismiss={clearError} />
-      <ErrorAlert message={mutationError?.message} onDismiss={clearError} />
+      {isConcurrencyConflict(mutationError) ? (
+        <ConcurrencyConflictAlert show onReload={() => { clearError(); void fetchRules(); }} reloading={loading} />
+      ) : (
+        <ErrorAlert message={mutationError?.message} onDismiss={clearError} />
+      )}
 
       {/* Rule Table */}
       {loading ? (

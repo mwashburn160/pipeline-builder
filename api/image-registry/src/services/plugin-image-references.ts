@@ -20,19 +20,34 @@
  * update first. Same rule, same fail-safe: unreadable means nothing is deleted.
  */
 
-import { getServiceAuthHeader, InternalHttpClient, serviceEndpoint, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import {
+  callInternal,
+  getServiceAuthHeader,
+  InternalHttpClient,
+  MAX_REFERENCE_DIGESTS,
+  PLUGIN_INTERNAL,
+  serviceEndpoint,
+  SYSTEM_ORG_ID,
+  type ContractResponse,
+  type InternalCallResult,
+} from '@pipeline-builder/api-core';
+
+/** The service token both reads carry (system-org member: the plugin routes are elevated reads). */
+const authHeaders = () => ({ Authorization: getServiceAuthHeader({ serviceName: 'image-registry', orgId: SYSTEM_ORG_ID, role: 'member' }) });
+
+/** The reply's data, or the same errors the hand-parsed reads threw. */
+function dataOr<T>(res: InternalCallResult<T>, what: string): T {
+  if (res.ok) return res.data;
+  if (res.reason === 'invalid-response') throw new Error(`plugin service answered without a ${what} list`);
+  throw new Error(`plugin service answered HTTP ${res.reason === 'status' ? res.status : 'unreachable'}`);
+}
 
 type Fetcher = (orgId: string) => Promise<string[]>;
 
 const liveFetcher: Fetcher = async (orgId) => {
   const client = new InternalHttpClient(serviceEndpoint('plugin'));
-  const res = await client.get<{ data?: { digests?: unknown } }>(`/internal/plugins/image-references?orgId=${encodeURIComponent(orgId)}`, {
-    headers: { Authorization: getServiceAuthHeader({ serviceName: 'image-registry', orgId: SYSTEM_ORG_ID, role: 'member' }) },
-  });
-  if (res.statusCode !== 200) throw new Error(`plugin service answered HTTP ${res.statusCode}`);
-  const digests = res.body?.data?.digests;
-  if (!Array.isArray(digests)) throw new Error('plugin service answered without a digests list');
-  return digests.filter((d): d is string => typeof d === 'string');
+  const res = await callInternal(client, PLUGIN_INTERNAL.orgImageReferences, { query: { orgId }, options: { headers: authHeaders() } });
+  return dataOr(res, 'digests').digests;
 };
 
 let fetcher: Fetcher = liveFetcher;
@@ -47,29 +62,25 @@ export async function pluginImageReferences(orgId: string): Promise<ReadonlySet<
   return new Set(await fetcher(orgId));
 }
 
-/** The pipelines still referencing one image digest (the plugin service's `findVersionReferences`). */
-export interface ImagePipelineReference {
-  digest: string;
-  /** Exact count; `pipelines` names at most the first 50. */
-  pipelineCount: number;
-  pipelines: Array<{ id: string; name: string | null; orgId: string; sources: string[]; deleted: boolean }>;
-}
+/**
+ * The pipelines still referencing one image digest (the plugin service's
+ * `findVersionReferences`). `pipelineCount` is exact; `pipelines` names at
+ * most the first 50.
+ */
+export type ImagePipelineReference = ContractResponse<typeof PLUGIN_INTERNAL.imagePipelineReferences>['references'][number];
 
 type PipelineReferenceFetcher = (digests: string[]) => Promise<ImagePipelineReference[]>;
 
 /** Digests per read — the plugin route's own cap. */
-const REFERENCE_CHUNK = 50;
+const REFERENCE_CHUNK = MAX_REFERENCE_DIGESTS;
 
 const livePipelineReferenceFetcher: PipelineReferenceFetcher = async (digests) => {
   const client = new InternalHttpClient(serviceEndpoint('plugin'));
-  const res = await client.get<{ data?: { references?: unknown } }>(
-    `/internal/plugins/image-pipeline-references?digests=${encodeURIComponent(digests.join(','))}`,
-    { headers: { Authorization: getServiceAuthHeader({ serviceName: 'image-registry', orgId: SYSTEM_ORG_ID, role: 'member' }) } },
-  );
-  if (res.statusCode !== 200) throw new Error(`plugin service answered HTTP ${res.statusCode}`);
-  const references = res.body?.data?.references;
-  if (!Array.isArray(references)) throw new Error('plugin service answered without a references list');
-  return references as ImagePipelineReference[];
+  const res = await callInternal(client, PLUGIN_INTERNAL.imagePipelineReferences, {
+    query: { digests: digests.join(',') },
+    options: { headers: authHeaders() },
+  });
+  return dataOr(res, 'references').references;
 };
 
 let pipelineReferenceFetcher: PipelineReferenceFetcher = livePipelineReferenceFetcher;

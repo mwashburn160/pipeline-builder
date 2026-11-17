@@ -33,10 +33,10 @@
  *    installing orgs' approvers, moderators, superadmins).
  */
 
-import { createLogger, sendError, sendSuccess, errorMessage, parseEcosystemNotifyRequest, recordAuthzDenial, serviceNameOf } from '@pipeline-builder/api-core';
+import { createLogger, sendError, sendSuccess, errorMessage, notifyEmailLegOf, parseEcosystemNotifyRequest, recordAuthzDenial, serviceNameOf } from '@pipeline-builder/api-core';
+import { ADMIN_ORG_ROLES, isAdminOrgRole } from '@pipeline-builder/api-core/wire-vocabulary';
 import type { Request, Response } from 'express';
 import { config } from '../config/index.js';
-import { ADMIN_ORG_ROLES, isAdminOrgRole } from '@pipeline-builder/api-core/wire-vocabulary';
 import { toOrgId } from '../helpers/org-id.js';
 import { resolveServiceTenant } from '../helpers/service-tenant.js';
 import { User, UserOrganization } from '../models/index.js';
@@ -255,12 +255,16 @@ export async function notifyEmail(req: Request, res: Response): Promise<void> {
   // on the caller instead would tie a service to one leg, and `reporting` legitimately
   // uses two: the report leg for managers, the tenant leg for the one-address notice
   // that tells a lead their run is ready.
-  const raw = req.body as Record<string, unknown> | undefined;
-  if (raw && typeof raw === 'object' && 'reportRecipients' in raw) return notifyReport(req, res);
-  if (raw && typeof raw === 'object' && 'quotaNotice' in raw) return notifyQuota(req, res);
-  if (raw && typeof raw === 'object' && 'offerNotice' in raw) return notifyOffer(req, res);
-  // An ecosystem notice names recipient RULES; a tenant email names an org.
-  if (raw && typeof raw === 'object' && 'recipients' in raw) return notifyEcosystem(req, res);
+  // The leg is chosen by the contract's own dispatch (api-core `notifyEmailLegOf`),
+  // the same one its clients validate against before sending. An ecosystem notice
+  // names recipient RULES; a tenant email names an org.
+  switch (notifyEmailLegOf(req.body)) {
+    case 'report': return notifyReport(req, res);
+    case 'quota': return notifyQuota(req, res);
+    case 'offer': return notifyOffer(req, res);
+    case 'ecosystem': return notifyEcosystem(req, res);
+    case 'tenant': break;
+  }
   // The tenant-email shape is compliance's and reporting's. The plugin and quota
   // services each have their own leg, whose recipients platform resolves — the
   // tenant leg's `targetUsers` would let either name arbitrary members instead.

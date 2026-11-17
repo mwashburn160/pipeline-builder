@@ -116,7 +116,6 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => stubModule('@p
   versionReferencedPredicate: () => undefined,
   pipelinesOnVersion: async () => mockPipelinesOnVersion(),
   reopenLapsedAcceptances: async () => mockLapsed(),
-  compareSemver: (a: string, b: string) => a.localeCompare(b, undefined, { numeric: true }),
   runWithTenantContext: async (ctx: unknown, fn: () => unknown) => {
     tenantContexts.push(ctx);
     currentContext = ctx;

@@ -8,6 +8,7 @@ import { ApiClient } from './api-client.js';
 import { getSecretValue } from './aws-secrets.js';
 import { type Config, getApiConfig, getConfigWithOptions } from './config-loader.js';
 import { clearSession, isSessionUsable, loadSession, saveSession, withRefreshLock, type StoredSession } from './credential-store.js';
+import { AuthenticationError } from './error-handler.js';
 import { printError, printKeyValue, printSection, printWarning } from './output-utils.js';
 import { requestCorrelationHeaders, setInvocationId } from './request-context.js';
 import { platformHttpsAgent } from './tls.js';
@@ -217,7 +218,7 @@ export async function resolveToken(options: {
     return secret.password;
   }
 
-  throw new Error(
+  throw new AuthenticationError(
     'Authentication required. Use one of:\n' +
     '  - Run "pipeline-manager auth login" (browser sign-in, stored for this platform)\n' +
     '  - Set PLATFORM_TOKEN to an access key from "pipeline-manager auth pat"\n' +
@@ -259,7 +260,7 @@ export function createAuthenticatedClient(options: { verifySsl?: boolean }): Api
 
   if (!client.isAuthenticated()) {
     printError('Not authenticated', { hint: 'Run "pipeline-manager auth login", set PLATFORM_TOKEN, or use --store-tokens' });
-    throw new Error('Authentication required');
+    throw new AuthenticationError('Authentication required');
   }
 
   return client;

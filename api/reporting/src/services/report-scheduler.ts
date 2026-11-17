@@ -56,6 +56,7 @@ import {
   recordAudit,
   type Permission,
   type Scheduler,
+  withTimeout,
 } from '@pipeline-builder/api-core';
 import {
   completePeriodsSince,
@@ -132,34 +133,6 @@ async function checkAuthority(definition: ReportDefinition): Promise<AuthorityVe
   }
   if (!authority.features.includes(REQUIRED_FEATURE)) return { action: 'pause', reason: 'entitlement' };
   return { action: 'run', features: authority.features };
-}
-
-/**
- * Run `work`, and after `ms` both stop waiting for it AND abort it.
- *
- * Giving up on the promise alone is not a timeout: the run keeps going in the
- * background and its side effects — publishing, DELIVERY to the recipients, the
- * lead's notification — land minutes later, after the cycle already logged it as
- * failed. So `work` receives a signal the timeout aborts, and checks it before
- * every side effect ({@link runDefinition}); the abort reason is the timeout error.
- */
-async function withTimeout<T>(work: (signal: AbortSignal) => Promise<T>, ms: number, label: string): Promise<T> {
-  const controller = new AbortController();
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      work(controller.signal),
-      new Promise<never>((_, reject) => {
-        timer = setTimeout(() => {
-          const err = new Error(`${label} exceeded ${ms}ms`);
-          controller.abort(err);
-          reject(err);
-        }, ms);
-      }),
-    ]);
-  } finally {
-    if (timer) clearTimeout(timer);
-  }
 }
 
 /**
@@ -398,6 +371,11 @@ async function runOne(
       return;
     }
 
+    // api-core's withTimeout, given a FUNCTION of a signal: after `timeoutMs` it both
+    // stops waiting AND aborts the run (reason: OperationTimeoutError, "… timed out
+    // after Nms"). Giving up on the promise alone is not a timeout — the run would keep
+    // going and publish/deliver after the cycle logged it as failed — so runDefinition
+    // checks the signal before every side effect.
     await runWithTenantContext({ orgId: definition.orgId, isSuperAdmin: false }, () =>
       withTimeout((signal) => runDefinition(definition, now, verdict.features, retentionOrgId, signal), timeoutMs, `report run ${definition.id}`));
   } catch (err) {

@@ -13,7 +13,7 @@ import { executeCdkShellCommand, resolveBoilerplatePath } from '../utils/cdk-uti
 import { createAuthenticatedClientAsync, printCommandHeader, printSslWarning, withProfileOption, withRegionOption, withSslOptions } from '../utils/command-utils.js';
 import { registerPipeline } from '../utils/deploy-runner.js';
 import { ERROR_CODES, handleError } from '../utils/error-handler.js';
-import { printInfo, printKeyValue, printSection, printSuccess, printWarning } from '../utils/output-utils.js';
+import { printInfo, printKeyValue, printSection, printSuccess, printWarning, setMachineOutput } from '../utils/output-utils.js';
 import { type FetchedPipeline, fetchPipelineProps, printResolvedOrExit } from '../utils/pipeline-config.js';
 import { PluginResolutionError, printLookupWarningSummary } from '../utils/plugin-resolver.js';
 import { withPropsFile } from '../utils/props-file.js';
@@ -109,6 +109,9 @@ export function synth(program: Command): void {
   )
     .option('--show-resolved', 'Print the resolved pipeline config (with {{ ... }} templates expanded) and exit without running CDK', false)
     .action(async (options) => {
+      // `--json`: stdout is ONE document; every diagnostic (ours and the helpers')
+      // goes to stderr.
+      if (options.json) setMachineOutput(true);
       const executionId = printCommandHeader('CDK Synthesis', undefined, { quiet: options.json });
 
       try {

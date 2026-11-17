@@ -68,7 +68,6 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   validateBody: jest.fn((req: any) => {
     return { ok: true, value: req.body };
   }),
-  PipelineUpdateSchema: {},
   sendEntityNotFound: jest.fn((res: any, entity: string) => {
     res.status(404).json({ success: false, statusCode: 404, message: `${entity} not found.` });
   }),

@@ -13,7 +13,7 @@
  * batch on an exchange failure rather than shipping events unauthenticated.
  */
 
-import { createPlatformCredential } from '@pipeline-builder/pipeline-core/lib/handlers/platform-credential.js';
+import { createPlatformCredential } from '@pipeline-builder/pipeline-core/runtime';
 import { fetchWithTimeout, log } from './util.js';
 
 /** Refresh at this fraction of the token's life — never at the last moment. */

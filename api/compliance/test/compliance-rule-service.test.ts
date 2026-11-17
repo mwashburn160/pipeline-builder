@@ -251,17 +251,25 @@ describe('ComplianceRuleService', () => {
     });
   });
 
-  describe('recordHistory', () => {
-    it('inserts a history row with the change details', async () => {
-      await svc.recordHistory('rule-1', 'org-1', 'updated', { name: 'old' }, 'user-1');
-      expect(dbInsert).toHaveBeenCalled();
-      expect(dbInsertValues).toHaveBeenCalledWith(expect.objectContaining({
+  describe('in-transaction history hooks', () => {
+    type Hooks = Record<'onCreateInTx' | 'onUpdateInTx' | 'onDeleteInTx', (e: unknown, tx: unknown, ctx: unknown) => Promise<void>>;
+    it.each([
+      ['onCreateInTx', 'created'],
+      ['onUpdateInTx', 'updated'],
+      ['onDeleteInTx', 'deleted'],
+    ] as const)('%s inserts a %s history row on the mutation tx', async (hook, changeType) => {
+      const txValues = jest.fn<AnyFn>().mockResolvedValue(undefined);
+      const tx = { insert: jest.fn(() => ({ values: txValues })) };
+      await (svc as unknown as Hooks)[hook]({ id: 'rule-1', orgId: 'org-1' }, tx, { userId: 'user-1', operation: 'update' });
+      expect(txValues).toHaveBeenCalledWith(expect.objectContaining({
         ruleId: 'rule-1',
         orgId: 'org-1',
-        changeType: 'updated',
+        changeType,
         changedBy: 'user-1',
-        previousState: { name: 'old' },
+        previousState: null,
       }));
+      // Not a separate transaction.
+      expect(dbInsert).not.toHaveBeenCalled();
     });
   });
 });

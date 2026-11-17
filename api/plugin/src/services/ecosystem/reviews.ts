@@ -39,7 +39,7 @@ import {
   envInt,
 } from '@pipeline-builder/api-core';
 import { incCounter } from '@pipeline-builder/api-server';
-import { renderUntrustedMarkdown } from '@pipeline-builder/api-server/lib/markdown.js';
+import { renderUntrustedMarkdown } from '@pipeline-builder/api-server/markdown';
 import {
   isUniqueViolation,
   REVIEW_REPORT_CATEGORIES,

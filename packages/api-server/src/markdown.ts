@@ -7,7 +7,7 @@
  * "Markdown safety").
  *
  * Import it through its own subpath, never the package root:
- *   import { renderUntrustedMarkdown } from '@pipeline-builder/api-server/lib/markdown.js';
+ *   import { renderUntrustedMarkdown } from '@pipeline-builder/api-server/markdown';
  * The unified/remark/rehype stack is ESM-only and only the few services that
  * render markdown should load it. It is server-only by design: api-core (which
  * the frontend imports) must not carry it, and the stored HTML this produces is

@@ -36,7 +36,17 @@
  * entitlement changes are never delayed by it.
  */
 
-import { createCacheService, createLogger, envInt, errorMessage, getServiceAuthHeader, InternalHttpClient, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import {
+  callInternal,
+  createCacheService,
+  createLogger,
+  envInt,
+  errorMessage,
+  getServiceAuthHeader,
+  InternalHttpClient,
+  PLATFORM_INTERNAL,
+  SYSTEM_ORG_ID,
+} from '@pipeline-builder/api-core';
 import { incCounter } from '@pipeline-builder/api-server';
 import { Config } from '@pipeline-builder/pipeline-core';
 
@@ -114,9 +124,9 @@ export async function fetchSupportEntitlement(orgId: string): Promise<SupportEnt
     // attempt is the contract, so a sick platform costs a send TIMEOUT_MS, not a
     // multiple of it.
     const client = new InternalHttpClient({ host: platformHost, port: platformPort, timeout: TIMEOUT_MS }, { maxResponseBytes: MAX_RESPONSE_BYTES });
-    const res = await client.get<{ data?: Partial<SupportEntitlementView> } | Partial<SupportEntitlementView>>(
-      `/internal/support/entitlement/${encodeURIComponent(orgId)}`,
-      {
+    const res = await callInternal(client, PLATFORM_INTERNAL.supportEntitlement, {
+      params: { orgId },
+      options: {
         headers: {
           // Service principal, not the user's token: this is an internal read of
           // an entitlement the USER is not allowed to query directly.
@@ -129,37 +139,23 @@ export async function fetchSupportEntitlement(orgId: string): Promise<SupportEnt
         maxRetries: 0,
         maxRateLimitRetries: 0,
       },
-    );
-    if (res.statusCode < 200 || res.statusCode >= 300) {
-      degraded('non_ok', { status: res.statusCode, orgId });
+    });
+    if (!res.ok && res.reason !== 'invalid-response') {
+      degraded('non_ok', { status: res.reason === 'status' ? res.status : undefined, orgId });
       // Awaited deliberately: inside the `try`, an un-awaited rejection would
       // escape the catch below and break this function's never-throws contract.
       return await lastKnownGood(orgId, 'non_ok');
     }
-    // An unparseable 2xx body reaches here as `{}` (the client's contract) and
-    // fails the shape check below as `malformed`.
-    const body = res.body;
-    const view = (body as { data?: Partial<SupportEntitlementView> } | null)?.data ?? body as Partial<SupportEntitlementView> | null;
     // Validate rather than trust: a shape change upstream must degrade, not
-    // produce a case with `level: undefined` frozen onto it forever.
-    if (typeof view?.canOpenCase !== 'boolean' || (view.level !== null && typeof view.level !== 'string')) {
+    // produce a case with `level: undefined` frozen onto it forever. The
+    // contract requires `canOpenCase` (boolean) and `level` (string | null) and
+    // DEFAULTS the rest — a platform that predates the upgrade answers without
+    // them, and reading that as "no premium" is correct and safe.
+    if (!res.ok) {
       degraded('malformed', { orgId });
       return null; // NOT cached: a shape change is our bug, and masking it with a stale grant would hide a broken contract.
     }
-    const resolved: SupportEntitlementView = {
-      level: view.level ?? null,
-      // Defaulted rather than required: a platform that predates the upgrade
-      // answers without these, and reading that as "no premium" is correct and
-      // safe. Only `canOpenCase` and `level` are load-bearing enough to reject
-      // a body over (see above).
-      premium: view.premium === true,
-      premiumLimit: typeof view.premiumLimit === 'number' ? view.premiumLimit : 0,
-      limit: typeof view.limit === 'number' ? view.limit : 0,
-      used: typeof view.used === 'number' ? view.used : 0,
-      ownOrgContacts: typeof view.ownOrgContacts === 'number' ? view.ownOrgContacts : 0,
-      canDesignate: view.canDesignate === true,
-      canOpenCase: view.canOpenCase,
-    };
+    const resolved: SupportEntitlementView = { ...res.data };
     // Cache BOTH outcomes. A cached "no entitlement" matters as much as a
     // cached grant: without it an outage would turn an unentitled org into one
     // whose next send degrades, which reads to staff like a different problem.

@@ -45,14 +45,12 @@
  * unanswerable check keeps the version.
  */
 
-import { isManagedToolchainPlugin, MANAGED_TOOLCHAIN_PLUGINS, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import { isManagedToolchainPlugin, MANAGED_TOOLCHAIN_PLUGINS, SYSTEM_ORG_ID, compareSemverLenient, parseSemver } from '@pipeline-builder/api-core';
 import {
-  compareSemver,
   executeRows,
   implicitInstallRange,
   installAdmits,
   OFFICIAL_PUBLISHER_HANDLE,
-  parseSemver,
   versionReferencedPredicate,
   type InstallVersionPolicy,
 } from '@pipeline-builder/pipeline-data';
@@ -155,7 +153,7 @@ const DAY_MS = 86_400_000;
 
 const isStable = (v: string): boolean => (parseSemver(v)?.prerelease.length ?? 1) === 0;
 const majorOf = (v: string): number | null => parseSemver(v)?.major ?? null;
-const newestFirst = (a: { version: string }, b: { version: string }) => compareSemver(b.version, a.version);
+const newestFirst = (a: { version: string }, b: { version: string }) => compareSemverLenient(b.version, a.version);
 
 /** Why the ordering rules keep each version (absent = outside every keep). */
 function orderingKeeps(versions: readonly VersionFacts[], keep: number): Map<string, string> {
@@ -177,7 +175,7 @@ function orderingKeeps(versions: readonly VersionFacts[], keep: number): Map<str
   for (const v of versions) {
     if (v.yanked || isStable(v.version)) continue;
     const major = majorOf(v.version);
-    const overtaken = nonYankedStable.some((s) => majorOf(s.version) === major && compareSemver(s.version, v.version) > 0);
+    const overtaken = nonYankedStable.some((s) => majorOf(s.version) === major && compareSemverLenient(s.version, v.version) > 0);
     if (!overtaken) kept.set(v.version, 'prerelease_ahead_of_stable');
   }
   return kept;

@@ -104,7 +104,7 @@ describe('consumeSupportIncident', () => {
   });
 
   it('retries a 5xx (it may follow a committed spend)', async () => {
-    respondSeq({ ok: false, status: 503, body: {} }, { ok: true, body: { data: { consumed: false } } });
+    respondSeq({ ok: false, status: 503, body: {} }, { ok: true, body: { data: { consumed: false, remaining: 0 } } });
     await expect(consumeSupportIncident('team-1', KEY)).resolves.toBe(false);
     expect(urls()).toEqual(['consume', 'consume']);
   });
@@ -124,7 +124,7 @@ describe('consumeSupportIncident', () => {
   });
 
   it('treats an unparseable reply (the client hands back {}) as UNKNOWN, never as a throw', async () => {
-    replyFor = async (call) => ({ statusCode: 200, body: call.path.endsWith('/refund') ? { data: { refunded: true } } : {} });
+    replyFor = async (call) => ({ statusCode: 200, body: call.path.endsWith('/refund') ? { data: { refunded: true, balance: 1 } } : {} });
     await expect(consumeSupportIncident('org-1', KEY)).resolves.toBe(false);
     expect(urls()).toEqual(['consume', 'consume', 'consume', 'refund']);
   });
@@ -137,7 +137,7 @@ describe('consumeSupportIncident', () => {
   });
 
   it('url-encodes the org id', async () => {
-    respond({ ok: true, body: { data: { consumed: true } } });
+    respond({ ok: true, body: { data: { consumed: true, remaining: 0 } } });
     await consumeSupportIncident('a/b', KEY);
     expect(httpCalls[0].path).toBe('/billing/internal/support-incidents/a%2Fb/consume');
   });

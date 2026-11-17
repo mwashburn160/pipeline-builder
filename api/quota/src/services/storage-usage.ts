@@ -25,13 +25,13 @@
  * org per window, not one per dashboard poll.
  */
 
-import { createLogger, createSafeClient, emitCounter, getServiceAuthHeader, serviceEndpoint } from '@pipeline-builder/api-core';
+import { callInternal, contractRoute, createLogger, createSafeClient, emitCounter, getServiceAuthHeader, IMAGE_REGISTRY_INTERNAL, serviceEndpoint } from '@pipeline-builder/api-core';
 import { config } from '../config.js';
 
 const logger = createLogger('storage-usage');
 
 /** The registry's internal storage-usage route (one org's namespace, in bytes). */
-export const REGISTRY_STORAGE_USAGE_PATH = '/internal/storage-usage';
+export const REGISTRY_STORAGE_USAGE_PATH = contractRoute(IMAGE_REGISTRY_INTERNAL.orgStorageUsage).replace(/\/:orgId$/, '');
 
 interface CacheEntry { bytes: number | null; expires: number }
 const cache = new Map<string, CacheEntry>();
@@ -56,13 +56,13 @@ export async function fetchOrgStorageBytes(orgId: string): Promise<number | null
 
   let bytes: number | null = null;
   try {
-    const response = await registryClient().get<{ data?: { bytes?: unknown } }>(
-      `${REGISTRY_STORAGE_USAGE_PATH}/${encodeURIComponent(orgId)}`,
-      { headers: { authorization: getServiceAuthHeader({ serviceName: 'quota', orgId, role: 'member' }) }, maxRetries: 0 },
-    );
-    const raw = response?.statusCode === 200 ? response.body?.data?.bytes : undefined;
+    const result = await callInternal(registryClient(), IMAGE_REGISTRY_INTERNAL.orgStorageUsage, {
+      params: { orgId },
+      options: { headers: { authorization: getServiceAuthHeader({ serviceName: 'quota', orgId, role: 'member' }) }, maxRetries: 0 },
+    });
+    const raw = result.ok ? result.data.bytes : undefined;
     if (typeof raw === 'number' && Number.isFinite(raw) && raw >= 0) bytes = raw;
-    else emitCounter('quota_storage_usage_read_failed_total', { reason: response ? `http_${response.statusCode}` : 'unreachable' });
+    else emitCounter('quota_storage_usage_read_failed_total', { reason: 'status' in result ? `http_${result.status}` : 'unreachable' });
   } catch (err) {
     emitCounter('quota_storage_usage_read_failed_total', { reason: 'exception' });
     logger.debug('Registry storage usage unavailable', { orgId, error: String(err) });

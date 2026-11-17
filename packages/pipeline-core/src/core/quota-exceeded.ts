@@ -10,12 +10,9 @@
  * message names the quota, the numbers, the reset date and where to raise it,
  * and the callers never retry it. A 429 WITHOUT this code is an ordinary rate
  * limit (nginx, a per-org burst limiter) and keeps rate-limit wording.
- *
- * A dependency-free leaf: the label table is a side-effect-free deep import,
- * not the api-core barrel.
  */
 
-import { QUOTA_TYPE_LABELS, QUOTA_UPGRADE_PATH, type QuotaType } from '@pipeline-builder/api-core/lib/types/common.js';
+import { QUOTA_TYPE_LABELS, QUOTA_UPGRADE_PATH, type QuotaType } from '@pipeline-builder/api-core';
 
 /** The error `code` api-core's `sendQuotaExceeded` answers with. */
 const QUOTA_EXCEEDED_CODE = 'QUOTA_EXCEEDED';

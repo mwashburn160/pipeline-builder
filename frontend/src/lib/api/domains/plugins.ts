@@ -295,6 +295,9 @@ export function pluginsApi(core: ApiCore) {
        *  non-empty string, so ownership is reassigned, never cleared. */
       ownerId?: string;
       ownerType?: OwnerType;
+      /** Optimistic concurrency: the `updatedAt` the edit was based on (412
+       *  PRECONDITION_FAILED when the version changed since). Absent: last write wins. */
+      expectedUpdatedAt?: string;
     }, opts?: ProposedByOptions) => {
       return core.request<ApiResponse<{ plugin: Plugin }>>(`/api/plugins/${id}`, {
         method: 'PUT',
