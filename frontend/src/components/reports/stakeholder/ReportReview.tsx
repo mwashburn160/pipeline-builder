@@ -339,6 +339,10 @@ export function ReportReview({ run, canAuthor, canShare, externalSharing, readOn
   };
 
   useEffect(() => { setNotes(run.leadNotes ?? ''); }, [run.id, run.leadNotes]);
+  // Publish sends the STORED summary (the route takes no body), so an edit — or
+  // an AI draft — still sitting in the box would silently not be what the
+  // recipients get, in a delivery that cannot be recalled. Save it first.
+  const notesUnsaved = !published && notes !== (run.leadNotes ?? '');
 
   const save = async () => {
     await form.run(
@@ -475,11 +479,16 @@ export function ReportReview({ run, canAuthor, canShare, externalSharing, readOn
             </Button>
           )}
           {!published && canShare && run.status !== 'failed' && (
-            <Button size="sm" onClick={doPublish} loading={publish.loading} readOnly={readOnly}>
+            <Button size="sm" onClick={doPublish} loading={publish.loading} disabled={notesUnsaved} readOnly={readOnly}>
               Publish
             </Button>
           )}
         </div>
+        {!published && canShare && notesUnsaved && (
+          <p className="mt-2 text-xs text-warning-strong" role="status">
+            Save the summary before publishing — the recipients get the saved version, not what is in the box.
+          </p>
+        )}
         {!published && canShare && (
           <p className="mt-2 text-xs text-fg-muted">
             Publishing sends it. A delivered copy cannot be recalled — revoking a link later stops new

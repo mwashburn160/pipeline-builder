@@ -72,3 +72,22 @@ describe('ShareLinks', () => {
     expect(screen.queryByText('https://pb.example/reports/shared?token=tok-for-A')).not.toBeInTheDocument();
   });
 });
+
+describe('Publish with an unsaved summary', () => {
+  // Publishing sends the STORED summary — the publish route takes no body — so
+  // an edit still in the box must be saved first, or recipients get the old one.
+  const draft = { ...(run('A') as object), status: 'ready_for_review', leadNotes: 'Saved summary' } as never;
+
+  it('holds Publish until the edited summary is saved', async () => {
+    render(<ReportReview run={draft} canAuthor canShare externalSharing onChanged={jest.fn<AnyFn>()} />);
+    const publish = await screen.findByRole('button', { name: 'Publish' });
+    expect(publish).not.toBeDisabled();
+
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Edited, not saved' } });
+    expect(publish).toBeDisabled();
+    expect(screen.getByText(/save the summary before publishing/i)).toBeInTheDocument();
+
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Saved summary' } });
+    expect(publish).not.toBeDisabled();
+  });
+});

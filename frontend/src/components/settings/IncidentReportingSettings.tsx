@@ -28,6 +28,7 @@ import { formatError } from '@/lib/constants';
 import api from '@/lib/api';
 import type { IncidentSettings, IncidentListItem, IncidentTestResult } from '@/lib/api/domains/reporting';
 import { localDay } from '@/lib/local-day';
+import { ACCESS_KEYS_HREF } from '@/lib/security-links';
 
 /** The machine scope the self-serve webhook token carries. */
 const REPORTING_INGEST_SCOPE = 'reporting:ingest';
@@ -303,7 +304,7 @@ export function IncidentReportingSettings({ readOnly }: { readOnly: boolean }) {
         description={
           <>Generate an org-bound token carrying only the <code className="font-mono">reporting:ingest</code> scope for your
           incident tool to authenticate with (<code className="font-mono">Authorization: Bearer &lt;token&gt;</code>). To
-          rotate, generate a new one and revoke the old token on the <a className="action-link" href="/dashboard/security?tab=keys">Security → Access keys</a> page.</>
+          rotate, generate a new one and revoke the old token on the <a className="action-link" href={ACCESS_KEYS_HREF}>Security → Access keys</a> page.</>
         }
       >
         <Button onClick={requestToken} loading={creating || !!pendingCreate} readOnly={readOnly}>Generate webhook token</Button>

@@ -12,7 +12,7 @@
  * cosmetic — sysadmins get an org column and a tenant selector.
  */
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { Download, FileText, RefreshCw, ScrollText } from 'lucide-react';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { LoadingPage } from '@/components/ui/Loading';
@@ -144,15 +144,24 @@ export default function LogsPage() {
     }
   }, [params, exportName]);
 
-  const showContext = useCallback(async (anchor: LogEntry) => {
+  // Stamp of the newest context read, bumped by every read AND by closing the
+  // modal: setting `context` is what OPENS it, so a slower answer for another
+  // row, another span, or a modal already closed must be dropped, not shown.
+  const contextReqRef = useRef(0);
+  const loadContext = useCallback(async (anchor: LogEntry, spanMs: number) => {
+    const req = ++contextReqRef.current;
     setActionError(null);
     try {
-      const res = await api.logContext({ ...params, at: anchor.time, spanMs: contextSpanMs });
+      const res = await api.logContext({ ...params, at: anchor.time, spanMs });
+      if (req !== contextReqRef.current) return;
       setContext(withoutAnchor(anchor, res.data?.before ?? [], res.data?.after ?? []));
     } catch (err) {
+      if (req !== contextReqRef.current) return;
       setActionError(formatError(err));
     }
-  }, [params, contextSpanMs]);
+  }, [params]);
+  const showContext = useCallback((anchor: LogEntry) => loadContext(anchor, contextSpanMs), [loadContext, contextSpanMs]);
+  const closeContext = () => { contextReqRef.current += 1; setContext(null); };
 
   if (accessDenied) return <AccessDenied denial={accessDenied} />;
   if (!isReady || !isAuthenticated) return <LoadingPage />;
@@ -323,7 +332,7 @@ export default function LogsPage() {
       )}
 
       {context && (
-        <Modal title="Context" onClose={() => setContext(null)} maxWidth="max-w-5xl" tall>
+        <Modal title="Context" onClose={closeContext} maxWidth="max-w-5xl" tall>
           <div className="mb-2 flex items-center justify-end gap-2">
             <FilterSelect
               aria-label="Context window"
@@ -333,15 +342,7 @@ export default function LogsPage() {
                 setContextSpanMs(span);
                 // Re-read the SAME anchor at the new width, so widening is one
                 // step rather than "close, change, find the line again".
-                void (async () => {
-                  setActionError(null);
-                  try {
-                    const res = await api.logContext({ ...params, at: context.anchor.time, spanMs: span });
-                    setContext(withoutAnchor(context.anchor, res.data?.before ?? [], res.data?.after ?? []));
-                  } catch (err) {
-                    setActionError(formatError(err));
-                  }
-                })();
+                void loadContext(context.anchor, span);
               }}
             >
               {CONTEXT_SPANS.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}

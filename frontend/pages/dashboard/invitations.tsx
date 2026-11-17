@@ -34,6 +34,7 @@ import { useFetch } from '@/hooks/useFetch';
 import { seatRemedy } from '@pipeline-builder/api-core/tier-limits';
 import { seatRemedyLabel, seatsAtCapacity, type AccountSeatUsage } from '@/lib/tiers';
 import { useOrgHierarchy } from '@/hooks/useOrgHierarchy';
+import { useAutoCloseTimer } from '@/hooks/useAutoCloseTimer';
 import api from '@/lib/api';
 import { hasPermission } from '@/lib/auth-helpers';
 
@@ -129,6 +130,17 @@ export default function InvitationsPage() {
   const [sendLoading, setSendLoading] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const [sendResult, setSendResult] = useState<{ sent: number; failed: number; errors: string[]; undelivered?: Array<{ email: string; acceptUrl?: string }> } | null>(null);
+  const sendClose = useAutoCloseTimer();
+  const finishCleanSend = () => {
+    setSendModalOpen(false);
+    setSendEmail('');
+    setSendRole('member');
+    // The Roles too: carried over, they would be granted to whoever the
+    // next batch invites, ticked in a picker nobody re-read.
+    setSendRoleIds([]);
+    setSendInvitationType('any');
+    setSendResult(null);
+  };
 
   // Revoke state
   const [revokeTarget, setRevokeTarget] = useState<InvitationListItem | null>(null);
@@ -237,19 +249,18 @@ export default function InvitationsPage() {
       // Hold the modal open when anything went undelivered: the one-time accept
       // link is shown there and cannot be recovered once it closes.
       if (errors.length === 0 && undelivered.length === 0) {
-        // Clean exit — close on next tick so users see the success message.
-        setTimeout(() => {
-          setSendModalOpen(false);
-          setSendEmail('');
-          setSendRole('member');
-          // The Roles too: carried over, they would be granted to whoever the
-          // next batch invites, ticked in a picker nobody re-read.
-          setSendRoleIds([]);
-          setSendInvitationType('any');
-          setSendResult(null);
-        }, 1200);
+        // Clean exit — close shortly so users see the success message.
+        sendClose.schedule(finishCleanSend, 1200);
       }
     }
+  };
+
+  // Closing by hand inside that window finishes the clean exit NOW (and drops
+  // the timer), so it can neither be skipped — leaving the last batch's Roles
+  // ticked for the next one — nor fire later over a composer reopened since.
+  const closeSendModal = () => {
+    if (sendClose.cancel()) finishCleanSend();
+    else setSendModalOpen(false);
   };
 
   const handleRevoke = async () => {
@@ -442,11 +453,11 @@ export default function InvitationsPage() {
       {sendModalOpen && (
         <Modal
           title="Send invitations"
-          onClose={() => !sendLoading && setSendModalOpen(false)}
+          onClose={() => !sendLoading && closeSendModal()}
           maxWidth="max-w-md"
           footer={
             <ModalFooter
-              onCancel={() => setSendModalOpen(false)}
+              onCancel={closeSendModal}
               onConfirm={handleSendInvitation}
               confirmLabel="Send"
               loading={sendLoading}

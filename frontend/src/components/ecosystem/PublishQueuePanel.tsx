@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Permission } from '@pipeline-builder/api-core/permissions';
 import { PUBLISH_REQUEST_KINDS } from '@pipeline-builder/api-core/wire-vocabulary';
 import { ArrowLeft, BookOpen, Check, CheckCheck, Inbox, ShieldAlert, X } from 'lucide-react';
@@ -331,7 +331,11 @@ export function PublishQueuePanel({ can, holds }: Props) {
   const [more, setMore] = useState<{ items: QueueItem[]; nextCursor: string | null } | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const [moreError, setMoreError] = useState<string | null>(null);
-  useEffect(() => { setMore(null); setMoreError(null); }, [queueQ.data]);
+  // Bumped with every new first page (a filter change, a refetch), so a "Load
+  // more" still in flight for the previous one is dropped rather than appended
+  // to a list it no longer continues.
+  const pageGenRef = useRef(0);
+  useEffect(() => { pageGenRef.current += 1; setMore(null); setMoreError(null); }, [queueQ.data]);
 
   const refreshAll = () => { void overviewQ.refetch(); void queueQ.refetch(); };
   const items = [...(queueQ.data?.requests ?? []), ...(more?.items ?? [])];
@@ -340,14 +344,17 @@ export function PublishQueuePanel({ can, holds }: Props) {
 
   const loadMore = async () => {
     if (!nextCursor) return;
+    const gen = pageGenRef.current;
     setLoadingMore(true);
     setMoreError(null);
     try {
       const res = await api.listEcosystemRequests({ ...filters, cursor: nextCursor });
+      if (gen !== pageGenRef.current) return; // stale: the filter/first page moved on
       if (!res.success || !res.data) throw new Error(res.message || 'Failed to load more of the queue');
       const page = res.data;
       setMore((m) => ({ items: [...(m?.items ?? []), ...page.requests], nextCursor: page.nextCursor }));
     } catch (err) {
+      if (gen !== pageGenRef.current) return;
       setMoreError(formatError(err, 'Failed to load more of the queue'));
     } finally {
       setLoadingMore(false);

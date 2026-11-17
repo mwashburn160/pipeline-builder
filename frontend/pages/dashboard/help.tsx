@@ -25,6 +25,8 @@ export default function HelpPage() {
   // reader can hand a colleague the URL of the thing they are reading — neither
   // worked while the page kept all of its state in `useState`.
   const [openId, setOpenId] = useState<string | undefined>(undefined);
+  // The `?q=` being seeded into `query`, until it lands (see the mirror effect).
+  const seedRef = useRef<string | null>(null);
 
   // Seed from the URL once the router has parsed it. `isReady` matters on a cold
   // load: query is an empty object during prerender, and seeding from that would
@@ -32,7 +34,7 @@ export default function HelpPage() {
   useEffect(() => {
     if (!router.isReady) return;
     const q = typeof router.query.q === 'string' ? router.query.q : '';
-    if (q) setQuery(q);
+    if (q) { seedRef.current = q; setQuery(q); }
     const hash = window.location.hash.replace(/^#topic-/, '');
     if (hash && hash !== window.location.hash) setOpenId(hash);
   }, [router.isReady, router.query.q]);
@@ -40,11 +42,19 @@ export default function HelpPage() {
   // Mirror the search back into the URL so a result set is linkable. `replace`,
   // not `push`: typing would otherwise write one history entry per keystroke and
   // make Back unusable. `shallow` keeps it from re-running data fetching.
+  //
+  // Holds off until a seeded `?q=` has reached `query`: the seed effect above
+  // calls `setQuery(q)` in the same commit this first runs in, so that run still
+  // sees the pre-seed '' and would strip the `?q=` the reader arrived with.
   useEffect(() => {
     if (!router.isReady) return;
+    if (seedRef.current !== null) {
+      if (query !== seedRef.current) return;
+      seedRef.current = null;
+    }
     const current = typeof router.query.q === 'string' ? router.query.q : '';
     if (current === query) return;
-    const url = { pathname: router.pathname, query: query ? { q: query } : {} };
+    const url = { pathname: router.pathname, query: query ? { q: query } : {}, hash: window.location.hash };
     void router.replace(url, undefined, { shallow: true });
     // `router` is intentionally not a dependency: it changes identity on every
     // navigation and would re-enter this effect in a loop.

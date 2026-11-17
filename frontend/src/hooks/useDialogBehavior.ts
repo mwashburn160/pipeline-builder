@@ -13,6 +13,16 @@ function focusableWithin(container: HTMLElement): HTMLElement[] {
 }
 
 /**
+ * Open overlays, oldest first. Only the LAST (topmost) one runs the Tab trap:
+ * every open overlay listens on `document`, and a stacked one (a "Discard
+ * changes?" confirm, the global step-up dialog) is portaled outside the panel
+ * beneath it — so the lower trap saw focus "outside", pulled it to its own
+ * first control, and the top trap pulled it straight back to ITS first
+ * control: Tab could never get past the top dialog's first button.
+ */
+const openPanels: Array<RefObject<HTMLElement | null>> = [];
+
+/**
  * The behaviour any overlay owes a keyboard or screen-reader user: focus moves
  * in on open, Tab cycles WITHIN the panel (never into the page behind), Escape
  * closes, the background can't scroll, and focus returns to whatever opened it.
@@ -23,7 +33,8 @@ function focusableWithin(container: HTMLElement): HTMLElement[] {
  * walked into the log table behind it.
  *
  * Escape only closes the panel that CONTAINS focus, and stops other same-target
- * listeners, so stacked overlays close one at a time (top first).
+ * listeners, so stacked overlays close one at a time (top first); Tab is
+ * trapped by the topmost open overlay only (see `openPanels`).
  *
  * `initialFocusRef` may point at an element that doesn't exist yet at open (a
  * dialog whose body is still loading — StepUpModal shows a spinner until the
@@ -60,7 +71,7 @@ export function useDialogBehavior({ panelRef, onClose, initialFocusRef, active =
       return;
     }
 
-    if (e.key !== 'Tab') return;
+    if (e.key !== 'Tab' || openPanels[openPanels.length - 1] !== panelRef) return;
 
     const focusable = focusableWithin(panel);
     if (focusable.length === 0) {
@@ -87,9 +98,14 @@ export function useDialogBehavior({ panelRef, onClose, initialFocusRef, active =
 
   useEffect(() => {
     if (!active) return;
+    openPanels.push(panelRef);
     document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [active, handleKeyDown]);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      const i = openPanels.lastIndexOf(panelRef);
+      if (i !== -1) openPanels.splice(i, 1);
+    };
+  }, [active, handleKeyDown, panelRef]);
 
   // What we auto-focused on open, and whether the caller's preferred element
   // has had its turn yet (see the late-focus effect below).

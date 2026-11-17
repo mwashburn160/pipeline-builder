@@ -187,7 +187,11 @@ export default function SubscriptionManager({ readOnly = false }: SubscriptionMa
     void fetchSubscriptions();
   }, 'Failed to unsubscribe');
 
+  // Stamp of the newest preview request (bumped on open AND close), so a slower
+  // answer for a rule the person has since moved off can't land under another row.
+  const previewSeqRef = useRef(0);
   const handlePreview = async (ruleId: string) => {
+    const seq = ++previewSeqRef.current;
     if (previewId === ruleId) {
       setPreviewId(null);
       setPreviewResult(null);
@@ -204,6 +208,7 @@ export default function SubscriptionManager({ readOnly = false }: SubscriptionMa
         api.previewSubscription(ruleId),
         api.previewRuleImpact(ruleId),
       ]);
+      if (seq !== previewSeqRef.current) return;
       if (ruleRes.status === 'fulfilled' && ruleRes.value.success && ruleRes.value.data?.preview) {
         setPreviewResult(ruleRes.value.data.preview);
       }

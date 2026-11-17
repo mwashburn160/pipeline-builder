@@ -13,7 +13,7 @@
 
 import { describe, it, expect, jest, beforeEach } from '@jest/globals';
 import type { AnyFn } from './helpers/mock-fn';
-import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
+import { act, render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { mockAuthGuard } from './helpers/pageMocks';
 import LogsPage from '../pages/dashboard/logs';
 
@@ -79,6 +79,37 @@ describe('log context window', () => {
     await waitFor(() => expect(logContext).toHaveBeenCalledTimes(2));
     // Same entry, wider window — not a fresh search.
     expect(logContext.mock.calls[1][0]).toMatchObject({ at: ENTRY.time, spanMs: 600_000 });
+  });
+
+  it('a slower read for an earlier span does not replace the one now selected', async () => {
+    const dialog = await openContext();
+    await waitFor(() => expect(logContext).toHaveBeenCalledTimes(1));
+    const line = (t: number, text: string) => ({ ...ENTRY, time: ENTRY.time + t, line: text });
+    let finishWide!: (v: unknown) => void;
+    logContext
+      .mockImplementationOnce(() => new Promise((r) => { finishWide = r; }))
+      .mockResolvedValueOnce({ data: { before: [], after: [line(1, 'narrow-window-line')] } });
+
+    fireEvent.change(within(dialog).getByLabelText('Context window'), { target: { value: '600000' } });
+    fireEvent.change(within(dialog).getByLabelText('Context window'), { target: { value: '30000' } });
+    expect(await within(dialog).findByText('narrow-window-line')).toBeInTheDocument();
+
+    await act(async () => { finishWide({ data: { before: [], after: [line(2, 'wide-window-line')] } }); });
+    expect(within(dialog).queryByText('wide-window-line')).not.toBeInTheDocument();
+    expect(within(dialog).getByText('narrow-window-line')).toBeInTheDocument();
+  });
+
+  it('a read still in flight when the modal closes does not reopen it', async () => {
+    const dialog = await openContext();
+    await waitFor(() => expect(logContext).toHaveBeenCalledTimes(1));
+    let finish!: (v: unknown) => void;
+    logContext.mockImplementationOnce(() => new Promise((r) => { finish = r; }));
+    fireEvent.change(within(dialog).getByLabelText('Context window'), { target: { value: '600000' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: /close/i }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: /^context$/i })).not.toBeInTheDocument());
+
+    await act(async () => { finish({ data: { before: [], after: [] } }); });
+    expect(screen.queryByRole('dialog', { name: /^context$/i })).not.toBeInTheDocument();
   });
 
   it('offers nothing beyond the server clamp', async () => {

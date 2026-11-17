@@ -30,9 +30,14 @@ describe('useAutoCloseTimer', () => {
     const close = jest.fn<AnyFn>();
     const { result } = renderHook(() => useAutoCloseTimer());
     act(() => result.current.schedule(close, 1000));
-    act(() => result.current.cancel());
+    let wasPending = false;
+    act(() => { wasPending = result.current.cancel(); });
     act(() => { jest.advanceTimersByTime(5000); });
     expect(close).not.toHaveBeenCalled();
+    // It reports whether a close was pending, so a manual close can finish the
+    // scheduled work at once — and says false when there is nothing to drop.
+    expect(wasPending).toBe(true);
+    expect(result.current.cancel()).toBe(false);
   });
 
   it('a second schedule replaces the first — only the latest subject closes', () => {

@@ -12,16 +12,18 @@ import { useCallback, useEffect, useRef } from 'react';
  * for the previous subject — otherwise a close queued for one record shuts the
  * editor someone has since opened on another.
  *
- * `schedule` replaces any pending timer; `cancel` drops it. Both are stable.
+ * `schedule` replaces any pending timer; `cancel` drops it and reports whether
+ * one was pending (so a manual close can finish the scheduled work at once).
+ * Both are stable.
  */
 export function useAutoCloseTimer() {
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const cancel = useCallback(() => {
-    if (timer.current) {
-      clearTimeout(timer.current);
-      timer.current = null;
-    }
+  const cancel = useCallback((): boolean => {
+    if (!timer.current) return false;
+    clearTimeout(timer.current);
+    timer.current = null;
+    return true;
   }, []);
 
   const schedule = useCallback((fn: () => void, ms: number) => {
@@ -32,7 +34,7 @@ export function useAutoCloseTimer() {
     }, ms);
   }, [cancel]);
 
-  useEffect(() => cancel, [cancel]);
+  useEffect(() => () => { cancel(); }, [cancel]);
 
   return { schedule, cancel };
 }

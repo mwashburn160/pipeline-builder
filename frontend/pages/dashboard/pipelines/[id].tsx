@@ -52,6 +52,7 @@ import type { PipelineDeployment, PipelineRegistrationStatus } from '@/lib/api/d
 import type { Pipeline } from '@/types';
 import { formatError } from '@/lib/constants';
 import { formatDuration } from '@/lib/format';
+import { awsStackConsoleUrl } from '@/lib/deploy-target';
 import { toolchainChangeRunId } from '@/lib/pipeline-security';
 import type { PipelineBuildImage } from '@/lib/api/pipeline-security-types';
 
@@ -190,6 +191,7 @@ function PipelineDetail({ id }: { id: string }) {
     return { match: null };
   }, [id]);
   const deployment = deploymentQ.data?.match ?? null;
+  const stackConsoleUrl = awsStackConsoleUrl(deployment?.region, deployment?.stackName);
 
   // Per-pipeline execution history — list of recent runs from the reporting
   // service (the events the pipeline-events Lambda persists). The read is a
@@ -487,9 +489,9 @@ function PipelineDetail({ id }: { id: string }) {
                   </div>
                 )}
               </dl>
-              {deployment.region && deployment.stackName && (
+              {stackConsoleUrl && (
                 <a
-                  href={`https://${deployment.region}.console.aws.amazon.com/cloudformation/home?region=${deployment.region}#/stacks?filteringText=${encodeURIComponent(deployment.stackName)}`}
+                  href={stackConsoleUrl}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="action-link text-xs inline-flex items-center gap-1 mt-3"

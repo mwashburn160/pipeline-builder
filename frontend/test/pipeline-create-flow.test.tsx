@@ -272,9 +272,10 @@ describe('useFormBuilderState reducer → assembly, section by section', () => {
     ['roleArn', { roleArn: 'arn:aws:iam::1:role/x' }, { type: 'roleArn', options: { roleArn: 'arn:aws:iam::1:role/x', mutable: false } }],
     ['roleName', { roleName: 'deployer' }, { type: 'roleName', options: { roleName: 'deployer', mutable: false } }],
     ['codeBuildDefault', { roleName: 'cb' }, { type: 'codeBuildDefault', options: { roleName: 'cb' } }],
-    ['oidc', { oidcIssuer: 'https://issuer', oidcClientIds: 'a, b', oidcConditions: 'sub=repo:x\nbad\naud=sts', oidcDescription: 'GH', roleName: 'r' },
-      { type: 'oidc', options: { issuer: 'https://issuer', clientIds: ['a', 'b'], conditions: { sub: 'repo:x', aud: 'sts' }, description: 'GH', roleName: 'r' } }],
-    ['oidc', { oidcProviderArn: 'arn:oidc' }, { type: 'oidc', options: { providerArn: 'arn:oidc' } }],
+    // Every OIDC role needs a `<host>:sub` condition (an unscoped role trusts every repository).
+    ['oidc', { oidcIssuer: 'https://issuer', oidcClientIds: 'a, b', oidcConditions: 'issuer:sub=repo:x\nbad\nissuer:aud=sts', oidcDescription: 'GH', roleName: 'r' },
+      { type: 'oidc', options: { issuer: 'https://issuer', clientIds: ['a', 'b'], conditions: { 'issuer:sub': 'repo:x', 'issuer:aud': 'sts' }, description: 'GH', roleName: 'r' } }],
+    ['oidc', { oidcProviderArn: 'arn:oidc', oidcConditions: 'issuer:sub=repo:x' }, { type: 'oidc', options: { providerArn: 'arn:oidc', conditions: { 'issuer:sub': 'repo:x' } } }],
   ] as const)('role %s', (type, fields, expected) => {
     const h = ready();
     act(() => {

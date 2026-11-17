@@ -48,6 +48,7 @@ jest.mock('@/hooks/useListPage', () => ({ __esModule: true, useListPage: () => l
 
 const apiMock = {
   getDiscount: jest.fn<AnyFn>(),
+  issueDiscountToken: jest.fn<AnyFn>(),
   getPromotion: jest.fn<AnyFn>(),
   revokePromotion: jest.fn<AnyFn>(),
   updatePromotion: jest.fn<AnyFn>(),
@@ -102,6 +103,20 @@ describe('DiscountsPage detail', () => {
     rerender(<DiscountsPage />);
     fireEvent.click(await screen.findByRole('button', { name: 'Close details' }));
     expect(mockRouter.query.id).toBeUndefined();
+    listPage.data = [];
+  });
+});
+
+describe('DiscountsPage issue code', () => {
+  it('disables every row\'s Issue code while one issue is in flight', async () => {
+    listPage.data = [discount, { ...discount, id: 'd2', campaign: 'autumn' }];
+    apiMock.issueDiscountToken.mockImplementation(() => new Promise(() => {}));
+    render(<DiscountsPage />);
+    const [first, second] = screen.getAllByRole('button', { name: /issue code/i });
+    fireEvent.click(first);
+    await waitFor(() => expect(second).toBeDisabled());
+    fireEvent.click(second);
+    expect(apiMock.issueDiscountToken).toHaveBeenCalledTimes(1);
     listPage.data = [];
   });
 });

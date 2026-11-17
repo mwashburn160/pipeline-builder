@@ -18,7 +18,7 @@
 
 import { describe, it, expect, jest, beforeEach } from '@jest/globals';
 import type { AnyFn } from './helpers/mock-fn';
-import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
+import { act, render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { mockAuthGuard } from './helpers/pageMocks';
 import InvitationsPage from '../pages/dashboard/invitations';
 
@@ -168,5 +168,41 @@ describe('invitations page — read-only (view-as) session', () => {
     expect(send).toBeDisabled();
     expect(send).toHaveAttribute('title', expect.stringMatching(/Read-only session/));
     await waitFor(() => expect(listInvitations).toHaveBeenCalled());
+  });
+});
+
+describe('invitations composer — clean-send auto-close', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockAuthGuard({ isAdmin: true, can: () => true });
+  });
+
+  it('a composer reopened inside the auto-close window is neither closed nor wiped by it', async () => {
+    jest.useFakeTimers();
+    try {
+      sendInvitations.mockResolvedValue({
+        success: true,
+        data: { sent: [{ email: 'new@x.io', delivery: 'sent' }], failed: [] },
+      });
+
+      await openComposerAndSend();
+      const dialog = await screen.findByRole('dialog');
+      await waitFor(() => expect(within(dialog).getByText(/^Sent\b/)).toBeInTheDocument());
+
+      // Close by hand before the ~1.2s auto-close, then start the next batch.
+      fireEvent.click(within(dialog).getByRole('button', { name: /cancel/i }));
+      fireEvent.click(screen.getAllByRole('button', { name: /send invitation/i })[0]);
+      const next = await screen.findByRole('dialog');
+      const box = within(next).getByRole('textbox', { name: /email/i }) as HTMLTextAreaElement;
+      // The clean exit already ran: the last batch's addresses are gone.
+      expect(box.value).toBe('');
+      fireEvent.change(box, { target: { value: 'second@x.io' } });
+
+      act(() => { jest.advanceTimersByTime(5000); });
+      expect(screen.getByRole('dialog')).toBeInTheDocument();
+      expect((within(screen.getByRole('dialog')).getByRole('textbox', { name: /email/i }) as HTMLTextAreaElement).value).toBe('second@x.io');
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });

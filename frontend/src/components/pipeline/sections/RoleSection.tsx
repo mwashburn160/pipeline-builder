@@ -143,7 +143,7 @@ export default function RoleSection({
               />
             </FormField>
 
-            <FormField label="Trust policy conditions (key=value, one per line)">
+            <FormField label="Trust policy conditions (key=value, one per line) *" error={errors['role.oidcConditions']}>
               <Textarea
                 value={role.oidcConditions}
                 onChange={(e) => onFieldChange('oidcConditions', e.target.value)}

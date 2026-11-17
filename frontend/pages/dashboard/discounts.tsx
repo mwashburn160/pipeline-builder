@@ -91,6 +91,9 @@ export default function DiscountsPage() {
 
   // ── Issue token ────────────────────────────────────────
   const [issuedToken, setIssuedToken] = useState<string | null>(null);
+  // One issue at a time, across every row: each answer is a freshly minted
+  // bearer code shown exactly once, so a second concurrent issue would
+  // overwrite the first on screen and leave a live code nobody ever saw.
   const [issuingId, setIssuingId] = useState<string | null>(null);
   const issueToken = useCallback(async (d: Discount) => {
     setIssuingId(d.id);
@@ -218,7 +221,7 @@ export default function DiscountsPage() {
           </button>
           <button
             onClick={() => issueToken(d)}
-            disabled={issuingId === d.id}
+            disabled={issuingId !== null}
             className="action-link inline-flex items-center gap-1 disabled:opacity-50"
             title="Issue a redeemable code (bearer credential)"
           >

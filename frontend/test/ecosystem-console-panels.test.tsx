@@ -164,6 +164,25 @@ describe('Publish queue — overview and filters', () => {
     expect(screen.queryByRole('button', { name: 'Load more' })).not.toBeInTheDocument();
   });
 
+  it('drops a "Load more" page that lands after the filter changed', async () => {
+    let finishMore!: (v: unknown) => void;
+    api.listEcosystemRequests.mockImplementation((params: { cursor?: string; status?: string }) => {
+      if (params.cursor) return new Promise((r) => { finishMore = r; });
+      return Promise.resolve(params.status === 'auto'
+        ? { success: true, data: { requests: [{ ...baseItem, id: 'auto-1' }], total: 1, nextCursor: null } }
+        : { success: true, data: { requests: [baseItem], total: 2, nextCursor: 'c1' } });
+    });
+    render(<PublishQueuePanel can={canAll} holds={canAll} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Load more' }));
+    fireEvent.change(screen.getByLabelText('Status'), { target: { value: 'auto' } });
+    expect(await screen.findByTestId('queue-item-auto-1')).toBeInTheDocument();
+
+    finishMore({ success: true, data: { requests: [{ ...baseItem, id: 'old-page-2' }], total: 2, nextCursor: null } });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(screen.queryByTestId('queue-item-old-page-2')).not.toBeInTheDocument();
+    expect(screen.getByTestId('queue-count')).toHaveTextContent('Showing 1 of 1');
+  });
+
   it('shows pending counts, bootstrap state and the runbook link', async () => {
     render(<PublishQueuePanel can={canAll} holds={canAll} />);
     const ov = await screen.findByTestId('queue-overview');

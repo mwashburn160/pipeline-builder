@@ -55,6 +55,19 @@ export function validateFormState(state: FormBuilderState): Record<string, strin
   if (state.role.type === 'oidc' && !state.role.oidcProviderArn.trim() && !state.role.oidcIssuer.trim()) {
     errors['role.oidcProviderArn'] = 'Either Provider ARN or Issuer URL is required';
   }
+  // The builder refuses an OIDC role with no `<host>:sub` condition (it would
+  // trust every token the provider issues — for GitHub, every repository), so
+  // say so here rather than at synth.
+  if (state.role.type === 'oidc') {
+    const hasSub = state.role.oidcConditions.split('\n').some((line) => {
+      const [key, ...rest] = line.split('=');
+      const value = rest.join('=').trim();
+      return !!key?.trim().endsWith(':sub') && !!value && !/^\*+$/.test(value);
+    });
+    if (!hasSub) {
+      errors['role.oidcConditions'] = 'A subject condition is required, e.g. token.actions.githubusercontent.com:sub=repo:acme/app:ref:refs/heads/main';
+    }
+  }
 
   // Stages
   for (let i = 0; i < state.stages.length; i++) {

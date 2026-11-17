@@ -172,4 +172,27 @@ describe('validateFormState', () => {
       expect(errors['stages.0.steps.0.plugin.name']).toBeUndefined();
     });
   });
+
+  describe('OIDC role trust conditions', () => {
+    const oidc = (conditions: string) => {
+      const state = validState();
+      state.role.type = 'oidc';
+      state.role.oidcIssuer = 'https://token.actions.githubusercontent.com';
+      state.role.oidcConditions = conditions;
+      return validateFormState(state);
+    };
+
+    it('requires a :sub condition (an OIDC role without one trusts every repository)', () => {
+      expect(oidc('')['role.oidcConditions']).toMatch(/subject condition is required/);
+      expect(oidc('token.actions.githubusercontent.com:aud=sts.amazonaws.com')['role.oidcConditions']).toBeDefined();
+    });
+
+    it('refuses a wildcard-only subject', () => {
+      expect(oidc('token.actions.githubusercontent.com:sub=*')['role.oidcConditions']).toBeDefined();
+    });
+
+    it('accepts a scoped subject', () => {
+      expect(oidc('token.actions.githubusercontent.com:sub=repo:acme/app:ref:refs/heads/main')['role.oidcConditions']).toBeUndefined();
+    });
+  });
 });

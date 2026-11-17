@@ -152,7 +152,10 @@ export function RecipientPicker({
   const debouncedTeamFilter = useDebounce((team.filter || '').trim(), 250);
   useEffect(() => {
     if (!searchTeams || !team.open || debouncedTeamFilter.length < 2) {
+      // A search cancelled mid-flight (query shortened, dropdown closed) never
+      // runs its own `finally`, so clear the flag here or it sticks on.
       setRemoteTeams([]);
+      setSearchingTeams(false);
       return;
     }
     let ignore = false;

@@ -21,7 +21,7 @@ jest.mock('@/hooks/useAuthGuard', () => require('./helpers/pageMocks').authGuard
 // The page now mirrors its search into the URL and honours a `#topic-` deep
 // link, so it needs a router. `isReady: true` so the seed-from-URL effect runs
 // the way it does after hydration.
-const mockRouter = { isReady: true, pathname: '/dashboard/help', asPath: '/dashboard/help', query: {}, push: jest.fn<AnyFn>(), replace: jest.fn<AnyFn>(), events: { on: jest.fn<AnyFn>(), off: jest.fn<AnyFn>() } };
+const mockRouter = { isReady: true, pathname: '/dashboard/help', asPath: '/dashboard/help', query: {} as Record<string, string>, push: jest.fn<AnyFn>(), replace: jest.fn<AnyFn>(), events: { on: jest.fn<AnyFn>(), off: jest.fn<AnyFn>() } };
 jest.mock('next/router', () => require('./helpers/pageMocks').routerModule(() => mockRouter));
 
 jest.mock('@/components/ui/DashboardLayout', () => require('./helpers/pageMocks').dashboardLayoutModule());
@@ -140,6 +140,27 @@ describe('Help page — what\'s new', () => {
     for (const entry of WHATS_NEW) {
       expect(within(feed).getAllByText(new RegExp(entry.date)).length).toBeGreaterThan(0);
       expect(within(feed).getByText(entry.title)).toBeInTheDocument();
+    }
+  });
+});
+
+describe('Help page — URL sync', () => {
+  it('keeps a `?q=` deep link instead of stripping it on load', async () => {
+    mockRouter.query = { q: 'compliance' };
+    mockRouter.replace.mockClear();
+    try {
+      render(<HelpPage />);
+      await screen.findAllByText(/matching section/i);
+      expect(search().value).toBe('compliance');
+      expect(mockRouter.replace).not.toHaveBeenCalled();
+
+      // Typing still mirrors the new search into the URL.
+      fireEvent.change(search(), { target: { value: 'deploy' } });
+      expect(mockRouter.replace).toHaveBeenLastCalledWith(
+        expect.objectContaining({ query: { q: 'deploy' } }), undefined, { shallow: true },
+      );
+    } finally {
+      mockRouter.query = {};
     }
   });
 });

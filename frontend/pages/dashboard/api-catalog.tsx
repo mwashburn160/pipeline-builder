@@ -9,6 +9,7 @@ import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { SectionCard } from '@/components/ui/SectionCard';
 import { CodeBlock, EndpointChip } from '@/components/ui/CodeBlock';
 import { DataTable, type Column } from '@/components/ui/DataTable';
+import { ACCESS_KEYS_HREF } from '@/lib/security-links';
 
 interface ServiceRow { name: string; purpose: string; prefixes: string[] }
 
@@ -64,7 +65,7 @@ export default function ApiCatalogPage() {
           </p>
           <CodeBlock className="mt-3" language="http" code={'Authorization: Bearer <token>\nx-org-id: <your-organization-id>'} />
           <p className="mt-3 text-sm text-fg-muted">
-            Create a token on the <Link href="/dashboard/security?tab=keys" className="action-link">Security → Access keys</Link> page. Full endpoint details are in the{' '}
+            Create a token on the <Link href={ACCESS_KEYS_HREF} className="action-link">Security → Access keys</Link> page. Full endpoint details are in the{' '}
             <Link href="/dashboard/help" className="action-link">API Reference</Link>.
           </p>
         </SectionCard>

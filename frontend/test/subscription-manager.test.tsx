@@ -56,6 +56,8 @@ const getComplianceSubscriptions = jest.fn<AnyFn>();
 const getPublishedRules = jest.fn<AnyFn>();
 const subscribeToRule = jest.fn<AnyFn>();
 const unsubscribeFromRule = jest.fn<AnyFn>();
+const previewSubscription = jest.fn<AnyFn>();
+const previewRuleImpact = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: {
@@ -63,6 +65,8 @@ jest.mock('@/lib/api', () => ({
     getComplianceSubscriptions: (...a: unknown[]) => getComplianceSubscriptions(...a),
     getPublishedRules: (...a: unknown[]) => getPublishedRules(...a),
     subscribeToRule: (...a: unknown[]) => subscribeToRule(...a),
+    previewSubscription: (...a: unknown[]) => previewSubscription(...a),
+    previewRuleImpact: (...a: unknown[]) => previewRuleImpact(...a),
   },
 }));
 
@@ -193,5 +197,41 @@ describe('SubscriptionManager write gating (compliance:write)', () => {
     expect(await screen.findByRole('button', { name: 'Deactivate' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Unsubscribe' }));
     await waitFor(() => expect(unsubscribeFromRule).toHaveBeenCalledWith('rule-1'));
+  });
+});
+
+describe('SubscriptionManager preview race', () => {
+  const sub = (ruleId: string, name: string) => ({
+    id: `s-${ruleId}`, orgId: 'org-1', ruleId, isActive: true, subscribedAt: '2026-01-01', subscribedBy: 'me',
+    rule: { id: ruleId, orgId: 'system', name, severity: 'warning', target: 'plugin', priority: 0,
+      tags: [], scope: 'published', suppressNotification: false, isActive: true, createdAt: '2026-01-01', updatedAt: '2026-01-01', createdBy: 'sys' },
+  });
+  const preview = (rulesEvaluated: number) => ({
+    success: true, data: { preview: { passed: true, rulesEvaluated, violations: [], warnings: [], blocked: false } },
+  });
+
+  it("drops a slower preview for a rule the person has moved off", async () => {
+    getComplianceSubscriptions.mockResolvedValue({
+      success: true,
+      data: { subscriptions: [sub('rule-a', 'Rule A'), sub('rule-b', 'Rule B')], pagination: { total: 2, limit: 10, offset: 0, hasMore: false } },
+    });
+    let resolveA!: (v: unknown) => void;
+    previewSubscription.mockImplementation((id: unknown) => (id === 'rule-a'
+      ? new Promise((r) => { resolveA = r; })
+      : Promise.resolve(preview(7))));
+    previewRuleImpact.mockResolvedValue({ success: false });
+
+    render(<SubscriptionManager />);
+    await screen.findByText('Rule A');
+    const [previewA, previewB] = screen.getAllByRole('button', { name: 'Preview impact' });
+    fireEvent.click(previewA);
+    fireEvent.click(previewB);
+    expect(await screen.findByText('7 rules evaluated')).toBeInTheDocument();
+
+    resolveA(preview(99));
+    await waitFor(() => expect(previewSubscription).toHaveBeenCalledTimes(2));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(screen.queryByText('99 rules evaluated')).not.toBeInTheDocument();
+    expect(screen.getByText('7 rules evaluated')).toBeInTheDocument();
   });
 });

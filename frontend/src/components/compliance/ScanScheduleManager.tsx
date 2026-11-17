@@ -1,7 +1,7 @@
 'use client';
 
 import { RULE_TARGET_IDS, RULE_TARGET_LABELS } from '@/lib/compliance-styles';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { CalendarClock, Plus, Pencil, Trash2, Loader2, X } from 'lucide-react';
 import api from '@/lib/api';
 import { useFetch } from '@/hooks/useFetch';
@@ -63,8 +63,14 @@ export default function ScanScheduleManager({ readOnly = false }: ScanScheduleMa
     setFormData(EMPTY_FORM);
   };
 
+  // Synchronous twin of `submitting`: Enter in the cron field submits the form
+  // without going through the disabled button, so a second Enter before the
+  // re-render would create the schedule twice.
+  const submittingRef = useRef(false);
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submittingRef.current) return;
+    submittingRef.current = true;
     setSubmitting(true);
     try {
       if (editingId) {
@@ -79,6 +85,7 @@ export default function ScanScheduleManager({ readOnly = false }: ScanScheduleMa
     } catch (err) {
       toast.error(formatError(err, `Failed to ${editingId ? 'update' : 'create'} schedule`));
     }
+    submittingRef.current = false;
     setSubmitting(false);
   };
 

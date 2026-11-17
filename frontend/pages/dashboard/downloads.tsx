@@ -7,6 +7,7 @@ import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { LinkButton } from '@/components/ui/LinkButton';
 import { Card } from '@/components/ui/Card';
+import { ACCESS_KEYS_HREF } from '@/lib/security-links';
 
 function CopyInline({ text }: { text: string }) {
   // The checkmark shows only once the write resolves; a refused write
@@ -110,7 +111,7 @@ export default function DownloadsPage() {
               <div className="flex-1">
                 <p className="text-sm text-fg-muted">
                   Generate an API token from the{' '}
-                  <Link href="/dashboard/security?tab=keys" className="action-link">Security → Access keys</Link> page.
+                  <Link href={ACCESS_KEYS_HREF} className="action-link">Security → Access keys</Link> page.
                 </p>
               </div>
             </div>
@@ -185,7 +186,7 @@ export default function DownloadsPage() {
             <ExternalLink className="w-4 h-4" />
             CLI Reference
           </LinkButton>
-          <LinkButton href="/dashboard/security?tab=keys" variant="secondary">
+          <LinkButton href={ACCESS_KEYS_HREF} variant="secondary">
             <ExternalLink className="w-4 h-4" />
             Access keys
           </LinkButton>

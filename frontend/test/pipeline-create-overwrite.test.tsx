@@ -11,7 +11,7 @@
 
 import { describe, it, expect, jest, beforeEach } from '@jest/globals';
 import type { AnyFn } from './helpers/mock-fn';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { mockAuthGuard } from './helpers/pageMocks';
 import { ApiError } from '@/lib/api/errors';
 
@@ -28,11 +28,12 @@ jest.mock('@/components/pipeline/DeployedPipelinesPanel', () => ({ __esModule: t
 // the form's error line, which is all this flow needs from it.
 jest.mock('next/dynamic', () => ({
   __esModule: true,
-  default: () => function CreateStub({ onSubmit, createError }: { onSubmit?: (...a: unknown[]) => void; createError?: string | null }) {
+  default: () => function CreateStub({ onSubmit, onClose, createError }: { onSubmit?: (...a: unknown[]) => void; onClose?: () => void; createError?: string | null }) {
     if (!onSubmit) return null;
     return (
       <div>
         <button type="button" onClick={() => onSubmit({ project: 'web', organization: 'acme', pipelineName: 'web-pipeline' }, 'org')}>stub-submit</button>
+        {onClose && <button type="button" onClick={onClose}>stub-close</button>}
         {createError && <p>form-error: {createError}</p>}
       </div>
     );
@@ -71,5 +72,30 @@ describe('pipelines — overwrite after a slot conflict', () => {
     await waitFor(() => expect(createPipeline).toHaveBeenLastCalledWith(expect.anything(), { upsert: true }));
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Overwrite it' })).not.toBeInTheDocument());
     expect(screen.getByText(/form-error: .*Not the owner/)).toBeInTheDocument();
+  });
+});
+
+describe('pipelines — post-create auto-close', () => {
+  it('a create modal reopened after closing by hand is not shut by the earlier auto-close', async () => {
+    jest.useFakeTimers();
+    try {
+      createPipeline.mockResolvedValue({ success: true, data: { inserted: true } });
+      render(<PipelinesPage />);
+      fireEvent.click((await screen.findAllByRole('button', { name: /create pipeline/i }))[0]);
+      fireEvent.click(await screen.findByRole('button', { name: 'stub-submit' }));
+      await waitFor(() => expect(createPipeline).toHaveBeenCalledTimes(1));
+      await act(async () => {});
+
+      // Closed by hand inside the 2s window, then opened again for the next one.
+      fireEvent.click(screen.getByRole('button', { name: 'stub-close' }));
+      expect(screen.queryByRole('button', { name: 'stub-submit' })).not.toBeInTheDocument();
+      fireEvent.click(screen.getAllByRole('button', { name: /create pipeline/i })[0]);
+      expect(screen.getByRole('button', { name: 'stub-submit' })).toBeInTheDocument();
+
+      act(() => { jest.advanceTimersByTime(5000); });
+      expect(screen.getByRole('button', { name: 'stub-submit' })).toBeInTheDocument();
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });

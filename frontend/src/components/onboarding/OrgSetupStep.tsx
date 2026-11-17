@@ -16,6 +16,7 @@ import { HelpCodeBlock } from '@/components/help/HelpCodeBlock';
 import { DEFAULT_CLI_NPM_PACKAGE, DEFAULT_CLI_NPM_URL } from '@/lib/constants';
 import type { TierKey } from '@/lib/tiers';
 import { isAwsTarget } from '@/lib/deploy-target';
+import { ACCESS_KEYS_HREF } from '@/lib/security-links';
 import { useFeatures } from '@/hooks/useFeatures';
 
 
@@ -87,7 +88,7 @@ export function OrgSetupStep({ planTier, onDone, doneLabel = 'Continue to dashbo
             <Download className="w-4 h-4 mr-1.5" /> View on npm
           </LinkButton>
           <LinkButton href="/dashboard/downloads" variant="ghost" size="sm">Full quick-start</LinkButton>
-          <LinkButton href="/dashboard/security?tab=keys" variant="ghost" size="sm">Access keys</LinkButton>
+          <LinkButton href={ACCESS_KEYS_HREF} variant="ghost" size="sm">Access keys</LinkButton>
         </div>
       </div>
 

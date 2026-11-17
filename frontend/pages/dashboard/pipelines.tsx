@@ -13,6 +13,7 @@ import { FeatureLockedAction } from '@/components/ui/FeatureLock';
 import { useListPage } from '@/hooks/useListPage';
 import { useDelete } from '@/hooks/useDelete';
 import { useFormState } from '@/hooks/useFormState';
+import { useAutoCloseTimer } from '@/hooks/useAutoCloseTimer';
 import { LoadingPage } from '@/components/ui/Loading';
 import { DashboardLayout } from '@/components/ui/DashboardLayout';
 import { RoleBanner } from '@/components/ui/RoleBanner';
@@ -151,6 +152,10 @@ export default function PipelinesPage() {
   const [deletedView, setDeletedView] = useUrlTab<'active' | 'deleted'>('view', DELETED_VIEWS, 'active');
   const createForm = useFormState();
   const [createSuccess, setCreateSuccess] = useState<string | null>(null);
+  // The post-create auto-close: tracked so it can't fire after unmount, or shut
+  // a create modal reopened (and half-filled) after closing this one by hand.
+  const createClose = useAutoCloseTimer();
+  const closeCreateModal = () => { createClose.cancel(); setShowCreateModal(false); setCreateSuccess(null); };
   const [editPipeline, setEditPipeline] = useState<PipelineSummary | null>(null);
   const [showBulkCreate, setShowBulkCreate] = useState(false);
 
@@ -216,7 +221,7 @@ export default function PipelinesPage() {
           // not discovered later in a report that credits the wrong stage.
           for (const w of result.data?.warnings ?? []) toast.warning(w, 12000);
           setSlotConflict(null);
-          setTimeout(() => { setShowCreateModal(false); setCreateSuccess(null); }, 2000);
+          createClose.schedule(closeCreateModal, 2000);
         },
       },
     );
@@ -466,7 +471,7 @@ export default function PipelinesPage() {
       {showCreateModal && (
       <CreatePipelineModal
         isOpen
-        onClose={() => setShowCreateModal(false)}
+        onClose={closeCreateModal}
         onSubmit={handleCreatePipeline}
         createLoading={createForm.loading}
         createError={createForm.error}
