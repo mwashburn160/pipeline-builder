@@ -263,6 +263,13 @@ export function createAdminSubscriptionRoutes(): Router {
         return sendError(res, 404, 'Plan not found', ErrorCode.NOT_FOUND);
       }
       const intervalChanged = !!(interval && interval !== subscription.interval);
+      // An override that ALSO moves the sub into a terminal status ends on the
+      // baseline tier, synced by the status block below. Every sync after the one
+      // save carries the same occurredAt (the row's updatedAt), and consumers drop
+      // a not-newer push — so a plan-block sync of the new tier would win and the
+      // downgrade would be discarded. Let the status block's sync be the only one.
+      const statusEntersTerminal = !!(status && status !== prevStatus
+        && isEntitledStatus(prevStatus) && !isEntitledStatus(status));
 
       // Push the effective `{planId}_{interval}` price to the payment provider
       // BEFORE mutating / saving the doc — mirroring the user-facing
@@ -313,6 +320,7 @@ export function createAdminSubscriptionRoutes(): Router {
           // lift a lapsed sub back to paid entitlements without a payment; every
           // other path (self-service PUT, Stripe webhook, marketplace) must not.
           allowLapsedRestore: true,
+          skipEntitlementSync: statusEntersTerminal,
         });
 
         deferred.push(async () => {

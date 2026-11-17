@@ -482,7 +482,8 @@ describe('Subscription Lifecycle Checker', () => {
       expect(mockCreateBillingEvent).toHaveBeenCalledWith(
         'org-cancel',
         'subscription_canceled',
-        expect.objectContaining({ reason: 'provider_verified_cancel_missed_webhook' }),
+        // previousStatus is the status BEFORE the claim flipped it to canceled.
+        expect.objectContaining({ reason: 'provider_verified_cancel_missed_webhook', previousStatus: 'active' }),
         'sub-cancel',
       );
       // Row flipped to canceled + durable marker CLAIMED atomically before the sync.
@@ -704,6 +705,43 @@ describe('Subscription Lifecycle Checker', () => {
       expect(mockCreateBillingEvent).toHaveBeenCalledWith('org-stub', 'subscription_updated',
         expect.objectContaining({ reason: 'platform_period_renewed' }), 'sub-stub');
       expect(mockSyncEntitlements).not.toHaveBeenCalled();
+    });
+
+    it('CANCELS (not renews) a cancel-at-period-end sub whose period the platform owns (renewsLocally)', async () => {
+      mockGetSubscription.mockResolvedValueOnce({ status: 'active', renewsLocally: true });
+      const previousEnd = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const staleSub = {
+        _id: { toString: () => 'sub-stub-cape' },
+        orgId: 'org-stub-cape',
+        status: 'active',
+        externalId: 'stub_sub_cape',
+        interval: 'monthly',
+        currentPeriodStart: new Date(previousEnd.getTime() - 30 * 24 * 60 * 60 * 1000),
+        currentPeriodEnd: previousEnd,
+        cancelAtPeriodEnd: true,
+        metadata: {} as Record<string, unknown>,
+      };
+      mockFind.mockResolvedValueOnce([]).mockResolvedValueOnce([staleSub]).mockResolvedValue([]);
+
+      startSubscriptionLifecycleChecker();
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      // No local renewal of the period.
+      expect(mockUpdateOne).not.toHaveBeenCalledWith(
+        { _id: staleSub._id, currentPeriodEnd: previousEnd }, expect.anything(),
+      );
+      expect(mockFindOneAndUpdate).toHaveBeenCalledWith(
+        { '_id': staleSub._id, 'status': { $in: ['active', 'trialing'] }, 'metadata.staleDowngradedAt': { $exists: false } },
+        { $set: { 'status': 'canceled', 'metadata.staleDowngradedAt': expect.any(String) } },
+      );
+      expect(staleSub.status).toBe('canceled');
+      expect(mockSyncEntitlements).toHaveBeenCalledWith(
+        'org-stub-cape', 'developer', 'Bearer test-service-token', 'sub-stub-cape', [],
+      );
+      expect(mockCreateBillingEvent).toHaveBeenCalledWith('org-stub-cape', 'subscription_canceled',
+        expect.objectContaining({ reason: 'platform_period_end_cancel' }), 'sub-stub-cape');
+      expect(mockCreateBillingEvent).not.toHaveBeenCalledWith('org-stub-cape', 'subscription_updated',
+        expect.objectContaining({ reason: 'platform_period_renewed' }), 'sub-stub-cape');
     });
 
     it('does nothing more when a concurrent writer already moved the period', async () => {

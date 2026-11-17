@@ -9,7 +9,7 @@
  * router; models + helpers are mocked (no real Mongo).
  */
 
-import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 import type { AnyFn } from '@pipeline-builder/api-core/testing';
 import { stubModule } from '@pipeline-builder/api-core/testing';
 import { apiCoreMock } from './helpers/mock-api-core.js';
@@ -387,6 +387,116 @@ describe('POST /subscriptions/:id/discounts (self-service redeem)', () => {
     subDoc = freshSub();
     await call(handler('post', '/subscriptions/:id/discounts'), { user: { sub: 'u2', organizationId: 'org-b' }, params: { id: 'sub-1' }, body: { code: 'ONCE' } });
     expect(mockSendError).toHaveBeenCalledWith({}, 409, expect.any(String), 'DISCOUNT_EXHAUSTED');
+  });
+});
+
+// Concurrent applies: the one-recurring rule and the floor were judged against an
+// in-memory read, and the commit only guarded "not this same discount" — so two
+// DIFFERENT recurring codes racing on one subscription both committed. The apply
+// now claims the subscription with a conditional update guarded on that read.
+describe('concurrent recurring applies (atomic claim)', () => {
+  const CLAIM = 'metadata.discountApplyClaim';
+  /** A guard-faithful findOneAndUpdate/updateOne over the shared subDoc. */
+  function matches(filter: any): boolean {
+    const idGuard = filter['creditLedger.discountId'];
+    if (idGuard?.$ne !== undefined && subDoc.creditLedger.some((c: any) => c.discountId === idGuard.$ne)) return false;
+    if ('recurringDiscount' in filter && filter.recurringDiscount === null && subDoc.recurringDiscount) return false;
+    if (filter['recurringDiscount.discountId'] !== undefined && subDoc.recurringDiscount?.discountId !== filter['recurringDiscount.discountId']) return false;
+    const claim = subDoc.metadata?.discountApplyClaim;
+    if (filter[`${CLAIM}.token`] !== undefined && claim?.token !== filter[`${CLAIM}.token`]) return false;
+    if (filter.$or && claim && !(claim.at < filter.$or[1][`${CLAIM}.at`].$lt)) return false;
+    return true;
+  }
+  function apply(update: any): void {
+    for (const [k, v] of Object.entries(update.$set ?? {})) {
+      if (k === CLAIM) subDoc.metadata = { ...subDoc.metadata, discountApplyClaim: v };
+      else subDoc[k] = v;
+    }
+    if (update.$unset?.[CLAIM] !== undefined) { const { discountApplyClaim: _drop, ...rest } = subDoc.metadata ?? {}; subDoc.metadata = rest; }
+    if (update.$push?.creditLedger) subDoc.creditLedger.push(update.$push.creditLedger);
+    if (update.$inc?.creditBalanceCents) subDoc.creditBalanceCents += update.$inc.creditBalanceCents;
+  }
+
+  // clearAllMocks keeps implementations, so put the suite-wide ones back after.
+  const originals = {
+    findOne: mockSubscriptionFindOne.getMockImplementation()!,
+    findOneAndUpdate: mockSubscriptionFindOneAndUpdate.getMockImplementation()!,
+    updateOne: mockSubscriptionUpdateOne.getMockImplementation()!,
+  };
+  afterEach(() => {
+    mockSubscriptionFindOne.mockImplementation(originals.findOne);
+    mockSubscriptionFindOneAndUpdate.mockImplementation(originals.findOneAndUpdate);
+    mockSubscriptionUpdateOne.mockImplementation(originals.updateOne);
+    mockApplyUsageCredit.mockResolvedValue({ ref: { kind: 'balance', ref: 'cbtxn_1' } });
+  });
+
+  beforeEach(() => {
+    subDoc = freshSub({ externalCustomerId: 'cus_ext_1', metadata: {} });
+    // Each read is its own SNAPSHOT (a real query), not the live shared object.
+    mockSubscriptionFindOne.mockImplementation(async () => ({ ...subDoc, creditLedger: [...subDoc.creditLedger] }));
+    mockSubscriptionFindOneAndUpdate.mockImplementation(async (filter: any, update: any) => {
+      if (!matches(filter)) return null;
+      apply(update);
+      return subDoc;
+    });
+    mockSubscriptionUpdateOne.mockImplementation(async (filter: any, update: any) => {
+      if (!matches(filter)) return { matchedCount: 0, modifiedCount: 0 };
+      apply(update);
+      return { matchedCount: 1, modifiedCount: 1 };
+    });
+  });
+
+  it('two DIFFERENT recurring codes applied at once: exactly one commits, the loser consumes nothing', async () => {
+    await mockDiscountCreate({ _id: 'disc_r1', value: 10, unit: 'percent', kind: 'recurring', isActive: true, maxRedemptions: 5 });
+    await mockDiscountCreate({ _id: 'disc_r2', value: 20, unit: 'percent', kind: 'recurring', isActive: true, maxRedemptions: 5 });
+    // The provider push yields, so both applies are past their in-memory checks
+    // before either commits — the interleaving that used to double-commit.
+    mockApplyUsageCredit.mockImplementation(async () => { await new Promise((r) => setTimeout(r, 5)); return { ref: { kind: 'balance', ref: 'cbtxn_1' } }; });
+
+    const [a, b] = await Promise.all([
+      applyDiscountToOrg('org-cust', discountStore.get('disc_r1')),
+      applyDiscountToOrg('org-cust', discountStore.get('disc_r2')),
+    ]);
+
+    const results = [a, b];
+    expect(results.filter((r) => r.ok)).toHaveLength(1);
+    const loser = results.find((r) => !r.ok) as { ok: false; code?: string };
+    expect(['RECURRING_ALREADY_PRESENT', 'DISCOUNT_APPLY_CONFLICT']).toContain(loser.code);
+    // One standing rule, one ledger row, one provider credit.
+    expect(subDoc.creditLedger).toHaveLength(1);
+    expect(subDoc.recurringDiscount.discountId).toBe(subDoc.creditLedger[0].discountId);
+    expect(mockApplyUsageCredit).toHaveBeenCalledTimes(1);
+    // The loser burned no redemption; the winner's claim is gone.
+    const loserId = subDoc.recurringDiscount.discountId === 'disc_r1' ? 'disc_r2' : 'disc_r1';
+    expect(discountStore.get(loserId).timesRedeemed).toBe(0);
+    expect(subDoc.metadata.discountApplyClaim).toBeUndefined();
+  });
+
+  it('an apply judged on a STALE read (another recurring committed since) fails RECURRING_ALREADY_PRESENT before reserving', async () => {
+    await mockDiscountCreate({ _id: 'disc_r3', value: 20, unit: 'percent', kind: 'recurring', isActive: true, maxRedemptions: 1 });
+    // Read sees no recurring rule; by the claim, one has landed.
+    mockSubscriptionFindOne.mockImplementationOnce(async () => {
+      const snap = { ...subDoc, creditLedger: [...subDoc.creditLedger] };
+      subDoc.recurringDiscount = { discountId: 'disc_other', unit: 'percent', value: 10, appliedAt: new Date() };
+      return snap;
+    });
+
+    const r = await applyDiscountToOrg('org-cust', discountStore.get('disc_r3'));
+
+    expect(r).toMatchObject({ ok: false, code: 'RECURRING_ALREADY_PRESENT' });
+    expect(discountStore.get('disc_r3').timesRedeemed).toBe(0);
+    expect(mockApplyUsageCredit).not.toHaveBeenCalled();
+    expect(subDoc.recurringDiscount.discountId).toBe('disc_other');
+  });
+
+  it('releases the claim when the apply fails after claiming (exhausted code)', async () => {
+    await mockDiscountCreate({ _id: 'disc_r4', value: 20, unit: 'percent', kind: 'recurring', isActive: true, maxRedemptions: 0 });
+
+    const r = await applyDiscountToOrg('org-cust', discountStore.get('disc_r4'));
+
+    expect(r).toMatchObject({ ok: false, code: 'DISCOUNT_EXHAUSTED' });
+    expect(subDoc.metadata.discountApplyClaim).toBeUndefined();
+    expect(subDoc.recurringDiscount).toBeNull();
   });
 });
 

@@ -333,6 +333,14 @@ export interface PlanTierChangeOptions {
    * deliberately granting a tier.
    */
   allowLapsedRestore?: boolean;
+  /**
+   * Skip the entitlement sync (the event + prune finalize still run). For a
+   * caller that runs its OWN sync of the final state right after — the admin
+   * plan+terminal-status override. Two syncs after one save share the row's
+   * `updatedAt` as `occurredAt`, and the downstream consumers drop the second
+   * as not-newer, so the earlier (stale) tier would be the one that sticks.
+   */
+  skipEntitlementSync?: boolean;
 }
 
 /**
@@ -366,13 +374,15 @@ export function applyPlanTierChange(
     // no add-ons; pushing `plan.tier` here would restore the paid tier for free.
     // See `allowLapsedRestore`.
     const lapsed = isGraceDowngraded(subscription) && !opts.allowLapsedRestore;
-    await syncEntitlements(
-      orgId,
-      lapsed ? 'developer' : plan.tier,
-      auth,
-      subscriptionId,
-      lapsed ? [] : (subscription.addons ?? []),
-    );
+    if (!opts.skipEntitlementSync) {
+      await syncEntitlements(
+        orgId,
+        lapsed ? 'developer' : plan.tier,
+        auth,
+        subscriptionId,
+        lapsed ? [] : (subscription.addons ?? []),
+      );
+    }
     if (opts.event) {
       await createBillingEvent(orgId, opts.event.type, opts.event.details, subscriptionId, opts.actorId);
     } else {

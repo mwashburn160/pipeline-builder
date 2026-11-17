@@ -356,11 +356,13 @@ async function checkExpiredSubscriptions(): Promise<void> {
         // No active entitlement — claim the downgrade atomically (status flip +
         // marker) BEFORE the side effects, so a concurrent pass can't double-run
         // it and a retried sync re-reads a canceled row.
+        // Read BEFORE the claim: it flips `status` to 'canceled' in place.
+        const previousStatus = subscription.status;
         if (!(await claimStaleDowngrade(subscription))) continue;
         await syncEntitlements(subscription.orgId, 'developer', billingServiceAuth(subscription.orgId), subscription._id.toString(), []);
         await createBillingEvent(subscription.orgId, 'subscription_canceled', {
           reason: 'marketplace_entitlement_lapsed_missed_sns',
-          previousStatus: subscription.status,
+          previousStatus,
           currentPeriodEnd: subscription.currentPeriodEnd.toISOString(),
           detectedAt: now.toISOString(),
         }, subscription._id.toString());
@@ -394,12 +396,18 @@ async function checkExpiredSubscriptions(): Promise<void> {
         continue;
       }
 
-      if (view.status !== 'canceled' && view.renewsLocally) {
+      // A platform-owned period (renewsLocally) has no provider to report the
+      // scheduled cancel as `canceled` — the stub always says `active` — so a
+      // cancel-at-period-end row would renew forever. The platform owns the
+      // period, so it owns the period-end cancel too: downgrade instead of renew.
+      const canceledAtLocalPeriodEnd = view.status !== 'canceled' && !!view.renewsLocally && subscription.cancelAtPeriodEnd === true;
+
+      if (view.status !== 'canceled' && view.renewsLocally && !canceledAtLocalPeriodEnd) {
         await renewLocally(subscription, now, 'platform_period_renewed');
         continue;
       }
 
-      if (view.status === 'canceled') {
+      if (view.status === 'canceled' || canceledAtLocalPeriodEnd) {
         // Durable dedupe (belt-and-suspenders alongside the status flip): skip if
         // a prior tick already reconciled this exact lapse.
         if (subscription.metadata?.staleDowngradedAt) continue;
@@ -408,19 +416,23 @@ async function checkExpiredSubscriptions(): Promise<void> {
         // flip + marker) BEFORE the side effects, then route through
         // syncEntitlements (empty add-ons) so the seat leg + sync-failure metric
         // fire — same discipline as the grace path.
+        // Read BEFORE the claim: it flips `status` to 'canceled' in place.
+        const previousStatus = subscription.status;
         if (!(await claimStaleDowngrade(subscription))) continue;
         await syncEntitlements(subscription.orgId, 'developer', billingServiceAuth(subscription.orgId), subscription._id.toString(), []);
 
         await createBillingEvent(subscription.orgId, 'subscription_canceled', {
-          reason: 'provider_verified_cancel_missed_webhook',
-          previousStatus: subscription.status,
+          reason: canceledAtLocalPeriodEnd ? 'platform_period_end_cancel' : 'provider_verified_cancel_missed_webhook',
+          previousStatus,
           currentPeriodEnd: subscription.currentPeriodEnd.toISOString(),
           detectedAt: now.toISOString(),
         }, subscription._id.toString());
         await notifyDowngraded(
           subscription.orgId,
-          'provider_verified_cancel',
-          'Your subscription has been canceled with the payment provider.',
+          canceledAtLocalPeriodEnd ? 'platform_period_end_cancel' : 'provider_verified_cancel',
+          canceledAtLocalPeriodEnd
+            ? 'Your subscription was scheduled to cancel and has reached the end of its billing period.'
+            : 'Your subscription has been canceled with the payment provider.',
         );
 
         incCounter('billing_stale_subscription_reconciled_total', { outcome: 'downgraded' });

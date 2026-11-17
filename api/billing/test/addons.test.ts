@@ -998,3 +998,33 @@ describe('POST /subscriptions/:id/addons/basket — payment gate', () => {
     expect(mockSubscriptionFindOneAndUpdate).not.toHaveBeenCalled();
   });
 });
+
+describe('GET /plan-preview — interval', () => {
+  const handler = getHandler('get', '/plan-preview');
+  const preview = async (query: Record<string, string>) => {
+    const res = mockRes();
+    await handler(mockReq({ query }), res);
+    return mockSendSuccess.mock.calls.at(-1)?.[2] as
+      { preview: { interval: string; listCents: number } | null } | undefined;
+  };
+
+  it('prices at the subscription interval when none is given', async () => {
+    withActiveSub(makeSubscription({ interval: 'monthly' }));
+    const out = await preview({ tier: 'business' });
+    expect(out?.preview?.interval).toBe('monthly');
+  });
+
+  it('prices at the REQUESTED interval, so an annual quote on a monthly sub is annual', async () => {
+    withActiveSub(makeSubscription({ interval: 'monthly' }));
+    const monthly = (await preview({ tier: 'business', interval: 'monthly' }))?.preview;
+    const annual = (await preview({ tier: 'business', interval: 'annual' }))?.preview;
+    expect(annual?.interval).toBe('annual');
+    expect(annual!.listCents).toBeGreaterThan(monthly!.listCents);
+  });
+
+  it('refuses an unknown interval', async () => {
+    withActiveSub(makeSubscription());
+    await handler(mockReq({ query: { tier: 'business', interval: 'weekly' } }), mockRes());
+    expect(mockSendError).toHaveBeenCalledWith(expect.anything(), 400, expect.stringContaining('interval'), expect.anything());
+  });
+});

@@ -320,6 +320,21 @@ describe('applyPlanTierChange', () => {
     expect(syncedPayload()).toContain('enterprise');
   });
 
+  it('skips ONLY the entitlement sync when skipEntitlementSync is set (caller syncs the final state)', async () => {
+    const s = sub();
+    await applyPlanTierChange(s, { tier: 'enterprise' }, {
+      oldPlanId: 'pro',
+      newPlanId: 'enterprise',
+      pruned: [],
+      actorId: 'admin-1',
+      source: 'admin_plan_change',
+      skipEntitlementSync: true,
+    })();
+
+    expect(syncedPayload()).not.toContain('enterprise');
+    expect(mockBillingEventCreate).toHaveBeenCalledWith(expect.objectContaining({ type: 'plan_changed' }));
+  });
+
   it('syncs the real tier for a sub that never lapsed', async () => {
     const s = sub();
     await applyPlanTierChange(s, { tier: 'enterprise' }, {

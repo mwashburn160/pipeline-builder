@@ -295,11 +295,31 @@ export async function applyDiscountToOrg(
     }
   }
 
+  // CLAIM the subscription for this apply, before anything is consumed. The
+  // one-recurring rule and the floor above were judged against an in-memory read,
+  // so two concurrent applies (two different recurring codes, or a onetime racing
+  // a recurring that raises its standing) could both pass and both commit — the
+  // commit's own guard only stops the SAME discount twice. The claim is one
+  // conditional update guarded on the state those checks read, and only one
+  // floored apply may hold it at a time, so the loser fails HERE: no redemption
+  // reserved, no campaign budget claimed, no provider credit posted.
+  const claimToken = await claimForApply(subscription, discount);
+  if (claimToken === null) {
+    const fresh = await loadSubPlan(orgId);
+    const refusal = fresh.ok ? validateApplicable(orgId, discount, fresh.subscription, fresh.plan) : fresh;
+    if (refusal) return { ok: false, ...refusal };
+    return { ok: false, status: 409, error: 'This subscription changed while the discount was being applied — try again', code: 'DISCOUNT_APPLY_CONFLICT' };
+  }
+  const releaseClaim = async (): Promise<void> => {
+    if (claimToken) await releaseApplyClaim(subscription._id, claimToken);
+  };
+
   // RESERVE — atomically claim a redemption under the cap.
   const filter: Record<string, unknown> = { _id: discount._id, isActive: true };
   if (discount.maxRedemptions != null) filter.$expr = { $lt: ['$timesRedeemed', '$maxRedemptions'] };
   const reserved = await Discount.findOneAndUpdate(filter, { $inc: { timesRedeemed: 1 } }, { new: true });
   if (!reserved) {
+    await releaseClaim();
     return { ok: false, status: 409, error: 'This discount is no longer available', code: 'DISCOUNT_EXHAUSTED' };
   }
 
@@ -310,6 +330,7 @@ export async function applyDiscountToOrg(
   // together, or a campaign leaks budget on an error that refunded the code.
   if (campaign && !(await reserveCampaignBudget(campaign._id, cents))) {
     await releaseReservation(discount._id);
+    await releaseClaim();
     return {
       ok: false,
       status: 409,
@@ -341,6 +362,8 @@ export async function applyDiscountToOrg(
     const update: Record<string, unknown> = {
       $push: { creditLedger: creditLedgerEntry({ discountId: discount._id, cents, fulfillmentRef: ref, campaign: discount.campaign }) },
       $inc: { creditBalanceCents: cents },
+      // The commit IS the claim's release, in the same atomic write.
+      ...(claimToken ? { $unset: { [APPLY_CLAIM_PATH]: '' } } : {}),
     };
     if (discount.kind === 'recurring') {
       update.$set = {
@@ -354,7 +377,13 @@ export async function applyDiscountToOrg(
       };
     }
     committed = await Subscription.findOneAndUpdate(
-      { '_id': subscription._id, 'creditLedger.discountId': { $ne: discount._id } },
+      {
+        '_id': subscription._id,
+        'creditLedger.discountId': { $ne: discount._id },
+        // Still ours: a claim only lapses after APPLY_CLAIM_TTL_MS, and one taken
+        // over by another apply means the state checked above may have moved.
+        ...(claimToken ? { [`${APPLY_CLAIM_PATH}.token`]: claimToken } : {}),
+      },
       update,
       { new: true },
     );
@@ -374,6 +403,8 @@ export async function applyDiscountToOrg(
     if (!redeemed) await settleFailure();
     throw error;
   } finally {
+    // Every path that did not commit gives the claim back (the commit cleared it).
+    if (!redeemed) await releaseClaim();
     // Bookkeeping for a redemption that DID commit, outside the rollback scope:
     // the event write is a Mongo write of its own and used to sit inside the
     // `try`, so a failure there rolled the reservation back while the ledger
@@ -389,6 +420,49 @@ export async function applyDiscountToOrg(
         }));
     }
   }
+}
+
+/** Where the per-subscription apply claim lives (`metadata` is Mixed, so no schema field). */
+const APPLY_CLAIM_PATH = 'metadata.discountApplyClaim';
+/** A claim older than this is a crashed holder's and may be taken over. Comfortably
+ *  longer than one apply, provider round-trip included. */
+const APPLY_CLAIM_TTL_MS = 5 * 60 * 1000;
+
+/**
+ * Atomically claim `subscription` for a floored (`onetime` / `recurring`) apply,
+ * guarded on the state the in-memory checks read: the standing recurring discount
+ * (the one-recurring rule AND the floor's standing credit), the plan and the
+ * interval (the credit's base), and "not already redeemed". Returns the claim
+ * token, `undefined` for a `credit` (not floored, never a recurring slot — so it
+ * needs no claim and must not contend with one), or `null` when the guard lost.
+ */
+async function claimForApply(subscription: SubscriptionDocument, discount: DiscountDocument): Promise<string | null | undefined> {
+  if (discount.kind === 'credit') return undefined;
+  const rd = subscription.recurringDiscount;
+  const token = randomUUID();
+  const claimed = await Subscription.findOneAndUpdate(
+    {
+      '_id': subscription._id,
+      'planId': subscription.planId,
+      'interval': subscription.interval,
+      'creditLedger.discountId': { $ne: discount._id },
+      ...(rd ? { 'recurringDiscount.discountId': rd.discountId } : { recurringDiscount: null }),
+      '$or': [
+        { [APPLY_CLAIM_PATH]: { $exists: false } },
+        { [`${APPLY_CLAIM_PATH}.at`]: { $lt: new Date(Date.now() - APPLY_CLAIM_TTL_MS) } },
+      ],
+    },
+    { $set: { [APPLY_CLAIM_PATH]: { token, discountId: discount._id, at: new Date() } } },
+  );
+  return claimed ? token : null;
+}
+
+/** Give back an apply claim this pass still holds (never one another apply took over). */
+async function releaseApplyClaim(subscriptionId: SubscriptionDocument['_id'], token: string): Promise<void> {
+  await Subscription.updateOne(
+    { _id: subscriptionId, [`${APPLY_CLAIM_PATH}.token`]: token },
+    { $unset: { [APPLY_CLAIM_PATH]: '' } },
+  ).catch((error: unknown) => logger.warn('Could not release a discount apply claim (expires on its own)', { error: errorMessage(error) }));
 }
 
 /**

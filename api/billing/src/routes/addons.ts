@@ -50,7 +50,7 @@ import { refuseTeamBilling } from '../helpers/root-org-guard.js';
 import { buildSubscriptionResponse } from '../helpers/subscription-response.js';
 import { MANAGEABLE_SUBSCRIPTION_STATUSES, isGraceDowngraded } from '../helpers/subscription-status.js';
 import { Plan } from '../models/plan.js';
-import { Subscription, type SubscriptionDocument } from '../models/subscription.js';
+import { Subscription, type BillingInterval, type SubscriptionDocument } from '../models/subscription.js';
 import { getPaymentProvider } from '../providers/provider-factory.js';
 import { AddonBasketSchema, AddonMutateSchema } from '../validation/schemas.js';
 
@@ -294,32 +294,44 @@ export function createAddonRoutes(): Router {
     if (!wanted || !isValidTier(wanted)) {
       return sendError(res, 400, 'A valid `tier` query parameter is required', ErrorCode.VALIDATION_ERROR);
     }
+    // Optional `interval`: the plan-change modal quotes the interval the user is
+    // switching TO (its monthly/annual toggle), which may differ from the
+    // subscription's current one. Absent → price at the current interval.
+    const rawInterval = parseQueryString(req.query.interval);
+    if (rawInterval !== undefined && rawInterval !== 'monthly' && rawInterval !== 'annual') {
+      return sendError(res, 400, '`interval` must be `monthly` or `annual`', ErrorCode.VALIDATION_ERROR);
+    }
     const loaded = await loadSubAndPlan(orgId);
     if (!loaded) return sendSuccess(res, 200, { preview: null });
     const { subscription, plan } = loaded;
+    const interval: BillingInterval = rawInterval ?? subscription.interval;
     const { plans } = getBillingConfig();
     const target = plans.find((p) => p.tier === wanted);
     if (!target) return sendSuccess(res, 200, { preview: null });
 
     const bundles = getBundleCatalog();
-    const listCents = priceForInterval(target.prices, subscription.interval);
+    const listCents = priceForInterval(target.prices, interval);
     // Re-sized against the TARGET price: a percentage discount on the plan is
     // worth more at a higher tier, and quoting the old figure would understate
     // what the account keeps.
-    const discountCents = recurringDiscountStandingCents(subscription, listCents, bundles);
+    const discountCents = recurringDiscountStandingCents(
+      { recurringDiscount: subscription.recurringDiscount, addons: subscription.addons, interval },
+      listCents,
+      bundles,
+    );
     // Add-ons the move retires by itself, so the quoted total is the one the
     // next invoice will carry rather than the plan price in isolation.
     const prunedByMove = pruneTierIncludedFeatureAddons(subscription.addons ?? [], wanted, bundles)
       .pruned.map((p) => p.bundleId);
     const survivingAddonCents = (subscription.addons ?? [])
       .filter((a) => !prunedByMove.includes(a.bundleId))
-      .reduce((sum, a) => sum + addonCostCents(a, bundles, subscription.interval), 0);
+      .reduce((sum, a) => sum + addonCostCents(a, bundles, interval), 0);
 
     return sendSuccess(res, 200, {
       preview: {
         tier: wanted,
         fromTier: plan.tier,
-        interval: subscription.interval,
+        interval,
         listCents,
         discountCents,
         /** What the plan line costs after the standing discount. */

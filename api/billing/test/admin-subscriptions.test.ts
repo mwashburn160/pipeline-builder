@@ -113,7 +113,7 @@ const mockFinalizePrunedAddons = jest.fn<(...args: unknown[]) => Promise<void>>(
 // billing.tier.override central-audit record stays inline (asserted separately).
 const mockApplyPlanTierChange = jest.fn((subscription: any, plan: { tier: string }, opts: any) => async () => {
   const auth = opts.authHeader ?? 'Bearer service-token';
-  await mockSyncTierToQuotaService(subscription.orgId, plan.tier, auth, subscription._id.toString(), subscription.addons ?? []);
+  if (!opts.skipEntitlementSync) await mockSyncTierToQuotaService(subscription.orgId, plan.tier, auth, subscription._id.toString(), subscription.addons ?? []);
   if (opts.event) {
     await mockCreateBillingEvent(subscription.orgId, opts.event.type, opts.event.details, subscription._id.toString(), opts.actorId);
   } else {
@@ -651,6 +651,35 @@ describe('PUT /admin/subscriptions/:id', () => {
     expect(mockSyncTierToQuotaService).not.toHaveBeenCalled();
     expect(mockCreateBillingEvent).not.toHaveBeenCalled();
     expect(mockSendError).toHaveBeenCalledWith(res, 500, 'write conflict');
+  });
+
+  it('plan change + terminal status in ONE override syncs ONCE, to the baseline (no same-occurredAt pair)', async () => {
+    // Both syncs would carry the row's single updatedAt as occurredAt; consumers
+    // drop the not-newer second push, so the plan-tier sync would win and the
+    // downgrade would be lost. Only the final (baseline) state may be pushed.
+    const sub = makeSubscription({ status: 'active', planId: 'developer', addons: [{ bundleId: 'bulk_operations', quantity: 1 }] });
+    mockSubscriptionFindById.mockResolvedValue(sub);
+    mockPlanFindOne.mockResolvedValue({ _id: 'enterprise', name: 'Enterprise', tier: 'enterprise', isActive: true });
+    mockValidateBody.mockReturnValue({ ok: true, value: { planId: 'enterprise', status: 'canceled' } });
+
+    await handler(mockReq({ params: { id: '64b000000000000000000001' } }), mockRes());
+
+    expect(mockApplyPlanTierChange).toHaveBeenCalledWith(sub, expect.anything(), expect.objectContaining({ skipEntitlementSync: true }));
+    expect(mockSyncTierToQuotaService).toHaveBeenCalledTimes(1);
+    expect(mockSyncTierToQuotaService).toHaveBeenCalledWith(expect.any(String), 'developer', 'Bearer service-token', expect.any(String), []);
+    expect(mockCreateBillingEvent).toHaveBeenCalledWith(expect.any(String), 'plan_changed', expect.anything(), expect.any(String), expect.anything());
+  });
+
+  it('a plan-only override still syncs the new tier from the plan block', async () => {
+    const sub = makeSubscription({ status: 'active', planId: 'developer' });
+    mockSubscriptionFindById.mockResolvedValue(sub);
+    mockPlanFindOne.mockResolvedValue({ _id: 'pro', name: 'Pro', tier: 'pro', isActive: true });
+    mockValidateBody.mockReturnValue({ ok: true, value: { planId: 'pro' } });
+
+    await handler(mockReq({ params: { id: '64b000000000000000000001' } }), mockRes());
+
+    expect(mockApplyPlanTierChange).toHaveBeenCalledWith(sub, expect.anything(), expect.objectContaining({ skipEntitlementSync: false }));
+    expect(mockSyncTierToQuotaService).toHaveBeenCalledWith(expect.any(String), 'pro', expect.any(String), expect.any(String), expect.anything());
   });
 
   it('mirrors the tier override to the CENTRAL trail with affectedOrgId = target org', async () => {
