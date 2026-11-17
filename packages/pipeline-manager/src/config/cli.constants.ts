@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { defaultPipelineName as sharedDefaultPipelineName, pipelineIdentityHash } from '@pipeline-builder/api-core';
+import { defaultPipelineName as sharedDefaultPipelineName, pipelineIdentityDigest } from '@pipeline-builder/api-core';
 import { randomBytes } from 'crypto';
 import { readFileSync } from 'node:fs';
 
@@ -233,46 +233,50 @@ export function defaultPipelineName(organization: string, project: string): stri
 }
 
 /** CloudFormation's stack-name rule (the same pattern aws-cdk-lib's `Stack` enforces). */
-const STACK_NAME_PATTERN = /^[a-z][a-z0-9-]*$/;
+const STACK_NAME_PATTERN = /^[A-Za-z][A-Za-z0-9-]*$/;
 /** CloudFormation's stack-name length limit. */
 const STACK_NAME_MAX_LENGTH = 128;
+/** Leading letter for a derived name whose first character is not one (`2fa-app` → `pb-2fa-app-…`). */
+const STACK_NAME_LETTER_PREFIX = 'pb-';
 
 /**
- * The CloudFormation stack name a pipeline deploys as: `<project>-<organization>`,
- * lowercased, with `_` turned into `-` — and, when the pair holds a character
- * outside the legacy set (letters, digits, hyphens, underscores), `-<hash>` of
- * the raw pair (`pipelineIdentityHash`). Legacy pairs keep the stack name they
- * always had (so `spring_boot` and `spring-boot` still share one). A project name may contain underscores
- * and a stack name may not (`spring_boot` gave the invalid `spring_boot-system`).
+ * The CloudFormation stack name a pipeline deploys as, derived from its
+ * `project` and `organization` and always satisfying CloudFormation's naming
+ * standard: starts with a letter, holds only letters, digits and hyphens, and
+ * is at most 128 characters.
+ *
+ * - A pair whose plain derivation — `<project>-<organization>`, lowercased,
+ *   `_` → `-` — already satisfies the standard keeps exactly that name. Every
+ *   pipeline deployed so far is such a pair, so its stack is never renamed
+ *   (`spring_boot` / `system` → `spring-boot-system`).
+ * - Any other pair is rewritten to conform: each disallowed character becomes
+ *   `-`, a leading non-letter gets `pb-`, and the base is truncated so that
+ *   `-<hash>` of the RAW pair (`pipelineIdentityDigest`) still fits. The hash
+ *   keeps rewritten names distinct from each other and from every plain name
+ *   (`my.app` / `acme` → `my-app-acme-<hash>`, never `my-app-acme`).
  *
  * Shared by the synth app (`boilerplate.ts`, which names the stack) and the
  * registry payload (`utils/registry.ts`, which records it), so the deployed
  * stack and its registry record always agree. Only the derived name changes;
  * the project and organization values are kept as they are everywhere else.
  *
- * Throws when the result is still not a valid stack name: CloudFormation wants a
- * letter first, then letters, digits and hyphens, at most 128 characters. CDK
- * checks the pattern too, but only at synth, and past 128 characters it silently
- * swaps in a hashed name, so the registry would record a stack that doesn't exist.
+ * Throws only when project or organization is empty — there is nothing to
+ * name the stack after.
  */
 export function pipelineStackName(project: string, organization: string): string {
-  // A legacy pair keeps the stack name it always had (renaming it would deploy
-  // a second stack beside the live one); only non-legacy characters add a hash.
-  const hash = pipelineIdentityHash(project, organization);
-  const name = `${project}-${organization}${hash ? `-${hash}` : ''}`.toLowerCase().replace(/_/g, '-');
-  if (name.length > STACK_NAME_MAX_LENGTH) {
+  if (!project.trim() || !organization.trim()) {
     throw new Error(
-      `Stack name '${name}' (from project '${project}' and organization '${organization}') is ${name.length} characters; `
-      + `CloudFormation allows at most ${STACK_NAME_MAX_LENGTH}. Shorten the project or organization name.`,
+      `Cannot derive a stack name from project '${project}' and organization '${organization}': both are required.`,
     );
   }
-  if (!STACK_NAME_PATTERN.test(name)) {
-    throw new Error(
-      `Stack name '${name}' (from project '${project}' and organization '${organization}') is not a valid CloudFormation stack name: `
-      + 'it must start with a letter and contain only letters, digits, hyphens or underscores (underscores become hyphens).',
-    );
-  }
-  return name;
+  const plain = `${project}-${organization}`.toLowerCase().replace(/_/g, '-');
+  if (plain.length <= STACK_NAME_MAX_LENGTH && STACK_NAME_PATTERN.test(plain)) return plain;
+
+  let base = plain.replace(/[^a-z0-9-]/g, '-');
+  if (!/^[a-z]/.test(base)) base = `${STACK_NAME_LETTER_PREFIX}${base}`;
+  const suffix = `-${pipelineIdentityDigest(project, organization)}`;
+  base = base.slice(0, STACK_NAME_MAX_LENGTH - suffix.length).replace(/-+$/, '');
+  return `${base}${suffix}`;
 }
 
 

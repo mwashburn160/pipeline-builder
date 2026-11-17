@@ -32,6 +32,15 @@ const CLEAN_NAME = /^[A-Za-z0-9_-]*$/;
  */
 export function pipelineIdentityHash(project: string, organization: string): string | null {
   if (CLEAN_NAME.test(project) && CLEAN_NAME.test(organization)) return null;
+  return pipelineIdentityDigest(project, organization);
+}
+
+/**
+ * The 8-hex digest {@link pipelineIdentityHash} appends, computed
+ * unconditionally — for a derivation that must disambiguate even a pair of
+ * legacy characters (e.g. a stack name rewritten to satisfy CloudFormation).
+ */
+export function pipelineIdentityDigest(project: string, organization: string): string {
   return createHash('sha256')
     .update(JSON.stringify([project.toLowerCase(), organization.toLowerCase()]))
     .digest('hex')

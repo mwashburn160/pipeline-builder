@@ -57,24 +57,50 @@ describe('pipelineStackName', () => {
     expect(pipelineStackName('Spring_Boot', 'System')).toBe(pipelineStackName('spring_boot', 'system'));
   });
 
+  const CFN = /^[A-Za-z][A-Za-z0-9-]*$/;
+
   it.each([
-    ['my.app', 'acme'],
-    ['my app', 'acme'],
-    ['api', 'acme@corp'],
-    ['2fa-app', 'acme'],
-    ['-api', 'acme'],
-    ['', 'acme'],
-  ])('refuses %j / %j, which no CloudFormation stack name can carry', (project, organization) => {
-    expect(() => pipelineStackName(project, organization)).toThrow(/not a valid CloudFormation stack name/);
+    ['my.app', 'acme', /^my-app-acme-[0-9a-f]{8}$/],
+    ['my app', 'acme', /^my-app-acme-[0-9a-f]{8}$/],
+    ['api', 'acme@corp', /^api-acme-corp-[0-9a-f]{8}$/],
+    ['2fa-app', 'acme', /^pb-2fa-app-acme-[0-9a-f]{8}$/],
+    ['-api', 'acme', /^pb--api-acme-[0-9a-f]{8}$/],
+    ['Café', 'Acme', /^caf--acme-[0-9a-f]{8}$/],
+  ])('rewrites %j / %j into a CloudFormation-valid name', (project, organization, expected) => {
+    const name = pipelineStackName(project, organization);
+    expect(name).toMatch(expected);
+    expect(name).toMatch(CFN);
+    expect(name.length).toBeLessThanOrEqual(128);
   });
 
-  it('accepts exactly 128 characters and refuses 129, rather than letting CDK hash the name', () => {
-    expect(pipelineStackName('a'.repeat(123), 'acme')).toHaveLength(128);
-    expect(() => pipelineStackName('a'.repeat(124), 'acme')).toThrow(/at most 128/);
+  it('keeps rewritten names distinct from the plain name they resemble, and from each other', () => {
+    const names = [
+      pipelineStackName('my-app', 'acme'),
+      pipelineStackName('my.app', 'acme'),
+      pipelineStackName('my app', 'acme'),
+      pipelineStackName('my@app', 'acme'),
+    ];
+    expect(new Set(names).size).toBe(names.length);
+    expect(pipelineStackName('my.app', 'acme')).toBe(pipelineStackName('My.App', 'ACME'));
   });
 
-  it('names the project and organization in the error', () => {
-    expect(() => pipelineStackName('my.app', 'acme')).toThrow("from project 'my.app' and organization 'acme'");
+  it('keeps a 128-character plain name, and truncates a longer one to 128 with a hash', () => {
+    expect(pipelineStackName('a'.repeat(123), 'acme')).toBe(`${'a'.repeat(123)}-acme`);
+    const long = pipelineStackName('a'.repeat(124), 'acme');
+    expect(long).toHaveLength(128);
+    expect(long).toMatch(/^a+-[0-9a-f]{8}$/);
+    expect(long).toMatch(CFN);
+    expect(pipelineStackName('a'.repeat(200), 'acme')).not.toBe(pipelineStackName('a'.repeat(201), 'acme'));
+  });
+
+  it('never ends the truncated base on a hyphen', () => {
+    const name = pipelineStackName(`${'a'.repeat(118)}-.`, 'acme');
+    expect(name).not.toMatch(/--[0-9a-f]{8}$/);
+    expect(name).toMatch(CFN);
+  });
+
+  it.each([['', 'acme'], ['api', ''], ['  ', 'acme']])('refuses an empty project or organization (%j / %j)', (project, organization) => {
+    expect(() => pipelineStackName(project, organization)).toThrow(/both are required/);
   });
 });
 
