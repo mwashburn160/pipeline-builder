@@ -185,6 +185,8 @@ describe('PUT /reports/stakeholder-sync/:orgId', () => {
     ['a missing entitled flag', {}],
     ['a non-boolean entitled flag', { entitled: 'yes' }],
     ['a malformed occurredAt', { entitled: true, occurredAt: 'nope' }],
+    ['a non-string occurredAt', { entitled: true, occurredAt: 1_700_000_000 }],
+    ['an unknown field', { entitled: true, orgIds: ['other-org'] }],
   ])('refuses %s before touching anything', async (_case, body) => {
     await call(body);
     expect(mockSendBadRequest).toHaveBeenCalled();

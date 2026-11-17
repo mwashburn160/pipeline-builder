@@ -33,8 +33,10 @@ import {
   errorMessage,
   isBillingEnabled,
   requirePermission,
+  sendBadRequest,
   sendError,
   sendSuccess,
+  validate,
 } from '@pipeline-builder/api-core';
 import { rateLimitByOrg, withRoute } from '@pipeline-builder/api-server';
 import {
@@ -45,6 +47,7 @@ import {
   type ReportSnapshot,
 } from '@pipeline-builder/pipeline-data';
 import { Router } from 'express';
+import { z } from 'zod';
 import { reportDataSource } from '../services/report-runner.js';
 
 const logger = createLogger('report-preview');
@@ -62,6 +65,13 @@ const PREVIEW_TEMPLATE = 'weekly_delivery';
 const WATERMARK = 'PREVIEW — a one-off sample of the Stakeholder Reports add-on. '
   + 'The numbers are your own, for the period shown. Scheduling, review, publishing, '
   + 'email delivery and share links need the add-on.';
+
+/**
+ * The preview takes NO input: the template, the period and the timezone are
+ * fixed (see above), so a body that tries to choose any of them is refused
+ * rather than silently ignored — before the one-off claim is spent.
+ */
+const PreviewBodySchema = z.object({}).strict();
 
 export function createReportPreviewRoutes(): Router {
   const router: Router = Router();
@@ -83,6 +93,9 @@ export function createReportPreviewRoutes(): Router {
       message: 'Too many preview attempts — wait a few minutes.',
     }),
     withRoute(async ({ req, res, ctx, orgId }) => {
+      const validation = validate(req.body ?? {}, PreviewBodySchema);
+      if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
+
       const features = (req.user as { features?: string[] } | undefined)?.features ?? [];
 
       // An entitled org has the real thing, so the preview is refused WITHOUT spending
@@ -121,7 +134,7 @@ export function createReportPreviewRoutes(): Router {
         // Unreachable unless the template registry changed under us; a 500 is right
         // because the preview WAS claimed and the caller got nothing.
         logger.error('Preview template missing', { template: PREVIEW_TEMPLATE });
-        return sendError(res, 500, 'The preview template is unavailable.');
+        return sendError(res, 500, 'The preview template is unavailable.', ErrorCode.INTERNAL_ERROR);
       }
 
       const period = resolvePeriod('weekly', 'UTC', 'monday');
@@ -157,6 +170,7 @@ export function createReportPreviewRoutes(): Router {
         return sendError(
           res, 500,
           'The preview could not be computed. Contact support to have your free preview restored.',
+          ErrorCode.INTERNAL_ERROR,
         );
       }
     }));

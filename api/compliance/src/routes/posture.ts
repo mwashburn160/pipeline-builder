@@ -22,6 +22,7 @@
 
 import {
   createLogger,
+  ErrorCode,
   errorMessage,
   requireInternalService,
   sendError,
@@ -130,7 +131,7 @@ export function createPostureRoutes(): Router {
       // non-2xx as "unavailable"), so it is logged and returned plainly rather than
       // dressed up as an empty posture — an empty posture reads as "no rules".
       logger.warn('Compliance posture read failed', { orgId, error: errorMessage(err) });
-      return sendError(res, 500, 'Compliance posture could not be read');
+      return sendError(res, 500, 'Compliance posture could not be read', ErrorCode.INTERNAL_ERROR);
     }
   }));
 

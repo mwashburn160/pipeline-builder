@@ -23,6 +23,10 @@ const passThrough = (_req: unknown, _res: unknown, next: () => void) => next();
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   recordAudit: mockRecordAudit,
   sendSuccess: mockSendSuccess,
+  // The list route answers through the shared paginated envelope; recorded on
+  // `mockSendSuccess` so the list assertions read the body the client receives.
+  sendPaginatedNested: (res: unknown, key: string, data: unknown[], o: { total: number; limit: number; offset: number }) =>
+    mockSendSuccess(res, 200, { [key]: data, pagination: { ...o, hasMore: o.offset + data.length < o.total } }),
   sendError: mockSendError,
   sendBadRequest: mockSendBadRequest,
   requireAuth: () => passThrough,

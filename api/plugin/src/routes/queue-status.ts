@@ -3,7 +3,7 @@
 
 import {
   isoOrNull,
-  envInt, ErrorCode, audited, getParam, isSystemAdmin, isSystemOrgRequest, paginationMeta, parsePage, parseQueryInt, refuseWeakSession, requireStepUp, requireSystemOrgPermission, sendError, sendSuccess, actorId, tagRouteGate, userHasPermission,
+  envInt, ErrorCode, audited, getParam, isSystemAdmin, isSystemOrgRequest, parsePage, parseQueryInt, refuseWeakSession, requireStepUp, requireSystemOrgPermission, sendError, sendPaginatedNested, sendSuccess, actorId, tagRouteGate, userHasPermission,
   recordAudit, recordAuthzDenial, SYSTEM_ORG_ID, VALID_TIERS, buildConcurrencyEnvVar, buildWorkerConcurrencyFor,
 } from '@pipeline-builder/api-core';
 import type { PlanTier, QuotaService } from '@pipeline-builder/api-core';
@@ -242,14 +242,15 @@ function pageOf<T extends Job>(
   window: T[],
   { limit, offset }: { limit: number; offset: number },
   total: number | undefined,
-): { page: T[]; pagination: { total?: number; limit: number; offset: number; hasMore: boolean } } {
+): { page: T[]; paging: { total?: number; limit: number; offset: number; hasMore?: boolean } } {
   const page = window.slice(offset, offset + limit);
-  // With a known total the shared rule applies; without one (a tenant-scoped
-  // caller, whose total can't be counted) the peeked extra row is the signal.
-  const hasMore = total !== undefined
-    ? paginationMeta({ total, offset, limit, returned: page.length }).hasMore
-    : window.length > offset + limit;
-  return { page, pagination: { ...(total !== undefined ? { total } : {}), limit, offset, hasMore } };
+  // With a known total `sendPaginatedNested` derives `hasMore` by the shared
+  // rule; without one (a tenant-scoped caller, whose total can't be counted)
+  // the peeked extra row is the signal, so it is passed explicitly.
+  return {
+    page,
+    paging: total !== undefined ? { total, limit, offset } : { limit, offset, hasMore: window.length > offset + limit },
+  };
 }
 
 /** A build job's owning org. */
@@ -375,7 +376,7 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
     // an org admin never sees another tenant's plugin names or error messages.
     const visible = failed.sort(newestFirst);
     const total = counts ? counts.reduce((acc, c) => acc + (c.failed ?? 0), 0) : undefined;
-    const { page, pagination } = pageOf(visible, paging, total);
+    const { page, paging: pageInfo } = pageOf(visible, paging, total);
 
     const tierByQueue = new Map(tiers.map(({ tier, queue }) => [queue.name, tier]));
     const jobs = page.map((job) => ({
@@ -396,7 +397,7 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
       contextAvailable: job.data?.contextCleaned !== true,
     }));
 
-    return sendSuccess(res, 200, { jobs, pagination });
+    return sendPaginatedNested(res, 'jobs', jobs, pageInfo);
   }));
 
   /**
@@ -517,7 +518,7 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
 
     const visible = dlqJobs.sort(newestFirst);
     const total = counts ? DLQ_STATES.reduce((acc, st) => acc + (counts[st] ?? 0), 0) : undefined;
-    const { page, pagination } = pageOf(visible, paging, total);
+    const { page, paging: pageInfo } = pageOf(visible, paging, total);
 
     const jobs = page.map((job) => ({
       id: job.id,
@@ -532,7 +533,7 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
       failedAt: isoOrNull(job.finishedOn),
     }));
 
-    return sendSuccess(res, 200, { jobs, pagination });
+    return sendPaginatedNested(res, 'jobs', jobs, pageInfo);
   }));
 
   // Access: `requireSystemOrgPermission('plugin_queue:manage')` + `requireStepUp`

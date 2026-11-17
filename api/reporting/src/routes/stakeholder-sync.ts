@@ -39,15 +39,30 @@ import {
   sendBadRequest,
   sendError,
   sendSuccess,
+  validate,
 } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import { runWithTenantContext, stakeholderReportStore, type ReportDefinition } from '@pipeline-builder/pipeline-data';
 import { Router } from 'express';
+import { z } from 'zod';
 import { resolveOrgSubtree } from '../helpers/report-helpers.js';
 import { notifyPaused } from '../services/report-delivery.js';
 import { nextRunFor } from '../services/report-schedule.js';
 
 const logger = createLogger('stakeholder-sync');
+
+/**
+ * `{ entitled, occurredAt? }` — billing's entitlement edge. `occurredAt` is any
+ * string `Date` parses (billing sends ISO), and orders this edge against a
+ * newer one already applied.
+ */
+const bodySchema = z.object({
+  entitled: z.boolean({ error: 'must be a boolean' }),
+  occurredAt: z.string({ error: 'must be an ISO timestamp' })
+    .refine((v) => !Number.isNaN(new Date(v).getTime()), 'must be an ISO timestamp')
+    .transform((v) => new Date(v))
+    .optional(),
+}).strict();
 
 export function createStakeholderSyncRoutes(): Router {
   const router: Router = Router();
@@ -61,15 +76,10 @@ export function createStakeholderSyncRoutes(): Router {
       const rootOrgId = getParam(req.params, 'orgId');
       if (!rootOrgId) return sendBadRequest(res, 'orgId path parameter is required', ErrorCode.VALIDATION_ERROR);
 
-      const body = (req.body ?? {}) as { entitled?: unknown; occurredAt?: unknown };
-      if (typeof body.entitled !== 'boolean') {
-        return sendBadRequest(res, 'entitled must be a boolean', ErrorCode.VALIDATION_ERROR);
-      }
-      const entitled = body.entitled;
-      const occurredAt = typeof body.occurredAt === 'string' ? new Date(body.occurredAt) : undefined;
-      if (occurredAt && Number.isNaN(occurredAt.getTime())) {
-        return sendBadRequest(res, 'occurredAt must be an ISO timestamp', ErrorCode.VALIDATION_ERROR);
-      }
+      // An absent body is an empty one, so a missing `entitled` is named as such.
+      const validation = validate(req.body ?? {}, bodySchema);
+      if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
+      const { entitled, occurredAt } = validation.value;
 
       // `[root, ...descendants]`, or undefined when the org has no hierarchy. A THROWN
       // failure here is a refusal, not a fallback to the single org: see the header.

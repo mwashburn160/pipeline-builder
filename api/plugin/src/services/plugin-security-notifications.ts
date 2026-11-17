@@ -72,6 +72,7 @@ import {
 import { incCounter } from '@pipeline-builder/api-server';
 import { pipelinesOnVersion, runWithTenantContext, schema, type PipelineOnVersion, type PluginSecurityNotificationPref } from '@pipeline-builder/pipeline-data';
 import { and, eq, gt, inArray } from 'drizzle-orm';
+import { z } from 'zod';
 
 import { EcosystemError } from './ecosystem/context.js';
 import { elevated } from './ecosystem/store.js';
@@ -285,62 +286,49 @@ export interface PrefsUpdate {
   resendConfirmation?: boolean;
 }
 
-const FIELDS: ReadonlyArray<keyof PrefsUpdate> = [
-  'recipientMode', 'targetUsers', 'notifyRescan', 'notifyPipelineOwners', 'digestMode', 'webhookUrl', 'webhookSecret', 'externalEmail', 'resendConfirmation',
-];
+/** `''` and `null` both clear an optional channel field. */
+const clearable = <T extends z.ZodType>(value: T) =>
+  z.union([z.literal(''), z.null(), value]).transform((v) => (v === '' || v === null ? null : v) as z.output<T> | null);
+
+/**
+ * The `PUT` body (strict: unknown fields are refused). Each field carries the
+ * refusal it has always answered with, so the settings form keeps its
+ * messages; `webhookUrl`'s SSRF check happens in `putSecurityPrefs`.
+ */
+const PrefsUpdateSchema = z.object({
+  recipientMode: z.enum(PLUGIN_SECURITY_RECIPIENT_MODES, { error: `recipientMode must be one of ${PLUGIN_SECURITY_RECIPIENT_MODES.join(', ')}` }).optional(),
+  targetUsers: z.array(z.string().trim().min(1).max(128), { error: 'targetUsers must be an array of user ids' })
+    .transform((users) => [...new Set(users)])
+    .refine((users) => users.length <= MAX_TARGET_USERS, { error: `at most ${MAX_TARGET_USERS} targetUsers` })
+    .optional(),
+  notifyRescan: z.boolean({ error: 'notifyRescan must be a boolean' }).optional(),
+  notifyPipelineOwners: z.boolean({ error: 'notifyPipelineOwners must be a boolean' }).optional(),
+  digestMode: z.enum(PLUGIN_SECURITY_DIGEST_MODES, { error: `digestMode must be one of ${PLUGIN_SECURITY_DIGEST_MODES.join(', ')}` }).optional(),
+  webhookUrl: clearable(z.string().max(2048).startsWith('https://')).optional(),
+  webhookSecret: clearable(z.string().max(512)).optional(),
+  externalEmail: clearable(z.string().transform((e) => e.trim().toLowerCase()).pipe(z.string().max(320).regex(EMAIL_SHAPE))).optional(),
+  resendConfirmation: z.boolean({ error: 'resendConfirmation must be a boolean' }).optional(),
+}).strict();
+
+/** The fixed refusal of a field whose zod issue message is generic (a union / pipe). */
+const FIELD_MESSAGES: Partial<Record<keyof PrefsUpdate, string>> = {
+  targetUsers: 'targetUsers must be an array of user ids',
+  webhookUrl: 'webhookUrl must be an https URL',
+  webhookSecret: 'webhookSecret must be a string (at most 512 characters)',
+  externalEmail: 'externalEmail must be an email address',
+};
 
 /** Validate a `PUT` body (strict: unknown fields are refused). Throws a 400. */
 export function parsePrefsUpdate(body: unknown): PrefsUpdate {
   const bad = (message: string): never => { throw new EcosystemError(ErrorCode.VALIDATION_ERROR, message); };
   if (!body || typeof body !== 'object' || Array.isArray(body)) bad('body must be an object');
-  const b = body as Record<string, unknown>;
-  const unknown = Object.keys(b).filter((k) => !(FIELDS as readonly string[]).includes(k));
-  if (unknown.length) bad(`unknown field(s): ${unknown.join(', ')}`);
-  const out: PrefsUpdate = {};
-  if (b.recipientMode !== undefined) {
-    if (!(PLUGIN_SECURITY_RECIPIENT_MODES as readonly unknown[]).includes(b.recipientMode)) bad(`recipientMode must be one of ${PLUGIN_SECURITY_RECIPIENT_MODES.join(', ')}`);
-    out.recipientMode = b.recipientMode as PluginSecurityRecipientMode;
-  }
-  if (b.targetUsers !== undefined) {
-    if (!Array.isArray(b.targetUsers) || !b.targetUsers.every((u) => typeof u === 'string' && u.trim() !== '' && u.length <= 128)) bad('targetUsers must be an array of user ids');
-    const users = [...new Set((b.targetUsers as string[]).map((u) => u.trim()))];
-    if (users.length > MAX_TARGET_USERS) bad(`at most ${MAX_TARGET_USERS} targetUsers`);
-    out.targetUsers = users;
-  }
-  if (b.notifyRescan !== undefined) {
-    if (typeof b.notifyRescan !== 'boolean') bad('notifyRescan must be a boolean');
-    out.notifyRescan = b.notifyRescan as boolean;
-  }
-  if (b.notifyPipelineOwners !== undefined) {
-    if (typeof b.notifyPipelineOwners !== 'boolean') bad('notifyPipelineOwners must be a boolean');
-    out.notifyPipelineOwners = b.notifyPipelineOwners as boolean;
-  }
-  if (b.digestMode !== undefined) {
-    if (!(PLUGIN_SECURITY_DIGEST_MODES as readonly unknown[]).includes(b.digestMode)) bad(`digestMode must be one of ${PLUGIN_SECURITY_DIGEST_MODES.join(', ')}`);
-    out.digestMode = b.digestMode as PluginSecurityDigestMode;
-  }
-  if (b.webhookUrl !== undefined) {
-    if (b.webhookUrl === null || b.webhookUrl === '') out.webhookUrl = null;
-    else if (typeof b.webhookUrl !== 'string' || b.webhookUrl.length > 2048 || !b.webhookUrl.startsWith('https://')) bad('webhookUrl must be an https URL');
-    else out.webhookUrl = b.webhookUrl;
-  }
-  if (b.webhookSecret !== undefined) {
-    if (b.webhookSecret === null || b.webhookSecret === '') out.webhookSecret = null;
-    else if (typeof b.webhookSecret !== 'string' || b.webhookSecret.length > 512) bad('webhookSecret must be a string (at most 512 characters)');
-    else out.webhookSecret = b.webhookSecret;
-  }
-  if (b.externalEmail !== undefined) {
-    if (b.externalEmail === null || b.externalEmail === '') {out.externalEmail = null;} else {
-      const email = typeof b.externalEmail === 'string' ? b.externalEmail.trim().toLowerCase() : '';
-      if (email.length > 320 || !EMAIL_SHAPE.test(email)) bad('externalEmail must be an email address');
-      out.externalEmail = email;
-    }
-  }
-  if (b.resendConfirmation !== undefined) {
-    if (typeof b.resendConfirmation !== 'boolean') bad('resendConfirmation must be a boolean');
-    out.resendConfirmation = b.resendConfirmation as boolean;
-  }
-  return out;
+  const parsed = PrefsUpdateSchema.safeParse(body);
+  if (parsed.success) return parsed.data as PrefsUpdate;
+  const issue = parsed.error.issues[0]!;
+  if (issue.code === 'unrecognized_keys') return bad(`unknown field(s): ${issue.keys.join(', ')}`);
+  const field = issue.path[0] as keyof PrefsUpdate | undefined;
+  // A refine (the targetUsers cap) carries its own message; so do the enum and boolean fields.
+  return bad((issue.code !== 'custom' && field && FIELD_MESSAGES[field]) || issue.message);
 }
 
 /** `/notifications/confirm?token=…` on the frontend. */
@@ -431,7 +419,7 @@ export async function putSecurityPrefs(orgId: string, userId: string, body: unkn
   await prefsStore.put(next);
   if (confirmTo !== null && token !== null) await sendConfirmation(confirmTo, token);
 
-  const changed = FIELDS.filter((k) => k !== 'resendConfirmation' && update[k] !== undefined);
+  const changed = (Object.keys(PrefsUpdateSchema.shape) as Array<keyof PrefsUpdate>).filter((k) => k !== 'resendConfirmation' && update[k] !== undefined);
   recordAudit({
     action: 'plugin.security_notifications.update',
     actorId: actorId({ userId }),

@@ -133,7 +133,9 @@ export async function chargeBuildCredits(
   const credits = creditsForBuild(job.processedOn, job.finishedOn, buildSize);
   if (credits <= 0) return;
 
-  incCounter('cpu_credits_charged_total', { org_id: orgId, outcome, build_class: buildClass, build_size: buildSize });
+  // No org label: org ids are an unbounded label set, and the per-org figure is
+  // the quota ledger's (`incrementMetered` below carries it, with attribution).
+  incCounter('cpu_credits_charged_total', { outcome, build_class: buildClass, build_size: buildSize });
   try {
     // `incrementMetered` rather than `incrementQuota`: the latter adds ONE unit
     // per call (it is built for per-request metering), and a build charges many.

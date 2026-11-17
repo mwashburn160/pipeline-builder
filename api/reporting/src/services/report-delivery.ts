@@ -250,7 +250,7 @@ export async function deliverPublishedRun(
         `This instance has no outbound email configured, so ${deliverable.length} recipient(s) were not emailed. `
         + 'The report is available in the product, and a share link can be sent by hand.',
       );
-      emitCounter('report_delivery_email_unavailable_total', { orgId: definition.orgId });
+      emitCounter('report_delivery_email_unavailable_total', {});
     }
   } else if (deliverable.length > 0) {
     const result = await sendReportEmail(definition, run, deliverable, subject, headline);
@@ -290,10 +290,7 @@ export async function deliverPublishedRun(
   }
 
   if (deliveryIncomplete(outcome)) outcome.state = 'failed';
-  emitCounter('report_delivered_total', {
-    orgId: definition.orgId,
-    cadence: definition.cadence,
-  });
+  emitCounter('report_delivered_total', { cadence: definition.cadence });
   return outcome;
 }
 
@@ -345,7 +342,7 @@ export async function deliverAndRecord(
     return outcome;
   } catch (err) {
     logger.warn('Report delivery failed', { orgId: definition.orgId, runId: run.id, error: errorMessage(err) });
-    emitCounter('report_delivery_failed_total', { orgId: definition.orgId, channel: 'publish' });
+    emitCounter('report_delivery_failed_total', { channel: 'publish' });
     // Built on what THIS attempt already did when it got that far: an in-app notice
     // posted or an email sent before the throw is recorded as delivered, so the
     // redelivery the lead is told to run skips them instead of sending them twice.
@@ -403,7 +400,7 @@ async function notifyDeliveryFailed(definition: ReportDefinition, run: ReportRun
   } catch (err) {
     logger.warn('Could not notify the lead of a failed delivery', { runId: run.id, error: errorMessage(err) });
   }
-  emitCounter('report_delivery_incomplete_total', { orgId: definition.orgId });
+  emitCounter('report_delivery_incomplete_total', {});
 }
 
 /** POST the report to platform's relay, one message per address. */
@@ -439,7 +436,7 @@ async function sendReportEmail(
       // A refused CALL is not a bounce: the addresses are fine and the relay is not.
       // Counting it as one would retire a manager's address after three bad deploys.
       logger.warn('Report email relay refused the send', { orgId: definition.orgId, status: res.statusCode });
-      emitCounter('report_delivery_failed_total', { orgId: definition.orgId, channel: 'email' });
+      emitCounter('report_delivery_failed_total', { channel: 'email' });
       return { sent: [], failed: [], relayFailed: 'refused' };
     }
     const strings = (v: unknown): string[] =>
@@ -447,7 +444,7 @@ async function sendReportEmail(
     return { sent: strings(d.sent), failed: strings(d.failed), relayFailed: false };
   } catch (err) {
     logger.warn('Report email relay unreachable', { orgId: definition.orgId, error: errorMessage(err) });
-    emitCounter('report_delivery_failed_total', { orgId: definition.orgId, channel: 'email' });
+    emitCounter('report_delivery_failed_total', { channel: 'email' });
     return { sent: [], failed: [], relayFailed: 'unreachable' };
   }
 }
@@ -497,14 +494,14 @@ async function deliverToDestinations(
       const res = await webhook.deliver(msg, { value: dest.target, orgId: definition.orgId });
       if (res.ok) {deliveredIds.push(dest.id);} else {
         failed += 1;
-        emitCounter('report_delivery_failed_total', { orgId: definition.orgId, channel: dest.channel });
+        emitCounter('report_delivery_failed_total', { channel: dest.channel });
       }
     } catch (err) {
       failed += 1;
       logger.warn('Report destination delivery failed', {
         orgId: definition.orgId, channel: dest.channel, error: errorMessage(err),
       });
-      emitCounter('report_delivery_failed_total', { orgId: definition.orgId, channel: dest.channel });
+      emitCounter('report_delivery_failed_total', { channel: dest.channel });
     }
   }
   return { deliveredIds, failed };
@@ -535,7 +532,7 @@ export async function notifyReadyForReview(definition: ReportDefinition, run: Re
     priority: 'normal',
   });
   await emailOwner(definition, subject, body);
-  emitCounter('report_ready_for_review_total', { orgId: definition.orgId });
+  emitCounter('report_ready_for_review_total', {});
 }
 
 /**
@@ -567,7 +564,7 @@ export async function notifyRunFailed(
     priority: 'high',
   });
   await emailOwner(definition, subject, body);
-  emitCounter('report_run_failed_total', { orgId: definition.orgId, cadence: definition.cadence });
+  emitCounter('report_run_failed_total', { cadence: definition.cadence });
 }
 
 /**
@@ -607,7 +604,7 @@ export async function notifyPaused(definition: ReportDefinition, reason: ReportP
     content: body,
     priority: 'high',
   });
-  emitCounter('report_definition_paused_total', { orgId: definition.orgId, reason });
+  emitCounter('report_definition_paused_total', { reason });
 }
 
 /**
@@ -646,11 +643,11 @@ export async function sendRecipientConfirmation(orgId: string, email: string, to
       },
     );
     const sent = res.statusCode < 400 && Array.isArray(res.body?.data?.sent) && res.body.data.sent.length > 0;
-    if (!sent) emitCounter('report_delivery_failed_total', { orgId, channel: 'confirmation' });
+    if (!sent) emitCounter('report_delivery_failed_total', { channel: 'confirmation' });
     return sent;
   } catch (err) {
     logger.warn('Recipient confirmation email failed', { orgId, error: errorMessage(err) });
-    emitCounter('report_delivery_failed_total', { orgId, channel: 'confirmation' });
+    emitCounter('report_delivery_failed_total', { channel: 'confirmation' });
     return false;
   }
 }

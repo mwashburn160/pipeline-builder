@@ -32,6 +32,13 @@ import { MANAGEABLE_SUBSCRIPTION_STATUSES } from '../helpers/subscription-status
 import { OfferExclusion } from '../models/offer-exclusion.js';
 import { Offer, type OfferDocument } from '../models/offer.js';
 import { Subscription } from '../models/subscription.js';
+import {
+  bodyErrorMessage,
+  OfferDeclineSchema,
+  OfferExclusionSchema,
+  OfferWithdrawSchema,
+  validateOptionalBody,
+} from '../validation/schemas.js';
 
 const logger = createLogger('billing-offers');
 
@@ -50,15 +57,6 @@ const logger = createLogger('billing-offers');
 
 /** Offer rows an account may still act on. */
 const LIVE_STATUSES = ['sent'] as const;
-
-/**
- * The widest recall window, in minutes (one week).
- *
- * Bounded because an unbounded one would rewrite months of outcome history in a
- * single call, and the outcome history is the only thing that says whether any
- * of this worked. A mistake worth recalling is noticed in hours, not quarters.
- */
-const MAX_WITHDRAW_WINDOW_MINUTES = 7 * 24 * 60;
 
 /** One offer, as the account's own surface renders it. */
 function toOfferResponse(offer: Pick<OfferDocument,
@@ -171,9 +169,9 @@ export function createOfferRoutes(): Router {
       if (!id) return sendBadRequest(res, 'Offer id is required', ErrorCode.MISSING_REQUIRED_FIELD);
       // `_id` is an ObjectId: a malformed id would throw a CastError (a 500).
       if (!isValidObjectId(id)) return sendError(res, 404, 'No open offer with that id', ErrorCode.NOT_FOUND);
-      const reason = typeof (req.body as { reason?: unknown } | undefined)?.reason === 'string'
-        ? ((req.body as { reason: string }).reason).slice(0, 500)
-        : undefined;
+      const parsed = validateOptionalBody(req, OfferDeclineSchema);
+      if (!parsed.ok) return sendBadRequest(res, bodyErrorMessage(parsed), ErrorCode.VALIDATION_ERROR);
+      const { reason } = parsed.value;
 
       // Scoped to the caller's own account AND to a still-open offer: declining
       // a redeemed one would rewrite a conversion as a refusal, which is the one
@@ -354,9 +352,12 @@ export function createOfferRoutes(): Router {
       // row the lookup could never match — a veto that silently did nothing.
       const target = normalizeOrgId(getParam(req.params, 'orgId'));
       if (!target) return sendBadRequest(res, 'orgId is required', ErrorCode.MISSING_REQUIRED_FIELD);
-      const raw = (req.body ?? {}) as { reason?: unknown };
-      const reason = typeof raw.reason === 'string' ? raw.reason.trim() : '';
-      if (!reason) return sendBadRequest(res, 'A reason is required to exclude an account', ErrorCode.MISSING_REQUIRED_FIELD);
+      const parsed = validateOptionalBody(req, OfferExclusionSchema);
+      if (!parsed.ok) {
+        const unknownKey = parsed.zodError?.issues[0]?.code === 'unrecognized_keys';
+        return sendBadRequest(res, bodyErrorMessage(parsed), unknownKey ? ErrorCode.VALIDATION_ERROR : ErrorCode.MISSING_REQUIRED_FIELD);
+      }
+      const { reason } = parsed.value;
 
       await OfferExclusion.findOneAndUpdate(
         { orgId: target },
@@ -430,19 +431,13 @@ export function createOfferRoutes(): Router {
     ...requireSystemOrgPermission('subscriptions:manage'),
     audited('billing.offer.withdrawn'),
     withRoute(async ({ req, res, ctx, userId }) => {
-      const raw = (req.body ?? {}) as { sinceMinutes?: unknown; actor?: unknown };
-      const minutes = Number(raw.sinceMinutes);
-      // A window is REQUIRED and bounded. An unbounded recall would silently
-      // rewrite months of outcome history, which is the measurement this whole
-      // phase exists to protect.
-      if (!Number.isFinite(minutes) || minutes <= 0 || minutes > MAX_WITHDRAW_WINDOW_MINUTES) {
-        return sendBadRequest(
-          res,
-          `sinceMinutes must be between 1 and ${MAX_WITHDRAW_WINDOW_MINUTES}`,
-          ErrorCode.VALIDATION_ERROR,
-        );
-      }
-      const actor = typeof raw.actor === 'string' && raw.actor.trim() ? raw.actor.trim() : OFFERS_AGENT_ACTOR_ID;
+      // A window is REQUIRED and bounded (MAX_WITHDRAW_WINDOW_MINUTES). An
+      // unbounded recall would silently rewrite months of outcome history, which
+      // is the measurement this whole phase exists to protect.
+      const parsed = validateOptionalBody(req, OfferWithdrawSchema);
+      if (!parsed.ok) return sendBadRequest(res, bodyErrorMessage(parsed), ErrorCode.VALIDATION_ERROR);
+      const minutes = parsed.value.sinceMinutes;
+      const actor = parsed.value.actor || OFFERS_AGENT_ACTOR_ID;
       const since = new Date(Date.now() - minutes * 60 * 1000);
 
       const result = await Offer.updateMany(

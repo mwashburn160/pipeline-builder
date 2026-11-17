@@ -471,7 +471,7 @@ describe('POST /reports/events', () => {
       });
       mockVerifyServicePrincipal.mockReturnValue(false);
       await getHandler()(ingestReq({ user: { sub: 'u-1', scope: 'reporting:ingest', organizationId: 'acme', token_use: 'api_key', jti: 'key-1' } }), res());
-      expect(mockIncCounter).toHaveBeenCalledWith('reporting_ingest_foreign_org_dropped_total', { org_id: 'acme' });
+      expect(mockIncCounter).toHaveBeenCalledWith('reporting_ingest_foreign_org_dropped_total', {});
       expect(mockIncCounter).toHaveBeenCalledWith('reporting_ingest_rejected_total', { reason: 'foreign_org' }, 2);
       // …and a durable FAILURE row naming the refused pipelines + the key, never the owning org.
       const rejected = mockRecordAudit.mock.calls.map((c) => c[0] as any).find((e) => e.action === 'reporting.ingest.rejected');

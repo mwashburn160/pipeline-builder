@@ -231,7 +231,7 @@ describe('GET /compliance/posture', () => {
     await call();
     expect(mockFindAllEnforced).not.toHaveBeenCalled();
     expect(mockSendSuccess).not.toHaveBeenCalled();
-    expect(mockSendError).toHaveBeenCalledWith(expect.anything(), 500, expect.stringContaining('could not be read'));
+    expect(mockSendError).toHaveBeenCalledWith(expect.anything(), 500, expect.stringContaining('could not be read'), 'INTERNAL_ERROR');
   });
 
   it('counts only APPROVED, unexpired exemptions', async () => {
@@ -268,6 +268,6 @@ describe('GET /compliance/posture', () => {
     // caller treats any non-2xx as "unavailable" and the report's panel says so — which
     // costs one panel half, not the run.
     expect(mockSendSuccess).not.toHaveBeenCalled();
-    expect(mockSendError).toHaveBeenCalledWith(expect.anything(), 500, expect.stringContaining('could not be read'));
+    expect(mockSendError).toHaveBeenCalledWith(expect.anything(), 500, expect.stringContaining('could not be read'), 'INTERNAL_ERROR');
   });
 });

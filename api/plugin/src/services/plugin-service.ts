@@ -13,7 +13,7 @@ import { CoreConstants, ComputeType, PluginType, pluginImageRepository } from '@
 import {
   CrudService, buildPluginConditions, distinctPipelines, executeRows, findVersionReferences, parseSemver, pluginResolutionOrderBy,
   refreshLatestForPlugin, runWithTenantContext, satisfiesVersionSpec, schema, semverOrderBy, versionReferencedPredicate, viewerCacheSegment, withTenantTx,
-  withViewerContext, type PluginFilter,
+  withViewerContext, type PluginFilter, type UpdateOptions,
 } from '@pipeline-builder/pipeline-data';
 import { and, eq, inArray, isNull, ne, sql, SQL } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
@@ -134,6 +134,12 @@ export function mergedMetadataSources(patch: MetadataSources): MetadataSources {
 }
 
 /** Plugin CRUD service with multi-tenant access control. */
+/** {@link PluginService.update} options: the base optimistic-concurrency options
+ *  plus the caller's write authority (needed to demote the current default). */
+export interface PluginUpdateOptions extends UpdateOptions {
+  access?: WriteAccess;
+}
+
 export class PluginService extends CrudService<
   Plugin,
   PluginFilter,
@@ -300,9 +306,12 @@ export class PluginService extends CrudService<
     data: PluginUpdate,
     orgId: string,
     userId: string,
-    access: WriteAccess = { isSystemAdmin: false, canPublish: false },
+    options: PluginUpdateOptions = {},
   ): Promise<Plugin | null> {
-    if (data.isDefault !== true) return super.update(id, data, orgId, userId);
+    // `access` rides on the base UpdateOptions so the override stays compatible
+    // with CrudService.update (which now carries `expectedUpdatedAt`).
+    const { access = { isSystemAdmin: false, canPublish: false }, ...baseOptions } = options;
+    if (data.isDefault !== true) return super.update(id, data, orgId, userId, baseOptions);
 
     // Same target predicate as CrudService.update (read access + own-org pin +
     // exact id); `orgId` is never writable.

@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { BILLING_INTERVALS, SUBSCRIPTION_STATUSES } from '@pipeline-builder/api-core';
+import { BILLING_INTERVALS, SUBSCRIPTION_STATUSES, validate } from '@pipeline-builder/api-core';
 import { z } from 'zod';
 
 const BillingIntervalSchema = z.enum(BILLING_INTERVALS);
@@ -195,3 +195,59 @@ export const PromotionGrantSchema = z.object({
   targetOrgId: z.string().min(1, 'targetOrgId is required'),
 });
 
+
+// ── Offers ────────────────────────────────────────────────────────────
+
+/**
+ * The widest offer-recall window, in minutes (one week) — POST
+ * /billing/admin/offers/withdraw. Bounded because an unbounded one would
+ * rewrite months of outcome history in a single call, and the outcome history
+ * is the only thing that says whether any of this worked. A mistake worth
+ * recalling is noticed in hours, not quarters.
+ */
+export const MAX_WITHDRAW_WINDOW_MINUTES = 7 * 24 * 60;
+
+/** POST /billing/offers/:id/decline — an optional reason, length-capped (not refused) at 500. */
+export const OfferDeclineSchema = z.object({
+  reason: z.string().transform((r) => r.slice(0, 500)).optional(),
+}).strict();
+
+/** PUT /billing/admin/offers/exclusions/:orgId — a REQUIRED, trimmed reason. */
+export const OfferExclusionSchema = z.object({
+  reason: z.string({ error: 'A reason is required to exclude an account' })
+    .trim()
+    .min(1, 'A reason is required to exclude an account'),
+}).strict();
+
+const withdrawWindowMessage = `sinceMinutes must be between 1 and ${MAX_WITHDRAW_WINDOW_MINUTES}`;
+
+/**
+ * POST /billing/admin/offers/withdraw — a REQUIRED bounded window (a numeric
+ * string is accepted, as `Number()` always did) and an optional actor.
+ */
+export const OfferWithdrawSchema = z.object({
+  sinceMinutes: z.union([z.number(), z.string()], { error: withdrawWindowMessage })
+    .transform((v) => Number(v))
+    .refine((m) => Number.isFinite(m) && m > 0 && m <= MAX_WITHDRAW_WINDOW_MINUTES, withdrawWindowMessage),
+  actor: z.string().transform((a) => a.trim()).optional(),
+}).strict();
+
+/**
+ * The message to answer a failed body validation with: the first issue's OWN
+ * message. The hand-written checks these schemas replaced answered with a bare
+ * sentence that names its field ("count must be an integer in 1..100"), so the
+ * schemas word their messages that way and this drops `validate()`'s
+ * `path: ` prefix. An unknown key reads `Unrecognized key: "x"`.
+ */
+export function bodyErrorMessage(result: { error: string; zodError?: z.ZodError }): string {
+  return result.zodError?.issues[0]?.message ?? result.error;
+}
+
+/**
+ * `validateBody`, with an absent body read as `{}`: a POST that carries no
+ * JSON at all is the same request as one with an empty object, so its
+ * required field is reported missing rather than "expected object".
+ */
+export function validateOptionalBody<T>(req: { body?: unknown }, schema: z.ZodType<T>): ReturnType<typeof validate<T>> {
+  return validate(req.body ?? {}, schema);
+}

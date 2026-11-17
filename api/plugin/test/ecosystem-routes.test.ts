@@ -101,24 +101,25 @@ beforeEach(() => {
 });
 
 describe('tenant publisher routes', () => {
+  // Each write gets a body its schema accepts (an unknown field is refused).
   it.each([
-    ['get', '/publisher', publishers.publisherState, 200],
-    ['post', '/publisher', publishers.claimPublisher, 201],
-    ['patch', '/publisher', publishers.updatePublisherProfile, 200],
-    ['post', '/publisher/terms', publishers.acceptTerms, 200],
-    ['get', '/publisher/listings', publishers.ownListings, 200],
-    ['get', '/publisher/insights', insightsSvc.publisherInsights, 200],
-    ['post', '/publisher/listings/:listingId/pause', publishers.pause, 200],
-    ['post', '/publisher/listings/:listingId/deprecate', deprecationSvc.deprecateOwnListedVersion, 200],
-    ['get', '/publisher/advisories', advisoriesSvc.publisherAdvisories, 200],
-    ['get', '/publisher/incoming-transfers', reqs.incomingTransfers, 200],
-    ['get', '/publish-requests', reqs.ownRequests, 200],
-    ['get', '/publish-requests/draft', reqs.draft, 200],
-    ['post', '/publish-requests', reqs.submit, 201],
-    ['post', '/publish-requests/:id/withdraw', reqs.withdraw, 200],
-    ['post', '/publish-requests/:id/transfer-response', reqs.respondToTransfer, 200],
-  ] as const)('%s %s calls its service', async (method, path, fn, status) => {
-    const res = await call(publisherRouter, method, path, { params: { id: 'r-1', listingId: 'l-1' }, body: { version: '1.0.0', accept: true, termsVersion: 'v' }, query: { pluginId: 'p-1', status: 'open' } });
+    ['get', '/publisher', publishers.publisherState, 200, {}],
+    ['post', '/publisher', publishers.claimPublisher, 201, { handle: 'acme', displayName: 'Acme', termsVersion: 'v' }],
+    ['patch', '/publisher', publishers.updatePublisherProfile, 200, { description: 'd' }],
+    ['post', '/publisher/terms', publishers.acceptTerms, 200, { termsVersion: 'v' }],
+    ['get', '/publisher/listings', publishers.ownListings, 200, {}],
+    ['get', '/publisher/insights', insightsSvc.publisherInsights, 200, {}],
+    ['post', '/publisher/listings/:listingId/pause', publishers.pause, 200, { version: '1.0.0' }],
+    ['post', '/publisher/listings/:listingId/deprecate', deprecationSvc.deprecateOwnListedVersion, 200, { version: '1.0.0', message: 'use 2.x' }],
+    ['get', '/publisher/advisories', advisoriesSvc.publisherAdvisories, 200, {}],
+    ['get', '/publisher/incoming-transfers', reqs.incomingTransfers, 200, {}],
+    ['get', '/publish-requests', reqs.ownRequests, 200, {}],
+    ['get', '/publish-requests/draft', reqs.draft, 200, {}],
+    ['post', '/publish-requests', reqs.submit, 201, { kind: 'new_version', pluginId: 'p-1' }],
+    ['post', '/publish-requests/:id/withdraw', reqs.withdraw, 200, {}],
+    ['post', '/publish-requests/:id/transfer-response', reqs.respondToTransfer, 200, { accept: true }],
+  ] as const)('%s %s calls its service', async (method, path, fn, status, body) => {
+    const res = await call(publisherRouter, method, path, { params: { id: 'r-1', listingId: 'l-1' }, body, query: { pluginId: 'p-1', status: 'open' } });
     expect(res.statusCode).toBe(status);
     expect(fn).toHaveBeenCalledTimes(1);
     // The caller is captured from the token: org lower-cased, a self-parent ignored.
@@ -142,33 +143,35 @@ describe('tenant publisher routes', () => {
 });
 
 describe('Ecosystem console routes', () => {
+  const reason = { reason: 'because' };
   it.each([
     ['get', '/overview', consoleSvc.overview],
     ['get', '/requests', consoleSvc.queue],
     ['get', '/requests/:id', consoleSvc.requestDetail],
     ['get', '/publishers', consoleSvc.listPublishers],
-    ['post', '/publishers/:id/suspend', consoleSvc.suspendPublisher],
+    ['post', '/publishers/:id/suspend', consoleSvc.suspendPublisher, reason],
     ['post', '/publishers/:id/unsuspend', consoleSvc.unsuspendPublisher],
-    ['post', '/publishers/:id/tier', consoleSvc.setPublisherTier],
+    ['post', '/publishers/:id/tier', consoleSvc.setPublisherTier, { ...reason, tier: 'community' }],
     ['get', '/listings', consoleSvc.listListings],
-    ['post', '/listings/:id/state', consoleSvc.setListingState],
-    ['post', '/listings/:id/versions/:version/yank', consoleSvc.yankVersion],
-    ['post', '/listings/:id/versions/:version/unyank', consoleSvc.unyankVersion],
+    ['post', '/listings/:id/state', consoleSvc.setListingState, { ...reason, state: 'unmaintained' }],
+    ['post', '/listings/:id/versions/:version/yank', consoleSvc.yankVersion, reason],
+    ['post', '/listings/:id/versions/:version/unyank', consoleSvc.unyankVersion, reason],
     ['post', '/listings/:id/versions/:version/deprecate', deprecationSvc.setListedVersionDeprecation],
     ['get', '/advisories', advisoriesSvc.consoleAdvisories],
     ['patch', '/advisories/:id', advisoriesSvc.editDraft],
-    ['post', '/advisories/:id/withdraw', advisoriesSvc.withdrawAdvisory],
-    ['post', '/resign', consoleSvc.resignAll],
+    ['post', '/advisories/:id/withdraw', advisoriesSvc.withdrawAdvisory, reason],
+    ['post', '/resign', consoleSvc.resignAll, reason],
     ['get', '/rules', consoleSvc.listRules],
     ['patch', '/rules/:id', consoleSvc.updateRule],
-    ['post', '/rules/:id/approve-change', consoleSvc.approveRuleChange],
+    ['post', '/rules/:id/approve-change', consoleSvc.approveRuleChange, { requestedAt: '2026-11-13T10:00:00.000Z' }],
     ['delete', '/rules/:id', consoleSvc.deleteRule],
     ['get', '/reserved-names', consoleSvc.listReserved],
     ['put', '/reserved-names/:name', consoleSvc.putReserved],
     ['delete', '/reserved-names/:name', consoleSvc.deleteReserved],
     ['get', '/flagged-versions', vulnPosture.listedVersionsNeedingAttention],
-  ] as const)('%s %s calls its service', async (method, path, fn) => {
-    const res = await call(consoleRouter, method, path, { params: { id: 'x', version: '1.0.0', name: 'n' } });
+  ] as const)('%s %s calls its service', async (method, path, fn, ...body: unknown[]) => {
+    // (a rest parameter: jest reads a 4th declared parameter as a `done` callback)
+    const res = await call(consoleRouter, method, path, { params: { id: 'x', version: '1.0.0', name: 'n' }, body: body[0] ?? {} });
     expect(res.statusCode).toBe(200);
     expect(fn).toHaveBeenCalledTimes(1);
   });
@@ -179,7 +182,7 @@ describe('Ecosystem console routes', () => {
   });
 
   it('creates a rule with 201', async () => {
-    expect((await call(consoleRouter, 'post', '/rules', { body: { name: 'r' } })).statusCode).toBe(201);
+    expect((await call(consoleRouter, 'post', '/rules', { body: { name: 'r', conditions: { requestKinds: ['new_version'] } } })).statusCode).toBe(201);
   });
 
   it('opens a moderator advisory draft with 201, and hands the listing/version to deprecation', async () => {
@@ -241,6 +244,42 @@ describe('Ecosystem console routes', () => {
     requestById.mockRejectedValueOnce(new Error('db'));
     await sensitive!({ params: {} }, {}, next);
     expect(next).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe('route body schemas', () => {
+  it('refuses an unknown field with VALIDATION_ERROR before the service runs', async () => {
+    const res = await call(consoleRouter, 'post', '/publishers/:id/suspend', { params: { id: 'p-1' }, body: { reason: 'spam', extra: 1 } });
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toMatchObject({ code: 'VALIDATION_ERROR' });
+    expect(res.body.message).toMatch(/extra/);
+    expect(consoleSvc.suspendPublisher).not.toHaveBeenCalled();
+  });
+
+  it('answers a missing or blank required field with MISSING_REQUIRED_FIELD naming it', async () => {
+    for (const body of [{}, { reason: '   ' }, null]) {
+      const res = await call(consoleRouter, 'post', '/resign', { body });
+      expect(res.statusCode).toBe(400);
+      expect(res.body).toMatchObject({ code: 'MISSING_REQUIRED_FIELD', message: 'reason is required' });
+    }
+    const install = await call(publisherRouter, 'post', '/publish-requests/:id/transfer-response', { params: { id: 'r-1' }, body: {} });
+    expect(install.body).toMatchObject({ code: 'MISSING_REQUIRED_FIELD', message: 'accept is required' });
+    expect(reqs.respondToTransfer).not.toHaveBeenCalled();
+  });
+
+  it('refuses a wrong type with VALIDATION_ERROR, and an enum outside its vocabulary with the old message', async () => {
+    const typed = await call(publisherRouter, 'post', '/publish-requests/:id/transfer-response', { params: { id: 'r-1' }, body: { accept: 'yes' } });
+    expect(typed.statusCode).toBe(400);
+    expect(typed.body.code).toBe('VALIDATION_ERROR');
+    const tier = await call(consoleRouter, 'post', '/publishers/:id/tier', { params: { id: 'p-1' }, body: { reason: 'r', tier: 'gold' } });
+    expect(tier.body).toMatchObject({ code: 'VALIDATION_ERROR', message: 'tier: tier must be verified or community' });
+  });
+
+  it('hands the service the parsed body (a pause with an empty version is the whole listing)', async () => {
+    await call(publisherRouter, 'post', '/publisher/listings/:listingId/pause', { params: { listingId: 'l-1' }, body: { version: '' } });
+    expect(publishers.pause).toHaveBeenCalledWith(expect.anything(), 'l-1', undefined);
+    await call(consoleRouter, 'post', '/requests/:id/approve', { params: { id: 'r-1' }, body: { note: '   ' } });
+    expect(decisions.approve).toHaveBeenCalledWith(expect.anything(), 'r-1', null);
   });
 });
 

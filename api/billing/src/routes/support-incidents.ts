@@ -42,6 +42,7 @@ import {
 import { withRoute } from '@pipeline-builder/api-server';
 import { Router } from 'express';
 import type { Request, RequestHandler, Response } from 'express';
+import { z } from 'zod';
 import { resolveAccountRootOrgId } from '../helpers/root-org-guard.js';
 import {
   INCIDENT_KEY_PATTERN,
@@ -51,8 +52,24 @@ import {
   refundSupportIncident,
   supportIncidentsRemaining,
 } from '../helpers/support-incidents.js';
+import { bodyErrorMessage, validateOptionalBody } from '../validation/schemas.js';
 
 const logger = createLogger('support-incidents-routes');
+
+const INCIDENT_KEY_MESSAGE = 'idempotencyKey must be 8-128 characters of [A-Za-z0-9_-]';
+
+/** `{ idempotencyKey }` — the body of the internal consume and refund. */
+const IncidentKeySchema = z.object({
+  idempotencyKey: z.string({ error: INCIDENT_KEY_MESSAGE }).regex(INCIDENT_KEY_PATTERN, INCIDENT_KEY_MESSAGE),
+}).strict();
+
+const GRANT_COUNT_MESSAGE = `count must be an integer in 1..${MAX_INCIDENT_GRANT}`;
+
+/** `{ count, note? }` — an operator grant. */
+const IncidentGrantSchema = z.object({
+  count: z.number({ error: GRANT_COUNT_MESSAGE }).int(GRANT_COUNT_MESSAGE).min(1, GRANT_COUNT_MESSAGE).max(MAX_INCIDENT_GRANT, GRANT_COUNT_MESSAGE),
+  note: z.string({ error: 'note must be a string' }).optional(),
+}).strict();
 
 /** The one service allowed to spend an incident. */
 const CONSUME_CALLERS = ['message'] as const;
@@ -82,12 +99,12 @@ async function accountOrgOr503(res: Response, orgId: string): Promise<string | n
  * from one that did not.
  */
 function incidentKeyOr400(req: Request, res: Response): string | null {
-  const key = (req.body as { idempotencyKey?: unknown } | undefined)?.idempotencyKey;
-  if (typeof key !== 'string' || !INCIDENT_KEY_PATTERN.test(key)) {
-    sendBadRequest(res, 'idempotencyKey must be 8-128 characters of [A-Za-z0-9_-]', ErrorCode.VALIDATION_ERROR);
+  const parsed = validateOptionalBody(req, IncidentKeySchema);
+  if (!parsed.ok) {
+    sendBadRequest(res, bodyErrorMessage(parsed), ErrorCode.VALIDATION_ERROR);
     return null;
   }
-  return key;
+  return parsed.value.idempotencyKey;
 }
 
 /**
@@ -199,14 +216,9 @@ export function createSupportIncidentRoutes(): Router {
     withRoute(async ({ req, res, ctx, userId }) => {
       const orgId = (getParam(req.params, 'orgId') ?? '').toLowerCase();
       if (!orgId) return sendBadRequest(res, 'orgId is required', ErrorCode.MISSING_REQUIRED_FIELD);
-      const body = (req.body ?? {}) as { count?: unknown; note?: unknown };
-      if (typeof body.count !== 'number' || !Number.isInteger(body.count)
-        || body.count < 1 || body.count > MAX_INCIDENT_GRANT) {
-        return sendBadRequest(res, `count must be an integer in 1..${MAX_INCIDENT_GRANT}`, ErrorCode.VALIDATION_ERROR);
-      }
-      if (body.note !== undefined && typeof body.note !== 'string') {
-        return sendBadRequest(res, 'note must be a string', ErrorCode.VALIDATION_ERROR);
-      }
+      const parsed = validateOptionalBody(req, IncidentGrantSchema);
+      if (!parsed.ok) return sendBadRequest(res, bodyErrorMessage(parsed), ErrorCode.VALIDATION_ERROR);
+      const body = parsed.value;
 
       // A grant typed against a team lands on its account root, where a case
       // opened from that team will look for it.
@@ -235,7 +247,7 @@ export function createSupportIncidentRoutes(): Router {
           count: body.count,
           balance,
           ...(accountOrgId !== orgId ? { requestedOrgId: orgId } : {}),
-          ...(typeof body.note === 'string' && body.note.trim()
+          ...(body.note?.trim()
             ? { note: body.note.trim().slice(0, 500) }
             : {}),
         },

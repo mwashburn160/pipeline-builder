@@ -26,7 +26,7 @@ import { audited, requireAssurance, requirePermission, sendSuccess, envInt } fro
 import { rateLimitByOrg } from '@pipeline-builder/api-server';
 import { Router, type RequestHandler } from 'express';
 
-import { bodyOf, ecosystemRoute, param } from './ecosystem-route.js';
+import { ecosystemRoute, param } from './ecosystem-route.js';
 import {
   createReview, deleteReply, deleteReview, putReply, reportReview, reviewState, setHelpful, updateReview,
 } from '../services/ecosystem/reviews.js';
@@ -56,11 +56,11 @@ export function createReviewRoutes(): Router {
 
   router.post('/listings/:publisher/:name/reviews', read, ...write, perIpDaily, a('plugin.review.create'),
     ecosystemRoute(async ({ req, res, caller }) => {
-      sendSuccess(res, 201, await createReview(caller, param(req, 'publisher'), param(req, 'name'), bodyOf(req)));
+      sendSuccess(res, 201, await createReview(caller, param(req, 'publisher'), param(req, 'name'), req.body));
     }));
 
   router.patch('/reviews/:id', read, ...write, a('plugin.review.update'), ecosystemRoute(async ({ req, res, caller }) => {
-    sendSuccess(res, 200, await updateReview(caller, param(req, 'id'), bodyOf(req)));
+    sendSuccess(res, 200, await updateReview(caller, param(req, 'id'), req.body));
   }));
 
   router.delete('/reviews/:id', read, ...write, a('plugin.review.delete'), ecosystemRoute(async ({ req, res, caller }) => {
@@ -76,12 +76,12 @@ export function createReviewRoutes(): Router {
   }));
 
   router.post('/reviews/:id/report', read, ...write, a('plugin.review.report', 'plugin.review.hold'), ecosystemRoute(async ({ req, res, caller }) => {
-    sendSuccess(res, 200, await reportReview(caller, param(req, 'id'), bodyOf(req)));
+    sendSuccess(res, 200, await reportReview(caller, param(req, 'id'), req.body));
   }));
 
   router.put('/reviews/:id/reply', requirePermission('publishers:manage') as RequestHandler, ...write, a('plugin.review.reply.create', 'plugin.review.reply.update'),
     ecosystemRoute(async ({ req, res, caller }) => {
-      sendSuccess(res, 200, await putReply(caller, param(req, 'id'), bodyOf(req)));
+      sendSuccess(res, 200, await putReply(caller, param(req, 'id'), req.body));
     }));
 
   router.delete('/reviews/:id/reply', requirePermission('publishers:manage') as RequestHandler, ...write, a('plugin.review.reply.delete'),

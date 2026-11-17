@@ -164,7 +164,7 @@ export async function composeRun(opts: ComposeRunOptions): Promise<RunResult> {
         .find((r) => r.periodLabel === period.label && r.version === version - 1);
       if (prior) await stakeholderReportStore.supersede(definition.orgId, prior.id, completed.id);
     }
-    emitCounter('report_run_composed_total', { orgId: definition.orgId, cadence: definition.cadence });
+    emitCounter('report_run_composed_total', { cadence: definition.cadence });
     return { ok: true, run: completed, period, reused: false };
   } catch (err) {
     const message = 'The report could not be computed for this period.';

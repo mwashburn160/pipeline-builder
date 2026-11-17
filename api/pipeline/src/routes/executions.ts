@@ -109,12 +109,10 @@ export function createExecutionRoutes(): Router {
         ctx.log('COMPLETED', 'Triggered pipeline execution', { pipelineId, executionId });
 
         // Domain metric — CodePipeline execution started. Labelled by outcome
-        // and ORG: a pipeline execution is a unit of consumption `cpuCredits`
-        // does not count, so this label is the only per-tenant figure for
-        // pipeline usage. Cardinality is bounded by the tenant count, the same
-        // bound `cpu_credits_charged_total` and `quota_denied_total` accept;
-        // pipelineId stays off, because that one is unbounded per tenant.
-        incCounter('pipeline_executions_total', { outcome: 'started', org_id: orgId });
+        // only: org ids are an unbounded label set (and `/metrics` would list
+        // every tenant), so the per-tenant figure for pipeline usage is the
+        // audit trail below (`pipeline.execution.start`, one row per run).
+        incCounter('pipeline_executions_total', { outcome: 'started' });
 
         // Best-effort attributed audit — the AWS CodePipeline start succeeded.
         // The execution is the target; its pipeline rides in details.
@@ -129,7 +127,7 @@ export function createExecutionRoutes(): Router {
 
         return sendSuccess(res, 202, { executionId });
       } catch (err) {
-        incCounter('pipeline_executions_total', { outcome: 'failed', org_id: orgId });
+        incCounter('pipeline_executions_total', { outcome: 'failed' });
         const code = errorMessage(err);
         // A failed start is audited too. No execution id exists (or is known —
         // after a timeout the start may have landed), so there is no targetId.
@@ -178,7 +176,7 @@ export function createExecutionRoutes(): Router {
       ctx.log('COMPLETED', 'Stopped pipeline execution', { pipelineId, executionId });
 
       // Domain metric — CodePipeline execution stopped/cancelled.
-      incCounter('pipeline_executions_total', { outcome: 'stopped', org_id: orgId });
+      incCounter('pipeline_executions_total', { outcome: 'stopped' });
 
       // Best-effort attributed audit — the AWS CodePipeline stop succeeded.
       recordAudit({
@@ -198,7 +196,7 @@ export function createExecutionRoutes(): Router {
       // Counted like a failed start: a stop the user asked for that did not
       // happen (not stoppable, not registered, AWS error) is otherwise invisible
       // on the dashboard, which only saw the successful stops.
-      incCounter('pipeline_executions_total', { outcome: 'stop_failed', org_id: orgId });
+      incCounter('pipeline_executions_total', { outcome: 'stop_failed' });
       const code = errorMessage(err);
       recordAudit({
         action: 'pipeline.execution.cancel',

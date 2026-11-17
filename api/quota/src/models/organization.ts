@@ -100,7 +100,10 @@ export interface OrganizationDocument extends Document {
 // INDEXES — declared to mirror the platform-authoritative model
 // (platform/src/models/organization.ts): `parentOrgId` (descendant lookups) is
 // indexed in both; `name` is indexed here for this service's admin list sort
-// (findAll `.sort({ name: 1 })`). Uniqueness constraints platform owns (e.g.
+// (findAll `.sort({ name: 1 })`) — platform does not declare that one, so its
+// boot index-reconcile reports `name_1` as unknown until it does (pinned, with
+// every other quota-owned path, by test/organization-schema-drift.test.ts).
+// Uniqueness constraints platform owns (e.g.
 // `slug` unique) are deliberately NOT redeclared here — a secondary model must
 // not fight the authoritative model over the shared collection's unique indexes.
 

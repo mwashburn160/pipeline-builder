@@ -377,7 +377,7 @@ describe('running a definition', () => {
     await cycle();
     expect(store.claimDefinition).not.toHaveBeenCalled();
     expect(mockAuthority).not.toHaveBeenCalled();
-    expect(mockEmit).toHaveBeenCalledWith('report_retention_root_unavailable_total', { orgId: 'acme' });
+    expect(mockEmit).toHaveBeenCalledWith('report_retention_root_unavailable_total', {});
 
     // The next cycle (platform back) claims it and runs the same periods.
     await cycle();

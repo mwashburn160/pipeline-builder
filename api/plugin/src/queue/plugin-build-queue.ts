@@ -681,10 +681,11 @@ export function startWorker(sseManager: SSEManager, quotaService: QuotaService):
     // human/automation split, until the data says otherwise. Bounded to two values, so the label set stays small.
     incCounter('plugin_builds_total', { status: 'success', org_id: orgId, trigger: buildTrigger(job.data) });
     if (job.processedOn && job.finishedOn) {
-      observe('plugin_build_duration_seconds',
-        { org_id: orgId },
-        (job.finishedOn - job.processedOn) / 1000,
-      );
+      // No org label on the histogram: every bucket is its own series, so a
+      // per-org label multiplies the bucket count by the tenant count. The
+      // `org_id` on `plugin_builds_total` above stays — the per-org
+      // PluginBuildFailureRateHigh alert routes on it.
+      observe('plugin_build_duration_seconds', {}, (job.finishedOn - job.processedOn) / 1000);
     }
     // Charge the compute this build occupied. Best-effort and deliberately NOT
     // awaited into the handler's result: a build that already ran cannot be

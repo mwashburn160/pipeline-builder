@@ -7,6 +7,7 @@ import {
   requireOrgAdminAssurance,
   requirePermission,
   requireSystemOrgPermission,
+  sendPaginatedNested,
   sendSuccess,
   sendError,
   sendBadRequest,
@@ -262,7 +263,7 @@ export function createDiscountRoutes(): Router {
       Discount.find(filter).sort({ createdAt: -1 }).skip(offset).limit(limit),
       Discount.countDocuments(filter),
     ]);
-    return sendSuccess(res, 200, { discounts: discounts.map(toDiscountResponse), pagination: { total, limit, offset } });
+    return sendPaginatedNested(res, 'discounts', discounts.map(toDiscountResponse), { total, limit, offset });
   }));
 
   // GET /billing/admin/discounts/:id — inspect one.

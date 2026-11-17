@@ -400,7 +400,7 @@ describe('PluginService', () => {
     });
 
     it('clears the other defaults of the same (org, name) and promotes the row in ONE transaction', async () => {
-      const result = await service.update('P-2', { isDefault: true, description: 'd' }, 'org-1', 'user-1', member);
+      const result = await service.update('P-2', { isDefault: true, description: 'd' }, 'org-1', 'user-1', { access: member });
 
       expect(result).toEqual(promoted);
       expect(txCount).toBe(1);
@@ -423,7 +423,7 @@ describe('PluginService', () => {
 
     it("refuses to demote another author's PRIVATE default (409) and writes nothing", async () => {
       currentDefaults = [{ visibility: 'private', createdBy: 'user-A', deletedAt: null }];
-      await expect(service.update('p-2', { isDefault: true }, 'org-1', 'user-B', member))
+      await expect(service.update('p-2', { isDefault: true }, 'org-1', 'user-B', { access: member }))
         .rejects.toMatchObject({ statusCode: 409 });
       expect(ops.filter((o) => o.op === 'update')).toHaveLength(0);
     });
@@ -442,7 +442,7 @@ describe('PluginService', () => {
     ])('refuses to promote a YANKED version (409) and writes nothing (%o)', async (yank) => {
       Object.assign(target, yank);
       try {
-        await expect(service.update('p-2', { isDefault: true }, 'org-1', 'user-1', member))
+        await expect(service.update('p-2', { isDefault: true }, 'org-1', 'user-1', { access: member }))
           .rejects.toMatchObject({ statusCode: 409 });
         expect(ops.filter((o) => o.op === 'update')).toHaveLength(0);
       } finally {
@@ -456,13 +456,13 @@ describe('PluginService', () => {
         select: jest.fn(() => ({ from: () => ({ where: () => Promise.resolve([]) }) })),
         update: jest.fn(() => { throw new Error('must not write'); }),
       }));
-      await expect(service.update('p-9', { isDefault: true }, 'org-1', 'user-1', member)).resolves.toBeNull();
+      await expect(service.update('p-9', { isDefault: true }, 'org-1', 'user-1', { access: member })).resolves.toBeNull();
     });
 
     it('delegates a non-promoting update to the base CrudService.update', async () => {
       mockSuperUpdate.mockResolvedValue({ id: 'p-2' });
-      await service.update('p-2', { description: 'x', isDefault: false }, 'org-1', 'user-1', member);
-      expect(mockSuperUpdate).toHaveBeenCalledWith('p-2', { description: 'x', isDefault: false }, 'org-1', 'user-1');
+      await service.update('p-2', { description: 'x', isDefault: false }, 'org-1', 'user-1', { access: member });
+      expect(mockSuperUpdate).toHaveBeenCalledWith('p-2', { description: 'x', isDefault: false }, 'org-1', 'user-1', {});
       expect(txCount).toBe(0);
     });
   });

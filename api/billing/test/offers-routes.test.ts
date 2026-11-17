@@ -185,6 +185,14 @@ describe('the actor recall', () => {
     }
   });
 
+  it('refuses an unknown field instead of ignoring it, and accepts a numeric string window', async () => {
+    await call(handler('post', '/admin/offers/withdraw'), { body: { sinceMinutes: 60, scope: 'all' } });
+    expect(mockSendBadRequest).toHaveBeenCalledWith({}, expect.stringMatching(/Unrecognized key/), 'VALIDATION_ERROR');
+    expect(mockUpdateMany).not.toHaveBeenCalled();
+    await call(handler('post', '/admin/offers/withdraw'), { body: { sinceMinutes: '60' } });
+    expect(mockSendSuccess).toHaveBeenCalledWith({}, 200, expect.objectContaining({ sinceMinutes: 60 }));
+  });
+
   it('can recall a NAMED actor instead of the agent', async () => {
     await call(handler('post', '/admin/offers/withdraw'), { body: { sinceMinutes: 30, actor: 'user-42' } });
     const [filter] = mockUpdateMany.mock.calls[0] as [Record<string, unknown>];
@@ -330,6 +338,18 @@ describe('the do-not-offer veto', () => {
   it('refuses an exclusion with no reason', async () => {
     await call(handler('put', '/admin/offers/exclusions/:orgId'), { params: { orgId: 'acct-9' }, body: {} });
     expect(mockSendBadRequest).toHaveBeenCalled();
+    expect(mockExclusionUpsert).not.toHaveBeenCalled();
+  });
+
+  it('answers a missing or blank exclusion reason with MISSING_REQUIRED_FIELD, an unknown field with VALIDATION_ERROR', async () => {
+    for (const body of [{}, { reason: '   ' }, { reason: 7 }]) {
+      mockSendBadRequest.mockClear();
+      await call(handler('put', '/admin/offers/exclusions/:orgId'), { params: { orgId: 'acct-9' }, body });
+      expect(mockSendBadRequest).toHaveBeenCalledWith({}, 'A reason is required to exclude an account', 'MISSING_REQUIRED_FIELD');
+    }
+    mockSendBadRequest.mockClear();
+    await call(handler('put', '/admin/offers/exclusions/:orgId'), { params: { orgId: 'acct-9' }, body: { reason: 'x', until: 'never' } });
+    expect(mockSendBadRequest).toHaveBeenCalledWith({}, expect.stringMatching(/Unrecognized key/), 'VALIDATION_ERROR');
     expect(mockExclusionUpsert).not.toHaveBeenCalled();
   });
 

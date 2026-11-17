@@ -21,6 +21,10 @@ const pass = (_req: unknown, _res: unknown, next: () => void) => next();
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   recordAudit: record,
   sendSuccess,
+  // The list route answers through the shared paginated envelope; recorded on
+  // `sendSuccess` so the list assertions read the body the client receives.
+  sendPaginatedNested: (res: unknown, key: string, data: unknown[], o: { total: number; limit: number; offset: number }) =>
+    sendSuccess(res, 200, { [key]: data, pagination: { ...o, hasMore: o.offset + data.length < o.total } }),
   sendError,
   sendBadRequest,
   requireAuth: () => pass,
@@ -214,7 +218,7 @@ describe('admin: list / inspect / edit / revoke', () => {
     Discount.countDocuments.mockResolvedValue(1);
     await call('get', '/admin/discounts', { query: { campaign: 'spring', targetOrgId: 'org_t', active: 'true', limit: '10', offset: '5' } });
     expect(Discount.find).toHaveBeenCalledWith({ campaign: 'spring', targetOrgId: 'org_t', isActive: true });
-    expect(sendSuccess).toHaveBeenCalledWith({}, 200, { discounts: [expect.objectContaining({ id: 'disc_1', createdAt: '1970-01-01T00:00:00.000Z' })], pagination: { total: 1, limit: 10, offset: 5 } });
+    expect(sendSuccess).toHaveBeenCalledWith({}, 200, { discounts: [expect.objectContaining({ id: 'disc_1', createdAt: '1970-01-01T00:00:00.000Z' })], pagination: { total: 1, limit: 10, offset: 5, hasMore: false } });
     await call('get', '/admin/discounts', { query: { active: 'false' } });
     expect(Discount.find).toHaveBeenLastCalledWith({ isActive: false });
     await call('get', '/admin/discounts');

@@ -27,7 +27,10 @@
 import { audited, requirePermission, requireStepUp, sendSuccess } from '@pipeline-builder/api-core';
 import { Router, type RequestHandler } from 'express';
 
-import { bodyOf, ecosystemRoute, param } from './ecosystem-route.js';
+import { bodyFrom, ecosystemRoute, param } from './ecosystem-route.js';
+import {
+  OwnDeprecateBody, PauseBody, PublisherClaimBody, PublisherProfileBody, PublishRequestBody, TermsBody, TransferResponseBody,
+} from './ecosystem-schemas.js';
 import { publisherAdvisories } from '../services/ecosystem/advisories.js';
 import { publisherInsights } from '../services/ecosystem/insights.js';
 import {
@@ -46,17 +49,17 @@ export function createPublisherRoutes(): Router {
 
   router.post('/publisher', requirePermission('publishers:manage') as RequestHandler, audited('publisher.create', 'publisher.terms.accept') as RequestHandler,
     ecosystemRoute(async ({ req, res, caller }) => {
-      sendSuccess(res, 201, { publisher: await claimPublisher(caller, bodyOf(req)) });
+      sendSuccess(res, 201, { publisher: await claimPublisher(caller, bodyFrom(req, PublisherClaimBody)) });
     }));
 
   router.patch('/publisher', requirePermission('publishers:manage') as RequestHandler, audited('publisher.update') as RequestHandler,
     ecosystemRoute(async ({ req, res, caller }) => {
-      sendSuccess(res, 200, { publisher: await updatePublisherProfile(caller, bodyOf(req)) });
+      sendSuccess(res, 200, { publisher: await updatePublisherProfile(caller, bodyFrom(req, PublisherProfileBody)) });
     }));
 
   router.post('/publisher/terms', requirePermission('publishers:manage') as RequestHandler, audited('publisher.terms.accept') as RequestHandler,
     ecosystemRoute(async ({ req, res, caller }) => {
-      sendSuccess(res, 200, { publisher: await acceptTerms(caller, bodyOf(req).termsVersion) });
+      sendSuccess(res, 200, { publisher: await acceptTerms(caller, bodyFrom(req, TermsBody).termsVersion) });
     }));
 
   router.get('/publisher/listings', requirePermission('plugins:read') as RequestHandler, ecosystemRoute(async ({ res, caller }) => {
@@ -69,13 +72,13 @@ export function createPublisherRoutes(): Router {
 
   router.post('/publisher/listings/:listingId/pause', requirePermission('plugins:publish') as RequestHandler, audited('plugin.listing.pause', 'plugin.version.pause') as RequestHandler,
     ecosystemRoute(async ({ req, res, caller }) => {
-      const version = bodyOf(req).version;
-      sendSuccess(res, 200, { listing: await pause(caller, param(req, 'listingId'), typeof version === 'string' && version ? version : undefined) });
+      const { version } = bodyFrom(req, PauseBody);
+      sendSuccess(res, 200, { listing: await pause(caller, param(req, 'listingId'), version || undefined) });
     }));
 
   router.post('/publisher/listings/:listingId/deprecate', requirePermission('plugins:publish') as RequestHandler, audited('plugin.version.deprecate') as RequestHandler,
     ecosystemRoute(async ({ req, res, caller }) => {
-      sendSuccess(res, 200, { listing: await deprecateOwnListedVersion(caller, param(req, 'listingId'), bodyOf(req)) });
+      sendSuccess(res, 200, { listing: await deprecateOwnListedVersion(caller, param(req, 'listingId'), bodyFrom(req, OwnDeprecateBody)) });
     }));
 
   // plugins:read: every member may read the advisories on their OWN publisher's listings (the service scopes it).
@@ -100,7 +103,7 @@ export function createPublisherRoutes(): Router {
   router.post('/publish-requests', requirePermission('plugins:publish', 'publishers:manage') as RequestHandler,
     audited('plugin.request.submit', 'publisher.verify.request', 'publisher.transfer.request', 'plugin.advisory.create') as RequestHandler,
     ecosystemRoute(async ({ req, res, caller }) => {
-      sendSuccess(res, 201, await submit(caller, bodyOf(req)));
+      sendSuccess(res, 201, await submit(caller, bodyFrom(req, PublishRequestBody)));
     }));
 
   router.post('/publish-requests/:id/withdraw', requirePermission('plugins:publish', 'publishers:manage') as RequestHandler, audited('plugin.request.withdraw') as RequestHandler,
@@ -111,7 +114,7 @@ export function createPublisherRoutes(): Router {
   router.post('/publish-requests/:id/transfer-response', requirePermission('publishers:manage') as RequestHandler, requireStepUp as RequestHandler,
     audited('publisher.transfer.accept', 'publisher.transfer.decline') as RequestHandler,
     ecosystemRoute(async ({ req, res, caller }) => {
-      sendSuccess(res, 200, { request: await respondToTransfer(caller, param(req, 'id'), bodyOf(req).accept === true) });
+      sendSuccess(res, 200, { request: await respondToTransfer(caller, param(req, 'id'), bodyFrom(req, TransferResponseBody).accept) });
     }));
 
   return router;

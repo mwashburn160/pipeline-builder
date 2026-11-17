@@ -14,10 +14,14 @@
  * moderation) — `stepUpForSensitiveRequest` looks the kind up first.
  */
 
-import { attachmentDisposition, audited, ErrorCode, requireSystemOrgPermission, requireStepUp, sendSuccess, STEP_UP_REQUEST_KINDS } from '@pipeline-builder/api-core';
+import { attachmentDisposition, audited, requireSystemOrgPermission, requireStepUp, sendSuccess, STEP_UP_REQUEST_KINDS } from '@pipeline-builder/api-core';
 import { Router, type NextFunction, type Request, type RequestHandler, type Response } from 'express';
 
-import { bodyOf, ecosystemRoute, param } from './ecosystem-route.js';
+import { bodyFrom, ecosystemRoute, param } from './ecosystem-route.js';
+import {
+  AdvisoryCreateBody, AdvisoryPatchBody, DecisionNoteBody, ListingStateBody, OptionalReasonBody, PublisherTierBody, ReasonBody, RejectBody,
+  ReservedNameBody, ReviewNoteBody, ReviewReasonBody, RuleApproveBody, RuleCreateBody, RulePatchBody, SetDeprecationBody,
+} from './ecosystem-schemas.js';
 import {
   consoleAdvisories, createModeratorDraft, editDraft, withdrawAdvisory,
 } from '../services/ecosystem/advisories.js';
@@ -25,7 +29,6 @@ import {
   approveRuleChange, asQueueItem, createRule, deleteReserved, deleteRule, listListings, listPublishers, listReserved, listRules, overview, putReserved,
   queue, requestDetail, resignAll, setListingState, setPublisherTier, suspendPublisher, unsuspendPublisher, unyankVersion, updateRule, yankVersion,
 } from '../services/ecosystem/console.js';
-import { EcosystemError } from '../services/ecosystem/context.js';
 import { approve, reject, secondApprove, type DecisionResult } from '../services/ecosystem/decisions.js';
 import { recordDecision } from '../services/ecosystem/metrics.js';
 import { holdReview, releaseReview, removeReply, removeReview, reviewQueue, reviewQueueCounts } from '../services/ecosystem/review-moderation.js';
@@ -63,10 +66,8 @@ function decisionBody(out: DecisionResult): Omit<DecisionResult, 'request'> {
   };
 }
 
-function noteOf(req: Request): string | null {
-  const note = bodyOf(req).note;
-  return typeof note === 'string' && note.trim() ? note.trim().slice(0, 1000) : null;
-}
+/** The decision's optional note (trimmed, capped; null when blank). */
+const noteOf = (req: Request): string | null => bodyFrom(req, DecisionNoteBody).note;
 
 /** Build the console router. */
 export function createEcosystemConsoleRoutes(): Router {
@@ -133,9 +134,8 @@ export function createEcosystemConsoleRoutes(): Router {
   router.post('/requests/:id/reject', ...any, a('plugin.request.reject', 'publisher.verify.reject', 'publisher.transfer.reject', 'publisher.profile-change.reject',
     'plugin.submission.reject'),
   ecosystemRoute(async ({ req, res, caller }) => {
-    const reason = bodyOf(req).reason;
-    if (typeof reason !== 'string' || reason.trim() === '') throw new EcosystemError(ErrorCode.MISSING_REQUIRED_FIELD, 'reason is required');
-    const rejected = await reject(caller, param(req, 'id'), reason.trim().slice(0, 1000));
+    const { reason } = bodyFrom(req, RejectBody);
+    const rejected = await reject(caller, param(req, 'id'), reason);
     recordDecision(rejected, 'rejected');
     sendSuccess(res, 200, { request: await asQueueItem(caller, rejected) });
   }));
@@ -146,16 +146,16 @@ export function createEcosystemConsoleRoutes(): Router {
   }));
 
   router.post('/publishers/:id/suspend', ...verify, stepUp, a('publisher.suspend'), ecosystemRoute(async ({ req, res, caller }) => {
-    sendSuccess(res, 200, await suspendPublisher(caller, param(req, 'id'), bodyOf(req)));
+    sendSuccess(res, 200, await suspendPublisher(caller, param(req, 'id'), bodyFrom(req, ReasonBody)));
   }));
 
   router.post('/publishers/:id/unsuspend', ...verify, stepUp, a('plugin.request.submit', 'plugin.request.approve'), ecosystemRoute(async ({ req, res, caller }) => {
-    sendSuccess(res, 200, { request: await unsuspendPublisher(caller, param(req, 'id'), bodyOf(req)) });
+    sendSuccess(res, 200, { request: await unsuspendPublisher(caller, param(req, 'id'), bodyFrom(req, OptionalReasonBody)) });
   }));
 
   router.post('/publishers/:id/tier', ...verify, stepUp, a('publisher.tier.change', 'plugin.request.submit', 'plugin.request.approve'),
     ecosystemRoute(async ({ req, res, caller }) => {
-      sendSuccess(res, 200, await setPublisherTier(caller, param(req, 'id'), bodyOf(req)));
+      sendSuccess(res, 200, await setPublisherTier(caller, param(req, 'id'), bodyFrom(req, PublisherTierBody)));
     }));
 
   // -- Listings --------------------------------------------------------------
@@ -165,20 +165,20 @@ export function createEcosystemConsoleRoutes(): Router {
 
   router.post('/listings/:id/state', ...moderate, stepUp, a('plugin.listing.state.change', 'plugin.request.submit', 'plugin.request.approve'),
     ecosystemRoute(async ({ req, res, caller }) => {
-      sendSuccess(res, 200, await setListingState(caller, param(req, 'id'), bodyOf(req)));
+      sendSuccess(res, 200, await setListingState(caller, param(req, 'id'), bodyFrom(req, ListingStateBody)));
     }));
 
   router.post('/listings/:id/versions/:version/yank', ...moderate, stepUp, a('plugin.version.yank'), ecosystemRoute(async ({ req, res, caller }) => {
-    sendSuccess(res, 200, { listing: await yankVersion(caller, param(req, 'id'), param(req, 'version'), bodyOf(req)) });
+    sendSuccess(res, 200, { listing: await yankVersion(caller, param(req, 'id'), param(req, 'version'), bodyFrom(req, ReasonBody)) });
   }));
 
   router.post('/listings/:id/versions/:version/unyank', ...moderate, stepUp, a('plugin.request.submit', 'plugin.request.approve'),
     ecosystemRoute(async ({ req, res, caller }) => {
-      sendSuccess(res, 200, { request: await unyankVersion(caller, param(req, 'id'), param(req, 'version'), bodyOf(req)) });
+      sendSuccess(res, 200, { request: await unyankVersion(caller, param(req, 'id'), param(req, 'version'), bodyFrom(req, ReasonBody)) });
     }));
 
   router.post('/listings/:id/versions/:version/deprecate', ...moderate, stepUp, a('plugin.version.deprecate'), ecosystemRoute(async ({ req, res, caller }) => {
-    sendSuccess(res, 200, { listing: await setListedVersionDeprecation(caller, param(req, 'id'), param(req, 'version'), bodyOf(req)) });
+    sendSuccess(res, 200, { listing: await setListedVersionDeprecation(caller, param(req, 'id'), param(req, 'version'), bodyFrom(req, SetDeprecationBody)) });
   }));
 
   // -- Security advisories — publishing a draft = approving its `advisory` request.
@@ -187,36 +187,36 @@ export function createEcosystemConsoleRoutes(): Router {
   }));
 
   router.post('/advisories', ...moderate, stepUp, a('plugin.advisory.create'), ecosystemRoute(async ({ req, res, caller }) => {
-    sendSuccess(res, 201, await createModeratorDraft(caller, bodyOf(req)));
+    sendSuccess(res, 201, await createModeratorDraft(caller, bodyFrom(req, AdvisoryCreateBody)));
   }));
 
   router.patch('/advisories/:id', ...moderate, stepUp, a('plugin.advisory.update'), ecosystemRoute(async ({ req, res, caller }) => {
-    sendSuccess(res, 200, { advisory: await editDraft(caller, param(req, 'id'), bodyOf(req)) });
+    sendSuccess(res, 200, { advisory: await editDraft(caller, param(req, 'id'), bodyFrom(req, AdvisoryPatchBody)) });
   }));
 
   router.post('/advisories/:id/withdraw', ...moderate, stepUp, a('plugin.advisory.withdraw'), ecosystemRoute(async ({ req, res, caller }) => {
-    sendSuccess(res, 200, { advisory: await withdrawAdvisory(caller, param(req, 'id'), bodyOf(req)) });
+    sendSuccess(res, 200, { advisory: await withdrawAdvisory(caller, param(req, 'id'), bodyFrom(req, ReasonBody)) });
   }));
 
   // Re-sign every public/* image (after a plugin-signing key rotation).
   router.post('/resign', ...moderate, stepUp, a('registry.image.resign'), ecosystemRoute(async ({ req, res, caller }) => {
-    sendSuccess(res, 200, await resignAll(caller, bodyOf(req)));
+    sendSuccess(res, 200, await resignAll(caller, bodyFrom(req, ReasonBody)));
   }));
 
   // -- Auto-approval rules ---------------------------------------------------
   router.get('/rules', ...moderate, ecosystemRoute(async ({ res }) => { sendSuccess(res, 200, { rules: await listRules() }); }));
 
   router.post('/rules', ...moderate, stepUp, a('ecosystem.auto-approval-rule.create'), ecosystemRoute(async ({ req, res, caller }) => {
-    sendSuccess(res, 201, { rule: await createRule(caller, bodyOf(req)) });
+    sendSuccess(res, 201, { rule: await createRule(caller, bodyFrom(req, RuleCreateBody)) });
   }));
 
   router.patch('/rules/:id', ...moderate, stepUp, a('ecosystem.auto-approval-rule.update'), ecosystemRoute(async ({ req, res, caller }) => {
-    sendSuccess(res, 200, { rule: await updateRule(caller, param(req, 'id'), bodyOf(req)) });
+    sendSuccess(res, 200, { rule: await updateRule(caller, param(req, 'id'), bodyFrom(req, RulePatchBody)) });
   }));
 
   router.post('/rules/:id/approve-change', ...moderate, stepUp, a('ecosystem.auto-approval-rule.update'), ecosystemRoute(async ({ req, res, caller }) => {
     // `{ requestedAt }`: the pending change the approver reviewed (409 if it was replaced since).
-    sendSuccess(res, 200, { rule: await approveRuleChange(caller, param(req, 'id'), bodyOf(req).requestedAt) });
+    sendSuccess(res, 200, { rule: await approveRuleChange(caller, param(req, 'id'), bodyFrom(req, RuleApproveBody).requestedAt) });
   }));
 
   router.delete('/rules/:id', ...moderate, stepUp, a('ecosystem.auto-approval-rule.delete'), ecosystemRoute(async ({ req, res, caller }) => {
@@ -234,19 +234,19 @@ export function createEcosystemConsoleRoutes(): Router {
   // them has an undo (`removeReview` refuses a review that is already removed,
   // and there is no un-remove route).
   router.post('/reviews/:id/hold', ...moderate, a('plugin.review.hold'), ecosystemRoute(async ({ req, res, caller }) => {
-    sendSuccess(res, 200, await holdReview(caller, param(req, 'id'), bodyOf(req)));
+    sendSuccess(res, 200, await holdReview(caller, param(req, 'id'), bodyFrom(req, ReviewReasonBody)));
   }));
 
   router.post('/reviews/:id/release', ...moderate, a('plugin.review.release'), ecosystemRoute(async ({ req, res, caller }) => {
-    sendSuccess(res, 200, await releaseReview(caller, param(req, 'id'), bodyOf(req)));
+    sendSuccess(res, 200, await releaseReview(caller, param(req, 'id'), bodyFrom(req, ReviewNoteBody)));
   }));
 
   router.post('/reviews/:id/remove', ...moderate, stepUp, a('plugin.review.remove'), ecosystemRoute(async ({ req, res, caller }) => {
-    sendSuccess(res, 200, await removeReview(caller, param(req, 'id'), bodyOf(req)));
+    sendSuccess(res, 200, await removeReview(caller, param(req, 'id'), bodyFrom(req, ReviewReasonBody)));
   }));
 
   router.post('/reviews/:id/remove-reply', ...moderate, stepUp, a('plugin.review.reply.delete'), ecosystemRoute(async ({ req, res, caller }) => {
-    sendSuccess(res, 200, await removeReply(caller, param(req, 'id'), bodyOf(req)));
+    sendSuccess(res, 200, await removeReply(caller, param(req, 'id'), bodyFrom(req, ReviewReasonBody)));
   }));
 
   // Listed versions a rescan flagged AFTER they were published (oldest flag
@@ -262,7 +262,7 @@ export function createEcosystemConsoleRoutes(): Router {
   router.get('/reserved-names', ...moderate, ecosystemRoute(async ({ res }) => { sendSuccess(res, 200, { names: await listReserved() }); }));
 
   router.put('/reserved-names/:name', ...moderate, stepUp, a('ecosystem.reserved-name.update'), ecosystemRoute(async ({ req, res, caller }) => {
-    sendSuccess(res, 200, await putReserved(caller, param(req, 'name'), bodyOf(req)));
+    sendSuccess(res, 200, await putReserved(caller, param(req, 'name'), bodyFrom(req, ReservedNameBody)));
   }));
 
   router.delete('/reserved-names/:name', ...moderate, stepUp, a('ecosystem.reserved-name.update'), ecosystemRoute(async ({ req, res, caller }) => {

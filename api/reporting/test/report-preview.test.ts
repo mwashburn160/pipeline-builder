@@ -40,6 +40,7 @@ const store = {
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendSuccess: (...a: unknown[]) => mockSendSuccess(...a),
   sendError: (...a: unknown[]) => mockSendError(...a),
+  sendBadRequest: (res: unknown, msg: string, code: string) => mockSendError(res, 400, msg, code),
   isBillingEnabled: () => mockBillingEnabled(),
   requirePermission: () => (_req: any, _res: any, next: any) => next(),
 }));
@@ -73,11 +74,11 @@ jest.unstable_mockModule('../src/services/report-posture.js', () => ({
 const { createReportPreviewRoutes } = await import('../src/routes/report-preview.js');
 
 /** Drive the mounted handler for a method. */
-async function call(method: 'post' | 'get', features: string[] = []): Promise<void> {
+async function call(method: 'post' | 'get', features: string[] = [], body: unknown = {}): Promise<void> {
   const router = createReportPreviewRoutes() as any;
   const layer = router.stack.find((l: any) => l.route?.path === '/' && l.route.methods[method]);
   const handler = layer.route.stack[layer.route.stack.length - 1].handle;
-  await handler({ params: {}, query: {}, body: {}, user: { features } }, {});
+  await handler({ params: {}, query: {}, body, user: { features } }, {});
 }
 
 const payload = () => mockSendSuccess.mock.calls[0]?.[2] as Record<string, unknown>;
@@ -103,6 +104,17 @@ beforeEach(() => {
 });
 
 describe('POST /reports/stakeholder-preview', () => {
+  it('refuses a body that tries to choose anything, WITHOUT spending the preview', async () => {
+    await call('post', [], { template: 'quarterly_exec' });
+    expect(errorOf()).toEqual([{}, 400, expect.stringMatching(/Unrecognized key/), 'VALIDATION_ERROR']);
+    expect(store.claimReportPreview).not.toHaveBeenCalled();
+  });
+
+  it('treats an absent body as an empty one', async () => {
+    await call('post', [], null);
+    expect(store.claimReportPreview).toHaveBeenCalledWith('acme');
+  });
+
   it('claims the preview and returns a watermarked snapshot', async () => {
     await call('post');
     expect(store.claimReportPreview).toHaveBeenCalledWith('acme');

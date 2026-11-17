@@ -369,12 +369,12 @@ describe('pipeline execution write routes', () => {
     mockSend.mockRejectedValueOnce(awsError('PipelineExecutionNotStoppableException'));
     const res = { status: jest.fn<AnyFn>().mockReturnThis(), json: jest.fn<AnyFn>() };
     await stopHandler()({ params: { pipelineId: PIPE_ID, executionId: 'exec-9' }, body: {} }, res);
-    expect(mockIncCounter).toHaveBeenCalledWith('pipeline_executions_total', { outcome: 'stop_failed', org_id: 'acme' });
+    expect(mockIncCounter).toHaveBeenCalledWith('pipeline_executions_total', { outcome: 'stop_failed' });
 
     mockIncCounter.mockClear();
     mockSend.mockResolvedValueOnce({});
     await stopHandler()({ params: { pipelineId: PIPE_ID, executionId: 'exec-9' }, body: {} }, res);
-    expect(mockIncCounter).toHaveBeenCalledWith('pipeline_executions_total', { outcome: 'stopped', org_id: 'acme' });
+    expect(mockIncCounter).toHaveBeenCalledWith('pipeline_executions_total', { outcome: 'stopped' });
     expect(mockIncCounter).not.toHaveBeenCalledWith('pipeline_executions_total', expect.objectContaining({ outcome: 'stop_failed' }));
   });
 

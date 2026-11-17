@@ -187,7 +187,7 @@ describe('PUT /plugins/:id (update)', () => {
       'user-1',
       // Caller authority — promoting a default demotes the current one, which
       // the service gates on the visibility ladder.
-      { isSystemAdmin: false, canPublish: false },
+      { access: { isSystemAdmin: false, canPublish: false } },
     );
     // Descriptive edits on a mutable version were checked for immutability first.
     expect(mockVersionImmutability).toHaveBeenCalled();

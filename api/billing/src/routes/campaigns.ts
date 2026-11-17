@@ -14,6 +14,7 @@ import {
   audited,
   requireAuth,
   requireSystemOrgPermission,
+  sendPaginatedNested,
   sendSuccess,
   sendError,
   sendBadRequest,
@@ -135,7 +136,7 @@ export function createCampaignRoutes(): Router {
       Campaign.find(filter).sort({ createdAt: -1 }).skip(offset).limit(limit),
       Campaign.countDocuments(filter),
     ]);
-    return sendSuccess(res, 200, { campaigns: campaigns.map(toCampaignResponse), pagination: { total, limit, offset } });
+    return sendPaginatedNested(res, 'campaigns', campaigns.map(toCampaignResponse), { total, limit, offset });
   }));
 
   // GET /billing/admin/campaigns/:id — one campaign, with its codes and the

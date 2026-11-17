@@ -198,7 +198,7 @@ export function createUpdatePluginRoutes(): Router {
       updateData,
       orgId,
       userId,
-      { isSystemAdmin: isSystemAdmin(req), canPublish: userHasPermission(req, 'plugins:publish') },
+      { access: { isSystemAdmin: isSystemAdmin(req), canPublish: userHasPermission(req, 'plugins:publish') } },
     );
 
     if (!updated) return sendEntityNotFound(res, 'Plugin');

@@ -281,7 +281,9 @@ export function createEventIngestRoutes(sseManager: SSEManager): Router {
     // A non-zero count is either a misrouted producer or an injection attempt;
     // both need a metric, not just a log line inside the data layer.
     if (droppedForeignOrg > 0) {
-      incCounter('reporting_ingest_foreign_org_dropped_total', { org_id: req.user?.organizationId ?? 'unknown' });
+      // No org label: the alert sums it, and WHICH caller org is the durable
+      // rejection record's job (countIngestRejection below + the log line).
+      incCounter('reporting_ingest_foreign_org_dropped_total', {});
       ctx.log('WARN', 'Dropped events for pipelines outside the caller org scope', {
         dropped: droppedForeignOrg,
         callerOrgId: req.user?.organizationId ?? null,

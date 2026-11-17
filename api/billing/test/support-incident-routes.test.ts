@@ -173,6 +173,19 @@ describe('POST /admin/orgs/:orgId/support-incidents (grant)', () => {
     expect(mockSendError).toHaveBeenCalledWith({}, 400, 'note must be a string', 'VALIDATION_ERROR');
   });
 
+  it('refuses an unknown field on a grant, and an unknown field on a consume', async () => {
+    await call(handler('post', GRANT), grantReq({ count: 1, amount: 5 }));
+    expect(mockSendError).toHaveBeenCalledWith({}, 400, expect.stringMatching(/Unrecognized key/), 'VALIDATION_ERROR');
+    await call(handler('post', CONSUME), { params: { orgId: 'root-1' }, body: { idempotencyKey: KEY, force: true } });
+    expect(mockConsume).not.toHaveBeenCalled();
+    expect(mockGrant).not.toHaveBeenCalled();
+  });
+
+  it('reads an absent body as empty (the field is reported, not the body)', async () => {
+    await call(handler('post', CONSUME), { params: { orgId: 'root-1' }, body: undefined });
+    expect(mockSendError).toHaveBeenCalledWith({}, 400, 'idempotencyKey must be 8-128 characters of [A-Za-z0-9_-]', 'VALIDATION_ERROR');
+  });
+
   it('404s when the account holds no manageable subscription (no silent success)', async () => {
     mockGrant.mockResolvedValueOnce(null);
     await call(handler('post', GRANT), grantReq({ count: 2 }));

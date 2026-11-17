@@ -27,7 +27,8 @@ import { rateLimitByOrg } from '@pipeline-builder/api-server';
 import { Router, type ErrorRequestHandler, type NextFunction, type Request, type RequestHandler, type Response } from 'express';
 import multer from 'multer';
 
-import { bodyOf, ecosystemRoute } from './ecosystem-route.js';
+import { bodyFrom, ecosystemRoute } from './ecosystem-route.js';
+import { InspectFields, SubmissionFields, TokenBody } from './ecosystem-schemas.js';
 import { EcosystemError } from '../services/ecosystem/context.js';
 import { assertSubmissionsAvailable, submissionConfig } from '../services/ecosystem/submission-config.js';
 import { issueChallenge } from '../services/ecosystem/submission-guards.js';
@@ -100,7 +101,7 @@ export function createPublicSubmissionRoutes(limits: { readsPerMinute?: number; 
   router.post('/inspect', writes, zipUpload(), multipartErrors, anonymous(async ({ req, res }) => {
     try {
       if (!req.file) throw new EcosystemError(ErrorCode.MISSING_REQUIRED_FIELD, 'No plugin file uploaded');
-      sendSuccess(res, 200, await inspectSubmission(req.file.path, bodyOf(req).pow, req.ip ?? ''));
+      sendSuccess(res, 200, await inspectSubmission(req.file.path, bodyFrom(req, InspectFields).pow, req.ip ?? ''));
     } finally {
       cleanupUpload(req);
     }
@@ -109,7 +110,7 @@ export function createPublicSubmissionRoutes(limits: { readsPerMinute?: number; 
   router.post('/', writes, zipUpload(), multipartErrors, audited('plugin.submission.create') as RequestHandler, anonymous(async ({ req, res }) => {
     try {
       if (!req.file) throw new EcosystemError(ErrorCode.MISSING_REQUIRED_FIELD, 'No plugin file uploaded');
-      const body = bodyOf(req);
+      const body = bodyFrom(req, SubmissionFields);
       const out = await createSubmission({
         zipPath: req.file.path,
         email: body.email,
@@ -125,7 +126,7 @@ export function createPublicSubmissionRoutes(limits: { readsPerMinute?: number; 
   }));
 
   router.post('/verify', writes, audited('plugin.submission.verify') as RequestHandler, anonymous(async ({ req, res }) => {
-    sendSuccess(res, 200, await verifySubmission(bodyOf(req).token));
+    sendSuccess(res, 200, await verifySubmission(bodyFrom(req, TokenBody).token));
   }));
 
   // Anything else under the prefix is a plain 404 (never falls through to the directory).

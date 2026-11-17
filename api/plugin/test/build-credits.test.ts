@@ -155,7 +155,7 @@ describe('chargeBuildCredits', () => {
     await chargeBuildCredits(quotaService, makeJob({}, data), 'success');
 
     expect(mockIncCounter).toHaveBeenCalledWith('cpu_credits_charged_total', {
-      org_id: 'org-1', outcome: 'success', build_class: 'flexible', build_size: '4x',
+      outcome: 'success', build_class: 'flexible', build_size: '4x',
     });
     const groups = (mockIncrementMetered.mock.calls[0] as unknown[])[3] as Array<{ amount: number; attribution: Record<string, unknown> }>;
     // 60s of wall clock at 1.5 vCPU x4 = 6 credits, not 2.
@@ -165,7 +165,7 @@ describe('chargeBuildCredits', () => {
 
   it('counts the charge for comparison against the duration histogram', async () => {
     await chargeBuildCredits(quotaService, makeJob(), 'success');
-    expect(mockIncCounter).toHaveBeenCalledWith('cpu_credits_charged_total', { org_id: 'org-1', outcome: 'success', build_class: 'standard', build_size: '1x' });
+    expect(mockIncCounter).toHaveBeenCalledWith('cpu_credits_charged_total', { outcome: 'success', build_class: 'standard', build_size: '1x' });
   });
 
   it('charges nothing — and counts nothing — for an exempt build', async () => {
@@ -185,7 +185,7 @@ describe('chargeBuildCredits', () => {
 
     await chargeBuildCredits(quotaService, makeJob(), 'failed', 'permanent');
     expect(mockIncrementMetered).toHaveBeenCalledTimes(1);
-    expect(mockIncCounter).toHaveBeenCalledWith('cpu_credits_charged_total', { org_id: 'org-1', outcome: 'failed', build_class: 'standard', build_size: '1x' });
+    expect(mockIncCounter).toHaveBeenCalledWith('cpu_credits_charged_total', { outcome: 'failed', build_class: 'standard', build_size: '1x' });
   });
 
   it('never throws when the quota service refuses, because a build cannot be un-run', async () => {
@@ -193,7 +193,7 @@ describe('chargeBuildCredits', () => {
     await expect(chargeBuildCredits(quotaService, makeJob(), 'success')).resolves.toBeUndefined();
     // The counter still fired, so the under-count is visible against the
     // duration histogram rather than silent.
-    expect(mockIncCounter).toHaveBeenCalledWith('cpu_credits_charged_total', { org_id: 'org-1', outcome: 'success', build_class: 'standard', build_size: '1x' });
+    expect(mockIncCounter).toHaveBeenCalledWith('cpu_credits_charged_total', { outcome: 'success', build_class: 'standard', build_size: '1x' });
   });
 
   it('charges nothing for a job with no timestamps', async () => {

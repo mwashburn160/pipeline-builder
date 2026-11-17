@@ -20,7 +20,8 @@ import { audited, hasPermission, proposable, requirePermission, sendSuccess, typ
 import { rateLimitByOrg } from '@pipeline-builder/api-server';
 import { Router, type Request, type RequestHandler, type Response } from 'express';
 
-import { bodyOf, ecosystemRoute } from './ecosystem-route.js';
+import { bodyFrom, ecosystemRoute } from './ecosystem-route.js';
+import { TokenBody } from './ecosystem-schemas.js';
 import {
   confirmExternalEmail, getSecurityPrefs, putSecurityPrefs, sendTestNotice,
 } from '../services/plugin-security-notifications.js';
@@ -39,7 +40,7 @@ export function createSecurityNotificationRoutes(): Router {
     audited('plugin.security_notifications.update') as RequestHandler,
     proposable as RequestHandler,
     ecosystemRoute(async ({ req, res, caller }) => {
-      sendSuccess(res, 200, { preferences: await putSecurityPrefs(caller.orgId, caller.userId, bodyOf(req), req.headers) });
+      sendSuccess(res, 200, { preferences: await putSecurityPrefs(caller.orgId, caller.userId, req.body, req.headers) });
     }));
 
   // A test send can reach people and an external endpoint: throttle it per org.
@@ -61,7 +62,7 @@ export function createPublicSecurityNotificationRoutes(limits: { perMinute?: num
 
   router.post('/confirm', limit, audited('plugin.security_notifications.external_email.verify') as RequestHandler,
     ecosystemRoute(async ({ req, res }) => {
-      sendSuccess(res, 200, await confirmExternalEmail(bodyOf(req).token), 'Address confirmed');
+      sendSuccess(res, 200, await confirmExternalEmail(bodyFrom(req, TokenBody).token), 'Address confirmed');
     }, { requireOrgId: false }));
 
   return router;

@@ -27,7 +27,8 @@
 import { audited, proposable, requirePermission, requireStepUp, sendSuccess } from '@pipeline-builder/api-core';
 import { Router, type RequestHandler } from 'express';
 
-import { bodyOf, ecosystemRoute, param } from './ecosystem-route.js';
+import { bodyFrom, ecosystemRoute, param } from './ecosystem-route.js';
+import { InstallChangeRequestBody, InstallCreateBody, InstallPatchBody, InstallPolicyBody, OptionalReasonBody } from './ecosystem-schemas.js';
 import {
   approveInstall, approveInstallChange, catalog, createInstall, denyInstall, getPolicy, installState, listInstallChangeRequests, listInstalls,
   putPolicy, rejectInstallChange, removeInstall, requestInstallChange, shadowing, updateInstall,
@@ -54,7 +55,7 @@ export function createInstallRoutes(): Router {
   router.post('/installs', requirePermission('plugins:install') as RequestHandler,
     audited('plugin.install.create', 'plugin.install.request') as RequestHandler,
     ecosystemRoute(async ({ req, res, caller }) => {
-      sendSuccess(res, 201, await createInstall(caller, bodyOf(req)));
+      sendSuccess(res, 201, await createInstall(caller, bodyFrom(req, InstallCreateBody)));
     }));
 
   // Before `/installs/:id…`, so `change-requests` is never read as an install id.
@@ -67,7 +68,7 @@ export function createInstallRoutes(): Router {
   router.post('/installs/:id/change-requests', requirePermission('plugins:install') as RequestHandler, audited('plugin.install.change-request') as RequestHandler,
     proposable as RequestHandler,
     ecosystemRoute(async ({ req, res, caller }) => {
-      sendSuccess(res, 201, await requestInstallChange(caller, param(req, 'id'), bodyOf(req), req.headers));
+      sendSuccess(res, 201, await requestInstallChange(caller, param(req, 'id'), bodyFrom(req, InstallChangeRequestBody), req.headers));
     }));
 
   router.post('/installs/:id/change-requests/approve', requirePermission('plugin_installs:manage') as RequestHandler,
@@ -79,12 +80,12 @@ export function createInstallRoutes(): Router {
   router.post('/installs/:id/change-requests/reject', requirePermission('plugin_installs:manage') as RequestHandler,
     audited('plugin.install.change-reject') as RequestHandler,
     ecosystemRoute(async ({ req, res, caller }) => {
-      sendSuccess(res, 200, await rejectInstallChange(caller, param(req, 'id'), bodyOf(req).reason));
+      sendSuccess(res, 200, await rejectInstallChange(caller, param(req, 'id'), bodyFrom(req, OptionalReasonBody).reason));
     }));
 
   router.patch('/installs/:id', requirePermission('plugins:install') as RequestHandler, audited('plugin.install.upgrade') as RequestHandler,
     ecosystemRoute(async ({ req, res, caller }) => {
-      sendSuccess(res, 200, await updateInstall(caller, param(req, 'id'), bodyOf(req)));
+      sendSuccess(res, 200, await updateInstall(caller, param(req, 'id'), bodyFrom(req, InstallPatchBody)));
     }));
 
   router.delete('/installs/:id', requirePermission('plugins:install') as RequestHandler, audited('plugin.install.remove') as RequestHandler,
@@ -99,7 +100,7 @@ export function createInstallRoutes(): Router {
 
   router.post('/installs/:id/deny', requirePermission('plugin_installs:manage') as RequestHandler, audited('plugin.install.deny') as RequestHandler,
     ecosystemRoute(async ({ req, res, caller }) => {
-      sendSuccess(res, 200, await denyInstall(caller, param(req, 'id'), bodyOf(req).reason));
+      sendSuccess(res, 200, await denyInstall(caller, param(req, 'id'), bodyFrom(req, OptionalReasonBody).reason));
     }));
 
   router.get('/install-policy', requirePermission('plugins:read') as RequestHandler, ecosystemRoute(async ({ res, caller }) => {
@@ -109,7 +110,7 @@ export function createInstallRoutes(): Router {
   router.put('/install-policy', requirePermission('plugin_installs:manage') as RequestHandler, requireStepUp as RequestHandler,
     audited('org.plugin-install-policy.update') as RequestHandler,
     ecosystemRoute(async ({ req, res, caller }) => {
-      sendSuccess(res, 200, await putPolicy(caller, req.body));
+      sendSuccess(res, 200, await putPolicy(caller, bodyFrom(req, InstallPolicyBody)));
     }));
 
   router.get('/shadowing', requirePermission('plugins:read') as RequestHandler, ecosystemRoute(async ({ res, caller }) => {
