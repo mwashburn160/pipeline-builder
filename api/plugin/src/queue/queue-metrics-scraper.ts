@@ -68,8 +68,10 @@ async function scrapeOnce(targets: ScrapeTarget[]): Promise<void> {
  * Start the scraper. Idempotent — calling twice is a no-op so the worker
  * boot path can call it unconditionally.
  *
- * @returns A `stop` function that clears the interval. Also registered as a
- *   SIGTERM handler so a graceful shutdown doesn't leave the timer running.
+ * @returns A `stop` function that clears the interval. Shutdown stops it via
+ *   `shutdownQueue()` inside runServer's coordinated `onShutdown` — not a
+ *   `process.once('SIGTERM')` of its own, which raced that ordered teardown and
+ *   added a listener the shutdown sequence knew nothing about.
  */
 export function startQueueMetricsScraper(
   targets: ScrapeTarget[],
@@ -82,7 +84,6 @@ export function startQueueMetricsScraper(
   // First sample immediately so Prometheus sees data on its first scrape
   // (rather than waiting up to `intervalMs` after worker start).
   void scrapeOnce(targets);
-  process.once('SIGTERM', stopQueueMetricsScraper);
   logger.info('Queue metrics scraper started', { intervalMs, queues: targets.map((t) => t.name) });
   return stopQueueMetricsScraper;
 }

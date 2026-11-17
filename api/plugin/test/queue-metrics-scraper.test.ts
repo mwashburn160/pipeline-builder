@@ -8,7 +8,8 @@
  *   - emits a `setGauge` call for every (queue, state) pair on each tick
  *   - publishes immediately on start (no `intervalMs` wait for first sample)
  *   - swallows transient Redis errors instead of crashing the timer
- *   - clears the interval on `stopQueueMetricsScraper` and on SIGTERM
+ *   - clears the interval on `stopQueueMetricsScraper` (called from runServer's
+ *     onShutdown via shutdownQueue — it registers no SIGTERM handler of its own)
  */
 
 import { jest, describe, it, expect, beforeEach, afterEach } from '@jest/globals';
@@ -155,6 +156,13 @@ describe('startQueueMetricsScraper', () => {
 });
 
 describe('stopQueueMetricsScraper', () => {
+  it('registers no SIGTERM handler of its own (shutdown is runServer onShutdown)', () => {
+    const before = process.listenerCount('SIGTERM');
+    startQueueMetricsScraper([{ name: 'plugin-build', queue: makeQueue({ waiting: 0, active: 0, completed: 0, failed: 0, delayed: 0 }) }], 1000);
+    expect(process.listenerCount('SIGTERM')).toBe(before);
+    stopQueueMetricsScraper();
+  });
+
   it('clears the interval so no more ticks fire', async () => {
     const q = makeQueue({ waiting: 0, active: 0, completed: 0, failed: 0, delayed: 0 });
     startQueueMetricsScraper([{ name: 'plugin-build', queue: q }], 1000);

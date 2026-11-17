@@ -133,6 +133,30 @@ describe('startGcScheduler leader lock', () => {
 // Anonymous-submission builds (`quarantine/*`) are
 // removed 30 days after their build whether or not the operator opted in to the
 // org sweep: the 30-day bound is a retention promise, not a preference.
+describe('shutdown is runServer onShutdown, not a SIGTERM hook', () => {
+  it('starting either scheduler registers no SIGTERM listener', () => {
+    process.env.REGISTRY_GC_ENABLED = 'true';
+    const before = process.listenerCount('SIGTERM');
+    startGcScheduler();
+    startQuarantineGcScheduler();
+    expect(process.listenerCount('SIGTERM')).toBe(before);
+  });
+
+  it('the stop functions stop the running schedulers', () => {
+    process.env.REGISTRY_GC_ENABLED = 'true';
+    const stops = [jest.fn(), jest.fn()];
+    createScheduler
+      .mockReturnValueOnce({ start: jest.fn(), stop: stops[0] })
+      .mockReturnValueOnce({ start: jest.fn(), stop: stops[1] });
+    startGcScheduler();
+    startQuarantineGcScheduler();
+    stopGcScheduler();
+    stopQuarantineGcScheduler();
+    expect(stops[0]).toHaveBeenCalledTimes(1);
+    expect(stops[1]).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('startQuarantineGcScheduler', () => {
   it('runs even with REGISTRY_GC_ENABLED unset, under its own leader lock', async () => {
     delete process.env.REGISTRY_GC_ENABLED;

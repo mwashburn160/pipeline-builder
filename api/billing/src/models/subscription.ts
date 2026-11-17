@@ -150,7 +150,12 @@ export const SUPPORT_INCIDENT_SPEND_HISTORY = 200;
 
 const subscriptionSchema = new Schema<SubscriptionDocument>(
   {
-    orgId: { type: String, required: true, index: true },
+    // No field-level `index: true`: it would claim the auto-generated name
+    // `orgId_1` first, and the partial UNIQUE index below (same key, same
+    // default name) then fails to build — silently, under autoIndex — leaving
+    // no duplicate-subscription backstop. `{ orgId, status }` below serves the
+    // general orgId lookups (history, canceled rows) the partial index can't.
+    orgId: { type: String, required: true },
     planId: { type: String, required: true },
     status: {
       type: String,
@@ -273,8 +278,16 @@ const subscriptionSchema = new Schema<SubscriptionDocument>(
 // kept inline to avoid a model↔helper import cycle. (`$in` in a partial filter needs Mongo 5.0+; we run 8.x.)
 subscriptionSchema.index(
   { orgId: 1 },
-  { unique: true, partialFilterExpression: { status: { $in: ['active', 'trialing', 'past_due'] } } },
+  {
+    name: 'orgId_manageable_unique',
+    unique: true,
+    partialFilterExpression: { status: { $in: ['active', 'trialing', 'past_due'] } },
+  },
 );
+
+// General orgId lookups, including terminal (canceled) rows the partial unique
+// index above does not cover.
+subscriptionSchema.index({ orgId: 1, status: 1 });
 
 // Sparse index for AWS Marketplace license lookup (license-event queries).
 // Enforce uniqueness on the active row only — historical canceled rows

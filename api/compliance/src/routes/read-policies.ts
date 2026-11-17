@@ -26,7 +26,7 @@ export function createReadPolicyRoutes(): Router {
     };
 
     const result = await compliancePolicyService.findPaginated(
-      filter, orgId, { limit, offset, sortBy: sortBy || 'name', sortOrder: sortOrder || 'asc' },
+      filter, orgId, { limit, offset, sortBy: sortBy || 'name', sortOrder: sortOrder || 'asc', includeTotal: true },
     );
 
     ctx.log('COMPLETED', 'Listed compliance policies', { count: result.data.length });

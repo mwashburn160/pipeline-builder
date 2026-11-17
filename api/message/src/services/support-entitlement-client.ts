@@ -36,7 +36,7 @@
  * entitlement changes are never delayed by it.
  */
 
-import { createCacheService, createLogger, envInt, errorMessage, getServiceAuthHeader, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
+import { createCacheService, createLogger, envInt, errorMessage, getServiceAuthHeader, InternalHttpClient, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
 import { incCounter } from '@pipeline-builder/api-server';
 import { Config } from '@pipeline-builder/pipeline-core';
 
@@ -44,6 +44,9 @@ const logger = createLogger('support-entitlement-client');
 
 /** Bounded so a hung platform cannot wedge the support send behind it. */
 const TIMEOUT_MS = envInt('SUPPORT_ENTITLEMENT_TIMEOUT_MS', 3000, { min: 1 });
+
+/** The entitlement is a handful of fields; anything larger is not an answer. */
+const MAX_RESPONSE_BYTES = 64 * 1024;
 
 /**
  * Last-known-good entitlement, used ONLY when the live read fails.
@@ -104,30 +107,39 @@ export interface SupportEntitlementView {
  */
 export async function fetchSupportEntitlement(orgId: string): Promise<SupportEntitlementView | null> {
   const { platformHost, platformPort } = Config.get('server').services;
-  const url = `http://${platformHost}:${platformPort}/internal/support/entitlement/${encodeURIComponent(orgId)}`;
   try {
-    const res = await fetch(url, {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-        // Service principal, not the user's token: this is an internal read of
-        // an entitlement the USER is not allowed to query directly.
-        //
-        // `role: 'member'` is least privilege per the service-token contract —
-        // this is a read, so a leaked token must not be able to act as an admin
-        // in the target org.
-        'Authorization': getServiceAuthHeader({ serviceName: 'message', orgId: SYSTEM_ORG_ID, role: 'member' }),
+    // The shared client: pooled keep-alive sockets, the per-target circuit
+    // breaker (an open breaker fails fast and lands in the catch below as
+    // `unreachable`) and a bounded response body. Retries are OFF — one bounded
+    // attempt is the contract, so a sick platform costs a send TIMEOUT_MS, not a
+    // multiple of it.
+    const client = new InternalHttpClient({ host: platformHost, port: platformPort, timeout: TIMEOUT_MS }, { maxResponseBytes: MAX_RESPONSE_BYTES });
+    const res = await client.get<{ data?: Partial<SupportEntitlementView> } | Partial<SupportEntitlementView>>(
+      `/internal/support/entitlement/${encodeURIComponent(orgId)}`,
+      {
+        headers: {
+          // Service principal, not the user's token: this is an internal read of
+          // an entitlement the USER is not allowed to query directly.
+          //
+          // `role: 'member'` is least privilege per the service-token contract —
+          // this is a read, so a leaked token must not be able to act as an admin
+          // in the target org.
+          Authorization: getServiceAuthHeader({ serviceName: 'message', orgId: SYSTEM_ORG_ID, role: 'member' }),
+        },
+        maxRetries: 0,
+        maxRateLimitRetries: 0,
       },
-      signal: AbortSignal.timeout(TIMEOUT_MS),
-    });
-    if (!res.ok) {
-      degraded('non_ok', { status: res.status, orgId });
+    );
+    if (res.statusCode < 200 || res.statusCode >= 300) {
+      degraded('non_ok', { status: res.statusCode, orgId });
       // Awaited deliberately: inside the `try`, an un-awaited rejection would
       // escape the catch below and break this function's never-throws contract.
       return await lastKnownGood(orgId, 'non_ok');
     }
-    const body = await res.json() as { data?: Partial<SupportEntitlementView> } | Partial<SupportEntitlementView>;
-    const view = (body as { data?: Partial<SupportEntitlementView> }).data ?? body as Partial<SupportEntitlementView>;
+    // An unparseable 2xx body reaches here as `{}` (the client's contract) and
+    // fails the shape check below as `malformed`.
+    const body = res.body;
+    const view = (body as { data?: Partial<SupportEntitlementView> } | null)?.data ?? body as Partial<SupportEntitlementView> | null;
     // Validate rather than trust: a shape change upstream must degrade, not
     // produce a case with `level: undefined` frozen onto it forever.
     if (typeof view?.canOpenCase !== 'boolean' || (view.level !== null && typeof view.level !== 'string')) {

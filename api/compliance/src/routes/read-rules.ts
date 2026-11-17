@@ -36,8 +36,11 @@ export function createReadRuleRoutes(): Router {
     // labelled with their source org (name, not id) and are read-only: the
     // update/delete routes refuse a team's attempt with a 403.
     const parentOrgId = (req.user as { parentOrganizationId?: string } | undefined)?.parentOrganizationId;
+    // `includeTotal`: CrudService's COUNT is opt-in, and without it `pagination.total`
+    // is absent — the Overview's "Active rules" card and the Rules tab pager both
+    // read it ("Could not count the rules"). A per-org rule set is small.
     const result = await complianceRuleService.findPaginated(
-      filter, orgId, { limit, offset, sortBy: sortBy || 'priority', sortOrder: sortOrder || 'desc' }, parentOrgId,
+      filter, orgId, { limit, offset, sortBy: sortBy || 'priority', sortOrder: sortOrder || 'desc', includeTotal: true }, parentOrgId,
     );
     const rules = await withInheritedSource(result.data, parentOrgId);
 

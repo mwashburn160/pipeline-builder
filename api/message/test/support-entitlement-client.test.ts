@@ -23,7 +23,19 @@ const mockCacheGet = jest.fn<AnyFn>();
 const mockCacheSet = jest.fn<AnyFn>();
 const mockIncCounter = jest.fn<AnyFn>();
 
+/** Every request the client made through the shared http-client. */
+const httpCalls: Array<{ config: Record<string, unknown>; clientOpts: Record<string, unknown>; path: string; options: Record<string, any> }> = [];
+let reply: () => Promise<{ statusCode: number; body: unknown }> = async () => ({ statusCode: 200, body: {} });
+class FakeHttpClient {
+  constructor(private readonly config: Record<string, unknown>, private readonly clientOpts: Record<string, unknown> = {}) {}
+  async get(path: string, options: Record<string, unknown>) {
+    httpCalls.push({ config: this.config, clientOpts: this.clientOpts, path, options });
+    return { ...(await reply()), headers: {} };
+  }
+}
+
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
+  InternalHttpClient: FakeHttpClient,
   createLogger: () => ({ warn: () => {}, info: () => {}, debug: () => {}, error: () => {} }),
   createCacheService: () => ({ get: mockCacheGet, set: mockCacheSet, del: jest.fn<AnyFn>() }),
   getServiceAuthHeader: () => 'Bearer service-token',
@@ -49,20 +61,34 @@ const GRANT = {
   canOpenCase: true,
 };
 
-/** Replace global fetch for one call. */
+/** Answer the next read with `init` (an Error is a transport failure / timeout / open breaker). */
 function respond(init: { ok: boolean; status?: number; body?: unknown } | Error): void {
-  (global as { fetch: unknown }).fetch = init instanceof Error
-    ? jest.fn<AnyFn>(async () => { throw init; })
-    : jest.fn<AnyFn>(async () => ({ ok: init.ok, status: init.status ?? 200, json: async () => init.body }));
+  reply = init instanceof Error
+    ? async () => { throw init; }
+    : async () => ({ statusCode: init.status ?? (init.ok ? 200 : 500), body: init.body ?? {} });
 }
 
 beforeEach(() => {
+  httpCalls.length = 0;
   mockCacheGet.mockReset().mockResolvedValue(null);
   mockCacheSet.mockReset().mockResolvedValue(undefined);
   mockIncCounter.mockReset();
 });
 
 describe('a healthy read', () => {
+  it('reads platform through the shared client with the service token, one bounded attempt', async () => {
+    respond({ ok: true, body: { data: GRANT } });
+    await fetchSupportEntitlement('a/b');
+    expect(httpCalls).toHaveLength(1);
+    const [call] = httpCalls;
+    expect(call.config).toEqual({ host: 'platform', port: 3000, timeout: 3000 });
+    expect(call.clientOpts).toEqual({ maxResponseBytes: 64 * 1024 });
+    expect(call.path).toBe('/internal/support/entitlement/a%2Fb');
+    expect(call.options.headers).toEqual({ Authorization: 'Bearer service-token' });
+    // No hidden retries: the 3s bound is the whole budget a send pays.
+    expect(call.options).toMatchObject({ maxRetries: 0, maxRateLimitRetries: 0 });
+  });
+
   it('returns the entitlement and caches it', async () => {
     respond({ ok: true, body: { data: GRANT } });
     await expect(fetchSupportEntitlement('org-1')).resolves.toMatchObject({ level: 'support_premium', canOpenCase: true });
@@ -127,6 +153,17 @@ describe('a malformed body is OUR bug, not an outage', () => {
 
   it('rejects a non-string, non-null level', async () => {
     respond({ ok: true, body: { data: { ...GRANT, level: 42 } } });
+    await expect(fetchSupportEntitlement('org-1')).resolves.toBeNull();
+  });
+
+  it('an unparseable body (the client hands back {}) degrades as malformed', async () => {
+    respond({ ok: true, body: {} });
+    await expect(fetchSupportEntitlement('org-1')).resolves.toBeNull();
+    expect(mockIncCounter).toHaveBeenCalledWith('support_entitlement_unavailable_total', { reason: 'malformed' });
+  });
+
+  it('a JSON null body degrades rather than throwing', async () => {
+    respond({ ok: true, body: null });
     await expect(fetchSupportEntitlement('org-1')).resolves.toBeNull();
   });
 

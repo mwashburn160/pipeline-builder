@@ -16,7 +16,21 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 const mockWarn = jest.fn<AnyFn>();
 const mockError = jest.fn<AnyFn>();
 
+/** One request made through the shared http-client, shaped like the old fetch call for the assertions. */
+type HttpCall = { config: Record<string, unknown>; path: string; body: unknown; options: Record<string, any> };
+let httpCalls: HttpCall[] = [];
+let replyFor: (call: HttpCall) => Promise<{ statusCode: number; body: unknown }> = async () => ({ statusCode: 200, body: {} });
+class FakeHttpClient {
+  constructor(private readonly config: Record<string, unknown>) {}
+  async post(path: string, body: unknown, options: Record<string, unknown>) {
+    const call = { config: this.config, path, body, options };
+    httpCalls.push(call);
+    return { ...(await replyFor(call)), headers: {} };
+  }
+}
+
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
+  InternalHttpClient: FakeHttpClient,
   createLogger: () => ({ warn: mockWarn, info: () => {}, debug: () => {}, error: mockError }),
   getServiceAuthHeader: () => 'Bearer service-token',
   envInt: (_n: string, d: number) => d,
@@ -29,28 +43,26 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-core', () => stubModule('@p
 
 const { consumeSupportIncident, refundSupportIncident } = await import('../src/services/support-incident-client.js');
 
-let fetchMock: jest.Mock<AnyFn>;
 type Reply = { ok: boolean; status?: number; body?: unknown } | Error;
-const toFetch = (init: Reply) => (init instanceof Error
+const toReply = (init: Reply) => (init instanceof Error
   ? async () => { throw init; }
-  : async () => ({ ok: init.ok, status: init.status ?? 200, json: async () => init.body }));
+  : async () => ({ statusCode: init.status ?? (init.ok ? 200 : 500), body: init.body ?? {} }));
 /** Every call answers `init`. */
 function respond(init: Reply): void {
-  fetchMock = jest.fn<AnyFn>(toFetch(init));
-  (global as { fetch: unknown }).fetch = fetchMock;
+  replyFor = toReply(init);
 }
 /** Calls answer `replies` in order, the last one repeating. */
 function respondSeq(...replies: Reply[]): void {
   let i = 0;
-  fetchMock = jest.fn<AnyFn>(async (...a: unknown[]) => toFetch(replies[Math.min(i++, replies.length - 1)])(...(a as [])));
-  (global as { fetch: unknown }).fetch = fetchMock;
+  replyFor = async () => toReply(replies[Math.min(i++, replies.length - 1)])();
 }
 const KEY = 'submission-0001';
-const bodyOf = (call: unknown[]) => JSON.parse((call[1] as { body: string }).body) as Record<string, unknown>;
-const urls = () => fetchMock.mock.calls.map((c) => (c[0] as string).split('/').pop());
+const bodyOf = (call: HttpCall) => call.body as Record<string, unknown>;
+const urls = () => httpCalls.map((c) => c.path.split('/').pop());
 const TIMEOUT = Object.assign(new Error('The operation was aborted due to timeout'), { name: 'TimeoutError' });
 
 beforeEach(() => {
+  httpCalls = [];
   mockWarn.mockReset();
   mockError.mockReset();
 });
@@ -59,18 +71,21 @@ describe('consumeSupportIncident', () => {
   it('POSTs the consume route with the service token and the idempotency key, true on consumed:true', async () => {
     respond({ ok: true, body: { data: { consumed: true, remaining: 0 } } });
     await expect(consumeSupportIncident('org-1', KEY)).resolves.toBe(true);
-    const [url, init] = fetchMock.mock.calls[0] as [string, { method: string; headers: Record<string, string> }];
-    expect(url).toBe('http://billing:3000/billing/internal/support-incidents/org-1/consume');
-    expect(init.method).toBe('POST');
-    expect(init.headers.Authorization).toBe('Bearer service-token');
-    expect(bodyOf(fetchMock.mock.calls[0])).toEqual({ idempotencyKey: KEY });
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [call] = httpCalls;
+    expect(call.config).toEqual({ host: 'billing', port: 3000, timeout: 3000 });
+    expect(call.path).toBe('/billing/internal/support-incidents/org-1/consume');
+    expect(call.options.headers).toEqual({ Authorization: 'Bearer service-token' });
+    // The loop below owns retrying (same key); the client must not add its own,
+    // and a 429 must stay a definite refusal.
+    expect(call.options).toMatchObject({ maxRetries: 0, maxRateLimitRetries: 0 });
+    expect(bodyOf(call)).toEqual({ idempotencyKey: KEY });
+    expect(httpCalls).toHaveLength(1);
   });
 
   it('returns false on consumed:false (none left) — a definite answer, not retried', async () => {
     respond({ ok: true, body: { data: { consumed: false, remaining: 0 } } });
     await expect(consumeSupportIncident('org-1', KEY)).resolves.toBe(false);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(httpCalls).toHaveLength(1);
   });
 
   it('a 4xx is a definite refusal — false, not retried, nothing refunded', async () => {
@@ -85,7 +100,7 @@ describe('consumeSupportIncident', () => {
     respondSeq(TIMEOUT, { ok: true, body: { data: { consumed: true, remaining: 0 } } });
     await expect(consumeSupportIncident('org-1', KEY)).resolves.toBe(true);
     expect(urls()).toEqual(['consume', 'consume']);
-    expect(fetchMock.mock.calls.map(bodyOf)).toEqual([{ idempotencyKey: KEY }, { idempotencyKey: KEY }]);
+    expect(httpCalls.map(bodyOf)).toEqual([{ idempotencyKey: KEY }, { idempotencyKey: KEY }]);
   });
 
   it('retries a 5xx (it may follow a committed spend)', async () => {
@@ -98,7 +113,7 @@ describe('consumeSupportIncident', () => {
     respondSeq(TIMEOUT, TIMEOUT, TIMEOUT, { ok: true, body: { data: { refunded: true, balance: 1 } } });
     await expect(consumeSupportIncident('org-1', KEY)).resolves.toBe(false);
     expect(urls()).toEqual(['consume', 'consume', 'consume', 'refund']);
-    expect(bodyOf(fetchMock.mock.calls[3])).toEqual({ idempotencyKey: KEY });
+    expect(bodyOf(httpCalls[3])).toEqual({ idempotencyKey: KEY });
     expect(mockWarn).toHaveBeenCalledWith('Incident consume unavailable', expect.objectContaining({ orgId: 'org-1' }));
   });
 
@@ -108,11 +123,15 @@ describe('consumeSupportIncident', () => {
     expect(urls()).toEqual(['consume', 'consume', 'consume', 'refund']);
   });
 
-  it('treats an unparseable reply as UNKNOWN, never as a throw', async () => {
-    fetchMock = jest.fn<AnyFn>(async (url: unknown) => (String(url).endsWith('/refund')
-      ? { ok: true, status: 200, json: async () => ({}) }
-      : { ok: true, status: 200, json: async () => { throw new SyntaxError('bad json'); } }));
-    (global as { fetch: unknown }).fetch = fetchMock;
+  it('treats an unparseable reply (the client hands back {}) as UNKNOWN, never as a throw', async () => {
+    replyFor = async (call) => ({ statusCode: 200, body: call.path.endsWith('/refund') ? { data: { refunded: true } } : {} });
+    await expect(consumeSupportIncident('org-1', KEY)).resolves.toBe(false);
+    expect(urls()).toEqual(['consume', 'consume', 'consume', 'refund']);
+  });
+
+  it('treats an open circuit breaker as UNKNOWN (an earlier attempt may have committed) and still refunds', async () => {
+    const open = Object.assign(new Error('Circuit open for billing:3000'), { name: 'CircuitOpenError' });
+    respondSeq(TIMEOUT, open, open, open);
     await expect(consumeSupportIncident('org-1', KEY)).resolves.toBe(false);
     expect(urls()).toEqual(['consume', 'consume', 'consume', 'refund']);
   });
@@ -120,7 +139,7 @@ describe('consumeSupportIncident', () => {
   it('url-encodes the org id', async () => {
     respond({ ok: true, body: { data: { consumed: true } } });
     await consumeSupportIncident('a/b', KEY);
-    expect(fetchMock.mock.calls[0][0]).toBe('http://billing:3000/billing/internal/support-incidents/a%2Fb/consume');
+    expect(httpCalls[0].path).toBe('/billing/internal/support-incidents/a%2Fb/consume');
   });
 });
 
@@ -128,8 +147,8 @@ describe('refundSupportIncident', () => {
   it('POSTs the refund route with the spend key', async () => {
     respond({ ok: true, body: { data: { refunded: true, balance: 1 } } });
     await expect(refundSupportIncident('org-1', KEY)).resolves.toBeUndefined();
-    expect(fetchMock.mock.calls[0][0]).toBe('http://billing:3000/billing/internal/support-incidents/org-1/refund');
-    expect(bodyOf(fetchMock.mock.calls[0])).toEqual({ idempotencyKey: KEY });
+    expect(httpCalls[0].path).toBe('/billing/internal/support-incidents/org-1/refund');
+    expect(bodyOf(httpCalls[0])).toEqual({ idempotencyKey: KEY });
     expect(mockError).not.toHaveBeenCalled();
   });
 

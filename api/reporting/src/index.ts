@@ -7,6 +7,7 @@ import { createSoftDeletePurgeScheduler, stakeholderReportStore } from '@pipelin
 
 import { mountRoutes } from './app-routes.js';
 import { startReportScheduler, stopReportScheduler } from './services/report-scheduler.js';
+import { startDailyRollup, stopDailyRollup } from './services/daily-rollup-scheduler.js';
 import { startReportingRetention, stopReportingRetention } from './services/reporting-retention.js';
 
 const quotaService = createQuotaService();
@@ -43,6 +44,7 @@ void runServer(app, {
   name: 'Reporting Service',
   sseManager,
   onShutdown: async () => {
+    stopDailyRollup();
     stopReportingRetention();
     purgeScheduler?.stop();
     stopReportScheduler();
@@ -58,3 +60,7 @@ startReportingRetention();
 // The stakeholder-report scheduler: leader-locked, one claim per due definition, and a
 // per-run recheck of the owner's authority (a scheduled run has no caller).
 startReportScheduler();
+// The daily analytics rollup (`execution_daily_rollups`), which every analytics
+// section reads: leader-locked, rebuilds the recent settled days each tick.
+// Opt out with REPORTING_ROLLUP_ENABLED=false.
+startDailyRollup();

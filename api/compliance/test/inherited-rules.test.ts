@@ -197,8 +197,11 @@ describe('GET /rules — inherited origin on the paginated list', () => {
     // The parent org id is threaded into the query so its propagated rules are
     // visible at all — without it the team's list simply omitted them.
     expect(findPaginatedMock).toHaveBeenCalledWith(
-      expect.anything(), 'team-1', expect.anything(), 'root-1',
+      expect.anything(), 'team-1', expect.objectContaining({ includeTotal: true }), 'root-1',
     );
+    // Regression: without includeTotal the COUNT never ran, `pagination.total`
+    // was absent, and the Overview showed "Could not count the rules".
+    expect((data as { pagination?: { total?: number } }).pagination?.total).toBe(2);
     expect(data.rules).toEqual([
       { id: 'own', orgId: 'team-1', scope: 'org' },
       { id: 'inh', orgId: 'root-1', scope: 'org', inherited: true, sourceOrgId: 'root-1', sourceOrgName: 'Acme' },

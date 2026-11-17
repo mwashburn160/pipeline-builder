@@ -12,7 +12,8 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 const mockIncCounter = jest.fn<AnyFn>();
-jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', { incCounter: mockIncCounter }));
+const mockObserve = jest.fn<AnyFn>();
+jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', { incCounter: mockIncCounter, observe: mockObserve }));
 
 // Mock Mongoose Subscription model. findOne returns a promise that also has a
 // chainable `.sort()` (the provider does `findOne(...).sort({createdAt:-1})`),
@@ -71,7 +72,7 @@ jest.unstable_mockModule('stripe', () => {
 });
 
 const { AWSMarketplaceProvider } = await import('../src/providers/aws-marketplace-provider.js');
-const { StripeProvider, STRIPE_API_VERSION } = await import('../src/providers/stripe-provider.js');
+const { StripeProvider, STRIPE_API_VERSION, STRIPE_TIMEOUT_MS, STRIPE_MAX_NETWORK_RETRIES } = await import('../src/providers/stripe-provider.js');
 const { default: StripeCtor } = await import('stripe') as unknown as { default: jest.Mock };
 const { StubPaymentProvider } = await import('../src/providers/stub-provider.js');
 
@@ -376,8 +377,39 @@ describe('StripeProvider', () => {
     provider = new StripeProvider(stripeConfig);
   });
 
-  it('calls Stripe at the pinned API version, not the SDK default', () => {
-    expect(StripeCtor).toHaveBeenCalledWith(stripeConfig.secretKey, { apiVersion: STRIPE_API_VERSION });
+  it('calls Stripe at the pinned API version, with a bounded timeout and idempotent retries', () => {
+    // The SDK default timeout (80s) outlives the caller; retries are safe because
+    // stripe-node keys every retried POST (ours, or a generated one).
+    expect(StripeCtor).toHaveBeenCalledWith(stripeConfig.secretKey, {
+      apiVersion: STRIPE_API_VERSION,
+      timeout: STRIPE_TIMEOUT_MS,
+      maxNetworkRetries: STRIPE_MAX_NETWORK_RETRIES,
+    });
+    expect(STRIPE_TIMEOUT_MS).toBeLessThanOrEqual(15_000);
+    expect(STRIPE_MAX_NETWORK_RETRIES).toBe(2);
+  });
+
+  describe('call metering', () => {
+    it('counts a successful call by op and observes its duration', async () => {
+      mockStripeSubscriptionsUpdate.mockResolvedValue({});
+      await provider.cancelSubscription('sub_1');
+      expect(mockIncCounter).toHaveBeenCalledWith('billing_provider_calls_total', { op: 'subscriptions.cancel_at_period_end', outcome: 'success' });
+      expect(mockObserve).toHaveBeenCalledWith('billing_provider_call_duration_seconds', { op: 'subscriptions.cancel_at_period_end' }, expect.any(Number));
+    });
+
+    it('counts a timeout / connection loss as an UNKNOWN outcome and rethrows it unchanged', async () => {
+      const timeout = Object.assign(new Error('Request aborted due to timeout being reached (12000ms)'), { type: 'StripeConnectionError' });
+      mockStripeSubscriptionsUpdate.mockRejectedValueOnce(timeout);
+      await expect(provider.reactivateSubscription('sub_1')).rejects.toBe(timeout);
+      expect(mockIncCounter).toHaveBeenCalledWith('billing_provider_calls_total', { op: 'subscriptions.reactivate', outcome: 'unknown' });
+    });
+
+    it('counts a definite 4xx as an error outcome', async () => {
+      const declined = Object.assign(new Error('No such price'), { type: 'StripeInvalidRequestError', statusCode: 400 });
+      mockStripeCustomersCreate.mockRejectedValueOnce(declined);
+      await expect(provider.createCustomer('org-1')).rejects.toBe(declined);
+      expect(mockIncCounter).toHaveBeenCalledWith('billing_provider_calls_total', { op: 'customers.create', outcome: 'error' });
+    });
   });
 
   describe('currency and tax', () => {

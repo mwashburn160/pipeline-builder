@@ -6,26 +6,48 @@
  * REAL typed `server.services` config (PIPELINE_SERVICE_HOST/PORT,
  * PLUGIN_SERVICE_HOST/PORT — what every deploy sets). They previously read
  * PIPELINE_URL / PLUGIN_URL, which no deploy defines, so a non-default host or
- * port was silently ignored. Only `fetch` is stubbed.
+ * port was silently ignored.
+ *
+ * Nothing is stubbed: the calls go through api-core's real http-client to a
+ * real local HTTP server per peer service, so which PORT a request lands on is
+ * the service-discovery assertion.
  */
 
-import { jest, describe, it, expect, beforeEach, afterAll } from '@jest/globals';
+import * as http from 'node:http';
+import type { AddressInfo } from 'node:net';
+import { describe, it, expect, beforeEach, afterAll } from '@jest/globals';
 
-process.env.PIPELINE_SERVICE_HOST = 'pipeline-svc.internal';
-process.env.PIPELINE_SERVICE_PORT = '4100';
-process.env.PLUGIN_SERVICE_HOST = 'plugin-svc.internal';
-process.env.PLUGIN_SERVICE_PORT = '4200';
-process.env.PLATFORM_SERVICE_HOST = 'platform-svc.internal';
-process.env.PLATFORM_SERVICE_PORT = '4300';
-process.env.COMPLIANCE_SERVICE_HOST = 'compliance-svc.internal';
-process.env.COMPLIANCE_SERVICE_PORT = '4400';
-process.env.REPORTING_SERVICE_HOST = 'reporting-svc.internal';
-process.env.REPORTING_SERVICE_PORT = '4500';
-process.env.QUOTA_SERVICE_HOST = 'quota-svc.internal';
-process.env.QUOTA_SERVICE_PORT = '4600';
+/** One request a peer server received. */
+interface Seen { port: number; method: string; url: string; headers: http.IncomingHttpHeaders; body: string }
+const seen: Seen[] = [];
+type Handler = (req: http.IncomingMessage, res: http.ServerResponse, s: Seen) => void;
+const ok: Handler = (_req, res) => { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: true })); };
+let handler: Handler = ok;
+
+const servers = await Promise.all(Array.from({ length: 6 }, () => new Promise<http.Server>((resolve) => {
+  const srv = http.createServer((req, res) => {
+    let body = '';
+    req.on('data', (c: Buffer) => { body += c.toString('utf8'); });
+    req.on('end', () => {
+      const s: Seen = { port: (srv.address() as AddressInfo).port, method: req.method ?? '', url: req.url ?? '', headers: req.headers, body };
+      seen.push(s);
+      handler(req, res, s);
+    });
+  });
+  srv.listen(0, '127.0.0.1', () => resolve(srv));
+})));
+const [PIPELINE, PLUGIN, PLATFORM, COMPLIANCE, REPORTING, QUOTA] = servers.map((s) => (s.address() as AddressInfo).port) as [number, number, number, number, number, number];
+
+for (const [name, port] of [['PIPELINE', PIPELINE], ['PLUGIN', PLUGIN], ['PLATFORM', PLATFORM], ['COMPLIANCE', COMPLIANCE], ['REPORTING', REPORTING], ['QUOTA', QUOTA]] as const) {
+  process.env[`${name}_SERVICE_HOST`] = '127.0.0.1';
+  process.env[`${name}_SERVICE_PORT`] = String(port);
+}
 // Set to prove the dead env vars are NOT consulted.
 process.env.PIPELINE_URL = 'http://wrong-pipeline:1';
 process.env.PLUGIN_URL = 'http://wrong-plugin:1';
+// Short enough for a hung peer to be observable here; small enough cap to exceed.
+process.env.ASK_HTTP_TIMEOUT_MS = '400';
+process.env.ASK_HTTP_MAX_RESPONSE_BYTES = '4096';
 
 const {
   pipelineClient, pluginClient, platformClient, complianceClient, reportingClient, quotaClient, readInstanceEmailStatus,
@@ -33,30 +55,35 @@ const {
 } = await import('../src/services/internal-http.js');
 const { DownstreamError } = await import('../src/services/downstream-error.js');
 const { AI_REQUEST_TIMEOUT_MS } = await import('@pipeline-builder/ai-core');
+const { destroySharedHttpAgents } = await import('@pipeline-builder/api-core');
 
-const realFetch = globalThis.fetch;
-const fetchMock = jest.fn(async (_url: string, _init?: RequestInit) =>
-  new Response(JSON.stringify({ ok: true }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+const reply = (body: unknown, status = 200): Handler => (_req, res) => {
+  res.writeHead(status, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify(body));
+};
+/** Never answer (until the suite closes the connection). */
+const hang: Handler = () => { /* held open */ };
 
 beforeEach(() => {
-  fetchMock.mockClear();
-  globalThis.fetch = fetchMock as unknown as typeof fetch;
+  seen.length = 0;
+  handler = ok;
 });
-afterAll(() => { globalThis.fetch = realFetch; });
+afterAll(async () => {
+  destroySharedHttpAgents();
+  await Promise.all(servers.map((srv) => new Promise<void>((resolve) => { srv.closeAllConnections(); srv.close(() => resolve()); })));
+});
 
 describe('internal-http service discovery', () => {
   it('pipelineClient targets server.services.pipelineHost:pipelinePort with the user token', async () => {
     await pipelineClient('Bearer USER').get('/pipelines?limit=1');
-    const [url, init] = fetchMock.mock.calls[0]!;
-    expect(url).toBe('http://pipeline-svc.internal:4100/pipelines?limit=1');
-    expect((init!.headers as Record<string, string>).Authorization).toBe('Bearer USER');
+    expect(seen[0]).toMatchObject({ port: PIPELINE, method: 'GET', url: '/pipelines?limit=1' });
+    expect(seen[0]!.headers.authorization).toBe('Bearer USER');
   });
 
   it('pluginClient targets server.services.pluginHost:pluginPort', async () => {
     await pluginClient('Bearer USER').post('/plugins/generate', { prompt: 'x' });
-    const [url, init] = fetchMock.mock.calls[0]!;
-    expect(url).toBe('http://plugin-svc.internal:4200/plugins/generate');
-    expect(init!.method).toBe('POST');
+    expect(seen[0]).toMatchObject({ port: PLUGIN, method: 'POST', url: '/plugins/generate' });
+    expect(JSON.parse(seen[0]!.body)).toEqual({ prompt: 'x' });
   });
 });
 
@@ -65,16 +92,16 @@ describe('internal-http — on-behalf marker', () => {
     const client = pipelineClient('Bearer USER', { sub: 'u1', organizationId: 'org-1' });
     await client.get('/pipelines');
     await client.get('/pipelines');
-    const markers = fetchMock.mock.calls.map(([, init]) => (init!.headers as Record<string, string>)['x-pb-on-behalf']);
+    const markers = seen.map((r) => r.headers['x-pb-on-behalf']);
     expect(markers.every((m) => typeof m === 'string' && m.split('.').length === 3)).toBe(true);
     expect(markers[0]).not.toBe(markers[1]);
     // The user's bearer is still the Authorization — the marker sits beside it.
-    expect((fetchMock.mock.calls[0]![1]!.headers as Record<string, string>).Authorization).toBe('Bearer USER');
+    expect(seen[0]!.headers.authorization).toBe('Bearer USER');
   });
 
   it('sends no marker from an unbound client (the hop is billed as usual)', async () => {
     await pipelineClient('Bearer USER').get('/pipelines');
-    expect((fetchMock.mock.calls[0]![1]!.headers as Record<string, string>)['x-pb-on-behalf']).toBeUndefined();
+    expect(seen[0]!.headers['x-pb-on-behalf']).toBeUndefined();
   });
 });
 
@@ -82,14 +109,12 @@ describe('internal-http — request correlation', () => {
   it('forwards the turn\'s X-Request-Id from the ambient audit context to every downstream call', async () => {
     const { runWithAuditContext } = await import('@pipeline-builder/api-core');
     await runWithAuditContext({ requestId: 'req-turn-42' }, () => pipelineClient('Bearer USER').post('/pipelines/generate', { prompt: 'x' }));
-    const [, init] = fetchMock.mock.calls[0]!;
-    expect((init!.headers as Record<string, string>)['X-Request-Id']).toBe('req-turn-42');
+    expect(seen[0]!.headers['x-request-id']).toBe('req-turn-42');
   });
 
   it('sends no X-Request-Id outside a request scope', async () => {
     await pipelineClient('Bearer USER').get('/pipelines');
-    const [, init] = fetchMock.mock.calls[0]!;
-    expect((init!.headers as Record<string, string>)['X-Request-Id']).toBeUndefined();
+    expect(seen[0]!.headers['x-request-id']).toBeUndefined();
   });
 });
 
@@ -101,41 +126,40 @@ describe('internal-http — the diagnosis clients', () => {
    * tool read something the asking user cannot.
    */
   it.each([
-    ['platformClient', () => platformClient('Bearer USER'), '/config', 'http://platform-svc.internal:4300/config'],
-    ['complianceClient', () => complianceClient('Bearer USER'), '/compliance/notification-preferences', 'http://compliance-svc.internal:4400/compliance/notification-preferences'],
-    ['reportingClient', () => reportingClient('Bearer USER'), '/reports/execution/dora', 'http://reporting-svc.internal:4500/reports/execution/dora'],
-    ['quotaClient', () => quotaClient('Bearer USER'), '/quotas', 'http://quota-svc.internal:4600/quotas'],
-  ])('%s targets its configured host:port and forwards the user token', async (_name, make, path, expected) => {
+    ['platformClient', () => platformClient('Bearer USER'), '/config', PLATFORM],
+    ['complianceClient', () => complianceClient('Bearer USER'), '/compliance/notification-preferences', COMPLIANCE],
+    ['reportingClient', () => reportingClient('Bearer USER'), '/reports/execution/dora', REPORTING],
+    ['quotaClient', () => quotaClient('Bearer USER'), '/quotas', QUOTA],
+  ])('%s targets its configured host:port and forwards the user token', async (_name, make, path, port) => {
     await make().get(path);
-    const [url, init] = fetchMock.mock.calls[0]!;
-    expect(url).toBe(expected);
-    expect((init!.headers as Record<string, string>).Authorization).toBe('Bearer USER');
+    expect(seen[0]).toMatchObject({ port, url: path });
+    expect(seen[0]!.headers.authorization).toBe('Bearer USER');
   });
 
   it('forwards the user token on POST too (the compliance dry-run)', async () => {
     await complianceClient('Bearer USER').post('/compliance/validate/pipeline/dry-run', { attributes: {} });
-    const [url, init] = fetchMock.mock.calls[0]!;
-    expect(url).toBe('http://compliance-svc.internal:4400/compliance/validate/pipeline/dry-run');
-    expect(init!.method).toBe('POST');
-    expect((init!.headers as Record<string, string>).Authorization).toBe('Bearer USER');
+    expect(seen[0]).toMatchObject({ port: COMPLIANCE, method: 'POST', url: '/compliance/validate/pipeline/dry-run' });
+    expect(seen[0]!.headers.authorization).toBe('Bearer USER');
   });
 });
 
 describe('internal-http error surface', () => {
   it('reports status only — never the downstream error body (it reaches the model/user)', async () => {
-    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ message: 'SELECT * FROM secrets failed', stack: 'at internal.js:1' }), { status: 500 }));
+    handler = reply({ message: 'SELECT * FROM secrets failed', stack: 'at internal.js:1' }, 500);
     await expect(pipelineClient('Bearer USER').get('/pipelines/x')).rejects.toThrow(/^GET \/pipelines\/x -> 500$/);
   });
 
   it('a 429 carries the peer\'s ErrorCode (and nothing else from the body), so a tool can name the limit', async () => {
-    fetchMock.mockResolvedValueOnce(json({ success: false, message: 'over quota for org-1 (secret detail)', code: 'AI_MEMBER_SHARE_EXCEEDED' }, 429));
+    handler = reply({ success: false, message: 'over quota for org-1 (secret detail)', code: 'AI_MEMBER_SHARE_EXCEEDED' }, 429);
     const err = await pipelineClient('Bearer USER').post('/pipelines/generate', {}, { generation: true }).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(DownstreamError);
     expect(err).toMatchObject({ status: 429, code: 'AI_MEMBER_SHARE_EXCEEDED', message: 'POST /pipelines/generate -> 429' });
+    // A quota refusal is reported, not sat through: the client never re-sends it.
+    expect(seen).toHaveLength(1);
   });
 
   it('ignores a 429 code that is not a plain ErrorCode identifier', async () => {
-    fetchMock.mockResolvedValueOnce(json({ code: 'drop table; <script>' }, 429));
+    handler = reply({ code: 'drop table; <script>' }, 429);
     const err = await pipelineClient('Bearer USER').get('/x').catch((e: unknown) => e);
     expect(err).toMatchObject({ status: 429, code: undefined });
   });
@@ -147,19 +171,35 @@ describe('internal-http — timeouts and the turn\'s abort signal', () => {
     expect(GENERATION_TIMEOUT_MS).toBeGreaterThan(HTTP_TIMEOUT_MS);
   });
 
-  it('cancels a forwarded call when the TURN aborts (client disconnect)', async () => {
+  it('releases a forwarded call when the TURN aborts (client disconnect)', async () => {
+    handler = hang;
     const ctrl = new AbortController();
-    fetchMock.mockImplementationOnce((_url, init) => new Promise((_resolve, reject) => {
-      init!.signal!.addEventListener('abort', () => reject(init!.signal!.reason));
-    }));
     const pending = pluginClient('Bearer USER', undefined, ctrl.signal).post('/plugins/generate', { prompt: 'x' }, { generation: true });
+    // Let the request reach the peer before the user goes away.
+    await new Promise((r) => setTimeout(r, 50));
     ctrl.abort(new Error('client went away'));
     await expect(pending).rejects.toThrow('client went away');
   });
 
-  it('an unbound client still carries a (timeout) signal', async () => {
-    await pipelineClient('Bearer USER').get('/pipelines');
-    expect(fetchMock.mock.calls[0]![1]!.signal).toBeInstanceOf(AbortSignal);
+  it('never sends a call whose turn has ALREADY aborted', async () => {
+    const ctrl = new AbortController();
+    ctrl.abort(new Error('gone'));
+    await expect(pipelineClient('Bearer USER', undefined, ctrl.signal).get('/pipelines')).rejects.toThrow('gone');
+    expect(seen).toHaveLength(0);
+  });
+
+  it('a hung peer fails the call at the ordinary timeout', async () => {
+    handler = hang;
+    const started = Date.now();
+    await expect(reportingClient('Bearer USER').get('/reports/slow')).rejects.toThrow(/timeout/i);
+    expect(Date.now() - started).toBeLessThan(HTTP_TIMEOUT_MS * 3);
+    // One attempt, not a retried GET.
+    expect(seen).toHaveLength(1);
+  });
+
+  it('refuses a response body over the cap rather than buffering it', async () => {
+    handler = reply({ rows: 'x'.repeat(10_000) });
+    await expect(quotaClient('Bearer USER').get('/quotas')).rejects.toThrow(/exceeded 4096 bytes/);
   });
 });
 
@@ -174,9 +214,6 @@ describe('internal-http — timeouts and the turn\'s abort signal', () => {
 // platform send anything.
 // ---------------------------------------------------------------------------
 
-const json = (body: unknown, status = 200) =>
-  new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
-
 /** The claims of a compact JWS, without verifying it (the payload is all we assert). */
 function claimsOf(header: string): Record<string, unknown> {
   const token = header.replace(/^Bearer /, '');
@@ -185,11 +222,10 @@ function claimsOf(header: string): Record<string, unknown> {
 
 describe('readInstanceEmailStatus — the authoritative email switch', () => {
   it('asks platform\'s INTERNAL status route with ask\'s own SERVICE token, not a user bearer', async () => {
-    fetchMock.mockResolvedValueOnce(json({ data: { enabled: true } }));
+    handler = reply({ data: { enabled: true } });
     await readInstanceEmailStatus();
-    const [url, init] = fetchMock.mock.calls[0]!;
-    expect(url).toBe('http://platform-svc.internal:4300/internal/notify-email/status');
-    const auth = (init!.headers as Record<string, string>).Authorization;
+    expect(seen[0]).toMatchObject({ port: PLATFORM, url: '/internal/notify-email/status' });
+    const auth = seen[0]!.headers.authorization!;
     expect(auth).not.toBe('Bearer USER');
     // A service principal naming THIS service — the claim the route's caller
     // list matches, cryptographically bound to ask's signing key.
@@ -203,17 +239,17 @@ describe('readInstanceEmailStatus — the authoritative email switch', () => {
     // A body that does not answer is not an answer.
     [{ data: {} }, 'unknown'],
   ])('maps %j to %s', async (body, expected) => {
-    fetchMock.mockResolvedValueOnce(json(body));
+    handler = reply(body);
     await expect(readInstanceEmailStatus()).resolves.toBe(expected);
   });
 
   it('resolves UNKNOWN (never "disabled") when platform refuses the token', async () => {
-    fetchMock.mockResolvedValueOnce(json({ message: 'Internal service calls only' }, 403));
+    handler = reply({ message: 'Internal service calls only' }, 403);
     await expect(readInstanceEmailStatus()).resolves.toBe('unknown');
   });
 
   it('resolves UNKNOWN when platform is unreachable — and never throws into the turn', async () => {
-    fetchMock.mockRejectedValueOnce(new Error('connect ECONNREFUSED'));
+    handler = (req) => { req.socket.destroy(); };
     await expect(readInstanceEmailStatus()).resolves.toBe('unknown');
   });
 });

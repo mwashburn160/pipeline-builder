@@ -35,7 +35,7 @@ jest.unstable_mockModule('../src/models/offer.js', () => ({
   },
 }));
 
-const { attributeConversion, sweepExpiredOffers, measureLift } = await import('../src/helpers/offers-outcome.js');
+const { attributeConversion, sweepExpiredOffers, measureLift, timeBucket } = await import('../src/helpers/offers-outcome.js');
 
 const NOW = new Date('2026-11-20T12:00:00Z');
 const DAY = 24 * 60 * 60 * 1000;
@@ -184,19 +184,40 @@ describe('offered against holdout', () => {
     expect(report.lift).toBe(0);
   });
 
-  it('buckets the elapsed times it reads, rather than grouping on milliseconds', async () => {
-    mockFind.mockReturnValue({
-      select: () => ({
-        lean: async () => [
-          { conversionMs: 2 * 60 * 60 * 1000 },
-          { conversionMs: 3 * DAY },
-          { conversionMs: 4 * DAY },
-          { conversionMs: null },
-        ],
-      }),
+  it('buckets the elapsed times IN the pipeline, never reading every conversion', async () => {
+    mockAggregate.mockImplementation(async (stages: unknown) => {
+      const first = (stages as Array<Record<string, any>>)[0];
+      if (first?.$match?.conversionMs) return [{ _id: 'same_day', count: 1 }, { _id: 'within_week', count: 2 }];
+      return [];
     });
     const report = await measureLift();
     expect(report.timeToConversion).toEqual({ same_day: 1, within_week: 2 });
+    // The unbounded per-row read is gone.
+    expect(mockFind).not.toHaveBeenCalled();
+    // Only numeric elapsed times count (a null is not a conversion time).
+    const bucketPipeline = (mockAggregate.mock.calls as unknown as Array<[Array<Record<string, any>>]>)
+      .map(([stages]) => stages)
+      .find((stages) => stages[0]?.$match?.conversionMs);
+    expect(bucketPipeline?.[0]).toEqual({ $match: { conversionMs: { $type: 'number' } } });
+  });
+
+  it('buckets server-side with exactly the timeBucket thresholds', async () => {
+    // Evaluate the pipeline's $switch the way Mongo would, and check it agrees
+    // with timeBucket at every boundary — one set of thresholds, two evaluators.
+    let expr: any;
+    mockAggregate.mockImplementation(async (stages: unknown) => {
+      const s = stages as Array<Record<string, any>>;
+      if (s[0]?.$match?.conversionMs) expr = s[1].$group._id;
+      return [];
+    });
+    await measureLift();
+    const evalSwitch = (ms: number): string => {
+      for (const b of expr.$switch.branches) if (ms < b.case.$lt[1]) return b.then;
+      return expr.$switch.default;
+    };
+    for (const ms of [0, DAY - 1, DAY, 7 * DAY - 1, 7 * DAY, 14 * DAY - 1, 14 * DAY, 90 * DAY]) {
+      expect(evalSwitch(ms)).toBe(timeBucket(ms));
+    }
   });
 
   it('reports the bought SKUs, which is the targeting check', async () => {

@@ -181,3 +181,25 @@ export interface PaymentProvider {
    */
   cancelSubscriptionNow?(externalId: string): Promise<void>;
 }
+
+/**
+ * Whether a provider call failed with an UNKNOWN outcome — the request may or
+ * may not have been applied at the provider. That is a network timeout or a lost
+ * connection (`StripeConnectionError`, which the SDK raises for both once its
+ * retries are exhausted) or a provider-side 5xx (`StripeAPIError` / any error
+ * carrying a 5xx `statusCode`), which Stripe documents as "the result is
+ * unknown". A 4xx — card declined, invalid request, auth — is a DEFINITE failure:
+ * nothing changed, so the caller may safely revert its local write.
+ *
+ * A caller that saved local state before the provider call must NOT revert on
+ * an unknown outcome (the provider may hold the new state, and reverting would
+ * desynchronise the two in the opposite direction); it marks the row for
+ * reconcile instead. Plain `Error`s (stub provider, tests) count as definite.
+ */
+export function isProviderOutcomeUnknown(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false;
+  const e = err as { type?: unknown; statusCode?: unknown };
+  if (e.type === 'StripeConnectionError') return true;
+  if (typeof e.statusCode === 'number' && e.statusCode >= 500) return true;
+  return e.type === 'StripeAPIError' && e.statusCode === undefined;
+}

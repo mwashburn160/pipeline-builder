@@ -29,6 +29,7 @@ import { billingServiceAuth, calculatePeriodEnd, createBillingEvent } from '../h
 import { checkEntitlementOvercap, syncEntitlements } from '../helpers/entitlement-sync.js';
 import { attributeConversion } from '../helpers/offers-outcome.js';
 import { evaluatePromotions, clawbackRecentPromotions } from '../helpers/promotion-engine.js';
+import { clearProviderReconcilePending, markProviderReconcilePending } from '../helpers/provider-reconcile.js';
 import { refuseTeamBilling } from '../helpers/root-org-guard.js';
 import { runSignupPromotions } from '../helpers/signup-promotions.js';
 import { mapStripeStatus } from '../helpers/stripe-helpers.js';
@@ -36,6 +37,7 @@ import { buildSubscriptionResponse } from '../helpers/subscription-response.js';
 import { MANAGEABLE_SUBSCRIPTION_STATUSES } from '../helpers/subscription-status.js';
 import { Plan } from '../models/plan.js';
 import { Subscription } from '../models/subscription.js';
+import { isProviderOutcomeUnknown } from '../providers/payment-provider.js';
 import { getPaymentProvider } from '../providers/provider-factory.js';
 import { SubscriptionCreateSchema, SubscriptionUpdateSchema } from '../validation/schemas.js';
 
@@ -579,11 +581,23 @@ export function createSubscriptionRoutes(): Router {
     // Local flip, then the provider, rolled back on provider failure: left
     // persisted, cancelAtPeriodEnd=true would tell the customer "canceled" while
     // Stripe/etc. keeps billing them.
+    //
+    // EXCEPT on an UNKNOWN outcome (timeout / connection loss / provider 5xx):
+    // the provider may well have applied the cancel, so reverting would tell the
+    // customer "still renewing" while the provider ends it. Keep the intent, mark
+    // the row, and let the lifecycle reconcile adopt the provider's real state.
     subscription.cancelAtPeriodEnd = true;
     await subscription.save();
     try {
       await getPaymentProvider().cancelSubscription(subscription.externalId || '');
     } catch (err) {
+      if (isProviderOutcomeUnknown(err)) {
+        await markProviderReconcilePending(subscription, 'cancel', true, err, req.user?.sub);
+        return sendError(res, 503,
+          'The payment provider did not confirm the cancellation in time. It may still have been applied; '
+          + 'it will be reconciled automatically on the next billing reconcile pass, and retrying is safe.',
+          ErrorCode.SERVICE_UNAVAILABLE, { outcome: 'unknown', reconcilePending: true });
+      }
       subscription.cancelAtPeriodEnd = false;
       await subscription.save();
       logger.error('Provider cancel failed; reverted local cancelAtPeriodEnd', {
@@ -591,6 +605,9 @@ export function createSubscriptionRoutes(): Router {
       });
       throw err;
     }
+
+    // A confirmed write supersedes any earlier unknown-outcome marker.
+    await clearProviderReconcilePending(subscription);
 
     await createBillingEvent(orgId, 'subscription_canceled', {
       planId: subscription.planId,
@@ -651,11 +668,19 @@ export function createSubscriptionRoutes(): Router {
     // Mirror cancel: keep local + provider state in sync by reverting the
     // local flip if the upstream reactivate fails (otherwise the user thinks
     // they're active but the provider will still terminate at period end).
+    // An UNKNOWN provider outcome is not reverted (see cancel above).
     subscription.cancelAtPeriodEnd = false;
     await subscription.save();
     try {
       await getPaymentProvider().reactivateSubscription(subscription.externalId || '');
     } catch (err) {
+      if (isProviderOutcomeUnknown(err)) {
+        await markProviderReconcilePending(subscription, 'reactivate', false, err, req.user?.sub);
+        return sendError(res, 503,
+          'The payment provider did not confirm the reactivation in time. It may still have been applied; '
+          + 'it will be reconciled automatically on the next billing reconcile pass.',
+          ErrorCode.SERVICE_UNAVAILABLE, { outcome: 'unknown', reconcilePending: true });
+      }
       subscription.cancelAtPeriodEnd = true;
       await subscription.save();
       logger.error('Provider reactivate failed; reverted local cancelAtPeriodEnd', {
@@ -663,6 +688,8 @@ export function createSubscriptionRoutes(): Router {
       });
       throw err;
     }
+
+    await clearProviderReconcilePending(subscription);
 
     await createBillingEvent(orgId, 'subscription_reactivated', {
       planId: subscription.planId,

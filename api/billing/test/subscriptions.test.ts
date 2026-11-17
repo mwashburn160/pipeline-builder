@@ -954,6 +954,48 @@ describe('POST /subscriptions/:id/cancel', () => {
     expect(serialized).not.toContain('123456789012');
   });
 
+  it('does NOT revert on an UNKNOWN provider outcome (timeout): keeps the intent, marks for reconcile, answers 503', async () => {
+    const sub = makeSubscription();
+    mockSubscriptionFindOne.mockResolvedValue(sub);
+    mockCancelSubscription.mockRejectedValue(Object.assign(new Error('Request aborted due to timeout'), { type: 'StripeConnectionError' }));
+
+    const res = mockRes();
+    await handler(mockReq({ params: { id: '64b000000000000000000001' } }), res);
+
+    // The provider may have applied the cancel — the local row keeps it.
+    expect(sub.cancelAtPeriodEnd).toBe(true);
+    expect((sub as any).metadata.providerReconcilePending).toEqual(expect.objectContaining({
+      op: 'cancel', intendedCancelAtPeriodEnd: true, at: expect.any(String),
+    }));
+    expect(mockSendError).toHaveBeenCalledWith(res, 503, expect.stringContaining('may still have been applied'),
+      'SERVICE_UNAVAILABLE', { outcome: 'unknown', reconcilePending: true });
+    expect(mockIncCounter).toHaveBeenCalledWith('billing_provider_outcome_unknown_total', { op: 'cancel' });
+    // The success-only side effects wait for the reconcile to confirm.
+    expect(mockCreateBillingEvent).not.toHaveBeenCalled();
+    expect(mockAuditRecord).not.toHaveBeenCalled();
+  });
+
+  it('still reverts on a DEFINITE provider failure (a 4xx changed nothing)', async () => {
+    const sub = makeSubscription();
+    mockSubscriptionFindOne.mockResolvedValue(sub);
+    mockCancelSubscription.mockRejectedValue(Object.assign(new Error('No such subscription'), { type: 'StripeInvalidRequestError', statusCode: 404 }));
+
+    await handler(mockReq({ params: { id: '64b000000000000000000001' } }), mockRes());
+
+    expect(sub.cancelAtPeriodEnd).toBe(false);
+    expect((sub as any).metadata).toBeUndefined();
+  });
+
+  it('a confirmed cancel clears an earlier unknown-outcome marker', async () => {
+    const sub = makeSubscription({ metadata: { providerReconcilePending: { op: 'cancel', intendedCancelAtPeriodEnd: true, at: 'x' }, keep: 1 } });
+    mockSubscriptionFindOne.mockResolvedValue(sub);
+    mockCancelSubscription.mockResolvedValue(undefined);
+
+    await handler(mockReq({ params: { id: '64b000000000000000000001' } }), mockRes());
+
+    expect((sub as any).metadata).toEqual({ keep: 1 });
+  });
+
   it('does not emit to the central trail when the provider cancel fails', async () => {
     const sub = makeSubscription();
     mockSubscriptionFindOne.mockResolvedValue(sub);
@@ -1006,6 +1048,19 @@ describe('POST /subscriptions/:id/reactivate', () => {
     await handler(req, res);
 
     expect(mockSendError).toHaveBeenCalledWith(res, 404, expect.stringContaining('No canceled subscription'), 'NOT_FOUND');
+  });
+
+  it('does NOT revert a reactivate whose provider outcome is UNKNOWN (5xx)', async () => {
+    const sub = makeSubscription({ cancelAtPeriodEnd: true });
+    mockSubscriptionFindOne.mockResolvedValue(sub);
+    mockReactivateSubscription.mockRejectedValue(Object.assign(new Error('upstream'), { type: 'StripeAPIError', statusCode: 502 }));
+
+    const res = mockRes();
+    await handler(mockReq({ params: { id: '64b000000000000000000001' } }), res);
+
+    expect(sub.cancelAtPeriodEnd).toBe(false);
+    expect((sub as any).metadata.providerReconcilePending).toEqual(expect.objectContaining({ op: 'reactivate', intendedCancelAtPeriodEnd: false }));
+    expect(mockSendError).toHaveBeenCalledWith(res, 503, expect.any(String), 'SERVICE_UNAVAILABLE', expect.objectContaining({ outcome: 'unknown' }));
   });
 
   it('returns 500 on provider error', async () => {

@@ -309,12 +309,23 @@ export function createOfferRoutes(): Router {
     '/admin/offers/exclusions',
     requireAuth as RequestHandler,
     ...requireSystemOrgPermission('subscriptions:read'),
-    withRoute(async ({ res }) => {
-      const rows = await OfferExclusion.find({}).sort({ createdAt: -1 }).lean();
+    withRoute(async ({ req, res }) => {
+      // Paginated: the veto list only ever grows (rows are removed by hand), so an
+      // unbounded read put the whole collection in one response. The default page
+      // is large enough that a list a human curates fits on it; `total` tells a
+      // caller when it does not.
+      const { limit, offset } = parsePage(req.query as Record<string, unknown>, { def: 200, max: 500 });
+      const [rows, total] = await Promise.all([
+        OfferExclusion.find({}).sort({ createdAt: -1, _id: -1 }).skip(offset).limit(limit).lean(),
+        OfferExclusion.countDocuments({}),
+      ]);
       return sendSuccess(res, 200, {
         exclusions: rows.map((r) => ({
           orgId: r.orgId, reason: r.reason, actorId: r.actorId, createdAt: r.createdAt.toISOString(),
         })),
+        total,
+        limit,
+        offset,
       });
     }, { requireOrgId: false }),
   );

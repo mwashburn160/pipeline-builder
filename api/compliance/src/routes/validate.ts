@@ -11,7 +11,7 @@ import {
   requirePermissionOrService,
   validateBody,
 } from '@pipeline-builder/api-core';
-import { withRoute } from '@pipeline-builder/api-server';
+import { incCounter, observe, withRoute } from '@pipeline-builder/api-server';
 import { type RuleTarget } from '@pipeline-builder/pipeline-data';
 import { Router, type Request } from 'express';
 import { z } from 'zod';
@@ -75,9 +75,40 @@ const DryRunSchema = z.object({
 });
 
 /**
- * Core validation logic shared by both plugin and pipeline endpoints.
+ * Core validation logic shared by both plugin and pipeline endpoints, metered.
+ *
+ * `compliance_validate_total{target,result}` counts ENFORCEMENT checks only
+ * (dry-runs are previews, and counting them would let a busy rule editor move
+ * the block rate): `result` is `passed` | `warned` | `blocked` | `skipped`
+ * (sysadmin) | `error`. The duration histogram covers live and dry-run alike —
+ * both are a caller waiting on rule evaluation.
  */
 async function validateEntity(
+  orgId: string,
+  userId: string,
+  target: RuleTarget,
+  action: string,
+  entityId: string | undefined,
+  entityName: string | undefined,
+  attributes: Record<string, unknown>,
+  isDryRun: boolean,
+  isSuperAdmin: boolean,
+  parentOrgId?: string,
+  deferredFields: readonly string[] = [],
+): ReturnType<typeof runValidation> {
+  const startedAt = Date.now();
+  let result: string = 'error';
+  try {
+    const out = await runValidation(orgId, userId, target, action, entityId, entityName, attributes, isDryRun, isSuperAdmin, parentOrgId, deferredFields);
+    result = isSuperAdmin ? 'skipped' : out.blocked ? 'blocked' : out.warnings.length > 0 ? 'warned' : 'passed';
+    return out;
+  } finally {
+    if (!isDryRun) incCounter('compliance_validate_total', { target, result });
+    observe('compliance_validate_duration_seconds', { target }, (Date.now() - startedAt) / 1000);
+  }
+}
+
+async function runValidation(
   orgId: string,
   userId: string,
   target: RuleTarget,
@@ -121,8 +152,15 @@ async function validateEntity(
 
   // Write audit log (skip for dry-runs). Log failures but don't block.
   if (!isDryRun) {
+    // Stays async (the caller is waiting on the verdict, not the log), but a
+    // lost check-log row is a hole in the compliance audit trail, so it is
+    // COUNTED, not just logged — `compliance_audit_write_failures_total` is
+    // what an alert keys on.
     logComplianceCheck(orgId, userId, target, action, entityId, entityName, result)
-      .catch((err) => logger.warn('Audit log write failed', { error: String(err) }));
+      .catch((err) => {
+        incCounter('compliance_audit_write_failures_total', { kind: 'check_log' });
+        logger.error('Compliance check-log write failed — audit row lost', { orgId, target, error: String(err) });
+      });
   }
 
   // Notify on block (skip for dry-runs). Log failures but don't block.

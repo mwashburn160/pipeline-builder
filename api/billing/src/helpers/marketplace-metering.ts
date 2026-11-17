@@ -243,15 +243,19 @@ export async function reportMarketplaceAddonUsage(orgId: string, now: Date = new
  */
 export async function reportAllMarketplaceAddonUsage(): Promise<{ accounts: number; metered: number; errors: number }> {
   // Only active subs that actually carry add-ons — skip the rest cheaply.
-  const subs = await Subscription.find({
+  // Streamed via a cursor: the account set grows with the Marketplace fleet and
+  // the cycle walks it sequentially, so there is no reason to hold it in memory.
+  const subs = Subscription.find({
     'status': 'active',
     'metadata.provider': 'aws-marketplace',
     'addons': { $exists: true, $ne: [] },
-  }).select('orgId').lean();
+  }).select('orgId').lean().cursor();
 
+  let accounts = 0;
   let metered = 0;
   let errors = 0;
-  for (const sub of subs) {
+  for await (const sub of subs) {
+    accounts += 1;
     // Per-account isolation: a thrown DB error (atomic claim, grant, save, drawdown)
     // must not abort the cycle and strand every remaining account.
     try {
@@ -264,10 +268,10 @@ export async function reportAllMarketplaceAddonUsage(): Promise<{ accounts: numb
     }
   }
 
-  if (subs.length > 0) {
-    logger.info('Marketplace metering cycle complete', { accounts: subs.length, metered, errors });
+  if (accounts > 0) {
+    logger.info('Marketplace metering cycle complete', { accounts, metered, errors });
   }
-  return { accounts: subs.length, metered, errors };
+  return { accounts, metered, errors };
 }
 
 // Cross-pod single-runner lock. Correctness is already guaranteed by the per-hour /

@@ -129,12 +129,32 @@ export function skuMatch(offerType: OfferType, targetTier: string | null, purcha
 }
 
 /** Coarse time-to-conversion buckets, so the counter stays low-cardinality. */
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** The `timeBucket` thresholds, as `[upper bound in days (exclusive), bucket]`. */
+const TIME_BUCKETS: ReadonlyArray<readonly [number, string]> = [
+  [1, 'same_day'],
+  [7, 'within_week'],
+  [14, 'within_2w'],
+];
+const LAST_BUCKET = 'later';
+
 export function timeBucket(ms: number): string {
-  const days = ms / (24 * 60 * 60 * 1000);
-  if (days < 1) return 'same_day';
-  if (days < 7) return 'within_week';
-  if (days < 14) return 'within_2w';
-  return 'later';
+  const days = ms / DAY_MS;
+  for (const [upper, bucket] of TIME_BUCKETS) {
+    if (days < upper) return bucket;
+  }
+  return LAST_BUCKET;
+}
+
+/** `timeBucket` as a Mongo `$switch` over `$conversionMs` — one source of thresholds. */
+function conversionBucketExpr(): Record<string, unknown> {
+  return {
+    $switch: {
+      branches: TIME_BUCKETS.map(([upper, bucket]) => ({ case: { $lt: ['$conversionMs', upper * DAY_MS] }, then: bucket })),
+      default: LAST_BUCKET,
+    },
+  };
 }
 
 /**
@@ -238,11 +258,15 @@ export async function measureLift(): Promise<LiftReport> {
       { $match: { status: 'redeemed' } },
       { $group: { _id: '$boughtSku', count: { $sum: 1 } } },
     ]),
-    // Read the raw elapsed times and bucket them HERE rather than grouping on
-    // `$conversionMs` in the pipeline: that field is a millisecond value, so a
-    // `$group` on it produces one group per distinct conversion — a cardinality
-    // explosion dressed up as an aggregate.
-    Offer.find({ conversionMs: { $exists: true } }).select('conversionMs').lean(),
+    // Bucket the elapsed times IN the pipeline with the same thresholds as
+    // `timeBucket`, so the result is at most four rows. Not a `$group` on raw
+    // `$conversionMs` (a millisecond value — one group per conversion), and not
+    // a read of every converted offer into memory either, which grew with the
+    // whole conversion history on every admin page load.
+    Offer.aggregate<{ _id: string; count: number }>([
+      { $match: { conversionMs: { $type: 'number' } } },
+      { $group: { _id: conversionBucketExpr(), count: { $sum: 1 } } },
+    ]),
   ]);
 
   const arm = (holdout: boolean): LiftArm => {
@@ -263,9 +287,8 @@ export async function measureLift(): Promise<LiftReport> {
   const holdout = arm(true);
   const timeToConversion: Record<string, number> = {};
   for (const row of buckets) {
-    if (typeof row.conversionMs !== 'number') continue;
-    const key = timeBucket(row.conversionMs);
-    timeToConversion[key] = (timeToConversion[key] ?? 0) + 1;
+    if (typeof row._id !== 'string' || typeof row.count !== 'number') continue;
+    timeToConversion[row._id] = (timeToConversion[row._id] ?? 0) + row.count;
   }
 
   return {

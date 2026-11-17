@@ -10,6 +10,7 @@ import { billingServiceAuth, createBillingEvent, renewedPeriod } from './billing
 import { retryPendingCreditDebits } from './credit-debits.js';
 import { reconcileEntitlementDrift } from './entitlement-drift.js';
 import { syncEntitlements } from './entitlement-sync.js';
+import { reconcileUnknownProviderOutcomes } from './provider-reconcile.js';
 import { MANAGEABLE_SUBSCRIPTION_STATUSES } from './subscription-status.js';
 import { Plan } from '../models/plan.js';
 import { Subscription, type SubscriptionDocument } from '../models/subscription.js';
@@ -63,6 +64,9 @@ async function runLifecycleCheck(): Promise<void> {
   // (out-of-band edits, which have no triggering event) runs below.
   await reconcileFailedProviderAddonSyncs();
   await reconcilePendingCreditDebits();
+  // Settle cancel/reactivate writes whose provider outcome was UNKNOWN
+  // (timeout / connection loss): adopt the provider's real cancelAtPeriodEnd.
+  await reconcileUnknownProviderOutcomes();
   // Runs LAST: the low-frequency, bounded silent-drift pass. Kept at the end so
   // it doesn't disturb the earlier legs' sequential-mock ordering in tests.
   await reconcileEntitlementDrift();
@@ -124,13 +128,15 @@ async function checkGracePeriodExpiry(): Promise<void> {
   // these rows would re-match every tick — re-emitting billing_events and
   // re-running the downgrade forever. handlePaymentSucceeded clears the marker
   // when a sub recovers to 'active', so a future lapse re-downgrades.
-  const expired = await Subscription.find({
+  // A cursor, not an array: every sweep below streams its candidates so a fleet
+  // -wide backlog (a long webhook outage) can't load every row into memory.
+  const expired = Subscription.find({
     'status': 'past_due',
     'firstFailedAt': { $lte: cutoff },
     'metadata.gracePeriodDowngradedAt': { $exists: false },
-  });
+  }).cursor();
 
-  for (const subscription of expired) {
+  for await (const subscription of expired) {
     try {
       // CLAIM the lapse atomically BEFORE any side effect: the conditional update
       // only matches while the row is still an un-downgraded past_due, so exactly
@@ -282,22 +288,16 @@ async function checkExpiredSubscriptions(): Promise<void> {
   // scheduled to cancel whose terminal `subscription.deleted` webhook is dropped
   // would otherwise keep its paid entitlements forever past the paid-through date.
   // The provider-verify branch below downgrades it when the provider reports it gone.
-  const stale = await Subscription.find({
+  const stale = Subscription.find({
     status: { $in: ['active', 'trialing'] },
     currentPeriodEnd: { $lt: now },
-  });
-
-  if (stale.length === 0) return;
-
-  // Count only — never a list of tenant ids in a WARN line (log volume + a
-  // cross-tenant roster in the log pipeline). Per-row lines below carry the org.
-  logger.warn('Found active subscriptions past their period end (possible missed webhooks)', {
-    count: stale.length,
-  });
+  }).cursor();
 
   const provider = getPaymentProvider();
+  let staleCount = 0;
 
-  for (const subscription of stale) {
+  for await (const subscription of stale) {
+    staleCount += 1;
     try {
       // Marketplace entitlements are normally event-driven, but a DROPPED
       // `License Deprovisioned` event would otherwise leave the org on the paid
@@ -473,6 +473,15 @@ async function checkExpiredSubscriptions(): Promise<void> {
       });
     }
   }
+
+  // Count only — never a list of tenant ids in a WARN line (log volume + a
+  // cross-tenant roster in the log pipeline). Per-row lines above carry the org.
+  // Logged after the walk now that the candidates stream from a cursor.
+  if (staleCount > 0) {
+    logger.warn('Found active subscriptions past their period end (possible missed webhooks)', {
+      count: staleCount,
+    });
+  }
 }
 
 /**
@@ -508,15 +517,13 @@ async function sendRenewalReminders(): Promise<void> {
   // Dedupe by the subscription's own currentPeriodEnd: each period gets
   // exactly one reminder. Keying off `reminderWindow` (which moves every run)
   // would re-send on the next cron tick.
-  const upcoming = await Subscription.find({
+  const upcoming = Subscription.find({
     status: 'active',
     cancelAtPeriodEnd: false,
     currentPeriodEnd: { $gt: now, $lte: reminderWindow },
-  });
+  }).cursor();
 
-  if (upcoming.length === 0) return;
-
-  for (const subscription of upcoming) {
+  for await (const subscription of upcoming) {
     try {
       const periodKey = formatDate(subscription.currentPeriodEnd);
       if (subscription.metadata?.lastRenewalReminder === periodKey) continue;
@@ -586,18 +593,14 @@ async function sendRenewalReminders(): Promise<void> {
  * exempt (its syncAddons is a no-op that never fails, so it never gets marked).
  */
 async function reconcileFailedProviderAddonSyncs(): Promise<void> {
-  const pending = await Subscription.find({
+  const pending = Subscription.find({
     'status': { $in: [...MANAGEABLE_SUBSCRIPTION_STATUSES] },
     'metadata.providerAddonSyncPending': true,
-  });
+  }).cursor();
 
-  if (pending.length === 0) return;
-
-  logger.info('Reconciling subscriptions with a pending provider add-on sync', {
-    count: pending.length,
-  });
-
-  for (const subscription of pending) {
+  let count = 0;
+  for await (const subscription of pending) {
+    count += 1;
     try {
       // Idempotent re-drive from the CURRENT reduced add-on set. syncProviderAddons
       // clears the marker on success (and re-sets it on another failure). Threading
@@ -620,6 +623,10 @@ async function reconcileFailedProviderAddonSyncs(): Promise<void> {
       });
     }
   }
+
+  if (count > 0) {
+    logger.info('Reconciled subscriptions with a pending provider add-on sync', { count });
+  }
 }
 
 // ── 4c. Pending Provider Credit Debits ────────────────────
@@ -633,10 +640,10 @@ async function reconcileFailedProviderAddonSyncs(): Promise<void> {
  * same customer. Self-clearing — a debit leaves the queue only once posted.
  */
 async function reconcilePendingCreditDebits(): Promise<void> {
-  const pending = await Subscription.find({ 'pendingCreditDebits.0': { $exists: true } });
-  if (pending.length === 0) return;
-  logger.info('Re-posting pending provider credit debits', { count: pending.length });
-  for (const subscription of pending) {
+  const pending = Subscription.find({ 'pendingCreditDebits.0': { $exists: true } }).cursor();
+  let count = 0;
+  for await (const subscription of pending) {
+    count += 1;
     // retryPendingCreditDebits never throws (each failure is logged, counted
     // and kept queued); the guard keeps one row from aborting the pass anyway.
     await retryPendingCreditDebits(subscription).catch((err: unknown) => {
@@ -645,6 +652,7 @@ async function reconcilePendingCreditDebits(): Promise<void> {
       });
     });
   }
+  if (count > 0) logger.info('Re-posted pending provider credit debits', { count });
 }
 
 /**

@@ -86,9 +86,26 @@ jest.unstable_mockModule('../src/models/offer.js', () => ({
 // `typecheck:tests` says so.
 const mockExclusionUpsert = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockExclusionDelete = jest.fn<(...a: unknown[]) => unknown>();
+const mockExclusionSkip = jest.fn<(n: number) => void>();
+const mockExclusionLimit = jest.fn<(n: number) => void>();
+const mockExclusionCount = jest.fn<() => number>(() => 0);
+const mockExclusionFind = jest.fn((..._a: unknown[]) => ({
+  sort: () => ({
+    skip: (n: number) => {
+      mockExclusionSkip(n);
+      return {
+        limit: (l: number) => {
+          mockExclusionLimit(l);
+          return { lean: async () => [{ orgId: 'acct-9', reason: 'negotiating', actorId: 'u-1', createdAt: new Date('2026-11-01T00:00:00Z') }] };
+        },
+      };
+    },
+  }),
+}));
 jest.unstable_mockModule('../src/models/offer-exclusion.js', () => ({
   OfferExclusion: {
-    find: () => ({ sort: () => ({ lean: async () => [] }) }),
+    find: (...a: unknown[]) => mockExclusionFind(...a),
+    countDocuments: async () => mockExclusionCount(),
     findOneAndUpdate: mockExclusionUpsert,
     findOneAndDelete: mockExclusionDelete,
   },
@@ -297,6 +314,19 @@ describe('the account\'s own read', () => {
 });
 
 describe('the do-not-offer veto', () => {
+  it('lists the veto list one bounded page at a time, with the total', async () => {
+    mockExclusionCount.mockReturnValueOnce(731);
+    await call(handler('get', '/admin/offers/exclusions'), { query: { limit: '50' } });
+    expect(mockExclusionSkip).toHaveBeenCalledWith(0);
+    expect(mockExclusionLimit).toHaveBeenCalledWith(50);
+    expect(mockSendSuccess).toHaveBeenCalledWith(expect.anything(), 200, expect.objectContaining({
+      exclusions: [expect.objectContaining({ orgId: 'acct-9', reason: 'negotiating', createdAt: '2026-11-01T00:00:00.000Z' })],
+      total: 731,
+      limit: 50,
+      offset: 0,
+    }));
+  });
+
   it('refuses an exclusion with no reason', async () => {
     await call(handler('put', '/admin/offers/exclusions/:orgId'), { params: { orgId: 'acct-9' }, body: {} });
     expect(mockSendBadRequest).toHaveBeenCalled();

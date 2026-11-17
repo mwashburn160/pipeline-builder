@@ -7,7 +7,7 @@ import { createApp, runServer, attachRequestContext } from '@pipeline-builder/ap
 import { mountRoutes } from './app-routes.js';
 import { config } from './config/index.js';
 import { OWN_BODY_PARSER_PATHS } from './routes/internal.js';
-import { startGcScheduler, startQuarantineGcScheduler } from './services/gc-scheduler.js';
+import { startGcScheduler, startQuarantineGcScheduler, stopGcScheduler, stopQuarantineGcScheduler } from './services/gc-scheduler.js';
 
 const logger = createLogger('pipeline-image-registry');
 
@@ -50,6 +50,13 @@ runServer(app, {
     // Always-on: anonymous-submission builds (`quarantine/*`) are removed 30
     // days after their build even if the plugin service's delete hook missed.
     startQuarantineGcScheduler();
+  },
+  // Coordinated teardown: runServer drains the HTTP server and then runs this,
+  // so a sweep isn't left ticking mid-shutdown (the schedulers previously hung
+  // their own process.once('SIGTERM'), which raced this ordered sequence).
+  onShutdown: async () => {
+    stopGcScheduler();
+    stopQuarantineGcScheduler();
   },
 });
 

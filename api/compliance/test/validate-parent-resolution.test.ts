@@ -29,6 +29,7 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 
 jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipeline-builder/api-server', {
   incCounter: () => undefined,
+  observe: () => undefined,
   withRoute: (h: Function) => async (req: any, res: any) => h({ req, res, ctx: { log: jest.fn() }, orgId: req.__orgId, userId: req.user?.sub ?? 'u' }),
 }));
 

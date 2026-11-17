@@ -24,7 +24,7 @@
  * customer never touches this.
  */
 
-import { SYSTEM_ORG_ID, createLogger, envInt, errorMessage, getServiceAuthHeader } from '@pipeline-builder/api-core';
+import { SYSTEM_ORG_ID, createLogger, envInt, errorMessage, getServiceAuthHeader, InternalHttpClient } from '@pipeline-builder/api-core';
 import { Config } from '@pipeline-builder/pipeline-core';
 
 const logger = createLogger('support-incident-client');
@@ -32,9 +32,27 @@ const logger = createLogger('support-incident-client');
 /** Bounded like the entitlement read: a slow billing must not hang a send. */
 const TIMEOUT_MS = envInt('SUPPORT_INCIDENT_TIMEOUT_MS', 3000, { min: 250, max: 30_000 });
 
-function billingUrl(path: string): string {
+/** api-core does not export `HttpClientResponse`; derive it from the client. */
+type BillingReply = Awaited<ReturnType<InternalHttpClient['post']>>;
+
+/** An incident reply is a couple of fields; anything larger is not an answer. */
+const MAX_RESPONSE_BYTES = 64 * 1024;
+
+/**
+ * POST one incident write to billing through the shared client (pooled sockets,
+ * per-target circuit breaker, bounded body). Automatic retries are OFF on both
+ * axes: the consume loop below owns retrying (with the SAME key, and with its
+ * own accounting of an unknown outcome), and a 429 must stay a definite
+ * refusal rather than be re-sent behind the caller's back.
+ */
+function postToBilling(path: string, key: string): Promise<BillingReply> {
   const { billingHost, billingPort } = Config.get('server').services;
-  return `http://${billingHost}:${billingPort}/billing${path}`;
+  const client = new InternalHttpClient({ host: billingHost, port: billingPort, timeout: TIMEOUT_MS }, { maxResponseBytes: MAX_RESPONSE_BYTES });
+  return client.post(`/billing${path}`, { idempotencyKey: key }, {
+    headers: { Authorization: authHeader() },
+    maxRetries: 0,
+    maxRateLimitRetries: 0,
+  });
 }
 
 /** Service principal, least privilege — a write, but on the CALLER's behalf. */
@@ -53,34 +71,29 @@ const CONSUME_ATTEMPTS = 3;
 type ConsumeOutcome = 'consumed' | 'none' | 'unknown';
 
 async function consumeOnce(orgId: string, key: string): Promise<ConsumeOutcome> {
-  let res: Response;
+  let res: BillingReply;
   try {
-    res = await fetch(billingUrl(`/internal/support-incidents/${encodeURIComponent(orgId)}/consume`), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': authHeader() },
-      body: JSON.stringify({ idempotencyKey: key }),
-      signal: AbortSignal.timeout(TIMEOUT_MS),
-    });
+    res = await postToBilling(`/internal/support-incidents/${encodeURIComponent(orgId)}/consume`, key);
   } catch (err) {
     // A timeout is the case that matters: the request may have reached billing
-    // and committed after we stopped waiting.
+    // and committed after we stopped waiting. An open circuit breaker (nothing
+    // sent) is also counted unknown — a PRIOR attempt in this loop may still
+    // have committed, so it must not end the loop as a definite "none".
     logger.warn('Incident consume unavailable', { orgId, error: errorMessage(err) });
     return 'unknown';
   }
-  if (!res.ok) {
-    logger.warn('Incident consume refused by billing', { orgId, status: res.status });
+  if (res.statusCode < 200 || res.statusCode >= 300) {
+    logger.warn('Incident consume refused by billing', { orgId, status: res.statusCode });
     // A 4xx is refused before the balance is touched (auth, validation, rate
     // limit); a 5xx may have failed after the spend committed.
-    return res.status < 500 ? 'none' : 'unknown';
+    return res.statusCode < 500 ? 'none' : 'unknown';
   }
-  try {
-    const body = (await res.json()) as { data?: { consumed?: unknown } } | null;
-    const consumed = body?.data?.consumed;
-    if (consumed === true) return 'consumed';
-    if (consumed === false) return 'none';
-  } catch (err) {
-    logger.warn('Incident consume reply unreadable', { orgId, error: errorMessage(err) });
-  }
+  // An unparseable or oversized reply is UNKNOWN: the client hands back `{}`
+  // for a body it could not parse, which carries no `consumed` flag.
+  const consumed = (res.body as { data?: { consumed?: unknown } } | null)?.data?.consumed;
+  if (consumed === true) return 'consumed';
+  if (consumed === false) return 'none';
+  logger.warn('Incident consume reply unreadable', { orgId });
   return 'unknown';
 }
 
@@ -132,13 +145,10 @@ export async function consumeSupportIncident(orgId: string, key: string): Promis
  */
 export async function refundSupportIncident(orgId: string, key: string): Promise<void> {
   try {
-    const res = await fetch(billingUrl(`/internal/support-incidents/${encodeURIComponent(orgId)}/refund`), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': authHeader() },
-      body: JSON.stringify({ idempotencyKey: key }),
-      signal: AbortSignal.timeout(TIMEOUT_MS),
-    });
-    if (!res.ok) logger.error('Incident refund refused by billing', { orgId, status: res.status });
+    const res = await postToBilling(`/internal/support-incidents/${encodeURIComponent(orgId)}/refund`, key);
+    if (res.statusCode < 200 || res.statusCode >= 300) {
+      logger.error('Incident refund refused by billing', { orgId, status: res.statusCode });
+    }
   } catch (err) {
     logger.error('Incident refund unavailable — a concession was spent on a failed case', {
       orgId,

@@ -1,10 +1,10 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { SYSTEM_ACTOR_ID, ConflictError, createCacheService, createLogger, errorMessage, RULE_TARGETS, ruleFieldError, SYSTEM_ORG_ID, toComplianceAttributes, ValidationError, type RuleSeverity } from '@pipeline-builder/api-core';
+import { SYSTEM_ACTOR_ID, ConflictError, createCacheService, createLogger, emitCounter, errorMessage, RULE_TARGETS, ruleFieldError, SYSTEM_ORG_ID, toComplianceAttributes, ValidationError, type RuleSeverity } from '@pipeline-builder/api-core';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
-import { CrudService, buildComplianceRuleConditions, buildPublishedRuleCatalogConditions, runWithTenantContext, schema, withTenantTx, type ComplianceRuleFilter, type RuleTarget, type RuleScope } from '@pipeline-builder/pipeline-data';
-import { SQL, eq, and, or, desc, inArray, isNull } from 'drizzle-orm';
+import { CrudService, buildComplianceRuleConditions, buildPublishedRuleCatalogConditions, runWithTenantContext, schema, withTenantTx, type ComplianceRuleFilter, type CrudTx, type RuleTarget, type RuleScope } from '@pipeline-builder/pipeline-data';
+import { SQL, eq, and, or, desc, inArray, isNotNull, isNull } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
 import type { PgTable } from 'drizzle-orm/pg-core';
 import { paginatedList } from './paginated-list.js';
@@ -81,6 +81,10 @@ const logger = createLogger('compliance-rule-service');
 
 /** Shared `.catch` sink for the fire-and-forget side effects (history / cache /
  *  scan-trigger) in create/update/delete/restore — was copy-pasted 16×. */
+/** Attempts (including the first) for a post-commit history write. */
+const HISTORY_WRITE_ATTEMPTS = 3;
+const HISTORY_RETRY_BASE_MS = 50;
+
 const warnNonFatal = (err: unknown): void => { logger.warn('Non-fatal side effect failed', { error: errorMessage(err) }); };
 
 /** Cache for active rules per org+target. Rules change infrequently. */
@@ -626,6 +630,71 @@ export class ComplianceRuleService extends CrudService<
     }));
   }
 
+  /**
+   * Write the history row for a mutation that has ALREADY COMMITTED, retrying a
+   * transient failure, and COUNT a row that is finally lost
+   * (`compliance_audit_write_failures_total{kind="rule_history"}`).
+   *
+   * Awaited by create/update/delete (no longer fire-and-forget), so a request
+   * does not answer before its audit row is written or definitively lost. It
+   * still runs in its OWN transaction: CrudService.create/update/delete open
+   * their tenant transaction internally and expose no in-transaction hook (only
+   * `restoreExtraSet` / `onBeforePurge`), so the row cannot share the
+   * mutation's commit without a package change — see restoreExtraSet below for
+   * the one path that does. Never throws: the mutation is committed, and failing
+   * the request now would tell the caller it did not happen.
+   */
+  private async recordHistoryAfterCommit(
+    ruleId: string,
+    orgId: string,
+    changeType: string,
+    previousState: unknown,
+    userId: string,
+  ): Promise<void> {
+    for (let attempt = 1; attempt <= HISTORY_WRITE_ATTEMPTS; attempt += 1) {
+      try {
+        await this.recordHistory(ruleId, orgId, changeType, previousState, userId);
+        return;
+      } catch (err) {
+        if (attempt === HISTORY_WRITE_ATTEMPTS) {
+          emitCounter('compliance_audit_write_failures_total', { kind: 'rule_history' });
+          logger.error('Compliance rule history write failed — audit row lost', {
+            ruleId, orgId, changeType, attempts: attempt, error: errorMessage(err),
+          });
+          return;
+        }
+        await new Promise((r) => setTimeout(r, HISTORY_RETRY_BASE_MS * attempt));
+      }
+    }
+  }
+
+  /**
+   * The RESTORE history row, written INSIDE the restore transaction — the one
+   * mutation whose CrudService path offers an in-tx hook. The tombstone is
+   * locked `FOR UPDATE` first and the row written only when it is still a
+   * tombstone, so the UPDATE that follows in the same transaction is guaranteed
+   * to match it: the history row and the un-delete commit or roll back together,
+   * and a concurrent restore cannot leave a phantom "restored" entry.
+   */
+  protected async restoreExtraSet(id: string, tx: CrudTx, orgId?: string, userId?: string): Promise<Record<string, unknown>> {
+    const rule = schema.complianceRule;
+    const [tombstone] = await tx
+      .select({ id: rule.id, orgId: rule.orgId })
+      .from(rule)
+      .where(and(eq(rule.id, id), eq(rule.isActive, false), isNotNull(rule.deletedAt), ...(orgId ? [eq(rule.orgId, orgId)] : [])))
+      .for('update');
+    if (tombstone) {
+      await tx.insert(schema.complianceRuleHistory).values({
+        ruleId: id,
+        orgId: tombstone.orgId,
+        changeType: 'restored',
+        previousState: null as unknown as Record<string, unknown>,
+        changedBy: userId ?? SYSTEM_ACTOR_ID,
+      });
+    }
+    return {};
+  }
+
   // Override mutations to record history
 
   async create(data: ComplianceRuleInsert, userId: string): Promise<ComplianceRule> {
@@ -650,7 +719,7 @@ export class ComplianceRuleService extends CrudService<
       }
       throw err;
     });
-    this.recordHistory(created.id, created.orgId, 'created', null, userId).catch(warnNonFatal);
+    await this.recordHistoryAfterCommit(created.id, created.orgId, 'created', null, userId);
     this.invalidateRulesCache(created.orgId).catch(warnNonFatal);
     this.triggerRuleChangeScan(created.orgId, created.target, userId).catch(warnNonFatal);
     if (created.scope === 'published') {
@@ -681,7 +750,7 @@ export class ComplianceRuleService extends CrudService<
     }
     const updated = await super.update(id, data, orgId, userId);
     if (updated && existing) {
-      this.recordHistory(id, orgId, 'updated', existing, userId).catch(warnNonFatal);
+      await this.recordHistoryAfterCommit(id, orgId, 'updated', existing, userId);
       this.invalidateRulesCache(orgId).catch(warnNonFatal);
       this.triggerRuleChangeScan(orgId, existing.target, userId).catch(warnNonFatal);
       if (existing.scope === 'published') {
@@ -706,7 +775,7 @@ export class ComplianceRuleService extends CrudService<
       : [];
     const deleted = await super.delete(id, orgId, userId);
     if (deleted && existing) {
-      this.recordHistory(id, orgId, 'deleted', existing, userId).catch(warnNonFatal);
+      await this.recordHistoryAfterCommit(id, orgId, 'deleted', existing, userId);
       this.invalidateRulesCache(orgId).catch(warnNonFatal);
       this.triggerRuleChangeScan(orgId, existing.target, userId).catch(warnNonFatal);
       if (existing.scope === 'published') {
@@ -721,11 +790,11 @@ export class ComplianceRuleService extends CrudService<
    * Restore mirrors delete's correctness-critical side-effects: a restored rule
    * re-enters evaluation, so the rules cache MUST be invalidated (and subscriber
    * caches for a published rule) or the rule stays invisible until TTL. Also
-   * records history and re-triggers a target scan. Called by the base
+   * re-triggers a target scan (history is written in-tx by restoreExtraSet). Called by the base
    * `restore()` after the row is un-tombstoned.
    */
   protected async onAfterRestore(id: string, entity: ComplianceRule, userId: string): Promise<void> {
-    this.recordHistory(id, entity.orgId, 'restored', null, userId).catch(warnNonFatal);
+    // History was written in the restore transaction (restoreExtraSet).
     this.invalidateRulesCache(entity.orgId).catch(warnNonFatal);
     this.triggerRuleChangeScan(entity.orgId, entity.target, userId).catch(warnNonFatal);
     if (entity.scope === 'published') {

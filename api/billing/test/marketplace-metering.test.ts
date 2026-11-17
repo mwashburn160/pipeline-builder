@@ -94,9 +94,17 @@ jest.unstable_mockModule('../src/config.js', () => ({ config: mockConfig }));
 const { reportMarketplaceAddonUsage, reportAllMarketplaceAddonUsage, startMarketplaceMetering, stopMarketplaceMetering } =
   await import('../src/helpers/marketplace-metering.js');
 
-/** Wire Subscription.find(...).select(...).lean() to resolve the given rows. */
+/** Wire Subscription.find(...).select(...).lean().cursor() to stream the given rows. */
 function findResolves(rows: unknown[]) {
-  mockSubscriptionFind.mockReturnValue({ select: () => ({ lean: () => Promise.resolve(rows) }) });
+  mockSubscriptionFind.mockReturnValue({
+    select: () => ({
+      lean: () => ({
+        cursor: () => ({
+          async* [Symbol.asyncIterator]() { yield* rows; },
+        }),
+      }),
+    }),
+  });
 }
 
 const LICENSE = 'arn:aws:license-manager::111122223333:license:l-c650855e87734887b28b61decef25bef';

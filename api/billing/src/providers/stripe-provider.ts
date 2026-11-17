@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createLogger } from '@pipeline-builder/api-core';
-import { incCounter } from '@pipeline-builder/api-server';
+import { incCounter, observe } from '@pipeline-builder/api-server';
 import Stripe from 'stripe';
-import type { DiscountRef, ExternalSubscriptionResult, PaymentProvider, ProviderSubscriptionView } from './payment-provider.js';
+import { isProviderOutcomeUnknown, type DiscountRef, type ExternalSubscriptionResult, type PaymentProvider, type ProviderSubscriptionView } from './payment-provider.js';
 // From billing-config, NOT billing-helpers: helpers imports `../config.js`,
 // which THROWS without MONGODB_URI when billing is on, so importing the catalog
 // through it made this provider — and every suite that loads it — depend on a
@@ -21,6 +21,49 @@ const logger = createLogger('stripe-provider');
 /** The Stripe API version every call is made at. */
 export const STRIPE_API_VERSION = '2026-10-28.endive';
 
+/**
+ * Per-attempt network timeout for every Stripe call. The SDK default is 80s,
+ * which is longer than the gateway/client will wait for the billing route — so a
+ * hung Stripe connection held the request (and its Mongo state) open long after
+ * the caller gave up. 12s, times up to {@link STRIPE_MAX_NETWORK_RETRIES} + 1
+ * attempts, still lands inside a typical upstream budget.
+ */
+export const STRIPE_TIMEOUT_MS = 12_000;
+
+/**
+ * Automatic retries on connection errors / 409 / 429 / 5xx. Safe for mutating
+ * calls: stripe-node attaches an idempotency key to every retried POST (ours
+ * when the caller passed one, a generated `stripe-node-retry-*` key otherwise),
+ * so a retry after a lost response replays the original result instead of
+ * applying the write twice.
+ */
+export const STRIPE_MAX_NETWORK_RETRIES = 2;
+
+/** Metric names for every Stripe call this provider makes. */
+export const PROVIDER_CALLS_METRIC = 'billing_provider_calls_total';
+export const PROVIDER_CALL_DURATION_METRIC = 'billing_provider_call_duration_seconds';
+
+/**
+ * Run one Stripe call, metering it as `billing_provider_calls_total{op,outcome}`
+ * (outcome `success` | `error` | `unknown`) plus a duration histogram. `unknown`
+ * is a timeout / connection loss / 5xx — the write may or may not have applied —
+ * and is what a caller must reconcile rather than revert. The error is rethrown
+ * unchanged so callers keep inspecting Stripe's own `code`/`type`.
+ */
+async function tracked<T>(op: string, fn: () => Promise<T>): Promise<T> {
+  const startedAt = Date.now();
+  let outcome = 'success';
+  try {
+    return await fn();
+  } catch (err) {
+    outcome = isProviderOutcomeUnknown(err) ? 'unknown' : 'error';
+    throw err;
+  } finally {
+    incCounter(PROVIDER_CALLS_METRIC, { op, outcome });
+    observe(PROVIDER_CALL_DURATION_METRIC, { op }, (Date.now() - startedAt) / 1000);
+  }
+}
+
 export class StripeProvider implements PaymentProvider {
   private readonly stripe: Stripe;
   private readonly stripeConfig: StripeConfig;
@@ -31,7 +74,11 @@ export class StripeProvider implements PaymentProvider {
     // live (the billing period moved onto subscription items in 2025-03-31), and
     // an SDK upgrade that silently changed it is how the period reads broke. A
     // new SDK fails to compile here until this is reviewed and moved.
-    this.stripe = new Stripe(stripeConfig.secretKey, { apiVersion: STRIPE_API_VERSION });
+    this.stripe = new Stripe(stripeConfig.secretKey, {
+      apiVersion: STRIPE_API_VERSION,
+      timeout: STRIPE_TIMEOUT_MS,
+      maxNetworkRetries: STRIPE_MAX_NETWORK_RETRIES,
+    });
   }
 
   /**
@@ -41,10 +88,10 @@ export class StripeProvider implements PaymentProvider {
   async createCustomer(orgId: string, email?: string, idempotencyKey?: string): Promise<string> {
     logger.info('Creating Stripe customer', { orgId });
 
-    const customer = await this.stripe.customers.create({
+    const customer = await tracked('customers.create', () => this.stripe.customers.create({
       email: email || undefined,
       metadata: { orgId },
-    }, idempotencyKey ? { idempotencyKey } : undefined);
+    }, idempotencyKey ? { idempotencyKey } : undefined));
 
     logger.info('Stripe customer created', { orgId, customerId: customer.id });
     return customer.id;
@@ -73,7 +120,7 @@ export class StripeProvider implements PaymentProvider {
 
     logger.info('Creating Stripe subscription', { customerId, planId, interval, priceId });
 
-    const subscription = await this.stripe.subscriptions.create({
+    const subscription = await tracked('subscriptions.create', () => this.stripe.subscriptions.create({
       customer: customerId,
       items: [{ price: priceId }],
       // `subscriptionRef` names the local row reserved for this sub: the
@@ -83,7 +130,7 @@ export class StripeProvider implements PaymentProvider {
       // Stripe Tax, when the deployment has configured it. Must be set per call:
       // the Dashboard toggle does not reach `subscriptions.create`.
       ...(this.stripeConfig.automaticTax ? { automatic_tax: { enabled: true } } : {}),
-    }, idempotencyKey ? { idempotencyKey } : undefined);
+    }, idempotencyKey ? { idempotencyKey } : undefined));
 
     logger.info('Stripe subscription created', {
       customerId,
@@ -127,7 +174,7 @@ export class StripeProvider implements PaymentProvider {
     // Carry the referral/promo code so the webhook can grant signup credit on
     // completion (parity with the in-app create path).
     if (opts.referralCode) metadata.referralCode = opts.referralCode;
-    const session = await this.stripe.checkout.sessions.create({
+    const session = await tracked('checkout.sessions.create', () => this.stripe.checkout.sessions.create({
       mode: 'subscription',
       customer: customerId,
       line_items: [{ price: priceId, quantity: 1 }],
@@ -140,7 +187,7 @@ export class StripeProvider implements PaymentProvider {
       // Same switch as the direct-create path: a Checkout Session created via
       // the API does not inherit the Dashboard's Stripe Tax setting.
       ...(this.stripeConfig.automaticTax ? { automatic_tax: { enabled: true } } : {}),
-    });
+    }));
     if (!session.url) throw new Error('Stripe Checkout session was created without a URL');
     logger.info('Stripe Checkout session created', { customerId, planId, interval, sessionId: session.id });
     return session.url;
@@ -152,9 +199,9 @@ export class StripeProvider implements PaymentProvider {
   async cancelSubscription(externalId: string): Promise<void> {
     logger.info('Canceling Stripe subscription at period end', { externalId });
 
-    await this.stripe.subscriptions.update(externalId, {
+    await tracked('subscriptions.cancel_at_period_end', () => this.stripe.subscriptions.update(externalId, {
       cancel_at_period_end: true,
-    });
+    }));
 
     logger.info('Stripe subscription marked for cancellation', { externalId });
   }
@@ -166,7 +213,7 @@ export class StripeProvider implements PaymentProvider {
    */
   async cancelSubscriptionNow(externalId: string): Promise<void> {
     logger.warn('Canceling duplicate Stripe subscription immediately', { externalId });
-    await this.stripe.subscriptions.cancel(externalId);
+    await tracked('subscriptions.cancel', () => this.stripe.subscriptions.cancel(externalId));
   }
 
   /**
@@ -180,7 +227,7 @@ export class StripeProvider implements PaymentProvider {
   async updateSubscription(externalId: string, planId: string, interval: BillingInterval): Promise<void> {
     logger.info('Updating Stripe subscription plan', { externalId, planId, interval });
 
-    const subscription = await this.stripe.subscriptions.retrieve(externalId);
+    const subscription = await tracked('subscriptions.retrieve', () => this.stripe.subscriptions.retrieve(externalId));
     const currentItem = subscription.items.data[0];
 
     if (!currentItem) {
@@ -199,13 +246,13 @@ export class StripeProvider implements PaymentProvider {
       );
     }
 
-    await this.stripe.subscriptions.update(externalId, {
+    await tracked('subscriptions.update', () => this.stripe.subscriptions.update(externalId, {
       items: [{ id: currentItem.id, price: priceId }],
       metadata: { planId, interval },
       // Deterministic proration regardless of the Stripe account default (matches
       // syncAddons' explicit behavior) so plan/interval changes bill consistently.
       proration_behavior: 'create_prorations',
-    });
+    }));
 
     logger.info('Stripe subscription updated', { externalId, planId, interval, priceId });
   }
@@ -216,9 +263,9 @@ export class StripeProvider implements PaymentProvider {
   async reactivateSubscription(externalId: string): Promise<void> {
     logger.info('Reactivating Stripe subscription', { externalId });
 
-    await this.stripe.subscriptions.update(externalId, {
+    await tracked('subscriptions.reactivate', () => this.stripe.subscriptions.update(externalId, {
       cancel_at_period_end: false,
-    });
+    }));
 
     logger.info('Stripe subscription reactivated', { externalId });
   }
@@ -235,7 +282,7 @@ export class StripeProvider implements PaymentProvider {
    */
   async getSubscription(externalId: string): Promise<ProviderSubscriptionView | null> {
     try {
-      const sub = await this.stripe.subscriptions.retrieve(externalId);
+      const sub = await tracked('subscriptions.retrieve', () => this.stripe.subscriptions.retrieve(externalId));
       const period = stripeSubscriptionPeriod(sub);
       return {
         status: mapStripeStatus(sub.status),
@@ -268,7 +315,7 @@ export class StripeProvider implements PaymentProvider {
     addons: ReadonlyArray<{ bundleId: string; quantity: number }>,
     interval: BillingInterval,
   ): Promise<void> {
-    const subscription = await this.stripe.subscriptions.retrieve(externalId);
+    const subscription = await tracked('subscriptions.retrieve', () => this.stripe.subscriptions.retrieve(externalId));
     const [baseItem, ...bundleItems] = subscription.items.data;
     if (!baseItem) throw new Error(`Stripe subscription ${externalId} has no items`);
 
@@ -298,10 +345,10 @@ export class StripeProvider implements PaymentProvider {
       items.push({ price: priceId, quantity });
     }
 
-    await this.stripe.subscriptions.update(externalId, {
+    await tracked('subscriptions.sync_addons', () => this.stripe.subscriptions.update(externalId, {
       items,
       proration_behavior: 'create_prorations',
-    });
+    }));
     logger.info('Stripe add-ons synced', { externalId, addonCount: addons.length });
   }
 
@@ -313,11 +360,11 @@ export class StripeProvider implements PaymentProvider {
    */
   async hasPaymentMethod(externalCustomerId: string): Promise<boolean> {
     try {
-      const customer = await this.stripe.customers.retrieve(externalCustomerId);
+      const customer = await tracked('customers.retrieve', () => this.stripe.customers.retrieve(externalCustomerId));
       if (customer.deleted) return false;
       if (customer.invoice_settings?.default_payment_method) return true;
       if (customer.default_source) return true;
-      const methods = await this.stripe.paymentMethods.list({ customer: externalCustomerId, limit: 1 });
+      const methods = await tracked('paymentMethods.list', () => this.stripe.paymentMethods.list({ customer: externalCustomerId, limit: 1 }));
       return methods.data.length > 0;
     } catch (err) {
       logger.warn('Stripe payment-method lookup failed; treating as no card on file', { externalCustomerId, error: String(err) });
@@ -332,10 +379,10 @@ export class StripeProvider implements PaymentProvider {
    * config beyond the customer + return URL.)
    */
   async createBillingPortalSession(externalCustomerId: string, returnUrl: string): Promise<string> {
-    const session = await this.stripe.billingPortal.sessions.create({
+    const session = await tracked('billingPortal.sessions.create', () => this.stripe.billingPortal.sessions.create({
       customer: externalCustomerId,
       return_url: returnUrl,
-    });
+    }));
     logger.info('Stripe billing portal session created', { externalCustomerId });
     return session.url;
   }
@@ -350,14 +397,14 @@ export class StripeProvider implements PaymentProvider {
    * `idempotencyKey` dedupes a retried grant.
    */
   async applyUsageCredit(externalCustomerId: string, cents: number, idempotencyKey?: string): Promise<{ ref?: DiscountRef }> {
-    const txn = await this.stripe.customers.createBalanceTransaction(
+    const txn = await tracked('customers.createBalanceTransaction', () => this.stripe.customers.createBalanceTransaction(
       externalCustomerId,
       // The CONFIGURED currency, not a literal: Stripe rejects a balance
       // transaction whose currency differs from the customer's, so a hardcoded
       // 'usd' broke every credit on a non-USD account.
       { amount: -Math.abs(cents), currency: this.stripeConfig.currency },
       idempotencyKey ? { idempotencyKey: `${idempotencyKey}-credit` } : undefined,
-    );
+    ));
     logger.info('Stripe usage credit applied', { externalCustomerId, cents });
     return { ref: { kind: 'balance', ref: txn.id } };
   }
@@ -368,11 +415,11 @@ export class StripeProvider implements PaymentProvider {
    * still unused, so it removes credit rather than creating a charge.
    */
   async debitUsageCredit(externalCustomerId: string, cents: number, idempotencyKey: string): Promise<{ ref?: DiscountRef }> {
-    const txn = await this.stripe.customers.createBalanceTransaction(
+    const txn = await tracked('customers.createBalanceTransaction', () => this.stripe.customers.createBalanceTransaction(
       externalCustomerId,
       { amount: Math.abs(cents), currency: this.stripeConfig.currency },
       { idempotencyKey: `${idempotencyKey}-debit` },
-    );
+    ));
     logger.info('Stripe usage credit debited', { externalCustomerId, cents });
     return { ref: { kind: 'balance', ref: txn.id } };
   }

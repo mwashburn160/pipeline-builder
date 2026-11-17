@@ -151,7 +151,7 @@ export const sweepOnceForTests = sweepOnce;
  * an initial sweep after `startupDelayMs`, then every `intervalMs`.
  * Idempotent — calling twice is a no-op.
  *
- * Stops automatically on SIGTERM.
+ * Stopped by runServer's coordinated onShutdown (index.ts).
  */
 export function startGcScheduler(): void {
   const cfg = readConfig();
@@ -184,8 +184,8 @@ export function startGcScheduler(): void {
     ...(lockClient ? { lock: { redis: () => lockClient, key: LOCK_KEY, ttlMs: cfg.lockTtlMs } } : {}),
   });
   scheduler.start();
-
-  process.once('SIGTERM', stopGcScheduler);
+  // Stopped by runServer's coordinated onShutdown (index.ts), not a racing
+  // process.once('SIGTERM') of its own.
 }
 
 /** Stop the scheduler. Exported mainly for tests / clean shutdown. */
@@ -203,7 +203,7 @@ export function stopGcScheduler(): void {
  * builds are disposable by definition and the 30-day bound is a retention
  * promise, not an operator preference. The plugin service deletes a
  * submission's repo as soon as it is decided (DELETE /internal/quarantine/:id);
- * this is the backstop. Idempotent; stops on SIGTERM.
+ * this is the backstop. Idempotent; stopped by runServer's onShutdown.
  */
 export function startQuarantineGcScheduler(): void {
   if (quarantineScheduler) return;
@@ -221,7 +221,6 @@ export function startQuarantineGcScheduler(): void {
     ...(lockClient ? { lock: { redis: () => lockClient, key: QUARANTINE_LOCK_KEY, ttlMs: cfg.lockTtlMs } } : {}),
   });
   quarantineScheduler.start();
-  process.once('SIGTERM', stopQuarantineGcScheduler);
 }
 
 /** Stop the quarantine sweep. Exported for tests / clean shutdown. */

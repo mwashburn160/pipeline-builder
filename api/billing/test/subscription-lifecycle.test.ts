@@ -140,6 +140,12 @@ jest.unstable_mockModule('../src/helpers/credit-debits.js', () => ({
   retryPendingCreditDebits: (...args: unknown[]) => mockRetryPendingCreditDebits(...args),
 }));
 
+// The unknown-provider-outcome pass has its own suite (provider-reconcile.test.ts).
+const mockReconcileUnknown = jest.fn<AnyFn>().mockResolvedValue(undefined);
+jest.unstable_mockModule('../src/helpers/provider-reconcile.js', () => ({
+  reconcileUnknownProviderOutcomes: (...args: unknown[]) => mockReconcileUnknown(...args),
+}));
+
 // Re-driven by the provider add-on sync reconciler.
 jest.unstable_mockModule('../src/helpers/addon-prune.js', () => ({
   syncProviderAddons: (...args: unknown[]) => mockSyncProviderAddons(...args),
@@ -174,7 +180,16 @@ const mockFindOneAndUpdate = jest.fn<(...args: unknown[]) => Promise<unknown>>()
 const mockExists = jest.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue(null);
 jest.unstable_mockModule('../src/models/subscription.js', () => ({
   Subscription: {
-    find: (...args: unknown[]) => mockFind(...args),
+    // The sweeps stream via `.find(q).cursor()`; the drift pass awaits `find(q)`
+    // directly. One spy serves both: the query's rows, awaitable or iterable.
+    find: (...args: unknown[]) => {
+      const rows = mockFind(...args);
+      return Object.assign(rows, {
+        cursor: () => ({
+          async* [Symbol.asyncIterator]() { yield* (await rows) ?? []; },
+        }),
+      });
+    },
     updateOne: (...args: unknown[]) => mockUpdateOne(...args),
     findOneAndUpdate: (...args: unknown[]) => mockFindOneAndUpdate(...args),
     exists: (...args: unknown[]) => mockExists(...args),
@@ -937,6 +952,15 @@ describe('Subscription Lifecycle Checker', () => {
       await new Promise(resolve => setTimeout(resolve, 100));
 
       expect(mockSyncProviderAddons).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('unknown provider outcome reconciliation', () => {
+    it('runs the unknown-outcome reconcile pass every tick', async () => {
+      mockFind.mockResolvedValue([]);
+      startSubscriptionLifecycleChecker();
+      await new Promise(resolve => setTimeout(resolve, 100));
+      expect(mockReconcileUnknown).toHaveBeenCalled();
     });
   });
 
