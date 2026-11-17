@@ -548,7 +548,9 @@ export async function requireRefreshSession(
     // machine credential (generate-token) renews its short-lived access token
     // exactly as a device does, until the slot's fixed end — which the handler
     // enforces (`renewSessionTokens`).
-    await populateRequestUser(req, user, slot);
+    // The slot's own org (each device / tab / CLI keeps its own) — absent on a
+    // slot that predates it, which falls back to lastActiveOrgId.
+    await populateRequestUser(req, user, slot, slot.activeOrgId);
     res.locals.refreshSessionId = decoded.sid;
     res.locals.refreshSessionKind = slot.kind;
     res.locals.presentedRefreshToken = refreshToken;

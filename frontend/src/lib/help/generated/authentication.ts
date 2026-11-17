@@ -1,6 +1,6 @@
 // GENERATED FROM docs/authentication.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: 272e891e71bfc439c2cfe179b15785c0610dfc97ae4cc8306ec6da1dd0c2bf6e
+// SOURCE-SHA256: 69239ffb952ef209ced87c5682bfdc98faaab288b38858484ac68138ee1823a5
 // SPDX-License-Identifier: Apache-2.0
 import { Lock } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -3051,7 +3051,7 @@ export const authenticationTopic: HelpTopic = {
       "blocks": [
         {
           "type": "text",
-          "content": "A session is scoped to ONE organization at a time; POST /auth/switch-org ({ organizationId }) re-issues the current session's tokens — same refresh-session slot, same assurance — scoped to another org. The caller may switch into an org when they hold authority there, resolved by one rule (platform/src/helpers/org-authority.ts) that switch-org, token issuance and the refresh path all apply, so the three can never disagree:"
+          "content": "A session is scoped to ONE organization at a time; POST /auth/switch-org ({ organizationId }) moves the current session — same refresh-session slot, same assurance — to another org and returns an access token only ({ accessToken, expiresIn }). It never mints or rotates a refresh token: it is authenticated by an access token alone, and a fresh refresh token from it would turn a 15-minute token into a long-lived login (rotating the legitimate holder's token out). The org is recorded on the slot itself (refreshSessions[].activeOrgId), so the slot's next refresh renews into it, and two devices — or a browser and the CLI — keep independent orgs. A slot pinned to an org the person has since left renews into one they are still in (the slot's org → lastActiveOrgId → their earliest membership; never an org they have no authority in). The caller may switch into an org when they hold authority there, resolved by one rule (platform/src/helpers/org-authority.ts) that switch-org, token issuance and the refresh path all apply, so the three can never disagree:"
         },
         {
           "type": "list",
@@ -4276,7 +4276,7 @@ export const authenticationTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "Both transports are read by POST /auth/refresh; when a request carries both a cookie and a body token, the cookie wins — a browser must not be talked into refreshing a token some injected script supplied. Every endpoint that issues a session (login, the OAuth and SSO callbacks, switch-org, tokens/revoke-all) uses the same split; logout, /auth/refresh's rejection and account deletion all clear the cookie, because only the server can."
+          "content": "Both transports are read by POST /auth/refresh; when a request carries both a cookie and a body token, the cookie wins — a browser must not be talked into refreshing a token some injected script supplied. Every endpoint that issues a session (login, the OAuth and SSO callbacks, tokens/revoke-all) uses the same split (switch-org returns an access token only and leaves the cookie alone); logout, /auth/refresh's rejection and account deletion all clear the cookie, because only the server can."
         },
         {
           "type": "text",

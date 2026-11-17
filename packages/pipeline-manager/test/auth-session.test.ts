@@ -129,6 +129,34 @@ describe('auth login --url (G3)', () => {
   });
 });
 
+describe('auth login --org', () => {
+  it('keeps the sign-in\'s refresh token and stores only the switched ACCESS token', async () => {
+    handler = (req, _body, res) => {
+      if (req.url === '/api/auth/switch-org') return json(res, 200, { success: true, data: { accessToken: 'switched.jwt', expiresIn: 600 } });
+      return json(res, 200, {});
+    };
+    await runAuth(login, ['login', '--url', baseUrl, '--org', 'org-2', '--no-browser']);
+
+    const sw = seen.find((r) => r.url === '/api/auth/switch-org');
+    expect(sw).toMatchObject({ method: 'POST', auth: 'Bearer login.jwt', client: 'cli' });
+    expect(JSON.parse(sw!.body)).toEqual({ organizationId: 'org-2' });
+    expect(store.loadSession(baseUrl)).toMatchObject({
+      accessToken: 'switched.jwt',
+      refreshToken: 'login.refresh',
+      organizationId: 'org-2',
+    });
+  });
+
+  it('ignores a refresh token in the switch response — switch-org never rotates the session', async () => {
+    handler = (req, _body, res) => {
+      if (req.url === '/api/auth/switch-org') return json(res, 200, { success: true, data: { accessToken: 'switched.jwt', refreshToken: 'stray.refresh', expiresIn: 600 } });
+      return json(res, 200, {});
+    };
+    await runAuth(login, ['login', '--url', baseUrl, '--org', 'org-2', '--no-browser']);
+    expect(store.loadSession(baseUrl)?.refreshToken).toBe('login.refresh');
+  });
+});
+
 describe('session renewal (G5)', () => {
   const expired = () => store.saveSession(baseUrl, { accessToken: 'old', refreshToken: 'r1', expiresAt: Date.now() - 1000 });
   beforeEach(() => { process.env.PLATFORM_BASE_URL = baseUrl; });

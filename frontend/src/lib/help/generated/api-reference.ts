@@ -1,6 +1,6 @@
 // GENERATED FROM docs/api-reference.md — DO NOT EDIT.
 // Regenerate: npm run generate:help  (see frontend/scripts/generate-help.mjs)
-// SOURCE-SHA256: b60a01d17a5ede6faf36cfc4c5ba60124e9bb8832cd69b9d7c5044e95188aba9
+// SOURCE-SHA256: 52d3bef516d1b7d58a83388d50b9e1837cc44e601a11d87d0eca70848001b113
 // SPDX-License-Identifier: Apache-2.0
 import { Code } from 'lucide-react';
 import type { HelpTopic } from '../types';
@@ -1723,7 +1723,7 @@ export const apiReferenceTopic: HelpTopic = {
             [
               "POST",
               "/auth/switch-org",
-              "Re-scope the current session to { organizationId } (same slot, same assurance). Allowed with a membership there or admin authority inherited from a parent org — a parent admin can open its teams as admin with no roster entry (see Authentication → parent-admin access). 403 otherwise",
+              "Re-scope the current session to { organizationId } (same slot, same assurance). Returns { accessToken, expiresIn } only — no refresh token, no cookie change: the slot records the org and its next refresh renews there. Allowed with a membership there or admin authority inherited from a parent org — a parent admin can open its teams as admin with no roster entry (see Authentication → parent-admin access). 403 otherwise",
               "— (auth)"
             ],
             [
@@ -1943,7 +1943,7 @@ export const apiReferenceTopic: HelpTopic = {
         },
         {
           "type": "text",
-          "content": "X-Pb-Client names the calling client on every request: web (the browser app) receives its refresh token as an HttpOnly cookie and never in the body, any other value keeps the JSON body flow. /auth/refresh and /auth/logout reject a request that omits the header with 403 CLIENT_TYPE_REQUIRED — it is the CSRF proof that makes the ambient cookie safe. Every session-issuing endpoint (login, OAuth/SSO callback, switch-org, tokens/revoke-all) applies the same split. See Authentication → Where the refresh token lives."
+          "content": "X-Pb-Client names the calling client on every request: web (the browser app) receives its refresh token as an HttpOnly cookie and never in the body, any other value keeps the JSON body flow. /auth/refresh and /auth/logout reject a request that omits the header with 403 CLIENT_TYPE_REQUIRED — it is the CSRF proof that makes the ambient cookie safe. Every session-issuing endpoint (login, OAuth/SSO callback, tokens/revoke-all) applies the same split; switch-org issues no refresh token at all (access token only). See Authentication → Where the refresh token lives."
         },
         {
           "type": "text",

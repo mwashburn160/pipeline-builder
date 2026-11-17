@@ -21,7 +21,7 @@ import { auditService, authService } from '../services/index.js';
 import { INVITATION_ACCEPT_ERRORS } from '../services/invitation-errors.js';
 import { JOIN_NOT_ELIGIBLE, JOIN_REQUEST_NOT_FOUND, JOIN_SEAT_LIMIT } from '../services/org-domain-errors.js';
 import { signInAuth } from '../services/session/access-tokens.js';
-import { hashRefreshToken, renewSessionTokens } from '../services/session/refresh-sessions.js';
+import { hashRefreshToken, renewSessionTokens, switchSessionOrg } from '../services/session/refresh-sessions.js';
 import type { AccessTokenPayload } from '../types/index.js';
 import { validateBody, registerSchema, loginSchema, completeOnboardingSchema, joinOrgSchema } from '../utils/validation.js';
 
@@ -376,7 +376,9 @@ export const refresh = withController('Refresh', async (req, res) => {
   const kind = res.locals.refreshSessionKind as RefreshSessionKind;
 
   const user = await authService.findForTokenIssue(req.user.sub);
-  // Preserve the active org resolved from the session; fall back to lastActiveOrgId.
+  // The slot's own `activeOrgId` wins inside `renewSessionTokens`; this is the
+  // fallback for a slot that predates it (`requireRefreshSession` resolved it
+  // from the slot, else lastActiveOrgId).
   const tokens = user && await renewSessionTokens(
     user,
     req.user.organizationId || user.lastActiveOrgId?.toString(),
@@ -442,10 +444,16 @@ export const logout = withController('Logout', async (req, res) => {
 /**
  * Switch active organization. POST /auth/switch-org
  *
- * Re-issues the CURRENT session's tokens (same refresh-session slot) scoped to
- * the new org, so switching never consumes another device's slot — and never
- * changes its kind, scope or assurance. A token with no session slot (an
- * exchanged key, a service account, an impersonation session) is refused.
+ * Moves the CURRENT session's refresh-session slot to the new org and returns
+ * an ACCESS token for it — never a refresh token. The caller authenticates
+ * with an access token alone, so minting (or rotating) the slot's refresh
+ * token here would let a 15-minute token become a long-lived login and rotate
+ * the legitimate holder's token out. The slot records the org, so its next
+ * refresh lands there; the browser's refresh cookie is left untouched.
+ *
+ * Switching never consumes another device's slot, and never changes its kind,
+ * scope or assurance. A token with no session slot (an exchanged key, a service
+ * account, an impersonation session) is refused.
  */
 export const switchOrg = withController('Switch org', async (req, res) => {
   const userId = req.user?.sub;
@@ -454,7 +462,7 @@ export const switchOrg = withController('Switch org', async (req, res) => {
   const { organizationId } = req.body;
   if (!organizationId) return sendError(res, 400, 'organizationId is required');
 
-  // Switching re-issues the caller's OWN session slot. A token with no slot — an
+  // Switching moves the caller's OWN session slot. A token with no slot — an
   // exchanged access key, a service account, an impersonation session — has
   // nothing to re-issue, and minting it a fresh session would turn a
   // key-revocable 5-minute token into a long-lived login.
@@ -494,10 +502,11 @@ export const switchOrg = withController('Switch org', async (req, res) => {
 
   const sessionId = (req.user as AccessTokenPayload).sid!;
   // The slot keeps its scope / permission restriction across the switch (never
-  // widened) — `renewSessionTokens` reads them from the slot.
-  const tokens = await renewSessionTokens(user, organizationId, { sessionId }, { client: clientInfoOf(req) });
-  if (!tokens) return sendError(res, 401, 'Session invalid');
-  // Only now, with every gate passed and the session re-issued, does the
+  // widened) — `switchSessionOrg` reads them from the slot.
+  const switchedTo = await switchSessionOrg(user, organizationId, sessionId, { client: clientInfoOf(req) });
+  if (switchedTo === 'session-invalid') return sendError(res, 401, 'Session invalid');
+  if (switchedTo === 'org-unavailable') return forbid(req, res, 'org-membership', 'You are not an active member of this organization');
+  // Only now, with every gate passed and the session switched, does the
   // destination become where the next sign-in lands. Written earlier, a REFUSED
   // switch still moved it: an org whose MFA requirement refused the switch
   // became the org every later password sign-in was scoped to. (Sign-in itself
@@ -517,8 +526,9 @@ export const switchOrg = withController('Switch org', async (req, res) => {
     },
   });
 
-  // Same slot, new token pair — the browser's cookie is rotated in place.
-  sendSuccess(res, 200, deliverSessionTokens(req, res, tokens));
+  // An access token only: the slot's refresh token (the browser's cookie, a
+  // CLI's stored token) is unchanged and now renews into this org.
+  sendSuccess(res, 200, { accessToken: switchedTo.accessToken, expiresIn: switchedTo.expiresIn });
 }, {
   // A caller whose token predates the identity claims can't have its assurance
   // inherited — fail closed and make it re-authenticate.

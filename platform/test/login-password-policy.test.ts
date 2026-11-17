@@ -82,6 +82,7 @@ jest.unstable_mockModule('../src/services/session/refresh-sessions.js', () => ({
   hashRefreshToken: (t: string) => `h:${t}`,
   issueTokens: (...a: unknown[]) => mockIssueTokens(...a),
   renewSessionTokens: jest.fn(async () => null),
+  switchSessionOrg: jest.fn(),
 }));
 
 jest.unstable_mockModule('../src/utils/validation.js', () => ({

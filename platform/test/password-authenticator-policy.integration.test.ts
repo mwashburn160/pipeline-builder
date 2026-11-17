@@ -119,8 +119,11 @@ suite('org password + authenticator policy (real Mongo)', () => {
       const user = await m.User.findById(userId).select('+tokenVersion +isSuperAdmin');
       const issued = await token.issueTokens(user, otherId, { kind: 'interactive', auth: passkey(ICLOUD) });
       const sid = token.verifyAccessToken(issued.accessToken).sid;
-      const switched = await token.renewSessionTokens(user, teamId, { sessionId: sid });
+      const switched = await token.switchSessionOrg(user, teamId, sid);
       expect(token.verifyAccessToken(switched.accessToken).aal).toBe(1);
+      // … and the slot's next refresh renews into the team, still under the list.
+      const renewed = await token.renewSessionTokens(user, undefined, { sessionId: sid });
+      expect(token.verifyAccessToken(renewed.accessToken)).toMatchObject({ organizationId: teamId, aal: 1 });
     });
 
     it('where the org ENFORCES MFA, a non-allowlisted passkey opens no session there', async () => {

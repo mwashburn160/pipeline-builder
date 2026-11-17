@@ -90,11 +90,12 @@ export function login(program: Command): void {
         const session = await pollForDeviceToken(transport, code);
 
         let accessToken = session.access_token;
-        let refreshToken = session.refresh_token;
+        const refreshToken = session.refresh_token;
         let expiresIn = session.expires_in;
 
-        // Switching re-issues (and rotates) the session, so the store has to take
-        // the NEW pair — keeping the old refresh token would strand the session.
+        // Switching returns only a new ACCESS token: the session's refresh token
+        // is unchanged on the platform (and now renews into the new org), so the
+        // store keeps the one the sign-in handed us.
         if (options.org) {
           if (!quiet) printInfo('Switching to organization', { orgId: options.org });
           const switched = await switchOrganization({
@@ -106,7 +107,6 @@ export function login(program: Command): void {
             quiet,
           });
           accessToken = switched.accessToken;
-          refreshToken = switched.refreshToken ?? refreshToken;
           expiresIn = switched.expiresIn ?? expiresIn;
         }
 

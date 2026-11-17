@@ -4,7 +4,8 @@
 /**
  * Session-scoped auth controllers:
  *  - `switchOrg` (POST /auth/switch-org) emits `org.switch` with the DESTINATION
- *    org as `affectedOrgId` and re-issues within the CURRENT refresh-session slot.
+ *    org as `affectedOrgId`, moves the CURRENT refresh-session slot to the org and
+ *    returns an access token ONLY — never a refresh token, never a cookie.
  *  - `refresh` revokes only the reused token's slot, never every session.
  *  - `logout` clears only the current slot.
  */
@@ -19,6 +20,7 @@ const mockSwitchActiveOrg = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockSetLastActiveOrg = jest.fn<(...a: unknown[]) => Promise<void>>();
 const mockIssueTokens = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockRenewSessionTokens = jest.fn<(...a: unknown[]) => Promise<unknown>>();
+const mockSwitchSessionOrg = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 const mockRevokeRefreshSession = jest.fn<(...a: unknown[]) => Promise<void>>();
 const mockInvalidateAllSessions = jest.fn<(...a: unknown[]) => Promise<void>>();
 const mockFindForTokenIssue = jest.fn<(...a: unknown[]) => Promise<unknown>>();
@@ -66,6 +68,7 @@ jest.unstable_mockModule('../src/services/session/refresh-sessions.js', () => ({
   findRefreshSession: jest.fn(async () => undefined),
   issueTokens: (...a: unknown[]) => mockIssueTokens(...a),
   renewSessionTokens: (...a: unknown[]) => mockRenewSessionTokens(...a),
+  switchSessionOrg: (...a: unknown[]) => mockSwitchSessionOrg(...a),
   hashRefreshToken: (t: string) => `h:${t}`,
 }));
 jest.unstable_mockModule('../src/utils/validation.js', () => ({
@@ -92,6 +95,7 @@ beforeEach(() => {
   _resetAllPendingStoresForTests();
   mockIssueTokens.mockResolvedValue({ accessToken: 'a', refreshToken: 'r' });
   mockRenewSessionTokens.mockResolvedValue({ accessToken: 'a2', refreshToken: 'r2' });
+  mockSwitchSessionOrg.mockResolvedValue({ accessToken: 'a-switched', expiresIn: 900 });
 });
 
 describe('switchOrg — org.switch audit', () => {
@@ -121,6 +125,7 @@ describe('switchOrg — org.switch audit', () => {
     expect(res.status).toHaveBeenCalledWith(403);
     expect(mockIssueTokens).not.toHaveBeenCalled();
     expect(mockRenewSessionTokens).not.toHaveBeenCalled();
+    expect(mockSwitchSessionOrg).not.toHaveBeenCalled();
     expect(mockSwitchActiveOrg).not.toHaveBeenCalled();
   });
 
@@ -175,7 +180,7 @@ describe('switchOrg — org.switch audit', () => {
     }, res);
 
     expect(res.status).toHaveBeenCalledWith(403);
-    expect(mockRenewSessionTokens).not.toHaveBeenCalled();
+    expect(mockSwitchSessionOrg).not.toHaveBeenCalled();
     expect(mockAudit).not.toHaveBeenCalled();
     // The refused team must not become where the next sign-in lands — sign-in
     // does not re-ask for team_access:open.
@@ -223,27 +228,61 @@ describe('switchOrg — org.switch audit', () => {
 });
 
 describe('switchOrg — session slot', () => {
-  it('re-issues within the caller\'s refresh-session slot instead of opening a new one', async () => {
+  it('moves the caller\'s refresh-session slot instead of opening or rotating one', async () => {
     const user = { _id: 'u1' };
     mockSwitchActiveOrg.mockResolvedValue({ user, authority: MEMBER });
     const res = makeRes();
     await (switchOrg as any)({ user: { sub: 'u1', organizationId: 'org-from', sid: 's1' }, headers: {}, body: { organizationId: 'org-to' } }, res);
 
     // The device details of the switching request are recorded on the slot too.
-    expect(mockRenewSessionTokens).toHaveBeenCalledWith(user, 'org-to', { sessionId: 's1' }, expect.objectContaining({ client: expect.anything() }));
+    expect(mockSwitchSessionOrg).toHaveBeenCalledWith(user, 'org-to', 's1', expect.objectContaining({ client: expect.anything() }));
+    expect(mockRenewSessionTokens).not.toHaveBeenCalled();
     expect(mockIssueTokens).not.toHaveBeenCalled();
     expect(res.status).toHaveBeenCalledWith(200);
     // The completed switch is what the next sign-in opens in.
     expect(mockSetLastActiveOrg).toHaveBeenCalledWith('u1', 'org-to');
   });
 
+  /**
+   * REGRESSION: switch-org is authenticated by an ACCESS token alone. It used to
+   * mint a fresh refresh token (cookie for the browser, body for the CLI) — so
+   * anyone holding a 15-minute access token could turn it into a long-lived
+   * login, rotating the legitimate holder's refresh token out on the way.
+   */
+  it.each([
+    ['a browser', { 'x-pb-client': 'web' }],
+    ['a CLI', { 'x-pb-client': 'cli' }],
+    ['an unlabelled caller', {}],
+  ])('returns ONLY an access token to %s — no refresh token in the body, no cookie set or cleared', async (_label, headers) => {
+    mockSwitchActiveOrg.mockResolvedValue({ user: { _id: 'u1' }, authority: MEMBER });
+    const res = makeRes();
+    await (switchOrg as any)({ user: { sub: 'u1', organizationId: 'org-from', sid: 's1' }, headers, body: { organizationId: 'org-to' } }, res);
+
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ data: { accessToken: 'a-switched', expiresIn: 900 } }));
+    expect(JSON.stringify(res.json.mock.calls)).not.toContain('refreshToken');
+    expect(res.cookie).not.toHaveBeenCalled();
+    expect(res.clearCookie).not.toHaveBeenCalled();
+  });
+
   it('401s when the caller\'s slot is gone — and leaves the next sign-in where it was', async () => {
     mockSwitchActiveOrg.mockResolvedValue({ user: { _id: 'u1' }, authority: MEMBER });
-    mockRenewSessionTokens.mockResolvedValue(null);
+    mockSwitchSessionOrg.mockResolvedValue('session-invalid');
     const res = makeRes();
     await (switchOrg as any)({ user: { sub: 'u1', sid: 's1' }, headers: {}, body: { organizationId: 'org-to' } }, res);
     expect(res.status).toHaveBeenCalledWith(401);
     expect(mockSetLastActiveOrg).not.toHaveBeenCalled();
+    expect(mockAudit).not.toHaveBeenCalled();
+  });
+
+  it('403s when the org stops resolving between the gate and the mint — nothing recorded', async () => {
+    mockSwitchActiveOrg.mockResolvedValue({ user: { _id: 'u1' }, authority: MEMBER });
+    mockSwitchSessionOrg.mockResolvedValue('org-unavailable');
+    const res = makeRes();
+    await (switchOrg as any)({ user: { sub: 'u1', sid: 's1' }, headers: {}, body: { organizationId: 'org-to' } }, res);
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(mockSetLastActiveOrg).not.toHaveBeenCalled();
+    expect(mockAudit).not.toHaveBeenCalled();
   });
 });
 

@@ -306,7 +306,11 @@ export function authApi(core: ApiCore) {
       return core.request<ApiResponse<{ user: User }>>('/api/user/profile');
     },
 
-    /** Switch active organization and re-issue tokens. */
+    /**
+     * Switch active organization. The platform answers with an ACCESS token
+     * only: the session's refresh cookie is untouched (and now renews into the
+     * new org), so only the access token is replaced here.
+     */
     switchOrganization: async (organizationId: string) => {
       const result = await core.request<ApiResponse<{ accessToken: string; expiresIn: number }>>('/api/auth/switch-org', {
         method: 'POST',

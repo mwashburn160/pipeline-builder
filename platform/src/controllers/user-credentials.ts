@@ -150,12 +150,15 @@ export const generateToken = withController('Generate token', async (req, res) =
 
   const user = await userProfileService.findForTokenIssue(userId);
   const sessionId = (req.user as AccessTokenPayload).sid;
-  const activeOrgId = user.lastActiveOrgId?.toString();
   const client = clientInfoOf(req);
   // A slot named by the token must still exist — a revoked or evicted session
   // must not be able to mint a long-lived credential.
   const callerSlot = sessionId ? await findRefreshSession(userId, sessionId) : undefined;
   if (sessionId && !callerSlot) return sendError(res, 401, 'Session invalid');
+  // The org the caller's OWN session is in (each slot keeps its own — another
+  // device's switch moves only `lastActiveOrgId`); a slot that predates the
+  // field falls back to it. A machine slot's renewal prefers its own org anyway.
+  const activeOrgId = callerSlot?.activeOrgId ?? user.lastActiveOrgId?.toString();
 
   // Optional permission SUBSET (catalog ids). OPENING a machine session
   // validates it against the creator's current permissions (and inherits a

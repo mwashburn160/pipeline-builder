@@ -92,6 +92,7 @@ jest.unstable_mockModule('../src/services/session/refresh-sessions.js', () => ({
   hashRefreshToken: (t: string) => `h:${t}`,
   issueTokens: (...a: unknown[]) => mockIssueTokens(...a),
   renewSessionTokens: jest.fn(async () => null),
+  switchSessionOrg: jest.fn(),
 }));
 
 const { _resetAllPendingStoresForTests } = await import('../src/helpers/pending-state-store.js');

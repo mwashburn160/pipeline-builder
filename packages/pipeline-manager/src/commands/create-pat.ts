@@ -120,8 +120,8 @@ export function createPat(program: Command): void {
         }
 
         // 2) Optionally bind to a specific org (persists as the active org, which
-        //    the key inherits). Rotates the session, but the step-up token is
-        //    bound to the user, not the session, so it survives the switch.
+        //    the key inherits). The step-up token is bound to the user, not the
+        //    session, so it survives the switch.
         if (options.org) {
           if (!quiet) printInfo('Switching to organization', { orgId: options.org });
           accessToken = (await switchOrganization({

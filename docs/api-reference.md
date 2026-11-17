@@ -458,7 +458,7 @@ from `POST /auth/step-up`).
 | `POST` | `/auth/password/reset` | Set a new password with the emailed token, `{ token, newPassword }` → `200 { accessKeysRevoked }`. Ends every session (`tokenVersion` bump + every refresh slot) and revokes every access key; the next sign-in still asks for the second factor. `400 PASSWORD_RESET_TOKEN_INVALID` (unknown, expired or used), `400 PASSWORD_UNCHANGED`, `400 PASSWORD_TOO_SHORT_FOR_ORG` / `PASSWORD_BREACHED` (the link stays usable), `403 SSO_REQUIRED`. Audited `user.password.reset` | the token itself |
 | `POST` | `/auth/refresh` | Rotate a session's token pair — a device's, or a machine credential's (until its fixed end). The browser presents the `pb_refresh` cookie (empty body); a CLI/machine caller posts `{ refreshToken }`. A concurrent refresh with the immediately-previous token within 30 s gets the current pair instead of revoking the session | refresh cookie **or** body token, + `X-Pb-Client` |
 | `POST` | `/auth/logout` | End the current session's slot and clear the refresh cookie | — (auth), + `X-Pb-Client` |
-| `POST` | `/auth/switch-org` | Re-scope the current session to `{ organizationId }` (same slot, same assurance). Allowed with a membership there **or** admin authority inherited from a parent org — a parent admin can open its teams as `admin` with no roster entry (see [Authentication → parent-admin access](authentication.md#switching-organizations-and-parent-admin-access-to-teams)). `403` otherwise | — (auth) |
+| `POST` | `/auth/switch-org` | Re-scope the current session to `{ organizationId }` (same slot, same assurance). Returns `{ accessToken, expiresIn }` only — no refresh token, no cookie change: the slot records the org and its next refresh renews there. Allowed with a membership there **or** admin authority inherited from a parent org — a parent admin can open its teams as `admin` with no roster entry (see [Authentication → parent-admin access](authentication.md#switching-organizations-and-parent-admin-access-to-teams)). `403` otherwise | — (auth) |
 | `GET` | `/user/organizations` | Orgs the caller can switch into: membership rows (`organizationId`, `organizationName`, `slug`, `role`, `isActive`, `joinedAt`, `parentOrgId`, `parentOrgName`, `tier`, `childOrgCount`), then one `viaAncestor: true` row (`role: 'admin'`) per live team of an org they administer but aren't a member of | — (auth) |
 | `GET` | `/user/password-policy` | The minimum length a NEW password of the caller's must meet — the strictest effective policy across every org they belong to (the bar `/user/change-password` enforces): `{ minLength, maxLength }`. The org's own policy endpoint needs `org_settings:write`; this one is for the person changing their password | — (auth) |
 | `POST` | `/user/generate-token` | Mint a stored **machine** credential (`{ expiresIn?, scope? }`, max 365 d). From a person: opens a new machine session with that scope. From a machine token: renews that session in place under its stored scope. Returns `{ accessToken, expiresIn }` — no refresh token | — (auth) |
@@ -503,8 +503,8 @@ app) receives its refresh token as an `HttpOnly` cookie and never in the body,
 any other value keeps the JSON body flow. `/auth/refresh` and `/auth/logout`
 reject a request that omits the header with `403 CLIENT_TYPE_REQUIRED` — it is
 the CSRF proof that makes the ambient cookie safe. Every session-issuing
-endpoint (login, OAuth/SSO callback, `switch-org`, `tokens/revoke-all`) applies
-the same split. See
+endpoint (login, OAuth/SSO callback, `tokens/revoke-all`) applies the same
+split; `switch-org` issues no refresh token at all (access token only). See
 [Authentication → Where the refresh token lives](authentication.md#where-the-refresh-token-lives).
 
 ### Common Query Parameters

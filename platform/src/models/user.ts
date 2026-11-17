@@ -61,6 +61,12 @@ export interface RefreshSession {
   createdAt: Date;
   /** Last refresh / renewal / switch-org. */
   lastUsedAt: Date;
+  /** The org this slot's tokens are scoped to: set when the slot opens, moved
+   *  by switch-org (which mints only an access token) and re-pinned on every
+   *  renewal to the org it actually resolved. Per slot, so two devices / tabs /
+   *  a CLI keep independent orgs. Absent on slots opened before it existed —
+   *  renewal then falls back to `lastActiveOrgId`. */
+  activeOrgId?: string;
   /** MACHINE slots: the fixed end of the credential (generate-token's
    *  `expiresIn`). Renewal never extends it; nothing is minted past it. */
   expiresAt?: Date;
@@ -359,6 +365,7 @@ const userSchema = new Schema<UserData, UserModel, UserMethods>(
         hash: { type: String, required: true },
         createdAt: { type: Date, required: true },
         lastUsedAt: { type: Date, required: true },
+        activeOrgId: { type: String },
         expiresAt: { type: Date },
         scope: { type: String },
         permissions: { type: [String], default: undefined },

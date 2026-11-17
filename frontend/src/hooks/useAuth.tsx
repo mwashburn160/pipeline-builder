@@ -35,8 +35,9 @@ export type { LoginResult };
  * Auth context shape.
  *
  * Supports multi-org membership: `organizations` lists all orgs the user
- * belongs to (via UserOrganization), and `switchOrganization` re-issues
- * tokens scoped to a different org (calls `POST /auth/switch-org`).
+ * belongs to (via UserOrganization), and `switchOrganization` swaps in an
+ * access token scoped to a different org (calls `POST /auth/switch-org`; the
+ * refresh cookie is untouched and renews into the new org).
  * After switching, `user.role` and `user.organizationId` reflect the new org.
  */
 interface AuthContextType {
@@ -402,7 +403,8 @@ export function AuthProvider({ children, deferInit = false }: { children: ReactN
     useLoginActions({ refreshUser, setIsSubmitting, router });
 
   /**
-   * Switch active organization — re-issues tokens and refreshes user profile.
+   * Switch active organization — swaps in the new org's access token and
+   * refreshes the user profile.
    */
   const switchOrganization = useCallback(async (orgId: string) => {
     await api.switchOrganization(orgId);

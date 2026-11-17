@@ -51,14 +51,22 @@ export function credentialHttpsAgent(verifySsl: boolean | undefined): https.Agen
   return platformHttpsAgent(verifySsl);
 }
 
+/** What `POST /api/auth/switch-org` returns: an ACCESS token only. */
+export interface SwitchedAccessToken {
+  accessToken: string;
+  expiresIn?: number;
+}
+
 /**
- * POST /api/auth/switch-org with the current access token and return the WHOLE
- * re-issued session.
+ * POST /api/auth/switch-org with the current access token and return the
+ * access token scoped to the new org.
  *
- * The switch re-issues the same session slot, which ROTATES its refresh token —
- * so a caller that keeps only the access token is left holding a dead refresh
- * token. Prints a success line (unless `quiet`) and hard-exits on a missing
- * token, since both credential commands treat a failed switch the same.
+ * The switch moves the session's org on the platform and mints NO refresh
+ * token: the session's existing refresh token stays valid (and now renews into
+ * the new org), so the caller keeps the one it already holds. Any
+ * `refreshToken` in the response is ignored. Prints a success line (unless
+ * `quiet`) and hard-exits on a missing token, since both credential commands
+ * treat a failed switch the same.
  */
 export async function switchOrganization(params: {
   url: string;
@@ -67,7 +75,7 @@ export async function switchOrganization(params: {
   httpsAgent: https.Agent;
   timeout: number;
   quiet: boolean;
-}): Promise<SessionTokens> {
+}): Promise<SwitchedAccessToken> {
   const switchUrl = `${params.url}/api/auth/switch-org`;
   printDebug('POST', { url: switchUrl });
   const response = await axios.post<AuthResponse>(
@@ -77,7 +85,7 @@ export async function switchOrganization(params: {
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${params.accessToken}`,
-        // Declares the body transport for the re-issued refresh token.
+        // Declares the CLI (body) transport — the platform's client-type contract.
         'X-Pb-Client': 'cli',
         ...requestCorrelationHeaders(),
       },
@@ -91,5 +99,8 @@ export async function switchOrganization(params: {
     process.exit(ERROR_CODES.AUTHENTICATION);
   }
   if (!params.quiet) printSuccess(`Switched to organization ${params.orgId}`);
-  return switched;
+  return {
+    accessToken: switched.accessToken,
+    ...(switched.expiresIn !== undefined ? { expiresIn: switched.expiresIn } : {}),
+  };
 }

@@ -17,6 +17,10 @@
  *   - MACHINE slots (generate-token) live under their own cap, survive the
  *     operator's sign-ins and refreshes, rotate in place through their own
  *     refresh token, and can never open another slot;
+ *   - switch-org moves its slot's org and returns an ACCESS token only (the
+ *     slot's refresh token is untouched), the next refresh lands in the
+ *     switched org, slots keep independent orgs, and a slot pinned to an org
+ *     the user has left falls back to one they are still in;
  *   - a just-rotated token is answered from the rotation grace, and is reuse
  *     once the grace has passed;
  *   - sessions and devices: the slot list records device details, marks the
@@ -38,7 +42,7 @@ const suite = integrationSuite();
 suite('refresh-session slots (real Mongo)', () => {
   let mongod: { getUri: () => string; stop: () => Promise<boolean> };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let mongoose: any, User: any, token: any, authMw: any, authCtl: any, credsCtl: any, jwt: any;
+  let mongoose: any, User: any, Organization: any, UserOrganization: any, token: any, authMw: any, authCtl: any, credsCtl: any, jwt: any;
   /** Let the refresh-rotation grace lapse (it lives in the pending-state store). */
   let endRotationGrace: () => void;
 
@@ -48,7 +52,7 @@ suite('refresh-session slots (real Mongo)', () => {
     mongod = await MongoMemoryServer.create({ binary: { version: MONGOD_VERSION } });
     process.env.MONGODB_URI = mongod.getUri();
     await mongoose.connect(process.env.MONGODB_URI);
-    ({ User } = await import('../src/models/index.js'));
+    ({ User, Organization, UserOrganization } = await import('../src/models/index.js'));
     ({ _resetAllPendingStoresForTests: endRotationGrace } = await import('../src/helpers/pending-state-store.js'));
     token = {
       ...(await import('../src/services/session/membership-context.js')),
@@ -75,6 +79,8 @@ suite('refresh-session slots (real Mongo)', () => {
   let userId: string;
   beforeEach(async () => {
     await User.deleteMany({});
+    await Organization.deleteMany({});
+    await UserOrganization.deleteMany({});
     const u = await User.create({ username: 'dev', email: 'dev@example.com', isEmailVerified: true });
     userId = String(u._id);
   });
@@ -222,13 +228,121 @@ suite('refresh-session slots (real Mongo)', () => {
     expect((await refresh(b.refreshToken)).status).toBe(200);
   });
 
-  it('switch-org re-issues within the same slot; a removed slot is refused', async () => {
+  /** Two orgs the user is a member of; `first` is the earlier membership. */
+  async function twoOrgs(): Promise<{ first: string; second: string }> {
+    const owner = new mongoose.Types.ObjectId();
+    const first = await Organization.create({ name: 'First', owner, tier: 'team' });
+    const second = await Organization.create({ name: 'Second', owner, tier: 'team' });
+    await UserOrganization.create({ userId, organizationId: first._id, role: 'member', isActive: true, joinedAt: new Date(1000) });
+    await UserOrganization.create({ userId, organizationId: second._id, role: 'member', isActive: true, joinedAt: new Date(2000) });
+    return { first: String(first._id), second: String(second._id) };
+  }
+  const orgOf = (t: string) => (jwt.decode(t) as { organizationId?: string }).organizationId;
+
+  /** POST /auth/switch-org holding only `accessToken`. */
+  const switchOrg = (accessToken: string, organizationId: string, headers: Record<string, string> = {}) =>
+    run(authCtl.switchOrg, { user: token.verifyAccessToken(accessToken), headers, body: { organizationId } });
+
+  it('a sign-in records its org on the slot', async () => {
+    const { first } = await twoOrgs();
     const a = await signIn();
-    const renewed = await token.renewSessionTokens(await loadUser(), undefined, { sessionId: sidOf(a.refreshToken) });
-    expect(sidOf(renewed.refreshToken)).toBe(sidOf(a.refreshToken));
+    expect(orgOf(a.accessToken)).toBe(first);
+    expect((await slotOf(a.refreshToken) as { activeOrgId?: string }).activeOrgId).toBe(first);
+  });
+
+  it.each([
+    ['a CLI', { 'x-pb-client': 'cli' }],
+    ['a browser', { 'x-pb-client': 'web' }],
+  ])('REGRESSION: switch-org with only an access token returns NO refresh token to %s and leaves the slot\'s refresh hash alone', async (_label, headers) => {
+    const { second } = await twoOrgs();
+    const a = await signIn();
+    const before = await slotOf(a.refreshToken);
+
+    const r = res();
+    await authCtl.switchOrg({ user: token.verifyAccessToken(a.accessToken), headers, params: {}, body: { organizationId: second } } as never, r);
+    expect(r.status).toHaveBeenCalledWith(200);
+    const body = r.json.mock.calls[0][0];
+    expect(Object.keys(body.data).sort()).toEqual(['accessToken', 'expiresIn']);
+    expect(r.cookie).not.toHaveBeenCalled();
+    expect(orgOf(body.data.accessToken)).toBe(second);
+    expect(sidOf(body.data.accessToken)).toBe(sidOf(a.refreshToken));
+
+    const after = await slotOf(a.refreshToken) as { hash: string; activeOrgId?: string };
+    expect(after.hash).toBe(before.hash);
+    expect(after.activeOrgId).toBe(second);
     expect(await slots()).toHaveLength(1);
+    // The legitimate holder's refresh token still works — it was not rotated out.
+    expect((await refresh(a.refreshToken)).status).toBe(200);
+  });
+
+  it('refresh after a switch lands in the switched org', async () => {
+    const { first, second } = await twoOrgs();
+    const a = await signIn();
+    expect(orgOf(a.accessToken)).toBe(first);
+    expect((await switchOrg(a.accessToken, second)).status).toBe(200);
+
+    const out = await refresh(a.refreshToken);
+    expect(out.status).toBe(200);
+    expect(orgOf(out.body.data.accessToken)).toBe(second);
+    // And it stays there across further rotations.
+    expect(orgOf((await refresh(out.body.data.refreshToken)).body.data.accessToken)).toBe(second);
+  });
+
+  it('two slots (tabs / a CLI) keep independent orgs across a switch', async () => {
+    const { first, second } = await twoOrgs();
+    const tab = await signIn();
+    const cli = await signIn();
+    expect((await switchOrg(tab.accessToken, second)).status).toBe(200);
+    // The switch moved `lastActiveOrgId` (where the NEXT sign-in lands) …
+    expect(String((await loadUser()).lastActiveOrgId)).toBe(second);
+
+    // … but the other slot renews into its OWN org, not the one the tab picked.
+    expect(orgOf((await refresh(cli.refreshToken)).body.data.accessToken)).toBe(first);
+    expect(orgOf((await refresh(tab.refreshToken)).body.data.accessToken)).toBe(second);
+  });
+
+  it('a slot pinned to an org the user has LEFT falls back to one they are still in — never mints for the left org', async () => {
+    const { first, second } = await twoOrgs();
+    const a = await signIn();
+    expect((await switchOrg(a.accessToken, second)).status).toBe(200);
+    await UserOrganization.deleteOne({ userId, organizationId: second });
+
+    const out = await refresh(a.refreshToken);
+    expect(out.status).toBe(200);
+    expect(orgOf(out.body.data.accessToken)).toBe(first);
+    // The slot is re-pinned to the org it actually renewed into.
+    expect((await slotOf(a.refreshToken) as { activeOrgId?: string }).activeOrgId).toBe(first);
+  });
+
+  it('a slot that predates activeOrgId renews as before (lastActiveOrgId)', async () => {
+    const { second } = await twoOrgs();
+    const a = await signIn();
+    await User.updateOne({ _id: userId }, { $unset: { 'refreshSessions.$[].activeOrgId': '' }, $set: { lastActiveOrgId: second } });
+    expect(orgOf((await refresh(a.refreshToken)).body.data.accessToken)).toBe(second);
+  });
+
+  it('generate-token opens (and renews) a machine credential in the CALLER slot\'s org, not another device\'s switch', async () => {
+    const { first, second } = await twoOrgs();
+    const cli = await signIn();
+    const browser = await signIn();
+    expect((await switchOrg(browser.accessToken, second)).status).toBe(200);
+
+    const machine = await generateToken(token.verifyAccessToken(cli.accessToken));
+    expect(machine.status).toBe(200);
+    expect(orgOf(machine.body.data.accessToken)).toBe(first);
+    const renewed = await generateToken(token.verifyAccessToken(machine.body.data.accessToken));
+    expect(orgOf(renewed.body.data.accessToken)).toBe(first);
+  });
+
+  it('switch-org refuses an org the user is not in, and a removed slot — the slot is unchanged', async () => {
+    const { first } = await twoOrgs();
+    const a = await signIn();
+    const stranger = String((await Organization.create({ name: 'Other', owner: new mongoose.Types.ObjectId(), tier: 'team' }))._id);
+    expect((await switchOrg(a.accessToken, stranger)).status).toBe(403);
+    expect((await slotOf(a.refreshToken) as { activeOrgId?: string }).activeOrgId).toBe(first);
 
     await User.updateOne({ _id: userId }, { $set: { refreshSessions: [] } });
+    expect(await token.switchSessionOrg(await loadUser(), first, sidOf(a.refreshToken))).toBe('session-invalid');
     expect(await token.renewSessionTokens(await loadUser(), undefined, { sessionId: sidOf(a.refreshToken) })).toBeNull();
   });
 

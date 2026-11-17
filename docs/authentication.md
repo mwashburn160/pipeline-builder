@@ -1989,8 +1989,16 @@ resets in `platform_mfa_resets_total{stage}`.
 ## Switching organizations and parent-admin access to teams
 
 A session is scoped to ONE organization at a time; `POST /auth/switch-org`
-(`{ organizationId }`) re-issues the current session's tokens — same refresh-session
-slot, same assurance — scoped to another org. The caller may switch into an org
+(`{ organizationId }`) moves the current session — same refresh-session slot,
+same assurance — to another org and returns an **access token only**
+(`{ accessToken, expiresIn }`). It never mints or rotates a refresh token: it is
+authenticated by an access token alone, and a fresh refresh token from it would
+turn a 15-minute token into a long-lived login (rotating the legitimate holder's
+token out). The org is recorded on the slot itself (`refreshSessions[].activeOrgId`),
+so the slot's next refresh renews into it, and two devices — or a browser and the
+CLI — keep independent orgs. A slot pinned to an org the person has since left
+renews into one they are still in (the slot's org → `lastActiveOrgId` → their
+earliest membership; never an org they have no authority in). The caller may switch into an org
 when they hold **authority there**, resolved by one rule
 (`platform/src/helpers/org-authority.ts`) that switch-org, token issuance and the
 refresh path all apply, so the three can never disagree:
@@ -2747,8 +2755,8 @@ unconditional, including for CLI callers, so that it cannot be stripped.
 Both transports are read by `POST /auth/refresh`; when a request carries **both**
 a cookie and a body token, the cookie wins — a browser must not be talked into
 refreshing a token some injected script supplied. Every endpoint that issues a
-session (login, the OAuth and SSO callbacks, `switch-org`, `tokens/revoke-all`)
-uses the same split; logout, `/auth/refresh`'s rejection and account deletion all
+session (login, the OAuth and SSO callbacks, `tokens/revoke-all`) uses the same
+split (`switch-org` returns an access token only and leaves the cookie alone); logout, `/auth/refresh`'s rejection and account deletion all
 clear the cookie, because only the server can.
 
 Cross-tab: tabs can no longer read the refresh token, so they coordinate over a

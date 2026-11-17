@@ -51,6 +51,7 @@ jest.unstable_mockModule('../src/services/session/refresh-sessions.js', () => ({
   findRefreshSession: jest.fn(async () => undefined),
   issueTokens: jest.fn(),
   renewSessionTokens: jest.fn(),
+  switchSessionOrg: jest.fn(),
 }));
 jest.unstable_mockModule('../src/utils/validation.js', () => ({
   validateBody: jest.fn(), registerSchema: {}, loginSchema: {}, completeOnboardingSchema: {}, joinOrgSchema: {},
