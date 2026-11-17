@@ -3,7 +3,7 @@
 
 import type { ApiCore } from '../core';
 import { buildQuery } from '../util';
-import type { ApiResponse, OrgQuotaResponse, OrgIdpConfigDto, OrgIdpConfigCreate, User, PlanTier, QuotaType, QuotaUsageParams, QuotaUsageBreakdown, QuotaNoticeSettings } from '@/types';
+import type { ApiResponse, OrgQuotaResponse, OrgIdpConfigDto, OrgIdpConfigCreate, IdpSaveWarning, User, PlanTier, QuotaType, QuotaUsageParams, QuotaUsageBreakdown, QuotaNoticeSettings } from '@/types';
 import type { AuditLogEvent, AuditChainVerification } from '@/types/audit';
 import type { ConsoleClass } from '@/lib/admin-console';
 import type { OrgRole } from '@pipeline-builder/api-core/wire-vocabulary';
@@ -119,7 +119,8 @@ export function adminApi(core: ApiCore) {
     /** Writes are strong-factor step-up gated: confirm in a `StepUpModal`
      *  (`requireStrongFactor`) first and forward its token. */
     putOrgIdpConfig: async (orgId: string, data: OrgIdpConfigCreate, stepUpToken?: string) => {
-      return core.request<ApiResponse<{ config: OrgIdpConfigDto }>>(`/api/admin/org-idp/${orgId}`, {
+      // `warnings` rides only when there are any (see IdpSaveWarning).
+      return core.request<ApiResponse<{ config: OrgIdpConfigDto; warnings?: IdpSaveWarning[] }>>(`/api/admin/org-idp/${orgId}`, {
         method: 'PUT',
         headers: core.stepUpHeader(stepUpToken),
         body: JSON.stringify(data),
@@ -127,7 +128,8 @@ export function adminApi(core: ApiCore) {
     },
 
     patchOrgIdpConfig: async (orgId: string, data: Partial<OrgIdpConfigCreate>, stepUpToken?: string) => {
-      return core.request<ApiResponse<{ config: OrgIdpConfigDto }>>(`/api/admin/org-idp/${orgId}`, {
+      // `warnings` rides only when there are any (see IdpSaveWarning).
+      return core.request<ApiResponse<{ config: OrgIdpConfigDto; warnings?: IdpSaveWarning[] }>>(`/api/admin/org-idp/${orgId}`, {
         method: 'PATCH',
         headers: core.stepUpHeader(stepUpToken),
         body: JSON.stringify(data),

@@ -13,9 +13,11 @@ import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { LoadingSpinner } from '@/components/ui/Loading';
 import { Modal } from '@/components/ui/Modal';
 import { StepUpModal } from '@/components/admin/StepUpModal';
+import { useToast } from '@/components/ui/Toast';
 import type { Organization, OrgIdpConfigDto } from '@/types';
 import { formatDateTime } from '@/lib/format';
 import { formatError } from '@/lib/constants';
+import { showIdpSaveWarnings } from '@/lib/idp-save-warnings';
 import { VerifiedDomainPicker } from '@/components/sso/VerifiedDomainPicker';
 
 interface Props {
@@ -42,6 +44,7 @@ type Provider = 'generic-oidc' | 'cognito' | 'google' | 'github';
 export function OrgIdpConfigModal({ org, onClose, onSaved }: Props) {
   const uid = useId();
   const [error, setError] = useState<string | null>(null);
+  const toast = useToast();
   const [existing, setExisting] = useState<OrgIdpConfigDto | null>(null);
   const [provider, setProvider] = useState<Provider>('generic-oidc');
   const [clientId, setClientId] = useState('');
@@ -116,6 +119,7 @@ export function OrgIdpConfigModal({ org, onClose, onSaved }: Props) {
           if (clientSecret.trim()) patch.clientSecret = clientSecret;
           const res = await api.patchOrgIdpConfig(org.id, patch, stepUpToken);
           if (!res.success) throw new Error(res.message || 'Patch failed');
+          showIdpSaveWarnings(res, toast);
         } else {
           const res = await api.putOrgIdpConfig(org.id, {
             provider, clientId, clientSecret,
@@ -123,6 +127,7 @@ export function OrgIdpConfigModal({ org, onClose, onSaved }: Props) {
             allowedEmailDomains: domains, enabled,
           }, stepUpToken);
           if (!res.success) throw new Error(res.message || 'Create failed');
+          showIdpSaveWarnings(res, toast);
         }
         onSaved?.();
         onClose();
@@ -133,7 +138,7 @@ export function OrgIdpConfigModal({ org, onClose, onSaved }: Props) {
         setPendingWrite(null);
       }
     });
-  }, [org.id, provider, clientId, clientSecret, discoveryUrl, region, userPoolId, allowedEmailDomains, enabled, existing, onSaved, onClose]);
+  }, [org.id, provider, clientId, clientSecret, discoveryUrl, region, userPoolId, allowedEmailDomains, enabled, existing, onSaved, onClose, toast]);
 
   const handleDelete = useCallback(async (stepUpToken: string) => {
     setSubmitting(true);

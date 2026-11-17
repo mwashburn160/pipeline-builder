@@ -11,8 +11,10 @@ import { Button } from '@/components/ui/Button';
 import { Callout } from '@/components/ui/Callout';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { SectionCard } from '@/components/ui/SectionCard';
+import { useToast } from '@/components/ui/Toast';
 import api from '@/lib/api';
 import { formatError } from '@/lib/constants';
+import { showIdpSaveWarnings } from '@/lib/idp-save-warnings';
 import type { IdpProtocol, OrgIdpConfigDto, SsoTestReport } from '@/types';
 import { findPreset, presetsFor, type SsoProviderPreset } from './providers';
 import { SpValues } from './SpValues';
@@ -294,6 +296,7 @@ function StepDomains({
   const [pending, setPending] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const toast = useToast();
   const verified = useVerifiedDomains(orgId);
   useEffect(() => { setDomains(config.allowedEmailDomains); }, [config.allowedEmailDomains]);
 
@@ -314,6 +317,7 @@ function StepDomains({
     try {
       const res = await api.patchOwnOrgIdpConfig(orgId, { allowedEmailDomains: domains }, stepUpToken);
       if (res.data?.config) onSaved(res.data.config);
+      showIdpSaveWarnings(res, toast);
       onContinue();
     } catch (err) {
       if (alive.current) setError(formatError(err, 'Could not save the domains'));

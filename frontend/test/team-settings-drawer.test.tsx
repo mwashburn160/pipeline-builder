@@ -18,6 +18,7 @@ import { mockAuthGuard } from './helpers/pageMocks';
 import { TeamSettingsDrawer } from '../src/components/teams/TeamSettingsDrawer';
 
 jest.mock('@/hooks/useAuthGuard', () => require('./helpers/pageMocks').authGuardModule());
+jest.mock('@/components/ui/Toast', () => require('./helpers/pageMocks').toastModule());
 
 // Each settings component reports the org id it was handed.
 jest.mock('@/components/settings/MfaPolicySettings', () => ({

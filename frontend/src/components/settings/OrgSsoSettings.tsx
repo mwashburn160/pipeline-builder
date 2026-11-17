@@ -17,6 +17,7 @@ import { SpValues } from '@/components/sso/SpValues';
 import { VerifiedDomainPicker } from '@/components/sso/VerifiedDomainPicker';
 import { useFormState } from '@/hooks/useFormState';
 import { useToast } from '@/components/ui/Toast';
+import { showIdpSaveWarnings } from '@/lib/idp-save-warnings';
 import type { OrgIdpConfigDto, OrgIdpConfigCreate, IdpProvider } from '@/types';
 import { formatDateTime } from '@/lib/format';
 import { changedIdpFields } from './idp-diff';
@@ -166,7 +167,7 @@ export function OrgSsoSettings({
         // Non-blocking notes on a SUCCESSFUL save (e.g. a Google IdP with no
         // verified domain admits existing members only). A toast, not an inline
         // alert: in the wizard `onSaved` moves on to the next step at once.
-        for (const w of res?.data?.warnings ?? []) toast.warning(w.message);
+        showIdpSaveWarnings(res, toast);
         setClientSecret('');
         onSaved(saved);
       },

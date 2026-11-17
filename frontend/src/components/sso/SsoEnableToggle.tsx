@@ -5,8 +5,10 @@ import { useState } from 'react';
 import { StepUpModal } from '@/components/admin/StepUpModal';
 import { ErrorAlert } from '@/components/ui/ErrorAlert';
 import { Switch } from '@/components/ui/Switch';
+import { useToast } from '@/components/ui/Toast';
 import api from '@/lib/api';
 import { formatError } from '@/lib/constants';
+import { showIdpSaveWarnings } from '@/lib/idp-save-warnings';
 import type { OrgIdpConfigDto } from '@/types';
 
 /**
@@ -27,6 +29,7 @@ export function SsoEnableToggle({
 }) {
   const [pending, setPending] = useState<boolean | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const toast = useToast();
 
   const save = async (stepUpToken: string) => {
     const next = pending;
@@ -36,6 +39,7 @@ export function SsoEnableToggle({
     try {
       const res = await api.patchOwnOrgIdpConfig(orgId, { enabled: next }, stepUpToken);
       if (res.data?.config) onSaved(res.data.config);
+      showIdpSaveWarnings(res, toast);
     } catch (err) {
       setError(formatError(err, next ? 'Could not enable single sign-on' : 'Could not disable single sign-on'));
     }

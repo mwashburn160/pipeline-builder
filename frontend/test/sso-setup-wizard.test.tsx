@@ -25,9 +25,11 @@ import { SsoConnectionFlow } from '../src/components/sso/SsoConnectionFlow';
 import { SsoSetupWizard, resumeStep } from '../src/components/sso/SsoSetupWizard';
 import { SsoStatusSummary } from '../src/components/sso/SsoStatusSummary';
 import { SsoRequiredToggle, ssoRequiredBlocker } from '../src/components/sso/SsoRequiredToggle';
+import { SsoEnableToggle } from '../src/components/sso/SsoEnableToggle';
 import type { OrgIdpConfigDto } from '../src/types';
 
-jest.mock('@/components/ui/Toast', () => require('./helpers/pageMocks').toastModule(() => ({ success: jest.fn<AnyFn>(), error: jest.fn<AnyFn>(), warning: jest.fn<AnyFn>(), info: jest.fn<AnyFn>() })));
+const toastWarning = jest.fn<AnyFn>();
+jest.mock('@/components/ui/Toast', () => require('./helpers/pageMocks').toastModule(() => ({ success: jest.fn<AnyFn>(), error: jest.fn<AnyFn>(), warning: toastWarning, info: jest.fn<AnyFn>() })));
 
 jest.mock('@/lib/api', () => {
   const api = {
@@ -63,6 +65,8 @@ const SP = {
 };
 
 const CERT = `-----BEGIN CERTIFICATE-----\n${'A'.repeat(64)}\n-----END CERTIFICATE-----`;
+
+const WARNING = { code: 'IDP_GOOGLE_NO_VERIFIED_DOMAIN', message: 'No verified domain: Google sign-in admits existing members only.' };
 
 const SAML: OrgIdpConfigDto = {
   orgId: 'org-1',
@@ -142,6 +146,53 @@ describe('the wizard', () => {
     await waitFor(() => expect(api.patchOwnOrgIdpConfig).toHaveBeenCalledWith('org-1', { allowedEmailDomains: ['acme.com'] }, 'tok'));
     expect(await screen.findByRole('button', { name: /^Test connection$/ })).toBeInTheDocument();
     await settled();
+  });
+});
+
+describe('save warnings', () => {
+  it('the domains step toasts a warning the save returned, and still moves on', async () => {
+    api.patchOwnOrgIdpConfig.mockImplementation(async (_o: string, patch: Partial<OrgIdpConfigDto>) => ({ success: true, data: { config: { ...SAML, ...patch }, warnings: [WARNING] } }));
+    render(<Harness initial={SAML} />);
+    fireEvent.click(screen.getByRole('button', { name: /4\s*Domains/ }));
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'acme.com' }));
+    fireEvent.click(screen.getByRole('button', { name: /Save and continue/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Verify' }));
+    expect(await screen.findByRole('button', { name: /^Test connection$/ })).toBeInTheDocument();
+    expect(toastWarning).toHaveBeenCalledTimes(1);
+    expect(toastWarning).toHaveBeenCalledWith(WARNING.message);
+    await settled();
+  });
+
+  it('the domains step raises no warning when the save carries none', async () => {
+    render(<Harness initial={SAML} />);
+    fireEvent.click(screen.getByRole('button', { name: /4\s*Domains/ }));
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'acme.com' }));
+    fireEvent.click(screen.getByRole('button', { name: /Save and continue/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Verify' }));
+    expect(await screen.findByRole('button', { name: /^Test connection$/ })).toBeInTheDocument();
+    expect(toastWarning).not.toHaveBeenCalled();
+    await settled();
+  });
+
+  it('the enable toggle toasts a warning the save returned', async () => {
+    api.patchOwnOrgIdpConfig.mockImplementation(async (_o: string, patch: Partial<OrgIdpConfigDto>) => ({ success: true, data: { config: { ...SAML, ...patch }, warnings: [WARNING] } }));
+    const onSaved = jest.fn<AnyFn>();
+    render(<SsoEnableToggle orgId="org-1" config={SAML} readOnly={false} onSaved={onSaved} />);
+    fireEvent.click(screen.getByRole('switch', { name: /Enable single sign-on/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Verify' }));
+    await waitFor(() => expect(onSaved).toHaveBeenCalledWith(expect.objectContaining({ enabled: true })));
+    expect(api.patchOwnOrgIdpConfig).toHaveBeenCalledWith('org-1', { enabled: true }, 'tok');
+    expect(toastWarning).toHaveBeenCalledTimes(1);
+    expect(toastWarning).toHaveBeenCalledWith(WARNING.message);
+  });
+
+  it('the enable toggle raises no warning when the save carries none', async () => {
+    const onSaved = jest.fn<AnyFn>();
+    render(<SsoEnableToggle orgId="org-1" config={SAML} readOnly={false} onSaved={onSaved} />);
+    fireEvent.click(screen.getByRole('switch', { name: /Enable single sign-on/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Verify' }));
+    await waitFor(() => expect(onSaved).toHaveBeenCalledWith(expect.objectContaining({ enabled: true })));
+    expect(toastWarning).not.toHaveBeenCalled();
   });
 });
 

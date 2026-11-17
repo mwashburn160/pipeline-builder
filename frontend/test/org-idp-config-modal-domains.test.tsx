@@ -14,13 +14,16 @@ import { OrgIdpConfigModal } from '../src/components/admin/OrgIdpConfigModal';
 const getOrgIdpConfig = jest.fn<AnyFn>();
 const listOrgDomains = jest.fn<AnyFn>();
 const patchOrgIdpConfig = jest.fn<AnyFn>();
+const putOrgIdpConfig = jest.fn<AnyFn>();
+const toastWarning = jest.fn<AnyFn>();
+jest.mock('@/components/ui/Toast', () => require('./helpers/pageMocks').toastModule(() => ({ success: jest.fn<AnyFn>(), error: jest.fn<AnyFn>(), warning: toastWarning, info: jest.fn<AnyFn>() })));
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: {
     getOrgIdpConfig: (...a: unknown[]) => getOrgIdpConfig(...a),
     listOrgDomains: (...a: unknown[]) => listOrgDomains(...a),
     patchOrgIdpConfig: (...a: unknown[]) => patchOrgIdpConfig(...a),
-    putOrgIdpConfig: jest.fn<AnyFn>(),
+    putOrgIdpConfig: (...a: unknown[]) => putOrgIdpConfig(...a),
     deleteOrgIdpConfig: jest.fn<AnyFn>(),
   },
   ApiError: class ApiError extends Error { statusCode = 0; },
@@ -83,5 +86,47 @@ describe('OrgIdpConfigModal — verified-domain picker', () => {
     await waitFor(() => expect(patchOrgIdpConfig).toHaveBeenCalled());
     expect(patchOrgIdpConfig.mock.calls[0][1].allowedEmailDomains).toEqual(['acme.io', 'acme.dev']);
     expect(patchOrgIdpConfig.mock.calls[0][2]).toBe('step-up-token');
+  });
+});
+
+const WARNING = { code: 'IDP_GOOGLE_NO_VERIFIED_DOMAIN', message: 'No verified domain: Google sign-in admits existing members only.' };
+
+describe('OrgIdpConfigModal — save warnings', () => {
+  async function saveExisting() {
+    const onClose = jest.fn<AnyFn>();
+    render(<OrgIdpConfigModal org={org} onClose={onClose} />);
+    await screen.findByRole('checkbox', { name: /acme\.io/ });
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'confirm step-up' }));
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+  }
+
+  it('toasts a warning the PATCH returned (the save still succeeds)', async () => {
+    patchOrgIdpConfig.mockResolvedValue({ success: true, data: { config: {}, warnings: [WARNING] } });
+    await saveExisting();
+    expect(toastWarning).toHaveBeenCalledTimes(1);
+    expect(toastWarning).toHaveBeenCalledWith(WARNING.message);
+  });
+
+  it('raises no warning when the PATCH carries none', async () => {
+    await saveExisting();
+    expect(toastWarning).not.toHaveBeenCalled();
+  });
+
+  it('toasts a warning the create (PUT) returned', async () => {
+    getOrgIdpConfig.mockResolvedValue({ success: true, data: { config: null } });
+    putOrgIdpConfig.mockResolvedValue({ success: true, data: { config: {}, warnings: [WARNING] } });
+    const onClose = jest.fn<AnyFn>();
+    render(<OrgIdpConfigModal org={org} onClose={onClose} />);
+    await screen.findByRole('checkbox', { name: /acme\.io/ });
+    fireEvent.change(screen.getByLabelText(/Client ID/i), { target: { value: 'cid' } });
+    fireEvent.change(screen.getByLabelText(/Client secret/i), { target: { value: 'sec' } });
+    fireEvent.change(screen.getByLabelText(/Discovery URL/i), { target: { value: 'https://idp.example.com/.well-known/openid-configuration' } });
+    fireEvent.click(screen.getByRole('button', { name: /^Create|Save/ }));
+    fireEvent.click(await screen.findByRole('button', { name: 'confirm step-up' }));
+    await waitFor(() => expect(putOrgIdpConfig).toHaveBeenCalled());
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(toastWarning).toHaveBeenCalledTimes(1);
+    expect(toastWarning).toHaveBeenCalledWith(WARNING.message);
   });
 });
