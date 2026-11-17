@@ -9,14 +9,13 @@
  * entry — so both funnel through {@link requeueWithFreshBudget}.
  */
 
-import { randomUUID } from 'node:crypto';
-
 import { AppError, createLogger, decrementQuota, ErrorCode, errorMessage, getServiceAuthHeader } from '@pipeline-builder/api-core';
 import type { QuotaService } from '@pipeline-builder/api-core';
 import type { Job } from 'bullmq';
 
 import { reserveReplaySlot } from './build-quota.js';
-import { dlqJobId, getConnectionForDb, getDeadLetterQueue, getOrgTier, getTierQueue } from './connections.js';
+import { DLQ_NAME, dlqJobId, getDeadLetterQueue, getOrgTier, getTierQueue } from './connections.js';
+import { withJobLock } from './job-lock.js';
 import type { PluginBuildJobData, PublishCaller } from '../helpers/plugin-helpers.js';
 
 const logger = createLogger('plugin-build-queue');
@@ -36,9 +35,9 @@ export interface Retrier {
   caller: PublishCaller;
 }
 
-/** A re-enqueue refused before anything was queued (no quota slot for a non-sysadmin, or a concurrent retry). */
+/** A re-enqueue refused before anything was queued (no quota slot for a non-sysadmin). */
 class RequeueRefusedError extends AppError {
-  constructor(message: string, statusCode: 409 | 429 | 503, code: ErrorCode) {
+  constructor(message: string, statusCode: 429 | 503, code: ErrorCode) {
     super(statusCode, code, message);
     this.name = 'RequeueRefusedError';
   }
@@ -143,55 +142,12 @@ async function requeueWithFreshBudget(
  * land on a different tier's job than the one that was authorized. Returns the
  * new job id, or null when that job is no longer failed (a concurrent retry
  * took it) — or when it is already being retried via the DLQ. Runs under a
- * short per-job Redis lock ({@link retryLockKey}); a retry that finds it held
+ * short per-job Redis lock ({@link withJobLock}); a retry that finds it held
  * is refused with a 409 `CONFLICT` (nothing reserved, nothing queued).
  */
 export async function retryFailedJob(failedJob: Job<PluginBuildJobData>, quotaService: QuotaService, retrier: Retrier): Promise<string | null> {
   const jobId = String(failedJob.id);
-  const lock = await acquireRetryLock(failedJob.queueName, jobId);
-  if (!lock) {
-    throw new RequeueRefusedError('A retry of this build is already in progress.', 409, ErrorCode.CONFLICT);
-  }
-  try {
-    return await retryLockedFailedJob(failedJob, jobId, quotaService, retrier);
-  } finally {
-    await lock.release();
-  }
-}
-
-/** How long a retry's per-job lock lives if its holder dies before releasing it. */
-export const RETRY_LOCK_TTL_MS = 30_000;
-
-/** Delete the lock only when it still holds OUR token (an expired-then-retaken lock is someone else's). */
-const RELEASE_LOCK_LUA = "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end";
-
-/** The Redis key of the per-job retry lock: queue-qualified, as job ids repeat across tier queues. */
-export function retryLockKey(queueName: string, jobId: string): string {
-  return `plugin-build:retry-lock:${queueName}:${jobId}`;
-}
-
-/**
- * Take the per-job retry lock (`SET NX PX`), or null when another retry holds
- * it. The check-then-enqueue below is not atomic on its own — two concurrent
- * retries could both see the job failed and both re-enqueue it — so the whole
- * sequence runs under this lock.
- */
-async function acquireRetryLock(queueName: string, jobId: string): Promise<{ release: () => Promise<void> } | null> {
-  const redis = getConnectionForDb(0);
-  const key = retryLockKey(queueName, jobId);
-  const token = randomUUID();
-  const ok = await redis.set(key, token, 'PX', RETRY_LOCK_TTL_MS, 'NX');
-  if (ok !== 'OK') return null;
-  return {
-    release: async () => {
-      // Best-effort: a lock we fail to delete expires on its own TTL.
-      try {
-        await redis.eval(RELEASE_LOCK_LUA, 1, key, token);
-      } catch (err) {
-        logger.warn('Could not release the build retry lock; it expires on its TTL', { jobId, error: errorMessage(err) });
-      }
-    },
-  };
+  return withJobLock('retry', failedJob.queueName, jobId, () => retryLockedFailedJob(failedJob, jobId, quotaService, retrier));
 }
 
 async function retryLockedFailedJob(failedJob: Job<PluginBuildJobData>, jobId: string, quotaService: QuotaService, retrier: Retrier): Promise<string | null> {
@@ -219,15 +175,20 @@ async function retryLockedFailedJob(failedJob: Job<PluginBuildJobData>, jobId: s
 
 /**
  * Replay a single DLQ job back onto the org's tier queue. Returns the new job
- * id, or null when the DLQ job no longer exists.
+ * id, or null when the DLQ job no longer exists (e.g. a concurrent replay
+ * finished first). Runs under the same short per-job Redis lock as a retry
+ * ({@link withJobLock}, kind `replay`); a replay that finds it held is refused
+ * with a 409 `CONFLICT` (nothing reserved, nothing queued).
  */
 export async function replayDlqJob(jobId: string, quotaService: QuotaService, retrier: Retrier): Promise<string | null> {
-  const dlqJob = await getDeadLetterQueue().getJob(jobId);
-  if (!dlqJob) return null;
+  return withJobLock('replay', DLQ_NAME, jobId, async () => {
+    const dlqJob = await getDeadLetterQueue().getJob(jobId);
+    if (!dlqJob) return null;
 
-  return requeueWithFreshBudget(dlqJob, quotaService, retrier, {
-    jobId,
-    namePrefix: 'replay',
-    sourceStillPresent: async () => Boolean(await getDeadLetterQueue().getJob(jobId)),
+    return requeueWithFreshBudget(dlqJob, quotaService, retrier, {
+      jobId,
+      namePrefix: 'replay',
+      sourceStillPresent: async () => Boolean(await getDeadLetterQueue().getJob(jobId)),
+    });
   });
 }

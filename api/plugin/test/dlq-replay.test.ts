@@ -81,7 +81,7 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
   },
 }));
 
-const { isSystemAdmin, isSystemOrgRequest } = await import('@pipeline-builder/api-core');
+const { AppError, ErrorCode, isSystemAdmin, isSystemOrgRequest } = await import('@pipeline-builder/api-core');
 const { createQueueStatusRoutes } = await import('../src/routes/queue-status.js');
 
 function replayLayer() {
@@ -232,6 +232,25 @@ describe('POST /dlq/:jobId/replay', () => {
       params: { jobId: 'j-orphan' },
     } as any, res);
     expect(json).toHaveBeenCalledWith(expect.objectContaining({ statusCode: 404 }));
+  });
+
+  // A concurrent replay holds the per-job lock: replayDlqJob throws a 409
+  // CONFLICT AppError, which the route lets propagate to withRoute (the same
+  // AppError → status mapping as a concurrent retry). Nothing succeeds or is audited.
+  it('propagates a concurrent-replay 409 CONFLICT to withRoute and sends no success', async () => {
+    (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(true);
+    (isSystemOrgRequest as jest.Mock<AnyFn>).mockReturnValue(true);
+    dlqGetJob.mockResolvedValue({ id: 'j-1', data: { orgId: 'org-a', pluginRecord: { name: 'p' } } });
+    const conflict = new AppError(409, ErrorCode.CONFLICT, 'A replay of this build is already in progress.');
+    replayHelper.mockRejectedValueOnce(conflict);
+    const { res, json } = makeRes();
+    await expect(getReplayHandler()({
+      __orgId: '000000000000000000000001',
+      user: { role: 'admin', organizationId: '000000000000000000000001' },
+      params: { jobId: 'j-1' },
+    } as any, res)).rejects.toBe(conflict);
+    expect(conflict).toMatchObject({ statusCode: 409, code: 'CONFLICT' });
+    expect(json).not.toHaveBeenCalled();
   });
 });
 

@@ -151,6 +151,8 @@ jest.unstable_mockModule('../src/queue/connections.js', () => ({
   // omitted export makes the import graph fail to LOAD naming that symbol —
   // which is how adding one import to the module under test broke five suites
   // that never mention it.
+  // requeue.ts keys its replay lock by the DLQ's queue name.
+  DLQ_NAME: 'plugin-build-dlq',
   getBuildCfg: () => ({ orgBuildSlots: { standard: 5, flexible: 8 } }),
   getConnectionForDb: () => ({
     // No slots held: the snapshot is then an empty list, which is the honest

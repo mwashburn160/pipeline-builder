@@ -493,6 +493,7 @@ describe('plugin-build-queue', () => {
   let queueModule: typeof import('../src/queue/plugin-build-queue.js');
   let connectionsModule: typeof import('../src/queue/connections.js');
   let requeueModule: typeof import('../src/queue/requeue.js');
+  let jobLockModule: typeof import('../src/queue/job-lock.js');
   let buildQuotaModule: typeof import('../src/queue/build-quota.js');
 
   beforeEach(async () => {
@@ -508,6 +509,7 @@ describe('plugin-build-queue', () => {
     queueModule = await import('../src/queue/plugin-build-queue.js');
     connectionsModule = await import('../src/queue/connections.js');
     requeueModule = await import('../src/queue/requeue.js');
+    jobLockModule = await import('../src/queue/job-lock.js');
     buildQuotaModule = await import('../src/queue/build-quota.js');
   });
 
@@ -1581,8 +1583,8 @@ describe('plugin-build-queue', () => {
       await expect(requeueModule.retryFailedJob(failedJob as any, quota, SYSADMIN)).resolves.toBe('new-job-l');
 
       const key = 'plugin-build:retry-lock:plugin-build-developer:failed-1';
-      expect(requeueModule.retryLockKey('plugin-build-developer', 'failed-1')).toBe(key);
-      expect(redis.set).toHaveBeenCalledWith(key, expect.any(String), 'PX', requeueModule.RETRY_LOCK_TTL_MS, 'NX');
+      expect(jobLockModule.jobLockKey('retry', 'plugin-build-developer', 'failed-1')).toBe(key);
+      expect(redis.set).toHaveBeenCalledWith(key, expect.any(String), 'PX', jobLockModule.JOB_LOCK_TTL_MS, 'NX');
       const token = redis.set.mock.calls[0][1];
       expect(redis.eval).toHaveBeenCalledWith(expect.stringContaining("redis.call('del'"), 1, key, token);
     });
@@ -2148,6 +2150,63 @@ describe('plugin-build-queue', () => {
       mockReserveQuota.mockResolvedValueOnce({ exceeded: true, quota: { type: 'plugins', limit: 1, used: 1, remaining: 0 } });
       mockQueueAdd.mockResolvedValueOnce({ id: 'replayed-5' });
       await expect(requeueModule.replayDlqJob('dlq-job-1', quota, SYSADMIN)).resolves.toBe('replayed-5');
+    });
+
+    it('takes a DLQ-qualified replay lock (distinct from the retry lock) and releases it with its token', async () => {
+      const quota = makeQuotaService();
+      mockQueueGetJob.mockResolvedValue(makeReplayableDlqJob());
+      mockQueueAdd.mockResolvedValueOnce({ id: 'replayed-l' });
+      const redis = connectionsModule.getConnectionForDb(0) as any;
+      redis.set.mockClear();
+      redis.eval.mockClear();
+
+      await expect(requeueModule.replayDlqJob('dlq-job-1', quota, SYSADMIN)).resolves.toBe('replayed-l');
+
+      const key = `plugin-build:replay-lock:${connectionsModule.DLQ_NAME}:dlq-job-1`;
+      expect(jobLockModule.jobLockKey('replay', connectionsModule.DLQ_NAME, 'dlq-job-1')).toBe(key);
+      expect(redis.set).toHaveBeenCalledWith(key, expect.any(String), 'PX', jobLockModule.JOB_LOCK_TTL_MS, 'NX');
+      const token = redis.set.mock.calls[0][1];
+      expect(redis.eval).toHaveBeenCalledWith(expect.stringContaining("redis.call('del'"), 1, key, token);
+    });
+
+    it('a concurrent replay (lock held) is refused 409 CONFLICT — nothing looked up, reserved, queued or removed', async () => {
+      const quota = makeQuotaService();
+      const dlqJob = makeReplayableDlqJob();
+      mockQueueGetJob.mockResolvedValue(dlqJob);
+      const redis = connectionsModule.getConnectionForDb(0) as any;
+      redis.set.mockResolvedValueOnce(null);
+      redis.eval.mockClear();
+
+      await expect(requeueModule.replayDlqJob('dlq-job-1', quota, SYSADMIN))
+        .rejects.toMatchObject({ statusCode: 409, code: 'CONFLICT' });
+      expect(mockQueueGetJob).not.toHaveBeenCalled();
+      expect(mockReserveQuota).not.toHaveBeenCalled();
+      expect(mockQueueAdd).not.toHaveBeenCalled();
+      expect(dlqJob.remove).not.toHaveBeenCalled();
+      // Not ours, so never released.
+      expect(redis.eval).not.toHaveBeenCalled();
+    });
+
+    it('releases the replay lock when the replay throws (a later replay can then take it)', async () => {
+      const quota = makeQuotaService();
+      mockQueueGetJob.mockResolvedValue(makeReplayableDlqJob());
+      mockQueueAdd.mockRejectedValueOnce(new Error('redis add failed'));
+      const redis = connectionsModule.getConnectionForDb(0) as any;
+      redis.set.mockClear();
+      redis.eval.mockClear();
+
+      await expect(requeueModule.replayDlqJob('dlq-job-1', quota, SYSADMIN)).rejects.toThrow('redis add failed');
+      const [key, token] = redis.set.mock.calls[0];
+      expect(redis.eval).toHaveBeenCalledTimes(1);
+      expect(redis.eval).toHaveBeenCalledWith(expect.stringContaining("redis.call('del'"), 1, key, token);
+    });
+
+    it('releases the replay lock when the DLQ job is already gone (null → 404)', async () => {
+      mockQueueGetJob.mockResolvedValue(undefined);
+      const redis = connectionsModule.getConnectionForDb(0) as any;
+      redis.eval.mockClear();
+      await expect(requeueModule.replayDlqJob('gone', makeQuotaService(), SYSADMIN)).resolves.toBeNull();
+      expect(redis.eval).toHaveBeenCalledTimes(1);
     });
   });
 
