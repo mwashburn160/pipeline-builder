@@ -46,7 +46,7 @@ Every `/plugins` route sits behind auth + org context; reads need `plugins:read`
 | POST | `/plugins/storage/prune` | Retire one unreferenced version's image to reclaim storage |
 | GET | `/plugins/queue/status` | Build-queue status (system org, `plugin_queue:manage`) |
 | GET | `/plugins/queue/failed` | List failed build jobs (every org's for a system-org `plugin_queue:manage` holder with an aal2 session; the caller's own org's newest jobs for any other `plugins:write` holder) |
-| POST | `/plugins/queue/failed/:jobId/retry` | Retry a failed build (same access as the list) |
+| POST | `/plugins/queue/failed/:jobId/retry` | Retry a failed build (same access as the list); `?tier=` picks the tier queue when the id is in several (else 409 `AMBIGUOUS_JOB_ID`) |
 | GET | `/plugins/queue/dlq` | List dead-letter-queue jobs (same access as the failed list) |
 | DELETE | `/plugins/queue/dlq` | Purge the dead-letter queue (system org, `plugin_queue:manage`) |
 | POST | `/plugins/queue/dlq/:jobId/replay` | Replay a dead-letter job (same access as the failed list) |

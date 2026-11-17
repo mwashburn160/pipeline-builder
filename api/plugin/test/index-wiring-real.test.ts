@@ -166,7 +166,7 @@ jest.unstable_mockModule('../src/queue/connections.js', () => ({
   getOrgTier: async () => 'developer',
   getAllTierQueues: () => [],
   getDeadLetterQueue: () => ({ getJob: async () => null, getJobs: async () => [], getJobCounts: async () => ({}) }),
-  findFailedJob: async () => null,
+  findFailedJobs: async () => [],
   dlqJobId: (q: string, id: string) => `dlq-${q}:${id}`,
   getTierQueue: jest.fn<AnyFn>(),
 }));

@@ -28,7 +28,7 @@ const ok = (data: unknown) => Promise.resolve({ success: true, statusCode: 200, 
 /** A tenant page: no `total`, `hasMore` drives paging. */
 const tenantPage = (jobs: unknown[], hasMore = false) => ok({ jobs, pagination: { limit: 25, offset: 0, hasMore } });
 
-const FAILED = { id: 'job-failed-1234567', pluginName: 'rust', error: 'exit 1', attemptsMade: 3, maxAttempts: 3, failedAt: '2026-11-01T00:00:00Z', contextAvailable: true };
+const FAILED = { tier: 'pro', id: 'job-failed-1234567', pluginName: 'rust', error: 'exit 1', attemptsMade: 3, maxAttempts: 3, failedAt: '2026-11-01T00:00:00Z', contextAvailable: true };
 const DEAD = { id: 'job-dead-7654321', pluginName: 'go', lastError: 'registry timeout', failureCategory: 'transient', attemptsMade: 5, maxAttempts: 5, failedAt: '2026-11-01T00:00:00Z' };
 
 
@@ -63,7 +63,8 @@ describe('OrgFailedBuildsPanel', () => {
     const dialog = screen.getByRole('dialog');
     expect(dialog).toHaveTextContent('job-failed-1');
     fireEvent.click(within(dialog).getByRole('button', { name: 'Retry build' }));
-    await waitFor(() => expect(api.retryFailedJob).toHaveBeenCalledWith(FAILED.id));
+    // The row's tier queue is named, so a job id shared across tiers retries the right job.
+    await waitFor(() => expect(api.retryFailedJob).toHaveBeenCalledWith(FAILED.id, 'pro'));
     await waitFor(() => expect(pageToast.success).toHaveBeenCalledWith('Re-enqueued as job new-1'));
     await waitFor(() => expect(api.getQueueFailed.mock.calls.length).toBeGreaterThan(reads));
     expect(api.replayDlqJob).not.toHaveBeenCalled();

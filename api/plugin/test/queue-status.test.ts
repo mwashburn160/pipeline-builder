@@ -45,11 +45,14 @@ jest.unstable_mockModule('../src/queue/connections.js', () => ({
   }),
   getAllTierQueues: () => [{ tier: 'developer', queue: mockTierQueue }],
   getDeadLetterQueue: () => ({ getJobCounts: mockDlqGetJobCounts, getJobs: mockDlqGetJobs, getJob: mockDlqGetJob }),
-  // Honors the org scope the route passes, like the real lookup (which skips a
-  // non-matching job across tiers rather than answering it).
-  findFailedJob: async (id: string, belongsTo?: (d: unknown) => boolean) => {
-    const job = await mockFindFailedJob(id, belongsTo);
-    return job && (!belongsTo || belongsTo(job.data)) ? job : null;
+  // Honors the org scope and tier the route passes, like the real lookup
+  // (which skips a non-matching job across tiers rather than answering it).
+  // The inner mock answers one job (held by the developer queue) or an explicit
+  // list of `{ tier, job }` matches.
+  findFailedJobs: async (id: string, opts: { belongsTo?: (d: unknown) => boolean; tier?: string } = {}) => {
+    const found = await mockFindFailedJob(id, opts.belongsTo);
+    const all: Array<{ tier: string; job: any }> = Array.isArray(found) ? found : found ? [{ tier: 'developer', job: found }] : [];
+    return all.filter((m) => (!opts.tier || m.tier === opts.tier) && (!opts.belongsTo || opts.belongsTo(m.job.data)));
   },
 }));
 jest.unstable_mockModule('../src/queue/plugin-build-dlq.js', () => ({
@@ -577,6 +580,54 @@ describe('queue-status route', () => {
         mockQuotaService, expect.objectContaining({ userId: 'op-1' }),
       );
       expect(mockEmitPluginAudit).toHaveBeenCalledWith(expect.objectContaining({ affectedOrgId: 'org-OTHER' }));
+    });
+
+    it('POST /failed/:jobId/retry answers 409 for an id several tier queues share, and retries nothing', async () => {
+      mockFindFailedJob.mockResolvedValueOnce([
+        { tier: 'developer', job: { id: '7', data: { orgId: 'org-A' } } },
+        { tier: 'pro', job: { id: '7', data: { orgId: 'org-B' } } },
+      ]);
+      const { json, res } = resFor();
+      await runFullRoute('/failed/:jobId/retry', 'POST', { ...operator('POST'), params: { jobId: '7' } }, res);
+
+      const payload = (json.mock.calls[0] as any[])[0];
+      expect(payload.statusCode).toBe(409);
+      expect(payload.message).toContain('several tier queues (developer, pro)');
+      expect(mockRetryFailedJob).not.toHaveBeenCalled();
+      expect(mockEmitPluginAudit).not.toHaveBeenCalled();
+    });
+
+    it('POST /failed/:jobId/retry?tier= retries the job in that tier', async () => {
+      const proJob = { id: '7', data: { orgId: 'org-B', pluginRecord: { name: 'b' } } };
+      mockFindFailedJob.mockResolvedValueOnce([
+        { tier: 'developer', job: { id: '7', data: { orgId: 'org-A' } } },
+        { tier: 'pro', job: proJob },
+      ]);
+      mockRetryFailedJob.mockResolvedValueOnce('new-7');
+      const { json, res } = resFor();
+      await runFullRoute('/failed/:jobId/retry', 'POST', { ...operator('POST'), query: { tier: 'pro' }, params: { jobId: '7' } }, res);
+
+      expect((json.mock.calls[0] as any[])[0].statusCode).toBe(200);
+      expect(mockRetryFailedJob).toHaveBeenCalledWith(proJob, mockQuotaService, expect.anything());
+      expect(mockEmitPluginAudit).toHaveBeenCalledWith(expect.objectContaining({ affectedOrgId: 'org-B' }));
+    });
+
+    it('POST /failed/:jobId/retry rejects an unknown tier with 400', async () => {
+      const { json, res } = resFor();
+      await runFullRoute('/failed/:jobId/retry', 'POST', { ...operator('POST'), query: { tier: 'gold' }, params: { jobId: '7' } }, res);
+
+      expect((json.mock.calls[0] as any[])[0].statusCode).toBe(400);
+      expect(mockFindFailedJob).not.toHaveBeenCalled();
+      expect(mockRetryFailedJob).not.toHaveBeenCalled();
+    });
+
+    it('GET /failed reports the tier queue holding each job', async () => {
+      mockGetJobCounts.mockResolvedValue({ failed: 1 });
+      mockGetJobs.mockResolvedValue([{ id: '7', name: 'n', queueName: 'plugin-build', data: { orgId: 'org-A' }, opts: {}, attemptsMade: 1 }]);
+      const { json, res } = resFor();
+      await runFullRoute('/failed', 'GET', operator('GET'), res);
+
+      expect((json.mock.calls[0] as any[])[0].data.jobs[0].tier).toBe('developer');
     });
 
     it('refuses the cross-org view to a single-factor operator session', async () => {

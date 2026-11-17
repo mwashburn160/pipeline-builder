@@ -136,7 +136,7 @@ async function requeueWithFreshBudget(
 
 /**
  * Retry a single FAILED build from a tier queue's failed set. Takes the EXACT
- * job the caller located (and ownership-checked) with `findFailedJob` —
+ * job the caller located (and ownership-checked) with `findFailedJobs` —
  * never a bare id: ids collide across tier queues, so re-looking one up could
  * land on a different tier's job than the one that was authorized. Returns the
  * new job id, or null when that job is no longer failed (a concurrent retry

@@ -70,7 +70,10 @@ export function OrgFailedBuildsPanel({ seesEveryOrg = false }: {
   const run = useCallback(async (t: Target) => {
     setPendingIds((prev) => new Set(prev).add(t.jobId));
     try {
-      const res = t.kind === 'retry' ? await api.retryFailedJob(t.jobId) : await api.replayDlqJob(t.jobId);
+      const res = t.kind === 'retry'
+        // Name the tier queue: the same job id can exist in several tiers.
+        ? await api.retryFailedJob(t.jobId, failed.items?.find((j) => j.id === t.jobId)?.tier)
+        : await api.replayDlqJob(t.jobId);
       toast.success(`Re-enqueued as job ${res.data?.newJobId ?? '?'}`);
     } catch (err) {
       toast.error(actionError(err, t.kind));
@@ -84,7 +87,7 @@ export function OrgFailedBuildsPanel({ seesEveryOrg = false }: {
       if (t.kind === 'retry') refetchFailed();
       else refetchDlq();
     }
-  }, [toast, refetchFailed, refetchDlq]);
+  }, [toast, refetchFailed, refetchDlq, failed.items]);
 
   const scope = seesEveryOrg ? 'every organization\'s' : 'your organization\'s';
 

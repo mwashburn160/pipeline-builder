@@ -168,7 +168,7 @@ export function pluginsApi(core: ApiCore) {
 
     /** One newest-first page of failed jobs from the plugin build queue (limit ≤ 200). */
     getQueueFailed: async (params: { limit: number; offset: number }, opts?: { signal?: AbortSignal }) => {
-      return core.request<ApiResponse<{ jobs: { id: string; pluginName?: string; version?: string; error?: string; attemptsMade?: number; maxAttempts?: number; failedAt?: string }[]; pagination: QueuePagination }>>(`/api/plugins/queue/failed${buildQuery(params)}`, { signal: opts?.signal });
+      return core.request<ApiResponse<{ jobs: { id: string; pluginName?: string; version?: string; error?: string; attemptsMade?: number; maxAttempts?: number; failedAt?: string; tier?: string }[]; pagination: QueuePagination }>>(`/api/plugins/queue/failed${buildQuery(params)}`, { signal: opts?.signal });
     },
 
     /** One newest-first page of dead-letter-queue jobs (limit ≤ 200). */
@@ -231,10 +231,13 @@ export function pluginsApi(core: ApiCore) {
       return core.request<ApiResponse<FleetVulnerabilityPosture>>('/api/plugins/vulnerabilities/fleet', { signal: opts?.signal });
     },
 
-    /** Re-enqueue a single failed build onto the main build queue. Removes the failed entry on success. */
-    retryFailedJob: async (jobId: string) => {
+    /**
+     * Re-enqueue a single failed build onto the main build queue. Removes the failed entry on success.
+     * `tier` (from the failed row) names the exact queue: job ids repeat across tier queues.
+     */
+    retryFailedJob: async (jobId: string, tier?: string) => {
       return core.request<ApiResponse<{ retried: boolean; failedJobId: string; newJobId: string }>>(
-        `/api/plugins/queue/failed/${encodeURIComponent(jobId)}/retry`,
+        `/api/plugins/queue/failed/${encodeURIComponent(jobId)}/retry${tier ? `?tier=${encodeURIComponent(tier)}` : ''}`,
         { method: 'POST' },
       );
     },

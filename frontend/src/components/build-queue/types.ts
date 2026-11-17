@@ -18,6 +18,12 @@ export interface FailedJob {
    * Absent on the DLQ view, where replay sources differently.
    */
   contextAvailable?: boolean;
+  /**
+   * The tier queue holding the job. BullMQ ids are counted per queue, so the
+   * same id can exist in several tiers; retry sends this (`?tier=`) to name the
+   * exact job — a bare id that matches more than one answers 409.
+   */
+  tier?: string;
 }
 
 export interface DlqJob extends FailedJob {

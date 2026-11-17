@@ -44,7 +44,7 @@ jest.unstable_mockModule('../src/queue/connections.js', () => ({
   // assertions to remain valid.
   getAllTierQueues: () => [{ tier: 'developer', queue: { name: 'plugin-build', add: queueAdd, getJobs: queueGetJobs, getJobCounts: jest.fn<AnyFn>() } }],
   getDeadLetterQueue: () => ({ getJob: dlqGetJob, add: dlqAdd, getJobs: dlqGetJobs, getJobCounts: jest.fn<AnyFn>() }),
-  findFailedJob: jest.fn<AnyFn>(),
+  findFailedJobs: jest.fn<AnyFn>(),
 }));
 jest.unstable_mockModule('../src/queue/plugin-build-dlq.js', () => ({
   purgeDlq: jest.fn<AnyFn>(),

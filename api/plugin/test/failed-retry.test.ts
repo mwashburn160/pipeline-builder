@@ -43,11 +43,14 @@ jest.unstable_mockModule('../src/queue/connections.js', () => ({
   }),
   getAllTierQueues: () => [{ tier: 'developer', queue: { name: 'plugin-build', add: jest.fn<AnyFn>(), getJobs: jest.fn<AnyFn>(), getJobCounts: jest.fn<AnyFn>() } }],
   getDeadLetterQueue: () => ({ getJob: jest.fn<AnyFn>(), add: jest.fn<AnyFn>(), getJobs: jest.fn<AnyFn>(), getJobCounts: jest.fn<AnyFn>() }),
-  // findFailedJob(jobId, belongsTo?) → the failed job, honoring the org scope
-  // the route passes (the real one skips non-matching jobs across tiers).
-  findFailedJob: async (id: string, belongsTo?: (d: unknown) => boolean) => {
-    const job = await findFailed(id);
-    return job && (!belongsTo || belongsTo(job.data)) ? job : null;
+  // findFailedJobs(jobId, { belongsTo?, tier? }) → every matching failed job,
+  // honoring the org scope and tier the route passes (the real one skips
+  // non-matching jobs across tiers). `findFailed` answers one job (held by the
+  // developer queue) or an explicit list of `{ tier, job }` matches.
+  findFailedJobs: async (id: string, opts: { belongsTo?: (d: unknown) => boolean; tier?: string } = {}) => {
+    const found = await findFailed(id);
+    const all: Array<{ tier: string; job: any }> = Array.isArray(found) ? found : found ? [{ tier: 'developer', job: found }] : [];
+    return all.filter((m) => (!opts.tier || m.tier === opts.tier) && (!opts.belongsTo || opts.belongsTo(m.job.data)));
   },
 }));
 jest.unstable_mockModule('../src/queue/plugin-build-dlq.js', () => ({
@@ -86,7 +89,7 @@ jest.unstable_mockModule('@pipeline-builder/api-server', () => stubModule('@pipe
   },
 }));
 
-const { isSystemAdmin, isSystemOrgRequest } = await import('@pipeline-builder/api-core');
+const { isSystemAdmin, isSystemOrgRequest, sendError } = await import('@pipeline-builder/api-core');
 const { createQueueStatusRoutes } = await import('../src/routes/queue-status.js');
 
 function retryLayer() {
@@ -267,5 +270,87 @@ describe('POST /failed/:jobId/retry', () => {
     } as any, res);
     expect(json).toHaveBeenCalledWith(expect.objectContaining({ statusCode: 404 }));
     expect(retryHelper).not.toHaveBeenCalled();
+  });
+
+  // Bare BullMQ ids collide across the tier queues: an id matching failed jobs
+  // in several tiers is ambiguous, so the route retries nothing and makes the
+  // caller qualify it with `?tier=`.
+  describe('ids shared by several tier queues', () => {
+    const operatorReq = (query?: Record<string, unknown>) => ({
+      __orgId: '000000000000000000000001',
+      user: { role: 'admin', organizationId: '000000000000000000000001', organizationName: 'system' },
+      params: { jobId: '7' },
+      ...(query ? { query } : {}),
+    } as any);
+    const devJob = { id: '7', data: { orgId: 'org-x', pluginRecord: { name: 'dev-plugin' } } };
+    const proJob = { id: '7', data: { orgId: 'org-y', pluginRecord: { name: 'pro-plugin' } } };
+
+    beforeEach(() => {
+      (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(true);
+      (isSystemOrgRequest as jest.Mock<AnyFn>).mockReturnValue(true);
+      findFailed.mockResolvedValue([{ tier: 'developer', job: devJob }, { tier: 'pro', job: proJob }]);
+      retriedJobs.length = 0;
+    });
+
+    it('answers 409 AMBIGUOUS_JOB_ID naming the tiers and retries nothing', async () => {
+      const { res, json } = makeRes();
+      await getRetryHandler()(operatorReq(), res);
+      expect(json).toHaveBeenCalledWith(expect.objectContaining({ statusCode: 409 }));
+      expect(sendError).toHaveBeenCalledWith(
+        res, 409, expect.stringContaining('several tier queues (developer, pro)'), 'AMBIGUOUS_JOB_ID', { tiers: ['developer', 'pro'] },
+      );
+      expect(retryHelper).not.toHaveBeenCalled();
+    });
+
+    it('a tier-qualified id retries the job in that tier', async () => {
+      const { res, json } = makeRes();
+      await getRetryHandler()(operatorReq({ tier: 'pro' }), res);
+      expect(json).toHaveBeenCalledWith(expect.objectContaining({ statusCode: 200 }));
+      expect(retriedJobs).toEqual([proJob]);
+    });
+
+    it('rejects an unknown tier with 400 before any lookup', async () => {
+      const { res, json } = makeRes();
+      await getRetryHandler()(operatorReq({ tier: 'platinum' }), res);
+      expect(json).toHaveBeenCalledWith(expect.objectContaining({ statusCode: 400 }));
+      expect(findFailed).not.toHaveBeenCalled();
+      expect(retryHelper).not.toHaveBeenCalled();
+    });
+
+    it('rejects a repeated (array) tier with 400', async () => {
+      const { res, json } = makeRes();
+      await getRetryHandler()(operatorReq({ tier: ['pro', 'developer'] }), res);
+      expect(json).toHaveBeenCalledWith(expect.objectContaining({ statusCode: 400 }));
+      expect(retryHelper).not.toHaveBeenCalled();
+    });
+
+    it('a tier-qualified id with no failed job in that tier answers 404', async () => {
+      const { res, json } = makeRes();
+      await getRetryHandler()(operatorReq({ tier: 'team' }), res);
+      expect(json).toHaveBeenCalledWith(expect.objectContaining({ statusCode: 404 }));
+      expect(retryHelper).not.toHaveBeenCalled();
+    });
+
+    it('a tenant whose predicate leaves one match retries it unchanged', async () => {
+      (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(false);
+      (isSystemOrgRequest as jest.Mock<AnyFn>).mockReturnValue(false);
+      const { res, json } = makeRes();
+      await getRetryHandler()({ __orgId: 'org-y', user: { role: 'admin', organizationId: 'org-y' }, params: { jobId: '7' } } as any, res);
+      expect(json).toHaveBeenCalledWith(expect.objectContaining({ statusCode: 200 }));
+      expect(retriedJobs).toEqual([proJob]);
+    });
+
+    it('the ambiguity rule applies to a tenant holding the id in several tiers', async () => {
+      (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(false);
+      (isSystemOrgRequest as jest.Mock<AnyFn>).mockReturnValue(false);
+      findFailed.mockResolvedValue([
+        { tier: 'developer', job: { ...devJob, data: { ...devJob.data, orgId: 'org-a' } } },
+        { tier: 'pro', job: { ...proJob, data: { ...proJob.data, orgId: 'org-a' } } },
+      ]);
+      const { res, json } = makeRes();
+      await getRetryHandler()({ __orgId: 'org-a', user: { role: 'admin', organizationId: 'org-a' }, params: { jobId: '7' } } as any, res);
+      expect(json).toHaveBeenCalledWith(expect.objectContaining({ statusCode: 409 }));
+      expect(retryHelper).not.toHaveBeenCalled();
+    });
   });
 });

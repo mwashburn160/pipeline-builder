@@ -205,33 +205,44 @@ export function getDeadLetterQueue(): Queue<PluginBuildJobData> {
  * the `dlq-7` already retained from the `developer` queue — and BullMQ treats
  * an add with a duplicate custom id as a NO-OP, so the DLQ entry was never
  * created, the org's `plugins` slot leaked until period reset, and the build
- * vanished. The same collision made `findFailedJob` / the manual-retry DLQ-twin
+ * vanished. The same collision made the failed-job lookup / the manual-retry DLQ-twin
  * guard resolve another tier's job.
  */
 export function dlqJobId(queueName: string, jobId: string): string {
   return `dlq-${queueName}:${jobId}`;
 }
 
+/** One failed job a {@link findFailedJobs} lookup matched, with the tier queue holding it. */
+export interface FailedJobMatch {
+  tier: PlanTier;
+  job: Job<PluginBuildJobData>;
+}
+
 /**
- * Locate a FAILED build job by id across the per-tier queues. The failed set is
- * spread across every tier queue, so probe each and return the first job that
- * exists, is in the `failed` state and — when `belongsTo` is given — whose data
- * it accepts; null when none is found.
+ * Locate every FAILED build job with this id across the per-tier queues: each
+ * job that exists, is in the `failed` state and — when `belongsTo` is given —
+ * whose data it accepts, in tier order. `tier` restricts the probe to that one
+ * tier queue.
  *
- * Bare BullMQ ids COLLIDE across tiers (see {@link dlqJobId}), so a tenant's
- * lookup MUST pass `belongsTo`: an unscoped first match could be another org's
- * job in an earlier tier, hiding the caller's own job with the same id (and
- * handing the caller's retry someone else's build).
+ * Returns ALL matches, not the first: bare BullMQ ids COLLIDE across tiers (see
+ * {@link dlqJobId}), so a bare id can name several different builds. A caller
+ * acting on the job must treat more than one match as ambiguous rather than
+ * pick one — the first match may be another org's job, or the wrong one of an
+ * operator's several. A tenant's lookup MUST also pass `belongsTo`, so another
+ * org's same-id job neither hides the caller's own nor counts toward ambiguity.
  */
-export async function findFailedJob(
+export async function findFailedJobs(
   jobId: string,
-  belongsTo?: (data: PluginBuildJobData | undefined) => boolean,
-): Promise<Job<PluginBuildJobData> | null> {
-  for (const { queue } of getAllTierQueues()) {
+  opts: { belongsTo?: (data: PluginBuildJobData | undefined) => boolean; tier?: PlanTier } = {},
+): Promise<FailedJobMatch[]> {
+  const { belongsTo, tier: only } = opts;
+  const matches: FailedJobMatch[] = [];
+  for (const { tier, queue } of getAllTierQueues()) {
+    if (only && tier !== only) continue;
     const job = await queue.getJob(jobId);
-    if (job && (!belongsTo || belongsTo(job.data)) && await job.isFailed()) return job;
+    if (job && (!belongsTo || belongsTo(job.data)) && await job.isFailed()) matches.push({ tier, job });
   }
-  return null;
+  return matches;
 }
 
 // ---------------------------------------------------------------------------

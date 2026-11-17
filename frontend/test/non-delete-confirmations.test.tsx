@@ -59,7 +59,7 @@ describe('build queue', () => {
     expectNoDeleteWording(dialog);
 
     fireEvent.click(within(dialog).getByRole('button', { name: 'Retry build' }));
-    await waitFor(() => expect(mockApiOverrides.retryFailedJob).toHaveBeenCalledWith('failed-job-123456'));
+    await waitFor(() => expect(mockApiOverrides.retryFailedJob).toHaveBeenCalledWith('failed-job-123456', undefined));
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
   });
 

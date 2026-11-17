@@ -36,7 +36,7 @@ jest.unstable_mockModule('../src/queue/connections.js', () => ({
   // route uses getAllTierQueues; one entry is enough for the existing assertions.
   getAllTierQueues: () => [{ tier: 'developer', queue: { name: 'plugin-build', getJobs: queueGetJobs, getJobCounts: jest.fn<AnyFn>() } }],
   getDeadLetterQueue: () => ({ getJobs: dlqGetJobs, getJobCounts: jest.fn<AnyFn>() }),
-  findFailedJob: jest.fn<AnyFn>(),
+  findFailedJobs: jest.fn<AnyFn>(),
 }));
 jest.unstable_mockModule('../src/queue/plugin-build-dlq.js', () => ({
   purgeDlq: jest.fn<AnyFn>(),

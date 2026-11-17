@@ -1380,7 +1380,7 @@ describe('plugin-build-queue', () => {
     });
   });
 
-  describe('findFailedJob() — ids collide across tier queues', () => {
+  describe('findFailedJobs() — ids collide across tier queues', () => {
     const failed = (id: string, orgId: string) => ({ id, data: { orgId }, isFailed: jest.fn<() => Promise<boolean>>().mockResolvedValue(true) });
 
     it('skips another org\'s same-id job in an earlier tier and returns the caller\'s own', async () => {
@@ -1389,21 +1389,41 @@ describe('plugin-build-queue', () => {
       // First tier probed holds org-b's job 7, the next tier org-a's job 7.
       mockQueueGetJob.mockReset().mockResolvedValue(undefined);
       mockQueueGetJob.mockResolvedValueOnce(other).mockResolvedValueOnce(own);
-      const found = await connectionsModule.findFailedJob('7', (d) => d?.orgId === 'org-a');
-      expect(found).toBe(own);
+      const found = await connectionsModule.findFailedJobs('7', { belongsTo: (d) => d?.orgId === 'org-a' });
+      expect(found.map((m) => m.job)).toEqual([own]);
     });
 
-    it('returns null when only another org holds a failed job with that id', async () => {
+    it('returns no match when only another org holds a failed job with that id', async () => {
       mockQueueGetJob.mockReset().mockResolvedValue(undefined);
       mockQueueGetJob.mockResolvedValueOnce(failed('7', 'org-b'));
-      expect(await connectionsModule.findFailedJob('7', (d) => d?.orgId === 'org-a')).toBeNull();
+      expect(await connectionsModule.findFailedJobs('7', { belongsTo: (d) => d?.orgId === 'org-a' })).toEqual([]);
     });
 
-    it('unscoped (operator) lookup still returns the first failed match', async () => {
+    it('unscoped (operator) lookup returns EVERY tier\'s failed match with its tier', async () => {
       const first = failed('7', 'org-b');
+      const second = failed('7', 'org-c');
       mockQueueGetJob.mockReset().mockResolvedValue(undefined);
-      mockQueueGetJob.mockResolvedValueOnce(first);
-      expect(await connectionsModule.findFailedJob('7')).toBe(first);
+      mockQueueGetJob.mockResolvedValueOnce(first).mockResolvedValueOnce(second);
+      const found = await connectionsModule.findFailedJobs('7');
+      expect(found.map((m) => m.job)).toEqual([first, second]);
+      // Tagged with the tier queues they came from, in probe order.
+      const order = connectionsModule.getAllTierQueues().map((t) => t.tier);
+      expect(found.map((m) => m.tier)).toEqual(order.slice(0, 2));
+    });
+
+    it('skips a same-id job that is no longer failed', async () => {
+      const done = { ...failed('7', 'org-b'), isFailed: jest.fn<() => Promise<boolean>>().mockResolvedValue(false) };
+      mockQueueGetJob.mockReset().mockResolvedValue(undefined);
+      mockQueueGetJob.mockResolvedValueOnce(done);
+      expect(await connectionsModule.findFailedJobs('7')).toEqual([]);
+    });
+
+    it('a tier restricts the probe to that one tier queue', async () => {
+      const job = failed('7', 'org-b');
+      mockQueueGetJob.mockReset().mockResolvedValue(job);
+      const found = await connectionsModule.findFailedJobs('7', { tier: 'pro' });
+      expect(found).toEqual([{ tier: 'pro', job }]);
+      expect(mockQueueGetJob).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -1422,7 +1442,7 @@ describe('plugin-build-queue', () => {
     it('releases the reserved slot and rethrows when add() throws (no orphan slot leak)', async () => {
       const quota = makeQuotaService();
       const failedJob = makeFailedJob();
-      // Tier lookup (findFailedJob) resolves the failed job; the DLQ-twin
+      // Tier lookup (findFailedJobs) resolves the failed job; the DLQ-twin
       // lookup (getJob('dlq-…'), added by the double-build guard) must resolve
       // undefined so the manual retry isn't refused.
       mockQueueGetJob.mockImplementation((id: string) => Promise.resolve(id.startsWith('dlq-') ? undefined : failedJob));
@@ -1444,7 +1464,7 @@ describe('plugin-build-queue', () => {
     it('does not decrement when add() throws and no slot was reserved (org at cap)', async () => {
       const quota = makeQuotaService();
       const failedJob = makeFailedJob();
-      // Tier lookup (findFailedJob) resolves the failed job; the DLQ-twin
+      // Tier lookup (findFailedJobs) resolves the failed job; the DLQ-twin
       // lookup (getJob('dlq-…'), added by the double-build guard) must resolve
       // undefined so the manual retry isn't refused.
       mockQueueGetJob.mockImplementation((id: string) => Promise.resolve(id.startsWith('dlq-') ? undefined : failedJob));
@@ -1490,7 +1510,7 @@ describe('plugin-build-queue', () => {
         // Re-check reports the job genuinely lingers in the failed set.
         isFailed: jest.fn<() => Promise<boolean>>().mockResolvedValue(true),
       });
-      // Tier lookup (findFailedJob) resolves the failed job; the DLQ-twin
+      // Tier lookup (findFailedJobs) resolves the failed job; the DLQ-twin
       // lookup (getJob('dlq-…'), added by the double-build guard) must resolve
       // undefined so the manual retry isn't refused.
       mockQueueGetJob.mockImplementation((id: string) => Promise.resolve(id.startsWith('dlq-') ? undefined : failedJob));
@@ -1509,11 +1529,11 @@ describe('plugin-build-queue', () => {
       const quota = makeQuotaService();
       const failedJob = makeFailedJob({
         remove: jest.fn<() => Promise<void>>().mockRejectedValue(new Error('job not in set')),
-        // First call (findFailedJob locate) → true; post-remove re-check → false
+        // First call (findFailedJobs locate) → true; post-remove re-check → false
         // (a concurrent remove already dropped it).
         isFailed: jest.fn<() => Promise<boolean>>().mockResolvedValueOnce(true).mockResolvedValue(false),
       });
-      // Tier lookup (findFailedJob) resolves the failed job; the DLQ-twin
+      // Tier lookup (findFailedJobs) resolves the failed job; the DLQ-twin
       // lookup (getJob('dlq-…'), added by the double-build guard) must resolve
       // undefined so the manual retry isn't refused.
       mockQueueGetJob.mockImplementation((id: string) => Promise.resolve(id.startsWith('dlq-') ? undefined : failedJob));
@@ -1549,7 +1569,7 @@ describe('plugin-build-queue', () => {
     it('happy path: enqueues once and removes the original failed entry', async () => {
       const quota = makeQuotaService();
       const failedJob = makeFailedJob();
-      // Tier lookup (findFailedJob) resolves the failed job; the DLQ-twin
+      // Tier lookup (findFailedJobs) resolves the failed job; the DLQ-twin
       // lookup (getJob('dlq-…'), added by the double-build guard) must resolve
       // undefined so the manual retry isn't refused.
       mockQueueGetJob.mockImplementation((id: string) => Promise.resolve(id.startsWith('dlq-') ? undefined : failedJob));

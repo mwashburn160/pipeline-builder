@@ -6,13 +6,13 @@ import {
   envInt, ErrorCode, audited, getParam, isSystemAdmin, isSystemOrgRequest, paginationMeta, parsePage, parseQueryInt, refuseWeakSession, requireSystemOrgPermission, sendError, sendSuccess, actorId, tagRouteGate, userHasPermission,
   recordAudit, recordAuthzDenial, SYSTEM_ORG_ID, VALID_TIERS, buildConcurrencyEnvVar, buildWorkerConcurrencyFor,
 } from '@pipeline-builder/api-core';
-import type { QuotaService } from '@pipeline-builder/api-core';
+import type { PlanTier, QuotaService } from '@pipeline-builder/api-core';
 import { withRoute } from '@pipeline-builder/api-server';
 import type { Job } from 'bullmq';
 import { Router, type NextFunction, type Request, type Response } from 'express';
 
 import type { PluginBuildJobData } from '../helpers/plugin-helpers.js';
-import { findFailedJob, getAllTierQueues, getDeadLetterQueue } from '../queue/connections.js';
+import { findFailedJobs, getAllTierQueues, getDeadLetterQueue } from '../queue/connections.js';
 import { purgeDlq } from '../queue/plugin-build-dlq.js';
 import { replayDlqJob, retryFailedJob, type Retrier } from '../queue/requeue.js';
 import { maxBuildsPerOrg, orgSlotSnapshot } from '../queue/slot-manager.js';
@@ -377,8 +377,12 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
     const total = counts ? counts.reduce((acc, c) => acc + (c.failed ?? 0), 0) : undefined;
     const { page, pagination } = pageOf(visible, paging, total);
 
+    const tierByQueue = new Map(tiers.map(({ tier, queue }) => [queue.name, tier]));
     const jobs = page.map((job) => ({
       id: job.id,
+      // The tier queue holding the job: ids collide across tier queues, so a
+      // retry of an id several tiers share must name this (`?tier=`).
+      tier: tierByQueue.get(job.queueName) ?? null,
       name: job.name,
       pluginName: job.data?.pluginRecord?.name ?? null,
       version: job.data?.pluginRecord?.version ?? null,
@@ -404,12 +408,29 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
    * - System-org queue operators (aal2): can retry any failed job.
    * - Callers with plugins:write: can retry only jobs that belong to their own org.
    *
+   * Optional `?tier=<tier>` restricts the lookup to that tier queue (400 for an
+   * unknown tier). Bare ids collide across tier queues, so when the id matches
+   * failed jobs (visible to the caller) in more than one tier the route retries
+   * nothing and answers 409 `AMBIGUOUS_JOB_ID` naming the tiers.
+   *
    * Returns 404 if no failed job with that id exists. The retry carries fresh
    * retry counters; the original failed entry is removed on success.
    */
   router.post('/failed/:jobId/retry', requireQueueAccess, audited('plugin.build.retry'), withRoute(async ({ req, res, ctx, orgId, userId }) => {
     const jobId = getParam(req.params, 'jobId');
     if (!jobId) return sendError(res, 400, 'Job ID is required', ErrorCode.MISSING_REQUIRED_FIELD);
+
+    // Optional `?tier=` qualifier: BullMQ ids are minted PER tier queue, so a
+    // bare id can name a different build in each. The qualifier pins the lookup
+    // to one queue; an unknown tier is a caller error, not a miss.
+    const rawTier = (req.query as Record<string, unknown> | undefined)?.tier;
+    let tier: PlanTier | undefined;
+    if (rawTier !== undefined) {
+      if (typeof rawTier !== 'string' || !(VALID_TIERS as readonly string[]).includes(rawTier)) {
+        return sendError(res, 400, `Invalid tier: expected one of ${VALID_TIERS.join(', ')}`, ErrorCode.VALIDATION_ERROR);
+      }
+      tier = rawTier as PlanTier;
+    }
 
     // Tenant-isolation: callers other than system-org queue operators can only
     // retry jobs owned by their org. The lookup itself is SCOPED to the caller's
@@ -418,14 +439,30 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
     // tier. The retry then runs on exactly the job found here, never a fresh
     // lookup by bare id.
     const scoped = !seesEveryOrg(req);
-    const failedJob = await findFailedJob(jobId, scoped ? (data) => jobBelongsToOrg(data, orgId) : undefined);
-    if (!failedJob) {
+    const matches = await findFailedJobs(jobId, {
+      ...(scoped ? { belongsTo: (data: PluginBuildJobData | undefined) => jobBelongsToOrg(data, orgId) } : {}),
+      ...(tier ? { tier } : {}),
+    });
+    if (matches.length === 0) {
       // Another org's job answers exactly like a missing one: BullMQ ids are
       // sequential, so a distinct 403 would let a tenant enumerate which ids
       // exist. The denial still reaches the `authz.denied` trail.
-      if (scoped && await findFailedJob(jobId)) recordAuthzDenial(req, 'job-owned-by-caller-org');
+      if (scoped && (await findFailedJobs(jobId, tier ? { tier } : {})).length > 0) recordAuthzDenial(req, 'job-owned-by-caller-org');
       return sendError(res, 404, `Failed job ${jobId} not found`, ErrorCode.NOT_FOUND);
     }
+    if (matches.length > 1) {
+      // Several tier queues hold a failed job with this bare id (all visible to
+      // the caller — a tenant's matches are its own): retrying the first would
+      // be a guess, possibly the wrong build. Make the caller say which.
+      const tiers = matches.map((m) => m.tier);
+      return sendError(
+        res, 409,
+        `Job id ${jobId} matches failed jobs in several tier queues (${tiers.join(', ')}); retry from the queue view with a tier-qualified id (?tier=<tier>)`,
+        'AMBIGUOUS_JOB_ID',
+        { tiers },
+      );
+    }
+    const failedJob = matches[0].job;
 
     const newJobId = await retryFailedJob(failedJob, quotaService, retrierFrom(req, userId));
     if (!newJobId) return sendError(res, 404, `Failed job ${jobId} not found`, ErrorCode.NOT_FOUND);

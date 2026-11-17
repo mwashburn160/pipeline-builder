@@ -162,7 +162,8 @@ export default function BuildQueuePage() {
   const handleRetryFailed = useCallback(async (jobId: string) => {
     setRetryingIds((prev) => new Set(prev).add(jobId));
     try {
-      const res = await api.retryFailedJob(jobId);
+      // Name the tier queue: the same job id can exist in several tiers.
+      const res = await api.retryFailedJob(jobId, failed.items?.find((j) => j.id === jobId)?.tier);
       const newJobId = res.data?.newJobId ?? '?';
       toast.success(`Re-enqueued as job ${newJobId}`);
       refetchFailed();
@@ -176,7 +177,7 @@ export default function BuildQueuePage() {
         return next;
       });
     }
-  }, [toast, refetchFailed, fetchStatus]);
+  }, [toast, refetchFailed, fetchStatus, failed.items]);
 
   // Purge the ENTIRE dead-letter queue — destructive, sysadmin-only. Strong
   // confirm, then refresh the aggregate status + (if open) the DLQ list.
