@@ -44,7 +44,7 @@ import type { CrudTx } from './crud-service.js';
 import { advisoriesCovering, blockingAdvisories } from './plugin-advisories.js';
 import { effectiveConsumptionPolicy, type ConsumptionPolicy } from './plugin-consumption-policy.js';
 import {
-  compareSemver, isVersionRange, parseSemver, satisfiesVersionSpec,
+  compareSemverLenient, isVersionRange, parseSemver, satisfiesVersionSpec,
 } from './semver-range.js';
 import {
   OFFICIAL_PUBLISHER_HANDLE,
@@ -176,9 +176,9 @@ export function installAdmits(
     case 'latest': {
       if (!isStable(version)) return false;
       if (base === null) return true;
-      if (compareSemver(version, base) < 0) return false;
+      if (compareSemverLenient(version, base) < 0) return false;
       // Never cross a version the publisher marked breaking.
-      return !versions.some((v) => v.breaking && compareSemver(v.version, base) > 0 && compareSemver(v.version, version) <= 0);
+      return !versions.some((v) => v.breaking && compareSemverLenient(v.version, base) > 0 && compareSemverLenient(v.version, version) <= 0);
     }
     default:
       return false;
@@ -223,7 +223,7 @@ export function selectListingVersion<V extends PluginListingVersion>(input: Vers
   const suggestion = (resolved: V): string | null => {
     if (!resolved.scanFlaggedAt) return null;
     const pool = versions.filter((v) => !v.yankedAt && !v.scanFlaggedAt
-      && compareSemver(v.version, resolved.version) > 0
+      && compareSemverLenient(v.version, resolved.version) > 0
       && modeAdmits(mode, v.version, versions)
       && (!v.pausedAt || v.version === resolvedBefore)
       && blockingAdvisories(advisories, v.version, policy).length === 0);
@@ -299,7 +299,7 @@ export function selectListingVersion<V extends PluginListingVersion>(input: Vers
 
 /** The highest of `versions` by semver (prereleases included). */
 function highest(versions: readonly string[]): string | null {
-  return versions.reduce<string | null>((best, v) => (best === null || compareSemver(v, best) > 0 ? v : best), null);
+  return versions.reduce<string | null>((best, v) => (best === null || compareSemverLenient(v, best) > 0 ? v : best), null);
 }
 
 function advisoryRefusal(ref: string, version: string, blocking: ReadonlyArray<Pick<PluginAdvisory, 'id' | 'severity' | 'fixedVersion' | 'summary'>>): ResolutionRefusal {

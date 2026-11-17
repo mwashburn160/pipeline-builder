@@ -14,14 +14,56 @@
 
 import type { PGlite } from '@electric-sql/pglite';
 import { describe, it, expect, beforeAll, afterAll } from '@jest/globals';
-import { is } from 'drizzle-orm';
-import { PgTable, getTableConfig } from 'drizzle-orm/pg-core';
+import { is, SQL } from 'drizzle-orm';
+import { PgDialect, PgTable, getTableConfig } from 'drizzle-orm/pg-core';
 import * as drizzleSchema from '../src/database/drizzle-schema.js';
 import { bootInitDb } from '../src/testing/pglite-init.js';
 
 let db: PGlite;
 beforeAll(async () => { db = await bootInitDb(); }, 120_000);
 afterAll(async () => { await db?.close(); });
+
+/** One drizzle index key as SQL text: a column's name, or an expression rendered by the dialect. */
+function drizzleIndexKeyText(key: unknown, dialect: PgDialect): string {
+  if (is(key, SQL)) return dialect.sqlToQuery(key).sql;
+  const named = key as { name?: string };
+  if (typeof named.name === 'string') return named.name;
+  throw new Error(`unrecognised index key: ${String(key)}`);
+}
+
+/** Drop what differs only in spelling: table qualifiers, identifier quotes and the casts Postgres adds to literals. */
+function stripSpelling(text: string): string {
+  return text
+    .replace(/"[a-z0-9_]+"\./g, '') // table qualifier
+    .replace(/"/g, '')
+    .replace(/::(text|character varying|timestamp with time zone|integer|boolean)(\[\])?/gi, '');
+}
+
+/**
+ * Index-key text in a comparable form: Postgres deparses `coalesce(pipeline_id::text, ''::text)`
+ * where drizzle renders `coalesce("pipeline_events"."pipeline_id"::text, '')`, and a
+ * drizzle key may carry `DESC` or an operator class that pg_get_indexdef's
+ * per-column form omits.
+ */
+function normalizeIndexKey(text: string): string {
+  return stripSpelling(text)
+    .replace(/\s+(asc|desc)(\s+nulls\s+(first|last))?\s*$/i, '')
+    .replace(/\s+[a-z0-9_]+_ops\s*$/i, '')
+    .replace(/\s+/g, '')
+    .toLowerCase();
+}
+
+/**
+ * Predicate text in a comparable form. Postgres re-parenthesizes and casts
+ * literals (`'x'::text`, `IN (...)` → `= ANY (ARRAY[...])`), so both sides
+ * drop parens, whitespace, quotes-as-identifiers and the redundant casts.
+ */
+function normalizePredicate(text: string): string {
+  return stripSpelling(text)
+    .replace(/\s+in\s*\(([^)]*)\)/gi, (_m, list: string) => `=ANY(ARRAY[${list}])`)
+    .replace(/[()\s]/g, '')
+    .toLowerCase();
+}
 
 const TABLES: PgTable[] = (Object.values(drizzleSchema) as unknown[]).filter((v): v is PgTable => is(v, PgTable));
 
@@ -92,6 +134,44 @@ describe('drizzle schema ⇔ postgres-init.sql', () => {
       }
     }
     expect(missing).toEqual([]);
+  });
+
+  it('every drizzle index has the same columns, uniqueness and predicate as its SQL twin', async () => {
+    // Per-key definitions (column name or expression text, without ASC/DESC —
+    // those live in indoption) + the partial-index predicate, as Postgres
+    // deparses them. A same-NAME index on different columns is the drift this
+    // catches: the planner silently stops using it for the query it was for.
+    const r = await db.query<{ indexname: string; tablename: string; is_unique: boolean; keys: string[]; pred: string | null }>(
+      `SELECT ic.relname AS indexname, t.relname AS tablename, ix.indisunique AS is_unique,
+              ARRAY(SELECT pg_get_indexdef(ix.indexrelid, k, true) FROM generate_series(1, ix.indnkeyatts) AS k) AS keys,
+              pg_get_expr(ix.indpred, ix.indrelid, true) AS pred
+         FROM pg_index ix
+         JOIN pg_class ic ON ic.oid = ix.indexrelid
+         JOIN pg_class t ON t.oid = ix.indrelid
+         JOIN pg_namespace n ON n.oid = t.relnamespace
+        WHERE n.nspname = 'public'`);
+    const sqlByName = new Map(r.rows.map((x) => [x.indexname, x]));
+    const dialect = new PgDialect();
+    const mismatches: string[] = [];
+    for (const table of TABLES) {
+      const cfg = getTableConfig(table);
+      for (const idx of cfg.indexes) {
+        const name = idx.config.name;
+        const have = name ? sqlByName.get(name) : undefined;
+        if (!name || !have) continue; // presence is the previous test's job
+        if (have.tablename !== cfg.name) mismatches.push(`${name}: on ${have.tablename} in SQL, ${cfg.name} in drizzle`);
+        if (have.is_unique !== !!idx.config.unique) mismatches.push(`${name}: unique ${have.is_unique} in SQL, ${!!idx.config.unique} in drizzle`);
+        const want = idx.config.columns.map((c) => normalizeIndexKey(drizzleIndexKeyText(c, dialect)));
+        const got = have.keys.map(normalizeIndexKey);
+        if (JSON.stringify(want) !== JSON.stringify(got)) {
+          mismatches.push(`${name}: columns drizzle (${want.join(', ')}) vs SQL (${got.join(', ')})`);
+        }
+        const wantPred = idx.config.where ? normalizePredicate(dialect.sqlToQuery(idx.config.where).sql) : null;
+        const gotPred = have.pred ? normalizePredicate(have.pred) : null;
+        if (wantPred !== gotPred) mismatches.push(`${name}: predicate drizzle ${wantPred ?? 'none'} vs SQL ${gotPred ?? 'none'}`);
+      }
+    }
+    expect(mismatches).toEqual([]);
   });
 
   it('every SQL index on a drizzle table is declared in drizzle (bar primary keys / constraints)', async () => {

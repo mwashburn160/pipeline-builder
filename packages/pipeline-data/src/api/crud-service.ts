@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { ConflictError, NotFoundError, createLogger, DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT, SYSTEM_ACTOR_ID, envInt } from '@pipeline-builder/api-core';
+import { ConcurrencyConflictError, ConflictError, NotFoundError, ValidationError, createLogger, DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT, SYSTEM_ACTOR_ID, envInt } from '@pipeline-builder/api-core';
 import { SQL, eq, and, or, asc, desc, sql, inArray, isNull, getTableColumns } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
 import type { PgTable } from 'drizzle-orm/pg-core';
@@ -29,6 +29,36 @@ export function drizzleCount(rows: unknown): [{ count: number }] {
  *  `onBeforePurge` so a subclass's dependent teardown runs in the SAME purge
  *  transaction (atomic with the parent DELETE), not a fresh connection. */
 export type CrudTx = Parameters<Parameters<typeof withTenantTx>[0]>[0];
+
+/**
+ * What an in-transaction mutation hook ({@link CrudService.onCreateInTx} and
+ * friends) is told about the write: who made it, and (for update/delete) the
+ * org the write was pinned to.
+ */
+export interface CrudMutationContext {
+  /** The acting user (the system actor id for background work). */
+  userId: string;
+  /** The org the write was scoped to (update/delete); absent on create. */
+  orgId?: string;
+  /** Which write fired the hook. */
+  operation: 'create' | 'update' | 'updateMany' | 'delete' | 'bulkDelete';
+}
+
+/** Options for {@link CrudService.update}. */
+export interface UpdateOptions {
+  /**
+   * Optimistic concurrency: write only if the row's `updated_at` still equals
+   * this (compared at millisecond precision — what a JSON round-trip of the
+   * read keeps). When the row exists but has moved on, the update throws
+   * `ConcurrencyConflictError` (412 PRECONDITION_FAILED) instead of returning
+   * null. An unparseable value is a 400 ValidationError.
+   *
+   * The token is `updated_at` (stamped from the app clock on every write), so
+   * two writes within the same millisecond are indistinguishable — adequate
+   * for human-paced edits, not a substitute for a lock on hot rows.
+   */
+  expectedUpdatedAt?: Date | string;
+}
 
 /**
  * Base interface for entities with common fields
@@ -319,6 +349,22 @@ export abstract class CrudService<
     if (purgedIds.length > 0) await this.runHook(() => this.onAfterPurge(purgedIds));
     return purgedIds;
   }
+
+  // In-transaction mutation hooks — override to write rows that must commit (or
+  // roll back) ATOMICALLY with the mutation: audit/history rows, outbox events,
+  // denormalized counters. They run inside the mutation's transaction, after the
+  // row is written, with that `tx`. Unlike the `onAfter*` hooks they are NOT
+  // best-effort: a throw rolls the whole mutation back and propagates to the
+  // caller. Keep them to SQL on `tx` — no network calls inside a transaction.
+
+  /** Called inside the create transaction, after the INSERT. */
+  protected async onCreateInTx(_entity: TEntity, _tx: CrudTx, _ctx: CrudMutationContext): Promise<void> {}
+
+  /** Called inside the update transaction for each updated row (update / updateMany). */
+  protected async onUpdateInTx(_entity: TEntity, _tx: CrudTx, _ctx: CrudMutationContext): Promise<void> {}
+
+  /** Called inside the soft-delete transaction for each deleted row (delete / bulkDelete). */
+  protected async onDeleteInTx(_entity: TEntity, _tx: CrudTx, _ctx: CrudMutationContext): Promise<void> {}
 
   // Lifecycle hooks — override in subclasses to react to mutations
   // These are fire-and-forget: errors are logged but never block the caller.
@@ -670,15 +716,19 @@ export abstract class CrudService<
     // author's, or one the caller couldn't edit through update) or a soft-deleted
     // TOMBSTONE; replacing either would bypass update's access checks or restore's
     // step-up. On any conflict nothing is written and the caller gets a 409.
-    const [created] = await withTenantTx(async (tx) => tx
-      .insert(this.schema)
-      .values(this.row({
-        ...safeData,
-        createdBy: this.actor(userId),
-        updatedBy: this.actor(userId),
-      }))
-      .onConflictDoNothing({ target: this.conflictTarget as any })
-      .returning().then(r => drizzleRows<TEntity>(r)));
+    const [created] = await withTenantTx(async (tx) => {
+      const rows = await tx
+        .insert(this.schema)
+        .values(this.row({
+          ...safeData,
+          createdBy: this.actor(userId),
+          updatedBy: this.actor(userId),
+        }))
+        .onConflictDoNothing({ target: this.conflictTarget as any })
+        .returning().then(r => drizzleRows<TEntity>(r));
+      if (rows[0]) await this.onCreateInTx(rows[0], tx, { userId: this.actor(userId), operation: 'create' });
+      return rows;
+    });
 
     if (!created) {
       throw new ConflictError('A record with the same identity already exists. If it was deleted, restore it instead.');
@@ -701,29 +751,69 @@ export abstract class CrudService<
     data: Partial<TUpdate>,
     orgId: string,
     userId: string,
+    options: UpdateOptions = {},
   ): Promise<TEntity | null> {
     const conditions = this.writeConditions(id, orgId);
+    const expected = options.expectedUpdatedAt === undefined ? undefined : this.expectedTimestamp(options.expectedUpdatedAt);
 
     // Scrub a caller-supplied `orgId` in the update payload (as create does): the
     // WHERE only pins which rows you can TARGET, not what you can set — without this
     // a tenant could re-home a row it owns into another org via `data.orgId`.
     const safeData = this.enforceOrgId(data);
 
-    const [updated] = await withTenantTx(async (tx) => tx
-      .update(this.schema)
-      .set(this.row({
-        ...safeData,
-        updatedAt: new Date(),
-        updatedBy: this.actor(userId),
-      }))
-      .where(and(...conditions))
-      .returning().then(r => drizzleRows<TEntity>(r)));
+    const [updated] = await withTenantTx(async (tx) => {
+      const rows = await tx
+        .update(this.schema)
+        .set(this.row({
+          ...safeData,
+          updatedAt: new Date(),
+          updatedBy: this.actor(userId),
+        }))
+        .where(and(...conditions, ...(expected ? [this.updatedAtMatches(expected)] : [])))
+        .returning().then(r => drizzleRows<TEntity>(r));
+      if (rows[0]) {
+        await this.onUpdateInTx(rows[0], tx, { userId: this.actor(userId), orgId, operation: 'update' });
+      } else if (expected) {
+        // Nothing matched. Distinguish "moved on since you read it" (412) from
+        // "not there / not yours" (null → 404), with the SAME write scope, in
+        // the same transaction.
+        const [current] = await tx
+          .select(this.row({ updatedAt: this.cols.updatedAt }))
+          .from(this.schema)
+          .where(and(...conditions))
+          .limit(1)
+          .then(r => drizzleRows<{ updatedAt: Date | string }>(r));
+        if (current) {
+          throw new ConcurrencyConflictError(undefined, {
+            expectedUpdatedAt: expected.toISOString(),
+            currentUpdatedAt: new Date(current.updatedAt).toISOString(),
+          });
+        }
+      }
+      return rows;
+    });
 
     if (updated) {
       await this.runHook(() => this.onAfterUpdate(id, updated, userId));
     }
 
     return updated || null;
+  }
+
+  /** Parse an `expectedUpdatedAt` option; an invalid value is the caller's 400. */
+  private expectedTimestamp(value: Date | string): Date {
+    const d = value instanceof Date ? value : new Date(value);
+    if (Number.isNaN(d.getTime())) throw new ValidationError('expectedUpdatedAt must be a valid timestamp');
+    return d;
+  }
+
+  /**
+   * `updated_at` equals `expected` at MILLISECOND precision. Postgres keeps
+   * microseconds (a `defaultNow()` insert), a client's copy of the timestamp
+   * (JSON, a JS Date) keeps milliseconds — an exact compare would always fail.
+   */
+  private updatedAtMatches(expected: Date): SQL {
+    return sql`date_trunc('milliseconds', ${this.cols.updatedAt!}) = ${expected.toISOString()}::timestamptz`;
   }
 
   /**
@@ -733,11 +823,15 @@ export abstract class CrudService<
     const conditions = this.writeConditions(id, orgId);
     const now = new Date();
 
-    const [deleted] = await withTenantTx(async (tx) => tx
-      .update(this.schema)
-      .set(this.row(this.tombstoneSet(now, userId)))
-      .where(and(...conditions))
-      .returning().then(r => drizzleRows<TEntity>(r)));
+    const [deleted] = await withTenantTx(async (tx) => {
+      const rows = await tx
+        .update(this.schema)
+        .set(this.row(this.tombstoneSet(now, userId)))
+        .where(and(...conditions))
+        .returning().then(r => drizzleRows<TEntity>(r));
+      if (rows[0]) await this.onDeleteInTx(rows[0], tx, { userId: this.actor(userId), orgId, operation: 'delete' });
+      return rows;
+    });
 
     if (deleted) {
       await this.runHook(() => this.onAfterDelete(id, deleted, userId));
@@ -860,15 +954,19 @@ export abstract class CrudService<
     // re-home rows into another tenant.
     const safeData = this.enforceOrgId(data);
 
-    return withTenantTx(async (tx) => tx
-      .update(this.schema)
-      .set(this.row({
-        ...safeData,
-        updatedAt: new Date(),
-        updatedBy: this.actor(userId),
-      }))
-      .where(and(...conditions))
-      .returning().then(r => drizzleRows<TEntity>(r)));
+    return withTenantTx(async (tx) => {
+      const rows = await tx
+        .update(this.schema)
+        .set(this.row({
+          ...safeData,
+          updatedAt: new Date(),
+          updatedBy: this.actor(userId),
+        }))
+        .where(and(...conditions))
+        .returning().then(r => drizzleRows<TEntity>(r));
+      for (const row of rows) await this.onUpdateInTx(row, tx, { userId: this.actor(userId), orgId, operation: 'updateMany' });
+      return rows;
+    });
   }
 
 
@@ -937,11 +1035,15 @@ export abstract class CrudService<
       ...this.notTombstoned(),
     ];
 
-    const deleted = await withTenantTx(async (tx) => tx
-      .update(this.schema)
-      .set(this.row(this.tombstoneSet(now, userId)))
-      .where(and(...conditions))
-      .returning().then(r => drizzleRows<TEntity>(r)));
+    const deleted = await withTenantTx(async (tx) => {
+      const rows = await tx
+        .update(this.schema)
+        .set(this.row(this.tombstoneSet(now, userId)))
+        .where(and(...conditions))
+        .returning().then(r => drizzleRows<TEntity>(r));
+      for (const row of rows) await this.onDeleteInTx(row, tx, { userId: this.actor(userId), orgId, operation: 'bulkDelete' });
+      return rows;
+    });
 
     await Promise.all(deleted.map(entity => this.runHook(() => this.onAfterDelete(entity.id, entity, userId))));
 

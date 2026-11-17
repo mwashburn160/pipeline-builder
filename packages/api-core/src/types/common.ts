@@ -450,12 +450,17 @@ declare global {
  * Service configuration for internal HTTP client.
  */
 export interface ServiceConfig {
-  /** Service hostname */
+  /**
+   * Service hostname — or a URL (`https://billing.internal:8443`), whose scheme
+   * selects the transport and whose port (when given) wins over `port`.
+   */
   host: string;
   /** Service port */
   port: number;
   /** Request timeout in milliseconds */
   timeout?: number;
+  /** Transport for a bare `host` (default `'http'`). Ignored when `host` is a URL. */
+  protocol?: 'http' | 'https';
 }
 
 /**

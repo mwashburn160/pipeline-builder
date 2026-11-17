@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import * as http from 'http';
+import * as https from 'https';
 import { getCircuitBreaker, circuitBreakerKey, CircuitOpenError } from './circuit-breaker.js';
 import {
   DEFAULT_MAX_RETRIES,
@@ -52,6 +53,31 @@ export class ResponseTooLargeError extends Error {
   }
 }
 
+/**
+ * A 2xx/3xx response whose body is not valid JSON. The peer claimed success but
+ * sent something the caller cannot read — before, the client quietly returned
+ * `{}`, indistinguishable from a real empty object, so callers acted on data
+ * that was never sent. Not retried (it is the peer's content, not a transient
+ * fault) and not counted against the breaker (the peer answered).
+ *
+ * An EMPTY body is not this error: it still parses to `{}` (a 204, a bare 200).
+ * A 4xx/5xx with an unparseable body (a proxy's HTML error page) does not throw
+ * either — the status is the signal there, so retries and status handling keep
+ * working; the response carries `bodyInvalid: true` and `body: {}` instead.
+ */
+export class InvalidResponseBodyError extends Error {
+  readonly code = 'INVALID_RESPONSE_BODY';
+  constructor(
+    readonly statusCode: number,
+    readonly headers: http.IncomingHttpHeaders,
+    /** The first 512 characters of the body, for diagnostics. */
+    readonly bodySnippet: string,
+  ) {
+    super(`Response body (status ${statusCode}) is not valid JSON`);
+    this.name = 'InvalidResponseBodyError';
+  }
+}
+
 // HTTP methods that are idempotent by definition — safe to auto-retry on a
 // 5xx/connection/timeout without risking a duplicate side effect.
 const IDEMPOTENT_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
@@ -87,6 +113,13 @@ export interface RequestOptions {
    * independent breakers — see `circuitBreakerKey`.
    */
   breakerClass?: string;
+  /**
+   * Cancels the request: aborting it destroys the in-flight request (or cuts a
+   * retry back-off short) and rejects with the signal's `reason`, as `fetch`
+   * does. An abort is the caller's decision, so it is never retried and never
+   * counted against the circuit breaker.
+   */
+  signal?: AbortSignal;
 }
 
 /**
@@ -106,6 +139,12 @@ export interface HttpClientResponse<T = unknown> {
   body: T;
   /** Response headers */
   headers: http.IncomingHttpHeaders;
+  /**
+   * True when a 4xx/5xx body was not valid JSON (`body` is then `{}`). A 2xx/3xx
+   * with such a body rejects with {@link InvalidResponseBodyError} instead.
+   * Absent for a parsed (or empty) body.
+   */
+  bodyInvalid?: true;
 }
 
 /**
@@ -150,14 +189,53 @@ export interface HttpClientOptions {
  */
 const sharedAgents = new Map<string, http.Agent>();
 
-function getSharedAgent(host: string, port: number, maxSockets: number): http.Agent {
-  const key = `${host}:${port}:${maxSockets}`;
+function getSharedAgent(protocol: 'http' | 'https', host: string, port: number, maxSockets: number): http.Agent {
+  const key = `${protocol}://${host}:${port}:${maxSockets}`;
   let agent = sharedAgents.get(key);
   if (!agent) {
-    agent = new http.Agent({ keepAlive: true, maxSockets });
+    agent = protocol === 'https'
+      ? new https.Agent({ keepAlive: true, maxSockets })
+      : new http.Agent({ keepAlive: true, maxSockets });
     sharedAgents.set(key, agent);
   }
   return agent;
+}
+
+/**
+ * Resolve a {@link ServiceConfig} to scheme + host + port. `host` may be a bare
+ * hostname (scheme from `protocol`, default `http`) or a URL —
+ * `https://billing.internal:8443` — whose scheme and port win. The scheme picks
+ * the transport module (`http` / `https`).
+ */
+function resolveTarget(config: ServiceConfig): { protocol: 'http' | 'https'; host: string; port: number } {
+  if (config.host.includes('://')) {
+    const url = new URL(config.host);
+    const scheme = url.protocol.replace(/:$/, '');
+    if (scheme !== 'http' && scheme !== 'https') throw new Error(`Unsupported service URL scheme: ${url.protocol}`);
+    const port = url.port ? Number(url.port) : (config.port ?? (scheme === 'https' ? 443 : 80));
+    return { protocol: scheme, host: url.hostname, port };
+  }
+  return { protocol: config.protocol ?? 'http', host: config.host, port: config.port };
+}
+
+/** The reason an aborted signal rejects with — the signal's own `reason`, as `fetch` does. */
+function abortReason(signal: AbortSignal): Error {
+  const reason: unknown = signal.reason;
+  if (reason instanceof Error) return reason;
+  const err = new Error(reason === undefined ? 'The operation was aborted' : String(reason));
+  err.name = 'AbortError';
+  return err;
+}
+
+/** `sleep` that an abort cuts short (rejecting with the abort reason). */
+function abortableSleep(ms: number, signal?: AbortSignal): Promise<void> {
+  if (!signal) return sleep(ms);
+  if (signal.aborted) return Promise.reject(abortReason(signal));
+  return new Promise((resolve, reject) => {
+    const onAbort = (): void => { clearTimeout(timer); reject(abortReason(signal)); };
+    const timer = setTimeout(() => { signal.removeEventListener('abort', onAbort); resolve(); }, ms);
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
 }
 
 /**
@@ -171,7 +249,8 @@ export function destroySharedHttpAgents(): void {
 }
 
 export class InternalHttpClient {
-  private config: Required<ServiceConfig>;
+  private config: { host: string; port: number; timeout: number };
+  private protocol: 'http' | 'https';
   private agent: http.Agent;
   private breakerClass?: string;
   private maxResponseBytes: number;
@@ -183,13 +262,15 @@ export class InternalHttpClient {
    * @param options - Optional connection-pool controls (own agent / socket cap)
    */
   constructor(config: ServiceConfig, options?: HttpClientOptions) {
+    const target = resolveTarget(config);
+    this.protocol = target.protocol;
     this.config = {
-      host: config.host,
-      port: config.port,
+      host: target.host,
+      port: target.port,
       timeout: config.timeout ?? DEFAULT_TIMEOUT,
     };
     this.agent = options?.agent
-      ?? getSharedAgent(this.config.host, this.config.port, options?.maxSockets ?? DEFAULT_MAX_SOCKETS);
+      ?? getSharedAgent(this.protocol, this.config.host, this.config.port, options?.maxSockets ?? DEFAULT_MAX_SOCKETS);
     this.breakerClass = options?.breakerClass;
     this.maxResponseBytes = options?.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES;
   }
@@ -253,6 +334,10 @@ export class InternalHttpClient {
       throw new Error(`Invalid request path: ${path}`);
     }
 
+    // Already cancelled: nothing to send, nothing for the breaker to learn.
+    const signal = options?.signal;
+    if (signal?.aborted) throw abortReason(signal);
+
     const retryConfig: RetryConfig = {
       maxRetries: options?.maxRetries ?? DEFAULT_MAX_RETRIES,
       maxRateLimitRetries: options?.maxRateLimitRetries ?? DEFAULT_MAX_RATE_LIMIT_RETRIES,
@@ -295,7 +380,7 @@ export class InternalHttpClient {
         if (decision.shouldRetry && (response.statusCode === 429 || retrySafe)) {
           logger.debug(decision.reason + ', retrying', { method, path, attempt: attempt + 1, delayMs: decision.delayMs });
           emitCounter('s2s_request_retries_total', { target, method });
-          await sleep(decision.delayMs);
+          await abortableSleep(decision.delayMs, signal);
           continue;
         }
 
@@ -314,18 +399,34 @@ export class InternalHttpClient {
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error));
 
-        // An oversized body is the peer's content, not a transient fault: never
-        // re-download it, and never count it against the breaker.
-        if (lastError instanceof ResponseTooLargeError) {
+        // The caller cancelled (mid-request or mid-back-off): its decision, not
+        // a downstream fault — never retried, never fed to the breaker. A
+        // half-open probe it cancelled is released without a verdict.
+        if (signal?.aborted) {
+          breaker.releaseProbe();
+          emitCounter('s2s_requests_total', { target, method, outcome: 'aborted' });
+          throw lastError;
+        }
+        // An oversized or unreadable body is the peer's content, not a transient
+        // fault: never re-download it, and never count it against the breaker.
+        if (lastError instanceof ResponseTooLargeError || lastError instanceof InvalidResponseBodyError) {
           breaker.recordSuccess();
-          emitCounter('s2s_requests_total', { target, method, outcome: 'too_large' });
+          emitCounter('s2s_requests_total', {
+            target, method, outcome: lastError instanceof ResponseTooLargeError ? 'too_large' : 'invalid_body',
+          });
           throw lastError;
         }
         const decision = getErrorRetryDecision(attempt, retryConfig);
         if (decision.shouldRetry && retrySafe) {
           logger.debug('Retrying after error', { method, path, error: lastError.message, attempt: attempt + 1 });
           emitCounter('s2s_request_retries_total', { target, method });
-          await sleep(decision.delayMs);
+          try {
+            await abortableSleep(decision.delayMs, signal);
+          } catch (abortErr) {
+            breaker.releaseProbe();
+            emitCounter('s2s_requests_total', { target, method, outcome: 'aborted' });
+            throw abortErr;
+          }
           continue;
         }
         // Not retrying (non-idempotent, or attempts exhausted) — a connection
@@ -410,16 +511,25 @@ export class InternalHttpClient {
         if (settled) return;
         settled = true;
         if (deadline) clearTimeout(deadline);
+        options?.signal?.removeEventListener('abort', onAbort);
         reject(error);
       };
       const succeed = (value: HttpClientResponse<T>): void => {
         if (settled) return;
         settled = true;
         if (deadline) clearTimeout(deadline);
+        signal?.removeEventListener('abort', onAbort);
         resolve(value);
       };
+      const signal = options?.signal;
+      const onAbort = (): void => {
+        fail(abortReason(signal!));
+        req.destroy();
+      };
 
-      const req = http.request(requestOptions, (res) => {
+      // The transport follows the target's scheme (see resolveTarget).
+      const transport = this.protocol === 'https' ? https : http;
+      const req = transport.request(requestOptions, (res) => {
         const chunks: Buffer[] = [];
         let received = 0;
 
@@ -446,25 +556,28 @@ export class InternalHttpClient {
 
         res.on('end', () => {
           const data = Buffer.concat(chunks).toString('utf8');
+          const statusCode = res.statusCode || HttpStatus.INTERNAL_SERVER_ERROR;
+          let parsedBody: unknown;
           try {
-            const parsedBody = data ? JSON.parse(data) : {};
-            succeed({
-              statusCode: res.statusCode || HttpStatus.INTERNAL_SERVER_ERROR,
-              body: parsedBody as T,
-              headers: res.headers,
-            });
+            // An EMPTY body (204, bare 200) is `{}` by contract.
+            parsedBody = data ? JSON.parse(data) : {};
           } catch (parseError) {
             logger.warn('Failed to parse response body', {
               host: this.config.host,
               path,
+              statusCode,
               error: errorMessage(parseError),
             });
-            succeed({
-              statusCode: res.statusCode || HttpStatus.INTERNAL_SERVER_ERROR,
-              body: {} as T,
-              headers: res.headers,
-            });
+            // A success claim with an unreadable body is a contract violation the
+            // caller must see; an error status keeps its status-driven handling.
+            if (statusCode < 400) {
+              fail(new InvalidResponseBodyError(statusCode, res.headers, data.slice(0, 512)));
+            } else {
+              succeed({ statusCode, body: {} as T, headers: res.headers, bodyInvalid: true });
+            }
+            return;
           }
+          succeed({ statusCode, body: parsedBody as T, headers: res.headers });
         });
       });
 
@@ -503,6 +616,17 @@ export class InternalHttpClient {
         req.destroy();
       }, timeoutMs);
       deadline.unref?.();
+
+      // Caller cancellation: destroy the in-flight request and reject with the
+      // signal's reason. (Already-aborted signals never reach here — see
+      // requestWithRetry — but a signal aborted between attempts can.)
+      if (signal) {
+        if (signal.aborted) {
+          onAbort();
+          return;
+        }
+        signal.addEventListener('abort', onAbort, { once: true });
+      }
 
       if (raw) {
         req.write(raw);

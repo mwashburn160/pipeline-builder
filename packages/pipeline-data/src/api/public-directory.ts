@@ -34,7 +34,7 @@ import type { PublisherTier } from '@pipeline-builder/api-core';
 import { sql, type SQL } from 'drizzle-orm';
 
 import { advisoryRangeCovers } from './plugin-advisories.js';
-import { compareSemver } from './semver-range.js';
+import { compareSemverLenient } from './semver-range.js';
 import type { HealthBreakdown } from '../database/drizzle-schema.js';
 import { resultRows } from '../database/pg-result.js';
 import { getPublicReaderDb } from '../database/public-reader.js';
@@ -634,7 +634,7 @@ export async function getPublicListing(publisherHandle: string, name: string): P
     db.execute(sql`SELECT * FROM public_listed_versions WHERE listing_id = ${row.id}`),
     db.execute(sql`SELECT * FROM public_advisories WHERE listing_id = ${row.id} ORDER BY published_at DESC`),
   ]);
-  const versionRows = resultRows<VersionRow>(versionRes).sort((a, b) => compareSemver(b.version, a.version));
+  const versionRows = resultRows<VersionRow>(versionRes).sort((a, b) => compareSemverLenient(b.version, a.version));
   const advisoryRows = resultRows<AdvisoryRow>(advisoryRes);
   // The version the page describes: the listing's latest, else the newest non-yanked one.
   const current = versionRows.find((v) => v.version === row.latest_version && !v.yanked)

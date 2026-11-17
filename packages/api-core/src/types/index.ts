@@ -275,3 +275,15 @@ export {
   type VulnWaiverProblem,
   type WaiverOutcome,
 } from './plugin-scan.js';
+export {
+  type CommonFilter,
+  type ImageSource,
+  type PluginContractValueType,
+  type PluginFilter,
+  type PluginIcon,
+  type PluginLifecycle,
+  type PluginRecord,
+  type PluginSecret,
+  type PluginSmokeTest,
+  type PluginUploadedIcon,
+} from './plugin-wire.js';

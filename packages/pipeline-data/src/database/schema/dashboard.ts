@@ -75,9 +75,9 @@ export const dashboard = pgTable('dashboards', {
   // Partial index over just the tombstones — drives the retention purge sweep.
   purgeIdx: index('dashboard_purge_idx').on(table.purgeAfter).where(sql`deleted_at IS NOT NULL`),
   // Listing is org-scoped and visibility-filtered, so both go in the index.
-  orgVisibilityIdx: index('dashboard_org_visibility_idx').on(table.orgId, table.visibility),
+  orgVisibilityIdx: index('dashboard_org_visibility_idx').on(table.orgId, table.visibility).where(sql`deleted_at IS NULL`),
   // Convenience for "all my dashboards" listing
-  createdByIdx: index('dashboard_created_by_idx').on(table.createdBy),
+  createdByIdx: index('dashboard_created_by_idx').on(table.createdBy).where(sql`deleted_at IS NULL`),
   // Same-org duplicate-name guard. The (orgId, name) tuple is unique among
   // non-deleted rows; soft-deleted rows are excluded so name reuse after
   // deletion works.

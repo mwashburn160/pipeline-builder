@@ -9,6 +9,7 @@ import {
   ForbiddenError,
   ValidationError,
   ConflictError,
+  ConcurrencyConflictError,
 } from '../src/errors/app-errors.js';
 import { ErrorCode } from '../src/types/error-codes.js';
 
@@ -68,3 +69,15 @@ describe('ConflictError', () => {
   });
 });
 
+
+describe('ConcurrencyConflictError', () => {
+  it('returns status 412 and PRECONDITION_FAILED code, with optional details', () => {
+    const err = new ConcurrencyConflictError(undefined, { expectedUpdatedAt: 'a', currentUpdatedAt: 'b' });
+    expect(err).toBeInstanceOf(AppError);
+    expect(err.statusCode).toBe(412);
+    expect(err.code).toBe(ErrorCode.PRECONDITION_FAILED);
+    expect(err.name).toBe('ConcurrencyConflictError');
+    expect(err.message).toMatch(/modified by someone else/);
+    expect(err.details).toEqual({ expectedUpdatedAt: 'a', currentUpdatedAt: 'b' });
+  });
+});

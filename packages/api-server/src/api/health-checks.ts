@@ -1,27 +1,16 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { withTimeout } from '@pipeline-builder/api-core';
 import { getConnection } from '@pipeline-builder/pipeline-data';
 
 type HealthStatus = 'connected' | 'disconnected' | 'unknown';
 type HealthResult = Record<string, HealthStatus>;
 
-/**
- * Reject if `promise` hasn't settled within `ms`. A health/readiness probe
- * must never hang the `/ready` response — a down datastore (or a BullMQ
- * ioredis client with `maxRetriesPerRequest: null` + an offline queue) can
- * leave a `ping()`/query pending indefinitely, so every probe is time-boxed.
- */
-function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
-    timer.unref?.();
-    promise.then(
-      (value) => { clearTimeout(timer); resolve(value); },
-      (err) => { clearTimeout(timer); reject(err); },
-    );
-  });
-}
+// Every probe is time-boxed with api-core's `withTimeout`: a health/readiness
+// probe must never hang the `/ready` response — a down datastore (or a BullMQ
+// ioredis client with `maxRetriesPerRequest: null` + an offline queue) can
+// leave a `ping()`/query pending indefinitely.
 
 /**
  * Postgres health probe: returns `{ postgres: 'connected' }` when the pool's

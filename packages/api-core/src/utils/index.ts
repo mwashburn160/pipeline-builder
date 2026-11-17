@@ -147,5 +147,18 @@ export {
   type ProofOfWorkChallenge,
   type ProofOfWorkSolution,
 } from './proof-of-work.js';
-export { compareSemver, isSemver, satisfiesRange } from './semver.js';
+export {
+  compareSemver,
+  compareSemverLenient,
+  compareSemverParts,
+  isSemver,
+  isVersionRange,
+  maxSatisfying,
+  parseSemver,
+  parseVersionSpec,
+  satisfiesRange,
+  satisfiesVersionSpec,
+  type SemverParts,
+  type VersionSpec,
+} from './semver.js';
 export * from './pipeline-identity.js';

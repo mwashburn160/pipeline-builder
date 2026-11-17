@@ -40,6 +40,7 @@ export * from './api/crud-service.js';
 export {
   parseSemver,
   compareSemverParts,
+  compareSemverLenient,
   compareSemver,
   isVersionRange,
   satisfiesVersionSpec,

@@ -285,10 +285,10 @@ export const pipelineEvent = pgTable('pipeline_events', {
   detail: jsonb('detail').$type<Record<string, unknown>>(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => ({
-  pipelineIdIdx: index('event_pipeline_id_idx').on(table.pipelineId),
-  orgIdIdx: index('event_org_id_idx').on(table.orgId),
-  eventTypeIdx: index('event_type_idx').on(table.eventType),
-  statusIdx: index('event_status_idx').on(table.status),
+  // No bare org_id / pipeline_id index (each leads a non-partial composite:
+  // event_org_type_created_idx, event_pipeline_type_started_idx) and no bare
+  // low-cardinality event_type / status index — see postgres-init.sql.
+  // execution_id keeps its own: its composite (event_exec_commit_ts_idx) is partial.
   executionIdIdx: index('event_execution_id_idx').on(table.executionId),
   createdAtIdx: index('event_created_at_idx').on(table.createdAt),
   orgTypeCreatedIdx: index('event_org_type_created_idx').on(table.orgId, table.eventType, table.createdAt),

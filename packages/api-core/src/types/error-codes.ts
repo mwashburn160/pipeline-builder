@@ -152,6 +152,11 @@ export enum ErrorCode {
   // Payload errors (413)
   PAYLOAD_TOO_LARGE = 'PAYLOAD_TOO_LARGE',
 
+  // Precondition errors (412)
+  /** An optimistic-concurrency write lost: the row changed since the caller
+   *  read it (its `updatedAt` no longer matches the expected one). Re-read and retry. */
+  PRECONDITION_FAILED = 'PRECONDITION_FAILED',
+
   // Conflict errors (409)
   CONFLICT = 'CONFLICT',
   DUPLICATE_ENTRY = 'DUPLICATE_ENTRY',
@@ -310,6 +315,7 @@ export const ErrorCodeStatus: Record<ErrorCode, number> = {
   [ErrorCode.RATE_LIMIT_EXCEEDED]: 429,
   [ErrorCode.SUBMISSION_LIMIT]: 429,
   [ErrorCode.PAYLOAD_TOO_LARGE]: 413,
+  [ErrorCode.PRECONDITION_FAILED]: 412,
   [ErrorCode.CONFLICT]: 409,
   [ErrorCode.DUPLICATE_ENTRY]: 409,
   [ErrorCode.SCAN_CONFLICT]: 409,

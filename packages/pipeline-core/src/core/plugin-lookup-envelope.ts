@@ -2,9 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // The dependency-free plugin-catalog subpath: this module needs only its constants.
-import type { PluginToolchain } from '@pipeline-builder/api-core';
+import type { PluginRecord as Plugin, PluginToolchain } from '@pipeline-builder/api-core';
 import { TOOLCHAIN_METADATA_PREFIX, TOOLCHAIN_RESOLVED_VIA, type ToolchainResolvedVia } from '@pipeline-builder/api-core/plugin-catalog';
-import type { Plugin } from '@pipeline-builder/pipeline-data';
 
 /**
  * Plugin record fields that building a pipeline never reads, for any plugin it

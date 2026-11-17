@@ -2,60 +2,19 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import {
-  ComputeType, PluginType, SYSTEM_ORG_ID, type Criticality, type EntityLabels, type EntityLink, type Lifecycle,
-  type MetadataSources, type OwnerType, type PluginScanFlag, type PluginScanSummary, type Visibility,
+  ComputeType, PluginType, SYSTEM_ORG_ID, type Criticality, type EntityLabels, type EntityLink,
+  type ImageSource, type MetadataSources, type OwnerType, type PluginContractValueType, type PluginIcon,
+  type PluginLifecycle, type PluginRecord, type PluginScanFlag, type PluginScanSummary, type PluginSecret,
+  type PluginSmokeTest, type PluginUploadedIcon, type Visibility,
 } from '@pipeline-builder/api-core';
 import { sql } from 'drizzle-orm';
 import { boolean, integer, varchar, pgTable, text, timestamp, uuid, jsonb, index, uniqueIndex, check } from 'drizzle-orm/pg-core';
 
-/**
- * Secret requirement for a plugin.
- * Declares named secrets the plugin expects at build time.
- */
-export interface PluginSecret {
-  name: string;
-  required: boolean;
-  description?: string;
-}
-
-/**
- * Where a plugin's image came from: `built` by the platform's BuildKit (carries
- * SLSA provenance) or `uploaded` as a prebuilt `image.tar` (SBOM + signature
- * only — the platform never saw the build).
- */
-export type ImageSource = 'built' | 'uploaded';
-
-/**
- * Plugin lifecycle: the shared catalog {@link Lifecycle} plus `yanked`, which
- * only plugin versions can reach (a yanked version stops resolving for new
- * synths). `yankedAt` / `deprecatedAt` are the authoritative timestamps; the
- * lifecycle value mirrors them for catalog filtering.
- */
-export type PluginLifecycle = Lifecycle | 'yanked';
-
-/** Coercion type a `requiredMetadata` / `requiredVars` key is declared as. */
-export type PluginContractValueType = 'string' | 'number' | 'bool' | 'json';
-
-/**
- * The spec's smoke-test declaration. Today a bare command string; stored as
- * JSONB so a structured form can follow without another column.
- */
-export type PluginSmokeTest = string | Record<string, unknown>;
-
-/** A curated icon: a key into the curated set, plus an optional badge. */
-export interface PluginIcon {
-  key: string;
-  badge?: string;
-}
-
-/**
- * Storage keys of an uploaded icon's re-encoded WebP renditions (image-registry
- * decodes + re-encodes every upload; the raw file and SVG are never stored).
- */
-export interface PluginUploadedIcon {
-  key256: string;
-  key64: string;
-}
+// The JSON-column / enum types are plugin WIRE types owned by api-core
+// (`types/plugin-wire.ts`) and re-exported here for existing importers.
+export type {
+  ImageSource, PluginContractValueType, PluginIcon, PluginLifecycle, PluginSecret, PluginSmokeTest, PluginUploadedIcon,
+} from '@pipeline-builder/api-core';
 
 /**
  * Table for storing reusable plugin configurations.
@@ -394,6 +353,16 @@ export type PluginKeptSetupImageInsert = typeof pluginKeptSetupImage.$inferInser
  * TypeScript types representing database rows
  */
 export type Plugin = typeof plugin.$inferSelect;
+
+/**
+ * Compile-time pin: the drizzle row type and api-core's hand-written
+ * {@link PluginRecord} wire type must be IDENTICAL (each assignable to the
+ * other). Adding / retyping a column without updating `PluginRecord` fails
+ * the build here.
+ */
+type Exactly<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
+const pluginRecordMatchesRow: Exactly<Plugin, PluginRecord> = true;
+void pluginRecordMatchesRow;
 export type PluginInsert = typeof plugin.$inferInsert;
 
 /**

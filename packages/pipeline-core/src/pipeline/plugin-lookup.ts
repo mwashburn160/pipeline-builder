@@ -1,8 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, MANAGED_TOOLCHAIN, SYSTEM_ORG_ID } from '@pipeline-builder/api-core';
-import type { PluginFilter } from '@pipeline-builder/pipeline-data';
+import { createLogger, MANAGED_TOOLCHAIN, SYSTEM_ORG_ID, type PluginFilter } from '@pipeline-builder/api-core';
 import type { PluginOptions } from './step-types.js';
 import { platformTlsVerify } from '../core/platform-tls.js';
 import { pluginArtifactAlias, pluginLookupFilter, pluginTargetIdentity } from '../core/plugin-contract.js';

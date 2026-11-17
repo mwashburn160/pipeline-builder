@@ -229,6 +229,7 @@
       "!src/types/compliance-exemption.ts",
       "!src/types/http.ts",
       "!src/types/index.ts",
+      "!src/types/plugin-wire.ts",
       "!src/utils/index.ts",
       "!src/validation/index.ts"
     ],

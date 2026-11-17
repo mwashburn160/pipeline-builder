@@ -12,7 +12,7 @@
  */
 
 import { jest, describe, it, expect } from '@jest/globals';
-import type { Plugin } from '@pipeline-builder/pipeline-data';
+import type { PluginRecord as Plugin } from '@pipeline-builder/api-core';
 import { apiCoreMock } from '../helpers/mock-api-core.js';
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());

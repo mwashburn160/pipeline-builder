@@ -55,6 +55,21 @@ export class ConflictError extends AppError {
   }
 }
 
+/**
+ * 412 — optimistic-concurrency conflict: the row exists but changed since the
+ * caller read it. `details` carries the expected and current `updatedAt` so a
+ * client can re-read and retry (or show a "modified by someone else" prompt).
+ */
+export class ConcurrencyConflictError extends AppError {
+  constructor(
+    message = 'The record was modified by someone else. Reload it and try again.',
+    details?: { expectedUpdatedAt?: string; currentUpdatedAt?: string; [key: string]: unknown },
+  ) {
+    super(getStatusForErrorCode(ErrorCode.PRECONDITION_FAILED), ErrorCode.PRECONDITION_FAILED, message, details);
+    this.name = 'ConcurrencyConflictError';
+  }
+}
+
 /** 403 — the organization's administrators switched AI features off. */
 export class AIDisabledError extends AppError {
   constructor(message = 'AI features are turned off for this organization. An organization administrator can turn them back on in Settings.') {

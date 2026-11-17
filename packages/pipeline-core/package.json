@@ -47,7 +47,6 @@
   },
   "dependencies": {
     "@pipeline-builder/api-core": "workspace:*",
-    "@pipeline-builder/pipeline-data": "workspace:*",
     "axios": "1.21.1"
   },
   "keywords": [

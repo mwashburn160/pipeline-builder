@@ -113,6 +113,16 @@ export class CircuitBreaker {
     }
   }
 
+  /**
+   * A request ended with no verdict on the downstream (the CALLER cancelled it).
+   * Frees a half-open probe slot so the next request probes instead of waiting
+   * out the stuck-probe expiry; the state and failure count are unchanged.
+   */
+  releaseProbe(): void {
+    if (!this.config.enabled) return;
+    this.probeInFlight = false;
+  }
+
   /** A logical request failed (connection error, timeout, or 5xx response). */
   recordFailure(): void {
     if (!this.config.enabled) return;

@@ -1,9 +1,9 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { describe, it, expect } from '@jest/globals';
+import { jest, describe, it, expect } from '@jest/globals';
 
-import { runConcurrent } from '../src/utils/concurrency.js';
+import { OperationTimeoutError, runConcurrent, withTimeout } from '../src/utils/concurrency.js';
 
 describe('runConcurrent', () => {
   it('returns empty array for empty input', async () => {
@@ -49,5 +49,52 @@ describe('runConcurrent', () => {
         return n;
       }),
     ).rejects.toThrow('boom');
+  });
+});
+
+describe('withTimeout', () => {
+  it('resolves with the work when it settles in time (promise or signal-taking function)', async () => {
+    await expect(withTimeout(Promise.resolve(7), 1000, 'op')).resolves.toBe(7);
+    await expect(withTimeout(async (signal) => (signal.aborted ? 'aborted' : 'ran'), 1000, 'op')).resolves.toBe('ran');
+  });
+
+  it('passes the work\'s own rejection through', async () => {
+    await expect(withTimeout(Promise.reject(new Error('boom')), 1000, 'op')).rejects.toThrow('boom');
+    await expect(withTimeout(() => { throw new Error('sync boom'); }, 1000, 'op')).rejects.toThrow('sync boom');
+  });
+
+  it('rejects with OperationTimeoutError after `ms` AND aborts the work\'s signal with it', async () => {
+    let seen: AbortSignal | undefined;
+    const p = withTimeout((signal) => { seen = signal; return new Promise<never>(() => {}); }, 20, 'slow op');
+    const err = await p.catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(OperationTimeoutError);
+    expect(err).toMatchObject({ message: 'slow op timed out after 20ms', label: 'slow op', ms: 20, code: 'OPERATION_TIMEOUT' });
+    expect(seen?.aborted).toBe(true);
+    expect(seen?.reason).toBe(err);
+  });
+
+  it('a caller signal aborting first rejects with its reason and aborts the work', async () => {
+    const controller = new AbortController();
+    let seen: AbortSignal | undefined;
+    const p = withTimeout((signal) => { seen = signal; return new Promise<never>(() => {}); }, 10_000, 'op', { signal: controller.signal });
+    const reason = new Error('caller cancelled');
+    controller.abort(reason);
+    await expect(p).rejects.toBe(reason);
+    expect(seen?.reason).toBe(reason);
+  });
+
+  it('an already-aborted caller signal never starts the work', async () => {
+    const work = jest.fn(async () => 1);
+    const reason = new Error('already');
+    await expect(withTimeout(work, 1000, 'op', { signal: AbortSignal.abort(reason) })).rejects.toBe(reason);
+    expect(work).not.toHaveBeenCalled();
+  });
+
+  it('a late rejection after the deadline is swallowed (no unhandled rejection)', async () => {
+    let rejectLate!: (e: Error) => void;
+    const late = new Promise<never>((_r, rej) => { rejectLate = rej; });
+    await expect(withTimeout(late, 10, 'op')).rejects.toBeInstanceOf(OperationTimeoutError);
+    rejectLate(new Error('late'));
+    await new Promise((r) => setTimeout(r, 5));
   });
 });

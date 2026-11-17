@@ -12,7 +12,7 @@ AWS CDK construct library for [Pipeline Builder](https://mwashburn160.github.io/
 - Hands each step the plugin record `pipeline-manager pipeline synth` resolved (`PluginLookup`); a plugin that was not resolved fails the synth.
 - Hosts the synth-time template engine that parameterizes pipeline config and plugin specs.
 - Owns the pipeline/plugin domain types and the environment-driven application `Config`.
-- Re-exports the `pipeline-data` database layer so consumers depend on a single package for both CDK and DB access.
+- Does NOT depend on `pipeline-data`: the plugin wire types it needs (`PluginFilter`, `PluginRecord`) come from `api-core`. Import the database layer from `@pipeline-builder/pipeline-data` directly.
 
 ## Key exports
 
@@ -41,9 +41,6 @@ AWS CDK construct library for [Pipeline Builder](https://mwashburn160.github.io/
 | `SourceTypes`, `StepTypes`, `NetworkTypes`, `RoleTypes`, `SecurityGroupTypes` | Pipeline source/step and infrastructure type definitions |
 | `IdGenerator`, `replaceNonAlphanumeric`, `extractMetadataEnv` | ID generation and string/metadata helpers |
 | `buildConfigFromMetadata`, `metadataForCodePipeline`, `metadataForShellStep`, … | Metadata builders |
-
-### Re-exported from `pipeline-data`
-`db`, `getConnection`, `closeConnection`, `schema`, `CrudService`, the tenant-context primitives (`tenantContext`, `runWithTenantContext`, `withTenantTx`), the query condition builders/filters, and `drizzleRows` / `drizzleCount`.
 
 ## Usage
 

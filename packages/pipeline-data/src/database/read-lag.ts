@@ -31,7 +31,7 @@
  * which is correct, and costs nothing.
  */
 
-import { createLogger, emitGauge, envInt } from '@pipeline-builder/api-core';
+import { createLogger, emitGauge, envInt, withTimeout } from '@pipeline-builder/api-core';
 import type { Pool } from 'pg';
 
 const logger = createLogger('database-read-lag');
@@ -64,33 +64,12 @@ const sampleIntervalMs = () => envInt('DB_READ_LAG_SAMPLE_MS', 5000);
  */
 const sampleTimeoutMs = () => envInt('DB_READ_LAG_SAMPLE_TIMEOUT_MS', 5000);
 
-/**
- * Race a query against a timer so the caller always regains control.
- *
- * The abandoned query is left to the pool — Postgres keeps running it, and the
- * pool's own idle handling reclaims the connection. That is deliberate: the
- * alternative is cancelling server-side, which needs a second connection and a
- * PID, and this is a 1-row read whose cost is bounded anyway. What matters is
- * that `inFlight` is released, so the next read retries.
- *
- * `clearTimeout` in `finally` is not tidiness: an un-cleared timer keeps the
- * Node event loop alive, which hangs a test run and, in a short-lived process,
- * delays exit.
- */
-async function withTimeout<T>(work: Promise<T>, ms: number, what: string): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      work,
-      new Promise<never>((_resolve, reject) => {
-        timer = setTimeout(() => reject(new Error(`${what} timed out after ${ms}ms`)), ms);
-        timer.unref?.();
-      }),
-    ]);
-  } finally {
-    if (timer) clearTimeout(timer);
-  }
-}
+// The sample query is raced against api-core's `withTimeout` so the caller
+// always regains control. The abandoned query is left to the pool — Postgres
+// keeps running it, and the pool's own idle handling reclaims the connection.
+// That is deliberate: cancelling server-side needs a second connection and a
+// PID, and this is a 1-row read whose cost is bounded anyway. What matters is
+// that `inFlight` is released, so the next read retries.
 
 /** A sample older than this many intervals is treated as no sample at all. */
 const STALE_INTERVALS = 3;

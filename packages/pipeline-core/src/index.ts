@@ -29,7 +29,8 @@
  *
  * The Postgres/Drizzle data layer (db, schema, CrudService, query builders,
  * filter/compliance types, etc.) is NOT re-exported here — import those
- * directly from `@pipeline-builder/pipeline-data`.
+ * directly from `@pipeline-builder/pipeline-data` (core does not depend on it;
+ * the plugin wire types it needs come from api-core).
  */
 
 // Configuration

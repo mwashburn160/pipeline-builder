@@ -76,8 +76,13 @@ export {
 export {
   destroySharedHttpAgents,
   createSafeClient,
+  InvalidResponseBodyError,
   ResponseTooLargeError,
   InternalHttpClient,
+  type DeleteRequestOptions,
+  type HttpClientOptions,
+  type HttpClientResponse,
+  type RequestOptions,
 } from './http-client.js';
 export {
   setPlatformJwksCache,

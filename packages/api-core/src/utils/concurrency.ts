@@ -43,3 +43,86 @@ export function sleep(ms: number, opts: { unref?: boolean } = {}): Promise<void>
     if (opts.unref) timer.unref?.();
   });
 }
+
+/**
+ * A {@link withTimeout} deadline elapsed. `label` / `ms` name what timed out.
+ * (Deliberately not named `TimeoutError`: that is the DOMException name
+ * `AbortSignal.timeout()` uses, which callers already match on.)
+ */
+export class OperationTimeoutError extends Error {
+  readonly code = 'OPERATION_TIMEOUT';
+  constructor(readonly label: string, readonly ms: number) {
+    super(`${label} timed out after ${ms}ms`);
+    this.name = 'OperationTimeoutError';
+  }
+}
+
+/** Options for {@link withTimeout}. */
+export interface WithTimeoutOptions {
+  /**
+   * A caller's signal: aborting it settles `withTimeout` at once (rejecting
+   * with the signal's reason) and aborts the signal handed to `work`.
+   */
+  signal?: AbortSignal;
+}
+
+/**
+ * Settle with `work`, or reject with {@link OperationTimeoutError} after `ms`.
+ *
+ * Giving up on a promise is not cancelling it, so `work` may be a FUNCTION of
+ * an `AbortSignal`: the signal aborts (with the timeout error as its reason)
+ * when the deadline passes or the caller's `options.signal` aborts, and `work`
+ * should stop — check it before every side effect, or pass it to `fetch` /
+ * the HTTP client. A bare promise is only raced (it keeps running; fine for a
+ * read whose result is simply dropped, like a health probe).
+ *
+ * The timer is `unref`'d and always cleared, so a pending deadline never keeps
+ * the process alive or a test run open.
+ */
+export function withTimeout<T>(
+  work: Promise<T> | ((signal: AbortSignal) => Promise<T>),
+  ms: number,
+  label: string,
+  options: WithTimeoutOptions = {},
+): Promise<T> {
+  const controller = new AbortController();
+  const outer = options.signal;
+  return new Promise<T>((resolve, reject) => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const onOuterAbort = (): void => finish(() => {
+      controller.abort(outer!.reason);
+      reject(outer!.reason);
+    });
+    let done = false;
+    function finish(settle: () => void): void {
+      if (done) return;
+      done = true;
+      if (timer) clearTimeout(timer);
+      outer?.removeEventListener('abort', onOuterAbort);
+      settle();
+    }
+
+    if (outer?.aborted) {
+      onOuterAbort();
+      return;
+    }
+    outer?.addEventListener('abort', onOuterAbort, { once: true });
+    timer = setTimeout(() => finish(() => {
+      const err = new OperationTimeoutError(label, ms);
+      controller.abort(err);
+      reject(err);
+    }), ms);
+    timer.unref?.();
+
+    let pending: Promise<T>;
+    try {
+      pending = typeof work === 'function' ? work(controller.signal) : work;
+    } catch (err) {
+      pending = Promise.reject(err);
+    }
+    pending.then(
+      (value) => finish(() => resolve(value)),
+      (err) => finish(() => reject(err)),
+    );
+  });
+}

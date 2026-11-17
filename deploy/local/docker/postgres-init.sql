@@ -812,18 +812,15 @@ CREATE INDEX IF NOT EXISTS registry_org_region_idx
     ON pipeline_registry(org_id, region);
 
 -- Pipeline Events indexes
-CREATE INDEX IF NOT EXISTS event_pipeline_id_idx
-    ON pipeline_events(pipeline_id);
-
-CREATE INDEX IF NOT EXISTS event_org_id_idx
-    ON pipeline_events(org_id);
-
-CREATE INDEX IF NOT EXISTS event_type_idx
-    ON pipeline_events(event_type);
-
-CREATE INDEX IF NOT EXISTS event_status_idx
-    ON pipeline_events(status);
-
+-- No single-column org_id / pipeline_id index: each is the LEADING column of a
+-- non-partial composite below (event_org_type_created_idx,
+-- event_pipeline_type_started_idx), which serves the same lookups. No bare
+-- event_type / status index either: both are low-cardinality and every query
+-- pairs them with a selective column (org_id, pipeline_id, toolchain_release,
+-- plugin_*, a time range) that has its own index.
+-- execution_id stays: its only composite (event_exec_commit_ts_idx) is PARTIAL
+-- (commit_timestamp IS NOT NULL), so it cannot serve a plain execution_id probe
+-- (e.g. DORA's `d.execution_id = o.execution_id AND d.event_type = 'STAGE'`).
 CREATE INDEX IF NOT EXISTS event_execution_id_idx
     ON pipeline_events(execution_id);
 

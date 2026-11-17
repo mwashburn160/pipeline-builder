@@ -68,7 +68,7 @@ export const orgAlertDestination = pgTable('org_alert_destinations', {
   purgeIdx: index('org_alert_destination_purge_idx').on(table.purgeAfter).where(sql`deleted_at IS NOT NULL`),
   // Per-org listing  the only access path.
   orgIdx: index('org_alert_destination_org_idx')
-    .on(table.orgId, table.enabled),
+    .on(table.orgId, table.enabled).where(sql`deleted_at IS NULL`),
 }));
 
 /**
@@ -133,7 +133,7 @@ export const orgAlertRule = pgTable('org_alert_rules', {
   purgeIdx: index('org_alert_rule_purge_idx').on(table.purgeAfter).where(sql`deleted_at IS NOT NULL`),
   // Per-org listing + materializer's enabled-only scan.
   orgEnabledIdx: index('org_alert_rule_org_enabled_idx')
-    .on(table.orgId, table.enabled),
+    .on(table.orgId, table.enabled).where(sql`deleted_at IS NULL`),
   // Unique within an org so operators can't accidentally clone a rule.
   orgNameUq: uniqueIndex('org_alert_rule_org_name_uq')
     .on(table.orgId, table.name)

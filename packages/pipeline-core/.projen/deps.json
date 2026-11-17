@@ -104,11 +104,6 @@
       "type": "runtime"
     },
     {
-      "name": "@pipeline-builder/pipeline-data",
-      "version": "workspace:*",
-      "type": "runtime"
-    },
-    {
       "name": "axios",
       "version": "1.21.1",
       "type": "runtime"

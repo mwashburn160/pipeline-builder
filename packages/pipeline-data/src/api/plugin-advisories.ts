@@ -12,7 +12,7 @@
  */
 
 import type { ConsumptionPolicy } from './plugin-consumption-policy.js';
-import { compareSemver, parseSemver, parseVersionSpec, satisfiesVersionSpec } from './semver-range.js';
+import { compareSemverLenient, parseSemver, parseVersionSpec, satisfiesVersionSpec } from './semver-range.js';
 import type {
   AdvisorySeverity,
   BlockOnAdvisory,
@@ -32,13 +32,13 @@ const COMPARATOR = /^(>=|<=|>|<|=)?\s*v?(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[
 /** One comparator set (`>=1.0.0 <1.2.3`, `^1.2`, `1.x`, `1.0.0 - 1.2.0`) against `version`. */
 function comparatorSetCovers(set: string, version: string): boolean {
   const hyphen = /^(\S+)\s+-\s+(\S+)$/.exec(set);
-  if (hyphen) return compareSemver(version, hyphen[1]!) >= 0 && compareSemver(version, hyphen[2]!) <= 0;
+  if (hyphen) return compareSemverLenient(version, hyphen[1]!) >= 0 && compareSemverLenient(version, hyphen[2]!) <= 0;
   const parts = set.split(/\s+/).filter(Boolean);
   if (parts.length === 1 && parseVersionSpec(parts[0]!)) return satisfiesVersionSpec(version, parts[0]!);
   return parts.every((p) => {
     const m = COMPARATOR.exec(p);
     if (!m) return false;
-    const c = compareSemver(version, m[2]!);
+    const c = compareSemverLenient(version, m[2]!);
     switch (m[1] ?? '=') {
       case '>=': return c >= 0;
       case '<=': return c <= 0;
