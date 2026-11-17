@@ -31,7 +31,7 @@
 import { getParam, sendError, sendSuccess, resolveUserFeatures, resolveUserPermissions } from '@pipeline-builder/api-core';
 import { withController } from '../helpers/controller-helper.js';
 import { toOrgId } from '../helpers/org-id.js';
-import { toOverridesRecord } from '../helpers/user-response.js';
+import { orgFeatureOverrides, type StoredFeatureOverrides } from '../helpers/user-response.js';
 import {
   AuditEvent,
   OrgIdpConfig,
@@ -77,7 +77,8 @@ export const getReportAuthority = withController('Report authority', async (req,
   const isSuperAdmin = (user as { isSuperAdmin?: boolean }).isSuperAdmin === true;
   const held = new Set(resolveUserPermissions(membership.rolePermissions, isSuperAdmin));
   const features = resolveUserFeatures(membership.tier ?? 'developer', {
-    overrides: toOverridesRecord((user as { featureOverrides?: Map<string, boolean> }).featureOverrides) ?? null,
+    // Only THIS org's overrides — another org's grant must not authorize a run here.
+    overrides: orgFeatureOverrides((user as { featureOverrides?: StoredFeatureOverrides }).featureOverrides, orgId) ?? null,
     isSuperAdmin,
     accountFeatures: membership.featureEntitlements ?? null,
   });

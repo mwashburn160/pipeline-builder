@@ -243,7 +243,7 @@ export function ThreadView({ rootMessage, currentOrgId, currentUserId, resolveOr
       // The support route when this is a case, so the carve-out's permission
       // floor is the one that applies.
       const result = isSupportThread
-        ? await api.replyToSupportCase(rootMessage.id, content, ids.length ? ids : undefined)
+        ? await api.replyToSupportCase(rootMessage.id, content, ids.length ? ids : undefined, idem)
         : await api.replyToMessage(rootMessage.id, content, ids.length ? ids : undefined, idem);
       const row = result?.data as ThreadItem | undefined;
       if (row && rootMessage.messageType === 'announcement' && row.threadId !== rootMessage.id) {

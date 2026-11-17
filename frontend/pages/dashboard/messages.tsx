@@ -270,12 +270,13 @@ export default function MessagesPage() {
   // Deleting has no undo, so both the row and the thread trash icon stage the
   // id and confirm here. `useDelete` owns the confirm triplet; `deleteMessage`
   // owns the step-up replay (it is what holds the list state the replay updates).
+  // The open thread closes only once the delete actually happened: a failed
+  // delete (error banner) leaves it open, and a step-up-parked one closes when
+  // the replay lands.
   const handleDelete = useCallback(async (id: string) => {
-    await deleteMessage(id);
-    if (selectedMessage?.id === id) {
-      setSelectedMessage(null);
-    }
-  }, [deleteMessage, selectedMessage]);
+    const closeIfOpen = () => setSelectedMessage((prev) => (prev?.id === id ? null : prev));
+    if (await deleteMessage(id, closeIfOpen)) closeIfOpen();
+  }, [deleteMessage]);
 
   const toast = useToast();
   const del = useDelete<string>(handleDelete);

@@ -207,6 +207,10 @@ export function EditUserModal({
 
         <FeatureOverridesEditor
           userId={editingUser.id}
+          // Overrides are per-org; the record shown (and edited) is the one for
+          // the user's current org, so the save targets that same org.
+          organizationId={editingUser.organizationId}
+          organizationName={editingUser.organizationName}
           initial={editingUser.featureOverrides ?? {}}
           onSaved={onFeatureSaved}
         />

@@ -40,10 +40,12 @@ import {
   MFA_RESET_NOT_FOUND,
   MFA_RESET_NOT_MEMBER,
   MFA_RESET_NOT_PENDING,
+  MFA_RESET_OUTSIDE_ACCOUNT,
   MFA_RESET_PLATFORM_ADMIN,
   MFA_RESET_SECOND_PERSON_REQUIRED,
   MFA_RESET_SELF,
 } from './mfa-recovery-errors.js';
+import { hasMembershipOutsideAccount } from '../helpers/account-membership.js';
 import { MFA_RESET_GRACE_MAX_HOURS } from '../helpers/mfa-policy.js';
 import { publishUserRevocation } from '../helpers/session-revocation.js';
 import {
@@ -252,7 +254,10 @@ async function expireLapsed(orgIds: readonly string[], now: Date = new Date()): 
  * factors should use their recovery codes or ask a colleague); for a platform
  * administrator (`MFA_RESET_PLATFORM_ADMIN` — an org's admins must not be able
  * to strip a platform operator's factors; that is the sysadmin/operator path);
- * and while another request for the same member is still pending.
+ * for someone who also belongs to an org OUTSIDE this org's account
+ * (`MFA_RESET_OUTSIDE_ACCOUNT` — the reset acts on the whole person, so one
+ * tenant must not strip factors another relies on); and while another request
+ * for the same member is still pending.
  */
 export async function requestMfaReset(input: {
   organizationId: string;
@@ -269,6 +274,7 @@ export async function requestMfaReset(input: {
   const target = await User.findById(targetUserId).select('email +isSuperAdmin').lean();
   if (!target) throw new Error(MFA_RESET_NOT_MEMBER);
   if (target.isSuperAdmin === true) throw new Error(MFA_RESET_PLATFORM_ADMIN);
+  if (await hasMembershipOutsideAccount(targetUserId, organizationId)) throw new Error(MFA_RESET_OUTSIDE_ACCOUNT);
 
   await expireLapsed([organizationId]);
   const now = new Date();
@@ -364,15 +370,17 @@ export async function approveMfaReset(input: {
   // Re-check the target at APPROVAL, not just at request: a request can sit for
   // up to a day, and the reset acts on the whole ACCOUNT. A member who left (or
   // was removed from) the org meanwhile is no longer this org's to reset, and
-  // one made a platform admin meanwhile never was — the same two refusals
-  // `requestMfaReset` applies.
-  const [stillMember, target] = await Promise.all([
+  // one made a platform admin (or who joined another account) meanwhile never
+  // was — the same refusals `requestMfaReset` applies.
+  const [stillMember, target, outside] = await Promise.all([
     UserOrganization.exists({ userId: claimed.targetUserId, organizationId: claimed.organizationId, isActive: true }),
     User.findById(claimed.targetUserId).select('+isSuperAdmin').lean(),
+    hasMembershipOutsideAccount(claimed.targetUserId, String(claimed.organizationId)),
   ]);
   const refusal = !stillMember || !target
     ? MFA_RESET_NOT_MEMBER
-    : (target as { isSuperAdmin?: boolean }).isSuperAdmin === true ? MFA_RESET_PLATFORM_ADMIN : undefined;
+    : (target as { isSuperAdmin?: boolean }).isSuperAdmin === true ? MFA_RESET_PLATFORM_ADMIN
+      : outside ? MFA_RESET_OUTSIDE_ACCOUNT : undefined;
   if (refusal) {
     await MfaResetRequest.updateOne({ _id: requestId }, { $set: { status: 'expired' } });
     throw new Error(refusal);
@@ -439,7 +447,9 @@ export async function denyMfaReset(input: { requestId: string; actor: ResetActor
 /**
  * A sysadmin's DIRECT reset — the single-person path, for an org that has no
  * second admin to approve a request. The route demands `aal: 2`, a strong-factor
- * step-up and a reason; the audit event says it was direct.
+ * step-up and a reason; the audit event says it was direct. A platform
+ * administrator's factors are refused here too (`MFA_RESET_PLATFORM_ADMIN`), as
+ * on the two-person path.
  */
 export async function directMfaReset(input: {
   targetUserId: string;
@@ -448,6 +458,8 @@ export async function directMfaReset(input: {
 }): Promise<FactorResetResult> {
   if (input.targetUserId === input.actor.id) throw new Error(MFA_RESET_SELF);
   if (!Types.ObjectId.isValid(input.targetUserId)) throw new Error(MFA_RESET_NOT_FOUND);
+  const target = await User.findById(input.targetUserId).select('+isSuperAdmin').lean();
+  if ((target as { isSuperAdmin?: boolean } | null)?.isSuperAdmin === true) throw new Error(MFA_RESET_PLATFORM_ADMIN);
   const result = await resetFactors(input.targetUserId, input.graceHours);
   if (!result) throw new Error(MFA_RESET_NOT_FOUND);
   // Any request still pending for this person is now moot.

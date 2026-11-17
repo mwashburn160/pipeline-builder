@@ -72,7 +72,7 @@ jest.unstable_mockModule('../src/helpers/password-policy.js', () => ({
   passwordShortfall: async () => null,
 }));
 
-const { createAccessKey, generateToken, revokeAllTokens } = await import('../src/controllers/user-credentials.js');
+const { createAccessKey, generateToken, opensNewMachineSession, revokeAllTokens } = await import('../src/controllers/user-credentials.js');
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 function mockRes() {
@@ -188,5 +188,27 @@ describe('POST /user/tokens/revoke-all', () => {
     const res = await call(revokeAllTokens, { user: keyToken, body: {}, headers: {} });
     expect(res.status).toHaveBeenCalledWith(200);
     expect(mockIssueTokens).not.toHaveBeenCalled();
+  });
+});
+
+describe('opensNewMachineSession — which generate-token calls the route step-up gates', () => {
+  // Opening a long-lived machine credential is as sensitive as creating an
+  // access key (step-up gated); only RENEWING one's own machine slot is exempt,
+  // so the unattended renewal keeps working.
+  it('an interactive session OPENING a machine credential is gated', async () => {
+    expect(await opensNewMachineSession({ user: person } as any)).toBe(true);
+    expect(mockFindRefreshSession).toHaveBeenCalledWith('u1', 'slot-1');
+  });
+
+  it('a machine session RENEWING itself is not', async () => {
+    mockFindRefreshSession.mockResolvedValue({ id: 'slot-1', kind: 'machine' });
+    expect(await opensNewMachineSession({ user: person } as any)).toBe(false);
+  });
+
+  it('fails closed: no slot claim, or a slot that no longer exists, is gated', async () => {
+    expect(await opensNewMachineSession({ user: { sub: 'u1' } } as any)).toBe(true);
+    mockFindRefreshSession.mockResolvedValue(undefined);
+    expect(await opensNewMachineSession({ user: person } as any)).toBe(true);
+    expect(await opensNewMachineSession({} as any)).toBe(true);
   });
 });

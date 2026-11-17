@@ -183,7 +183,12 @@ export interface UserData {
     /** Token-version at issuance — if it differs from `User.tokenVersion`, the token has been revoked by an "invalidate all" action. */
     tokenVersionAtIssue: number;
   }>;
-  featureOverrides?: Map<string, boolean>;
+  /**
+   * Per-ORGANIZATION feature-flag overrides: org id → (flag → on/off). Only the
+   * entry for the token's active org is applied, so an override set by one
+   * org's admin never reaches the user's other orgs.
+   */
+  featureOverrides?: Map<string, Map<string, boolean>>;
   oauth?: OAuthProviders;
   /**
    * Opaque WebAuthn user handle (32 random bytes, base64url), minted lazily the
@@ -380,8 +385,9 @@ const userSchema = new Schema<UserData, UserModel, UserMethods>(
       default: [],
     },
     featureOverrides: {
+      // org id (24-hex) → that org's flag overrides.
       type: Map,
-      of: Boolean,
+      of: { type: Map, of: Boolean },
       // Factory — without this every doc shares the same Map instance.
       default: () => new Map(),
     },

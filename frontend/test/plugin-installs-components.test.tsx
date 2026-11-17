@@ -287,6 +287,26 @@ describe('CatalogTab and InstallsTab', () => {
     expect(screen.queryByTestId('catalog-count')).not.toBeInTheDocument();
   });
 
+  it('drops a "Load more" page that lands after the filters changed', async () => {
+    let releaseMore: (v: unknown) => void = () => undefined;
+    api.getPluginCatalog
+      .mockReturnValueOnce(ok({ listings: [officialEntry('first')], total: 2, hasMore: true }))
+      .mockReturnValueOnce(new Promise((res) => { releaseMore = res; }))
+      .mockReturnValue(ok({ listings: [officialEntry('filtered')], total: 1, hasMore: false }));
+    render(<CatalogTab canInstall usage={{}} />);
+    await screen.findByTestId('catalog-count');
+    fireEvent.click(screen.getByRole('button', { name: 'Load more' }));
+    await waitFor(() => expect(api.getPluginCatalog).toHaveBeenCalledTimes(2));
+
+    fireEvent.change(screen.getByLabelText('Catalog category'), { target: { value: 'security' } });
+    await waitFor(() => expect(screen.getAllByTestId('catalog-card')[0]).toHaveTextContent('Reference: filtered'));
+    // The old continuation (offset 1 of the unfiltered list) now resolves.
+    releaseMore({ success: true, statusCode: 200, data: { listings: [officialEntry('stale')], total: 2, hasMore: false } });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(screen.getAllByTestId('catalog-card')).toHaveLength(1);
+    expect(screen.queryByText(/Reference: stale/)).not.toBeInTheDocument();
+  });
+
   it('lists catalog entries with tier, reference and usage, and filters by category', async () => {
     api.getPluginCatalog.mockReturnValue(ok({ listings: [officialEntry('trivy'), catalogEntry()] }));
     render(<CatalogTab canInstall usage={{ trivy: 2, 'acme/terraform-plan': 1 }} initialQuery="t" />);

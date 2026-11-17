@@ -14,6 +14,7 @@
 
 import { refuseForOrgAdminAssurance, sendError, sendSuccess, TOKEN_SCOPES } from '@pipeline-builder/api-core';
 import type { TokenScope } from '@pipeline-builder/api-core';
+import type { Request } from 'express';
 import { audit } from '../helpers/audit.js';
 import { clientInfoOf } from '../helpers/client-info.js';
 import { forbid, requireAuthUserId, withController } from '../helpers/controller-helper.js';
@@ -66,6 +67,22 @@ function slotAuthContext(slot: { aaguid?: string; aalAssertedBy?: string }): { a
  * declared once instead of in every mint path.
  */
 const ALLOWED_TOKEN_SCOPES = new Set<string>(TOKEN_SCOPES);
+
+/**
+ * Whether a `POST /user/generate-token` request OPENS a new machine credential
+ * — the case the route step-up gates (`gateWhen`, routes/user.ts), exactly as
+ * creating an access key is: it mints a long-lived (up to 365-day) bearer
+ * credential, so a stolen session must not be able to do it silently. RENEWING
+ * the caller's own machine session stays ungated — the unattended renewal has
+ * no person to re-verify. A slot that no longer exists counts as opening (the
+ * handler then refuses it anyway), so the gate fails closed.
+ */
+export async function opensNewMachineSession(req: Request): Promise<boolean> {
+  const userId = req.user?.sub;
+  const sessionId = (req.user as AccessTokenPayload | undefined)?.sid;
+  if (!userId || !sessionId) return true;
+  return (await findRefreshSession(userId, sessionId))?.kind !== 'machine';
+}
 
 /**
  * POST /user/generate-token

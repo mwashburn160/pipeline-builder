@@ -3266,7 +3266,7 @@ const ROUTE_DISPOSITIONS: Record<string, Disposition> = {
   // `POST /user/generate-token` is not a no-UI machine mint: it has the
   // "Generate machine token" panel on pages/dashboard/security.tsx, with lifetime, capability scope and
   // permission-subset selection. It belongs with the other own-account rows.
-  'platform POST /user/generate-token': { category: 'own-account', why: 'Settings → Security, "Generate machine token" (pages/dashboard/security.tsx → MachineTokenSection, api.generateNewToken). Own account: the credential carries a subset of the caller\'s OWN permissions, so no org permission gates it — the org\'s admin-actions MFA policy does, and renewal by the machine session does not re-prompt.' },
+  'platform POST /user/generate-token': { category: 'own-account', why: 'Settings → Security, "Generate machine token" (pages/dashboard/security.tsx → MachineTokenSection, api.generateNewToken). Own account: the credential carries a subset of the caller\'s OWN permissions, so no org permission gates it — the org\'s admin-actions MFA policy does. Opening a NEW machine credential is step-up gated (conditionalGates on the table; the form re-confirms in StepUpModal, pinned in CONDITIONAL_STEP_UP_CONTROLS); renewal by the machine session does not re-prompt.' },
   'platform POST /organization/names': { category: 'machine-only', why: 'Batch org-id → name resolver called service-to-service (packages/api-core org-hierarchy-http.ts, api/compliance org-hierarchy-client.ts). Gated by requireServicePrincipal on the route (not in the controller), so a user token can never reach it and the route table says servicePrincipal:true.' },
   ...group('compliance', ['POST /compliance/validate/pipeline', 'POST /compliance/validate/plugin'], {
     category: 'no-ui',
@@ -3895,6 +3895,7 @@ describe('MFA refusals are handled app-wide', () => {
 const CONDITIONAL_STEP_UP_CONTROLS: Record<string, { file: string; when: string }> = {
   'billing DELETE /billing/subscriptions/by-org/:orgId': { file: 'pages/dashboard/admin/billing.tsx', when: 'caller is a user, not a service principal' },
   'platform PATCH /user/profile': { file: 'pages/dashboard/settings.tsx', when: 'changes the sign-in email' },
+  'platform POST /user/generate-token': { file: 'pages/dashboard/security.tsx', when: 'opens a new machine credential' },
   'platform POST /users': { file: 'pages/dashboard/users.tsx', when: 'creates a platform super-admin' },
 };
 

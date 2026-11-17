@@ -255,6 +255,18 @@ describe('messagesApi send contracts', () => {
     expect(JSON.parse(calls[2].init.body ?? '{}')).not.toHaveProperty('idempotencyKey');
   });
 
+  it('replyToSupportCase carries the caller\'s idempotency key, or a fresh one', async () => {
+    const { api, calls } = makeApi();
+    await api.replyToSupportCase('case-1', 'hi', undefined, 'bubble-key');
+    await api.replyToSupportCase('case-1', 'hi');
+
+    expect(calls[0].path).toBe('/api/messages/support/case-1/reply');
+    expect(calls[0].init.headers?.['Idempotency-Key']).toBe('bubble-key');
+    expect(calls[1].init.headers?.['Idempotency-Key']).toBeTruthy();
+    expect(calls[1].init.headers?.['Idempotency-Key']).not.toBe('bubble-key');
+    expect(JSON.parse(calls[0].init.body ?? '{}')).toEqual({ content: 'hi' });
+  });
+
   it('sendMessage still POSTs /api/messages with the recipient', async () => {
     const { api, calls } = makeApi();
     await api.sendMessage({ recipientOrgId: 'team-2', messageType: 'conversation', subject: 's', content: 'c' });

@@ -152,10 +152,15 @@ export function billingApi(core: ApiCore) {
      * component is a second answer the invoice disagrees with.
      *
      * `preview` is null when there is no subscription to re-price.
+     *
+     * `interval` is the billing interval the caller is quoting in. NOTE: the
+     * server currently prices at the subscription's OWN interval and ignores
+     * this parameter; the returned `preview.interval` says which one it used,
+     * so callers must check it before showing the figure.
      */
-    getPlanPreview: async (tier: string, opts?: { signal?: AbortSignal }) => {
+    getPlanPreview: async (tier: string, interval?: BillingInterval, opts?: { signal?: AbortSignal }) => {
       return core.request<ApiResponse<{ preview: PlanChangePreview | null }>>(
-        `/api/billing/plan-preview?tier=${encodeURIComponent(tier)}`,
+        `/api/billing/plan-preview?tier=${encodeURIComponent(tier)}${interval ? `&interval=${encodeURIComponent(interval)}` : ''}`,
         { signal: opts?.signal },
       );
     },

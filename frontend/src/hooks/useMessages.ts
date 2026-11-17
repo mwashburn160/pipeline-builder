@@ -85,7 +85,12 @@ interface UseMessagesReturn {
   replyToMessage: (threadId: string, content: string, attachmentIds?: string[]) => Promise<Message | null>;
   markAsRead: (id: string) => Promise<void>;
   markThreadAsRead: (id: string) => Promise<void>;
-  deleteMessage: (id: string) => Promise<void>;
+  /**
+   * Resolves `true` once the message is deleted, `false` when it was not (the
+   * error is mirrored into `error`) or is parked behind a step-up re-prompt —
+   * in that case `onDeleted` runs if and when the replay lands.
+   */
+  deleteMessage: (id: string, onDeleted?: () => void) => Promise<boolean>;
 }
 
 /** Polling interval for unread message count fallback (30 seconds). */
@@ -319,17 +324,18 @@ export function useMessages(orgId?: string | null, search = '', view: MessageVie
     setTotal(prev => (prev == null ? prev : Math.max(0, prev - 1)));
   }, []);
 
-  const deleteMessage = useCallback(async (id: string) => {
+  const deleteMessage = useCallback(async (id: string, onDeleted?: () => void): Promise<boolean> => {
     try {
       await api.deleteMessage(id);
     } catch (err) {
       // Refused for step-up and taken over by the global dialog: that dialog
       // reports the outcome, and the row leaves the list once the replay lands.
-      if (continueAfterStepUp(err, () => applyDeleted(id))) return;
+      if (continueAfterStepUp(err, () => { applyDeleted(id); onDeleted?.(); })) return false;
       setError(formatError(err, 'Failed to delete message'));
-      return;
+      return false;
     }
     applyDeleted(id);
+    return true;
   }, [applyDeleted]);
 
   // Fetch messages on mount AND whenever the (debounced) search term, the

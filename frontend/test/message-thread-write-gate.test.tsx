@@ -22,6 +22,7 @@ import type { Message } from '../src/types';
 
 const getThread = jest.fn<AnyFn>();
 const replyToMessage = jest.fn<AnyFn>();
+const replyToSupportCase = jest.fn<AnyFn>();
 const editMessage = jest.fn<AnyFn>();
 const uploadAttachment = jest.fn<AnyFn>();
 
@@ -30,6 +31,7 @@ jest.mock('@/lib/api', () => ({
   default: {
     getThread: (...a: unknown[]) => getThread(...a),
     replyToMessage: (...a: unknown[]) => replyToMessage(...a),
+    replyToSupportCase: (...a: unknown[]) => replyToSupportCase(...a),
     editMessage: (...a: unknown[]) => editMessage(...a),
     uploadAttachment: (...a: unknown[]) => uploadAttachment(...a),
   },
@@ -91,6 +93,18 @@ describe('ThreadView write gate (messages:write)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Send reply' }));
 
     await waitFor(() => expect(replyToMessage).toHaveBeenCalledWith('m1', 'on it', undefined, expect.any(String)));
+  });
+
+  it('sends a support-case reply with the bubble\'s idempotency key', async () => {
+    replyToSupportCase.mockResolvedValue({ data: { ...ROOT, id: 'm2', content: 'on it' } });
+    renderThread(false, { supportCase: CASE });
+    await waitFor(() => expect(screen.getByText('the nightly build is red')).toBeInTheDocument());
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Reply to conversation' }), { target: { value: 'on it' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send reply' }));
+
+    await waitFor(() => expect(replyToSupportCase).toHaveBeenCalledWith('m1', 'on it', undefined, expect.any(String)));
+    expect(replyToMessage).not.toHaveBeenCalled();
   });
 
   it('drops the edit affordance for a reader — even on their OWN message', async () => {

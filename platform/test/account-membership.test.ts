@@ -86,7 +86,7 @@ describe('hasMembershipOutsideAccount', () => {
 });
 
 describe('assertDirectAddConsented', () => {
-  const victim = { _id: 'u1', email: 'victim@other-tenant.example' };
+  const victim = { _id: 'u1', email: 'victim@other-tenant.example', isEmailVerified: true };
 
   it('refuses a platform user who is not in the account, at an unverified domain', async () => {
     await expect(assertDirectAddConsented({ user: victim, orgId: 'team-a', actor: ADMIN }))
@@ -103,8 +103,18 @@ describe('assertDirectAddConsented', () => {
 
   it('allows an address at a domain the account has VERIFIED (the SCIM authority rule)', async () => {
     mockOwnsVerifiedDomain.mockResolvedValue(true);
-    await expect(assertDirectAddConsented({ user: { _id: 'u2', email: 'new@acme.example' }, orgId: 'team-a', actor: ADMIN }))
+    await expect(assertDirectAddConsented({ user: { _id: 'u2', email: 'new@acme.example', isEmailVerified: true }, orgId: 'team-a', actor: ADMIN }))
       .resolves.toBeUndefined();
+  });
+
+  it('refuses an UNVERIFIED account even at a verified domain (pre-hijack: invite instead)', async () => {
+    // An unverified account is an unproven claim on the address — anyone can
+    // register one on a victim's email. SSO linking refuses it; so does this.
+    mockOwnsVerifiedDomain.mockResolvedValue(true);
+    await expect(assertDirectAddConsented({ user: { _id: 'u2', email: 'new@acme.example', isEmailVerified: false }, orgId: 'team-a', actor: ADMIN }))
+      .rejects.toThrow(OM_CONSENT_REQUIRED);
+    await expect(assertDirectAddConsented({ user: { _id: 'u2', email: 'new@acme.example' }, orgId: 'team-a', actor: ADMIN }))
+      .rejects.toThrow(OM_CONSENT_REQUIRED);
   });
 
   it('refuses when the user has no email to judge a domain by', async () => {

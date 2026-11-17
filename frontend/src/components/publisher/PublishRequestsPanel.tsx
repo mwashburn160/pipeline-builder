@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ArrowRightLeft, Inbox } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
@@ -81,16 +81,23 @@ export function PublishRequestsPanel({ canPublish, canManage }: Props) {
   // Older pages, appended by "Load more" (the list is paged server-side).
   const [more, setMore] = useState<{ requests: PublishRequestView[]; nextCursor: string | null } | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
-  useEffect(() => { setMore(null); }, [requestsQ.data]);
+  // Bumped whenever the first page changes (filter change, refetch), so a
+  // "Load more" still in flight from the previous first page is dropped rather
+  // than appended to a list it no longer continues.
+  const pageGenRef = useRef(0);
+  useEffect(() => { pageGenRef.current += 1; setMore(null); }, [requestsQ.data]);
   const nextCursor = more ? more.nextCursor : requestsQ.data?.nextCursor ?? null;
   const loadMore = async () => {
     if (!nextCursor) return;
+    const gen = pageGenRef.current;
     setLoadingMore(true);
     try {
       const res = await api.listPublishRequests({ ...statusParam, cursor: nextCursor });
+      if (gen !== pageGenRef.current) return; // stale: the filter/first page moved on
       const page = { requests: res.data?.requests ?? [], nextCursor: res.data?.nextCursor ?? null };
       setMore((m) => ({ requests: [...(m?.requests ?? []), ...page.requests], nextCursor: page.nextCursor }));
     } catch (err) {
+      if (gen !== pageGenRef.current) return;
       toast.error(formatError(err, 'Could not load more requests'));
     } finally {
       setLoadingMore(false);

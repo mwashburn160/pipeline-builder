@@ -76,6 +76,28 @@ export function loadTranscript<T>(): T[] {
   }
 }
 
+/**
+ * Session generation. Bumped by {@link resetTranscriptSession} on logout, session
+ * expiry and org switch, so a panel mounted under the previous identity cannot
+ * re-save its (now foreign) transcript after it was cleared.
+ */
+let epoch = 0;
+
+/** The current session generation — captured by a panel at mount. */
+export function getTranscriptEpoch(): number {
+  return epoch;
+}
+
+/**
+ * Drop the transcript at a session/tenant boundary (logout, expiry, org
+ * switch). Part of `clearSessionCaches`: the transcript is the previous
+ * identity's conversation and must not resurface in the next one.
+ */
+export function resetTranscriptSession(): void {
+  epoch += 1;
+  clearTranscript();
+}
+
 /** Forget the transcript — the "Clear" control, and an empty transcript. */
 export function clearTranscript(): void {
   try {

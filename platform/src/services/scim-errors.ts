@@ -113,6 +113,22 @@ export const scimOwnerProtected = (): ScimError =>
     { reason: 'owner_protected' },
   );
 
+/**
+ * The address belongs to an existing platform account whose OWN email was never
+ * verified. That account is an unproven claim on the address — attaching it to
+ * the org would hand the org's access to whoever planted it (account
+ * pre-hijack). The same refusal SSO / OAuth linking makes
+ * (`ACCOUNT_EMAIL_UNVERIFIED`). 409: the conflict is with an existing resource
+ * the IdP cannot resolve by retrying.
+ */
+export const scimAccountUnverified = (): ScimError =>
+  new ScimError(
+    409,
+    'An unverified Pipeline Builder account already exists for this address. '
+    + 'The person must verify (or reset the password on) that account before it can be provisioned. No user was created.',
+    { reason: 'account_email_unverified' },
+  );
+
 /** The target is a platform administrator — a tenant directory never governs one. */
 export const scimPlatformAdmin = (): ScimError =>
   new ScimError(

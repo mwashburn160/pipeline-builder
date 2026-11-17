@@ -78,11 +78,13 @@ export async function hasMembershipOutsideAccount(userId: UserId, orgId: string)
  *     cross-tenant authority this could launder);
  *   - the person already has a membership somewhere in this account; or
  *   - the account (the org or its root) has VERIFIED the domain of the person's
- *     email — the SCIM / SSO authority rule.
+ *     email AND the person's own account email is verified — the SCIM / SSO
+ *     authority rule. An unverified account is an unproven claim on the address
+ *     (pre-hijack), so it is invited instead, as SSO linking refuses it.
  * Otherwise throws `OM_CONSENT_REQUIRED`: the admin should send an invitation.
  */
 export async function assertDirectAddConsented(input: {
-  user: { _id: UserId; email?: string | null };
+  user: { _id: UserId; email?: string | null; isEmailVerified?: boolean | null };
   orgId: string;
   actor: RoleAssignmentActor;
   session?: ClientSession | null;
@@ -93,7 +95,7 @@ export async function assertDirectAddConsented(input: {
   // Imported on demand: sso-enforcement's static graph (IdP services, config)
   // is far wider than the member service's, which several suites keep narrow.
   const { emailDomain, ownsVerifiedDomain } = await import('./sso-enforcement.js');
-  const domain = input.user.email ? emailDomain(input.user.email) : null;
+  const domain = input.user.email && input.user.isEmailVerified === true ? emailDomain(input.user.email) : null;
   if (domain && await ownsVerifiedDomain(input.orgId, domain)) return;
 
   throw new Error(OM_CONSENT_REQUIRED);

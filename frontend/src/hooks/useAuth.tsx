@@ -9,6 +9,7 @@ import { clearQueryCache } from '@/lib/query-cache';
 import { isEnrolmentPendingSession } from '@/lib/enrolment-session';
 import { setUnreadCount } from '@/lib/unread-count-store';
 import { clearImageTagsCache } from './useImageTags';
+import { resetTranscriptSession } from '@/components/ask/transcript-store';
 import { useLoginActions, type LoginResult } from './internal/useLoginActions';
 
 /**
@@ -147,6 +148,8 @@ function clearSessionCaches(): void {
   clearAttachmentImageCache();
   clearQueryCache();
   clearImageTagsCache();
+  // The Ask transcript is the previous identity's conversation.
+  resetTranscriptSession();
   // The badge is the previous identity's count until the next poll otherwise.
   setUnreadCount(0);
 }

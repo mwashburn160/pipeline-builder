@@ -22,6 +22,9 @@ const dash = (visibility: Visibility) => ({
 
 const CALLERS = {
   creator: { orgId: 'org-a', userId: 'creator', isSuperAdmin: false, isOrgAdmin: false },
+  // The SAME person acting in another org they belong to: a user id is the same
+  // in every org, so the creator check alone used to let this session in.
+  creatorInOtherOrg: { orgId: 'org-b', userId: 'creator', isSuperAdmin: false, isOrgAdmin: true },
   sameOrgMember: { orgId: 'org-a', userId: 'member', isSuperAdmin: false, isOrgAdmin: false },
   sameOrgAdmin: { orgId: 'org-a', userId: 'admin', isSuperAdmin: false, isOrgAdmin: true },
   otherOrgAdmin: { orgId: 'org-b', userId: 'stranger', isSuperAdmin: false, isOrgAdmin: true },
@@ -42,12 +45,14 @@ const TABLE: Array<[Visibility, Caller, boolean, boolean]> = [
   ['org', 'sameOrgAdmin', true, true],
   ['org', 'otherOrgAdmin', false, false],
   ['org', 'sysadmin', true, true],
+  ['org', 'creatorInOtherOrg', false, false],
 
   ['private', 'creator', true, true],
   ['private', 'sameOrgMember', false, false],
   ['private', 'sameOrgAdmin', false, false],
   ['private', 'otherOrgAdmin', false, false],
   ['private', 'sysadmin', true, true],
+  ['private', 'creatorInOtherOrg', false, false],
 ];
 
 describe('dashboard access ladder', () => {

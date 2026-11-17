@@ -65,6 +65,7 @@ import { idpGroupMappingService } from './idp-group-mapping-service.js';
 import { syncMappedRoles } from './mapped-roles.js';
 import { ensureBaselineRole, recomputeUserOrgRole } from './roles-service.js';
 import {
+  scimAccountUnverified,
   scimInvalidValue,
   scimMutability,
   scimNotEntitled,
@@ -256,8 +257,8 @@ function scimAttributes(body: Record<string, unknown>): {
  * Creates the platform account when the address is new, and always creates the
  * membership. Refuses (in this order, all before any write): the entitlement, an
  * unverified email domain, a platform administrator, an existing membership
- * (`uniqueness` — the IdP should PATCH the resource its GET found), and the
- * pooled seat cap.
+ * (`uniqueness` — the IdP should PATCH the resource its GET found), an existing
+ * account whose own email is unverified, and the pooled seat cap.
  */
 export async function createUser(ctx: ScimContext, body: Record<string, unknown>): Promise<ScimWriteOutcome<ScimUserResource>> {
   assertIntentAllowed(ctx, 'create');
@@ -284,6 +285,11 @@ export async function createUser(ctx: ScimContext, body: Record<string, unknown>
     // An IdP that re-creates instead of re-activating must be told the resource
     // exists, not handed a second membership.
     if (already) throw scimUniqueness(`A user with userName '${attrs.userName ?? email}' already exists in this organization.`);
+    // PRE-HIJACK: an existing account whose own email is unverified is an
+    // unproven claim on the address (anyone can register one). Attaching it
+    // would hand this org's access to whoever planted it — refused, exactly as
+    // SSO / OAuth linking refuses it (ACCOUNT_EMAIL_UNVERIFIED).
+    if (existingUser.isEmailVerified !== true) throw scimAccountUnverified();
   }
 
   const userId = await createMembership(ctx, { email, attrs, active, existingUser });

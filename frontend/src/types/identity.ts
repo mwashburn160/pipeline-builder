@@ -45,6 +45,7 @@ export interface User {
    * for UI gating only — every privileged action is re-checked server-side.
    */
   permissions?: string[];
+  /** Per-user feature overrides for the ACTIVE org only (overrides are per-org). */
   featureOverrides?: Record<string, boolean>;
   /** Which step-up factors this account has — drives what StepUpModal offers. */
   authFactors?: AuthFactors;

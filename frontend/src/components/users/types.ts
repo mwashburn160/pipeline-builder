@@ -15,8 +15,9 @@ export interface UserListItem {
   organizationId?: string;
   organizationName?: string;
   createdAt?: string;
-  /** Per-user feature-flag overrides. Absent on rows with no overrides.
-   *  Edited via the FeatureOverridesEditor inside the user-edit modal. */
+  /** Per-user feature-flag overrides FOR `organizationId` only (overrides are
+   *  per-org). Absent when there are none. Edited via the FeatureOverridesEditor
+   *  inside the user-edit modal. */
   featureOverrides?: Record<string, boolean>;
 }
 

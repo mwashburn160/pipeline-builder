@@ -136,6 +136,17 @@ describe('useAuth per-session cache clearing', () => {
     expect(mockClearAttachmentImageCache).toHaveBeenCalled();
   });
 
+  it('drops the Ask transcript on logout', async () => {
+    window.sessionStorage.setItem('pb.ask.transcript.v1', JSON.stringify([{ role: 'user', content: 'previous user' }]));
+    const wrapper = ({ children }: { children: ReactNode }) => <AuthProvider>{children}</AuthProvider>;
+    const { result } = renderHook(() => useAuth(), { wrapper });
+    await waitFor(() => expect(result.current.isInitialized).toBe(true));
+
+    await act(async () => { await result.current.logout(); });
+
+    expect(window.sessionStorage.getItem('pb.ask.transcript.v1')).toBeNull();
+  });
+
   it('clears the attachment-image cache when the session expires', async () => {
     const wrapper = ({ children }: { children: ReactNode }) => <AuthProvider>{children}</AuthProvider>;
     const { result } = renderHook(() => useAuth(), { wrapper });

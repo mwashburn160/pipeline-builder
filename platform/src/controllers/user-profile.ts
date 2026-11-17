@@ -13,7 +13,7 @@ import { resolveEffectiveMfaPolicy } from '../helpers/mfa-policy.js';
 import { passwordPolicyForPerson } from '../helpers/password-policy.js';
 import { clearRefreshCookie } from '../helpers/session-cookie.js';
 import { userErrorMap } from '../helpers/user-error-map.js';
-import { formatUserResponse, toOverridesRecord, type OrgMembership, type UserResponseInput } from '../helpers/user-response.js';
+import { formatUserResponse, orgFeatureOverrides, type OrgMembership, type StoredFeatureOverrides, type UserResponseInput } from '../helpers/user-response.js';
 import { userProfileService, type PreferencesPatch } from '../services/index.js';
 import { validateBody, updateProfileSchema, changePasswordSchema } from '../utils/validation.js';
 
@@ -70,7 +70,8 @@ export const getUser = withController('Get user profile', async (req, res) => {
   // turns it on, and carries the deadline, which the claim deliberately doesn't.
   const mfaPolicy = activeOrgId ? await resolveEffectiveMfaPolicy(activeOrgId.toString()) : undefined;
 
-  const overrides = toOverridesRecord((user as { featureOverrides?: Map<string, boolean> }).featureOverrides);
+  // Overrides are per-org: only the ACTIVE org's entry applies (mirrors the JWT).
+  const overrides = orgFeatureOverrides((user as { featureOverrides?: StoredFeatureOverrides }).featureOverrides, activeOrgId?.toString());
   // Include the active org's account-level entitlements (e.g. add-on bundle
   // grants) so /profile reports the same feature set the JWT carries.
   const activeOrgFeatures = activeOrgId ? orgMap.get(activeOrgId.toString())?.featureEntitlements : undefined;
@@ -84,6 +85,7 @@ export const getUser = withController('Get user profile', async (req, res) => {
         organizations,
         tier,
         features,
+        featureOverrides: overrides,
         // `req.user.permissions` is resolved per-request by populateRequestUser
         // (role bundle ∪ group grants; superadmin ⇒ all) — echo it for UI gating.
         permissions: req.user?.permissions,
@@ -188,7 +190,9 @@ export const updateUser = withController('Update user profile', async (req, res)
     targetId: userId,
     details: { fields: Object.keys(body) },
   });
-  sendSuccess(res, 200, { user: formatUserResponse(user as UserResponseInput, { activeOrgRole, activeOrgName: organizationName }) });
+  const overridesOrgId = req.user!.organizationId || (user as { lastActiveOrgId?: { toString(): string } }).lastActiveOrgId?.toString();
+  const featureOverrides = orgFeatureOverrides((user as { featureOverrides?: StoredFeatureOverrides }).featureOverrides, overridesOrgId);
+  sendSuccess(res, 200, { user: formatUserResponse(user as UserResponseInput, { activeOrgRole, activeOrgName: organizationName, featureOverrides }) });
 }, userErrorMap);
 
 /**

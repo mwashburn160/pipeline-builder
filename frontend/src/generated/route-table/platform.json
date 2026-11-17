@@ -6817,7 +6817,14 @@
     "stepUp": false,
     "stepUpMethods": [],
     "minAssurance": 0,
-    "conditionalGates": [],
+    "conditionalGates": [
+      {
+        "when": "opens a new machine credential",
+        "stepUp": true,
+        "stepUpMethods": [],
+        "minAssurance": 0
+      }
+    ],
     "features": [],
     "scopes": [],
     "audit": [

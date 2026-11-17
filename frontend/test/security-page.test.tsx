@@ -139,11 +139,22 @@ describe('Security — one page, four answers', () => {
     fireEvent.change(screen.getByLabelText('Expires after'), { target: { value: '7' } });
     fireEvent.change(screen.getByLabelText('Capability'), { target: { value: 'reporting:ingest' } });
     fireEvent.click(screen.getByRole('button', { name: /generate token/i }));
+    fireEvent.click(await screen.findByRole('button', { name: 'confirm-step-up' }));
 
-    await waitFor(() => expect(generateNewToken).toHaveBeenCalledWith({ expiresIn: 7 * 86400, scope: 'reporting:ingest' }));
+    await waitFor(() => expect(generateNewToken).toHaveBeenCalledWith({ expiresIn: 7 * 86400, scope: 'reporting:ingest' }, 'tok'));
     expect(await screen.findByText(/Valid for 7 days/)).toBeInTheDocument();
     // The history re-reads so the new issuance shows up.
     await waitFor(() => expect(listTokenHistory).toHaveBeenCalledTimes(2));
+    await postureSettled();
+  });
+
+  it('mints nothing until the step-up is confirmed (opening a machine credential is step-up gated)', async () => {
+    query = { tab: 'keys' };
+    render(<SecurityPage />);
+    fireEvent.click(screen.getByRole('button', { name: /full access/i }));
+    fireEvent.click(screen.getByRole('button', { name: /generate token/i }));
+    expect(await screen.findByRole('button', { name: 'confirm-step-up' })).toBeInTheDocument();
+    expect(generateNewToken).not.toHaveBeenCalled();
     await postureSettled();
   });
 
@@ -153,7 +164,8 @@ describe('Security — one page, four answers', () => {
     render(<SecurityPage />);
     fireEvent.click(screen.getByRole('button', { name: /full access/i }));
     fireEvent.click(screen.getByRole('button', { name: /generate token/i }));
-    await waitFor(() => expect(generateNewToken).toHaveBeenCalledWith({ expiresIn: 30 * 86400 }));
+    fireEvent.click(await screen.findByRole('button', { name: 'confirm-step-up' }));
+    await waitFor(() => expect(generateNewToken).toHaveBeenCalledWith({ expiresIn: 30 * 86400 }, 'tok'));
     await postureSettled();
   });
 
@@ -163,9 +175,10 @@ describe('Security — one page, four answers', () => {
     query = { tab: 'keys' };
     render(<SecurityPage />);
     fireEvent.click(screen.getByRole('button', { name: /generate token/i }));
+    fireEvent.click(await screen.findByRole('button', { name: 'confirm-step-up' }));
     await waitFor(() => expect(generateNewToken).toHaveBeenCalledWith({
       expiresIn: 30 * 86400, permissions: ['pipelines:read', 'plugins:read'],
-    }));
+    }, 'tok'));
     expect(await screen.findByText(/2 selected permissions/)).toBeInTheDocument();
     await postureSettled();
   });

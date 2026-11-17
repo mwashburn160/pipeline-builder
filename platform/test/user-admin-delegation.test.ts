@@ -38,7 +38,7 @@ jest.unstable_mockModule('../src/helpers/audit.js', () => ({ audit: jest.fn() })
 jest.unstable_mockModule('../src/helpers/org-hierarchy.js', () => ({ isAncestorOrg: (...a: unknown[]) => mockIsAncestorOrg(...a) }));
 jest.unstable_mockModule('../src/config/index.js', () => mockConfig({ auth: { passwordMinLength: 8 } }));
 jest.unstable_mockModule('../src/helpers/user-response.js', () => ({
-  formatUserResponse: (u: unknown) => u, toOverridesRecord: (v: unknown) => v,
+  formatUserResponse: (u: unknown) => u, orgFeatureOverrides: () => undefined,
 }));
 jest.unstable_mockModule('../src/models/index.js', () => ({ Organization: { findById: jest.fn() } }));
 jest.unstable_mockModule('../src/services/index.js', () => ({

@@ -19,6 +19,7 @@ const sendMessage = jest.fn<AnyFn>();
 const markMessageAsRead = jest.fn<AnyFn>();
 const getMessages = jest.fn<AnyFn>();
 const getUnreadCount = jest.fn<AnyFn>();
+const deleteMessage = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
   default: {
@@ -26,6 +27,7 @@ jest.mock('@/lib/api', () => ({
     markMessageAsRead: (...a: unknown[]) => markMessageAsRead(...a),
     getMessages: (...a: unknown[]) => getMessages(...a),
     getUnreadCount: (...a: unknown[]) => getUnreadCount(...a),
+    deleteMessage: (...a: unknown[]) => deleteMessage(...a),
   },
 }));
 jest.mock('@/hooks/useMessageNotifications', () => ({
@@ -101,5 +103,26 @@ describe('useMessages().markAsRead', () => {
       await Promise.all([result.current.markAsRead('m-unread'), result.current.markAsRead('m-unread')]);
     });
     expect(result.current.unreadCount).toBe(2);
+  });
+});
+
+describe('useMessages().deleteMessage', () => {
+  it('resolves true and drops the row on success', async () => {
+    const { result } = await mounted();
+    deleteMessage.mockResolvedValue({ success: true });
+    let ok: boolean | undefined;
+    await act(async () => { ok = await result.current.deleteMessage('m-read'); });
+    expect(ok).toBe(true);
+    expect(result.current.messages.map((m) => m.id)).toEqual(['m-unread']);
+  });
+
+  it('resolves false, keeps the row and reports the error on failure', async () => {
+    const { result } = await mounted();
+    deleteMessage.mockRejectedValue(new Error('Delete refused'));
+    let ok: boolean | undefined;
+    await act(async () => { ok = await result.current.deleteMessage('m-read'); });
+    expect(ok).toBe(false);
+    expect(result.current.messages).toHaveLength(2);
+    expect(result.current.error).toBe('Delete refused');
   });
 });

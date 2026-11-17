@@ -19,6 +19,7 @@ import {
   listSessions,
   listTokenHistory,
   listUserOrganizations,
+  opensNewMachineSession,
   resetMfaPrompt,
   revokeAllTokens,
   revokeAccessKey,
@@ -68,12 +69,16 @@ router.get('/organizations', requireAuth, listUserOrganizations);
 
 /** POST /user/generate-token - Mint a stored MACHINE credential (optionally
  *  longer-lived or scoped) in its own machine session; from a machine token it
- *  renews that session in place. NOT step-up gated: the unattended token-renewal
- *  Lambda and `pipeline-manager infra store-token` call it with no password. A
- *  scoped caller can only re-mint its own scope. */
+ *  renews that session in place. OPENING a new machine credential is step-up
+ *  gated, like creating an access key (POST /user/keys): it is a long-lived
+ *  bearer credential a stolen session must not mint silently. RENEWING one is
+ *  not — the unattended token renewal calls it with no person to re-verify — so
+ *  the gate is conditional (`gateWhen`, see `opensNewMachineSession`). A scoped
+ *  caller can only re-mint its own scope. */
 router.post(
   '/generate-token',
   requireAuth,
+  gateWhen('opens a new machine credential', opensNewMachineSession, requireStepUp),
   audited('user.token.create'),
   // The org's "administrative actions require MFA" policy applies to OPENING a
   // new machine credential, and only a person may do that while it is on

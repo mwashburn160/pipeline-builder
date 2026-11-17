@@ -228,6 +228,29 @@ describe('useBuildStatus', () => {
     expect(latest().closed).toBe(true);
   });
 
+  it('keeps building and the stream open on a non-final attempt ERROR', async () => {
+    getBuildLogTicket.mockResolvedValue('tk');
+    const { result } = renderHook(() => useBuildStatus('req-1'));
+    await flush();
+    const es = latest();
+    act(() => es.onmessage?.({ data: JSON.stringify({ ts: '1', type: 'ERROR', message: 'try 1', data: { attemptsMade: 1, maxAttempts: 3 } }) }));
+    expect(result.current.status).toBe('building');
+    expect(es.closed).toBe(false);
+    act(() => es.onmessage?.({ data: JSON.stringify({ ts: '2', type: 'ERROR', message: 'try 3', data: { attemptsMade: 3, maxAttempts: 3 } }) }));
+    expect(result.current.status).toBe('failed');
+    expect(es.closed).toBe(true);
+  });
+
+  it('honours an explicit final flag over the attempt counts (permanent failure before the budget)', async () => {
+    getBuildLogTicket.mockResolvedValue('tk');
+    const { result } = renderHook(() => useBuildStatus('req-1'));
+    await flush();
+    const es = latest();
+    act(() => es.onmessage?.({ data: JSON.stringify({ ts: '1', type: 'ERROR', message: 'unrecoverable', data: { attemptsMade: 1, maxAttempts: 3, final: true } }) }));
+    expect(result.current.status).toBe('failed');
+    expect(es.closed).toBe(true);
+  });
+
   it('stays idle without a request id', async () => {
     const { result } = renderHook(() => useBuildStatus(null));
     await flush();

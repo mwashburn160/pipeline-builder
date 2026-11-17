@@ -27,6 +27,7 @@ import { apiCoreMock } from './helpers/mock-api-core.js';
 const mockGetByIdWithOrgs = jest.fn<AnyFn>();
 const mockUpdateFeatures = jest.fn<AnyFn>();
 const mockHasMembershipInOrg = jest.fn<AnyFn>();
+const mockLookupPrimaryOrgId = jest.fn<AnyFn>();
 const mockOrgFindById = jest.fn<AnyFn>();
 
 // Faithful mini resolver: union tier-less start + account features, then apply
@@ -110,6 +111,7 @@ jest.unstable_mockModule('../src/services/index.js', () => ({
     getByIdWithOrgs: (...a: unknown[]) => mockGetByIdWithOrgs(...a),
     updateFeatures: (...a: unknown[]) => mockUpdateFeatures(...a),
     hasMembershipInOrg: (...a: unknown[]) => mockHasMembershipInOrg(...a),
+    lookupPrimaryOrgId: (...a: unknown[]) => mockLookupPrimaryOrgId(...a),
   },
   userProfileService: {},
   // Linking stub: user-profile.js (loaded transitively) imports the key service.
@@ -153,6 +155,10 @@ function orgLean(value: unknown) {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  // Defaults: the target is a member of whatever org is asked about, and their
+  // last-active org is `org1`. Individual tests override.
+  mockHasMembershipInOrg.mockResolvedValue(true);
+  mockLookupPrimaryOrgId.mockResolvedValue('org1');
 });
 
 describe('getUserById — purchased account features', () => {
@@ -269,8 +275,7 @@ describe('updateUserFeatures — purchased account features', () => {
   it('REJECTS an org admin enabling an entitlement-gated feature not in the org tier/entitlements', async () => {
     // SECURITY (privilege-escalation regression): an org admin must not be able to
     // override-enable `sso` (a paid add-on) when the org's tier doesn't include it
-    // and it hasn't been purchased — that bypasses billing AND (since
-    // featureOverrides is a GLOBAL field) leaks into the target's other orgs.
+    // and it hasn't been purchased — that bypasses billing.
     mockHasMembershipInOrg.mockResolvedValue(true);
     // Admin's org: developer tier, no purchased entitlements → `sso` is gated.
     mockOrgFindById.mockReturnValue(orgLean({ tier: 'developer', featureEntitlements: [] }));
@@ -355,5 +360,99 @@ describe('updateUserFeatures — purchased account features', () => {
       targetId: 'user1',
       details: expect.objectContaining({ features: ['audit_log', 'sso'], after: { audit_log: true, sso: false } }),
     }));
+  });
+});
+
+describe('per-org feature overrides', () => {
+  const ORG_B = 'bbbbbbbbbbbbbbbbbbbbbbbb';
+  const ORG_C = 'cccccccccccccccccccccccc';
+  const savedUser = { _id: 'user1', username: 'alice', email: 'a@x.io', isSuperAdmin: false, isEmailVerified: true, lastActiveOrgId: 'org1' };
+
+  beforeEach(() => {
+    mockOrgFindById.mockReturnValue(orgLean({ tier: 'pro', featureEntitlements: [] }));
+    mockUpdateFeatures.mockResolvedValue({ user: savedUser, organizationName: 'Acme', activeOrgRole: 'member', tier: 'pro', previousOverrides: {} });
+  });
+
+  it("an org admin's write targets ONLY the admin's own org", async () => {
+    const res = mockRes();
+    const req: any = { user: ORG_ADMIN, params: { id: 'user1' }, body: { overrides: { sso: false } } };
+    await (updateUserFeatures as unknown as (r: any, s: any) => Promise<void>)(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(mockUpdateFeatures).toHaveBeenCalledWith('user1', 'orgA', { sso: false });
+    expect(mockAudit).toHaveBeenCalledWith(req, 'admin.user.features.update', expect.objectContaining({ affectedOrgId: 'orgA' }));
+  });
+
+  it('REFUSES an org admin naming another org in the body (no write)', async () => {
+    const res = mockRes();
+    const req: any = { user: ORG_ADMIN, params: { id: 'user1' }, body: { organizationId: ORG_B, overrides: { sso: false } } };
+    await (updateUserFeatures as unknown as (r: any, s: any) => Promise<void>)(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(mockUpdateFeatures).not.toHaveBeenCalled();
+  });
+
+  it("a system admin defaults to the target's last-active org", async () => {
+    const res = mockRes();
+    const req: any = { user: SYSADMIN, params: { id: 'user1' }, body: { overrides: { sso: true } } };
+    await (updateUserFeatures as unknown as (r: any, s: any) => Promise<void>)(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(mockUpdateFeatures).toHaveBeenCalledWith('user1', 'org1', { sso: true });
+  });
+
+  it('a system admin may name the org explicitly (normalized to lowercase)', async () => {
+    const res = mockRes();
+    const req: any = { user: SYSADMIN, params: { id: 'user1' }, body: { organizationId: ORG_C.toUpperCase(), overrides: { sso: true } } };
+    await (updateUserFeatures as unknown as (r: any, s: any) => Promise<void>)(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(mockHasMembershipInOrg).toHaveBeenCalledWith('user1', ORG_C);
+    expect(mockUpdateFeatures).toHaveBeenCalledWith('user1', ORG_C, { sso: true });
+    // Entitlements for the response come from the TARGET org, not the last-active one.
+    expect(mockOrgFindById).toHaveBeenCalledWith(ORG_C);
+  });
+
+  it('400s a system admin naming an org the user is not a member of', async () => {
+    mockHasMembershipInOrg.mockResolvedValue(false);
+    const res = mockRes();
+    const req: any = { user: SYSADMIN, params: { id: 'user1' }, body: { organizationId: ORG_B, overrides: { sso: true } } };
+    await (updateUserFeatures as unknown as (r: any, s: any) => Promise<void>)(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(mockUpdateFeatures).not.toHaveBeenCalled();
+  });
+
+  it('400s a malformed organizationId', async () => {
+    const res = mockRes();
+    const req: any = { user: SYSADMIN, params: { id: 'user1' }, body: { organizationId: 'a.b', overrides: {} } };
+    await (updateUserFeatures as unknown as (r: any, s: any) => Promise<void>)(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(mockUpdateFeatures).not.toHaveBeenCalled();
+  });
+
+  it("getUserById shows an org admin ONLY their own org's overrides", async () => {
+    mockGetByIdWithOrgs.mockResolvedValue({
+      user: {
+        _id: 'user1',
+        username: 'alice',
+        email: 'a@x.io',
+        isSuperAdmin: false,
+        isEmailVerified: true,
+        lastActiveOrgId: 'orgB',
+        featureOverrides: { orgA: { audit_log: false }, orgB: { sso: true } },
+      },
+      memberships: [{ organizationId: 'orgA', role: 'member' }, { organizationId: 'orgB', role: 'member' }],
+      orgMap: new Map([['orgA', { _id: 'orgA', name: 'A', slug: 'a', tier: 'pro' }]]),
+    });
+
+    const res = mockRes();
+    await (getUserById as unknown as (req: any, res: any) => Promise<void>)({ user: ORG_ADMIN, params: { id: 'user1' } }, res);
+
+    expect(res.status).toHaveBeenCalledWith(200);
+    const payload = (res.json as jest.Mock<AnyFn>).mock.calls[0][0].data;
+    expect(payload.user.featureOverrides).toEqual({ audit_log: false });
+    expect(mockResolveUserFeatures.mock.calls[0][1]?.overrides).toEqual({ audit_log: false });
   });
 });

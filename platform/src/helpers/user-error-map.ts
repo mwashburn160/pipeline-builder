@@ -19,6 +19,7 @@ import { RL_LAST_PRIVILEGED_MEMBER } from '../services/roles-errors.js';
 import {
   PROFILE_USER_NOT_FOUND,
   PROFILE_EMAIL_TAKEN,
+  PROFILE_EMAIL_SSO_MANAGED,
   PROFILE_INVALID_CREDENTIALS,
   PROFILE_PAT_LIMIT,
   USER_OWNER_HAS_ORGS,
@@ -31,6 +32,7 @@ export const userErrorMap = {
   [SESSION_AUTH_MISSING]: { status: 401, message: 'Session cannot mint credentials — please sign in again' },
   [PROFILE_USER_NOT_FOUND]: { status: 404, message: 'User not found' },
   [PROFILE_EMAIL_TAKEN]: { status: 409, message: 'Email already in use' },
+  [PROFILE_EMAIL_SSO_MANAGED]: { status: 403, message: 'Your organization requires single sign-on (SSO) for this email address, so it cannot be changed here. Ask your organization\'s administrator.' },
   [PROFILE_INVALID_CREDENTIALS]: { status: 401, message: 'Current password incorrect' },
   [USER_OWNER_HAS_ORGS]: { status: 400, message: 'Cannot delete account while you own an organization that has other members or teams. Transfer ownership (or remove its teams) first — GET /user/account/deletion lists which.' },
   // Sole-owner self-delete: an owned org's recovery snapshot failed, so nothing was deleted.

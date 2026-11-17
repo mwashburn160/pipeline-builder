@@ -18,7 +18,7 @@ import type { AskAvailability, AskSource, AskTurn } from '@/lib/api/domains/ask'
 import { useFeatures } from '@/hooks/useFeatures';
 import { AskHelpTopics } from './AskHelpTopics';
 import { AskSources } from './AskSources';
-import { clearTranscript, loadTranscript, saveTranscript } from './transcript-store';
+import { clearTranscript, getTranscriptEpoch, loadTranscript, saveTranscript } from './transcript-store';
 import { formatError } from '@/lib/constants';
 import { formatAIError, streamEventError } from '@/lib/ai-errors';
 import { AIServedBy, type AIServedByInfo, type AIUsageInfo } from '@/components/ui/AIServedBy';
@@ -181,6 +181,10 @@ export function AskPanel({ onClose }: { onClose: () => void }) {
   // would be wasted work, and this must run before the first paint so the
   // transcript does not flash empty.
   const [messages, setMessages] = useState<ChatMessage[]>(() => loadTranscript<ChatMessage>());
+  // The session generation this panel's transcript belongs to. A logout or org
+  // switch bumps it (and clears storage); this panel must then never write its
+  // old conversation back. The layout remounts the panel on identity change.
+  const epochRef = useRef(getTranscriptEpoch());
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -201,6 +205,7 @@ export function AskPanel({ onClose }: { onClose: () => void }) {
   // main thread during the one moment the user is watching it render.
   useEffect(() => {
     if (busy) return;
+    if (epochRef.current !== getTranscriptEpoch()) return;
     saveTranscript(persistable(messages));
   }, [messages, busy]);
 

@@ -44,6 +44,7 @@ const hideMessages = jest.fn<AnyFn>();
 const unhideMessages = jest.fn<AnyFn>();
 const setMessagesReadState = jest.fn<AnyFn>();
 const deleteMessages = jest.fn<AnyFn>();
+const deleteMessage = jest.fn<AnyFn>();
 const getOrganizationMembers = jest.fn<AnyFn>();
 jest.mock('@/lib/api', () => ({
   __esModule: true,
@@ -55,6 +56,7 @@ jest.mock('@/lib/api', () => ({
     unhideMessages: (...a: unknown[]) => unhideMessages(...a),
     setMessagesReadState: (...a: unknown[]) => setMessagesReadState(...a),
     deleteMessages: (...a: unknown[]) => deleteMessages(...a),
+    deleteMessage: (...a: unknown[]) => deleteMessage(...a),
     getOrganizationMembers: (...a: unknown[]) => getOrganizationMembers(...a),
     getUnreadCount: () => Promise.resolve({ data: { count: 0 } }),
   },
@@ -81,6 +83,7 @@ beforeEach(() => {
   unhideMessages.mockReset().mockResolvedValue({ data: { restored: 2 } });
   setMessagesReadState.mockReset().mockResolvedValue({ data: { updated: 2 } });
   deleteMessages.mockReset().mockResolvedValue({ data: { deleted: ['m-3'], notFound: [], refused: [] } });
+  deleteMessage.mockReset().mockResolvedValue({ success: true });
   getOrganizationMembers.mockReset().mockResolvedValue({ data: { members: [{ id: 'u5', username: 'dana', email: 'd@x.io' }] } });
   pageToast.success.mockClear();
   pageToast.error.mockClear();
@@ -251,6 +254,29 @@ describe('delete', () => {
     await confirmIn(/^Delete$/);
 
     await waitFor(() => expect(pageToast.error).toHaveBeenCalledWith(expect.stringMatching(/1 message could not be deleted/)));
+  });
+});
+
+describe('single delete of the open message', () => {
+  async function openAndDelete() {
+    render(<MessagesPage />);
+    fireEvent.click(await screen.findByText('third body'));
+    expect(await screen.findByTestId('thread')).toHaveTextContent('My question');
+    fireEvent.click(screen.getByRole('button', { name: 'Delete message' }));
+    await confirmIn(/^Delete$/);
+    await waitFor(() => expect(deleteMessage).toHaveBeenCalledWith('m-3'));
+  }
+
+  it('closes the thread once the delete succeeds', async () => {
+    await openAndDelete();
+    await waitFor(() => expect(screen.queryByTestId('thread')).not.toBeInTheDocument());
+  });
+
+  it('keeps the thread open when the delete fails', async () => {
+    deleteMessage.mockRejectedValue(new Error('Delete refused'));
+    await openAndDelete();
+    expect(await screen.findByText(/Delete refused/)).toBeInTheDocument();
+    expect(screen.getByTestId('thread')).toHaveTextContent('My question');
   });
 });
 

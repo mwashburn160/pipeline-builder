@@ -49,7 +49,7 @@ jest.mock('@/lib/help', () => ({
 }));
 
 import { AskPanel } from '../src/components/ask/AskPanel';
-import { loadTranscript, saveTranscript, clearTranscript } from '../src/components/ask/transcript-store';
+import { loadTranscript, saveTranscript, clearTranscript, resetTranscriptSession } from '../src/components/ask/transcript-store';
 
 /** One finished turn citing two docs: one with an in-app topic, one without. */
 async function* answerWithSources() {
@@ -144,6 +144,31 @@ describe('Ask transcript', () => {
     fireEvent.click(await screen.findByRole('button', { name: /clear/i }));
     await waitFor(() => expect(screen.queryAllByText(/Use SSO\./)).toHaveLength(0));
     expect(loadTranscript()).toEqual([]);
+  });
+
+  it('is dropped at a session boundary, and a panel still open never writes it back', async () => {
+    const { unmount } = render(<AskPanel onClose={jest.fn<AnyFn>()} />);
+    const box = await screen.findByLabelText('Ask a question');
+    fireEvent.change(box, { target: { value: 'how do I set up SSO?' } });
+    fireEvent.submit(box.closest('form')!);
+    await screen.findAllByText(/Use SSO\./);
+    await waitFor(() => expect(loadTranscript().length).toBeGreaterThan(0));
+
+    // Logout / org switch (clearSessionCaches).
+    resetTranscriptSession();
+    expect(loadTranscript()).toEqual([]);
+
+    // The old panel settling again must not resurrect the previous conversation.
+    const before = screen.getAllByText(/Use SSO\./).length;
+    fireEvent.change(screen.getByLabelText('Ask a question'), { target: { value: 'again' } });
+    fireEvent.submit(screen.getByLabelText('Ask a question').closest('form')!);
+    await waitFor(() => expect(screen.getAllByText(/Use SSO\./).length).toBeGreaterThan(before));
+    expect(loadTranscript()).toEqual([]);
+
+    unmount();
+    render(<AskPanel onClose={jest.fn<AnyFn>()} />);
+    await screen.findByLabelText('Ask a question');
+    expect(screen.queryAllByText(/Use SSO\./)).toHaveLength(0);
   });
 });
 

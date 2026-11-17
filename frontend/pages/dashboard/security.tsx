@@ -315,11 +315,20 @@ function MachineTokenSection({ readOnly, held }: { readOnly: boolean; held: read
   const selected = selectedPerms ?? new Set(readOnlyPreset(held));
   const permissions = scope ? undefined : permissionsForRequest(permMode, selected);
 
-  const generate = async () => {
+  // Minting a machine credential is step-up gated (it opens a long-lived
+  // session). Validate, then re-confirm in StepUpModal before the request.
+  const [confirming, setConfirming] = useState(false);
+  const requestGenerate = () => {
     if (permissions && permissions.length === 0) {
       setError('Choose at least one permission, or full access');
       return;
     }
+    setError(null);
+    setConfirming(true);
+  };
+
+  const generate = async (stepUpToken: string) => {
+    setConfirming(false);
     setGenerating(true);
     setError(null);
     setToken(null);
@@ -328,7 +337,7 @@ function MachineTokenSection({ readOnly, held }: { readOnly: boolean; held: read
         expiresIn: days * 86400,
         ...(scope ? { scope } : {}),
         ...(permissions ? { permissions } : {}),
-      });
+      }, stepUpToken);
       if (!res.success || !res.data?.refreshToken) throw new Error('Failed to generate token');
       // The REFRESH token is the stored credential: it renews the short-lived
       // access token (POST /auth/refresh) until the credential's lifetime ends.
@@ -374,7 +383,7 @@ function MachineTokenSection({ readOnly, held }: { readOnly: boolean; held: read
             {TOKEN_SCOPE_OPTIONS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
           </Select>
         </FormField>
-        <Button onClick={() => void generate()} loading={generating} readOnly={readOnly}>
+        <Button onClick={requestGenerate} loading={generating} readOnly={readOnly}>
           {generating ? 'Generating...' : <><RefreshCw className="w-4 h-4 mr-2" />Generate token</>}
         </Button>
       </div>
@@ -412,6 +421,16 @@ function MachineTokenSection({ readOnly, held }: { readOnly: boolean; held: read
             className="mt-2"
           />
         </>
+      )}
+
+      {confirming && (
+        <StepUpModal
+          title="Generate a machine token?"
+          action={`Generate a ${days === 1 ? '1-day' : `${days}-day`} machine token`}
+          details={<p>It is a long-lived credential that can act as you wherever it is stored, until it expires or you stop it under Sessions.</p>}
+          onConfirmed={(stepUpToken: string) => void generate(stepUpToken)}
+          onClose={() => setConfirming(false)}
+        />
       )}
     </SectionCard>
   );

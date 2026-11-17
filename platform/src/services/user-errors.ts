@@ -31,5 +31,10 @@ export const UA_ROLES_NEED_ORG = 'UA_ROLES_NEED_ORG';
 
 export const PROFILE_USER_NOT_FOUND = 'PROFILE_USER_NOT_FOUND';
 export const PROFILE_EMAIL_TAKEN = 'PROFILE_EMAIL_TAKEN';
+/** A self-service email change AWAY from an address whose domain an org the
+ *  person belongs to has put under "SSO required". Enforcement keys on the
+ *  current email's domain, so the change would escape it while keeping the
+ *  membership; the org's admins manage that address instead. */
+export const PROFILE_EMAIL_SSO_MANAGED = 'PROFILE_EMAIL_SSO_MANAGED';
 export const PROFILE_INVALID_CREDENTIALS = 'PROFILE_INVALID_CREDENTIALS';
 export const PROFILE_PAT_LIMIT = 'PROFILE_PAT_LIMIT';

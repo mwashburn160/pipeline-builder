@@ -465,8 +465,9 @@ export function DashboardLayout({
           />
         )}
 
-        {/* Ask agent panel — read-only, streaming, grounded in docs. */}
-        {askOpen && <AskPanel onClose={() => setAskOpen(false)} />}
+        {/* Ask agent panel — read-only, streaming, grounded in docs. Keyed on the
+            identity so a user/org change discards the in-memory conversation. */}
+        {askOpen && <AskPanel key={`${user?.id ?? ''}:${user?.organizationId ?? ''}`} onClose={() => setAskOpen(false)} />}
       </div>
     </>
   );

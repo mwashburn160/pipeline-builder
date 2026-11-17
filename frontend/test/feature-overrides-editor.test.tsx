@@ -99,8 +99,26 @@ describe('FeatureOverridesEditor', () => {
     expect(updateUserFeatures).toHaveBeenCalledWith('user-42', {
       ai_generation: true,
       custom_integrations: false,
-    }, 'step-up-token');
+    }, 'step-up-token', undefined);
     expect(onSaved).toHaveBeenCalled();
+  });
+
+  it("saves into the named org's entry (overrides are per-org)", async () => {
+    updateUserFeatures.mockResolvedValue({ success: true });
+    render(
+      <FeatureOverridesEditor userId="u1" organizationId="org-b" organizationName="Beta" initial={{}} onSaved={jest.fn<AnyFn>()} />,
+    );
+    expect(screen.getByText('Beta')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText(/Override AI Generation/i), { target: { value: 'on' } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /save overrides/i }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /confirm password/i }));
+    });
+
+    expect(updateUserFeatures).toHaveBeenCalledWith('u1', { ai_generation: true }, 'step-up-token', 'org-b');
   });
 
   it('removes an override by switching it back to inherit', async () => {
@@ -111,7 +129,7 @@ describe('FeatureOverridesEditor', () => {
     await saveWithStepUp();
 
     // The inherit transition produces an empty payload — the key is dropped.
-    expect(updateUserFeatures).toHaveBeenCalledWith('u1', {}, 'step-up-token');
+    expect(updateUserFeatures).toHaveBeenCalledWith('u1', {}, 'step-up-token', undefined);
   });
 
   it('shows the backend error message on a failed save', async () => {

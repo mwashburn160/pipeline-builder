@@ -40,7 +40,7 @@ jest.unstable_mockModule('../src/config/index.js', () => mockConfig({ auth: { pa
 jest.unstable_mockModule('../src/helpers/user-response.js', () => ({
   formatUserResponse: (u: unknown) => u,
 
-  toOverridesRecord: (v: unknown) => v,
+  orgFeatureOverrides: () => undefined,
 }));
 
 jest.unstable_mockModule('../src/models/index.js', () => ({

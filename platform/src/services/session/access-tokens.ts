@@ -11,13 +11,14 @@
 import crypto from 'crypto';
 import { API_KEY_TOKEN_TTL_SECONDS, confinePermissionsToOrg, createLogger, intersectPermissions, isSystemOrgId, resolveUserFeatures, resolveUserPermissions, STRONG_STEP_UP_METHODS } from '@pipeline-builder/api-core';
 import type { AssuranceLevel, AuthMethod, StepUpMethod, TokenScope, TokenUse, PlanTier } from '@pipeline-builder/api-core';
+import { isAdminOrgRole, type OrgRole } from '@pipeline-builder/api-core/wire-vocabulary';
 import { resolveOrgMembership, type MembershipContext } from './membership-context.js';
 import { config } from '../../config/index.js';
 import { IMPERSONATION_SESSION_TTL_MS } from '../../constants/impersonation.js';
-import { isAdminOrgRole, type OrgRole } from '@pipeline-builder/api-core/wire-vocabulary';
 import { accessTokenVersion } from '../../helpers/access-version.js';
 import { applyAuthenticatorPolicy } from '../../helpers/authenticator-policy.js';
 import { isAncestorOrg } from '../../helpers/org-hierarchy.js';
+import { orgFeatureOverrides } from '../../helpers/user-response.js';
 import type { UserDocument } from '../../models/user.js';
 import type { AccessTokenPayload } from '../../types/index.js';
 import { MFA_REQUIRED_FOR_ORG, SESSION_AUTH_MISSING } from '../auth-errors.js';
@@ -147,9 +148,9 @@ export function createAccessTokenPayload(
   const tier: PlanTier = membership?.tier ?? 'developer';
   const holderIsSuperAdmin = user.isSuperAdmin === true;
   const isSuperAdmin = scope || restricted ? false : holderIsSuperAdmin;
-  const overrides = user.featureOverrides
-    ? Object.fromEntries(user.featureOverrides as Map<string, boolean>)
-    : undefined;
+  // Overrides are per-org: apply ONLY the active org's entry, so an override set
+  // by (or for) one org never reaches the user's token in another.
+  const overrides = orgFeatureOverrides(user.featureOverrides, membership?.organizationId);
   return {
     type: 'access',
     sub: user._id.toString(),

@@ -8,7 +8,7 @@ import { apiKeyService } from './api-key-service.js';
 import { authService } from './auth-service.js';
 import { deleteUserCascade } from './user-cascade.js';
 import { anonymizeUserEcosystemContent } from './user-ecosystem-privacy.js';
-import { PROFILE_USER_NOT_FOUND, PROFILE_EMAIL_TAKEN, PROFILE_INVALID_CREDENTIALS, USER_OWNER_HAS_ORGS } from './user-errors.js';
+import { PROFILE_USER_NOT_FOUND, PROFILE_EMAIL_TAKEN, PROFILE_EMAIL_SSO_MANAGED, PROFILE_INVALID_CREDENTIALS, USER_OWNER_HAS_ORGS } from './user-errors.js';
 import { loadActiveOrgInfo } from '../helpers/active-org-info.js';
 import { toOrgId } from '../helpers/org-id.js';
 import { assertNewPasswordAcceptable } from '../helpers/password-policy.js';
@@ -329,7 +329,9 @@ class UserProfileService {
    * to the old address) so the user re-verifies, and `previousEmail` names the old
    * address so the caller can tell its owner; re-sending the current address is
    * not a change and touches nothing. Throws PROFILE_EMAIL_TAKEN when the new
-   * email is already in use, PROFILE_USER_NOT_FOUND when the user is gone.
+   * email is already in use, PROFILE_EMAIL_SSO_MANAGED when the CURRENT address
+   * is under an "SSO required" policy of an account the user belongs to, and
+   * PROFILE_USER_NOT_FOUND when the user is gone.
    */
   async updateProfile(userId: string, body: { username?: string; email?: string }) {
     const updates: Partial<{ username: string; email: string; isEmailVerified: boolean }> = {};
@@ -351,6 +353,18 @@ class UserProfileService {
         _id: { $ne: new Types.ObjectId(userId) },
       });
       if (existing) throw new Error(PROFILE_EMAIL_TAKEN);
+      // SSO ESCAPE: "SSO required" keys on the CURRENT address's domain, so a
+      // member who moved their email off it would keep the membership yet sign
+      // in by password again. While the address is governed for an account they
+      // belong to, it is the org's to manage. Fails closed on an unreadable
+      // lineage. Imported on demand: sso-enforcement's graph is wide.
+      const { findSsoEnforcementForEmail } = await import('../helpers/sso-enforcement.js');
+      const enforcement = await findSsoEnforcementForEmail(previousEmail!);
+      if (enforcement) {
+        const { hasMembershipInAccount } = await import('../helpers/account-membership.js');
+        const member = await hasMembershipInAccount(userId, enforcement.orgId).catch(() => true);
+        if (member) throw new Error(PROFILE_EMAIL_SSO_MANAGED);
+      }
       updates.isEmailVerified = false;
     }
 

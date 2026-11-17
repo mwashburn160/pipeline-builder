@@ -433,10 +433,17 @@ export function authApi(core: ApiCore) {
      * lifetime: the returned refresh token (the thing to store) renews the
      * short-lived access token through POST /auth/refresh until then.
      */
-    generateNewToken: async (body?: { expiresIn?: number; scope?: string; permissions?: string[] }) => {
+    generateNewToken: async (body?: { expiresIn?: number; scope?: string; permissions?: string[] }, stepUpToken?: string) => {
       return core.request<ApiResponse<{ accessToken: string; refreshToken: string; expiresIn: number }>>(
         '/api/user/generate-token',
-        { method: 'POST', body: JSON.stringify(body ?? {}) },
+        {
+          method: 'POST',
+          // Opening a new machine credential is step-up gated. The token is
+          // shown once: a replay from the global dialog would mint one nobody sees.
+          replayOnStepUp: false,
+          headers: core.stepUpHeader(stepUpToken),
+          body: JSON.stringify(body ?? {}),
+        },
       );
     },
 

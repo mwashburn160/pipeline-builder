@@ -43,7 +43,7 @@ jest.unstable_mockModule('../src/middleware/index.js', () => ({ requireAuth: tag
 const HANDLERS = [
   'listAllUsers', 'getUserById', 'createUserByAdmin', 'updateUserById', 'deleteUserById', 'bulkDeleteUsers', 'updateUserFeatures',
   'changePassword', 'createAccessKey', 'deleteUser', 'generateToken', 'getPreferences', 'getUser', 'listAccessKeys', 'listTokenHistory',
-  'listUserOrganizations', 'revokeAllTokens', 'revokeAccessKey', 'updatePreferences', 'updateUser', 'changesOwnEmail',
+  'listUserOrganizations', 'revokeAllTokens', 'revokeAccessKey', 'updatePreferences', 'updateUser', 'changesOwnEmail', 'opensNewMachineSession',
   'listSessions', 'revokeSession', 'getOwnPasswordPolicy', 'getAccountDeletionPlan', 'exportOwnData',
   // The password-only prompt's own-account writes — none of them step-up gated,
   // which is the property the `/user` assertions below pin.
@@ -153,8 +153,16 @@ describe('step-up route gates', () => {
     expect(gate.description).toBe('creates a platform super-admin');
   });
 
-  it('POST /user/generate-token is NOT step-up gated (unattended token renewal)', () => {
+  it('POST /user/generate-token step-up gates OPENING a machine credential only — renewal stays unattended', () => {
     const mw = routeChain(userRouter, 'post', '/generate-token');
+    // Not the unconditional gate: the unattended renewal has no person to re-verify.
     expect(mw).not.toContain('requireStepUp');
+    expect(mw).toContain('gateWhen(requireStepUp)');
+    expect(mw.indexOf('gateWhen(requireStepUp)')).toBeGreaterThan(mw.indexOf('requireAuth'));
+    const layer = userRouter.stack.find((l: any) => l.route?.path === '/generate-token' && l.route.methods.post);
+    const gate = layer.route.stack.map((s: any) => s.handle).find((h: any) => h.__mw === 'gateWhen(requireStepUp)') as Conditional;
+    // The predicate IS the controller's new-session check.
+    expect((gate.when as unknown as { __mw?: string }).__mw).toBe('opensNewMachineSession');
+    expect(gate.description).toBe('opens a new machine credential');
   });
 });

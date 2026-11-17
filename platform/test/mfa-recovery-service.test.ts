@@ -183,9 +183,16 @@ jest.unstable_mockModule('../src/services/api-key-service.js', () => ({
   apiKeyService: { revokeAllForUser: (...a: unknown[]) => mockRevokeAllKeys(...a) },
 }));
 
+// The outside-account rule (helpers/account-membership.ts has its own suite):
+// driven per test — by default the target belongs only to this account.
+const mockOutsideAccount = jest.fn<(...a: unknown[]) => Promise<boolean>>(async () => false);
+jest.unstable_mockModule('../src/helpers/account-membership.js', () => ({
+  hasMembershipOutsideAccount: (...a: unknown[]) => mockOutsideAccount(...a),
+}));
+
 const svc = await import('../src/services/mfa-recovery.js');
 const { MFA_RESET_GRACE_MAX_HOURS } = await import('../src/helpers/mfa-policy.js');
-const { MFA_RESET_ALREADY_PENDING, MFA_RESET_EXPIRED, MFA_RESET_NOT_FOUND, MFA_RESET_NOT_MEMBER, MFA_RESET_NOT_PENDING, MFA_RESET_PLATFORM_ADMIN, MFA_RESET_SECOND_PERSON_REQUIRED, MFA_RESET_SELF } = await import('../src/services/mfa-recovery-errors.js');
+const { MFA_RESET_ALREADY_PENDING, MFA_RESET_EXPIRED, MFA_RESET_NOT_FOUND, MFA_RESET_NOT_MEMBER, MFA_RESET_NOT_PENDING, MFA_RESET_OUTSIDE_ACCOUNT, MFA_RESET_PLATFORM_ADMIN, MFA_RESET_SECOND_PERSON_REQUIRED, MFA_RESET_SELF } = await import('../src/services/mfa-recovery-errors.js');
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -219,6 +226,7 @@ async function fileRequest(reason = 'Lost phone and laptop'): Promise<string> {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockOutsideAccount.mockResolvedValue(false);
   db.users = [];
   db.memberships = [];
   db.requests = [];
@@ -347,6 +355,15 @@ describe('requestMfaReset — who may be asked for, and by whom', () => {
     await expect(svc.requestMfaReset({
       organizationId: ORG, targetUserId: SYSADMIN, requester: actor(ADMIN_1, 'a1@acme.test'), reason: 'r',
     })).rejects.toThrow(MFA_RESET_PLATFORM_ADMIN);
+    expect(MfaResetRequest.create).not.toHaveBeenCalled();
+  });
+
+  it('REFUSES a member who also belongs to another account — one tenant never strips factors another relies on', async () => {
+    mockOutsideAccount.mockResolvedValue(true);
+    await expect(svc.requestMfaReset({
+      organizationId: ORG, targetUserId: MEMBER, requester: actor(ADMIN_1, 'a1@acme.test'), reason: 'r',
+    })).rejects.toThrow(MFA_RESET_OUTSIDE_ACCOUNT);
+    expect(mockOutsideAccount).toHaveBeenCalledWith(MEMBER, ORG);
     expect(MfaResetRequest.create).not.toHaveBeenCalled();
   });
 
@@ -518,6 +535,17 @@ describe('approveMfaReset — the two-person rule', () => {
     expect(db.requests[0].status).toBe('expired');
   });
 
+  it('REFUSES at approval a member who joined another account since the request (and expires it)', async () => {
+    const id = await fileRequest();
+    mockOutsideAccount.mockResolvedValue(true);
+
+    await expect(svc.approveMfaReset({ requestId: id, approver: actor(ADMIN_2, 'a2@acme.test') }))
+      .rejects.toThrow(MFA_RESET_OUTSIDE_ACCOUNT);
+    expect(mockOutsideAccount).toHaveBeenLastCalledWith(db.requests[0].targetUserId, ORG);
+    expect(db.requests[0].status).toBe('expired');
+    expect(mockPublishRevocation).not.toHaveBeenCalled();
+  });
+
   it('honours a bounded custom grace on approval', async () => {
     const id = await fileRequest();
     const { result } = await svc.approveMfaReset({ requestId: id, approver: actor(ADMIN_2, 'a2@acme.test'), graceHours: 4 });
@@ -574,6 +602,17 @@ describe('directMfaReset — the single-person sysadmin path', () => {
     // that already happened, producing a second bump and a confusing trail.
     expect(db.requests[0]).toMatchObject({ status: 'denied', decisionNote: 'Superseded by a direct reset' });
     expect(String(db.requests[0].decidedBy)).toBe(SYSADMIN);
+  });
+
+  it('REFUSES a platform administrator — the same refusal as the two-person path', async () => {
+    const OTHER_OP = '655555555555555555555555';
+    seedUser(OTHER_OP, 'op2@pipeline-builder.test', { isSuperAdmin: true });
+    db.passkeys.set(OTHER_OP, 1);
+
+    await expect(svc.directMfaReset({ targetUserId: OTHER_OP, actor: actor(SYSADMIN, 'root@pipeline-builder.test', true) }))
+      .rejects.toThrow(MFA_RESET_PLATFORM_ADMIN);
+    expect(db.passkeys.get(OTHER_OP)).toBe(1);
+    expect(mockPublishRevocation).not.toHaveBeenCalled();
   });
 
   it('REFUSES a sysadmin resetting their own factors', async () => {

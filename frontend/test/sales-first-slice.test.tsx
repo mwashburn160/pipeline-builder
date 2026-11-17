@@ -183,10 +183,24 @@ describe('F1 — the modal prices the change', () => {
     // quoting the undiscounted figure, which is the state the modal was in.
     getPlanPreview.mockRejectedValue(new Error('billing down'));
     render(<PlanChangeModal {...props} />);
-    await waitFor(() => expect(getPlanPreview).toHaveBeenCalledWith('business'));
+    await waitFor(() => expect(getPlanPreview).toHaveBeenCalledWith('business', 'monthly'));
     expect(screen.queryByTestId('plan-change-discount')).not.toBeInTheDocument();
     // The list price, which is what this modal always showed.
     expect(screen.getByText(/\$249\.00/)).toBeInTheDocument();
+  });
+
+  it('requests the selected interval and ignores a preview priced at another one', async () => {
+    // The page labels amounts with ITS interval; a monthly-priced preview under
+    // an annual label would quote a wrong number.
+    getPlanPreview.mockResolvedValue({ data: { preview: {
+      tier: 'business', fromTier: 'team', interval: 'monthly',
+      listCents: 24900, discountCents: 12450, netPlanCents: 12450,
+      survivingAddonCents: 0, prunedAddons: [], totalCents: 12450, discountName: 'disc_1',
+    } } });
+    render(<PlanChangeModal {...props} interval="annual" />);
+    await waitFor(() => expect(getPlanPreview).toHaveBeenCalledWith('business', 'annual'));
+    await waitFor(() => expect(screen.getByText(/\$2,490\.00/)).toBeInTheDocument());
+    expect(screen.queryByTestId('plan-change-discount')).not.toBeInTheDocument();
   });
 
   it('quotes no discount line when there is no discount', async () => {
@@ -196,7 +210,7 @@ describe('F1 — the modal prices the change', () => {
       survivingAddonCents: 0, prunedAddons: [], totalCents: 24900, discountName: null,
     } } });
     render(<PlanChangeModal {...props} />);
-    await waitFor(() => expect(getPlanPreview).toHaveBeenCalledWith('business'));
+    await waitFor(() => expect(getPlanPreview).toHaveBeenCalledWith('business', 'monthly'));
     expect(screen.queryByTestId('plan-change-discount')).not.toBeInTheDocument();
   });
 });

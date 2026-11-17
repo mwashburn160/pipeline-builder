@@ -139,10 +139,11 @@ Some requirements depend on the body in a way the route gate cannot express, and
 
 ### Gates that apply to only some requests
 
-`gateWhen` applies gates to only the requests a predicate selects, and the route table records them under `conditionalGates` with the route's own description of those requests. A row renders each one with its condition (`aal2(when …)`, `step-up(…when …)`), on top of what every request meets. Three routes use it:
+`gateWhen` applies gates to only the requests a predicate selects, and the route table records them under `conditionalGates` with the route's own description of those requests. A row renders each one with its condition (`aal2(when …)`, `step-up(…when …)`), on top of what every request meets. Four routes use it:
 
 - **`platform POST /users`**: a body with `isSuperAdmin: true` IS a platform-admin grant, so it also needs `aal2 + step-up(totp,webauthn)`, the same as `POST /admin/users/:id/grants`. An ordinary account create needs neither.
 - **`platform PATCH /user/profile`**: CHANGING the sign-in email also needs a step-up, because the email is where a password reset is sent. A username edit stays authenticated-only. The conditional gate is what puts this route in the table at all.
+- **`platform POST /user/generate-token`**: OPENING a new machine credential needs a step-up, the same as `POST /user/keys`, because it mints a refresh token that lives up to 365 days. Without it, a stolen 15-minute access token converts into a year-long credential. Renewal by the machine session itself (the caller's slot is already a machine slot) stays ungated so unattended renewal keeps working.
 - **`billing DELETE /billing/subscriptions/by-org/:orgId`**: the billing admin page's "Purge" deletes every subscription and billing event of an org, so a system-org USER must step up on the server, not only in the page's modal. The platform org-cascade calls the same route with a service token, which has no person to re-verify, so the gate selects user callers only.
 
 Dropping a `gateWhen`, or weakening what it wraps, changes these rows like any other gate. Which requests each predicate selects is pinned in `platform/test/step-up-route-gates.test.ts` (platform) and `api/billing/test/admin-subscriptions.test.ts` (billing), and the gates' behaviour in `platform/test/gate-when.test.ts`.
@@ -556,6 +557,7 @@ Dropping a `gateWhen`, or weakening what it wraps, changes these rows like any o
 | platform | PATCH | `/organization/:id/transfer-owner` | `any(org_settings:write) + aal2 + step-up(any)` |
 | platform | PUT | `/organization/ai-config` | `any(org_settings:write) + step-up(any)` |
 | platform | GET | `/organizations` | `system-org + any(orgs:read) + aal2` |
+| platform | POST | `/user/generate-token` | `org-admin-assurance + step-up(any when opens a new machine credential)` |
 | platform | PATCH | `/user/profile` | `step-up(any when changes the sign-in email)` |
 | platform | GET | `/users` | `any(members:manage)` |
 | platform | POST | `/users` | `any(members:manage) + aal2(when creates a platform super-admin) + step-up(totp,webauthn when creates a platform super-admin)` |

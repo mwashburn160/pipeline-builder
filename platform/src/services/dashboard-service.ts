@@ -140,7 +140,10 @@ export class DashboardService {
     if (caller.isSuperAdmin) return true;
     if (dashboard.visibility === 'public') return true;
     if (dashboard.visibility === 'org') return dashboard.orgId === caller.orgId;
-    return dashboard.createdBy === caller.userId;
+    // Private: the creator, and only while acting in the dashboard's own org —
+    // a person's id is the same in every org they belong to, so the creator
+    // check alone let a session scoped to another org reach it.
+    return dashboard.createdBy === caller.userId && dashboard.orgId === caller.orgId;
   }
 
   /**
@@ -149,6 +152,7 @@ export class DashboardService {
    * - public dashboards: sysadmin only (defends shared defaults)
    * - org dashboards: same-org admins or the creator
    * - private dashboards: only the creator
+   * The creator's rights hold only while acting in the dashboard's own org.
    */
   canWrite(
     dashboard: Dashboard,
@@ -156,8 +160,9 @@ export class DashboardService {
   ): boolean {
     if (caller.isSuperAdmin) return true;
     if (dashboard.visibility === 'public') return false;
+    if (dashboard.orgId !== caller.orgId) return false;
     if (dashboard.createdBy === caller.userId) return true;
-    if (dashboard.visibility === 'org' && caller.isOrgAdmin && dashboard.orgId === caller.orgId) return true;
+    if (dashboard.visibility === 'org' && caller.isOrgAdmin) return true;
     return false;
   }
 

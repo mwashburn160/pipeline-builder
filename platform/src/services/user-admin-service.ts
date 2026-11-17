@@ -15,6 +15,7 @@ import { toOrgId } from '../helpers/org-id.js';
 import { assertNewPasswordAcceptable } from '../helpers/password-policy.js';
 import { withSeatGuard } from '../helpers/seats.js';
 import { publishUserRevocation, publishUserDeletionRevocation } from '../helpers/session-revocation.js';
+import { orgFeatureOverrides } from '../helpers/user-response.js';
 import { User, Organization, UserOrganization, Role, RoleAssignment, type UserData } from '../models/index.js';
 import { withMongoTransaction } from '../utils/mongo-tx.js';
 import { escapeRegex } from '../utils/regex.js';
@@ -483,20 +484,27 @@ class UserAdminService {
   }
 
   /**
-   * Update a user's `featureOverrides` Map and return the saved user +
-   * active-org info needed to compute resolved features for the response.
-   * Throws UA_USER_NOT_FOUND.
+   * Replace ONE organization's entry in a user's per-org `featureOverrides` and
+   * return the saved user + that org's info for computing resolved features.
+   * Every other org's overrides are left untouched. An empty `overrides` clears
+   * the entry. The caller has already authorized `orgId` (an org admin's own
+   * org; a sysadmin's chosen one). Throws UA_USER_NOT_FOUND.
    */
-  async updateFeatures(id: string, overrides: Record<string, boolean>) {
+  async updateFeatures(id: string, orgId: string, overrides: Record<string, boolean>) {
     // `+isSuperAdmin` (schema is `select: false`) is required because the
     // caller resolves feature flags with a sysadmin-bypass branch. `+tokenVersion`
     // (also `select: false`) is needed to bump it below.
     const user = await User.findById(id).select('_id username email isEmailVerified isSuperAdmin lastActiveOrgId featureOverrides tokenVersion claimsVersion');
     if (!user) throw new Error(UA_USER_NOT_FOUND);
 
-    // The overrides being replaced — the audit row's `before`.
-    const previousOverrides: Record<string, boolean> = Object.fromEntries(user.featureOverrides ?? new Map());
-    user.featureOverrides = new Map(Object.entries(overrides));
+    // The overrides being replaced in THIS org — the audit row's `before`.
+    const previousOverrides: Record<string, boolean> = orgFeatureOverrides(user.featureOverrides, orgId) ?? {};
+    if (!user.featureOverrides) user.featureOverrides = new Map();
+    if (Object.keys(overrides).length > 0) {
+      user.featureOverrides.set(orgId, new Map(Object.entries(overrides)));
+    } else {
+      user.featureOverrides.delete(orgId);
+    }
     // Resolved feature flags are baked into the access token (utils/token.ts), so
     // a grant/revoke here must invalidate the user's outstanding tokens — else the
     // stale feature set lingers until natural expiry. A CLAIMS change: bump
@@ -509,7 +517,9 @@ class UserAdminService {
     // drop the outstanding tokens immediately (best-effort).
     await publishUserRevocation(String(user._id));
 
-    const { organizationName, activeOrgRole, tier } = await loadActiveOrgInfo(user._id, user.lastActiveOrgId?.toString());
+    // The org the overrides were written for — its tier drives the response's
+    // resolved features (not the user's possibly-different last-active org).
+    const { organizationName, activeOrgRole, tier } = await loadActiveOrgInfo(user._id, orgId);
     return { user, organizationName, activeOrgRole, tier, previousOverrides };
   }
 }

@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { Library, Search } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
@@ -60,7 +60,11 @@ export function CatalogTab({
   const [more, setMore] = useState<{ listings: CatalogEntry[]; hasMore: boolean } | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const [moreError, setMoreError] = useState<string | null>(null);
-  useEffect(() => { setMore(null); setMoreError(null); }, [catalog.data]);
+  // Bumped whenever the first page changes (filter change, refetch), so a
+  // "Load more" still in flight from the previous first page is dropped rather
+  // than appended to a list it no longer continues.
+  const pageGenRef = useRef(0);
+  useEffect(() => { pageGenRef.current += 1; setMore(null); setMoreError(null); }, [catalog.data]);
 
   // An install changes what the pipeline editor can resolve.
   const afterChange = () => { invalidate.plugins(); void catalog.refetch(); };
@@ -69,13 +73,16 @@ export function CatalogTab({
   const hasMore = more ? more.hasMore : !!catalog.data?.hasMore;
 
   const loadMore = async () => {
+    const gen = pageGenRef.current;
     setLoadingMore(true);
     setMoreError(null);
     try {
       const res = await api.getPluginCatalog({ ...filters, limit: CATALOG_PAGE, offset: entries.length });
+      if (gen !== pageGenRef.current) return; // stale: the filters/first page moved on
       const page = { listings: res.data?.listings ?? [], hasMore: !!res.data?.hasMore };
       setMore((m) => ({ listings: [...(m?.listings ?? []), ...page.listings], hasMore: page.hasMore }));
     } catch (err) {
+      if (gen !== pageGenRef.current) return;
       setMoreError(formatError(err, 'Could not load more of the catalog'));
     } finally {
       setLoadingMore(false);

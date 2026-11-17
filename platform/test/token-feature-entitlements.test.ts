@@ -34,7 +34,12 @@ const mockLogger = { info: jest.fn<AnyFn>(), warn: jest.fn<AnyFn>(), error: jest
 // handed, so the JWT `features` claim IS the resolved account entitlement set —
 // letting us assert which doc (root vs. stale team) it was sourced from.
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
-  resolveUserFeatures: (_tier: string, opts?: { accountFeatures?: readonly string[] }) => [...(opts?.accountFeatures ?? [])],
+  // Enabled per-user overrides are appended so the per-org override tests can
+  // see exactly which org's overrides were applied.
+  resolveUserFeatures: (_tier: string, opts?: { accountFeatures?: readonly string[]; overrides?: Record<string, boolean> }) => [
+    ...(opts?.accountFeatures ?? []),
+    ...Object.entries(opts?.overrides ?? {}).filter(([, on]) => on).map(([k]) => k),
+  ],
   createLogger: () => mockLogger,
 }));
 
@@ -75,13 +80,14 @@ installTestSigningKeys();
 /** Every sign-in opens an interactive slot; these tests only care about claims. */
 const login = { kind: 'interactive' as const, auth: signInAuth('pwd') };
 
-function mockUser() {
+function mockUser(extra: Record<string, unknown> = {}) {
   return {
     _id: { toString: () => 'user-1' },
     username: 'u',
     email: 'u@example.com',
     isEmailVerified: true,
     tokenVersion: 1,
+    ...extra,
   } as unknown as Parameters<typeof issueTokens>[0];
 }
 
@@ -167,5 +173,48 @@ describe('resolveMembership — featureEntitlements resolve from the account ROO
     expect(mockOrgFindById).toHaveBeenCalledTimes(2);
     expect(decoded.rootOrganizationId).toBeUndefined();
     expect(decoded.parentOrganizationId).toBeUndefined();
+  });
+});
+
+describe('per-user feature overrides are scoped to the ACTIVE org', () => {
+  // The user belongs to two flat orgs. org-A's admin granted `audit_log` (an
+  // override in org-A's entry only); org-B has its own, different entry.
+  const overrides = new Map([
+    ['org-a', new Map([['audit_log', true]])],
+    ['org-b', new Map([['ai_generation', true], ['audit_log', false]])],
+  ]);
+
+  beforeEach(() => {
+    mockUserOrgFindOne.mockImplementation((q: { organizationId: string }) => ({
+      lean: () => Promise.resolve({ role: 'member', organizationId: q.organizationId }),
+    }));
+    registerDocs({
+      'org-a': { name: 'A', tier: 'pro', parentOrgId: null, featureEntitlements: [], deletedAt: null },
+      'org-b': { name: 'B', tier: 'pro', parentOrgId: null, featureEntitlements: [], deletedAt: null },
+      'org-c': { name: 'C', tier: 'pro', parentOrgId: null, featureEntitlements: [], deletedAt: null },
+    });
+  });
+
+  it("REGRESSION: an org-A admin's override does not reach the user's org-B token", async () => {
+    const { accessToken } = await issueTokens(mockUser({ featureOverrides: overrides }), 'org-b', login);
+    const decoded = jwt.decode(accessToken) as Record<string, unknown>;
+
+    expect(decoded.organizationId).toBe('org-b');
+    expect(decoded.features).toEqual(['ai_generation']);
+    expect(decoded.features as string[]).not.toContain('audit_log');
+  });
+
+  it("the org-A token carries org-A's override", async () => {
+    const { accessToken } = await issueTokens(mockUser({ featureOverrides: overrides }), 'org-a', login);
+    const decoded = jwt.decode(accessToken) as Record<string, unknown>;
+
+    expect(decoded.features).toEqual(['audit_log']);
+  });
+
+  it('an org with no entry gets no overrides at all', async () => {
+    const { accessToken } = await issueTokens(mockUser({ featureOverrides: overrides }), 'org-c', login);
+    const decoded = jwt.decode(accessToken) as Record<string, unknown>;
+
+    expect(decoded.features).toEqual([]);
   });
 });

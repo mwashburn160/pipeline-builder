@@ -305,7 +305,7 @@ const ABSENT = '659999999999999999999999';
 const ctx = (over: Partial<{ orgId: string; entitled: boolean }> = {}) => ({ orgId: ORG, entitled: true, ...over });
 
 function seedUser(id: string, email: string, over: Record<string, unknown> = {}): any {
-  const u = new UserDoc({ _id: new Types.ObjectId(id), email, username: email.split('@')[0], tokenVersion: 1, ...over });
+  const u = new UserDoc({ _id: new Types.ObjectId(id), email, username: email.split('@')[0], tokenVersion: 1, isEmailVerified: true, ...over });
   db.users.push(u);
   return u;
 }
@@ -413,6 +413,20 @@ describe('createUser — provisioning a membership', () => {
 
     expect(err).toMatchObject({ status: 403, reason: 'platform_admin' });
     expect(db.memberships).toHaveLength(0);
+  });
+
+  it('REFUSES to attach an existing account whose own email is UNVERIFIED (pre-hijack)', async () => {
+    // Anyone can register an unverified account on a victim's address; SCIM
+    // must not hand that planted account the org's access — the same refusal
+    // SSO / OAuth linking makes (ACCOUNT_EMAIL_UNVERIFIED).
+    seedUser(ALICE, 'alice@acme.com', { isEmailVerified: false });
+
+    const err = await refusal(scim.createUser(ctx(), { userName: 'alice@acme.com' }));
+
+    expect(err).toMatchObject({ status: 409, reason: 'account_email_unverified' });
+    expect(err.scimType).toBeUndefined();
+    expect(db.memberships).toHaveLength(0);
+    expect(db.users[0].isEmailVerified).toBe(false);
   });
 
   it('answers `uniqueness` when the membership already exists — never a second one', async () => {

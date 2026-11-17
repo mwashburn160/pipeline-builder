@@ -11,7 +11,10 @@ import { ALL_FEATURE_FLAGS, FEATURE_METADATA, type FeatureFlag } from '@/lib/fea
 import { formatError } from '@/lib/constants';
 
 /**
- * Per-user feature-flag override editor. Each flag has three states:
+ * Per-user, PER-ORG feature-flag override editor. Overrides are stored per
+ * organization and only apply in that org; `organizationId` names the org whose
+ * entry is being edited (and `initial` must be that org's overrides). Each flag
+ * has three states:
  *   inherit (no override) | on (force-enable) | off (force-disable).
  *
  * The diff between `initial` and `state` is sent on Save — keys that
@@ -24,10 +27,17 @@ import { formatError } from '@/lib/constants';
  */
 export function FeatureOverridesEditor({
   userId,
+  organizationId,
+  organizationName,
   initial,
   onSaved,
 }: {
   userId: string;
+  /** The org whose overrides are edited. Omitted → the backend's default
+   *  (an org admin's own org; for a sysadmin, the user's last-active org). */
+  organizationId?: string;
+  /** Display name of that org, shown so the operator knows the scope. */
+  organizationName?: string;
   initial: Record<string, boolean>;
   onSaved: () => void;
 }) {
@@ -64,7 +74,7 @@ export function FeatureOverridesEditor({
       const overrides = Object.fromEntries(
         Object.entries(state).filter(([, v]) => typeof v === 'boolean'),
       ) as Record<string, boolean>;
-      const res = await api.updateUserFeatures(userId, overrides, stepUpToken);
+      const res = await api.updateUserFeatures(userId, overrides, stepUpToken, organizationId);
       if (res.success) {
         setSavedAt(Date.now());
         onSaved();
@@ -76,13 +86,16 @@ export function FeatureOverridesEditor({
     } finally {
       setSaving(false);
     }
-  }, [userId, state, onSaved]);
+  }, [userId, organizationId, state, onSaved]);
 
   return (
     <div className="rounded-lg border border-default px-3 py-2 text-sm">
       <div className="font-medium text-fg-muted mb-2">Feature overrides</div>
       <p className="text-xs text-fg-muted mb-2">
-        Each flag inherits from the user&apos;s org tier by default. Override only
+        {organizationName
+          ? <>Overrides apply only in <span className="font-medium text-fg">{organizationName}</span>. </>
+          : <>Overrides apply only in the user&apos;s current organization. </>}
+        Each flag inherits from that org&apos;s tier by default. Override only
         when needed — overrides persist until removed.
       </p>
       <ul className="space-y-2">

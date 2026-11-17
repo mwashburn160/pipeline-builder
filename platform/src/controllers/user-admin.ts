@@ -9,7 +9,7 @@ import { audit } from '../helpers/audit.js';
 import { canManageOrgScope, forbid, isOrgAdmin, requireMemberManagementScope, withController } from '../helpers/controller-helper.js';
 import { toOrgId } from '../helpers/org-id.js';
 import { listPage } from '../helpers/pagination.js';
-import { formatUserResponse, toOverridesRecord, type OrgMembership, type OrgSummary } from '../helpers/user-response.js';
+import { formatUserResponse, orgFeatureOverrides, type OrgMembership, type OrgSummary, type StoredFeatureOverrides } from '../helpers/user-response.js';
 import { Organization } from '../models/index.js';
 import { userAdminService } from '../services/index.js';
 import { RL_ASSIGN_EXCEEDS_CEILING, RL_LAST_PRIVILEGED_MEMBER, RL_ROLE_NOT_FOUND } from '../services/roles-errors.js';
@@ -59,6 +59,9 @@ const adminErrorMap = {
   [UA_CANNOT_CHANGE_OWNER]: { status: 403, message: 'Cannot change the role of an organization owner. Transfer ownership first.' },
   [RL_ASSIGN_EXCEEDS_CEILING]: { status: 403, message: 'You cannot grant or revoke the Admin role without holding its permissions yourself.' },
 };
+
+/** A 24-hex organization id — the only shape a per-org override key may take. */
+const OBJECT_ID_HEX = /^[a-f0-9]{24}$/i;
 
 /** Log label for the caller's scope. */
 const adminType = (admin: { isSuperAdmin: boolean }) => (admin.isSuperAdmin ? 'system admin' : 'org-scoped');
@@ -173,7 +176,9 @@ export const getUserById = withController('Get user', async (req, res) => {
     activeOrgRole = activeMembership?.role;
   }
 
-  const overrides = toOverridesRecord(user.featureOverrides as Map<string, boolean> | undefined);
+  // Per-org overrides: only the entry for the org this view describes (the
+  // admin's own org for an org admin) — never another org's settings.
+  const overrides = orgFeatureOverrides(user.featureOverrides as StoredFeatureOverrides | undefined, activeOrgId);
   // Pass the active org's purchased account entitlements as the 4th arg so
   // purchased features (sso/audit_log) are reflected — mirrors token.ts and
   // keeps the admin view in lockstep with the user's real token.
@@ -182,7 +187,13 @@ export const getUserById = withController('Get user', async (req, res) => {
 
   sendSuccess(res, 200, {
     user: formatUserResponse(user, {
-      activeOrgRole, activeOrgName: organizationName, organization, organizations, tier, features,
+      activeOrgRole,
+      activeOrgName: organizationName,
+      organization,
+      organizations,
+      tier,
+      features,
+      featureOverrides: overrides,
     }),
   });
 }, adminErrorMap);
@@ -387,17 +398,30 @@ export const bulkDeleteUsers = withController('Bulk delete users', async (req, r
   sendSuccess(res, 200, { summary, results });
 });
 
-/** PUT /users/:id/features — admin set feature-flag overrides on a user. */
+/**
+ * PUT /users/:id/features — admin set feature-flag overrides on a user, for ONE org.
+ *
+ * Overrides are stored per organization and only the active org's entry rides a
+ * token. An org admin always writes their own org's entry (an `organizationId`
+ * naming any other org is refused); a system admin names the org in the body,
+ * defaulting to the target's last-active org. Only that org's entry is
+ * replaced — every other org's overrides are untouched.
+ */
 export const updateUserFeatures = withController('Update user features', async (req, res) => {
   const admin = requireMemberManagementScope(req, res);
   if (!admin) return;
 
   const { id } = req.params;
-  const { overrides } = req.body;
+  const { overrides, organizationId: rawOrgId } = req.body;
 
   if (!overrides || typeof overrides !== 'object' || Array.isArray(overrides)) {
     return sendError(res, 400, 'Request body must include an "overrides" object', 'VALIDATION_ERROR');
   }
+  if (rawOrgId !== undefined && (typeof rawOrgId !== 'string' || !OBJECT_ID_HEX.test(rawOrgId))) {
+    return sendError(res, 400, '"organizationId" must be an organization id', 'VALIDATION_ERROR');
+  }
+  // Canonical (lowercase) form — it is the override map's key.
+  const requestedOrgId = typeof rawOrgId === 'string' ? rawOrgId.toLowerCase() : undefined;
 
   const invalidKeys = Object.keys(overrides).filter(k => !isValidFeatureFlag(k));
   if (invalidKeys.length > 0) {
@@ -411,18 +435,24 @@ export const updateUserFeatures = withController('Update user features', async (
     return sendError(res, 400, `Override values must be booleans. Invalid: ${nonBooleanKeys.join(', ')}`, 'VALIDATION_ERROR');
   }
 
+  let targetOrgId: string;
   if (!admin.isSuperAdmin) {
-    const allowed = await userAdminService.hasMembershipInOrg(id as string, admin.orgId!);
+    // An org admin writes ONLY their own org's overrides.
+    if (requestedOrgId !== undefined && requestedOrgId !== admin.orgId) {
+      return forbid(req, res, 'org-scope', 'Forbidden: Can only set feature overrides for your organization');
+    }
+    targetOrgId = admin.orgId!;
+    const allowed = await userAdminService.hasMembershipInOrg(id as string, targetOrgId);
     if (!allowed) return forbid(req, res, 'org-scope', 'Forbidden: Can only update users in your organization');
 
     // SECURITY: an org admin may only override-ENABLE features already covered by
     // their org's entitlements (tier defaults ∪ purchased add-on bundles).
     // Enabling an entitlement-gated feature (e.g. sso/audit_log with no purchase)
-    // would (1) bypass billing and (2) — because `featureOverrides` is a GLOBAL
-    // User field — leak the grant into the target's OTHER orgs (cross-tenant).
-    // Only a system admin may override-enable a gated feature. Disabling (`false`)
-    // is always allowed (removing a feature is never an escalation).
-    const entitled = await orgEntitledFeatures(admin.orgId!);
+    // would bypass billing. Only a system admin may override-enable a gated
+    // feature. Disabling (`false`) is always allowed (removing a feature is never
+    // an escalation). The override is scoped to this org, so it cannot reach the
+    // target's other orgs either way.
+    const entitled = await orgEntitledFeatures(targetOrgId);
     const forbidden = Object.entries(overrides as Record<string, unknown>)
       .filter(([k, v]) => v === true && !entitled.has(k))
       .map(([k]) => k);
@@ -433,18 +463,26 @@ export const updateUserFeatures = withController('Update user features', async (
         'ENTITLEMENT_REQUIRED',
       );
     }
+  } else {
+    // A system admin names the org, defaulting to the target's last-active org.
+    const fallbackOrgId = requestedOrgId ?? (await userAdminService.lookupPrimaryOrgId(id as string));
+    if (!fallbackOrgId) {
+      return sendError(res, 400, 'User has no active organization — specify "organizationId"', 'VALIDATION_ERROR');
+    }
+    targetOrgId = fallbackOrgId;
+    if (!(await userAdminService.hasMembershipInOrg(id as string, targetOrgId))) {
+      return sendError(res, 400, 'User is not a member of that organization', 'VALIDATION_ERROR');
+    }
   }
 
   const { user, organizationName, activeOrgRole, tier: orgTier, previousOverrides } = await userAdminService.updateFeatures(
-    id as string, overrides as Record<string, boolean>,
+    id as string, targetOrgId, overrides as Record<string, boolean>,
   );
 
   // Include the active org's purchased account entitlements (accountFeatures) so the
   // updated-features response reflects sso/audit_log the same way the user's
   // real token does — see token.ts.
-  const accountFeatures = await orgFeatureEntitlements(
-    (user as { lastActiveOrgId?: { toString(): string } }).lastActiveOrgId?.toString(),
-  );
+  const accountFeatures = await orgFeatureEntitlements(targetOrgId);
   const features = resolveUserFeatures(
     (orgTier as PlanTier) || 'developer',
     {
@@ -459,14 +497,12 @@ export const updateUserFeatures = withController('Update user features', async (
   // Audit the sysadmin/org-admin feature-override edit AFTER it succeeds. This is
   // a privileged capability grant/revoke on another user, so it must leave a
   // trail. `details.features` is the field NAMES touched; `before`/`after` are the
-  // override maps either side of the edit. `affectedOrgId` is the
-  // admin's org for an org-admin, else the target user's active org.
-  const featuresAffectedOrgId = admin.orgId
-    ?? (user as { lastActiveOrgId?: { toString(): string } }).lastActiveOrgId?.toString();
+  // override maps (for that org) either side of the edit. `affectedOrgId` is the
+  // org whose overrides were written.
   audit(req, 'admin.user.features.update', {
     targetType: 'user',
     targetId: id as string,
-    affectedOrgId: featuresAffectedOrgId,
+    affectedOrgId: targetOrgId,
     details: {
       features: Object.keys(overrides as Record<string, boolean>),
       // The full override map on each side: a removed override is as much a
@@ -478,7 +514,16 @@ export const updateUserFeatures = withController('Update user features', async (
 
   sendSuccess(
     res, 200,
-    { user: formatUserResponse(user, { activeOrgRole, activeOrgName: organizationName, tier: (orgTier as PlanTier) || 'developer', features }) },
+    {
+      user: formatUserResponse(user, {
+        activeOrgRole,
+        activeOrgName: organizationName,
+        tier: (orgTier as PlanTier) || 'developer',
+        features,
+        featureOverrides: overrides as Record<string, boolean>,
+      }),
+      organizationId: targetOrgId,
+    },
     'Feature overrides updated successfully',
   );
 }, adminErrorMap);

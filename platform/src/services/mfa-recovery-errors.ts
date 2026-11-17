@@ -13,6 +13,10 @@ export const MFA_RESET_NOT_FOUND = 'MFA_RESET_NOT_FOUND';
 export const MFA_RESET_NOT_MEMBER = 'MFA_RESET_NOT_MEMBER';
 export const MFA_RESET_SELF = 'MFA_RESET_SELF';
 export const MFA_RESET_PLATFORM_ADMIN = 'MFA_RESET_PLATFORM_ADMIN';
+/** The target also belongs to an org OUTSIDE the requesting org's account. A
+ *  reset acts on the whole person, so one tenant's admins must not strip
+ *  factors another tenant relies on (the impersonation outside-account rule). */
+export const MFA_RESET_OUTSIDE_ACCOUNT = 'MFA_RESET_OUTSIDE_ACCOUNT';
 export const MFA_RESET_ALREADY_PENDING = 'MFA_RESET_ALREADY_PENDING';
 export const MFA_RESET_NOT_PENDING = 'MFA_RESET_NOT_PENDING';
 export const MFA_RESET_EXPIRED = 'MFA_RESET_EXPIRED';
@@ -30,6 +34,11 @@ export const MFA_RESET_ERROR_MAP: ErrorMap = {
     status: 403,
     message: 'A platform administrator\'s factors can only be reset by the platform operators.',
     code: MFA_RESET_PLATFORM_ADMIN,
+  },
+  [MFA_RESET_OUTSIDE_ACCOUNT]: {
+    status: 403,
+    message: 'This person also belongs to organizations outside yours, so their two-factor authentication can only be reset by the platform operators.',
+    code: MFA_RESET_OUTSIDE_ACCOUNT,
   },
   [MFA_RESET_ALREADY_PENDING]: {
     status: 409,

@@ -54,14 +54,19 @@ export function PlanChangeModal({
 
   useEffect(() => {
     let cancelled = false;
+    setPreview(null);
     void (async () => {
       try {
-        const res = await api.getPlanPreview(targetPlan.tier);
-        if (!cancelled) setPreview(res.data?.preview ?? null);
+        const res = await api.getPlanPreview(targetPlan.tier, interval);
+        const next = res.data?.preview ?? null;
+        // A preview priced at a different interval than the one this modal
+        // labels its amounts with is a wrong number — fail open to the list
+        // price instead (the server prices at the subscription's interval).
+        if (!cancelled) setPreview(next && next.interval === interval ? next : null);
       } catch { /* fail open to the list price — see above */ }
     })();
     return () => { cancelled = true; };
-  }, [targetPlan.tier]);
+  }, [targetPlan.tier, interval]);
 
   const per = interval === 'annual' ? 'year' : 'month';
   const discounted = preview !== null && preview.discountCents > 0;

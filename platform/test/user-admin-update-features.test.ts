@@ -113,10 +113,10 @@ describe('UserAdminService.updateFeatures → session invalidation', () => {
     };
     mockUserFindById.mockReturnValue({ select: () => Promise.resolve(userDoc) });
 
-    const { user } = await userAdminService.updateFeatures('user1', { audit_log: true });
+    const { user } = await userAdminService.updateFeatures('user1', 'org1', { audit_log: true });
 
-    // The override Map was applied...
-    expect((user.featureOverrides as Map<string, boolean>).get('audit_log')).toBe(true);
+    // The override was applied to org1's entry...
+    expect(user.featureOverrides!.get('org1')!.get('audit_log')).toBe(true);
     // ...claimsVersion was bumped (1 → 2) so every service drops the old ACCESS
     // tokens, while tokenVersion — what refresh tokens carry — is untouched...
     expect(user.claimsVersion).toBe(2);
@@ -125,5 +125,50 @@ describe('UserAdminService.updateFeatures → session invalidation', () => {
     // ...and the new version was published to the stateless services.
     expect(mockPublishUser).toHaveBeenCalledTimes(1);
     expect(mockPublishUser).toHaveBeenCalledWith('user1');
+  });
+});
+
+describe('UserAdminService.updateFeatures → per-org scoping', () => {
+  function userWith(featureOverrides: Map<string, Map<string, boolean>>): any {
+    return {
+      _id: 'user1',
+      username: 'alice',
+      email: 'a@x.io',
+      isEmailVerified: true,
+      isSuperAdmin: false,
+      lastActiveOrgId: { toString: () => 'orgB' },
+      tokenVersion: 0,
+      claimsVersion: 0,
+      featureOverrides,
+      save: mockSave,
+    };
+  }
+
+  it("replaces ONLY the target org's entry — other orgs' overrides survive", async () => {
+    const doc = userWith(new Map([
+      ['orgA', new Map([['sso', false]])],
+      ['orgB', new Map([['audit_log', true]])],
+    ]));
+    mockUserFindById.mockReturnValue({ select: () => Promise.resolve(doc) });
+
+    const { user, previousOverrides } = await userAdminService.updateFeatures('user1', 'orgA', { ai_generation: true });
+
+    expect(Object.fromEntries(user.featureOverrides!.get('orgA')!)).toEqual({ ai_generation: true });
+    // The sysadmin/other-org entry is untouched.
+    expect(Object.fromEntries(user.featureOverrides!.get('orgB')!)).toEqual({ audit_log: true });
+    // `before` is that org's previous entry only.
+    expect(previousOverrides).toEqual({ sso: false });
+    // The response's org info is the TARGET org, not the last-active one.
+    expect(mockLoadActiveOrgInfo).toHaveBeenCalledWith('user1', 'orgA');
+  });
+
+  it("an empty overrides object clears that org's entry", async () => {
+    const doc = userWith(new Map([['orgA', new Map([['sso', false]])], ['orgB', new Map([['sso', true]])]]));
+    mockUserFindById.mockReturnValue({ select: () => Promise.resolve(doc) });
+
+    const { user } = await userAdminService.updateFeatures('user1', 'orgA', {});
+
+    expect(user.featureOverrides!.has('orgA')).toBe(false);
+    expect(user.featureOverrides!.has('orgB')).toBe(true);
   });
 });

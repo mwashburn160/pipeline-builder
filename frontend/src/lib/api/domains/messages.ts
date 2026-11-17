@@ -422,9 +422,10 @@ export function messagesApi(core: ApiCore) {
      * unable to answer the reply. Server-side the caller must be the case's
      * author or its current tenant contact.
      */
-    replyToSupportCase: async (threadId: string, content: string, attachmentIds?: string[]) => {
+    replyToSupportCase: async (threadId: string, content: string, attachmentIds?: string[], idempotencyKey?: string) => {
       return core.request<ApiResponse<Message>>(`/api/messages/support/${threadId}/reply`, {
         method: 'POST',
+        headers: { 'Idempotency-Key': idempotencyKey ?? newIdempotencyKey() },
         body: JSON.stringify({ content, ...(attachmentIds?.length ? { attachmentIds } : {}) }),
       });
     },

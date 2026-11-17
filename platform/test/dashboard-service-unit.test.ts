@@ -175,6 +175,7 @@ describe('canRead / canWrite', () => {
     ['org other-org', dash({ orgId: 'other' }), reader, false],
     ['private not mine', dash({ visibility: 'private' }), reader, false],
     ['private mine', dash({ visibility: 'private', createdBy: 'u-2' }), reader, true],
+    ['private mine, acting in another org', dash({ visibility: 'private', createdBy: 'u-2', orgId: 'other' }), reader, false],
   ])('canRead: %s', (_n, d, c, expected) => {
     expect(svc.canRead(d, c)).toBe(expected);
   });
@@ -187,6 +188,8 @@ describe('canRead / canWrite', () => {
     ['org admin same org', dash(), { ...writer, isOrgAdmin: true }, true],
     ['org admin other org', dash({ orgId: 'other' }), { ...writer, isOrgAdmin: true }, false],
     ['org non-admin', dash(), writer, false],
+    ['creator acting in another org (private)', dash({ visibility: 'private', createdBy: 'u-2', orgId: 'other' }), writer, false],
+    ['creator acting in another org (org)', dash({ createdBy: 'u-2', orgId: 'other' }), writer, false],
   ])('canWrite: %s', (_n, d, c, expected) => {
     expect(svc.canWrite(d, c)).toBe(expected);
   });
