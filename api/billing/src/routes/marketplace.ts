@@ -498,7 +498,13 @@ export function createMarketplaceRoutes(): Router {
 
         // Processing succeeded — promote the in-progress claim to the durable
         // done-marker so a redelivery is deduped (a crash before this re-runs).
-        await markWebhookEventDone('sns', snsMessage.MessageId);
+        // Conditional on OUR claim token: a handler that outlived its lease
+        // must not stamp `done` over a redelivery's newer claim.
+        if (!await markWebhookEventDone('sns', snsMessage.MessageId, claimToken)) {
+          logger.warn('SNS notification completed after its claim lease was taken over; completion not recorded', {
+            messageId: snsMessage.MessageId,
+          });
+        }
         return sendSuccess(res, 200, { message: responseMessage });
       } catch (error) {
         logger.error('Failed to process SNS notification', { error: errorMessage(error) });

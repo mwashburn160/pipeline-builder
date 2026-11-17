@@ -117,7 +117,7 @@ jest.unstable_mockModule('../src/models/organization.js', () => ({
   Organization: {
     find: mockFind,
     findById: mockFindById,
-    countDocuments: () => mockCountDocuments(),
+    countDocuments: (...a: unknown[]) => mockCountDocuments(...a),
   },
 }));
 
@@ -281,6 +281,38 @@ describe('GET /quotas/all (system admin)', () => {
       res, 200,
       expect.objectContaining({ organizations: expect.any(Array), total: 57 }),
     );
+  });
+
+  it('excludes soft-deleted orgs by default — from the page AND the total', async () => {
+    const query: any = {
+      select: jest.fn(() => query),
+      sort: jest.fn(() => query),
+      skip: jest.fn(() => query),
+      limit: jest.fn(() => query),
+      lean: jest.fn<AnyFn>().mockResolvedValue([]),
+    };
+    mockFind.mockReturnValue(query);
+    await handler(mockReq({ user: { organizationId: 'admin-org' } }), mockRes());
+    expect(mockFind).toHaveBeenCalledWith({ deletedAt: null });
+    expect(mockCountDocuments).toHaveBeenCalledWith({ deletedAt: null });
+  });
+
+  it('includes soft-deleted orgs only on ?includeDeleted=true', async () => {
+    const query: any = {
+      select: jest.fn(() => query),
+      sort: jest.fn(() => query),
+      skip: jest.fn(() => query),
+      limit: jest.fn(() => query),
+      lean: jest.fn<AnyFn>().mockResolvedValue([]),
+    };
+    mockFind.mockReturnValue(query);
+    await handler(mockReq({ user: { organizationId: 'admin-org' }, query: { includeDeleted: 'true' } }), mockRes());
+    expect(mockFind).toHaveBeenCalledWith({});
+    expect(mockCountDocuments).toHaveBeenCalledWith({});
+
+    mockFind.mockClear();
+    await handler(mockReq({ user: { organizationId: 'admin-org' }, query: { includeDeleted: '1' } }), mockRes());
+    expect(mockFind).toHaveBeenCalledWith({ deletedAt: null });
   });
 
   it('403s a caller without orgs:read', () => {

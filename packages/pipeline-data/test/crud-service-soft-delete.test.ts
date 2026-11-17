@@ -141,7 +141,7 @@ describe('CrudService.restore', () => {
     const extraSpy = jest.fn<(..._args: unknown[]) => Promise<Record<string, unknown>>>()
       .mockResolvedValue({ isDefault: false, isActive: false });
     class ExtraService extends BaseTestService {
-      protected async restoreExtraSet(id: string, tx: unknown): Promise<Record<string, unknown>> { return extraSpy(id, tx); }
+      protected async restoreExtraSet(id: string, tx: unknown, orgId?: string, userId?: string): Promise<Record<string, unknown>> { return extraSpy(id, tx, orgId, userId); }
     }
     const svc = new ExtraService(lifecycleSchema);
     let capturedSet: Record<string, unknown> = {};
@@ -149,7 +149,7 @@ describe('CrudService.restore', () => {
 
     await svc.restore('id-1', 'org1', 'actor');
 
-    expect(extraSpy).toHaveBeenCalledWith('id-1', expect.objectContaining({ update: mockUpdate }));
+    expect(extraSpy).toHaveBeenCalledWith('id-1', expect.objectContaining({ update: mockUpdate }), 'org1', 'actor');
     expect(capturedSet).toMatchObject({ isDefault: false, isActive: true, deletedAt: null });
   });
 

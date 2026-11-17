@@ -220,16 +220,16 @@ describe('GET /quotas/all pagination bounds', () => {
   it('clamps an absurd offset instead of passing it through to the skip', async () => {
     await handler({ query: { offset: '99999999999' } } as any, makeRes());
     // MAX_PAGE_OFFSET defaults to 100_000.
-    expect(findAll).toHaveBeenCalledWith({ limit: 100, offset: 100_000 });
+    expect(findAll).toHaveBeenCalledWith({ limit: 100, offset: 100_000, includeDeleted: false });
   });
 
   it('clamps a negative offset to the first page', async () => {
     await handler({ query: { offset: '-5' } } as any, makeRes());
-    expect(findAll).toHaveBeenCalledWith({ limit: 100, offset: 0 });
+    expect(findAll).toHaveBeenCalledWith({ limit: 100, offset: 0, includeDeleted: false });
   });
 
   it('passes an ordinary offset through unchanged', async () => {
     await handler({ query: { offset: '3', limit: '25' } } as any, makeRes());
-    expect(findAll).toHaveBeenCalledWith({ limit: 25, offset: 3 });
+    expect(findAll).toHaveBeenCalledWith({ limit: 25, offset: 3, includeDeleted: false });
   });
 });

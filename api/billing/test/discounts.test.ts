@@ -332,6 +332,16 @@ describe('POST /admin/discounts/:id/apply (Mode A)', () => {
 });
 
 describe('POST /subscriptions/:id/discounts (self-service redeem)', () => {
+  it('404s when the URL :id is not the org\'s own subscription, and applies NOTHING', async () => {
+    await mockDiscountCreate({ _id: 'disc_wrongsub', value: 5000, unit: 'dollar', kind: 'credit', isActive: true, alias: 'WRONGSUB' });
+    const before = subDoc.creditBalanceCents;
+    await call(handler('post', '/subscriptions/:id/discounts'), { user: { sub: 'u1', organizationId: 'org-cust' }, params: { id: 'sub-someone-else' }, body: { code: 'WRONGSUB' } });
+    expect(mockSendError).toHaveBeenCalledWith({}, 404, 'Subscription not found', 'NOT_FOUND');
+    expect(discountStore.get('disc_wrongsub').redemptionCount ?? 0).toBe(0);
+    expect(subDoc.creditBalanceCents).toBe(before);
+    expect(mockCreateBillingEvent).not.toHaveBeenCalled();
+  });
+
   it('applies a usage credit and banks the balance', async () => {
     await mockDiscountCreate({ _id: 'disc_cr', value: 5000, unit: 'dollar', kind: 'credit', isActive: true, alias: 'GIVE50' });
     await call(handler('post', '/subscriptions/:id/discounts'), { user: { sub: 'u1', organizationId: 'org-cust' }, params: { id: 'sub-1' }, body: { code: 'GIVE50' } });

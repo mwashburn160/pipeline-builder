@@ -444,7 +444,10 @@ CREATE TABLE IF NOT EXISTS messages (    -- Identity & Audit Fields
 
     -- Soft Delete
     deleted_at TIMESTAMPTZ,
-    deleted_by TEXT
+    deleted_by TEXT,
+    -- Groups the rows one conversation delete tombstoned (root + cascaded
+    -- replies) so restoring the root restores exactly that set. Cleared on restore.
+    delete_batch_id UUID
 );
 
 -- ============================================================================
@@ -3392,8 +3395,11 @@ CREATE POLICY rls_org_delete ON messages FOR DELETE
 -- sysadmin nor the sender org, the update may only:
 --   * stamp read state (`read_by`, `updated_at`, `updated_by`), or
 --   * soft-delete the row as part of deleting a thread whose ROOT the caller's
---     org owns (`is_active`, `deleted_at`, `deleted_by`, `purge_after` — the
---     sender of a conversation removes the whole thread, replies included).
+--     org owns (`is_active`, `deleted_at`, `deleted_by`, `purge_after`,
+--     `delete_batch_id` — the
+--     sender of a conversation removes the whole thread, replies included), or
+--   * undo exactly that (`is_active`, `deleted_at`, `deleted_by`, `purge_after`,
+--     `delete_batch_id` — restoring the root restores the batch it deleted).
 -- Anything else — content, subject, sender, recipient, targeting, priority — is
 -- refused with an error rather than silently applied.
 CREATE OR REPLACE FUNCTION messages_participant_update_guard() RETURNS TRIGGER AS $$
@@ -3407,8 +3413,8 @@ BEGIN
     END IF;
     IF NEW.thread_id IS NOT NULL
        AND EXISTS (SELECT 1 FROM messages r WHERE r.id = NEW.thread_id AND r.org_id = current_org_id())
-       AND (to_jsonb(NEW) - ARRAY['read_by', 'updated_at', 'updated_by', 'is_active', 'deleted_at', 'deleted_by', 'purge_after'])
-         = (to_jsonb(OLD) - ARRAY['read_by', 'updated_at', 'updated_by', 'is_active', 'deleted_at', 'deleted_by', 'purge_after'])
+       AND (to_jsonb(NEW) - ARRAY['read_by', 'updated_at', 'updated_by', 'is_active', 'deleted_at', 'deleted_by', 'purge_after', 'delete_batch_id'])
+         = (to_jsonb(OLD) - ARRAY['read_by', 'updated_at', 'updated_by', 'is_active', 'deleted_at', 'deleted_by', 'purge_after', 'delete_batch_id'])
     THEN
         RETURN NEW;
     END IF;

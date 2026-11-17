@@ -353,6 +353,22 @@ describe('messages — recipient read + read-state-only update', () => {
     });
   });
 
+  it('deleteThread batch: the root owner stamps and later clears delete_batch_id on the other side’s replies', async () => {
+    const root = await message(ORG_A, ORG_B);
+    const replyFromB = await message(ORG_B, ORG_A, { thread_id: root.id });
+    const batch = randomUUID();
+    await asTenant(db, { orgId: ORG_A }, async (q) => {
+      const del = await q.query(
+        `UPDATE messages SET is_active = false, deleted_at = now(), deleted_by = 'u-a', delete_batch_id = $3
+          WHERE thread_id = $1 AND is_active = true AND (org_id = $2 OR recipient_org_id = $2)`, [root.id, ORG_A, batch]);
+      expect(del.affectedRows).toBe(1);
+      const restore = await q.query(
+        `UPDATE messages SET is_active = true, deleted_at = NULL, deleted_by = NULL, purge_after = NULL, delete_batch_id = NULL
+          WHERE thread_id = $1 AND delete_batch_id = $2 RETURNING id`, [root.id, batch]);
+      expect(restore.rows.map((r) => (r as { id: string }).id)).toEqual([replyFromB.id]);
+    });
+  });
+
   it('a participant cannot soft-delete the other side’s messages in a thread it does not own', async () => {
     const root = await message(ORG_A, ORG_B);
     const replyFromA = await message(ORG_A, ORG_B, { thread_id: root.id });

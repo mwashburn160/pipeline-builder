@@ -740,6 +740,11 @@ export interface PipelineStreakRow {
  * `lookbackDays` extends PAST the window on purpose. "Last succeeded 12 days ago"
  * is the finding a weekly report most needs, and a query bounded by a 7-day window
  * could never produce it.
+ *
+ * PIPELINE grain only (`stage_name = ''`). The rollup holds a pipeline-level row
+ * AND one row per stage per day; summing them all counted every failed run once
+ * for the pipeline and again for each failing stage (inflating the streak), and
+ * let a succeeded STAGE of a failed run mark that day as a pipeline success.
  */
 export async function getPipelineStreaks(
   scope: AnalyticsScope,
@@ -753,6 +758,7 @@ export async function getPipelineStreaks(
       FROM execution_daily_rollups
       WHERE org_id ${q.org}
         AND day >= ${dayShift(q.dayTo, -lookbackDays)}::timestamptz AND day < ${q.dayTo}::timestamptz
+        AND stage_name = ''
       GROUP BY pipeline_id, day
     ),
     last_ok AS (

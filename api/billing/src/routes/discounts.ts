@@ -34,6 +34,7 @@ import {
   applyDiscountToOrg,
   previewDiscountForOrg,
   loadManageableSubscription,
+  subscriptionIdMatches,
 } from '../helpers/discount-helpers.js';
 import { refuseTeamBilling } from '../helpers/root-org-guard.js';
 import { Campaign } from '../models/campaign.js';
@@ -359,7 +360,9 @@ export function createDiscountRoutes(): Router {
     if (!validation.ok) return sendBadRequest(res, validation.error, ErrorCode.VALIDATION_ERROR);
     const discount = await resolveRedeemable(validation.value.code);
     if (!discount) return sendError(res, 404, 'Invalid or unknown discount code', ErrorCode.DISCOUNT_NOT_FOUND);
-    const preview = await previewDiscountForOrg(orgId, discount);
+    // The `:id` must be the org's own subscription (404 otherwise), checked
+    // against the sub the helper loads — not decorative.
+    const preview = await previewDiscountForOrg(orgId, discount, getParam(req.params, 'id'));
     if (!preview.ok) return sendError(res, preview.status, preview.error, preview.code);
     return sendSuccess(res, 200, { applied: preview.kind, priceBreakdown: preview.breakdown });
   }));
@@ -372,7 +375,7 @@ export function createDiscountRoutes(): Router {
     const discount = await resolveRedeemable(validation.value.code);
     if (!discount) return sendError(res, 404, 'Invalid or unknown discount code', ErrorCode.DISCOUNT_NOT_FOUND);
 
-    const result = await applyDiscountToOrg(orgId, discount, req.user?.sub);
+    const result = await applyDiscountToOrg(orgId, discount, req.user?.sub, getParam(req.params, 'id'));
     if (!result.ok) return sendError(res, result.status, result.error, result.code);
 
     recordAudit({
@@ -396,6 +399,9 @@ export function createDiscountRoutes(): Router {
 
     const subscription = await loadManageableSubscription(orgId);
     if (!subscription) return sendError(res, 404, 'No active subscription', ErrorCode.NOT_FOUND);
+    if (!subscriptionIdMatches(getParam(req.params, 'id'), subscription)) {
+      return sendError(res, 404, 'Subscription not found', ErrorCode.NOT_FOUND);
+    }
     if (subscription.recurringDiscount?.discountId !== discountId) {
       return sendError(res, 404, 'No active recurring discount with that id', ErrorCode.NOT_FOUND);
     }

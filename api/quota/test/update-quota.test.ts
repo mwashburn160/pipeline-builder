@@ -128,6 +128,7 @@ jest.unstable_mockModule('../src/middleware/authorize-org.js', () => ({
 
 const mockFindById = jest.fn<AnyFn>();
 const mockFindOneAndUpdate = jest.fn<AnyFn>();
+const mockFindOne = jest.fn<AnyFn>();
 const mockUpdateOne = jest.fn<AnyFn>();
 const mockDeleteOne = jest.fn<AnyFn>();
 
@@ -135,6 +136,7 @@ jest.unstable_mockModule('../src/models/organization.js', () => ({
   Organization: {
     findById: mockFindById,
     findOneAndUpdate: mockFindOneAndUpdate,
+    findOne: mockFindOne,
     updateOne: mockUpdateOne,
     deleteOne: mockDeleteOne,
   },
@@ -228,9 +230,11 @@ describe('PUT /quotas/:orgId (update org)', () => {
 
   beforeEach(() => { jest.clearAllMocks(); });
 
-  it('updates org name and slug', async () => {
-    const org = makeSaveableOrg();
-    mockFindById.mockResolvedValue(org);
+  /** The (filter, update, options) of the one atomic write. */
+  const writeOf = () => mockFindOneAndUpdate.mock.calls[0] as [Record<string, any>, Record<string, any>, Record<string, any>];
+
+  it('updates org name and slug with a field-level $set (never a whole-document save)', async () => {
+    mockFindOneAndUpdate.mockResolvedValue(makeSaveableOrg({ name: 'New Name', slug: 'new-name' }));
 
     const req = mockReq({
       params: { orgId: 'org-123' },
@@ -240,78 +244,89 @@ describe('PUT /quotas/:orgId (update org)', () => {
     const res = mockRes();
     await handler(req, res);
 
-    expect(org.name).toBe('New Name');
-    expect(org.slug).toBe('new-name');
-    expect(org.save).toHaveBeenCalled();
+    const [filter, update, options] = writeOf();
+    expect(filter).toEqual({ _id: 'org-123' }); // name-only: no team guard
+    expect(update).toEqual({ $set: { name: 'New Name', slug: 'new-name' } });
+    expect(options).toMatchObject({ returnDocument: 'after', runValidators: true });
+    expect(mockFindById).not.toHaveBeenCalled();
     expect(mockSendSuccess).toHaveBeenCalledWith( res, 200,
-      expect.objectContaining({ quota: expect.any(Object) }),
+      expect.objectContaining({ quota: expect.objectContaining({ name: 'New Name' }) }),
       'Updated successfully',
     );
   });
 
-  it('updates tier and applies tier defaults', async () => {
-    const org = makeSaveableOrg();
-    mockFindById.mockResolvedValue(org);
+  it('updates tier and applies tier defaults; explicit quotas win; usage is never written', async () => {
+    mockFindOneAndUpdate.mockResolvedValue(makeSaveableOrg({ tier: 'pro' }));
 
     const req = mockReq({
       params: { orgId: 'org-123' },
-      body: { tier: 'pro' },
+      body: { tier: 'pro', quotas: { plugins: 7 } },
       user: { organizationId: 'org-123' },
     });
     const res = mockRes();
     await handler(req, res);
 
-    expect(org.tier).toBe('pro');
-    expect(org.quotas.plugins).toBe(500);
-    expect(org.quotas.pipelines).toBe(50);
-    expect(org.save).toHaveBeenCalled();
+    const [filter, update] = writeOf();
+    expect(filter).toEqual({ _id: 'org-123', parentOrgId: { $in: [null, ''] } });
+    expect(update.$set).toEqual({ 'tier': 'pro', 'quotas.plugins': 7, 'quotas.pipelines': 50, 'quotas.apiCalls': -1 });
+    // The lost-update fix: counters are not part of the write at all.
+    expect(Object.keys(update.$set).some((k) => k.startsWith('usage') || k.startsWith('poolUsage'))).toBe(false);
+    expect(mockSendSuccess).toHaveBeenCalled();
   });
 
   it('rejects a tier write to a TEAM org with 400 (tier is pooled at the root)', async () => {
-    const org = { ...makeSaveableOrg(), parentOrgId: 'root-1' };
-    mockFindById.mockResolvedValue(org);
+    mockFindOneAndUpdate.mockResolvedValue(null); // the team guard in the filter excluded it
+    mockFindById.mockResolvedValue({ ...makeSaveableOrg(), parentOrgId: 'root-1' });
 
     const req = mockReq({ params: { orgId: 'team-1' }, body: { tier: 'pro' }, user: { organizationId: 'team-1' } });
     const res = mockRes();
     await handler(req, res);
 
     expect(mockSendError).toHaveBeenCalledWith(res, 400, expect.stringContaining('is a team'), 'VALIDATION_ERROR');
-    expect(org.save).not.toHaveBeenCalled();
-    expect(org.tier).toBe('developer');
+    expect(writeOf()[0]).toMatchObject({ parentOrgId: { $in: [null, ''] } });
   });
 
   it('rejects a quota-limit write to a TEAM org with 400', async () => {
-    const org = { ...makeSaveableOrg(), parentOrgId: 'root-1' };
-    mockFindById.mockResolvedValue(org);
+    mockFindOneAndUpdate.mockResolvedValue(null);
+    mockFindById.mockResolvedValue({ ...makeSaveableOrg(), parentOrgId: 'root-1' });
 
     const req = mockReq({ params: { orgId: 'team-1' }, body: { quotas: { plugins: 5 } }, user: { organizationId: 'team-1' } });
     const res = mockRes();
     await handler(req, res);
 
     expect(mockSendError).toHaveBeenCalledWith(res, 400, expect.stringContaining('pooled at its root'), 'VALIDATION_ERROR');
-    expect(org.save).not.toHaveBeenCalled();
   });
 
   it('still allows a name-only edit on a TEAM org', async () => {
-    const org = { ...makeSaveableOrg(), parentOrgId: 'root-1' };
-    mockFindById.mockResolvedValue(org);
+    mockFindOneAndUpdate.mockResolvedValue({ ...makeSaveableOrg(), parentOrgId: 'root-1' });
 
     const req = mockReq({ params: { orgId: 'team-1' }, body: { name: 'Renamed' }, user: { organizationId: 'team-1' } });
     const res = mockRes();
     await handler(req, res);
 
-    expect(org.save).toHaveBeenCalled();
+    expect(writeOf()[0]).toEqual({ _id: 'team-1' });
     expect(mockSendSuccess).toHaveBeenCalled();
   });
 
   it('returns 404 when org not found', async () => {
-    mockFindById.mockResolvedValue(null);
+    mockFindOneAndUpdate.mockResolvedValue(null);
 
     const req = mockReq({
       params: { orgId: 'missing' },
       body: { name: 'Test' },
       user: { organizationId: 'missing' },
     });
+    const res = mockRes();
+    await handler(req, res);
+
+    expect(mockSendError).toHaveBeenCalledWith(res, 404, 'Organization not found.', 'NOT_FOUND');
+  });
+
+  it('returns 404 (not a team 400) when a limits write misses a missing org', async () => {
+    mockFindOneAndUpdate.mockResolvedValue(null);
+    mockFindById.mockResolvedValue(null);
+
+    const req = mockReq({ params: { orgId: 'missing' }, body: { tier: 'pro' }, user: { organizationId: 'missing' } });
     const res = mockRes();
     await handler(req, res);
 
@@ -327,7 +342,7 @@ describe('PUT /quotas/:orgId (update org)', () => {
   });
 
   it('returns 500 on database error', async () => {
-    mockFindById.mockRejectedValue(new Error('DB error'));
+    mockFindOneAndUpdate.mockRejectedValue(new Error('DB error'));
 
     const req = mockReq({
       params: { orgId: 'org-123' },
@@ -367,12 +382,11 @@ describe('PUT /quotas/entitlement-sync/:orgId (internal, billing only)', () => {
   const billing = { organizationId: 'org-123', principalType: 'service', sub: 'service:billing' };
 
   it('applies billing\'s tier sync and audits it FOR the target org, not the system org', async () => {
-    const org = makeSaveableOrg();
-    mockFindById.mockResolvedValue(org);
+    mockFindOneAndUpdate.mockResolvedValue(makeSaveableOrg({ tier: 'pro' }));
     const res = mockRes();
     await runChain('put', '/entitlement-sync/:orgId', mockReq({ params: { orgId: 'org-123' }, body: { tier: 'pro' }, user: billing }), res);
 
-    expect(org.tier).toBe('pro');
+    expect((mockFindOneAndUpdate.mock.calls[0] as any[])[1].$set).toMatchObject({ tier: 'pro' });
     expect(mockSendSuccess).toHaveBeenCalledWith(res, 200, expect.objectContaining({ quota: expect.any(Object) }), 'Updated successfully');
     expect(mockEmitQuotaAudit).toHaveBeenCalledWith(expect.objectContaining({
       action: 'quota.limit.update', orgId: 'org-123', affectedOrgId: 'org-123', details: expect.objectContaining({ tier: 'pro' }),
@@ -404,7 +418,7 @@ describe('PUT /quotas/entitlement-sync/:orgId (internal, billing only)', () => {
   });
 
   it('keeps the staff route recording the system org as the actor\'s org', async () => {
-    mockFindById.mockResolvedValue(makeSaveableOrg());
+    mockFindOneAndUpdate.mockResolvedValue(makeSaveableOrg());
     const { SYSTEM_ORG_ID } = await import('@pipeline-builder/api-core');
     await getHandler('put', '/:orgId')(mockReq({ params: { orgId: 'org-123' }, body: { tier: 'pro' }, user: { organizationId: SYSTEM_ORG_ID, sub: 'staff-1' } }), mockRes());
     expect(mockEmitQuotaAudit).toHaveBeenCalledWith(expect.objectContaining({ orgId: SYSTEM_ORG_ID, affectedOrgId: 'org-123' }));
@@ -416,42 +430,74 @@ describe('POST /quotas/:orgId/reset', () => {
 
   beforeEach(() => { jest.clearAllMocks(); });
 
-  it('resets all quota usage when no quotaType specified', async () => {
-    const org = makeSaveableOrg();
-    mockFindById.mockResolvedValue(org);
+  /** The `$set` stage of the one atomic pipeline update. */
+  const stageOf = () => {
+    const [filter, pipeline, options] = mockFindOneAndUpdate.mock.calls[0] as [Record<string, any>, Array<Record<string, any>>, Record<string, any>];
+    expect(filter).toEqual({ _id: 'org-123' });
+    expect(options).toMatchObject({ returnDocument: 'after', updatePipeline: true });
+    expect(pipeline).toHaveLength(1);
+    return pipeline[0].$set as Record<string, any>;
+  };
+
+  it('resets all quota usage when no quotaType specified — one atomic update, no save', async () => {
+    mockFindOneAndUpdate.mockResolvedValue(makeSaveableOrg());
 
     const req = mockReq({ params: { orgId: 'org-123' }, body: {}, user: { organizationId: 'org-123' } });
     const res = mockRes();
     await handler(req, res);
 
-    expect(org.usage.plugins.used).toBe(0);
-    expect(org.usage.pipelines.used).toBe(0);
-    expect(org.usage.apiCalls.used).toBe(0);
-    expect(org.save).toHaveBeenCalled();
+    const stage = stageOf();
+    for (const k of ['plugins', 'pipelines', 'apiCalls', 'cpuCredits']) {
+      expect(stage[`usage.${k}`]).toMatchObject({ used: 0, resetAt: expect.any(Date) });
+      // Snapshot is the cap AS IT STANDS AT THE WRITE, resolved server-side.
+      expect(stage[`usage.${k}`].limitAtPeriodStart).toEqual({ $ifNull: [`$quotas.${k}`, expect.any(Object)] });
+    }
+    expect(mockFindById).not.toHaveBeenCalled();
     expect(mockSendSuccess).toHaveBeenCalledWith( res, 200,
       expect.objectContaining({ quota: expect.any(Object) }),
       'All quota usage reset successfully',
     );
   });
 
-  it('resets specific quota type', async () => {
-    const org = makeSaveableOrg();
-    mockFindById.mockResolvedValue(org);
+  it('resets specific quota type and leaves every other counter out of the write', async () => {
+    mockFindOneAndUpdate.mockResolvedValue(makeSaveableOrg());
 
     const req = mockReq({ params: { orgId: 'org-123' }, body: { quotaType: 'plugins' }, user: { organizationId: 'org-123' } });
     const res = mockRes();
     await handler(req, res);
 
-    expect(org.usage.plugins.used).toBe(0);
-    expect(org.save).toHaveBeenCalled();
+    expect(Object.keys(stageOf()).sort()).toEqual(['poolUsage.plugins', 'usage.plugins']);
     expect(mockSendSuccess).toHaveBeenCalledWith( res, 200,
       expect.any(Object),
       'plugins usage reset successfully',
     );
   });
 
+  it('resets a STARTED pooled counter with the own one, and leaves an unstarted one untouched', async () => {
+    mockFindOneAndUpdate.mockResolvedValue(makeSaveableOrg());
+
+    await handler(mockReq({ params: { orgId: 'org-123' }, body: { quotaType: 'plugins' }, user: { organizationId: 'org-123' } }), mockRes());
+
+    const stage = stageOf();
+    expect(stage['poolUsage.plugins']).toEqual({
+      $cond: {
+        if: { $eq: [{ $type: '$poolUsage.plugins.resetAt' }, 'date'] },
+        then: stage['usage.plugins'],
+        else: '$poolUsage.plugins',
+      },
+    });
+  });
+
+  it('gives each type its own period length on an all-types reset', async () => {
+    mockFindOneAndUpdate.mockResolvedValue(makeSaveableOrg());
+    await handler(mockReq({ params: { orgId: 'org-123' }, body: {}, user: { organizationId: 'org-123' } }), mockRes());
+    const stage = stageOf();
+    // cpuCredits rolls monthly; plugins on the configured resetDays (3).
+    expect(stage['usage.cpuCredits'].resetAt.getTime()).toBeGreaterThan(stage['usage.plugins'].resetAt.getTime());
+  });
+
   it('returns 404 when org not found', async () => {
-    mockFindById.mockResolvedValue(null);
+    mockFindOneAndUpdate.mockResolvedValue(null);
 
     const req = mockReq({ params: { orgId: 'missing' }, body: {}, user: { organizationId: 'missing' } });
     const res = mockRes();
@@ -469,7 +515,7 @@ describe('POST /quotas/:orgId/reset', () => {
   });
 
   it('returns 500 on database error', async () => {
-    mockFindById.mockRejectedValue(new Error('DB error'));
+    mockFindOneAndUpdate.mockRejectedValue(new Error('DB error'));
 
     const req = mockReq({ params: { orgId: 'org-123' }, body: {}, user: { organizationId: 'org-123' } });
     const res = mockRes();

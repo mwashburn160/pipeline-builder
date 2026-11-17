@@ -105,7 +105,7 @@ jest.unstable_mockModule('../src/models/subscription.js', () => ({
 }));
 
 const mockClaimWebhookEvent = jest.fn<(...a: unknown[]) => Promise<string | null>>();
-const mockMarkWebhookEventDone = jest.fn<(...a: unknown[]) => Promise<void>>();
+const mockMarkWebhookEventDone = jest.fn<(...a: unknown[]) => Promise<boolean>>();
 const mockReleaseWebhookEvent = jest.fn<(...a: unknown[]) => Promise<void>>();
 const mockWebhookEventStatus = jest.fn<(...a: unknown[]) => Promise<string | null>>();
 jest.unstable_mockModule('../src/models/webhook-dedupe.js', () => ({
@@ -236,7 +236,7 @@ beforeEach(() => {
   mockVerifySNSSignature.mockResolvedValue(true);
   mockConfirmSNSSubscription.mockResolvedValue(undefined);
   mockClaimWebhookEvent.mockResolvedValue('claim-tok'); // first delivery by default (claim token)
-  mockMarkWebhookEventDone.mockResolvedValue(undefined);
+  mockMarkWebhookEventDone.mockResolvedValue(true);
   mockReleaseWebhookEvent.mockResolvedValue(undefined);
   mockSubscriptionFindOne.mockReturnValue(query(subDoc()));
   mockPlanFindOne.mockResolvedValue({ _id: 'team', tier: 'team', name: 'Team', isActive: true });
@@ -397,8 +397,18 @@ describe('POST /marketplace/sns — idempotency', () => {
     expect(res.status).toHaveBeenCalledWith(200);
     // Two-phase: claim first, then promote to the durable marker post-processing.
     expect(mockClaimWebhookEvent).toHaveBeenCalledWith('sns', 'msg-1');
-    expect(mockMarkWebhookEventDone).toHaveBeenCalledWith('sns', 'msg-1');
+    expect(mockMarkWebhookEventDone).toHaveBeenCalledWith('sns', 'msg-1', 'claim-tok');
     expect(mockReleaseWebhookEvent).not.toHaveBeenCalled();
+  });
+
+  it('still acks with 200 (and does not release) when a redelivery took over the claim lease', async () => {
+    mockMarkWebhookEventDone.mockResolvedValue(false);
+    const res = mockRes();
+    await handler({ body: snsEnvelope({ Type: 'Notification', Message: event(DEPROVISIONED) }) }, res);
+
+    expect(mockMarkWebhookEventDone).toHaveBeenCalledWith('sns', 'msg-1', 'claim-tok');
+    expect(mockReleaseWebhookEvent).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(200);
   });
 
   it('releases the idempotency claim when processing throws, then returns 500', async () => {

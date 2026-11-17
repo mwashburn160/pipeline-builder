@@ -94,7 +94,7 @@ const WebhookDedupe =
  * in_progress claim (concurrent delivery) and a durable `done` marker both fail to
  * match, so the upsert falls through to an insert that trips the unique
  * (source, eventId) index → duplicate-key → `null`. On success the caller MUST
- * call {@link markWebhookEventDone} after its side-effects (or
+ * call {@link markWebhookEventDone} with the returned token after its side-effects (or
  * {@link releaseWebhookEvent} with the returned token on a handled failure).
  *
  * @returns the claim token (process the event) or `null` (claimed elsewhere).
@@ -124,24 +124,41 @@ export async function claimWebhookEvent(source: WebhookSource, eventId: string):
 }
 
 /**
- * Step 2 — promote the in-progress claim to a durable `done` marker (30d TTL).
- * Call ONLY after the event's side-effects have succeeded. Idempotent: a redelivery
- * that races here still re-stamps the same (source, eventId) row.
+ * Step 2 — promote the caller's OWN in-progress claim to a durable `done` marker
+ * (30d TTL). Call ONLY after the event's side-effects have succeeded, with the
+ * token {@link claimWebhookEvent} returned.
  *
- * `upsert` is load-bearing: if a slow handler outlives the 15-min in-progress lease
- * and Mongo's TTL reaps the claim before this runs, a plain updateOne would match
- * nothing and write NO done-marker — yet the caller returns 200, so the completed
- * event's side-effects would re-run on the next redelivery. Upserting writes the
- * done row even when the lease has vanished. (A concurrent re-claim can't collide:
- * the unique (source,eventId) index makes its insert a duplicate → treated as a
- * dup delivery.)
+ * COMPARE-AND-SET on the claim token. A slow handler can outlive its 15-min
+ * lease; by the time it finishes, a redelivery may have re-claimed the event
+ * (new token) and be running it, or have completed it (`done`). Completing
+ * unconditionally would stamp `done` over that newer claim, so the redelivery's
+ * own outcome (including a release on failure) is overwritten. Here the write
+ * matches only `in_progress` + THIS token; a newer claim or a done marker makes
+ * the upsert fall through to an insert that trips the unique (source, eventId)
+ * index, and the call returns `false` without touching the row.
+ *
+ * `upsert` stays load-bearing for the one case where the lease is gone but
+ * nobody holds it: Mongo's TTL reaped the expired claim and no redelivery has
+ * re-claimed. A plain updateOne would match nothing and write NO done-marker,
+ * yet the caller returns 200, so the completed event's side-effects would re-run
+ * on the next redelivery. With no row at all, the insert writes the done marker.
+ *
+ * @returns `true` when this caller's completion was recorded, `false` when the
+ *   event is held (or was completed) by another delivery — a no-op.
  */
-export async function markWebhookEventDone(source: WebhookSource, eventId: string): Promise<void> {
-  await WebhookDedupe.updateOne(
-    { source, eventId },
-    { $set: { status: 'done', expireAt: new Date(Date.now() + DONE_TTL_SECONDS * 1000) } },
-    { upsert: true },
-  );
+export async function markWebhookEventDone(source: WebhookSource, eventId: string, claimToken: string): Promise<boolean> {
+  try {
+    await WebhookDedupe.updateOne(
+      { source, eventId, status: 'in_progress', claimToken },
+      { $set: { status: 'done', expireAt: new Date(Date.now() + DONE_TTL_SECONDS * 1000) } },
+      { upsert: true },
+    );
+    return true;
+  } catch (err) {
+    // Duplicate key: another delivery's claim or done marker holds the row.
+    if ((err as { code?: number }).code === 11000) return false;
+    throw err;
+  }
 }
 
 /**

@@ -340,8 +340,11 @@ export abstract class CrudService<
    *  transaction (`tx`) so the subclass's check and the restore are atomic —
    *  e.g. a plugin tombstone that was the default must not come back as a
    *  second live default. Unlike the after-hooks this is NOT best-effort:
-   *  throwing aborts the restore. */
-  protected async restoreExtraSet(_id: string, _tx: CrudTx): Promise<Record<string, unknown>> {
+   *  throwing aborts the restore. `orgId` is the org pin the restore UPDATE
+   *  applies (undefined = a cross-org sysadmin restore) and `userId` the
+   *  restoring actor, so a subclass doing dependent writes can apply the same
+   *  scope and audit stamp the root restore will. */
+  protected async restoreExtraSet(_id: string, _tx: CrudTx, _orgId?: string, _userId?: string): Promise<Record<string, unknown>> {
     return {};
   }
 
@@ -1008,7 +1011,7 @@ export abstract class CrudService<
     const conditions = this.tombstoneConditions(orgId, id);
 
     const [restored] = await withTenantTx(async (tx) => {
-      const extra = await this.restoreExtraSet(id, tx);
+      const extra = await this.restoreExtraSet(id, tx, orgId || undefined, this.actor(userId));
       return tx
         .update(this.schema)
         .set(this.row({

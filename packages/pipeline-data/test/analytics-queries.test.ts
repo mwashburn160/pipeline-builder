@@ -575,6 +575,7 @@ const STREAKS = `
       FROM execution_daily_rollups
       WHERE org_id = $1
         AND day >= $2::timestamptz AND day < $3::timestamptz
+        AND stage_name = ''
       GROUP BY pipeline_id, day
     ),
     last_ok AS (
@@ -689,6 +690,27 @@ describe('failure streaks', () => {
   it('returns nothing for an org with no rollup rows', async () => {
     expect(await streaks()).toEqual([]);
   });
+
+  it('reads the PIPELINE grain only — stage rows neither inflate the streak nor fake a success', async () => {
+    await seedRollup({ day: '2026-09-10T00:00:00Z', runs: 2, succeeded: 2, failed: 0 });
+    await seedRollup({ day: '2026-09-11T00:00:00Z', runs: 2, succeeded: 0, failed: 2 });
+    // The same two failed runs, as seen by each of their stages: summing these
+    // in would count every failure three times.
+    await seedRollup({ day: '2026-09-11T00:00:00Z', stageName: 'Build', runs: 2, succeeded: 0, failed: 2 });
+    await seedRollup({ day: '2026-09-11T00:00:00Z', stageName: 'Deploy', runs: 2, succeeded: 0, failed: 2 });
+    // A stage that SUCCEEDED inside a failed run must not mark the day ok.
+    await seedRollup({ day: '2026-09-12T00:00:00Z', runs: 1, succeeded: 0, failed: 1 });
+    await seedRollup({ day: '2026-09-12T00:00:00Z', stageName: 'Source', runs: 1, succeeded: 1, failed: 0 });
+
+    const row = (await streaks())[0];
+    expect(row?.streak).toBe(3);
+    expect(new Date(String(row?.last_success_day)).toISOString()).toBe('2026-09-10T00:00:00.000Z');
+  });
+
+  it('a pipeline with only stage rows contributes nothing', async () => {
+    await seedRollup({ day: '2026-09-11T00:00:00Z', stageName: 'Build', runs: 2, succeeded: 0, failed: 2 });
+    expect(await streaks()).toEqual([]);
+  });
 });
 
 describe('untracked pipelines', () => {
@@ -776,6 +798,8 @@ describe('the SQL in this file matches the module', () => {
     const src = await readFile(new URL('../src/api/reporting/analytics-queries.ts', import.meta.url), 'utf8');
     const distinctive = [
       'COALESCE(SUM(d.failed) FILTER (',
+      // The streak's pipeline-grain filter, right before its GROUP BY.
+      "AND stage_name = ''\n      GROUP BY pipeline_id, day\n",
       'LEFT JOIN last_ok l ON l.pipeline_id = d.pipeline_id',
       'WHERE NOT EXISTS (SELECT 1 FROM tracked t WHERE t.pipeline_id = a.pipeline_id)',
       'AND ${liveExposurePredicate(now)}',

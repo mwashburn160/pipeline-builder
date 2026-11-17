@@ -72,7 +72,7 @@ jest.unstable_mockModule('../src/helpers/stripe-reversals.js', () => ({
 
 // -- The idempotency store --
 const mockClaim = jest.fn<(...a: unknown[]) => Promise<string | null>>();
-const mockMarkDone = jest.fn<(...a: unknown[]) => Promise<void>>().mockResolvedValue(undefined);
+const mockMarkDone = jest.fn<(...a: unknown[]) => Promise<boolean>>().mockResolvedValue(true);
 const mockRelease = jest.fn<(...a: unknown[]) => Promise<void>>().mockResolvedValue(undefined);
 const mockStatus = jest.fn<(...a: unknown[]) => Promise<string | null>>().mockResolvedValue('done');
 jest.unstable_mockModule('../src/models/webhook-dedupe.js', () => ({
@@ -133,7 +133,7 @@ beforeEach(() => {
   keyMode = 'test';
   activeProvider = new FakeStripeProvider();
   mockClaim.mockResolvedValue('claim-token');
-  mockMarkDone.mockResolvedValue(undefined);
+  mockMarkDone.mockResolvedValue(true);
   mockRelease.mockResolvedValue(undefined);
   mockStatus.mockResolvedValue('done');
 });
@@ -213,7 +213,18 @@ describe('the two-phase idempotency claim', () => {
 
     expect(mockClaim).toHaveBeenCalledWith('stripe', 'evt_1');
     expect(h.paid).toHaveBeenCalledWith({ id: 'obj_1' }, { id: 'evt_1', created: 1767225600 });
-    expect(mockMarkDone).toHaveBeenCalledWith('stripe', 'evt_1');
+    expect(mockMarkDone).toHaveBeenCalledWith('stripe', 'evt_1', 'claim-token');
+    expect(last()).toEqual({ kind: 'success', status: 200, body: { received: true } });
+  });
+
+  it('still answers 200 when the completion is refused because a redelivery took over the lease', async () => {
+    mockMarkDone.mockResolvedValue(false);
+
+    await deliverEvent('invoice.payment_succeeded');
+
+    // Side-effects already ran; the newer claim owns the event's outcome now.
+    expect(mockMarkDone).toHaveBeenCalledWith('stripe', 'evt_1', 'claim-token');
+    expect(mockRelease).not.toHaveBeenCalled();
     expect(last()).toEqual({ kind: 'success', status: 200, body: { received: true } });
   });
 
@@ -306,7 +317,7 @@ describe('the dispatch table', () => {
     expect(handlerCalls()).toEqual([]);
     // Still marked done: Stripe sends dozens of types we never subscribe to and
     // a permanent 500 on each would drown the retry queue.
-    expect(mockMarkDone).toHaveBeenCalledWith('stripe', 'evt_1');
+    expect(mockMarkDone).toHaveBeenCalledWith('stripe', 'evt_1', 'claim-token');
     expect(last()).toEqual({ kind: 'success', status: 200, body: { received: true } });
   });
 });

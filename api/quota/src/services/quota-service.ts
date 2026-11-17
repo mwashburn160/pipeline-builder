@@ -9,7 +9,6 @@ import { fetchStorageBytes } from './storage-usage.js';
 import { expandOrgScope, findOrgWithHierarchy, resolveRootOrgId } from '../helpers/org-hierarchy.js';
 import { toOrgId } from '../helpers/org-id.js';
 import {
-  applyQuotaLimits,
   atRiskPercent,
   buildOrgQuotaResponse,
   buildDefaultOrgQuotaResponse,
@@ -51,6 +50,12 @@ interface UpdateOrgData {
 interface ListOrgsOptions {
   limit?: number;
   offset?: number;
+  /**
+   * Include soft-deleted orgs (`deletedAt` set, awaiting platform's purge).
+   * Off by default: a deleted account is not a live tenant. The route only
+   * reaches this behind its own operator gate.
+   */
+  includeDeleted?: boolean;
 }
 
 /**
@@ -415,7 +420,12 @@ export class QuotaService {
    * across page boundaries.
    */
   async findAll(options: ListOrgsOptions = {}): Promise<{ organizations: OrgQuotaResponse[]; total: number }> {
-    const query = Organization.find()
+    // LIVE orgs only unless asked (`deletedAt: null` also matches an absent
+    // field), as findAtRisk: a soft-deleted org lingers in the shared collection
+    // until platform's purge. The count uses the SAME filter so `total` pages
+    // the list it describes.
+    const filter = options.includeDeleted ? {} : { deletedAt: null };
+    const query = Organization.find(filter)
       .select('name slug tier quotas usage')
       .sort({ name: 1, _id: 1 });
 
@@ -424,7 +434,7 @@ export class QuotaService {
     // unbounded scan of the whole collection; clamp to FIND_ALL_MAX_LIMIT.
     query.limit(Math.min(options.limit ?? FIND_ALL_MAX_LIMIT, FIND_ALL_MAX_LIMIT));
 
-    const [orgs, total] = await Promise.all([query.lean(), Organization.countDocuments()]);
+    const [orgs, total] = await Promise.all([query.lean(), Organization.countDocuments(filter)]);
     return { organizations: orgs.map((org) => buildOrgQuotaResponse(org)), total };
   }
 
@@ -560,32 +570,53 @@ export class QuotaService {
    * @throws {ValidationError} when an invalid tier is supplied
    */
   async update(orgId: string, data: UpdateOrgData): Promise<OrgQuotaResponse> {
-    const org = await Organization.findById(toOrgId(orgId));
-    if (!org) throw new OrgNotFoundError(orgId);
+    const touchesLimits = data.tier !== undefined || data.quotas !== undefined;
+    if (data.tier !== undefined && !isValidTier(data.tier)) {
+      throw new ValidationError(`Invalid tier: ${data.tier}`);
+    }
+
+    // ATOMIC field-level `$set`, never read-modify-save: a whole-document save
+    // wrote back the `usage`/`poolUsage` counters as they were READ, erasing
+    // every increment that landed in between (a lost-update on the very
+    // counters enforcement binds on). Only the named fields are written; a tier
+    // change applies its preset limits and explicit `quotas` win over them, as
+    // before.
+    const $set: Record<string, unknown> = {};
+    if (data.name !== undefined) $set.name = data.name;
+    if (data.slug !== undefined) $set.slug = data.slug;
+    const setLimits = (limits: Partial<Record<QuotaType, number>>): void => {
+      for (const key of VALID_QUOTA_TYPES) {
+        if (limits[key] !== undefined) $set[`quotas.${key}`] = limits[key];
+      }
+    };
+    if (data.tier !== undefined) {
+      const tier = data.tier as PlanTier;
+      $set.tier = tier;
+      setLimits(PLAN_TIERS[tier].limits);
+    }
+    if (data.quotas) setLimits(data.quotas);
 
     // A team's tier is inherited and its limits are -1 by design: the caps are
     // pooled at the root. Writing them on the team would be silently ignored by
-    // enforcement (which reads the root), so reject it outright.
-    if ((data.tier !== undefined || data.quotas !== undefined) && org.parentOrgId) {
-      throw new ValidationError(
-        `Organization ${orgId} is a team: its tier and quota limits are pooled at its root organization. Edit the root organization instead.`,
-      );
-    }
+    // enforcement (which reads the root), so reject it outright. Folded into
+    // the filter so the check and the write are one atomic step.
+    const filter: Record<string, unknown> = { _id: toOrgId(orgId) };
+    if (touchesLimits) filter.parentOrgId = { $in: [null, ''] };
 
-    if (data.name !== undefined) org.name = data.name;
-    if (data.slug !== undefined) org.slug = data.slug;
+    const org = Object.keys($set).length > 0
+      ? await Organization.findOneAndUpdate(filter, { $set }, { returnDocument: 'after', runValidators: true })
+      : await Organization.findOne(filter);
 
-    if (data.tier !== undefined) {
-      if (!isValidTier(data.tier)) {
-        throw new ValidationError(`Invalid tier: ${data.tier}`);
+    if (!org) {
+      // No match: the org is missing, or (limits touched) it is a team.
+      const existing = touchesLimits ? await Organization.findById(toOrgId(orgId)) : null;
+      if (existing?.parentOrgId) {
+        throw new ValidationError(
+          `Organization ${orgId} is a team: its tier and quota limits are pooled at its root organization. Edit the root organization instead.`,
+        );
       }
-      const tier: PlanTier = data.tier;
-      org.tier = tier;
-      applyQuotaLimits(org, PLAN_TIERS[tier].limits);
+      throw new OrgNotFoundError(orgId);
     }
-    if (data.quotas) applyQuotaLimits(org, data.quotas);
-
-    await org.save();
 
     logger.info('Quota updated', { orgId });
     return buildOrgQuotaResponse(org);
@@ -596,31 +627,46 @@ export class QuotaService {
    * @throws {OrgNotFoundError} when the org document does not exist
    */
   async resetUsage(orgId: string, quotaType?: string): Promise<OrgQuotaResponse> {
-    const org = await Organization.findById(toOrgId(orgId));
-    if (!org) throw new OrgNotFoundError(orgId);
-
-    // Fresh Date per slot — otherwise mutating one slot's resetAt would mutate
-    // every other slot's via shared reference. A pool ROOT's pooled counter is
-    // reset with it: that counter is what the shared cap binds on, so zeroing
-    // only the root's own row would free nothing. (Resetting a TEAM moves only
-    // its own attribution counter — reset the root to free pooled capacity.)
+    // ONE atomic pipeline update, never read-modify-save: a whole-document save
+    // wrote back every OTHER counter as it was read, so a reset of one type
+    // erased concurrent increments to the rest (and to `poolUsage`). Each slot
+    // is a fresh subdocument computed server-side.
+    //
+    // A pool ROOT's pooled counter is reset with it: that counter is what the
+    // shared cap binds on, so zeroing only the root's own row would free
+    // nothing. (Resetting a TEAM moves only its own attribution counter — reset
+    // the root to free pooled capacity.) A pooled slot is reset only when it
+    // has started (`resetAt` is a date); otherwise it is left exactly as is.
     //
     // The reset date is computed PER TYPE rather than once: an all-types reset
     // spans windows of different length now that `cpuCredits` is monthly, so one
     // shared date would hand credits a three-day period (or every other quota a
     // thirty-day one, depending which way it was computed).
+    //
+    // A reset starts a NEW period, so the snapshot is the cap as it stands at
+    // the write (`currentLimitExpr`: the stored cap, or the tier preset) —
+    // otherwise an operator reset would carry a stale ceiling forward.
     const types = quotaType ? [quotaType as QuotaType] : VALID_QUOTA_TYPES;
+    const $set: Record<string, unknown> = {};
     for (const k of types) {
-      const resetDate = nextQuotaResetDate(periodDaysFor(k));
-      // A reset starts a NEW period, so the snapshot is the cap as it stands now
-      // — otherwise an operator reset would carry a stale ceiling forward. The
-      // tier preset when no cap is stored, as every other reader resolves it.
-      const limitNow = org.quotas[k] ?? defaultLimitFor(org.tier, k);
-      org.usage[k] = { used: 0, resetAt: new Date(resetDate), limitAtPeriodStart: limitNow };
-      if (org.poolUsage?.[k]?.resetAt) org.poolUsage[k] = { used: 0, resetAt: new Date(resetDate), limitAtPeriodStart: limitNow };
+      const fresh = { used: 0, resetAt: new Date(nextQuotaResetDate(periodDaysFor(k))), limitAtPeriodStart: currentLimitExpr(k) };
+      $set[`usage.${k}`] = fresh;
+      $set[`poolUsage.${k}`] = {
+        $cond: {
+          if: { $eq: [{ $type: `$poolUsage.${k}.resetAt` }, 'date'] },
+          then: fresh,
+          else: `$poolUsage.${k}`,
+        },
+      };
     }
 
-    await org.save();
+    const org = await Organization.findOneAndUpdate(
+      { _id: toOrgId(orgId) },
+      [{ $set }],
+      // Required for aggregation-pipeline (array) updates as of Mongoose 9.
+      { returnDocument: 'after', updatePipeline: true },
+    );
+    if (!org) throw new OrgNotFoundError(orgId);
 
     logger.info('Quota usage reset', { orgId, quotaType: quotaType || 'all' });
     return buildOrgQuotaResponse(org);

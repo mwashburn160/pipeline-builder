@@ -236,22 +236,21 @@ describe('refund edge cases', () => {
 });
 
 describe('admin reset', () => {
-  it('zeroes a pool root\'s pooled counter along with its own', async () => {
-    const save = jest.fn<AnyFn>(async () => undefined);
-    const org = {
+  it('zeroes a pool root\'s pooled counter along with its own, atomically', async () => {
+    findOneAndUpdate.mockResolvedValue({
       _id: 'root',
       name: 'R',
       slug: 'r',
       tier: 'pro',
       quotas: { plugins: 25 },
-      usage: { plugins: { used: 9, resetAt: future } },
-      poolUsage: { plugins: { used: 20, resetAt: future } },
-      save,
-    };
-    findById.mockResolvedValue(org);
+      usage: { plugins: { used: 0, resetAt: future } },
+      poolUsage: { plugins: { used: 0, resetAt: future } },
+    });
     await quotaService.resetUsage('root', 'plugins');
-    expect(org.usage.plugins.used).toBe(0);
-    expect(org.poolUsage.plugins.used).toBe(0);
-    expect(save).toHaveBeenCalled();
+    const [, pipeline] = findOneAndUpdate.mock.calls[0] as [unknown, Array<{ $set: Record<string, any> }>];
+    const stage = pipeline[0].$set;
+    expect(stage['usage.plugins']).toMatchObject({ used: 0 });
+    expect(stage['poolUsage.plugins'].$cond.then).toBe(stage['usage.plugins']);
+    expect(findById).not.toHaveBeenCalled();
   });
 });

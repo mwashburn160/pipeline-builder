@@ -8,6 +8,7 @@ import {
   ErrorCode,
   errorMessage,
   getParam,
+  normalizeOrgId,
   parsePage,
   recordAudit,
   requireAuth,
@@ -336,7 +337,11 @@ export function createOfferRoutes(): Router {
     ...requireSystemOrgPermission('subscriptions:manage'),
     audited('billing.offer.exclusion.set'),
     withRoute(async ({ req, res, ctx, userId }) => {
-      const target = getParam(req.params, 'orgId');
+      // Canonical (trimmed + lowercased) org id: the offers run looks the veto
+      // up by the account root id, which is always lowercased (ObjectId hex /
+      // the normalized identity org id). Storing the URL's raw casing wrote a
+      // row the lookup could never match — a veto that silently did nothing.
+      const target = normalizeOrgId(getParam(req.params, 'orgId'));
       if (!target) return sendBadRequest(res, 'orgId is required', ErrorCode.MISSING_REQUIRED_FIELD);
       const raw = (req.body ?? {}) as { reason?: unknown };
       const reason = typeof raw.reason === 'string' ? raw.reason.trim() : '';
@@ -368,9 +373,12 @@ export function createOfferRoutes(): Router {
     ...requireSystemOrgPermission('subscriptions:manage'),
     audited('billing.offer.exclusion.cleared'),
     withRoute(async ({ req, res, ctx, userId }) => {
-      const target = getParam(req.params, 'orgId');
-      if (!target) return sendBadRequest(res, 'orgId is required', ErrorCode.MISSING_REQUIRED_FIELD);
-      const removed = await OfferExclusion.findOneAndDelete({ orgId: target }).lean();
+      const raw = getParam(req.params, 'orgId')?.trim();
+      const target = normalizeOrgId(raw);
+      if (!raw || !target) return sendBadRequest(res, 'orgId is required', ErrorCode.MISSING_REQUIRED_FIELD);
+      // Canonical id, as the PUT now stores it — plus the exact raw spelling, so
+      // a row written with its URL casing before normalization can still be lifted.
+      const removed = await OfferExclusion.findOneAndDelete({ orgId: { $in: [...new Set([target, raw])] } }).lean();
       if (!removed) return sendError(res, 404, 'That account is not excluded', ErrorCode.NOT_FOUND);
       recordAudit({
         action: 'billing.offer.exclusion.cleared',

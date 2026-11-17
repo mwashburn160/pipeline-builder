@@ -117,6 +117,8 @@ jest.unstable_mockModule('@pipeline-builder/pipeline-data', () => {
         createdBy: 'createdBy',
         updatedBy: 'updatedBy',
         visibility: 'visibility',
+        deletedAt: 'deletedAt',
+        deleteBatchId: 'deleteBatchId',
       },
     },
   });
@@ -129,6 +131,8 @@ jest.unstable_mockModule('drizzle-orm', () => drizzleMock({
   eq: jest.fn((col: any, val: any) => ({ col, val, op: 'eq' })),
   and: jest.fn((...args: any[]) => args),
   inArray: jest.fn((col: any, vals: any) => ({ col, vals, op: 'inArray' })),
+  isNull: jest.fn((col: any) => ({ col, op: 'isNull' })),
+  isNotNull: jest.fn((col: any) => ({ col, op: 'isNotNull' })),
   sql: Object.assign(
     jest.fn((..._args: any[]) => ({ _kind: 'sql' })),
     { [Symbol.for('drizzle.sql')]: true },
@@ -539,6 +543,101 @@ describe('MessageService', () => {
       // The where clause is composed of and(threadId, isActive, or(orgId|recipientOrgId)).
       // We verify the chain was reached, not the SQL shape (drizzle internals).
       expect(whereFn).toHaveBeenCalled();
+    });
+
+    it('stamps ONE delete batch id on the root and every reply the cascade sweeps', async () => {
+      const whereFn = jest.fn<AnyFn>().mockResolvedValue(undefined);
+      const setFn = jest.fn<AnyFn>().mockReturnValue({ where: whereFn });
+      mockDbUpdate.mockReturnValue({ set: setFn });
+
+      await service.deleteThread('thread-root-1', 'user-1', 'org-1');
+
+      expect(setFn).toHaveBeenCalledTimes(2);
+      const [rootSet] = setFn.mock.calls[0] as [Record<string, unknown>];
+      const [replySet] = setFn.mock.calls[1] as [Record<string, unknown>];
+      expect(rootSet).toEqual({ deleteBatchId: expect.stringMatching(/^[0-9a-f-]{36}$/) });
+      expect(replySet.deleteBatchId).toBe(rootSet.deleteBatchId);
+      // Root stamp only touches the already-tombstoned root, pinned to the caller's org.
+      const rootWhere = JSON.stringify(whereFn.mock.calls[0]);
+      expect(rootWhere).toContain('"col":"id","val":"thread-root-1"');
+      expect(rootWhere).toContain('"col":"orgId","val":"org-1"');
+      expect(rootWhere).toContain('"col":"deletedAt","op":"isNotNull"');
+      // Replies: only LIVE ones — an individually-deleted earlier reply keeps its own (null) batch.
+      expect(JSON.stringify(whereFn.mock.calls[1])).toContain('"col":"isActive","val":true');
+
+      // A second thread delete gets a fresh batch id.
+      setFn.mockClear();
+      await service.deleteThread('thread-root-2', 'user-1', 'org-1');
+      expect((setFn.mock.calls[0] as [Record<string, unknown>])[0].deleteBatchId).not.toBe(rootSet.deleteBatchId);
+    });
+
+    it('sysadmin (allOrgs) drops the org pin on the root stamp too', async () => {
+      const whereFn = jest.fn<AnyFn>().mockResolvedValue(undefined);
+      mockDbUpdate.mockReturnValue({ set: jest.fn<AnyFn>().mockReturnValue({ where: whereFn }) });
+      await service.deleteThread('thread-root-1', 'admin', 'sys-org', true);
+      expect(JSON.stringify(whereFn.mock.calls[0])).not.toContain('"col":"orgId"');
+    });
+  });
+
+  // restoreExtraSet (called by the base restore INSIDE its transaction) brings
+  // back the replies the same thread delete tombstoned.
+  describe('restoreExtraSet — thread restore by delete batch', () => {
+    function txWith(rows: unknown[]) {
+      const forUpdate = jest.fn<AnyFn>().mockResolvedValue(rows);
+      const selectWhere = jest.fn<AnyFn>().mockReturnValue({ for: forUpdate });
+      const select = jest.fn<AnyFn>().mockReturnValue({ from: jest.fn<AnyFn>().mockReturnValue({ where: selectWhere }) });
+      const updateWhere = jest.fn<AnyFn>().mockResolvedValue(undefined);
+      const updateSet = jest.fn<AnyFn>().mockReturnValue({ where: updateWhere });
+      const update = jest.fn<AnyFn>().mockReturnValue({ set: updateSet });
+      return { tx: { select, update }, selectWhere, forUpdate, update, updateSet, updateWhere };
+    }
+    const extra = (id: string, tx: unknown, orgId?: string, userId?: string) =>
+      (service as any).restoreExtraSet(id, tx, orgId, userId) as Promise<Record<string, unknown>>;
+
+    it('restores every reply sharing the root batch id (same thread + conversation) and clears the batch', async () => {
+      const h = txWith([{ orgId: 'org-1', threadId: null, deleteBatchId: 'batch-1' }]);
+      const out = await extra('ROOT-1', h.tx, 'org-1', 'user-1');
+
+      expect(out).toEqual({ deleteBatchId: null });
+      expect(h.forUpdate).toHaveBeenCalledWith('update');
+      // Root re-read under the same tombstone + org pin as the base restore.
+      const rootWhere = JSON.stringify(h.selectWhere.mock.calls[0]);
+      expect(rootWhere).toContain('"col":"id","val":"root-1"');
+      expect(rootWhere).toContain('"col":"orgId","val":"org-1"');
+      expect(h.updateSet).toHaveBeenCalledWith(expect.objectContaining({
+        isActive: true, deletedAt: null, deletedBy: null, purgeAfter: null, deleteBatchId: null, updatedBy: 'user-1',
+      }));
+      const replyWhere = JSON.stringify(h.updateWhere.mock.calls[0]);
+      expect(replyWhere).toContain('"col":"threadId","val":"root-1"');
+      expect(replyWhere).toContain('"col":"deleteBatchId","val":"batch-1"');
+      expect(replyWhere).toContain('"col":"isActive","val":false');
+      expect(replyWhere).toContain('"col":"recipientOrgId","val":"org-1"');
+    });
+
+    it('does not cascade when the root has no batch (deleted before batching, or never thread-deleted)', async () => {
+      const h = txWith([{ orgId: 'org-1', threadId: null, deleteBatchId: null }]);
+      expect(await extra('root-1', h.tx, 'org-1', 'user-1')).toEqual({ deleteBatchId: null });
+      expect(h.update).not.toHaveBeenCalled();
+    });
+
+    it('restoring a single REPLY never cascades, but clears its own batch id', async () => {
+      const h = txWith([{ orgId: 'org-2', threadId: 'root-1', deleteBatchId: 'batch-1' }]);
+      expect(await extra('reply-1', h.tx, undefined, 'admin')).toEqual({ deleteBatchId: null });
+      expect(h.update).not.toHaveBeenCalled();
+    });
+
+    it('touches nothing when the root is not a tombstone this restore can match', async () => {
+      const h = txWith([]);
+      expect(await extra('root-1', h.tx, 'org-1', 'user-1')).toEqual({});
+      expect(h.update).not.toHaveBeenCalled();
+    });
+
+    it('sysadmin restore (no org pin) does not pin the root read to an org', async () => {
+      const h = txWith([{ orgId: 'org-9', threadId: null, deleteBatchId: 'b' }]);
+      await extra('root-1', h.tx, undefined, '');
+      expect(JSON.stringify(h.selectWhere.mock.calls[0])).not.toContain('"col":"orgId"');
+      expect(h.updateSet).toHaveBeenCalledWith(expect.objectContaining({ updatedBy: expect.any(String) }));
+      expect(JSON.stringify(h.updateWhere.mock.calls[0])).toContain('"col":"orgId","val":"org-9"');
     });
   });
 

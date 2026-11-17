@@ -143,9 +143,24 @@ type LoadedSubPlan =
   | { ok: true; subscription: SubscriptionDocument; plan: { name: string; tier: string; prices: { monthly: number; annual: number } } }
   | { ok: false; status: number; error: string; code?: string };
 
-async function loadSubPlan(orgId: string): Promise<LoadedSubPlan> {
+/**
+ * Does the loaded subscription match the `:id` in a `/subscriptions/:id/...`
+ * URL? The self-service routes resolve the org's active subscription by orgId,
+ * so without this the id in the URL is decorative and a caller could target
+ * one subscription's id while mutating another (the same guard as
+ * `subscriptionIdMatches` in routes/addons.ts). `undefined` = no id to check
+ * (the system routes, which address the org directly).
+ */
+export function subscriptionIdMatches(expectedId: string | undefined, subscription: { _id: { toString(): string } }): boolean {
+  return !expectedId || subscription._id.toString() === expectedId;
+}
+
+async function loadSubPlan(orgId: string, expectedSubscriptionId?: string): Promise<LoadedSubPlan> {
   const subscription = await loadManageableSubscription(orgId);
   if (!subscription) return { ok: false, status: 404, error: 'No active subscription' };
+  if (!subscriptionIdMatches(expectedSubscriptionId, subscription)) {
+    return { ok: false, status: 404, error: 'Subscription not found', code: 'NOT_FOUND' };
+  }
   const plan = await Plan.findById(subscription.planId).lean();
   if (!plan) return { ok: false, status: 404, error: 'Subscription plan not found' };
   return { ok: true, subscription, plan };
@@ -190,8 +205,8 @@ export type PreviewResult =
   | { ok: false; status: number; error: string; code?: string };
 
 /** Dry-run: validate + project the breakdown without reserving or mutating. */
-export async function previewDiscountForOrg(orgId: string, discount: DiscountDocument): Promise<PreviewResult> {
-  const loaded = await loadSubPlan(orgId);
+export async function previewDiscountForOrg(orgId: string, discount: DiscountDocument, expectedSubscriptionId?: string): Promise<PreviewResult> {
+  const loaded = await loadSubPlan(orgId, expectedSubscriptionId);
   if (!loaded.ok) return loaded;
   const invalid = validateApplicable(orgId, discount, loaded.subscription, loaded.plan);
   if (invalid) return { ok: false, ...invalid };
@@ -228,8 +243,10 @@ export async function applyDiscountToOrg(
   orgId: string,
   discount: DiscountDocument,
   actorId?: string,
+  /** The `:id` of a self-service `/subscriptions/:id/discounts` call — must be the org's sub. */
+  expectedSubscriptionId?: string,
 ): Promise<ApplyResult> {
-  const loaded = await loadSubPlan(orgId);
+  const loaded = await loadSubPlan(orgId, expectedSubscriptionId);
   if (!loaded.ok) return loaded;
   const { subscription, plan } = loaded;
 

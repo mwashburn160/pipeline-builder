@@ -120,6 +120,11 @@ export const message = pgTable('messages', {
   // Soft-delete purge deadline: the retention sweep hard-deletes tombstoned
   // rows once `purge_after` has passed (set on delete alongside deleted_at).
   purgeAfter: timestamp('purge_after', { withTimezone: true }),
+  // Groups the rows ONE conversation delete tombstoned (the root + the replies
+  // its cascade swept), so restoring the root brings back exactly that set — and
+  // never a reply that was deleted on its own earlier (NULL / a different batch).
+  // Cleared on restore.
+  deleteBatchId: uuid('delete_batch_id'),
 }, (table) => ({
   // Partial index over just the tombstones — drives the retention purge sweep.
   purgeIdx: index('message_purge_idx').on(table.purgeAfter).where(sql`deleted_at IS NOT NULL`),

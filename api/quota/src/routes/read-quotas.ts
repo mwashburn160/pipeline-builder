@@ -180,8 +180,12 @@ export function createReadQuotaRoutes(svc: QuotaService = defaultQuotaService): 
       // Mongo walk and discard the whole collection.
       const { limit, offset } = parsePage(req.query as Record<string, unknown>, { def: 100, max: 1000 });
 
-      const { organizations, total } = await svc.findAll({ limit, offset });
-      ctx.log('COMPLETED', 'Listed all organizations', { total, limit, offset });
+      // Soft-deleted orgs are excluded unless the operator asks for them
+      // (`?includeDeleted=true`) — this route's gate is already operator-only.
+      const includeDeleted = req.query.includeDeleted === 'true';
+
+      const { organizations, total } = await svc.findAll({ limit, offset, includeDeleted });
+      ctx.log('COMPLETED', 'Listed all organizations', { total, limit, offset, includeDeleted });
       return sendSuccess(res, 200, { organizations, total, limit, offset });
     }),
   );

@@ -145,7 +145,14 @@ export function createStripeWebhookRoutes(): Router {
 
         // Side-effects succeeded — promote the in-progress claim to the durable
         // done-marker so retries are deduped (but a crash before this re-runs).
-        await markWebhookEventDone('stripe', event.id);
+        // Conditional on OUR claim token: a handler that outlived its lease
+        // must not stamp `done` over a redelivery's newer claim.
+        if (!await markWebhookEventDone('stripe', event.id, claimToken)) {
+          logger.warn('Stripe webhook completed after its claim lease was taken over; completion not recorded', {
+            eventId: event.id,
+            type: event.type,
+          });
+        }
         return sendSuccess(res, 200, { received: true });
       } catch (error) {
         // Release the idempotency claim so Stripe's retry reprocesses this

@@ -61,6 +61,8 @@ const helpers = {
   applyDiscountToOrg: jest.fn<AnyFn>(),
   previewDiscountForOrg: jest.fn<AnyFn>(),
   loadManageableSubscription: jest.fn<AnyFn>(),
+  // The real guard — it is pure, and the routes' 404 depends on its semantics.
+  subscriptionIdMatches: (id: string | undefined, sub: { _id: { toString(): string } }) => !id || sub._id.toString() === id,
 };
 jest.unstable_mockModule('../src/helpers/discount-helpers.js', () => helpers);
 jest.unstable_mockModule('../src/helpers/root-org-guard.js', () => ({ refuseTeamBilling: pass }));
@@ -307,6 +309,29 @@ describe('self-service', () => {
     expect(sendError).toHaveBeenLastCalledWith({}, 404, 'No active recurring discount with that id', 'NOT_FOUND');
     expect(save).not.toHaveBeenCalled();
     expectNoEffects();
+  });
+
+  it('remove: 404s when the URL :id is not the org\'s own subscription, touching nothing', async () => {
+    const sub = { _id: { toString: () => 'sub_1' }, recurringDiscount: { discountId: 'disc_1' } as unknown, save: jest.fn<AnyFn>(async () => undefined) };
+    helpers.loadManageableSubscription.mockResolvedValueOnce(sub);
+    await call('delete', '/subscriptions/:id/discounts/:discountId', { params: { id: 'sub_OTHER', discountId: 'disc_1' } });
+    expect(sendError).toHaveBeenLastCalledWith({}, 404, 'Subscription not found', 'NOT_FOUND');
+    expect(sub.recurringDiscount).toEqual({ discountId: 'disc_1' });
+    expect(sub.save).not.toHaveBeenCalled();
+    expectNoEffects();
+  });
+
+  it('preview + redeem pass the URL :id through to the helper\'s subscription check', async () => {
+    helpers.resolveRedeemable.mockResolvedValue({ _id: 'disc_1', kind: 'credit' });
+    helpers.previewDiscountForOrg.mockResolvedValueOnce({ ok: false, status: 404, error: 'Subscription not found', code: 'NOT_FOUND' });
+    await call('post', '/subscriptions/:id/discounts/preview', { params: { id: 'sub_X' }, body: { code: 'X' } });
+    expect(helpers.previewDiscountForOrg).toHaveBeenLastCalledWith('org_1', expect.anything(), 'sub_X');
+    expect(sendError).toHaveBeenLastCalledWith({}, 404, 'Subscription not found', 'NOT_FOUND');
+
+    helpers.applyDiscountToOrg.mockResolvedValueOnce({ ok: false, status: 404, error: 'Subscription not found', code: 'NOT_FOUND' });
+    await call('post', '/subscriptions/:id/discounts', { params: { id: 'sub_X' }, body: { code: 'X' } });
+    expect(helpers.applyDiscountToOrg).toHaveBeenLastCalledWith('org_1', expect.anything(), expect.anything(), 'sub_X');
+    expect(sendError).toHaveBeenLastCalledWith({}, 404, 'Subscription not found', 'NOT_FOUND');
   });
 
   it('remove: clears the standing discount, emits and audits', async () => {

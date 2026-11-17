@@ -1,10 +1,11 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { randomUUID } from 'node:crypto';
 import { SYSTEM_ACTOR_ID, createCacheService } from '@pipeline-builder/api-core';
 import { CoreConstants } from '@pipeline-builder/pipeline-core';
 import { CrudService, schema, withTenantTx, buildMessageConditions, currentViewerUserId, withViewerContext, type CrudTx, type MessageFilter, type PaginatedResult, type QueryOptions } from '@pipeline-builder/pipeline-data';
-import { SQL, eq, and, or, sql, inArray } from 'drizzle-orm';
+import { SQL, eq, and, or, sql, inArray, isNull, isNotNull } from 'drizzle-orm';
 import type { AnyColumn } from 'drizzle-orm/column';
 import type { PgTable } from 'drizzle-orm/pg-core';
 import { deleteAttachments } from './attachment-storage.js';
@@ -169,6 +170,54 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
 
   protected async onAfterDelete(_id: string, entity: Message): Promise<void> {
     await this.invalidateMessageCaches(entity.orgId, entity.recipientOrgId);
+  }
+
+  /**
+   * Restoring a conversation ROOT also restores the replies the same thread
+   * delete tombstoned — the rows sharing the root's `deleteBatchId` — inside the
+   * restore's own transaction, so the conversation comes back whole instead of
+   * a lone root whose replies the retention sweep later hard-deletes.
+   *
+   * Scope: the root is re-read here under the SAME tombstone + org pin the base
+   * restore UPDATE applies (and locked), so when the root restore would match
+   * nothing the replies are not touched either. Replies are limited to that
+   * thread, that batch, and the root's conversation (sent by or addressed to the
+   * root's org). A reply deleted individually earlier has no / another batch id
+   * and stays deleted. The batch id is cleared on every row restored.
+   */
+  protected override async restoreExtraSet(id: string, tx: CrudTx, orgId?: string, userId?: string): Promise<Record<string, unknown>> {
+    const [root] = await tx
+      .select({ orgId: schema.message.orgId, threadId: schema.message.threadId, deleteBatchId: schema.message.deleteBatchId })
+      .from(schema.message)
+      .where(and(
+        eq(schema.message.id, String(id).toLowerCase()),
+        eq(schema.message.isActive, false),
+        isNotNull(schema.message.deletedAt),
+        orgId ? eq(schema.message.orgId, orgId) : undefined,
+      ))
+      .for('update');
+    if (!root) return {};
+    if (!root.threadId && root.deleteBatchId) {
+      await tx
+        .update(schema.message)
+        .set({
+          isActive: true,
+          updatedAt: new Date(),
+          updatedBy: userId || SYSTEM_ACTOR_ID,
+          deletedAt: null,
+          deletedBy: null,
+          purgeAfter: null,
+          deleteBatchId: null,
+        })
+        .where(and(
+          eq(schema.message.threadId, String(id).toLowerCase()),
+          eq(schema.message.deleteBatchId, root.deleteBatchId),
+          eq(schema.message.isActive, false),
+          isNotNull(schema.message.deletedAt),
+          or(eq(schema.message.orgId, root.orgId), eq(schema.message.recipientOrgId, root.orgId)),
+        ));
+    }
+    return { deleteBatchId: null };
   }
 
   /** A restored message re-enters both participants' inbox/conversation views,
@@ -668,29 +717,48 @@ export class MessageService extends CrudService<Message, MessageFilter, MessageI
    */
   async deleteThread(threadId: string, userId: string, orgId: string, allOrgs = false): Promise<void> {
     const now = new Date();
-    await withTenantTx(async (tx) => tx
-      .update(schema.message)
-      .set({
-        isActive: false,
-        updatedAt: now,
-        updatedBy: userId,
-        deletedAt: now,
-        deletedBy: userId,
-        // Stamp the purge deadline so these cascade tombstones are collected by
-        // the retention sweep (the base delete does this; this hand-rolled path
-        // must too, else purge_after stays NULL and the rows are immortal).
-        ...this.purgeAfterStamp(now),
-      })
-      .where(
-        and(
-          eq(schema.message.threadId, threadId),
-          eq(schema.message.isActive, true),
-          allOrgs ? undefined : or(
-            eq(schema.message.orgId, orgId),
-            eq(schema.message.recipientOrgId, orgId),
+    // One batch id for everything THIS conversation delete tombstones — the
+    // (already soft-deleted) root and the replies swept below — so a restore of
+    // the root brings back exactly this set (see restoreExtraSet). A reply that
+    // was deleted on its own earlier is not matched (isActive=true guard) and
+    // keeps its own NULL batch id, so it is never resurrected.
+    const deleteBatchId = randomUUID();
+    await withTenantTx(async (tx) => {
+      await tx
+        .update(schema.message)
+        .set({ deleteBatchId })
+        .where(and(
+          eq(schema.message.id, threadId),
+          isNull(schema.message.threadId),
+          eq(schema.message.isActive, false),
+          isNotNull(schema.message.deletedAt),
+          allOrgs ? undefined : eq(schema.message.orgId, orgId),
+        ));
+      await tx
+        .update(schema.message)
+        .set({
+          isActive: false,
+          updatedAt: now,
+          updatedBy: userId,
+          deletedAt: now,
+          deletedBy: userId,
+          deleteBatchId,
+          // Stamp the purge deadline so these cascade tombstones are collected by
+          // the retention sweep (the base delete does this; this hand-rolled path
+          // must too, else purge_after stays NULL and the rows are immortal).
+          ...this.purgeAfterStamp(now),
+        })
+        .where(
+          and(
+            eq(schema.message.threadId, threadId),
+            eq(schema.message.isActive, true),
+            allOrgs ? undefined : or(
+              eq(schema.message.orgId, orgId),
+              eq(schema.message.recipientOrgId, orgId),
+            ),
           ),
-        ),
-      ));
+        );
+    });
     // Direct tx bypasses the onAfter* hooks — invalidate the caller's cached
     // inbox/conversation views (the preceding root-message delete already
     // invalidated both participants via CrudService.delete's hook).

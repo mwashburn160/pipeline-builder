@@ -24,8 +24,11 @@ import { messageService } from '../services/message-service.js';
  * destructive action). Access mirrors delete: sysadmins moderate cross-org (no
  * org pin); non-admins may restore only their own root messages.
  *
- * NOTE: restores the single message only — a root's soft-deleted replies are
- * NOT cascaded back (delete cascades via deleteThread; there is no restoreThread).
+ * Restoring a conversation root also brings back the replies the same thread
+ * delete tombstoned (rows sharing its `deleteBatchId` — see
+ * `MessageService.restoreExtraSet`), atomically with the root. A reply deleted
+ * individually before the thread delete is not part of that batch and stays
+ * deleted.
  */
 export function createRestoreMessageRoutes(): Router {
   const router = Router();
