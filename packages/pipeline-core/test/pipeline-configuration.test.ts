@@ -173,13 +173,18 @@ describe('PipelineConfiguration', () => {
       expect(config.pipelineName).toBe('acme-spring_boot-pipeline');
     });
 
-    it('hashes the raw pair into the pipeline name when sanitizing is lossy (spring_boot vs spring-boot)', () => {
-      const lossy = new PipelineConfiguration(validProps({ project: 'spring_boot', organization: 'acme' }));
-      const clean = new PipelineConfiguration(validProps({ project: 'spring-boot', organization: 'acme' }));
-      expect(lossy.project).toBe(clean.project);
+    it('keeps a legacy underscore pair\'s pipeline name unhashed (already-deployed names must not change)', () => {
+      const config = new PipelineConfiguration(validProps({ project: 'spring_boot', organization: 'acme' }));
+      expect(config.identityHash).toBeNull();
+      expect(config.pipelineName).toBe('acme-spring_boot-pipeline');
+    });
+
+    it('hashes the raw pair into the pipeline name for characters outside the legacy set (my.app vs my_app)', () => {
+      const lossy = new PipelineConfiguration(validProps({ project: 'my.app', organization: 'acme' }));
+      const legacy = new PipelineConfiguration(validProps({ project: 'my_app', organization: 'acme' }));
       expect(lossy.identityHash).toMatch(/^[0-9a-f]{8}$/);
-      expect(lossy.pipelineName).toBe(`acme-spring_boot-pipeline-${lossy.identityHash}`);
-      expect(lossy.pipelineName).not.toBe(clean.pipelineName);
+      expect(lossy.pipelineName).toBe(`acme-my_app-pipeline-${lossy.identityHash}`);
+      expect(lossy.pipelineName).not.toBe(legacy.pipelineName);
     });
 
     it('uses custom pipeline name when provided', () => {

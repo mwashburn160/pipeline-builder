@@ -239,9 +239,10 @@ const STACK_NAME_MAX_LENGTH = 128;
 
 /**
  * The CloudFormation stack name a pipeline deploys as: `<project>-<organization>`,
- * lowercased, with `_` turned into `-` — and, when the given pair is not
- * already clean (letters, digits, hyphens), `-<hash>` of the raw pair
- * (`pipelineIdentityHash`) so distinct inputs never share a stack. A project name may contain underscores
+ * lowercased, with `_` turned into `-` — and, when the pair holds a character
+ * outside the legacy set (letters, digits, hyphens, underscores), `-<hash>` of
+ * the raw pair (`pipelineIdentityHash`). Legacy pairs keep the stack name they
+ * always had (so `spring_boot` and `spring-boot` still share one). A project name may contain underscores
  * and a stack name may not (`spring_boot` gave the invalid `spring_boot-system`).
  *
  * Shared by the synth app (`boilerplate.ts`, which names the stack) and the
@@ -255,9 +256,8 @@ const STACK_NAME_MAX_LENGTH = 128;
  * swaps in a hashed name, so the registry would record a stack that doesn't exist.
  */
 export function pipelineStackName(project: string, organization: string): string {
-  // `_` → `-` is lossy (`spring_boot` and `spring-boot` would share a stack),
-  // so a pair it changes carries a hash of the raw pair; a clean pair keeps
-  // the stack name it always had.
+  // A legacy pair keeps the stack name it always had (renaming it would deploy
+  // a second stack beside the live one); only non-legacy characters add a hash.
   const hash = pipelineIdentityHash(project, organization);
   const name = `${project}-${organization}${hash ? `-${hash}` : ''}`.toLowerCase().replace(/_/g, '-');
   if (name.length > STACK_NAME_MAX_LENGTH) {

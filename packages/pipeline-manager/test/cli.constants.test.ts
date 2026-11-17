@@ -27,19 +27,21 @@ describe('defaultPipelineName', () => {
     expect(defaultPipelineName('Acme', 'api')).toBe('acme-api-pipeline');
   });
 
-  it('appends a raw-pair hash when sanitizing is lossy, so spring-boot and spring_boot differ', () => {
-    const clean = defaultPipelineName('acme', 'spring-boot');
-    const lossy = defaultPipelineName('acme', 'spring_boot');
-    expect(lossy).toMatch(/^acme-spring_boot-pipeline-[0-9a-f]{8}$/);
-    expect(lossy).not.toBe(clean);
-    expect(defaultPipelineName('acme', 'my.app')).not.toBe(lossy);
+  it('keeps the legacy name for an underscore pair (deployed before the hash existed)', () => {
+    expect(defaultPipelineName('acme', 'spring_boot')).toBe('acme-spring_boot-pipeline');
+  });
+
+  it('appends a raw-pair hash for characters outside the legacy set', () => {
+    const lossy = defaultPipelineName('acme', 'my.app');
+    expect(lossy).toMatch(/^acme-my_app-pipeline-[0-9a-f]{8}$/);
+    expect(lossy).not.toBe(defaultPipelineName('acme', 'my_app'));
   });
 });
 
 describe('pipelineStackName', () => {
-  it('turns underscores into hyphens (CloudFormation stack names allow no `_`), with a raw-pair hash', () => {
-    expect(pipelineStackName('spring_boot', 'system')).toMatch(/^spring-boot-system-[0-9a-f]{8}$/);
-    expect(pipelineStackName('my__app', 'acme_corp')).toMatch(/^my--app-acme-corp-[0-9a-f]{8}$/);
+  it('turns underscores into hyphens (CloudFormation stack names allow no `_`), keeping the legacy name', () => {
+    expect(pipelineStackName('spring_boot', 'system')).toBe('spring-boot-system');
+    expect(pipelineStackName('my__app', 'acme_corp')).toBe('my--app-acme-corp');
   });
 
   it('lowercases, and leaves an already-clean name exactly as it was (no hash)', () => {
@@ -48,15 +50,9 @@ describe('pipelineStackName', () => {
     expect(pipelineStackName('api', 'acme')).toBe('api-acme');
   });
 
-  it('never gives two distinct lossy inputs, or a lossy and a clean one, the same stack', () => {
-    const names = [
-      pipelineStackName('spring-boot', 'system'),
-      pipelineStackName('spring_boot', 'system'),
-      pipelineStackName('spring__boot', 'system'),
-      pipelineStackName('a_b', 'c'),
-      pipelineStackName('a', 'b_c'),
-    ];
-    expect(new Set(names).size).toBe(names.length);
+  it('derives legacy stack names unchanged, so redeploying an existing pipeline updates its stack in place', () => {
+    // Accepted legacy behaviour: `_` and `-` (and case) share a stack, as they always did.
+    expect(pipelineStackName('spring_boot', 'system')).toBe(pipelineStackName('spring-boot', 'system'));
     // Stable: the same raw pair always derives the same name (case-insensitive).
     expect(pipelineStackName('Spring_Boot', 'System')).toBe(pipelineStackName('spring_boot', 'system'));
   });

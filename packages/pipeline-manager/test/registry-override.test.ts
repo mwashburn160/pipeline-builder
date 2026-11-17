@@ -75,9 +75,9 @@ describe('buildRegistryPayload stack name', () => {
       { id: 'pl-1', orgId: 'org-1', project: 'spring_boot', organization: 'system' },
       'us-east-1',
     );
-    // `spring_boot` is lossy under `_` → `-`, so it carries the raw-pair hash.
+    // A legacy underscore pair keeps the stack name it always deployed as.
     expect(payload.stackName).toBe(pipelineStackName('spring_boot', 'system'));
-    expect(payload.stackName).toMatch(/^spring-boot-system-[0-9a-f]{8}$/);
+    expect(payload.stackName).toBe('spring-boot-system');
     expect(payload.project).toBe('spring_boot');
     expect(payload.organization).toBe('system');
   });

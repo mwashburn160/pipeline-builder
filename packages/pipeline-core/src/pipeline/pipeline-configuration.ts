@@ -34,10 +34,10 @@ export class PipelineConfiguration {
   public readonly organization: string;
   public readonly pipelineName: string;
   /**
-   * Short stable hash of the RAW (project, organization) when sanitizing them
-   * was lossy (`spring_boot` and `spring-boot` both sanitize to `spring_boot`),
-   * else null — see `pipelineIdentityHash`. Folded into every name derived
-   * from the sanitized pair so distinct inputs never share resources.
+   * Short stable hash of the RAW (project, organization) when either holds a
+   * character outside the legacy set (letters, digits, `-`, `_`) — e.g.
+   * `my.app` vs `my_app` — else null, so already-deployed names never change.
+   * See `pipelineIdentityHash`. Folded into every name derived from the pair.
    */
   public readonly identityHash: string | null;
   public readonly metadata: {
@@ -61,8 +61,8 @@ export class PipelineConfiguration {
     this.project = replaceNonAlphanumeric(props.project, '_').toLowerCase();
     this.organization = replaceNonAlphanumeric(props.organization, '_').toLowerCase();
 
-    // Sanitizing is lossy, so a pair whose sanitized form differs from what
-    // was given carries a hash of the raw pair (clean pairs keep their names).
+    // A pair with non-legacy characters carries a hash of the raw pair; legacy
+    // pairs keep the names they always had.
     this.identityHash = pipelineIdentityHash(props.project, props.organization);
 
     // Calculate pipeline name (the one rule the CLI shares: `defaultPipelineName`)
