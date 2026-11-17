@@ -75,7 +75,7 @@ const copy = <T>(doc: T | null | undefined): T | null => (doc ? { ...(doc as obj
 // Store
 // ---------------------------------------------------------------------------
 
-interface UserRec { _id: Types.ObjectId; email: string; isSuperAdmin?: boolean; tokenVersion: number; refreshSessions: unknown[]; mfaResetGraceUntil?: Date }
+interface UserRec { _id: Types.ObjectId; email: string; isSuperAdmin?: boolean; tokenVersion: number; mfaResetGraceUntil?: Date }
 
 const db = {
   users: [] as UserRec[],
@@ -164,6 +164,10 @@ const MfaResetRequest = {
 const mockCreateEvent = jest.fn<(...a: unknown[]) => Promise<unknown>>(async () => undefined);
 const mockPublishRevocation = jest.fn<(...a: unknown[]) => Promise<void>>(async () => undefined);
 
+// Slots live in their own collection behind session-store.ts.
+const { sessionStoreFake } = await import('./helpers/session-store-fake.js');
+const store = sessionStoreFake();
+jest.unstable_mockModule('../src/services/session/session-store.js', () => store);
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({}));
 jest.unstable_mockModule('../src/services/audit-service.js', () => ({
   auditService: { createEvent: (...a: unknown[]) => mockCreateEvent(...a) },
@@ -215,8 +219,10 @@ const GONE = '659999999999999999999999';
 const actor = (id: string, email: string, isSuperAdmin = false) => ({ id, email, isSuperAdmin });
 
 function seedUser(id: string, email: string, over: Partial<UserRec> = {}): UserRec {
-  const rec: UserRec = { _id: new Types.ObjectId(id), email, tokenVersion: 3, refreshSessions: [{ sid: 'a' }], ...over };
+  const rec: UserRec = { _id: new Types.ObjectId(id), email, tokenVersion: 3, ...over };
   db.users.push(rec);
+  // One live refresh-session slot per seeded account.
+  store.rows.push({ userId: id, id: `slot-${id}`, kind: 'interactive', tokenVersion: 3 });
   return rec;
 }
 
@@ -235,6 +241,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockOutsideAccount.mockResolvedValue(false);
   db.users = [];
+  store.reset();
   db.memberships = [];
   db.requests = [];
   db.passkeys = new Map([[MEMBER, 2]]);
@@ -272,7 +279,7 @@ describe('resetFactors — what a reset actually does', () => {
     const user = findUser(MEMBER)!;
     // "Sign out everywhere" is BOTH halves — a bump with live refresh slots
     // would let the holder mint a fresh token straight back.
-    expect(user.refreshSessions).toEqual([]);
+    expect(store.rows.filter((r) => r.userId === MEMBER)).toEqual([]);
     expect(user.mfaResetGraceUntil).toEqual(result!.graceUntil);
     expect(result!.graceUntil.getTime() - before).toBeGreaterThanOrEqual(svc.MFA_RESET_GRACE_DEFAULT_HOURS * 3600_000 - 1000);
     // The stateless services only learn about the bump through the publish.
@@ -462,7 +469,7 @@ describe('approveMfaReset — the two-person rule', () => {
     expect(request.status).toBe('approved');
     expect(request.decidedBy).toBe(ADMIN_2);
     expect(result.tokenVersion).toBe(4);
-    expect(findUser(MEMBER)!.refreshSessions).toEqual([]);
+    expect(store.rows.filter((r) => r.userId === MEMBER)).toEqual([]);
     expect(request.result).toEqual({
       passkeysRemoved: 2, totpRemoved: true, recoveryCodesRemoved: true, graceUntil: result.graceUntil.toISOString(),
     });
@@ -656,6 +663,7 @@ describe('resetFactors — atomicity', () => {
       expect.objectContaining({ $inc: { tokenVersion: 1 } }),
       expect.objectContaining({ session: txSession }),
     );
+    expect(store.deleteAllSlots).toHaveBeenCalledWith(MEMBER, txSession);
   });
 
   it('publishes no revocation and revokes no keys when the transaction aborts', async () => {

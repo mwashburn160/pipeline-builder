@@ -4,6 +4,7 @@
 import type { ClientSession } from 'mongoose';
 import { Types } from 'mongoose';
 import { assertNotLastPrivilegedMember } from './role-crud.js';
+import { deleteAllSlots } from './session/session-store.js';
 import { USER_OWNER_HAS_ORGS } from './user-errors.js';
 import { JoinRequest, MfaRecoveryCodes, MfaResetRequest, Organization, PasswordLoginLockout, PasswordResetToken, PersonalAccessToken, RoleAssignment, User, UserOrganization, UserPreferences, UserTotp, WebAuthnCredential } from '../models/index.js';
 import SamlSession from '../models/saml-session.js';
@@ -20,7 +21,7 @@ import SamlSession from '../models/saml-session.js';
  *   - `RL_LAST_PRIVILEGED_MEMBER` when they are the last member of an
  *     admin/superadmin-granting Role (Roles of those soft-deleted orgs excepted).
  *
- * Removes the user, their memberships, Role assignments, PATs, password-reset tokens, passkeys, TOTP
+ * Removes the user, their memberships, Role assignments, PATs, refresh-session slots, password-reset tokens, passkeys, TOTP
  * enrolment, preferences, SAML SLO sessions and domain-join requests. A leftover join request would otherwise let an admin
  * approve it later and mint a membership for a user who no longer exists — an
  * orphan row that still counts toward the org's seats.
@@ -61,6 +62,8 @@ export async function deleteUserCascade(
   await UserOrganization.deleteMany({ userId: uid }, { session });
   await RoleAssignment.deleteMany({ userId: uid }, { session });
   await PersonalAccessToken.deleteMany({ userId: uid }, { session });
+  // Every signed-in device and stored machine credential (refresh-session slots).
+  await deleteAllSlots(uid, session);
   // An unclaimed forgot-password link must not outlive the account.
   await PasswordResetToken.deleteMany({ userId: uid }, { session });
   // Passkeys are credentials for THIS person only. Left behind they would keep a

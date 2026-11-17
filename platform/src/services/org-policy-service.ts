@@ -3,7 +3,7 @@
 
 /**
  * An organization's security policies — two-factor, password, authenticator
- * (passkey model) and impersonation: reading them (own and effective, with the
+ * (passkey model), session lifetime and impersonation: reading them (own and effective, with the
  * stricter parent named), writing them, and the lineage rules that decide how
  * a team's setting combines with its parents'. The controllers keep only the
  * request concerns: tenancy, assurance for a loosening change, audit, response.
@@ -21,6 +21,7 @@ import { getOrgName } from '../helpers/org-hierarchy.js';
 import { toOrgId } from '../helpers/org-id.js';
 import { readOrgPolicyLineage } from '../helpers/org-policy-lineage.js';
 import { resolveEffectivePasswordPolicy } from '../helpers/password-policy.js';
+import { resolveEffectiveSessionPolicy, type OrgSessionPolicy } from '../helpers/session-policy.js';
 import { Organization, User, UserOrganization } from '../models/index.js';
 
 /** Whether the org exists (the 404 every policy route answers otherwise). */
@@ -270,6 +271,74 @@ export async function writePasswordMinLength(orgId: string, minLength: number | 
   await Organization.updateOne(
     { _id: toOrgId(orgId) },
     minLength === null ? { $unset: { passwordMinLength: '' } } : { $set: { passwordMinLength: minLength } },
+  );
+}
+
+// -- Session-lifetime policy -----------------------------------------------------
+
+export async function sessionPolicyView(orgId: string) {
+  const policy = await resolveEffectiveSessionPolicy(orgId);
+  const [maxAgeInheritedFromName, idleTimeoutInheritedFromName] = await Promise.all([
+    policy.maxAgeInheritedFrom ? getOrgName(policy.maxAgeInheritedFrom) : undefined,
+    policy.idleTimeoutInheritedFrom ? getOrgName(policy.idleTimeoutInheritedFrom) : undefined,
+  ]);
+  return {
+    // What applies to this org's interactive sessions (min of platform, own, ancestors).
+    maxAgeDays: policy.maxAgeDays,
+    idleTimeoutDays: policy.idleTimeoutDays,
+    own: { maxAgeDays: policy.own.maxAgeDays ?? null, idleTimeoutDays: policy.own.idleTimeoutDays ?? null },
+    platform: policy.platform,
+    ...(policy.maxAgeInheritedFrom ? { maxAgeInheritedFrom: policy.maxAgeInheritedFrom } : {}),
+    ...(maxAgeInheritedFromName ? { maxAgeInheritedFromName } : {}),
+    ...(policy.idleTimeoutInheritedFrom ? { idleTimeoutInheritedFrom: policy.idleTimeoutInheritedFrom } : {}),
+    ...(idleTimeoutInheritedFromName ? { idleTimeoutInheritedFromName } : {}),
+    // Stated, not implied: a tightened policy bites at each session's next
+    // refresh (within one access-token lifetime), and machine credentials keep
+    // their own fixed end.
+    enforcement: 'interactive-sessions-at-next-refresh' as const,
+  };
+}
+
+/** The org's OWN stored session policy (absent fields = not set). */
+export async function readOwnSessionPolicy(orgId: string): Promise<OrgSessionPolicy> {
+  const doc = await Organization.findById(toOrgId(orgId)).select('sessionPolicy').lean();
+  const p = doc?.sessionPolicy ?? {};
+  return {
+    ...(typeof p.maxAgeDays === 'number' ? { maxAgeDays: p.maxAgeDays } : {}),
+    ...(typeof p.idleTimeoutDays === 'number' ? { idleTimeoutDays: p.idleTimeoutDays } : {}),
+  };
+}
+
+/** The org's own policy after applying `update` (`null` clears a field, absent keeps it). */
+export function nextSessionPolicy(
+  from: OrgSessionPolicy,
+  update: { maxAgeDays?: number | null; idleTimeoutDays?: number | null },
+): OrgSessionPolicy {
+  const pick = (key: keyof OrgSessionPolicy) => {
+    const value = update[key] === undefined ? from[key] : update[key];
+    return typeof value === 'number' ? { [key]: value } : {};
+  };
+  return { ...pick('maxAgeDays'), ...pick('idleTimeoutDays') };
+}
+
+/**
+ * Whether moving the org's own policy from `from` to `to` LENGTHENS sessions:
+ * a field raised, or cleared where it was set (back to a longer platform or
+ * ancestor value). Only a shortening stays open to a single-factor admin.
+ */
+export function isLooseningSessionPolicy(from: OrgSessionPolicy, to: OrgSessionPolicy): boolean {
+  return (['maxAgeDays', 'idleTimeoutDays'] as const).some((key) => {
+    const before = from[key];
+    const after = to[key];
+    return before !== undefined && (after === undefined || after > before);
+  });
+}
+
+/** Replace the org's own session policy (an empty policy clears the field). */
+export async function writeSessionPolicy(orgId: string, next: OrgSessionPolicy): Promise<void> {
+  await Organization.updateOne(
+    { _id: toOrgId(orgId) },
+    Object.keys(next).length === 0 ? { $unset: { sessionPolicy: '' } } : { $set: { sessionPolicy: next } },
   );
 }
 

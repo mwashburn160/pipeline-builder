@@ -1,7 +1,8 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-export { default as User, type UserDocument, type UserData, type RefreshSession } from './user.js';
+export { default as User, type UserDocument, type UserData } from './user.js';
+export { default as RefreshSession, type RefreshSessionData } from './refresh-session.js';
 export { default as PersonalAccessToken, type PersonalAccessTokenDocument, type PersonalAccessTokenData } from './personal-access-token.js';
 export { default as WebAuthnCredential, type WebAuthnCredentialDocument, type WebAuthnCredentialData } from './webauthn-credential.js';
 export { default as UserTotp, type UserTotpDocument, type UserTotpData } from './user-totp.js';

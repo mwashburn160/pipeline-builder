@@ -6,6 +6,7 @@ import { isAdminOrgRole } from '@pipeline-builder/api-core/wire-vocabulary';
 import { Types } from 'mongoose';
 import { apiKeyService } from './api-key-service.js';
 import { authService } from './auth-service.js';
+import { deleteAllSlots, findSlot, listSlots, type RefreshSession } from './session/session-store.js';
 import { deleteUserCascade } from './user-cascade.js';
 import { anonymizeUserEcosystemContent } from './user-ecosystem-privacy.js';
 import { PROFILE_USER_NOT_FOUND, PROFILE_EMAIL_TAKEN, PROFILE_EMAIL_SSO_MANAGED, PROFILE_INVALID_CREDENTIALS, USER_OWNER_HAS_ORGS } from './user-errors.js';
@@ -13,7 +14,7 @@ import { loadActiveOrgInfo } from '../helpers/active-org-info.js';
 import { toOrgId } from '../helpers/org-id.js';
 import { assertNewPasswordAcceptable } from '../helpers/password-policy.js';
 import { publishUserRevocation, publishUserDeletionRevocation } from '../helpers/session-revocation.js';
-import { User, Organization, UserOrganization, Role, RoleAssignment, type EcosystemEmailPreferences, type NotificationPreferences, type RefreshSession, UserPreferences } from '../models/index.js';
+import { User, Organization, UserOrganization, Role, RoleAssignment, type EcosystemEmailPreferences, type NotificationPreferences, UserPreferences } from '../models/index.js';
 import { withMongoTransaction } from '../utils/mongo-tx.js';
 
 const logger = createLogger('user-profile-service');
@@ -463,8 +464,8 @@ class UserProfileService {
     // HARD revocation: every session ends (tokenVersion) and every refresh slot
     // is dropped — a password change is what someone does when they fear theft.
     user.tokenVersion += 1;
-    user.refreshSessions = [];
     await user.save();
+    await deleteAllSlots(user._id);
     // Post-commit: publish the now-current tokenVersion so the stateless services
     // reject every outstanding token immediately (best-effort).
     await publishUserRevocation(String(userId));
@@ -584,9 +585,10 @@ class UserProfileService {
    * they live only as long as the slot.
    */
   async listSessions(userId: string) {
-    const user = await User.findById(userId).select('+refreshSessions').lean();
+    const user = await User.findById(userId).select('+tokenVersion').lean();
     if (!user) throw new Error(PROFILE_USER_NOT_FOUND);
-    const slots = ((user.refreshSessions ?? []) as RefreshSession[]).map((s) => this.serializeSession(s));
+    // Live slots only: one opened before the last hard revocation is dead.
+    const slots = (await listSlots(userId, user.tokenVersion)).map((s) => this.serializeSession(s));
     const byNewest = (a: { createdAt: string }, b: { createdAt: string }) => b.createdAt.localeCompare(a.createdAt);
     return {
       sessions: slots.filter((s) => s.kind === 'interactive').sort(byNewest),
@@ -602,10 +604,7 @@ class UserProfileService {
    * revoked slot's kind, or null when the user has no such slot.
    */
   async revokeSession(userId: string, sessionId: string): Promise<{ kind: RefreshSession['kind'] } | null> {
-    const slot = ((await User.findOne(
-      { '_id': userId, 'refreshSessions.id': sessionId },
-      { 'refreshSessions.$': 1 },
-    ).lean())?.refreshSessions?.[0]) as RefreshSession | undefined;
+    const slot = await findSlot(userId, sessionId);
     if (!slot) return null;
     await authService.revokeRefreshSession(userId, sessionId);
     return { kind: slot.kind };

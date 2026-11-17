@@ -28,6 +28,10 @@ const mockUOFindOne = jest.fn<AnyFn>();
 const mockUOFind = jest.fn<AnyFn>();
 const mockOrgFindById = jest.fn<AnyFn>();
 
+// Refresh-session slots live behind session-store.ts (their own collection).
+const { sessionStoreFake } = await import('./helpers/session-store-fake.js');
+jest.unstable_mockModule('../src/services/session/session-store.js', () => sessionStoreFake());
+
 jest.unstable_mockModule('../src/models/index.js', () => ({
   // Linking stubs: user-profile/auth SUTs import these from the models barrel.
   PersonalAccessToken: {},

@@ -33,14 +33,17 @@ jest.unstable_mockModule('../src/helpers/session-revocation.js', () => ({
   publishSessionSlotRevocation: (...a: unknown[]) => mockPublishSlot(...a),
 }));
 
+// Refresh-session slots live in their own collection behind session-store.ts.
+const { sessionStoreFake } = await import('./helpers/session-store-fake.js');
+const store = sessionStoreFake();
+jest.unstable_mockModule('../src/services/session/session-store.js', () => store);
+
 jest.unstable_mockModule('../src/models/index.js', () => ({
   // Linking stubs: user-profile/auth SUTs import these from the models barrel.
   PersonalAccessToken: {},
   UserPreferences: {},
   User: {
     updateOne: jest.fn<AnyFn>().mockResolvedValue({}),
-    // The slot ids before/after the write (eviction publishing). Default:
-    // unreadable, so nothing is published.
     findById: (...a: unknown[]) => mockUserFindById(...a),
   },
   Organization: {},
@@ -159,23 +162,25 @@ describe('token utilities', () => {
       expect(result.refreshToken).toBeDefined();
       const sid = (jwt.decode(result.refreshToken) as { sid: string }).sid;
       expect((jwt.decode(result.accessToken) as { sid: string }).sid).toBe(sid);
-      // The slot is added through an aggregation pipeline so each KIND gets its
-      // own cap (a sign-in can never evict a stored machine credential).
-      const [filter, pipeline, options] = User.updateOne.mock.calls.at(-1)! as unknown as [unknown, Array<{ $set: Record<string, any> }>, unknown];
-      expect(filter).toEqual({ _id: user._id });
-      expect(options).toEqual({ updatePipeline: true });
-      const set = pipeline[0].$set;
-      expect(set.refreshSessions.$concatArrays[1].$slice[1]).toBe(-MAX_REFRESH_SESSIONS);
-      const added = set.refreshSessions.$concatArrays[1].$slice[0].$concatArrays[1][0].$literal;
+      // The slot is its own row (refresh_sessions), opened under its kind's cap
+      // (a sign-in can never evict a stored machine credential).
+      const [userId, added, cap] = store.insertSlot.mock.calls.at(-1)! as unknown as [unknown, Record<string, unknown>, number];
+      expect(userId).toBe(user._id);
+      expect(cap).toBe(MAX_REFRESH_SESSIONS);
       expect(added).toMatchObject({
         id: sid,
         kind: 'interactive',
+        tokenVersion: 1,
         hash: hashRefreshToken(result.refreshToken),
         amr: ['pwd'],
         aal: 1,
+        purgeAt: expect.any(Date),
       });
-      expect(set.issuedTokens.$slice[1]).toBe(-20);
-      expect(set.issuedTokens.$slice[0].$concatArrays[1][0].$literal).toMatchObject({
+      // The token history stays on the user document, ring-buffered to 20.
+      const [filter, update] = User.updateOne.mock.calls.at(-1)! as unknown as [unknown, any];
+      expect(filter).toEqual({ _id: user._id });
+      expect(update.$push.issuedTokens.$slice).toBe(-20);
+      expect(update.$push.issuedTokens.$each[0]).toMatchObject({
         id: expect.stringMatching(/^[0-9a-f]{16}$/),
         createdAt: expect.any(Date),
         expiresAt: expect.any(Date),
@@ -193,16 +198,17 @@ describe('token utilities', () => {
       const { User } = await import('../src/models/index.js') as unknown as { User: { updateOne: jest.Mock } };
       const user = mockUser({ tokenVersion: 7 });
       await issueTokens(user, undefined, login());
-      const set = (User.updateOne.mock.calls.at(-1)?.[1] as any)[0].$set;
-      expect(set.issuedTokens.$slice[0].$concatArrays[1][0].$literal.tokenVersionAtIssue).toBe(7);
+      const update = User.updateOne.mock.calls.at(-1)?.[1] as any;
+      expect(update.$push.issuedTokens.$each[0].tokenVersionAtIssue).toBe(7);
+      expect((store.insertSlot.mock.calls.at(-1)?.[1] as any).tokenVersion).toBe(7);
     });
 
     it('records expiresAt aligned to the access token\'s exp claim', async () => {
       const { User } = await import('../src/models/index.js') as unknown as { User: { updateOne: jest.Mock } };
       const before = Date.now();
       await issueTokens(mockUser(), undefined, login());
-      const set = (User.updateOne.mock.calls.at(-1)?.[1] as any)[0].$set;
-      const recordedExpiresMs = (set.issuedTokens.$slice[0].$concatArrays[1][0].$literal.expiresAt as Date).getTime();
+      const update = User.updateOne.mock.calls.at(-1)?.[1] as any;
+      const recordedExpiresMs = (update.$push.issuedTokens.$each[0].expiresAt as Date).getTime();
       // Within 2 seconds of expected window (test execution jitter).
       expect(Math.abs(recordedExpiresMs - (before + 7200 * 1000))).toBeLessThan(2000);
     });
@@ -222,7 +228,6 @@ describe('token utilities', () => {
       ['90 days', 90 * 24 * 60 * 60],
       ['365 days (CLI cap)', 365 * 24 * 60 * 60],
     ])('caps a %s machine credential\'s access token at the normal lifetime; the slot + refresh token carry the lifetime', async (_label, lifetime) => {
-      const { User } = await import('../src/models/index.js') as unknown as { User: { updateOne: jest.Mock } };
       const before = Date.now();
       const { accessToken, refreshToken, expiresIn } = await issueTokens(mockUser(), undefined, { kind: 'machine', auth: signInAuth('pwd'), lifetimeSeconds: lifetime });
       expect(expiresIn).toBe(7200);
@@ -230,9 +235,9 @@ describe('token utilities', () => {
       expect(access.exp - access.iat).toBe(7200);
       const refresh = jwt.decode(refreshToken) as { exp: number; iat: number };
       expect(Math.abs(refresh.exp - refresh.iat - lifetime)).toBeLessThanOrEqual(1);
-      const set = (User.updateOne.mock.calls.at(-1)?.[1] as any)[0].$set;
-      const added = set.refreshSessions.$concatArrays[1].$concatArrays[1][0].$literal;
+      const added = store.insertSlot.mock.calls.at(-1)?.[1] as any;
       expect(Math.abs((added.expiresAt as Date).getTime() - (before + lifetime * 1000))).toBeLessThan(2000);
+      expect(store.insertSlot.mock.calls.at(-1)?.[2]).toBe(MAX_MACHINE_SESSIONS);
     });
 
     it('never mints an access token past a SHORT machine credential\'s end (1 hour)', async () => {
@@ -246,7 +251,28 @@ describe('token utilities', () => {
     it('an interactive session\'s refresh token keeps the configured refresh lifetime', async () => {
       const { refreshToken } = await issueTokens(mockUser(), undefined, login());
       const refresh = jwt.decode(refreshToken) as { exp: number; iat: number };
-      expect(refresh.exp - refresh.iat).toBe(2592000);
+      // The refresh TTL (30d) — here equal to the platform maximum session age,
+      // which also caps it (so it can land a second short).
+      expect(refresh.exp - refresh.iat).toBeGreaterThanOrEqual(2592000 - 1);
+      expect(refresh.exp - refresh.iat).toBeLessThanOrEqual(2592000);
+    });
+
+    it('caps an interactive session\'s refresh token at its maximum age from sign-in', async () => {
+      // Signed in 29 days ago (e.g. the survivor of "sign out everywhere"): one day left.
+      const auth = { ...signInAuth('pwd'), authTime: new Date(Date.now() - 29 * 86400_000) };
+      const { refreshToken } = await issueTokens(mockUser(), undefined, { kind: 'interactive', auth });
+      const refresh = jwt.decode(refreshToken) as { exp: number; iat: number };
+      expect(Math.abs(refresh.exp - refresh.iat - 86400)).toBeLessThanOrEqual(2);
+    });
+
+    it('refuses to open an interactive slot for a sign-in already past the maximum age (SESSION_EXPIRED)', async () => {
+      const auth = { ...signInAuth('pwd'), authTime: new Date(Date.now() - 31 * 86400_000) };
+      await expect(issueTokens(mockUser(), undefined, { kind: 'interactive', auth })).rejects.toThrow('SESSION_EXPIRED');
+    });
+
+    it('machine slots are not bound by the interactive maximum age', async () => {
+      const auth = { ...signInAuth('pwd'), authTime: new Date(Date.now() - 365 * 86400_000) };
+      await expect(issueTokens(mockUser(), undefined, { kind: 'machine', auth, lifetimeSeconds: 3600 })).resolves.toBeDefined();
     });
   });
 
@@ -283,37 +309,36 @@ describe('token utilities', () => {
     });
 
     it('opens a machine slot under its own cap, evicting the least recently used', async () => {
-      const { User } = await import('../src/models/index.js') as unknown as { User: { updateOne: jest.Mock } };
-      await issueTokens(mockUser(), undefined, { kind: 'machine', auth: signInAuth('pwd') });
-      const set = (User.updateOne.mock.calls.at(-1)?.[1] as any)[0].$set;
-      const kept = set.refreshSessions.$concatArrays[1].$concatArrays[0];
-      // Machine slots are sorted by lastUsedAt and trimmed to cap-1, then the new
-      // slot is appended — so a credential renewed daily is never the one dropped.
-      expect(kept.$slice[1]).toBe(MAX_MACHINE_SESSIONS - 1);
-      expect(kept.$slice[0].$sortArray.sortBy).toEqual({ lastUsedAt: -1 });
-      expect(set.refreshSessions.$concatArrays[1].$concatArrays[1][0].$literal.kind).toBe('machine');
-      // Interactive slots pass through untouched.
-      expect(set.refreshSessions.$concatArrays[0].$filter.cond).toEqual({ $ne: ['$$this.kind', 'machine'] });
+      store.reset();
+      const user = mockUser();
+      // A full machine cap, oldest use first, plus an interactive slot that must survive.
+      const t0 = Date.now() - 1_000_000;
+      for (let i = 0; i < MAX_MACHINE_SESSIONS; i += 1) {
+        store.rows.push({ userId: 'user-123', id: `m${i}`, kind: 'machine', lastUsedAt: new Date(t0 + i * 1000), createdAt: new Date(t0) });
+      }
+      store.rows.push({ userId: 'user-123', id: 'laptop', kind: 'interactive', lastUsedAt: new Date(t0), createdAt: new Date(t0) });
+      await issueTokens(user, undefined, { kind: 'machine', auth: signInAuth('pwd') });
+      const ids = store.rows.map((r) => r.id);
+      // The least recently used machine slot went; the device session did not.
+      expect(ids).not.toContain('m0');
+      expect(ids).toContain('laptop');
+      expect(store.rows.filter((r) => r.kind === 'machine')).toHaveLength(MAX_MACHINE_SESSIONS);
+      expect(mockPublishSlot).toHaveBeenCalledWith(['m0']);
     });
   });
 });
 
 describe('slot eviction', () => {
   it('publishes revoke:sid for a slot the per-kind cap pushed out — its live token dies everywhere', async () => {
-    const slots = (ids: string[]) => ({ select: () => ({ lean: async () => ({ refreshSessions: ids.map((id) => ({ id })) }) }) });
-    mockUserFindById
-      .mockReturnValueOnce(slots(['oldest', 'kept'])) // before the write
-      .mockReturnValueOnce(slots(['kept', 'new-slot'])); // after it
+    mockPublishSlot.mockClear();
+    store.insertSlot.mockResolvedValueOnce(['oldest']);
     await issueTokens(mockUser(), undefined, login());
     expect(mockPublishSlot).toHaveBeenCalledWith(['oldest']);
   });
 
-  it('publishes nothing when the after-state cannot be read (never "all evicted")', async () => {
+  it('publishes nothing when the cap evicted nothing', async () => {
     mockPublishSlot.mockClear();
-    const slots = (ids: string[]) => ({ select: () => ({ lean: async () => ({ refreshSessions: ids.map((id) => ({ id })) }) }) });
-    mockUserFindById
-      .mockReturnValueOnce(slots(['a', 'b']))
-      .mockReturnValueOnce({ select: () => ({ lean: async () => { throw new Error('down'); } }) });
+    store.insertSlot.mockResolvedValueOnce([]);
     await issueTokens(mockUser(), undefined, login());
     expect(mockPublishSlot).not.toHaveBeenCalled();
   });

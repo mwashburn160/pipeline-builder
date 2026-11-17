@@ -1,12 +1,10 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import type { AssuranceLevel, AuthMethod } from '@pipeline-builder/api-core';
 import bcrypt from 'bcryptjs';
 import mongoose, { Schema, type HydratedDocument, type Model } from 'mongoose';
 import { config } from '../config/index.js';
 import { PASSWORD_RULES } from '../constants/password.js';
-import { REFRESH_SESSION_KINDS, type RefreshSessionKind } from '../constants/vocabulary.js';
 import { OAUTH_PROVIDER_NAMES } from '../types/oauth-provider.js';
 
 /**
@@ -50,55 +48,6 @@ type LinkedIdentityKey = (typeof LINKED_IDENTITY_KEYS)[number];
 
 /** OAuth providers map. Internal to the user model (see above). */
 type OAuthProviders = Partial<Record<LinkedIdentityKey, OAuthProviderData>>;
-
-/** A signed-in device's (or stored machine credential's) refresh-token slot. */
-export interface RefreshSession {
-  /** Stable slot id, carried as `sid` in that session's access + refresh tokens. */
-  id: string;
-  kind: RefreshSessionKind;
-  /** SHA-256 of the slot's current refresh token. */
-  hash: string;
-  createdAt: Date;
-  /** Last refresh / renewal / switch-org. */
-  lastUsedAt: Date;
-  /** The org this slot's tokens are scoped to: set when the slot opens, moved
-   *  by switch-org (which mints only an access token) and re-pinned on every
-   *  renewal to the org it actually resolved. Per slot, so two devices / tabs /
-   *  a CLI keep independent orgs. Absent on slots opened before it existed —
-   *  renewal then falls back to `lastActiveOrgId`. */
-  activeOrgId?: string;
-  /** MACHINE slots: the fixed end of the credential (generate-token's
-   *  `expiresIn`). Renewal never extends it; nothing is minted past it. */
-  expiresAt?: Date;
-  /** Capability scope of the tokens this slot mints (a narrow machine credential).
-   *  Stored server-side so renewal can never widen it. */
-  scope?: string;
-  /** Permission SUBSET of a permission-scoped machine token (catalog ids). Stored
-   *  server-side so renewal re-intersects it with the holder's current
-   *  permissions and can never widen it. Absent = full permissions. */
-  permissions?: string[];
-  /** AAGUID of the passkey that opened a `webauthn` session, so every issuance
-   *  can re-apply the active org's authenticator allowlist. */
-  aaguid?: string;
-  /** The org whose `idpEnforcesMfa` statement earned the slot its `aal: 2` —
-   *  honoured only inside that org's lineage (see `enforceOrgAssurance`). */
-  aalAssertedBy?: string;
-  /** Authentication methods of the sign-in that opened the slot (JWT `amr`). */
-  amr: AuthMethod[];
-  /** Assurance level of that sign-in (JWT `aal`). Never raised by renewal. */
-  aal: AssuranceLevel;
-  /** The slot is a BOOTSTRAP-ADMIN ENROLMENT session: it may reach only
-   *  enrolment, sign-out and the setup routes. Stored here, not derived per
-   *  token, so a refresh of the slot stays exactly as limited. */
-  mfaEnrollmentPending?: boolean;
-  /** When that sign-in happened (JWT `auth_time`). Never reset by renewal. */
-  authTime: Date;
-  /** Short client summary ("Chrome on macOS") from the User-Agent — no raw header. */
-  userAgent?: string;
-  /** Last IP the slot was used from. Personal data: kept only for the slot's
-   *  life (dropped with the slot and with the user document); no geolocation. */
-  lastIp?: string;
-}
 
 /**
  * User document interface.
@@ -176,10 +125,6 @@ export interface UserData {
   /** Bumped by every guarded credential removal so two concurrent removals
    *  write-conflict (see `removeUnlessLastSignInMethod`). No other meaning. */
   credentialsEpoch?: number;
-  /** One refresh-token slot per signed-in device or stored machine credential,
-   *  oldest first (each kind capped — see `MAX_REFRESH_SESSIONS`). Only the SHA-256 of the current token is stored.
-   *  Rotation swaps a slot's hash; reuse of a rotated token revokes that slot. */
-  refreshSessions?: RefreshSession[];
   /** Last 20 access tokens issued for this user. Append-only ring; capped at 20.
    *  Used to surface a token-history view on the dashboard. */
   issuedTokens?: Array<{
@@ -355,30 +300,6 @@ const userSchema = new Schema<UserData, UserModel, UserMethods>(
     },
     credentialsEpoch: {
       type: Number,
-      select: false,
-    },
-    refreshSessions: {
-      type: [{
-        _id: false,
-        id: { type: String, required: true },
-        kind: { type: String, enum: [...REFRESH_SESSION_KINDS], required: true },
-        hash: { type: String, required: true },
-        createdAt: { type: Date, required: true },
-        lastUsedAt: { type: Date, required: true },
-        activeOrgId: { type: String },
-        expiresAt: { type: Date },
-        scope: { type: String },
-        permissions: { type: [String], default: undefined },
-        aaguid: { type: String },
-        aalAssertedBy: { type: String },
-        amr: { type: [String], required: true },
-        aal: { type: Number, enum: [1, 2], required: true },
-        mfaEnrollmentPending: { type: Boolean },
-        authTime: { type: Date, required: true },
-        userAgent: { type: String },
-        lastIp: { type: String },
-      }],
-      default: [],
       select: false,
     },
     issuedTokens: {

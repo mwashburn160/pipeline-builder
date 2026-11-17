@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The org password-policy and authenticator-policy admin endpoints: tenancy,
+ * The org password-policy, authenticator-policy and session-policy admin endpoints: tenancy,
  * loosening needs an `aal: 2` session, the AAGUID list is validated and
  * normalized, the admin can't lock themselves out of MFA, member compliance is
  * reported, and every change is audited with both sides.
@@ -74,7 +74,10 @@ jest.unstable_mockModule('../src/utils/validation.js', () => ({
   validateBody: (_schema: unknown, b: unknown) => b,
   updatePasswordPolicySchema: {},
   updateAuthenticatorPolicySchema: {},
+  updateSessionPolicySchema: {},
 }));
+// The platform session ceiling (helpers/session-policy.ts reads it from config).
+jest.unstable_mockModule('../src/config/index.js', () => ({ config: { auth: { session: { maxAgeDays: 30, idleTimeoutDays: 7 } } } }));
 
 const ctrl = await import('../src/controllers/org-security-policy.js');
 
@@ -205,5 +208,78 @@ describe('authenticator policy', () => {
     callerHasTotp = true;
     const alsoOk = await run(ctrl.updateAuthenticatorPolicy, req({ allowedAaguids: [ICLOUD] }));
     expect(alsoOk.status).toHaveBeenCalledWith(200);
+  });
+});
+
+describe('session policy', () => {
+  it('reports the effective policy: the stricter of the platform ceiling and the org\'s own', async () => {
+    lineage = [{ _id: 'org-1', sessionPolicy: { maxAgeDays: 14 } }];
+    const res = await run(ctrl.getSessionPolicy, req());
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json.mock.calls[0][0].data).toMatchObject({
+      maxAgeDays: 14,
+      idleTimeoutDays: 7,
+      own: { maxAgeDays: 14, idleTimeoutDays: null },
+      platform: { maxAgeDays: 30, idleTimeoutDays: 7 },
+    });
+  });
+
+  it('names the ancestor whose stricter bound is in force', async () => {
+    lineage = [{ _id: 'org-1', sessionPolicy: { idleTimeoutDays: 5 } }, { _id: 'root', sessionPolicy: { maxAgeDays: 3, idleTimeoutDays: 2 } }];
+    const res = await run(ctrl.getSessionPolicy, req());
+    expect(res.json.mock.calls[0][0].data).toMatchObject({
+      maxAgeDays: 3,
+      idleTimeoutDays: 2,
+      maxAgeInheritedFrom: 'root',
+      maxAgeInheritedFromName: 'name-of-root',
+      idleTimeoutInheritedFrom: 'root',
+    });
+  });
+
+  it('a value above the platform ceiling has no effect — the platform stays the bound', async () => {
+    lineage = [{ _id: 'org-1', sessionPolicy: { maxAgeDays: 90 } }];
+    const res = await run(ctrl.getSessionPolicy, req());
+    expect(res.json.mock.calls[0][0].data.maxAgeDays).toBe(30);
+  });
+
+  it('refuses an org outside the caller\'s scope, and writes nothing', async () => {
+    const res = await run(ctrl.updateSessionPolicy, req({ maxAgeDays: 7 }, outsider));
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(mockUpdateOne).not.toHaveBeenCalled();
+  });
+
+  it('tightening stays open to a single-factor admin, and is audited with both sides', async () => {
+    orgDoc = { sessionPolicy: { maxAgeDays: 14 } };
+    const res = await run(ctrl.updateSessionPolicy, req({ maxAgeDays: 7, idleTimeoutDays: 1 }));
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(mockRefuseWeak).not.toHaveBeenCalled();
+    expect(mockUpdateOne).toHaveBeenCalledWith({ _id: 'org-1' }, { $set: { sessionPolicy: { maxAgeDays: 7, idleTimeoutDays: 1 } } });
+    expect(mockAudit).toHaveBeenCalledWith(expect.anything(), 'org.session_policy.update', expect.objectContaining({
+      details: { maxAgeDays: { from: 14, to: 7 }, idleTimeoutDays: { from: null, to: 1 } },
+    }));
+  });
+
+  it('a partial update keeps the other field', async () => {
+    orgDoc = { sessionPolicy: { maxAgeDays: 14, idleTimeoutDays: 3 } };
+    await run(ctrl.updateSessionPolicy, req({ idleTimeoutDays: 2 }));
+    expect(mockUpdateOne).toHaveBeenCalledWith({ _id: 'org-1' }, { $set: { sessionPolicy: { maxAgeDays: 14, idleTimeoutDays: 2 } } });
+  });
+
+  it.each([
+    ['raising a bound', { maxAgeDays: 21 }],
+    ['clearing a bound', { idleTimeoutDays: null }],
+  ])('%s lengthens sessions and needs an aal 2 session', async (_label, body) => {
+    orgDoc = { sessionPolicy: { maxAgeDays: 14, idleTimeoutDays: 3 } };
+    const res = await run(ctrl.updateSessionPolicy, req(body));
+    expect(mockRefuseWeak).toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(mockUpdateOne).not.toHaveBeenCalled();
+  });
+
+  it('clearing every bound unsets the field (back to the platform ceiling)', async () => {
+    orgDoc = { sessionPolicy: { maxAgeDays: 14 } };
+    mockRefuseWeak.mockReturnValueOnce(false);
+    await run(ctrl.updateSessionPolicy, req({ maxAgeDays: null }, { ...admin, aal: 2 }));
+    expect(mockUpdateOne).toHaveBeenCalledWith({ _id: 'org-1' }, { $unset: { sessionPolicy: '' } });
   });
 });

@@ -40,6 +40,10 @@ function matches(m: Membership, q: Record<string, any>): boolean {
   return true;
 }
 
+// Refresh-session slots live behind session-store.ts (their own collection).
+const { sessionStoreFake } = await import('./helpers/session-store-fake.js');
+jest.unstable_mockModule('../src/services/session/session-store.js', () => sessionStoreFake());
+
 jest.unstable_mockModule('../src/models/index.js', () => ({
   PersonalAccessToken: {},
   UserPreferences: {},

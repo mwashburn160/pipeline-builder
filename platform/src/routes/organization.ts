@@ -89,8 +89,10 @@ import {
 import {
   getAuthenticatorPolicy,
   getPasswordPolicy,
+  getSessionPolicy,
   updateAuthenticatorPolicy,
   updatePasswordPolicy,
+  updateSessionPolicy,
 } from '../controllers/org-security-policy.js';
 import { completeSsoTest, startSsoTest } from '../controllers/sso-test.js';
 import { isBootstrapSetupRequest, resolveBootstrapSetupWindow } from '../helpers/bootstrap-admin.js';
@@ -239,6 +241,15 @@ router.get('/:id/password-policy', requireAuth, requirePermission('org_settings:
 router.patch('/:id/password-policy', requireAuth, requirePermission('org_settings:write'), requireStepUp, audited('org.password_policy.update'), updatePasswordPolicy);
 router.get('/:id/authenticator-policy', requireAuth, requirePermission('org_settings:write'), getAuthenticatorPolicy);
 router.patch('/:id/authenticator-policy', requireAuth, requirePermission('org_settings:write'), requireStepUp, audited('org.authenticator_policy.update'), updateAuthenticatorPolicy);
+
+/** GET/PATCH /organization/:id/session-policy — the org's interactive-session
+ *  lifetime (maximum age from sign-in, idle timeout since last use), which may
+ *  only TIGHTEN the platform ceiling (strictest wins down the org tree;
+ *  enforced at every refresh — helpers/session-policy.ts). Same gating as the
+ *  password policy: `org_settings:write`, step-up on the write,
+ *  `canManageOrgScope` and an `aal: 2` session for LENGTHENING in the controller. */
+router.get('/:id/session-policy', requireAuth, requirePermission('org_settings:write'), getSessionPolicy);
+router.patch('/:id/session-policy', requireAuth, requirePermission('org_settings:write'), requireStepUp, audited('org.session_policy.update'), updateSessionPolicy);
 
 // -- Domain-based join — `org_settings:write` holders manage verified domains + approve
 //    join requests. Gated by `org_settings:write` (capability) + `canManageOrgScope`

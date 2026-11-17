@@ -540,6 +540,34 @@ async function rawResponseInResponseTo(samlResponseB64: string): Promise<string 
   return nodes.length === 1 ? nodes[0].nodeValue : null;
 }
 
+/** The raw top-level Response `Destination`, or null when absent. Read before
+ *  verification like InResponseTo; a signed Response's Destination is covered by
+ *  its signature, so a value here that is not our ACS means the Response was
+ *  issued for some other endpoint. */
+async function rawResponseDestination(samlResponseB64: string): Promise<string | null> {
+  const dom = await parseSamlXml(samlResponseB64);
+  if (!dom) return null;
+  const nodes = xpath.selectAttributes(dom as never, "/*[local-name()='Response']/@Destination") as unknown as Array<{ nodeValue: string | null }>;
+  return nodes.length === 1 ? nodes[0].nodeValue : null;
+}
+
+/** Every bearer SubjectConfirmationData `Recipient` on the VERIFIED assertion. */
+function assertionRecipients(profile: Profile): string[] {
+  const parsed = profile.getAssertion?.() as
+    | { Assertion?: { Subject?: Array<{ SubjectConfirmation?: Array<{ $?: { Method?: string }; SubjectConfirmationData?: Array<{ $?: { Recipient?: string } }> }> }> } }
+    | undefined;
+  const out: string[] = [];
+  for (const subject of parsed?.Assertion?.Subject ?? []) {
+    for (const sc of subject.SubjectConfirmation ?? []) {
+      if (sc.$?.Method && sc.$.Method !== 'urn:oasis:names:tc:SAML:2.0:cm:bearer') continue;
+      for (const scd of sc.SubjectConfirmationData ?? []) {
+        if (scd.$?.Recipient) out.push(scd.$.Recipient);
+      }
+    }
+  }
+  return out;
+}
+
 /** Wall-clock bound on how long a spent assertion id is remembered. Long enough
  *  to cover any sane `NotOnOrAfter`, short enough to bound the key space. */
 const MAX_REPLAY_WINDOW_MS = 12 * 60 * 60 * 1000;
@@ -610,6 +638,13 @@ export async function validateSamlResponse(
     throw new Error('SAML_INVALID_STATE');
   }
 
+  // Destination binds the Response to THIS SP's endpoint. node-saml only logs a
+  // mismatch, so a Response the IdP issued for another relying party (or another
+  // org's ACS) was accepted. Absent is tolerated (unsigned Responses may omit
+  // it); the assertion's Recipient below is the binding that is always required.
+  const destination = await rawResponseDestination(samlResponseB64);
+  if (destination !== null && destination !== samlAcsUrl(cfg.orgId)) throw new Error('SAML_INVALID_ASSERTION');
+
   await assertEncryptionShape(cfg, samlResponseB64);
 
   // A dry run validates against the TEST request-id cache — see
@@ -635,6 +670,11 @@ export async function validateSamlResponse(
   // Issuer is checked by node-saml against `idpIssuer`; re-assert it here so the
   // identity we return can never carry an issuer we did not pin it to.
   if (profile.issuer !== cfg.entityId) throw new Error('SAML_INVALID_ASSERTION');
+
+  // Web SSO profile: the bearer SubjectConfirmationData Recipient must be our ACS.
+  // Without it only the Audience bound an assertion to this SP, so one minted for
+  // another endpoint of the same entity was accepted here.
+  if (!assertionRecipients(profile).includes(samlAcsUrl(cfg.orgId))) throw new Error('SAML_INVALID_ASSERTION');
 
   // One assertion, one sign-in — claimed AFTER verification (an unverified
   // assertion must not be able to burn an id) and BEFORE any account is touched.

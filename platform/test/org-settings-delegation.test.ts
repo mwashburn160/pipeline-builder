@@ -65,6 +65,7 @@ jest.unstable_mockModule('../src/controllers/org-impersonation-policy.js', () =>
 jest.unstable_mockModule('../src/controllers/org-mfa-policy.js', () => recorders(['getMfaPolicy', 'updateMfaPolicy']));
 jest.unstable_mockModule('../src/controllers/org-security-policy.js', () => recorders([
   'getPasswordPolicy', 'updatePasswordPolicy', 'getAuthenticatorPolicy', 'updateAuthenticatorPolicy',
+  'getSessionPolicy', 'updateSessionPolicy',
 ]));
 jest.unstable_mockModule('../src/controllers/mfa-reset.js', () => recorders(['listMfaResets', 'requestMfaReset', 'approveMfaReset', 'denyMfaReset']));
 
@@ -91,6 +92,8 @@ const ROUTES: Array<[string, string, string]> = [
   ['patch', '/:id/mfa-policy', 'org_settings:write'],
   ['patch', '/:id/password-policy', 'org_settings:write'],
   ['patch', '/:id/authenticator-policy', 'org_settings:write'],
+  ['get', '/:id/session-policy', 'org_settings:write'],
+  ['patch', '/:id/session-policy', 'org_settings:write'],
   ['post', '/:id/domains', 'org_settings:write'],
   ['patch', '/:id/domains/:domainId/team-sharing', 'org_settings:write'],
   ['post', '/:id/restore', 'org_settings:write'],

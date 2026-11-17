@@ -42,6 +42,11 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   RoleAssignment: { find: jest.fn() },
 }));
 
+// Slots live in their own collection behind session-store.ts.
+const { sessionStoreFake } = await import('./helpers/session-store-fake.js');
+const store = sessionStoreFake();
+jest.unstable_mockModule('../src/services/session/session-store.js', () => store);
+
 jest.unstable_mockModule('../src/utils/token.js', () => ({
   verifyAccessToken: jest.fn(),
   verifyRefreshToken: (...a: unknown[]) => mockVerifyRefreshToken(...a),
@@ -197,12 +202,12 @@ describe('requireRefreshSession — which token is presented', () => {
         username: 'u',
         email: 'u@example.com',
         isEmailVerified: true,
-        refreshSessions: [
-          { id: 'sid-for-cookie.jwt', kind: 'interactive', amr: ['pwd'], aal: 1, authTime: new Date(0) },
-          { id: 'sid-for-body.jwt', kind: 'interactive', amr: ['pwd'], aal: 1, authTime: new Date(0) },
-        ],
       }),
     });
+    store.reset();
+    for (const id of ['sid-for-cookie.jwt', 'sid-for-body.jwt']) {
+      store.rows.push({ userId: 'u1', id, kind: 'interactive', tokenVersion: 3, amr: ['pwd'], aal: 1, authTime: new Date(0) });
+    }
   });
 
   it('accepts the CLI body token when there is no cookie', async () => {
@@ -226,6 +231,27 @@ describe('requireRefreshSession — which token is presented', () => {
 
     expect(next).toHaveBeenCalled();
     expect(res.locals.presentedRefreshToken).toBe('cookie.jwt');
+  });
+
+  it('401s a slot left at an older tokenVersion — a hard revocation ended it', async () => {
+    store.rows[1].tokenVersion = 2;
+    const res = makeRes();
+    const next = jest.fn();
+    await requireRefreshSession(cliReq({ body: { refreshToken: 'body.jwt' } }), res, next as any);
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it('answers SESSION_EXPIRED (not "token invalid") for a refresh token past its exp', async () => {
+    mockVerifyRefreshToken.mockImplementation(() => {
+      throw Object.assign(new Error('jwt expired'), { name: 'TokenExpiredError' });
+    });
+    const res = makeRes();
+    const next = jest.fn();
+    await requireRefreshSession(cliReq({ body: { refreshToken: 'body.jwt' } }), res, next as any);
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ code: 'SESSION_EXPIRED' }));
+    expect(next).not.toHaveBeenCalled();
   });
 
   it('401s when neither transport carries a token', async () => {

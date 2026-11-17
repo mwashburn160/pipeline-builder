@@ -37,6 +37,10 @@ jest.unstable_mockModule('../src/models/index.js', () => ({
   ImpersonationRequest: { findOne: jest.fn() },
   PersonalAccessToken: { exists: (...a: unknown[]) => mockKeyExists(...a) },
 }));
+// Slots live in their own collection behind session-store.ts.
+const { sessionStoreFake } = await import('./helpers/session-store-fake.js');
+const store = sessionStoreFake();
+jest.unstable_mockModule('../src/services/session/session-store.js', () => store);
 jest.unstable_mockModule('../src/utils/token.js', () => ({
   verifyAccessToken: (...a: unknown[]) => mockVerifyAccessToken(...a),
   verifyRefreshToken: jest.fn(),
@@ -69,15 +73,29 @@ describe('requireAuth — a session token dies with its slot', () => {
     mockVerifyAccessToken.mockReturnValue({ type: 'access', sub: 'u1', token_use: 'access', tokenVersion: 1, sid: 'slot-1', ...identity });
   });
 
+  beforeEach(() => store.reset());
+
   it('admits a token whose slot is live', async () => {
-    mockUserFindById.mockReturnValue(selectLean({ _id: 'u1', tokenVersion: 1, refreshSessions: [{ id: 'slot-1' }] }));
+    store.rows.push({ userId: 'u1', id: 'slot-1', kind: 'interactive', tokenVersion: 1 });
+    mockUserFindById.mockReturnValue(selectLean({ _id: 'u1', tokenVersion: 1 }));
     const { res, next } = await run();
     expect(next).toHaveBeenCalled();
     expect(res.status).not.toHaveBeenCalled();
   });
 
   it('REJECTS a token whose slot was revoked, before the token expires', async () => {
-    mockUserFindById.mockReturnValue(selectLean({ _id: 'u1', tokenVersion: 1, refreshSessions: [{ id: 'other-device' }] }));
+    store.rows.push({ userId: 'u1', id: 'other-device', kind: 'interactive', tokenVersion: 1 });
+    mockUserFindById.mockReturnValue(selectLean({ _id: 'u1', tokenVersion: 1 }));
+    const { res, next } = await run();
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it('REJECTS a token whose slot predates the user\'s last hard revocation (tokenVersion moved)', async () => {
+    // A row left behind by a bump site that never got to delete it is still dead.
+    store.rows.push({ userId: 'u1', id: 'slot-1', kind: 'interactive', tokenVersion: 0 });
+    mockVerifyAccessToken.mockReturnValue({ type: 'access', sub: 'u1', token_use: 'access', tokenVersion: 1, sid: 'slot-1', ...identity });
+    mockUserFindById.mockReturnValue(selectLean({ _id: 'u1', tokenVersion: 1 }));
     const { res, next } = await run();
     expect(res.status).toHaveBeenCalledWith(401);
     expect(next).not.toHaveBeenCalled();

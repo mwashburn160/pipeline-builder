@@ -13,15 +13,19 @@ import { createLogger, type TokenScope } from '@pipeline-builder/api-core';
 import type { Types } from 'mongoose';
 import { accessTokenTtlSeconds, createAccessTokenPayload, enforceOrgAssurance, type SessionAuth } from './access-tokens.js';
 import { resolveMembership, resolveOrgMembership, signInLandingOrg, type MembershipContext } from './membership-context.js';
+import { deleteSlot, findSlot, insertSlot, updateSlotIf, type RefreshSession } from './session-store.js';
 import { config } from '../../config/index.js';
 import type { RefreshSessionKind } from '../../constants/vocabulary.js';
 import type { ClientInfo } from '../../helpers/client-info.js';
+import { interactiveSessionExpired, interactiveSessionEnd, platformSessionLimits, sessionLimitsFor } from '../../helpers/session-policy.js';
 import { publishSessionSlotRevocation } from '../../helpers/session-revocation.js';
 import { User } from '../../models/index.js';
-import type { RefreshSession, UserDocument } from '../../models/user.js';
+import type { UserDocument } from '../../models/user.js';
 import type { RefreshTokenPayload } from '../../types/index.js';
-import { TOKEN_SCOPE_ESCALATION } from '../auth-errors.js';
+import { SESSION_EXPIRED, TOKEN_SCOPE_ESCALATION } from '../auth-errors.js';
 import { signUserJwt } from '../token-signing/index.js';
+
+export type { RefreshSession } from './session-store.js';
 
 const logger = createLogger('token');
 
@@ -38,6 +42,27 @@ export const MAX_REFRESH_SESSIONS = 10;
  * a credential renewed daily is never dropped while abandoned ones are.
  */
 export const MAX_MACHINE_SESSIONS = 10;
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * When the TTL index may drop a slot: the last moment it could still renew under
+ * the PLATFORM ceiling (an org can only shorten it, and that is enforced at
+ * renewal, not by deletion).
+ *   - interactive: the earlier of `authTime` + the platform maximum age and
+ *     the end of its current refresh token (`lastUsedAt` + the refresh TTL).
+ *     The idle timeout is NOT folded in, so an idle-expired slot still answers
+ *     `SESSION_EXPIRED` (rather than "no such session") until its absolute end.
+ *   - machine: its fixed `expiresAt`, else the end of its current refresh token.
+ */
+function purgeAtFor(slot: { kind: RefreshSessionKind; authTime: Date; lastUsedAt: Date; expiresAt?: Date }): Date {
+  const refreshEnd = new Date(slot.lastUsedAt).getTime() + config.auth.refreshToken.expiresIn * 1000;
+  if (slot.kind === 'machine') {
+    return new Date(slot.expiresAt ? new Date(slot.expiresAt).getTime() : refreshEnd);
+  }
+  const absoluteEnd = new Date(slot.authTime).getTime() + platformSessionLimits().maxAgeDays * DAY_MS;
+  return new Date(Math.min(absoluteEnd, refreshEnd));
+}
 
 /**
  * Sign a refresh token for one session slot. The random `jti` makes every
@@ -80,6 +105,9 @@ export interface IssuedTokens {
 interface MintedAccessToken {
   accessToken: string;
   expiresIn: number;
+  /** INTERACTIVE slots: the session's absolute end under the policy of the org
+   *  minted for (nothing minted outlives it). */
+  sessionEndsAt?: Date;
   /** The org the token was actually scoped to (after any fallback); absent when none resolved. */
   organizationId?: string;
   /** `issuedTokens` history entry (ring-buffered to the 20 most recent). */
@@ -123,6 +151,14 @@ interface MintOptions {
   auth: SessionAuth;
   /** The slot's fixed end (machine credentials): nothing minted outlives it. */
   slotExpiresAt?: Date;
+  /**
+   * INTERACTIVE slots: when the session was signed into and last used. Once the
+   * org is resolved, the session-lifetime policy of THAT org (strictest with the
+   * platform ceiling, helpers/session-policy.ts) is applied: a session past its
+   * maximum age or idle timeout mints nothing (`SESSION_EXPIRED`), and nothing
+   * minted outlives its maximum age.
+   */
+  lifetime?: { authTime: Date; lastUsedAt: Date };
   scope?: TokenScope;
   mfaEnrollmentPending?: boolean;
   permissions?: readonly string[];
@@ -174,13 +210,24 @@ async function mintAccessToken(user: UserDocument, opts: MintOptions): Promise<M
 
   const auth = await enforceOrgAssurance(user, membership, sessionAuth, { scope, mfaEnrollmentPending });
 
+  // Session lifetime, judged by the policy of the org this token is FOR — known
+  // only now that the membership is resolved (a fallback org's policy counts
+  // exactly like the slot's own).
+  const now = new Date();
+  let sessionEndsAt: Date | undefined;
+  if (opts.lifetime) {
+    const limits = await sessionLimitsFor([membership?.organizationId]);
+    if (interactiveSessionExpired(opts.lifetime, limits, now)) throw new Error(SESSION_EXPIRED);
+    sessionEndsAt = interactiveSessionEnd(opts.lifetime, limits).absoluteEnd;
+  }
+
   // Per-tier override → global default. The per-tier path lets
   // compliance-driven customers (enterprise tiers) narrow the stolen-token
   // blast window without forcing every user to re-auth more often. A slot with
   // a fixed end (a machine credential) never mints past it: neither its access
-  // token nor its refresh token outlives the slot.
-  const now = new Date();
-  const tokenExpiresIn = accessTokenLifetime(membership, slotExpiresAt, now);
+  // token nor its refresh token outlives the slot; nor does anything minted
+  // for an interactive session outlive its maximum age.
+  const tokenExpiresIn = accessTokenLifetime(membership, slotExpiresAt ?? sessionEndsAt, now);
 
   const accessToken = await signUserJwt(
     createAccessTokenPayload(user, membership, { auth, tokenUse: 'access', scope, permissions, sessionId, mfaEnrollmentPending }),
@@ -190,6 +237,7 @@ async function mintAccessToken(user: UserDocument, opts: MintOptions): Promise<M
   return {
     accessToken,
     expiresIn: tokenExpiresIn,
+    ...(sessionEndsAt ? { sessionEndsAt } : {}),
     ...(membership ? { organizationId: membership.organizationId } : {}),
     historyEntry: {
       id: crypto.randomBytes(8).toString('hex'),
@@ -218,8 +266,13 @@ function accessTokenLifetime(membership: MembershipContext | undefined, slotExpi
 /** {@link mintAccessToken} plus the slot's next refresh token. */
 async function mintTokens(user: UserDocument, opts: MintOptions): Promise<MintedTokens> {
   const minted = await mintAccessToken(user, opts);
+  // A machine slot's refresh token runs to the slot's fixed end; an interactive
+  // one's for the refresh TTL, never past the session's maximum age.
   const refreshExpiresIn = slotRemainingSeconds(opts.slotExpiresAt, minted.historyEntry.createdAt)
-    ?? config.auth.refreshToken.expiresIn;
+    ?? Math.min(
+      config.auth.refreshToken.expiresIn,
+      slotRemainingSeconds(minted.sessionEndsAt, minted.historyEntry.createdAt) ?? Number.POSITIVE_INFINITY,
+    );
   const refreshToken = await generateRefreshToken(user, opts.sessionId, refreshExpiresIn);
   return {
     ...minted,
@@ -261,30 +314,6 @@ export interface NewSession {
 }
 
 /**
- * The aggregation-pipeline expression for `refreshSessions` after adding
- * `slot`, applying the cap for its kind to that kind only:
- * - interactive: keep the newest `MAX_REFRESH_SESSIONS` in push order;
- * - machine: keep the `MAX_MACHINE_SESSIONS - 1` most recently used, plus `slot`.
- * Slots of the other kind pass through untouched. `$literal` keeps any value
- * that happens to start with `$` from being read as a field path.
- */
-function refreshSessionsWith(slot: RefreshSession): Record<string, unknown> {
-  const existing = { $ifNull: ['$refreshSessions', []] };
-  const ofKind = (eq: boolean) => ({
-    $filter: { input: existing, cond: { [eq ? '$eq' : '$ne']: ['$$this.kind', slot.kind] } },
-  });
-  const kept = slot.kind === 'interactive'
-    ? { $slice: [{ $concatArrays: [ofKind(true), [{ $literal: slot }]] }, -MAX_REFRESH_SESSIONS] }
-    : {
-      $concatArrays: [
-        { $slice: [{ $sortArray: { input: ofKind(true), sortBy: { lastUsedAt: -1 } } }, MAX_MACHINE_SESSIONS - 1] },
-        [{ $literal: slot }],
-      ],
-    };
-  return { $concatArrays: [ofKind(false), kept] };
-}
-
-/**
  * Open a NEW refresh-session slot and mint its token pair.
  *
  * `interactive` — sign-in (password, OAuth, SSO) on a device. `machine` — a
@@ -298,8 +327,9 @@ function refreshSessionsWith(slot: RefreshSession): Record<string, unknown> {
  */
 export async function issueTokens(user: UserDocument, activeOrgId: string | undefined, session: NewSession): Promise<IssuedTokens> {
   const sessionId = crypto.randomBytes(12).toString('hex');
+  const openedAt = new Date();
   const slotExpiresAt = session.lifetimeSeconds !== undefined
-    ? new Date(Date.now() + session.lifetimeSeconds * 1000)
+    ? new Date(openedAt.getTime() + session.lifetimeSeconds * 1000)
     : undefined;
   const { tokens, refreshHash, historyEntry, organizationId } = await mintTokens(user, {
     sessionId,
@@ -307,6 +337,9 @@ export async function issueTokens(user: UserDocument, activeOrgId: string | unde
     opensSession: true,
     auth: session.auth,
     slotExpiresAt,
+    // An interactive slot that INHERITS an older sign-in (a device approval,
+    // the survivor of "sign out everywhere") is bounded by that sign-in's age.
+    ...(session.kind === 'interactive' ? { lifetime: { authTime: session.auth.authTime, lastUsedAt: openedAt } } : {}),
     scope: session.scope,
     mfaEnrollmentPending: session.mfaEnrollmentPending,
     permissions: session.permissions,
@@ -314,6 +347,7 @@ export async function issueTokens(user: UserDocument, activeOrgId: string | unde
   const slot: RefreshSession = {
     id: sessionId,
     kind: session.kind,
+    tokenVersion: user.tokenVersion,
     hash: refreshHash,
     createdAt: historyEntry.createdAt,
     lastUsedAt: historyEntry.createdAt,
@@ -329,55 +363,29 @@ export async function issueTokens(user: UserDocument, activeOrgId: string | unde
     ...(session.auth.aalAssertedBy ? { aalAssertedBy: session.auth.aalAssertedBy } : {}),
     ...(session.client?.userAgent ? { userAgent: session.client.userAgent } : {}),
     ...(session.client?.ip ? { lastIp: session.client.ip } : {}),
+    purgeAt: historyEntry.createdAt,
   };
-  const before = await slotIdsOf(user._id);
-  await User.updateOne(
-    { _id: user._id },
-    [{
-      $set: {
-        refreshSessions: refreshSessionsWith(slot),
-        issuedTokens: { $slice: [{ $concatArrays: [{ $ifNull: ['$issuedTokens', []] }, [{ $literal: historyEntry }]] }, -20] },
-      },
-    }],
-    { updatePipeline: true },
+  slot.purgeAt = purgeAtFor(slot);
+  const evicted = await insertSlot(
+    user._id,
+    slot,
+    session.kind === 'interactive' ? MAX_REFRESH_SESSIONS : MAX_MACHINE_SESSIONS,
   );
+  await recordIssuedToken(user._id, historyEntry);
   // A slot pushed out by the per-kind cap is signed out like any other: its
   // live access token must stop working on every service, not just here.
-  await publishEvictedSlots(user._id, before);
+  if (evicted.length > 0) await publishSessionSlotRevocation(evicted);
   return tokens;
 }
 
-/** The user's current slot ids, or null when they can't be read. */
-async function slotIdsOf(userId: Types.ObjectId | string): Promise<string[] | null> {
-  try {
-    const doc = await User.findById(userId).select('+refreshSessions').lean();
-    return doc ? (doc.refreshSessions ?? []).map((s) => s.id) : null;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Publish `revoke:sid` for the slots in `before` that the write evicted.
- * Best-effort, and conservative: if either read failed nothing is published —
- * a missing "after" must never read as "every slot was evicted".
- */
-async function publishEvictedSlots(userId: Types.ObjectId | string, before: readonly string[] | null): Promise<void> {
-  if (!before || before.length === 0) return;
-  const after = await slotIdsOf(userId);
-  if (!after) return;
-  const kept = new Set(after);
-  const evicted = before.filter((id) => !kept.has(id));
-  if (evicted.length > 0) await publishSessionSlotRevocation(evicted);
+/** Append to the user's `issuedTokens` history (ring-buffered to the 20 most recent). */
+async function recordIssuedToken(userId: Types.ObjectId | string, entry: MintedAccessToken['historyEntry']): Promise<void> {
+  await User.updateOne({ _id: userId }, { $push: { issuedTokens: { $each: [entry], $slice: -20 } } });
 }
 
 /** One slot of `user`, or `undefined` when it no longer exists. */
 export async function findRefreshSession(userId: Types.ObjectId | string, sessionId: string): Promise<RefreshSession | undefined> {
-  const doc = await User.findOne(
-    { '_id': userId, 'refreshSessions.id': sessionId },
-    { 'refreshSessions.$': 1 },
-  ).lean();
-  return (doc?.refreshSessions?.[0] as RefreshSession | undefined) ?? undefined;
+  return findSlot(userId, sessionId);
 }
 
 /** Whether two permission subsets name the same set (`undefined` = no subset). */
@@ -398,9 +406,12 @@ interface LiveSlot {
 
 /**
  * Read slot `sessionId` and apply the rules every re-issue for it shares: it
- * must exist (of `kind`, when given) and be inside its fixed end, and a
- * requested scope / permission subset must equal the stored one. Returns the
- * slot's authoritative scope, permissions and auth context, or `null`.
+ * must exist at the user's current `tokenVersion` (of `kind`, when given) and be
+ * inside its fixed end, and a requested scope / permission subset must equal the
+ * stored one. Returns the slot's authoritative scope, permissions and auth
+ * context, or `null`. A machine slot past its fixed end is dropped and refused
+ * with `SESSION_EXPIRED` (an interactive slot's lifetime is judged at mint, by
+ * the policy of the org minted for — see {@link mintAccessToken}).
  */
 async function liveSlot(
   user: UserDocument,
@@ -408,10 +419,16 @@ async function liveSlot(
   kind: RefreshSessionKind | undefined,
   mint: { scope?: TokenScope; permissions?: readonly string[] },
 ): Promise<LiveSlot | null> {
-  const current = await findRefreshSession(user._id, sessionId);
+  const current = await findSlot(user._id, sessionId);
   if (!current || (kind && current.kind !== kind)) return null;
+  // A slot opened before the user's last hard revocation is dead, whether or
+  // not the bump site got round to deleting it.
+  if (current.tokenVersion !== user.tokenVersion) return null;
   // A slot past its fixed end (a machine credential's lifetime) renews nothing.
-  if (current.expiresAt && new Date(current.expiresAt).getTime() <= Date.now()) return null;
+  if (current.expiresAt && new Date(current.expiresAt).getTime() <= Date.now()) {
+    await endExpiredSlot(user._id, sessionId);
+    throw new Error(SESSION_EXPIRED);
+  }
   const slotScope = current.scope as TokenScope | undefined;
   if (mint.scope !== undefined && mint.scope !== slotScope) {
     throw new Error(TOKEN_SCOPE_ESCALATION);
@@ -437,24 +454,56 @@ function slotAuth(current: RefreshSession): SessionAuth {
   };
 }
 
-/** `$elemMatch` for the slot as it was read, so a concurrent change can't be silently widened. */
-function slotMatchOf(sessionId: string, { current, slotScope }: LiveSlot): Record<string, unknown> {
-  return { id: sessionId, kind: current.kind, scope: slotScope ?? null };
+/** Drop a slot whose life is over and end its live access token everywhere. */
+async function endExpiredSlot(userId: Types.ObjectId | string, sessionId: string): Promise<void> {
+  await deleteSlot(userId, sessionId);
+  await publishSessionSlotRevocation(sessionId);
 }
 
-/** `$set` fields recording a use of the slot (`refreshSessions.$` positional). */
-function slotUseFields(at: Date, organizationId: string | undefined, client: ClientInfo | undefined): Record<string, unknown> {
+/**
+ * Run a mint for a live slot; a `SESSION_EXPIRED` refusal (the session-lifetime
+ * policy) also drops the slot, so its live access token dies with it.
+ */
+async function mintForSlot<T>(user: UserDocument, sessionId: string, mint: () => Promise<T>): Promise<T> {
+  try {
+    return await mint();
+  } catch (error) {
+    if (error instanceof Error && error.message === SESSION_EXPIRED) await endExpiredSlot(user._id, sessionId);
+    throw error;
+  }
+}
+
+/** The lifetime inputs of an INTERACTIVE slot (machine slots have a fixed end instead). */
+function lifetimeOf(current: RefreshSession): MintOptions['lifetime'] {
+  return current.kind === 'interactive'
+    ? { authTime: new Date(current.authTime), lastUsedAt: new Date(current.lastUsedAt) }
+    : undefined;
+}
+
+/** The compare-and-set match for the slot as it was read, so a concurrent change can't be silently widened. */
+function slotMatchOf(user: UserDocument, sessionId: string, { current, slotScope }: LiveSlot) {
+  return { id: sessionId, tokenVersion: user.tokenVersion, kind: current.kind, scope: slotScope ?? null };
+}
+
+/** `$set` fields recording a use of the slot. */
+function slotUseFields(
+  current: RefreshSession,
+  at: Date,
+  organizationId: string | undefined,
+  client: ClientInfo | undefined,
+): Record<string, unknown> {
   return {
-    'refreshSessions.$.lastUsedAt': at,
-    ...(organizationId ? { 'refreshSessions.$.activeOrgId': organizationId } : {}),
-    ...(client?.userAgent ? { 'refreshSessions.$.userAgent': client.userAgent } : {}),
-    ...(client?.ip ? { 'refreshSessions.$.lastIp': client.ip } : {}),
+    lastUsedAt: at,
+    purgeAt: purgeAtFor({ ...current, lastUsedAt: at }),
+    ...(organizationId ? { activeOrgId: organizationId } : {}),
+    ...(client?.userAgent ? { userAgent: client.userAgent } : {}),
+    ...(client?.ip ? { lastIp: client.ip } : {}),
   };
 }
 
 /**
  * Re-issue the token pair for an EXISTING refresh-session slot, replacing the
- * slot's hash in one atomic `findOneAndUpdate`.
+ * slot's hash in one atomic compare-and-set (`updateSlotIf`).
  *
  * - Refresh passes `presentedToken` and the slot's OWN `kind` (an interactive
  *   or a machine slot both refresh there): the write matches only while the
@@ -478,6 +527,10 @@ function slotUseFields(at: Date, organizationId: string | undefined, client: Cli
  * Returns `null` when nothing matched — the slot is gone or of another kind, the
  * tokenVersion moved, or `presentedToken` was already rotated away (reuse). The
  * caller decides what that means; nothing is persisted.
+ *
+ * Throws `SESSION_EXPIRED` (and drops the slot) when the session's life is over:
+ * an interactive slot past its maximum age or idle timeout under the policy of
+ * the org it is minted for, or a machine slot past its fixed end.
  */
 export async function renewSessionTokens(
   user: UserDocument,
@@ -489,31 +542,27 @@ export async function renewSessionTokens(
   if (!live) return null;
   const { current, slotScope, slotPermissions, auth } = live;
 
-  const { tokens, refreshHash, historyEntry, organizationId } = await mintTokens(user, {
+  const { tokens, refreshHash, historyEntry, organizationId } = await mintForSlot(user, slot.sessionId, () => mintTokens(user, {
     sessionId: slot.sessionId,
     orgCandidates: [current.activeOrgId, activeOrgId],
     auth,
     slotExpiresAt: current.expiresAt ? new Date(current.expiresAt) : undefined,
+    lifetime: lifetimeOf(current),
     scope: slotScope,
     mfaEnrollmentPending: current.mfaEnrollmentPending,
     permissions: slotPermissions,
-  });
-  const slotMatch = {
-    ...slotMatchOf(slot.sessionId, live),
-    ...(slot.presentedToken === undefined ? {} : { hash: hashRefreshToken(slot.presentedToken) }),
-  };
-  const updated = await User.findOneAndUpdate(
-    { _id: user._id, tokenVersion: user.tokenVersion, refreshSessions: { $elemMatch: slotMatch } },
+  }));
+  const updated = await updateSlotIf(
+    user._id,
     {
-      $set: {
-        'refreshSessions.$.hash': refreshHash,
-        ...slotUseFields(historyEntry.createdAt, organizationId, mint.client),
-      },
-      $push: { issuedTokens: { $each: [historyEntry], $slice: -20 } },
+      ...slotMatchOf(user, slot.sessionId, live),
+      ...(slot.presentedToken === undefined ? {} : { hash: hashRefreshToken(slot.presentedToken) }),
     },
-    { projection: { _id: 1 } },
-  ).lean();
-  return updated ? tokens : null;
+    { hash: refreshHash, ...slotUseFields(current, historyEntry.createdAt, organizationId, mint.client) },
+  );
+  if (!updated) return null;
+  await recordIssuedToken(user._id, historyEntry);
+  return tokens;
 }
 
 /** An access token for a switched session — switch-org mints no refresh token. */
@@ -534,39 +583,50 @@ export interface SwitchedAccessToken {
  * renewal (never widened; assurance inherited, MFA policy enforced). The token
  * is scoped to `organizationId` or nothing — no fallback to another org.
  *
- * Returns `'session-invalid'` when the slot is gone / expired or the
- * tokenVersion moved, `'org-unavailable'` when the org no longer resolves for
- * the user. Nothing is persisted on either.
+ * Returns `'session-invalid'` when the slot is gone or the tokenVersion moved,
+ * `'session-expired'` when the session is older (or idler) than the
+ * destination org's session policy allows (the slot itself is kept — it is
+ * still valid in its current org), and `'org-unavailable'` when the org no
+ * longer resolves for the user. Nothing is persisted on any of them. A machine
+ * slot past its fixed end throws `SESSION_EXPIRED` (and is dropped).
  */
 export async function switchSessionOrg(
   user: UserDocument,
   organizationId: string,
   sessionId: string,
   { client }: { client?: ClientInfo } = {},
-): Promise<SwitchedAccessToken | 'session-invalid' | 'org-unavailable'> {
+): Promise<SwitchedAccessToken | 'session-invalid' | 'session-expired' | 'org-unavailable'> {
   const live = await liveSlot(user, sessionId, undefined, {});
   if (!live) return 'session-invalid';
   const { current, slotScope, slotPermissions, auth } = live;
 
-  const minted = await mintAccessToken(user, {
-    sessionId,
-    orgCandidates: [organizationId],
-    exactOrg: true,
-    auth,
-    slotExpiresAt: current.expiresAt ? new Date(current.expiresAt) : undefined,
-    scope: slotScope,
-    mfaEnrollmentPending: current.mfaEnrollmentPending,
-    permissions: slotPermissions,
-  });
+  let minted: MintedAccessToken;
+  try {
+    minted = await mintAccessToken(user, {
+      sessionId,
+      orgCandidates: [organizationId],
+      exactOrg: true,
+      auth,
+      slotExpiresAt: current.expiresAt ? new Date(current.expiresAt) : undefined,
+      lifetime: lifetimeOf(current),
+      scope: slotScope,
+      mfaEnrollmentPending: current.mfaEnrollmentPending,
+      permissions: slotPermissions,
+    });
+  } catch (error) {
+    // Too old (or idle) for the DESTINATION org's session policy. The session
+    // stays valid where it is — only entering that org needs a fresh sign-in.
+    if (error instanceof Error && error.message === SESSION_EXPIRED) return 'session-expired';
+    throw error;
+  }
   if (minted.organizationId !== organizationId) return 'org-unavailable';
 
-  const updated = await User.findOneAndUpdate(
-    { _id: user._id, tokenVersion: user.tokenVersion, refreshSessions: { $elemMatch: slotMatchOf(sessionId, live) } },
-    {
-      $set: slotUseFields(minted.historyEntry.createdAt, organizationId, client),
-      $push: { issuedTokens: { $each: [minted.historyEntry], $slice: -20 } },
-    },
-    { projection: { _id: 1 } },
-  ).lean();
-  return updated ? { accessToken: minted.accessToken, expiresIn: minted.expiresIn } : 'session-invalid';
+  const updated = await updateSlotIf(
+    user._id,
+    slotMatchOf(user, sessionId, live),
+    slotUseFields(current, minted.historyEntry.createdAt, organizationId, client),
+  );
+  if (!updated) return 'session-invalid';
+  await recordIssuedToken(user._id, minted.historyEntry);
+  return { accessToken: minted.accessToken, expiresIn: minted.expiresIn };
 }

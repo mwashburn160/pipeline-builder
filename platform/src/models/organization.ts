@@ -123,6 +123,14 @@ export interface OrganizationData {
    * lists intersect — strictest wins).
    */
   allowedAuthenticatorAaguids?: string[];
+  /**
+   * Org session-lifetime policy for interactive sessions (days): a maximum age
+   * from sign-in and an idle timeout since last use. Either may only TIGHTEN
+   * the platform ceiling (`SESSION_MAX_AGE_DAYS` / `SESSION_IDLE_TIMEOUT_DAYS`).
+   * Absent field = the platform value. Read only through
+   * `helpers/session-policy.ts`, which owns the ancestor walk (strictest wins).
+   */
+  sessionPolicy?: { maxAgeDays?: number; idleTimeoutDays?: number };
   /** Denormalized reference to the owning user. Canonical ownership is in UserOrganization (role: 'owner'). */
   owner: Types.ObjectId;
   /**
@@ -391,6 +399,18 @@ const organizationSchema = new Schema<OrganizationData>(
       type: [String],
       default: undefined,
     },
+    // Org session-lifetime policy — absent (or an absent field) means the
+    // platform ceiling; no default, so an untouched org stores nothing.
+    sessionPolicy: {
+      type: new Schema(
+        {
+          maxAgeDays: { type: Number, min: 1, max: 365 },
+          idleTimeoutDays: { type: Number, min: 1, max: 365 },
+        },
+        { _id: false },
+      ),
+      default: undefined,
+    },
     owner: {
       type: Schema.Types.ObjectId,
       ref: 'User',
@@ -606,6 +626,14 @@ const organizationSchema = new Schema<OrganizationData>(
     _id: false,
   },
 );
+
+/**
+ * `{ name: 1 }` — the quota service shares this collection and lists orgs sorted
+ * by `{ name, _id }` (api/quota `findAll`), declaring this index in its own
+ * mirror schema. Declared here too so platform's boot-time index reconcile does
+ * not report it as an unknown index on every start.
+ */
+organizationSchema.index({ name: 1 });
 
 /**
  * Generate unique slug from organization name

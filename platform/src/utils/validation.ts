@@ -13,6 +13,7 @@ import { PASSWORD_MAX_LENGTH, PASSWORD_RULES } from '../constants/password.js';
 import { DOMAIN_JOIN_MODES, IMPERSONATION_POLICIES, INVITATION_TYPES } from '../constants/vocabulary.js';
 import { MAX_ALLOWED_AAGUIDS } from '../helpers/authenticator-policy.js';
 import { MAX_MFA_GRACE_DAYS, MFA_RESET_GRACE_MAX_HOURS } from '../helpers/mfa-policy.js';
+import { SESSION_POLICY_MAX_DAYS } from '../helpers/session-policy.js';
 import { OAUTH_PROVIDER_NAMES } from '../types/oauth-provider.js';
 
 /**
@@ -327,6 +328,21 @@ export const requiredPasswordChangeSchema = z.object({
 export const updatePasswordPolicySchema = z.object({
   minLength: z.number().int().min(config.auth.passwordMinLength).max(PASSWORD_MAX_LENGTH).nullable(),
 }).strict();
+
+/**
+ * PATCH /organization/:id/session-policy. Each field is the org's OWN bound in
+ * whole days; `null` clears it (back to the platform ceiling, or an
+ * ancestor's). Absent = unchanged. A value above the platform ceiling is
+ * accepted but has no effect — the effective bound is always the stricter.
+ */
+const sessionPolicyDays = z.number().int().min(1).max(SESSION_POLICY_MAX_DAYS).nullable().optional();
+export const updateSessionPolicySchema = z.object({
+  maxAgeDays: sessionPolicyDays,
+  idleTimeoutDays: sessionPolicyDays,
+}).strict().refine(
+  (b) => b.maxAgeDays !== undefined || b.idleTimeoutDays !== undefined,
+  { message: 'Set maxAgeDays and/or idleTimeoutDays' },
+);
 
 /**
  * PATCH /organization/:id/authenticator-policy. An empty list clears the

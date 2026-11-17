@@ -45,6 +45,7 @@ import {
   MFA_RESET_SECOND_PERSON_REQUIRED,
   MFA_RESET_SELF,
 } from './mfa-recovery-errors.js';
+import { deleteAllSlots } from './session/session-store.js';
 import { hasMembershipOutsideAccount } from '../helpers/account-membership.js';
 import { MFA_RESET_GRACE_MAX_HOURS } from '../helpers/mfa-policy.js';
 import { publishUserRevocation } from '../helpers/session-revocation.js';
@@ -120,9 +121,10 @@ export async function resetFactors(userId: string, graceHours?: number): Promise
     // Bump `tokenVersion` AND clear the slots — "sign out everywhere".
     const bumped = await User.findByIdAndUpdate(
       userId,
-      { $inc: { tokenVersion: 1 }, $set: { refreshSessions: [], mfaResetGraceUntil: graceUntil } },
+      { $inc: { tokenVersion: 1 }, $set: { mfaResetGraceUntil: graceUntil } },
       { new: true, session },
     ).select('+tokenVersion').lean();
+    await deleteAllSlots(userId, session);
     return { passkeys: passkeysRes, totp: totpRes, codes: codesRes, updated: bumped };
   });
   // Side effects that can't roll back (the Redis revocation publish, and the

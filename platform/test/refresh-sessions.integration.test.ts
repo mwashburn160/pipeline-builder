@@ -30,7 +30,7 @@
  * organization-id-storage.integration.test.ts.
  */
 
-import { jest, it, expect, beforeAll, afterAll, beforeEach } from '@jest/globals';
+import { jest, describe, it, expect, beforeAll, afterAll, beforeEach } from '@jest/globals';
 import { integrationSuite } from './helpers/integration-gate.js';
 
 process.env.SECRET_ENCRYPTION_KEY ||= '0000000000000000000000000000000000000000000000000000000000000000';
@@ -42,7 +42,7 @@ const suite = integrationSuite();
 suite('refresh-session slots (real Mongo)', () => {
   let mongod: { getUri: () => string; stop: () => Promise<boolean> };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let mongoose: any, User: any, Organization: any, UserOrganization: any, token: any, authMw: any, authCtl: any, credsCtl: any, jwt: any;
+  let mongoose: any, User: any, RefreshSession: any, Organization: any, UserOrganization: any, token: any, authMw: any, authCtl: any, credsCtl: any, jwt: any;
   /** Let the refresh-rotation grace lapse (it lives in the pending-state store). */
   let endRotationGrace: () => void;
 
@@ -52,7 +52,9 @@ suite('refresh-session slots (real Mongo)', () => {
     mongod = await MongoMemoryServer.create({ binary: { version: MONGOD_VERSION } });
     process.env.MONGODB_URI = mongod.getUri();
     await mongoose.connect(process.env.MONGODB_URI);
-    ({ User, Organization, UserOrganization } = await import('../src/models/index.js'));
+    ({ User, RefreshSession, Organization, UserOrganization } = await import('../src/models/index.js'));
+    // TTL / unique indexes, so the duplicate-id guarantee is real here.
+    await RefreshSession.init();
     ({ _resetAllPendingStoresForTests: endRotationGrace } = await import('../src/helpers/pending-state-store.js'));
     token = {
       ...(await import('../src/services/session/membership-context.js')),
@@ -79,6 +81,7 @@ suite('refresh-session slots (real Mongo)', () => {
   let userId: string;
   beforeEach(async () => {
     await User.deleteMany({});
+    await RefreshSession.deleteMany({});
     await Organization.deleteMany({});
     await UserOrganization.deleteMany({});
     const u = await User.create({ username: 'dev', email: 'dev@example.com', isEmailVerified: true });
@@ -86,8 +89,19 @@ suite('refresh-session slots (real Mongo)', () => {
   });
 
   const loadUser = () => User.findById(userId).select('+tokenVersion +isSuperAdmin');
-  const slots = async () => (await User.findById(userId).select('+refreshSessions').lean()).refreshSessions as Array<{
-    id: string; kind: string; hash: string; scope?: string; lastUsedAt: Date; userAgent?: string; lastIp?: string;
+  /** The user's slots (their own collection), oldest first. */
+  const slots = async () => (await RefreshSession.find({ userId }).sort({ createdAt: 1, _id: 1 }).lean()) as Array<{
+    id: string;
+    kind: string;
+    hash: string;
+    scope?: string;
+    lastUsedAt: Date;
+    userAgent?: string;
+    lastIp?: string;
+    tokenVersion: number;
+    authTime: Date;
+    purgeAt: Date;
+    expiresAt?: Date;
   }>;
   const sidOf = (t: string) => (jwt.decode(t) as { sid: string }).sid;
   const slotOf = async (t: string) => (await slots()).find((sl) => sl.id === sidOf(t))!;
@@ -317,7 +331,8 @@ suite('refresh-session slots (real Mongo)', () => {
   it('a slot that predates activeOrgId renews as before (lastActiveOrgId)', async () => {
     const { second } = await twoOrgs();
     const a = await signIn();
-    await User.updateOne({ _id: userId }, { $unset: { 'refreshSessions.$[].activeOrgId': '' }, $set: { lastActiveOrgId: second } });
+    await RefreshSession.updateMany({ userId }, { $unset: { activeOrgId: '' } });
+    await User.updateOne({ _id: userId }, { $set: { lastActiveOrgId: second } });
     expect(orgOf((await refresh(a.refreshToken)).body.data.accessToken)).toBe(second);
   });
 
@@ -341,7 +356,7 @@ suite('refresh-session slots (real Mongo)', () => {
     expect((await switchOrg(a.accessToken, stranger)).status).toBe(403);
     expect((await slotOf(a.refreshToken) as { activeOrgId?: string }).activeOrgId).toBe(first);
 
-    await User.updateOne({ _id: userId }, { $set: { refreshSessions: [] } });
+    await RefreshSession.deleteMany({ userId });
     expect(await token.switchSessionOrg(await loadUser(), first, sidOf(a.refreshToken))).toBe('session-invalid');
     expect(await token.renewSessionTokens(await loadUser(), undefined, { sessionId: sidOf(a.refreshToken) })).toBeNull();
   });
@@ -516,5 +531,125 @@ suite('refresh-session slots (real Mongo)', () => {
     expect((await refresh(a.refreshToken)).status).toBe(401);
     expect((await refresh(b.refreshToken)).status).toBe(401);
     expect(await slots()).toHaveLength(0);
+  });
+
+  it('a slot left at an OLD tokenVersion is dead even if the bump never deleted it', async () => {
+    const a = await signIn();
+    await User.updateOne({ _id: userId }, { $inc: { tokenVersion: 1 } });
+    // The refresh token itself names the old version → refused at the door.
+    expect((await refresh(a.refreshToken)).status).toBe(401);
+    // A renewal for that slot at the NEW version finds no live slot either.
+    expect(await token.renewSessionTokens(await loadUser(), undefined, { sessionId: sidOf(a.refreshToken) })).toBeNull();
+    // ...and the sessions list does not show it.
+    const listed = await run(credsCtl.listSessions, { user: { sub: userId } });
+    expect(listed.body.data.sessions).toHaveLength(0);
+  });
+
+  it('stores a slot as its own row: tokenVersion, auth context and a purge time bounded by the maximum age', async () => {
+    const a = await signIn();
+    const [row] = await slots();
+    expect(row.id).toBe(sidOf(a.refreshToken));
+    expect(row.tokenVersion).toBe(0);
+    const maxAgeEnd = new Date(row.authTime).getTime() + 30 * 86400_000;
+    expect(new Date(row.purgeAt).getTime()).toBeLessThanOrEqual(maxAgeEnd);
+    // The user document carries no slots any more.
+    const raw = await mongoose.connection.db.collection('users').findOne({ _id: new mongoose.Types.ObjectId(userId) });
+    expect(raw.refreshSessions).toBeUndefined();
+  });
+
+  describe('session lifetime', () => {
+    const DAY = 86400_000;
+    /** Age the slot behind `t`: signed in `signedInDaysAgo`, last used `usedDaysAgo`. */
+    const age = async (t: string, signedInDaysAgo: number, usedDaysAgo: number) => {
+      await RefreshSession.updateOne(
+        { userId, id: sidOf(t) },
+        { $set: { authTime: new Date(Date.now() - signedInDaysAgo * DAY), lastUsedAt: new Date(Date.now() - usedDaysAgo * DAY) } },
+      );
+    };
+
+    it('an active session inside both bounds keeps refreshing', async () => {
+      const a = await signIn();
+      await age(a.refreshToken, 20, 1);
+      expect((await refresh(a.refreshToken)).status).toBe(200);
+    });
+
+    it('a session idle past the platform idle timeout (7d) is refused with SESSION_EXPIRED and dropped', async () => {
+      const a = await signIn();
+      const b = await signIn();
+      await age(a.refreshToken, 8, 8);
+      const out = await refresh(a.refreshToken, { browser: true });
+      expect(out.status).toBe(401);
+      expect(out.body.code).toBe('SESSION_EXPIRED');
+      // The dead cookie is cleared, the slot is gone, and other devices are untouched.
+      expect(out.res.clearCookie).toHaveBeenCalled();
+      expect((await slots()).map((sl) => sl.id)).toEqual([sidOf(b.refreshToken)]);
+      expect((await refresh(b.refreshToken)).status).toBe(200);
+    });
+
+    it('a session past the maximum age (30d from sign-in) is refused however active it is', async () => {
+      const a = await signIn();
+      await age(a.refreshToken, 31, 0);
+      const out = await refresh(a.refreshToken);
+      expect(out.status).toBe(401);
+      expect(out.body.code).toBe('SESSION_EXPIRED');
+    });
+
+    it('renewal never resets the sign-in time, and caps the refresh token at the maximum age', async () => {
+      const a = await signIn();
+      await age(a.refreshToken, 29, 0);
+      const out = await refresh(a.refreshToken);
+      expect(out.status).toBe(200);
+      const rt = jwt.decode(out.body.data.refreshToken) as { exp: number };
+      expect(rt.exp * 1000 - Date.now()).toBeLessThanOrEqual(DAY + 5000);
+      expect(Date.now() - new Date((await slotOf(a.refreshToken)).authTime).getTime()).toBeGreaterThan(28 * DAY);
+    });
+
+    it('an org may TIGHTEN the policy (strictest down the org tree), enforced at the next refresh', async () => {
+      const { first } = await twoOrgs();
+      const a = await signIn();
+      await age(a.refreshToken, 3, 1);
+      expect((await refresh(a.refreshToken)).status).toBe(200);
+      await Organization.updateOne({ _id: first }, { $set: { sessionPolicy: { maxAgeDays: 2 } } });
+      await age(a.refreshToken, 3, 0);
+      const out = await refresh(a.refreshToken);
+      expect(out.status).toBe(401);
+      expect(out.body.code).toBe('SESSION_EXPIRED');
+    });
+
+    it('an ancestor\'s stricter idle timeout governs a team session', async () => {
+      const owner = new mongoose.Types.ObjectId();
+      const root = await Organization.create({ name: 'Root', owner, tier: 'team', sessionPolicy: { idleTimeoutDays: 1 } });
+      const team = await Organization.create({ name: 'Team', owner, tier: 'team', parentOrgId: String(root._id) });
+      await UserOrganization.create({ userId, organizationId: team._id, role: 'member', isActive: true, joinedAt: new Date(1000) });
+      const a = await signIn();
+      expect(orgOf(a.accessToken)).toBe(String(team._id));
+      await age(a.refreshToken, 2, 2);
+      expect((await refresh(a.refreshToken)).body.code).toBe('SESSION_EXPIRED');
+    });
+
+    it('switch-org into an org whose policy the session is too old for is refused — the session itself survives', async () => {
+      const { first, second } = await twoOrgs();
+      await Organization.updateOne({ _id: second }, { $set: { sessionPolicy: { maxAgeDays: 1 } } });
+      const a = await signIn();
+      expect(orgOf(a.accessToken)).toBe(first);
+      await age(a.refreshToken, 2, 0);
+      const out = await switchOrg(a.accessToken, second);
+      expect(out.status).toBe(403);
+      expect(out.body.code).toBe('SESSION_POLICY_REAUTH_REQUIRED');
+      expect(await slotOf(a.refreshToken)).toBeDefined();
+      expect((await refresh(a.refreshToken)).status).toBe(200);
+    });
+
+    it('machine slots are never idle-timed — only their own fixed end applies', async () => {
+      const m = await token.issueTokens(await loadUser(), undefined, { kind: 'machine', auth: token.signInAuth('pwd'), lifetimeSeconds: 90 * 86400 });
+      await age(m.refreshToken, 60, 20);
+      expect((await refresh(m.refreshToken)).status).toBe(200);
+      // Past its fixed end it is refused with the same code, and dropped.
+      await RefreshSession.updateOne({ userId, id: sidOf(m.refreshToken) }, { $set: { expiresAt: new Date(Date.now() - 1000) } });
+      const out = await refresh(m.refreshToken);
+      expect(out.status).toBe(401);
+      expect(out.body.code).toBe('SESSION_EXPIRED');
+      expect(await slots()).toHaveLength(0);
+    });
   });
 });

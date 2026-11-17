@@ -32,6 +32,7 @@
 import crypto from 'crypto';
 import { createLogger } from '@pipeline-builder/api-core';
 import { apiKeyService } from './api-key-service.js';
+import { deleteAllSlots } from './session/session-store.js';
 import { config } from '../config/index.js';
 import { assertNewPasswordAcceptable } from '../helpers/password-policy.js';
 import { publishUserRevocation } from '../helpers/session-revocation.js';
@@ -122,8 +123,8 @@ export async function resetPassword(rawToken: string, newPassword: string): Prom
 
   user.password = newPassword;
   user.tokenVersion = (user.tokenVersion ?? 0) + 1;
-  user.refreshSessions = [];
   await user.save();
+  await deleteAllSlots(user._id);
   const userId = user._id.toString();
   await PasswordResetToken.deleteMany({ userId: user._id });
   // The password a failed-password lockout protected no longer exists, and the

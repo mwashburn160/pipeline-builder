@@ -58,6 +58,10 @@ const mockUserOrgFindOne = jest.fn<(...a: any[]) => unknown>();
 const mockUserOrgFind = jest.fn<(...a: any[]) => unknown>();
 const emptyRoleChain = () => ({ session: () => ({ select: () => ({ lean: () => Promise.resolve([]) }) }) });
 
+// Refresh-session slots live behind session-store.ts (their own collection).
+const { sessionStoreFake } = await import('./helpers/session-store-fake.js');
+jest.unstable_mockModule('../src/services/session/session-store.js', () => sessionStoreFake());
+
 jest.unstable_mockModule('../src/models/index.js', () => ({
   // Linking stubs: user-profile/auth SUTs import these from the models barrel.
   PersonalAccessToken: {},
@@ -166,11 +170,12 @@ describe('resolveMembership — featureEntitlements resolve from the account ROO
     const decoded = jwt.decode(accessToken) as Record<string, unknown>;
 
     expect(decoded.features).toEqual(['ai_generation']);
-    // Flat org: the active doc IS the root — no LINEAGE WALK. Two org reads:
-    // the membership context, and the MFA policy, which is resolved at the
-    // same chokepoint and likewise costs no walk for a flat org.
+    // Flat org: the active doc IS the root — no LINEAGE WALK. Three org reads:
+    // the membership context, the MFA policy and the session-lifetime policy
+    // (helpers/session-policy.ts), both resolved at the same chokepoint and
+    // likewise costing no walk for a flat org.
     expect(mockResolveOrgLineage).not.toHaveBeenCalled();
-    expect(mockOrgFindById).toHaveBeenCalledTimes(2);
+    expect(mockOrgFindById).toHaveBeenCalledTimes(3);
     expect(decoded.rootOrganizationId).toBeUndefined();
     expect(decoded.parentOrganizationId).toBeUndefined();
   });

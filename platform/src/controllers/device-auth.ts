@@ -28,6 +28,7 @@ import { audit } from '../helpers/audit.js';
 import { clientInfoOf } from '../helpers/client-info.js';
 import { ensureAuthenticated, withController } from '../helpers/controller-helper.js';
 import { incCounter } from '../observability/metrics.js';
+import { SESSION_EXPIRED, SESSION_EXPIRED_ERROR } from '../services/auth-errors.js';
 import {
   decide,
   findByUserCode,
@@ -184,6 +185,11 @@ export const deviceToken = withController('Device authorization token', async (r
     expires_in: tokens.expiresIn,
     ...(stepUp ? { step_up_token: stepUp.token, step_up_expires_at: stepUp.expiresAt } : {}),
   });
+}, {
+  // The approving browser session reached the end of its life (it is older
+  // than the org's session policy allows): the device session it would open
+  // inherits that sign-in, so it is refused too.
+  [SESSION_EXPIRED]: SESSION_EXPIRED_ERROR,
 });
 
 /** The approval page's view of a pending request — never the device code. */

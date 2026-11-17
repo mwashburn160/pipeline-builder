@@ -46,6 +46,10 @@ let heldRolePermissions: string[] = [];
 const mockRoleFindOne = jest.fn<(...a: unknown[]) => unknown>();
 const chain = (rows: () => unknown[]) => () => ({ session: () => ({ select: () => ({ lean: () => Promise.resolve(rows()) }) }) });
 
+// Refresh-session slots live behind session-store.ts (their own collection).
+const { sessionStoreFake } = await import('./helpers/session-store-fake.js');
+jest.unstable_mockModule('../src/services/session/session-store.js', () => sessionStoreFake());
+
 jest.unstable_mockModule('../src/models/index.js', () => ({
   PersonalAccessToken: {},
   UserPreferences: {},

@@ -86,6 +86,10 @@ jest.unstable_mockModule('../src/services/session/refresh-sessions.js', () => ({
   findRefreshSession: jest.fn(async () => undefined),
 }));
 
+// Slots live in their own collection behind session-store.ts.
+const { sessionStoreFake } = await import('./helpers/session-store-fake.js');
+const store = sessionStoreFake();
+jest.unstable_mockModule('../src/services/session/session-store.js', () => store);
 jest.unstable_mockModule('../src/models/index.js', () => ({
   // Linking stub: the shared user cascade removes forgot-password tokens.
   PasswordResetToken: {},
@@ -149,9 +153,11 @@ describe('UserProfileService.revokeAllSessions — matches logout', () => {
     expect(mockUserFindOneAndUpdate).toHaveBeenCalledTimes(1);
     expect(mockUserFindOneAndUpdate).toHaveBeenCalledWith(
       { _id: 'user-1' },
-      { $inc: { tokenVersion: 1 }, $set: { refreshSessions: [] } },
+      { $inc: { tokenVersion: 1 } },
       expect.objectContaining({ returnDocument: 'after' }),
     );
+    // ...and every slot row goes with it.
+    expect(store.deleteAllSlots).toHaveBeenCalledWith('user-1');
     // Revocation is published with the version the $inc RETURNED (4 + 2), never
     // a re-read that a stale replica could answer with an older value.
     expect(mockPublishUser).toHaveBeenCalledTimes(1);
@@ -173,16 +179,18 @@ describe('UserProfileService.revokeAllSessions — matches logout', () => {
 
 describe('UserProfileService.revokeSession — one slot', () => {
   it('drops the slot AND publishes revoke:sid so its live access token dies everywhere', async () => {
-    mockUserFindOne.mockReturnValue({ lean: async () => ({ refreshSessions: [{ id: 'm1', kind: 'machine' }] }) });
+    store.reset();
+    store.rows.push({ userId: 'user-1', id: 'm1', kind: 'machine', tokenVersion: 0 });
 
     await expect(userProfileService.revokeSession('user-1', 'm1')).resolves.toEqual({ kind: 'machine' });
 
-    expect(mockUserUpdateOne).toHaveBeenCalledWith({ _id: 'user-1' }, { $pull: { refreshSessions: { id: 'm1' } } });
+    expect(store.deleteSlot).toHaveBeenCalledWith('user-1', 'm1');
+    expect(store.rows).toHaveLength(0);
     expect(mockPublishSlot).toHaveBeenCalledWith('m1');
   });
 
   it('publishes nothing for a slot the user does not have', async () => {
-    mockUserFindOne.mockReturnValue({ lean: async () => null });
+    store.reset();
     await expect(userProfileService.revokeSession('user-1', 'nope')).resolves.toBeNull();
     expect(mockPublishSlot).not.toHaveBeenCalled();
   });

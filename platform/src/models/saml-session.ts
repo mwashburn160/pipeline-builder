@@ -5,7 +5,7 @@
  * SAML Single Logout bookkeeping (controllers/saml-slo.ts).
  *
  * One row per platform session that a SAML sign-in opened: it ties the session
- * slot (`User.refreshSessions[].id`, the token's `sid`) to the IdP's view of the
+ * slot (`RefreshSession.id`, the token's `sid`) to the IdP's view of the
  * same sign-in — the `NameID` it asserted and the `SessionIndex` of the
  * AuthnStatement. SLO needs both directions:
  *

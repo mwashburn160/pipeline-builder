@@ -77,7 +77,7 @@ suite('MFA reset + admin-actions policy (real Mongo replica set)', () => {
   }
 
   const decode = (jwt: string) => JSON.parse(Buffer.from(jwt.split('.')[1], 'base64url').toString());
-  const load = (id: string) => m.User.findById(id).select('+tokenVersion +claimsVersion +isSuperAdmin +refreshSessions');
+  const load = (id: string) => m.User.findById(id).select('+tokenVersion +claimsVersion +isSuperAdmin');
 
   beforeEach(async () => {
     // In PARALLEL: eight independent collections, so eight sequential round trips to the
@@ -136,7 +136,7 @@ suite('MFA reset + admin-actions policy (real Mongo replica set)', () => {
 
       const after = await load(member);
       expect(after.tokenVersion).toBe(before.tokenVersion + 1);
-      expect(after.refreshSessions).toHaveLength(0);
+      expect(await m.RefreshSession.countDocuments({ userId: member })).toBe(0);
       expect(after.mfaResetGraceUntil.getTime()).toBeGreaterThan(Date.now() + 47 * 3600_000);
       expect((await m.MfaResetRequest.findById(req.id).lean()).result.passkeysRemoved).toBe(1);
     });

@@ -44,6 +44,7 @@ import {
   ORG_SNAPSHOT_FAILED,
 } from './org-errors.js';
 import { deleteServiceAccountsForOrg, revokeServiceAccountKeysForOrg } from './service-account-cascade.js';
+import { deleteAllSlots } from './session/session-store.js';
 import { config } from '../config/index.js';
 import { toOrgId } from '../helpers/org-id.js';
 import { publishAccessKeyRevocation, publishUsersRevocation } from '../helpers/session-revocation.js';
@@ -607,8 +608,9 @@ export async function softDeleteOrg(
     if (bumpedMemberIds.length > 0) {
       await User.updateMany(
         { _id: { $in: bumpedMemberIds } },
-        { $inc: { tokenVersion: 1 }, $set: { refreshSessions: [] } },
+        { $inc: { tokenVersion: 1 } },
       ).session(session);
+      await deleteAllSlots(bumpedMemberIds, session);
 
       // Revoke every member's PAT scoped to THIS org. A PAT's authority is
       // decoupled from tokenVersion (a session logout must not kill a durable CI

@@ -19,6 +19,10 @@ import { stubModule } from '@pipeline-builder/api-core/testing';
 import { mockConfig } from './helpers/config-mock.js';
 import { apiCoreMock } from './helpers/mock-api-core.js';
 
+// Slots live in their own collection behind session-store.ts.
+const { sessionStoreFake } = await import('./helpers/session-store-fake.js');
+const store = sessionStoreFake();
+jest.unstable_mockModule('../src/services/session/session-store.js', () => store);
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   createSafeClient: () => ({ delete: jest.fn<AnyFn>() }),
   getServiceAuthHeader: () => 'Bearer test-service-token',
@@ -162,7 +166,9 @@ describe('softDeleteOrg', () => {
     const [uFilter, uUpdate] = mockUserUpdateMany.mock.calls[0] as [any, any];
     expect(uFilter).toEqual({ _id: { $in: ['u1', 'u2'] } });
     expect(uUpdate.$inc).toEqual({ tokenVersion: 1 });
-    expect(uUpdate.$set).toEqual({ refreshSessions: [] });
+    expect(uUpdate.$set).toBeUndefined();
+    // ...and every one of their refresh-session slots goes in the same transaction.
+    expect(store.deleteAllSlots).toHaveBeenCalledWith(['u1', 'u2'], expect.anything());
 
     expect(result.membersInvalidated).toBe(2);
     expect(result.snapshotId).toBe('snap-1');

@@ -2,20 +2,21 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { clientVersionOf, createLogger, ErrorCode, hasValidIdentityClaims, isOpaqueApiKey, isServiceTokenDenied, isSystemAdmin, recordAuthzDenial, resolveUserPermissions, runDeferredQuotaCheck, sendError, tagRouteGate } from '@pipeline-builder/api-core';
-import type { Request, Response, NextFunction } from 'express';
 import { isAdminOrgRole, type OrgRole } from '@pipeline-builder/api-core/wire-vocabulary';
+import type { Request, Response, NextFunction } from 'express';
+import { denyReadOnlyImpersonationWrite, isWriteBlockedByImpersonation } from './require-write-access.js';
 import { accessTokenVersion } from '../helpers/access-version.js';
 import { bootstrapSessionMayReach } from '../helpers/bootstrap-admin.js';
 import { isImpersonationOperatorStale, type ImpersonationOperatorStamp } from '../helpers/impersonation-operator.js';
 import { resolveOrgAuthority } from '../helpers/org-authority.js';
 import { toOrgId } from '../helpers/org-id.js';
 import { CLIENT_TYPE_HEADER, clientType, readRefreshCookie } from '../helpers/session-cookie.js';
-import type { RefreshSession } from '../models/index.js';
 import { User, Organization, UserOrganization, ImpersonationRequest, PersonalAccessToken } from '../models/index.js';
 import { incCounter } from '../observability/metrics.js';
+import { SESSION_EXPIRED_ERROR } from '../services/auth-errors.js';
+import { findSlot, slotIsLive, type RefreshSession } from '../services/session/session-store.js';
 import type { AccessTokenPayload } from '../types/index.js';
 import { verifyAccessToken, verifyRefreshToken } from '../utils/token.js';
-import { denyReadOnlyImpersonationWrite, isWriteBlockedByImpersonation } from './require-write-access.js';
 
 const logger = createLogger('auth-middleware');
 
@@ -374,9 +375,7 @@ async function userSessionRejection(decoded: AccessTokenPayload): Promise<Sessio
   // still exist: signing one device out, stopping one machine credential, or a
   // slot killed by refresh-token reuse must end ITS access token now, not at
   // expiry (other services read `revoke:sid:<sid>` for the same effect).
-  const user = await User.findById(decoded.sub)
-    .select(decoded.sid ? '+tokenVersion +isSuperAdmin +refreshSessions' : '+tokenVersion +isSuperAdmin')
-    .lean();
+  const user = await User.findById(decoded.sub).select('+tokenVersion +isSuperAdmin').lean();
 
   if (!user) return SESSION_INVALID;
 
@@ -434,8 +433,10 @@ async function userSessionRejection(decoded: AccessTokenPayload): Promise<Sessio
   // (tokenVersion) or claims change (claimsVersion) — the latter is cured by a
   // refresh, which re-mints current claims.
   if (decoded.tokenVersion !== accessTokenVersion(user)) return SESSION_INVALID;
-  // Its slot was revoked (sign-out of that device / machine credential).
-  if (decoded.sid && !(user.refreshSessions ?? []).some((s) => s.id === decoded.sid)) return SESSION_INVALID;
+  // Its slot was revoked (sign-out of that device / machine credential, an
+  // eviction, reuse) or predates the user's last hard revocation. One indexed
+  // read of the `refresh_sessions` row — the user document carries no slots.
+  if (decoded.sid && !(await slotIsLive(decoded.sub, decoded.sid, user.tokenVersion))) return SESSION_INVALID;
   return undefined;
 }
 
@@ -544,7 +545,9 @@ export function requireClientType(req: Request, res: Response, next: NextFunctio
  * actually accepted is passed on as `res.locals.presentedRefreshToken`.
  *
  * Checks the signature, that the user's tokenVersion is unchanged, and that the
- * token's refresh-session slot (`sid`) still exists. It does NOT compare the
+ * token's refresh-session slot (`sid`) still exists at that tokenVersion. An
+ * EXPIRED refresh token answers 401 `SESSION_EXPIRED` (the session's lifetime
+ * rules are applied by the handler — `renewSessionTokens`). It does NOT compare the
  * slot's hash: a live slot holding a different hash means this token was already
  * rotated away, and the refresh handler's atomic rotation both detects that and
  * revokes the slot. The slot id is passed on as `res.locals.refreshSessionId`.
@@ -571,7 +574,13 @@ export async function requireRefreshSession(
   let decoded: ReturnType<typeof verifyRefreshToken>;
   try {
     decoded = verifyRefreshToken(refreshToken);
-  } catch {
+  } catch (err) {
+    // A refresh token past its `exp` is a session that ran its course (the
+    // refresh TTL, capped at the session's maximum age) — say so, so the
+    // client asks for a sign-in instead of reporting a bad token.
+    if (err instanceof Error && err.name === 'TokenExpiredError') {
+      return sendError(res, SESSION_EXPIRED_ERROR.status, SESSION_EXPIRED_ERROR.message, SESSION_EXPIRED_ERROR.code);
+    }
     // Token verification failed - return unauthorized without exposing error details
     return sendError(res, 401, 'Token invalid');
   }
@@ -580,10 +589,12 @@ export async function requireRefreshSession(
   }
 
   try {
-    const user = await User.findById(decoded.sub).select('+refreshSessions +tokenVersion +isSuperAdmin');
-    const slot = user?.refreshSessions?.find((s) => s.id === decoded.sid);
+    const [user, slot] = await Promise.all([
+      User.findById(decoded.sub).select('+tokenVersion +isSuperAdmin'),
+      findSlot(decoded.sub, decoded.sid),
+    ]);
 
-    if (!user || user.tokenVersion !== decoded.tokenVersion || !slot) {
+    if (!user || user.tokenVersion !== decoded.tokenVersion || !slot || slot.tokenVersion !== user.tokenVersion) {
       return sendError(res, 401, 'Session invalid');
     }
 

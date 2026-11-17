@@ -35,6 +35,10 @@ jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
 }));
 jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (v: unknown) => v }));
 jest.unstable_mockModule('../src/observability/metrics.js', () => ({ incCounter: jest.fn() }));
+// Slots live in their own collection behind session-store.ts.
+const { sessionStoreFake } = await import('./helpers/session-store-fake.js');
+const store = sessionStoreFake();
+jest.unstable_mockModule('../src/services/session/session-store.js', () => store);
 jest.unstable_mockModule('../src/models/index.js', () => ({
   User: { findById: (...a: unknown[]) => mockUserFindById(...a) },
   Organization: { findById: (id: string) => queryChain(orgs.get(String(id)) ?? null) },
@@ -121,9 +125,10 @@ describe('refresh path keeps an inherited-authority session in its team', () => 
         email: 'u@x.com',
         isEmailVerified: true,
         lastActiveOrgId,
-        refreshSessions: [{ id: 's1', kind: 'interactive', amr: ['pwd'], aal: 1, authTime: new Date(0) }],
       }),
     });
+    store.reset();
+    store.rows.push({ userId: 'u', id: 's1', kind: 'interactive', tokenVersion: 1, amr: ['pwd'], aal: 1, authTime: new Date(0) });
     const req: any = { headers: { 'x-pb-client': 'cli' }, body: { refreshToken: 'rt' } };
     const res: any = { locals: {}, status: jest.fn(() => res), json: jest.fn(() => res) };
     return { req, res };

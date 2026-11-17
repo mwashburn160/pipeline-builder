@@ -35,6 +35,10 @@ const mockUserUpdateMany = jest.fn<AnyFn>();
 const mockUserFindById = jest.fn<AnyFn>();
 const mockUserFindOne = jest.fn<AnyFn>();
 
+// Slots live in their own collection behind session-store.ts.
+const { sessionStoreFake } = await import('./helpers/session-store-fake.js');
+const store = sessionStoreFake();
+jest.unstable_mockModule('../src/services/session/session-store.js', () => store);
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock());
 
 jest.unstable_mockModule('mongoose', () => ({
@@ -953,7 +957,7 @@ describe('grantPlatformAdmin / revokePlatformAdmin (single-source: Super Admin R
     expect(mockUserUpdateOne).toHaveBeenCalledWith({ _id: 'u1' }, { $set: { isSuperAdmin: true } }, expect.anything());
     expect(mockUserUpdateOne).toHaveBeenCalledWith({ _id: 'u1' }, { $inc: { claimsVersion: 1 } }, expect.anything());
     // a real change clears the refresh-session slots
-    expect(mockUserUpdateOne).toHaveBeenCalledWith({ _id: 'u1' }, { $set: { refreshSessions: [] } }, expect.anything());
+    expect(store.deleteAllSlots).toHaveBeenCalledWith('u1', expect.anything());
     // `roleGranted` says whether the system-org Super Admin MEMBERSHIP was
     // created, which is distinct from the flag flipping — the self-heal case
     // (flag already set, Role missing) used to write that membership with no
@@ -975,7 +979,7 @@ describe('grantPlatformAdmin / revokePlatformAdmin (single-source: Super Admin R
 
     expect(result).toEqual({ changed: false, roleGranted: expect.any(Boolean) });
     // no flip (current already true) → no tokenVersion bump, no refresh drop
-    expect(mockUserUpdateOne).not.toHaveBeenCalledWith({ _id: 'u1' }, { $set: { refreshSessions: [] } }, expect.anything());
+    expect(store.deleteAllSlots).not.toHaveBeenCalled();
     expect(mockUserUpdateOne).not.toHaveBeenCalledWith({ _id: 'u1' }, { $inc: { claimsVersion: 1 } }, expect.anything());
   });
 
@@ -993,7 +997,7 @@ describe('grantPlatformAdmin / revokePlatformAdmin (single-source: Super Admin R
 
     expect(mockGmDeleteOne).toHaveBeenCalledWith({ userId: 'u1', roleId: 'sa-role' }, expect.objectContaining({ session: expect.anything() }));
     expect(mockUserUpdateOne).toHaveBeenCalledWith({ _id: 'u1' }, { $set: { isSuperAdmin: false } }, expect.anything());
-    expect(mockUserUpdateOne).toHaveBeenCalledWith({ _id: 'u1' }, { $set: { refreshSessions: [] } }, expect.anything());
+    expect(store.deleteAllSlots).toHaveBeenCalledWith('u1', expect.anything());
     expect(result).toEqual({ changed: true });
   });
 

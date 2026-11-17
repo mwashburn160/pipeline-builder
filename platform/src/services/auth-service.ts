@@ -3,11 +3,12 @@
 
 import crypto from 'crypto';
 import { createLogger, PLAN_TIERS, SYSTEM_ORG_ID, SYSTEM_ORG_SLUG, type PlanTier } from '@pipeline-builder/api-core';
+import { isAdminOrgRole } from '@pipeline-builder/api-core/wire-vocabulary';
 import type { ClientSession } from 'mongoose';
 import { DUPLICATE_CREDENTIALS, RESERVED_ORG_NAME, ONBOARDING_USER_NOT_FOUND, ONBOARDING_NO_ORG, ACCOUNT_EMAIL_UNVERIFIED, OAUTH_LINK_REQUIRES_SIGN_IN, SSO_SUPERADMIN_REFUSED } from './auth-errors.js';
 import { seedDefaultRoles } from './roles-service.js';
+import { deleteAllSlots, deleteSlot } from './session/session-store.js';
 import { config } from '../config/index.js';
-import { isAdminOrgRole } from '@pipeline-builder/api-core/wire-vocabulary';
 import { accessTokenVersion } from '../helpers/access-version.js';
 import { isBootstrapSuperAdminEmail } from '../helpers/bootstrap-admin.js';
 import { type OrgAuthority, resolveOrgAuthority } from '../helpers/org-authority.js';
@@ -327,7 +328,7 @@ class AuthService {
    * (the slot is presumed stolen).
    */
   async revokeRefreshSession(userId: string, sessionId: string): Promise<void> {
-    await User.updateOne({ _id: userId }, { $pull: { refreshSessions: { id: sessionId } } });
+    await deleteSlot(userId, sessionId);
     // The slot's live access token dies with it: platform's requireAuth checks
     // the slot; every other service reads `revoke:sid:<sid>`.
     await publishSessionSlotRevocation(sessionId);
@@ -335,14 +336,16 @@ class AuthService {
 
   /**
    * Sign out everywhere: bump tokenVersion (every outstanding access and refresh
-   * token is rejected) and clear every refresh-session slot.
+   * token is rejected, and every slot opened at the old version is dead) and
+   * drop every refresh-session slot.
    */
   async invalidateAllSessions(userId: string): Promise<void> {
     const updated = await User.findOneAndUpdate(
       { _id: userId },
-      { $inc: { tokenVersion: 1 }, $set: { refreshSessions: [] } },
+      { $inc: { tokenVersion: 1 } },
       { returnDocument: 'after', projection: { tokenVersion: 1, claimsVersion: 1 } },
     ).lean();
+    await deleteAllSlots(userId);
     // Post-commit: publish the version THIS bump produced so the stateless
     // services reject outstanding tokens immediately (best-effort).
     if (updated) await publishUserRevocation(userId, accessTokenVersion(updated));

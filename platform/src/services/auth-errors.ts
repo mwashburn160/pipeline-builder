@@ -80,6 +80,22 @@ export const OAUTH_INVALID_ID_TOKEN = 'OAUTH_INVALID_ID_TOKEN';
  *  a narrow machine token trading itself for a broader one. Mapped to 403. */
 export const TOKEN_SCOPE_ESCALATION = 'TOKEN_SCOPE_ESCALATION';
 
+/** The session reached the end of its life — an interactive session past its
+ *  maximum age (from sign-in) or idle timeout (since last use), under the
+ *  platform ceiling or a stricter org policy (helpers/session-policy.ts); or a
+ *  machine credential past its fixed end. Nothing renews it: the client signs
+ *  in again. → 401 with code `SESSION_EXPIRED`. */
+export const SESSION_EXPIRED = 'SESSION_EXPIRED';
+/** The one wording every renewal / switch path answers {@link SESSION_EXPIRED} with. */
+export const SESSION_EXPIRED_ERROR = {
+  status: 401,
+  message: 'Your session has expired — please sign in again',
+  code: SESSION_EXPIRED,
+} as const;
+/** Switch-org into an org whose session policy the (still valid) session is
+ *  too old or too idle for: the person signs in again to enter it. → 403 */
+export const SESSION_POLICY_REAUTH_REQUIRED = 'SESSION_POLICY_REAUTH_REQUIRED';
+
 /** A credential was derived from a token carrying no `amr`/`aal`/`auth_time`
  *  claims, so its assurance can't be inherited. Fail closed → 401. */
 export const SESSION_AUTH_MISSING = 'SESSION_AUTH_MISSING';

@@ -30,6 +30,10 @@ const mockFindByIdAndDelete = jest.fn<() => { select: () => Promise<unknown> }>(
 const mockAssertNotLast = jest.fn<(...a: unknown[]) => Promise<void>>();
 const mockSamlDeleteFilter = jest.fn();
 
+// Slots live in their own collection behind session-store.ts.
+const { sessionStoreFake } = await import('./helpers/session-store-fake.js');
+const store = sessionStoreFake();
+jest.unstable_mockModule('../src/services/session/session-store.js', () => store);
 jest.unstable_mockModule('../src/models/index.js', () => ({
   User: { findByIdAndDelete: (...a: unknown[]) => { calls.push('User'); return mockFindByIdAndDelete(...(a as [])); } },
   UserOrganization: { find: () => chain(() => ownedOrgIds.map((organizationId) => ({ organizationId }))), deleteMany: deleteMany('UserOrganization') },
@@ -76,6 +80,8 @@ describe('deleteUserCascade', () => {
     ]));
     // SAML SLO rows key the person by string id.
     expect(mockSamlDeleteFilter).toHaveBeenCalledWith({ userId: userId });
+    // Every refresh-session slot (its own collection), inside the same transaction.
+    expect(store.deleteAllSlots).toHaveBeenCalledWith(expect.any(Types.ObjectId), session);
     expect(mockAssertNotLast).toHaveBeenCalledWith(session, expect.any(Types.ObjectId), undefined, []);
   });
 

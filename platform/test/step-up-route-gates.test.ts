@@ -74,6 +74,7 @@ jest.unstable_mockModule('../src/controllers/org-impersonation-policy.js', () =>
 jest.unstable_mockModule('../src/controllers/org-mfa-policy.js', () => handlers(['getMfaPolicy', 'updateMfaPolicy']));
 jest.unstable_mockModule('../src/controllers/org-security-policy.js', () => handlers([
   'getPasswordPolicy', 'updatePasswordPolicy', 'getAuthenticatorPolicy', 'updateAuthenticatorPolicy',
+  'getSessionPolicy', 'updateSessionPolicy',
 ]));
 jest.unstable_mockModule('../src/controllers/mfa-reset.js', () => handlers(['listMfaResets', 'requestMfaReset', 'approveMfaReset', 'denyMfaReset']));
 jest.unstable_mockModule('../src/middleware/rate-limiter.js', () => ({ createLimiter: () => tagged('limiter'), userOrIpKey: () => 'k' }));

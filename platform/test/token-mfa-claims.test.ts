@@ -28,6 +28,10 @@ let policy: Record<string, unknown> = {};
 jest.unstable_mockModule('../src/helpers/mfa-policy.js', () => ({ resolveEffectiveMfaPolicy: async () => policy }));
 jest.unstable_mockModule('../src/helpers/org-id.js', () => ({ toOrgId: (id: string) => id }));
 
+// Refresh-session slots live behind session-store.ts (their own collection).
+const { sessionStoreFake } = await import('./helpers/session-store-fake.js');
+jest.unstable_mockModule('../src/services/session/session-store.js', () => sessionStoreFake());
+
 jest.unstable_mockModule('../src/models/index.js', () => ({
   PersonalAccessToken: {},
   UserPreferences: {},

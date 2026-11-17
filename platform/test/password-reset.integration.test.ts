@@ -91,8 +91,18 @@ suite('password reset (real Mongo)', () => {
 
   it('resets once, and ends every session and access key', async () => {
     const { key } = await apiKeyService.create(userId, { name: 'laptop', expiresInSeconds: 86400, client: {} }, AUTH);
-    await m.User.updateOne({ _id: userId }, {
-      $set: { refreshSessions: [{ id: 's1', kind: 'interactive', hash: 'h', createdAt: new Date(), lastUsedAt: new Date(), authTime: new Date(), amr: ['pwd'] }] },
+    await m.RefreshSession.create({
+      userId,
+      id: 's1',
+      kind: 'interactive',
+      tokenVersion: 0,
+      hash: 'h',
+      createdAt: new Date(),
+      lastUsedAt: new Date(),
+      authTime: new Date(),
+      amr: ['pwd'],
+      aal: 1,
+      purgeAt: new Date(Date.now() + 86400_000),
     });
     const before = await m.User.findById(userId).select('+tokenVersion').lean();
 
@@ -100,9 +110,9 @@ suite('password reset (real Mongo)', () => {
     const result = await svc.resetPassword(rawToken, 'New-Passw0rd!secret');
     expect(result).toMatchObject({ userId, accessKeysRevoked: 1 });
 
-    const after = await m.User.findById(userId).select('+tokenVersion +password +refreshSessions');
+    const after = await m.User.findById(userId).select('+tokenVersion +password');
     expect(after.tokenVersion).toBe((before.tokenVersion ?? 0) + 1);
-    expect(after.refreshSessions).toHaveLength(0);
+    expect(await m.RefreshSession.countDocuments({ userId })).toBe(0);
     expect(await after.comparePassword('New-Passw0rd!secret')).toBe(true);
     expect((await apiKeyService.exchange(key)).ok).toBe(false);
 

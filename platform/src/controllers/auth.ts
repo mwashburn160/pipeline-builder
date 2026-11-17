@@ -15,7 +15,7 @@ import { completeInteractiveSignIn, openMfaChallengeIfOwed, sendMfaChallenge } f
 import { rejectIfSsoEnforced } from '../helpers/sso-enforcement.js';
 import { SESSION_SLOT_REQUIRED, callerHasSessionSlot } from '../helpers/token-permissions.js';
 import { incCounter } from '../observability/metrics.js';
-import { DUPLICATE_CREDENTIALS, MFA_REQUIRED_FOR_ORG, RESERVED_ORG_NAME, ONBOARDING_USER_NOT_FOUND, ONBOARDING_NO_ORG, SESSION_AUTH_MISSING } from '../services/auth-errors.js';
+import { DUPLICATE_CREDENTIALS, MFA_REQUIRED_FOR_ORG, RESERVED_ORG_NAME, ONBOARDING_USER_NOT_FOUND, ONBOARDING_NO_ORG, SESSION_AUTH_MISSING, SESSION_EXPIRED, SESSION_EXPIRED_ERROR, SESSION_POLICY_REAUTH_REQUIRED } from '../services/auth-errors.js';
 import { provisionBillingSubscription } from '../services/billing-provision.js';
 import { auditService, authService } from '../services/index.js';
 import { INVITATION_ACCEPT_ERRORS } from '../services/invitation-errors.js';
@@ -427,12 +427,28 @@ export const refresh = withController('Refresh', async (req, res) => {
   // The slot's own `activeOrgId` wins inside `renewSessionTokens`; this is the
   // fallback for a slot that predates it (`requireRefreshSession` resolved it
   // from the slot, else lastActiveOrgId).
-  const tokens = user && await renewSessionTokens(
-    user,
-    req.user.organizationId || user.lastActiveOrgId?.toString(),
-    { sessionId, presentedToken, kind },
-    { client: clientInfoOf(req) },
-  );
+  let tokens;
+  try {
+    tokens = user && await renewSessionTokens(
+      user,
+      req.user.organizationId || user.lastActiveOrgId?.toString(),
+      { sessionId, presentedToken, kind },
+      { client: clientInfoOf(req) },
+    );
+  } catch (error) {
+    if (!(error instanceof Error) || error.message !== SESSION_EXPIRED) throw error;
+    // The session ran its course (maximum age / idle timeout, or a machine
+    // credential's fixed end). `renewSessionTokens` already dropped the slot;
+    // the cookie that named it is dead too. Not reuse — no theft to record.
+    clearRefreshCookie(res);
+    logger.info('Refresh refused: session expired', { userId: req.user.sub, sessionId, kind });
+    try {
+      incCounter('platform_session_expired_total', { kind });
+    } catch {
+      // No registry — nothing to count into.
+    }
+    return sendError(res, SESSION_EXPIRED_ERROR.status, SESSION_EXPIRED_ERROR.message, SESSION_EXPIRED_ERROR.code);
+  }
   if (!tokens) {
     // A RACE, not reuse: the token was rotated away moments ago by a concurrent
     // refresh of the same session (two tabs, a CLI retry). Hand this caller the
@@ -560,6 +576,16 @@ export const switchOrg = withController('Switch org', async (req, res) => {
   // widened) — `switchSessionOrg` reads them from the slot.
   const switchedTo = await switchSessionOrg(user, organizationId, sessionId, { client: clientInfoOf(req) });
   if (switchedTo === 'session-invalid') return sendError(res, 401, 'Session invalid');
+  // The session is valid where it is, but older (or idler) than the
+  // destination's session policy allows: entering it needs a fresh sign-in.
+  // 403, not 401 — refreshing cannot cure it, so the client must not try.
+  if (switchedTo === 'session-expired') {
+    return forbid(
+      req, res, 'org-session-policy',
+      'Your session is older than this organization\'s session policy allows — sign in again to switch into it',
+      SESSION_POLICY_REAUTH_REQUIRED,
+    );
+  }
   if (switchedTo === 'org-unavailable') return forbid(req, res, 'org-membership', 'You are not an active member of this organization');
   // Only now, with every gate passed and the session switched, does the
   // destination become where the next sign-in lands. Written earlier, a REFUSED
@@ -588,6 +614,8 @@ export const switchOrg = withController('Switch org', async (req, res) => {
   // A caller whose token predates the identity claims can't have its assurance
   // inherited — fail closed and make it re-authenticate.
   [SESSION_AUTH_MISSING]: { status: 401, message: 'Session cannot be re-issued — please sign in again' },
+  // A machine slot past its fixed end.
+  [SESSION_EXPIRED]: SESSION_EXPIRED_ERROR,
   // Switching INTO an org that requires MFA is refused for an aal-1 session; the
   // person stays where they were and enrols first.
   ...MFA_POLICY_ERROR_MAP,

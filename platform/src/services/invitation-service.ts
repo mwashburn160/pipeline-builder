@@ -196,8 +196,11 @@ class InvitationService {
     if (!invitation) throw new Error(INV_NOT_FOUND);
     if (invitation.status !== 'pending') throw new Error(INVITATION_STATUS_ERROR[invitation.status]);
     if (invitation.isExpired()) {
-      invitation.status = 'expired';
-      await invitation.save({ session });
+      // Recorded OUTSIDE the accept transaction: the INV_EXPIRED throw below
+      // aborts that transaction, so a write inside it was rolled back and the
+      // row stayed 'pending' forever. Conditional on still-pending so it never
+      // clobbers a concurrent accept/revoke.
+      await Invitation.updateOne({ _id: invitation._id, status: 'pending' }, { $set: { status: 'expired' } });
       throw new Error(INV_EXPIRED);
     }
     return invitation;

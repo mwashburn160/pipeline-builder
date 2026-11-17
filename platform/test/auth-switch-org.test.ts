@@ -26,7 +26,8 @@ const mockInvalidateAllSessions = jest.fn<(...a: unknown[]) => Promise<void>>();
 const mockFindForTokenIssue = jest.fn<(...a: unknown[]) => Promise<unknown>>();
 
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
-  sendError: (res: any, status: number, msg: string) => res.status(status).json({ success: false, message: msg }),
+  sendError: (res: any, status: number, msg: string, code?: string) =>
+    res.status(status).json({ success: false, message: msg, ...(code ? { code } : {}) }),
   sendSuccess: (res: any, status: number, data: unknown) => res.status(status).json({ success: true, statusCode: status, data }),
   createSafeClient: () => ({ post: jest.fn(), delete: jest.fn() }),
   isSystemOrgId: () => false,
@@ -276,6 +277,16 @@ describe('switchOrg — session slot', () => {
     expect(mockAudit).not.toHaveBeenCalled();
   });
 
+  it('403s SESSION_POLICY_REAUTH_REQUIRED when the session is too old for the destination\'s policy — nothing recorded', async () => {
+    mockSwitchActiveOrg.mockResolvedValue({ user: { _id: 'u1' }, authority: MEMBER });
+    mockSwitchSessionOrg.mockResolvedValue('session-expired');
+    const res = makeRes();
+    await (switchOrg as any)({ user: { sub: 'u1', sid: 's1' }, headers: {}, body: { organizationId: 'org-to' } }, res);
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ code: 'SESSION_POLICY_REAUTH_REQUIRED' }));
+    expect(mockSetLastActiveOrg).not.toHaveBeenCalled();
+  });
+
   it('403s when the org stops resolving between the gate and the mint — nothing recorded', async () => {
     mockSwitchActiveOrg.mockResolvedValue({ user: { _id: 'u1' }, authority: MEMBER });
     mockSwitchSessionOrg.mockResolvedValue('org-unavailable');
@@ -319,6 +330,36 @@ describe('refresh — reuse revokes one slot', () => {
     expect(mockInvalidateAllSessions).not.toHaveBeenCalled();
     // Presumed theft is counted, so a spike pages rather than hiding in logs.
     expect(mockIncCounter).toHaveBeenCalledWith('platform_refresh_reuse_total');
+  });
+});
+
+describe('refresh — an expired session', () => {
+  it('answers 401 SESSION_EXPIRED, clears the cookie, and records no reuse', async () => {
+    mockFindForTokenIssue.mockResolvedValue({ _id: 'u1' });
+    mockRenewSessionTokens.mockRejectedValue(new Error('SESSION_EXPIRED'));
+    const res = makeRes();
+    res.locals.refreshSessionId = 's1';
+    res.locals.presentedRefreshToken = 'rt';
+    res.locals.refreshSessionKind = 'interactive';
+    await (refresh as any)({ user: { sub: 'u1' }, headers: {}, body: {} }, res);
+
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ code: 'SESSION_EXPIRED' }));
+    expect(res.clearCookie).toHaveBeenCalled();
+    // `renewSessionTokens` already dropped the slot; this is no theft.
+    expect(mockRevokeRefreshSession).not.toHaveBeenCalled();
+    expect(mockIncCounter).toHaveBeenCalledWith('platform_session_expired_total', { kind: 'interactive' });
+    expect(mockIncCounter).not.toHaveBeenCalledWith('platform_refresh_reuse_total');
+  });
+
+  it('lets any other renewal error through to the controller\'s error handling', async () => {
+    mockFindForTokenIssue.mockResolvedValue({ _id: 'u1' });
+    mockRenewSessionTokens.mockRejectedValue(new Error('boom'));
+    const res = makeRes();
+    res.locals.refreshSessionId = 's1';
+    res.locals.presentedRefreshToken = 'rt';
+    await (refresh as any)({ user: { sub: 'u1' }, headers: {}, body: {} }, res);
+    expect(res.status).toHaveBeenCalledWith(500);
   });
 });
 

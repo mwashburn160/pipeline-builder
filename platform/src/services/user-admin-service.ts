@@ -7,6 +7,7 @@ import { Types } from 'mongoose';
 import type { RoleAssignmentActor } from './role-authority.js';
 import { RL_ROLE_NOT_FOUND } from './roles-errors.js';
 import { assertActorMayAssignBuiltinAdmin, assignBuiltinAdminRole, ensureBaselineRole, recomputeUserOrgRole, removeBuiltinAdminRole } from './roles-service.js';
+import { deleteAllSlots } from './session/session-store.js';
 import { deleteUserCascade } from './user-cascade.js';
 import { anonymizeUserEcosystemContent } from './user-ecosystem-privacy.js';
 import { UA_USER_NOT_FOUND, UA_USERNAME_TAKEN, UA_EMAIL_TAKEN, UA_ORG_NOT_FOUND, UA_CANNOT_CHANGE_OWNER, UA_SEAT_LIMIT, UA_ROLES_NEED_ORG } from './user-errors.js';
@@ -395,7 +396,6 @@ class UserAdminService {
         user.password = body.password;
         // HARD revocation: an admin password reset ends every session.
         user.tokenVersion = (user.tokenVersion || 0) + 1;
-        user.refreshSessions = [];
         changes.push('password');
       }
 
@@ -438,6 +438,8 @@ class UserAdminService {
       }
 
       await user.save({ session });
+      // ...and every refresh-session slot goes with the bumped tokenVersion.
+      if (changes.includes('password')) await deleteAllSlots(user._id, session);
       return user;
     });
 

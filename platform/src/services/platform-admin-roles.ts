@@ -16,6 +16,7 @@ import type { ClientSession, Types } from 'mongoose';
 import type { UserId } from './role-authority.js';
 import { RL_SUPERADMIN_ROLE_MISSING } from './roles-errors.js';
 import { recomputeUserOrgRole } from './roles-service.js';
+import { deleteAllSlots } from './session/session-store.js';
 import { publishUserRevocation } from '../helpers/session-revocation.js';
 import { Role, RoleAssignment, User } from '../models/index.js';
 import { withMongoTransaction } from '../utils/mongo-tx.js';
@@ -64,9 +65,7 @@ export async function grantPlatformAdmin(userId: UserId): Promise<{ changed: boo
     // recompute reads the Super Admin Role assignment, sets isSuperAdmin, and
     // bumps tokenVersion only on a genuine flip.
     await recomputeUserOrgRole(userId, SYSTEM_ORG_ID, session);
-    if (!wasSuperadmin) {
-      await User.updateOne({ _id: userId }, { $set: { refreshSessions: [] } }, { session });
-    }
+    if (!wasSuperadmin) await deleteAllSlots(userId, session);
     return { changed: !wasSuperadmin, roleGranted };
   });
   // Post-commit: on a genuine flip, recompute bumped tokenVersion — publish it.
@@ -89,9 +88,7 @@ export async function revokePlatformAdmin(userId: UserId): Promise<{ changed: bo
 
     await RoleAssignment.deleteOne({ userId, roleId: role._id }, { session });
     await recomputeUserOrgRole(userId, SYSTEM_ORG_ID, session);
-    if (wasSuperadmin) {
-      await User.updateOne({ _id: userId }, { $set: { refreshSessions: [] } }, { session });
-    }
+    if (wasSuperadmin) await deleteAllSlots(userId, session);
     return { changed: wasSuperadmin };
   });
   // Post-commit: on a genuine flip, recompute bumped tokenVersion — publish it.

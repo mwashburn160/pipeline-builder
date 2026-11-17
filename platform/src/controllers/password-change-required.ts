@@ -36,6 +36,7 @@ import {
   claimPasswordChangeChallenge,
   restorePasswordChangeChallenge,
 } from '../services/password-change-challenge.js';
+import { deleteAllSlots } from '../services/session/session-store.js';
 import { requiredPasswordChangeSchema, validateBody } from '../utils/validation.js';
 
 export const completeRequiredPasswordChange = withController('Required password change', async (req, res) => {
@@ -70,9 +71,9 @@ export const completeRequiredPasswordChange = withController('Required password 
     user.password = body.newPassword;
     // HARD revocation (tokenVersion + every refresh slot), as for any password change.
     user.tokenVersion += 1;
-    user.refreshSessions = [];
     await user.save();
     saved = true;
+    await deleteAllSlots(user._id);
   } finally {
     if (!saved) await restorePasswordChangeChallenge(body.challengeId, pending);
   }

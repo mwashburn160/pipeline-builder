@@ -13,7 +13,7 @@
  */
 
 import { MFA_POLICY_ERROR_MAP } from './mfa-policy.js';
-import { SESSION_AUTH_MISSING, TOKEN_SCOPE_ESCALATION } from '../services/auth-errors.js';
+import { SESSION_AUTH_MISSING, SESSION_EXPIRED, SESSION_EXPIRED_ERROR, TOKEN_SCOPE_ESCALATION } from '../services/auth-errors.js';
 import { ORG_SNAPSHOT_FAILED } from '../services/org-errors.js';
 import { RL_LAST_PRIVILEGED_MEMBER } from '../services/roles-errors.js';
 import {
@@ -30,6 +30,9 @@ export const userErrorMap = {
   // Fail closed: a caller whose token carries no assurance claims can't have
   // them inherited by anything it mints.
   [SESSION_AUTH_MISSING]: { status: 401, message: 'Session cannot mint credentials — please sign in again' },
+  // A machine credential renewed past its fixed end, or a re-issue for a
+  // session past its lifetime (helpers/session-policy.ts).
+  [SESSION_EXPIRED]: SESSION_EXPIRED_ERROR,
   [PROFILE_USER_NOT_FOUND]: { status: 404, message: 'User not found' },
   [PROFILE_EMAIL_TAKEN]: { status: 409, message: 'Email already in use' },
   [PROFILE_EMAIL_SSO_MANAGED]: { status: 403, message: 'Your organization requires single sign-on (SSO) for this email address, so it cannot be changed here. Ask your organization\'s administrator.' },

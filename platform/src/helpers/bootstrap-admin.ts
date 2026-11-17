@@ -164,11 +164,8 @@ export async function closeBootstrapException(userId: string): Promise<boolean> 
  */
 export async function closeBootstrapExceptionOnEnrolment(req: Request, userId: string): Promise<void> {
   if (!(await closeBootstrapException(userId))) return;
-  const { User } = await import('../models/index.js');
-  await User.updateOne(
-    { _id: userId },
-    { $unset: { 'refreshSessions.$[].mfaEnrollmentPending': '' } },
-  );
+  const { clearEnrollmentPending } = await import('../services/session/session-store.js');
+  await clearEnrollmentPending(userId);
   meter('platform_mfa_bootstrap_closed_total');
   logger.info('Bootstrap-admin MFA exception closed by a first enrolment', { userId });
   await writeAudit(req, 'auth.mfa.bootstrap_closed', { targetType: 'user', targetId: userId });

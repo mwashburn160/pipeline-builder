@@ -2,25 +2,29 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * An organization's password policy and authenticator (passkey model) policy —
- * read and update.
+ * An organization's password policy, authenticator (passkey model) policy and
+ * session-lifetime policy — read and update.
  *
  *   GET   /organization/:id/password-policy
  *   PATCH /organization/:id/password-policy
  *   GET   /organization/:id/authenticator-policy
  *   PATCH /organization/:id/authenticator-policy
+ *   GET   /organization/:id/session-policy
+ *   PATCH /organization/:id/session-policy
  *
  * Gated on `org_settings:write` (+ step-up for the writes) at the route and on
  * `canManageOrgScope` here — the same tenancy rule as the MFA policy, so an
- * admin of a parent org may set them for a team beneath it. LOOSENING either
- * (a lower minimum, clearing or widening the allowlist) additionally needs an
+ * admin of a parent org may set them for a team beneath it. LOOSENING any
+ * (a lower minimum, clearing or widening the allowlist, lengthening sessions)
+ * additionally needs an
  * `aal: 2` session, exactly as loosening the MFA policy does; tightening stays
  * open to a single-factor admin.
  *
  * Enforcement lives elsewhere: `helpers/password-policy.ts` (every
  * password-setting path, and password sign-in) and
  * `helpers/authenticator-policy.ts` + `services/webauthn-service.ts`
- * (registration) + `utils/token.ts` (issuance).
+ * (registration) + `utils/token.ts` (issuance); `helpers/session-policy.ts` +
+ * `services/session/refresh-sessions.ts` (every refresh and switch-org).
  */
 
 import { createLogger, getParam, refuseWeakSession, sendError, sendSuccess } from '@pipeline-builder/api-core';
@@ -29,8 +33,23 @@ import { normalizeAaguid } from '../helpers/authenticator-policy.js';
 import { canManageOrgScope, ensureAuthenticated, forbid, withController } from '../helpers/controller-helper.js';
 import { resolveEffectiveMfaPolicy } from '../helpers/mfa-policy.js';
 import { incCounter } from '../observability/metrics.js';
-import { authenticatorPolicyView, callerKeepsAFactor, effectiveAllowlistWith, orgExists, passwordPolicyView, readOwnAaguids, readOwnPasswordMinLength, writeAaguids, writePasswordMinLength } from '../services/org-policy-service.js';
-import { updateAuthenticatorPolicySchema, updatePasswordPolicySchema, validateBody } from '../utils/validation.js';
+import {
+  authenticatorPolicyView,
+  callerKeepsAFactor,
+  effectiveAllowlistWith,
+  isLooseningSessionPolicy,
+  nextSessionPolicy,
+  orgExists,
+  passwordPolicyView,
+  readOwnAaguids,
+  readOwnPasswordMinLength,
+  readOwnSessionPolicy,
+  sessionPolicyView,
+  writeAaguids,
+  writePasswordMinLength,
+  writeSessionPolicy,
+} from '../services/org-policy-service.js';
+import { updateAuthenticatorPolicySchema, updatePasswordPolicySchema, updateSessionPolicySchema, validateBody } from '../utils/validation.js';
 
 const logger = createLogger('org-security-policy');
 
@@ -144,4 +163,40 @@ export const updateAuthenticatorPolicy = withController('Update authenticator po
   incCounter('platform_authenticator_policy_changes_total');
   logger.info('Authenticator policy updated', { orgId: id, by: req.user!.sub, from: prev.length, to: next.length });
   sendSuccess(res, 200, await authenticatorPolicyView(id), 'Authenticator policy updated');
+});
+
+// -- Session-lifetime policy ------------------------------------------------------
+
+export const getSessionPolicy = withController('Get session policy', async (req, res) => {
+  const id = await administeredOrgId(req, res, 'view');
+  if (!id) return;
+  sendSuccess(res, 200, await sessionPolicyView(id));
+});
+
+export const updateSessionPolicy = withController('Update session policy', async (req, res) => {
+  const id = await administeredOrgId(req, res, 'change');
+  if (!id) return;
+  const body = validateBody(updateSessionPolicySchema, req.body, res);
+  if (!body) return;
+
+  const from = await readOwnSessionPolicy(id);
+  const to = nextSessionPolicy(from, body);
+  // Lengthening sessions (a bound raised or cleared) weakens the org's
+  // protection — the same `aal: 2` bar as lowering the password minimum.
+  if (isLooseningSessionPolicy(from, to) && refuseWeakSession(req, res, { minAssurance: 2 })) return;
+
+  await writeSessionPolicy(id, to);
+
+  audit(req, 'org.session_policy.update', {
+    targetType: 'organization',
+    targetId: id,
+    affectedOrgId: id,
+    details: {
+      maxAgeDays: { from: from.maxAgeDays ?? null, to: to.maxAgeDays ?? null },
+      idleTimeoutDays: { from: from.idleTimeoutDays ?? null, to: to.idleTimeoutDays ?? null },
+    },
+  });
+  incCounter('platform_session_policy_changes_total');
+  logger.info('Session policy updated', { orgId: id, by: req.user!.sub, from, to });
+  sendSuccess(res, 200, await sessionPolicyView(id), 'Session policy updated');
 });

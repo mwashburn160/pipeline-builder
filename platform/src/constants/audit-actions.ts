@@ -141,6 +141,10 @@ export const PLATFORM_AUDIT_ACTIONS = [
   // (passkey model / AAGUID) allowlist. `details` carries both sides.
   'org.password_policy.update',
   'org.authenticator_policy.update',
+  // An org changed its interactive-session lifetime policy (maximum age from
+  // sign-in / idle timeout, in days; null = the platform ceiling). `details`
+  // carries both sides of each field.
+  'org.session_policy.update',
   // A password sign-in whose password no longer meets the person's org policy
   // opened NO session: a forced password change was required instead
   // (`details.minLength`), and completed by `user.password.change`.

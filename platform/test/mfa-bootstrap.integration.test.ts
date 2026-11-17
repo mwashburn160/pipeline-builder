@@ -82,7 +82,7 @@ suite('Required MFA and the bootstrap exception (real Mongo replica set)', () =>
   let orgId: string;
 
   beforeEach(async () => {
-    for (const model of [m.User, m.Organization, m.UserOrganization, m.WebAuthnCredential, m.UserTotp, m.AuditEvent]) {
+    for (const model of [m.User, m.RefreshSession, m.Organization, m.UserOrganization, m.WebAuthnCredential, m.UserTotp, m.AuditEvent]) {
       await model.deleteMany({});
     }
     const org = await m.Organization.create({ _id: SYSTEM_ORG_ID, name: 'system', slug: 'system', isSystem: true, owner: new mongoose.Types.ObjectId(), tier: 'enterprise' });
@@ -160,8 +160,8 @@ suite('Required MFA and the bootstrap exception (real Mongo replica set)', () =>
     it('refuses a REFRESH of a session opened before the policy landed', async () => {
       // This IS the enforcement for existing sessions: they stop being re-issued.
       const tokens = await token.issueTokens(user, orgId, { kind: 'interactive', auth: token.signInAuth('pwd') });
-      const fresh = await m.User.findById(userId).select('+tokenVersion +isSuperAdmin +refreshSessions');
-      const slot = fresh.refreshSessions[0];
+      const fresh = await m.User.findById(userId).select('+tokenVersion +isSuperAdmin');
+      const slot = await m.RefreshSession.findOne({ userId }).lean();
       await requireMfa();
       await expect(token.renewSessionTokens(fresh, orgId, { sessionId: slot.id, presentedToken: tokens.refreshToken, kind: 'interactive' }))
         .rejects.toThrow('MFA_REQUIRED_FOR_ORG');
@@ -179,8 +179,8 @@ suite('Required MFA and the bootstrap exception (real Mongo replica set)', () =>
   describe('a refresh never raises assurance', () => {
     it('re-issues at the slot\'s stored aal, not at whatever the caller is', async () => {
       const issued = await token.issueTokens(user, orgId, { kind: 'interactive', auth: token.signInAuth('pwd') });
-      const fresh = await m.User.findById(userId).select('+tokenVersion +isSuperAdmin +refreshSessions');
-      const slot = fresh.refreshSessions[0];
+      const fresh = await m.User.findById(userId).select('+tokenVersion +isSuperAdmin');
+      const slot = await m.RefreshSession.findOne({ userId }).lean();
       expect(slot.aal).toBe(1);
 
       const renewed = await token.renewSessionTokens(fresh, orgId, { sessionId: slot.id, presentedToken: issued.refreshToken, kind: 'interactive' });
@@ -192,8 +192,8 @@ suite('Required MFA and the bootstrap exception (real Mongo replica set)', () =>
 
     it('carries an aal-2 slot through a renewal unchanged', async () => {
       const issued = await token.issueTokens(user, orgId, { kind: 'interactive', auth: token.signInAuth('webauthn') });
-      const fresh = await m.User.findById(userId).select('+tokenVersion +isSuperAdmin +refreshSessions');
-      const slot = fresh.refreshSessions[0];
+      const fresh = await m.User.findById(userId).select('+tokenVersion +isSuperAdmin');
+      const slot = await m.RefreshSession.findOne({ userId }).lean();
       const renewed = await token.renewSessionTokens(fresh, orgId, { sessionId: slot.id, presentedToken: issued.refreshToken, kind: 'interactive' });
       const claims = JSON.parse(Buffer.from(renewed.accessToken.split('.')[1], 'base64url').toString());
       expect(claims.aal).toBe(2);
@@ -229,16 +229,16 @@ suite('Required MFA and the bootstrap exception (real Mongo replica set)', () =>
       expect(claims.mfaEnrollmentPending).toBe(true);
       expect(claims.aal).toBe(1);
 
-      const fresh = await m.User.findById(userId).select('+refreshSessions');
-      expect(fresh.refreshSessions[0].mfaEnrollmentPending).toBe(true);
+      const slot = await m.RefreshSession.findOne({ userId }).lean();
+      expect(slot.mfaEnrollmentPending).toBe(true);
     });
 
     it('keeps the limit across a refresh — it is part of what the session IS', async () => {
       const issued = await token.issueTokens(user, orgId, {
         kind: 'interactive', auth: token.signInAuth('pwd'), mfaEnrollmentPending: true,
       });
-      const fresh = await m.User.findById(userId).select('+tokenVersion +isSuperAdmin +refreshSessions');
-      const slot = fresh.refreshSessions[0];
+      const fresh = await m.User.findById(userId).select('+tokenVersion +isSuperAdmin');
+      const slot = await m.RefreshSession.findOne({ userId }).lean();
       const renewed = await token.renewSessionTokens(fresh, orgId, { sessionId: slot.id, presentedToken: issued.refreshToken, kind: 'interactive' });
       const claims = JSON.parse(Buffer.from(renewed.accessToken.split('.')[1], 'base64url').toString());
       expect(claims.mfaEnrollmentPending).toBe(true);
@@ -257,9 +257,10 @@ suite('Required MFA and the bootstrap exception (real Mongo replica set)', () =>
       await addPasskey();
       await bootstrap.closeBootstrapExceptionOnEnrolment({ user: { sub: userId } } as never, userId);
 
-      const after = await m.User.findById(userId).select('+refreshSessions').lean();
+      const after = await m.User.findById(userId).lean();
+      const afterSlot = await m.RefreshSession.findOne({ userId }).lean();
       expect(after.mfaBootstrapClosedAt).toBeInstanceOf(Date);
-      expect(after.refreshSessions[0].mfaEnrollmentPending).toBeUndefined();
+      expect(afterSlot.mfaEnrollmentPending).toBeUndefined();
     });
 
     it('closes only ONCE — a later enrolment must not move the timestamp', async () => {
@@ -299,11 +300,11 @@ suite('Required MFA and the bootstrap exception (real Mongo replica set)', () =>
       expect(await m.WebAuthnCredential.countDocuments({ userId })).toBe(0);
       expect(await m.UserTotp.countDocuments({ userId })).toBe(0);
 
-      const after = await m.User.findById(userId).select('+tokenVersion +refreshSessions').lean();
+      const after = await m.User.findById(userId).select('+tokenVersion').lean();
       // tokenVersion bump + cleared slots = "sign out everywhere", so a reset
       // can never leave a live session that predates it.
       expect(after.tokenVersion).toBe(before.tokenVersion + 1);
-      expect(after.refreshSessions).toHaveLength(0);
+      expect(await m.RefreshSession.countDocuments({ userId })).toBe(0);
 
       const audit = await m.AuditEvent.findOne({ action: 'auth.mfa.operator_reset' }).lean();
       expect(audit).not.toBeNull();

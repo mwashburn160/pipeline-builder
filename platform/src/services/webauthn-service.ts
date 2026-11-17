@@ -430,7 +430,14 @@ async function verifyAssertion(
         transports: stored.transports ?? [],
       },
     });
-  } catch {
+  } catch (err) {
+    // @simplewebauthn refuses a stale counter itself, BEFORE our own check runs —
+    // so mapping every throw to VERIFICATION_FAILED meant an ordinary cloned key
+    // never surfaced as a counter regression (and its clone_suspected audit event
+    // never fired). Its message is "Response counter value N was lower than expected M".
+    if (err instanceof Error && /counter value .* lower than expected/i.test(err.message)) {
+      throw new Error(WEBAUTHN_COUNTER_REGRESSION);
+    }
     throw new Error(WEBAUTHN_VERIFICATION_FAILED);
   }
   if (!verification.verified) throw new Error(WEBAUTHN_VERIFICATION_FAILED);

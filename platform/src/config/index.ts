@@ -449,6 +449,17 @@ export const config = {
       expiresIn: envInt('REFRESH_TOKEN_EXPIRES_IN', 2592000), // 30 days
     },
     /**
+     * Platform ceiling on INTERACTIVE session lifetime (helpers/session-policy.ts).
+     * `maxAgeDays`: from the sign-in that opened the session, however active it
+     * is. `idleTimeoutDays`: since the session was last used (refresh /
+     * switch-org). An org can only tighten either (`Organization.sessionPolicy`).
+     * Machine credentials keep their own fixed end and are not idle-timed.
+     */
+    session: {
+      maxAgeDays: Math.max(1, envInt('SESSION_MAX_AGE_DAYS', 30)),
+      idleTimeoutDays: Math.max(1, envInt('SESSION_IDLE_TIMEOUT_DAYS', 7)),
+    },
+    /**
      * Email-verification token lifetime (ms). 24 h default; tokens are
      * single-use and tied to the user record so a short TTL is mostly a
      * UX trade-off (users following a stale link have to re-request).

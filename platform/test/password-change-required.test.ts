@@ -21,6 +21,10 @@ const mockIssueTokens = jest.fn<(...a: unknown[]) => Promise<unknown>>(async () 
 const mockAssertAcceptable = jest.fn<(...a: unknown[]) => Promise<void>>(async () => undefined);
 const mockPublishRevocation = jest.fn(async (..._args: unknown[]) => undefined);
 
+// Slots live in their own collection behind session-store.ts.
+const { sessionStoreFake } = await import('./helpers/session-store-fake.js');
+const store = sessionStoreFake();
+jest.unstable_mockModule('../src/services/session/session-store.js', () => store);
 jest.unstable_mockModule('@pipeline-builder/api-core', () => apiCoreMock({
   sendError: (res: any, status: number, msg: string, code?: string) => res.status(status).json({ success: false, message: msg, code }),
   sendSuccess: (res: any, status: number, data: unknown) => res.status(status).json({ success: true, statusCode: status, data }),
@@ -118,6 +122,8 @@ describe('POST /auth/password/change-required', () => {
     expect(account.save).toHaveBeenCalled();
     expect(account.tokenVersion).toBe(5);
     expect(mockPublishRevocation).toHaveBeenCalledWith('u1');
+    // Every refresh-session slot of the account goes with the bump.
+    expect(store.deleteAllSlots).toHaveBeenCalledTimes(1);
     expect(mockIssueTokens.mock.calls[0][1]).toBe('org-1');
     // The assurance is the one the earlier leg(s) EARNED — never raised here.
     expect(mockIssueTokens.mock.calls[0][2]).toMatchObject({ kind: 'interactive', auth: { amr: ['pwd', 'mfa'], aal: 2 } });
