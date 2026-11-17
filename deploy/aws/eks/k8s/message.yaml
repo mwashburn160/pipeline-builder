@@ -45,7 +45,7 @@ spec:
       labels:
         app: message
         app.kubernetes.io/component: backend
-        version: "4.5.2"
+        version: "4.5.3"
         track: stable
       annotations:
         prometheus.io/scrape: "true"
@@ -89,7 +89,7 @@ spec:
               echo "Dependencies ready"
       containers:
         - name: message
-          image: ghcr.io/mwashburn160/message:4.5.2@sha256:0d5f13235f6cef0524889565773afb4394b7a6469da27cedcb17fa6b37b5ea73
+          image: ghcr.io/mwashburn160/message:4.5.3@sha256:6933ed2e229d56e397d8714b2385ca260b81a9f9fbaa83188ec45a2a02c340f8
           securityContext:
             runAsNonRoot: true
             runAsUser: 1000
