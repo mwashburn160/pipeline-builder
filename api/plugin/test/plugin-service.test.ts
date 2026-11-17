@@ -308,6 +308,44 @@ describe('PluginService', () => {
       expect(set).not.toHaveProperty('deletedBy');
     });
 
+    /** The uploaded 1.0.1 is a YANKED row; the name's current default is user-A's private 1.0.0. */
+    const withYankedExisting = () => {
+      let call = 0;
+      const yanked = { id: 'y-1', visibility: 'org', createdBy: 'user-B', deletedAt: null, frozenAt: null, isDefault: false, yankedAt: new Date(), lifecycle: 'yanked' };
+      pipelineDataMock.withTenantTx.mockImplementation(async (cb: any) => cb({
+        execute: jest.fn(async () => []),
+        select: jest.fn(() => {
+          const rows = call++ === 0 ? [yanked] : [{ id: 'd-1', version: '1.0.0', visibility: 'private', createdBy: 'user-A', deletedAt: null }];
+          return { from: () => ({ where: () => Object.assign(Promise.resolve(rows), { for: async () => rows }) }) };
+        }),
+        update: jest.fn(() => ({ set: mockUpdateSet })),
+        insert: jest.fn(() => ({ values: mockValues })),
+      }));
+    };
+
+    // Regression: a re-upload over a yanked version (which the conflict branch
+    // leaves yanked) passed shouldBecomeDefault and became the live default.
+    it('a re-upload over a YANKED version stays yanked and never takes over (or demotes) the default', async () => {
+      withYankedExisting();
+      const onConflict = jest.fn(() => ({ returning: jest.fn(async () => [{ id: 'y-1', orgId: 'org-1' }]) }));
+      mockValues.mockReturnValueOnce({ onConflictDoUpdate: onConflict });
+      // user-B could not demote user-A's private default — and needn't, as nothing is demoted.
+      await service.deployVersion({ ...data, version: '1.0.1' }, 'user-B', member);
+      expect(mockUpdateSet).not.toHaveBeenCalled();
+      expect(mockValues).toHaveBeenCalledWith(expect.objectContaining({ version: '1.0.1', isDefault: false }));
+      const { set } = (onConflict.mock.calls[0] as any[])[0];
+      expect(set.isDefault).toBe(false);
+      // Un-yanking is the explicit unyank operation, never a side effect of a re-upload.
+      expect(set).not.toHaveProperty('yankedAt');
+      expect(set).not.toHaveProperty('yankReason');
+      expect(set).not.toHaveProperty('lifecycle');
+    });
+
+    it('assertDeployable does not demand default-overwrite access for a re-upload over a yanked version', async () => {
+      withYankedExisting();
+      await expect(service.assertDeployable('org-1', 'my-plugin', '1.0.1', 'user-B', member)).resolves.toBeUndefined();
+    });
+
     it('assertDeployable applies the same refusal up front (no lock, no write)', async () => {
       existingRows = [{ visibility: 'private', createdBy: 'user-A', deletedAt: null }];
       await expect(service.assertDeployable('org-1', 'my-plugin', '1.0.0', 'user-B', member))
@@ -394,6 +432,22 @@ describe('PluginService', () => {
       currentDefaults = [{ visibility: 'public', createdBy: 'user-A', deletedAt: null }];
       await expect(service.update('p-2', { isDefault: true }, 'org-1', 'user-A'))
         .rejects.toMatchObject({ statusCode: 403 });
+    });
+
+    // Regression: set-default promoted a yanked version (which by definition
+    // no longer resolves for the default) to the live default.
+    it.each([
+      [{ yankedAt: new Date(), lifecycle: 'yanked' }],
+      [{ yankedAt: null, lifecycle: 'yanked' }],
+    ])('refuses to promote a YANKED version (409) and writes nothing (%o)', async (yank) => {
+      Object.assign(target, yank);
+      try {
+        await expect(service.update('p-2', { isDefault: true }, 'org-1', 'user-1', member))
+          .rejects.toMatchObject({ statusCode: 409 });
+        expect(ops.filter((o) => o.op === 'update')).toHaveLength(0);
+      } finally {
+        Object.assign(target, { yankedAt: undefined, lifecycle: undefined });
+      }
     });
 
     it('returns null (no writes) when the target is not visible/own-org', async () => {
@@ -535,6 +589,48 @@ describe('PluginService', () => {
       const order = (service as any).findFirstOrderBy({}, 'org-1', 'parent-1');
       expect(mockPluginResolutionOrderBy).toHaveBeenCalledWith('org-1', 'parent-1');
       expect(order).toEqual(['resolution-order']);
+    });
+  });
+
+  // A soft-delete keeps the tombstone's isDefault and deleting the default
+  // promoted a replacement, so a restore used to bring back a SECOND default.
+  describe('restore — never a second live default (restoreExtraSet)', () => {
+    const txWith = (tombstone: unknown, liveDefaults: unknown[]) => {
+      const ops: string[] = [];
+      let selects = 0;
+      const tx = {
+        execute: jest.fn(async () => { ops.push('lock'); return []; }),
+        select: jest.fn(() => ({
+          from: () => ({
+            where: () => {
+              const rows = selects++ === 0 ? (tombstone ? [tombstone] : []) : liveDefaults;
+              ops.push(selects === 1 ? 'select-tombstone' : 'select-defaults');
+              return Promise.resolve(rows);
+            },
+          }),
+        })),
+      };
+      return { tx, ops };
+    };
+    const extra = (tx: unknown) => (service as any).restoreExtraSet('P-1', tx) as Promise<Record<string, unknown>>;
+
+    it('demotes a restored former default when another live default exists, under the (org, name) lock', async () => {
+      const { tx, ops } = txWith({ orgId: 'org-1', name: 'my-plugin', isDefault: true }, [{ id: 'p-2', version: '1.0.1' }]);
+      await expect(extra(tx)).resolves.toEqual({ isDefault: false });
+      expect(ops).toEqual(['select-tombstone', 'lock', 'select-defaults']);
+    });
+
+    it('keeps the default flag when no other live default exists', async () => {
+      const { tx } = txWith({ orgId: 'org-1', name: 'my-plugin', isDefault: true }, []);
+      await expect(extra(tx)).resolves.toEqual({});
+    });
+
+    it('writes nothing extra (and takes no lock) for a non-default or unknown tombstone', async () => {
+      for (const tombstone of [{ orgId: 'org-1', name: 'my-plugin', isDefault: false }, null]) {
+        const { tx, ops } = txWith(tombstone, [{ id: 'p-2' }]);
+        await expect(extra(tx)).resolves.toEqual({});
+        expect(ops).not.toContain('lock');
+      }
     });
   });
 

@@ -336,6 +336,15 @@ export abstract class CrudService<
    *  for entities whose restore has side-effects (e.g. re-notify). Best-effort. */
   protected async onAfterRestore(_id: string, _entity: TEntity, _userId: string): Promise<void> {}
 
+  /** Extra columns for a {@link restore} to write, computed INSIDE the restore
+   *  transaction (`tx`) so the subclass's check and the restore are atomic —
+   *  e.g. a plugin tombstone that was the default must not come back as a
+   *  second live default. Unlike the after-hooks this is NOT best-effort:
+   *  throwing aborts the restore. */
+  protected async restoreExtraSet(_id: string, _tx: CrudTx): Promise<Record<string, unknown>> {
+    return {};
+  }
+
   /** Called with the ids about to be hard-purged, BEFORE the delete, inside the
    *  purge transaction (`tx`) — a subclass tearing down dependents that lack ON
    *  DELETE CASCADE MUST use `tx` so the teardown is atomic with the parent
@@ -998,18 +1007,22 @@ export abstract class CrudService<
     if (!this.cols.deletedAt) return null; // entity has no soft-delete lifecycle
     const conditions = this.tombstoneConditions(orgId, id);
 
-    const [restored] = await withTenantTx(async (tx) => tx
-      .update(this.schema)
-      .set(this.row({
-        isActive: true,
-        updatedAt: new Date(),
-        updatedBy: this.actor(userId),
-        deletedAt: null,
-        deletedBy: null,
-        ...(this.cols.purgeAfter ? { purgeAfter: null } : {}),
-      }))
-      .where(and(...conditions))
-      .returning().then(r => drizzleRows<TEntity>(r)));
+    const [restored] = await withTenantTx(async (tx) => {
+      const extra = await this.restoreExtraSet(id, tx);
+      return tx
+        .update(this.schema)
+        .set(this.row({
+          ...extra,
+          isActive: true,
+          updatedAt: new Date(),
+          updatedBy: this.actor(userId),
+          deletedAt: null,
+          deletedBy: null,
+          ...(this.cols.purgeAfter ? { purgeAfter: null } : {}),
+        }))
+        .where(and(...conditions))
+        .returning().then(r => drizzleRows<TEntity>(r));
+    });
 
     if (restored) {
       await this.runHook(() => this.onAfterRestore(id, restored, userId));

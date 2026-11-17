@@ -215,12 +215,21 @@ export function dlqJobId(queueName: string, jobId: string): string {
 /**
  * Locate a FAILED build job by id across the per-tier queues. The failed set is
  * spread across every tier queue, so probe each and return the first job that
- * both exists and is in the `failed` state; null when none is found.
+ * exists, is in the `failed` state and — when `belongsTo` is given — whose data
+ * it accepts; null when none is found.
+ *
+ * Bare BullMQ ids COLLIDE across tiers (see {@link dlqJobId}), so a tenant's
+ * lookup MUST pass `belongsTo`: an unscoped first match could be another org's
+ * job in an earlier tier, hiding the caller's own job with the same id (and
+ * handing the caller's retry someone else's build).
  */
-export async function findFailedJob(jobId: string): Promise<Job<PluginBuildJobData> | null> {
+export async function findFailedJob(
+  jobId: string,
+  belongsTo?: (data: PluginBuildJobData | undefined) => boolean,
+): Promise<Job<PluginBuildJobData> | null> {
   for (const { queue } of getAllTierQueues()) {
     const job = await queue.getJob(jobId);
-    if (job && await job.isFailed()) return job;
+    if (job && (!belongsTo || belongsTo(job.data)) && await job.isFailed()) return job;
   }
   return null;
 }

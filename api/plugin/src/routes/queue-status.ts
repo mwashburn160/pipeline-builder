@@ -411,19 +411,23 @@ export function createQueueStatusRoutes(quotaService: QuotaService): Router {
     const jobId = getParam(req.params, 'jobId');
     if (!jobId) return sendError(res, 400, 'Job ID is required', ErrorCode.MISSING_REQUIRED_FIELD);
 
-    // Tenant-isolation: callers other than system-org queue operators can only retry jobs owned by their org.
-    const failedJob = await findFailedJob(jobId);
-    if (!failedJob) return sendError(res, 404, `Failed job ${jobId} not found`, ErrorCode.NOT_FOUND);
-
-    // Another org's job answers exactly like a missing one: BullMQ ids are
-    // sequential, so a distinct 403 would let a tenant enumerate which ids
-    // exist. The denial still reaches the `authz.denied` trail.
-    if (!seesEveryOrg(req) && !jobBelongsToOrg(failedJob.data, orgId)) {
-      recordAuthzDenial(req, 'job-owned-by-caller-org');
+    // Tenant-isolation: callers other than system-org queue operators can only
+    // retry jobs owned by their org. The lookup itself is SCOPED to the caller's
+    // org: BullMQ ids collide across the tier queues, so the first failed job
+    // with this id may be another org's while the caller's own sits in a later
+    // tier. The retry then runs on exactly the job found here, never a fresh
+    // lookup by bare id.
+    const scoped = !seesEveryOrg(req);
+    const failedJob = await findFailedJob(jobId, scoped ? (data) => jobBelongsToOrg(data, orgId) : undefined);
+    if (!failedJob) {
+      // Another org's job answers exactly like a missing one: BullMQ ids are
+      // sequential, so a distinct 403 would let a tenant enumerate which ids
+      // exist. The denial still reaches the `authz.denied` trail.
+      if (scoped && await findFailedJob(jobId)) recordAuthzDenial(req, 'job-owned-by-caller-org');
       return sendError(res, 404, `Failed job ${jobId} not found`, ErrorCode.NOT_FOUND);
     }
 
-    const newJobId = await retryFailedJob(jobId, quotaService, retrierFrom(req, userId));
+    const newJobId = await retryFailedJob(failedJob, quotaService, retrierFrom(req, userId));
     if (!newJobId) return sendError(res, 404, `Failed job ${jobId} not found`, ErrorCode.NOT_FOUND);
 
     ctx.log('COMPLETED', 'Retried failed build', { failedJobId: jobId, newJobId });

@@ -262,6 +262,50 @@ describe('createCodeBuildStep — env var precedence', () => {
   });
 });
 
+describe('createCodeBuildStep — platform-reserved secret names', () => {
+  // Regression: a plugin declaring a platform leaf (`platform`, `registry-push`,
+  // …) was mapped to SECRETS_MANAGER at {prefix}/{orgId}/<leaf> and granted
+  // GetSecretValue, handing plugin code the org's automation credentials.
+  const step = (name: string) => () => createCodeBuildStep({
+    id: 'step',
+    orgId: 'org-1',
+    plugin: {
+      name: 'evil',
+      version: '1.0.0',
+      pluginType: 'ShellStep',
+      buildType: 'metadata_only',
+      commands: ['echo'],
+      metadata: {},
+      env: {},
+      secrets: [{ name, required: true }],
+    },
+    metadata: {},
+    scope: undefined,
+    pipelineScope: { pipeline: {} },
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  } as any);
+
+  it.each(['platform', 'registry-push', 'pipeline-registry-write', 'reporting-ingest', 'PLATFORM', 'Registry-Push'])(
+    'refuses to grant %p',
+    (name) => {
+      expect(step(name)).toThrow(/platform-reserved secret name/);
+    },
+  );
+
+  it('still accepts an ordinary required secret', () => {
+    expect(step('SONAR_TOKEN')).not.toThrow();
+  });
+
+  it('reserves every leaf pipeline-core itself reads', async () => {
+    const { RESERVED_SECRET_NAMES } = await import('../src/config/app-config.js');
+    const { PIPELINE_REGISTRATION_SECRET_LEAF } = await import('../src/core/pipeline-registration.js');
+    const { SECURITY_REPORT_SECRET_LEAF } = await import('../src/core/security-reports.js');
+    for (const leaf of ['platform', 'registry-push', PIPELINE_REGISTRATION_SECRET_LEAF, SECURITY_REPORT_SECRET_LEAF]) {
+      expect(RESERVED_SECRET_NAMES.has(leaf)).toBe(true);
+    }
+  });
+});
+
 /**
  * Tests for the VALID_SECRET_NAME regex used in toSecretEnvVars (Fix 15).
  * The regex validates AWS Secrets Manager secret path characters.

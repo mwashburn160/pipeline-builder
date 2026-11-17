@@ -22,6 +22,8 @@ const findFailed = jest.fn<AnyFn>();
 const retryHelper = jest.fn<AnyFn>();
 /** The retrier each retry was run as. */
 const retriers: unknown[] = [];
+/** The job object each retry was handed. */
+const retriedJobs: unknown[] = [];
 
 jest.unstable_mockModule('../src/queue/connections.js', () => ({
   // EVERY export `slot-manager` reaches for, which these route suites now pull
@@ -41,16 +43,21 @@ jest.unstable_mockModule('../src/queue/connections.js', () => ({
   }),
   getAllTierQueues: () => [{ tier: 'developer', queue: { name: 'plugin-build', add: jest.fn<AnyFn>(), getJobs: jest.fn<AnyFn>(), getJobCounts: jest.fn<AnyFn>() } }],
   getDeadLetterQueue: () => ({ getJob: jest.fn<AnyFn>(), add: jest.fn<AnyFn>(), getJobs: jest.fn<AnyFn>(), getJobCounts: jest.fn<AnyFn>() }),
-  // findFailedJob(jobId) → the failed job (for the tenant-isolation check).
-  findFailedJob: (id: string) => findFailed(id),
+  // findFailedJob(jobId, belongsTo?) → the failed job, honoring the org scope
+  // the route passes (the real one skips non-matching jobs across tiers).
+  findFailedJob: async (id: string, belongsTo?: (d: unknown) => boolean) => {
+    const job = await findFailed(id);
+    return job && (!belongsTo || belongsTo(job.data)) ? job : null;
+  },
 }));
 jest.unstable_mockModule('../src/queue/plugin-build-dlq.js', () => ({
   purgeDlq: jest.fn<AnyFn>(),
 }));
 jest.unstable_mockModule('../src/queue/requeue.js', () => ({
   replayDlqJob: jest.fn<AnyFn>(),
-  // retryFailedJob(jobId, quotaService); the test only cares about the id.
-  retryFailedJob: (id: string, _qs: unknown, retrier: unknown) => { retriers.push(retrier); return retryHelper(id); },
+  // retryFailedJob(job, quotaService, retrier) — handed the EXACT job the
+  // ownership check found; the test records its id and the job itself.
+  retryFailedJob: (job: { id: string }, _qs: unknown, retrier: unknown) => { retriers.push(retrier); retriedJobs.push(job); return retryHelper(job.id); },
 }));
 
 // Quota service stub — required by createQueueStatusRoutes.
@@ -229,6 +236,22 @@ describe('POST /failed/:jobId/retry', () => {
     } as any, res);
     expect(json).toHaveBeenCalledWith(expect.objectContaining({ statusCode: 404 }));
     expect(retryHelper).not.toHaveBeenCalled();
+  });
+
+  it('retries exactly the job the ownership check found (never a re-lookup by bare id)', async () => {
+    (isSystemAdmin as jest.Mock<AnyFn>).mockReturnValue(false);
+    (isSystemOrgRequest as jest.Mock<AnyFn>).mockReturnValue(false);
+    const own = { id: 'j-1', data: { orgId: 'org-a', pluginRecord: { name: 'p' } } };
+    findFailed.mockResolvedValue(own);
+    retriedJobs.length = 0;
+    const { res, json } = makeRes();
+    await getRetryHandler()({
+      __orgId: 'org-a',
+      user: { role: 'admin', organizationId: 'org-a' },
+      params: { jobId: 'j-1' },
+    } as any, res);
+    expect(json).toHaveBeenCalledWith(expect.objectContaining({ statusCode: 200 }));
+    expect(retriedJobs[0]).toBe(own);
   });
 
   it('rejects a job with no top-level orgId for a non-system admin (the plugin record is not an owner)', async () => {

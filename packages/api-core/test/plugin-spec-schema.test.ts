@@ -71,6 +71,19 @@ describe('checkPluginSpec', () => {
     expect(checkPluginSpec(null)).toEqual(refused);
   });
 
+  it.each(['platform', 'registry-push', 'pipeline-registry-write', 'reporting-ingest', 'Platform', ' REGISTRY-PUSH '])(
+    'refuses the platform-reserved secret name %p',
+    (name) => {
+      const r = checkPluginSpec({ ...base, secrets: [{ name, required: true }] });
+      expect(r.ok).toBe(false);
+      expect((r as { issues: string[] }).issues.join('\n')).toContain('secrets.0.name: is a platform-reserved secret name');
+    },
+  );
+
+  it('accepts an ordinary plugin secret name', () => {
+    expect(checkPluginSpec({ ...base, secrets: [{ name: 'SONAR_TOKEN', required: true }, { name: 'platform-api-key', required: false }] }).ok).toBe(true);
+  });
+
   it('caps the changelog in UTF-8 bytes', () => {
     expect(checkPluginSpec({ ...base, changelog: 'é'.repeat(17 * 1024) }).ok).toBe(false);
   });

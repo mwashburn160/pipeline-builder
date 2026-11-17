@@ -92,6 +92,9 @@ export function createBuildFailedHandler(sseManager: SSEManager, quotaService: Q
         jobId: job.id,
         attemptsMade: job.attemptsMade,
         maxAttempts,
+        // Explicit terminal flag: a permanent (unrecoverable) failure ends the
+        // build before the attempt budget, so attempts alone can't tell the UI.
+        final,
         reason: failureSummary.reason,
         tail: failureSummary.tail,
         // IMAGE_SCAN_UNAVAILABLE / PLUGIN_VULN_GATE / COMPLIANCE_VIOLATION …: the

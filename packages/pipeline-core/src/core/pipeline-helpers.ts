@@ -1,7 +1,7 @@
 // Copyright 2026 Pipeline Builder Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { createLogger, MANAGED_TOOLCHAIN } from '@pipeline-builder/api-core';
+import { createLogger, isReservedSecretName, MANAGED_TOOLCHAIN } from '@pipeline-builder/api-core';
 import { Duration, SecretValue, Stack } from 'aws-cdk-lib';
 import { BuildEnvironmentVariableType, BuildSpec, ComputeType as CDKComputeType, LinuxBuildImage, type IBuildImage } from 'aws-cdk-lib/aws-codebuild';
 import { Secret } from 'aws-cdk-lib/aws-secretsmanager';
@@ -95,6 +95,12 @@ function toSecretEnvVars(
 ): Record<string, { value: string; type: BuildEnvironmentVariableType }> {
   return Object.fromEntries(
     secrets.map(({ name }) => {
+      // Defence in depth behind PluginSpecSchema: a plugin row can predate that
+      // check, and granting a platform leaf would hand the plugin's build the
+      // org's automation credentials.
+      if (isReservedSecretName(name)) {
+        throw new Error(`Plugin secret "${name}" is a platform-reserved secret name and cannot be granted to a plugin step`);
+      }
       const secretPath = CoreConstants.secretPath(orgId, name);
       if (!VALID_SECRET_NAME.test(secretPath)) {
         throw new Error(`Secret path "${secretPath}" contains invalid characters for AWS Secrets Manager`);

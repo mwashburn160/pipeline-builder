@@ -28,6 +28,13 @@ import {
  * the SAME tag keys; see `types/reserved-tags.ts` for why both checks exist.
  */
 export { RESERVED_TAG_KEYS, RESERVED_TAG_PREFIXES, isReservedTagKey } from '@pipeline-builder/api-core';
+/**
+ * Platform-owned Secrets Manager leaves under {@link CoreConstants.secretPath}
+ * (`platform`, `registry-push`, `pipeline-registry-write`, `reporting-ingest`)
+ * that a plugin may never declare; re-exported from api-core so the plugin-spec
+ * schema and `toSecretEnvVars` refuse the SAME names.
+ */
+export { RESERVED_SECRET_NAMES, isReservedSecretName } from '@pipeline-builder/api-core';
 
 export class CoreConstants {
   static readonly NAME_PATTERN = /^[a-z0-9-]+$/;

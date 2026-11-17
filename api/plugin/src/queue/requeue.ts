@@ -14,7 +14,7 @@ import type { QuotaService } from '@pipeline-builder/api-core';
 import type { Job } from 'bullmq';
 
 import { reserveReplaySlot } from './build-quota.js';
-import { dlqJobId, findFailedJob, getDeadLetterQueue, getOrgTier, getTierQueue } from './connections.js';
+import { dlqJobId, getDeadLetterQueue, getOrgTier, getTierQueue } from './connections.js';
 import type { PluginBuildJobData, PublishCaller } from '../helpers/plugin-helpers.js';
 
 const logger = createLogger('plugin-build-queue');
@@ -135,13 +135,16 @@ async function requeueWithFreshBudget(
 }
 
 /**
- * Retry a single FAILED build from a tier queue's failed set. Returns the new
- * job id, or null when no failed job with that id exists — or when the job is
- * already being retried via the DLQ.
+ * Retry a single FAILED build from a tier queue's failed set. Takes the EXACT
+ * job the caller located (and ownership-checked) with `findFailedJob` —
+ * never a bare id: ids collide across tier queues, so re-looking one up could
+ * land on a different tier's job than the one that was authorized. Returns the
+ * new job id, or null when that job is no longer failed (a concurrent retry
+ * took it) — or when it is already being retried via the DLQ.
  */
-export async function retryFailedJob(jobId: string, quotaService: QuotaService, retrier: Retrier): Promise<string | null> {
-  const failedJob = await findFailedJob(jobId);
-  if (!failedJob) return null;
+export async function retryFailedJob(failedJob: Job<PluginBuildJobData>, quotaService: QuotaService, retrier: Retrier): Promise<string | null> {
+  const jobId = String(failedJob.id);
+  if (!(await failedJob.isFailed())) return null;
 
   // Refuse a manual retry when this job has already been handed to the DLQ (a
   // retryable final attempt creates a queue-qualified DLQ entry while its
@@ -149,7 +152,7 @@ export async function retryFailedJob(jobId: string, quotaService: QuotaService, 
   // entry would reserve a SECOND slot and enqueue a SECOND build while the DLQ
   // independently re-queues the same plugin. The DLQ is the single retry
   // vehicle for these; null (→ 404) so the caller doesn't double-run it.
-  const dlqTwin = await getDeadLetterQueue().getJob(dlqJobId(failedJob.queueName, String(failedJob.id ?? jobId)));
+  const dlqTwin = await getDeadLetterQueue().getJob(dlqJobId(failedJob.queueName, jobId));
   if (dlqTwin) {
     logger.info('Refusing manual retry — job is already being retried via the DLQ', { jobId });
     return null;

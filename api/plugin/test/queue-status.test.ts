@@ -45,7 +45,12 @@ jest.unstable_mockModule('../src/queue/connections.js', () => ({
   }),
   getAllTierQueues: () => [{ tier: 'developer', queue: mockTierQueue }],
   getDeadLetterQueue: () => ({ getJobCounts: mockDlqGetJobCounts, getJobs: mockDlqGetJobs, getJob: mockDlqGetJob }),
-  findFailedJob: mockFindFailedJob,
+  // Honors the org scope the route passes, like the real lookup (which skips a
+  // non-matching job across tiers rather than answering it).
+  findFailedJob: async (id: string, belongsTo?: (d: unknown) => boolean) => {
+    const job = await mockFindFailedJob(id, belongsTo);
+    return job && (!belongsTo || belongsTo(job.data)) ? job : null;
+  },
 }));
 jest.unstable_mockModule('../src/queue/plugin-build-dlq.js', () => ({
   purgeDlq: mockPurgeDlq,
@@ -346,10 +351,11 @@ describe('queue-status route', () => {
       ['/failed/:jobId/retry', () => mockFindFailedJob, () => mockRetryFailedJob],
       ['/dlq/:jobId/replay', () => mockDlqGetJob, () => mockReplayDlqJob],
     ])('%s answers 404 (like a missing job), records the denial and re-runs nothing', async (path, lookup, rerun) => {
-      lookup().mockResolvedValueOnce({ id: '42', data: { orgId: 'org-other', pluginRecord: { name: 'x' } } });
+      const foreignJob = { id: '42', data: { orgId: 'org-other', pluginRecord: { name: 'x' } } };
+      lookup().mockImplementation(async (id: string) => (id === '42' ? foreignJob : null));
       const foreign = await post(path, '42');
-      lookup().mockResolvedValueOnce(null);
       const missing = await post(path, '43');
+      lookup().mockReset();
 
       expect(foreign.statusCode).toBe(404);
       expect(missing.statusCode).toBe(404);
@@ -565,7 +571,11 @@ describe('queue-status route', () => {
       await runFullRoute(path, 'POST', { ...operator('POST'), params: { jobId: '42' } }, res);
 
       expect((json.mock.calls[0] as any[])[0].statusCode).toBe(200);
-      expect(rerun()).toHaveBeenCalledWith('42', mockQuotaService, expect.objectContaining({ userId: 'op-1' }));
+      // The retry is handed the exact job found (a DLQ replay still takes its id).
+      expect(rerun()).toHaveBeenCalledWith(
+        path === '/dlq/:jobId/replay' ? '42' : expect.objectContaining({ id: '42' }),
+        mockQuotaService, expect.objectContaining({ userId: 'op-1' }),
+      );
       expect(mockEmitPluginAudit).toHaveBeenCalledWith(expect.objectContaining({ affectedOrgId: 'org-OTHER' }));
     });
 

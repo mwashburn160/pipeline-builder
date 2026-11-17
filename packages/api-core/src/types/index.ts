@@ -34,6 +34,7 @@ export {
 } from './pipeline-template.js';
 export * from './visibility.js';
 export * from './reserved-tags.js';
+export * from './reserved-secrets.js';
 // What each quota type is called and how its number renders — the one source the
 // browser also imports directly via `@pipeline-builder/api-core/quota-catalog`.
 export * from './quota-catalog.js';

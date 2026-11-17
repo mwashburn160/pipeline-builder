@@ -18,6 +18,7 @@ import {
   IconKeySchema, PLUGIN_CATALOG_FIELD_SCHEMAS, ProjectUrlSchema, isAllowedSpdxId,
 } from './plugin-catalog-metadata.js';
 import { PLUGIN_CHANGELOG_MAX_BYTES, TOOLCHAIN_METADATA_PREFIX, isManagedToolchainPlugin } from '../types/plugin-catalog.js';
+import { isReservedSecretName } from '../types/reserved-secrets.js';
 
 // -----------------------------------------------------------------------------
 // Vocabularies
@@ -148,7 +149,11 @@ export const PluginSpecSchema = z.object({
   timeout: z.number().int().nonnegative().optional(),
   failureBehavior: z.enum(PLUGIN_FAILURE_BEHAVIORS).optional(),
   secrets: z.array(z.object({
-    name: z.string().min(1),
+    // A platform-owned leaf (the org's automation credentials) would be
+    // granted to the plugin's CodeBuild role — see RESERVED_SECRET_NAMES.
+    name: z.string().min(1).refine((n) => !isReservedSecretName(n), {
+      message: 'is a platform-reserved secret name',
+    }),
     required: z.boolean(),
     description: z.string().optional(),
   })).optional(),

@@ -101,6 +101,11 @@ const OVERWRITE_REFUSAL: Readonly<
  * overwritten in place. The
  * loader counts a 409 as "already loaded".
  */
+/** A yanked version never becomes the default (it stops resolving for the default by definition). */
+function yankedNotDefault(name: string): ConflictError {
+  return new ConflictError(`This version of ${name} is yanked and cannot be the default. Unyank it first.`);
+}
+
 function managedVersionImmutable(name: string, version: string): ConflictError {
   return new ConflictError(
     `${name}@${version} is a managed toolchain release and is immutable; build a new release version instead.`,
@@ -251,6 +256,27 @@ export class PluginService extends CrudService<
   }
 
   /**
+   * A soft-delete keeps the tombstone's `isDefault` (the bulk-delete route reads
+   * it off the returned row to promote a replacement), and deleting the default
+   * promoted the next version. Restoring that tombstone as-is would leave TWO
+   * live defaults, so it comes back demoted whenever another live default
+   * exists — decided under the same (org, name) lock every default-changing
+   * write takes, in the restore's own transaction. With no live default left it
+   * keeps the flag and is the default again. Like unyank, taking the default
+   * back from the promoted version is a separate, explicit set-default.
+   */
+  protected override async restoreExtraSet(id: string, tx: TenantTx): Promise<Record<string, unknown>> {
+    const [tombstone] = await tx
+      .select({ orgId: schema.plugin.orgId, name: schema.plugin.name, isDefault: schema.plugin.isDefault })
+      .from(schema.plugin)
+      .where(eq(schema.plugin.id, String(id).toLowerCase()));
+    if (!tombstone?.isDefault) return {};
+    await lockPluginName(tx, tombstone.orgId, tombstone.name);
+    const live = await this.selectLiveDefaults(tx, tombstone.orgId, tombstone.name, id);
+    return live.length > 0 ? { isDefault: false } : {};
+  }
+
+  /**
    * Update a plugin. Promoting it to the default (`isDefault: true`) is not a
    * plain column write: a default is singular per (org, name), so the other
    * versions' default flag is cleared IN THE SAME transaction — serialized on
@@ -282,10 +308,12 @@ export class PluginService extends CrudService<
 
     const updated = await withTenantTx(async (tx) => {
       const [target] = await tx
-        .select({ name: schema.plugin.name, orgId: schema.plugin.orgId })
+        .select({ name: schema.plugin.name, orgId: schema.plugin.orgId, yankedAt: schema.plugin.yankedAt, lifecycle: schema.plugin.lifecycle })
         .from(schema.plugin)
         .where(and(...conditions));
       if (!target) return null;
+      // A yanked version must not resolve as the default; unyank it first.
+      if (isYankedVersion(target)) throw yankedNotDefault(target.name);
 
       await lockPluginName(tx, target.orgId, target.name);
 
@@ -361,6 +389,8 @@ export class PluginService extends CrudService<
         deletedAt: schema.plugin.deletedAt,
         frozenAt: schema.plugin.frozenAt,
         isDefault: schema.plugin.isDefault,
+        yankedAt: schema.plugin.yankedAt,
+        lifecycle: schema.plugin.lifecycle,
       })
       .from(schema.plugin)
       .where(and(eq(schema.plugin.name, name), eq(schema.plugin.version, version), eq(schema.plugin.orgId, orgId)));
@@ -384,6 +414,8 @@ export class PluginService extends CrudService<
       }
       // A managed upload never takes over a default (it never sets one).
       if (managed) return;
+      // A re-upload over a yanked version stays yanked, so never takes over the default.
+      if (existing && isYankedVersion(existing)) return;
       const currentDefaults = await this.selectLiveDefaults(tx, orgId, name);
       if (shouldBecomeDefault(version, existing?.isDefault === true, currentDefaults)) {
         for (const current of currentDefaults) assertMayOverwritePlugin(current, userId, access, 'default');
@@ -1048,8 +1080,14 @@ export class PluginService extends CrudService<
       // or an older version (see shouldBecomeDefault).
       const currentDefaults = await this.selectLiveDefaults(tx, data.orgId!, data.name)
         .for('update');
-      // A managed upload is never the default, not even the first one.
-      const becomeDefault = !managed && shouldBecomeDefault(version, existing?.isDefault === true, currentDefaults);
+      // A managed upload is never the default, not even the first one. Nor is a
+      // re-upload over a YANKED version: the conflict branch below leaves the
+      // yank (yankedAt / yankReason / lifecycle) in place — un-yanking is the
+      // explicit unyank operation, with its own listing check and notices — so
+      // the row still must not resolve as the default.
+      const becomeDefault = !managed
+        && !(existing && isYankedVersion(existing))
+        && shouldBecomeDefault(version, existing?.isDefault === true, currentDefaults);
 
       if (becomeDefault) {
         // Taking over the default is a change to the current default row(s), so

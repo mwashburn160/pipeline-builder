@@ -137,6 +137,22 @@ describe('CrudService.restore', () => {
     expect(mockUpdate).not.toHaveBeenCalled();
   });
 
+  it('writes restoreExtraSet columns in the same transaction, and lifecycle columns still win', async () => {
+    const extraSpy = jest.fn<(..._args: unknown[]) => Promise<Record<string, unknown>>>()
+      .mockResolvedValue({ isDefault: false, isActive: false });
+    class ExtraService extends BaseTestService {
+      protected async restoreExtraSet(id: string, tx: unknown): Promise<Record<string, unknown>> { return extraSpy(id, tx); }
+    }
+    const svc = new ExtraService(lifecycleSchema);
+    let capturedSet: Record<string, unknown> = {};
+    mockUpdate.mockReturnValue({ set: jest.fn((v: Record<string, unknown>) => { capturedSet = v; return { where: jest.fn<AnyFn>().mockReturnValue({ returning: jest.fn<AnyFn>().mockResolvedValue([tombstone]) }) }; }) });
+
+    await svc.restore('id-1', 'org1', 'actor');
+
+    expect(extraSpy).toHaveBeenCalledWith('id-1', expect.objectContaining({ update: mockUpdate }));
+    expect(capturedSet).toMatchObject({ isDefault: false, isActive: true, deletedAt: null });
+  });
+
   it('invokes onAfterRestore after a successful restore', async () => {
     const svc = new HookedService(lifecycleSchema);
     mockUpdateReturning([tombstone]);

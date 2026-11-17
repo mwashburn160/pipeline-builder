@@ -1312,6 +1312,8 @@ describe('plugin-build-queue', () => {
         jobId: 'job-1',
         attemptsMade: 1,
         maxAttempts: 2,
+        // attempt 1 of 2 on a retryable error: not terminal, the UI keeps waiting.
+        final: false,
         reason: 'timed out',
         tail: [],
       }));
@@ -1378,6 +1380,33 @@ describe('plugin-build-queue', () => {
     });
   });
 
+  describe('findFailedJob() — ids collide across tier queues', () => {
+    const failed = (id: string, orgId: string) => ({ id, data: { orgId }, isFailed: jest.fn<() => Promise<boolean>>().mockResolvedValue(true) });
+
+    it('skips another org\'s same-id job in an earlier tier and returns the caller\'s own', async () => {
+      const other = failed('7', 'org-b');
+      const own = failed('7', 'org-a');
+      // First tier probed holds org-b's job 7, the next tier org-a's job 7.
+      mockQueueGetJob.mockReset().mockResolvedValue(undefined);
+      mockQueueGetJob.mockResolvedValueOnce(other).mockResolvedValueOnce(own);
+      const found = await connectionsModule.findFailedJob('7', (d) => d?.orgId === 'org-a');
+      expect(found).toBe(own);
+    });
+
+    it('returns null when only another org holds a failed job with that id', async () => {
+      mockQueueGetJob.mockReset().mockResolvedValue(undefined);
+      mockQueueGetJob.mockResolvedValueOnce(failed('7', 'org-b'));
+      expect(await connectionsModule.findFailedJob('7', (d) => d?.orgId === 'org-a')).toBeNull();
+    });
+
+    it('unscoped (operator) lookup still returns the first failed match', async () => {
+      const first = failed('7', 'org-b');
+      mockQueueGetJob.mockReset().mockResolvedValue(undefined);
+      mockQueueGetJob.mockResolvedValueOnce(first);
+      expect(await connectionsModule.findFailedJob('7')).toBe(first);
+    });
+  });
+
   describe('retryFailedJob() atomicity', () => {
     function makeFailedJob(overrides: Record<string, any> = {}) {
       return {
@@ -1401,7 +1430,7 @@ describe('plugin-build-queue', () => {
       mockReserveQuota.mockResolvedValueOnce({ exceeded: false, quota: { type: 'plugins', limit: 100, used: 1, remaining: 99, resetAt: 'RESERVED-PERIOD' } });
       mockQueueAdd.mockRejectedValueOnce(new Error('redis add failed'));
 
-      await expect(requeueModule.retryFailedJob('failed-1', quota, SYSADMIN)).rejects.toThrow('redis add failed');
+      await expect(requeueModule.retryFailedJob(failedJob as any, quota, SYSADMIN)).rejects.toThrow('redis add failed');
 
       // decrementQuota (aliased to mockIncrementQuota) must release the reserved
       // slot — period-safely, with the resetAt snapshot of that reservation.
@@ -1423,7 +1452,7 @@ describe('plugin-build-queue', () => {
       mockReserveQuota.mockResolvedValueOnce({ exceeded: true, quota: { type: 'plugins', limit: 1, used: 1, remaining: 0 } });
       mockQueueAdd.mockRejectedValueOnce(new Error('redis add failed'));
 
-      await expect(requeueModule.retryFailedJob('failed-1', quota, SYSADMIN)).rejects.toThrow('redis add failed');
+      await expect(requeueModule.retryFailedJob(failedJob as any, quota, SYSADMIN)).rejects.toThrow('redis add failed');
 
       // Nothing was reserved, so nothing must be released (no over-decrement).
       expect(mockIncrementQuota).not.toHaveBeenCalled();
@@ -1440,13 +1469,13 @@ describe('plugin-build-queue', () => {
 
       mockReserveQuota.mockResolvedValueOnce(failOpen);
       mockQueueAdd.mockRejectedValueOnce(new Error('redis add failed'));
-      await expect(requeueModule.retryFailedJob('failed-1', quota, SYSADMIN)).rejects.toThrow('redis add failed');
+      await expect(requeueModule.retryFailedJob(failedJob as any, quota, SYSADMIN)).rejects.toThrow('redis add failed');
       // Nothing was reserved, so the failed enqueue must not give a unit back.
       expect(mockIncrementQuota).not.toHaveBeenCalled();
 
       mockReserveQuota.mockResolvedValueOnce(failOpen);
       mockQueueAdd.mockResolvedValueOnce({ id: 'new-job-fo' });
-      await expect(requeueModule.retryFailedJob('failed-1', quota, SYSADMIN)).resolves.toBe('new-job-fo');
+      await expect(requeueModule.retryFailedJob(failedJob as any, quota, SYSADMIN)).resolves.toBe('new-job-fo');
       // The new job carries quotaReleased so its own terminal never decrements either.
       const data = mockQueueAdd.mock.calls.at(-1)![1] as Record<string, unknown>;
       expect(data.quotaReleased).toBe(true);
@@ -1467,7 +1496,7 @@ describe('plugin-build-queue', () => {
       mockQueueGetJob.mockImplementation((id: string) => Promise.resolve(id.startsWith('dlq-') ? undefined : failedJob));
       mockQueueAdd.mockResolvedValueOnce({ id: 'new-job-1' });
 
-      const newId = await requeueModule.retryFailedJob('failed-1', quota, SYSADMIN);
+      const newId = await requeueModule.retryFailedJob(failedJob as any, quota, SYSADMIN);
 
       // Op succeeds (does NOT throw) — the build is already enqueued exactly once.
       expect(newId).toBe('new-job-1');
@@ -1490,10 +1519,31 @@ describe('plugin-build-queue', () => {
       mockQueueGetJob.mockImplementation((id: string) => Promise.resolve(id.startsWith('dlq-') ? undefined : failedJob));
       mockQueueAdd.mockResolvedValueOnce({ id: 'new-job-2' });
 
-      const newId = await requeueModule.retryFailedJob('failed-1', quota, SYSADMIN);
+      const newId = await requeueModule.retryFailedJob(failedJob as any, quota, SYSADMIN);
 
       expect(newId).toBe('new-job-2');
       expect(mockQueueAdd).toHaveBeenCalledTimes(1);
+    });
+
+    it('retries the EXACT job it is handed — no re-lookup by bare id (another tier\'s same-id job is never touched)', async () => {
+      const quota = makeQuotaService();
+      const failedJob = makeFailedJob();
+      const otherTierJob = makeFailedJob({ data: makeJobData({ orgId: 'org-other' }) });
+      mockQueueGetJob.mockImplementation((id: string) => Promise.resolve(id.startsWith('dlq-') ? undefined : otherTierJob));
+      mockQueueAdd.mockResolvedValueOnce({ id: 'new-job-x' });
+
+      await expect(requeueModule.retryFailedJob(failedJob as any, quota, SYSADMIN)).resolves.toBe('new-job-x');
+      expect(failedJob.remove).toHaveBeenCalledTimes(1);
+      expect(otherTierJob.remove).not.toHaveBeenCalled();
+      expect(mockQueueGetJob).not.toHaveBeenCalledWith('failed-1');
+    });
+
+    it('returns null when the handed job is no longer failed (a concurrent retry took it) — no enqueue, no reserve', async () => {
+      const quota = makeQuotaService();
+      const failedJob = makeFailedJob({ isFailed: jest.fn<() => Promise<boolean>>().mockResolvedValue(false) });
+      await expect(requeueModule.retryFailedJob(failedJob as any, quota, SYSADMIN)).resolves.toBeNull();
+      expect(mockQueueAdd).not.toHaveBeenCalled();
+      expect(mockReserveQuota).not.toHaveBeenCalled();
     });
 
     it('happy path: enqueues once and removes the original failed entry', async () => {
@@ -1505,7 +1555,7 @@ describe('plugin-build-queue', () => {
       mockQueueGetJob.mockImplementation((id: string) => Promise.resolve(id.startsWith('dlq-') ? undefined : failedJob));
       mockQueueAdd.mockResolvedValueOnce({ id: 'new-job-3' });
 
-      const newId = await requeueModule.retryFailedJob('failed-1', quota, SYSADMIN);
+      const newId = await requeueModule.retryFailedJob(failedJob as any, quota, SYSADMIN);
 
       expect(newId).toBe('new-job-3');
       expect(mockQueueAdd).toHaveBeenCalledTimes(1);
@@ -1514,16 +1564,6 @@ describe('plugin-build-queue', () => {
       expect(mockIncrementQuota).not.toHaveBeenCalled();
     });
 
-    it('returns null when no failed job with that id exists (no enqueue, no reserve)', async () => {
-      const quota = makeQuotaService();
-      mockQueueGetJob.mockResolvedValue(undefined);
-
-      const result = await requeueModule.retryFailedJob('missing', quota, SYSADMIN);
-
-      expect(result).toBeNull();
-      expect(mockQueueAdd).not.toHaveBeenCalled();
-      expect(mockReserveQuota).not.toHaveBeenCalled();
-    });
   });
 
   // ---------------------------------------------------------------------------
@@ -1571,7 +1611,7 @@ describe('plugin-build-queue', () => {
       mockReserveQuota.mockResolvedValueOnce({ exceeded: false, quota: { type: 'plugins', limit: 100, used: 1, remaining: 99, resetAt: 'NEW-PERIOD' } });
       mockQueueAdd.mockResolvedValueOnce({ id: 'new-job' });
 
-      await requeueModule.retryFailedJob('failed-1', quota, SYSADMIN);
+      await requeueModule.retryFailedJob(failedJob as any, quota, SYSADMIN);
 
       const enqueuedData = mockQueueAdd.mock.calls[0][1] as PluginBuildJobData;
       expect(enqueuedData.reservedResetAt).toBe('NEW-PERIOD');
@@ -1592,7 +1632,7 @@ describe('plugin-build-queue', () => {
       mockReserveQuota.mockResolvedValueOnce({ exceeded: true, quota: { type: 'plugins', limit: 1, used: 1, remaining: 0 } });
       mockQueueAdd.mockResolvedValueOnce({ id: 'new-job-2' });
 
-      await requeueModule.retryFailedJob('failed-2', quota, SYSADMIN);
+      await requeueModule.retryFailedJob(failedJob as any, quota, SYSADMIN);
 
       const enqueuedData = mockQueueAdd.mock.calls[0][1] as PluginBuildJobData;
       expect(enqueuedData.reservedResetAt).toBeUndefined();
